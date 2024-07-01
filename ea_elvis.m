@@ -588,11 +588,34 @@ function openconnectomeviewer(hobj,ev,resultfig,options)
 conwin=ea_convis(gcf,options);
 setappdata(resultfig,'conwin',conwin);
 
+function backgroundTask(file_path, status_path, resultfig, options, elstruct)
+    while true
+        % Check if the file_path is empty
+        data = fileread(file_path);
+        status_data = fileread(status_path);
+
+        % Uncomment this if you want to break based on status_data
+        % if strcmp(status_data, '1')
+        %     break;
+        % end
+
+        if ~isempty(data)
+            % If file_path is not empty, run the following code
+            [S] = ea_process_programmer(file_path);
+            ea_visprogrammer(resultfig, options, S, elstruct);
+        end
+
+        % Pause for 5 seconds before checking again
+        pause(5);
+    end
+% % 
 function leadprogrammer(hobj, ev, elstruct, resultfig, options)
 % stimwin=ea_stimparams(elstruct,gcf,options);
 % setappdata(resultfig,'stimwin',stimwin);
 
-[file_path, releaseDir] = ea_input_programmer(options, elstruct);
+% Tester code
+
+[file_path, releaseDir, status_path] = ea_input_programmer(options, elstruct);
 currentOS = ea_getarch;
 if exist(releaseDir, 'Dir')
 %     % Test MAC - will need to test on windows
@@ -606,53 +629,86 @@ if exist(releaseDir, 'Dir')
     if ~exist(testDir)
         unzip(zipDir, mac64Dir);
     end
-        system(appDir);
-    end
-end
-[S] = ea_process_programmer(file_path);
-% ea_genvat_butenko(S, options, resultfig);
-funcs = ea_regexpdir(ea_getearoot, 'ea_genvat_.*\.m$', 0);
-funcs = regexp(funcs, '(ea_genvat_.*)(?=\.m)', 'match', 'once');
-names = cellfun(@(x) eval([x, '(''prompt'');']), funcs, 'Uni', 0);
+%         system(appDir);
+%     system([appDir, ' &']);
+    [status, cmdout] = system([appDir, ' &']);
+    % [status, cmdout] = system([appDir, ' & echo $!']);
+%     pid = str2double(cmdout);
 
-setappdata(resultfig,'genvatfunctions',funcs);
-setappdata(resultfig,'vatfunctionnames',names);
-vfnames=getappdata(resultfig,'vatfunctionnames');
-
-[~,ix]=ismember(S.model,vfnames);
-vfs=getappdata(resultfig,'genvatfunctions');
-try
-    ea_genvat=eval(['@',vfs{ix}]);
-catch
-    keyboard
-end
-if isequal(S.model, 'OSS-DBS (Butenko 2020)') 
-        [~, stimparams] = ea_genvat_butenko(S, options, resultfig);
-        flix = 1; 
-else
-    for side=1:2
-        try 
-%             [vtafv, vtavolume] = ea_genvat_horn(elstruct.coords_mm, S, side, options, S.label, resultfig);
-%             [vtafv,vtavolume] = feval(ea_genvat,coords,M.S(pt),side,options,['gs_',M.guid],handles.leadfigure);
-            [vtafv,vtavolume] = feval(ea_genvat,elstruct.coords_mm,S,side,options,S.label,resultfig);
-            vtaCalcPassed(side) = 1;
-        catch 
-            vtafv=[];
-            vtavolume=0;
-            vatCalcPassed(side) = 0;
-        end
-        stimparams(1,side).VAT(1).VAT = vtafv;
-        stimparams(1,side).volume = vtavolume;
+%         f = parfeval(backgroundPool, @runApp, 0, appDir);
+        
+        % Continue with other code here
+        % For example:
+        disp('Programmer is running in the background.');
     end
 end
 
-setappdata(resultfig,'stimparams',stimparams);
-setappdata(resultfig,'curS',S);
-hmchanged = 1;
-ea_calc_vatstats(resultfig,options,hmchanged);
-input_file_path = strcat(options.earoot, 'lead-dbs-programmer/inputData.json');
-fid = fopen(input_file_path, 'w');
-fclose(fid);
+while true
+    % Check if the file_path is empty
+    pause(5);
+    data = fileread(file_path);
+    status_data = fileread(status_path);
+%     [status, cmdout] = system(['ps -p ', num2str(pid)]);
+%     if contains(cmdout, 'defunct')
+%         disp('Application has terminated. Exiting loop.');
+%         break;
+%     end
+    if status_data == '0'
+        break;
+    end
+    if ~isempty(data)
+        % If file_path is not empty, run the following code
+        [S] = ea_process_programmer(file_path);
+        ea_visprogrammer(resultfig, options, S, elstruct);
+    end
+    
+    % Pause for 5 seconds before checking again
+end
+% [S] = ea_process_programmer(file_path);
+% % ea_genvat_butenko(S, options, resultfig);
+% ea_visprogrammer(resultfig, options, S, elstruct);
+% funcs = ea_regexpdir(ea_getearoot, 'ea_genvat_.*\.m$', 0);
+% funcs = regexp(funcs, '(ea_genvat_.*)(?=\.m)', 'match', 'once');
+% names = cellfun(@(x) eval([x, '(''prompt'');']), funcs, 'Uni', 0);
+% 
+% setappdata(resultfig,'genvatfunctions',funcs);
+% setappdata(resultfig,'vatfunctionnames',names);
+% vfnames=getappdata(resultfig,'vatfunctionnames');
+% 
+% [~,ix]=ismember(S.model,vfnames);
+% vfs=getappdata(resultfig,'genvatfunctions');
+% try
+%     ea_genvat=eval(['@',vfs{ix}]);
+% catch
+%     keyboard
+% end
+% if isequal(S.model, 'OSS-DBS (Butenko 2020)') 
+%         [~, stimparams] = ea_genvat_butenko(S, options, resultfig);
+%         flix = 1; 
+% else
+%     for side=1:2
+%         try 
+% %             [vtafv, vtavolume] = ea_genvat_horn(elstruct.coords_mm, S, side, options, S.label, resultfig);
+% %             [vtafv,vtavolume] = feval(ea_genvat,coords,M.S(pt),side,options,['gs_',M.guid],handles.leadfigure);
+%             [vtafv,vtavolume] = feval(ea_genvat,elstruct.coords_mm,S,side,options,S.label,resultfig);
+%             vtaCalcPassed(side) = 1;
+%         catch 
+%             vtafv=[];
+%             vtavolume=0;
+%             vatCalcPassed(side) = 0;
+%         end
+%         stimparams(1,side).VAT(1).VAT = vtafv;
+%         stimparams(1,side).volume = vtavolume;
+%     end
+% end           
+% 
+% setappdata(resultfig,'stimparams',stimparams);
+% setappdata(resultfig,'curS',S);
+% hmchanged = 1;
+% ea_calc_vatstats(resultfig,options,hmchanged);
+% input_file_path = strcat(options.earoot, 'lead-dbs-programmer/inputData.json');
+% fid = fopen(input_file_path, 'w');
+% fclose(fid);
 % ea_calc_vatstats(resultfig,options);
 % outputFileName = strcat(options.patientname, '-program.json');
 % outputFilePath = strcat(options.subj.stimDir, '/MNI152NLin2009bAsym/', S.label, '/', outputFileName);

@@ -11,12 +11,10 @@ switch obj.connectivity_type
     case 2 % PAM
         switch obj.statsettings.stimulationmodel
             case 'VTA'
-                switch obj.statsettings.stattest
-                    case 'N-Map'
-                        id = 'plainconn';
-                    otherwise
-                        id = 'PAM_Ttest';
-                end
+                % plainconn is reserved for e-fields
+                id = 'PAM_Ttest';
+            case {'Sigmoid Field'}
+                id = 'PAM_probA';
             otherwise
                 disp('The metric is not supported by PAM')
         end
@@ -25,21 +23,42 @@ switch obj.connectivity_type
             case 'VTA'
                 switch obj.statsettings.stattest
                     case 'N-Map' % do we even need an extra results entry for these?
-                        id = 'plainconn';
+                        if strcmp(obj.e_field_metric,'Projection')
+                            id = 'plainconn_proj';
+                        else
+                            id = 'plainconn';
+                        end
                     otherwise
-                        id = 'VAT_Ttest';
+                        if strcmp(obj.e_field_metric,'Projection')
+                            id = 'VAT_Ttest_proj';
+                        else
+                            id = 'VAT_Ttest';
+                        end
                 end
             case {'Electric Field','Sigmoid Field'}  % E-fields
                 id='efield';
-                switch efm
-                    case 'Mean'
-                        id=[id,'_mean'];
-                    case 'Peak'
-                        id=[id,'_peak'];
-                    case 'Sum'
-                        id=[id,'_sum'];
-                    case 'Peak 5%'
-                        id=[id,'_5peak'];
+                if strcmp(obj.e_field_metric,'Projection')
+                    switch efm
+                        case 'Mean'
+                            id=[id,'_proj_mean'];
+                        case 'Peak'
+                            id=[id,'_proj_peak'];
+                        case 'Sum'
+                            id=[id,'_proj_sum'];
+                        case 'Peak 5%'
+                            id=[id,'_proj_5peak'];
+                    end
+                else
+                    switch efm
+                        case 'Mean'
+                            id=[id,'_mean'];
+                        case 'Peak'
+                            id=[id,'_peak'];
+                        case 'Sum'
+                            id=[id,'_sum'];
+                        case 'Peak 5%'
+                            id=[id,'_5peak'];
+                    end
                 end
         end
 end

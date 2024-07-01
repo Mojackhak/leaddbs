@@ -2590,13 +2590,7 @@ switch model
     case 'Fastfield (Baniasadi 2020)'
         ea_vatsettings_fastfield;
     case 'OSS-DBS (Butenko 2020)'
-        all_params = getappdata(handles.stimfig);
-        if all_params.groupmode
-            stim_folder = 'None';
-        else
-            stim_folder = [all_params.options.root,all_params.options.patientname,filesep,'stimulations/',ea_nt(~handles.estimateInTemplate.Value),all_params.stimlabel];
-        end
-        ea_vatsettings_butenko(stim_folder, handles);
+        ea_vatsettings_butenko(handles);
 end
 
 

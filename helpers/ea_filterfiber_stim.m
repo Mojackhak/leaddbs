@@ -1,5 +1,17 @@
 function fiberFiltered = ea_filterfiber_stim(ftr, coords, S, type, factor, ref)
-% Filter fibers based on the active contacts and stimulation amplitudes
+% Pre-filter fibers based on the active contacts and stimulation amplitudes.
+% This allows to reduce the computational burden, but in some cases should be
+% disabled!
+% By Butenko and Li, konstantinmgtu@gmail.com
+
+arguments
+    ftr         % Lead-DBS structure for fibers
+    coords      % Lead-DBS array of contact coordinates
+    S           % Lead-DBS stimulation settings
+    type        {mustBeTextScalar} % VAT approximation model, 'kuncel' or 'madler'
+    factor      {mustBeNumeric}    % multiplicative factor for radius of VAT approximation
+    ref         % reference image to define space
+end
 
 fprintf('\nCollecting stimulation parameters...\n')
 
@@ -50,10 +62,10 @@ else % normal mode
     
     % define the stim vector as in OSS-DBS (sources are merged)
     stimAmplitudes = cell(size(S.amplitude));
-    eleNum = length(coords); % Number of electrodes
+    %eleNum = length(coords); % Number of electrodes
     conNum = cellfun(@(x) size(x,1), coords); % Number of contacts per electrode
     conNum = conNum(find(conNum, 1));
-    stimVector = ea_getStimVector(S, eleNum, conNum);
+    stimVector = ea_getStimVector(S, 2, conNum);
     for side = 1:size(S.amplitude,2)
         for cnt = 1:size(stimVector(side,:),2)
             if isnan(stimVector(side,cnt))
@@ -68,7 +80,11 @@ end
 % Active contacts coordinates
 stimCoords = cell(size(coords));
 for i=1:length(stimCoords)
-    stimCoords{i} = coords{i}(activeContacts{i},:);
+    if  isempty(coords{i})
+        stimCoords{i} = [0 0 0];  % placeholder
+    else
+        stimCoords{i} = coords{i}(activeContacts{i},:);
+    end
 end
 
 % Only keep amplitudes for active contacts
@@ -90,8 +106,6 @@ switch lower(type)
         fprintf('\nEstimating radius based on Maedler et al. 2012...\n')
 end
 
-
-
 % Calculate radius
 if ~exist('factor', 'var')
     factor = 1;  % Multiply the radius from the estimation by a fixed factor
@@ -102,12 +116,6 @@ for i=1:length(radius)
     disp(['Radius (mm): ', num2str(radius{i}), ' x ', num2str(factor)]);
     % Triple the radius since the model tends to underestimate activation
     radius{i} = radius{i} * factor;
-end
-
-% Load fiber connectome
-if ischar(ftr) && isfile(ftr)
-    fprintf('\nLoading fibers...\n');
-    ftr = load(ftr);
 end
 
 % Convert voxel coordinates to mm in case needed
@@ -136,7 +144,7 @@ for i=1:length(radius)
         disp('No stimulation found, skipping...');
     else
         fprintf('\nConstructing spherical ROI...\n');
-        sphereROI = ea_spherical_roi([],stimCoords{i}, radius{i}, 0, ref);
+        sphereROI = ea_spherical_roi([],stimCoords{i}, radius{i}, 0, [ea_space, primarytemplate, '.nii']);
 
         % Find indices within sphere ROI region
         sphereROIInd = find(sphereROI.img(:));

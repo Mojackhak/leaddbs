@@ -99,7 +99,7 @@ classdef ea_disctract < handle
         roithresh = 200; %threshold above which efield metrics are considered
         % misc
         runwhite = 0; % flag to calculate connected tracts instead of stat tracts
-        
+        e_field_metric = 'Magnitude'; % 'Magnitude' or 'Projection'
     end
 
     properties (Access = private)
@@ -277,32 +277,101 @@ classdef ea_disctract < handle
             switch obj.connectivity_type
                 case 2    % if PAM, then just extracts activation states from fiberActivation.mat
                     pamlist = ea_discfibers_getpams(obj);
-                    [fibsvalBin, fibsvalSum, fibsvalMean, fibsvalPeak, fibsval5Peak, fibcell, connFiberInd, totalFibers] = ea_discfibers_calcvals_pam(pamlist, obj, cfile);
+                    %[fibsvalBin, fibsvalSum, fibsvalMean, fibsvalPeak, fibsval5Peak, fibcell, connFiberInd, totalFibers] = ea_discfibers_calcvals_pam(pamlist, obj, cfile);
+                    [fibsvalBin, fibsvalprob,~, ~, ~, fibcell_pam, connFiberInd, totalFibers] = ea_discfibers_calcvals_pam_prob(pamlist, obj, cfile);
+                    obj.results.(ea_conn2connid(obj.connectome)).('PAM_probA').fibsval = fibsvalprob;
                     obj.results.(ea_conn2connid(obj.connectome)).('PAM_Ttest').fibsval = fibsvalBin;
                     obj.results.(ea_conn2connid(obj.connectome)).connFiberInd_PAM = connFiberInd;
                     obj.results.(ea_conn2connid(obj.connectome)).totalFibers = totalFibers; % total number of fibers in the connectome to work with global indices
+                    obj.results.(ea_conn2connid(obj.connectome)).('pam_fibers').fibcell= fibcell_pam;
+                    % temp. duplicate fibcell, will be fixed in the new explorer
+                    obj.results.(ea_conn2connid(obj.connectome)).fibcell = obj.results.(ea_conn2connid(obj.connectome)).('pam_fibers').fibcell;
+
                 otherwise     % check fiber recruitment via intersection with VTA
                     if isfield(obj.M,'pseudoM')
                         vatlist = obj.M.ROI.list;
                     else
                         vatlist = ea_discfibers_getvats(obj);
                     end
-                    ea_discfibers_roi_collect(obj); % integrate ROI into .fibfilt file
+                    %ea_discfibers_roi_collect(obj); % integrate ROI into .fibfilt file
 
-                    [fibsvalBin, fibsvalSum, fibsvalMean, fibsvalPeak, fibsval5Peak, fibcell,  connFiberInd, totalFibers] = ea_discfibers_calcvals(vatlist, cfile, obj.calcthreshold);
+                    [fibsvalBin, fibsvalSum, fibsvalMean, fibsvalPeak, fibsval5Peak, fibcell_efield,  connFiberInd, totalFibers] = ea_discfibers_calcvals(vatlist, cfile, obj.calcthreshold);
                     obj.results.(ea_conn2connid(obj.connectome)).('VAT_Ttest').fibsval = fibsvalBin;
                     obj.results.(ea_conn2connid(obj.connectome)).connFiberInd_VAT = connFiberInd; % old ff files do not have these data and will fail when using pathway atlases
                     obj.results.(ea_conn2connid(obj.connectome)).totalFibers = totalFibers; % total number of fibers in the connectome to work with global indices
+
+                    % only for e-fields
+                    obj.results.(ea_conn2connid(obj.connectome)).('efield_sum').fibsval = fibsvalSum;
+                    obj.results.(ea_conn2connid(obj.connectome)).('efield_mean').fibsval = fibsvalMean;
+                    obj.results.(ea_conn2connid(obj.connectome)).('efield_peak').fibsval = fibsvalPeak;
+                    obj.results.(ea_conn2connid(obj.connectome)).('efield_5peak').fibsval = fibsval5Peak;
+                    obj.results.(ea_conn2connid(obj.connectome)).('plainconn').fibsval = fibsvalBin;
+                    obj.results.(ea_conn2connid(obj.connectome)).('efield_fibers').fibcell= fibcell_efield;
+                    % temp. duplicate fibcell, will be fixed in the new explorer
+                    obj.results.(ea_conn2connid(obj.connectome)).fibcell = obj.results.(ea_conn2connid(obj.connectome)).('efield_fibers').fibcell;
             end
 
-            obj.results.(ea_conn2connid(obj.connectome)).('efield_sum').fibsval = fibsvalSum;
-            obj.results.(ea_conn2connid(obj.connectome)).('efield_mean').fibsval = fibsvalMean;
-            obj.results.(ea_conn2connid(obj.connectome)).('efield_peak').fibsval = fibsvalPeak;
-            obj.results.(ea_conn2connid(obj.connectome)).('efield_5peak').fibsval = fibsval5Peak;
-            obj.results.(ea_conn2connid(obj.connectome)).('plainconn').fibsval = fibsvalBin;
-            obj.results.(ea_conn2connid(obj.connectome)).fibcell = fibcell;
         end
 
+        function calculate_on_fibers(obj)
+
+            % disable adjacency metrics
+            obj.ADJ = false;
+            obj.use_adjacency = false;
+
+            % OSS-DBS E-field should be computed (not just warped!) in this space
+            space = 'native';   
+
+            % get VAT list
+            if isfield(obj.M,'pseudoM')
+                ea_warndlg("The option is not supported for pseudoM");
+                return
+            else
+                vatlist = ea_discfibers_getvats(obj);
+            end
+            
+            if obj.multi_pathways == 1
+                %[filepath,~,~] = fileparts(obj.leadgroup);
+                %cfile = [filepath,filesep,obj.connectome,filesep,'merged_pathways.mat'];
+                [cfile, obj.map_list, obj.pathway_list] = ea_discfibers_merge_pathways(obj);
+            else
+                cfile = [ea_getconnectomebase('dMRI'), obj.connectome, filesep, 'data.mat'];
+            end
+
+            % warp connectome to native space and compute E-field metrics
+            ea_get_Eproj(obj,NaN,space)
+
+            % load e-field projection metrics 
+            [fibsvalBin_proj, fibsvalSum_proj, fibsvalMean_proj, fibsvalPeak_proj, fibsval5Peak_proj, fibcell_proj, connFiberInd_proj,fibsvalBin_magn, fibsvalSum_magn, fibsvalMean_magn, fibsvalPeak_magn, fibsval5Peak_magn, fibcell_magn, connFiberInd_magn, totalFibers] = ea_discfibers_native_calcvals(vatlist, cfile, space, obj);
+
+            obj.results.(ea_conn2connid(obj.connectome)).totalFibers = totalFibers; % total number of fibers in the connectome to work with global indices
+            obj.results.(ea_conn2connid(obj.connectome)).('VAT_Ttest').fibsval = fibsvalBin_magn;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_sum').fibsval = fibsvalSum_magn;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_mean').fibsval = fibsvalMean_magn;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_peak').fibsval = fibsvalPeak_magn;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_5peak').fibsval = fibsval5Peak_magn;
+            obj.results.(ea_conn2connid(obj.connectome)).('plainconn').fibsval = fibsvalBin_magn;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_fibers').fibcell = fibcell_magn;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_fibers').connFiberInd_VAT = connFiberInd_magn; % old ff files do not have these data and will fail when using pathway atlases
+            
+            obj.results.(ea_conn2connid(obj.connectome)).('VAT_Ttest_proj').fibsval = fibsvalBin_proj;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_proj_sum').fibsval = fibsvalSum_proj;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_proj_mean').fibsval = fibsvalMean_proj;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_proj_peak').fibsval = fibsvalPeak_proj;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_proj_5peak').fibsval = fibsval5Peak_proj;
+            obj.results.(ea_conn2connid(obj.connectome)).('plainconn_proj').fibsval = fibsvalBin_proj;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_proj').fibcell = fibcell_proj;
+            obj.results.(ea_conn2connid(obj.connectome)).('efield_proj').connFiberInd_VAT = connFiberInd_proj; % old ff files do not have these data and will fail when using pathway atlases
+
+            if strcmp(obj.e_field_metric,'Magnitude')
+                obj.results.(ea_conn2connid(obj.connectome)).fibcell = obj.results.(ea_conn2connid(obj.connectome)).('efield_fibers').fibcell;
+                obj.results.(ea_conn2connid(obj.connectome)).connFiberInd_VAT = obj.results.(ea_conn2connid(obj.connectome)).('efield_fibers').connFiberInd_VAT;
+            else
+                obj.results.(ea_conn2connid(obj.connectome)).fibcell = obj.results.(ea_conn2connid(obj.connectome)).('efield_proj').fibcell;
+                obj.results.(ea_conn2connid(obj.connectome)).connFiberInd_VAT = obj.results.(ea_conn2connid(obj.connectome)).('efield_proj').connFiberInd_VAT;
+            end
+
+        end
 
         function calculate_cleartune(obj,Efields)
             if isequal(obj.cleartuneefields,Efields) % cleartuneresults already calculated with exact same input.
@@ -1078,15 +1147,24 @@ classdef ea_disctract < handle
                 disp("Recalculate or stay with the same model (VAT or PAM)")
                 disp("====================================================")
             end
-
-            %disp('Connectivity switch')
-            %disp(obj.switch_connectivity)
-
+            
             % update the connectivity if switched between PAM and VAT
             if obj.switch_connectivity == 1
                 if obj.multi_pathways == 1
-                    [filepath,name,ext] = fileparts(obj.leadgroup);
+                    % check if merged_pathways is in fibfiltering folder
+                    [filepath,~,~] = fileparts(obj.analysispath);
                     cfile = [filepath,filesep,obj.connectome,filesep,'merged_pathways.mat'];
+                    if ~isfile(cfile)
+                        % else check if it is in the original lead-group folder
+                        [filepath,~,~] = fileparts(obj.leadgroup);
+                        cfile = [filepath,filesep,obj.connectome,filesep,'merged_pathways.mat'];
+                        if ~isfile(cfile)
+                            % or if it is in another lead-group folder (where fibfiltering file is)
+                            [filepath,~,~] = fileparts(obj.analysispath);
+                            [filepath,~,~] = fileparts(filepath);
+                            cfile = [filepath,filesep,obj.connectome,filesep,'merged_pathways.mat'];
+                        end
+                    end
                 else
                     cfile = [ea_getconnectomebase('dMRI'), obj.connectome, filesep, 'data.mat'];
                 end
@@ -1252,32 +1330,33 @@ classdef ea_disctract < handle
                     %disp(num_per_path{side})  % for now just print number of fibers per pathway
                 end
 
-                figure
-                t = tiledlayout(1,2,'TileSpacing','compact');
-                nonZero_idx = [num_per_path{1}] > 0;
-                num_per_path{1} = num_per_path{1}(nonZero_idx);
-                if ~isempty(num_per_path{1})
-                    % Create pie charts
-                    ax1 = nexttile;
-                    pie1 = pie(ax1,num_per_path{1});
-                    ax1.Colormap = parula(numel(pie1)/2);  % they are all ugl
-                    title('Right HS')
-                    % Create legend
-                    lgd = legend(obj.pathway_list(nonZero_idx));
-                    lgd.Layout.Tile = 'west';
-                end
-
-                ax2 = nexttile;
-                colormap(ax2,winter)
-                nonZero_idx = [num_per_path{2}] > 0;
-                num_per_path{2} = num_per_path{2}(nonZero_idx);
-                if ~isempty(num_per_path{2})
-                    pie(ax2,num_per_path{2})
-                    title('Left HS')
-                    % Create legend
-                    lgd2 = legend(obj.pathway_list(nonZero_idx));
-                    lgd2.Layout.Tile = 'east';
-                end
+                % uncomment to create pie plots of pathways metrics
+%                 figure
+%                 t = tiledlayout(1,2,'TileSpacing','compact');
+%                 nonZero_idx = [num_per_path{1}] > 0;
+%                 num_per_path{1} = num_per_path{1}(nonZero_idx);
+%                 if ~isempty(num_per_path{1})
+%                     % Create pie charts
+%                     ax1 = nexttile;
+%                     pie1 = pie(ax1,num_per_path{1});
+%                     ax1.Colormap = parula(numel(pie1)/2);  % they are all ugl
+%                     title('Right HS')
+%                     % Create legend
+%                     lgd = legend(obj.pathway_list(nonZero_idx));
+%                     lgd.Layout.Tile = 'west';
+%                 end
+% 
+%                 ax2 = nexttile;
+%                 colormap(ax2,winter)
+%                 nonZero_idx = [num_per_path{2}] > 0;
+%                 num_per_path{2} = num_per_path{2}(nonZero_idx);
+%                 if ~isempty(num_per_path{2})
+%                     pie(ax2,num_per_path{2})
+%                     title('Left HS')
+%                     % Create legend
+%                     lgd2 = legend(obj.pathway_list(nonZero_idx));
+%                     lgd2.Layout.Tile = 'east';
+%                 end
             end
 
             allvals{1}=[]; % need to use a loop here - cat doesnt work in all cases with partly empty cells..
