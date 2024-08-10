@@ -5,14 +5,14 @@
 			"T2w": ["t2", "tse"],
 			"FGATIR": ["FGATIR"],
 			"PDw": ["pd"],
+			"SWI": ["swi"],
 			"T2starw": ["t2star"],
 			"FLAIR": ["flair"],
 			"QSM": ["qsm"],
 			"MTC": ["mtc"],
 			"FrameCT": ["FrameCT"],
 			"C1": ["c1"],
-			"PET": ["pet"],
-			"SWI": ["swi"]
+			"PET": ["pet"]
 		},
 		"postop": {
 			"CT": ["Navigation", "CT"],
