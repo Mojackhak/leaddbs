@@ -11,7 +11,8 @@
 			"MTC": ["mtc"],
 			"FrameCT": ["FrameCT"],
 			"C1": ["c1"],
-			"PET": ["pet"]
+			"PET": ["pet"],
+			"SWI": ["swi"]
 		},
 		"postop": {
 			"CT": ["Navigation", "CT"],
