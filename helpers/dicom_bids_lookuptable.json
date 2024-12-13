@@ -10,7 +10,8 @@
 			"SWI": ["swi"],
 			"QSM": ["qsm"],
 			"MTC": ["mtc"],
-			"FrameCT": ["FrameCT"]
+			"FrameCT": ["FrameCT"],
+			"PET": ["pet"]
 		},
 		"postop": {
 			"CT": ["Navigation", "CT"],

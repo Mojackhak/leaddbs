@@ -49,8 +49,15 @@ if usefa && spacedef.hasfa % first put in FA since least important (if both an F
     end
 end
 
-disp(['Pre-op ', strjoin(fieldnames(options.subj.coreg.anat.preop), ', '), ' images included for normalization']);
-imagePresent = flip(struct2cell(options.subj.coreg.anat.preop)); % Flip the order so anchor will be the last one
+% Filter out fields containing 'PET' from the struct
+fieldvar = options.subj.coreg.anat.preop;
+fieldNames = fieldnames(fieldvar);
+% fieldvar = rmfield(fieldvar, fieldNames(contains(fieldNames, 'PET')));
+% fieldvar = rmfield(fieldvar, fieldNames(contains(fieldNames, {'PET','CT'})));
+disp(['Pre-op ', strjoin(fieldnames(fieldvar), ', '), ' images included for normalization']);
+% assignin('base', 'myVar', options.subj.coreg.anat.preop);
+
+imagePresent = flip(struct2cell(fieldvar)); % Flip the order so anchor will be the last one
 
 % The convergence criterion for the multivariate scenario is a slave to the
 % last metric you pass on the ANTs command line.

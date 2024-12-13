@@ -44,8 +44,13 @@ if usefa && spacedef.hasfa % first put in FA since least important (if both an F
 end
 
 if options.prefs.machine.normsettings.schoenecker_movim==1 % Based on pre-op images
-    disp(['Pre-op ', strjoin(fieldnames(options.subj.coreg.anat.preop), ', '), ' images included for normalization']);
-    imagePresent = flip(struct2cell(options.subj.coreg.anat.preop)); % Flip the order so anchor will be the last one
+    % Filter out fields containing 'PET' from the struct
+    fieldvar = options.subj.coreg.anat.preop;
+    fieldNames = fieldnames(fieldvar);
+    % fieldvar = rmfield(fieldvar, fieldNames(contains(fieldNames, 'PET')));
+    % fieldvar = rmfield(fieldvar, fieldNames(contains(fieldNames, {'PET','CT'})));
+    disp(['Pre-op ', strjoin(fieldnames(fieldvar), ', '), ' images included for normalization']);
+    imagePresent = flip(struct2cell(fieldvar)); % Flip the order so anchor will be the last one
 elseif options.prefs.machine.normsettings.schoenecker_movim==2 % Based on post-op images
     switch options.subj.postopModality
         case 'MRI'
