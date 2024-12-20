@@ -11,6 +11,7 @@
 			"QSM": ["qsm"],
 			"MTC": ["mtc"],
 			"FrameCT": ["FrameCT"],
+			"C1": ["c1"],
 			"PET": ["pet"]
 		},
 		"postop": {

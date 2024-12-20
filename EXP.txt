@@ -1,0 +1,9 @@
+1. Easyreg may only suitable for MNI152 Space? Get error when run in D99v2 space. After run easyreg in D99v2 space the "C:\Users\Ankang\.leaddbs\ea_prefs_user.mat" changed which cause the Easyreg cannot run in MNI152 Space as well. Try recover the ea_prefs_user.mat file to fix the problem.
+2. the electrodeGeometries.m only contain 3387 3389 ...
+'Medtronic 3389'
+'Medtronic 3387'
+'Boston Vercise Directional'
+'Unkown Electrode Type'
+'Aleva directSTIM Directed'
+
+set new type of electrode (a new structure with different contact num and space ... ) need to renew the electrodeGeometries.m file
