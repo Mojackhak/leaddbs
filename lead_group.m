@@ -1053,7 +1053,10 @@ selection = ea_groupselectorwholelist(M.ui.listselect,M.patient.list);
 selectedConn = handles.fiberspopup.String{handles.fiberspopup.Value};
 if ~ismember(selectedConn, {'Patient''s fiber tracts', 'Patient''s fMRI time courses', 'Do not calculate connectivity stats'})
     % load fibertracts once and for all subs here.
-    [selectedConn.fibers, selectedConn.fibersidx] = ea_loadfibertracts([ea_getconnectomebase('dmri'), selectedConn, filesep, 'data.mat']);
+    [selectedConn_fibers, selectedConn_fibersidx] = ea_loadfibertracts([ea_getconnectomebase('dmri'), selectedConn, filesep, 'data.mat']);
+    selectedConn = struct('names',selectedConn);
+    selectedConn.fibers = selectedConn_fibers;
+    selectedConn.fibersidx = selectedConn_fibersidx;
 end
 
 selectedParc = handles.labelpopup.String{handles.labelpopup.Value};

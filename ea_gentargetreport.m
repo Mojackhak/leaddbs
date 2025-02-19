@@ -7,7 +7,7 @@ if isempty(thresh)
 end
 thresh=str2double(thresh{1});
 
-conInd = arrayfun(@num2str, 1:max(M.S.numContacts), 'Uni', 0);
+conInd = arrayfun(@num2str, 1:max([M.S.numContacts]), 'Uni', 0);
 rnames = [strcat('k', conInd, 'R'), strcat('k', conInd, 'L')];
 
 for thr=0:1

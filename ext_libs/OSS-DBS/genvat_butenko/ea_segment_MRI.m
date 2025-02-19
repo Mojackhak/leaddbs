@@ -105,7 +105,7 @@ switch settings.butenko_segmAlg
                 
                 % ea_atropos2segmask will save segmask.nii in the stim folder
                 % always convert to make sure the chosen algorithm was used
-                ea_atropos2segmask([ea_path_helper(outputPaths.outputDir),filesep,'segmask_raw_atropos.nii'], ea_path_helper(options.subj.AnchorModality));
+                ea_atropos2segmask(fullfile(outputPaths.outputDir,'segmask_raw_atropos.nii'), ea_path_helper(options.subj.AnchorModality));
             else
                 % always copy to make sure the chosen algorithm was used
                 copyfile(segMaskPath, [outputPaths.outputDir, filesep, segmaskName]);

@@ -149,7 +149,7 @@ for atlas=showidx
                 end
                 %% contour overlay:
                 if  options.d2.con_overlay
-                    if any(slice(:));
+                    if any(slice(:))
 
                         try
                             bw=bwconncomp(slice);
@@ -180,6 +180,11 @@ for atlas=showidx
                             set(0,'CurrentFigure',cuts)
                             if isempty(ix)
                                 warning('off')
+                                % assignin('base', 'options', options);
+                                % options.d2.con_color = [0 0 0];
+                                if length(options.d2.con_color) ~= 3 % avoid error when contour color is not assigned in the UI
+                                    options.d2.con_color = [0 0 0];
+                                end
                                 plot(cscale(1,:),cscale(2,:),'color',options.d2.con_color,'LineWidth',1.5);
                                 %plot(cscale(1,:),cscale(2,:),'color',options.d2.con_color,'LineWidth',0.5);
                                 warning('on')
