@@ -99,11 +99,12 @@ classdef ea_conda_env
 
             disp(['Creating environment ' obj.name '...'])
             [status, cmdout] = system([obj.mamba_path ' env create --yes -f ' ea_path_helper(obj.yml)]);
-            if isunix
-                % mamba in unix do not create state file (used to check
-                % version). so run conda to create it.
-                system([obj.conda_path ' env update -n ' obj.name ' -f ' ea_path_helper(obj.yml)]);
-            end
+            system([obj.conda_path ' env update -n ' obj.name ' -f ' ea_path_helper(obj.yml)]);
+            % if isunix
+            %     % mamba in unix do not create state file (used to check
+            %     % version). so run conda to create it.
+            %     system([obj.conda_path ' env update -n ' obj.name ' -f ' ea_path_helper(obj.yml)]);
+            % end
             if status
                 ea_delete(obj.path);
                 fprintf('%s\n', strtrim(cmdout));
