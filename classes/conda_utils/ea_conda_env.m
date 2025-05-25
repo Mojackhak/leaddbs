@@ -15,6 +15,7 @@ classdef ea_conda_env
 
     properties (Access = private, Constant)
         mamba_path = ea_conda.mamba_path;
+        conda_path = ea_conda.conda_path;
     end
 
     methods
@@ -97,7 +98,12 @@ classdef ea_conda_env
             end
 
             disp(['Creating environment ' obj.name '...'])
-            [status, cmdout] = system([obj.mamba_path ' env create -f ' ea_path_helper(obj.yml)]);
+            [status, cmdout] = system([obj.mamba_path ' env create --yes -f ' ea_path_helper(obj.yml)]);
+            if isunix
+                % mamba in unix do not create state file (used to check
+                % version). so run conda to create it.
+                system([obj.conda_path ' env update -n ' obj.name ' -f ' ea_path_helper(obj.yml)]);
+            end
             if status
                 ea_delete(obj.path);
                 fprintf('%s\n', strtrim(cmdout));

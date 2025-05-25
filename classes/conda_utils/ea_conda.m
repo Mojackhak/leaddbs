@@ -43,6 +43,17 @@ classdef (Abstract) ea_conda
             path = fullfile(ea_conda.install_path, bin_folder, ['mamba' ext]);
         end
 
+        function path = conda_path
+            if isunix
+                bin_folder = 'bin';
+                ext = '';
+            else
+                bin_folder = 'condabin';
+                ext = '.bat';
+            end
+            path = fullfile(ea_conda.install_path, bin_folder, ['conda' ext]);
+        end        
+
         function b = is_installed
             b = isfile(ea_conda.mamba_path);
         end
