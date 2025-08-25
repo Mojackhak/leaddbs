@@ -29,7 +29,7 @@ for iside=1:length(options.sides)
         0,0,elspec.tip_length+(elspec.contact_length/2)+2*(elspec.contact_spacing+elspec.contact_length)];
 
     trajectory{side}=[zeros(30,2),linspace(30,0,30)'];
-    trajvector=mean(diff(trajectory{side}));
+    trajvector=mean(diff(trajectory{side})); 
     trajvector=trajvector/norm(trajvector);
 
     startpoint=trajectory{side}(1,:)-(1.5*(coords_mm{side}(1,:)-trajectory{side}(1,:)));

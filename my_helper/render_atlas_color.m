@@ -4,7 +4,7 @@
 
 n = length(atlases.names);
 atlases.colormap = color;
-atlases.presets = presets;
+% atlases.presets = presets;
 for i = 1:n
     atlases.roi{i,1}.color = atlases.colormap(i,:);
     atlases.roi{i,2}.color = atlases.colormap(i,:);
