@@ -3,7 +3,7 @@
 % in atlases.colormap
 
 n = length(atlases.names);
-atlases.colormap = color;
+% atlases.colormap = color;
 % atlases.presets = presets;
 for i = 1:n
     atlases.roi{i,1}.color = atlases.colormap(i,:);
