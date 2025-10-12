@@ -8,7 +8,7 @@ lSNr=reducepatch(lSNr,0.5);
 lh=patch('Faces',lSNr.faces,'Vertices',lSNr.vertices,'facecolor','none','edgecolor','w');
 
 % add MER coords
-df = readtable('A:\STNSNr\summary\spike\MER_loc_contact_clean_mni_loc.csv');
+df = readtable('/Volumes/Data/STNSNr/summary/spike/MER_loc_contact_clean_mni_loc.csv');
 coords = [df.MNI_x, df.MNI_y, df.MNI_z];
 mask = strcmp(df.SNr_in, 'TRUE');
 coords(~mask,:) = [];
