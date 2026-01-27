@@ -101,9 +101,9 @@ classdef (Abstract) ea_conda
                 ea_conda.run('conda config --set ssl_verify false');
             end
 
-            [~, cmdout] = ea_conda.run('conda config --get auto_activate');
+            [~, cmdout] = ea_conda.run('conda config --get auto_activate_base');
             if isempty(cmdout)
-                ea_conda.run('conda config --set auto_activate false');
+                ea_conda.run('conda config --set auto_activate_base false');
             end
             % ea_conda_setproxy
             ea_cprintf('*Comments', 'Please run ''ea_conda_setproxy'' if you are behind a proxy.\n');

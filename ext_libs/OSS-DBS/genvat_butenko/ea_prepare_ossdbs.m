@@ -9,10 +9,8 @@ arguments
 end
 
 % Check OSS-DBS installation, set env
-if (~isfield(options.prefs,'ext_oss_env') || strcmp(options.prefs.ext_oss_env,'None')) && (~isfield(options.prefs,'wsl_env') || ~options.prefs.wsl_env)
-    env = ea_conda_env('OSS-DBSv2');
-    ea_checkOSSDBSInstallv2(env);
-end
+env = ea_conda_env('OSS-DBSv2');
+ea_checkOSSDBSInstallv2(env);
 
 % Double check if lead is supported by OSS-DBS.
 if ~ismember(options.elmodel, ea_ossdbs_elmodel)
@@ -32,15 +30,6 @@ settings.encapsulationType = options.prefs.machine.vatsettings.butenko_encapsula
 settings.adaptive_threshold = options.prefs.machine.vatsettings.butenko_adaptive_ethresh;
 % check what we simulate
 settings.calcAxonActivation = options.prefs.machine.vatsettings.butenko_calcPAM;
-
-if ~isfield(options.prefs.machine.vatsettings,'butenko_cond_model')
-    settings.cond_model = 'ColeCole4';
-elseif strcmp(options.prefs.machine.vatsettings.butenko_cond_model,'Homogeneous')
-    settings.cond_model = 'Constant';
-else
-    settings.cond_model = options.prefs.machine.vatsettings.butenko_cond_model;
-end
-
 try
     % compute PAM over an uncertain parameter (set in the GUI)
     settings.prob_PAM = options.prefs.machine.vatsettings.butenko_prob_PAM;
@@ -71,22 +60,14 @@ try
 
         if settings.exportVAT
             % special case of VTA-based optimization
-            options.PathwayTune_master_dict = [];
+            options.netblend_settings_file = [];
         elseif settings.calcAxonActivation
-            settings.PathwayTune_master_dict = options.PathwayTune_master_dict;
+            settings.netblend_settings_file = options.netblend_settings_file;
         end
 
     end
 catch
     settings.optimizer = 0;
-end
-
-if settings.stimSetMode == 1 && ~settings.optimizer
-    % default stimulation (Stim_protocols will be actually used)
-    S.Rs1.amp = 1.0;
-    S.Ls1.amp = 1.0;
-    S.amplitude{1,1}(1) = 1.0;
-    S.amplitude{1,2}(1) = 1.0;
 end
 
 try
@@ -98,14 +79,6 @@ end
 
 if settings.optimizer || settings.trainANN
     settings.stimSetMode = 1; % OSS-DBS will solve a "unit" problem
-end
-
-if (settings.optimizer || settings.trainANN || settings.stimSetMode) && strcmp(settings.butenko_intersectStatus,'activated_at_active_contacts')
-    ea_error("Option 'Activated near active contacts' is not supported for StimSet mode")
-end
-
-if settings.stimSetMode
-    settings.current_control = [1;1];
 end
 
 %% Lead-DBS hardwired parameters

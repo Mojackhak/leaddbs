@@ -3,7 +3,7 @@ function ea_ListBoxRenderer(control)
 
 % Skip on Windows, since the width of the popup menu will be extended
 % automatically if entries inside are too long.
-if ispc || isMatlabVer('>=', [25,1])
+if ispc
     return;
 end
 

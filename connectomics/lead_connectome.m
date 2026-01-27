@@ -177,7 +177,7 @@ end
 
 ea_busyaction('on',handles.leadfigure,'connectome');
 if ~isempty(patdir)
-    ea_load_pts_conn(handles, patdir);
+    ea_load_pts(handles, patdir);
 
     if isfield(handles,'atlassetpopup')
         atlasset=get(handles.atlassetpopup,'String');
@@ -357,17 +357,6 @@ ea_busyaction('on', handles.leadfigure, 'connectome');
 
 options = ea_handles2options(handles);
 options.uipatdirs = getappdata(handles.leadfigure,'uipatdir');
-
-% BIDS FIX: Extract patientname and root from uipatdirs for Lead-Connectome
-if ~isempty(options.uipatdirs)
-    [options.root, options.patientname] = fileparts(options.uipatdirs{1});
-    options.root = [options.root, filesep];
-end
-
-% BIDS fix: Update prefs with correct BIDS paths if in derivatives folder
-if ~isempty(options.uipatdirs) && contains(options.uipatdirs{1}, 'derivatives')
-    options = ea_getptopts(options.uipatdirs{1}, options);
-end
 
 isindependent = getappdata(handles.leadfigure,'isindependent');
 ea_savelcopts(handles)
@@ -664,12 +653,9 @@ function patdir_choosebox_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 ea_busyaction('on',handles.leadfigure,'connectome');
-uipatdir = ea_getpatients;
-if ~isempty(uipatdir)
-    ea_load_pts_conn(handles, uipatdir);
-end
+options.prefs=ea_prefs('');
+ea_getpatients(options,handles);
 ea_busyaction('off',handles.leadfigure,'connectome');
-
 
 % --- Executes on selection change in recentpatients.
 function recentpatients_Callback(hObject, eventdata, handles)
@@ -843,7 +829,7 @@ elseif isempty(uipatdir)
         return
     end
 
-    ea_load_pts_conn(handles,recentfolders);
+    ea_load_pts(handles,recentfolders);
     return
 end
 
@@ -866,7 +852,7 @@ else
     nuix=ix;
 end
 
-ea_load_pts_conn(handles,{[pth,filesep,pts{nuix}]});
+ea_load_pts(handles,{[pth,filesep,pts{nuix}]});
 if isfield(handles,'atlassetpopup') % not present in connectome mapper
     options.prefs=ea_prefs;
     atlasset=get(handles.atlassetpopup,'String');
@@ -897,7 +883,7 @@ elseif isempty(uipatdir)
         return
     end
 
-    ea_load_pts_conn(handles,recentfolders);
+    ea_load_pts(handles,recentfolders);
     return
     %   ea_error('Selecting the next patient in folder only works if a patient was selected before.');
 end
@@ -921,7 +907,7 @@ if length(pts)>ix
 else
     nuix=ix;
 end
-ea_load_pts_conn(handles,{[pth,filesep,pts{nuix}]});
+ea_load_pts(handles,{[pth,filesep,pts{nuix}]});
 if isfield(handles,'atlassetpopup') % not present in connectome mapper
     options.prefs=ea_prefs;
     atlasset=get(handles.atlassetpopup,'String');

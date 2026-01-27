@@ -1,4 +1,4 @@
-function get_sEEG_field_in_MNI_from_csv(field_in_csv, file2save, phi_field, anchor_img, transform, zipIt)
+function get_sEEG_field_in_MNI_from_csv(field_in_csv, file2save, phi_field, anchor_img, transform)
 % Get nifti of field
 % By Butenko, konstantinmgtu@gmail.com
 
@@ -8,7 +8,6 @@ arguments
     phi_field        % if true, potential is exported
     anchor_img       % path to the anchor image
     transform        % from native to MNI, you need the opposite warp, i.e. from-MNI152NLin2009bAsym_to-anchorNative
-    zipIt {mustBeNumericOrLogical} = true % gzip if true
 end
 
 % split to coordinates and field
@@ -63,11 +62,6 @@ else
     ROI.descrip='OSS E-Field';
 end
 ROI.img=eeg; %permute(eeg,[2,1,3]);
-ROI.pinfo = [1;0;352];
-ROI.dt = [64, endian];
+ROI.dt=[4,endian];
 ROI.n=[1 1];
 ea_write_nii(ROI);
-if zipIt
-    gzip(ROI.fname)
-    ea_delete(ROI.fname)
-end

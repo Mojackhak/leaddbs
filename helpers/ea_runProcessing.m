@@ -147,13 +147,9 @@ if ismember(opts.process, {'post', 'both'})
     options.hybridsave=1;
     options.reconmethod = 'PaCER (Husch 2017)';
     ea_mkdir(options.subj.reconDir);
-    try
-        [coords_mm,trajectory,markers]=ea_runpacer(options);
-        options.native = 1;
-        ea_save_reconstruction(coords_mm, trajectory, markers, options.elmodel, 0, options);
+    [coords_mm,trajectory,markers]=ea_runpacer(options);
+    options.native = 1;
+    ea_save_reconstruction(coords_mm, trajectory, markers, options.elmodel, 0, options);
     
-        ea_cprintf('*Comments', '%s: pre-reconstruction finished.\n', patientID);
-    catch ME
-        ea_cprintf('CmdWinErrors', '%s: pre-reconstruction failed.\n%s\n', patientID, ME.message);
-    end
+    ea_cprintf('*Comments', '%s: pre-reconstruction finished.\n', patientID);
 end

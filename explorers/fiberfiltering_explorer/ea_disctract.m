@@ -284,15 +284,11 @@ classdef ea_disctract < handle
 
             % check if files exist
             FilesExist = check_stimvols(obj);
+            
 
             if isfield(obj.M,'pseudoM') % failsave - this should not be necessary but still making sure things are set correctly for the pseudoM case.
-                if isfield(obj.M,'StimSets_PAM')
-                    obj.connectivity_type=2;
-                    obj.calculationMethod='Fiber Based Method';                    
-                else
-                    obj.connectivity_type=1;
-                    obj.calculationMethod='E-field/Voxel Based Method';
-                end
+                obj.connectivity_type=1;
+                obj.calculationMethod='E-field/Voxel Based Method';
             end
 
             switch obj.connectivity_type

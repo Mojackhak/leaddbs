@@ -729,12 +729,7 @@ for i = find(uiapp.niiFileTable.Data.Include)'
 
 end
 
-% BIDS FIX: Wrap in try-catch to handle non-BIDS source files gracefully
-try
-    ea_genrawimagesjson(dataset_folder, erase(subjID, lineBoundary("start") + "sub-"));
-catch ME
-    ea_cprintf('CmdWinWarnings', 'Could not generate raw images JSON (non-critical):\n%s\n', ME.message);
-end
+ea_genrawimagesjson(dataset_folder, erase(subjID, lineBoundary("start") + "sub-"));
 
 setappdata(groot, 'sortedFiles', sortedFiles);
 setappdata(groot, 'returnCode', 'okay');

@@ -6,14 +6,7 @@ options=varargin{3};
 
 cm=figure('color','w','NumberTitle','off','Name',name);
 if nargin==4
-    % BIDS FIX: Ensure valid color limits
-    clim = varargin{4};
-    if length(clim) == 2 && clim(2) > clim(1)
-        imagesc(X, clim);
-    else
-        % Fallback to auto limits
-        imagesc(X);
-    end
+    imagesc(X,varargin{4});
 else
     imagesc(X);
 end

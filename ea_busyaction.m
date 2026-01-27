@@ -5,23 +5,17 @@ function ea_busyaction(varargin)
 if isa(varargin{2}, 'matlab.ui.control.Image')
     switch varargin{1}
         case 'on'
+            varargin{2}.Visible = 'on';
             varargin{2}.ImageSource = fullfile(ea_getearoot, 'icons', 'busy.gif');
             varargin{2}.Tooltip = 'Busy';
-            varargin{2}.Visible = 'on';
         case 'off'
             varargin{2}.ImageSource = fullfile(ea_getearoot, 'icons', 'idle.png');
             varargin{2}.Tooltip = 'Idle';
-            varargin{2}.Visible = 'on';
-        case 'del'
-            varargin{2}.ImageSource = fullfile(ea_getearoot, 'icons', 'idle.png');
-            varargin{2}.Tooltip = 'Idle';
-            varargin{2}.Visible = 'off';
     end
     drawnow;
     return;
 end
 
-% For legacy figures
 try
     onoff=varargin{1};
     fighandle=varargin{2};
@@ -130,23 +124,30 @@ try
                 set(fighandle,'name',onfigtit);
             end
 
-            if isMatlabVer('<', [25,1])
-                spinner=getappdata(fighandle,'spinner');
-                if isempty(spinner)
+            spinner=getappdata(fighandle,'spinner');
+
+            if isempty(spinner)
+                try
+                    % R2010a and newer
                     iconsClassName = 'com.mathworks.widgets.BusyAffordance$AffordanceSize';
                     iconsSizeEnums = javaMethod('values',iconsClassName);
                     SIZE_32x32 = iconsSizeEnums(2);  % (1) = 16x16,  (2) = 32x32
                     spinner = com.mathworks.widgets.BusyAffordance(SIZE_32x32, 'Busy');  % icon, label
-                    spinner.getComponent.setBackground(java.awt.Color(1, 1, 1));
-                    spinner.setPaintsWhenStopped(true);  % default = false
-                    spinner.useWhiteDots(false);         % default = false (true is good for dark backgrounds)
+                catch
+                    % R2009b and earlier
+                    redColor   = java.awt.Color(1,0,0);
+                    blackColor = java.awt.Color(0,0,0);
+                    spinner = com.mathworks.widgets.BusyAffordance(redColor, blackColor);
                 end
-                ea_javacomponent(spinner.getComponent, pos, fighandle);
-                spinner.setBusyText('Busy');
-                spinner.start;
-    
-                setappdata(fighandle,'spinner',spinner);
+                spinner.getComponent.setBackground(java.awt.Color(1, 1, 1));
+                spinner.setPaintsWhenStopped(true);  % default = false
+                spinner.useWhiteDots(false);         % default = false (true is good for dark backgrounds)
             end
+            ea_javacomponent(spinner.getComponent, pos, fighandle);
+            spinner.setBusyText('Busy');
+            spinner.start;
+
+            setappdata(fighandle,'spinner',spinner);
 
             % lock mouse pointer in non-dev environment:
             prefs = ea_prefs;
@@ -164,12 +165,10 @@ try
                 set(fighandle,'name',offfigtit);
             end
 
-            if isMatlabVer('<', [25,1])
-                spinner=getappdata(fighandle,'spinner');
-                spinner.stop;
-                spinner.setBusyText('Idle');
-                % spinner.getComponent.setVisible(false);
-            end
+            spinner=getappdata(fighandle,'spinner');
+            spinner.stop;
+            spinner.setBusyText('Idle');
+            %spinner.getComponent.setVisible(false);
 
             % change mousewheel, too:
             set(fighandle, 'pointer', 'arrow');
@@ -185,16 +184,14 @@ try
                 set(fighandle,'name',offfigtit);
             end
 
-            if isMatlabVer('<', [25,1])
-                spinner=getappdata(fighandle,'spinner');
-                spinner.stop;
-                spinner.setBusyText('Idle');
-                spinner.getComponent.setBackground(java.awt.Color(0,0,0));
-                [~, hContainer] = ea_javacomponent(spinner.getComponent, pos, fighandle);
-                delete(hContainer);
-                spinner.getComponent.setVisible(false)
-                setappdata(fighandle,'spinner',[]);
-            end
+            spinner=getappdata(fighandle,'spinner');
+            spinner.stop;
+            spinner.setBusyText('Idle');
+            spinner.getComponent.setBackground(java.awt.Color(0,0,0));
+            [hjObj, hContainer] = ea_javacomponent(spinner.getComponent, pos, fighandle);
+            delete(hContainer);
+            spinner.getComponent.setVisible(false)
+            setappdata(fighandle,'spinner',[]);
             % change mousewheel, too:
             set(fighandle, 'pointer', 'arrow');
             disp('** Process done.');
