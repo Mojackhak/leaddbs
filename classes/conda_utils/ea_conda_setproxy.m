@@ -6,6 +6,8 @@ end
 if isempty(proxy)
     proxy = inputdlg('Set proxy for conda and pip', '', 1, {'http://127.0.0.1:7897'}); % clash default
     proxy = proxy{1};
+else
+    return;
 end
 
 ea_cprintf('*Comments', 'Set proxy for pip...\n');
