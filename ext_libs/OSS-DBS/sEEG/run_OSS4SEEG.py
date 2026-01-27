@@ -44,12 +44,14 @@ if __name__ == '__main__':
     if len(sys.argv) > 3:
         Electrode_ID = int(sys.argv[3])
         SEEG_recos_df = SEEG_recos_df[SEEG_recos_df['Electrode_ID'] == Electrode_ID]
+        Electrode_ID_given = True
     else:
-        Electrode_ID = None
+        Electrode_ID_given = False
+
 
     # some auto-definitions
     stim_folder = os.path.dirname(SEEG_recos)
-    Amplitude = [0.001]  # 1 mA. The exact value is not important for VTRs
+    Amplitude = [1.0]  # 1 V. The exact value is not important for VTRs
     contacts2simulate = SEEG_recos_df.name   # all reconstructed
 
     # we iterate over all contacts of all electrodes, but rebuilding the geometry everytime
@@ -57,7 +59,7 @@ if __name__ == '__main__':
     
         # electrode type and ID
         oss_electrode = check_electrode_availability(SEEG_recos_df['electrode'][cnt_i])  
-        if Electrode_ID == None:
+        if not Electrode_ID_given:
             # definition from the reconstruction sheet
             Electrode_ID = SEEG_recos_df['Electrode_ID'][cnt_i]
     
@@ -252,7 +254,7 @@ if __name__ == '__main__':
                         "CollapseVTA": True,  # questionable
                     }
                 },
-                "OutputPath": os.path.join(os.path.dirname(SEEG_recos),'Results_VTR_E' + str(Electrode_ID) + '_1mA_' + cnt_ID),
+                "OutputPath": os.path.join(os.path.dirname(SEEG_recos),'Results_VTR_E' + str(Electrode_ID) + '_1V_' + cnt_ID),
                 "SaveImpedance": False,
                 "ExportVTK": True,
                 "TemplateSpace": False,
