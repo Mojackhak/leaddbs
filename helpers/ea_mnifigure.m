@@ -1,3 +1,4 @@
+
 function resultfig=ea_mnifigure(atlasname)
 options=getoptslocal;
 if exist('atlasname','var')

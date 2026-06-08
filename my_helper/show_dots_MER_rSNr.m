@@ -3,11 +3,13 @@ load([ea_space([],'atlases'),'Custom_Ewert_Zhang_Middlebrooks0.05',filesep,'atla
 rSNr=atlases.roi{13,1}.fv; % extract the right SNr.
 rSNr=reducepatch(rSNr,0.5); % reduce patch a bit.
 rh=patch('Faces',rSNr.faces,'Vertices',rSNr.vertices,'facecolor','none','edgecolor',[1,0.5020,0]); % visualize the right SNr as wireframes.
-
+lSNr=atlases.roi{13,2}.fv; % do the same for the left SNr.
+lSNr=reducepatch(lSNr,0.5);
+lh=patch('Faces',lSNr.faces,'Vertices',lSNr.vertices,'facecolor','none','edgecolor',[1,0.5020,0]);
 
 % add MER coords
-df = readtable('/Users/mojackhu/Research/STNSNr/summary/stats/mer/spike/spike_unit_coords.csv');
-coords = [df.MNI_x_flip, df.MNI_y_flip, df.MNI_z_flip];
+df = readtable('/Volumes/Data/STNSNr/summary/spike/MER_loc_contact_clean_mni_loc.csv');
+coords = [df.MNI_x, df.MNI_y, df.MNI_z];
 mask = strcmp(df.SNr_in, 'TRUE');
 coords(~mask,:) = [];
 coords(any(isnan(coords),2),:) = [];
