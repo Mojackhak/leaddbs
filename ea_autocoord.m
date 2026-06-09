@@ -247,7 +247,7 @@ if ~strcmp(options.patientname,'No Patient Selected') && ~isempty(options.patien
         elseif normlock == 1 % Both pre-op images coreg and norm were approved.
             doit = false;
         elseif normlock == 0.5 % Pre-op images coreg changed, rerun when using multispectral norm method.
-            [~, ~, ~, doit] = eval([options.normalize.method,'(''prompt'')']);
+            doit = contains(options.normalize.method, {'ANTs', 'SPM12'});
         else
             doit = true;
         end
@@ -426,11 +426,9 @@ if ~strcmp(options.patientname,'No Patient Selected') && ~isempty(options.patien
             end
 
             if doStrucLC
-                directory = [options.root, options.patientname, filesep];
-
                 % For BIDS-style datasets in derivatives/leaddbs, copy DWI
                 % from rawdata into preprocessing/dwi and set prefs.*.
-                if contains(directory, 'derivatives') || contains(directory, 'leaddbs')
+                if contains([options.root, options.patientname], {'derivatives', 'leaddbs'})
                     options = ea_prepare_dti_bids(options);
                 end
 

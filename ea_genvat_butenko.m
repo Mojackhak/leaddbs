@@ -31,45 +31,27 @@ time = datetime('now', 'TimeZone', 'local');
 timezone = time.TimeZone;
 setenv('TZ', timezone);
 
+%% Setup
 % import settings from Lead-DBS GUI
 %options.stimSetMode = 1;
-[settings,S] = ea_prepare_ossdbs(options,S);
-if isfield(options.prefs,'wsl_env') && options.prefs.wsl_env
-    disp("Running OSS-DBS via WSL")
-    disp("Lead-DBS conda packages cannot be used (e.g. SynthSeg and Tensorflow)")
-    settings.use_wsl = true;
-    if strcmp(settings.butenko_segmAlg,'SynthSeg')
-        warningMsg = sprintf("SynthSeg segmentation cannot be used with WSL");
-        ea_warndlg(warningMsg);
-        [varargout{1}, varargout{2}] = ea_exit_genvat_butenko();
-        return
-    elseif settings.optimizer
-        warningMsg = sprintf("Optimizer cannot be currently used with WSL");
-        ea_warndlg(warningMsg);
-        [varargout{1}, varargout{2}] = ea_exit_genvat_butenko();
-        return
-    end
-else
-    settings.use_wsl = false;
-    if isfield(options.prefs,'ext_oss_env') && ~strcmp(options.prefs.ext_oss_env,'None')
-        % use external environment
-        env = ea_ext_env(options.prefs.ext_oss_env);
-        disp("Using the external OSS-DBS environment")
-    else
-        env = ea_conda_env('OSS-DBSv2');
-    end
+%options.trainANN = 1;
+
+[settings,S,env] = ea_prepare_ossdbs(options,S);
+if islogical(settings) && ~settings
+    % if settings were not configured correctly, exit
+    [varargout{1}, varargout{2}] = ea_exit_genvat_butenko();
+    return
 end
 
 % some hardcoded parameters, can be added to the GUI later
 settings.reuse_warped_connectome = 0;  % set to 1 if the connectome was already processed for the given stim. settings
 prepFiles_cluster = 0; % set to 1 if you only want to prep files for cluster comp.
 true_VTA = 0; % set to 1 to compute classic VAT using axonal grids
-settings.outOfCore = 0; % set to 1 if RAM capacity is exceeded during PAM
-settings.segment_SVD = 0; % requires SynthSeg and certain Docker containers (see ea_svd_segmentation)
 
 % set outputs
 outputPaths = ea_get_oss_outputPaths(options,S);
 
+%% Image Processing
 % segment MRI image
 settings = ea_segment_MRI(options, settings, outputPaths);
 
@@ -201,7 +183,7 @@ for source_index = first_active_source:4
         end
 
         % skip stimSets if not provided for this side
-        if settings.stimSetMode && ~settings.optimizer
+        if settings.stimSetMode && ~settings.optimizer && ~settings.trainANN
             if ~isfile([outputPaths.outputDir,filesep,'Current_protocols_',num2str(side),'.csv'])
                 warning('off', 'backtrace');
                 warning('No stimulation set for %s side! Skipping...\n', sideStr);
@@ -256,17 +238,26 @@ for source_index = first_active_source:4
                 if settings.use_wsl 
                     [~,cmdout] = vta_runwslcommand(options.prefs.ext_oss_env,['prepareaxonmodel ',vta_windowspathstowsl(outputPaths.outputDir),' --hemi_side ',num2str(side),' --description_file ', vta_windowspathstowsl(parameterFile)])
                 else
-                    env.system(['prepareaxonmodel ',ea_path_helper(outputPaths.outputDir),' --hemi_side ',num2str(side),' --description_file ', ea_path_helper(parameterFile)]);
+                    if settings.use_binaries
+                        system([options.prefs.oss_bin_path,filesep,'prepareaxonmodel ',ea_path_helper(outputPaths.outputDir),' --hemi_side ',num2str(side),' --description_file ', ea_path_helper(parameterFile)])
+                    else
+                        env.system(['prepareaxonmodel ',ea_path_helper(outputPaths.outputDir),' --hemi_side ',num2str(side),' --description_file ', ea_path_helper(parameterFile)])
+                    end
                 end
             end
 
             % prepare OSS-DBS input as oss-dbs_parameters.json
             if settings.use_wsl 
                 [~,cmdout] = vta_runwslcommand(options.prefs.ext_oss_env,['leaddbs2ossdbs --hemi_side ', num2str(side), ' ', vta_windowspathstowsl(parameterFile), ...
-                    ' --output_path ', vta_windowspathstowsl(outputPaths.HemiSimFolder)])
+                    ' --output_path ', vta_windowspathstowsl(outputPaths.HemiSimFolder)]);
             else
-                env.system(['leaddbs2ossdbs --hemi_side ', num2str(side), ' ', ea_path_helper(parameterFile), ...
-                    ' --output_path ', ea_path_helper(outputPaths.HemiSimFolder)]);
+                if settings.use_binaries
+                    system([options.prefs.oss_bin_path,filesep,'leaddbs2ossdbs --hemi_side ', num2str(side), ' ', ea_path_helper(parameterFile), ...
+                        ' --output_path ', ea_path_helper(outputPaths.HemiSimFolder)]);
+                else
+                    env.system(['leaddbs2ossdbs --hemi_side ', num2str(side), ' ', ea_path_helper(parameterFile), ...
+                        ' --output_path ', ea_path_helper(outputPaths.HemiSimFolder)]);
+                end
             end
             [~,input_name,~] = fileparts(parameterFile);
             parameterFile_json = [outputPaths.HemiSimFolder, filesep, input_name, '.json'];
@@ -275,9 +266,13 @@ for source_index = first_active_source:4
             if settings.use_wsl 
                 [~,cmdout] = vta_runwslcommand(options.prefs.ext_oss_env,['ossdbs ', vta_windowspathstowsl(parameterFile_json)])
             else
-                [~, cmdout] = env.system(['ossdbs ', ea_path_helper(parameterFile_json)]);
+                if settings.use_binaries
+                    [~, cmdout] = system([options.prefs.oss_bin_path,filesep,'ossdbs ', ea_path_helper(parameterFile_json)])
+                else
+                    [~, cmdout] = env.system(['ossdbs ', ea_path_helper(parameterFile_json)])
+                end
             end
-            % detec error related to Bnd_Box
+            % detect error related to Bnd_Box
             if contains(cmdout, 'Bnd_Box is void')
                 disp ('Error "Bnd_Box is void" detected, increasing the dimensions ...');
                 if settings.use_wsl 
@@ -285,10 +280,15 @@ for source_index = first_active_source:4
                     % run OSS-DBS
                     [~,cmdout] = vta_runwslcommand(options.prefs.ext_oss_env,['ossdbs ', vta_windowspathstowsl(parameterFile_json)])
                 else
-                    % increase the Bnd_Box dimensions
-                    env.system(cell2mat(['python ' ea_regexpdir(ea_getearoot, 'BndBoxDimensionsEdits.py') ' ', ea_path_helper(parameterFile_json)]));
+                    % increase the Bnd_Box dimensions and re-run
                     % run OSS-DBS
-                    env.system(['ossdbs ', ea_path_helper(parameterFile_json)])
+                    if settings.use_binaries
+                        system(cell2mat(['python ' ea_regexpdir(ea_getearoot, 'BndBoxDimensionsEdits.py') ' ', ea_path_helper(parameterFile_json)]));
+                        system([options.prefs.oss_bin_path,filesep,'ossdbs ', ea_path_helper(parameterFile_json)])
+                    else
+                        env.system(cell2mat(['python ' ea_regexpdir(ea_getearoot, 'BndBoxDimensionsEdits.py') ' ', ea_path_helper(parameterFile_json)]));
+                        env.system(['ossdbs ', ea_path_helper(parameterFile_json)])
+                    end
                 end
             end
 
@@ -306,7 +306,7 @@ for source_index = first_active_source:4
                 % check if the time domain results is available
                 timeDomainSolution = [outputPaths.HemiSimFolder,filesep,'Results', filesep, 'oss_time_result_PAM.h5'];
                 if ~isfile(timeDomainSolution) && ~settings.stimSetMode
-                    ea_warndlg('OSS-DBS failed to prepare a time domain solution. If RAM consumption exceeded the hardware limit, set settings.outOfCore to 1')
+                    ea_warndlg('OSS-DBS failed to prepare a time domain solution. If RAM consumption exceeded the hardware limit, in Preferences add prefs.outOfCore = true')
                     return
                 end
 
@@ -323,13 +323,21 @@ for source_index = first_active_source:4
                         if settings.use_wsl
                             [~,cmdout] = vta_runwslcommand(options.prefs.ext_oss_env,['run_pathway_activation ', vta_windowspathstowsl(parameterFile_json), ' --scaling_index ', num2str(i), ' --scaling ', num2str(scaling)])
                         else
-                            env.system(['run_pathway_activation ', ea_path_helper(parameterFile_json), ' --scaling_index ', num2str(i), ' --scaling ', num2str(scaling)]);
+                            if settings.use_binaries
+                                system([options.prefs.oss_bin_path,filesep,'run_pathway_activation ', ea_path_helper(parameterFile_json), ' --scaling_index ', num2str(i), ' --scaling ', num2str(scaling)])
+                            else
+                                env.system(['run_pathway_activation ', ea_path_helper(parameterFile_json), ' --scaling_index ', num2str(i), ' --scaling ', num2str(scaling)])
+                            end
                         end
                     else
                         if settings.use_wsl
                             [~,cmdout] = vta_runwslcommand(options.prefs.ext_oss_env,['run_pathway_activation ',vta_windowspathstowsl(parameterFile_json), ' --scaling ', num2str(scaling)])
                         else
-                            env.system(['run_pathway_activation ', ea_path_helper(parameterFile_json), ' --scaling ', num2str(scaling)]);
+                            if settings.use_binaries
+                                system([options.prefs.oss_bin_path,filesep,'run_pathway_activation ', ea_path_helper(parameterFile_json), ' --scaling ', num2str(scaling)])
+                            else
+                                env.system(['run_pathway_activation ', ea_path_helper(parameterFile_json), ' --scaling ', num2str(scaling)])
+                            end
                         end
                     end
                 end

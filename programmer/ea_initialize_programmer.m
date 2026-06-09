@@ -8,13 +8,17 @@ function ea_initialize_programmer(handles, bids, action)
     preparePLYReconstructions(groupFolderPath, groupOptions, handles);
     
     %% Prepare Reconstruction JSON Files
-    prepareReconstructionJSON(groupFolderPath, groupOptions);
-    
+    if isfield(handles, 'reconmethod') ...
+            && contains(handles.reconmethod.String{handles.reconmethod.Value}, 'LeGUI')
+        prepareReconstructionSeeg(groupFolderPath, groupOptions);
+    else
+        prepareReconstructionJSON(groupFolderPath, groupOptions);
+    end
     %% Prepare Atlases for Export
     % prepareAtlasesForExport();
 
     %% Prepare participants json file
-     writeParticipantsJson(bids);
+    writeParticipantsJson(bids);
 
     %% Conditionally launch application
     if (action == "standalone")
@@ -26,27 +30,27 @@ function ea_initialize_programmer(handles, bids, action)
 end
 
 
-function prepare_ossdbs(groupOptions, handles)
-    ptID = groupOptions.subjId{1};
-    BidsID = strcat('sub-', ptID);
-    groupFolderPath = groupOptions.datasetDir;
-    patientFolderPath = fullfile(groupFolderPath, 'derivatives', 'leaddbs', BidsID);
-    options = ea_getptopts(patientFolderPath);
-    S = ea_initializeS('initialize', options);
-    options.stimSetMode = 0;
-    S.Ls1.k1.perc = 100;
-    S.Ls1.k1.pol = 1;
-    S.Ls1.amp = 2;
-    S.Rs1.k1.perc = 100;
-    S.Rs1.k1.pol = 1;
-    S.Rs1.amp = 1;
-    S.activecontacts{1} = [1,0,0,0,0,0,0,0];
-    S.activecontacts{2} = S.activecontacts{1};
-    S.amplitude{1} = [2,0,0,0];
-    S.amplitude{2} = S.amplitude{1};
-    options.optimizer = 1;
-    ea_genvat_butenko(S, options);
-end
+% function prepare_ossdbs(groupOptions, handles)
+%     ptID = groupOptions.subjId{1};
+%     BidsID = strcat('sub-', ptID);
+%     groupFolderPath = groupOptions.datasetDir;
+%     patientFolderPath = fullfile(groupFolderPath, 'derivatives', 'leaddbs', BidsID);
+%     options = ea_getptopts(patientFolderPath);
+%     S = ea_initializeS('initialize', options);
+%     options.stimSetMode = 0;
+%     S.Ls1.k1.perc = 100;
+%     S.Ls1.k1.pol = 1;
+%     S.Ls1.amp = 2;
+%     S.Rs1.k1.perc = 100;
+%     S.Rs1.k1.pol = 1;
+%     S.Rs1.amp = 1;
+%     S.activecontacts{1} = [1,0,0,0,0,0,0,0];
+%     S.activecontacts{2} = S.activecontacts{1};
+%     S.amplitude{1} = [2,0,0,0];
+%     S.amplitude{2} = S.amplitude{1};
+%     options.optimizer = 1;
+%     ea_genvat_butenko(S, options);
+% end
 
 
 %% Helper Functions
@@ -140,6 +144,33 @@ function prepareReconstructionJSON(groupFolderPath, groupOptions)
     end
 end
 
+function prepareReconstructionSeeg(groupFolderPath, groupOptions)
+    for i = 1:numel(groupOptions.subjId)
+        ptID = groupOptions.subjId{i};
+        bidsPt = strcat('sub-', ptID);
+        clinicalDirectory = fullfile(groupFolderPath, 'derivatives', 'leaddbs', bidsPt, 'clinical');
+        recoOutputFile = fullfile(clinicalDirectory, strcat(bidsPt, '_desc-reconstruction.json'));
+        
+        if ~isfile(recoOutputFile)
+            recoFileName = strcat(bidsPt, '_desc-reconstruction.mat');
+            ptFilePath = fullfile(groupFolderPath, 'derivatives', 'leaddbs', bidsPt, 'reconstruction', recoFileName);
+            
+            if isfile(ptFilePath)
+                reco_data = load(ptFilePath);
+                if ~exist(clinicalDirectory, 'dir')
+                    mkdir(clinicalDirectory);
+                end
+                savejson('', reco_data, recoOutputFile);
+                disp(['Saved reconstruction JSON for: ', bidsPt]);
+            else
+                warning(['Reconstruction file not found for: ', bidsPt]);
+            end
+        else
+            disp(['Reconstruction JSON already exists for: ', bidsPt]);
+        end
+    end
+end
+
 
 function prepareAtlasesForExport()
     leadPath = ea_getearoot();
@@ -169,13 +200,8 @@ end
 
 
 function [reco_output] = writeRecoToJSON(matFileName)
-    % Load the .mat file
     data = load(matFileName);
-    
-    % Extract the necessary fields from reco
     reco = data.reco;
-    
-    % Extract the electrode model and markers
     elmodel = reco.props(1).elmodel;
     
     try

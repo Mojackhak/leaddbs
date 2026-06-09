@@ -52,19 +52,20 @@ switch obj.drawTool
         end
 
     case 'fiberfiltering' %fiberfiltering
-        switch obj.statsettings.stimulationmodel
-            case 'Sigmoid Field'
-                if obj.connectivity_type == 2
-                    init_val = obj.results.fiberfiltering.(ea_conn2connid(obj.calcsettings.fibfilt_connectome)).('PAM_probA').fibsval;
-                else
-                    fibsval_raw = obj.results.fiberfiltering.(ea_conn2connid(obj.calcsettings.fibfilt_connectome)).(ea_unifiedmapping_method2methodid(obj)).fibsval;
+        connid = ea_conn2connid(obj.calcsettings.fibfilt_connectome);
+        if obj.calcsettings.connectivity_type == 2
+            init_val = obj.results.fiberfiltering.(connid).('PAM_probA').fibsval;
+        else
+            switch obj.statsettings.stimulationmodel
+                case 'Sigmoid Field'
+                    fibsval_raw = obj.results.fiberfiltering.(connid).(ea_unifiedmapping_method2methodid(obj)).fibsval;
                     init_val = fibsval_raw;  % initialize
                     for side = 1:size(fibsval_raw,2)
                         init_val{1,side}(:,:) = ea_SigmoidFromEfield(fibsval_raw{1,side}(:,:));
                     end
-                end
-            otherwise
-                init_val = cellfun(@full, obj.results.fiberfiltering.(ea_conn2connid(obj.calcsettings.fibfilt_connectome)).(ea_unifiedmapping_method2methodid(obj)).fibsval, 'Uni', 0);
+                otherwise
+                    init_val = cellfun(@full, obj.results.fiberfiltering.(connid).(ea_unifiedmapping_method2methodid(obj)).fibsval, 'Uni', 0);
+            end
         end
 
     case 'networkmapping' %networkmapping
@@ -96,10 +97,27 @@ for group = groups
                         Nmap=ea_nansum(gval{side}(:,gpatsel),2);
                         gval{side}(Nmap<((obj.statsettings.connthreshold/100)*length(gpatsel)),gpatsel)=nan;
                     otherwise
-                        gval{side}(gval{side}<=obj.statsettings.nanthreshold) = nan;
-                        Nmap=ea_nansum((gval{side}(:,gpatsel)>obj.statsettings.efieldthreshold),2);
-                        gval{side}(Nmap<round((obj.statsettings.connthreshold/100)*length(gpatsel)),gpatsel)=nan;
+                        % old method; only if variable in workspace exists
+                        if evalin('base','exist(''threshold_method'',''var'')')
+                            threshold_method = evalin('base','threshold_method');
+                            switch threshold_method
+                                case 'old_method' % as was implemented in lead dbs v3.2.1
+                                    gval{side}(gval{side}<=obj.statsettings.nanthreshold) = nan;
+                                    Nmap=ea_nansum((gval{side}(:,gpatsel)>obj.statsettings.efieldthreshold),2);
+                                    gval{side}(Nmap<round((obj.statsettings.connthreshold/100)*length(gpatsel)),gpatsel)=nan;
+                            end
+                        else %here we use the new percentile method
+                            % compute global percentile across all selected patients
+                            allVals = gval{side}(:, gpatsel);  % extract the submatrix
+                            allVals(allVals == 0) = NaN;
+                            thr = prctile(allVals(:), obj.statsettings.efieldthreshold);  % flatten and compute percentile
+                            % mask fibers above threshold
+                            Nmap = ea_nansum(gval{side}(:,gpatsel) >= thr, 2);
+                            % apply connection threshold
+                            gval{side}(Nmap < round((obj.statsettings.connthreshold/100) * length(gpatsel)), gpatsel) = nan;
+                        end  
                 end
+                
                 %initialize vals and pvals if necessary
 
                 %rules for removing nonempty values, since there are many nans in
@@ -110,7 +128,23 @@ for group = groups
                 nonemptyidx=find(nonempty);
                 valsin=gval{side}(nonempty,gpatsel);
             case 'networkmapping'
-                valsin = gval{side}(:,gpatsel);
+                if evalin('base','exist(''threshold_method'',''var'')')
+                    threshold_method = evalin('base','threshold_method');
+                        switch threshold_method
+                            case 'old_method'
+                                valsin = gval{side}(:,gpatsel);
+                        end
+
+                else %here we use the old method
+                        % compute global percentile across all patients
+                        allVals = gval{side}(:, gpatsel);  % extract the submatrix
+                        % allVals(allVals == 0) = NaN;
+                        thr = prctile(allVals(:), obj.statsettings.efieldthreshold);  % flatten and compute percentile
+                        % mask voxels above threshold
+                        Nmap = ea_nansum(gval{side}(:,gpatsel) >= thr, 2);
+                        gval{side}(Nmap < round((obj.statsettings.connthreshold/100) * length(gpatsel)), gpatsel) = nan;
+                        valsin = gval{side}(:, gpatsel);
+                end  
         end
 
         

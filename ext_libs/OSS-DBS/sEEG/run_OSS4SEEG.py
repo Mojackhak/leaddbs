@@ -14,6 +14,8 @@ import re
 from run_OSS4SEEG_Stim_no_shift import check_electrode_availability, get_geom_definitions, extract_index
 from ossdbs.electrodes.defaults import default_electrode_parameters
 
+MAX_RF_CONTACT_INDEX = 2   # for single contact RFs, do not go above the 3rd contact for simulation to avoid extremelely large VCMs (but the lead location is adjusted to match the actual contact coordinate) 
+
 if __name__ == '__main__':
 
     # called from MATLAB
@@ -24,9 +26,9 @@ if __name__ == '__main__':
     ''' input processing '''
     SEEG_recos = sys.argv[1]
     _,extension = os.path.splitext(SEEG_recos)
-    if extension == '.tsv':
-        # either we get reco from tsv (Clemens' format)
-        SEEG_recos_df = pd.read_csv(SEEG_recos, sep='\t')
+    if extension == '.tsv' or extension == '.csv':
+        # either we get reco from tsv (BIDS format)
+        SEEG_recos_df = pd.read_csv(SEEG_recos, sep=None, engine='python')  # make sure that contact numbering in the ascending order
     elif extension == '.mat':
         print("Lead-DBS reconstruction files are currently not supported")
         raise SystemExit()
@@ -43,11 +45,10 @@ if __name__ == '__main__':
 
     if len(sys.argv) > 3:
         Electrode_ID = int(sys.argv[3])
-        SEEG_recos_df = SEEG_recos_df[SEEG_recos_df['Electrode_ID'] == Electrode_ID]
+        SEEG_recos_df = SEEG_recos_df[SEEG_recos_df['group'] == Electrode_ID]
         Electrode_ID_given = True
     else:
         Electrode_ID_given = False
-
 
     # some auto-definitions
     stim_folder = os.path.dirname(SEEG_recos)
@@ -61,7 +62,7 @@ if __name__ == '__main__':
         oss_electrode = check_electrode_availability(SEEG_recos_df['electrode'][cnt_i])  
         if not Electrode_ID_given:
             # definition from the reconstruction sheet
-            Electrode_ID = SEEG_recos_df['Electrode_ID'][cnt_i]
+            Electrode_ID = SEEG_recos_df['group'][cnt_i]
     
         ''' determine two contacts (active and adjacent) to build the trajctory '''
         cnt_ID = contacts2simulate[cnt_i]  # actual label
@@ -104,8 +105,18 @@ if __name__ == '__main__':
             unit_directions = unit_directions * -1.0
  
         elec_params = default_electrode_parameters[oss_electrode]
+        if index_on_electrode > MAX_RF_CONTACT_INDEX:
+            # "shift" the lead to avoid large VCMs
+            simulated_contact_index = MAX_RF_CONTACT_INDEX
+        else:
+            simulated_contact_index = index_on_electrode
+            
         # this might be wrong if the first contact (active tip) has a different length
-        imp_coords = np.array([contact_coords[0][0],contact_coords[0][1],contact_coords[0][2]]) - index_on_electrode * (elec_params.contact_length + elec_params.contact_spacing) * unit_directions  
+        if 'BF' in oss_electrode:
+            # first contact spacing is different
+            imp_coords = np.array([contact_coords[0][0],contact_coords[0][1],contact_coords[0][2]]) - (simulated_contact_index * (elec_params.contact_length + elec_params.contact_spacing) + bool(simulated_contact_index) * (elec_params.first_contact_spacing-elec_params.contact_spacing)) * unit_directions  
+        else:
+            imp_coords = np.array([contact_coords[0][0],contact_coords[0][1],contact_coords[0][2]]) - simulated_contact_index * (elec_params.contact_length + elec_params.contact_spacing) * unit_directions         
         
         # offset = from tip to the center of the first contact 
         offset = elec_params.get_center_first_contact() * 1.0
@@ -145,7 +156,7 @@ if __name__ == '__main__':
                       },
                       "Contacts": [         # we need only one contact! Move the forth one for now!
                         {
-                          "Contact_ID": index_on_electrode+1,
+                          "Contact_ID": simulated_contact_index + 1,
                           "Active": True,
                           "Current[A]": False,
                           "Voltage[V]": amp,
@@ -244,7 +255,7 @@ if __name__ == '__main__':
                             "y[mm]": grid_center[1],
                             "z[mm]": grid_center[2]
                         },
-                        "Shape": {"x": 51, "y": 51, "z": 51},
+                        "Shape": {"x": 71, "y": 71, "z": 71},
                         "Direction": {
                             "x[mm]": 0,
                             "y[mm]": 0,
@@ -254,7 +265,7 @@ if __name__ == '__main__':
                         "CollapseVTA": True,  # questionable
                     }
                 },
-                "OutputPath": os.path.join(os.path.dirname(SEEG_recos),'Results_VTR_E' + str(Electrode_ID) + '_1V_' + cnt_ID),
+                "OutputPath": os.path.join(os.path.dirname(SEEG_recos),'Results_VTR_' + str(Electrode_ID) + '_1V_' + cnt_ID),
                 "SaveImpedance": False,
                 "ExportVTK": True,
                 "TemplateSpace": False,
@@ -262,7 +273,8 @@ if __name__ == '__main__':
                 "CalcAxonActivation": False,
                 "ActivationThresholdVTA[V-per-m]": 200.0,
                 "FailFlag": 'rh',
-                "OutOfCore": False
+                "OutOfCore": False,
+                "TruncateAfterActivePartRatio": None
             }
     
             # save the settings

@@ -10,6 +10,7 @@ import numpy as np
 import os
 import sys
 import json
+import csv
 from typing import Tuple, List, Optional, Dict
 
 # Set environment variable to avoid CUDA issues if not needed
@@ -29,10 +30,10 @@ hemi_idx_LABEL = {0: '_right', 1: '_left'}
 
 # ANN parameters
 LEARN_RATE = 0.0025
-N_EPOCHS = 500
+N_EPOCHS = 1000
 MIN_AXON_NUMBER = 10
 MIN_ACTIV_THRESHOLD = 5.0   # at least one train and one test protocol should have percent activation above this threshold
-ZERO_PROTOCOLS_PERC = 10.0  # To soft-enforce zero activation for zero current
+ZERO_PROTOCOLS_PERC = 0.0  # To soft-enforce zero activation for zero current
 
 # --- Configuration and Data Classes ---
 class DataProcessor:
@@ -191,53 +192,53 @@ class DataProcessor:
         else:
             return X_train_ext, y_train_ext
 
-class ANNModel:
-    """Handles the creation, compilation, and training of the ANN."""
+# class ANNModel:
+#     """Handles the creation, compilation, and training of the ANN."""
 
-    def __init__(self, input_shape: int, output_shape: int, total_axons: int):
-        self.model: Optional[Sequential] = None
-        self.input_shape = input_shape
-        self.output_shape = output_shape
-        self.total_axons = total_axons
+#     def __init__(self, input_shape: int, output_shape: int, total_axons: int):
+#         self.model: Optional[Sequential] = None
+#         self.input_shape = input_shape
+#         self.output_shape = output_shape
+#         self.total_axons = total_axons
 
-    def create_and_compile(self):
-        """Defines and compiles the Keras model."""
-        model = Sequential(name="PathwayANN")
-        model.add(Dense(256, input_shape=(self.input_shape,), activation='linear', use_bias=True))
-        # Using LeakyReLU with alpha -1.25 as in original code
-        model.add(Dense(1024, activation=tf.keras.layers.LeakyReLU(alpha=-1.25), use_bias=True))
+#     def create_and_compile(self):
+#         """Defines and compiles the Keras model."""
+#         model = Sequential(name="PathwayANN")
+#         model.add(Dense(512, input_shape=(self.input_shape,), activation='linear', use_bias=True))
+#         # Using LeakyReLU with alpha -1.25 as in original code
+#         model.add(Dense(1024, activation=tf.keras.layers.LeakyReLU(alpha=-1.25), use_bias=True))
         
-        # The original code uses total axon count here, which is unusual for a typical ANN, 
-        # but kept for fidelity.
-        model.add(Dense(self.total_axons, activation='sigmoid', use_bias=True))
+#         # The original code uses total axon couыnt here, which is unusual for a typical ANN, 
+#         # but kept for fidelity.
+#         model.add(Dense(self.total_axons, activation='sigmoid', use_bias=True))
         
-        # Final output layer
-        model.add(Dense(self.output_shape, activation='sigmoid', use_bias=False))
+#         # Final output layer
+#         model.add(Dense(self.output_shape, activation='sigmoid', use_bias=False))
 
-        adam = optimizers.Adamax(learning_rate=LEARN_RATE)
-        model.compile(optimizer=adam, loss='mean_squared_error', metrics=['mse'])
-        self.model = model
+#         adam = optimizers.Adamax(learning_rate=LEARN_RATE)
+#         model.compile(optimizer=adam, loss='mean_squared_error', metrics=['mse'])
+#         self.model = model
 
-    def train(self, X_train: np.ndarray, y_train: np.ndarray):
-        """Fits the model to the training data."""
-        if self.model is None:
-            raise ValueError("Model has not been created and compiled.")
+#     def train(self, X_train: np.ndarray, y_train: np.ndarray):
+#         """Fits the model to the training data."""
+#         if self.model is None:
+#             raise ValueError("Model has not been created and compiled.")
         
-        print(f"Starting training for {N_EPOCHS} epochs...")
-        self.model.fit(X_train, y_train, epochs=N_EPOCHS, verbose=0)
+#         print(f"Starting training for {N_EPOCHS} epochs...")
+#         self.model.fit(X_train, y_train, epochs=N_EPOCHS, verbose=0)
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """Makes predictions using the trained model."""
-        if self.model is None:
-            raise ValueError("Model has not been trained.")
-        return self.model.predict(X)
+#     def predict(self, X: np.ndarray) -> np.ndarray:
+#         """Makes predictions using the trained model."""
+#         if self.model is None:
+#             raise ValueError("Model has not been trained.")
+#         return self.model.predict(X)
 
-    def save_model(self, save_path: str):
-        """Saves the trained model."""
-        if self.model is None:
-            raise ValueError("Model has not been trained.")
-        self.model.save(save_path)
-        print(f"Model saved to: {save_path}")
+#     def save_model(self, save_path: str):
+#         """Saves the trained model."""
+#         if self.model is None:
+#             raise ValueError("Model has not been trained.")
+#         self.model.save(save_path)
+#         print(f"Model saved to: {save_path}")
 
 
 class PathwayApproximator:
@@ -272,67 +273,181 @@ class PathwayApproximator:
     def run(self) -> Optional[List[str]]:
         """Executes the training and testing workflow."""
 
-        # 1. Load, filter, and segment data
-        X_train, X_test, y_train_filtered, y_test_filtered, pathway_filtered, axons_in_path = self.data_processor.load_data(self.pathway)
-
-        # store in a single file
-        pathway_activation_file = os.path.join(self.stim_dir,self.pathway + '_percent_activations_Current_protocols'+ HEMI_SUFFIX[self.hemi_idx] + '_' + str(X_train.shape[0]) + '_' + str(X_test.shape[0]))
-        np.savez(pathway_activation_file, X_train=X_train, X_test=X_test, y_train_filtered=y_train_filtered, y_test_filtered=y_test_filtered, pathway_filtered=pathway_filtered, axons_in_path=axons_in_path)
+        # #1. Load, filter, and segment data
+        X_train_validation, X_test, y_train_validation, y_test, pathway_filtered, axons_in_path = self.data_processor.load_data(self.pathway)
         
-        # # altermatively, load from a single file
-        # pathway_activation_file = os.path.join(self.stim_dir,self.pathway + '_percent_activations_Current_protocols'+ HEMI_SUFFIX[self.hemi_idx] + '_8000_8032.npz')        
-        # pathway_act_dict = np.load(pathway_activation_file)
-        # X_train, X_test, y_train_filtered, y_test_filtered, pathway_filtered, axons_in_path = pathway_act_dict['X_train'], pathway_act_dict['X_test'], pathway_act_dict['y_train_filtered'], pathway_act_dict['y_test_filtered'], pathway_act_dict['pathway_filtered'], pathway_act_dict['axons_in_path']
+        # store in a single file
+        pathway_activation_file = os.path.join(self.stim_dir,self.pathway + '_percent_activations_Current_protocols'+ HEMI_SUFFIX[self.hemi_idx] + '_' + str(X_train_validation.shape[0]) + '_' + str(X_test.shape[0]))
+        np.savez(pathway_activation_file, X_train_validation=X_train_validation, X_test=X_test, y_train_validation=y_train_validation, y_test=y_test, pathway_filtered=pathway_filtered, axons_in_path=axons_in_path)
+        
+        # # # # alternatively, load from a single file
+        # pathway_activation_file = os.path.join(self.stim_dir,self.pathway + '_percent_activations_Current_protocols'+ HEMI_SUFFIX[self.hemi_idx] + '_5000_32.npz')        
+        # if os.path.isfile(pathway_activation_file):
+        #     pathway_act_dict = np.load(pathway_activation_file)
+        #     X_train_validation, X_test, y_train_validation, y_test, pathway_filtered, axons_in_path = pathway_act_dict['X_train_validation'], pathway_act_dict['X_test'], pathway_act_dict['y_train_validation'], pathway_act_dict['y_test'], pathway_act_dict['pathway_filtered'], pathway_act_dict['axons_in_path']
+        # else:
+        #     return None
+        
+        # split validation and test
+        X_train, X_validation = X_train_validation[:int(X_train_validation.shape[0]*0.8),:], X_train_validation[int(X_train_validation.shape[0]*0.8):,:]
+        y_train, y_validation = y_train_validation[:int(X_train_validation.shape[0]*0.8),:], y_train_validation[int(X_train_validation.shape[0]*0.8):,:]
 
         if not pathway_filtered:
             print(f"Low activation levels for {self.pathway}. Skipping ANN training.")
             return None
 
-        # 2. Augment training data by null-protocols and, optionally, duplicated training protocols
-        X_train_augmented, y_train_augmented = self.data_processor.augment_data(X_train, y_train_filtered)
-        
+        # 2. Augment training data
+        X_train_augmented, y_train_augmented = self.data_processor.augment_data(X_train, y_train)
+
         # Ensure only one pathway is being trained
         if y_train_augmented.shape[1] > 1:
-            print("Multiple pathways detected after filtering. Refactor logic expects single pathway output.")
+            print("Multiple pathways detected after filtering. Refactored logic expects single pathway output.")
             return None
-        
-        # Determine total axon count (assuming it's the sum of all simulated pathways)
-        total_axons_count = np.sum(axons_in_path)
 
         print(f"Training on pathway: {self.pathway}")
         print(f"Number of training samples (original): {X_train.shape[0]}")
         print(f"Number of training samples (augmented): {X_train_augmented.shape[0]}")
-        print(f"Number of testing samples: {X_test.shape[0]}")
+        print(f"Number of validation samples: {X_validation.shape[0]}")
+        print(f"Number of test samples: {X_test.shape[0]}")
         print(f"Filtered pathways: {pathway_filtered}")
 
-        # 3. Train ANN
-        self.model = ANNModel(
-            X_train_augmented.shape[1], y_train_augmented.shape[1], total_axons_count
-        )
-        self.model.create_and_compile()
-        self.model.train(X_train_augmented, y_train_augmented)
+        # Define a function to create and train the model
+        def create_model(config):
+            model = Sequential(name=config['name'])
+            model.add(Dense(config['input_neurons'], input_shape=(X_train_augmented.shape[1],), activation='linear'))
+        
+            for neurons in config.get('hidden_layers', []):
+                model.add(Dense(neurons, activation=tf.keras.layers.LeakyReLU(alpha=-1.25), use_bias=True))
+                if config.get('dropout', True):
+                    model.add(Dropout(config['dropout']))
+        
+            # "layer of axons"
+            model.add(Dense(np.sum(axons_in_path), activation='sigmoid', use_bias=True))
+            
+            # "pathway activation layer"
+            model.add(Dense(1, activation='sigmoid', use_bias=False))
+    
+            adam = optimizers.Adamax(learning_rate=config['learning_rate'])
+            model.compile(optimizer=adam, loss='mean_squared_error', metrics=['mse'])
+            
+            return model
+        
+        # Define a function to evaluate the model based on the absolute error threshold
+        def evaluate_performance(model, X_test, y_test, error_threshold=0.05):
+            predictions = model.predict(X_test)
+    
+            absolute_errors = np.abs(predictions - y_test)
+            relative_errors = np.abs((predictions - y_test) / y_test) * 100
+            above_threshold_count = np.sum(absolute_errors > error_threshold)
+            return 100.0*above_threshold_count/absolute_errors.shape[0]
+    
+        # Generate a list of epochs where the median is 250
+        def generate_epochs_list(num_values, median_value):
+            """Generates a list of integers with a specified median."""
+            if num_values <= 0:
+                return []
+        
+            epochs_list = []
+            for i in range(num_values):
+                epochs_list.append(median_value + (i - num_values // 2) * 10)  # Linear distribution
+            return epochs_list
+    
+        # # Define a set of parameter configurations to test
+        learning_rates = [0.005,0.0025,0.001]
+        num_layers = 1
+        neurons_options = [64, 128, 256, 512, 1024]
+        input_neurons_options = [128,256,512]
+        epochs_options = [250, 500, 1000]
+        dropout_options = [None,0.2]
+        
+        # Calculate the total number of configurations
+        num_configs = len(input_neurons_options) * len(learning_rates) * len(epochs_options) * len(dropout_options) * len(neurons_options)
+        
+        # Create a grid of hidden layer configurations and epochs
+        parameter_configs = []
+        config_index = 0
+        
+        for dropout in dropout_options:
+            for learning_rate in learning_rates:
+                for input_neurons in input_neurons_options:
+                    for neurons_per_layer in neurons_options:
+                        for epochs in epochs_options:
+                            layers = [neurons_per_layer] * num_layers
+                            config = {
+                                'name': f'config_{config_index + 1}',
+                                'input_neurons': input_neurons,
+                                'hidden_layers': layers,
+                                'learning_rate': learning_rate,
+                                'epochs': epochs,
+                                'dropout': dropout
+                            }
+                            parameter_configs.append(config)
+                            config_index += 1
+        
+        # Define the filename for the CSV file
+        csv_filename = os.path.join(self.stim_dir,'NB' + HEMI_SUFFIX[self.hemi_idx], "ann_performance_summary_" + self.pathway + ".csv")
+        
+        # Prepare the header row for the CSV file
+        header = ['model_name', 'input_neurons', 'hidden_layers', 'learning_rate', 'epochs', 'dropout', 'percent_samples_above_5_percent_error']
+        
+        # just initialization for now
+        performance_best = X_validation.shape[0] 
+        
+        # Train and evaluate each model configuration and write results to CSV
+        for config in parameter_configs:
+        
+            # Open the CSV file in write mode        
+            with open(csv_filename, 'a') as csvfile:
+                writer = csv.writer(csvfile)
+        
+                if config['name'] == 'config_1':
+                    # Write the header row
+                    writer.writerow(header)
+                    best_config = config
+            
+                print(f"Training and evaluating model: {config['name']}")
+                model = create_model(config)
+                model.fit(X_train, y_train, epochs=config['epochs'], verbose=0)
+                performance = evaluate_performance(model, X_validation, y_validation, error_threshold=0.05)
+                row = [
+                    config['name'],
+                    config['input_neurons'],
+                    config.get('hidden_layers', []),
+                    config['learning_rate'],
+                    config['epochs'],
+                    config.get('dropout', False),
+                    performance
+                ]
+                writer.writerow(row)
+                print(row)
+                print(f"Model '{config['name']}' - Number of test samples with > 5% absolute error: {performance}\n")
+    
+                if performance < performance_best:
+                    # the less the value, the better
+                    performance_best = performance
+                    best_config = config
+    
+                if performance == 0:
+                    print(f"Model '{config['name']}' reached null error\n")
+                    break
+                
+        print("Best Configuration:")
+        print(best_config)
+        print(f"\n--- Summary of Results stored in '{csv_filename}' --- \n")
+        print("--- Testing the Best Configuration ---")
 
-        # 4. Test and Analyze
-        if self.data_processor.no_test:
-            # Save model if no test data exists
-            pathway_to_save = pathway_filtered[0]
-            save_path = os.path.join(self.stim_dir, 'NB' + HEMI_SUFFIX[self.hemi_idx], f'ANN_approved_model_{pathway_to_save}')
-            self.model.save_model(save_path)
-            return pathway_filtered
-        
-        # Testing phase
-        y_test = y_train_filtered if self.data_processor.no_test else y_test_filtered
-        y_predicted = self.model.predict(X_test)
-        
-        # Evaluate model (optional, for metrics printing)
-        # self.model.model.evaluate(X_test, y_test)
+        # validate the best configuration
+        model = create_model(best_config)
+        model.fit(X_train, y_train, epochs=best_config['epochs'], verbose=0)
+
+        y_predicted = model.predict(X_test)
         
         error_ANN, error_ANN_bi, error_ANN_mono = self.reporter.calculate_errors(
             X_test, y_test, y_predicted, self.check_trivial
         )
 
         self.reporter.analyze_and_plot_ann_errors(
-            pathway_filtered, X_test, error_ANN, error_ANN_bi, error_ANN_mono, self.check_trivial
+            pathway_filtered, X_test, y_test, error_ANN, error_ANN_bi, error_ANN_mono, self.check_trivial
         )
 
         # 5. Check Error Thresholds
@@ -343,12 +458,11 @@ class PathwayApproximator:
         if errors_acceptable:
             pathway_to_save = pathway_filtered[0]
             save_path = os.path.join(self.stim_dir, 'NB' + HEMI_SUFFIX[self.hemi_idx], f'ANN_approved_model_{pathway_to_save}')
-            self.model.save_model(save_path)
+            model.save_model(save_path)
             return pathway_filtered
         else:
             print(f"ANN model for {self.pathway} failed error threshold check.")
             return None
-
 
 if __name__ == '__main__':
     # Called from MATLAB
