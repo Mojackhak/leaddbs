@@ -8,6 +8,7 @@ function [itk_fwd_field, itk_inv_field] = ea_easyreg(target_image, source_image)
     target_seg = strrep(target_image, '.nii', '_synthseg.nii');
     source_seg = strrep(source_image, '.nii', '_synthseg.nii');
     fs_fwd_field = strrep(source_image, '.nii', '_fs_fwd_field.nii');
+    fs_inv_field = strrep(source_image, '.nii', '_fs_inv_field.nii');
 
     % Check Conda environment
     condaenv = ea_conda_env('EasyReg');
@@ -27,6 +28,7 @@ function [itk_fwd_field, itk_inv_field] = ea_easyreg(target_image, source_image)
         '--ref', ea_path_helper(target_image), '--ref_seg', ea_path_helper(target_seg), ...
         '--flo', ea_path_helper(source_image), '--flo_seg', ea_path_helper(source_seg), ...
         '--fwd_field', ea_path_helper(fs_fwd_field), ...
+        '--bak_field', ea_path_helper(fs_inv_field), ...
         '--threads -1'};
 
     status = condaenv.system(strjoin(easyreg_cmd, ' '));
@@ -43,15 +45,11 @@ function [itk_fwd_field, itk_inv_field] = ea_easyreg(target_image, source_image)
     ea_delete(itk_fwd_field);
     freesurfer_nii_to_itk_h5(fs_fwd_field, itk_fwd_field);
 
-    % Set-up Custom Slicer
-    s4l = ea_slicer_for_lead;
-    if ~s4l.is_up_to_date()
-        s4l.install();
-    end
-
-    % Invert transform
+    % Convert EasyReg's native backward field instead of numerically
+    % inverting the forward field in Slicer.
     itk_inv_field = strrep(itk_fwd_field, '_fwd_', '_inv_');
-    ea_slicer_invert_transform(itk_fwd_field, source_image, itk_inv_field)
+    ea_delete(itk_inv_field);
+    freesurfer_nii_to_itk_h5(fs_inv_field, itk_inv_field);
 
     % .h5 to .nii.gz
     ea_conv_antswarps(itk_fwd_field, target_image, 1);
@@ -60,7 +58,7 @@ function [itk_fwd_field, itk_inv_field] = ea_easyreg(target_image, source_image)
     itk_fwd_field = strrep(itk_fwd_field, '.h5', '.nii.gz');
     itk_inv_field = strrep(itk_inv_field, '.h5', '.nii.gz');
 
-    ea_delete({source_seg, fs_fwd_field});
+    ea_delete({source_seg, fs_fwd_field, fs_inv_field});
 
 end
 
@@ -82,24 +80,21 @@ out_column = reshape(out_rows,[],1);
 
 % copy template h5 file
 copyfile(fullfile(ea_getearoot, 'ext_libs', 'EasyReg', 'itk_h5_template.h5'), warp_file_out);
-
-if ~strcmp(ea_getspace, 'MNI152NLin2009bAsym')
-    % calculate TransformFixedParameters
-    spacedef = ea_getspacedef;
-    primarytemplate = [ea_space, spacedef.templates{1}, '.nii'];
-    hdr = ea_fslhd(primarytemplate);
-    TransformFixedParameters = zeros(18,1);
-    TransformFixedParameters(1:3) = [hdr.dim1; hdr.dim2; hdr.dim3];
-    TransformFixedParameters(4:6) = [-hdr.sto_xyz1(4); -hdr.sto_xyz2(4); hdr.sto_xyz3(4)]; % RAS to LPS applied
-    TransformFixedParameters(7:9) = [hdr.pixdim1; hdr.pixdim2; hdr.pixdim3];
-    TransformFixedParameters(10:18) = [-hdr.sto_xyz1(1:3)'/hdr.pixdim1; -hdr.sto_xyz2(1:3)'/hdr.pixdim2; hdr.sto_xyz3(1:3)'/hdr.pixdim3]; % RAS to LPS applied
-
-    % update TransformFixedParameters in h5
-    h5write(warp_file_out, "/TransformGroup/0/TransformFixedParameters", TransformFixedParameters);
-end
+h5write(warp_file_out, "/TransformGroup/0/TransformFixedParameters", ea_itk_grid_fixed_parameters(warp_file_in));
 
 % save TransformParameters in h5 
 h5create(warp_file_out, "/TransformGroup/0/TransformParameters", numel(out_column));
 h5write(warp_file_out, "/TransformGroup/0/TransformParameters", out_column);
+
+end
+
+function TransformFixedParameters = ea_itk_grid_fixed_parameters(reference_image)
+
+hdr = ea_fslhd(reference_image);
+TransformFixedParameters = zeros(18,1);
+TransformFixedParameters(1:3) = [hdr.dim1; hdr.dim2; hdr.dim3];
+TransformFixedParameters(4:6) = [-hdr.sto_xyz1(4); -hdr.sto_xyz2(4); hdr.sto_xyz3(4)]; % RAS to LPS applied
+TransformFixedParameters(7:9) = [hdr.pixdim1; hdr.pixdim2; hdr.pixdim3];
+TransformFixedParameters(10:18) = [-hdr.sto_xyz1(1:3)'/hdr.pixdim1; -hdr.sto_xyz2(1:3)'/hdr.pixdim2; hdr.sto_xyz3(1:3)'/hdr.pixdim3]; % RAS to LPS applied
 
 end
