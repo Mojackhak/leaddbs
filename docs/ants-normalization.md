@@ -15,3 +15,10 @@ When switching from another normalization method that writes ANTs-compatible
 `desc-ants.nii.gz` files, choose "Start from scratch" in the existing-transform
 prompt if the intended result should be a pure ANTs run rather than a refinement
 of the previous transform.
+
+ANTs presets are present in two parameter schemas. Legacy Lead-DBS presets
+define top-level metric and convergence fields, while ANTs-default presets
+define stage-specific `rigid`, `affine`, and `syn` structures. Normalization
+code must accept both schemas. If a stage-specific preset does not define a
+separate subcortical-refinement stage, the SyN stage parameters are reused for
+that refinement.

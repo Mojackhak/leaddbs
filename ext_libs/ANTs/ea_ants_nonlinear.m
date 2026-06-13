@@ -112,8 +112,6 @@ ccpref.metric = 'MeanSquares';
 ccpref.metricsuffix = '';
 
 metrics_prefix_suffix = cell(length(fixedimage),2);
-[metrics_prefix_suffix{~is_segmentation,1}] = deal(apref.metric);
-[metrics_prefix_suffix{~is_segmentation,2}] = deal(apref.metricsuffix);
 [metrics_prefix_suffix{is_segmentation,1}] = deal(ccpref.metric);
 [metrics_prefix_suffix{is_segmentation,2}] = deal(ccpref.metricsuffix);
 
@@ -135,17 +133,17 @@ basedir = [fileparts(mfilename('fullpath')), filesep];
 ANTS = ea_getExec([basedir, 'antsRegistration'], escapePath = 1);
 
 
-rigidconvergence = apref.convergence.rigid;
-rigidshrinkfactors = apref.shrinkfactors.rigid;
-rigidsmoothingssigmas = apref.smoothingsigmas.rigid;
+rigidconvergence = get_stage_parameter(apref, 'rigid', 'convergence');
+rigidshrinkfactors = get_stage_parameter(apref, 'rigid', 'shrinkfactors');
+rigidsmoothingssigmas = get_stage_parameter(apref, 'rigid', 'smoothingsigmas');
 
-affineconvergence = apref.convergence.affine;
-affineshrinkfactors = apref.shrinkfactors.affine;
-affinesmoothingssigmas = apref.smoothingsigmas.affine;
+affineconvergence = get_stage_parameter(apref, 'affine', 'convergence');
+affineshrinkfactors = get_stage_parameter(apref, 'affine', 'shrinkfactors');
+affinesmoothingssigmas = get_stage_parameter(apref, 'affine', 'smoothingsigmas');
 
-synconvergence = apref.convergence.syn;
-synshrinkfactors = apref.shrinkfactors.syn;
-synsmoothingssigmas = apref.smoothingsigmas.syn;
+synconvergence = get_stage_parameter(apref, 'syn', 'convergence');
+synshrinkfactors = get_stage_parameter(apref, 'syn', 'shrinkfactors');
+synsmoothingssigmas = get_stage_parameter(apref, 'syn', 'smoothingsigmas');
 
 fixedmask = ea_niigz(fullfile(fileparts(fileparts(fileparts(movingimage{end}))), 'masks', 'mask_fixed.nii'));
 
@@ -167,7 +165,7 @@ else
     movingmask = 'NULL';
 end
 
-rigidstage = [' --transform Rigid[0.25]' ... % bit faster gradient step (see https://github.com/stnava/ANTs/wiki/Anatomy-of-an-antsRegistration-call)
+rigidstage = [' --transform Rigid[', get_linear_gradient_step(apref, 'rigid', '0.25'), ']' ... % bit faster gradient step (see https://github.com/stnava/ANTs/wiki/Anatomy-of-an-antsRegistration-call)
     ' --convergence ', rigidconvergence, ...
     ' --shrink-factors ', rigidshrinkfactors, ...
     ' --smoothing-sigmas ', rigidsmoothingssigmas, ...
@@ -176,11 +174,11 @@ rigidstage = [' --transform Rigid[0.25]' ... % bit faster gradient step (see htt
 for fi = 1:length(fixedimage)
     if ~is_segmentation(fi) && ~is_slab(fi)
         rigidstage = [rigidstage,...
-            get_metric_command(fixedimage{fi}, movingimage{fi}, weights(fi), metrics_prefix_suffix(fi,:))];
+            get_metric_command(fixedimage{fi}, movingimage{fi}, weights(fi), get_metric_prefix_suffix(apref, 'rigid'))];
     end
 end
 
-affinestage = [' --transform Affine[0.15]'... % bit faster gradient step (see https://github.com/stnava/ANTs/wiki/Anatomy-of-an-antsRegistration-call)
+affinestage = [' --transform Affine[', get_linear_gradient_step(apref, 'affine', '0.15'), ']'... % bit faster gradient step (see https://github.com/stnava/ANTs/wiki/Anatomy-of-an-antsRegistration-call)
     ' --convergence ', affineconvergence, ...
     ' --shrink-factors ', affineshrinkfactors ...
     ' --smoothing-sigmas ', affinesmoothingssigmas, ...
@@ -189,11 +187,11 @@ affinestage = [' --transform Affine[0.15]'... % bit faster gradient step (see ht
 for fi = 1:length(fixedimage)
     if ~is_segmentation(fi) && ~is_slab(fi)
         affinestage = [affinestage,...
-            get_metric_command(fixedimage{fi}, movingimage{fi}, weights(fi), metrics_prefix_suffix(fi,:))];
+            get_metric_command(fixedimage{fi}, movingimage{fi}, weights(fi), get_metric_prefix_suffix(apref, 'affine'))];
     end
 end
 
-synstage = [' --transform ',apref.antsmode,apref.antsmode_suffix...
+synstage = [' --transform ', get_transform_command(apref, 'syn'), ...
     ' --convergence ', synconvergence, ...
     ' --shrink-factors ', synshrinkfactors ...
     ' --smoothing-sigmas ', synsmoothingssigmas, ...
@@ -204,13 +202,13 @@ for fi = 1:length(fixedimage)
         continue
     else
         synstage = [synstage,...
-            get_metric_command(fixedimage{fi}, movingimage{fi}, weights(fi), metrics_prefix_suffix(fi,:))];
+            get_metric_command(fixedimage{fi}, movingimage{fi}, weights(fi), get_metric_prefix_suffix(apref, 'syn', metrics_prefix_suffix(fi,:)))];
     end
 end
 
 % Add slab stage
 if slab_present
-    slabstage = [' --transform ',apref.antsmode,apref.antsmode_suffix...
+    slabstage = [' --transform ', get_transform_command(apref, 'syn'), ...
         ' --convergence ', synconvergence, ...
         ' --shrink-factors ', synshrinkfactors ...
         ' --smoothing-sigmas ', synsmoothingssigmas, ...
@@ -218,7 +216,7 @@ if slab_present
 
     for fi = 1:length(fixedimage)
         slabstage = [slabstage,...
-            get_metric_command(fixedimage{fi}, movingimage{fi}, weights(fi), metrics_prefix_suffix(fi,:))];
+            get_metric_command(fixedimage{fi}, movingimage{fi}, weights(fi), get_metric_prefix_suffix(apref, 'syn', metrics_prefix_suffix(fi,:)))];
     end
 else
     slabstage = '';
@@ -226,18 +224,18 @@ end
 
 % Add subcortical refine stage
 if  options.prefs.machine.normsettings.ants_scrf
-    synmaskconvergence = apref.convergence.scrf;
-    synmaskshrinkfactors = apref.shrinkfactors.scrf;
-    synmasksmoothingssigmas = apref.smoothingsigmas.scrf;
+    synmaskconvergence = get_stage_parameter(apref, 'scrf', 'convergence', 'syn');
+    synmaskshrinkfactors = get_stage_parameter(apref, 'scrf', 'shrinkfactors', 'syn');
+    synmasksmoothingssigmas = get_stage_parameter(apref, 'scrf', 'smoothingsigmas', 'syn');
 
-    synmaskstage = [' --transform ',apref.antsmode,apref.antsmode_suffix, ...
+    synmaskstage = [' --transform ', get_transform_command(apref, 'scrf', 'syn'), ...
         ' --convergence ', synmaskconvergence, ...
         ' --shrink-factors ', synmaskshrinkfactors,  ...
         ' --smoothing-sigmas ', synmasksmoothingssigmas, ...
         ' --masks [',ea_path_helper([ea_space([],'subcortical'),'secondstepmask','.nii']),',',slab_movingmask,']'];
     for fi = 1:length(fixedimage)
         synmaskstage = [synmaskstage,...
-            get_metric_command(fixedimage{fi}, movingimage{fi}, weights(fi), metrics_prefix_suffix(fi,:))];
+            get_metric_command(fixedimage{fi}, movingimage{fi}, weights(fi), get_metric_prefix_suffix(apref, 'syn', metrics_prefix_suffix(fi,:)))];
     end
 else
     synmaskstage = '';
@@ -268,3 +266,64 @@ end
 
 function out = get_metric_command(fixed_image, moving_image, weight, metric_prefix_sufix)
     out = [' --metric ' metric_prefix_sufix{1} '[' ea_path_helper(fixed_image) ',' ea_path_helper(moving_image) ',' num2str(weight) metric_prefix_sufix{2} ']'];
+
+
+function value = get_stage_parameter(apref, stage, parameter, fallback_stage)
+
+if nargin < 4
+    fallback_stage = '';
+end
+
+if isfield(apref, parameter) && isfield(apref.(parameter), stage)
+    value = apref.(parameter).(stage);
+elseif isfield(apref, stage) && isfield(apref.(stage), parameter)
+    value = apref.(stage).(parameter);
+elseif ~isempty(fallback_stage)
+    value = get_stage_parameter(apref, fallback_stage, parameter);
+else
+    error('ANTs preset does not define %s parameters for the %s stage.', parameter, stage);
+end
+
+
+function transform = get_transform_command(apref, stage, fallback_stage)
+
+if nargin < 3
+    fallback_stage = '';
+end
+
+if isfield(apref, 'antsmode') && isfield(apref, 'antsmode_suffix')
+    transform = [apref.antsmode, apref.antsmode_suffix];
+elseif isfield(apref, stage) && isfield(apref.(stage), 'gradientstep')
+    transform = ['SyN[', apref.(stage).gradientstep, ']'];
+elseif ~isempty(fallback_stage)
+    transform = get_transform_command(apref, fallback_stage);
+else
+    error('ANTs preset does not define a transform for the %s stage.', stage);
+end
+
+
+function gradient_step = get_linear_gradient_step(apref, stage, default_gradient_step)
+
+if isfield(apref, stage) && isfield(apref.(stage), 'gradientstep')
+    gradient_step = apref.(stage).gradientstep;
+else
+    gradient_step = default_gradient_step;
+end
+
+
+function metric_prefix_suffix = get_metric_prefix_suffix(apref, stage, segmentation_metric)
+
+if nargin >= 3 && ~isempty(segmentation_metric{1})
+    metric_prefix_suffix = segmentation_metric;
+elseif isfield(apref, stage) && isfield(apref.(stage), 'metric')
+    metric_prefix_suffix = {apref.(stage).metric, metric_params_to_suffix(apref.(stage).metricparams)};
+elseif isfield(apref, 'metric') && isfield(apref, 'metricsuffix')
+    metric_prefix_suffix = {apref.metric, apref.metricsuffix};
+else
+    error('ANTs preset does not define metric parameters for the %s stage.', stage);
+end
+
+
+function suffix = metric_params_to_suffix(metricparams)
+
+suffix = regexprep(metricparams, '^[^,]*', '');
