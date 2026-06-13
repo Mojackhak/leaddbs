@@ -20,14 +20,19 @@ if ~exist('ref', 'var')
 end
 
 json = loadjson(options.subj.norm.log.method);
+useAntsTransform = ea_norm_log_uses_ants_transform(json);
 
 if ischar(interp)
     if strcmp(interp,'auto') % only works if one image supplied
-        interp=detinterp(from,contains(json.method, {'ANTs', 'EasyReg', 'SynthMorph', 'SPM'}));
+        interp=detinterp(from,useAntsTransform);
     end
 end
 
-if contains(json.method, {'ANTs', 'EasyReg', 'SynthMorph', 'SPM'})
+if useAntsTransform
+    if contains(json.method, 'SPM')
+        % Convert legacy SPM fields if the ANTs field has not been written yet.
+        ea_convert_spm_warps(options.subj);
+    end
     ea_ants_apply_transforms(options, from, to, useinverse, ref, '', interp);
 elseif contains(json.method, 'FNIRT')
     if useinverse
@@ -38,10 +43,6 @@ elseif contains(json.method, 'FNIRT')
         end
     end
     ea_fsl_apply_normalization(options, from,to, useinverse, ref, '', interp);
-elseif contains(json.method, 'SPM')
-    % Convert SPM deformation field to ITK format when necessary
-    ea_convert_spm_warps(options.subj);
-    ea_ants_apply_transforms(options, from, to, useinverse, ref, '', interp);
 end
 
 
@@ -72,6 +73,5 @@ if length(outs)<100 % likely labeling file
         end
     end
 end
-
 
 

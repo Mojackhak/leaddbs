@@ -111,20 +111,11 @@ else
 end
 
 if isempty(transform)
-    json = loadjson(options.subj.norm.log.method);
-    if isfield(json, 'custom') && json.custom
-        % Custom full path of the transformation supplied.
-        warpSuffix = '';
-    elseif contains(json.method, 'affine', 'IgnoreCase', true)
-        % Three-step affine normalization (Schonecker 2009) used
-        warpSuffix = 'ants.mat';
-    else
-        warpSuffix = 'ants.nii.gz';
-    end
+    transformfiles = ea_gettransformfiles(options);
     if useinverse
-        transform = [options.subj.norm.transform.inverseBaseName, warpSuffix];
+        transform = transformfiles.inverse;
     else
-        transform = [options.subj.norm.transform.forwardBaseName, warpSuffix];
+        transform = transformfiles.forward;
     end
 end
 

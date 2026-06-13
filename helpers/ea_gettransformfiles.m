@@ -11,6 +11,31 @@ catch
     return;
 end
 
+if isfield(json, 'custom') && json.custom
+    % Custom full path of the transformation supplied.
+    warpSuffix = '';
+else
+    transformFormat = ea_norm_log_transform_format(json);
+    switch transformFormat
+        case 'ants'
+            warpSuffix = 'ants.nii.gz';
+        case 'ants_affine'
+            warpSuffix = 'ants.mat';
+        case 'fnirt'
+            warpSuffix = get_existing_fnirt_suffix(options);
+        otherwise
+            warpSuffix = get_legacy_warp_suffix(json, options);
+    end
+end
+
+transformfiles.forward=[options.subj.norm.transform.forwardBaseName,warpSuffix];
+transformfiles.inverse=[options.subj.norm.transform.inverseBaseName,warpSuffix];
+
+
+function warpSuffix = get_legacy_warp_suffix(json, options)
+
+warpSuffix = 'ants.nii.gz';
+
 if contains(json.method, 'ANTs')
     if isfield(json, 'custom') && json.custom
         % Custom full path of the transformation supplied.
@@ -22,15 +47,21 @@ if contains(json.method, 'ANTs')
         warpSuffix = 'ants.nii.gz';
     end
 elseif contains(json.method, 'FNIRT')
-    warpSuffix='fnirt.nii.gz'; % correct?
+    warpSuffix=get_existing_fnirt_suffix(options);
 elseif contains(json.method, 'SPM')
-    warpSuffix='spm.nii';
+    warpSuffix='ants.nii.gz';
 elseif contains(json.method, 'EasyReg')
     warpSuffix='ants.nii.gz';
 elseif contains(json.method, 'SynthMorph')
     warpSuffix='ants.nii.gz';
 end
 
-transformfiles.forward=[options.subj.norm.transform.forwardBaseName,warpSuffix];
-transformfiles.inverse=[options.subj.norm.transform.inverseBaseName,warpSuffix];
 
+function warpSuffix = get_existing_fnirt_suffix(options)
+
+if isfile([options.subj.norm.transform.forwardBaseName, 'fnirt.nii.gz']) || ...
+        isfile([options.subj.norm.transform.inverseBaseName, 'fnirt.nii.gz'])
+    warpSuffix = 'fnirt.nii.gz';
+else
+    warpSuffix = 'fnirt.nii';
+end

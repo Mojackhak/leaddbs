@@ -257,6 +257,14 @@ cfg.synstage = synstage;
 cfg.slabstage = slabstage;
 cfg.synmaskstage = synmaskstage;
 
+if isfield(options, 'normalize') && isfield(options.normalize, 'refineContext')
+    cfg.skip_existing_transform_prompt = true;
+    if strcmp(options.normalize.refineContext.mode, 'refine')
+        cfg.rigidstage = '';
+        cfg.affinestage = '';
+    end
+end
+
 ea_ants_run(cfg);
 
 if exist('tmaskdir','var')

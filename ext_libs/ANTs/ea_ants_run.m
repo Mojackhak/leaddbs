@@ -5,7 +5,12 @@ function ea_ants_run(cfg)
 ea_mkdir(fileparts(cfg.outputbase));
 ea_mkdir(fileparts(cfg.outputimage));
 
-ants_transforms = dir(fullfile(fileparts(cfg.outputbase), '*_desc-ants.*'));
+skip_existing_transform_prompt = isfield(cfg, 'skip_existing_transform_prompt') && cfg.skip_existing_transform_prompt;
+if skip_existing_transform_prompt
+    ants_transforms = [];
+else
+    ants_transforms = dir(fullfile(fileparts(cfg.outputbase), '*_desc-ants.*'));
+end
 
 refinewarp = 0;
 if ~isempty(ants_transforms) % prior ANTs transform found.
