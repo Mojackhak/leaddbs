@@ -258,7 +258,14 @@ if ~strcmp(options.patientname,'No Patient Selected') && ~isempty(options.patien
         end
     end
 
-    if options.scrf.do
+    hasBrainshiftAnat = isfield(options.subj, 'brainshift') ...
+        && isfield(options.subj.brainshift, 'anat') ...
+        && isfield(options.subj.brainshift.anat, 'scrf');
+    hasBrainshiftInstore = hasBrainshiftAnat ...
+        && isfield(options.subj.brainshift, 'transform') ...
+        && isfield(options.subj.brainshift.transform, 'instore');
+
+    if options.scrf.do && hasBrainshiftAnat
         if ~ea_reglocked(options, options.subj.brainshift.anat.scrf) || options.overwriteapproved
             options.autobrainshift = 1;
             ea_subcorticalrefine(options);
@@ -288,7 +295,8 @@ if ~strcmp(options.patientname,'No Patient Selected') && ~isempty(options.patien
         e=evalin('base', 'checkregempty');
         evalin('base',' clear checkregempty');
 
-        if e && ~ea_reglocked(options, options.subj.brainshift.anat.scrf) ...
+        if e && hasBrainshiftInstore ...
+             && ~ea_reglocked(options, options.subj.brainshift.anat.scrf) ...
              && isfile(options.subj.brainshift.transform.instore)
             ea_subcorticalrefine(options);
         end
