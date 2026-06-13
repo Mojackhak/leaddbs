@@ -1,16 +1,14 @@
-function pair = ea_norm_get_transform_pair(options)
-% Return the newest complete normalization transform pair for this subject.
+function pairs = ea_norm_get_transform_pair(options)
+% Return complete normalization transform pairs for this subject/template.
 
-pair = empty_pair;
+pairs = repmat(empty_pair, 0, 1);
 
 suffixes = {
-    'ants.nii.gz', 'ants'
-    'ants.mat',    'ants_affine'
-    'fnirt.nii.gz','fnirt'
-    'fnirt.nii',   'fnirt'
+    'ants.nii.gz',  'ants',        'ANTs-compatible'
+    'ants.mat',     'ants_affine', 'ANTs affine / Three-step'
+    'fnirt.nii.gz', 'fnirt',       'FNIRT'
+    'fnirt.nii',    'fnirt',       'FNIRT'
 };
-
-candidates = repmat(empty_pair, 0, 1);
 
 for idx = 1:size(suffixes, 1)
     forward = [options.subj.norm.transform.forwardBaseName, suffixes{idx, 1}];
@@ -29,19 +27,16 @@ for idx = 1:size(suffixes, 1)
     candidate.inverse = inverse;
     candidate.suffix = suffixes{idx, 1};
     candidate.format = suffixes{idx, 2};
+    candidate.method = suffixes{idx, 2};
+    candidate.label = suffixes{idx, 3};
     candidate.modified = max([forwardInfo.datenum, inverseInfo.datenum]);
     candidate.forwardModified = forwardInfo.datenum;
     candidate.inverseModified = inverseInfo.datenum;
 
-    candidates(end+1) = candidate; %#ok<AGROW>
+    if ~any(strcmp({pairs.method}, candidate.method))
+        pairs(end+1) = candidate; %#ok<AGROW>
+    end
 end
-
-if isempty(candidates)
-    return;
-end
-
-[~, newest] = max([candidates.modified]);
-pair = candidates(newest);
 
 
 function pair = empty_pair
@@ -52,6 +47,8 @@ pair = struct( ...
     'inverse', '', ...
     'suffix', '', ...
     'format', '', ...
+    'method', '', ...
+    'label', '', ...
     'modified', 0, ...
     'forwardModified', 0, ...
     'inverseModified', 0);

@@ -6,7 +6,8 @@ if ~strcmp(context.mode, 'refine')
     return;
 end
 
-residual = ea_norm_get_transform_pair(runOptions);
+residualCandidates = ea_norm_get_transform_pair(runOptions);
+residual = select_residual_pair(residualCandidates, runOptions.normalize.method);
 if ~residual.found
     ea_error('Refinement failed because the residual normalization did not produce a complete transform pair.');
 end
@@ -77,3 +78,38 @@ status = ea_runcmd(cmd);
 if status
     ea_error('Failed to compose normalization refinement transforms.');
 end
+
+
+function residual = select_residual_pair(candidates, method)
+
+residual = empty_pair;
+
+if isempty(candidates)
+    return;
+end
+
+targetMethod = ea_norm_method_transform_format(method);
+candidateIndex = find(strcmp({candidates.method}, targetMethod), 1);
+
+if isempty(candidateIndex) && isscalar(candidates)
+    candidateIndex = 1;
+end
+
+if ~isempty(candidateIndex)
+    residual = candidates(candidateIndex);
+end
+
+
+function pair = empty_pair
+
+pair = struct( ...
+    'found', false, ...
+    'forward', '', ...
+    'inverse', '', ...
+    'suffix', '', ...
+    'format', '', ...
+    'method', '', ...
+    'label', '', ...
+    'modified', 0, ...
+    'forwardModified', 0, ...
+    'inverseModified', 0);

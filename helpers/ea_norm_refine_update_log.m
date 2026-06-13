@@ -12,6 +12,8 @@ json.refine.mode = context.mode;
 json.refine.residual_method = context.method;
 
 if isfield(context, 'prior') && isfield(context.prior, 'found') && context.prior.found
+    json.refine.prior_method = context.prior.method;
+    json.refine.prior_label = context.prior.label;
     json.refine.prior.forward = context.prior.forward;
     json.refine.prior.inverse = context.prior.inverse;
     json.refine.prior.format = context.prior.format;

@@ -1,10 +1,11 @@
 # Cross-method normalization refinement
 
 Lead-DBS normalization recompute uses a shared refinement layer before the
-method-specific registration is launched. When a valid previous transform pair
-exists for the same subject and template space, interactive sessions ask the
-user whether to `Refine` or `Start from scratch`. Non-interactive sessions start
-from scratch unless the normalization options explicitly request refinement.
+method-specific registration is launched. When valid previous transform pairs
+exist for the same subject and template space, interactive sessions show one
+dialog with a method dropdown plus `Refine` and `Start from scratch` buttons.
+Non-interactive sessions start from scratch unless the normalization options
+explicitly request refinement and name a prior transform method.
 
 ## Transform selection
 
@@ -18,8 +19,23 @@ space. Supported previous transform formats are:
 - `desc-fnirt.nii.gz`
 
 Only complete forward/inverse pairs are eligible. Temporary residual files and
-unpaired outputs are ignored. If several pairs are available, the newest pair by
-file modification time is used.
+unpaired outputs are ignored. If several pairs are available, they are grouped
+by transform method and shown in the dropdown:
+
+- `ANTs-compatible` for `desc-ants.nii.gz`
+- `ANTs affine / Three-step` for `desc-ants.mat`
+- `FNIRT` for `desc-fnirt.nii` or `desc-fnirt.nii.gz`
+
+The newest transform is never selected automatically. In interactive mode, the
+user chooses the method in the dropdown and then clicks `Refine`. Closing the
+dialog cancels the normalization recompute. Clicking `Start from scratch`
+ignores the dropdown selection and runs the selected normalization method from
+scratch.
+
+In non-interactive mode, `options.normalize.refineMode = 'refine'` must be
+paired with `options.normalize.refinePriorMethod`, using one of `ants`,
+`ants_affine`, or `fnirt`. If the requested method has no complete pair,
+normalization errors instead of falling back to another transform.
 
 ## Refine mode
 
@@ -41,10 +57,10 @@ The final files are saved as:
 - `options.subj.norm.transform.forwardBaseName + 'ants.nii.gz'`
 - `options.subj.norm.transform.inverseBaseName + 'ants.nii.gz'`
 
-The method log records `refine.mode`, selected prior transform paths, the
-residual method, and `transform.format = 'ants'` so later apply operations use
-the composite ANTs field even when the method name is FNIRT, SPM, EasyReg, or
-SynthMorph.
+The method log records `refine.mode`, `refine.prior_method`, selected prior
+transform paths, the residual method, and `transform.format = 'ants'` so later
+apply operations use the composite ANTs field even when the method name is
+FNIRT, SPM, EasyReg, or SynthMorph.
 
 ## Start from scratch
 
