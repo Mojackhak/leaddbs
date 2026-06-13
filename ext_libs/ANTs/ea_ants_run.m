@@ -58,9 +58,11 @@ movinginit = ea_path_helper(movinginit);
 
 if refinewarp
     writecomposite = '0';
-    forward_idx = cellfun(@(x) ~isempty(regexp(x, '.*from-anchorNative.*', 'once')), {ants_transforms.name});
-    cfg.initial_transform = fullfile(ants_transforms(forward_idx).folder, ants_transforms(forward_idx).name);
-    cfg.initial_inv_transform = fullfile(ants_transforms(~forward_idx).folder, ants_transforms(~forward_idx).name);
+    transform_names = {ants_transforms.name};
+    transform_paths = arrayfun(@(x) fullfile(x.folder, x.name), ants_transforms, 'UniformOutput', false);
+    forward_idx = cellfun(@(x) ~isempty(regexp(x, '.*from-anchorNative.*', 'once')), transform_names);
+    cfg.initial_transform = select_initial_ants_transform(transform_paths(forward_idx));
+    cfg.initial_inv_transform = select_initial_ants_transform(transform_paths(~forward_idx));
     initreg = [' --initial-moving-transform ', ea_path_helper(cfg.initial_transform)];
 else
     writecomposite = '1';
@@ -166,3 +168,31 @@ invcmd = [applyTransforms ' -r ' ea_path_helper(props.moving) ...
 
 ea_runcmd(cmd);
 ea_runcmd(invcmd);
+
+
+function transform = select_initial_ants_transform(candidates)
+
+if isempty(candidates)
+    error('No existing ANTs transform candidate found for refinement.');
+end
+
+nonlinear = candidates(endsWith(candidates, '.nii.gz'));
+if ~isempty(nonlinear)
+    transform = newest_transform(nonlinear);
+    return;
+end
+
+affine = candidates(endsWith(candidates, '.mat'));
+if ~isempty(affine)
+    transform = newest_transform(affine);
+    return;
+end
+
+transform = newest_transform(candidates);
+
+
+function transform = newest_transform(candidates)
+
+metadata = cellfun(@(x) dir(x), candidates);
+[~, idx] = max([metadata.datenum]);
+transform = candidates{idx};
