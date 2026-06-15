@@ -42,6 +42,16 @@ connectomics/fiber_vis/<stimLabel>/reports
 
 The `activation` output is a VTA-overlap and e-field-threshold proxy by default. It should be described as VTA-hit fibers or peak e-field thresholded fibers, not as full OSS-DBS/PAM axon activation.
 
+## Interactive Figure Controls
+
+The generated Lead-DBS/MATLAB scene includes toolbar toggle buttons for every non-empty visualization object:
+
+- ROI buttons: `NAc R`, `NAc L`, `ALIC R`, and `ALIC L`.
+- VTA buttons: `VTA R` and `VTA L`.
+- Fiber buttons: one button per non-empty fiber bundle, such as `R NAc-ALIC`, `R NAc-ALIC VTA-hit`, and `L VTA-hit`.
+
+All buttons are enabled by default. Clicking a button hides its object; clicking it again shows the object. Empty fiber bundles are skipped and do not get a toolbar button.
+
 ## Example
 
 ```matlab
