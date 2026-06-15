@@ -13,7 +13,7 @@ if isempty(objectHandle)
     return;
 end
 
-objectHandle = objectHandle(ishandle(objectHandle));
+objectHandle = mh_fiber_valid_graphics(objectHandle);
 if isempty(objectHandle)
     return;
 end
@@ -37,17 +37,13 @@ set(objectHandle, 'Visible', state);
 toggleH = uitoggletool(toolbar, ...
     'CData', icon, ...
     'TooltipString', label, ...
-    'OnCallback', {@set_object_visibility, objectHandle, 'on'}, ...
-    'OffCallback', {@set_object_visibility, objectHandle, 'off'}, ...
+    'OnCallback', {@mh_fiber_set_object_visibility, objectHandle, 'on'}, ...
+    'OffCallback', {@mh_fiber_set_object_visibility, objectHandle, 'off'}, ...
     'State', state, ...
     'Tag', matlab.lang.makeValidName(label), ...
     'UserData', userData);
+setappdata(toggleH, 'mh_fiber_target_handles', objectHandle);
+setappdata(toggleH, 'mh_fiber_control_label', label);
+mh_fiber_bind_toolbar_context(toggleH, objectHandle, label);
 
-end
-
-function set_object_visibility(~, ~, objectHandle, state)
-objectHandle = objectHandle(ishandle(objectHandle));
-if ~isempty(objectHandle)
-    set(objectHandle, 'Visible', state);
-end
 end

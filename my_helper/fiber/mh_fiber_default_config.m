@@ -76,6 +76,9 @@ cfg.figure.openAnatomyControl = true;
 cfg.figure.closeAfterSave = false;
 cfg.figure.defaultBackdrop = 'MNI152NLin2009bAsym T1 (Fonov 2011)';
 cfg.figure.defaultSliceTransparency = [100, 100, 100];
+cfg.figure.showVisualizationAtlas = true;
+cfg.figure.visualizationAtlas = 'NAc_ALIC (Yu 2021 and Ewert 2017)';
+cfg.figure.plotExtractedRois = false;
 cfg.figure.colors = struct( ...
     'R', [0.90, 0.18, 0.16], ...
     'L', [0.10, 0.42, 0.88], ...

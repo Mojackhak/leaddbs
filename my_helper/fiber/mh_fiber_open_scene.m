@@ -28,6 +28,8 @@ end
 options.d3.verbose = 'on';
 setappdata(resultfig, 'options', options);
 
+mh_fiber_rebind_scene_controls(resultfig);
+
 try
     awin = ea_anatomycontrol(resultfig, options);
     set(awin, 'Visible', 'on');

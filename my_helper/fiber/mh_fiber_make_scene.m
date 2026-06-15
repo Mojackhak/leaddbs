@@ -20,12 +20,17 @@ else
 end
 options.d3.elrendering = 1;
 options.d3.exportBB = 0;
-options.d3.writeatlases = 0;
+options.d3.writeatlases = double(get_figure_option(cfg, 'showVisualizationAtlas', true));
 options.d3.showactivecontacts = 1;
 options.d3.showpassivecontacts = 1;
 options.d3.showisovolume = 0;
 options.d3.mirrorsides = 0;
-options.atlasset = 'Use none';
+if get_figure_option(cfg, 'showVisualizationAtlas', true)
+    options.atlasset = char(string(get_figure_option(cfg, 'visualizationAtlas', 'NAc_ALIC (Yu 2021 and Ewert 2017)')));
+else
+    options.atlasset = 'Use none';
+end
+options.writeoutstats = 0;
 
 try
     resultfig = ea_elvis(options);
@@ -44,7 +49,9 @@ initialize_anatomy_togglestates(resultfig, options, cfg);
 set(0, 'CurrentFigure', resultfig);
 hold on;
 
-plot_rois(resultfig, rois, cfg);
+if get_figure_option(cfg, 'plotExtractedRois', false)
+    plot_rois(resultfig, rois, cfg);
+end
 plot_vtas(resultfig, vta, cfg);
 plot_fibers(resultfig, dirs, cfg);
 
@@ -54,15 +61,13 @@ axis equal off;
 view(90, 0);
 drawnow;
 
-awin = open_anatomy_control_if_requested(resultfig, options, cfg);
 set(resultfig, 'Visible', 'on');
-if ~isempty(awin) && isvalid(awin)
-    setappdata(resultfig, 'awin', []);
-end
+drawnow;
+mh_fiber_rebind_scene_controls(resultfig);
+open_anatomy_control_if_requested(resultfig, options, cfg);
+transientControls = detach_transient_control_windows(resultfig);
 savefig(resultfig, figures.fig);
-if ~isempty(awin) && isvalid(awin)
-    setappdata(resultfig, 'awin', awin);
-end
+restore_transient_control_windows(resultfig, transientControls);
 try
     exportgraphics(resultfig, figures.png, 'Resolution', 300);
 catch
@@ -209,6 +214,38 @@ try
 catch ME
     warning('mh_fiber_make_scene:AnatomyControlFailed', ...
         'Could not open Lead-DBS Anatomy Slices control: %s', ME.message);
+end
+end
+
+function controls = detach_transient_control_windows(resultfig)
+controlNames = {'awin', 'aswin', 'conwin', 'stimwin', 'trajcontrolfig', 'mercontrolfig'};
+controls = struct();
+for i = 1:numel(controlNames)
+    name = controlNames{i};
+    try
+        value = getappdata(resultfig, name);
+    catch
+        value = [];
+    end
+    controls.(name) = value;
+    if ~isempty(value)
+        rmappdata(resultfig, name);
+    end
+end
+end
+
+function restore_transient_control_windows(resultfig, controls)
+controlNames = fieldnames(controls);
+for i = 1:numel(controlNames)
+    name = controlNames{i};
+    value = controls.(name);
+    if isempty(value)
+        continue;
+    end
+    try
+        setappdata(resultfig, name, value);
+    catch
+    end
 end
 end
 
