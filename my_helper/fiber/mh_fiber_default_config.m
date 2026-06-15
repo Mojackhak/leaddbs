@@ -71,6 +71,11 @@ cfg.figure.maxFibersPerSide = 1200;
 cfg.figure.fiberLineWidth = 0.75;
 cfg.figure.roiAlpha = 0.14;
 cfg.figure.vtaAlpha = 0.35;
+cfg.figure.openAfterRun = true;
+cfg.figure.openAnatomyControl = true;
+cfg.figure.closeAfterSave = false;
+cfg.figure.defaultBackdrop = 'MNI152NLin2009bAsym T1 (Fonov 2011)';
+cfg.figure.defaultSliceTransparency = [100, 100, 100];
 cfg.figure.colors = struct( ...
     'R', [0.90, 0.18, 0.16], ...
     'L', [0.10, 0.42, 0.88], ...

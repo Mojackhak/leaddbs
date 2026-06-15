@@ -13,7 +13,11 @@ options.root = [fileparts(cfg.subjectDir), filesep];
 options.leadprod = 'dbs';
 options.native = 0;
 options.orignative = 0;
-options.d3.verbose = 'off';
+if get_figure_option(cfg, 'openAfterRun', true)
+    options.d3.verbose = 'on';
+else
+    options.d3.verbose = 'off';
+end
 options.d3.elrendering = 1;
 options.d3.exportBB = 0;
 options.d3.writeatlases = 0;
@@ -28,13 +32,15 @@ try
 catch ME
     warning('mh_fiber_make_scene:ElvisFailed', ...
         'ea_elvis failed, falling back to a basic MATLAB figure: %s', ME.message);
-    resultfig = figure('Color', 'k', 'Visible', 'off', 'Name', 'Fiber/VTA scene');
+    resultfig = figure('Color', 'k', 'Visible', options.d3.verbose, 'Name', 'Fiber/VTA scene');
     axes('Parent', resultfig);
     hold on;
     axis equal off;
     view(3);
 end
 
+setappdata(resultfig, 'options', options);
+initialize_anatomy_togglestates(resultfig, options, cfg);
 set(0, 'CurrentFigure', resultfig);
 hold on;
 
@@ -48,13 +54,23 @@ axis equal off;
 view(90, 0);
 drawnow;
 
+awin = open_anatomy_control_if_requested(resultfig, options, cfg);
+set(resultfig, 'Visible', 'on');
+if ~isempty(awin) && isvalid(awin)
+    setappdata(resultfig, 'awin', []);
+end
 savefig(resultfig, figures.fig);
+if ~isempty(awin) && isvalid(awin)
+    setappdata(resultfig, 'awin', awin);
+end
 try
     exportgraphics(resultfig, figures.png, 'Resolution', 300);
 catch
     print(resultfig, figures.png, '-dpng', '-r300');
 end
-close(resultfig);
+if get_figure_option(cfg, 'closeAfterSave', false)
+    close(resultfig);
+end
 
 end
 
@@ -134,5 +150,72 @@ toolbar = getappdata(resultfig, 'addht');
 if isempty(toolbar) || ~ishandle(toolbar)
     toolbar = uitoolbar(resultfig);
     setappdata(resultfig, 'addht', toolbar);
+end
+end
+
+function initialize_anatomy_togglestates(resultfig, options, cfg)
+existingStates = getappdata(resultfig, 'togglestates');
+if isstruct(existingStates) && all(isfield(existingStates, {'xyzmm', 'template', 'xyztoggles'}))
+    return;
+end
+
+spacedef = ea_getspacedef;
+if isfield(spacedef, 'guidef') && isfield(spacedef.guidef, 'xyzdef')
+    xyzmm = spacedef.guidef.xyzdef;
+else
+    xyzmm = [0, 0, 0];
+end
+if numel(xyzmm) ~= 3
+    xyzmm = [0, 0, 0];
+end
+
+backdrop = char(string(get_figure_option(cfg, 'defaultBackdrop', '')));
+availableBackdrops = ea_assignbackdrop('list', options, 'Patient', options.native);
+if isempty(availableBackdrops)
+    error('mh_fiber_make_scene:MissingBackdrops', 'No Lead-DBS anatomy backdrops are available.');
+end
+if isempty(backdrop) || ~any(strcmp(availableBackdrops, backdrop))
+    backdrop = availableBackdrops{1};
+end
+
+transparency = get_figure_option(cfg, 'defaultSliceTransparency', [100, 100, 100]);
+if numel(transparency) ~= 3
+    transparency = [100, 100, 100];
+end
+
+togglestates = struct();
+togglestates.cutview = '3d';
+togglestates.refreshcuts = 1;
+togglestates.refreshview = 1;
+togglestates.xyzmm = double(reshape(xyzmm, 1, 3));
+togglestates.xyztoggles = [1, 1, 1];
+togglestates.xyztransparencies = double(reshape(transparency, 1, 3));
+togglestates.template = backdrop;
+togglestates.tinvert = 0;
+togglestates.customfile = '';
+setappdata(resultfig, 'togglestates', togglestates);
+end
+
+function awin = open_anatomy_control_if_requested(resultfig, options, cfg)
+awin = [];
+if ~get_figure_option(cfg, 'openAnatomyControl', true)
+    return;
+end
+
+try
+    awin = ea_anatomycontrol(resultfig, options);
+    set(awin, 'Visible', 'on');
+    setappdata(resultfig, 'awin', awin);
+catch ME
+    warning('mh_fiber_make_scene:AnatomyControlFailed', ...
+        'Could not open Lead-DBS Anatomy Slices control: %s', ME.message);
+end
+end
+
+function value = get_figure_option(cfg, fieldName, defaultValue)
+if isfield(cfg, 'figure') && isfield(cfg.figure, fieldName)
+    value = cfg.figure.(fieldName);
+else
+    value = defaultValue;
 end
 end

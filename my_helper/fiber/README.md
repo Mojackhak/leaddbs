@@ -6,6 +6,7 @@ The public entry points are:
 
 - `mh_fiber_default_config(subjectDir, stimLabel)`: create a fixed configuration for one subject and one existing Lead-DBS stimulation label.
 - `mh_fiber_run(cfg)`: run ROI generation, fiber filtering, VTA-hit detection, e-field peak extraction, native fiber back-projection by fiber ID, reports, and figures.
+- `mh_fiber_open_scene(figPath)`: reopen a saved helper scene, make it visible, and open the Lead-DBS Anatomy Slices control window when possible.
 - `run_sub001_fiber_vis.m`: command-line script for the current `sub-001` case.
 
 ## Default Behavior
@@ -52,6 +53,16 @@ The generated Lead-DBS/MATLAB scene includes toolbar toggle buttons for every no
 
 All buttons are enabled by default. Clicking a button hides its object; clicking it again shows the object. Empty fiber bundles are skipped and do not get a toolbar button.
 
+The helper scene also opens the native Lead-DBS Anatomy Slices control window by default. Use that window to switch the backdrop between available MNI templates, patient Pre-OP/Post-OP images, or `Choose...` for a custom `.nii` file. The X/Y/Z slice controls and transparency fields are the standard Lead-DBS controls.
+
+For non-interactive batch runs, disable the figure windows before calling `mh_fiber_run`:
+
+```matlab
+cfg.figure.openAfterRun = false;
+cfg.figure.openAnatomyControl = false;
+cfg.figure.closeAfterSave = true;
+```
+
 ## Example
 
 ```matlab
@@ -62,6 +73,13 @@ cfg = mh_fiber_default_config( ...
     '/Users/mojackhu/Desktop/ASD/derivatives/leaddbs/sub-001', ...
     'clinical_L4R4_5V_L2R2_3V');
 result = mh_fiber_run(cfg);
+```
+
+To reopen an existing scene with the Anatomy Slices control window:
+
+```matlab
+figPath = '/Users/mojackhu/Desktop/ASD/derivatives/leaddbs/sub-001/connectomics/fiber_vis/clinical_L4R4_5V_L2R2_3V/figures/sub-001_clinical_L4R4_5V_L2R2_3V_mni_scene.fig';
+h = mh_fiber_open_scene(figPath);
 ```
 
 Or run the case script:
