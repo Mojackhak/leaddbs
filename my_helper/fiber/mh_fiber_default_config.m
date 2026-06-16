@@ -49,11 +49,24 @@ cfg.paths.nativeReference = resolve_existing({ ...
     fullfile(subjectDir, 'coregistration', 'anat', [patientName, '_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w.nii']), ...
     fullfile(subjectDir, 'preprocessing', 'anat', [patientName, '_ses-preop_desc-preproc_acq-iso_T1w.nii']), ...
     fullfile(subjectDir, 'preprocessing', 'anat', [patientName, '_ses-preop_acq-iso_T1w.nii'])});
+cfg.paths.dwi = fullfile(subjectDir, 'preprocessing', 'dwi', [patientName, '_ses-preop_acq-iso_dwi.nii']);
+cfg.paths.dwiBvec = fullfile(subjectDir, 'preprocessing', 'dwi', [patientName, '_ses-preop_acq-iso_dwi.bvec']);
+cfg.paths.dwiBval = fullfile(subjectDir, 'preprocessing', 'dwi', [patientName, '_ses-preop_acq-iso_dwi.bval']);
+cfg.paths.dwiB0 = fullfile(subjectDir, 'preprocessing', 'dwi', [patientName, '_ses-preop_acq-iso_dwi_b0.nii']);
+cfg.paths.brainMask = fullfile(subjectDir, 'preprocessing', 'dwi', 'brainmask.nii');
+cfg.paths.trackingMask = fullfile(subjectDir, 'preprocessing', 'dwi', 'trackingmask.nii');
 
 cfg.paths.reconstruction = fullfile(subjectDir, 'reconstruction', [patientName, '_desc-reconstruction.mat']);
 
 cfg.paths.stimMni = fullfile(subjectDir, 'stimulations', 'MNI152NLin2009bAsym', cfg.stimLabel);
 cfg.paths.stimNative = fullfile(subjectDir, 'stimulations', 'native', cfg.stimLabel);
+cfg.paths.anchorToDwiTransform = resolve_existing({ ...
+    fullfile(subjectDir, 'coregistration', 'dwi', [patientName, '_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w2', patientName, '_ses-preop_acq-iso_dwi_b0_ants1.mat']), ...
+    fullfile(subjectDir, 'coregistration', 'anat', [patientName, '_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w2', patientName, '_ses-preop_acq-iso_dwi_b0_ants1.mat'])});
+cfg.paths.dwiToAnchorTransform = resolve_existing({ ...
+    fullfile(subjectDir, 'coregistration', 'dwi', [patientName, '_ses-preop_acq-iso_dwi_b02', patientName, '_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w_ants1.mat']), ...
+    fullfile(subjectDir, 'coregistration', 'anat', [patientName, '_ses-preop_acq-iso_dwi_b02', patientName, '_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w_ants1.mat'])});
+cfg.paths.anchorToMniTransform = fullfile(subjectDir, 'normalization', 'transformations', [patientName, '_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz']);
 
 cfg.rois = struct();
 cfg.rois.space = 'MNI152NLin2009bAsym';
@@ -61,10 +74,40 @@ cfg.rois.atlasName = 'HybraPD Whole Brain (Yu 2021)';
 cfg.rois.labelingNii = fullfile(repoDir, 'templates', 'space', 'MNI152NLin2009bAsym', 'labeling', 'HybraPD Whole Brain (Yu 2021).nii');
 cfg.rois.labelingTxt = fullfile(repoDir, 'templates', 'space', 'MNI152NLin2009bAsym', 'labeling', 'HybraPD Whole Brain (Yu 2021).txt');
 cfg.rois.labels = struct('ALIC_R', 217, 'ALIC_L', 218, 'NAc_L', 305, 'NAc_R', 306);
+cfg.rois.aal3Name = 'Automated Anatomical Labeling 3 (Rolls 2020)';
+cfg.rois.aal3Nii = fullfile(repoDir, 'templates', 'space', 'MNI152NLin2009bAsym', 'labeling', 'Automated Anatomical Labeling 3 (Rolls 2020).nii');
+cfg.rois.aal3Txt = fullfile(repoDir, 'templates', 'space', 'MNI152NLin2009bAsym', 'labeling', 'Automated Anatomical Labeling 3 (Rolls 2020).txt');
+cfg.rois.hammersName = 'Hammers_mith Atlas n30r95 (Hammers 2003 Gousias 2008 Faillenot 2017)';
+cfg.rois.hammersNii = fullfile(repoDir, 'templates', 'space', 'MNI152NLin2009bAsym', 'labeling', 'Hammers_mith Atlas n30r95 (Hammers 2003 Gousias 2008 Faillenot 2017).nii');
+cfg.rois.hammersTxt = fullfile(repoDir, 'templates', 'space', 'MNI152NLin2009bAsym', 'labeling', 'Hammers_mith Atlas n30r95 (Hammers 2003 Gousias 2008 Faillenot 2017).txt');
 
 cfg.activation = struct();
 cfg.activation.mode = 'vta_intersection_efield_peak';
 cfg.activation.efieldThresholdVPerM = 200;
+
+cfg.seedTarget = struct();
+cfg.seedTarget.enabled = true;
+cfg.seedTarget.backend = 'mrtrix_ifod2';
+cfg.seedTarget.force = false;
+cfg.seedTarget.forceFod = false;
+cfg.seedTarget.seedVariants = {'exact', 'interface'};
+cfg.seedTarget.sides = {'R', 'L'};
+cfg.seedTarget.seedNames = {'NAc', 'ALIC'};
+cfg.seedTarget.targetNames = {'NAc', 'ALIC', 'mPFC', 'OFC', 'ACC', 'amygdala', 'hippocampus', 'thalamus', 'VTA'};
+cfg.seedTarget.skipSelfTargets = true;
+cfg.seedTarget.interfaceDilatePasses = 2;
+cfg.seedTarget.select = 5000;
+cfg.seedTarget.seeds = 500000;
+cfg.seedTarget.cutoff = 0.06;
+cfg.seedTarget.minLength = 10;
+cfg.seedTarget.maxLength = 250;
+cfg.seedTarget.threads = 0;
+cfg.seedTarget.displayMaxStreamlinesPerBundle = 500;
+cfg.seedTarget.displayPointStride = 1;
+cfg.seedTarget.writeVtk = true;
+cfg.seedTarget.writeDensity = true;
+cfg.seedTarget.mrtrixPathPrefix = '/usr/local/bin';
+cfg.seedTarget.allowBrainMaskFallbackToTrackingMask = true;
 
 cfg.figure = struct();
 cfg.figure.maxFibersPerSide = 1200;

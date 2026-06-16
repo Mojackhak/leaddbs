@@ -63,6 +63,10 @@ writetable(activationTable, result.activationCsv);
 result.summaryMd = fullfile(dirs.reports, 'fiber_vta_summary.md');
 write_summary_markdown(result.summaryMd, cfg, result);
 
+if isfield(cfg, 'seedTarget') && isfield(cfg.seedTarget, 'enabled') && cfg.seedTarget.enabled
+    result.seedTarget = mh_fiber_run_seed_target(cfg, dirs, rois, vta);
+end
+
 fprintf('\nGenerating scene figure...\n');
 result.figures = mh_fiber_make_scene(cfg, dirs, rois, vta);
 

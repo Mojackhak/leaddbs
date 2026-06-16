@@ -301,6 +301,8 @@ for sideCell = {'R', 'L'}
         show_fiber_file(resultfig, fiberPath, label, stage_color(stage, side), stage.alpha);
     end
 end
+
+plot_seed_target_fibers(resultfig, dirs, cfg, sceneSpace);
 end
 
 function stages = fiber_stage_specs(cfg)
@@ -335,6 +337,74 @@ if ~isfield(data, 'idx') || isempty(data.idx)
 end
 fiberHandle = ea_showfiber(data.fibers(:, 1:3), data.idx, color, alphaValue);
 mh_fiber_add_toggle(resultfig, fiberHandle, sprintf('%s (%d fibers)', label, numel(data.idx)), color, 'on', 'fiber');
+end
+
+function plot_seed_target_fibers(resultfig, dirs, ~, sceneSpace)
+if ~isfield(dirs, 'seedTarget') || ~isfield(dirs.seedTarget, 'reports')
+    return;
+end
+
+summaryCsv = fullfile(dirs.seedTarget.reports, 'seed_target_summary.csv');
+if ~isfile(summaryCsv)
+    return;
+end
+
+summary = readtable(summaryCsv, 'TextType', 'string');
+if isempty(summary) || ~ismember('streamline_count', summary.Properties.VariableNames)
+    return;
+end
+
+if strcmp(sceneSpace, 'native')
+    displayColumn = 'native_display_mat';
+    seedHitColumn = 'vta_seed_hit_native_display_mat';
+else
+    displayColumn = 'mni_display_mat';
+    seedHitColumn = 'vta_seed_hit_mni_display_mat';
+end
+
+for i = 1:height(summary)
+    side = char(summary.side(i));
+    seedName = char(summary.seed(i));
+    seedVariant = char(summary.seed_variant(i));
+    targetName = char(summary.target(i));
+
+    if summary.streamline_count(i) > 0 && ismember(displayColumn, summary.Properties.VariableNames)
+        fiberPath = char(summary.(displayColumn)(i));
+        label = sprintf('%s %s_seed-%s_to_%s', side, seedName, seedVariant, targetName);
+        show_nonempty_seed_target_file(resultfig, fiberPath, label, seed_target_color(seedName, false), 0.22);
+    end
+
+    if ismember('vta_seed_hit_count', summary.Properties.VariableNames) && ...
+            ismember(seedHitColumn, summary.Properties.VariableNames) && ...
+            summary.vta_seed_hit_count(i) > 0
+        fiberPath = char(summary.(seedHitColumn)(i));
+        label = sprintf('%s %s_seed-%s_to_%s VTA_seed_hit', side, seedName, seedVariant, targetName);
+        show_nonempty_seed_target_file(resultfig, fiberPath, label, seed_target_color(seedName, true), 0.36);
+    end
+end
+end
+
+function show_nonempty_seed_target_file(resultfig, fiberPath, label, color, alphaValue)
+if strlength(string(fiberPath)) == 0 || ~isfile(fiberPath)
+    return;
+end
+data = load(fiberPath, 'fibers', 'idx');
+if ~isfield(data, 'idx') || isempty(data.idx)
+    return;
+end
+fiberHandle = ea_showfiber(data.fibers(:, 1:3), data.idx, color, alphaValue);
+mh_fiber_add_toggle(resultfig, fiberHandle, sprintf('%s (%d fibers)', label, numel(data.idx)), color, 'on', 'seed_target_fiber');
+end
+
+function color = seed_target_color(seedName, isSeedHit)
+if strcmp(seedName, 'NAc')
+    color = [0.72, 0.22, 0.86];
+else
+    color = [0.00, 0.72, 0.82];
+end
+if isSeedHit
+    color = 0.65 .* color + 0.35 .* [1.00, 0.15, 0.05];
+end
 end
 
 function toggleH = add_empty_fiber_toggle(resultfig, label, color)

@@ -78,11 +78,92 @@ connectomics/fiber_vis/<stimLabel>/rois
 connectomics/fiber_vis/<stimLabel>/fibers_mni
 connectomics/fiber_vis/<stimLabel>/fibers_native
 connectomics/fiber_vis/<stimLabel>/activation
+connectomics/fiber_vis/<stimLabel>/seed_target
 connectomics/fiber_vis/<stimLabel>/figures
 connectomics/fiber_vis/<stimLabel>/reports
 ```
 
 The `activation` output is a VTA-overlap and e-field-threshold proxy by default. It should be described as VTA-hit fibers or peak e-field thresholded fibers, not as full OSS-DBS/PAM axon activation.
+
+## MRtrix3 Seed-Target Tractography
+
+The helper can optionally run native DWI-space MRtrix3 iFOD2 tractography after the existing Lead-DBS FTR exact filtering step. This adds `NAc_seed_target` and `ALIC_seed_target` outputs without changing the strict `NAc_exact` and `ALIC_exact` definitions.
+
+Strict exact definitions are unchanged:
+
+- `NAc_exact`: an existing patient-specific Lead-DBS FTR streamline has at least one sampled point inside the NAc mask.
+- `ALIC_exact`: an existing patient-specific Lead-DBS FTR streamline has at least one sampled point inside the ALIC mask.
+
+If either exact count is zero, the report keeps it as zero. The seed-target workflow is a separate probabilistic tractography analysis and must not be described as exact passage through NAc or ALIC.
+
+The MRtrix3 backend uses:
+
+- DWI image: `preprocessing/dwi/<subject>_ses-preop_acq-iso_dwi.nii`
+- Gradients: matching `.bvec` and `.bval`
+- b0 reference: `preprocessing/dwi/<subject>_ses-preop_acq-iso_dwi_b0.nii`
+- Brain mask: `preprocessing/dwi/brainmask.nii`
+- Tracking mask: `preprocessing/dwi/trackingmask.nii`
+- Algorithm: `tckgen -algorithm iFOD2`
+- Response/FOD: single-shell response with `dwi2response tournier`, then single-shell CSD with `dwi2fod csd`
+
+For sub-001 and similar Lead-DBS outputs, `preprocessing/dwi/brainmask.nii` may be a high-resolution anatomical tissue-class image rather than a DWI-grid mask. The helper checks the spatial dimensions against the DWI image. If the brain mask does not match the DWI grid, it uses the DWI-grid `trackingmask.nii` as the MRtrix response/FOD mask and records that fallback in the command log.
+
+Seed variants are written separately:
+
+- `seed-exact`: the atlas ROI inverse-normalized into DWI space and restricted to the DWI brain mask.
+- `seed-interface`: the DWI-space ROI is dilated by `cfg.seedTarget.interfaceDilatePasses` and restricted to the DWI tracking mask. This is a tractography seed definition only; it is not an exact anatomical-passage definition.
+
+Default seed ROIs:
+
+- `NAc_R` and `NAc_L`
+- `ALIC_R` and `ALIC_L`
+
+Default ipsilateral targets:
+
+- `NAc`
+- `ALIC`
+- `mPFC`
+- `OFC`
+- `ACC`
+- `amygdala`
+- `hippocampus`
+- `thalamus`
+- `VTA`
+
+The default ROI sources are deterministic atlas label masks:
+
+- HybraPD Whole Brain for NAc: `Nucleus_accumbens_L=305`, `Nucleus_accumbens_R=306`.
+- HybraPD Whole Brain for ALIC: `Anterior_limb_of_internal_capsule_R=217`, `Anterior_limb_of_internal_capsule_L=218`.
+- HybraPD Whole Brain for mPFC: `Frontal_Sup_Medial`, `Frontal_Med_Orb`, and `Rectus` labels for the matching side.
+- HybraPD Whole Brain for OFC: `OFCmed`, `OFCant`, `OFCpost`, and `OFClat` labels for the matching side.
+- HybraPD Whole Brain for amygdala, hippocampus, and thalamus: the corresponding single left/right labels.
+- Hammers n30r95 for ACC when HybraPD does not provide a clear anterior cingulate label and the local AAL3 NIfTI has empty anterior cingulate labels: `CG_anterior_cingulate_gyrus_L=24`, `CG_anterior_cingulate_gyrus_R=25`.
+- AAL3 for VTA: `VTA_L=159`, `VTA_R=160`.
+
+All atlas masks are first generated in MNI space, then inverse-normalized into anchorNative T1 space, then coregistered into DWI/b0 space using the approved anchorNative-to-b0 ANTs affine. The tractography calculation itself is performed in DWI space. For visualization, the helper exports downsampled display fibers in anchorNative and MNI coordinates by applying the approved DWI-to-anchorNative and anchorNative-to-MNI transforms.
+
+Each seed-target tract records:
+
+- requested seed side, seed ROI, seed variant, and target ROI;
+- atlas label IDs and ROI voxel counts;
+- selected streamline count and length summary from `tckstats`;
+- density map in DWI space from `tckmap`;
+- `VTA_exact_hit` count against the current Lead-DBS stimulation binary VTA resampled into DWI space, defined as any streamline point entering the binary VTA mask;
+- `VTA_seed_hit` count, defined by rerunning the same seed-target query with `seed ∩ stimulation VTA` as the seed mask and the same target/waypoint;
+- peak e-field per VTA-hit streamline, with the same `peak >= 200 V/m` threshold flag used by the exact FTR pipeline.
+
+Seed-target outputs are written under:
+
+```text
+connectomics/fiber_vis/<stimLabel>/seed_target/native
+connectomics/fiber_vis/<stimLabel>/seed_target/mni
+connectomics/fiber_vis/<stimLabel>/seed_target/rois
+connectomics/fiber_vis/<stimLabel>/seed_target/qc
+connectomics/fiber_vis/<stimLabel>/seed_target/reports
+connectomics/fiber_vis/<stimLabel>/seed_target/work
+```
+
+The native calculation files remain MRtrix `.tck` files in DWI space. The helper also writes VTK display files and Lead-DBS-compatible `.mat` files for figure display.
 
 ## Interactive Figure Controls
 
