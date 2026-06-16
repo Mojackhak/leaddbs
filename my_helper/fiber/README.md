@@ -115,8 +115,12 @@ ROI masks while allowing independent `tckgen` calls to run concurrently.
 Default parallel settings:
 
 - `cfg.seedTarget.parallel = true`
-- `cfg.seedTarget.parallelWorkers = 10`
+- `cfg.seedTarget.parallelWorkers = 16`
 - `cfg.seedTarget.threads = 1`
+
+For sub-001, this uses all 16 available CPU cores as independent single-thread
+MRtrix workers. If the workstation must remain responsive for other heavy
+programs, reduce `parallelWorkers` to 8-10 before starting the run.
 
 With the default full network there can be up to 128 `.tck` tasks:
 
