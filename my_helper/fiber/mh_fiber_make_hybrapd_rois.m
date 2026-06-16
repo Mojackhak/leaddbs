@@ -27,12 +27,15 @@ for i = 1:size(specs, 1)
     out = labelNii;
     out.img = double(mask);
     out.dt = 2;
-    out.fname = fullfile(dirs.rois, sprintf('HybraPD_%s_%s_%d.nii', roiName, side, labelId));
+    out.fname = fullfile(dirs.rois, sprintf('HybraPD_%s_%s_%d_mni.nii', roiName, side, labelId));
     ea_write_nii(out);
 
+    rois.mni.(side).(roiName) = out.fname;
     rois.(side).(roiName) = out.fname;
     reportRows(i, :) = {side, roiName, labelId, labelNames(labelId), nnz(mask)};
 end
+
+rois.native = make_native_rois(cfg, rois.mni);
 
 report = cell2table(reportRows, ...
     'VariableNames', {'side', 'roi', 'label_id', 'label_name', 'voxel_count'});
@@ -42,6 +45,34 @@ rois.reportMd = fullfile(dirs.reports, 'roi_report.md');
 writetable(report, rois.reportCsv);
 write_roi_markdown(rois.reportMd, cfg, report);
 
+end
+
+function nativeRois = make_native_rois(cfg, mniRois)
+options = struct();
+options = ea_getptopts(cfg.subjectDir, options);
+options = ea_defaultoptions(options);
+options.root = [fileparts(cfg.subjectDir), filesep];
+[~, options.patientname] = fileparts(cfg.subjectDir);
+
+nativeRois = struct();
+for sideCell = {'R', 'L'}
+    side = sideCell{1};
+    for roiCell = {'NAc', 'ALIC'}
+        roiName = roiCell{1};
+        mniPath = mniRois.(side).(roiName);
+        [roiDir, roiBase] = fileparts(mniPath);
+        nativePath = fullfile(roiDir, [roiBase, '_anchorNative.nii']);
+
+        ea_apply_normalization_tofile(options, mniPath, nativePath, 1, 0, cfg.paths.nativeReference);
+        nativeNii = ea_load_nii(nativePath);
+        nativeNii.img = double(nativeNii.img > 0.5);
+        nativeNii.dt = 2;
+        nativeNii.fname = nativePath;
+        ea_write_nii(nativeNii);
+
+        nativeRois.(side).(roiName) = nativePath;
+    end
+end
 end
 
 function names = read_label_names(labelTxt)

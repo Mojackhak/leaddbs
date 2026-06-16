@@ -2,8 +2,18 @@ function figures = mh_fiber_make_scene(cfg, dirs, rois, vta)
 % Generate a Lead-DBS/MATLAB scene figure with electrodes, ROI, VTA, and fibers.
 
 figures = struct();
-figures.fig = fullfile(dirs.figures, [cfg.patientName, '_', cfg.stimLabel, '_mni_scene.fig']);
-figures.png = fullfile(dirs.figures, [cfg.patientName, '_', cfg.stimLabel, '_mni_scene.png']);
+figures.mni = make_one_scene(cfg, dirs, rois.mni, vta.mni, 'mni');
+figures.native = make_one_scene(cfg, dirs, rois.native, vta.native, 'native');
+figures.fig = figures.mni.fig;
+figures.png = figures.mni.png;
+
+end
+
+function scene = make_one_scene(cfg, dirs, rois, vta, sceneSpace)
+scene = struct();
+scene.fig = fullfile(dirs.figures, [cfg.patientName, '_', cfg.stimLabel, '_', sceneSpace, '_scene.fig']);
+scene.png = fullfile(dirs.figures, [cfg.patientName, '_', cfg.stimLabel, '_', sceneSpace, '_scene.png']);
+openAfterRun = get_figure_option(cfg, 'openAfterRun', true);
 
 options = struct();
 options = ea_getptopts(cfg.subjectDir, options);
@@ -11,13 +21,9 @@ options = ea_defaultoptions(options);
 options.root = [fileparts(cfg.subjectDir), filesep];
 [~, options.patientname] = fileparts(cfg.subjectDir);
 options.leadprod = 'dbs';
-options.native = 0;
-options.orignative = 0;
-if get_figure_option(cfg, 'openAfterRun', true)
-    options.d3.verbose = 'on';
-else
-    options.d3.verbose = 'off';
-end
+options.native = strcmp(sceneSpace, 'native');
+options.orignative = options.native;
+options.d3.verbose = 'off';
 options.d3.elrendering = 1;
 options.d3.exportBB = 0;
 options.d3.writeatlases = double(get_figure_option(cfg, 'showVisualizationAtlas', true));
@@ -37,7 +43,7 @@ try
 catch ME
     warning('mh_fiber_make_scene:ElvisFailed', ...
         'ea_elvis failed, falling back to a basic MATLAB figure: %s', ME.message);
-    resultfig = figure('Color', 'k', 'Visible', options.d3.verbose, 'Name', 'Fiber/VTA scene');
+    resultfig = figure('Color', 'k', 'Visible', visible_state(openAfterRun), 'Name', 'Fiber/VTA scene');
     axes('Parent', resultfig);
     hold on;
     axis equal off;
@@ -46,6 +52,7 @@ end
 
 setappdata(resultfig, 'options', options);
 initialize_anatomy_togglestates(resultfig, options, cfg);
+recolor_electrode_insulation(resultfig, cfg);
 set(0, 'CurrentFigure', resultfig);
 hold on;
 
@@ -53,30 +60,100 @@ if get_figure_option(cfg, 'plotExtractedRois', false)
     plot_rois(resultfig, rois, cfg);
 end
 plot_vtas(resultfig, vta, cfg);
-plot_fibers(resultfig, dirs, cfg);
+plot_fibers(resultfig, dirs, cfg, sceneSpace);
 
 camlight('headlight');
 lighting gouraud;
 axis equal off;
 view(90, 0);
 drawnow;
+apply_region_label_visibility(resultfig, cfg);
 
-set(resultfig, 'Visible', 'on');
+set(resultfig, 'Visible', visible_state(openAfterRun));
 drawnow;
 mh_fiber_rebind_scene_controls(resultfig);
 open_anatomy_control_if_requested(resultfig, options, cfg);
+apply_region_label_visibility(resultfig, cfg);
 transientControls = detach_transient_control_windows(resultfig);
-savefig(resultfig, figures.fig);
+savefig(resultfig, scene.fig);
 restore_transient_control_windows(resultfig, transientControls);
+apply_region_label_visibility(resultfig, cfg);
 try
-    exportgraphics(resultfig, figures.png, 'Resolution', 300);
+    exportgraphics(resultfig, scene.png, 'Resolution', 300);
 catch
-    print(resultfig, figures.png, '-dpng', '-r300');
+    print(resultfig, scene.png, '-dpng', '-r300');
 end
 if get_figure_option(cfg, 'closeAfterSave', false)
     close(resultfig);
 end
 
+end
+
+function apply_region_label_visibility(resultfig, cfg)
+if get_figure_option(cfg, 'showRegionLabels', false)
+    return;
+end
+
+regionLabels = findall(resultfig, 'Type', 'text');
+if isempty(regionLabels)
+    return;
+end
+
+set(regionLabels, 'Visible', 'off');
+end
+
+function recolor_electrode_insulation(resultfig, cfg)
+if ~isfield(cfg.figure, 'colors') || ~isfield(cfg.figure.colors, 'ElectrodeInsulation')
+    color = [0.92, 0.92, 0.88];
+else
+    color = cfg.figure.colors.ElectrodeInsulation;
+end
+
+elRender = getappdata(resultfig, 'el_render');
+if isempty(elRender)
+    return;
+end
+
+for i = 1:numel(elRender)
+    if ~isprop(elRender(i), 'elpatch') || isempty(elRender(i).elpatch)
+        continue;
+    end
+
+    patches = mh_fiber_valid_graphics(elRender(i).elpatch);
+    for j = 1:numel(patches)
+        if ~is_electrode_insulation_patch(patches(j))
+            continue;
+        end
+
+        alphaValue = get_patch_alpha(patches(j));
+        ea_specsurf(patches(j), color, alphaValue, 'insulation');
+    end
+end
+end
+
+function isInsulation = is_electrode_insulation_patch(handle)
+isInsulation = false;
+if isempty(handle) || ~isgraphics(handle, 'patch')
+    return;
+end
+
+try
+    tag = char(string(get(handle, 'Tag')));
+catch
+    tag = '';
+end
+isInsulation = contains(tag, 'Insulation');
+end
+
+function alphaValue = get_patch_alpha(handle)
+alphaValue = 1;
+try
+    currentAlpha = get(handle, 'FaceAlpha');
+    if isnumeric(currentAlpha) && isscalar(currentAlpha)
+        alphaValue = currentAlpha;
+    end
+catch
+end
 end
 
 function plot_rois(resultfig, rois, cfg)
@@ -110,8 +187,8 @@ end
 end
 
 function plot_vtas(resultfig, vta, cfg)
-rightVta = add_vta_patch(vta.mni.R.binaryMat, cfg.figure.colors.VTA, cfg.figure.vtaAlpha);
-leftVta = add_vta_patch(vta.mni.L.binaryMat, cfg.figure.colors.VTA, cfg.figure.vtaAlpha);
+rightVta = add_vta_patch(vta.R.binaryMat, cfg.figure.colors.VTA, cfg.figure.vtaAlpha);
+leftVta = add_vta_patch(vta.L.binaryMat, cfg.figure.colors.VTA, cfg.figure.vtaAlpha);
 mh_fiber_add_toggle(resultfig, rightVta, 'VTA R', cfg.figure.colors.VTA, 'on', 'vta');
 mh_fiber_add_toggle(resultfig, leftVta, 'VTA L', cfg.figure.colors.VTA, 'on', 'vta');
 end
@@ -123,31 +200,76 @@ vtaPatch = patch('Faces', data.vatfv.faces, 'Vertices', data.vatfv.vertices, ...
     'FaceLighting', 'gouraud', 'Tag', 'mh_fiber_vta');
 end
 
-function plot_fibers(resultfig, dirs, cfg)
-fiberSpecs = {
-    'R NAc-ALIC', fullfile(dirs.fibersMni, [cfg.patientName, '_hemi-R_NAc_ALIC_intersection.mat']), [1.00, 0.84, 0.10], 0.16
-    'L NAc-ALIC', fullfile(dirs.fibersMni, [cfg.patientName, '_hemi-L_NAc_ALIC_intersection.mat']), [0.10, 0.58, 1.00], 0.16
-    'R VTA-hit', fullfile(dirs.fibersMni, [cfg.patientName, '_hemi-R_VTA_hit.mat']), [1.00, 0.45, 0.05], 0.30
-    'L VTA-hit', fullfile(dirs.fibersMni, [cfg.patientName, '_hemi-L_VTA_hit.mat']), [0.05, 0.35, 1.00], 0.30
-    'R NAc-ALIC VTA-hit', fullfile(dirs.fibersMni, [cfg.patientName, '_hemi-R_NAc_ALIC_VTA_hit.mat']), [1.00, 0.10, 0.08], 0.42
-    'L NAc-ALIC VTA-hit', fullfile(dirs.fibersMni, [cfg.patientName, '_hemi-L_NAc_ALIC_VTA_hit.mat']), [0.05, 1.00, 0.35], 0.42
-    };
+function plot_fibers(resultfig, dirs, cfg, sceneSpace)
+if strcmp(sceneSpace, 'native')
+    fiberDir = dirs.fibersNative;
+else
+    fiberDir = dirs.fibersMni;
+end
 
-for i = 1:size(fiberSpecs, 1)
-    show_fiber_file(resultfig, fiberSpecs{i, 2}, fiberSpecs{i, 1}, fiberSpecs{i, 3}, fiberSpecs{i, 4});
+stages = fiber_stage_specs(cfg);
+for sideCell = {'R', 'L'}
+    side = sideCell{1};
+    for i = 1:numel(stages)
+        stage = stages(i);
+        fiberPath = fullfile(fiberDir, sprintf('%s_hemi-%s_%s.mat', cfg.patientName, side, stage.name));
+        label = sprintf('%s %s', side, stage.label);
+        show_fiber_file(resultfig, fiberPath, label, stage_color(stage, side), stage.alpha);
+    end
+end
+end
+
+function stages = fiber_stage_specs(cfg)
+stages = struct( ...
+    'name', {'NAc_only', 'ALIC_only', 'NAc_ALIC_intersection', 'VTA_hit', 'NAc_ALIC_VTA_hit'}, ...
+    'label', {'NAc_only', 'ALIC_only', 'NAc_ALIC_intersection', 'VTA_hit', 'NAc_ALIC_VTA_hit'}, ...
+    'alpha', {0.16, 0.16, 0.22, 0.18, 0.42});
+
+stages(1).baseColor = cfg.figure.colors.NAc;
+stages(2).baseColor = cfg.figure.colors.ALIC;
+stages(3).baseColor = [1.00, 0.84, 0.10];
+stages(4).baseColor = [1.00, 0.45, 0.05];
+stages(5).baseColor = [1.00, 0.10, 0.08];
+end
+
+function color = stage_color(stage, side)
+color = stage.baseColor;
+if strcmp(side, 'L')
+    color = 0.75 .* color + 0.25 .* [0.05, 0.35, 1.00];
 end
 end
 
 function show_fiber_file(resultfig, path, label, color, alphaValue)
 if ~isfile(path)
+    add_empty_fiber_toggle(resultfig, sprintf('%s (0 fibers)', label), color);
     return;
 end
 data = load(path, 'fibers', 'idx');
 if ~isfield(data, 'idx') || isempty(data.idx)
+    add_empty_fiber_toggle(resultfig, sprintf('%s (0 fibers)', label), color);
     return;
 end
 fiberHandle = ea_showfiber(data.fibers(:, 1:3), data.idx, color, alphaValue);
 mh_fiber_add_toggle(resultfig, fiberHandle, sprintf('%s (%d fibers)', label, numel(data.idx)), color, 'on', 'fiber');
+end
+
+function toggleH = add_empty_fiber_toggle(resultfig, label, color)
+toolbar = ensure_scene_toolbar(resultfig);
+toggleH = uitoggletool(toolbar, ...
+    'CData', ea_get_icn('atlas', 0.35 .* color + 0.65 .* [0.75, 0.75, 0.75]), ...
+    'TooltipString', label, ...
+    'OnCallback', @noop_toggle, ...
+    'OffCallback', @noop_toggle, ...
+    'State', 'on', ...
+    'Tag', matlab.lang.makeValidName(label), ...
+    'UserData', 'empty_fiber');
+setappdata(toggleH, 'mh_fiber_control_label', label);
+end
+
+function noop_toggle(src, ~)
+if isgraphics(src)
+    set(src, 'State', 'on');
+end
 end
 
 function toolbar = ensure_scene_toolbar(resultfig)
@@ -254,5 +376,13 @@ if isfield(cfg, 'figure') && isfield(cfg.figure, fieldName)
     value = cfg.figure.(fieldName);
 else
     value = defaultValue;
+end
+end
+
+function state = visible_state(isVisible)
+if isVisible
+    state = 'on';
+else
+    state = 'off';
 end
 end
