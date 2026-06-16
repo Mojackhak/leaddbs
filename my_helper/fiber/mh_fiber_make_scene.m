@@ -157,32 +157,90 @@ end
 end
 
 function plot_rois(resultfig, rois, cfg)
-toolbar = ensure_scene_toolbar(resultfig);
-pobj = struct();
-pobj.plotFigureH = resultfig;
-pobj.htH = toolbar;
-pobj.openedit = 0;
-pobj.color = cfg.figure.colors.NAc;
-configure_roi_toggle(ea_roi(rois.R.NAc, pobj), 'NAc R', cfg.figure.colors.NAc, cfg.figure.roiAlpha);
-configure_roi_toggle(ea_roi(rois.L.NAc, pobj), 'NAc L', cfg.figure.colors.NAc, cfg.figure.roiAlpha);
-
-pobj.color = cfg.figure.colors.ALIC;
-configure_roi_toggle(ea_roi(rois.R.ALIC, pobj), 'ALIC R', cfg.figure.colors.ALIC, cfg.figure.roiAlpha);
-configure_roi_toggle(ea_roi(rois.L.ALIC, pobj), 'ALIC L', cfg.figure.colors.ALIC, cfg.figure.roiAlpha);
+set(0, 'CurrentFigure', resultfig);
+hold on;
+add_roi_object(resultfig, rois.R.NAc, 'NAc R', cfg.figure.colors.NAc, cfg.figure.roiAlpha);
+add_roi_object(resultfig, rois.L.NAc, 'NAc L', cfg.figure.colors.NAc, cfg.figure.roiAlpha);
+add_roi_object(resultfig, rois.R.ALIC, 'ALIC R', cfg.figure.colors.ALIC, cfg.figure.roiAlpha);
+add_roi_object(resultfig, rois.L.ALIC, 'ALIC L', cfg.figure.colors.ALIC, cfg.figure.roiAlpha);
 end
 
-function configure_roi_toggle(roiObj, label, color, alphaValue)
-if isempty(roiObj)
+function add_roi_object(resultfig, roiPath, label, color, alphaValue)
+roiPatch = add_roi_patch(roiPath, label, color, alphaValue);
+mh_fiber_add_toggle(resultfig, roiPatch, label, color, 'on', 'roi');
+end
+
+function roiPatch = add_roi_patch(roiPath, label, color, alphaValue)
+roiPatch = [];
+if ~isfile(roiPath)
+    warning('mh_fiber_make_scene:MissingRoi', 'ROI file not found: %s', roiPath);
     return;
 end
-roiObj.alpha = alphaValue;
-if ~isempty(roiObj.toggleH) && ishandle(roiObj.toggleH)
-    set(roiObj.toggleH, ...
-        'CData', ea_get_icn('atlas', color), ...
-        'TooltipString', label, ...
-        'Tag', matlab.lang.makeValidName(label), ...
-        'UserData', 'roi', ...
-        'State', 'on');
+
+nii = ea_load_nii(roiPath);
+img = double(nii.img);
+img(~isfinite(img)) = 0;
+img = img ~= 0;
+if ~any(img(:))
+    return;
+end
+
+label = char(string(label));
+targetTag = matlab.lang.makeValidName(label);
+fv = roi_mask_to_surface(img, nii.mat);
+if isempty(fv) || isempty(fv.faces) || isempty(fv.vertices)
+    return;
+end
+
+roiPatch = patch( ...
+    'Faces', fv.faces, ...
+    'Vertices', fv.vertices, ...
+    'FaceColor', color, ...
+    'EdgeColor', 'none', ...
+    'FaceAlpha', alphaValue, ...
+    'EdgeLighting', 'gouraud', ...
+    'FaceLighting', 'gouraud', ...
+    'Visible', 'on', ...
+    'Tag', targetTag, ...
+    'UserData', struct('mh_fiber_type', 'roi', 'label', label, 'source', roiPath), ...
+    'SpecularColorReflectance', 1, ...
+    'SpecularExponent', 3, ...
+    'SpecularStrength', 0.3, ...
+    'DiffuseStrength', 0.4, ...
+    'AmbientStrength', 0.3);
+end
+
+function fv = roi_mask_to_surface(img, mat)
+imgSize = size(img);
+[xVox, yVox, zVox] = meshgrid(1:imgSize(1), 1:imgSize(2), 1:imgSize(3));
+xyzMm = ea_vox2mm([xVox(:), yVox(:), zVox(:)], mat);
+x = reshape(xyzMm(:, 1), size(xVox));
+y = reshape(xyzMm(:, 2), size(yVox));
+z = reshape(xyzMm(:, 3), size(zVox));
+mask = permute(double(img), [2, 1, 3]);
+
+fv = isosurface(x, y, z, mask, 0.5);
+caps = isocaps(x, y, z, mask, 0.5);
+if ~isempty(caps.faces)
+    caps.faces = caps.faces + size(fv.vertices, 1);
+    fv.faces = [fv.faces; caps.faces];
+    fv.vertices = [fv.vertices; caps.vertices];
+end
+
+if isempty(fv.faces) || isempty(fv.vertices)
+    return;
+end
+
+prefs = ea_prefs;
+if isfield(prefs, 'hullsmooth') && prefs.hullsmooth
+    fv = ea_smoothpatch(fv, 1, prefs.hullsmooth);
+end
+if isfield(prefs, 'hullsimplify') && prefs.hullsimplify
+    if prefs.hullsimplify < 1
+        fv = reducepatch(fv, prefs.hullsimplify);
+    elseif prefs.hullsimplify > 1 && prefs.hullsimplify < numel(fv.faces)
+        fv = reducepatch(fv, prefs.hullsimplify / numel(fv.faces));
+    end
 end
 end
 
