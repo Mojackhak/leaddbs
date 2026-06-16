@@ -160,6 +160,22 @@ cfg.seedTarget.writeVtk = false;
 
 For sub-001 and similar Lead-DBS outputs, `preprocessing/dwi/brainmask.nii` may be a high-resolution anatomical tissue-class image rather than a DWI-grid mask. The helper checks the spatial dimensions against the DWI image. If the brain mask does not match the DWI grid, it uses the DWI-grid `trackingmask.nii` as the MRtrix response/FOD mask and records that fallback in the command log.
 
+Seed-target spatial QC should distinguish the tractography result from display exports:
+
+- The native MRtrix `.tck` files and `tckmap` density NIfTI files are in DWI/b0 space and should be checked against the DWI b0 or FA image.
+- The native display `.mat`, native display `.trk`, helper `.vtk`, and native scene `.fig` are derived display exports and should be checked against the anchorNative T1/FA image.
+- If density maps align with DWI but display fibers appear outside the brain, the problem is in the display coordinate transform, not in the completed iFOD2 tractography itself.
+
+For display conversion, DWI-space TCK points must be mapped into anchorNative space with the approved b0-to-anchorNative transform:
+
+```text
+coregistration/dwi/<subject>_ses-preop_acq-iso_dwi_b02<subject>_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w_ants1.mat
+```
+
+Do not use the anchorNative-to-b0 transform for this direction. Doing so shifts seed-target display fibers away from the anchorNative anatomy while the original `.tck` and density maps remain valid in DWI space.
+
+The helper `.vtk` files are anchorNative display files for Slicer. They are written from the corrected native display `.mat` coordinates, not directly from raw MRtrix `tckconvert`, because raw `.tck` coordinates remain in DWI/b0 space.
+
 Seed variants are written separately:
 
 - `seed-exact`: the atlas ROI inverse-normalized into DWI space and restricted to the DWI brain mask.

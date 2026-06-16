@@ -372,11 +372,6 @@ elseif should_run_tractography(cfg, tckPath, mainComplete)
     mh_fiber_mrtrix_run(cfg, cmd);
 end
 
-if cfg.seedTarget.writeVtk && isfile(tckPath) && ~strcmp(status, 'empty_seed_mask') && ~strcmp(status, 'empty_target_mask')
-    if cfg.seedTarget.force || ~isfile(vtkPath)
-        mh_fiber_mrtrix_run(cfg, sprintf('tckconvert %s %s -force', q(tckPath), q(vtkPath)), true);
-    end
-end
 if cfg.seedTarget.writeDensity && isfile(tckPath) && ~strcmp(status, 'empty_seed_mask') && ~strcmp(status, 'empty_target_mask')
     if cfg.seedTarget.force || ~isfile(densityPath)
         mh_fiber_mrtrix_run(cfg, sprintf('tckmap %s %s -template %s -force', ...
@@ -385,6 +380,9 @@ if cfg.seedTarget.writeDensity && isfile(tckPath) && ~strcmp(status, 'empty_seed
 end
 
 displayInfo = mh_fiber_tck_to_display_ftr(cfg, tckPath, nativeMatPath, mniMatPath);
+if cfg.seedTarget.writeVtk && isfile(nativeMatPath)
+    mh_fiber_write_ftr_vtk(nativeMatPath, vtkPath);
+end
 stats = mh_fiber_tck_vta_efield_stats(cfg, tckPath, vtaDwi.(side).binaryNii, vtaDwi.(side).efieldNii);
 lengthStats = tck_length_stats(cfg, tckPath);
 seedHit = run_seed_hit_bundle(cfg, mrtrix, seedMask, targetMask, vtaDwi.(side).binaryMif, ...
@@ -435,11 +433,6 @@ else
     end
 end
 
-if cfg.seedTarget.writeVtk && isfile(tckPath) && seedHit.seed_vta_voxels > 0
-    if cfg.seedTarget.force || ~isfile(vtkPath)
-        mh_fiber_mrtrix_run(cfg, sprintf('tckconvert %s %s -force', q(tckPath), q(vtkPath)), true);
-    end
-end
 if cfg.seedTarget.writeDensity && isfile(tckPath) && seedHit.seed_vta_voxels > 0
     if cfg.seedTarget.force || ~isfile(densityPath)
         mh_fiber_mrtrix_run(cfg, sprintf('tckmap %s %s -template %s -force', ...
@@ -448,6 +441,9 @@ if cfg.seedTarget.writeDensity && isfile(tckPath) && seedHit.seed_vta_voxels > 0
 end
 
 mh_fiber_tck_to_display_ftr(cfg, tckPath, nativeMatPath, mniMatPath);
+if cfg.seedTarget.writeVtk && isfile(nativeMatPath)
+    mh_fiber_write_ftr_vtk(nativeMatPath, vtkPath);
+end
 seedHit.streamline_count = tck_count(tckPath);
 seedHit.tck_path = tckPath;
 seedHit.native_display_mat = nativeMatPath;

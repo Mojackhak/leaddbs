@@ -20,7 +20,7 @@ end
 pointsDwiMm = tck.fibers(:, 1:3);
 dwiVox = ea_mm2vox(pointsDwiMm, cfg.paths.dwiB0)';
 [anchorMm, anchorVox] = ea_map_coords(dwiVox, cfg.paths.dwiB0, ...
-    cfg.paths.anchorToDwiTransform, cfg.paths.nativeReference, 'ANTS');
+    cfg.paths.dwiToAnchorTransform, cfg.paths.nativeReference, 'ANTS');
 [mniMm, ~] = ea_map_coords(anchorVox, cfg.paths.nativeReference, ...
     cfg.paths.anchorToMniTransform, cfg.paths.mniReference, 'ANTS', 0);
 
