@@ -51,6 +51,7 @@ catch ME
 end
 
 setappdata(resultfig, 'options', options);
+setappdata(resultfig, 'mh_fiber_show_region_labels', logical(get_figure_option(cfg, 'showRegionLabels', false)));
 initialize_anatomy_togglestates(resultfig, options, cfg);
 recolor_electrode_insulation(resultfig, cfg);
 set(0, 'CurrentFigure', resultfig);
@@ -67,18 +68,18 @@ lighting gouraud;
 axis equal off;
 view(90, 0);
 drawnow;
-apply_region_label_visibility(resultfig, cfg);
+mh_fiber_hide_region_labels(resultfig);
 
 ensure_exportable_figure_size(resultfig);
 set(resultfig, 'Visible', visible_state(openAfterRun));
 drawnow;
 mh_fiber_rebind_scene_controls(resultfig);
 open_anatomy_control_if_requested(resultfig, options, cfg);
-apply_region_label_visibility(resultfig, cfg);
+mh_fiber_hide_region_labels(resultfig);
 transientControls = detach_transient_control_windows(resultfig);
 savefig(resultfig, scene.fig);
 restore_transient_control_windows(resultfig, transientControls);
-apply_region_label_visibility(resultfig, cfg);
+mh_fiber_hide_region_labels(resultfig);
 export_scene_png(resultfig, scene.png, openAfterRun);
 if get_figure_option(cfg, 'closeAfterSave', false)
     close(resultfig);
@@ -125,19 +126,6 @@ if pos(3) < minSize(1) || pos(4) < minSize(2)
     pos(3:4) = max(pos(3:4), minSize);
     set(resultfig, 'Position', pos);
 end
-end
-
-function apply_region_label_visibility(resultfig, cfg)
-if get_figure_option(cfg, 'showRegionLabels', false)
-    return;
-end
-
-regionLabels = findall(resultfig, 'Type', 'text');
-if isempty(regionLabels)
-    return;
-end
-
-set(regionLabels, 'Visible', 'off');
 end
 
 function recolor_electrode_insulation(resultfig, cfg)

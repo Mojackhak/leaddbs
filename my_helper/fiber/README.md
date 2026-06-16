@@ -103,7 +103,7 @@ All buttons are enabled by default. Clicking a button hides its object; clicking
 
 Electrode contacts keep the Lead-DBS metal/contact coloring. The helper recolors only the electrode insulation and other non-contact electrode patches to a light gray-white tone so the leads remain visible without competing with ROI, VTA, or fiber colors.
 
-Scene text annotations drawn by ROI, atlas, or electrode-label objects are hidden by default in the saved figure. Object names remain available through toolbar tooltips and right-click control windows.
+Scene text annotations drawn by ROI, atlas, or electrode-label objects are hidden by default in the saved figure. The helper re-hides these text annotations after toolbar toggles and after reopening a saved `.fig`, and it excludes MATLAB `text` handles from atlas and lead toggle targets when region labels are disabled. Object names remain available through toolbar tooltips and right-click control windows.
 
 The helper keeps the visualization control logic close to `ea_mnifigure`: the scene is still created by `ea_elvis`, Lead-DBS creates the lead toolbar buttons, and helper code rebinds the saved `.fig` callbacks so they remain functional after reopening.
 

@@ -29,6 +29,7 @@ options.d3.verbose = 'on';
 setappdata(resultfig, 'options', options);
 
 mh_fiber_rebind_scene_controls(resultfig);
+mh_fiber_hide_region_labels(resultfig);
 
 try
     awin = ea_anatomycontrol(resultfig, options);
@@ -39,5 +40,6 @@ catch ME
         'Could not open Lead-DBS Anatomy Slices control: %s', ME.message);
 end
 
+mh_fiber_hide_region_labels(resultfig);
 drawnow;
 end

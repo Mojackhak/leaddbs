@@ -8,6 +8,7 @@ end
 rebind_helper_targets(resultfig);
 rebind_atlas_targets(resultfig);
 rebind_lead_targets(resultfig);
+mh_fiber_hide_region_labels(resultfig);
 end
 
 function rebind_helper_targets(resultfig)
@@ -85,6 +86,11 @@ function target = find_tagged_scene_objects(resultfig, tag)
 objects = findall(resultfig, '-property', 'Visible', 'Tag', tag);
 objects = mh_fiber_valid_graphics(objects);
 
+visibleObjectTypes = {'patch', 'surface', 'line'};
+if region_labels_enabled(resultfig)
+    visibleObjectTypes{end+1} = 'text';
+end
+
 keep = false(size(objects));
 for i = 1:numel(objects)
     objectType = '';
@@ -92,10 +98,17 @@ for i = 1:numel(objects)
         objectType = char(string(get(objects(i), 'Type')));
     catch
     end
-    keep(i) = any(strcmp(objectType, {'patch', 'surface', 'line', 'text'}));
+    keep(i) = any(strcmp(objectType, visibleObjectTypes));
 end
 
 target = objects(keep);
+end
+
+function enabled = region_labels_enabled(resultfig)
+enabled = false;
+if isappdata(resultfig, 'mh_fiber_show_region_labels')
+    enabled = isequal(getappdata(resultfig, 'mh_fiber_show_region_labels'), true);
+end
 end
 
 function target = collect_lead_handles(elRender)
