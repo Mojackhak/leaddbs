@@ -25,8 +25,36 @@ seedRois = mh_fiber_make_seed_target_rois(cfg, dirs);
 mrtrix = prepare_mrtrix_workspace(cfg, dirs);
 vtaDwi = prepare_dwi_vta_efield(cfg, dirs, vta);
 
-summaryRows = {};
-hitRows = {};
+items = build_seed_target_items(cfg, dirs, mrtrix, seedRois);
+bundles = run_seed_target_items(cfg, dirs, mrtrix, vtaDwi, items);
+[summaryRows, hitRows] = collect_seed_target_rows(items, bundles);
+
+summary = cell2table(summaryRows, 'VariableNames', summary_columns());
+result.summaryTable = summary;
+result.summaryCsv = fullfile(dirs.seedTarget.reports, 'seed_target_summary.csv');
+writetable(summary, result.summaryCsv);
+
+if isempty(hitRows)
+    hitTable = cell2table(cell(0, numel(hit_columns())), 'VariableNames', hit_columns());
+else
+    hitTable = cell2table(hitRows, 'VariableNames', hit_columns());
+end
+result.hitTable = hitTable;
+result.hitCsv = fullfile(dirs.seedTarget.reports, 'seed_target_vta_hit_streamlines.csv');
+writetable(hitTable, result.hitCsv);
+
+result.reportMd = fullfile(dirs.seedTarget.reports, 'seed_target_summary.md');
+write_seed_target_markdown(result.reportMd, cfg, summary, seedRois);
+result.rois = seedRois;
+result.mrtrix = mrtrix;
+result.vtaDwi = vtaDwi;
+
+fprintf('Seed-target outputs written to:\n%s\n', dirs.seedTarget.root);
+end
+
+function items = build_seed_target_items(cfg, dirs, mrtrix, seedRois)
+items = {};
+taskIndex = 0;
 sides = cellstr(string(get_seed_option(cfg, 'sides', {'R', 'L'})));
 seedNames = cellstr(string(cfg.seedTarget.seedNames));
 targetNames = cellstr(string(cfg.seedTarget.targetNames));
@@ -51,12 +79,12 @@ for s = 1:numel(sides)
             for targetIdx = 1:numel(targetNames)
                 targetName = targetNames{targetIdx};
                 if cfg.seedTarget.skipSelfTargets && strcmp(seedName, targetName)
-                    summaryRows(end+1, :) = skipped_summary_row(cfg, side, seedName, seedVariant, targetName, ...
+                    items{end+1} = make_skip_item(side, seedName, seedVariant, targetName, ...
                         seedVoxelCount, 'skipped_self_target'); %#ok<AGROW>
                     continue;
                 end
                 if ~has_roi(seedRois.dwi, side, targetName)
-                    summaryRows(end+1, :) = skipped_summary_row(cfg, side, seedName, seedVariant, targetName, ...
+                    items{end+1} = make_skip_item(side, seedName, seedVariant, targetName, ...
                         seedVoxelCount, 'missing_target_roi'); %#ok<AGROW>
                     continue;
                 end
@@ -64,37 +92,117 @@ for s = 1:numel(sides)
                 targetMask = prepare_target_mask(cfg, dirs, mrtrix, seedRois.dwi.(side).(targetName), ...
                     side, targetName);
                 targetVoxelCount = count_mif_voxels(cfg, targetMask);
-                bundle = run_one_bundle(cfg, dirs, mrtrix, vtaDwi, side, seedName, seedVariant, ...
-                    targetName, seedMask, targetMask, seedVoxelCount, targetVoxelCount);
-
-                summaryRows(end+1, :) = bundle.summaryRow; %#ok<AGROW>
-                hitRows = [hitRows; bundle.hitRows]; %#ok<AGROW>
+                taskIndex = taskIndex + 1;
+                items{end+1} = make_task_item(taskIndex, side, seedName, seedVariant, targetName, ...
+                    seedMask, targetMask, seedVoxelCount, targetVoxelCount); %#ok<AGROW>
             end
         end
     end
 end
-
-summary = cell2table(summaryRows, 'VariableNames', summary_columns());
-result.summaryTable = summary;
-result.summaryCsv = fullfile(dirs.seedTarget.reports, 'seed_target_summary.csv');
-writetable(summary, result.summaryCsv);
-
-if isempty(hitRows)
-    hitTable = cell2table(cell(0, numel(hit_columns())), 'VariableNames', hit_columns());
-else
-    hitTable = cell2table(hitRows, 'VariableNames', hit_columns());
 end
-result.hitTable = hitTable;
-result.hitCsv = fullfile(dirs.seedTarget.reports, 'seed_target_vta_hit_streamlines.csv');
-writetable(hitTable, result.hitCsv);
 
-result.reportMd = fullfile(dirs.seedTarget.reports, 'seed_target_summary.md');
-write_seed_target_markdown(result.reportMd, cfg, summary, seedRois);
-result.rois = seedRois;
-result.mrtrix = mrtrix;
-result.vtaDwi = vtaDwi;
+function item = make_skip_item(side, seedName, seedVariant, targetName, seedVoxelCount, status)
+item = struct();
+item.kind = 'skip';
+item.taskIndex = 0;
+item.summaryRow = skipped_summary_row([], side, seedName, seedVariant, targetName, seedVoxelCount, status);
+item.task = struct();
+end
 
-fprintf('Seed-target outputs written to:\n%s\n', dirs.seedTarget.root);
+function item = make_task_item(taskIndex, side, seedName, seedVariant, targetName, ...
+    seedMask, targetMask, seedVoxelCount, targetVoxelCount)
+task = struct();
+task.side = side;
+task.seedName = seedName;
+task.seedVariant = seedVariant;
+task.targetName = targetName;
+task.seedMask = seedMask;
+task.targetMask = targetMask;
+task.seedVoxelCount = seedVoxelCount;
+task.targetVoxelCount = targetVoxelCount;
+
+item = struct();
+item.kind = 'task';
+item.taskIndex = taskIndex;
+item.summaryRow = {};
+item.task = task;
+end
+
+function bundles = run_seed_target_items(cfg, dirs, mrtrix, vtaDwi, items)
+tasks = collect_tasks(items);
+taskCount = numel(tasks);
+bundles = cell(taskCount, 1);
+if taskCount == 0
+    return;
+end
+
+[useParallel, workerCount] = should_run_parallel(cfg, taskCount);
+if useParallel
+    fprintf('Running %d seed-target bundle tasks with %d parallel workers...\n', taskCount, workerCount);
+    parfor (taskIdx = 1:taskCount, workerCount)
+        bundles{taskIdx} = run_seed_target_task(cfg, dirs, mrtrix, vtaDwi, tasks{taskIdx});
+    end
+else
+    fprintf('Running %d seed-target bundle tasks sequentially...\n', taskCount);
+    for taskIdx = 1:taskCount
+        bundles{taskIdx} = run_seed_target_task(cfg, dirs, mrtrix, vtaDwi, tasks{taskIdx});
+    end
+end
+end
+
+function tasks = collect_tasks(items)
+tasks = {};
+for i = 1:numel(items)
+    if strcmp(items{i}.kind, 'task')
+        tasks{end+1} = items{i}.task; %#ok<AGROW>
+    end
+end
+end
+
+function bundle = run_seed_target_task(cfg, dirs, mrtrix, vtaDwi, task)
+bundle = run_one_bundle(cfg, dirs, mrtrix, vtaDwi, task.side, task.seedName, task.seedVariant, ...
+    task.targetName, task.seedMask, task.targetMask, task.seedVoxelCount, task.targetVoxelCount);
+end
+
+function [summaryRows, hitRows] = collect_seed_target_rows(items, bundles)
+summaryRows = {};
+hitRows = {};
+for i = 1:numel(items)
+    item = items{i};
+    if strcmp(item.kind, 'skip')
+        summaryRows(end+1, :) = item.summaryRow; %#ok<AGROW>
+    else
+        bundle = bundles{item.taskIndex};
+        summaryRows(end+1, :) = bundle.summaryRow; %#ok<AGROW>
+        hitRows = [hitRows; bundle.hitRows]; %#ok<AGROW>
+    end
+end
+end
+
+function [useParallel, workerCount] = should_run_parallel(cfg, taskCount)
+workerCount = max(1, round(double(get_seed_option(cfg, 'parallelWorkers', 1))));
+workerCount = min(workerCount, taskCount);
+useParallel = logical(get_seed_option(cfg, 'parallel', false)) && workerCount > 1 && taskCount > 1;
+if ~useParallel
+    workerCount = 1;
+    return;
+end
+
+if exist('parpool', 'file') ~= 2 || exist('gcp', 'file') ~= 2 || ...
+        ~license('test', 'Distrib_Computing_Toolbox')
+    warning('mh_fiber_run_seed_target:ParallelUnavailable', ...
+        'Parallel Computing Toolbox is unavailable. Falling back to sequential seed-target tasks.');
+    useParallel = false;
+    workerCount = 1;
+    return;
+end
+
+pool = gcp('nocreate');
+if isempty(pool)
+    parpool('local', workerCount);
+else
+    workerCount = min(workerCount, pool.NumWorkers);
+end
 end
 
 function mrtrix = prepare_mrtrix_workspace(cfg, dirs)
@@ -248,13 +356,14 @@ seedHitNativeMatPath = fullfile(dirs.seedTarget.native, [seedHitName, '.mat']);
 seedHitMniMatPath = fullfile(dirs.seedTarget.mni, [seedHitName, '.mat']);
 
 status = 'ok';
+mainComplete = tract_output_complete(cfg, tckPath, nativeMatPath, mniMatPath);
 if seedVoxelCount == 0
     status = 'empty_seed_mask';
     write_empty_tck(tckPath);
 elseif targetVoxelCount == 0
     status = 'empty_target_mask';
     write_empty_tck(tckPath);
-elseif cfg.seedTarget.force || ~isfile(tckPath)
+elseif should_run_tractography(cfg, tckPath, mainComplete)
     cmd = sprintf(['tckgen %s %s -algorithm iFOD2 -seed_image %s -include %s -mask %s ', ...
         '-select %d -seeds %d -cutoff %.6g -minlength %.6g -maxlength %.6g -nthreads %d -force'], ...
         q(mrtrix.wmFod), q(tckPath), q(seedMask), q(targetMask), q(mrtrix.trackingMaskMif), ...
@@ -311,11 +420,12 @@ seedHit = struct();
 run_if_missing(cfg, seedVtaMask, sprintf('mrcalc %s %s -mult %s -datatype bit -force', ...
     q(seedMask), q(vtaBinaryMif), q(seedVtaMask)));
 seedHit.seed_vta_voxels = count_mif_voxels(cfg, seedVtaMask);
+seedHitComplete = tract_output_complete(cfg, tckPath, nativeMatPath, mniMatPath);
 
 if seedVoxelCount == 0 || targetVoxelCount == 0 || seedHit.seed_vta_voxels == 0
     write_empty_tck(tckPath);
 else
-    if cfg.seedTarget.force || ~isfile(tckPath)
+    if should_run_tractography(cfg, tckPath, seedHitComplete)
         cmd = sprintf(['tckgen %s %s -algorithm iFOD2 -seed_image %s -include %s -mask %s ', ...
             '-select %d -seeds %d -cutoff %.6g -minlength %.6g -maxlength %.6g -nthreads %d -force'], ...
             q(mrtrix.wmFod), q(tckPath), q(seedVtaMask), q(targetMask), q(mrtrix.trackingMaskMif), ...
@@ -342,6 +452,48 @@ seedHit.streamline_count = tck_count(tckPath);
 seedHit.tck_path = tckPath;
 seedHit.native_display_mat = nativeMatPath;
 seedHit.mni_display_mat = mniMatPath;
+end
+
+function tf = should_run_tractography(cfg, tckPath, complete)
+if cfg.seedTarget.force
+    tf = true;
+    return;
+end
+if logical(get_seed_option(cfg, 'resume', true))
+    tf = ~complete;
+else
+    tf = ~isfile(tckPath);
+end
+end
+
+function complete = tract_output_complete(cfg, tckPath, nativeMatPath, mniMatPath)
+if ~isfile(tckPath) || ~isfile(nativeMatPath) || ~isfile(mniMatPath)
+    complete = false;
+    return;
+end
+
+if file_bytes(tckPath) < 256 || file_bytes(nativeMatPath) == 0 || file_bytes(mniMatPath) == 0
+    complete = false;
+    return;
+end
+
+try
+    mh_fiber_load_tck(tckPath, 1, max(1, cfg.seedTarget.displayPointStride));
+    nativeInfo = whos('-file', nativeMatPath);
+    mniInfo = whos('-file', mniMatPath);
+    complete = ~isempty(nativeInfo) && ~isempty(mniInfo);
+catch
+    complete = false;
+end
+end
+
+function bytes = file_bytes(path)
+info = dir(path);
+if isempty(info)
+    bytes = 0;
+else
+    bytes = info(1).bytes;
+end
 end
 
 function row = skipped_summary_row(~, side, seedName, seedVariant, targetName, seedVoxelCount, status)

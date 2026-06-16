@@ -106,6 +106,54 @@ The MRtrix3 backend uses:
 - Algorithm: `tckgen -algorithm iFOD2`
 - Response/FOD: single-shell response with `dwi2response tournier`, then single-shell CSD with `dwi2fod csd`
 
+Seed-target tractography is parallelized at the bundle level. The ROI conversion,
+DWI/FOD preparation, and stimulation VTA/e-field resampling are still performed
+once in a serial setup step, then each seed-target query is dispatched as an
+independent task. This avoids multiple workers writing the same intermediate
+ROI masks while allowing independent `tckgen` calls to run concurrently.
+
+Default parallel settings:
+
+- `cfg.seedTarget.parallel = true`
+- `cfg.seedTarget.parallelWorkers = 10`
+- `cfg.seedTarget.threads = 1`
+
+With the default full network there can be up to 128 `.tck` tasks:
+
+```text
+2 sides x 2 seeds x 2 seed variants x 8 non-self targets x
+2 tract types (seed-target and VTA_seed_hit)
+```
+
+The formal default tractography budget is:
+
+- `cfg.seedTarget.select = 5000`
+- `cfg.seedTarget.seeds = 500000`
+
+`select` is the requested number of accepted streamlines per task. `seeds` is
+the maximum number of seeding attempts. Difficult seed-target pairs can take
+much longer than easy pairs and may still return fewer than `select` streamlines
+or zero streamlines after exhausting the seed budget.
+
+The seed-target runner is resumable by default:
+
+- `cfg.seedTarget.force = false`
+- `cfg.seedTarget.resume = true`
+
+A bundle is skipped only when the main `.tck`, native/MNI display `.mat`, the
+`VTA_seed_hit` `.tck`, and its native/MNI display `.mat` are all present and
+readable. Interrupted partial files are not treated as complete results and are
+rerun.
+
+For fast QC, reduce the budget before running:
+
+```matlab
+cfg.seedTarget.select = 200;
+cfg.seedTarget.seeds = 50000;
+cfg.seedTarget.writeDensity = false;
+cfg.seedTarget.writeVtk = false;
+```
+
 For sub-001 and similar Lead-DBS outputs, `preprocessing/dwi/brainmask.nii` may be a high-resolution anatomical tissue-class image rather than a DWI-grid mask. The helper checks the spatial dimensions against the DWI image. If the brain mask does not match the DWI grid, it uses the DWI-grid `trackingmask.nii` as the MRtrix response/FOD mask and records that fallback in the command log.
 
 Seed variants are written separately:
