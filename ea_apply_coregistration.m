@@ -67,8 +67,8 @@ transformType = upper(regexp(transform, '(?<=desc-)\w+(?=\.mat)', 'match', 'once
 % Extract everything between the last underscore and .mat
 if isempty(transformType)
     [~, fname] = fileparts(transform);
-    % Match: _spm, _fsl, _ants, _brainsfit at the end
-    matches = regexp(fname, '_(spm|fsl|ants|brainsfit|antssyn)$', 'tokens', 'once', 'ignorecase');
+    % Match classic names with optional numbered suffixes, e.g. _ants1.
+    matches = regexp(fname, '_(spm|fsl|ants|brainsfit|antssyn)\d*$', 'tokens', 'once', 'ignorecase');
     if ~isempty(matches)
         transformType = upper(matches{1});
     end

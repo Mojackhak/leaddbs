@@ -69,6 +69,7 @@ view(90, 0);
 drawnow;
 apply_region_label_visibility(resultfig, cfg);
 
+ensure_exportable_figure_size(resultfig);
 set(resultfig, 'Visible', visible_state(openAfterRun));
 drawnow;
 mh_fiber_rebind_scene_controls(resultfig);
@@ -78,15 +79,52 @@ transientControls = detach_transient_control_windows(resultfig);
 savefig(resultfig, scene.fig);
 restore_transient_control_windows(resultfig, transientControls);
 apply_region_label_visibility(resultfig, cfg);
-try
-    exportgraphics(resultfig, scene.png, 'Resolution', 300);
-catch
-    print(resultfig, scene.png, '-dpng', '-r300');
-end
+export_scene_png(resultfig, scene.png, openAfterRun);
 if get_figure_option(cfg, 'closeAfterSave', false)
     close(resultfig);
 end
 
+end
+
+function export_scene_png(resultfig, pngPath, keepVisible)
+if ~isgraphics(resultfig)
+    return;
+end
+
+previousVisible = get(resultfig, 'Visible');
+set(resultfig, 'Visible', 'on');
+drawnow;
+
+try
+    exportgraphics(resultfig, pngPath, 'Resolution', 300);
+catch
+    set(resultfig, 'PaperPositionMode', 'auto', 'InvertHardcopy', 'off');
+    print(resultfig, pngPath, '-dpng', '-r300');
+end
+
+if ~keepVisible && isgraphics(resultfig)
+    set(resultfig, 'Visible', previousVisible);
+end
+end
+
+function ensure_exportable_figure_size(resultfig)
+if ~isgraphics(resultfig)
+    return;
+end
+
+previousUnits = get(resultfig, 'Units');
+cleanup = onCleanup(@() set(resultfig, 'Units', previousUnits));
+set(resultfig, 'Units', 'pixels');
+pos = get(resultfig, 'Position');
+if numel(pos) ~= 4
+    return;
+end
+
+minSize = [1200, 900];
+if pos(3) < minSize(1) || pos(4) < minSize(2)
+    pos(3:4) = max(pos(3:4), minSize);
+    set(resultfig, 'Position', pos);
+end
 end
 
 function apply_region_label_visibility(resultfig, cfg)

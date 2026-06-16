@@ -291,15 +291,6 @@ fprintf('\nMapping from anat to mni...\n');
 % Get BIDS-compliant transformation files
 transformfiles = ea_gettransformfiles(options);
 
-% Use inverse transform (from native to MNI)
-% Note: ea_map_coords will add the appropriate extension if needed
-if exist(transformfiles.inverse, 'file')
-    inverseTransform = transformfiles.inverse;
-else
-    % Fallback to classic naming (ea_map_coords will add extension)
-    inverseTransform = [directory,'inverseTransform'];
-end
-
 % Determine transformation method from whichnormmethod
 if contains(whichnormmethod, 'ANTs', 'IgnoreCase', true)
     transformmethod = 'ANTs';
@@ -311,9 +302,24 @@ else
     transformmethod = 'ANTs'; % default
 end
 
+% In the BIDS transform layout, ea_gettransformfiles.forward is the
+% anchorNative-to-MNI deformation. For explicit ANTs deformation files,
+% ea_map_coords expects the proper src-to-dest field with useinverse=0.
+% Legacy SPM fallback still uses the inverse deformation generated for
+% subject-to-template coordinate mapping.
+if strcmpi(transformmethod, 'ANTs') && isfield(transformfiles, 'forward') && exist(transformfiles.forward, 'file')
+    nativeToMniTransform = transformfiles.forward;
+elseif exist(transformfiles.inverse, 'file')
+    nativeToMniTransform = transformfiles.inverse;
+else
+    % Fallback to classic naming (ea_map_coords will add the appropriate
+    % extension and interpret the Lead-DBS stub).
+    nativeToMniTransform = [directory, 'inverseTransform'];
+end
+
 [wfibsmm_mni, wfibsvox_mni] = ea_map_coords(wfibsvox_anat', ...
                                             refanat, ...
-                                            inverseTransform, ...
+                                            nativeToMniTransform, ...
                                             refnorm, ...
                                             transformmethod);
 

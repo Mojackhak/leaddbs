@@ -7,6 +7,7 @@ The public entry points are:
 - `mh_fiber_default_config(subjectDir, stimLabel)`: create a fixed configuration for one subject and one existing Lead-DBS stimulation label.
 - `mh_fiber_run(cfg)`: run ROI generation, fiber filtering, VTA-hit detection, e-field peak extraction, native fiber back-projection by fiber ID, reports, and figures.
 - `mh_fiber_open_scene(figPath)`: reopen a saved helper scene, make it visible, and open the Lead-DBS Anatomy Slices control window when possible.
+- `run_sub001_fiber_tracking_two_scheme_vis.m`: rerun sub-001 structural fiber tracking, then generate both the Lead-DBS two-source VTA approximation and the helper one-solve multi-voltage VTA outputs.
 - `run_sub001_fiber_vis.m`: command-line script for the current `sub-001` case.
 
 ## Default Behavior
@@ -27,6 +28,46 @@ Default HybraPD Whole Brain labels:
 - `NAc_R = 306`
 
 The default activation proxy is defined as fiber/VTA intersection. For every VTA-hit fiber, the helper records peak e-field sampled from the Lead-DBS e-field NIfTI and flags `peak >= 200 V/m`.
+
+## Sub-001 Two-Scheme Stimulation Workflow
+
+The current sub-001 rerun uses a global 0-15 clinical contact convention:
+
+- Global left contacts `0-7` map to Lead-DBS contacts `L1-L8`.
+- Global right contacts `8-15` map to Lead-DBS contacts `R1-R8`.
+- Global `1` and `9` therefore map to `L2` and `R2`, stimulated at `3.0 V / 130 Hz / 120 us`.
+- Global `4,5,6,7` and `12,13,14,15` map to `L5-L8` and `R5-R8`, stimulated at `5.0 V / 130 Hz / 120 us`.
+
+Two VTA schemes are produced from the same regenerated patient-specific fibers:
+
+- `clinical_twosource_L2R2_3V_L5to8R5to8_5V`: Lead-DBS-native SimBio scheme. Each side uses two Lead-DBS sources because each source has only one amplitude: contact 2 is a 3 V cathodic source, and contacts 5-8 are a 5 V cathodic source with `perc=100` for every active contact. In voltage mode `perc` is an on/off participation marker and does not split voltage.
+- `clinical_onesolve_L2R2_3V_L5to8R5to8_5V`: helper multi-voltage scheme. The helper reuses the Lead-DBS headmodel and VTA writer but solves one FEM problem per side with contact 2 set to -3 V and contacts 5-8 set to -5 V. This avoids Lead-DBS' per-source maximum-field merge for the mixed-amplitude contacts.
+
+The two schemes write separate stimulation folders and separate `connectomics/fiber_vis/<stimLabel>` outputs. Their VTA volumes, Dice overlap, e-field peaks, and VTA-hit fiber counts are summarized in `connectomics/fiber_vis/two_scheme_comparison`.
+
+The rerun script builds the Lead-Connectome `options.lc` structure directly instead of opening the Lead Connectome GUI initializer, so it can run from `matlab -batch`.
+
+The rerun requires Lead-DBS to recognize numbered ANTs affine filenames such as `_ants1.mat` when applying b0/T1 transforms. The helper workflow relies on that compatibility because Lead-DBS itself writes numbered ANTs transforms during DWI/T1 and tracking-mask registration.
+
+Fiber normalization must stay on the same registration chain that was visually approved:
+
+- b0/DWI native space: `preprocessing/dwi/sub-001_ses-preop_acq-iso_dwi_b0.nii`.
+- anatomical native space: `coregistration/anat/sub-001_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w.nii`.
+- b0 to anatomical transform: `coregistration/dwi/sub-001_ses-preop_acq-iso_dwi_b02sub-001_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w_ants1.mat`.
+- anatomical to MNI transform: `normalization/transformations/sub-001_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz`.
+
+The b0 image must inherit the affine/header of the 4D DWI from which FA was computed. Do not recenter only the b0 header independently of the 4D DWI/FA header, because that makes b0 and FA disagree before any DWI-to-T1 transform is applied. For sub-001, the accepted repair is:
+
+- rebuild `preprocessing/dwi/sub-001_ses-preop_acq-iso_dwi_b0.nii` from frame 1 of `preprocessing/dwi/sub-001_ses-preop_acq-iso_dwi.nii`;
+- re-estimate the b0-to-anchorNative T1 ANTs affine from the rebuilt b0;
+- use the same b0-to-anchorNative affine to resample native FA for QC;
+- apply `sub-001_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz` to the anchorNative b0/FA QC files for MNI inspection.
+
+The helper intentionally does not call `ea_perform_lc` for the normalization step. `ea_perform_lc` refreshes `ea_getptopts` before `ea_normalize_fibers`, which can reset `prefs.prenii_unnormalized` to the default preprocessing T1 and make `ea_normalize_fibers` pick a newly generated `_ants2.mat` tracking-mask transform. That chain can place normalized fibers too inferiorly in MNI space.
+
+For BIDS ANTs normalization, native-to-MNI fiber coordinates should be mapped with the Lead-DBS `forward` transform (`from-anchorNative_to-MNI152NLin2009bAsym`) and `useinverse=0`. The helper verifies this direction because `ea_gettransformfiles.inverse` is the MNI-to-anchorNative deformation in the current BIDS naming scheme.
+
+Native visualization and native TRK export should use the same accepted anchorNative reference as `FTR_anat.mat`: `coregistration/anat/<subject>_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w.nii`. The helper resolves this anchorNative image before any preprocessing T1 fallback, so native ROI masks, native fibers, native VTA, and the native scene share the same patient-space reference.
 
 ## Output Layout
 
@@ -67,6 +108,8 @@ Scene text annotations drawn by ROI, atlas, or electrode-label objects are hidde
 The helper keeps the visualization control logic close to `ea_mnifigure`: the scene is still created by `ea_elvis`, Lead-DBS creates the lead toolbar buttons, and helper code rebinds the saved `.fig` callbacks so they remain functional after reopening.
 
 When writing the `.fig`, the helper stores the main scene objects and toolbar callbacks but does not serialize transient Anatomy Slices or Atlas Control windows. The scene is created with Lead-DBS atlas-control auto-open suppressed to avoid MATLAB/Java tree serialization warnings. These windows can be recreated after reopening the scene through `mh_fiber_open_scene(figPath)` or the native Lead-DBS toolbar buttons.
+
+Before exporting the `.png`, the helper enforces a minimum scene figure size and briefly makes the scene visible so hidden batch figures do not export as tiny placeholder images or blank OpenGL captures.
 
 The helper scene also opens the native Lead-DBS Anatomy Slices control window by default. Use that window to switch the backdrop between available MNI templates, patient Pre-OP/Post-OP images, or `Choose...` for a custom `.nii` file. The X/Y/Z slice controls and transparency fields are the standard Lead-DBS controls.
 
