@@ -318,7 +318,7 @@ When writing the `.fig`, the helper stores the main scene objects and toolbar ca
 
 Before exporting the `.png`, the helper enforces a minimum scene figure size and briefly makes the scene visible so hidden batch figures do not export as tiny placeholder images or blank OpenGL captures.
 
-The helper scene also opens the native Lead-DBS Anatomy Slices control window by default. Use that window to switch the backdrop between available MNI templates, patient Pre-OP/Post-OP images, or `Choose...` for a custom `.nii` file. The X/Y/Z slice controls and transparency fields are the standard Lead-DBS controls.
+The helper scene also opens the native Lead-DBS Anatomy Slices control window by default. Use that window to switch the backdrop between available MNI templates, patient Pre-OP/Post-OP images, or `Choose...` for a custom `.nii` file. The X/Y/Z slice controls and transparency fields are the standard Lead-DBS controls. Helper scenes lock the 3D slice planes against direct mouse dragging and disable the main-scene `Slide Slices` toolbar mode, so slice position changes should be made through the Anatomy Slices window while mouse dragging in the main scene remains reserved for camera navigation.
 
 For non-interactive batch runs, disable the figure windows before calling `mh_fiber_run`:
 

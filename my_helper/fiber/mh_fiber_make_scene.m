@@ -75,6 +75,7 @@ set(resultfig, 'Visible', visible_state(openAfterRun));
 drawnow;
 mh_fiber_rebind_scene_controls(resultfig);
 open_anatomy_control_if_requested(resultfig, options, cfg);
+mh_fiber_lock_anatomy_slices(resultfig);
 mh_fiber_hide_region_labels(resultfig);
 transientControls = detach_transient_control_windows(resultfig);
 savefig(resultfig, scene.fig);
@@ -487,6 +488,7 @@ try
     awin = ea_anatomycontrol(resultfig, options);
     set(awin, 'Visible', 'on');
     setappdata(resultfig, 'awin', awin);
+    mh_fiber_lock_anatomy_slices(resultfig, awin);
 catch ME
     warning('mh_fiber_make_scene:AnatomyControlFailed', ...
         'Could not open Lead-DBS Anatomy Slices control: %s', ME.message);

@@ -35,11 +35,13 @@ try
     awin = ea_anatomycontrol(resultfig, options);
     set(awin, 'Visible', 'on');
     setappdata(resultfig, 'awin', awin);
+    mh_fiber_lock_anatomy_slices(resultfig, awin);
 catch ME
     warning('mh_fiber_open_scene:AnatomyControlFailed', ...
         'Could not open Lead-DBS Anatomy Slices control: %s', ME.message);
 end
 
+mh_fiber_lock_anatomy_slices(resultfig);
 mh_fiber_hide_region_labels(resultfig);
 drawnow;
 end

@@ -53,6 +53,7 @@ handles.seedVta = plot_seed_vta_rois(resultfig, result, cfg, scene);
 handles.targets = plot_target_rois(resultfig, seedRois, result, scene);
 handles.fibers = plot_display_fibers(resultfig, result, scene);
 add_global_toggles(resultfig, handles, cfg);
+mh_fiber_lock_anatomy_slices(resultfig);
 
 camlight('headlight');
 lighting gouraud;
@@ -351,6 +352,7 @@ try
     awin = ea_anatomycontrol(resultfig, options);
     set(awin, 'Visible', 'on');
     setappdata(resultfig, 'awin', awin);
+    mh_fiber_lock_anatomy_slices(resultfig, awin);
 catch ME
     warning('mh_fiber_make_seed_vta_sift2_scene:AnatomyControlFailed', ...
         'Could not open Anatomy Slices control: %s', ME.message);
