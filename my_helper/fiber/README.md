@@ -233,6 +233,48 @@ connectomics/fiber_vis/<stimLabel>/seed_target/work
 
 The native calculation files remain MRtrix `.tck` files in DWI space. The helper also writes VTK display files and Lead-DBS-compatible `.mat` files for figure display.
 
+## MRtrix3 SIFT2 Seed-VTA-Target Analysis
+
+The helper can additionally run a SIFT2-weighted visualization analysis focused on stimulation-covered seed tissue. This is separate from the exact FTR filtering and from the pairwise seed-target iFOD2 runs above.
+
+The SIFT2 analysis uses:
+
+- Seeds: `NAc ∩ stimulation VTA` and `ALIC ∩ stimulation VTA`, split by hemisphere.
+- Anatomical seed ROIs for display: the full HybraPD NAc and ALIC masks.
+- Targets: the existing ipsilateral target system except `NAc` and `ALIC`: `mPFC`, `OFC`, `ACC`, `amygdala`, `hippocampus`, `thalamus`, and anatomical `VTA`.
+- Stimulation VTA: the Lead-DBS SimBio binary VTA. This is always named `stimulation VTA` in reports to distinguish it from the anatomical AAL3 VTA target.
+
+The default whole-brain tractogram budget is:
+
+- `cfg.seedVtaSift2.wholebrainSelect = 5000000`
+- `cfg.seedVtaSift2.displayBudget = 2000`
+
+When rerunning after a small quality-control tractogram, increase `cfg.seedVtaSift2.wholebrainSelect` and set `cfg.seedVtaSift2.forceDownstream = true`. This reuses an already generated whole-brain `.tck` and SIFT2 weight file when present, but forces seed-VTA extraction, target classification, density maps, display tracts, and reports to be regenerated for the selected tractogram scale.
+
+The workflow generates an ACT whole-brain iFOD2 tractogram, estimates SIFT2 weights, extracts streamlines intersecting each `seed ∩ stimulation VTA` mask, and then classifies those streamlines by target masks. Target assignment is exclusive:
+
+- streamlines intersecting exactly one configured target are assigned to that target;
+- streamlines intersecting more than one target are reported as `ambiguous`;
+- streamlines intersecting no configured target are reported as `no_target`.
+
+The main quantitative metric is SIFT2 weight sum. Raw streamline count is written only as QC. Target fractions are computed from exclusive target SIFT2 weight sums:
+
+```text
+P_target = W_target / sum(W_all_exclusive_targets)
+```
+
+SIFT2-weighted density maps are written for each non-empty target and should be interpreted as tractography-derived weighted streamline density, not true axon density. The 3D scene uses proportional display subsampling only: up to `displayBudget` streamlines are shown per side/seed group, allocated across targets according to SIFT2 target fractions and sampled within each target using SIFT2 weights.
+
+Seed-VTA-SIFT2 outputs are written under:
+
+```text
+connectomics/fiber_vis/<stimLabel>/seed_vta_sift2/tracks
+connectomics/fiber_vis/<stimLabel>/seed_vta_sift2/density
+connectomics/fiber_vis/<stimLabel>/seed_vta_sift2/display
+connectomics/fiber_vis/<stimLabel>/seed_vta_sift2/reports
+connectomics/fiber_vis/<stimLabel>/seed_vta_sift2/work
+```
+
 ## Interactive Figure Controls
 
 The helper generates separate MNI-space and native-space Lead-DBS/MATLAB scene files:

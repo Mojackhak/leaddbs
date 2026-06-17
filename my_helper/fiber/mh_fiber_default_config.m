@@ -112,6 +112,26 @@ cfg.seedTarget.writeDensity = true;
 cfg.seedTarget.mrtrixPathPrefix = '/usr/local/bin';
 cfg.seedTarget.allowBrainMaskFallbackToTrackingMask = true;
 
+cfg.seedVtaSift2 = struct();
+cfg.seedVtaSift2.enabled = true;
+cfg.seedVtaSift2.force = false;
+cfg.seedVtaSift2.resume = true;
+cfg.seedVtaSift2.seedNames = {'NAc', 'ALIC'};
+cfg.seedVtaSift2.targetNames = {'mPFC', 'OFC', 'ACC', 'amygdala', 'hippocampus', 'thalamus', 'VTA'};
+cfg.seedVtaSift2.sides = {'R', 'L'};
+cfg.seedVtaSift2.wholebrainSelect = 5000000;
+cfg.seedVtaSift2.displayBudget = 2000;
+cfg.seedVtaSift2.randomSeed = 1;
+cfg.seedVtaSift2.useAct = true;
+cfg.seedVtaSift2.forceWholebrain = false;
+cfg.seedVtaSift2.forceSift2 = false;
+cfg.seedVtaSift2.forceDownstream = false;
+cfg.seedVtaSift2.force5tt = false;
+cfg.seedVtaSift2.displayPointStride = 1;
+cfg.seedVtaSift2.writeDensity = true;
+cfg.seedVtaSift2.writeScene = true;
+cfg.seedVtaSift2.mrtrixPathPrefix = '/usr/local/bin';
+
 cfg.figure = struct();
 cfg.figure.maxFibersPerSide = 1200;
 cfg.figure.fiberLineWidth = 0.75;

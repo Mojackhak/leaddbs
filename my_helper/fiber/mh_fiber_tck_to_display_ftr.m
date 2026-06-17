@@ -1,8 +1,12 @@
-function display = mh_fiber_tck_to_display_ftr(cfg, tckPath, nativeMatPath, mniMatPath)
+function display = mh_fiber_tck_to_display_ftr(cfg, tckPath, nativeMatPath, mniMatPath, maxStreamlines, pointStride)
 % Convert a DWI-space TCK bundle to Lead-DBS-display MAT files.
 
-maxStreamlines = get_seed_option(cfg, 'displayMaxStreamlinesPerBundle', 500);
-pointStride = get_seed_option(cfg, 'displayPointStride', 1);
+if nargin < 5 || isempty(maxStreamlines)
+    maxStreamlines = get_seed_option(cfg, 'displayMaxStreamlinesPerBundle', 500);
+end
+if nargin < 6 || isempty(pointStride)
+    pointStride = get_seed_option(cfg, 'displayPointStride', 1);
+end
 tck = mh_fiber_load_tck(tckPath, maxStreamlines, pointStride);
 
 display = struct();

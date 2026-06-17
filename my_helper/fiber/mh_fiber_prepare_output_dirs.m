@@ -17,6 +17,14 @@ dirs.seedTarget.rois = fullfile(dirs.seedTarget.root, 'rois');
 dirs.seedTarget.qc = fullfile(dirs.seedTarget.root, 'qc');
 dirs.seedTarget.reports = fullfile(dirs.seedTarget.root, 'reports');
 dirs.seedTarget.work = fullfile(dirs.seedTarget.root, 'work');
+dirs.seedVtaSift2 = struct();
+dirs.seedVtaSift2.root = fullfile(dirs.root, 'seed_vta_sift2');
+dirs.seedVtaSift2.tracks = fullfile(dirs.seedVtaSift2.root, 'tracks');
+dirs.seedVtaSift2.density = fullfile(dirs.seedVtaSift2.root, 'density');
+dirs.seedVtaSift2.display = fullfile(dirs.seedVtaSift2.root, 'display');
+dirs.seedVtaSift2.figures = fullfile(dirs.seedVtaSift2.root, 'figures');
+dirs.seedVtaSift2.reports = fullfile(dirs.seedVtaSift2.root, 'reports');
+dirs.seedVtaSift2.work = fullfile(dirs.seedVtaSift2.root, 'work');
 
 fields = fieldnames(dirs);
 for i = 1:numel(fields)

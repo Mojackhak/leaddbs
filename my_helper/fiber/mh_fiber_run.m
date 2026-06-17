@@ -67,6 +67,10 @@ if isfield(cfg, 'seedTarget') && isfield(cfg.seedTarget, 'enabled') && cfg.seedT
     result.seedTarget = mh_fiber_run_seed_target(cfg, dirs, rois, vta);
 end
 
+if isfield(cfg, 'seedVtaSift2') && isfield(cfg.seedVtaSift2, 'enabled') && cfg.seedVtaSift2.enabled
+    result.seedVtaSift2 = mh_fiber_run_seed_vta_sift2(cfg, dirs, vta);
+end
+
 fprintf('\nGenerating scene figure...\n');
 result.figures = mh_fiber_make_scene(cfg, dirs, rois, vta);
 

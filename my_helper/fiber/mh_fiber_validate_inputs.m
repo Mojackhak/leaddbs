@@ -54,6 +54,26 @@ if isfield(cfg, 'seedTarget') && isfield(cfg.seedTarget, 'enabled') && cfg.seedT
     must_have_command('mrstats');
 end
 
+if isfield(cfg, 'seedVtaSift2') && isfield(cfg.seedVtaSift2, 'enabled') && cfg.seedVtaSift2.enabled
+    must_be_file(cfg.paths.dwi, 'DWI image');
+    must_be_file(cfg.paths.dwiBvec, 'DWI bvec file');
+    must_be_file(cfg.paths.dwiBval, 'DWI bval file');
+    must_be_file(cfg.paths.dwiB0, 'DWI b0 reference image');
+    must_be_file(cfg.paths.nativeReference, 'anchorNative T1 reference image');
+    must_be_file(cfg.paths.anchorToDwiTransform, 'anchorNative-to-DWI ANTs transform');
+    must_have_command('mrconvert');
+    must_have_command('dwi2response');
+    must_have_command('dwi2fod');
+    must_have_command('tckgen');
+    must_have_command('tckedit');
+    must_have_command('tckmap');
+    must_have_command('tckinfo');
+    must_have_command('tcksift2');
+    must_have_command('5ttgen');
+    must_have_command('mrcalc');
+    must_have_command('mrstats');
+end
+
 end
 
 function must_be_file(path, label)

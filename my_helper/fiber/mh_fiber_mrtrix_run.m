@@ -5,13 +5,17 @@ if nargin < 3
     allowFailure = false;
 end
 
-if isfield(cfg, 'seedTarget') && isfield(cfg.seedTarget, 'mrtrixPathPrefix')
+if isfield(cfg, 'seedVtaSift2') && isfield(cfg.seedVtaSift2, 'mrtrixPathPrefix')
+    prefix = char(string(cfg.seedVtaSift2.mrtrixPathPrefix));
+elseif isfield(cfg, 'seedTarget') && isfield(cfg.seedTarget, 'mrtrixPathPrefix')
     prefix = char(string(cfg.seedTarget.mrtrixPathPrefix));
-    if strlength(string(prefix)) > 0
-        currentPath = getenv('PATH');
-        if ~contains([':', currentPath, ':'], [':', prefix, ':'])
-            setenv('PATH', [prefix, ':', currentPath]);
-        end
+else
+    prefix = '';
+end
+if strlength(string(prefix)) > 0
+    currentPath = getenv('PATH');
+    if ~contains([':', currentPath, ':'], [':', prefix, ':'])
+        setenv('PATH', [prefix, ':', currentPath]);
     end
 end
 
