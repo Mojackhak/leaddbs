@@ -17,7 +17,7 @@ vtaDwi = prepare_dwi_stimulation_vta(cfg, dirs, vta);
 [wholebrainTck, wholebrainWeights] = ensure_wholebrain_sift2(cfg, dirs, mrtrix);
 
 rows = {};
-displayRows = {};
+seedResults = struct('side', {}, 'seedName', {}, 'targetResults', {});
 sides = cellstr(string(cfg.seedVtaSift2.sides));
 seedNames = cellstr(string(cfg.seedVtaSift2.seedNames));
 
@@ -36,7 +36,10 @@ for s = 1:numel(sides)
         seedResult = process_one_seed(cfg, dirs, mrtrix, side, seedName, seed, targetMasks, ...
             wholebrainTck, wholebrainWeights);
         rows = [rows; seedResult.rows]; %#ok<AGROW>
-        displayRows = [displayRows; seedResult.displayRows]; %#ok<AGROW>
+        seedResults(end+1) = struct( ...
+            'side', side, ...
+            'seedName', seedName, ...
+            'targetResults', seedResult.targetResults); %#ok<AGROW>
     end
 end
 
@@ -47,6 +50,7 @@ writetable(summary, result.summaryCsv);
 result.reportMd = fullfile(dirs.seedVtaSift2.reports, 'seed_vta_sift2_summary.md');
 write_summary_markdown(result.reportMd, cfg, summary);
 
+displayRows = write_display_outputs(cfg, dirs, seedResults);
 if isempty(displayRows)
     display = cell2table(cell(0, numel(display_columns())), 'VariableNames', display_columns());
 else
@@ -211,15 +215,21 @@ seedRoiMif = fullfile(mrtrix.maskDir, sprintf('%s_hemi-%s_seed-%s_exact.mif', cf
 seedVtaMif = fullfile(mrtrix.maskDir, sprintf('%s_hemi-%s_seed-%s_intersect-stimulationVTA.mif', cfg.patientName, side, seedName));
 seedVtaNii = fullfile(dirs.seedVtaSift2.work, sprintf('%s_hemi-%s_seed-%s_intersect-stimulationVTA_space-dwi.nii', cfg.patientName, side, seedName));
 seedVtaAnchorNii = fullfile(dirs.seedVtaSift2.work, sprintf('%s_hemi-%s_seed-%s_intersect-stimulationVTA_space-anchorNative.nii', cfg.patientName, side, seedName));
+seedVtaMniNii = fullfile(dirs.seedVtaSift2.work, sprintf('%s_hemi-%s_seed-%s_intersect-stimulationVTA_space-MNI152NLin2009bAsym.nii', cfg.patientName, side, seedName));
 
 run_if_missing(cfg, seedRoiMif, sprintf('mrconvert %s %s -datatype bit -force', q(seedRoiNii), q(seedRoiMif)));
 run_if_missing(cfg, seedVtaMif, sprintf('mrcalc %s %s -mult %s -datatype bit -force', ...
     q(seedRoiMif), q(vtaDwi.(side).binaryMif), q(seedVtaMif)));
 run_if_missing(cfg, seedVtaNii, sprintf('mrconvert %s %s -datatype bit -force', q(seedVtaMif), q(seedVtaNii)));
-if cfg.seedVtaSift2.force || ~isfile(seedVtaAnchorNii)
+if should_write_downstream(cfg, seedVtaAnchorNii)
     ea_ants_apply_transforms([], seedVtaNii, seedVtaAnchorNii, 0, cfg.paths.nativeReference, ...
         cfg.paths.dwiToAnchorTransform, 'GenericLabel');
     binarize_nii(seedVtaAnchorNii, 0.5);
+end
+if should_write_downstream(cfg, seedVtaMniNii)
+    ea_ants_apply_transforms([], seedVtaAnchorNii, seedVtaMniNii, 0, cfg.paths.mniReference, ...
+        cfg.paths.anchorToMniTransform, 'GenericLabel');
+    binarize_nii(seedVtaMniNii, 0.5);
 end
 
 seed = struct();
@@ -230,6 +240,7 @@ seed.roiMif = seedRoiMif;
 seed.seedVtaMif = seedVtaMif;
 seed.seedVtaNii = seedVtaNii;
 seed.seedVtaAnchorNii = seedVtaAnchorNii;
+seed.seedVtaMniNii = seedVtaMniNii;
 seed.roiVoxels = count_mif_voxels(cfg, seedRoiMif);
 seed.seedVtaVoxels = count_mif_voxels(cfg, seedVtaMif);
 end
@@ -260,12 +271,11 @@ end
 
 classification = classify_streamlines_by_targets(tck, targetMasks);
 targetResults = write_target_outputs(cfg, dirs, mrtrix, side, seedName, seed, tck, weights, targetMasks, classification);
-[targetResults, displayRows] = write_display_outputs(cfg, dirs, side, seedName, targetResults);
 rows = make_summary_rows(side, seedName, seed, tck, weights, targetMasks, classification, targetResults);
 
 seedResult = struct();
 seedResult.rows = rows;
-seedResult.displayRows = displayRows;
+seedResult.targetResults = targetResults;
 end
 
 function classification = classify_streamlines_by_targets(tck, targetMasks)
@@ -326,10 +336,10 @@ for j = 1:numel(targetMasks)
 
     streamlines = tck.streamlines(indices);
     targetWeightValues = weights(indices);
-    if cfg.seedVtaSift2.force || ~isfile(targetTck)
+    if should_write_downstream(cfg, targetTck)
         mh_fiber_write_tck(targetTck, streamlines);
     end
-    if cfg.seedVtaSift2.force || ~isfile(targetWeights)
+    if should_write_downstream(cfg, targetWeights)
         write_weights(targetWeights, targetWeightValues);
     end
 
@@ -340,7 +350,7 @@ for j = 1:numel(targetMasks)
             write_zero_like(cfg.paths.dwiB0, density);
             write_zero_like(cfg.paths.dwiB0, relativeDensity);
         else
-            if cfg.seedVtaSift2.force || ~isfile(density)
+            if should_write_downstream(cfg, density)
                 mh_fiber_mrtrix_run(cfg, sprintf('tckmap %s %s -template %s -precise -tck_weights_in %s -force', ...
                     q(targetTck), q(density), q(cfg.paths.dwiB0), q(targetWeights)));
             end
@@ -363,7 +373,7 @@ end
 for j = 1:numel(targetResults)
     if cfg.seedVtaSift2.writeDensity && targetResults(j).streamlineCount > 0
         if exclusiveWeightSum > 0
-            if cfg.seedVtaSift2.force || ~isfile(targetResults(j).relativeDensity)
+            if should_write_downstream(cfg, targetResults(j).relativeDensity)
                 mh_fiber_mrtrix_run(cfg, sprintf('mrcalc %s %.17g -div %s -force', ...
                     q(targetResults(j).density), exclusiveWeightSum, q(targetResults(j).relativeDensity)));
             end
@@ -374,43 +384,122 @@ for j = 1:numel(targetResults)
 end
 end
 
-function [targetResults, displayRows] = write_display_outputs(cfg, dirs, side, seedName, targetResults)
+function displayRows = write_display_outputs(cfg, dirs, seedResults)
 displayRows = {};
-weights = [targetResults.weightSum]';
-totalWeight = sum(weights);
-if totalWeight <= 0
+items = flatten_display_items(seedResults);
+if isempty(items)
     return;
 end
 
 budget = double(cfg.seedVtaSift2.displayBudget);
-allocation = round(budget .* weights ./ totalWeight);
-nonEmpty = find([targetResults.streamlineCount] > 0);
-if ~isempty(nonEmpty)
-    allocation(nonEmpty(end)) = allocation(nonEmpty(end)) + (budget - sum(allocation));
-end
-allocation = max(0, min(allocation, [targetResults.streamlineCount]'));
+mode = display_budget_mode(cfg);
 
-for j = 1:numel(targetResults)
+if strcmp(mode, 'per_seed')
+    allocation = zeros(numel(items), 1);
+    keys = strings(numel(items), 1);
+    for i = 1:numel(items)
+        keys(i) = string(items(i).side) + "|" + string(items(i).seedName);
+    end
+    uniqueKeys = unique(keys, 'stable');
+    for k = 1:numel(uniqueKeys)
+        group = find(keys == uniqueKeys(k));
+        allocation(group) = allocate_display_counts([items(group).weightSum]', ...
+            [items(group).streamlineCount]', budget);
+    end
+else
+    allocation = allocate_display_counts([items.weightSum]', [items.streamlineCount]', budget);
+end
+
+for j = 1:numel(items)
     nDisplay = allocation(j);
     if nDisplay <= 0
         continue;
     end
-    tck = mh_fiber_load_tck(targetResults(j).tck, Inf, max(1, cfg.seedVtaSift2.displayPointStride));
-    targetWeights = read_weights(targetResults(j).weights);
+    tck = mh_fiber_load_tck(items(j).tck, Inf, max(1, cfg.seedVtaSift2.displayPointStride));
+    targetWeights = read_weights(items(j).weights);
     selected = mh_fiber_weighted_sample_indices(targetWeights, nDisplay, cfg.seedVtaSift2.randomSeed + j);
     selectedTck = fullfile(dirs.seedVtaSift2.display, sprintf('%s_hemi-%s_seed-%sVTA_to-%s_display.tck', ...
-        cfg.patientName, side, seedName, targetResults(j).name));
+        cfg.patientName, items(j).side, items(j).seedName, items(j).name));
     mh_fiber_write_tck(selectedTck, tck.streamlines(selected));
-    mh_fiber_tck_to_display_ftr(cfg, selectedTck, targetResults(j).nativeDisplayMat, targetResults(j).mniDisplayMat, ...
+    mh_fiber_tck_to_display_ftr(cfg, selectedTck, items(j).nativeDisplayMat, items(j).mniDisplayMat, ...
         nDisplay, cfg.seedVtaSift2.displayPointStride);
     try
-        mh_fiber_write_ftr_vtk(targetResults(j).nativeDisplayMat, replace_extension(targetResults(j).nativeDisplayMat, '.vtk'));
+        mh_fiber_write_ftr_vtk(items(j).nativeDisplayMat, replace_extension(items(j).nativeDisplayMat, '.vtk'));
+        mh_fiber_write_ftr_vtk(items(j).mniDisplayMat, replace_extension(items(j).mniDisplayMat, '.vtk'));
     catch ME
         warning('mh_fiber_run_seed_vta_sift2:VtkFailed', 'Could not write display VTK: %s', ME.message);
     end
 
-    displayRows(end+1, :) = {side, seedName, targetResults(j).name, nDisplay, ...
-        selectedTck, targetResults(j).nativeDisplayMat, targetResults(j).mniDisplayMat}; %#ok<AGROW>
+    displayRows(end+1, :) = {items(j).side, items(j).seedName, items(j).name, nDisplay, ...
+        selectedTck, items(j).nativeDisplayMat, items(j).mniDisplayMat}; %#ok<AGROW>
+end
+end
+
+function items = flatten_display_items(seedResults)
+items = struct('side', {}, 'seedName', {}, 'name', {}, 'streamlineCount', {}, 'weightSum', {}, ...
+    'tck', {}, 'weights', {}, 'nativeDisplayMat', {}, 'mniDisplayMat', {});
+for i = 1:numel(seedResults)
+    for j = 1:numel(seedResults(i).targetResults)
+        target = seedResults(i).targetResults(j);
+        if target.streamlineCount <= 0 || target.weightSum <= 0
+            continue;
+        end
+        items(end+1) = struct( ...
+            'side', seedResults(i).side, ...
+            'seedName', seedResults(i).seedName, ...
+            'name', target.name, ...
+            'streamlineCount', target.streamlineCount, ...
+            'weightSum', target.weightSum, ...
+            'tck', target.tck, ...
+            'weights', target.weights, ...
+            'nativeDisplayMat', target.nativeDisplayMat, ...
+            'mniDisplayMat', target.mniDisplayMat); %#ok<AGROW>
+    end
+end
+end
+
+function allocation = allocate_display_counts(weights, maxCounts, budget)
+weights = double(weights(:));
+maxCounts = double(maxCounts(:));
+allocation = zeros(size(weights));
+if budget <= 0 || isempty(weights) || sum(weights, 'omitnan') <= 0
+    return;
+end
+
+capacity = max(0, floor(maxCounts));
+targetBudget = min(round(budget), sum(capacity));
+exact = targetBudget .* weights ./ sum(weights, 'omitnan');
+allocation = min(floor(exact), capacity);
+
+remaining = targetBudget - sum(allocation);
+fractional = exact - floor(exact);
+while remaining > 0
+    candidates = find(allocation < capacity);
+    if isempty(candidates)
+        break;
+    end
+    [~, order] = sort(fractional(candidates), 'descend');
+    candidates = candidates(order);
+    for i = 1:numel(candidates)
+        if remaining <= 0
+            break;
+        end
+        idx = candidates(i);
+        allocation(idx) = allocation(idx) + 1;
+        remaining = remaining - 1;
+    end
+    fractional(:) = 0;
+end
+end
+
+function mode = display_budget_mode(cfg)
+mode = 'global';
+if isfield(cfg.seedVtaSift2, 'displayBudgetMode') && strlength(string(cfg.seedVtaSift2.displayBudgetMode)) > 0
+    mode = char(lower(string(cfg.seedVtaSift2.displayBudgetMode)));
+end
+if ~ismember(mode, {'global', 'per_seed'})
+    error('mh_fiber_run_seed_vta_sift2:InvalidDisplayBudgetMode', ...
+        'Unsupported cfg.seedVtaSift2.displayBudgetMode: %s', mode);
 end
 end
 
@@ -472,7 +561,8 @@ fprintf(fid, '- Subject: `%s`\n', cfg.patientName);
 fprintf(fid, '- Stimulation label: `%s`\n', cfg.stimLabel);
 fprintf(fid, '- Seeds: `NAc ∩ stimulation VTA`, `ALIC ∩ stimulation VTA`.\n');
 fprintf(fid, '- Whole-brain tractogram target: `%d` streamlines.\n', cfg.seedVtaSift2.wholebrainSelect);
-fprintf(fid, '- Display budget: `%d` streamlines per side/seed group.\n', cfg.seedVtaSift2.displayBudget);
+fprintf(fid, '- Display budget: `%d` streamlines, mode `%s`.\n', ...
+    cfg.seedVtaSift2.displayBudget, display_budget_mode(cfg));
 fprintf(fid, '- Main metric: SIFT2 target weight fraction. Raw streamline counts are QC only.\n\n');
 
 fprintf(fid, '| Side | Seed | Target | Seed-VTA voxels | Target count | Target weight | Target fraction | Ambiguous weight | No-target weight |\n');
@@ -520,6 +610,11 @@ forceDownstream = isfield(cfg.seedVtaSift2, 'forceDownstream') && cfg.seedVtaSif
 if cfg.seedVtaSift2.force || forceDownstream || ~isfile(outputPath)
     mh_fiber_mrtrix_run(cfg, command);
 end
+end
+
+function tf = should_write_downstream(cfg, outputPath)
+forceDownstream = isfield(cfg.seedVtaSift2, 'forceDownstream') && cfg.seedVtaSift2.forceDownstream;
+tf = cfg.seedVtaSift2.force || forceDownstream || ~isfile(outputPath);
 end
 
 function quoted = q(value)
