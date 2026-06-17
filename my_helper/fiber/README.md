@@ -296,6 +296,8 @@ The seed-VTA-SIFT2 scene also writes separate native and MNI figures:
 - Native scene: `seed_vta_sift2/figures/<subject>_<stimLabel>_seed_vta_sift2_native_scene.fig`.
 - MNI scene: `seed_vta_sift2/figures/<subject>_<stimLabel>_seed_vta_sift2_mni_scene.fig`.
 
+The helper can also summarize the SIFT2 results as a two-panel global contribution bar plot. The plot uses each exclusive `side x seed x target` pathway weight divided by the SIFT2 weight sum across all exclusive pathways, so all bars across both hemispheres sum to 100%. This is distinct from the seed-normalized `target_fraction` column in `seed_vta_sift2_summary.csv`. The default bar plot uses separate left/right panels, a Lead-DBS manuscript-style top strip, and seed colors `NAc=#82D143` and `ALIC=#3070B7`; the plot legend labels are `NAc` and `ALIC`, while the methods text clarifies that these refer to stimulation-VTA-intersecting seed pathways.
+
 Each scene includes toolbar toggle buttons for every requested visualization object:
 
 - HybraPD anatomical ROI buttons: `NAc R`, `NAc L`, `ALIC R`, and `ALIC L`.
