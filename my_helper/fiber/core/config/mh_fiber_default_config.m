@@ -14,7 +14,7 @@ if ~isfolder(subjectDir)
 end
 
 thisFile = mfilename('fullpath');
-repoDir = fileparts(fileparts(fileparts(thisFile)));
+repoDir = resolve_repo_dir(thisFile);
 [~, patientName] = fileparts(subjectDir);
 subjectId = regexprep(patientName, '^sub-', '');
 
@@ -137,7 +137,8 @@ cfg.seedVtaSift2.mrtrixPathPrefix = '/usr/local/bin';
 cfg.figure = struct();
 cfg.figure.maxFibersPerSide = 1200;
 cfg.figure.fiberLineWidth = 0.75;
-cfg.figure.roiAlpha = 0.14;
+cfg.figure.fiberAlpha = 0.10;
+cfg.figure.roiAlpha = 0.20;
 cfg.figure.vtaAlpha = 0.35;
 cfg.figure.openAfterRun = true;
 cfg.figure.openAnatomyControl = true;
@@ -148,12 +149,16 @@ cfg.figure.showVisualizationAtlas = true;
 cfg.figure.visualizationAtlas = 'NAc_ALIC (Yu 2021 and Ewert 2017)';
 cfg.figure.plotExtractedRois = true;
 cfg.figure.showRegionLabels = false;
+cfg.figure.sceneFileSuffix = '';
+cfg.figure.electrodeDisplayLengthMm = 200;
+cfg.figure.electrodeDisplayRadiusMm = 0.65;
 cfg.figure.colors = struct( ...
     'R', [0.90, 0.18, 0.16], ...
     'L', [0.10, 0.42, 0.88], ...
-    'NAc', [0.95, 0.74, 0.12], ...
-    'ALIC', [0.05, 0.68, 0.42], ...
+    'NAc', [0.5098, 0.8196, 0.2627], ...
+    'ALIC', [0.1882, 0.4392, 0.7176], ...
     'VTA', [0.80, 0.10, 0.10], ...
+    'ElectrodeContact', [0.00, 0.00, 0.00], ...
     'ElectrodeInsulation', [0.92, 0.92, 0.88]);
 
 cfg.stimSpec = struct();
@@ -168,4 +173,20 @@ for i = 1:numel(candidates)
         return;
     end
 end
+end
+
+function repoDir = resolve_repo_dir(startPath)
+repoDir = fileparts(startPath);
+while strlength(string(repoDir)) > 0
+    if isfolder(fullfile(repoDir, 'templates')) && isfolder(fullfile(repoDir, 'my_helper'))
+        return;
+    end
+    parentDir = fileparts(repoDir);
+    if strcmp(parentDir, repoDir)
+        break;
+    end
+    repoDir = parentDir;
+end
+error('mh_fiber_default_config:RepoRootNotFound', ...
+    'Cannot resolve Lead-DBS repo root from: %s', startPath);
 end

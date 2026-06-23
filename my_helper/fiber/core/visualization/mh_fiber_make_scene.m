@@ -11,8 +11,9 @@ end
 
 function scene = make_one_scene(cfg, dirs, rois, vta, sceneSpace)
 scene = struct();
-scene.fig = fullfile(dirs.figures, [cfg.patientName, '_', cfg.stimLabel, '_', sceneSpace, '_scene.fig']);
-scene.png = fullfile(dirs.figures, [cfg.patientName, '_', cfg.stimLabel, '_', sceneSpace, '_scene.png']);
+suffix = mh_fiber_scene_file_suffix(cfg);
+scene.fig = fullfile(dirs.figures, [cfg.patientName, '_', cfg.stimLabel, '_', sceneSpace, '_scene', suffix, '.fig']);
+scene.png = fullfile(dirs.figures, [cfg.patientName, '_', cfg.stimLabel, '_', sceneSpace, '_scene', suffix, '.png']);
 openAfterRun = get_figure_option(cfg, 'openAfterRun', true);
 
 options = struct();
@@ -53,7 +54,7 @@ end
 setappdata(resultfig, 'options', options);
 setappdata(resultfig, 'mh_fiber_show_region_labels', logical(get_figure_option(cfg, 'showRegionLabels', false)));
 initialize_anatomy_togglestates(resultfig, options, cfg);
-recolor_electrode_insulation(resultfig, cfg);
+mh_fiber_style_electrodes(resultfig, cfg);
 set(0, 'CurrentFigure', resultfig);
 hold on;
 
@@ -126,60 +127,6 @@ minSize = [1200, 900];
 if pos(3) < minSize(1) || pos(4) < minSize(2)
     pos(3:4) = max(pos(3:4), minSize);
     set(resultfig, 'Position', pos);
-end
-end
-
-function recolor_electrode_insulation(resultfig, cfg)
-if ~isfield(cfg.figure, 'colors') || ~isfield(cfg.figure.colors, 'ElectrodeInsulation')
-    color = [0.92, 0.92, 0.88];
-else
-    color = cfg.figure.colors.ElectrodeInsulation;
-end
-
-elRender = getappdata(resultfig, 'el_render');
-if isempty(elRender)
-    return;
-end
-
-for i = 1:numel(elRender)
-    if ~isprop(elRender(i), 'elpatch') || isempty(elRender(i).elpatch)
-        continue;
-    end
-
-    patches = mh_fiber_valid_graphics(elRender(i).elpatch);
-    for j = 1:numel(patches)
-        if ~is_electrode_insulation_patch(patches(j))
-            continue;
-        end
-
-        alphaValue = get_patch_alpha(patches(j));
-        ea_specsurf(patches(j), color, alphaValue, 'insulation');
-    end
-end
-end
-
-function isInsulation = is_electrode_insulation_patch(handle)
-isInsulation = false;
-if isempty(handle) || ~isgraphics(handle, 'patch')
-    return;
-end
-
-try
-    tag = char(string(get(handle, 'Tag')));
-catch
-    tag = '';
-end
-isInsulation = contains(tag, 'Insulation');
-end
-
-function alphaValue = get_patch_alpha(handle)
-alphaValue = 1;
-try
-    currentAlpha = get(handle, 'FaceAlpha');
-    if isnumeric(currentAlpha) && isscalar(currentAlpha)
-        alphaValue = currentAlpha;
-    end
-catch
 end
 end
 
@@ -299,7 +246,7 @@ for sideCell = {'R', 'L'}
         stage = stages(i);
         fiberPath = fullfile(fiberDir, sprintf('%s_hemi-%s_%s.mat', cfg.patientName, side, stage.name));
         label = sprintf('%s %s', side, stage.label);
-        show_fiber_file(resultfig, fiberPath, label, stage_color(stage, side), stage.alpha);
+        show_fiber_file(resultfig, fiberPath, label, stage_color(stage, side), fiber_alpha(cfg, stage.alpha));
     end
 end
 
@@ -372,7 +319,7 @@ for i = 1:height(summary)
     if summary.streamline_count(i) > 0 && ismember(displayColumn, summary.Properties.VariableNames)
         fiberPath = char(summary.(displayColumn)(i));
         label = sprintf('%s %s_seed-%s_to_%s', side, seedName, seedVariant, targetName);
-        show_nonempty_seed_target_file(resultfig, fiberPath, label, seed_target_color(seedName, false), 0.22);
+        show_nonempty_seed_target_file(resultfig, fiberPath, label, seed_target_color(seedName, false), fiber_alpha(cfg, 0.22));
     end
 
     if ismember('vta_seed_hit_count', summary.Properties.VariableNames) && ...
@@ -380,7 +327,7 @@ for i = 1:height(summary)
             summary.vta_seed_hit_count(i) > 0
         fiberPath = char(summary.(seedHitColumn)(i));
         label = sprintf('%s %s_seed-%s_to_%s VTA_seed_hit', side, seedName, seedVariant, targetName);
-        show_nonempty_seed_target_file(resultfig, fiberPath, label, seed_target_color(seedName, true), 0.36);
+        show_nonempty_seed_target_file(resultfig, fiberPath, label, seed_target_color(seedName, true), fiber_alpha(cfg, 0.36));
     end
 end
 end
@@ -405,6 +352,14 @@ else
 end
 if isSeedHit
     color = 0.65 .* color + 0.35 .* [1.00, 0.15, 0.05];
+end
+end
+
+function alphaValue = fiber_alpha(cfg, defaultAlpha)
+alphaValue = defaultAlpha;
+if isfield(cfg, 'figure') && isfield(cfg.figure, 'fiberAlpha') && ...
+        isnumeric(cfg.figure.fiberAlpha) && isscalar(cfg.figure.fiberAlpha)
+    alphaValue = max(0, min(1, double(cfg.figure.fiberAlpha)));
 end
 end
 

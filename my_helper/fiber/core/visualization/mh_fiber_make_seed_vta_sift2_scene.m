@@ -2,14 +2,15 @@ function figures = mh_fiber_make_seed_vta_sift2_scene(cfg, dirs, seedRois, vta, 
 % Generate native- and MNI-space 3D scenes for SIFT2 seed-VTA-target outputs.
 
 figures = struct();
+suffix = mh_fiber_scene_file_suffix(cfg);
 figures.nativeFig = fullfile(dirs.seedVtaSift2.figures, ...
-    [cfg.patientName, '_', cfg.stimLabel, '_seed_vta_sift2_native_scene.fig']);
+    [cfg.patientName, '_', cfg.stimLabel, '_seed_vta_sift2_native_scene', suffix, '.fig']);
 figures.nativePng = fullfile(dirs.seedVtaSift2.figures, ...
-    [cfg.patientName, '_', cfg.stimLabel, '_seed_vta_sift2_native_scene.png']);
+    [cfg.patientName, '_', cfg.stimLabel, '_seed_vta_sift2_native_scene', suffix, '.png']);
 figures.mniFig = fullfile(dirs.seedVtaSift2.figures, ...
-    [cfg.patientName, '_', cfg.stimLabel, '_seed_vta_sift2_mni_scene.fig']);
+    [cfg.patientName, '_', cfg.stimLabel, '_seed_vta_sift2_mni_scene', suffix, '.fig']);
 figures.mniPng = fullfile(dirs.seedVtaSift2.figures, ...
-    [cfg.patientName, '_', cfg.stimLabel, '_seed_vta_sift2_mni_scene.png']);
+    [cfg.patientName, '_', cfg.stimLabel, '_seed_vta_sift2_mni_scene', suffix, '.png']);
 
 make_one_scene(cfg, seedRois, vta, result, scene_spec('native'), figures.nativeFig, figures.nativePng);
 make_one_scene(cfg, seedRois, vta, result, scene_spec('mni'), figures.mniFig, figures.mniPng);
@@ -43,6 +44,7 @@ end
 
 setappdata(resultfig, 'options', options);
 initialize_anatomy_togglestates(resultfig, options, cfg);
+mh_fiber_style_electrodes(resultfig, cfg);
 set(0, 'CurrentFigure', resultfig);
 hold on;
 
@@ -50,8 +52,8 @@ handles = struct();
 handles.rois = plot_anatomical_seed_rois(resultfig, seedRois, cfg, scene);
 handles.vtas = plot_stimulation_vtas(resultfig, vta, cfg, scene);
 handles.seedVta = plot_seed_vta_rois(resultfig, result, cfg, scene);
-handles.targets = plot_target_rois(resultfig, seedRois, result, scene);
-handles.fibers = plot_display_fibers(resultfig, result, scene);
+handles.targets = plot_target_rois(resultfig, seedRois, result, scene, cfg);
+handles.fibers = plot_display_fibers(resultfig, result, scene, cfg);
 add_global_toggles(resultfig, handles, cfg);
 mh_fiber_lock_anatomy_slices(resultfig);
 
@@ -65,6 +67,7 @@ mh_fiber_hide_region_labels(resultfig);
 open_anatomy_control_if_requested(resultfig, options, cfg);
 set(resultfig, 'Visible', visible_state(openAfterRun));
 drawnow;
+mh_fiber_rebind_scene_controls(resultfig);
 transientControls = detach_transient_control_windows(resultfig);
 savefig(resultfig, figPath);
 restore_transient_control_windows(resultfig, transientControls);
@@ -113,9 +116,9 @@ roiSet = seedRois.(scene.roiField);
 for sideCell = {'R', 'L'}
     side = sideCell{1};
     roiHandles(end+1) = add_roi(resultfig, roiSet.(side).NAc, ...
-        sprintf('NAc %s', side), cfg.figure.colors.NAc, 0.12, 'roi', 'on'); %#ok<AGROW>
+        sprintf('NAc %s', side), cfg.figure.colors.NAc, roi_alpha(cfg, 0.12), 'roi', 'on'); %#ok<AGROW>
     roiHandles(end+1) = add_roi(resultfig, roiSet.(side).ALIC, ...
-        sprintf('ALIC %s', side), cfg.figure.colors.ALIC, 0.12, 'roi', 'on'); %#ok<AGROW>
+        sprintf('ALIC %s', side), cfg.figure.colors.ALIC, roi_alpha(cfg, 0.12), 'roi', 'on'); %#ok<AGROW>
 end
 roiHandles = mh_fiber_valid_graphics(roiHandles);
 end
@@ -139,7 +142,7 @@ end
 
 function seedVtaHandles = plot_seed_vta_rois(resultfig, result, cfg, scene)
 seedVtaHandles = gobjects(0);
-colors = seed_vta_colors();
+colors = seed_vta_colors(cfg);
 defaultVisible = seed_vta_default_state(cfg);
 for sideCell = {'R', 'L'}
     side = sideCell{1};
@@ -152,14 +155,14 @@ for sideCell = {'R', 'L'}
         end
         key = [seedName, side];
         h = add_roi(resultfig, path, sprintf('%s%sVTA %s', seedName, char(8745), side), ...
-            colors.(key), 0.62, 'seed_vta', defaultVisible);
+            colors.(key), roi_alpha(cfg, 0.62), 'seed_vta', defaultVisible);
         seedVtaHandles(end+1) = h; %#ok<AGROW>
     end
 end
 seedVtaHandles = mh_fiber_valid_graphics(seedVtaHandles);
 end
 
-function targetHandles = plot_target_rois(resultfig, seedRois, result, scene)
+function targetHandles = plot_target_rois(resultfig, seedRois, result, scene, cfg)
 targetHandles = gobjects(0);
 summary = result.summaryTable;
 targets = unique(string(summary.target(summary.target_streamline_count > 0)), 'stable');
@@ -173,14 +176,14 @@ for sideCell = {'R', 'L'}
         end
         color = target_color(targetName);
         label = target_label(targetName, side);
-        h = add_roi(resultfig, roiSet.(side).(targetName), label, color, 0.10, 'target_roi', 'on');
+        h = add_roi(resultfig, roiSet.(side).(targetName), label, color, roi_alpha(cfg, 0.10), 'target_roi', 'on');
         targetHandles(end+1) = h; %#ok<AGROW>
     end
 end
 targetHandles = mh_fiber_valid_graphics(targetHandles);
 end
 
-function fiberHandles = plot_display_fibers(resultfig, result, scene)
+function fiberHandles = plot_display_fibers(resultfig, result, scene, cfg)
 fiberHandles = gobjects(0);
 display = result.displayTable;
 for i = 1:height(display)
@@ -196,7 +199,7 @@ for i = 1:height(display)
     side = table_char(display, 'side', i);
     seedName = table_char(display, 'seed', i);
     color = target_color(targetName);
-    h = ea_showfiber(data.fibers(:, 1:3), data.idx, color, 0.36);
+    h = ea_showfiber(data.fibers(:, 1:3), data.idx, color, fiber_alpha(cfg, 0.36));
     label = sprintf('%s %s%sVTA to %s (%d)', side, seedName, char(8745), targetName, ...
         display.display_streamline_count(i));
     mh_fiber_add_toggle(resultfig, h, label, color, 'on', 'seed_vta_sift2_fiber');
@@ -227,6 +230,22 @@ h = patch('Faces', fv.faces, 'Vertices', fv.vertices, ...
     'FaceLighting', 'gouraud', 'Tag', matlab.lang.makeValidName(label), ...
     'UserData', struct('mh_fiber_type', userData, 'label', label, 'source', path));
 mh_fiber_add_toggle(resultfig, h, label, color, state, userData);
+end
+
+function alphaValue = roi_alpha(cfg, defaultAlpha)
+alphaValue = defaultAlpha;
+if isfield(cfg, 'figure') && isfield(cfg.figure, 'roiAlpha') && ...
+        isnumeric(cfg.figure.roiAlpha) && isscalar(cfg.figure.roiAlpha)
+    alphaValue = max(0, min(1, double(cfg.figure.roiAlpha)));
+end
+end
+
+function alphaValue = fiber_alpha(cfg, defaultAlpha)
+alphaValue = defaultAlpha;
+if isfield(cfg, 'figure') && isfield(cfg.figure, 'fiberAlpha') && ...
+        isnumeric(cfg.figure.fiberAlpha) && isscalar(cfg.figure.fiberAlpha)
+    alphaValue = max(0, min(1, double(cfg.figure.fiberAlpha)));
+end
 end
 
 function fv = roi_mask_to_surface(mask, mat)
@@ -273,12 +292,12 @@ if ~isempty(vtaGroup)
 end
 end
 
-function colors = seed_vta_colors()
+function colors = seed_vta_colors(cfg)
 colors = struct();
-colors.NAcR = [1.00, 0.88, 0.05];
-colors.NAcL = [0.95, 0.78, 0.18];
-colors.ALICR = [0.00, 0.88, 0.50];
-colors.ALICL = [0.12, 0.74, 0.58];
+colors.NAcR = cfg.figure.colors.NAc;
+colors.NAcL = cfg.figure.colors.NAc;
+colors.ALICR = cfg.figure.colors.ALIC;
+colors.ALICL = cfg.figure.colors.ALIC;
 end
 
 function color = target_color(targetName)

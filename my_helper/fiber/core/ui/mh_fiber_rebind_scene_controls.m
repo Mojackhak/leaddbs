@@ -57,7 +57,7 @@ for i = 1:numel(elRender)
         continue;
     end
 
-    target = collect_lead_handles(elRender(i));
+    target = collect_lead_handles(elRender(i), resultfig);
     if isempty(target)
         continue;
     end
@@ -111,15 +111,51 @@ if isappdata(resultfig, 'mh_fiber_show_region_labels')
 end
 end
 
-function target = collect_lead_handles(elRender)
+function target = collect_lead_handles(elRender, resultfig)
 parts = {};
 
-if isprop(elRender, 'elpatch')
+if has_member(elRender, 'elpatch')
     parts{end+1} = elRender.elpatch;
 end
-if isprop(elRender, 'patchMacro')
+if has_member(elRender, 'patchMacro')
     parts{end+1} = elRender.patchMacro;
 end
 
+side = lead_side(elRender);
+if ~isnan(side)
+    parts{end+1} = findall(resultfig, '-regexp', 'Tag', ...
+        sprintf('^mhFiberElectrodeExtension_Side%d$', side));
+else
+    parts{end+1} = findall(resultfig, '-regexp', 'Tag', ...
+        '^mhFiberElectrodeExtension_Side[0-9]+$');
+end
+
 target = mh_fiber_valid_graphics(parts);
+end
+
+function side = lead_side(elRender)
+side = NaN;
+try
+    if has_member(elRender, 'side')
+        candidate = elRender.side;
+    else
+        return;
+    end
+    if isnumeric(candidate) && isscalar(candidate) && isfinite(candidate)
+        side = double(candidate);
+    end
+catch
+end
+end
+
+function tf = has_member(value, memberName)
+tf = false;
+try
+    if isstruct(value)
+        tf = isfield(value, memberName);
+    else
+        tf = isprop(value, memberName);
+    end
+catch
+end
 end

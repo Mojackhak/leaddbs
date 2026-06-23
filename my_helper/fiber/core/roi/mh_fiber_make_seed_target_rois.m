@@ -38,14 +38,20 @@ for i = 1:numel(specs)
     out.img = double(mask);
     out.dt = 2;
     out.fname = mniPath;
-    ea_write_nii(out);
+    if should_write_roi(cfg, mniPath)
+        ea_write_nii(out);
+    end
 
-    ea_apply_normalization_tofile(options, mniPath, anchorPath, 1, 'GenericLabel', cfg.paths.nativeReference);
-    binarize_nii(anchorPath, 0.5);
+    if should_write_roi(cfg, anchorPath)
+        ea_apply_normalization_tofile(options, mniPath, anchorPath, 1, 'GenericLabel', cfg.paths.nativeReference);
+        binarize_nii(anchorPath, 0.5);
+    end
 
-    ea_ants_apply_transforms([], anchorPath, dwiPath, 0, cfg.paths.dwiB0, ...
-        cfg.paths.anchorToDwiTransform, 'GenericLabel');
-    binarize_nii(dwiPath, 0.5);
+    if should_write_roi(cfg, dwiPath)
+        ea_ants_apply_transforms([], anchorPath, dwiPath, 0, cfg.paths.dwiB0, ...
+            cfg.paths.anchorToDwiTransform, 'GenericLabel');
+        binarize_nii(dwiPath, 0.5);
+    end
 
     dwiNii = ea_load_nii(dwiPath);
     dwiMask = double(dwiNii.img) ~= 0;
@@ -99,6 +105,15 @@ for i = 1:numel(specs)
     keep(i) = any(strcmp(requested, specs(i).roi));
 end
 specs = specs(keep);
+end
+
+function tf = should_write_roi(cfg, path)
+tf = ~isfile(path);
+if isfield(cfg, 'seedTarget') && isfield(cfg.seedTarget, 'forceRois') && cfg.seedTarget.forceRois
+    tf = true;
+elseif isfield(cfg, 'seedTarget') && isfield(cfg.seedTarget, 'force') && cfg.seedTarget.force
+    tf = true;
+end
 end
 
 function options = lead_options(cfg)

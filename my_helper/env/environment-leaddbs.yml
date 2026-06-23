@@ -1,0 +1,27 @@
+name: leaddbs
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy
+  - pandas
+  - scikit-learn
+  - statsmodels
+  - h5py
+  - openpyxl
+  - tqdm
+  - pillow
+  - imageio
+  - opencv
+  - scikit-image
+  - matplotlib
+  - seaborn
+  - nibabel
+  - nilearn
+  - mne
+  - mne-connectivity
+  - dipy
+  - jupyterlab
+  - ipykernel

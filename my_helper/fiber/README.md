@@ -7,8 +7,33 @@ The public entry points are:
 - `mh_fiber_default_config(subjectDir, stimLabel)`: create a fixed configuration for one subject and one existing Lead-DBS stimulation label.
 - `mh_fiber_run(cfg)`: run ROI generation, fiber filtering, VTA-hit detection, e-field peak extraction, native fiber back-projection by fiber ID, reports, and figures.
 - `mh_fiber_open_scene(figPath)`: reopen a saved helper scene, make it visible, and open the Lead-DBS Anatomy Slices control window when possible.
-- `run_sub001_fiber_tracking_two_scheme_vis.m`: rerun sub-001 structural fiber tracking, then generate both the Lead-DBS two-source VTA approximation and the helper one-solve multi-voltage VTA outputs.
-- `run_sub001_fiber_vis.m`: command-line script for the current `sub-001` case.
+- `pipelines/sub001/run_sub001_fiber_tracking_two_scheme_vis.m`: rerun sub-001 structural fiber tracking, then generate both the Lead-DBS two-source VTA approximation and the helper one-solve multi-voltage VTA outputs.
+- `pipelines/sub001/run_sub001_fiber_vis.m`: command-line script for the current `sub-001` case.
+- `stnsnr/run_stnsnr_compare_roi_definitions.m`: compare HybraPD STN/SNr labels with the `Custom_Ewert_Zhang_Middlebrooks0.05` atlas.
+
+## Folder Layout
+
+The helper requires recursive MATLAB path setup, for example `addpath(genpath('/Users/mojackhu/Github/leaddbs'))`.
+
+```text
+my_helper/fiber/
+  README.md
+  core/
+    config/         configuration, validation, output folders, VTA paths
+    io/             FTR/TCK/VTK readers, writers, and reports
+    roi/            atlas ROI definitions and mask generation
+    connectomes/    public-connectome helper functions
+    selection/      fiber-mask selection, subsets, and sampling
+    stimulation/    stimulation specs, VTA generation, scheme comparison
+    tracking/       main runners, MRtrix, seed-target, SIFT2
+    visualization/  scenes, figures, plots, electrode styling
+    ui/             toolbar/object-control helpers
+  pipelines/
+    sub001/         patient/case pipeline scripts
+  stnsnr/           STN/SNr pipeline scripts only
+```
+
+Core implementation functions live under `core/`. The `stnsnr/` folder must only contain pipeline scripts that call core functions; ROI specs, selectors, chunked connectome readers, and report writers belong under `core/`.
 
 ## Default Behavior
 
@@ -310,7 +335,17 @@ All buttons are enabled by default. Clicking a button hides its object; clicking
 
 In seed-VTA-SIFT2 scenes, the `NAc∩stimulation VTA` and `ALIC∩stimulation VTA` intersection ROI objects are created but hidden by default. Their toolbar buttons remain available and can be turned on for inspection. This keeps the default scene focused on anatomical seed ROIs, stimulation VTA, target ROIs, and proportional pathway fibers.
 
-Electrode contacts keep the Lead-DBS metal/contact coloring. The helper recolors only the electrode insulation and other non-contact electrode patches to a light gray-white tone so the leads remain visible without competing with ROI, VTA, or fiber colors.
+Default helper-scene appearance is intentionally fixed for reproducible figure export:
+
+- Anatomical NAc ROIs are green (`#82D143`).
+- Anatomical ALIC ROIs are blue (`#3070B7`).
+- ROI alpha defaults to `0.20`.
+- Fiber alpha defaults to `0.10`.
+- Electrode contacts are displayed in black.
+- Electrode insulation and the helper-only electrode extension are displayed in light gray-white.
+- When `cfg.figure.electrodeDisplayLengthMm = 200`, the helper adds a 200 mm visual extension along each electrode axis for figure display only. This does not change electrode coordinates, stimulation contacts, VTA, e-field, or fiber calculations.
+
+Set `cfg.figure.sceneFileSuffix` to write these styled figures as additional files instead of replacing existing `.fig` and `.png` scene files.
 
 Scene text annotations drawn by ROI, atlas, or electrode-label objects are hidden by default in the saved figure. The helper re-hides these text annotations after toolbar toggles and after reopening a saved `.fig`, and it excludes MATLAB `text` handles from atlas and lead toggle targets when region labels are disabled. Object names remain available through toolbar tooltips and right-click control windows.
 
@@ -352,5 +387,5 @@ h = mh_fiber_open_scene(figPath);
 Or run the case script:
 
 ```bash
-matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/run_sub001_fiber_vis.m')"
+matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/pipelines/sub001/run_sub001_fiber_vis.m')"
 ```

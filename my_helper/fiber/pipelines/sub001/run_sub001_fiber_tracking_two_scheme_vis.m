@@ -1,5 +1,8 @@
 % Rerun sub-001 structural fibers and generate two VTA/Fiber visualization schemes.
 
+cd('/Users/mojackhu/Github/leaddbs');
+addpath(genpath('/Users/mojackhu/Github/leaddbs'));
+
 subjectDir = '/Users/mojackhu/Desktop/ASD/derivatives/leaddbs/sub-001';
 fiberCount = 200000;
 
