@@ -9,6 +9,8 @@ The public entry points are:
 - `mh_fiber_open_scene(figPath)`: reopen a saved helper scene, make it visible, and open the Lead-DBS Anatomy Slices control window when possible.
 - `pipelines/sub001/run_sub001_fiber_tracking_two_scheme_vis.m`: rerun sub-001 structural fiber tracking, then generate both the Lead-DBS two-source VTA approximation and the helper one-solve multi-voltage VTA outputs.
 - `pipelines/sub001/run_sub001_fiber_vis.m`: command-line script for the current `sub-001` case.
+- `stnsnr/run_stnsnr_build_active_contact_dataset.py`: build the 16-subject active-contact coordinate dataset.
+- `stnsnr/run_stnsnr_generate_random_stimulation_table.py`: generate a reproducible random test stimulation table for the active contacts.
 - `stnsnr/run_stnsnr_compare_roi_definitions.m`: compare HybraPD STN/SNr labels with the `Custom_Ewert_Zhang_Middlebrooks0.05` atlas.
 
 ## Folder Layout
@@ -34,6 +36,51 @@ my_helper/fiber/
 ```
 
 Core implementation functions live under `core/`. The `stnsnr/` folder must only contain pipeline scripts that call core functions; ROI specs, selectors, chunked connectome readers, and report writers belong under `core/`.
+
+## STN/SNr Cohort Test Datasets
+
+The active-contact dataset pipeline reads the source clinical coordinate table,
+the reconstructed contact table, and the subject electrode configuration, then
+writes:
+
+```text
+/Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset/active_contacts.csv
+/Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset/active_contacts_info.json
+```
+
+Run it with the Lead-DBS Conda environment:
+
+```bash
+/opt/anaconda3/envs/leaddbs/bin/python \
+  /Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_build_active_contact_dataset.py
+```
+
+The random stimulation table pipeline uses `active_contacts.csv` as input and
+writes:
+
+```text
+/Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset/random_stimulation_parameters.csv
+/Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset/random_stimulation_parameters_info.json
+```
+
+Default test ranges are:
+
+- voltage: uniform random values from `2.0` to `4.0 V`, rounded to `0.1 V`;
+- pulse width: uniform random integers from `50` to `90 us`;
+- SNr frequency: uniform random integers from `15` to `40 Hz`;
+- STN frequency: uniform random integers from `120` to `180 Hz`.
+
+Rows whose contact `Region` is neither `SNr` nor `STN` are kept in the test
+table. Their frequency group is assigned to the nearest target by comparing the
+Euclidean norms of the `SNr_x/SNr_y/SNr_z` and `STN_x/STN_y/STN_z` fields, and
+the assignment is marked in `frequency_rule`.
+
+Run the random stimulation generator with:
+
+```bash
+/opt/anaconda3/envs/leaddbs/bin/python \
+  /Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_generate_random_stimulation_table.py
+```
 
 ## Default Behavior
 
