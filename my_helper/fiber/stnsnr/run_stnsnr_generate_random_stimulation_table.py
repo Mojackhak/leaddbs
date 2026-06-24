@@ -34,6 +34,7 @@ print(
 )
 print(f"frequency_group_counts={result['frequency_group_counts']}")
 print(f"region_counts={result['region_counts']}")
+print(f"region_programming_counts={result['region_programming_counts']}")
 print(f"voltage_range_V={result['voltage_range_V']}")
 print(f"pulse_width_range_us={result['pulse_width_range_us']}")
 print(f"frequency_range_Hz={result['frequency_range_Hz']}")

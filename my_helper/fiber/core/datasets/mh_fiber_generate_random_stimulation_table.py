@@ -63,6 +63,7 @@ def generate_random_stimulation_table(
                 "Contact": int(active_row["Contact"]),
                 "lead_contact": int(active_row["Contact"]) + 1,
                 "Region": active_row["Region"],
+                "region_programming": active_row["region_programming"],
                 "Side": active_row["Side"],
                 "side_code": side_code(active_row["Side"]),
                 "Hemi": active_row["Hemi"],
@@ -102,6 +103,9 @@ def generate_random_stimulation_table(
             stimulation["frequency_group"].value_counts().to_dict()
         ),
         "region_counts": int_key_counts(stimulation["Region"].value_counts().to_dict()),
+        "region_programming_counts": int_key_counts(
+            stimulation["region_programming"].value_counts().to_dict()
+        ),
         "voltage_range_V": [
             float(stimulation["voltage_V"].min()),
             float(stimulation["voltage_V"].max()),
@@ -118,20 +122,13 @@ def generate_random_stimulation_table(
 
 
 def frequency_group_for_contact(row: pd.Series) -> tuple[str, str]:
-    region = str(row["Region"])
-    if region in FREQUENCY_RANGES_HZ:
-        return region, "region"
-
-    snr_norm = coordinate_norm(row, "SNr")
-    stn_norm = coordinate_norm(row, "STN")
-    if snr_norm < stn_norm:
-        return "SNr", "nearest_target_from_relative_coordinates"
-    return "STN", "nearest_target_from_relative_coordinates"
-
-
-def coordinate_norm(row: pd.Series, prefix: str) -> float:
-    coords = np.array([row[f"{prefix}_x"], row[f"{prefix}_y"], row[f"{prefix}_z"]], dtype=float)
-    return float(np.linalg.norm(coords))
+    region_programming = str(row["region_programming"])
+    if region_programming not in FREQUENCY_RANGES_HZ:
+        raise ValueError(
+            "region_programming must be SNr or STN for random frequency assignment: "
+            f"{region_programming!r}"
+        )
+    return region_programming, "region_programming"
 
 
 def side_code(side: Any) -> str:
@@ -151,6 +148,7 @@ def validate_active_contacts(active: pd.DataFrame) -> None:
             "subject_key",
             "Contact",
             "Region",
+            "region_programming",
             "Side",
             "Hemi",
             "Lead_idx",
@@ -158,12 +156,6 @@ def validate_active_contacts(active: pd.DataFrame) -> None:
             "MNI_x_flip",
             "MNI_y_flip",
             "MNI_z_flip",
-            "SNr_x",
-            "SNr_y",
-            "SNr_z",
-            "STN_x",
-            "STN_y",
-            "STN_z",
         ],
         "active_contacts.csv",
     )
@@ -241,9 +233,9 @@ def build_info(
                     "maximum": FREQUENCY_RANGES_HZ["STN"][1],
                 },
             },
-            "non_target_region_rule": (
-                "Rows with Region other than SNr/STN are assigned to the nearest target by "
-                "the Euclidean norm of SNr_x/SNr_y/SNr_z versus STN_x/STN_y/STN_z."
+            "frequency_group_rule": (
+                "Frequency is assigned from active_contacts.csv region_programming, "
+                "which is derived from programming.json."
             ),
         },
         "qc": {
@@ -251,6 +243,9 @@ def build_info(
             "stimulation_rows": int(len(stimulation)),
             "subjects": int(stimulation["Subject"].nunique()),
             "region_counts": int_key_counts(stimulation["Region"].value_counts().to_dict()),
+            "region_programming_counts": int_key_counts(
+                stimulation["region_programming"].value_counts().to_dict()
+            ),
             "frequency_group_counts": int_key_counts(
                 stimulation["frequency_group"].value_counts().to_dict()
             ),
@@ -287,6 +282,7 @@ def stimulation_columns() -> list[str]:
         "Contact",
         "lead_contact",
         "Region",
+        "region_programming",
         "Side",
         "side_code",
         "Hemi",
@@ -315,7 +311,8 @@ def stimulation_schema() -> dict[str, str]:
         "subject_key": "Normalized subject identifier used for joins.",
         "Contact": "Source contact index from active_contacts.csv.",
         "lead_contact": "One-based contact index for Lead-DBS stimulation helpers.",
-        "Region": "Contact region label from active_contacts.csv.",
+        "Region": "Anatomical atlas/reconstruction label from active_contacts.csv.",
+        "region_programming": "Programming region from active_contacts.csv.",
         "Side": "Contact side label.",
         "side_code": "Single-letter side code, L or R.",
         "Hemi": "Hemisphere classification from active_contacts.csv.",

@@ -40,13 +40,17 @@ Core implementation functions live under `core/`. The `stnsnr/` folder must only
 ## STN/SNr Cohort Test Datasets
 
 The active-contact dataset pipeline reads the source clinical coordinate table,
-the reconstructed contact table, and the subject electrode configuration, then
-writes:
+the reconstructed contact table, the subject electrode configuration, and the
+programming definition. It then writes:
 
 ```text
 /Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset/active_contacts.csv
 /Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset/active_contacts_info.json
 ```
+
+In `active_contacts.csv`, `Region` remains the anatomical atlas/reconstruction
+label. The added `region_programming` field stores the programming region from
+`/Users/mojackhu/Research/STNSNr/summary/cohort/subj/programming.json`.
 
 Run it with the Lead-DBS Conda environment:
 
@@ -70,10 +74,10 @@ Default test ranges are:
 - SNr frequency: uniform random integers from `15` to `40 Hz`;
 - STN frequency: uniform random integers from `120` to `180 Hz`.
 
-Rows whose contact `Region` is neither `SNr` nor `STN` are kept in the test
-table. Their frequency group is assigned to the nearest target by comparing the
-Euclidean norms of the `SNr_x/SNr_y/SNr_z` and `STN_x/STN_y/STN_z` fields, and
-the assignment is marked in `frequency_rule`.
+The random stimulation table assigns frequency by `region_programming`, not by
+the anatomical `Region` label. All active contacts must map to exactly one of
+`programming.json[ID]["SNr"]` or `programming.json[ID]["STN"]`; otherwise the
+pipeline raises an error instead of silently assigning a frequency.
 
 Run the random stimulation generator with:
 

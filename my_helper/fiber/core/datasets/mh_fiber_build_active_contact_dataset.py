@@ -24,10 +24,14 @@ CONTACT_RECO_PKL = Path(
 SUBJECT_COORDS_CONFIG_JSON = Path(
     "/Users/mojackhu/Research/STNSNr/summary/cohort/lead/subject_coords_config.json"
 )
+PROGRAMMING_JSON = Path(
+    "/Users/mojackhu/Research/STNSNr/summary/cohort/subj/programming.json"
+)
 OUTPUT_DIR = Path(
     "/Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset"
 )
 MATCH_TOLERANCE_MM = 1e-6
+EXPECTED_REGION_PROGRAMMING_COUNTS = {"SNr": 32, "STN": 32}
 EXPECTED_REGION_COUNTS = {"SNr": 26, "STN": 24, "EXT": 9, "Mid": 5}
 
 
@@ -35,6 +39,7 @@ def build_active_contact_dataset(
     scale_xlsx: Path = SCALE_XLSX,
     contact_reco_pkl: Path = CONTACT_RECO_PKL,
     subject_coords_config_json: Path = SUBJECT_COORDS_CONFIG_JSON,
+    programming_json: Path = PROGRAMMING_JSON,
     output_dir: Path = OUTPUT_DIR,
     match_tolerance_mm: float = MATCH_TOLERANCE_MM,
 ) -> dict[str, Any]:
@@ -43,12 +48,14 @@ def build_active_contact_dataset(
     require_file(scale_xlsx, "active contact coordinate Excel")
     require_file(contact_reco_pkl, "contact reconstruction pickle")
     require_file(subject_coords_config_json, "subject coordinate config JSON")
+    require_file(programming_json, "programming JSON")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     scale = pd.read_excel(scale_xlsx).reset_index().rename(columns={"index": "active_scale_row"})
     with contact_reco_pkl.open("rb") as f:
         reco = pickle.load(f)
     config = json.loads(subject_coords_config_json.read_text())
+    programming = json.loads(programming_json.read_text())
 
     validate_required_columns(
         scale,
@@ -85,6 +92,8 @@ def build_active_contact_dataset(
     )
     if not isinstance(config, dict) or "subjects" not in config:
         raise ValueError("subject_coords_config.json must contain a top-level 'subjects' object.")
+    if not isinstance(programming, dict):
+        raise ValueError("programming.json must contain a top-level object keyed by subject ID.")
 
     scale["subject_key"] = scale["Subject"].map(normalize_subject)
     reco = reco.copy()
@@ -116,6 +125,7 @@ def build_active_contact_dataset(
         used_matches.add(match_key)
 
         electrode = electrode_config_for_match(config, match)
+        region_programming = region_programming_for_match(programming, match)
         active_rows.append(
             {
                 "ID": match["ID"],
@@ -123,6 +133,7 @@ def build_active_contact_dataset(
                 "subject_key": match["subject_key"],
                 "Contact": int(match["Contact"]),
                 "Region": match["Region"],
+                "region_programming": region_programming,
                 "Side": match["Side"],
                 "Hemi": match["Hemi"],
                 "Lead_idx": int(match["Lead_idx"]),
@@ -166,6 +177,7 @@ def build_active_contact_dataset(
         scale_xlsx,
         contact_reco_pkl,
         subject_coords_config_json,
+        programming_json,
         active_csv,
         info_json,
         match_tolerance_mm,
@@ -179,6 +191,7 @@ def build_active_contact_dataset(
         "active_subjects": int(active["Subject"].nunique()),
         "max_match_distance_mm": float(active["match_distance_mm"].max()),
         "region_counts": active["Region"].value_counts().to_dict(),
+        "region_programming_counts": active["region_programming"].value_counts().to_dict(),
     }
 
 
@@ -210,6 +223,25 @@ def electrode_config_for_match(config: dict[str, Any], match: pd.Series) -> dict
     return electrode
 
 
+def region_programming_for_match(programming: dict[str, Any], match: pd.Series) -> str:
+    subject_id = str(match["ID"])
+    contact = int(match["Contact"])
+    if subject_id not in programming:
+        raise ValueError(f"No programming config found for subject ID {subject_id}.")
+
+    subject_programming = programming[subject_id]
+    stn_contacts = set(subject_programming.get("STN", []))
+    snr_contacts = set(subject_programming.get("SNr", []))
+    in_stn = contact in stn_contacts
+    in_snr = contact in snr_contacts
+    if in_stn == in_snr:
+        raise ValueError(
+            "Active contact must map to exactly one programming region: "
+            f"ID={subject_id}, contact={contact}, in_STN={in_stn}, in_SNr={in_snr}"
+        )
+    return "STN" if in_stn else "SNr"
+
+
 def validate_active_dataset(active: pd.DataFrame, match_tolerance_mm: float) -> None:
     if len(active) != 64:
         raise ValueError(f"Expected 64 active contacts, found {len(active)}.")
@@ -222,9 +254,19 @@ def validate_active_dataset(active: pd.DataFrame, match_tolerance_mm: float) -> 
     if duplicates.any():
         raise ValueError("Duplicate (subject_key, Contact) rows found in active contacts.")
 
+    region_programming_counts = active["region_programming"].value_counts().to_dict()
+    if region_programming_counts != EXPECTED_REGION_PROGRAMMING_COUNTS:
+        raise ValueError(
+            "Unexpected programming region counts: "
+            f"{region_programming_counts}; expected {EXPECTED_REGION_PROGRAMMING_COUNTS}."
+        )
+
     region_counts = active["Region"].value_counts().to_dict()
     if region_counts != EXPECTED_REGION_COUNTS:
-        raise ValueError(f"Unexpected Region counts: {region_counts}; expected {EXPECTED_REGION_COUNTS}.")
+        raise ValueError(
+            "Unexpected anatomical Region counts: "
+            f"{region_counts}; expected {EXPECTED_REGION_COUNTS}."
+        )
 
     if active[["lead_model", "lead_dist_mm", "lead_offset_mm"]].isna().any().any():
         raise ValueError("Missing electrode fields in active contacts.")
@@ -238,6 +280,7 @@ def build_info(
     scale_xlsx: Path,
     contact_reco_pkl: Path,
     subject_coords_config_json: Path,
+    programming_json: Path,
     active_csv: Path,
     info_json: Path,
     match_tolerance_mm: float,
@@ -253,10 +296,20 @@ def build_info(
             "method": "nearest reconstructed contact within same subject",
             "max_allowed_distance_mm": match_tolerance_mm,
         },
+        "region_programming_rule": {
+            "source": str(programming_json),
+            "method": (
+                "Use the matched contact ID and Contact to look up programming.json[ID]. "
+                "A contact must appear in exactly one of the STN or SNr lists."
+            ),
+            "region_programming_field": "region_programming",
+            "region_field": "Region",
+        },
         "inputs": {
             "scale_contact_only_xlsx": file_info(scale_xlsx),
             "contact_reco_space_locs_pkl": file_info(contact_reco_pkl),
             "subject_coords_config_json": file_info(subject_coords_config_json),
+            "programming_json": file_info(programming_json),
         },
         "outputs": {
             "active_contacts_csv": str(active_csv),
@@ -271,6 +324,10 @@ def build_info(
             "active_contacts": int(len(active)),
             "active_subjects": int(active["Subject"].nunique()),
             "max_match_distance_mm": float(active["match_distance_mm"].max()),
+            "region_programming_counts": int_key_counts(
+                active["region_programming"].value_counts().to_dict()
+            ),
+            "expected_region_programming_counts": EXPECTED_REGION_PROGRAMMING_COUNTS,
             "region_counts": int_key_counts(active["Region"].value_counts().to_dict()),
             "expected_region_counts": EXPECTED_REGION_COUNTS,
             "contact_counts": int_key_counts(active["Contact"].value_counts().sort_index().to_dict()),
@@ -280,7 +337,9 @@ def build_info(
         "schema": dataset_schema(),
         "notes": [
             "This dataset includes only subjects and contacts present in scale_contact_only.xlsx.",
-            "Programming/stimulation parameters are intentionally excluded and should be joined later.",
+            "Region remains the anatomical atlas/reconstruction label.",
+            "region_programming is the programming region from programming.json.",
+            "Programming/stimulation parameter values are intentionally excluded and should be joined later.",
             "lead_dist_mm and lead_offset_mm are JSON-encoded arrays in CSV cells.",
         ],
     }
@@ -293,6 +352,7 @@ def active_columns() -> list[str]:
         "subject_key",
         "Contact",
         "Region",
+        "region_programming",
         "Side",
         "Hemi",
         "Lead_idx",
@@ -326,7 +386,8 @@ def dataset_schema() -> dict[str, str]:
         "Subject": "Subject name from contact reconstruction table.",
         "subject_key": "Normalized subject identifier used for joins.",
         "Contact": "Global contact index from contact reconstruction table.",
-        "Region": "Contact region label from contact reconstruction table.",
+        "Region": "Anatomical atlas/reconstruction label from contact reconstruction table.",
+        "region_programming": "Programming region from programming.json.",
         "Side": "Contact side label.",
         "Hemi": "Hemisphere classification from contact reconstruction table.",
         "Lead_idx": "Lead index from contact reconstruction table.",

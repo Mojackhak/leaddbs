@@ -33,3 +33,4 @@ print(
     f"max_match_distance_mm={result['max_match_distance_mm']:.12g}"
 )
 print(f"region_counts={result['region_counts']}")
+print(f"region_programming_counts={result['region_programming_counts']}")
