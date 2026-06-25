@@ -118,6 +118,40 @@ for each scale:
   save the scale-specific map
 ```
 
+### Clinical Score Direction
+
+Use one prespecified direction rule per clinical scale before computing improvement rates, model targets, or benefit-oriented residuals.
+
+Current target scales where lower scores indicate better clinical status:
+
+```text
+UPDRS-III
+UPDRS-III axial
+FOG-Q
+PDQ-39
+KPPS
+MADRS
+ADL
+```
+
+For these scales:
+
+```text
+STN improvement percent = (Pre-op - STN score) / Pre-op * 100
+SNr add-on improvement percent = (STN score - STN+SNr score) / Pre-op * 100
+```
+
+SE-ADL is the exception in the current target table: higher scores indicate better clinical status.
+
+For SE-ADL:
+
+```text
+STN improvement percent = (STN score - Pre-op) / Pre-op * 100
+SNr add-on improvement percent = (STN+SNr score - STN score) / Pre-op * 100
+```
+
+In all models, orient coefficients and residual scores so that positive benefit scores mean better predicted clinical outcome.
+
 ### STN-Alone Efficacy Model
 
 Use STN-alone outcomes to model STN response:
