@@ -154,22 +154,129 @@ In all models, orient coefficients and residual scores so that positive benefit 
 
 ### STN-Alone Efficacy Model
 
-Use STN-alone outcomes to model STN response:
+Use two STN-only model layers.
+
+Primary STN model:
 
 ```text
-Y_STN = STN-alone clinical response
-X_STN = STN-alone exposure
+chronic STN-only efficacy model
 ```
 
-The primary STN endpoint can use the existing improvement-rate table:
+This model answers:
 
 ```text
-STN model:
-  Y = scale Δ% (STN, endpoint)
-  X = STN stimulation exposure along streamlines or voxels
+Which voxels or streamlines are associated with stable STN-only benefit at 3 months?
 ```
 
-This model estimates STN-associated sweet spots and sweet fibers. It also supports an optional residualized SNr model by predicting the STN contribution under the STN component of combined stimulation.
+Secondary STN model:
+
+```text
+early / acute STN-only response model
+```
+
+This model answers:
+
+```text
+Which voxels or streamlines are associated with the early response after STN activation?
+```
+
+The chronic STN-only model is the primary STN model because it localizes stable STN DBS benefit and uses the same STN-3m clinical state that serves as the baseline for SNr-addition models.
+
+#### Primary Chronic STN-Only Model
+
+For each scale and streamline:
+
+```text
+Y_STN3m_i = alpha_0
+          + alpha_STN,f * X_STN3m,i,f
+          + alpha_B     * Y_Preop_i
+          + error_i
+```
+
+Definitions:
+
+- `Y_STN3m_i`: raw STN-only 3-month clinical score for patient `i`.
+- `Y_Preop_i`: raw preoperative score for patient `i`.
+- `X_STN3m,i,f`: STN-component exposure along streamline `f` under STN-only 3-month programming.
+- `alpha_STN,f`: streamline-specific STN efficacy coefficient.
+
+Use a baseline-adjusted rank-based partial Spearman estimator for the main implementation:
+
+```text
+STNBenefitScore_f =
+  corr_spearman(
+    residual(rank(X_STN3m,f) ~ rank(Y_Preop)),
+    benefit_oriented_residual(rank(Y_STN3m) ~ rank(Y_Preop))
+  )
+```
+
+For scales where lower scores are better, multiply the outcome residual by `-1` before the final correlation. For SE-ADL, keep the residual direction because higher scores are better.
+
+```text
+STNBenefitScore_f > 0 means stronger STN exposure predicts better baseline-adjusted STN-3m outcome.
+```
+
+Do not use change score or percent improvement as the primary STN sweet-spot outcome. The existing improvement-rate table can be used for compatibility checks, smoke tests, descriptive reporting, and sensitivity analyses.
+
+#### Secondary Early / Acute STN-Only Model
+
+For scales with valid immediate STN assessment, fit an early STN-only model.
+
+If only preoperative baseline is available:
+
+```text
+Y_STNImmediate_i = alpha_0
+                 + alpha_STN,f_early * X_STNImmediate,i,f
+                 + alpha_B           * Y_Preop_i
+                 + error_i
+```
+
+Name this model:
+
+```text
+early STN-only response model
+```
+
+Do not call it a pure acute STN effect, because the preoperative-to-immediate interval may include perioperative recovery, microlesion effects, medication changes, and timing differences.
+
+If a same-day STN-OFF baseline exists at the first programming visit, use it instead of preoperative baseline:
+
+```text
+Y_STNImmediate_i = alpha_0
+                 + alpha_STN,f_acute * X_STNImmediate,i,f
+                 + alpha_B           * Y_STNOffSameDay_i
+                 + error_i
+```
+
+Name this cleaner version:
+
+```text
+acute STN stimulation response model
+```
+
+With the currently inspected score tables, immediate STN and STN+SNr assessments are available for `UPDRS-III` and `UPDRS-III axial`. Pain, quality-of-life, and most non-motor scales should not be forced into immediate STN models unless valid immediate assessments exist.
+
+#### Optional STN Chronic Adaptation Model
+
+Use this only as a secondary mechanism model when STN-immediate and STN-3m programming differ enough to justify studying chronic adaptation or programming optimization:
+
+```text
+Y_STN3m_i = alpha_0
+          + alpha_STN,f_adapt * X_STN3m,i,f
+          + alpha_B           * Y_STNImmediate_i
+          + alpha_D           * DeltaSTNScore_ImmTo3m_i
+          + error_i
+```
+
+where:
+
+```text
+DeltaSTNScore_ImmTo3m = STNScore_STN3m - STNScore_STNImmediate
+```
+
+This optional model should not replace the primary chronic STN-only model.
+
+The chronic STN model also supports an optional residualized SNr model by predicting the STN contribution under the STN component of combined stimulation.
 
 ### SNr Add-On Endpoint Selection
 
@@ -309,7 +416,8 @@ For each significant or top-ranked fiber:
 
 ### Main Tests
 
-- STN model: Spearman or rank-based model between STN-alone exposure and STN response.
+- STN primary model: baseline-adjusted partial Spearman between STN-only 3-month exposure and STN-only 3-month raw score, adjusting for preoperative raw score.
+- STN secondary early model: baseline-adjusted partial Spearman between STN-immediate exposure and STN-immediate raw score, adjusting for preoperative score or same-day STN-OFF score when available.
 - SNr model: endpoint-specific partial Spearman model with `Y_STN3m` and `DeltaSTNScore` as covariates.
 - Primary inference is scale-specific; do not combine heterogeneous scales into one primary model.
 - Correct multiple comparisons within each scale, connectome, and model class using FDR.
@@ -319,9 +427,12 @@ For each significant or top-ranked fiber:
 
 Recommended reporting hierarchy:
 
-- primary mechanistic endpoint: UPDRS-III acute model when valid immediate data are available;
-- key secondary endpoint: UPDRS-III chronic model to evaluate longer-term motor relevance;
-- symptom-specific secondary endpoints: axial UPDRS-III, FOG-Q, KPPS, PDQ-39, MADRS, ADL, SE-ADL, and other available scales using their selected endpoints;
+- primary STN endpoint: chronic STN-only efficacy model using `Preop -> STN-3m`;
+- secondary STN endpoint: early / acute STN-only response model using `Preop -> STN-immediate`, or `STN-OFF same-day -> STN-immediate` when same-day baseline exists;
+- optional STN endpoint: chronic adaptation model using `STN-immediate -> STN-3m`;
+- primary SNr mechanistic endpoint: UPDRS-III acute SNr-addition model when valid immediate data are available;
+- key secondary SNr endpoint: UPDRS-III chronic SNr-addition model to evaluate longer-term motor relevance;
+- symptom-specific secondary SNr endpoints: axial UPDRS-III, FOG-Q, KPPS, PDQ-39, MADRS, ADL, SE-ADL, and other available scales using their selected endpoints;
 - exploratory cross-scale summaries: map overlap, meta-map, or pooled/global model.
 
 ### Cross-Validation
@@ -381,6 +492,10 @@ If implemented, it must:
 Run the following sensitivity analyses:
 
 - change-score model without baseline as a covariate;
+- STN percent-improvement model for comparability with older STN DBS sweet-spot studies;
+- one-at-a-time STN covariate sensitivity with medication or LEDD change when medication state differs;
+- patient-level overlap with a published STN sweet spot as an external plausibility check;
+- STN-only negative-control model using SNr exposure to test whether SNr-addition maps reflect general electrode placement quality;
 - streamline-specific STN exposure change instead of scalar `DeltaSTNScore`;
 - minimal-STN-change subgroup after excluding subjects with the largest absolute STN exposure change;
 - binary VTA intersection instead of continuous peak exposure;
@@ -416,11 +531,13 @@ Reusable functions should be grouped by responsibility:
 4. Load raw clinical scores and improvement-rate tables.
 5. Select endpoint per scale.
 6. Extract voxel and streamline exposure matrices.
-7. Fit STN model.
-8. Fit endpoint-specific SNr main model.
-9. Fit sensitivity models.
-10. Label top fibers by Custom STN/SNr and HCPex endpoints.
-11. Export CSV/Mat/JSON provenance and visualization-ready fiber subsets.
+7. Fit the primary chronic STN-only model.
+8. Fit secondary STN-only early / acute models where valid immediate data exist.
+9. Fit optional STN chronic adaptation models when justified by programming changes.
+10. Fit endpoint-specific SNr main model.
+11. Fit sensitivity models.
+12. Label top fibers by Custom STN/SNr and HCPex endpoints.
+13. Export CSV/Mat/JSON provenance and visualization-ready fiber subsets.
 
 ## Expected Outputs
 
@@ -435,7 +552,9 @@ Expected output groups:
 - `provenance/`: input paths, software versions, random seed, model settings.
 - `qc/`: subject inclusion, endpoint selection, missingness, ROI volumes, connectome availability.
 - `exposure/`: subject-level exposure summaries and streamline exposure matrices.
-- `models/stn/`: STN sweet-spot and sweet-fiber results.
+- `models/stn/chronic/`: primary chronic STN-only sweet-spot and sweet-fiber results.
+- `models/stn/early/`: secondary early / acute STN-only response results.
+- `models/stn/adaptation/`: optional STN chronic adaptation results.
 - `models/snr/`: endpoint-specific SNr model results.
 - `models/cross_scale/`: map-level similarity metrics and secondary global maps.
 - `sensitivity/`: all sensitivity model outputs.
@@ -448,6 +567,8 @@ Expected output groups:
 - Streamlines are whole connectome streamlines, not STN/SNr internal fragments.
 - STN/SNr labels come from `Custom_Ewert_Zhang_Middlebrooks0.05`.
 - Non-STN/SNr endpoint labels come from HCPex.
+- The primary STN model uses raw STN-3m score adjusted for raw preoperative score, not percent improvement as the main outcome.
+- STN-immediate models are marked secondary and use same-day STN-OFF baseline when available.
 - The SNr main model includes both `Y_STN3m` and `DeltaSTNScore`.
 - The implementation can run a PPMI smoke test before dTOR full-scale analysis.
 - dTOR and MGH access is chunked and memory-safe.
@@ -457,7 +578,9 @@ Expected output groups:
 
 ## Interpretation Rules
 
-- STN results can be described as STN-associated therapeutic fibers or sweet spots.
+- Primary STN results can be described as chronic STN-only therapeutic fibers or sweet spots.
+- STN-immediate results should be described as early STN-only response maps, or acute STN stimulation response maps only when same-day STN-OFF baseline is used.
+- STN adaptation results should be described as secondary programming/adaptation analyses, not as the main STN efficacy model.
 - SNr main results should be described as SNr add-on-associated effects adjusted for STN-3m baseline and concurrent STN exposure change.
 - Residualized SNr results should be described as STN-model-adjusted SNr-associated residual benefit, not as definitive pure SNr causal effect.
 - Scale-specific maps are the primary results for symptom-specific inference.
