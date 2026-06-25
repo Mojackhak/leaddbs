@@ -92,6 +92,32 @@ For OSS-DBS sensitivity, the streamline activation value is the pathway activati
 
 ## Clinical Endpoints
 
+### Scale-Specific Primary Modeling Policy
+
+Use scale-specific models under one shared modeling framework. Do not pool UPDRS-III, axial UPDRS-III, FOG-Q, KPPS, PDQ-39, MADRS, ADL, SE-ADL, or any later-added clinical scales into one primary patient-level regression model.
+
+The primary modeling unit is:
+
+```text
+one scale -> one endpoint selection -> one STN or SNr sweet-spot model
+```
+
+Rationale:
+
+- different scales measure different clinical constructs;
+- acute and chronic endpoints estimate different effects;
+- stacking scales does not create additional independent patients;
+- a pooled model may obscure symptom-specific SNr networks.
+
+The implementation should therefore provide a common function, not a common primary regression:
+
+```text
+for each scale:
+  select endpoint
+  fit the scale-specific model
+  save the scale-specific map
+```
+
 ### STN-Alone Efficacy Model
 
 Use STN-alone outcomes to model STN response:
@@ -251,8 +277,18 @@ For each significant or top-ranked fiber:
 
 - STN model: Spearman or rank-based model between STN-alone exposure and STN response.
 - SNr model: endpoint-specific partial Spearman model with `Y_STN3m` and `DeltaSTNScore` as covariates.
+- Primary inference is scale-specific; do not combine heterogeneous scales into one primary model.
 - Correct multiple comparisons within each scale, connectome, and model class using FDR.
 - Use patient-level permutation tests with seed `42` for empirical significance.
+
+### Endpoint Hierarchy
+
+Recommended reporting hierarchy:
+
+- primary mechanistic endpoint: UPDRS-III acute model when valid immediate data are available;
+- key secondary endpoint: UPDRS-III chronic model to evaluate longer-term motor relevance;
+- symptom-specific secondary endpoints: axial UPDRS-III, FOG-Q, KPPS, PDQ-39, MADRS, ADL, SE-ADL, and other available scales using their selected endpoints;
+- exploratory cross-scale summaries: map overlap, meta-map, or pooled/global model.
 
 ### Cross-Validation
 
@@ -271,6 +307,40 @@ Report:
 - number of complete subjects;
 - endpoint class;
 - sensitivity-model agreement.
+
+### Cross-Scale Map-Level Summary
+
+After fitting scale-specific models, evaluate convergence at the map level rather than by pooling clinical outcomes into one primary regression.
+
+Recommended map-level metrics:
+
+```text
+spatial correlation between scale maps
+Dice overlap of top 5% sweet maps
+Jaccard overlap of top 5% sweet maps
+center-of-mass distance between top sweet regions
+```
+
+A secondary global SNr benefit map may be generated only after scale-specific fitting:
+
+```text
+GlobalSNrScore_f = mean_s z(SNrBenefitScore_s,f)
+```
+
+Use equal weights by default. If non-equal weights are used, define them before looking at results and record them in provenance.
+
+### Exploratory Pooled Model
+
+A pooled cross-scale model is allowed only as exploratory support for a global SNr benefit network. It is not the primary localization model.
+
+If implemented, it must:
+
+- orient all clinical scores so higher values consistently mean greater benefit or worse status before modeling;
+- z-score outcomes within scale;
+- include scale fixed effects;
+- include endpoint-class fixed effects when acute and chronic endpoints are mixed;
+- account for repeated outcomes within patients, preferably with a patient random intercept;
+- report that the resulting map estimates an average cross-scale effect, not symptom-specific networks.
 
 ### Sensitivity Analyses
 
@@ -333,6 +403,7 @@ Expected output groups:
 - `exposure/`: subject-level exposure summaries and streamline exposure matrices.
 - `models/stn/`: STN sweet-spot and sweet-fiber results.
 - `models/snr/`: endpoint-specific SNr model results.
+- `models/cross_scale/`: map-level similarity metrics and secondary global maps.
 - `sensitivity/`: all sensitivity model outputs.
 - `visualization/`: top fiber subsets, sweet/sour maps, HCPex endpoint summaries.
 
@@ -347,12 +418,16 @@ Expected output groups:
 - The implementation can run a PPMI smoke test before dTOR full-scale analysis.
 - dTOR and MGH access is chunked and memory-safe.
 - `my_helper/fiber/stnsnr` contains only pipeline scripts, not core helper functions.
+- scale-specific maps are generated before any cross-scale summary map.
+- any pooled cross-scale model is marked exploratory.
 
 ## Interpretation Rules
 
 - STN results can be described as STN-associated therapeutic fibers or sweet spots.
 - SNr main results should be described as SNr add-on-associated effects adjusted for STN-3m baseline and concurrent STN exposure change.
 - Residualized SNr results should be described as STN-model-adjusted SNr-associated residual benefit, not as definitive pure SNr causal effect.
+- Scale-specific maps are the primary results for symptom-specific inference.
+- Global or pooled maps are secondary/exploratory summaries of cross-scale convergence.
 - Random stimulation table results are pipeline validation only and should not be interpreted biologically.
 
 ## References
@@ -361,3 +436,4 @@ Expected output groups:
 - Rajamani N. et al. Symptom-specific therapeutic pathways for deep brain stimulation. Nature Communications, 2024. https://www.nature.com/articles/s41467-024-48731-1
 - Vickers A.J. and Altman D.G. Analysing controlled trials with baseline and follow up measurements. BMJ, 2001.
 - Clifton L. and Clifton D.A. The correlation between baseline score and post-intervention score, and its implications for statistical analysis. Trials, 2019.
+- U.S. Food and Drug Administration. Multiple Endpoints in Clinical Trials: Guidance for Industry. https://www.fda.gov/regulatory-information/search-fda-guidance-documents/multiple-endpoints-clinical-trials
