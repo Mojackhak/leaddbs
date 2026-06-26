@@ -40,6 +40,38 @@ highest-precision check of the written displacement field; the ANTs validation
 reports what Lead-DBS/ANTs point-transform tooling reads back from the same
 file.
 
+## ZhangMing Install
+
+After the compatibility candidates have been generated and validated, install
+the candidate transforms and legacy-compatible MNI reconstruction with:
+
+```bash
+/opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/warpslicer/examples/zhangming_install_legacy_contact_compat.py
+```
+
+The installer is intentionally strict. It stops before changing official files
+unless the validated candidate forward transform, the `PointExact` inverse
+transform, the original transforms, and the reconstruction file all exist. It
+also requires `validation_summary.json` to report a rounded-exact
+`PointExact` grid validation with maximum error below `1e-6` mm.
+
+Original official files are copied to same-folder `-bak` files before
+replacement:
+
+- `sub-ZhangMing_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants-bak.nii.gz`
+- `sub-ZhangMing_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants-bak.nii.gz`
+- `sub-ZhangMing_desc-reconstruction-bak.mat`
+
+If any of those backups already exists, installation aborts to avoid replacing
+the first backup. Recovery is a manual copy from the `-bak` files back to their
+original names.
+
+The installed forward transform is the ordinary Slicer-composed candidate. The
+installed inverse transform is the `PointExact` inverse candidate. The
+reconstruction update only changes `reco.mni` contacts, markers, trajectories,
+and angles; `reco.native` and `reco.scrf` remain unchanged.
+
 ## Precision
 
 For `Sub-ZhangMing`, the legacy cohort `MNI_x`, `MNI_y`, and `MNI_z` values

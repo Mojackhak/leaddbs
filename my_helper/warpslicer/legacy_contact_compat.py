@@ -53,6 +53,32 @@ class CompatParams:
     write_point_exact_inverse: bool = True
 
 
+@dataclass(frozen=True)
+class InstallPaths:
+    """Input, output, and official target paths for installing one candidate."""
+
+    lead_root: Path
+    reconstruction_mat: Path
+    cohort_pkl: Path
+    current_forward: Path
+    current_inverse: Path
+    candidate_forward: Path
+    candidate_inverse_point_exact: Path
+    validation_summary: Path
+    output_dir: Path
+    subject_label: str = "Sub-ZhangMing"
+    matlab_exe: Path = Path("/Applications/MATLAB_R2024b.app/bin/matlab")
+
+
+@dataclass(frozen=True)
+class InstallParams:
+    """Safety thresholds and install behavior."""
+
+    precision_decimals: int = 7
+    max_point_exact_grid_error_mm: float = 1e-6
+    abort_if_backup_exists: bool = True
+
+
 RUN_OUTPUT_NAMES = (
     "landmarks.json",
     "landmarks.csv",
@@ -190,6 +216,86 @@ def build_legacy_contact_compat(paths: CompatPaths, params: CompatParams) -> dic
         json.dump(summary, f, indent=2)
     logger.write("Finished")
     return summary
+
+
+def install_legacy_contact_compat(paths: InstallPaths, params: InstallParams) -> dict:
+    """Install validated candidate transforms and legacy-compatible MNI reconstruction."""
+
+    paths = _normalize_install_paths(paths)
+    paths.output_dir.mkdir(parents=True, exist_ok=True)
+    preflight = _preflight_install(paths, params)
+
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    backups = {
+        "forward": _backup_path(paths.current_forward),
+        "inverse": _backup_path(paths.current_inverse),
+        "reconstruction": _backup_path(paths.reconstruction_mat),
+    }
+    targets = {
+        "forward": paths.current_forward,
+        "inverse": paths.current_inverse,
+        "reconstruction": paths.reconstruction_mat,
+    }
+    sources = {
+        "forward": paths.candidate_forward,
+        "inverse": paths.candidate_inverse_point_exact,
+    }
+
+    with tempfile.TemporaryDirectory(prefix="warpslicer_install_") as tmp:
+        tmp_path = Path(tmp)
+        contacts_csv = tmp_path / "legacy_contacts_by_side.csv"
+        updated_reconstruction = tmp_path / "sub-ZhangMing_desc-reconstruction_installed.mat"
+        _write_legacy_contacts_by_side_csv(contacts_csv, preflight["legacy_by_side"])
+        _run_matlab_reconstruction_update(
+            matlab_exe=paths.matlab_exe,
+            lead_root=paths.lead_root,
+            source_reconstruction=paths.reconstruction_mat,
+            contacts_csv=contacts_csv,
+            output_reconstruction=updated_reconstruction,
+        )
+        reconstruction_validation = _validate_reconstruction_mni(
+            updated_reconstruction,
+            preflight["legacy_by_side"],
+            params.precision_decimals,
+        )
+        if not reconstruction_validation["rounded_exact"]:
+            raise RuntimeError("Updated reconstruction does not match legacy contacts")
+
+        try:
+            for key, backup in backups.items():
+                shutil.copy2(targets[key], backup)
+            shutil.copy2(sources["forward"], paths.current_forward)
+            shutil.copy2(sources["inverse"], paths.current_inverse)
+            shutil.copy2(updated_reconstruction, paths.reconstruction_mat)
+
+            post_validation = _post_validate_install(
+                paths,
+                params,
+                preflight,
+                backups,
+                sources,
+            )
+        except Exception:
+            _rollback_installed_files(backups, targets)
+            raise
+
+    install_record = {
+        "installed_at": timestamp,
+        "subject": paths.subject_label,
+        "policy": "ordinary_forward_point_exact_inverse",
+        "targets": {key: str(path) for key, path in targets.items()},
+        "sources": {key: str(path) for key, path in sources.items()},
+        "backups": {key: str(path) for key, path in backups.items()},
+        "validation_summary": str(paths.validation_summary),
+        "preflight_validation": preflight["validation"],
+        "reconstruction_validation": reconstruction_validation,
+        "post_install_validation": post_validation,
+    }
+    record_path = paths.output_dir / "install_legacy_contact_compat.json"
+    with record_path.open("w") as f:
+        json.dump(install_record, f, indent=2)
+    install_record["install_record"] = str(record_path)
+    return install_record
 
 
 def write_point_exact_inverse_candidate(
@@ -363,6 +469,322 @@ def _require_inputs(paths: CompatPaths) -> None:
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
         raise FileNotFoundError("Missing required files:\n" + "\n".join(missing))
+
+
+def _normalize_install_paths(paths: InstallPaths) -> InstallPaths:
+    values = {field: getattr(paths, field) for field in paths.__dataclass_fields__}
+    for key, value in values.items():
+        if key not in {"subject_label"} and value is not None:
+            values[key] = Path(value)
+    return InstallPaths(**values)
+
+
+def _preflight_install(paths: InstallPaths, params: InstallParams) -> dict:
+    required = [
+        paths.reconstruction_mat,
+        paths.cohort_pkl,
+        paths.current_forward,
+        paths.current_inverse,
+        paths.candidate_forward,
+        paths.candidate_inverse_point_exact,
+        paths.validation_summary,
+        paths.matlab_exe,
+    ]
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError("Missing required files:\n" + "\n".join(missing))
+
+    backups = [
+        _backup_path(paths.current_forward),
+        _backup_path(paths.current_inverse),
+        _backup_path(paths.reconstruction_mat),
+    ]
+    existing_backups = [str(path) for path in backups if path.exists()]
+    if existing_backups and params.abort_if_backup_exists:
+        raise FileExistsError("Backup files already exist:\n" + "\n".join(existing_backups))
+
+    with paths.validation_summary.open() as f:
+        validation_summary = json.load(f)
+    _require_summary_path(validation_summary, "candidate_forward", paths.candidate_forward)
+    _require_summary_path(validation_summary, "candidate_inverse_point_exact", paths.candidate_inverse_point_exact)
+    point_exact_grid = validation_summary["validation"]["candidate_inverse_point_exact_grid"]
+    if not point_exact_grid["rounded_exact"]:
+        raise ValueError("PointExact grid validation is not rounded-exact")
+    if float(point_exact_grid["max_error_mm"]) > params.max_point_exact_grid_error_mm:
+        raise ValueError(
+            "PointExact grid max error exceeds threshold: "
+            f"{point_exact_grid['max_error_mm']} > {params.max_point_exact_grid_error_mm}"
+        )
+
+    legacy_by_side = _legacy_contacts_by_side(paths)
+    reconstruction_validation = _validate_reconstruction_side_shapes(paths.reconstruction_mat, legacy_by_side)
+    source_for_forward = _source_for_forward_points(paths)
+    return {
+        "validation": point_exact_grid,
+        "legacy_by_side": legacy_by_side,
+        "reconstruction_shape_validation": reconstruction_validation,
+        "source_for_forward": source_for_forward,
+        "original_sizes": {
+            "forward": paths.current_forward.stat().st_size,
+            "inverse": paths.current_inverse.stat().st_size,
+            "reconstruction": paths.reconstruction_mat.stat().st_size,
+        },
+    }
+
+
+def _backup_path(path: Path) -> Path:
+    if path.name.endswith(".nii.gz"):
+        return path.with_name(path.name[:-7] + "-bak.nii.gz")
+    return path.with_name(path.stem + "-bak" + path.suffix)
+
+
+def _require_summary_path(summary: dict, key: str, expected: Path) -> None:
+    observed = Path(summary[key])
+    if observed.resolve() != expected.resolve():
+        raise ValueError(f"Validation summary {key} does not match expected path: {observed} != {expected}")
+
+
+def _legacy_contacts_by_side(paths: InstallPaths) -> dict[int, pd.DataFrame]:
+    cohort = pd.read_pickle(paths.cohort_pkl)
+    rows = cohort[cohort["Subject"].eq(paths.subject_label)].sort_values("Contact")
+    if len(rows) == 0:
+        raise ValueError(f"No cohort rows found for {paths.subject_label}")
+    required = {"Contact", "Side", "MNI_x", "MNI_y", "MNI_z"}
+    missing = required.difference(rows.columns)
+    if missing:
+        raise ValueError(f"Missing legacy cohort columns: {sorted(missing)}")
+    side_map = {1: "Right", 2: "Left"}
+    by_side: dict[int, pd.DataFrame] = {}
+    for side_index, side_label in side_map.items():
+        side_rows = rows[rows["Side"].eq(side_label)].sort_values("Contact")
+        if len(side_rows) == 0:
+            raise ValueError(f"No {side_label} contacts found for {paths.subject_label}")
+        by_side[side_index] = side_rows[["Contact", "Side", "MNI_x", "MNI_y", "MNI_z"]].copy()
+    return by_side
+
+
+def _validate_reconstruction_side_shapes(reconstruction_mat: Path, legacy_by_side: dict[int, pd.DataFrame]) -> dict:
+    mat = loadmat(reconstruction_mat, squeeze_me=True, struct_as_record=False)
+    reco = mat["reco"]
+    coords = np.asarray(reco.mni.coords_mm, dtype=object)
+    observed_counts = {}
+    expected_counts = {}
+    for side_index, side_rows in legacy_by_side.items():
+        observed = np.asarray(coords[side_index - 1], dtype=float)
+        observed_counts[str(side_index)] = int(observed.shape[0])
+        expected_counts[str(side_index)] = int(len(side_rows))
+        if observed.shape[0] != len(side_rows):
+            raise ValueError(
+                f"Side {side_index} reconstruction contact count mismatch: "
+                f"{observed.shape[0]} != {len(side_rows)}"
+            )
+    return {"observed_counts": observed_counts, "expected_counts": expected_counts}
+
+
+def _source_for_forward_points(paths: InstallPaths) -> np.ndarray:
+    mat = loadmat(paths.reconstruction_mat, squeeze_me=True, struct_as_record=False)
+    reco = mat["reco"]
+    cohort = pd.read_pickle(paths.cohort_pkl)
+    rows = cohort[cohort["Subject"].eq(paths.subject_label)].sort_values("Contact")
+    source_coords = reco.scrf.coords_mm if hasattr(reco, "scrf") else reco.native.coords_mm
+    return _coords_from_reco_by_contact_order(source_coords, rows)
+
+
+def _write_legacy_contacts_by_side_csv(path: Path, legacy_by_side: dict[int, pd.DataFrame]) -> None:
+    with path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["side_index", "contact", "side", "mni_x", "mni_y", "mni_z"])
+        for side_index in sorted(legacy_by_side):
+            for _, row in legacy_by_side[side_index].iterrows():
+                writer.writerow(
+                    [
+                        side_index,
+                        int(row["Contact"]),
+                        str(row["Side"]),
+                        f"{float(row['MNI_x']):.9f}",
+                        f"{float(row['MNI_y']):.9f}",
+                        f"{float(row['MNI_z']):.9f}",
+                    ]
+                )
+
+
+def _run_matlab_reconstruction_update(
+    matlab_exe: Path,
+    lead_root: Path,
+    source_reconstruction: Path,
+    contacts_csv: Path,
+    output_reconstruction: Path,
+) -> None:
+    script = output_reconstruction.parent / "warpslicer_update_reconstruction_mni.m"
+    script.write_text(
+        _matlab_update_script(
+            lead_root=lead_root,
+            source_reconstruction=source_reconstruction,
+            contacts_csv=contacts_csv,
+            output_reconstruction=output_reconstruction,
+        )
+    )
+    cmd = [str(matlab_exe), "-batch", f"run('{_matlab_quote(script)}')"]
+    _run_command(cmd, "MATLAB reconstruction MNI update")
+
+
+def _matlab_update_script(
+    lead_root: Path,
+    source_reconstruction: Path,
+    contacts_csv: Path,
+    output_reconstruction: Path,
+) -> str:
+    return f"""
+addpath(genpath('{_matlab_quote(lead_root)}'));
+contacts = readtable('{_matlab_quote(contacts_csv)}');
+loaded = load('{_matlab_quote(source_reconstruction)}', 'reco');
+reco = loaded.reco;
+options = struct();
+options.elmodel = reco.props(1).elmodel;
+options = ea_resolve_elspec(options);
+if numel(options.elspec.etageidx) > 8
+    scaleFactor = options.elspec.contact_span * 1.5;
+else
+    scaleFactor = options.elspec.contact_span * 2;
+end
+for side = 1:2
+    sideContacts = contacts(contacts.side_index == side, :);
+    coords = [sideContacts.mni_x, sideContacts.mni_y, sideContacts.mni_z];
+    if isempty(coords)
+        error('No contacts were provided for side %d', side);
+    end
+    reco.mni.coords_mm{{side}} = coords;
+    head = coords(1, :);
+    tail = coords(end, :);
+    reco.mni.markers(side).head = head;
+    reco.mni.markers(side).tail = tail;
+    trajvector = (tail - head) ./ norm(tail - head);
+    reco.mni.trajvector{{side}} = trajvector;
+    trajStart = head - trajvector * 5;
+    trajEnd = tail + trajvector * scaleFactor;
+    reco.mni.trajectory{{side}} = [ ...
+        linspace(trajStart(1), trajEnd(1), 50)', ...
+        linspace(trajStart(2), trajEnd(2), 50)', ...
+        linspace(trajStart(3), trajEnd(3), 50)' ...
+    ];
+    if isfield(reco, 'native') && numel(reco.native.markers) >= side && ~isempty(reco.native.markers(side).y)
+        [~, yvec] = ea_calc_rotation(reco.native.markers(side).y, reco.native.markers(side).head);
+        [xunitv, yunitv] = ea_calcxy(head, tail, yvec);
+    else
+        [xunitv, yunitv] = ea_calcxy(head, tail);
+    end
+    reco.mni.markers(side).x = head + xunitv * (options.elspec.lead_diameter / 2);
+    reco.mni.markers(side).y = head + yunitv * (options.elspec.lead_diameter / 2);
+end
+save('{_matlab_quote(output_reconstruction)}', 'reco');
+ea_recalc_angles('{_matlab_quote(output_reconstruction)}');
+loaded = load('{_matlab_quote(output_reconstruction)}', 'reco');
+if ~isfield(loaded.reco, 'mni')
+    error('Updated reconstruction does not contain reco.mni');
+end
+"""
+
+
+def _matlab_quote(path: Path) -> str:
+    return str(path).replace("'", "''")
+
+
+def _validate_reconstruction_mni(
+    reconstruction_mat: Path,
+    legacy_by_side: dict[int, pd.DataFrame],
+    decimals: int,
+) -> dict:
+    mat = loadmat(reconstruction_mat, squeeze_me=True, struct_as_record=False)
+    reco = mat["reco"]
+    coords = np.asarray(reco.mni.coords_mm, dtype=object)
+    observed_all = []
+    expected_all = []
+    per_side = {}
+    for side_index, side_rows in legacy_by_side.items():
+        observed = np.asarray(coords[side_index - 1], dtype=float)
+        expected = side_rows[["MNI_x", "MNI_y", "MNI_z"]].to_numpy(float)
+        delta = observed - expected
+        norms = np.linalg.norm(delta, axis=1)
+        rounded_exact = bool(np.array_equal(np.round(observed, decimals), np.round(expected, decimals)))
+        per_side[str(side_index)] = {
+            "mean_error_mm": float(norms.mean()),
+            "max_error_mm": float(norms.max()),
+            "rounded_exact": rounded_exact,
+            "contact_count": int(len(expected)),
+        }
+        observed_all.append(observed)
+        expected_all.append(expected)
+    observed_full = np.vstack(observed_all)
+    expected_full = np.vstack(expected_all)
+    norms_full = np.linalg.norm(observed_full - expected_full, axis=1)
+    return {
+        "mean_error_mm": float(norms_full.mean()),
+        "max_error_mm": float(norms_full.max()),
+        "rounded_exact": bool(
+            np.array_equal(np.round(observed_full, decimals), np.round(expected_full, decimals))
+        ),
+        "rounded_decimals": decimals,
+        "per_side": per_side,
+    }
+
+
+def _post_validate_install(
+    paths: InstallPaths,
+    params: InstallParams,
+    preflight: dict,
+    backups: dict[str, Path],
+    sources: dict[str, Path],
+) -> dict:
+    size_validation = {
+        "forward_matches_candidate": paths.current_forward.stat().st_size == sources["forward"].stat().st_size,
+        "inverse_matches_candidate": paths.current_inverse.stat().st_size == sources["inverse"].stat().st_size,
+        "forward_backup_matches_original": backups["forward"].stat().st_size == preflight["original_sizes"]["forward"],
+        "inverse_backup_matches_original": backups["inverse"].stat().st_size == preflight["original_sizes"]["inverse"],
+        "reconstruction_backup_matches_original": (
+            backups["reconstruction"].stat().st_size == preflight["original_sizes"]["reconstruction"]
+        ),
+    }
+    if not all(size_validation.values()):
+        raise RuntimeError(f"Post-install size validation failed: {size_validation}")
+
+    reconstruction_validation = _validate_reconstruction_mni(
+        paths.reconstruction_mat,
+        preflight["legacy_by_side"],
+        params.precision_decimals,
+    )
+    if not reconstruction_validation["rounded_exact"]:
+        raise RuntimeError("Installed reconstruction does not match legacy contacts")
+
+    observed = apply_grid_transform_to_points_ras(paths.current_inverse, preflight["source_for_forward"])
+    expected = np.vstack(
+        [preflight["legacy_by_side"][side][["MNI_x", "MNI_y", "MNI_z"]].to_numpy(float) for side in (2, 1)]
+    )
+    grid_validation = _summarize_point_errors(observed, expected, params.precision_decimals)
+    if not grid_validation["rounded_exact"]:
+        raise RuntimeError("Installed PointExact inverse grid validation is not rounded-exact")
+    return {
+        "sizes": size_validation,
+        "reconstruction": reconstruction_validation,
+        "installed_point_exact_grid": grid_validation,
+    }
+
+
+def _summarize_point_errors(observed: np.ndarray, expected: np.ndarray, decimals: int) -> dict:
+    delta = observed - expected
+    norms = np.linalg.norm(delta, axis=1)
+    return {
+        "mean_error_mm": float(norms.mean()),
+        "max_error_mm": float(norms.max()),
+        "rms_error_mm": float(np.sqrt(np.mean(norms**2))),
+        "rounded_exact": bool(np.array_equal(np.round(observed, decimals), np.round(expected, decimals))),
+        "rounded_decimals": decimals,
+    }
+
+
+def _rollback_installed_files(backups: dict[str, Path], targets: dict[str, Path]) -> None:
+    for key, backup in backups.items():
+        if backup.is_file():
+            shutil.copy2(backup, targets[key])
 
 
 def _prepare_outputs(output_dir: Path, params: CompatParams) -> None:
