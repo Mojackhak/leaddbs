@@ -245,7 +245,7 @@ def install_legacy_contact_compat(paths: InstallPaths, params: InstallParams) ->
     with tempfile.TemporaryDirectory(prefix="warpslicer_install_") as tmp:
         tmp_path = Path(tmp)
         contacts_csv = tmp_path / "legacy_contacts_by_side.csv"
-        updated_reconstruction = tmp_path / "sub-ZhangMing_desc-reconstruction_installed.mat"
+        updated_reconstruction = tmp_path / f"{paths.reconstruction_mat.stem}_installed.mat"
         _write_legacy_contacts_by_side_csv(contacts_csv, preflight["legacy_by_side"])
         _run_matlab_reconstruction_update(
             matlab_exe=paths.matlab_exe,
@@ -655,6 +655,23 @@ if numel(options.elspec.etageidx) > 8
 else
     scaleFactor = options.elspec.contact_span * 2;
 end
+
+reco = setLegacyMni(reco, contacts, options, scaleFactor);
+save('{_matlab_quote(output_reconstruction)}', 'reco');
+ea_recalc_angles('{_matlab_quote(output_reconstruction)}');
+loaded = load('{_matlab_quote(output_reconstruction)}', 'reco');
+reco = loaded.reco;
+if ~isfield(reco, 'mni')
+    error('Updated reconstruction does not contain reco.mni');
+end
+reco = setLegacyMni(reco, contacts, options, scaleFactor);
+save('{_matlab_quote(output_reconstruction)}', 'reco');
+loaded = load('{_matlab_quote(output_reconstruction)}', 'reco');
+if ~isfield(loaded.reco, 'mni')
+    error('Updated reconstruction does not contain reco.mni');
+end
+
+function reco = setLegacyMni(reco, contacts, options, scaleFactor)
 for side = 1:2
     sideContacts = contacts(contacts.side_index == side, :);
     coords = [sideContacts.mni_x, sideContacts.mni_y, sideContacts.mni_z];
@@ -684,11 +701,6 @@ for side = 1:2
     reco.mni.markers(side).x = head + xunitv * (options.elspec.lead_diameter / 2);
     reco.mni.markers(side).y = head + yunitv * (options.elspec.lead_diameter / 2);
 end
-save('{_matlab_quote(output_reconstruction)}', 'reco');
-ea_recalc_angles('{_matlab_quote(output_reconstruction)}');
-loaded = load('{_matlab_quote(output_reconstruction)}', 'reco');
-if ~isfield(loaded.reco, 'mni')
-    error('Updated reconstruction does not contain reco.mni');
 end
 """
 

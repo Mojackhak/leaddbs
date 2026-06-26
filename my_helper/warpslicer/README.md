@@ -74,6 +74,41 @@ installed inverse transform is the `PointExact` inverse candidate. The
 reconstruction update only changes `reco.mni` contacts, markers, trajectories,
 and angles; `reco.native` and `reco.scrf` remain unchanged.
 
+## HuangDan Build And Install
+
+`Sub-HuangDan` uses the same legacy-contact compatibility strategy as
+`Sub-ZhangMing`: current Lead-DBS MNI contacts are the moving landmarks and the
+legacy cohort `MNI_x`, `MNI_y`, and `MNI_z` values are the fixed landmarks.
+
+Run from the Lead-DBS repository root:
+
+```bash
+/opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/warpslicer/examples/huangdan_build_and_install_legacy_contact_compat.py
+```
+
+The script first builds candidates under:
+
+`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-HuangDan/warpdrive/legacy_contact_compat`
+
+It installs the candidates only after the `PointExact` inverse grid validation
+is rounded-exact at seven decimal places and the maximum grid error is below
+`1e-6` mm. The installed forward transform is the ordinary Slicer-composed
+candidate, and the installed inverse transform is the `PointExact` candidate.
+
+Original official files are moved into:
+
+`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-HuangDan/bak`
+
+- `sub-HuangDan_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants-bak.nii.gz`
+- `sub-HuangDan_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants-bak.nii.gz`
+- `sub-HuangDan_desc-reconstruction-bak.mat`
+
+If any of those backups already exists, installation aborts. Recovery is a
+manual copy from the `bak` folder back to the original formal-file locations.
+The reconstruction update only changes `reco.mni`; `reco.native` and
+`reco.scrf` remain unchanged.
+
 ## Precision
 
 For `Sub-ZhangMing`, the legacy cohort `MNI_x`, `MNI_y`, and `MNI_z` values
