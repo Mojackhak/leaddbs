@@ -226,10 +226,11 @@ def install_legacy_contact_compat(paths: InstallPaths, params: InstallParams) ->
     preflight = _preflight_install(paths, params)
 
     timestamp = datetime.now().isoformat(timespec="seconds")
+    backup_dir = _subject_backup_dir(paths)
     backups = {
-        "forward": _backup_path(paths.current_forward),
-        "inverse": _backup_path(paths.current_inverse),
-        "reconstruction": _backup_path(paths.reconstruction_mat),
+        "forward": _backup_path(paths.current_forward, backup_dir),
+        "inverse": _backup_path(paths.current_inverse, backup_dir),
+        "reconstruction": _backup_path(paths.reconstruction_mat, backup_dir),
     }
     targets = {
         "forward": paths.current_forward,
@@ -262,8 +263,9 @@ def install_legacy_contact_compat(paths: InstallPaths, params: InstallParams) ->
             raise RuntimeError("Updated reconstruction does not match legacy contacts")
 
         try:
+            backup_dir.mkdir(parents=True, exist_ok=True)
             for key, backup in backups.items():
-                shutil.copy2(targets[key], backup)
+                shutil.move(str(targets[key]), str(backup))
             shutil.copy2(sources["forward"], paths.current_forward)
             shutil.copy2(sources["inverse"], paths.current_inverse)
             shutil.copy2(updated_reconstruction, paths.reconstruction_mat)
@@ -285,6 +287,7 @@ def install_legacy_contact_compat(paths: InstallPaths, params: InstallParams) ->
         "policy": "ordinary_forward_point_exact_inverse",
         "targets": {key: str(path) for key, path in targets.items()},
         "sources": {key: str(path) for key, path in sources.items()},
+        "backup_dir": str(backup_dir),
         "backups": {key: str(path) for key, path in backups.items()},
         "validation_summary": str(paths.validation_summary),
         "preflight_validation": preflight["validation"],
@@ -494,10 +497,11 @@ def _preflight_install(paths: InstallPaths, params: InstallParams) -> dict:
     if missing:
         raise FileNotFoundError("Missing required files:\n" + "\n".join(missing))
 
+    backup_dir = _subject_backup_dir(paths)
     backups = [
-        _backup_path(paths.current_forward),
-        _backup_path(paths.current_inverse),
-        _backup_path(paths.reconstruction_mat),
+        _backup_path(paths.current_forward, backup_dir),
+        _backup_path(paths.current_inverse, backup_dir),
+        _backup_path(paths.reconstruction_mat, backup_dir),
     ]
     existing_backups = [str(path) for path in backups if path.exists()]
     if existing_backups and params.abort_if_backup_exists:
@@ -532,10 +536,14 @@ def _preflight_install(paths: InstallPaths, params: InstallParams) -> dict:
     }
 
 
-def _backup_path(path: Path) -> Path:
+def _subject_backup_dir(paths: InstallPaths) -> Path:
+    return paths.reconstruction_mat.parent.parent / "bak"
+
+
+def _backup_path(path: Path, backup_dir: Path) -> Path:
     if path.name.endswith(".nii.gz"):
-        return path.with_name(path.name[:-7] + "-bak.nii.gz")
-    return path.with_name(path.stem + "-bak" + path.suffix)
+        return backup_dir / (path.name[:-7] + "-bak.nii.gz")
+    return backup_dir / (path.stem + "-bak" + path.suffix)
 
 
 def _require_summary_path(summary: dict, key: str, expected: Path) -> None:

@@ -56,16 +56,18 @@ transform, the original transforms, and the reconstruction file all exist. It
 also requires `validation_summary.json` to report a rounded-exact
 `PointExact` grid validation with maximum error below `1e-6` mm.
 
-Original official files are copied to same-folder `-bak` files before
-replacement:
+Original official files are moved into the subject-level `bak` folder before
+replacement. The installer creates this folder when needed:
+
+`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-ZhangMing/bak`
 
 - `sub-ZhangMing_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants-bak.nii.gz`
 - `sub-ZhangMing_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants-bak.nii.gz`
 - `sub-ZhangMing_desc-reconstruction-bak.mat`
 
 If any of those backups already exists, installation aborts to avoid replacing
-the first backup. Recovery is a manual copy from the `-bak` files back to their
-original names.
+the first backup. Recovery is a manual copy from the `bak` folder back to the
+original formal-file locations.
 
 The installed forward transform is the ordinary Slicer-composed candidate. The
 installed inverse transform is the `PointExact` inverse candidate. The
