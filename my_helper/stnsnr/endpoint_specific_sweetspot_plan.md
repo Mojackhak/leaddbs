@@ -29,6 +29,14 @@ The primary analysis uses full-field VTA/e-field-like exposure and whole-streaml
 
 ## Atlases and Connectomes
 
+### Seed-Target Atlas Registry
+
+The authoritative STN/SNr seed-target target-atlas registry is:
+
+`/Users/mojackhu/Github/leaddbs/my_helper/stnsnr/stnsnr_seed_target_atlas_registry.md`
+
+For seed-target fiber tracking, target ROI source, threshold, sensitivity atlas, and interpretation boundaries should follow this registry. The current section records the broader sweet-spot plan, while the registry is the fixed source for pathway-specific target atlas selection.
+
 ### STN/SNr ROI
 
 Use `Custom_Ewert_Zhang_Middlebrooks0.05` as the primary STN/SNr ROI source:
