@@ -74,6 +74,82 @@ For the current random stimulation table, use an e-field-like proxy:
 
 When real programming parameters and Lead-DBS stimulation outputs are available, replace the proxy with true e-field maps without changing the downstream modeling interface.
 
+### Interleaving Stimulation Handling
+
+Interleaving stimulation must not be modeled as simultaneous double-cathode stimulation.
+
+For interleaving programs, compute stimulation fields separately for each subprogram or active contact program:
+
+```text
+Program A: VTA_A or E_A
+Program B: VTA_B or E_B
+```
+
+Then represent the overall interleaving exposure with explicit derived maps:
+
+```text
+Union exposure:
+  VTA_interleaving_union = VTA_A union VTA_B
+
+Overlap exposure:
+  VTA_interleaving_overlap = VTA_A intersect VTA_B
+
+Optional weighted exposure:
+  E_interleaving_weighted = w_A * E_A + w_B * E_B
+```
+
+where `w_A` and `w_B` should be prespecified from pulse counts, frequency, or duty-cycle information when available. If reliable timing information is unavailable, report unweighted union and overlap maps rather than inventing a timing weight.
+
+For fiber models, compute streamline exposure from each representation:
+
+```text
+X_union(i,f)   = max exposure along fiber f in the union map
+X_overlap(i,f) = max exposure along fiber f in the overlap map
+X_weighted(i,f) = max exposure along fiber f in the weighted exposure map
+```
+
+The default interleaving representation for the main VTA-like exposure is:
+
+```text
+union map = tissue exposed to at least one subprogram during the interleaving cycle
+```
+
+The overlap map should be reported separately because it represents tissue exposed to both pulse trains and may approximate higher pulse density or repeated stimulation exposure.
+
+Do not replace interleaving with:
+
+```text
+simultaneous C+ / contact1- contact2-
+```
+
+unless the clinical record explicitly indicates simultaneous multi-cathode stimulation. Simultaneous double-cathode stimulation has a different boundary condition:
+
+```text
+E_simultaneous(x) = E_1(x) + E_2(x)
+```
+
+For simultaneous multi-cathode stimulation, record whether the device/programming mode used independent current control or a single source with impedance-dependent current splitting. These two cases can yield different fields and should not be silently merged:
+
+```text
+Independent current control:
+  contact1- = specified current
+  contact2- = specified current
+
+Single-source coactivation:
+  total current is split across cathodes, potentially by impedance
+```
+
+Interleaving is time-separated:
+
+```text
+E_interleaving(x,t) = E_1(x) at pulse train A
+                    = E_2(x) at pulse train B
+```
+
+and should therefore be represented by subprogram maps plus union, overlap, and optional timing-weighted summaries.
+
+If OSS-DBS or another pathway activation model supports explicit pulse timing, use the true interleaving pulse sequence for advanced sensitivity analysis. If explicit timing is not supported, compute each subprogram separately and summarize activation with union, overlap, and optional frequency-weighted pathway activation.
+
 ### VTA Boundary Rule
 
 Do not crop VTA, e-field, or proxy maps to STN/SNr boundaries. VTA may extend beyond the nucleus edge, and this extension is part of the modeled stimulation effect.
@@ -682,6 +758,7 @@ Run the following sensitivity analyses:
 - streamline-specific STN exposure change instead of scalar `DeltaSTNScore`;
 - minimal-STN-change subgroup after excluding subjects with the largest absolute STN exposure change;
 - binary VTA intersection instead of continuous peak exposure;
+- interleaving-specific union, overlap, and frequency-weighted exposure summaries;
 - local ROI-expanded peak exposure using Custom STN/SNr dilated by `2-3 mm`;
 - charge-rate proxy using `abs(voltage_V) * pulse_width_us * frequency_Hz`;
 - OSS-DBS/PAM pathway activation model when valid outputs exist;
@@ -710,18 +787,19 @@ Reusable functions should be grouped by responsibility:
 
 1. Validate inputs and write provenance.
 2. Load active contact and stimulation parameter tables.
-3. Build STN-alone, combined-STN-component, and combined-SNr-component exposure maps.
-4. Load raw clinical scores and improvement-rate tables.
-5. Select endpoint per scale.
-6. Extract voxel and streamline exposure matrices.
-7. Fit the primary chronic STN-only model.
-8. Fit secondary STN-only early / acute models where valid immediate data exist.
-9. Fit optional STN chronic adaptation models when justified by programming changes.
-10. Fit endpoint-specific SNr Scheme 1 models with `DeltaSTNScore`.
-11. Fit endpoint-specific SNr Scheme 2 models without `DeltaSTNScore`.
-12. Fit sensitivity models.
-13. Label top fibers by Custom STN/SNr and HCPex endpoints.
-14. Export CSV/Mat/JSON provenance and visualization-ready fiber subsets.
+3. Detect interleaving programs and split them into explicit subprogram definitions.
+4. Build STN-alone, combined-STN-component, and combined-SNr-component exposure maps, including interleaving union and overlap maps where needed.
+5. Load raw clinical scores and improvement-rate tables.
+6. Select endpoint per scale.
+7. Extract voxel and streamline exposure matrices.
+8. Fit the primary chronic STN-only model.
+9. Fit secondary STN-only early / acute models where valid immediate data exist.
+10. Fit optional STN chronic adaptation models when justified by programming changes.
+11. Fit endpoint-specific SNr Scheme 1 models with `DeltaSTNScore`.
+12. Fit endpoint-specific SNr Scheme 2 models without `DeltaSTNScore`.
+13. Fit sensitivity models.
+14. Label top fibers by Custom STN/SNr and HCPex endpoints.
+15. Export CSV/Mat/JSON provenance and visualization-ready fiber subsets.
 
 ## Expected Outputs
 
@@ -736,6 +814,7 @@ Expected output groups:
 - `provenance/`: input paths, software versions, random seed, model settings.
 - `qc/`: subject inclusion, endpoint selection, missingness, ROI volumes, connectome availability.
 - `exposure/`: subject-level exposure summaries and streamline exposure matrices.
+- `exposure/interleaving/`: subprogram exposure maps, union maps, overlap maps, and optional timing-weighted maps.
 - `models/stn/chronic/`: primary chronic STN-only sweet-spot and sweet-fiber results.
 - `models/stn/early/`: secondary early / acute STN-only response results.
 - `models/stn/adaptation/`: optional STN chronic adaptation results.
@@ -749,6 +828,8 @@ Expected output groups:
 
 - `random_seed` is `42` in all stochastic steps.
 - The analysis does not crop VTA/e-field/proxy maps to STN/SNr masks.
+- Interleaving stimulation is split into subprograms and is not treated as simultaneous double-cathode stimulation.
+- Interleaving outputs include union exposure and overlap exposure when interleaving programs exist.
 - Streamlines are whole connectome streamlines, not STN/SNr internal fragments.
 - STN/SNr labels come from `Custom_Ewert_Zhang_Middlebrooks0.05`.
 - Non-STN/SNr endpoint labels come from HCPex.
@@ -772,6 +853,8 @@ Expected output groups:
 - SNr Scheme 2 results should be described as clinician-optimized final SNr setting outcome maps for the overall optimized STN+SNr strategy.
 - Residualized SNr results should be described as STN-model-adjusted SNr-associated residual benefit, not as definitive pure SNr causal effect.
 - SNr maps should not be described as pure causal maps showing that every patient should be stimulated at a given SNr location.
+- Interleaving union maps should be described as exposure across an interleaving cycle, not as one simultaneous continuous electric field.
+- Interleaving overlap maps should be described as tissue or fibers exposed to both pulse trains.
 - Scale-specific maps are the primary results for symptom-specific inference.
 - Global or pooled maps are secondary/exploratory summaries of cross-scale convergence.
 - Random stimulation table results are pipeline validation only and should not be interpreted biologically.
@@ -780,6 +863,9 @@ Expected output groups:
 
 - Hollunder B. et al. Network-based sweet spots of deep brain stimulation. Nature Neuroscience, 2024. https://www.nature.com/articles/s41593-024-01570-1
 - Rajamani N. et al. Symptom-specific therapeutic pathways for deep brain stimulation. Nature Communications, 2024. https://www.nature.com/articles/s41467-024-48731-1
+- Juarez-Paz R. et al. In silico accuracy and energy efficiency of two steering paradigms in directional deep brain stimulation. Frontiers in Neurology, 2020. https://www.frontiersin.org/journals/neurology/articles/10.3389/fneur.2020.593798/full
+- Modeling the volume of tissue activated in deep brain stimulation and its clinical influence: a review. Frontiers in Human Neuroscience, 2024. https://www.frontiersin.org/journals/human-neuroscience/articles/10.3389/fnhum.2024.1333183/full
+- Butenko K. et al. OSS-DBS: Open-source simulation platform for deep brain stimulation with a comprehensive automated modeling. PLOS Computational Biology, 2020. https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1008023
 - Vickers A.J. and Altman D.G. Analysing controlled trials with baseline and follow up measurements. BMJ, 2001.
 - Clifton L. and Clifton D.A. The correlation between baseline score and post-intervention score, and its implications for statistical analysis. Trials, 2019.
 - U.S. Food and Drug Administration. Multiple Endpoints in Clinical Trials: Guidance for Industry. https://www.fda.gov/regulatory-information/search-fda-guidance-documents/multiple-endpoints-clinical-trials
