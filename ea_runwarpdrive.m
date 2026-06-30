@@ -66,7 +66,8 @@ for i = 1:length(warpdrive_subs)
     info_struct(i).id = warpdrive_subs(i).subjId;
     info_struct(i).warpdrive_path = warpdrive_subs(i).warpdriveDir;
     info_struct(i).normlog_file = warpdrive_subs(i).norm.log.method;
-    info_struct(i).anat_files = warpdrive_subs(i).coreg.anat.preop;
+    info_struct(i).anat_files = build_warpdrive_anat_files(warpdrive_subs(i));
+    info_struct(i).native_reference_file = get_warpdrive_native_reference(warpdrive_subs(i));
 
     d = dir([warpdrive_subs(i).norm.transform.forwardBaseName, 'ants*']);
     [~,~,ext] = fileparts(d(1).name);
@@ -123,6 +124,61 @@ function out = remove_last_filesep(filepath)
         filepath = filepath(1:end-1);
     end
     out = filepath;
+end
+
+
+function anat_files = build_warpdrive_anat_files(subj)
+    anat_files = struct;
+
+    if isfield(subj, 'coreg') && isfield(subj.coreg, 'anat') && isfield(subj.coreg.anat, 'preop')
+        preop_modalities = fieldnames(subj.coreg.anat.preop);
+        for j = 1:length(preop_modalities)
+            modality = preop_modalities{j};
+            image_path = subj.coreg.anat.preop.(modality);
+            if isfile(image_path)
+                anat_files.(modality) = image_path;
+            end
+        end
+    end
+
+    if isfield(subj, 'coreg') && isfield(subj.coreg, 'anat') && isfield(subj.coreg.anat, 'postop')
+        postop_modalities = fieldnames(subj.coreg.anat.postop);
+        for j = 1:length(postop_modalities)
+            modality = postop_modalities{j};
+            if strcmp(modality, 'tonemapCT')
+                continue
+            end
+
+            image_path = subj.coreg.anat.postop.(modality);
+            if isfile(image_path)
+                anat_files.(['postop_', modality]) = image_path;
+            end
+        end
+    end
+end
+
+
+function native_reference_file = get_warpdrive_native_reference(subj)
+    native_reference_file = '';
+
+    if isfield(subj, 'coreg') && isfield(subj.coreg, 'anat') && isfield(subj.coreg.anat, 'preop')
+        if isfield(subj, 'AnchorModality') && isfield(subj.coreg.anat.preop, subj.AnchorModality)
+            candidate = subj.coreg.anat.preop.(subj.AnchorModality);
+            if isfile(candidate)
+                native_reference_file = candidate;
+                return
+            end
+        end
+
+        preop_modalities = fieldnames(subj.coreg.anat.preop);
+        for j = 1:length(preop_modalities)
+            candidate = subj.coreg.anat.preop.(preop_modalities{j});
+            if isfile(candidate)
+                native_reference_file = candidate;
+                return
+            end
+        end
+    end
 end
 
 

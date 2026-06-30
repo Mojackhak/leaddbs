@@ -277,8 +277,11 @@ class reducedToolbar(QToolBar, VTKObservationMixin):
         slicerWillExit = True
         if self.inverseAction.checked:
           self.parameterNode.GetNodeReference("OutputGridTransform").Inverse()
+        nativeReferencePath = currentSubject.get("native_reference_file")
+        if not nativeReferencePath:
+          nativeReferencePath = self.parameterNode.GetNodeReference("ImageNode").GetStorageNode().GetFileName()
         LeadDBSCall.applyChanges(self.parameterNode.GetNodeReferenceID("OutputGridTransform"), 
-                                self.parameterNode.GetNodeReference("ImageNode").GetStorageNode().GetFileName(), 
+                                nativeReferencePath,
                                 os.path.join(self.parameterNode.GetParameter("MNIPath"), "t1.nii"),
                                 currentSubject["forward_transform"], 
                                 currentSubject["inverse_transform"], 
@@ -329,8 +332,12 @@ class reducedToolbar(QToolBar, VTKObservationMixin):
       self.modalitiesGroup.addAction(a)
     self.modalitiesMenu.addActions(self.modalitiesGroup.actions())
     if not self.modalitiesGroup.checkedAction():
-      a.setChecked(True)
-      self.parameterNode.SetParameter("modality", a.text)
+      fallbackAction = self.modalitiesGroup.actions()[-1]
+      for action in self.modalitiesGroup.actions():
+        if not action.text.startswith("postop_"):
+          fallbackAction = action
+      fallbackAction.setChecked(True)
+      self.parameterNode.SetParameter("modality", fallbackAction.text)
 
   def modalityChanged(self, action):
     self.updateModalitiesImages(action.text)

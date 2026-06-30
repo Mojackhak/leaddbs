@@ -10,6 +10,12 @@ This panel is used to set up the inputs and outputs for WarpDrive. When launched
 -	Source and target fiducials: the nodes selected here will be populated by the fiducials set during the refinements.
 -	Output displacement field: this selector sets the output transform that will be generated.
 
+## Lead-DBS launch data
+
+When WarpDrive is launched from Lead-DBS, `ea_runwarpdrive.m` passes a `LeadSubjects` JSON array to the module. Each subject entry contains an `anat_files` object whose keys become the entries in the toolbar `Modality` menu. The toolbar reads `currentSubject["anat_files"].keys()` to populate the menu and loads `currentSubject["anat_files"][modality]` when the user switches modality.
+
+Lead-DBS keeps preoperative modality keys unchanged for compatibility, adds postoperative coregistered images with a `postop_` prefix, and only passes image paths that exist on disk. For postoperative CT, the raw coregistered `CT` image is passed as `postop_CT`; tone-mapped CT is not used as the default postoperative CT modality. The subject entry also carries `native_reference_file`, which is the preoperative anchor image used as the native reference when hardening WarpDrive changes, independent of the currently displayed modality.
+
 ## Output
 
 This panel sets parameters used to compute the output displacement field.
