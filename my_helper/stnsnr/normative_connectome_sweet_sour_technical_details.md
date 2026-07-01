@@ -14,6 +14,19 @@ The analysis has two main goals:
 
 This is an internal technical document, not a manuscript Methods section. It records data sources, modeling definitions, execution steps, expected outputs, and interpretation limits.
 
+## Model Summary Documents
+
+The six model-specific summaries are:
+
+| Research question | Model class | Summary document |
+|---|---|---|
+| STN 3m efficacy | Direct voxel-level | [`stn_3m_direct_voxel_model.md`](model_summaries/stn_3m_direct_voxel_model.md) |
+| STN 3m efficacy | Normative connectome seed-target / fiber-derived target-level | [`stn_3m_normative_connectome_seed_target_model.md`](model_summaries/stn_3m_normative_connectome_seed_target_model.md) |
+| STN 3m efficacy | Individualized DWI seed-target / fiber-derived target-level | [`stn_3m_individualized_dwi_seed_target_model.md`](model_summaries/stn_3m_individualized_dwi_seed_target_model.md) |
+| SNr add-on gain | Direct voxel-level | [`snr_gain_direct_voxel_model.md`](model_summaries/snr_gain_direct_voxel_model.md) |
+| SNr add-on gain | Normative connectome seed-target / fiber-derived target-level | [`snr_gain_normative_connectome_seed_target_model.md`](model_summaries/snr_gain_normative_connectome_seed_target_model.md) |
+| SNr add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`snr_gain_individualized_dwi_seed_target_model.md`](model_summaries/snr_gain_individualized_dwi_seed_target_model.md) |
+
 ## Data Sources
 
 ### Programming Data
