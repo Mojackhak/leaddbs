@@ -307,6 +307,379 @@ cohort stimulation union mask
 
 The mask should include voxels exposed in at least a prespecified minimum number of subjects. Low-coverage voxels must be reported and should not receive strong anatomical interpretation.
 
+### Target-Derived Seed Voxel Visualization
+
+The primary voxel-level visualization is a target-derived seed voxel map. It back-projects learned target weights into the seed nucleus using streamline density from each seed voxel to each same-side target.
+
+This is a visualization and overlap-scoring layer for the target-level model, not a separate voxel-wise discovery model.
+
+For each side `h` in `{L,R}`:
+
+```text
+Omega_h = same-side seed mask, STN for STN models and SNr for SNr gain models
+P_k,h   = same-side target k
+G_h,k   = streamlines connecting the seed side to target P_k,h
+```
+
+For STN-only efficacy models:
+
+```text
+w_k = w_STN,k
+S   = S_STN
+Omega_h = same-side STN mask
+```
+
+For SNr gain models:
+
+```text
+w_k = w_SNr,k
+S   = S_SNr
+Omega_h = same-side SNr mask
+```
+
+No left-right flip is performed. Left seed voxels use left targets, right seed voxels use right targets, and both sides share the same target weights `w_k`.
+
+For each voxel `v` in `Omega_h`, compute target-specific streamline density:
+
+```text
+D_h,k(v) = sum_{j in G_h,k} a_v,j,h
+```
+
+Main contribution:
+
+```text
+a_v,j,h = 1 if streamline j passes through voxel v, otherwise 0
+```
+
+Display sensitivities:
+
+```text
+length-weighted:   a_v,j,h = length(streamline j inside voxel v)
+distance-weighted: a_v,j,h = exp(-d(v, streamline j)^2 / (2 * sigma^2))
+```
+
+Use binary or length-weighted density as the main display. Distance-weighted density is exploratory only.
+
+Normalize each target density so targets with more streamlines do not dominate only because of tractography density:
+
+```text
+Dnorm_h,k(v) = D_h,k(v) / (sum_{u in Omega_h} D_h,k(u) + lambda)
+```
+
+Given selected target set `S` and candidate target set `K`, compute:
+
+```text
+Coverage_h(v) = sum_{m in K} Dnorm_h,m(v)
+
+Sweet_h(v) =
+  sum_{k in S} max(w_k, 0) * Dnorm_h,k(v) / (Coverage_h(v) + lambda)
+
+Sour_h(v) =
+  sum_{k in S} max(-w_k, 0) * Dnorm_h,k(v) / (Coverage_h(v) + lambda)
+
+Net_h(v) = Sweet_h(v) - Sour_h(v)
+```
+
+The net map is the main target-derived voxel-wise sweet/sour map. It answers whether a seed voxel's target connectivity profile is biased toward beneficial or detrimental targets learned by the target-level model.
+
+For individualized DWI, compute patient-specific maps in native DWI or anchor-native space, transform them to template space, and generate a coverage-weighted group map:
+
+```text
+M_ind_group_h(v) =
+  sum_i Coverage_ind_i,h(v) * M_ind_i,h(v)
+  / (sum_i Coverage_ind_i,h(v) + lambda)
+```
+
+Recommended figure hierarchy:
+
+1. Main figure: normative anatomical target-derived seed voxel map, because coverage is smoother and complete.
+2. Supplementary or consistency figure: individualized-DWI coverage-weighted group map.
+3. Required sidecar: coverage map for every displayed sweet/sour/net map.
+
+Display rules:
+
+```text
+net map: diverging color scale centered at zero
+positive: warm color, sweet-biased connectivity profile
+negative: cool color, sour-biased connectivity profile
+low coverage: transparent or gray
+left/right: displayed separately without flipping
+```
+
+Recommended coverage thresholds:
+
+```text
+Coverage_h(v) above the 20th percentile
+```
+
+or:
+
+```text
+Coverage_h(v) >= 5 streamlines
+```
+
+For individualized DWI group maps, require voxel coverage in at least `4` or `5` patients before strong interpretation.
+
+If voxel maps are converted to patient-level overlap scores for prediction, the voxel maps must be generated inside each training fold:
+
+```text
+VoxelScore_i =
+  sum_h sum_{v in Omega_h} E_i,h(v) * Net_h(v)
+  / (sum_h sum_{v in Omega_h} E_i,h(v) * Coverage_h(v) + lambda)
+```
+
+LOOCV workflow:
+
+1. Learn `w_k` and selected target set `S` from training patients only.
+2. Generate fold-specific `Net_h^{(-t)}(v)`.
+3. Compute the held-out patient's voxel overlap score using the fold-specific map.
+4. Predict the held-out outcome.
+
+Fold-specific maps should be summarized with:
+
+```text
+MeanMap_h(v) = mean_t Net_h^{(-t)}(v)
+Stability_h(v) = number of folds with Net_h^{(-t)}(v) > 0 / number of folds
+```
+
+Interpretation boundary:
+
+```text
+The map is a connectivity-derived candidate sweet/sour seed-zone visualization.
+It is not direct voxel-wise causal evidence.
+```
+
+### Direct Voxel-Level Sweet Spot Mapping
+
+Direct voxel-level sweet spot mapping is a secondary local stimulation analysis. It directly relates voxel-level E-field exposure inside STN or SNr to clinical outcome. It is separate from target-derived voxel visualization.
+
+Model purpose:
+
+```text
+STN direct voxel model:
+  identify STN voxels where STN-only exposure predicts better STN-only outcome
+
+SNr direct voxel model:
+  identify SNr voxels where SNr-component exposure predicts better STN+SNr outcome
+```
+
+#### Direct STN Voxel Model
+
+For each canonical homologous STN voxel `v`:
+
+```text
+Y_STN3m_i = alpha_v
+          + theta_STN(v) * X_STN3m_i(v)
+          + beta_v       * Y_Preop_i
+          + error_i,v
+```
+
+For lower-is-better scales:
+
+```text
+M_STN(v) = -theta_STN(v)
+```
+
+For SE-ADL:
+
+```text
+M_STN(v) = theta_STN(v)
+```
+
+#### Direct SNr Voxel Model
+
+For each canonical homologous SNr voxel `v`:
+
+```text
+Y_AB_post_i = alpha_v
+            + theta_SNr(v) * X_SNr_i(v)
+            + beta_v       * Y_STN3m_i
+            + gamma_v      * DeltaSTNScore_i
+            + error_i,v
+```
+
+For lower-is-better scales:
+
+```text
+M_SNr(v) = -theta_SNr(v)
+```
+
+For SE-ADL:
+
+```text
+M_SNr(v) = theta_SNr(v)
+```
+
+Positive values in `M_STN` or `M_SNr` indicate voxels where stronger exposure predicts better adjusted outcome.
+
+#### Homologous Voxel Definition
+
+Direct voxel models require a shared bilateral voxel coordinate system. The main analysis uses a right canonical seed grid and inverse sampling of the left side.
+
+For each right canonical voxel center:
+
+```text
+c_R(v)
+```
+
+define the homologous left continuous coordinate:
+
+```text
+c_L(v) = phi_inverse_L_to_R(c_R(v))
+```
+
+Do not require transformed left voxel centers to coincide with right voxel centers. Homology is continuous-space correspondence, not discrete voxel-index matching.
+
+For E-field maps, use trilinear interpolation:
+
+```text
+E_L_to_R_i(v) = interp_linear(E_L_i, c_L(v))
+```
+
+The bilateral exposure entering the voxel model is:
+
+```text
+X_i(v) = (E_R_i(c_R(v)) + E_L_to_R_i(v)) / 2
+```
+
+This yields one exposure value per patient per voxel, so the model remains patient-level (`n = 16`) and does not treat hemispheres as independent observations.
+
+Paired mask:
+
+```text
+P_left_to_R(v) = interp_linear(1_left_seed_mask, c_L(v))
+Omega_pair = {v in Omega_R: P_left_to_R(v) > 0.5}
+```
+
+Sensitivity:
+
+```text
+P_left_to_R(v) > 0.7
+```
+
+#### Coverage Mask
+
+Use E-field coverage filtering before voxel-wise fitting:
+
+```text
+Coverage(v) = sum_i 1[X_i(v) > tau]
+```
+
+Main threshold:
+
+```text
+tau = 0.2 V/mm
+```
+
+Sensitivity thresholds:
+
+```text
+tau = 0.18, 0.20, 0.22 V/mm
+```
+
+Preferred coverage rule:
+
+```text
+Coverage(v) >= 8
+```
+
+Exploratory relaxed rules for small masks:
+
+```text
+Coverage(v) >= 5 or 6
+```
+
+Coverage masks must be recomputed inside each training fold in cross-validation.
+
+#### Estimation And Prediction
+
+Use residualized ANCOVA or adjusted partial Spearman.
+
+Residualized ANCOVA:
+
+```text
+Y_post ~ covariates
+X(v)   ~ covariates
+theta(v) = coefficient linking residualized X(v) to residualized Y_post
+```
+
+Adjusted partial Spearman:
+
+```text
+rank-transform Y_post, X(v), and covariates
+residualize ranked Y_post and ranked X(v) against ranked covariates
+correlate residuals
+```
+
+Patient-level direct voxel overlap score:
+
+```text
+SweetSpotScore_i =
+  sum_{v in Omega_pair} X_i(v) * M(v)
+  / (sum_{v in Omega_pair} X_i(v) + lambda)
+```
+
+Final prediction model:
+
+```text
+Y_post_i = alpha
+         + delta * SweetSpotScore_i
+         + covariates
+         + error_i
+```
+
+Use fully nested leave-one-patient-out cross-validation:
+
+1. define coverage mask in training patients only;
+2. fit voxel map in training patients only;
+3. compute training and held-out sweet spot scores from the training-fold map;
+4. fit the training-fold prediction model;
+5. predict the held-out patient.
+
+Use patient-level Freedman-Lane permutation to test whether the direct voxel score improves prediction beyond covariates.
+
+#### Direct Voxel Output Files
+
+For each seed and endpoint, export:
+
+```text
+direct_voxel_<seed>_coverage.nii.gz
+direct_voxel_<seed>_coef.nii.gz
+direct_voxel_<seed>_sweet_sour.nii.gz
+direct_voxel_<seed>_stability.nii.gz
+direct_voxel_<seed>_bootstrap_se.nii.gz
+direct_voxel_<seed>_paired_mask.nii.gz
+direct_voxel_<seed>_sweetspot_scores.csv
+direct_voxel_<seed>_loocv_predictions.csv
+direct_voxel_<seed>_permutation_summary.csv
+direct_voxel_<seed>_homologous_mapping_qc.json
+```
+
+Use light display smoothing only:
+
+```text
+FWHM = 1-2 mm
+```
+
+Report unsmoothed and smoothed sensitivity maps.
+
+#### Homologous Mapping QC
+
+Required QC:
+
+- Dice overlap between right seed mask and left seed mask warped to right canonical grid.
+- Size of right seed mask, warped-left seed mask, and paired mask.
+- Inverse-consistency error when forward and inverse transforms are available.
+- Jacobian positivity check; widespread `Jacobian <= 0` invalidates the homology mapping.
+- Visual overlays of right seed mask, warped-left seed mask, paired mask, warped-left E-field, right E-field, and averaged bilateral exposure.
+
+Interpretation boundary:
+
+```text
+Direct voxel maps are local stimulation association maps.
+They are not target-level network mechanism maps and not definitive causal maps.
+```
+
 ## Clinical Endpoint Direction
 
 All model scores must be oriented so that positive benefit scores mean better predicted clinical outcome.
@@ -377,6 +750,77 @@ Interpretation:
 STNBenefitScore_k > 0 = stronger STN target connectivity predicts better baseline-adjusted STN 3-month outcome
 STNBenefitScore_k < 0 = stronger STN target connectivity predicts worse baseline-adjusted STN 3-month outcome
 ```
+
+### STN Target Score And STN Seed Voxel Map
+
+The primary STN connectivity predictor is a target-level score, not a top-fiber score.
+
+For each STN target `k`, define:
+
+```text
+w_STN,k = benefit-oriented STN target weight
+```
+
+For lower-is-better scales:
+
+```text
+w_STN,k = -alpha_STN,k
+```
+
+For SE-ADL:
+
+```text
+w_STN,k = alpha_STN,k
+```
+
+Select STN sweet and sour targets inside the training fold:
+
+```text
+S_STN = selected STN target set
+```
+
+Build the patient-level STN target score:
+
+```text
+STNTargetScore_i =
+  sum_{k in S_STN} w_STN,k * Z(C_STN3m_bilat(i,k))
+  / sum_{k in S_STN} abs(w_STN,k)
+```
+
+For STN voxel-level visualization, back-project `w_STN,k` into the STN seed nucleus using target-specific streamline density:
+
+```text
+Omega_h = same-side STN mask
+G_h,k   = streamlines connecting same-side STN to target P_k,h
+```
+
+The same target-derived seed voxel formulas are used:
+
+```text
+Coverage_h(v)
+Sweet_h(v)
+Sour_h(v)
+Net_h(v)
+Stability_h(v)
+```
+
+Required STN output files:
+
+```text
+STN_lh_coverage.nii.gz
+STN_lh_sweet.nii.gz
+STN_lh_sour.nii.gz
+STN_lh_net.nii.gz
+STN_lh_stability.nii.gz
+
+STN_rh_coverage.nii.gz
+STN_rh_sweet.nii.gz
+STN_rh_sour.nii.gz
+STN_rh_net.nii.gz
+STN_rh_stability.nii.gz
+```
+
+These maps show which STN voxels have connectivity profiles biased toward beneficial or detrimental STN targets. They are target-derived visualization maps and should not be interpreted as direct voxel-wise causal efficacy estimates.
 
 ### Secondary STN Immediate Response Model
 
@@ -589,7 +1033,59 @@ coverage map
 bootstrap stability map
 ```
 
+For target-derived seed voxel visualization, export side-specific NIfTI files:
+
+```text
+<seed>_lh_coverage.nii.gz
+<seed>_lh_sweet.nii.gz
+<seed>_lh_sour.nii.gz
+<seed>_lh_net.nii.gz
+<seed>_lh_stability.nii.gz
+
+<seed>_rh_coverage.nii.gz
+<seed>_rh_sweet.nii.gz
+<seed>_rh_sour.nii.gz
+<seed>_rh_net.nii.gz
+<seed>_rh_stability.nii.gz
+```
+
+where `<seed>` is `STN` for STN models and `SNr` for SNr gain models.
+
+Thus the required target-derived voxel outputs include both STN efficacy maps and SNr gain maps when the corresponding model is run:
+
+```text
+STN_lh_net.nii.gz
+STN_rh_net.nii.gz
+SNr_lh_net.nii.gz
+SNr_rh_net.nii.gz
+```
+
+Also export:
+
+```text
+target_density_by_seed_voxel.mat
+target_density_manifest.csv
+voxel_map_display_thresholds.json
+voxel_overlap_scores.csv
+loocv_fold_voxel_scores.csv
+```
+
 Voxel maps are secondary localization outputs. They should be interpreted with connected-region STN/SNr outlines and target-atlas overlays, but the primary target-level model itself is not cropped to those ROIs.
+
+For direct voxel-level sweet spot models, export:
+
+```text
+direct_voxel_<seed>_coverage.nii.gz
+direct_voxel_<seed>_coef.nii.gz
+direct_voxel_<seed>_sweet_sour.nii.gz
+direct_voxel_<seed>_stability.nii.gz
+direct_voxel_<seed>_bootstrap_se.nii.gz
+direct_voxel_<seed>_paired_mask.nii.gz
+direct_voxel_<seed>_sweetspot_scores.csv
+direct_voxel_<seed>_loocv_predictions.csv
+direct_voxel_<seed>_permutation_summary.csv
+direct_voxel_<seed>_homologous_mapping_qc.json
+```
 
 ## Execution Plan
 
@@ -635,7 +1131,9 @@ Voxel maps are secondary localization outputs. They should be interpreted with c
 2. Apply minimum coverage rules.
 3. Extract subject-by-voxel exposure matrices in chunks when needed.
 4. Extract selected-target streamline exposure summaries for contribution and visualization.
-5. Save coverage and exposure prevalence maps.
+5. Compute target-derived seed voxel density, normalized density, coverage, sweet, sour, net, and stability maps for STN efficacy models and SNr gain models.
+6. Compute direct voxel-level STN and SNr sweet spot models using bilateral homologous voxel exposure, nested LOOCV, and patient-level permutation.
+7. Save coverage and exposure prevalence maps.
 
 ### Stage 6: Model Fitting
 
@@ -680,6 +1178,12 @@ target score tables
 secondary streamline contribution tables
 secondary voxel maps
 selected-target fiber lists
+target-derived seed voxel NIfTI maps
+voxel overlap score tables
+direct voxel sweet spot maps
+direct voxel LOOCV prediction tables
+direct voxel permutation summaries
+homologous voxel mapping QC
 atlas endpoint summaries
 coverage summaries
 cross-connectome consistency summaries
@@ -700,6 +1204,15 @@ Recommended subdirectories:
 provenance/
 qc/
 target_connectivity/
+voxel_maps/target_derived/stn/
+voxel_maps/target_derived/snr/
+voxel_maps/loocv/stn/
+voxel_maps/loocv/snr/
+voxel_maps/dwi_group/stn/
+voxel_maps/dwi_group/snr/
+direct_voxel/stn/
+direct_voxel/snr/
+direct_voxel/qc/
 exposure/
 exposure/interleaving/
 models/stn/chronic/
@@ -770,6 +1283,8 @@ The cohort currently has `n = 16`. High-dimensional interaction models should no
 
 Low-coverage targets, voxels, or streamlines can produce unstable coefficients. Every model must export target coverage summaries and, for secondary maps, coverage maps.
 
+Direct voxel-level sweet spot maps are especially sensitive to small sample size, coverage imbalance, and homologous voxel mapping quality. They should be interpreted as local stimulation association maps and should not replace the target-level seed-target model for primary network interpretation.
+
 ### Normative Connectome Limits
 
 Normative connectomes support group-level structural interpretation. They do not represent each subject's individual DWI anatomy. The normative-guided individualized DWI model tests whether the normative target pattern is expressed in each patient's own DWI tractography, but it remains limited by DWI reconstruction quality and coverage.
@@ -796,6 +1311,18 @@ primary predictor selection is target-level, not top correlated single fibers
 left and right connectivity are computed separately and averaged to one patient-level bilateral target feature
 primary model tables have one row per patient, not one row per hemisphere
 target-level DWI coverage is checked before individualized-DWI or normative-guided-DWI interpretation
+target-derived voxel maps are generated by target-weight back-projection, not by top voxel-wise correlation
+STN target-derived voxel maps are generated from STN target weights and STN seed masks
+SNr target-derived voxel maps are generated from SNr target weights and SNr seed masks
+left and right target-derived voxel maps are generated separately without flipping
+coverage, sweet, sour, net, and stability maps are exported for every reported seed voxel visualization
+low-coverage seed voxels are transparent or gray in visualization
+voxel overlap scores used for prediction are generated from training-fold maps only
+direct voxel-level sweet spot mapping is secondary/exploratory and does not replace target-level primary inference
+direct voxel models use bilateral homologous voxel exposure and keep one row per patient
+nonlinear homologous voxel mapping uses inverse sampling into a right canonical grid and trilinear interpolation for E-field values
+direct voxel coverage masks are defined inside each training fold during LOOCV
+direct voxel models are compared against covariate-only models with patient-level permutation tests
 PPMI smoke test completes before MGH or dTOR
 STN chronic, SNr chronic gain, and SNr immediate gain outputs are created
 low-coverage targets, voxels, and streamlines are flagged
