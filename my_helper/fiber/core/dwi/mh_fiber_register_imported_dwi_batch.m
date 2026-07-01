@@ -9,6 +9,7 @@ p.addParameter('ImportLog', fullfile('/Volumes/VAL/STNSNr', 'derivatives', 'lead
 p.addParameter('SubjectIds', {}, @(x) iscell(x) || isstring(x) || ischar(x));
 p.addParameter('AnchorModality', 'T2w', @(x) ischar(x) || isstring(x));
 p.addParameter('CoregistrationTag', 'dwi_t2', @(x) ischar(x) || isstring(x));
+p.addParameter('CoregistrationMethod', 'ANTs', @(x) ischar(x) || isstring(x));
 p.addParameter('AllowT1Fallback', false, @(x) islogical(x) || isnumeric(x));
 p.addParameter('RunCoregistration', true, @(x) islogical(x) || isnumeric(x));
 p.addParameter('GenerateOptionalDwiQc', true, @(x) islogical(x) || isnumeric(x));
@@ -21,6 +22,7 @@ opts.RepoDir = char(string(opts.RepoDir));
 opts.ImportLog = char(string(opts.ImportLog));
 opts.AnchorModality = normalize_anchor_modality(opts.AnchorModality);
 opts.CoregistrationTag = char(string(opts.CoregistrationTag));
+opts.CoregistrationMethod = normalize_coregistration_method(opts.CoregistrationMethod);
 opts.AllowT1Fallback = logical(opts.AllowT1Fallback);
 opts.RunCoregistration = logical(opts.RunCoregistration);
 opts.GenerateOptionalDwiQc = logical(opts.GenerateOptionalDwiQc);
@@ -67,7 +69,7 @@ result.statusCsv = statusCsv;
 result.subjects = subjects;
 
 fprintf('\nDWI registration batch summary written to:\n%s\n', statusCsv);
-disp(summary(:, {'subject', 'status', 'message', 'anchor_modality', 'low_resolution_warning'}));
+disp(summary(:, {'subject', 'status', 'message', 'anchor_modality', 'coregistration_method', 'low_resolution_warning'}));
 
 end
 
@@ -84,6 +86,7 @@ try
     row.b0 = paths.b0;
     row.qc_dir = paths.qcDir;
     row.anchor_modality = opts.AnchorModality;
+    row.coregistration_method = opts.CoregistrationMethod;
     row.anchor_anat = resolve_anchor_anat(paths.subjectDir, opts.AnchorModality, opts.AllowT1Fallback);
     row.normalization_forward = resolve_anchor_to_mni_transform(paths.subjectDir, paths.patientName);
 
@@ -111,7 +114,8 @@ try
 
     if opts.RunCoregistration
         [row.dwi_to_anchor_transform, row.anchor_to_dwi_transform, row.b0_on_anchor, row.anchor_on_b0, paths.faOnAnchor] = ...
-            ensure_b0_anchor_coregistration(paths, row.anchor_anat, opts.AnchorModality, opts.Force);
+            ensure_b0_anchor_coregistration(paths, row.anchor_anat, opts.AnchorModality, ...
+            opts.CoregistrationMethod, opts.Force);
         row.forward_transform_exists = isfile(row.dwi_to_anchor_transform);
         row.inverse_transform_exists = isfile(row.anchor_to_dwi_transform);
         write_qc_overlays(paths, row.anchor_anat, row.b0_on_anchor, row.anchor_on_b0, ...
@@ -167,6 +171,7 @@ paths.rawBval = fullfile(rawDwiDir, [rawBase, '.bval']);
 paths.rawBvec = fullfile(rawDwiDir, [rawBase, '.bvec']);
 paths.dwiDir = dwiDir;
 paths.coregDir = coregDir;
+paths.coregTag = opts.CoregistrationTag;
 paths.qcDir = qcDir;
 paths.dwi = fullfile(dwiDir, [rawBase, '.nii']);
 paths.json = fullfile(dwiDir, [rawBase, '.json']);
@@ -341,8 +346,52 @@ if command_exists('dwi2tensor') && command_exists('tensor2metric')
 end
 end
 
-function [dwiToAnchor, anchorToDwi, b0OnAnchor, anchorOnB0, faOnAnchor] = ensure_b0_anchor_coregistration(paths, anchorAnat, anchorModality, force)
+function [dwiToAnchor, anchorToDwi, b0OnAnchor, anchorOnB0, faOnAnchor] = ensure_b0_anchor_coregistration(paths, anchorAnat, anchorModality, coregMethod, force)
 ensure_dir(paths.coregDir);
+
+if use_legacy_ants_outputs(paths, coregMethod)
+    [dwiToAnchor, anchorToDwi, b0OnAnchor, anchorOnB0, faOnAnchor] = ...
+        ensure_legacy_ants_coregistration(paths, anchorAnat, anchorModality, force);
+    return;
+end
+
+outputs = ui_style_coreg_outputs(paths, anchorModality, coregMethod);
+ensure_dir(outputs.workDir);
+move_branch_root_intermediates_to_work(paths, outputs.workDir);
+
+if force || ~isfile(outputs.dwiToAnchor) || ~isfile(outputs.anchorToDwi) || ...
+        ~isfile(outputs.b0OnAnchor) || ~isfile(outputs.anchorOnB0)
+    switch coregMethod
+        case 'SPM'
+            run_spm_coregistration_branch(paths, anchorAnat, outputs);
+        case 'Hybrid SPM & ANTs'
+            run_hybrid_spm_ants_coregistration_branch(paths, anchorAnat, outputs, anchorModality);
+        otherwise
+            error('Unsupported UI-style DWI coregistration method: %s', coregMethod);
+    end
+end
+
+dwiToAnchor = outputs.dwiToAnchor;
+anchorToDwi = outputs.anchorToDwi;
+b0OnAnchor = outputs.b0OnAnchor;
+anchorOnB0 = outputs.anchorOnB0;
+faOnAnchor = outputs.faOnAnchor;
+
+if ~isfile(dwiToAnchor)
+    error('Missing b0-to-anchorNative %s %s transform after registration.', anchorModality, coregMethod);
+end
+if ~isfile(anchorToDwi)
+    error('Missing anchorNative %s-to-b0 %s transform after registration.', anchorModality, coregMethod);
+end
+if ~isfile(b0OnAnchor)
+    error('Missing b0-on-anchorNative %s image after registration.', anchorModality);
+end
+if ~isfile(anchorOnB0)
+    error('Missing anchorNative %s-on-b0 image after registration.', anchorModality);
+end
+end
+
+function [dwiToAnchor, anchorToDwi, b0OnAnchor, anchorOnB0, faOnAnchor] = ensure_legacy_ants_coregistration(paths, anchorAnat, anchorModality, force)
 [~, b0Name] = ea_niifileparts(paths.b0);
 [~, anchorName] = ea_niifileparts(anchorAnat);
 
@@ -383,6 +432,115 @@ if isfile(paths.fa)
         ea_ants_apply_transforms([], paths.fa, faOnAnchor, 0, anchorAnat, dwiToAnchor, 'Linear');
     end
 end
+end
+
+function tf = use_legacy_ants_outputs(paths, coregMethod)
+tf = strcmp(coregMethod, 'ANTs') && strcmp(paths.coregTag, 'dwi_t2');
+end
+
+function outputs = ui_style_coreg_outputs(paths, anchorModality, coregMethod)
+anchorLabel = anchor_label(anchorModality);
+suffix = coregistration_transform_suffix(coregMethod);
+outputs = struct();
+outputs.dwiToAnchor = fullfile(paths.coregDir, ...
+    sprintf('%s_from-b0_to-anchorNative_desc-%s.mat', paths.patientName, suffix));
+outputs.anchorToDwi = fullfile(paths.coregDir, ...
+    sprintf('%s_from-anchorNative_to-b0_desc-%s.mat', paths.patientName, suffix));
+outputs.b0OnAnchor = fullfile(paths.coregDir, ...
+    sprintf('%s_b0_on_%s.nii', paths.patientName, anchorLabel));
+outputs.anchorOnB0 = fullfile(paths.coregDir, ...
+    sprintf('%s_%s_on_b0.nii', paths.patientName, anchorLabel));
+outputs.faOnAnchor = fullfile(paths.coregDir, ...
+    sprintf('%s_fa_on_%s.nii', paths.patientName, anchorLabel));
+outputs.workDir = fullfile(paths.coregDir, 'work');
+outputs.spmInitDwiToAnchor = fullfile(paths.coregDir, ...
+    sprintf('%s_from-b0_to-anchorNative_desc-spm-init.mat', paths.patientName));
+outputs.spmInitAnchorToDwi = fullfile(paths.coregDir, ...
+    sprintf('%s_from-anchorNative_to-b0_desc-spm-init.mat', paths.patientName));
+end
+
+function run_spm_coregistration_branch(paths, anchorAnat, outputs)
+ensure_dir(outputs.workDir);
+workB0 = fullfile(outputs.workDir, [paths.patientName, '_work_b0_spm.nii']);
+copyfile(paths.b0, workB0, 'f');
+
+options = struct();
+options.coregmr.method = 'SPM';
+options.coregb0.addSyN = 0;
+affineFiles = ea_coregimages(options, workB0, anchorAnat, outputs.b0OnAnchor, {}, 1, [], 1);
+copy_transform_file(affineFiles{1}, outputs.dwiToAnchor);
+copy_transform_file(affineFiles{2}, outputs.anchorToDwi);
+
+ea_apply_coregistration(paths.b0, anchorAnat, outputs.anchorOnB0, outputs.anchorToDwi, 'linear');
+if isfile(paths.fa)
+    ea_apply_coregistration(anchorAnat, paths.fa, outputs.faOnAnchor, outputs.dwiToAnchor, 'linear');
+end
+end
+
+function run_hybrid_spm_ants_coregistration_branch(paths, anchorAnat, outputs, anchorModality)
+ensure_dir(outputs.workDir);
+anchorLabel = anchor_label(anchorModality);
+spmInitB0 = fullfile(outputs.workDir, [paths.patientName, '_b0_spm_init.nii']);
+copyfile(paths.b0, spmInitB0, 'f');
+
+spmInitFiles = ea_spm_coreg(struct(), spmInitB0, anchorAnat, 'nmi', 0, {}, 1, 1);
+copy_transform_file(spmInitFiles{1}, outputs.spmInitDwiToAnchor);
+copy_transform_file(spmInitFiles{2}, outputs.spmInitAnchorToDwi);
+
+options = struct();
+options.coregmr.method = 'ANTs';
+options.coregb0.addSyN = 0;
+antsB0OnAnchor = fullfile(outputs.workDir, ...
+    sprintf('%s_b0_on_%s_antswork.nii', paths.patientName, anchorLabel));
+antsFiles = ea_coregimages(options, spmInitB0, anchorAnat, antsB0OnAnchor, {}, 1, [], 1);
+copy_transform_file(antsFiles{1}, outputs.dwiToAnchor);
+copy_transform_file(antsFiles{2}, outputs.anchorToDwi);
+copyfile(antsB0OnAnchor, outputs.b0OnAnchor, 'f');
+
+anchorOnSpmInit = fullfile(outputs.workDir, ...
+    sprintf('%s_%s_on_spmInitB0.nii', paths.patientName, anchorLabel));
+ea_apply_coregistration(spmInitB0, anchorAnat, anchorOnSpmInit, outputs.anchorToDwi, 'linear');
+ea_spm_apply_coregistration(paths.b0, anchorOnSpmInit, outputs.anchorOnB0, ...
+    outputs.spmInitAnchorToDwi, 1);
+
+if isfile(paths.fa)
+    faOnSpmInit = fullfile(outputs.workDir, ...
+        sprintf('%s_fa_on_spmInitB0.nii', paths.patientName));
+    ea_spm_apply_coregistration(spmInitB0, paths.fa, faOnSpmInit, ...
+        outputs.spmInitDwiToAnchor, 1);
+    ea_apply_coregistration(anchorAnat, faOnSpmInit, outputs.faOnAnchor, ...
+        outputs.dwiToAnchor, 'linear');
+end
+end
+
+function move_branch_root_intermediates_to_work(paths, workDir)
+patterns = { ...
+    [paths.patientName, '_work_b0_spm*'], ...
+    [paths.patientName, '_b0_spm_init*'], ...
+    [paths.patientName, '_b0_on_anchor*_antswork*'], ...
+    [paths.patientName, '_anchor*_on_spmInitB0*'], ...
+    [paths.patientName, '_fa_on_spmInitB0*'], ...
+    [paths.patientName, '_ses-preop_space-anchorNative*2', paths.patientName, '_work_b0_spm*'], ...
+    [paths.patientName, '_ses-preop_space-anchorNative*2', paths.patientName, '_b0_spm_init*']};
+for i = 1:numel(patterns)
+    d = dir(fullfile(paths.coregDir, patterns{i}));
+    d = d(~startsWith({d.name}, '._'));
+    for j = 1:numel(d)
+        source = fullfile(d(j).folder, d(j).name);
+        target = fullfile(workDir, d(j).name);
+        if ~strcmp(source, target)
+            movefile(source, target, 'f');
+        end
+    end
+end
+end
+
+function copy_transform_file(source, target)
+if isempty(source) || ~isfile(source)
+    error('Transform source file does not exist: %s', source);
+end
+ensure_dir(fileparts(target));
+copyfile(source, target, 'f');
 end
 
 function write_qc_overlays(paths, anchorAnat, b0OnAnchor, anchorOnB0, faOnAnchor, anchorModality)
@@ -500,6 +658,31 @@ switch lower(anchorModality)
 end
 end
 
+function coregMethod = normalize_coregistration_method(coregMethod)
+coregMethod = char(string(coregMethod));
+switch lower(strtrim(coregMethod))
+    case {'ants', 'ants (avants 2008)'}
+        coregMethod = 'ANTs';
+    case {'spm', 'spm (friston 2007)'}
+        coregMethod = 'SPM';
+    case {'hybrid spm & ants', 'hybridspmants', 'hybrid spm and ants'}
+        coregMethod = 'Hybrid SPM & ANTs';
+    otherwise
+        error('Unsupported CoregistrationMethod: %s. Use ANTs, SPM, or Hybrid SPM & ANTs.', coregMethod);
+end
+end
+
+function suffix = coregistration_transform_suffix(coregMethod)
+switch coregMethod
+    case 'SPM'
+        suffix = 'spm';
+    case {'ANTs', 'Hybrid SPM & ANTs'}
+        suffix = 'ants';
+    otherwise
+        error('Unsupported CoregistrationMethod for transform suffix: %s', coregMethod);
+end
+end
+
 function patterns = anchor_patterns(anchorModality)
 patterns = { ...
     ['*space-anchorNative_desc-preproc*acq-iso*', anchorModality, '.nii'], ...
@@ -605,6 +788,7 @@ row.raw_dwi = '';
 row.staged_dwi = '';
 row.b0 = '';
 row.anchor_modality = '';
+row.coregistration_method = '';
 row.anchor_anat = '';
 row.normalization_forward = '';
 row.dwi_to_anchor_transform = '';

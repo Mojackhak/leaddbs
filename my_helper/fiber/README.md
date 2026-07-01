@@ -12,7 +12,8 @@ The public entry points are:
 - `stnsnr/run_stnsnr_build_active_contact_dataset.py`: build the 16-subject active-contact coordinate dataset.
 - `stnsnr/run_stnsnr_generate_random_stimulation_table.py`: generate a reproducible random test stimulation table for the active contacts.
 - `stnsnr/run_stnsnr_compare_roi_definitions.m`: compare HybraPD STN/SNr labels with the `Custom_Ewert_Zhang_Middlebrooks0.05` atlas.
-- `stnsnr/run_stnsnr_dwi_registration.m`: stage the imported STN/SNr cohort DWI files and register each b0 image to the existing Lead-DBS anchorNative T1.
+- `stnsnr/run_stnsnr_dwi_registration.m`: stage the imported STN/SNr cohort DWI files and register each b0 image to the existing Lead-DBS anchorNative T2.
+- `stnsnr/run_stnsnr_dwi_registration_method_pilot.m`: run the three-subject SPM and Hybrid SPM+ANTs b0-to-anchorNative T2 registration pilot.
 
 ## Folder Layout
 
@@ -23,7 +24,7 @@ my_helper/fiber/
   README.md
   core/
     config/         configuration, validation, output folders, VTA paths
-    dwi/            DWI staging, b0 extraction, b0-to-T1 registration, QC
+    dwi/            DWI staging, b0 extraction, b0-to-anchor registration, QC
     io/             FTR/TCK/VTK readers, writers, and reports
     roi/            atlas ROI definitions and mask generation
     connectomes/    public-connectome helper functions
@@ -149,7 +150,7 @@ The STN/SNr DWI registration batch is documented in:
 /Users/mojackhu/Github/leaddbs/my_helper/stnsnr/dwi_registration_technical_details.md
 ```
 
-The batch entry point is:
+The 12-subject ANTs T2 baseline entry point is:
 
 ```bash
 matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_registration.m')"
@@ -164,6 +165,24 @@ coregistration/dwi_t2/sub-<Subject>_ses-preop_dwi_b02<anchorT2base>_ants1.mat
 ```
 
 The script is resumable and reuses existing outputs unless `Force` is enabled. It uses ANTs linear b0-to-anchorNative T2 registration and does not call workflows that independently recenter only the b0 header. Existing direct b0-to-T1 outputs under `coregistration/dwi/` are retained for comparison, but the primary STN/SNr registration outputs are written under `coregistration/dwi_t2/`.
+
+The three-subject method pilot compares SPM and Hybrid SPM+ANTs against the existing ANTs T2 results for `ChenMeiJu`, `ZhangXiaoHong`, and `ZhangMing`:
+
+```bash
+matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_registration_method_pilot.m')"
+```
+
+The pilot writes branch-specific outputs and does not promote any transform into `coregistration/transformations/`:
+
+```text
+coregistration/dwi_t2_spm/sub-<Subject>_from-b0_to-anchorNative_desc-spm.mat
+coregistration/dwi_t2_spm/sub-<Subject>_from-anchorNative_to-b0_desc-spm.mat
+coregistration/dwi_t2_hybrid_spm_ants/sub-<Subject>_from-b0_to-anchorNative_desc-ants.mat
+coregistration/dwi_t2_hybrid_spm_ants/sub-<Subject>_from-anchorNative_to-b0_desc-ants.mat
+```
+
+For the Hybrid branch, the `desc-ants` files are the ANTs refinement after a saved `desc-spm-init` initialization; they are not standalone complete transforms for promotion.
+Legacy SPM/ANTs intermediate filenames are confined to each branch `work/` subfolder.
 
 The helper intentionally does not call `ea_perform_lc` for the normalization step. `ea_perform_lc` refreshes `ea_getptopts` before `ea_normalize_fibers`, which can reset `prefs.prenii_unnormalized` to the default preprocessing T1 and make `ea_normalize_fibers` pick a newly generated `_ants2.mat` tracking-mask transform. That chain can place normalized fibers too inferiorly in MNI space.
 
