@@ -4,14 +4,17 @@ Date: 2026-07-01
 
 ## Purpose
 
-This document is the authoritative registry for target ROI and atlas selection in STN/SNr seed-target fiber tracking. It fixes the primary atlas, sensitivity atlas, threshold, and interpretation boundary for each planned STN or SNr pathway.
+This document is the authoritative registry for target ROI and atlas selection in STN/SNr seed-target fiber tracking and for ROI interpretation in the STN/SNr normative connectome models. It fixes the preferred ROI directory, upstream atlas source, sensitivity atlas, threshold, and interpretation boundary for each planned STN or SNr pathway.
 
 The registry is documentation-only. It does not run tracking and does not change any MATLAB or Python implementation.
 
 ## General Rules
 
-- Primary STN and SNr seed ROIs use `Custom_Ewert_Zhang_Middlebrooks0.05`.
-- Cortical and whole-brain endpoint labels use `HCPex (Huang 2021)` when a suitable label exists.
+- Model-level STN ROI and endpoint grouping should use `STN-connected regions` first.
+- Model-level SNr ROI and endpoint grouping should use `SNr-connected regions` first.
+- The connected-region atlases are prebuilt binary ROI directories with side-specific masks, `roi_manifest.csv`, and `roi_qc.csv`.
+- `Custom_Ewert_Zhang_Middlebrooks0.05` remains the upstream source for STN/SNr masks and is retained as a sensitivity or fallback source for standalone STN/SNr masks.
+- Cortical and whole-brain endpoint labels use connected-region ROI masks first; their upstream cortical definitions use `HCPex (Huang 2021)` when a suitable label exists.
 - Thalamic subnuclei use `Julich-Brain Atlas v3.1` probabilistic maps.
 - PPN uses `PPN_Atlas (Alho 2017)` as the primary atlas and `PPN (Snijders 2016)` as a sensitivity atlas.
 - Superior colliculus uses `Allen Brain Atlas (Ding 2020)` `SC.nii.gz`.
@@ -21,6 +24,8 @@ The registry is documentation-only. It does not run tracking and does not change
 
 | ROI source | Main threshold | Sensitivity threshold | Notes |
 |---|---:|---:|---|
+| `STN-connected regions` | follow `roi_manifest.csv` | sensitivity masks in the same atlas directory | Preferred ROI directory for STN model gating, STN candidate fibers, and STN endpoint grouping. |
+| `SNr-connected regions` | follow `roi_manifest.csv` | sensitivity masks in the same atlas directory | Preferred ROI directory for SNr model gating, SNr candidate fibers, and SNr endpoint grouping. |
 | `Custom_Ewert_Zhang_Middlebrooks0.05` STN/SNr/GPe/GPi | `relative_intensity > 0.05` | `relative_intensity > 0.5` | `0.05` is the atlas metadata threshold; `0.5` is a conservative high-confidence core ROI. |
 | `HCPex (Huang 2021)` label masks | exact label ID membership | none by default | Side-specific label IDs should be recorded in implementation provenance. |
 | `Julich-Brain Atlas v3.1` probabilistic maps | probability `>= 25%` | probability `> 0%` and `>= 50%` | Use the same threshold for left and right maps. |
@@ -31,42 +36,44 @@ The registry is documentation-only. It does not run tracking and does not change
 
 | Seed | Primary atlas | Main ROI files | Sensitivity |
 |---|---|---|---|
-| STN | `Custom_Ewert_Zhang_Middlebrooks0.05` | `lh/STN.nii.gz`, `rh/STN.nii.gz` | high-confidence core with `> 0.5` |
-| SNr | `Custom_Ewert_Zhang_Middlebrooks0.05` | `lh/SNr.nii.gz`, `rh/SNr.nii.gz` | high-confidence core with `> 0.5` |
+| STN | `STN-connected regions` | `lh/STN.nii.gz`, `rh/STN.nii.gz` | `STN_thr025` and `STN_thr05` sensitivity masks in the same atlas directory. |
+| SNr | `SNr-connected regions` | `lh/SNr.nii.gz`, `rh/SNr.nii.gz` | `SNr_thr025` and `SNr_thr05` sensitivity masks in the same atlas directory. |
 
 ## STN Target Registry
 
 | Pathway | Primary target atlas | Primary ROI definition | Sensitivity / notes |
 |---|---|---|---|
-| `STN -> M1` | `HCPex (Huang 2021)` | `Primary_Motor_Cortex_L/R` | Optional sensitivity with Julich BA4a/BA4p or HMAT M1. |
-| `STN -> SMA/pre-SMA` | `HCPex (Huang 2021)` | `Area_6m_anterior`, `Area_6mp`, `Supplementary_and_Cingulate_Eye_Field` | HMAT SMA/preSMA sensitivity. |
-| `STN -> premotor cortex` | `HCPex (Huang 2021)` | `Area_6_anterior`, `Dorsal_area_6`, `Rostral_Area_6`, `Ventral_Area_6`, `Premotor_Eye_Field` | HMAT PMd sensitivity. |
-| `STN -> GPe/GPi` | `HCPex (Huang 2021)` | `Globus_pallidus_externalis_L/R`, `Globus_pallidus_internalis_L/R` | Custom GPe/GPi `> 0.05`; Custom GPe/GPi `> 0.5` core sensitivity. |
-| `STN -> DLPFC` | `HCPex (Huang 2021)` | `Area_46`, `Area_9-46d`, `Area_9_Middle`, `Area_9_anterior`, `Area_9_Posterior`, `Area_8Ad`, `Area_8Av`, `Area_8B_Lateral`, `Area_8C` | Exploratory target. |
-| `STN -> ACC` | `HCPex (Huang 2021)` | `Dorsal_Area_24d`, `Ventral_Area_24d`, `Area_25`, `Area_33_prime`, `Area_p32`, `Area_p32_prime`, `Area_s32` | Optional target. |
-| `STN -> OFC-vmPFC` | `HCPex (Huang 2021)` | `Posterior_OFC_Complex`, `Orbital_Frontal_Complex`, `Area_10r`, `Area_10v`, `Area_10d`, `Area_25`, `Area_s32` | Optional target. |
+| `STN -> M1` | `STN-connected regions` | `lh/M1.nii.gz`, `rh/M1.nii.gz` | Upstream source: HCPex `Primary_Motor_Cortex`; optional sensitivity with Julich BA4a/BA4p or HMAT M1. |
+| `STN -> SMA/pre-SMA` | `STN-connected regions` | `lh/SMA.nii.gz`, `rh/SMA.nii.gz`, `lh/preSMA.nii.gz`, `rh/preSMA.nii.gz` | Upstream source: HCPex Area 6/SCEF labels; HMAT SMA/preSMA sensitivity. |
+| `STN -> premotor cortex` | `STN-connected regions` | `lh/premotor.nii.gz`, `rh/premotor.nii.gz` | Upstream source: HCPex premotor Area 6 labels; HMAT PMd sensitivity. |
+| `STN -> GPe/GPi` | `STN-connected regions` | `lh/GPe.nii.gz`, `rh/GPe.nii.gz`, `lh/GPi.nii.gz`, `rh/GPi.nii.gz` | Upstream source: DISTAL `>0.25`; `GPe_thr005`, `GPe_thr05`, `GPi_thr005`, and `GPi_thr05` sensitivity masks. |
+| `STN -> DLPFC` | `STN-connected regions` | `lh/DLPFC.nii.gz`, `rh/DLPFC.nii.gz` | Exploratory target; upstream source: HCPex Area 46, 9/46, 9, and 8 labels. |
+| `STN -> ACC` | `STN-connected regions` | `lh/ACC.nii.gz`, `rh/ACC.nii.gz` | Optional target; upstream source: HCPex cingulate labels. |
+| `STN -> OFC-vmPFC` | `STN-connected regions` | `lh/OFC.nii.gz`, `rh/OFC.nii.gz`, `lh/vmPFC.nii.gz`, `rh/vmPFC.nii.gz` | Optional target; upstream source: HCPex OFC/medial prefrontal labels. |
 
 ## SNr Target Registry
 
 | Pathway | Primary target atlas | Primary ROI definition | Sensitivity / notes |
 |---|---|---|---|
-| `SNr -> VA/VL/VM thalamus` | `Julich-Brain Atlas v3.1` | `Thalamus-VA`, `Thalamus-VLA`, `Thalamus-VLP`, `Thalamus-VM` | HCPex VA/VLa/VLp as coarse comparator. |
-| `SNr -> STN` | `Custom_Ewert_Zhang_Middlebrooks0.05` | `lh/STN.nii.gz`, `rh/STN.nii.gz`, `> 0.05` | Custom STN `> 0.5` core sensitivity. |
-| `SNr -> posterior putamen` | `HCPex (Huang 2021)` | `Putamen_L/R`, posterior MNI-y half | Posterior MNI-y third sensitivity. |
-| `SNr -> caudate` | `HCPex (Huang 2021)` | `Caudate_L/R` | Optional target. |
-| `SNr -> PPN area` | `PPN_Atlas (Alho 2017)` | `lh/PPN.nii.gz`, `rh/PPN.nii.gz`, binarized `> 0` | `PPN (Snijders 2016)` sensitivity. |
-| `SNr -> superior colliculus` | `Allen Brain Atlas (Ding 2020)` | `lh/SC.nii.gz`, `rh/SC.nii.gz`, binarized `> 0` | Keep separate from pretectal region. |
-| `SNr -> MD / CM-Pf` | `Julich-Brain Atlas v3.1` | `Thalamus-MD`, `Thalamus-CM`, `Thalamus-Pf`, optional `Thalamus-sPf` | Optional target. |
-| `SNr -> FEF` | `HCPex (Huang 2021)` | `Frontal_Eye_Fields_L/R` | Exploratory cortical target. |
-| `SNr -> SMA / pre-SMA` | `HCPex (Huang 2021)` | `Area_6m_anterior`, `Area_6mp`, `Supplementary_and_Cingulate_Eye_Field` | Exploratory cortical target; HMAT sensitivity. |
-| `SNr -> premotor cortex` | `HCPex (Huang 2021)` | `Area_6_anterior`, `Dorsal_area_6`, `Rostral_Area_6`, `Ventral_Area_6`, `Premotor_Eye_Field` | Exploratory cortical target. |
-| `SNr -> M1` | `HCPex (Huang 2021)` | `Primary_Motor_Cortex_L/R` | Exploratory cortical target. |
-| `SNr -> DLPFC` | `HCPex (Huang 2021)` | `Area_46`, `Area_9-46d`, Area 9 and Area 8 subdivisions | Exploratory cortical target. |
+| `SNr -> VA/VL/VM thalamus` | `SNr-connected regions` | `lh/VA_thalamus.nii.gz`, `rh/VA_thalamus.nii.gz`, `lh/VLA_thalamus.nii.gz`, `rh/VLA_thalamus.nii.gz`, `lh/VLP_thalamus.nii.gz`, `rh/VLP_thalamus.nii.gz`, `lh/VM_thalamus.nii.gz`, `rh/VM_thalamus.nii.gz` | Upstream source: Julich-Brain v3.1 `>=25%`; threshold sensitivity masks in the same atlas directory. |
+| `SNr -> STN` | `SNr-connected regions` | `lh/STN.nii.gz`, `rh/STN.nii.gz` | `STN_thr025` and `STN_thr05` sensitivity masks in the same atlas directory. |
+| `SNr -> posterior putamen` | `SNr-connected regions` | `lh/posterior_putamen.nii.gz`, `rh/posterior_putamen.nii.gz` | `posterior_putamen_third` sensitivity masks. |
+| `SNr -> caudate` | `SNr-connected regions` | `lh/caudate.nii.gz`, `rh/caudate.nii.gz` | Optional target; upstream source: HCPex caudate labels. |
+| `SNr -> PPN area` | `SNr-connected regions` | `lh/PPN.nii.gz`, `rh/PPN.nii.gz` | `PPN_snijders2016` sensitivity masks. |
+| `SNr -> superior colliculus` | `SNr-connected regions` | `lh/superior_colliculus.nii.gz`, `rh/superior_colliculus.nii.gz` | Upstream source: Allen Brain Atlas `SC.nii.gz`; keep separate from pretectal region. |
+| `SNr -> MD / CM-Pf` | `SNr-connected regions` | `lh/MD_thalamus.nii.gz`, `rh/MD_thalamus.nii.gz`, `lh/CM_thalamus.nii.gz`, `rh/CM_thalamus.nii.gz`, `lh/Pf_thalamus.nii.gz`, `rh/Pf_thalamus.nii.gz`, `lh/sPf_thalamus.nii.gz`, `rh/sPf_thalamus.nii.gz` | Optional target; threshold sensitivity masks in the same atlas directory. |
+| `SNr -> FEF` | `SNr-connected regions` | `lh/FEF.nii.gz`, `rh/FEF.nii.gz` | Exploratory cortical target. |
+| `SNr -> SMA / pre-SMA` | `SNr-connected regions` | `lh/SMA.nii.gz`, `rh/SMA.nii.gz`, `lh/preSMA.nii.gz`, `rh/preSMA.nii.gz` | Exploratory cortical target; HMAT sensitivity. |
+| `SNr -> premotor cortex` | `SNr-connected regions` | `lh/premotor.nii.gz`, `rh/premotor.nii.gz` | Exploratory cortical target. |
+| `SNr -> M1` | `SNr-connected regions` | `lh/M1.nii.gz`, `rh/M1.nii.gz` | Exploratory cortical target. |
+| `SNr -> DLPFC` | `SNr-connected regions` | `lh/DLPFC.nii.gz`, `rh/DLPFC.nii.gz` | Exploratory cortical target. |
 
 ## Atlas Path Registry
 
 | Atlas | Local path |
 |---|---|
+| `STN-connected regions` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STN-connected regions` |
+| `SNr-connected regions` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/SNr-connected regions` |
 | `Custom_Ewert_Zhang_Middlebrooks0.05` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks0.05` |
 | `HCPex (Huang 2021)` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii` |
 | `Julich-Brain Atlas v3.1` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas` |

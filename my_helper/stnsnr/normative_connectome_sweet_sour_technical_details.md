@@ -108,10 +108,21 @@ The authoritative target-atlas registry is:
 
 Main rules:
 
-- Primary STN and SNr ROIs use `Custom_Ewert_Zhang_Middlebrooks0.05`.
-- Custom STN/SNr masks are used for anatomical classification and reporting, not for clipping stimulation fields.
-- Non-STN/SNr cortical and whole-brain endpoint labeling uses `HCPex (Huang 2021)` when suitable labels exist.
-- Thalamic subnuclei, PPN, and superior colliculus targets follow the atlas registry.
+- Model-level STN ROI and endpoint grouping should use `STN-connected regions` first:
+
+```text
+/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STN-connected regions
+```
+
+- Model-level SNr ROI and endpoint grouping should use `SNr-connected regions` first:
+
+```text
+/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/SNr-connected regions
+```
+
+- Each connected-region atlas contains side-specific binary masks and `roi_manifest.csv`; use these files directly for model gating, candidate fiber classification, endpoint grouping, coverage summaries, and visualization overlays.
+- `Custom_Ewert_Zhang_Middlebrooks0.05` remains the upstream source for STN/SNr masks inside the connected-region atlases and is retained as a sensitivity or fallback source for standalone STN/SNr masks.
+- Non-STN/SNr cortical, thalamic, PPN, and superior colliculus endpoint definitions follow the connected-region atlas manifests and the seed-target atlas registry.
 
 ## Exposure Definitions
 
@@ -146,14 +157,17 @@ abs(voltage_V) * pulse_width_us * frequency_Hz
 
 Do not crop VTA, e-field, or proxy maps to STN/SNr boundaries. VTA may extend beyond the nucleus edge, and this extension is part of the modeled stimulation exposure.
 
-Custom STN/SNr masks are used only for:
+Connected-region atlas masks are used for:
 
 ```text
 fiber classification
+endpoint grouping
 voxel-map anatomical overlays
 coverage summaries
 interpretation boundaries
 ```
+
+Custom STN/SNr standalone masks are used only as sensitivity or fallback ROIs when the connected-region atlas is unavailable or when a high-confidence core threshold is explicitly being tested.
 
 ### Interleaving Handling
 
@@ -481,7 +495,7 @@ coverage map
 bootstrap stability map
 ```
 
-Voxel maps should be interpreted with Custom STN/SNr outlines and target-atlas overlays, but the model itself is not cropped to those ROIs.
+Voxel maps should be interpreted with connected-region STN/SNr outlines and target-atlas overlays, but the model itself is not cropped to those ROIs.
 
 ## Execution Plan
 
@@ -516,8 +530,8 @@ Voxel maps should be interpreted with Custom STN/SNr outlines and target-atlas o
 1. Run PPMI smoke test first.
 2. Load connectome streamlines in chunks.
 3. Compute full-streamline peak exposure for each subject.
-4. Record candidate fiber classes using Custom STN and SNr intersection.
-5. Label endpoints using HCPex and registry-defined target atlases when available.
+4. Record candidate fiber classes using `STN-connected regions` and `SNr-connected regions` intersections.
+5. Label endpoints using connected-region atlas masks first, then HCPex and registry-defined target atlases when additional labels are needed.
 6. Repeat for MGH and dTOR after PPMI validation.
 
 ### Stage 5: Voxel Exposure Extraction
@@ -671,7 +685,8 @@ Before running full analysis, confirm:
 ```text
 random seed is 42
 programming table and raw score table subject IDs match
-STN/SNr atlas registry is used for ROI definitions
+STN-connected regions and SNr-connected regions are used first for model ROI definitions
+STN/SNr atlas registry is used for endpoint definitions and sensitivity/fallback ROI definitions
 VTA/e-field/proxy maps are not cropped to STN/SNr
 interleaving is split into subprograms
 union and overlap interleaving outputs are generated
@@ -680,4 +695,3 @@ STN chronic, SNr chronic gain, and SNr immediate gain outputs are created
 low-coverage voxels and streamlines are flagged
 all outputs include provenance
 ```
-

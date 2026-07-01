@@ -6,7 +6,7 @@ Date: 2026-06-25
 
 This document records the planned analysis for symptom-specific STN and SNr sweet-spot and fiber models in the STN/SNr DBS cohort. The plan combines the endpoint-specific ANCOVA-style model in `/Users/mojackhu/Downloads/STN_SNr_endpoint_specific_sweetspot_pseudocode.md` with the previous decisions for public connectomes, ROI definition, streamline interpretation, stimulation exposure, and sensitivity analyses.
 
-The primary analysis uses full-field VTA/e-field-like exposure and whole-streamline fiber filtering. STN and SNr are not used to crop VTA or truncate streamlines. Instead, Custom STN/SNr ROIs define anatomical gating and interpretation, while HCPex labels non-STN/SNr endpoint regions.
+The primary analysis uses full-field VTA/e-field-like exposure and whole-streamline fiber filtering. STN and SNr are not used to crop VTA or truncate streamlines. Instead, prebuilt STN/SNr connected-region atlases define anatomical gating, endpoint grouping, and interpretation for the model outputs.
 
 The implementation-level technical details for the normative connectome streamline and voxel sweet/sour spot analysis are recorded in:
 
@@ -45,21 +45,33 @@ The authoritative STN/SNr seed-target target-atlas registry is:
 
 For seed-target fiber tracking, target ROI source, threshold, sensitivity atlas, and interpretation boundaries should follow this registry. The current section records the broader sweet-spot plan, while the registry is the fixed source for pathway-specific target atlas selection.
 
-### STN/SNr ROI
+### Model ROI Priority
 
-Use `Custom_Ewert_Zhang_Middlebrooks0.05` as the primary STN/SNr ROI source:
+For model-level ROI definitions, prefer the prebuilt connected-region atlases:
 
-`/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks0.05`
+```text
+STN model ROI atlas:
+  /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STN-connected regions
 
-The Custom STN/SNr masks are used to classify fibers as STN-passing, SNr-passing, STN+SNr-passing, or non-passing. They should not be used to clip stimulation fields.
+SNr model ROI atlas:
+  /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/SNr-connected regions
+```
+
+Each connected-region atlas contains side-specific binary masks and a `roi_manifest.csv` that records the upstream atlas source, threshold, role, and category for each ROI. Use the connected-region atlas ROI files directly for model gating, candidate fiber classification, endpoint grouping, coverage summaries, and visualization overlays.
+
+For STN analyses, use `STN-connected regions` first. Its primary ROIs include `STN`, `SNr`, `M1`, `SMA`, `preSMA`, `premotor`, `GPe`, and `GPi`, with optional or exploratory `DLPFC`, `ACC`, `OFC`, and `vmPFC` masks.
+
+For SNr analyses, use `SNr-connected regions` first. Its primary ROIs include `SNr`, `STN`, `VA_thalamus`, `VLA_thalamus`, `VLP_thalamus`, `VM_thalamus`, `posterior_putamen`, `PPN`, and `superior_colliculus`, with optional or exploratory `caudate`, `MD_thalamus`, `CM_thalamus`, `Pf_thalamus`, `sPf_thalamus`, `FEF`, `SMA`, `preSMA`, `premotor`, `M1`, and `DLPFC` masks.
+
+`Custom_Ewert_Zhang_Middlebrooks0.05` remains the upstream source for the STN and SNr masks inside the connected-region atlases and is retained as a sensitivity or fallback source for standalone STN/SNr masks. Neither connected-region ROIs nor Custom STN/SNr masks should be used to clip stimulation fields.
 
 ### Endpoint Parcellation
 
-Use HCPex for non-STN/SNr endpoint labeling:
+Use connected-region atlas endpoint masks for primary model endpoint grouping. HCPex remains the underlying cortical label source for many connected-region masks and may be used for additional non-STN/SNr endpoint labeling:
 
 `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii`
 
-Custom STN/SNr labels override any substantia nigra labels from HCPex for STN/SNr-specific reporting.
+Connected-region STN/SNr labels override any substantia nigra labels from HCPex for STN/SNr-specific reporting.
 
 ### Public Structural Connectomes
 
@@ -170,7 +182,7 @@ If OSS-DBS or another pathway activation model supports explicit pulse timing, u
 
 Do not crop VTA, e-field, or proxy maps to STN/SNr boundaries. VTA may extend beyond the nucleus edge, and this extension is part of the modeled stimulation effect.
 
-Report sweet spots and sweet fibers with Custom STN/SNr outlines overlaid for anatomical interpretation.
+Report sweet spots and sweet fibers with connected-region STN/SNr outlines overlaid for anatomical interpretation.
 
 ### Advanced Sensitivity Model
 
@@ -655,13 +667,13 @@ Main candidate fiber definitions:
 
 ```text
 STN-associated candidate fiber:
-  whole streamline intersects Custom STN ROI
+  whole streamline intersects the `STN-connected regions` STN ROI
 
 SNr-associated candidate fiber:
-  whole streamline intersects Custom SNr ROI
+  whole streamline intersects the `SNr-connected regions` SNr ROI
 
 STN+SNr-associated candidate fiber:
-  whole streamline intersects both Custom STN and Custom SNr ROIs
+  whole streamline intersects both connected-region STN and SNr ROIs
 ```
 
 The exposure value is still sampled from the full stimulation map along the whole streamline:
@@ -681,7 +693,7 @@ For each significant or top-ranked fiber:
 - report model class: `acute` or `chronic`;
 - report scale;
 - report `SNrBenefitScore` or STN benefit score;
-- report whether it intersects Custom STN, Custom SNr, or both;
+- report whether it intersects the connected-region STN ROI, SNr ROI, or both;
 - report HCPex endpoint labels;
 - report whether the effect is sweet or sour.
 
@@ -776,7 +788,7 @@ Run the following sensitivity analyses:
 - minimal-STN-change subgroup after excluding subjects with the largest absolute STN exposure change;
 - binary VTA intersection instead of continuous peak exposure;
 - interleaving-specific union, overlap, and frequency-weighted exposure summaries;
-- local ROI-expanded peak exposure using Custom STN/SNr dilated by `2-3 mm`;
+- local ROI-expanded peak exposure using connected-region STN/SNr primary masks dilated by `2-3 mm`;
 - charge-rate proxy using `abs(voltage_V) * pulse_width_us * frequency_Hz`;
 - OSS-DBS/PAM pathway activation model when valid outputs exist;
 - repeated analyses across dTOR-985, MGH-USC HCP 32, and PPMI 85 connectomes.
@@ -815,7 +827,7 @@ Reusable functions should be grouped by responsibility:
 11. Fit endpoint-specific SNr chronic gain models with `Y_STN3m` and `DeltaSTNScore_3m`.
 12. Fit endpoint-specific SNr immediate gain models with `Y_STN3m` and `DeltaSTNScore_immediate`.
 13. Fit sensitivity models.
-14. Label top fibers by Custom STN/SNr and HCPex endpoints.
+14. Label top fibers by connected-region STN/SNr and endpoint masks, with HCPex labels as supplemental endpoint labels.
 15. Export CSV/Mat/JSON provenance and visualization-ready fiber subsets.
 
 ## Expected Outputs
@@ -848,7 +860,7 @@ Expected output groups:
 - Interleaving stimulation is split into subprograms and is not treated as simultaneous double-cathode stimulation.
 - Interleaving outputs include union exposure and overlap exposure when interleaving programs exist.
 - Streamlines are whole connectome streamlines, not STN/SNr internal fragments.
-- STN/SNr labels come from `Custom_Ewert_Zhang_Middlebrooks0.05`.
+- STN/SNr model labels come from `STN-connected regions` and `SNr-connected regions`.
 - Non-STN/SNr endpoint labels come from HCPex.
 - The primary STN model uses raw STN-3m score adjusted for raw preoperative score, not percent improvement as the main outcome.
 - STN-immediate models are marked secondary and use same-day STN-OFF baseline when available.
