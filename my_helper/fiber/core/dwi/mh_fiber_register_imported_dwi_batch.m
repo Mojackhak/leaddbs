@@ -1,5 +1,5 @@
 function result = mh_fiber_register_imported_dwi_batch(varargin)
-% Stage imported BIDS DWI files and register b0 to anchorNative T1.
+% Stage imported BIDS DWI files and register b0 to anchorNative anatomy.
 
 p = inputParser;
 p.addParameter('StudyRoot', '/Volumes/VAL/STNSNr', @(x) ischar(x) || isstring(x));
@@ -7,6 +7,9 @@ p.addParameter('RepoDir', '/Users/mojackhu/Github/leaddbs', @(x) ischar(x) || is
 p.addParameter('ImportLog', fullfile('/Volumes/VAL/STNSNr', 'derivatives', 'leaddbs', ...
     'import_logs', 'dwi_import_20260701_013240.csv'), @(x) ischar(x) || isstring(x));
 p.addParameter('SubjectIds', {}, @(x) iscell(x) || isstring(x) || ischar(x));
+p.addParameter('AnchorModality', 'T2w', @(x) ischar(x) || isstring(x));
+p.addParameter('CoregistrationTag', 'dwi_t2', @(x) ischar(x) || isstring(x));
+p.addParameter('AllowT1Fallback', false, @(x) islogical(x) || isnumeric(x));
 p.addParameter('RunCoregistration', true, @(x) islogical(x) || isnumeric(x));
 p.addParameter('GenerateOptionalDwiQc', true, @(x) islogical(x) || isnumeric(x));
 p.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
@@ -16,9 +19,16 @@ opts = p.Results;
 opts.StudyRoot = char(string(opts.StudyRoot));
 opts.RepoDir = char(string(opts.RepoDir));
 opts.ImportLog = char(string(opts.ImportLog));
+opts.AnchorModality = normalize_anchor_modality(opts.AnchorModality);
+opts.CoregistrationTag = char(string(opts.CoregistrationTag));
+opts.AllowT1Fallback = logical(opts.AllowT1Fallback);
 opts.RunCoregistration = logical(opts.RunCoregistration);
 opts.GenerateOptionalDwiQc = logical(opts.GenerateOptionalDwiQc);
 opts.Force = logical(opts.Force);
+
+if isempty(opts.CoregistrationTag)
+    error('CoregistrationTag must not be empty.');
+end
 
 if ~isfolder(opts.StudyRoot)
     error('mh_fiber_register_imported_dwi_batch:MissingStudyRoot', ...
@@ -48,7 +58,7 @@ for i = 1:numel(subjects)
 end
 
 summary = struct2table(rows, 'AsArray', true);
-statusCsv = fullfile(importLogDir, 'dwi_registration_status.csv');
+statusCsv = fullfile(importLogDir, status_filename_from_coreg_tag(opts.CoregistrationTag));
 writetable(summary, statusCsv);
 
 result = struct();
@@ -57,7 +67,7 @@ result.statusCsv = statusCsv;
 result.subjects = subjects;
 
 fprintf('\nDWI registration batch summary written to:\n%s\n', statusCsv);
-disp(summary(:, {'subject', 'status', 'message', 'low_resolution_warning'}));
+disp(summary(:, {'subject', 'status', 'message', 'anchor_modality', 'low_resolution_warning'}));
 
 end
 
@@ -73,7 +83,8 @@ try
     row.staged_dwi = paths.dwi;
     row.b0 = paths.b0;
     row.qc_dir = paths.qcDir;
-    row.anchor_t1 = resolve_anchor_t1(paths.subjectDir);
+    row.anchor_modality = opts.AnchorModality;
+    row.anchor_anat = resolve_anchor_anat(paths.subjectDir, opts.AnchorModality, opts.AllowT1Fallback);
     row.normalization_forward = resolve_anchor_to_mni_transform(paths.subjectDir, paths.patientName);
 
     validate_raw_inputs(paths);
@@ -100,10 +111,11 @@ try
 
     if opts.RunCoregistration
         [row.dwi_to_anchor_transform, row.anchor_to_dwi_transform, row.b0_on_anchor, row.anchor_on_b0, paths.faOnAnchor] = ...
-            ensure_b0_t1_coregistration(paths, row.anchor_t1, opts.Force);
+            ensure_b0_anchor_coregistration(paths, row.anchor_anat, opts.AnchorModality, opts.Force);
         row.forward_transform_exists = isfile(row.dwi_to_anchor_transform);
         row.inverse_transform_exists = isfile(row.anchor_to_dwi_transform);
-        write_qc_overlays(paths, row.anchor_t1, row.b0_on_anchor, row.anchor_on_b0, paths.faOnAnchor);
+        write_qc_overlays(paths, row.anchor_anat, row.b0_on_anchor, row.anchor_on_b0, ...
+            paths.faOnAnchor, opts.AnchorModality);
     else
         row.dwi_to_anchor_transform = '';
         row.anchor_to_dwi_transform = '';
@@ -139,8 +151,8 @@ patientName = ['sub-', subjectId];
 subjectDir = fullfile(derivativesRoot, patientName);
 rawDwiDir = fullfile(opts.StudyRoot, 'rawdata', patientName, 'ses-preop', 'dwi');
 dwiDir = fullfile(subjectDir, 'preprocessing', 'dwi');
-coregDir = fullfile(subjectDir, 'coregistration', 'dwi');
-qcDir = fullfile(subjectDir, 'qc', 'dwi_registration');
+coregDir = fullfile(subjectDir, 'coregistration', opts.CoregistrationTag);
+qcDir = fullfile(subjectDir, 'qc', qc_tag_from_coreg_tag(opts.CoregistrationTag));
 
 rawBase = [patientName, '_ses-preop_dwi'];
 paths = struct();
@@ -329,10 +341,10 @@ if command_exists('dwi2tensor') && command_exists('tensor2metric')
 end
 end
 
-function [dwiToAnchor, anchorToDwi, b0OnAnchor, anchorOnB0, faOnAnchor] = ensure_b0_t1_coregistration(paths, anchorT1, force)
+function [dwiToAnchor, anchorToDwi, b0OnAnchor, anchorOnB0, faOnAnchor] = ensure_b0_anchor_coregistration(paths, anchorAnat, anchorModality, force)
 ensure_dir(paths.coregDir);
 [~, b0Name] = ea_niifileparts(paths.b0);
-[~, anchorName] = ea_niifileparts(anchorT1);
+[~, anchorName] = ea_niifileparts(anchorAnat);
 
 dwiToAnchorPattern = fullfile(paths.coregDir, [b0Name, '2', anchorName, '_ants*.mat']);
 anchorToDwiPattern = fullfile(paths.coregDir, [anchorName, '2', b0Name, '_ants*.mat']);
@@ -345,46 +357,47 @@ if force || ~isfile(dwiToAnchor) || ~isfile(anchorToDwi)
     options = struct();
     options.coregmr.method = 'ANTs';
     options.coregb0.addSyN = 0;
-    ea_coregimages(options, paths.b0, anchorT1, b0OnAnchor, {}, 1, [], 1);
+    ea_coregimages(options, paths.b0, anchorAnat, b0OnAnchor, {}, 1, [], 1);
     dwiToAnchor = latest_file(dwiToAnchorPattern);
     anchorToDwi = latest_file(anchorToDwiPattern);
 end
 
 if ~isfile(dwiToAnchor)
-    error('Missing b0-to-anchorNative transform after registration.');
+    error('Missing b0-to-anchorNative %s transform after registration.', anchorModality);
 end
 if ~isfile(anchorToDwi)
-    error('Missing anchorNative-to-b0 transform after registration.');
+    error('Missing anchorNative %s-to-b0 transform after registration.', anchorModality);
 end
 
 if force || ~isfile(b0OnAnchor)
-    ea_ants_apply_transforms([], paths.b0, b0OnAnchor, 0, anchorT1, dwiToAnchor, 'Linear');
+    ea_ants_apply_transforms([], paths.b0, b0OnAnchor, 0, anchorAnat, dwiToAnchor, 'Linear');
 end
 if force || ~isfile(anchorOnB0)
-    ea_ants_apply_transforms([], anchorT1, anchorOnB0, 0, paths.b0, anchorToDwi, 'Linear');
+    ea_ants_apply_transforms([], anchorAnat, anchorOnB0, 0, paths.b0, anchorToDwi, 'Linear');
 end
 
 faOnAnchor = '';
 if isfile(paths.fa)
     faOnAnchor = fullfile(paths.coregDir, [strip_nii_ext(get_file_name(paths.fa)), '2', anchorName, '.nii']);
     if force || ~isfile(faOnAnchor)
-        ea_ants_apply_transforms([], paths.fa, faOnAnchor, 0, anchorT1, dwiToAnchor, 'Linear');
+        ea_ants_apply_transforms([], paths.fa, faOnAnchor, 0, anchorAnat, dwiToAnchor, 'Linear');
     end
 end
 end
 
-function write_qc_overlays(paths, anchorT1, b0OnAnchor, anchorOnB0, faOnAnchor)
+function write_qc_overlays(paths, anchorAnat, b0OnAnchor, anchorOnB0, faOnAnchor, anchorModality)
 ensure_dir(paths.qcDir);
-write_overlay_png(anchorT1, b0OnAnchor, ...
-    fullfile(paths.qcDir, [paths.subjectId, '_b0_on_anchorT1.png']), ...
-    [paths.subjectId, ' b0 on anchorNative T1']);
+anchorLabel = anchor_label(anchorModality);
+write_overlay_png(anchorAnat, b0OnAnchor, ...
+    fullfile(paths.qcDir, [paths.subjectId, '_b0_on_', anchorLabel, '.png']), ...
+    [paths.subjectId, ' b0 on anchorNative ', anchorModality]);
 write_overlay_png(paths.b0, anchorOnB0, ...
-    fullfile(paths.qcDir, [paths.subjectId, '_anchorT1_on_b0.png']), ...
-    [paths.subjectId, ' anchorNative T1 on b0']);
+    fullfile(paths.qcDir, [paths.subjectId, '_', anchorLabel, '_on_b0.png']), ...
+    [paths.subjectId, ' anchorNative ', anchorModality, ' on b0']);
 if strlength(string(faOnAnchor)) > 0 && isfile(faOnAnchor)
-    write_overlay_png(anchorT1, faOnAnchor, ...
-        fullfile(paths.qcDir, [paths.subjectId, '_fa_on_anchorT1.png']), ...
-        [paths.subjectId, ' FA on anchorNative T1']);
+    write_overlay_png(anchorAnat, faOnAnchor, ...
+        fullfile(paths.qcDir, [paths.subjectId, '_fa_on_', anchorLabel, '.png']), ...
+        [paths.subjectId, ' FA on anchorNative ', anchorModality]);
 end
 end
 
@@ -439,24 +452,24 @@ catch ME
 end
 end
 
-function anchorT1 = resolve_anchor_t1(subjectDir)
+function anchorAnat = resolve_anchor_anat(subjectDir, anchorModality, allowT1Fallback)
 anatDir = fullfile(subjectDir, 'coregistration', 'anat');
-patterns = { ...
-    '*space-anchorNative_desc-preproc*acq-iso*T1w.nii', ...
-    '*space-anchorNative_desc-preproc*acq-ax*T1w.nii', ...
-    '*space-anchorNative_desc-preproc*_T1w.nii', ...
-    '*T1w.nii'};
+patterns = anchor_patterns(anchorModality);
 for p = 1:numel(patterns)
     d = dir(fullfile(anatDir, patterns{p}));
     d = d(~startsWith({d.name}, '._'));
     if ~isempty(d)
         [~, order] = sort({d.name});
         d = d(order);
-        anchorT1 = fullfile(d(1).folder, d(1).name);
+        anchorAnat = fullfile(d(1).folder, d(1).name);
         return;
     end
 end
-error('No anchorNative T1 found in %s', anatDir);
+if allowT1Fallback && ~strcmp(anchorModality, 'T1w')
+    anchorAnat = resolve_anchor_anat(subjectDir, 'T1w', false);
+    return;
+end
+error('No anchorNative %s found in %s', anchorModality, anatDir);
 end
 
 function transformPath = resolve_anchor_to_mni_transform(subjectDir, patientName)
@@ -472,6 +485,55 @@ if ~isfile(transformPath)
 end
 if ~isfile(transformPath)
     error('Missing anchorNative-to-MNI transform for %s.', patientName);
+end
+end
+
+function anchorModality = normalize_anchor_modality(anchorModality)
+anchorModality = char(string(anchorModality));
+switch lower(anchorModality)
+    case {'t1', 't1w'}
+        anchorModality = 'T1w';
+    case {'t2', 't2w'}
+        anchorModality = 'T2w';
+    otherwise
+        error('Unsupported AnchorModality: %s. Use T1w or T2w.', anchorModality);
+end
+end
+
+function patterns = anchor_patterns(anchorModality)
+patterns = { ...
+    ['*space-anchorNative_desc-preproc*acq-iso*', anchorModality, '.nii'], ...
+    ['*space-anchorNative_desc-preproc*acq-ax*', anchorModality, '.nii'], ...
+    ['*space-anchorNative_desc-preproc*_', anchorModality, '.nii'], ...
+    ['*', anchorModality, '.nii']};
+end
+
+function label = anchor_label(anchorModality)
+switch anchorModality
+    case 'T1w'
+        label = 'anchorT1';
+    case 'T2w'
+        label = 'anchorT2';
+    otherwise
+        label = ['anchor', anchorModality];
+end
+end
+
+function qcTag = qc_tag_from_coreg_tag(coregTag)
+if strcmp(coregTag, 'dwi')
+    qcTag = 'dwi_registration';
+else
+    suffix = regexprep(coregTag, '^dwi', '');
+    qcTag = ['dwi_registration', suffix];
+end
+end
+
+function statusName = status_filename_from_coreg_tag(coregTag)
+if strcmp(coregTag, 'dwi')
+    statusName = 'dwi_registration_status.csv';
+else
+    suffix = regexprep(coregTag, '^dwi', '');
+    statusName = ['dwi_registration', suffix, '_status.csv'];
 end
 end
 
@@ -542,7 +604,8 @@ row.message = '';
 row.raw_dwi = '';
 row.staged_dwi = '';
 row.b0 = '';
-row.anchor_t1 = '';
+row.anchor_modality = '';
+row.anchor_anat = '';
 row.normalization_forward = '';
 row.dwi_to_anchor_transform = '';
 row.anchor_to_dwi_transform = '';

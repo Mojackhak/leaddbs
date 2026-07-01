@@ -6,7 +6,7 @@ Date: 2026-07-02
 
 This document fixes the technical plan for registering the imported STN/SNr cohort DWI scans into the existing Lead-DBS subject spaces. The registration outputs are prerequisites for patient-specific seed-target tracking, VTA/ROI projection into DWI space, and native/MNI streamline display.
 
-This stage performs DWI staging and b0-to-anchorNative T1 registration only. It does not run tractography, normative connectome analysis, or sweet/sour spot modeling.
+This stage performs DWI staging and b0-to-anchorNative T2 registration only. It does not run tractography, normative connectome analysis, or sweet/sour spot modeling.
 
 ## Data Sources
 
@@ -56,26 +56,30 @@ The existing anatomical normalization is reused:
 anchorNative T1 -> MNI152NLin2009bAsym
 ```
 
+The fixed anatomical image for DWI registration is the already coregistered anchorNative T2. This uses the closer T2-like contrast between DWI b0 and anatomical T2, while still keeping all registration outputs in the same Lead-DBS anchorNative subject space.
+
 The new DWI registration chain is:
 
 ```text
 raw BIDS DWI
   -> derivatives/leaddbs/sub-*/preprocessing/dwi
   -> b0 extraction in native DWI space
-  -> b0-to-anchorNative T1 ANTs linear registration
+  -> b0-to-anchorNative T2 ANTs linear registration
 ```
 
 Tractography remains in native DWI space. MNI atlas ROIs should be projected into DWI space by:
 
 ```text
-MNI ROI -> anchorNative T1 -> DWI/b0
+MNI ROI -> anchorNative T1/anchorNative T2 -> DWI/b0
 ```
 
 DWI streamlines should be displayed in MNI space by:
 
 ```text
-DWI streamline -> anchorNative T1 -> MNI
+DWI streamline -> anchorNative T2/anchorNative T1 -> MNI
 ```
+
+The previous direct b0-to-anchorNative T1 outputs under `coregistration/dwi/` remain available only for comparison. They are not the primary registration chain for downstream STN/SNr tracking.
 
 ## Output Convention
 
@@ -100,41 +104,41 @@ The b0 image must inherit the affine/header of the corresponding 4D DWI frame. I
 Expected registration files:
 
 ```text
-coregistration/dwi/<b0base>2<anchorT1base>_ants1.mat
-coregistration/dwi/<anchorT1base>2<b0base>_ants1.mat
-coregistration/dwi/<b0base>2<anchorT1base>.nii
-coregistration/dwi/<anchorT1base>2<b0base>.nii
+coregistration/dwi_t2/<b0base>2<anchorT2base>_ants1.mat
+coregistration/dwi_t2/<anchorT2base>2<b0base>_ants1.mat
+coregistration/dwi_t2/<b0base>2<anchorT2base>.nii
+coregistration/dwi_t2/<anchorT2base>2<b0base>.nii
 ```
 
-The first transform maps DWI/b0 coordinates to anchorNative T1. The second transform maps anchorNative T1 and native-space ROIs back to DWI/b0.
+The first transform maps DWI/b0 coordinates to anchorNative T2. The second transform maps anchorNative T2 and native-space ROIs back to DWI/b0.
 
 ## Coregistration Method
 
-Use ANTs linear registration through Lead-DBS with a rigid stage followed by an affine stage. Do not use SyN/nonlinear DWI-to-T1 registration in the primary workflow, because nonlinear warping of diffusion space can distort downstream tractography interpretation.
+Use ANTs linear registration through Lead-DBS with a rigid stage followed by an affine stage. Do not use SyN/nonlinear DWI-to-T2 registration in the primary workflow, because nonlinear warping of diffusion space can distort downstream tractography interpretation.
 
-Use the existing subject-specific `anchorNative` T1 as fixed image. Resolve the fixed image from:
+Use the existing subject-specific `anchorNative` T2 as fixed image. Resolve the fixed image from:
 
 ```text
-derivatives/leaddbs/sub-<Subject>/coregistration/anat/*space-anchorNative_desc-preproc*_T1w.nii
+derivatives/leaddbs/sub-<Subject>/coregistration/anat/*space-anchorNative_desc-preproc*_T2w.nii
 ```
 
-Prefer `acq-iso_T1w` when present; otherwise use `acq-ax_T1w` or the first non-AppleDouble anchorNative T1.
+Prefer `acq-iso_T2w` when present; otherwise use `acq-ax_T2w` or the first non-AppleDouble anchorNative T2. For this 12-subject batch, T2 is mandatory and there is no automatic T1 fallback.
 
 ## QC Outputs
 
 Each subject should receive:
 
 ```text
-qc/dwi_registration/<Subject>_dwi_registration_qc.json
-qc/dwi_registration/<Subject>_b0_on_anchorT1.png
-qc/dwi_registration/<Subject>_anchorT1_on_b0.png
-qc/dwi_registration/<Subject>_fa_on_anchorT1.png
+qc/dwi_registration_t2/<Subject>_dwi_registration_qc.json
+qc/dwi_registration_t2/<Subject>_b0_on_anchorT2.png
+qc/dwi_registration_t2/<Subject>_anchorT2_on_b0.png
+qc/dwi_registration_t2/<Subject>_fa_on_anchorT2.png
 ```
 
 The batch should also write an aggregate status table under:
 
 ```text
-derivatives/leaddbs/import_logs/dwi_registration_status.csv
+derivatives/leaddbs/import_logs/dwi_registration_t2_status.csv
 ```
 
 QC status must record:
@@ -144,6 +148,7 @@ QC status must record:
 - Number of b0 volumes.
 - Voxel size and image dimensions.
 - Whether b0 spatial dimensions match the 4D DWI.
+- Fixed anchor modality and anchor anatomical file.
 - Whether forward and inverse ANTs transforms exist.
 - Whether optional FA and DWI-grid masks were generated.
 - Low-resolution warning for through-plane resolution at or above 4 mm.
@@ -157,7 +162,7 @@ A subject must be marked `registration_failed` and excluded from tracking if:
 - required raw DWI sidecars are missing;
 - bval/bvec entries do not match the number of DWI volumes;
 - no b0 volume is detected;
-- no anchorNative T1 can be resolved;
+- no anchorNative T2 can be resolved;
 - ANTs registration fails;
 - forward or inverse transform is missing after registration.
 

@@ -130,15 +130,15 @@ The rerun requires Lead-DBS to recognize numbered ANTs affine filenames such as 
 Fiber normalization must stay on the same registration chain that was visually approved:
 
 - b0/DWI native space: `preprocessing/dwi/sub-001_ses-preop_acq-iso_dwi_b0.nii`.
-- anatomical native space: `coregistration/anat/sub-001_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w.nii`.
-- b0 to anatomical transform: `coregistration/dwi/sub-001_ses-preop_acq-iso_dwi_b02sub-001_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w_ants1.mat`.
+- anatomical native space: `coregistration/anat/sub-001_ses-preop_space-anchorNative_desc-preproc_acq-iso_T2w.nii`.
+- b0 to anatomical transform: `coregistration/dwi_t2/sub-001_ses-preop_acq-iso_dwi_b02sub-001_ses-preop_space-anchorNative_desc-preproc_acq-iso_T2w_ants1.mat`.
 - anatomical to MNI transform: `normalization/transformations/sub-001_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz`.
 
 The b0 image must inherit the affine/header of the 4D DWI from which FA was computed. Do not recenter only the b0 header independently of the 4D DWI/FA header, because that makes b0 and FA disagree before any DWI-to-T1 transform is applied. For sub-001, the accepted repair is:
 
 - rebuild `preprocessing/dwi/sub-001_ses-preop_acq-iso_dwi_b0.nii` from frame 1 of `preprocessing/dwi/sub-001_ses-preop_acq-iso_dwi.nii`;
-- re-estimate the b0-to-anchorNative T1 ANTs affine from the rebuilt b0;
-- use the same b0-to-anchorNative affine to resample native FA for QC;
+- re-estimate the b0-to-anchorNative T2 ANTs affine from the rebuilt b0;
+- use the same b0-to-anchorNative T2 affine to resample native FA for QC;
 - apply `sub-001_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz` to the anchorNative b0/FA QC files for MNI inspection.
 
 ## STN/SNr DWI Registration
@@ -160,10 +160,10 @@ For the imported STN/SNr cohort, staged DWI files use the actual BIDS basename w
 ```text
 preprocessing/dwi/sub-<Subject>_ses-preop_dwi.nii
 preprocessing/dwi/sub-<Subject>_ses-preop_dwi_b0.nii
-coregistration/dwi/sub-<Subject>_ses-preop_dwi_b02<anchorT1base>_ants1.mat
+coregistration/dwi_t2/sub-<Subject>_ses-preop_dwi_b02<anchorT2base>_ants1.mat
 ```
 
-The script is resumable and reuses existing outputs unless `Force` is enabled. It uses ANTs linear b0-to-anchorNative T1 registration and does not call workflows that independently recenter only the b0 header.
+The script is resumable and reuses existing outputs unless `Force` is enabled. It uses ANTs linear b0-to-anchorNative T2 registration and does not call workflows that independently recenter only the b0 header. Existing direct b0-to-T1 outputs under `coregistration/dwi/` are retained for comparison, but the primary STN/SNr registration outputs are written under `coregistration/dwi_t2/`.
 
 The helper intentionally does not call `ea_perform_lc` for the normalization step. `ea_perform_lc` refreshes `ea_getptopts` before `ea_normalize_fibers`, which can reset `prefs.prenii_unnormalized` to the default preprocessing T1 and make `ea_normalize_fibers` pick a newly generated `_ants2.mat` tracking-mask transform. That chain can place normalized fibers too inferiorly in MNI space.
 
@@ -271,7 +271,7 @@ Seed-target spatial QC should distinguish the tractography result from display e
 For display conversion, DWI-space TCK points must be mapped into anchorNative space with the approved b0-to-anchorNative transform:
 
 ```text
-coregistration/dwi/<subject>_ses-preop_acq-iso_dwi_b02<subject>_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w_ants1.mat
+coregistration/dwi_t2/<subject>_ses-preop_acq-iso_dwi_b02<subject>_ses-preop_space-anchorNative_desc-preproc_acq-iso_T2w_ants1.mat
 ```
 
 Do not use the anchorNative-to-b0 transform for this direction. Doing so shifts seed-target display fibers away from the anchorNative anatomy while the original `.tck` and density maps remain valid in DWI space.
