@@ -12,6 +12,7 @@ The public entry points are:
 - `stnsnr/run_stnsnr_build_active_contact_dataset.py`: build the 16-subject active-contact coordinate dataset.
 - `stnsnr/run_stnsnr_generate_random_stimulation_table.py`: generate a reproducible random test stimulation table for the active contacts.
 - `stnsnr/run_stnsnr_compare_roi_definitions.m`: compare HybraPD STN/SNr labels with the `Custom_Ewert_Zhang_Middlebrooks0.05` atlas.
+- `stnsnr/run_stnsnr_dwi_registration.m`: stage the imported STN/SNr cohort DWI files and register each b0 image to the existing Lead-DBS anchorNative T1.
 
 ## Folder Layout
 
@@ -22,6 +23,7 @@ my_helper/fiber/
   README.md
   core/
     config/         configuration, validation, output folders, VTA paths
+    dwi/            DWI staging, b0 extraction, b0-to-T1 registration, QC
     io/             FTR/TCK/VTK readers, writers, and reports
     roi/            atlas ROI definitions and mask generation
     connectomes/    public-connectome helper functions
@@ -138,6 +140,30 @@ The b0 image must inherit the affine/header of the 4D DWI from which FA was comp
 - re-estimate the b0-to-anchorNative T1 ANTs affine from the rebuilt b0;
 - use the same b0-to-anchorNative affine to resample native FA for QC;
 - apply `sub-001_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz` to the anchorNative b0/FA QC files for MNI inspection.
+
+## STN/SNr DWI Registration
+
+The STN/SNr DWI registration batch is documented in:
+
+```text
+/Users/mojackhu/Github/leaddbs/my_helper/stnsnr/dwi_registration_technical_details.md
+```
+
+The batch entry point is:
+
+```bash
+matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_registration.m')"
+```
+
+For the imported STN/SNr cohort, staged DWI files use the actual BIDS basename without forcing `acq-iso` into the filename:
+
+```text
+preprocessing/dwi/sub-<Subject>_ses-preop_dwi.nii
+preprocessing/dwi/sub-<Subject>_ses-preop_dwi_b0.nii
+coregistration/dwi/sub-<Subject>_ses-preop_dwi_b02<anchorT1base>_ants1.mat
+```
+
+The script is resumable and reuses existing outputs unless `Force` is enabled. It uses ANTs linear b0-to-anchorNative T1 registration and does not call workflows that independently recenter only the b0 header.
 
 The helper intentionally does not call `ea_perform_lc` for the normalization step. `ea_perform_lc` refreshes `ea_getptopts` before `ea_normalize_fibers`, which can reset `prefs.prenii_unnormalized` to the default preprocessing T1 and make `ea_normalize_fibers` pick a newly generated `_ants2.mat` tracking-mask transform. That chain can place normalized fibers too inferiorly in MNI space.
 

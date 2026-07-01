@@ -4,13 +4,17 @@ Date: 2026-06-25
 
 ## Summary
 
-This document records the planned analysis for symptom-specific STN and SNr sweet-spot and fiber models in the STN/SNr DBS cohort. The plan combines the endpoint-specific ANCOVA-style model in `/Users/mojackhu/Downloads/STN_SNr_endpoint_specific_sweetspot_pseudocode.md` with the previous decisions for public connectomes, ROI definition, streamline interpretation, stimulation exposure, and sensitivity analyses.
+This document records the planned analysis for symptom-specific STN and SNr sweet-spot and target-level seed-target models in the STN/SNr DBS cohort. The plan combines the endpoint-specific ANCOVA-style model in `/Users/mojackhu/Downloads/STN_SNr_endpoint_specific_sweetspot_pseudocode.md` with the previous decisions for public connectomes, individualized DWI tractography, ROI definition, streamline interpretation, stimulation exposure, and sensitivity analyses.
 
-The primary analysis uses full-field VTA/e-field-like exposure and whole-streamline fiber filtering. STN and SNr are not used to crop VTA or truncate streamlines. Instead, prebuilt STN/SNr connected-region atlases define anatomical gating, endpoint grouping, and interpretation for the model outputs.
+The primary seed-target connectivity analysis uses target-level predictors. Individual streamlines are used to construct target connectivity features, QC, and visualization, but top correlated fibers are not selected as the primary predictive variables. STN and SNr are not used to crop VTA or truncate streamlines. Instead, prebuilt STN/SNr connected-region atlases define anatomical gating, endpoint grouping, and interpretation for the model outputs.
 
-The implementation-level technical details for the normative connectome streamline and voxel sweet/sour spot analysis are recorded in:
+The implementation-level technical details for normative and individualized DWI target-level connectivity analysis are recorded in:
 
 `/Users/mojackhu/Github/leaddbs/my_helper/stnsnr/normative_connectome_sweet_sour_technical_details.md`
+
+The DWI registration prerequisites are recorded in:
+
+`/Users/mojackhu/Github/leaddbs/my_helper/stnsnr/dwi_registration_technical_details.md`
 
 ## Fixed Inputs and Defaults
 
@@ -29,6 +33,8 @@ The implementation-level technical details for the normative connectome streamli
   `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subj_delta_effect.xlsx`.
 - Current programming workbook:
   `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/followup_stimulation.xlsx`, sheet `Contact Parameters`.
+- Current DWI import log:
+  `/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_import_20260701_013240.csv`.
 - Current raw clinical score workbook:
   `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx`.
 - Preferred raw score sources for the final ANCOVA endpoint model:
@@ -83,6 +89,43 @@ Run the analysis on all locally available Lead-DBS dMRI structural connectomes:
 
 Because dTOR and MGH are large, implementations must use chunked `matfile` access and must not load all fibers into memory.
 
+### Individualized DWI Connectomes
+
+Individualized DWI tractography is incorporated into the same target-level seed-target framework.
+
+Primary DWI source:
+
+```text
+/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_import_20260701_013240.csv
+```
+
+Programming source for stimulation fields:
+
+```text
+/Users/mojackhu/Research/STNSNr/summary/cohort/subj/followup_stimulation.xlsx
+sheet: Contact Parameters
+```
+
+Technical registration plan:
+
+```text
+/Users/mojackhu/Github/leaddbs/my_helper/stnsnr/dwi_registration_technical_details.md
+```
+
+Use three coordinated connectivity analyses:
+
+- `Normative-only`: learn and test target-level features from public connectomes only.
+- `Normative-guided individualized DWI`: learn target weights and selected targets from normative connectomes, then compute the same target-level score in each patient's individualized DWI tractography.
+- `Individualized-DWI-only`: learn target weights directly from individualized DWI features as a sensitivity analysis.
+
+The preferred connectivity model after DWI QC passes is:
+
+```text
+normative-guided individualized DWI target-level model
+```
+
+This keeps target selection more stable while testing whether the normative target pattern is expressed in each patient's own DWI tractography.
+
 ## Stimulation Exposure Models
 
 ### Main Exposure Model
@@ -128,7 +171,7 @@ Optional weighted exposure:
 
 where `w_A` and `w_B` should be prespecified from pulse counts, frequency, or duty-cycle information when available. If reliable timing information is unavailable, report unweighted union and overlap maps rather than inventing a timing weight.
 
-For fiber models, compute streamline exposure from each representation:
+For target connectivity construction and secondary fiber summaries, compute streamline exposure from each representation:
 
 ```text
 X_union(i,f)   = max exposure along fiber f in the union map
@@ -182,7 +225,7 @@ If OSS-DBS or another pathway activation model supports explicit pulse timing, u
 
 Do not crop VTA, e-field, or proxy maps to STN/SNr boundaries. VTA may extend beyond the nucleus edge, and this extension is part of the modeled stimulation effect.
 
-Report sweet spots and sweet fibers with connected-region STN/SNr outlines overlaid for anatomical interpretation.
+Report target connectivity patterns, secondary sweet-spot maps, and selected-target fiber contribution maps with connected-region STN/SNr outlines overlaid for anatomical interpretation.
 
 ### Advanced Sensitivity Model
 
@@ -193,6 +236,164 @@ fiberActivation_model-ossdbs_hemi-*.mat
 ```
 
 For OSS-DBS sensitivity, the streamline activation value is the pathway activation state or activation probability from OSS-DBS/PAM rather than peak e-field magnitude.
+
+## Target-Level Seed-Target Connectivity
+
+### Core Unit
+
+The primary connectivity predictor is the target-level bilateral seed-target feature:
+
+```text
+C_bilat(i,k)
+```
+
+where `i` is patient and `k` is a predefined target label from the STN/SNr seed-target atlas registry.
+
+The model does not learn a separate weight for left and right homologous targets. For example:
+
+```text
+left SMA and right SMA -> target label SMA -> one shared weight w_SMA
+```
+
+Left and right sides are still calculated separately before patient-level averaging:
+
+```text
+left stimulation  -> left homologous target
+right stimulation -> right homologous target
+```
+
+No left-right flip is required for the target-level model, because the target label is shared after side-specific same-hemisphere connectivity is computed.
+
+### Side-Specific Connectivity
+
+For patient `i`, side `h` in `{L,R}`, and target `k`, compute:
+
+```text
+C(i,h,k)
+```
+
+as the stimulation-weighted seed-target connectivity between the stimulated seed side and the same-side target mask.
+
+For a normative connectome:
+
+```text
+G_norm(k,h) = streamlines with endpoint in target P(k,h)
+A_norm(i,h,j) = max exposure from stimulation E(i,h) along streamline j
+
+C_norm(i,h,k) =
+  sum_j A_norm(i,h,j) / (number of streamlines in G_norm(k,h) + lambda)
+```
+
+For individualized DWI:
+
+```text
+G_ind(i,k,h) = patient i streamlines with endpoint in target P(k,h)
+A_ind(i,h,j) = max exposure from stimulation E(i,h) along patient streamline j
+
+C_ind(i,h,k) =
+  sum_j A_ind(i,h,j) / (number of streamlines in G_ind(i,k,h) + lambda)
+```
+
+The main analysis uses equal streamline weights within each target:
+
+```text
+q_j = 1
+```
+
+Non-outcome-derived streamline quality weights may be tested later as sensitivity analyses, but they are not part of the main model.
+
+### Patient-Level Bilateral Feature
+
+Before entering any clinical model, the side-specific features are collapsed to one patient-level feature per target:
+
+```text
+C_bilat(i,k) = (C(i,L,k) + C(i,R,k)) / 2
+```
+
+The primary data table therefore has one row per patient:
+
+```text
+n = 16
+```
+
+Do not treat left and right hemispheres as 32 independent samples in the primary model. If a side-level sensitivity model is ever used, it must use patient clustering or patient random intercepts, and cross-validation must leave out the whole patient.
+
+If valid left/right symptom severity scores are available, use side-symptom-weighted averaging only as a sensitivity analysis:
+
+```text
+C_bilat_weighted(i,k) = rho(i,L) * C(i,L,k) + rho(i,R) * C(i,R,k)
+```
+
+The default remains the simple bilateral average.
+
+### Target-Level Predictor Selection
+
+Predictor selection is performed at the target label level, not at the individual fiber level.
+
+For each target `k`, fit a target-wise ANCOVA or rank-based partial model in the training data:
+
+```text
+Y_post(i) = alpha_k
+          + theta_k * Z(C_bilat(i,k))
+          + beta_k  * Z(Y_baseline(i))
+          + gamma_k * Z(DeltaSTNScore(i))
+          + error(i,k)
+```
+
+For STN-only models, `Y_baseline` is `Y_Preop` and `DeltaSTNScore` is omitted unless the model explicitly studies STN reprogramming. For SNr gain models, `Y_baseline` is `Y_STN3m` and `DeltaSTNScore` is retained.
+
+Define the benefit-oriented target weight as:
+
+```text
+w_k = -theta_k
+```
+
+for lower-is-better scales, and:
+
+```text
+w_k = theta_k
+```
+
+for SE-ADL. Positive `w_k` always means more connectivity to that target predicts better outcome.
+
+Target quality filtering precedes efficacy ranking. Exclude targets with too few streamlines, near-zero across-patient variance, excessive individualized-DWI reconstruction failure, or high collinearity with baseline or `DeltaSTNScore`.
+
+Default target selection in each training fold:
+
+```text
+top 3 sweet targets
+top 2 sour targets
+maximum selected targets = 5
+```
+
+The selected target set forms a patient-level efficacy score:
+
+```text
+Score(i) =
+  sum_k w_k * Z(C_bilat(i,k)) / sum_k abs(w_k)
+```
+
+This score, not a list of top single fibers, is the primary connectivity predictor used for patient-level prediction.
+
+### Nested Validation
+
+All target selection, weight estimation, standardization, and score construction must occur inside the training fold.
+
+For leave-one-patient-out validation:
+
+1. Hold out one patient, including both hemispheres.
+2. Estimate target weights and select targets using only the remaining patients.
+3. Compute the held-out patient's target score with the training-fold targets, weights, and standardization parameters.
+4. Fit the final training-fold ANCOVA model.
+5. Predict the held-out patient's outcome.
+
+Compare the full model against a covariate-only model:
+
+```text
+Y_post ~ Y_baseline + DeltaSTNScore
+```
+
+The target-level score must provide predictive information beyond these covariates to support a connectivity claim.
 
 ## Clinical Endpoints
 
@@ -269,7 +470,7 @@ chronic STN-only efficacy model
 This model answers:
 
 ```text
-Which voxels or streamlines are associated with stable STN-only benefit at 3 months?
+Which target-level STN seed-target connectivity features are associated with stable STN-only benefit at 3 months?
 ```
 
 Secondary STN model:
@@ -281,18 +482,18 @@ early / acute STN-only response model
 This model answers:
 
 ```text
-Which voxels or streamlines are associated with the early response after STN activation?
+Which target-level STN seed-target connectivity features are associated with the early response after STN activation?
 ```
 
 The chronic STN-only model is the primary STN model because it localizes stable STN DBS benefit and uses the same STN-3m clinical state that serves as the baseline for SNr-addition models.
 
 #### Primary Chronic STN-Only Model
 
-For each scale and streamline:
+For each scale and target `k`:
 
 ```text
 Y_STN3m_i = alpha_0
-          + alpha_STN,f * X_STN3m,i,f
+          + alpha_STN,k * C_STN3m_bilat(i,k)
           + alpha_B     * Y_Preop_i
           + error_i
 ```
@@ -301,15 +502,15 @@ Definitions:
 
 - `Y_STN3m_i`: raw STN-only 3-month clinical score for patient `i`.
 - `Y_Preop_i`: raw preoperative score for patient `i`.
-- `X_STN3m,i,f`: STN-component exposure along streamline `f` under STN-only 3-month programming.
-- `alpha_STN,f`: streamline-specific STN efficacy coefficient.
+- `C_STN3m_bilat(i,k)`: bilateral target-level STN seed-target connectivity for target `k` under STN-only 3-month programming.
+- `alpha_STN,k`: target-specific STN efficacy coefficient.
 
 Use a baseline-adjusted rank-based partial Spearman estimator for the main implementation:
 
 ```text
-STNBenefitScore_f =
+STNBenefitScore_k =
   corr_spearman(
-    residual(rank(X_STN3m,f) ~ rank(Y_Preop)),
+    residual(rank(C_STN3m_bilat(k)) ~ rank(Y_Preop)),
     benefit_oriented_residual(rank(Y_STN3m) ~ rank(Y_Preop))
   )
 ```
@@ -317,10 +518,12 @@ STNBenefitScore_f =
 For scales where lower scores are better, multiply the outcome residual by `-1` before the final correlation. For SE-ADL, keep the residual direction because higher scores are better.
 
 ```text
-STNBenefitScore_f > 0 means stronger STN exposure predicts better baseline-adjusted STN-3m outcome.
+STNBenefitScore_k > 0 means stronger target-level STN connectivity predicts better baseline-adjusted STN-3m outcome.
 ```
 
 Do not use change score or percent improvement as the primary STN sweet-spot outcome. The existing improvement-rate table can be used for compatibility checks, smoke tests, descriptive reporting, and sensitivity analyses.
+
+Voxel- and fiber-level STN maps are secondary localization and visualization outputs. They must not replace target-level predictor selection in the primary connectivity model.
 
 #### Secondary Early / Acute STN-Only Model
 
@@ -330,7 +533,7 @@ If only preoperative baseline is available:
 
 ```text
 Y_STNImmediate_i = alpha_0
-                 + alpha_STN,f_early * X_STNImmediate,i,f
+                 + alpha_STN,k_early * C_STNImmediate_bilat(i,k)
                  + alpha_B           * Y_Preop_i
                  + error_i
 ```
@@ -347,7 +550,7 @@ If a same-day STN-OFF baseline exists at the first programming visit, use it ins
 
 ```text
 Y_STNImmediate_i = alpha_0
-                 + alpha_STN,f_acute * X_STNImmediate,i,f
+                 + alpha_STN,k_acute * C_STNImmediate_bilat(i,k)
                  + alpha_B           * Y_STNOffSameDay_i
                  + error_i
 ```
@@ -366,7 +569,7 @@ Use this only as a secondary mechanism model when STN-immediate and STN-3m progr
 
 ```text
 Y_STN3m_i = alpha_0
-          + alpha_STN,f_adapt * X_STN3m,i,f
+          + alpha_STN,k_adapt * C_STN3m_bilat(i,k)
           + alpha_B           * Y_STNImmediate_i
           + alpha_D           * DeltaSTNScore_ImmTo3m_i
           + error_i
@@ -410,11 +613,11 @@ Use `MIN_N_FOR_MODEL = 12`. Do not hard-code scale names into endpoint selection
 
 ### Primary SNr Gain Model
 
-For each scale and voxel, surface point, or streamline `s`, fit the clinical optimization-informed SNr-target gain model:
+For each scale and target `k`, fit the clinical optimization-informed SNr-target gain model:
 
 ```text
 Y_AB_post_i = alpha_0
-            + theta_SNr(s) * X_SNr_i(s)
+            + theta_SNr,k * C_SNr_bilat(i,k)
             + beta         * Y_STN3m_i
             + gamma        * DeltaSTNScore_i
             + error_i
@@ -424,46 +627,42 @@ Definitions:
 
 - `Y_AB_post_i`: selected post-combination raw clinical score for patient `i`.
 - `Y_STN3m_i`: STN-only 3-month raw clinical score for patient `i`.
-- `X_SNr_i(s)`: final SNr-component exposure at voxel, surface point, or streamline `s`.
+- `C_SNr_bilat(i,k)`: final SNr-component target-level bilateral seed-target connectivity for target `k`.
 - `DeltaSTNScore_i`: scalar summary of STN component exposure change between STN-only and combined programming.
-- `theta_SNr(s)`: SNr gain spatial coefficient of interest.
+- `theta_SNr,k`: SNr gain target coefficient of interest.
 
 Question:
 
 ```text
 Among patients with comparable STN-only 3-month clinical state and comparable STN-component changes,
-does final SNr exposure at location s, voxel v, or streamline f predict better STN+SNr outcome?
+does final SNr seed-target connectivity to target k predict better STN+SNr outcome?
 ```
 
 Interpretation:
 
-```text
-theta_SNr(s)
-```
-
-is the adjusted spatial association between clinician-optimized final SNr-component exposure and the STN+SNr outcome, conditional on pre-SNr clinical state and concurrent STN reprogramming.
+`theta_SNr,k` is the adjusted target-level association between clinician-optimized final SNr-component connectivity and the STN+SNr outcome, conditional on pre-SNr clinical state and concurrent STN reprogramming.
 
 For scales where lower scores are better:
 
 ```text
-H_SNr(s) = -theta_SNr(s)
+H_SNr,k = -theta_SNr,k
 ```
 
 For SE-ADL, where higher scores are better:
 
 ```text
-H_SNr(s) = theta_SNr(s)
+H_SNr,k = theta_SNr,k
 ```
 
 Positive heatmap values always indicate better predicted clinical outcome.
 
 #### Chronic SNr Gain Model
 
-Use this model to estimate the long-term spatial distribution of SNr-associated gain after adding SNr to STN stimulation:
+Use this model to estimate the long-term target-level distribution of SNr-associated gain after adding SNr to STN stimulation:
 
 ```text
 Y_AB3m_i = alpha_0
-         + theta_SNr_chronic(s) * X_SNr3m_i(s)
+         + theta_SNr_chronic,k * C_SNr3m_bilat(i,k)
          + beta                 * Y_STN3m_i
          + gamma                * DeltaSTNScore_3m_i
          + error_i
@@ -472,24 +671,24 @@ Y_AB3m_i = alpha_0
 Definitions:
 
 - `Y_AB3m_i`: raw STN+SNr 3-month clinical score for patient `i`.
-- `X_SNr3m_i(s)`: STN+SNr 3-month SNr-component exposure at voxel, surface point, or streamline `s`.
+- `C_SNr3m_bilat(i,k)`: STN+SNr 3-month SNr-component bilateral connectivity to target `k`.
 - `DeltaSTNScore_3m_i`: STN component exposure change from STN-only 3 months to STN+SNr 3 months.
-- `theta_SNr_chronic(s)`: chronic SNr gain spatial coefficient.
+- `theta_SNr_chronic,k`: chronic SNr gain target coefficient.
 
 Question:
 
 ```text
 In patients with the same STN-only 3-month clinical state and the same STN component change,
-does final SNr 3-month exposure closer to s predict better STN+SNr 3-month outcome?
+does final SNr 3-month connectivity to target k predict better STN+SNr 3-month outcome?
 ```
 
 #### Immediate SNr Gain Model
 
-Use this model to estimate the immediate spatial distribution of SNr-associated gain after adding SNr to STN stimulation:
+Use this model to estimate the immediate target-level distribution of SNr-associated gain after adding SNr to STN stimulation:
 
 ```text
 Y_ABimmediate_i = alpha_0
-                + theta_SNr_immediate(s) * X_SNrImmediate_i(s)
+                + theta_SNr_immediate,k * C_SNrImmediate_bilat(i,k)
                 + beta                   * Y_STN3m_i
                 + gamma                  * DeltaSTNScore_immediate_i
                 + error_i
@@ -498,15 +697,15 @@ Y_ABimmediate_i = alpha_0
 Definitions:
 
 - `Y_ABimmediate_i`: raw STN+SNr immediate clinical score for patient `i`.
-- `X_SNrImmediate_i(s)`: STN+SNr immediate SNr-component exposure at voxel, surface point, or streamline `s`.
+- `C_SNrImmediate_bilat(i,k)`: STN+SNr immediate SNr-component bilateral connectivity to target `k`.
 - `DeltaSTNScore_immediate_i`: STN component exposure change from STN-only 3 months to STN+SNr immediate programming.
-- `theta_SNr_immediate(s)`: immediate SNr gain spatial coefficient.
+- `theta_SNr_immediate,k`: immediate SNr gain target coefficient.
 
 Question:
 
 ```text
 In patients with the same STN-only 3-month clinical state and the same immediate-phase STN component change,
-does final SNr immediate exposure closer to s predict better STN+SNr immediate outcome?
+does final SNr immediate connectivity to target k predict better STN+SNr immediate outcome?
 ```
 
 The `Y_STN3m` covariate controls the pre-SNr disease state. `DeltaSTNScore_immediate` controls concurrent STN component reprogramming in the immediate STN+SNr setting. If a same-day pre-SNr STN-only score becomes available, add a sensitivity model using that same-day baseline to control short-term disease fluctuation more directly.
@@ -515,15 +714,15 @@ The `Y_STN3m` covariate controls the pre-SNr disease state. `DeltaSTNScore_immed
 
 Use a rank-based partial Spearman estimator as the main implementation for `n = 16`:
 
-1. Rank-transform `Y_AB_post`, `X_SNr(s)`, `Y_STN3m`, and `DeltaSTNScore`.
+1. Rank-transform `Y_AB_post`, `C_SNr_bilat(k)`, `Y_STN3m`, and `DeltaSTNScore`.
 2. Regress ranked `Y_AB_post` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
-3. Regress ranked `X_SNr(s)` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
+3. Regress ranked `C_SNr_bilat(k)` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
 4. Correlate the two residual vectors.
 5. Flip sign when higher clinical score means worse outcome, so positive scores always indicate benefit.
 
 ```text
-SNrChronicGainScore(s) > 0 means stronger SNr exposure predicts better chronic STN+SNr outcome.
-SNrImmediateGainScore(s) > 0 means stronger SNr exposure predicts better immediate STN+SNr outcome.
+SNrChronicGainScore_k > 0 means stronger target-level SNr connectivity predicts better chronic STN+SNr outcome.
+SNrImmediateGainScore_k > 0 means stronger target-level SNr connectivity predicts better immediate STN+SNr outcome.
 ```
 
 ### SNr Gain Estimand Boundaries
@@ -542,7 +741,7 @@ percent improvement difference between STN+SNr and STN-only
 the outcome each patient would have had at every untested SNr location
 ```
 
-They estimate spatial associations between final SNr exposure and post-combination outcome after conditioning on the selected baseline state.
+They estimate target-level spatial associations between final SNr seed-target connectivity and post-combination outcome after conditioning on the selected baseline state.
 
 The observed final SNr location is clinician-selected:
 
@@ -562,7 +761,7 @@ not the full set of counterfactual outcomes:
 Y_i(s) for every possible SNr location s
 ```
 
-Therefore, the SNr maps are patient-level between-subject spatial association maps. They are not within-patient randomized location-response maps.
+Therefore, the SNr target maps and target scores are patient-level between-subject spatial association models. They are not within-patient randomized location-response maps.
 
 ### Scientific Preconditions for SNr Gain Inference
 
@@ -572,18 +771,19 @@ The SNr gain analyses are scientifically meaningful under these conditions:
 - `DeltaSTNScore` adequately summarizes STN-component changes for the SNr gain model.
 - The final SNr setting is a clinically optimized setting, not an arbitrary or poorly explored setting.
 - Acute programming response and side-effect thresholds used to choose the final SNr setting have reasonable relevance to the 3-month outcome.
-- SNr exposure has enough spatial variability across patients to estimate a map.
-- Within comparable ranges of `Y_STN3m` and `DeltaSTNScore`, there is sufficient overlap in SNr locations to avoid relying mainly on extrapolation.
+- SNr target-level connectivity has enough across-patient variability to estimate target weights.
+- Within comparable ranges of `Y_STN3m` and `DeltaSTNScore`, there is sufficient overlap in SNr target connectivity to avoid relying mainly on extrapolation.
 - Unmeasured prognosis factors, symptom subtypes, medication changes, rehabilitation intensity, anatomy, and programming style do not strongly determine both the final SNr location and the later STN+SNr outcome.
 - STN and SNr effects are sufficiently separable for an additive model to remain interpretable.
 
-Coverage must be reported for every surface, voxel, and fiber model:
+Coverage must be reported for every target-level model and every secondary voxel or fiber output:
 
 ```text
-Coverage(s) = sum_i X_SNr,i(s)
+Coverage(k) = number of patients with usable bilateral connectivity for target k
+ExposureCoverage(k) = sum_i C_SNr_bilat(i,k)
 ```
 
-Only regions or streamlines with adequate coverage should receive strong anatomical interpretation.
+Only targets, regions, or streamlines with adequate coverage should receive strong anatomical interpretation.
 
 ### Potential Problems with the SNr Gain Definition
 
@@ -593,10 +793,10 @@ Main limitations:
 - Clinician selection can induce indication bias because different SNr regions may be selected for different patient subtypes.
 - `Y_STN3m` controls total pre-SNr severity, but may not fully control symptom composition, DBS responsiveness, future prognosis, or side-effect limitations.
 - `DeltaSTNScore` may be an incomplete summary of STN reprogramming because STN changes can involve contact, amplitude, pulse width, frequency, e-field shape, and fiber recruitment.
-- `X_SNr(s)` and `DeltaSTNScore` may be collinear if certain SNr locations are systematically paired with certain STN programming changes.
-- Low-coverage locations or streamlines can generate unstable coefficients.
-- With `n = 16`, interaction models such as `X_SNr(s) * subtype` or `X_SNr(s) * DeltaSTNScore` are usually too unstable for primary inference.
-- Normative connectomes support group-level structural interpretation, not individualized tractography.
+- `C_SNr_bilat(i,k)` and `DeltaSTNScore` may be collinear if certain SNr target connectivity profiles are systematically paired with certain STN programming changes.
+- Low-coverage targets, locations, or streamlines can generate unstable coefficients.
+- With `n = 16`, interaction models such as `C_SNr_bilat(k) * subtype` or `C_SNr_bilat(k) * DeltaSTNScore` are usually too unstable for primary inference.
+- Normative connectomes support group-level structural interpretation; individualized DWI analyses are needed for subject-specific anatomy but remain limited by reconstruction quality.
 - Random or Gaussian proxy stimulation results validate the pipeline only and should not be biologically interpreted.
 
 The most defensible wording is:
@@ -632,7 +832,7 @@ STNScore_i = sum of STN-component exposure in a prespecified STN motor ROI
 or, once an STN model is available:
 
 ```text
-STNScore_i = weighted overlap with the learned STN sweet-spot or sweet-fiber model
+STNScore_i = weighted overlap with the learned STN target-level or sweet-spot model
 ```
 
 ### Residualized SNr Sensitivity Model
@@ -647,21 +847,23 @@ As a complementary sensitivity analysis:
 Y_SNr_residual = observed STN+SNr outcome - predicted STN contribution
 ```
 
-4. Model `Y_SNr_residual` against SNr-component exposure.
+4. Model `Y_SNr_residual` against SNr-component target-level connectivity.
 
 Use leave-one-patient-out predictions for any residualized model to avoid optimistic reuse of the same patient in both training and prediction.
 
-## Fiber and Sweet-Spot Definitions
+## Target, Fiber, and Sweet-Spot Definitions
 
 ### Voxel Sweet Spot
 
-For each voxel and outcome, model the relation between subject-level stimulation exposure at that voxel and clinical response.
+Voxel sweet spots are secondary localization outputs. For each voxel and outcome, model the relation between subject-level stimulation exposure at that voxel and clinical response after the target-level model has been specified.
 
 For the STN model, use STN-alone exposure and STN response. For the SNr gain model, use SNr-component exposure and endpoint-specific post-score models adjusted for STN-3m baseline and STN exposure change. Run the chronic gain endpoint for `STN+SNr 3m` and the immediate gain endpoint for `STN+SNr immediate`.
 
+Voxel maps should not drive primary predictor selection.
+
 ### Whole-Streamline Fiber Filtering
 
-Use whole streamlines from the public connectome. Do not crop streamlines to STN/SNr internal segments.
+Use whole streamlines from the public connectome or individualized DWI tractography to construct target-level connectivity features. Do not crop streamlines to STN/SNr internal segments.
 
 Main candidate fiber definitions:
 
@@ -676,7 +878,7 @@ STN+SNr-associated candidate fiber:
   whole streamline intersects both connected-region STN and SNr ROIs
 ```
 
-The exposure value is still sampled from the full stimulation map along the whole streamline:
+The streamline exposure value is still sampled from the full stimulation map along the whole streamline:
 
 ```text
 X_subject,fiber = max exposure along the full streamline
@@ -684,29 +886,43 @@ X_subject,fiber = max exposure along the full streamline
 
 The peak may occur near the nucleus edge or outside the strict ROI boundary.
 
+Individual fibers are not selected as primary predictors by top correlation. Fiber subsets are exported only for target-level contribution decomposition, QC, visualization, and anatomical explanation of selected targets.
+
 ### Endpoint-Specific Reporting
 
-For each significant or top-ranked fiber:
+For each selected or high-ranked target:
+
+- report target label;
+- report target atlas source;
+- report model class: `early`, `chronic`, `chronic_gain`, or `immediate_gain`;
+- report scale;
+- report target weight `w_k`;
+- report `STNBenefitScore_k`, `SNrChronicGainScore_k`, or `SNrImmediateGainScore_k`;
+- report left, right, and bilateral connectivity summaries;
+- report normative-only, individualized-DWI, or normative-guided-DWI source;
+- report whether the effect is sweet or sour.
+
+For fiber contribution outputs within selected targets:
 
 - report connectome name;
 - report streamline ID;
 - report model class: `acute` or `chronic`;
 - report scale;
-- report `SNrBenefitScore` or STN benefit score;
+- report parent target label and target weight;
 - report whether it intersects the connected-region STN ROI, SNr ROI, or both;
 - report HCPex endpoint labels;
-- report whether the effect is sweet or sour.
+- report whether it supports a sweet or sour target.
 
 ## Statistical Plan
 
 ### Main Tests
 
-- STN primary model: baseline-adjusted partial Spearman between STN-only 3-month exposure and STN-only 3-month raw score, adjusting for preoperative raw score.
-- STN secondary early model: baseline-adjusted partial Spearman between STN-immediate exposure and STN-immediate raw score, adjusting for preoperative score or same-day STN-OFF score when available.
-- SNr chronic gain model: endpoint-specific partial Spearman model with `Y_STN3m` and `DeltaSTNScore_3m` as covariates, estimating the adjusted chronic SNr gain map.
-- SNr immediate gain model: endpoint-specific partial Spearman model with `Y_STN3m` and `DeltaSTNScore_immediate` as covariates, estimating the adjusted immediate SNr gain map.
+- STN primary model: baseline-adjusted partial Spearman or ANCOVA between target-level STN-only 3-month bilateral connectivity and STN-only 3-month raw score, adjusting for preoperative raw score.
+- STN secondary early model: baseline-adjusted partial Spearman or ANCOVA between target-level STN-immediate bilateral connectivity and STN-immediate raw score, adjusting for preoperative score or same-day STN-OFF score when available.
+- SNr chronic gain model: endpoint-specific target-level partial Spearman or ANCOVA with `Y_STN3m` and `DeltaSTNScore_3m` as covariates, estimating adjusted chronic SNr target weights.
+- SNr immediate gain model: endpoint-specific target-level partial Spearman or ANCOVA with `Y_STN3m` and `DeltaSTNScore_immediate` as covariates, estimating adjusted immediate SNr target weights.
 - Primary inference is scale-specific; do not combine heterogeneous scales into one primary model.
-- Correct multiple comparisons within each scale, connectome, and model class using FDR.
+- Correct multiple comparisons across tested targets within each scale, connectome or DWI source, and model class using FDR.
 - Use patient-level permutation tests with seed `42` for empirical significance.
 
 ### Endpoint Hierarchy
@@ -729,9 +945,10 @@ Use leave-one-patient-out cross-validation for `n = 16`.
 
 For each held-out subject:
 
-1. Train the sweet-spot or sweet-fiber model on the remaining subjects.
-2. Compute the held-out subject's weighted exposure score.
-3. Compare predicted score with observed adjusted outcome.
+1. Train target weights and select targets on the remaining subjects.
+2. Build the held-out subject's bilateral target-level efficacy score using training-fold parameters only.
+3. Fit the final training-fold model and predict the held-out subject's outcome.
+4. Compare the full target-score model with a covariate-only model.
 
 Report:
 
@@ -739,7 +956,8 @@ Report:
 - permutation P value;
 - number of complete subjects;
 - endpoint class;
-- sensitivity-model agreement.
+- sensitivity-model agreement;
+- covariate-only baseline performance.
 
 ### Cross-Scale Map-Level Summary
 
@@ -748,16 +966,16 @@ After fitting scale-specific models, evaluate convergence at the map level rathe
 Recommended map-level metrics:
 
 ```text
-spatial correlation between scale maps
-Dice overlap of top 5% sweet maps
-Jaccard overlap of top 5% sweet maps
-center-of-mass distance between top sweet regions
+correlation between scale-specific target-weight vectors
+overlap of selected sweet targets
+overlap of selected sour targets
+optional spatial correlation between secondary voxel/fiber density maps
 ```
 
 A secondary global SNr benefit map may be generated only after scale-specific fitting:
 
 ```text
-GlobalSNrScore_f = mean_s z(SNrBenefitScore_s,f)
+GlobalSNrTargetWeight_k = mean_scale z(SNrBenefitScore_scale,k)
 ```
 
 Use equal weights by default. If non-equal weights are used, define them before looking at results and record them in provenance.
@@ -784,14 +1002,15 @@ Run the following sensitivity analyses:
 - one-at-a-time STN covariate sensitivity with medication or LEDD change when medication state differs;
 - patient-level overlap with a published STN sweet spot as an external plausibility check;
 - STN-only negative-control model using SNr exposure to test whether SNr-addition maps reflect general electrode placement quality;
-- streamline-specific STN exposure change instead of scalar `DeltaSTNScore`;
+- target-specific STN exposure change instead of scalar `DeltaSTNScore`;
 - minimal-STN-change subgroup after excluding subjects with the largest absolute STN exposure change;
 - binary VTA intersection instead of continuous peak exposure;
 - interleaving-specific union, overlap, and frequency-weighted exposure summaries;
 - local ROI-expanded peak exposure using connected-region STN/SNr primary masks dilated by `2-3 mm`;
 - charge-rate proxy using `abs(voltage_V) * pulse_width_us * frequency_Hz`;
 - OSS-DBS/PAM pathway activation model when valid outputs exist;
-- repeated analyses across dTOR-985, MGH-USC HCP 32, and PPMI 85 connectomes.
+- repeated analyses across dTOR-985, MGH-USC HCP 32, and PPMI 85 connectomes;
+- normative-only, normative-guided individualized DWI, and individualized-DWI-only target-level model comparison.
 
 ## Implementation Outline
 
@@ -820,15 +1039,16 @@ Reusable functions should be grouped by responsibility:
 4. Build STN-alone, combined-STN-component, and combined-SNr-component exposure maps, including interleaving union and overlap maps where needed.
 5. Load raw clinical scores and improvement-rate tables.
 6. Select endpoint per scale.
-7. Extract voxel and streamline exposure matrices.
-8. Fit the primary chronic STN-only model.
-9. Fit secondary STN-only early / acute models where valid immediate data exist.
-10. Fit optional STN chronic adaptation models when justified by programming changes.
-11. Fit endpoint-specific SNr chronic gain models with `Y_STN3m` and `DeltaSTNScore_3m`.
-12. Fit endpoint-specific SNr immediate gain models with `Y_STN3m` and `DeltaSTNScore_immediate`.
-13. Fit sensitivity models.
-14. Label top fibers by connected-region STN/SNr and endpoint masks, with HCPex labels as supplemental endpoint labels.
-15. Export CSV/Mat/JSON provenance and visualization-ready fiber subsets.
+7. Build side-specific and bilateral target-level connectivity matrices for normative and individualized DWI sources.
+8. Extract secondary voxel and streamline exposure matrices for localization, QC, and visualization.
+9. Fit the primary chronic STN-only target model.
+10. Fit secondary STN-only early / acute target models where valid immediate data exist.
+11. Fit optional STN chronic adaptation target models when justified by programming changes.
+12. Fit endpoint-specific SNr chronic gain target models with `Y_STN3m` and `DeltaSTNScore_3m`.
+13. Fit endpoint-specific SNr immediate gain target models with `Y_STN3m` and `DeltaSTNScore_immediate`.
+14. Fit sensitivity models, including normative-only and DWI-only variants.
+15. Label fibers within selected targets by connected-region STN/SNr and endpoint masks, with HCPex labels as supplemental endpoint labels.
+16. Export CSV/Mat/JSON provenance, target weights, target scores, and visualization-ready fiber subsets.
 
 ## Expected Outputs
 
@@ -841,17 +1061,18 @@ Use an output root outside tracked code, for example:
 Expected output groups:
 
 - `provenance/`: input paths, software versions, random seed, model settings.
-- `qc/`: subject inclusion, endpoint selection, missingness, ROI volumes, connectome availability.
-- `exposure/`: subject-level exposure summaries and streamline exposure matrices.
+- `qc/`: subject inclusion, endpoint selection, missingness, ROI volumes, connectome availability, DWI coverage.
+- `target_connectivity/`: left, right, and bilateral target-level connectivity matrices.
+- `exposure/`: subject-level exposure summaries and secondary streamline exposure matrices.
 - `exposure/interleaving/`: subprogram exposure maps, union maps, overlap maps, and optional timing-weighted maps.
-- `models/stn/chronic/`: primary chronic STN-only sweet-spot and sweet-fiber results.
-- `models/stn/early/`: secondary early / acute STN-only response results.
-- `models/stn/adaptation/`: optional STN chronic adaptation results.
-- `models/snr/chronic_gain/`: endpoint-specific chronic SNr gain model results.
-- `models/snr/immediate_gain/`: endpoint-specific immediate SNr gain model results.
+- `models/stn/chronic/`: primary chronic STN-only target weights, target scores, and secondary maps.
+- `models/stn/early/`: secondary early / acute STN-only target results.
+- `models/stn/adaptation/`: optional STN chronic adaptation target results.
+- `models/snr/chronic_gain/`: endpoint-specific chronic SNr target-gain model results.
+- `models/snr/immediate_gain/`: endpoint-specific immediate SNr target-gain model results.
 - `models/cross_scale/`: map-level similarity metrics and secondary global maps.
 - `sensitivity/`: all sensitivity model outputs.
-- `visualization/`: top fiber subsets, sweet/sour maps, HCPex endpoint summaries.
+- `visualization/`: selected-target fiber subsets, sweet/sour target summaries, secondary maps, HCPex endpoint summaries.
 
 ## Acceptance Checks
 
@@ -862,11 +1083,15 @@ Expected output groups:
 - Streamlines are whole connectome streamlines, not STN/SNr internal fragments.
 - STN/SNr model labels come from `STN-connected regions` and `SNr-connected regions`.
 - Non-STN/SNr endpoint labels come from HCPex.
+- Primary predictor selection is target-level, not top correlated individual fibers.
+- Left and right side connectivity are computed separately and averaged into one patient-level bilateral feature before modeling.
+- The primary model has one row per patient; left and right hemispheres are not treated as independent samples.
+- Target-level DWI coverage is checked before individualized-DWI or normative-guided-DWI models are interpreted.
 - The primary STN model uses raw STN-3m score adjusted for raw preoperative score, not percent improvement as the main outcome.
 - STN-immediate models are marked secondary and use same-day STN-OFF baseline when available.
 - SNr chronic gain models include both `Y_STN3m` and `DeltaSTNScore_3m`.
 - SNr immediate gain models include both `Y_STN3m` and `DeltaSTNScore_immediate`.
-- SNr results include coverage maps, and low-coverage regions or streamlines are not strongly interpreted.
+- SNr results include target coverage summaries and secondary coverage maps; low-coverage targets, regions, or streamlines are not strongly interpreted.
 - The implementation can run a PPMI smoke test before dTOR full-scale analysis.
 - dTOR and MGH access is chunked and memory-safe.
 - `my_helper/fiber/stnsnr` contains only pipeline scripts, not core helper functions.
@@ -875,18 +1100,19 @@ Expected output groups:
 
 ## Interpretation Rules
 
-- Primary STN results can be described as chronic STN-only therapeutic fibers or sweet spots.
-- STN-immediate results should be described as early STN-only response maps, or acute STN stimulation response maps only when same-day STN-OFF baseline is used.
+- Primary STN results should be described as chronic STN-only therapeutic target connectivity patterns and, secondarily, sweet spots or fiber contribution maps.
+- STN-immediate results should be described as early STN-only target connectivity response models, or acute STN stimulation response models only when same-day STN-OFF baseline is used.
 - STN adaptation results should be described as secondary programming/adaptation analyses, not as the main STN efficacy model.
-- SNr gain results should be described as clinical optimization-informed SNr-target gain maps adjusted for STN-3m baseline and concurrent STN exposure change.
-- SNr chronic gain results should be described as adjusted spatial associations with `STN+SNr 3m` outcome.
-- SNr immediate gain results should be described as adjusted spatial associations with `STN+SNr immediate` outcome.
+- SNr gain results should be described as clinical optimization-informed SNr target-level gain models adjusted for STN-3m baseline and concurrent STN exposure change.
+- SNr chronic gain results should be described as adjusted target-level associations with `STN+SNr 3m` outcome.
+- SNr immediate gain results should be described as adjusted target-level associations with `STN+SNr immediate` outcome.
 - Residualized SNr results should be described as STN-model-adjusted SNr-associated residual benefit, not as definitive pure SNr causal effect.
-- SNr maps should not be described as pure causal maps showing that every patient should be stimulated at a given SNr location.
+- SNr target maps should not be described as pure causal maps showing that every patient should be stimulated at a given SNr location.
 - Interleaving union maps should be described as exposure across an interleaving cycle, not as one simultaneous continuous electric field.
 - Interleaving overlap maps should be described as tissue or fibers exposed to both pulse trains.
-- Scale-specific maps are the primary results for symptom-specific inference.
-- Global or pooled maps are secondary/exploratory summaries of cross-scale convergence.
+- Scale-specific target-level models are the primary results for symptom-specific inference.
+- Global or pooled target maps are secondary/exploratory summaries of cross-scale convergence.
+- Fiber subsets are explanatory outputs within selected targets, not the primary predictor selection mechanism.
 - Random stimulation table results are pipeline validation only and should not be interpreted biologically.
 
 ## References

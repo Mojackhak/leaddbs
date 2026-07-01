@@ -4,12 +4,13 @@ Date: 2026-07-01
 
 ## Purpose
 
-This document fixes the technical design for symptom-specific STN and SNr sweet/sour spot analyses based on the current clinical programming data and public normative structural connectomes.
+This document fixes the technical design for symptom-specific STN and SNr target-level seed-target analyses based on the current clinical programming data, public normative structural connectomes, and individualized DWI tractography.
 
 The analysis has two main goals:
 
-1. Identify STN-only stimulation voxels and streamlines associated with stable STN therapeutic benefit.
-2. Identify SNr stimulation voxels and streamlines associated with additional benefit after SNr is added to STN stimulation.
+1. Identify STN-only target-level connectivity features associated with stable STN therapeutic benefit.
+2. Identify SNr target-level connectivity features associated with additional benefit after SNr is added to STN stimulation.
+3. Use voxel and fiber outputs as secondary localization, QC, and visualization products rather than as the primary predictor-selection unit.
 
 This is an internal technical document, not a manuscript Methods section. It records data sources, modeling definitions, execution steps, expected outputs, and interpretation limits.
 
@@ -97,6 +98,37 @@ Execution order:
 3. Run the main analysis on `dTOR-985 Full (Elias 2024)`.
 
 The dTOR and MGH connectomes are large. Implementations must use chunked access and must not load all streamlines into memory at once.
+
+### Individualized DWI Tractography
+
+Use the current imported DWI log as the individualized DWI source:
+
+```text
+/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_import_20260701_013240.csv
+```
+
+The DWI registration prerequisites are fixed in:
+
+```text
+/Users/mojackhu/Github/leaddbs/my_helper/stnsnr/dwi_registration_technical_details.md
+```
+
+Individualized DWI is incorporated as a target-level seed-target feature source:
+
+```text
+C_ind(i,h,k) = patient i, side h, target k connectivity
+C_ind_bilat(i,k) = (C_ind(i,L,k) + C_ind(i,R,k)) / 2
+```
+
+Main DWI interpretation requires target coverage QC. A target should not enter the main individualized-DWI model if it is missing or unreliably reconstructed in too many patients. The preferred threshold is that a target has usable bilateral streamlines in at least `12/16` patients, with `13/16` as a stricter sensitivity rule.
+
+The three planned data-source models are:
+
+- `Normative-only`: target weights and scores from public connectomes.
+- `Normative-guided individualized DWI`: target selection and weights from normative connectomes, score computed from individualized DWI features.
+- `Individualized-DWI-only`: target selection and weights from individualized DWI features as sensitivity analysis.
+
+The preferred connectivity model after DWI QC is the normative-guided individualized DWI target-level model.
 
 ### Atlas And ROI Data
 
@@ -219,6 +251,50 @@ binary VTA intersection
 OSS-DBS / pathway activation value when available
 ```
 
+### Target-Level Connectivity Features
+
+The primary connectivity model uses target-level features rather than top single-fiber predictors.
+
+For each target label `k`, each patient `i`, and each side `h` in `{L,R}`, compute side-specific connectivity:
+
+```text
+C(i,h,k)
+```
+
+For public normative connectomes:
+
+```text
+G_norm(k,h) = streamlines with endpoint in same-side target P(k,h)
+A_norm(i,h,j) = max exposure along streamline j from stimulation side h
+
+C_norm(i,h,k) =
+  sum_j A_norm(i,h,j) / (number of streamlines in G_norm(k,h) + lambda)
+```
+
+For individualized DWI:
+
+```text
+G_ind(i,k,h) = patient i streamlines with endpoint in same-side target P(k,h)
+A_ind(i,h,j) = max exposure along patient streamline j from stimulation side h
+
+C_ind(i,h,k) =
+  sum_j A_ind(i,h,j) / (number of streamlines in G_ind(i,k,h) + lambda)
+```
+
+Use equal streamline weights within a target for the main analysis:
+
+```text
+q_j = 1
+```
+
+Left and right sides are then averaged to one patient-level feature:
+
+```text
+C_bilat(i,k) = (C(i,L,k) + C(i,R,k)) / 2
+```
+
+The primary statistical table has one row per patient (`n = 16`). Do not treat left and right hemispheres as independent observations. Left and right stimulation are computed in their own hemispheres against same-side homologous targets; no left-right flip is required for the target-level model.
+
 ### Voxel Exposure
 
 Voxel-wise models use subject-level stimulation exposure at each voxel.
@@ -258,14 +334,14 @@ SE-ADL is higher-is-better. Do not sign-flip SE-ADL outcome residuals when gener
 Purpose:
 
 ```text
-Identify voxels or streamlines where stronger STN-only exposure predicts better stable STN 3-month outcome.
+Identify targets where stronger STN-only target connectivity predicts better stable STN 3-month outcome.
 ```
 
-For each clinical scale and each voxel or streamline location `s`:
+For each clinical scale and each target `k`:
 
 ```text
 Y_STN3m_i = alpha_0
-          + alpha_STN(s) * X_STN3m_i(s)
+          + alpha_STN,k * C_STN3m_bilat(i,k)
           + beta         * Y_Preop_i
           + error_i
 ```
@@ -275,8 +351,8 @@ Definitions:
 ```text
 Y_STN3m_i    = raw STN-only 3-month clinical score for subject i
 Y_Preop_i    = raw preoperative clinical score for subject i
-X_STN3m_i(s) = STN-only 3-month stimulation exposure at voxel/streamline s
-alpha_STN(s) = STN spatial coefficient of interest
+C_STN3m_bilat(i,k) = bilateral STN target-level connectivity for target k
+alpha_STN,k = STN target coefficient of interest
 ```
 
 Main estimator:
@@ -288,9 +364,9 @@ rank-based partial Spearman / residualized regression
 Benefit-oriented implementation:
 
 ```text
-STNBenefitScore(s) =
+STNBenefitScore_k =
   corr(
-    residual(rank(X_STN3m(s)) ~ rank(Y_Preop)),
+    residual(rank(C_STN3m_bilat(k)) ~ rank(Y_Preop)),
     benefit_oriented_residual(rank(Y_STN3m) ~ rank(Y_Preop))
   )
 ```
@@ -298,8 +374,8 @@ STNBenefitScore(s) =
 Interpretation:
 
 ```text
-STNBenefitScore(s) > 0 = stronger STN exposure predicts better baseline-adjusted STN 3-month outcome
-STNBenefitScore(s) < 0 = stronger STN exposure predicts worse baseline-adjusted STN 3-month outcome
+STNBenefitScore_k > 0 = stronger STN target connectivity predicts better baseline-adjusted STN 3-month outcome
+STNBenefitScore_k < 0 = stronger STN target connectivity predicts worse baseline-adjusted STN 3-month outcome
 ```
 
 ### Secondary STN Immediate Response Model
@@ -310,7 +386,7 @@ Default model when only preoperative baseline is available:
 
 ```text
 Y_STNImmediate_i = alpha_0
-                 + alpha_STN_immediate(s) * X_STNImmediate_i(s)
+                 + alpha_STN_immediate,k * C_STNImmediate_bilat(i,k)
                  + beta                   * Y_Preop_i
                  + error_i
 ```
@@ -319,7 +395,7 @@ If a same-day STN-off baseline exists later, use that baseline instead:
 
 ```text
 Y_STNImmediate_i = alpha_0
-                 + alpha_STN_acute(s) * X_STNImmediate_i(s)
+                 + alpha_STN_acute,k * C_STNImmediate_bilat(i,k)
                  + beta               * Y_STNOffSameDay_i
                  + error_i
 ```
@@ -334,7 +410,7 @@ The SNr model family has one primary estimand:
 clinical optimization-informed SNr-target gain model
 ```
 
-It asks whether the final clinician-optimized SNr component exposure predicts better STN+SNr outcome after controlling the pre-SNr STN 3-month clinical state and the concurrent STN component exposure change.
+It asks whether the final clinician-optimized SNr component target-level connectivity predicts better STN+SNr outcome after controlling the pre-SNr STN 3-month clinical state and the concurrent STN component exposure change.
 
 The model has two endpoints:
 
@@ -348,14 +424,14 @@ immediate SNr gain endpoint: STN+SNr immediate relative to STN 3m
 Purpose:
 
 ```text
-Estimate the long-term spatial distribution of SNr-associated gain after adding SNr to STN stimulation.
+Estimate the long-term target-level distribution of SNr-associated gain after adding SNr to STN stimulation.
 ```
 
 Model:
 
 ```text
 Y_AB3m_i = alpha_0
-         + theta_SNr_chronic(s) * X_SNr3m_i(s)
+         + theta_SNr_chronic,k * C_SNr3m_bilat(i,k)
          + beta                 * Y_STN3m_i
          + gamma                * DeltaSTNScore_3m_i
          + error_i
@@ -366,16 +442,16 @@ Definitions:
 ```text
 Y_AB3m_i            = raw STN+SNr 3-month clinical score for subject i
 Y_STN3m_i           = raw STN-only 3-month clinical score for subject i
-X_SNr3m_i(s)        = STN+SNr 3-month SNr-component exposure at voxel/streamline s
+C_SNr3m_bilat(i,k)  = STN+SNr 3-month SNr-component bilateral connectivity to target k
 DeltaSTNScore_3m_i  = scalar STN component exposure change from STN-only 3m to STN+SNr 3m
-theta_SNr_chronic   = chronic SNr gain spatial coefficient of interest
+theta_SNr_chronic,k = chronic SNr gain target coefficient of interest
 ```
 
 Interpretation:
 
 ```text
 Among subjects with comparable STN-only 3-month clinical state and comparable STN component change,
-does final SNr 3-month exposure at s predict better STN+SNr 3-month outcome?
+does final SNr 3-month connectivity to target k predict better STN+SNr 3-month outcome?
 ```
 
 ### Immediate SNr Gain Model
@@ -383,14 +459,14 @@ does final SNr 3-month exposure at s predict better STN+SNr 3-month outcome?
 Purpose:
 
 ```text
-Estimate the immediate spatial distribution of SNr-associated gain after adding SNr to STN stimulation.
+Estimate the immediate target-level distribution of SNr-associated gain after adding SNr to STN stimulation.
 ```
 
 Model:
 
 ```text
 Y_ABimmediate_i = alpha_0
-                + theta_SNr_immediate(s) * X_SNrImmediate_i(s)
+                + theta_SNr_immediate,k * C_SNrImmediate_bilat(i,k)
                 + beta                   * Y_STN3m_i
                 + gamma                  * DeltaSTNScore_immediate_i
                 + error_i
@@ -401,16 +477,16 @@ Definitions:
 ```text
 Y_ABimmediate_i              = raw STN+SNr immediate clinical score for subject i
 Y_STN3m_i                    = raw STN-only 3-month clinical score for subject i
-X_SNrImmediate_i(s)          = STN+SNr immediate SNr-component exposure at voxel/streamline s
+C_SNrImmediate_bilat(i,k)    = STN+SNr immediate SNr-component bilateral connectivity to target k
 DeltaSTNScore_immediate_i    = scalar STN component exposure change from STN-only 3m to STN+SNr immediate
-theta_SNr_immediate          = immediate SNr gain spatial coefficient of interest
+theta_SNr_immediate,k        = immediate SNr gain target coefficient of interest
 ```
 
 Interpretation:
 
 ```text
 Among subjects with comparable STN-only 3-month clinical state and comparable immediate-phase STN component change,
-does final SNr immediate exposure at s predict better STN+SNr immediate outcome?
+does final SNr immediate connectivity to target k predict better STN+SNr immediate outcome?
 ```
 
 The `Y_STN3m` covariate controls the pre-SNr disease state. `DeltaSTNScore_immediate` controls concurrent STN component reprogramming in the immediate STN+SNr setting. If a same-day pre-SNr STN-only score becomes available, add a sensitivity model using that same-day baseline to control short-term disease fluctuation more directly.
@@ -419,65 +495,83 @@ The `Y_STN3m` covariate controls the pre-SNr disease state. `DeltaSTNScore_immed
 
 For `n = 16`, use rank-based partial Spearman or equivalent residualized regression as the main implementation.
 
-For each endpoint and each voxel or streamline `s`:
+For each endpoint and each target `k`:
 
-1. Rank-transform `Y_AB`, `X_SNr(s)`, `Y_STN3m`, and `DeltaSTNScore`.
+1. Rank-transform `Y_AB`, `C_SNr_bilat(k)`, `Y_STN3m`, and `DeltaSTNScore`.
 2. Regress ranked `Y_AB` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
-3. Regress ranked `X_SNr(s)` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
+3. Regress ranked `C_SNr_bilat(k)` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
 4. Correlate the two residual vectors.
 5. Orient the resulting score so positive values mean better clinical outcome.
 
 For lower-is-better scales:
 
 ```text
-H_SNr(s) = -theta_SNr(s)
+H_SNr,k = -theta_SNr,k
 ```
 
 For SE-ADL:
 
 ```text
-H_SNr(s) = theta_SNr(s)
+H_SNr,k = theta_SNr,k
 ```
 
 Output names:
 
 ```text
-SNrChronicGainScore(s)
-SNrImmediateGainScore(s)
+SNrChronicGainScore_k
+SNrImmediateGainScore_k
 ```
 
-Positive values indicate sweet regions or sweet streamlines. Negative values indicate sour regions or sour streamlines.
+Positive values indicate sweet targets. Negative values indicate sour targets. Secondary voxel and streamline outputs may be generated to localize or visualize these target-level findings.
 
-## Streamline-Based Outputs
+## Target-Level Outputs
 
-For each connectome, model class, scale, and endpoint, export:
+For each connectome or DWI source, model class, scale, and endpoint, export:
 
 ```text
-fiber_id
-connectome_name
+target_label
+target_atlas
+data_source
 scale
 endpoint_class
 model_name
-benefit_score
+target_weight
+benefit_score_k
 rho_or_beta
 p_value
 q_value
 coverage
-exposure_prevalence
+C_left_summary
+C_right_summary
+C_bilat_summary
 sweet_or_sour
+endpoint_labels
+```
+
+For secondary fiber contribution outputs within selected targets, export:
+
+```text
+fiber_id
+parent_target_label
+connectome_name_or_dwi_subject
+scale
+endpoint_class
+model_name
+parent_target_weight
+fiber_exposure_summary
+coverage
 intersects_custom_stn
 intersects_custom_snr
 intersects_both_stn_snr
 endpoint_labels
 ```
 
-Also export:
+Also export secondary visualization products:
 
 ```text
-top sweet streamline subsets
-top sour streamline subsets
-sweet streamline density maps
-sour streamline density maps
+selected-target fiber subsets
+target-weighted streamline density maps
+target coverage maps
 coverage density maps
 ```
 
@@ -495,7 +589,7 @@ coverage map
 bootstrap stability map
 ```
 
-Voxel maps should be interpreted with connected-region STN/SNr outlines and target-atlas overlays, but the model itself is not cropped to those ROIs.
+Voxel maps are secondary localization outputs. They should be interpreted with connected-region STN/SNr outlines and target-atlas overlays, but the primary target-level model itself is not cropped to those ROIs.
 
 ## Execution Plan
 
@@ -525,21 +619,23 @@ Voxel maps should be interpreted with connected-region STN/SNr outlines and targ
 5. Record missingness per scale and endpoint.
 6. Apply `MIN_N_FOR_MODEL = 12`.
 
-### Stage 4: Streamline Exposure Extraction
+### Stage 4: Target Connectivity Extraction
 
 1. Run PPMI smoke test first.
 2. Load connectome streamlines in chunks.
-3. Compute full-streamline peak exposure for each subject.
-4. Record candidate fiber classes using `STN-connected regions` and `SNr-connected regions` intersections.
-5. Label endpoints using connected-region atlas masks first, then HCPex and registry-defined target atlases when additional labels are needed.
+3. Compute side-specific target connectivity `C(i,h,k)` using same-side targets.
+4. Average left and right features into patient-level `C_bilat(i,k)`.
+5. Record target coverage, streamline counts, and reconstruction failures.
 6. Repeat for MGH and dTOR after PPMI validation.
+7. Compute individualized DWI target connectivity and coverage after DWI registration QC passes.
 
-### Stage 5: Voxel Exposure Extraction
+### Stage 5: Secondary Voxel And Fiber Extraction
 
 1. Build cohort stimulation union mask.
 2. Apply minimum coverage rules.
 3. Extract subject-by-voxel exposure matrices in chunks when needed.
-4. Save coverage and exposure prevalence maps.
+4. Extract selected-target streamline exposure summaries for contribution and visualization.
+5. Save coverage and exposure prevalence maps.
 
 ### Stage 6: Model Fitting
 
@@ -552,7 +648,7 @@ SNr chronic gain model
 SNr immediate gain model
 ```
 
-Use patient-level permutation tests with random seed `42`. Correct multiple comparisons within each scale, connectome, endpoint, and model class using FDR.
+Use patient-level permutation tests with random seed `42`. Correct multiple comparisons across tested targets within each scale, connectome or DWI source, endpoint, and model class using FDR.
 
 ### Stage 7: Stability And Sensitivity
 
@@ -567,6 +663,7 @@ interleaving overlap sensitivity
 charge-rate proxy sensitivity
 OSS-DBS / pathway activation sensitivity when valid outputs exist
 repeated analyses across PPMI, MGH, and dTOR
+normative-only, normative-guided individualized DWI, and individualized-DWI-only target-level model comparison
 ```
 
 ### Stage 8: Reporting
@@ -577,12 +674,16 @@ Generate:
 QC tables
 subject inclusion tables
 model setting provenance
-streamline score tables
-voxel maps
-top fiber lists
+target weight tables
+target connectivity matrices
+target score tables
+secondary streamline contribution tables
+secondary voxel maps
+selected-target fiber lists
 atlas endpoint summaries
 coverage summaries
 cross-connectome consistency summaries
+DWI coverage summaries
 ```
 
 ## Expected Output Root
@@ -598,6 +699,7 @@ Recommended subdirectories:
 ```text
 provenance/
 qc/
+target_connectivity/
 exposure/
 exposure/interleaving/
 models/stn/chronic/
@@ -613,7 +715,7 @@ visualization/
 
 ### Observational Spatial Association
 
-The SNr gain maps are between-subject spatial association maps. They are not within-patient randomized location-response maps.
+The SNr gain target maps and target scores are between-subject spatial association models. They are not within-patient randomized location-response maps.
 
 The observed final SNr setting is:
 
@@ -633,7 +735,7 @@ The data do not contain:
 Y_i(s) for every possible SNr location s
 ```
 
-Therefore, the maps should not be described as pure causal efficacy maps showing that every patient should be stimulated at a specific SNr location.
+Therefore, the target maps and secondary localization outputs should not be described as pure causal efficacy maps showing that every patient should be stimulated at a specific SNr location.
 
 ### Residual Confounding
 
@@ -666,11 +768,11 @@ STN-SNr interaction
 
 The cohort currently has `n = 16`. High-dimensional interaction models should not be used for primary inference.
 
-Low-coverage voxels or streamlines can produce unstable coefficients. Every model must export coverage maps or coverage summaries.
+Low-coverage targets, voxels, or streamlines can produce unstable coefficients. Every model must export target coverage summaries and, for secondary maps, coverage maps.
 
 ### Normative Connectome Limits
 
-Normative connectomes support group-level structural interpretation. They do not represent each subject's individual DWI anatomy.
+Normative connectomes support group-level structural interpretation. They do not represent each subject's individual DWI anatomy. The normative-guided individualized DWI model tests whether the normative target pattern is expressed in each patient's own DWI tractography, but it remains limited by DWI reconstruction quality and coverage.
 
 Cross-connectome replication is required before making strong pathway-specific claims.
 
@@ -690,8 +792,12 @@ STN/SNr atlas registry is used for endpoint definitions and sensitivity/fallback
 VTA/e-field/proxy maps are not cropped to STN/SNr
 interleaving is split into subprograms
 union and overlap interleaving outputs are generated
+primary predictor selection is target-level, not top correlated single fibers
+left and right connectivity are computed separately and averaged to one patient-level bilateral target feature
+primary model tables have one row per patient, not one row per hemisphere
+target-level DWI coverage is checked before individualized-DWI or normative-guided-DWI interpretation
 PPMI smoke test completes before MGH or dTOR
 STN chronic, SNr chronic gain, and SNr immediate gain outputs are created
-low-coverage voxels and streamlines are flagged
+low-coverage targets, voxels, and streamlines are flagged
 all outputs include provenance
 ```
