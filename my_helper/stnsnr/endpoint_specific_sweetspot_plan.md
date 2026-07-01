@@ -8,6 +8,10 @@ This document records the planned analysis for symptom-specific STN and SNr swee
 
 The primary analysis uses full-field VTA/e-field-like exposure and whole-streamline fiber filtering. STN and SNr are not used to crop VTA or truncate streamlines. Instead, Custom STN/SNr ROIs define anatomical gating and interpretation, while HCPex labels non-STN/SNr endpoint regions.
 
+The implementation-level technical details for the normative connectome streamline and voxel sweet/sour spot analysis are recorded in:
+
+`/Users/mojackhu/Github/leaddbs/my_helper/stnsnr/normative_connectome_sweet_sour_technical_details.md`
+
 ## Fixed Inputs and Defaults
 
 - Repository root: `/Users/mojackhu/Github/leaddbs`.
@@ -23,6 +27,10 @@ The primary analysis uses full-field VTA/e-field-like exposure and whole-streaml
   `/Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset/active_contacts.csv`.
 - Primary improvement-rate table for compatibility checks and smoke tests:
   `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subj_delta_effect.xlsx`.
+- Current programming workbook:
+  `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/followup_stimulation.xlsx`, sheet `Contact Parameters`.
+- Current raw clinical score workbook:
+  `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx`.
 - Preferred raw score sources for the final ANCOVA endpoint model:
   `/Users/mojackhu/Research/STNSNr/summary/stats/clinic/coords/scale_raw/scale_subject.xlsx` and
   `/Users/mojackhu/Research/STNSNr/summary/stats/clinic/effect/3m/scale_subject.xlsx`.
@@ -362,44 +370,56 @@ This optional model should not replace the primary chronic STN-only model.
 
 The chronic STN model also supports an optional residualized SNr model by predicting the STN contribution under the STN component of combined stimulation.
 
-### SNr Add-On Endpoint Selection
+### SNr Gain Endpoint Selection
 
-The SNr model should use raw post-combination scores when available, following an ANCOVA-style endpoint-specific design:
+The SNr model should use raw post-combination scores when available, following an ANCOVA-style endpoint-specific design. The SNr model family has one primary estimand:
 
 ```text
-If valid STN+SNr immediate data exist:
-  baseline phase = STN-3m
-  post phase     = STN+SNr-immediate
-  model class    = acute
+clinical optimization-informed SNr-target gain model
+```
 
-Otherwise, if valid STN+SNr 3m data exist:
+This model asks whether the final clinician-optimized SNr component exposure predicts better STN+SNr outcome after controlling the pre-SNr STN 3-month clinical state and the concurrent STN component exposure change.
+
+The model has two endpoints:
+
+```text
+chronic SNr gain endpoint:
   baseline phase = STN-3m
   post phase     = STN+SNr-3m
   model class    = chronic
+
+immediate SNr gain endpoint:
+  baseline phase = STN-3m
+  post phase     = STN+SNr-immediate
+  model class    = immediate
 ```
 
-Use `MIN_N_FOR_MODEL = 12`. Do not hard-code scale names into endpoint selection. Choose the endpoint per scale based on complete paired score and exposure availability.
+Use `MIN_N_FOR_MODEL = 12`. Do not hard-code scale names into endpoint selection. Choose each endpoint per scale based on complete paired score and exposure availability.
 
-### Two Primary SNr Best-Site Estimands
+### Primary SNr Gain Model
 
-Keep two primary SNr best-site analyses because they answer different but complementary questions.
-
-#### Scheme 1: SNr-Component Adjusted Map
-
-This is the component-focused SNr model:
+For each scale and voxel, surface point, or streamline `s`, fit the clinical optimization-informed SNr-target gain model:
 
 ```text
-Y_post_i = alpha_0
-         + theta_SNr(s) * X_SNr,i(s)
-         + beta         * Y_STN3m_i
-         + gamma        * DeltaSTNScore_i
-         + error_i
+Y_AB_post_i = alpha_0
+            + theta_SNr(s) * X_SNr_i(s)
+            + beta         * Y_STN3m_i
+            + gamma        * DeltaSTNScore_i
+            + error_i
 ```
+
+Definitions:
+
+- `Y_AB_post_i`: selected post-combination raw clinical score for patient `i`.
+- `Y_STN3m_i`: STN-only 3-month raw clinical score for patient `i`.
+- `X_SNr_i(s)`: final SNr-component exposure at voxel, surface point, or streamline `s`.
+- `DeltaSTNScore_i`: scalar summary of STN component exposure change between STN-only and combined programming.
+- `theta_SNr(s)`: SNr gain spatial coefficient of interest.
 
 Question:
 
 ```text
-Among patients with comparable STN-only 3-month status and comparable STN-component changes,
+Among patients with comparable STN-only 3-month clinical state and comparable STN-component changes,
 does final SNr exposure at location s, voxel v, or streamline f predict better STN+SNr outcome?
 ```
 
@@ -409,103 +429,92 @@ Interpretation:
 theta_SNr(s)
 ```
 
-is the adjusted spatial association between SNr-component exposure and the STN+SNr outcome, conditional on pre-SNr clinical status and concurrent STN reprogramming.
-
-Use this model when the goal is to isolate the SNr component as much as possible with the available observational data.
-
-#### Scheme 2: Clinician-Optimized Final A+B Strategy Map
-
-This is the policy or strategy-focused model:
-
-```text
-Y_post_i = alpha_0
-         + theta_opt(s) * X_SNr,i(s)
-         + beta         * Y_STN3m_i
-         + error_i
-```
-
-Question:
-
-```text
-Under the actual clinical programming policy, after clinicians selected the final optimized STN+SNr setting,
-which final SNr locations, voxels, or streamlines are associated with better STN+SNr outcome?
-```
-
-This model does not adjust for `DeltaSTNScore` because STN changes are treated as part of the final clinician-optimized A+B treatment strategy. It should not be interpreted as an independent SNr-component effect.
-
-Interpretation:
-
-```text
-theta_opt(s)
-```
-
-is the adjusted spatial association between the clinician-selected final SNr exposure and the overall optimized STN+SNr outcome, conditional on pre-SNr clinical status.
-
-This map should be named:
-
-```text
-clinician-optimized final SNr setting outcome map
-clinical optimization-informed SNr sweet-spot map
-```
-
-It should not be named:
-
-```text
-pure causal SNr efficacy map
-absolute biological efficacy map of the SNr target
-```
+is the adjusted spatial association between clinician-optimized final SNr-component exposure and the STN+SNr outcome, conditional on pre-SNr clinical state and concurrent STN reprogramming.
 
 For scales where lower scores are better:
 
 ```text
 H_SNr(s) = -theta_SNr(s)
-H_opt(s) = -theta_opt(s)
 ```
 
 For SE-ADL, where higher scores are better:
 
 ```text
 H_SNr(s) = theta_SNr(s)
-H_opt(s) = theta_opt(s)
 ```
 
 Positive heatmap values always indicate better predicted clinical outcome.
 
-### Primary SNr Component Model
+#### Chronic SNr Gain Model
 
-For each scale and streamline:
+Use this model to estimate the long-term spatial distribution of SNr-associated gain after adding SNr to STN stimulation:
 
 ```text
-Y_post_i = alpha_0
-         + alpha_SNr,f * X_SNr,i,f
-         + alpha_B     * Y_STN3m_i
-         + alpha_D     * DeltaSTNScore_i
+Y_AB3m_i = alpha_0
+         + theta_SNr_chronic(s) * X_SNr3m_i(s)
+         + beta                 * Y_STN3m_i
+         + gamma                * DeltaSTNScore_3m_i
          + error_i
 ```
 
 Definitions:
 
-- `Y_post_i`: selected post-combination raw clinical score for patient `i`.
-- `Y_STN3m_i`: STN-only 3-month raw score for patient `i`.
-- `X_SNr,i,f`: SNr-component streamline exposure for fiber `f`.
-- `DeltaSTNScore_i`: scalar summary of STN exposure change between STN-only and combined programming.
-- `alpha_SNr,f`: streamline-specific coefficient of interest.
+- `Y_AB3m_i`: raw STN+SNr 3-month clinical score for patient `i`.
+- `X_SNr3m_i(s)`: STN+SNr 3-month SNr-component exposure at voxel, surface point, or streamline `s`.
+- `DeltaSTNScore_3m_i`: STN component exposure change from STN-only 3 months to STN+SNr 3 months.
+- `theta_SNr_chronic(s)`: chronic SNr gain spatial coefficient.
+
+Question:
+
+```text
+In patients with the same STN-only 3-month clinical state and the same STN component change,
+does final SNr 3-month exposure closer to s predict better STN+SNr 3-month outcome?
+```
+
+#### Immediate SNr Gain Model
+
+Use this model to estimate the immediate spatial distribution of SNr-associated gain after adding SNr to STN stimulation:
+
+```text
+Y_ABimmediate_i = alpha_0
+                + theta_SNr_immediate(s) * X_SNrImmediate_i(s)
+                + beta                   * Y_STN3m_i
+                + gamma                  * DeltaSTNScore_immediate_i
+                + error_i
+```
+
+Definitions:
+
+- `Y_ABimmediate_i`: raw STN+SNr immediate clinical score for patient `i`.
+- `X_SNrImmediate_i(s)`: STN+SNr immediate SNr-component exposure at voxel, surface point, or streamline `s`.
+- `DeltaSTNScore_immediate_i`: STN component exposure change from STN-only 3 months to STN+SNr immediate programming.
+- `theta_SNr_immediate(s)`: immediate SNr gain spatial coefficient.
+
+Question:
+
+```text
+In patients with the same STN-only 3-month clinical state and the same immediate-phase STN component change,
+does final SNr immediate exposure closer to s predict better STN+SNr immediate outcome?
+```
+
+The `Y_STN3m` covariate controls the pre-SNr disease state. `DeltaSTNScore_immediate` controls concurrent STN component reprogramming in the immediate STN+SNr setting. If a same-day pre-SNr STN-only score becomes available, add a sensitivity model using that same-day baseline to control short-term disease fluctuation more directly.
+
+#### Rank-Based SNr Implementation
 
 Use a rank-based partial Spearman estimator as the main implementation for `n = 16`:
 
-1. Rank-transform `Y_post`, `X_SNr,f`, `Y_STN3m`, and `DeltaSTNScore`.
-2. Regress ranked `Y_post` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
-3. Regress ranked `X_SNr,f` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
+1. Rank-transform `Y_AB_post`, `X_SNr(s)`, `Y_STN3m`, and `DeltaSTNScore`.
+2. Regress ranked `Y_AB_post` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
+3. Regress ranked `X_SNr(s)` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
 4. Correlate the two residual vectors.
 5. Flip sign when higher clinical score means worse outcome, so positive scores always indicate benefit.
 
 ```text
-SNrBenefitScore_f > 0 means stronger SNr exposure predicts better clinical outcome.
+SNrChronicGainScore(s) > 0 means stronger SNr exposure predicts better chronic STN+SNr outcome.
+SNrImmediateGainScore(s) > 0 means stronger SNr exposure predicts better immediate STN+SNr outcome.
 ```
 
-This model implements Scheme 1 above. Scheme 2 uses the same endpoint selection, exposure definitions, and benefit-score orientation, but omits `DeltaSTNScore` because it describes the final optimized A+B strategy rather than the SNr component adjusted for STN reprogramming.
-
-### SNr Best-Site Estimand Boundaries
+### SNr Gain Estimand Boundaries
 
 The time zero for SNr-addition models is:
 
@@ -543,16 +552,16 @@ Y_i(s) for every possible SNr location s
 
 Therefore, the SNr maps are patient-level between-subject spatial association maps. They are not within-patient randomized location-response maps.
 
-### Scientific Preconditions for SNr Best-Site Inference
+### Scientific Preconditions for SNr Gain Inference
 
-The SNr best-site analyses are scientifically meaningful under these conditions:
+The SNr gain analyses are scientifically meaningful under these conditions:
 
 - `Y_STN3m` adequately represents the clinical state before SNr addition.
-- `DeltaSTNScore` adequately summarizes STN-component changes for Scheme 1.
+- `DeltaSTNScore` adequately summarizes STN-component changes for the SNr gain model.
 - The final SNr setting is a clinically optimized setting, not an arbitrary or poorly explored setting.
 - Acute programming response and side-effect thresholds used to choose the final SNr setting have reasonable relevance to the 3-month outcome.
 - SNr exposure has enough spatial variability across patients to estimate a map.
-- Within comparable ranges of `Y_STN3m` and, for Scheme 1, `DeltaSTNScore`, there is sufficient overlap in SNr locations to avoid relying mainly on extrapolation.
+- Within comparable ranges of `Y_STN3m` and `DeltaSTNScore`, there is sufficient overlap in SNr locations to avoid relying mainly on extrapolation.
 - Unmeasured prognosis factors, symptom subtypes, medication changes, rehabilitation intensity, anatomy, and programming style do not strongly determine both the final SNr location and the later STN+SNr outcome.
 - STN and SNr effects are sufficiently separable for an additive model to remain interpretable.
 
@@ -564,7 +573,7 @@ Coverage(s) = sum_i X_SNr,i(s)
 
 Only regions or streamlines with adequate coverage should receive strong anatomical interpretation.
 
-### Potential Problems with the SNr Best-Site Definition
+### Potential Problems with the SNr Gain Definition
 
 Main limitations:
 
@@ -581,8 +590,8 @@ Main limitations:
 The most defensible wording is:
 
 ```text
-adjusted relative SNr-target sweet-spot map
-clinical optimization-informed final SNr setting outcome map
+adjusted relative SNr-target gain map
+clinical optimization-informed SNr-target gain map
 ```
 
 Avoid:
@@ -596,7 +605,7 @@ evidence that every patient should be stimulated at this location
 
 Do not interpret `STN+SNr - STN-alone` as pure SNr benefit if STN parameters changed between phases.
 
-SNr Scheme 1 controls this by including:
+The primary SNr gain model controls this by including:
 
 ```text
 DeltaSTNScore = STN exposure scalar in combined setting - STN exposure scalar in STN-alone setting
@@ -636,7 +645,7 @@ Use leave-one-patient-out predictions for any residualized model to avoid optimi
 
 For each voxel and outcome, model the relation between subject-level stimulation exposure at that voxel and clinical response.
 
-For the STN model, use STN-alone exposure and STN response. For SNr Scheme 1, use SNr-component exposure and endpoint-specific post-score models adjusted for STN-3m baseline and STN exposure change. For SNr Scheme 2, use SNr-component exposure and endpoint-specific post-score models adjusted for STN-3m baseline only, because this scheme estimates the clinician-optimized final A+B strategy map.
+For the STN model, use STN-alone exposure and STN response. For the SNr gain model, use SNr-component exposure and endpoint-specific post-score models adjusted for STN-3m baseline and STN exposure change. Run the chronic gain endpoint for `STN+SNr 3m` and the immediate gain endpoint for `STN+SNr immediate`.
 
 ### Whole-Streamline Fiber Filtering
 
@@ -682,8 +691,8 @@ For each significant or top-ranked fiber:
 
 - STN primary model: baseline-adjusted partial Spearman between STN-only 3-month exposure and STN-only 3-month raw score, adjusting for preoperative raw score.
 - STN secondary early model: baseline-adjusted partial Spearman between STN-immediate exposure and STN-immediate raw score, adjusting for preoperative score or same-day STN-OFF score when available.
-- SNr Scheme 1 model: endpoint-specific partial Spearman model with `Y_STN3m` and `DeltaSTNScore` as covariates, estimating the SNr-component adjusted map.
-- SNr Scheme 2 model: endpoint-specific partial Spearman model with `Y_STN3m` as the covariate, estimating the clinician-optimized final A+B strategy map.
+- SNr chronic gain model: endpoint-specific partial Spearman model with `Y_STN3m` and `DeltaSTNScore_3m` as covariates, estimating the adjusted chronic SNr gain map.
+- SNr immediate gain model: endpoint-specific partial Spearman model with `Y_STN3m` and `DeltaSTNScore_immediate` as covariates, estimating the adjusted immediate SNr gain map.
 - Primary inference is scale-specific; do not combine heterogeneous scales into one primary model.
 - Correct multiple comparisons within each scale, connectome, and model class using FDR.
 - Use patient-level permutation tests with seed `42` for empirical significance.
@@ -695,11 +704,11 @@ Recommended reporting hierarchy:
 - primary STN endpoint: chronic STN-only efficacy model using `Preop -> STN-3m`;
 - secondary STN endpoint: early / acute STN-only response model using `Preop -> STN-immediate`, or `STN-OFF same-day -> STN-immediate` when same-day baseline exists;
 - optional STN endpoint: chronic adaptation model using `STN-immediate -> STN-3m`;
-- primary SNr best-site Scheme 1: SNr-component adjusted map with `DeltaSTNScore`;
-- primary SNr best-site Scheme 2: clinician-optimized final A+B strategy map without `DeltaSTNScore`;
-- primary SNr mechanistic endpoint within both schemes: UPDRS-III acute SNr-addition model when valid immediate data are available;
-- key secondary SNr endpoint within both schemes: UPDRS-III chronic SNr-addition model to evaluate longer-term motor relevance;
-- symptom-specific secondary SNr endpoints within both schemes: axial UPDRS-III, FOG-Q, KPPS, PDQ-39, MADRS, ADL, SE-ADL, and other available scales using their selected endpoints;
+- primary SNr chronic gain endpoint: adjusted `STN+SNr 3m` outcome model using `Y_STN3m` and `DeltaSTNScore_3m`;
+- primary SNr immediate gain endpoint: adjusted `STN+SNr immediate` outcome model using `Y_STN3m` and `DeltaSTNScore_immediate`;
+- primary SNr mechanistic endpoint: UPDRS-III immediate SNr-addition model when valid immediate data are available;
+- key secondary SNr endpoint: UPDRS-III chronic SNr-addition model to evaluate longer-term motor relevance;
+- symptom-specific secondary SNr endpoints: axial UPDRS-III, FOG-Q, KPPS, PDQ-39, MADRS, ADL, SE-ADL, and other available scales using their selected endpoints;
 - exploratory cross-scale summaries: map overlap, meta-map, or pooled/global model.
 
 ### Cross-Validation
@@ -803,8 +812,8 @@ Reusable functions should be grouped by responsibility:
 8. Fit the primary chronic STN-only model.
 9. Fit secondary STN-only early / acute models where valid immediate data exist.
 10. Fit optional STN chronic adaptation models when justified by programming changes.
-11. Fit endpoint-specific SNr Scheme 1 models with `DeltaSTNScore`.
-12. Fit endpoint-specific SNr Scheme 2 models without `DeltaSTNScore`.
+11. Fit endpoint-specific SNr chronic gain models with `Y_STN3m` and `DeltaSTNScore_3m`.
+12. Fit endpoint-specific SNr immediate gain models with `Y_STN3m` and `DeltaSTNScore_immediate`.
 13. Fit sensitivity models.
 14. Label top fibers by Custom STN/SNr and HCPex endpoints.
 15. Export CSV/Mat/JSON provenance and visualization-ready fiber subsets.
@@ -826,8 +835,8 @@ Expected output groups:
 - `models/stn/chronic/`: primary chronic STN-only sweet-spot and sweet-fiber results.
 - `models/stn/early/`: secondary early / acute STN-only response results.
 - `models/stn/adaptation/`: optional STN chronic adaptation results.
-- `models/snr/component_adjusted/`: Scheme 1 endpoint-specific SNr-component adjusted model results.
-- `models/snr/final_strategy/`: Scheme 2 clinician-optimized final A+B strategy model results.
+- `models/snr/chronic_gain/`: endpoint-specific chronic SNr gain model results.
+- `models/snr/immediate_gain/`: endpoint-specific immediate SNr gain model results.
 - `models/cross_scale/`: map-level similarity metrics and secondary global maps.
 - `sensitivity/`: all sensitivity model outputs.
 - `visualization/`: top fiber subsets, sweet/sour maps, HCPex endpoint summaries.
@@ -843,8 +852,8 @@ Expected output groups:
 - Non-STN/SNr endpoint labels come from HCPex.
 - The primary STN model uses raw STN-3m score adjusted for raw preoperative score, not percent improvement as the main outcome.
 - STN-immediate models are marked secondary and use same-day STN-OFF baseline when available.
-- SNr Scheme 1 includes both `Y_STN3m` and `DeltaSTNScore`.
-- SNr Scheme 2 includes `Y_STN3m` and deliberately omits `DeltaSTNScore`.
+- SNr chronic gain models include both `Y_STN3m` and `DeltaSTNScore_3m`.
+- SNr immediate gain models include both `Y_STN3m` and `DeltaSTNScore_immediate`.
 - SNr results include coverage maps, and low-coverage regions or streamlines are not strongly interpreted.
 - The implementation can run a PPMI smoke test before dTOR full-scale analysis.
 - dTOR and MGH access is chunked and memory-safe.
@@ -857,8 +866,9 @@ Expected output groups:
 - Primary STN results can be described as chronic STN-only therapeutic fibers or sweet spots.
 - STN-immediate results should be described as early STN-only response maps, or acute STN stimulation response maps only when same-day STN-OFF baseline is used.
 - STN adaptation results should be described as secondary programming/adaptation analyses, not as the main STN efficacy model.
-- SNr Scheme 1 results should be described as SNr add-on-associated effects adjusted for STN-3m baseline and concurrent STN exposure change.
-- SNr Scheme 2 results should be described as clinician-optimized final SNr setting outcome maps for the overall optimized STN+SNr strategy.
+- SNr gain results should be described as clinical optimization-informed SNr-target gain maps adjusted for STN-3m baseline and concurrent STN exposure change.
+- SNr chronic gain results should be described as adjusted spatial associations with `STN+SNr 3m` outcome.
+- SNr immediate gain results should be described as adjusted spatial associations with `STN+SNr immediate` outcome.
 - Residualized SNr results should be described as STN-model-adjusted SNr-associated residual benefit, not as definitive pure SNr causal effect.
 - SNr maps should not be described as pure causal maps showing that every patient should be stimulated at a given SNr location.
 - Interleaving union maps should be described as exposure across an interleaving cycle, not as one simultaneous continuous electric field.
