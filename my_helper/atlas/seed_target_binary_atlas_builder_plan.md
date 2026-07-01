@@ -172,6 +172,11 @@ Seed-target tractography should use these generated binary masks as the ROI sour
 - All primary masks are non-empty.
 - All output masks match the MNI reference grid.
 - Left-sided centroids are left of midline and right-sided centroids are right of midline.
-- STN/SNr overlap is zero at `> 0.05`.
-- GPe/GPi overlap is near-zero at `> 0.25`.
+- STN/SNr overlap is computed and reported at `> 0.05`. The current generated 0.5 mm reference-grid atlas has non-zero overlap after resampling: 500 voxels left and 586 voxels right, equal to 62.5 mm3 and 73.25 mm3. This is not automatically subtracted because subtraction would change the explicitly defined source ROIs.
+- GPe/GPi overlap is near-zero at `> 0.25`. The current generated 0.5 mm reference-grid STN atlas has 4 voxels left and 19 voxels right, equal to 0.5 mm3 and 2.375 mm3.
 - Every ROI has complete manifest provenance.
+
+## Current Build Notes
+
+- `VM_thalamus_thr50` is empty for both left and right sides. This is expected for the conservative Julich 50% sensitivity threshold and does not affect the primary `VM_thalamus` mask at `>= 25%`.
+- Generated atlas NIfTI files are stored under the Lead-DBS `templates/.../atlases` tree, which is ignored by Git in this repository. The reproducible source of truth is the builder code, JSON specs, and generated `roi_manifest` files in each atlas output folder.

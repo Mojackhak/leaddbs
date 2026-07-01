@@ -1,0 +1,252 @@
+{
+  "atlas_name": "STN-connected regions",
+  "space": "MNI152NLin2009bAsym",
+  "reference_image": "templates/space/MNI152NLin2009bAsym/t1.nii",
+  "output_dir": "templates/space/MNI152NLin2009bAsym/atlases/STN-connected regions",
+  "rois": [
+    {
+      "name": "STN",
+      "role": "seed",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.05,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/STN.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/STN.nii.gz"}
+      },
+      "notes": "Primary STN seed from Custom_Ewert_Zhang_Middlebrooks with explicit >0.05 threshold."
+    },
+    {
+      "name": "SNr",
+      "role": "target",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.05,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/SNr.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/SNr.nii.gz"}
+      },
+      "notes": "SNr target in the STN-connected atlas."
+    },
+    {
+      "name": "M1",
+      "role": "target",
+      "category": "primary",
+      "operation": "label_union",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [31], "label_names": ["Primary_Motor_Cortex_L"]},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [211], "label_names": ["Primary_Motor_Cortex_R"]}
+      },
+      "notes": "Primary motor cortex from HCPex."
+    },
+    {
+      "name": "SMA",
+      "role": "target",
+      "category": "primary",
+      "operation": "label_union",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [38, 39, 40], "label_names": ["Area_6m_anterior_L", "Area_6mp_L", "Supplementary_and_Cingulate_Eye_Field_L"]},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [218, 219, 220], "label_names": ["Area_6m_anterior_R", "Area_6mp_R", "Supplementary_and_Cingulate_Eye_Field_R"]}
+      },
+      "notes": "SMA-related HCPex labels. HCPex does not provide a single dedicated SMA mask."
+    },
+    {
+      "name": "preSMA",
+      "role": "target",
+      "category": "primary",
+      "operation": "label_union",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [38, 39], "label_names": ["Area_6m_anterior_L", "Area_6mp_L"]},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [218, 219], "label_names": ["Area_6m_anterior_R", "Area_6mp_R"]}
+      },
+      "notes": "Approximate pre-SMA endpoint using anterior/medial HCPex Area 6 labels."
+    },
+    {
+      "name": "premotor",
+      "role": "target",
+      "category": "primary",
+      "operation": "label_union",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [42, 44, 45, 47], "label_names": ["Area_6_anterior_L", "Rostral_Area_6_L", "Ventral_Area_6_L", "Premotor_Eye_Field_L"]},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [222, 224, 225, 227], "label_names": ["Area_6_anterior_R", "Rostral_Area_6_R", "Ventral_Area_6_R", "Premotor_Eye_Field_R"]}
+      },
+      "notes": "Premotor endpoint from HCPex labels available locally."
+    },
+    {
+      "name": "GPe",
+      "role": "target",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPe.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPe.nii.gz"}
+      },
+      "notes": "DISTAL GPe primary mask. Local checks showed >0.25 nearly eliminates GPe/GPi overlap while preserving volume."
+    },
+    {
+      "name": "GPi",
+      "role": "target",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPi.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPi.nii.gz"}
+      },
+      "notes": "DISTAL GPi primary mask."
+    },
+    {
+      "name": "DLPFC",
+      "role": "target",
+      "category": "exploratory",
+      "operation": "label_union",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [168, 173, 139, 174, 175, 169, 170, 171, 172, 138], "label_names": ["Area_46_L", "Area_9-46d_L", "Area_9_Middle_L", "Area_9_anterior_L", "Area_9_Posterior_L", "Area_8Ad_L", "Area_8Av_L", "Area_8B_Lateral_L", "Area_8C_L", "Area_8BM_L"]},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [348, 353, 319, 354, 355, 349, 350, 351, 352, 318], "label_names": ["Area_46_R", "Area_9-46d_R", "Area_9_Middle_R", "Area_9_anterior_R", "Area_9_Posterior_R", "Area_8Ad_R", "Area_8Av_R", "Area_8B_Lateral_R", "Area_8C_R", "Area_8BM_R"]}
+      },
+      "notes": "Exploratory dorsolateral prefrontal endpoint."
+    },
+    {
+      "name": "ACC",
+      "role": "target",
+      "category": "optional",
+      "operation": "label_union",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [33, 34, 136, 137, 146, 147, 149], "label_names": ["Dorsal_Area_24d_L", "Ventral_Area_24d_L", "Area_25_L", "Area_33_prime_L", "Area_p32_L", "Area_p32_prime_L", "Area_s32_L"]},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [213, 214, 316, 317, 326, 327, 329], "label_names": ["Dorsal_Area_24d_R", "Ventral_Area_24d_R", "Area_25_R", "Area_33_prime_R", "Area_p32_R", "Area_p32_prime_R", "Area_s32_R"]}
+      },
+      "notes": "Anterior cingulate endpoint from HCPex cingulate labels."
+    },
+    {
+      "name": "OFC",
+      "role": "target",
+      "category": "optional",
+      "operation": "label_union",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [148, 157], "label_names": ["Posterior_OFC_Complex_L", "Orbital_Frontal_Complex_L"]},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [328, 337], "label_names": ["posterior_OFC_Complex_R", "Orbital_Frontal_Complex_R"]}
+      },
+      "notes": "Orbitofrontal endpoint from HCPex OFC complex labels."
+    },
+    {
+      "name": "vmPFC",
+      "role": "target",
+      "category": "optional",
+      "operation": "label_union",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [136, 149, 157], "label_names": ["Area_25_L", "Area_s32_L", "Orbital_Frontal_Complex_L"]},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii", "label_ids": [316, 329, 337], "label_names": ["Area_25_R", "Area_s32_R", "Orbital_Frontal_Complex_R"]}
+      },
+      "notes": "Approximate ventromedial prefrontal endpoint from HCPex medial/orbital labels."
+    },
+    {
+      "name": "STN_thr025",
+      "role": "seed_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/STN.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/STN.nii.gz"}
+      },
+      "notes": "STN threshold sensitivity mask."
+    },
+    {
+      "name": "STN_thr05",
+      "role": "seed_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/STN.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/STN.nii.gz"}
+      },
+      "notes": "STN high-confidence sensitivity mask."
+    },
+    {
+      "name": "SNr_thr025",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/SNr.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/SNr.nii.gz"}
+      },
+      "notes": "SNr threshold sensitivity mask."
+    },
+    {
+      "name": "SNr_thr05",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/SNr.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/SNr.nii.gz"}
+      },
+      "notes": "SNr high-confidence sensitivity mask."
+    },
+    {
+      "name": "GPe_thr005",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.05,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPe.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPe.nii.gz"}
+      },
+      "notes": "Liberal DISTAL GPe sensitivity mask."
+    },
+    {
+      "name": "GPe_thr05",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPe.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPe.nii.gz"}
+      },
+      "notes": "Conservative DISTAL GPe sensitivity mask."
+    },
+    {
+      "name": "GPi_thr005",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.05,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPi.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPi.nii.gz"}
+      },
+      "notes": "Liberal DISTAL GPi sensitivity mask."
+    },
+    {
+      "name": "GPi_thr05",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPi.nii.gz"},
+        "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPi.nii.gz"}
+      },
+      "notes": "Conservative DISTAL GPi sensitivity mask."
+    }
+  ]
+}
