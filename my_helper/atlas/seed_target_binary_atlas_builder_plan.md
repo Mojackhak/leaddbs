@@ -1,15 +1,16 @@
 # Seed-Target Binary Atlas Builder Plan
 
-Date: 2026-07-01
+Date: 2026-07-03
 
 ## Purpose
 
 This document defines a reusable binary atlas builder for seed-target tractography. The builder converts a declarative ROI specification into Lead-DBS atlas folders containing binary MNI-space masks, provenance manifests, and QC tables.
 
-The first two atlas instances are:
+The connected-region atlas instances are:
 
 - `STN-connected regions`
 - `SNr-connected regions`
+- `STNSNr-connected regions`
 
 The builder code and ROI specifications live under:
 
@@ -31,6 +32,8 @@ Generated atlas outputs live under:
 - PPN and Allen superior colliculus single-mask atlases use `> 0`.
 - Similar thalamic subnuclei are not merged. VA, VLA, VLP, VM, MD, CM, Pf, and sPf remain separate endpoints.
 - `union` is only used when one anatomical or functional concept is represented by multiple labels in the same source atlas.
+- `STNSNr` is the side-specific union of the primary STN and SNr masks.
+- `STNSNrplus` is `STNSNr` with 2 mm dilation on the MNI reference grid.
 
 ## Threshold Rationale
 
@@ -79,6 +82,7 @@ Supported operations:
 - `label_union`: extract one or more integer labels from a discrete parcellation.
 - `posterior_split`: extract posterior half or posterior third of a source mask along MNI y.
 - `union`: combine previously defined ROI masks for the same anatomical or functional concept.
+- `dilate_mm`: dilate a source mask by a millimeter radius on the reference grid.
 - `intersect`: reserved for future composite ROIs.
 - `subtract`: reserved for future composite ROIs.
 
@@ -144,6 +148,23 @@ Sensitivity masks:
 - posterior putamen: posterior third
 - PPN: Snijders 2016
 
+## STNSNr-Connected Regions
+
+Output directory:
+
+`templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions`
+
+This atlas merges `STN-connected regions` and `SNr-connected regions` by ROI name. Identical ROI definitions are stored once. When the same ROI has different historical category labels, the merged atlas keeps the more primary category.
+
+| ROI | Role | Source | Operation |
+|---|---|---|---|
+| `STNSNr` | seed | thresholded STN and SNr from `Custom_Ewert_Zhang_Middlebrooks` | same-side union |
+| `STNSNrplus` | seed_margin | `STNSNr` | 2 mm dilation |
+| `STN` | component | `Custom_Ewert_Zhang_Middlebrooks/{lh,rh}/STN.nii.gz` | `> 0.05` |
+| `SNr` | component | `Custom_Ewert_Zhang_Middlebrooks/{lh,rh}/SNr.nii.gz` | `> 0.05` |
+
+The remaining endpoint and sensitivity ROIs are the deduplicated union of the STN and SNr connected-region specs. The expected atlas contains 53 ROI names and 106 side-specific manifest/QC records.
+
 ## Outputs
 
 Each generated atlas writes:
@@ -161,6 +182,8 @@ rh/*.nii.gz
 
 `roi_qc` records voxel count, volume, centroid, reference-grid match, side consistency, and empty-mask status.
 
+Generated binary mask headers use unit scaling and zero offset so downstream MRtrix thresholding interprets stored zeros and ones directly.
+
 ## Fiber Tracking Use
 
 Seed-target tractography should use these generated binary masks as the ROI source. The tracking pipeline should not parse raw Custom, DISTAL, Julich, HCPex, PPN, or Allen sources directly.
@@ -168,10 +191,12 @@ Seed-target tractography should use these generated binary masks as the ROI sour
 ## Acceptance Checks
 
 - All source files exist.
-- Both specs build successfully.
+- All connected-region specs build successfully.
 - All primary masks are non-empty.
 - All output masks match the MNI reference grid.
 - Left-sided centroids are left of midline and right-sided centroids are right of midline.
+- `STNSNr` equals the side-specific `STN | SNr` union.
+- `STNSNrplus` contains every `STNSNr` voxel and has larger volume after 2 mm dilation.
 - STN/SNr overlap is computed and reported at `> 0.05`. The current generated 0.5 mm reference-grid atlas has non-zero overlap after resampling: 500 voxels left and 586 voxels right, equal to 62.5 mm3 and 73.25 mm3. This is not automatically subtracted because subtraction would change the explicitly defined source ROIs.
 - GPe/GPi overlap is near-zero at `> 0.25`. The current generated 0.5 mm reference-grid STN atlas has 4 voxels left and 19 voxels right, equal to 0.5 mm3 and 2.375 mm3.
 - Every ROI has complete manifest provenance.

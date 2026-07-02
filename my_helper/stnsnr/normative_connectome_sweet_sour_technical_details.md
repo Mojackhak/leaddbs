@@ -174,7 +174,14 @@ Main rules:
 /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/SNr-connected regions
 ```
 
+- Combined STN/SNr ROI and endpoint grouping should use `STNSNr-connected regions` first:
+
+```text
+/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions
+```
+
 - Each connected-region atlas contains side-specific binary masks and `roi_manifest.csv`; use these files directly for model gating, candidate fiber classification, endpoint grouping, coverage summaries, and visualization overlays.
+- In `STNSNr-connected regions`, `STNSNr` is the side-specific STN/SNr union and `STNSNrplus` is `STNSNr` with 2 mm dilation.
 - `Custom_Ewert_Zhang_Middlebrooks0.05` remains the upstream source for STN/SNr masks inside the connected-region atlases and is retained as a sensitivity or fallback source for standalone STN/SNr masks.
 - Non-STN/SNr cortical, thalamic, PPN, and superior colliculus endpoint definitions follow the connected-region atlas manifests and the seed-target atlas registry.
 

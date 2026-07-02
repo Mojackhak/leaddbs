@@ -1,6 +1,6 @@
 # STN/SNr Seed-Target Target-Atlas Registry
 
-Date: 2026-07-01
+Date: 2026-07-03
 
 ## Purpose
 
@@ -12,7 +12,9 @@ The registry is documentation-only. It does not run tracking and does not change
 
 - Model-level STN ROI and endpoint grouping should use `STN-connected regions` first.
 - Model-level SNr ROI and endpoint grouping should use `SNr-connected regions` first.
+- Combined STN/SNr seed analyses should use `STNSNr-connected regions` first.
 - The connected-region atlases are prebuilt binary ROI directories with side-specific masks, `roi_manifest.csv`, and `roi_qc.csv`.
+- `STNSNr` is the side-specific union of STN and SNr. `STNSNrplus` is `STNSNr` with 2 mm dilation.
 - `Custom_Ewert_Zhang_Middlebrooks0.05` remains the upstream source for STN/SNr masks and is retained as a sensitivity or fallback source for standalone STN/SNr masks.
 - Cortical and whole-brain endpoint labels use connected-region ROI masks first; their upstream cortical definitions use `HCPex (Huang 2021)` when a suitable label exists.
 - Thalamic subnuclei use `Julich-Brain Atlas v3.1` probabilistic maps.
@@ -26,6 +28,7 @@ The registry is documentation-only. It does not run tracking and does not change
 |---|---:|---:|---|
 | `STN-connected regions` | follow `roi_manifest.csv` | sensitivity masks in the same atlas directory | Preferred ROI directory for STN model gating, STN candidate fibers, and STN endpoint grouping. |
 | `SNr-connected regions` | follow `roi_manifest.csv` | sensitivity masks in the same atlas directory | Preferred ROI directory for SNr model gating, SNr candidate fibers, and SNr endpoint grouping. |
+| `STNSNr-connected regions` | follow `roi_manifest.csv` | `STNSNrplus` for 2 mm dilation | Preferred ROI directory for combined STN/SNr seed models and combined endpoint grouping. |
 | `Custom_Ewert_Zhang_Middlebrooks0.05` STN/SNr/GPe/GPi | `relative_intensity > 0.05` | `relative_intensity > 0.5` | `0.05` is the atlas metadata threshold; `0.5` is a conservative high-confidence core ROI. |
 | `HCPex (Huang 2021)` label masks | exact label ID membership | none by default | Side-specific label IDs should be recorded in implementation provenance. |
 | `Julich-Brain Atlas v3.1` probabilistic maps | probability `>= 25%` | probability `> 0%` and `>= 50%` | Use the same threshold for left and right maps. |
@@ -38,6 +41,7 @@ The registry is documentation-only. It does not run tracking and does not change
 |---|---|---|---|
 | STN | `STN-connected regions` | `lh/STN.nii.gz`, `rh/STN.nii.gz` | `STN_thr025` and `STN_thr05` sensitivity masks in the same atlas directory. |
 | SNr | `SNr-connected regions` | `lh/SNr.nii.gz`, `rh/SNr.nii.gz` | `SNr_thr025` and `SNr_thr05` sensitivity masks in the same atlas directory. |
+| STNSNr | `STNSNr-connected regions` | `lh/STNSNr.nii.gz`, `rh/STNSNr.nii.gz` | `STNSNrplus` is the 2 mm dilation mask in the same atlas directory. |
 
 ## STN Target Registry
 
@@ -74,6 +78,7 @@ The registry is documentation-only. It does not run tracking and does not change
 |---|---|
 | `STN-connected regions` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STN-connected regions` |
 | `SNr-connected regions` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/SNr-connected regions` |
+| `STNSNr-connected regions` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions` |
 | `Custom_Ewert_Zhang_Middlebrooks0.05` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks0.05` |
 | `HCPex (Huang 2021)` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii` |
 | `Julich-Brain Atlas v3.1` | `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas` |

@@ -7,6 +7,7 @@
 *.gipl
 *.png
 *.json
+!my_helper/atlas/specs/*.json
 *.woff
 *.trk.gz
 *.trk

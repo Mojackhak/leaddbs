@@ -25,7 +25,7 @@ end
 ensure_dir(fileparts(outputFile));
 ensure_dir(tempDir);
 
-[mask, sourceInfo, sourceFiles, sourceLabels, thresholdText] = build_mask(spec, roi, sideSpec, side, operation);
+[mask, sourceInfo, sourceFiles, sourceLabels, thresholdText] = build_mask(spec, roi, sideSpec, side, operation, tempDir);
 
 safeName = regexprep([roiName, '_', side], '[^A-Za-z0-9_]+', '_');
 rawPath = fullfile(tempDir, [safeName, '_raw.nii']);
@@ -50,7 +50,7 @@ record.output_file = outputFile;
 record.notes = notes;
 end
 
-function [mask, info, sourceFiles, sourceLabels, thresholdText] = build_mask(spec, roi, sideSpec, side, operation)
+function [mask, info, sourceFiles, sourceLabels, thresholdText] = build_mask(spec, roi, sideSpec, side, operation, tempDir)
 sourceFiles = strings(0, 1);
 sourceLabels = '';
 thresholdText = '';
@@ -99,7 +99,10 @@ switch operation
         thresholdText = splitMode;
 
     case {'union', 'intersect', 'subtract'}
-        [mask, info, sourceFiles, sourceLabels, thresholdText] = build_composite_mask(spec, roi, side, operation);
+        [mask, info, sourceFiles, sourceLabels, thresholdText] = build_composite_mask(spec, roi, side, operation, tempDir);
+
+    case 'dilate_mm'
+        [mask, info, sourceFiles, sourceLabels, thresholdText] = build_dilated_mask(spec, roi, side, tempDir);
 
     otherwise
         error('mh_atlas_build_roi_mask:UnsupportedOperation', ...
@@ -113,26 +116,29 @@ if ~any(mask(:))
 end
 end
 
-function [mask, info, sourceFiles, sourceLabels, thresholdText] = build_composite_mask(spec, roi, side, operation)
+function [mask, info, sourceFiles, sourceLabels, thresholdText] = build_composite_mask(spec, roi, side, operation, tempDir)
 if ~isfield(roi, 'sources') || isempty(roi.sources)
     error('mh_atlas_build_roi_mask:MissingSources', ...
         'Composite ROI `%s` requires a non-empty sources array.', char(string(roi.name)));
 end
 
+sources = normalize_struct_array(roi.sources);
 sourceFiles = strings(0, 1);
 sourceLabels = strings(0, 1);
 thresholdParts = strings(0, 1);
 mask = [];
-info = [];
+info = niftiinfo(spec.reference_image);
 
-for i = 1:numel(roi.sources)
-    src = roi.sources(i);
-    if ~isfield(src, 'sides')
+for i = 1:numel(sources)
+    src = sources(i);
+    if ~isfield(src, 'sides') || isempty(src.sides)
         src.sides = roi.sides;
     end
     sideSpec = src.sides.(side);
     srcOperation = lower(char(string(src.operation)));
-    [srcMask, srcInfo, srcFiles, srcLabelText, srcThresholdText] = build_mask(spec, src, sideSpec, side, srcOperation);
+    [srcMask, srcInfo, srcFiles, srcLabelText, srcThresholdText] = build_mask(spec, src, sideSpec, side, srcOperation, tempDir);
+    [srcMask, srcInfo] = mask_to_reference(spec, srcMask, srcInfo, tempDir, ...
+        sprintf('%s_%s_source%d', char(string(roi.name)), side, i));
     if isempty(mask)
         mask = srcMask;
         info = srcInfo;
@@ -156,6 +162,86 @@ end
 
 sourceLabels = strjoin(sourceLabels, ' | ');
 thresholdText = sprintf('%s(%s)', operation, strjoin(thresholdParts, ', '));
+end
+
+function [mask, info, sourceFiles, sourceLabels, thresholdText] = build_dilated_mask(spec, roi, side, tempDir)
+if ~isfield(roi, 'sources') || isempty(roi.sources)
+    error('mh_atlas_build_roi_mask:MissingSources', ...
+        'Dilated ROI `%s` requires one source mask.', char(string(roi.name)));
+end
+
+sources = normalize_struct_array(roi.sources);
+if numel(sources) ~= 1
+    error('mh_atlas_build_roi_mask:InvalidDilateSourceCount', ...
+        'Dilated ROI `%s` requires exactly one source mask.', char(string(roi.name)));
+end
+
+src = sources(1);
+if ~isfield(src, 'sides') || isempty(src.sides)
+    src.sides = roi.sides;
+end
+sideSpec = src.sides.(side);
+srcOperation = lower(char(string(src.operation)));
+[baseMask, baseInfo, sourceFiles, sourceLabels, srcThresholdText] = build_mask(spec, src, sideSpec, side, srcOperation, tempDir);
+[baseMask, info] = mask_to_reference(spec, baseMask, baseInfo, tempDir, ...
+    sprintf('%s_%s_dilate_source', char(string(roi.name)), side));
+
+marginMm = get_numeric_field(roi, sideSpec, 'margin_mm');
+mask = dilate_mask_mm(baseMask, info, marginMm);
+thresholdText = sprintf('dilate_mm(%g mm, %s)', marginMm, srcThresholdText);
+end
+
+function sources = normalize_struct_array(sources)
+if iscell(sources)
+    if isempty(sources)
+        sources = struct([]);
+        return;
+    end
+    allFields = strings(0, 1);
+    for i = 1:numel(sources)
+        allFields = unique([allFields; string(fieldnames(sources{i}))]); %#ok<AGROW>
+    end
+    template = struct();
+    for j = 1:numel(allFields)
+        template.(char(allFields(j))) = [];
+    end
+    out = repmat(template, numel(sources), 1);
+    for i = 1:numel(sources)
+        names = fieldnames(sources{i});
+        for j = 1:numel(names)
+            out(i).(names{j}) = sources{i}.(names{j});
+        end
+    end
+    sources = out;
+elseif isstruct(sources)
+    sources = sources(:);
+end
+end
+
+function [refMask, refInfo] = mask_to_reference(spec, mask, info, tempDir, label)
+refInfo = niftiinfo(spec.reference_image);
+if grids_match(info, refInfo)
+    refMask = logical(mask);
+    return;
+end
+
+safeLabel = regexprep(label, '[^A-Za-z0-9_]+', '_');
+rawPath = fullfile(tempDir, [safeLabel, '_raw.nii']);
+reslicedPath = fullfile(tempDir, [safeLabel, '_reference.nii.gz']);
+
+write_mask_nifti(mask, info, rawPath);
+mh_atlas_reslice_to_reference(rawPath, spec.reference_image, reslicedPath);
+refMask = niftiread(reslicedPath) > 0;
+end
+
+function mask = dilate_mask_mm(baseMask, info, marginMm)
+pix = double(info.PixelDimensions(1:3));
+if max(abs(pix - pix(1))) > 1e-6
+    error('mh_atlas_build_roi_mask:AnisotropicDilationUnsupported', ...
+        'dilate_mm currently requires isotropic voxel spacing.');
+end
+distanceMm = bwdist(baseMask) .* pix(1);
+mask = distanceMm <= marginMm;
 end
 
 function sourceFile = resolve_source_file(spec, sideSpec)
@@ -265,6 +351,12 @@ outInfo = info;
 outInfo.Datatype = 'uint8';
 outInfo.BitsPerPixel = 8;
 outInfo.ImageSize = size(mask);
+if isfield(outInfo, 'MultiplicativeScaling')
+    outInfo.MultiplicativeScaling = 1;
+end
+if isfield(outInfo, 'AdditiveOffset')
+    outInfo.AdditiveOffset = 0;
+end
 if isfield(outInfo, 'Filename')
     outInfo.Filename = outputPath;
 end
@@ -275,13 +367,17 @@ niftiwrite(uint8(mask), outputPath, outInfo);
 end
 
 function assert_same_grid(infoA, infoB, roiName)
-sameSize = isequal(infoA.ImageSize, infoB.ImageSize);
-samePix = max(abs(double(infoA.PixelDimensions(1:3)) - double(infoB.PixelDimensions(1:3)))) < 1e-6;
-sameTransform = max(abs(infoA.Transform.T(:) - infoB.Transform.T(:))) < 1e-6;
-if ~(sameSize && samePix && sameTransform)
+if ~grids_match(infoA, infoB)
     error('mh_atlas_build_roi_mask:CompositeGridMismatch', ...
         'Composite ROI `%s` sources are not on the same grid.', roiName);
 end
+end
+
+function tf = grids_match(infoA, infoB)
+sameSize = isequal(infoA.ImageSize, infoB.ImageSize);
+samePix = max(abs(double(infoA.PixelDimensions(1:3)) - double(infoB.PixelDimensions(1:3)))) < 1e-6;
+sameTransform = max(abs(infoA.Transform.T(:) - infoB.Transform.T(:))) < 1e-6;
+tf = sameSize && samePix && sameTransform;
 end
 
 function ensure_dir(path)

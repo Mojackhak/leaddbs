@@ -1,0 +1,1185 @@
+{
+  "atlas_name": "STNSNr-connected regions",
+  "space": "MNI152NLin2009bAsym",
+  "reference_image": "templates/space/MNI152NLin2009bAsym/t1.nii",
+  "output_dir": "templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions",
+  "rois": [
+    {
+      "name": "STNSNr",
+      "role": "seed",
+      "category": "primary",
+      "operation": "union",
+      "sides": {
+        "L": {},
+        "R": {}
+      },
+      "sources": [
+        {
+          "name": "STN",
+          "operation": "threshold",
+          "threshold": 0.05,
+          "threshold_operator": ">",
+          "sides": {
+            "L": {
+              "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/STN.nii.gz"
+            },
+            "R": {
+              "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/STN.nii.gz"
+            }
+          },
+          "notes": "Source STN component for STNSNr composite masks."
+        },
+        {
+          "name": "SNr",
+          "operation": "threshold",
+          "threshold": 0.05,
+          "threshold_operator": ">",
+          "sides": {
+            "L": {
+              "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/SNr.nii.gz"
+            },
+            "R": {
+              "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/SNr.nii.gz"
+            }
+          },
+          "notes": "Source SNr component for STNSNr composite masks."
+        }
+      ],
+      "notes": "Combined STN/SNr seed: side-specific union of STN and SNr from Custom_Ewert_Zhang_Middlebrooks at >0.05."
+    },
+    {
+      "name": "STNSNrplus",
+      "role": "seed_margin",
+      "category": "primary",
+      "operation": "dilate_mm",
+      "margin_mm": 2,
+      "sides": {
+        "L": {},
+        "R": {}
+      },
+      "sources": [
+        {
+          "name": "STNSNr",
+          "operation": "union",
+          "sides": {
+            "L": {},
+            "R": {}
+          },
+          "sources": [
+            {
+              "name": "STN",
+              "operation": "threshold",
+              "threshold": 0.05,
+              "threshold_operator": ">",
+              "sides": {
+                "L": {
+                  "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/STN.nii.gz"
+                },
+                "R": {
+                  "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/STN.nii.gz"
+                }
+              },
+              "notes": "Source STN component for STNSNr composite masks."
+            },
+            {
+              "name": "SNr",
+              "operation": "threshold",
+              "threshold": 0.05,
+              "threshold_operator": ">",
+              "sides": {
+                "L": {
+                  "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/SNr.nii.gz"
+                },
+                "R": {
+                  "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/SNr.nii.gz"
+                }
+              },
+              "notes": "Source SNr component for STNSNr composite masks."
+            }
+          ],
+          "notes": "Side-specific union of thresholded STN and SNr component masks."
+        }
+      ],
+      "notes": "STNSNr with 2 mm dilation on the MNI152NLin2009bAsym reference grid."
+    },
+    {
+      "name": "STN",
+      "role": "component",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.05,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/STN.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/STN.nii.gz"
+        }
+      },
+      "notes": "STN component mask in the combined STNSNr-connected atlas."
+    },
+    {
+      "name": "SNr",
+      "role": "component",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.05,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/SNr.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/SNr.nii.gz"
+        }
+      },
+      "notes": "SNr component mask in the combined STNSNr-connected atlas."
+    },
+    {
+      "name": "STN_thr025",
+      "role": "component_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/STN.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/STN.nii.gz"
+        }
+      },
+      "notes": "STN_thr025 component sensitivity mask in the combined STNSNr-connected atlas."
+    },
+    {
+      "name": "STN_thr05",
+      "role": "component_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/STN.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/STN.nii.gz"
+        }
+      },
+      "notes": "STN_thr05 component sensitivity mask in the combined STNSNr-connected atlas."
+    },
+    {
+      "name": "SNr_thr025",
+      "role": "component_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/SNr.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/SNr.nii.gz"
+        }
+      },
+      "notes": "SNr_thr025 component sensitivity mask in the combined STNSNr-connected atlas."
+    },
+    {
+      "name": "SNr_thr05",
+      "role": "component_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/SNr.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks/rh/SNr.nii.gz"
+        }
+      },
+      "notes": "SNr_thr05 component sensitivity mask in the combined STNSNr-connected atlas."
+    },
+    {
+      "name": "M1",
+      "role": "target",
+      "category": "primary",
+      "operation": "label_union",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            31
+          ],
+          "label_names": [
+            "Primary_Motor_Cortex_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            211
+          ],
+          "label_names": [
+            "Primary_Motor_Cortex_R"
+          ]
+        }
+      },
+      "notes": "Primary motor cortex from HCPex."
+    },
+    {
+      "name": "SMA",
+      "role": "target",
+      "category": "primary",
+      "operation": "label_union",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            38,
+            39,
+            40
+          ],
+          "label_names": [
+            "Area_6m_anterior_L",
+            "Area_6mp_L",
+            "Supplementary_and_Cingulate_Eye_Field_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            218,
+            219,
+            220
+          ],
+          "label_names": [
+            "Area_6m_anterior_R",
+            "Area_6mp_R",
+            "Supplementary_and_Cingulate_Eye_Field_R"
+          ]
+        }
+      },
+      "notes": "SMA-related HCPex labels. HCPex does not provide a single dedicated SMA mask."
+    },
+    {
+      "name": "preSMA",
+      "role": "target",
+      "category": "primary",
+      "operation": "label_union",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            38,
+            39
+          ],
+          "label_names": [
+            "Area_6m_anterior_L",
+            "Area_6mp_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            218,
+            219
+          ],
+          "label_names": [
+            "Area_6m_anterior_R",
+            "Area_6mp_R"
+          ]
+        }
+      },
+      "notes": "Approximate pre-SMA endpoint using anterior/medial HCPex Area 6 labels."
+    },
+    {
+      "name": "premotor",
+      "role": "target",
+      "category": "primary",
+      "operation": "label_union",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            42,
+            44,
+            45,
+            47
+          ],
+          "label_names": [
+            "Area_6_anterior_L",
+            "Rostral_Area_6_L",
+            "Ventral_Area_6_L",
+            "Premotor_Eye_Field_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            222,
+            224,
+            225,
+            227
+          ],
+          "label_names": [
+            "Area_6_anterior_R",
+            "Rostral_Area_6_R",
+            "Ventral_Area_6_R",
+            "Premotor_Eye_Field_R"
+          ]
+        }
+      },
+      "notes": "Premotor endpoint from HCPex labels available locally."
+    },
+    {
+      "name": "GPe",
+      "role": "target",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPe.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPe.nii.gz"
+        }
+      },
+      "notes": "DISTAL GPe primary mask. Local checks showed >0.25 nearly eliminates GPe/GPi overlap while preserving volume."
+    },
+    {
+      "name": "GPi",
+      "role": "target",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPi.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPi.nii.gz"
+        }
+      },
+      "notes": "DISTAL GPi primary mask."
+    },
+    {
+      "name": "DLPFC",
+      "role": "target",
+      "category": "exploratory",
+      "operation": "label_union",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            168,
+            173,
+            139,
+            174,
+            175,
+            169,
+            170,
+            171,
+            172,
+            138
+          ],
+          "label_names": [
+            "Area_46_L",
+            "Area_9-46d_L",
+            "Area_9_Middle_L",
+            "Area_9_anterior_L",
+            "Area_9_Posterior_L",
+            "Area_8Ad_L",
+            "Area_8Av_L",
+            "Area_8B_Lateral_L",
+            "Area_8C_L",
+            "Area_8BM_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            348,
+            353,
+            319,
+            354,
+            355,
+            349,
+            350,
+            351,
+            352,
+            318
+          ],
+          "label_names": [
+            "Area_46_R",
+            "Area_9-46d_R",
+            "Area_9_Middle_R",
+            "Area_9_anterior_R",
+            "Area_9_Posterior_R",
+            "Area_8Ad_R",
+            "Area_8Av_R",
+            "Area_8B_Lateral_R",
+            "Area_8C_R",
+            "Area_8BM_R"
+          ]
+        }
+      },
+      "notes": "Exploratory dorsolateral prefrontal endpoint."
+    },
+    {
+      "name": "ACC",
+      "role": "target",
+      "category": "optional",
+      "operation": "label_union",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            33,
+            34,
+            136,
+            137,
+            146,
+            147,
+            149
+          ],
+          "label_names": [
+            "Dorsal_Area_24d_L",
+            "Ventral_Area_24d_L",
+            "Area_25_L",
+            "Area_33_prime_L",
+            "Area_p32_L",
+            "Area_p32_prime_L",
+            "Area_s32_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            213,
+            214,
+            316,
+            317,
+            326,
+            327,
+            329
+          ],
+          "label_names": [
+            "Dorsal_Area_24d_R",
+            "Ventral_Area_24d_R",
+            "Area_25_R",
+            "Area_33_prime_R",
+            "Area_p32_R",
+            "Area_p32_prime_R",
+            "Area_s32_R"
+          ]
+        }
+      },
+      "notes": "Anterior cingulate endpoint from HCPex cingulate labels."
+    },
+    {
+      "name": "OFC",
+      "role": "target",
+      "category": "optional",
+      "operation": "label_union",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            148,
+            157
+          ],
+          "label_names": [
+            "Posterior_OFC_Complex_L",
+            "Orbital_Frontal_Complex_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            328,
+            337
+          ],
+          "label_names": [
+            "posterior_OFC_Complex_R",
+            "Orbital_Frontal_Complex_R"
+          ]
+        }
+      },
+      "notes": "Orbitofrontal endpoint from HCPex OFC complex labels."
+    },
+    {
+      "name": "vmPFC",
+      "role": "target",
+      "category": "optional",
+      "operation": "label_union",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            136,
+            149,
+            157
+          ],
+          "label_names": [
+            "Area_25_L",
+            "Area_s32_L",
+            "Orbital_Frontal_Complex_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            316,
+            329,
+            337
+          ],
+          "label_names": [
+            "Area_25_R",
+            "Area_s32_R",
+            "Orbital_Frontal_Complex_R"
+          ]
+        }
+      },
+      "notes": "Approximate ventromedial prefrontal endpoint from HCPex medial/orbital labels."
+    },
+    {
+      "name": "GPe_thr005",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.05,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPe.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPe.nii.gz"
+        }
+      },
+      "notes": "Liberal DISTAL GPe sensitivity mask."
+    },
+    {
+      "name": "GPe_thr05",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPe.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPe.nii.gz"
+        }
+      },
+      "notes": "Conservative DISTAL GPe sensitivity mask."
+    },
+    {
+      "name": "GPi_thr005",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.05,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPi.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPi.nii.gz"
+        }
+      },
+      "notes": "Liberal DISTAL GPi sensitivity mask."
+    },
+    {
+      "name": "GPi_thr05",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/lh/GPi.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL (Ewert 2017)/rh/GPi.nii.gz"
+        }
+      },
+      "notes": "Conservative DISTAL GPi sensitivity mask."
+    },
+    {
+      "name": "VA_thalamus",
+      "role": "target",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VA/Thalamus-VA_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VA/Thalamus-VA_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Julich v3.1 VA thalamus probability map."
+    },
+    {
+      "name": "VLA_thalamus",
+      "role": "target",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLA/Thalamus-VLA_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLA/Thalamus-VLA_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Julich v3.1 VLA thalamus probability map."
+    },
+    {
+      "name": "VLP_thalamus",
+      "role": "target",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLP/Thalamus-VLP_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLP/Thalamus-VLP_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Julich v3.1 VLP thalamus probability map."
+    },
+    {
+      "name": "VM_thalamus",
+      "role": "target",
+      "category": "primary",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VM/Thalamus-VM_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VM/Thalamus-VM_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Julich v3.1 VM thalamus probability map."
+    },
+    {
+      "name": "posterior_putamen",
+      "role": "target",
+      "category": "primary",
+      "operation": "posterior_split",
+      "split": "posterior_half",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            382
+          ],
+          "label_names": [
+            "Putamen_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            415
+          ],
+          "label_names": [
+            "Putamen_R"
+          ]
+        }
+      },
+      "notes": "Posterior half of HCPex putamen by MNI y coordinate."
+    },
+    {
+      "name": "caudate",
+      "role": "target",
+      "category": "optional",
+      "operation": "label_union",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            383
+          ],
+          "label_names": [
+            "Caudate_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            416
+          ],
+          "label_names": [
+            "Caudate_R"
+          ]
+        }
+      },
+      "notes": "HCPex caudate target."
+    },
+    {
+      "name": "PPN",
+      "role": "target",
+      "category": "primary",
+      "operation": "copy_binary",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/PPN_Atlas (Alho 2017)/lh/PPN.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/PPN_Atlas (Alho 2017)/rh/PPN.nii.gz"
+        }
+      },
+      "notes": "Primary PPN atlas from Alho 2017."
+    },
+    {
+      "name": "superior_colliculus",
+      "role": "target",
+      "category": "primary",
+      "operation": "copy_binary",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Allen Brain Atlas (Ding 2020)/lh/SC.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/Allen Brain Atlas (Ding 2020)/rh/SC.nii.gz"
+        }
+      },
+      "notes": "Allen superior colliculus mask."
+    },
+    {
+      "name": "MD_thalamus",
+      "role": "target",
+      "category": "optional",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-MD/Thalamus-MD_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-MD/Thalamus-MD_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Julich v3.1 MD thalamus probability map."
+    },
+    {
+      "name": "CM_thalamus",
+      "role": "target",
+      "category": "optional",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-CM/Thalamus-CM_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-CM/Thalamus-CM_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Julich v3.1 CM thalamus probability map."
+    },
+    {
+      "name": "Pf_thalamus",
+      "role": "target",
+      "category": "optional",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-Pf/Thalamus-Pf_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-Pf/Thalamus-Pf_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Julich v3.1 Pf thalamus probability map."
+    },
+    {
+      "name": "sPf_thalamus",
+      "role": "target",
+      "category": "optional",
+      "operation": "threshold",
+      "threshold": 0.25,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-sPf/Thalamus-sPf_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-sPf/Thalamus-sPf_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Julich v3.1 sPf thalamus probability map."
+    },
+    {
+      "name": "FEF",
+      "role": "target",
+      "category": "exploratory",
+      "operation": "label_union",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            46
+          ],
+          "label_names": [
+            "Frontal_Eye_Fields_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            226
+          ],
+          "label_names": [
+            "Frontal_Eye_Fields_R"
+          ]
+        }
+      },
+      "notes": "Exploratory frontal eye field endpoint."
+    },
+    {
+      "name": "posterior_putamen_third",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "posterior_split",
+      "split": "posterior_third",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            382
+          ],
+          "label_names": [
+            "Putamen_L"
+          ]
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii",
+          "label_ids": [
+            415
+          ],
+          "label_names": [
+            "Putamen_R"
+          ]
+        }
+      },
+      "notes": "Posterior third sensitivity definition for posterior putamen."
+    },
+    {
+      "name": "PPN_snijders2016",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "copy_binary",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/PPN (Snijders 2016)/lh/PPN.nii"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/atlases/PPN (Snijders 2016)/rh/PPN.nii"
+        }
+      },
+      "notes": "PPN sensitivity atlas from Snijders 2016."
+    },
+    {
+      "name": "VA_thalamus_thr0",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VA/Thalamus-VA_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VA/Thalamus-VA_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Liberal Julich VA thalamus sensitivity mask."
+    },
+    {
+      "name": "VA_thalamus_thr50",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VA/Thalamus-VA_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VA/Thalamus-VA_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Conservative Julich VA thalamus sensitivity mask."
+    },
+    {
+      "name": "VLA_thalamus_thr0",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLA/Thalamus-VLA_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLA/Thalamus-VLA_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Liberal Julich VLA thalamus sensitivity mask."
+    },
+    {
+      "name": "VLA_thalamus_thr50",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLA/Thalamus-VLA_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLA/Thalamus-VLA_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Conservative Julich VLA thalamus sensitivity mask."
+    },
+    {
+      "name": "VLP_thalamus_thr0",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLP/Thalamus-VLP_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLP/Thalamus-VLP_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Liberal Julich VLP thalamus sensitivity mask."
+    },
+    {
+      "name": "VLP_thalamus_thr50",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLP/Thalamus-VLP_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VLP/Thalamus-VLP_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Conservative Julich VLP thalamus sensitivity mask."
+    },
+    {
+      "name": "VM_thalamus_thr0",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VM/Thalamus-VM_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VM/Thalamus-VM_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Liberal Julich VM thalamus sensitivity mask."
+    },
+    {
+      "name": "VM_thalamus_thr50",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VM/Thalamus-VM_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-VM/Thalamus-VM_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Conservative Julich VM thalamus sensitivity mask."
+    },
+    {
+      "name": "MD_thalamus_thr0",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-MD/Thalamus-MD_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-MD/Thalamus-MD_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Liberal Julich MD thalamus sensitivity mask."
+    },
+    {
+      "name": "MD_thalamus_thr50",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-MD/Thalamus-MD_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-MD/Thalamus-MD_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Conservative Julich MD thalamus sensitivity mask."
+    },
+    {
+      "name": "CM_thalamus_thr0",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-CM/Thalamus-CM_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-CM/Thalamus-CM_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Liberal Julich CM thalamus sensitivity mask."
+    },
+    {
+      "name": "CM_thalamus_thr50",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-CM/Thalamus-CM_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-CM/Thalamus-CM_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Conservative Julich CM thalamus sensitivity mask."
+    },
+    {
+      "name": "Pf_thalamus_thr0",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-Pf/Thalamus-Pf_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-Pf/Thalamus-Pf_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Liberal Julich Pf thalamus sensitivity mask."
+    },
+    {
+      "name": "Pf_thalamus_thr50",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-Pf/Thalamus-Pf_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-Pf/Thalamus-Pf_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Conservative Julich Pf thalamus sensitivity mask."
+    },
+    {
+      "name": "sPf_thalamus_thr0",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0,
+      "threshold_operator": ">",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-sPf/Thalamus-sPf_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-sPf/Thalamus-sPf_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Liberal Julich sPf thalamus sensitivity mask."
+    },
+    {
+      "name": "sPf_thalamus_thr50",
+      "role": "target_sensitivity",
+      "category": "sensitivity",
+      "operation": "threshold",
+      "threshold": 0.5,
+      "threshold_operator": ">=",
+      "sides": {
+        "L": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-sPf/Thalamus-sPf_lh_MNI152.nii.gz"
+        },
+        "R": {
+          "source_file": "templates/space/MNI152NLin2009bAsym/labeling/Julich-Brain Atlas-v3.1/probabilistic-maps_PMs_207-areas/Thalamus-sPf/Thalamus-sPf_rh_MNI152.nii.gz"
+        }
+      },
+      "notes": "Conservative Julich sPf thalamus sensitivity mask."
+    }
+  ]
+}

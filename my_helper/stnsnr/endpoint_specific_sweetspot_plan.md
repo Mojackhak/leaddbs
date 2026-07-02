@@ -90,6 +90,9 @@ HF territory atlas:
 
 ULF territory atlas:
   /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/SNr-connected regions
+
+Combined STN/SNr territory atlas:
+  /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions
 ```
 
 Each connected-region atlas contains side-specific binary masks and a `roi_manifest.csv` that records the upstream atlas source, threshold, role, and category for each ROI. Use the connected-region atlas ROI files directly for candidate fiber classification, endpoint grouping, coverage summaries, and visualization overlays. Do not use these masks to hard-split overlapping VTA or streamlines into anatomic STN versus SNr effects.
@@ -97,6 +100,8 @@ Each connected-region atlas contains side-specific binary masks and a `roi_manif
 For HF-only analyses, use `STN-connected regions` first as the historical HF territory atlas. Its primary ROIs include `STN`, `SNr`, `M1`, `SMA`, `preSMA`, `premotor`, `GPe`, and `GPi`, with optional or exploratory `DLPFC`, `ACC`, `OFC`, and `vmPFC` masks.
 
 For ULF-only add-on analyses, use `SNr-connected regions` first as the historical ULF target-territory atlas. Its primary ROIs include `SNr`, `STN`, `VA_thalamus`, `VLA_thalamus`, `VLP_thalamus`, `VM_thalamus`, `posterior_putamen`, `PPN`, and `superior_colliculus`, with optional or exploratory `caudate`, `MD_thalamus`, `CM_thalamus`, `Pf_thalamus`, `sPf_thalamus`, `FEF`, `SMA`, `preSMA`, `premotor`, `M1`, and `DLPFC` masks.
+
+For combined STN/SNr analyses, use `STNSNr-connected regions` first. Its primary combined seed is `STNSNr`; `STNSNrplus` is the same seed with 2 mm dilation. Single-component `STN` and `SNr` masks remain available in the same atlas for component context.
 
 `Custom_Ewert_Zhang_Middlebrooks0.05` remains the upstream source for the STN and SNr masks inside the connected-region atlases and is retained as a sensitivity or fallback source for standalone STN/SNr masks. Neither connected-region ROIs nor Custom STN/SNr masks should be used to clip stimulation fields.
 
