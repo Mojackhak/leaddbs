@@ -26,7 +26,27 @@ Immediate gain:
 - SNr seed and target masks from `SNr-connected regions`.
 - SNr targets from the seed-target atlas registry, including VA/VLA/VLP/VM thalamus, STN, posterior putamen, caudate, PPN, superior colliculus, MD, CM, Pf, sPf, FEF, SMA, preSMA, premotor, M1, and DLPFC.
 - SNr-component stimulation maps for each endpoint.
-- Raw clinical scores and STN component exposure-change scalars.
+- Raw clinical scores.
+- STN-only efficacy maps trained from pre-SNr STN-only data for each scale or symptom domain.
+- `DeltaSTNScore` for each endpoint, computed from the corresponding STN efficacy map.
+
+The preferred STN adjustment is:
+
+```text
+S_STN(E) =
+  sum_{u in Omega_STN} E(u) * M_STN(u)
+  / (sum_{u in Omega_STN} E(u) + lambda)
+
+DeltaSTNScore_3m =
+  S_STN_domain(E_STN_component,STN+SNr3m)
+  - S_STN_domain(E_STN_component,STN-only3m)
+
+DeltaSTNScore_immediate =
+  S_STN_motor(E_STN_component,STN+SNrImmediate)
+  - S_STN_motor(E_STN_component,STN-only3m)
+```
+
+For lower-is-better scales, `M_STN = -theta_STN`; for SE-ADL, `M_STN = theta_STN`. The STN map must be trained only on STN-only outcomes before SNr is added.
 
 ## Feature Construction
 
@@ -95,7 +115,9 @@ Y_AB_post_i = alpha
 - Run chronic gain and immediate gain separately.
 - Use fully nested leave-one-patient-out cross-validation.
 - Estimate target weights, select targets, and standardize features inside training folds only.
+- For strict out-of-sample prediction, train the STN efficacy map inside each outer fold before computing fold-specific `DeltaSTNScore`.
 - Compare against covariate-only prediction: `Y_AB_post ~ Y_STN3m + DeltaSTNScore`.
+- Run `DeltaSTNPhys` sensitivity using an outcome-independent STN-change measure such as charge-rate change, raw STN e-field energy change, STN VTA overlap change, or STN field centroid distance.
 - Report LOOCV metrics, target selection stability, cross-connectome agreement, and permutation P value.
 
 ## Downstream Visualization
@@ -115,4 +137,4 @@ The SNr voxel maps are target-derived seed voxel maps created by back-projecting
 
 ## Interpretation Boundary
 
-This model estimates clinical optimization-informed SNr target-gain associations adjusted for STN 3-month baseline and concurrent STN reprogramming. It supports network interpretation but does not prove that any individual streamline or target is causally sufficient.
+This model estimates clinical optimization-informed SNr target-gain associations adjusted for STN 3-month baseline and concurrent STN reprogramming. It supports network interpretation but does not prove that any individual streamline or target is causally sufficient. Unless an external STN efficacy map is used, `DeltaSTNScore` is a same-cohort, pre-SNr-derived nuisance adjustment and may be noisy in a small cohort.

@@ -20,15 +20,34 @@ Immediate gain:
   covariates = Y_STN3m + DeltaSTNScore_immediate
 ```
 
-`Y_STN3m` controls the pre-SNr clinical state. `DeltaSTNScore` controls concurrent STN component reprogramming.
+`Y_STN3m` controls the pre-SNr clinical state. `DeltaSTNScore` controls concurrent STN component reprogramming as an endpoint/domain-matched change in predicted STN efficacy-map alignment, not as a raw programming-parameter change.
 
 ## Inputs
 
 - SNr-component stimulation fields for STN+SNr 3-month and STN+SNr immediate programming.
 - SNr seed masks from `SNr-connected regions`.
 - STN-only 3-month raw score and post-combination raw scores.
-- STN component exposure-change scalar for each endpoint.
+- STN-only efficacy maps trained from pre-SNr STN-only data for each scale or symptom domain.
+- `DeltaSTNScore` for each endpoint, computed from the corresponding STN efficacy map.
 - Homologous left-right SNr voxel mapping QC outputs.
+
+The preferred STN adjustment is:
+
+```text
+S_STN(E) =
+  sum_{u in Omega_STN} E(u) * M_STN(u)
+  / (sum_{u in Omega_STN} E(u) + lambda)
+
+DeltaSTNScore_3m =
+  S_STN_domain(E_STN_component,STN+SNr3m)
+  - S_STN_domain(E_STN_component,STN-only3m)
+
+DeltaSTNScore_immediate =
+  S_STN_motor(E_STN_component,STN+SNrImmediate)
+  - S_STN_motor(E_STN_component,STN-only3m)
+```
+
+For lower-is-better scales, `M_STN = -theta_STN`; for SE-ADL, `M_STN = theta_STN`. The STN map must be trained only on STN-only outcomes before SNr is added.
 
 ## Feature Construction
 
@@ -107,7 +126,9 @@ Y_AB_post_i = alpha
 - Run chronic gain and immediate gain as separate models.
 - Use fully nested leave-one-patient-out cross-validation.
 - Define coverage mask and fit voxel maps using training patients only.
+- For strict out-of-sample prediction, train the STN efficacy map inside each outer fold before computing fold-specific `DeltaSTNScore`.
 - Compare against covariate-only prediction: `Y_AB_post ~ Y_STN3m + DeltaSTNScore`.
+- Run `DeltaSTNPhys` sensitivity using an outcome-independent STN-change measure such as charge-rate change, raw STN e-field energy change, STN VTA overlap change, or STN field centroid distance.
 - Report LOOCV Pearson `r`, Spearman `rho`, MAE, RMSE, `Q2`, and patient-level Freedman-Lane permutation P value.
 
 ## Downstream Visualization
@@ -131,4 +152,4 @@ Display maps with coverage overlays. Low-coverage SNr voxels should be transpare
 
 ## Interpretation Boundary
 
-This model is a local SNr stimulation association model for SNr add-on benefit. It is not a network mechanism model and should not be interpreted as pure causal evidence that stimulating a single SNr voxel guarantees benefit.
+This model is a local SNr stimulation association model for SNr add-on benefit. It is not a network mechanism model and should not be interpreted as pure causal evidence that stimulating a single SNr voxel guarantees benefit. Unless an external STN efficacy map is used, `DeltaSTNScore` is a same-cohort, pre-SNr-derived nuisance adjustment and may be noisy in a small cohort.

@@ -675,6 +675,8 @@ where:
 DeltaSTNScore_ImmTo3m = STNScore_STN3m - STNScore_STNImmediate
 ```
 
+Here `STNScore` should use the same endpoint/domain-matched STN efficacy-map scoring function `S_STN(E)`, not raw programming parameters. This optional adaptation covariate is distinct from the SNr-gain `DeltaSTNScore`, which compares the STN-only 3-month setting with the STN component of combined STN+SNr stimulation.
+
 This optional model should not replace the primary chronic STN-only model.
 
 The chronic STN model also supports an optional residualized SNr model by predicting the STN contribution under the STN component of combined stimulation.
@@ -687,7 +689,7 @@ The SNr model should use raw post-combination scores when available, following a
 clinical optimization-informed SNr-target gain model
 ```
 
-This model asks whether the final clinician-optimized SNr component exposure predicts better STN+SNr outcome after controlling the pre-SNr STN 3-month clinical state and the concurrent STN component exposure change.
+This model asks whether the final clinician-optimized SNr component exposure predicts better STN+SNr outcome after controlling the pre-SNr STN 3-month clinical state and the concurrent STN efficacy-map score change of the STN component.
 
 The model has two endpoints:
 
@@ -704,6 +706,77 @@ immediate SNr gain endpoint:
 ```
 
 Use `MIN_N_FOR_MODEL = 12`. Do not hard-code scale names into endpoint selection. Choose each endpoint per scale based on complete paired score and exposure availability.
+
+### DeltaSTNScore Construction
+
+`DeltaSTNScore` is the scalar covariate used to control STN component reprogramming in SNr gain models. The preferred definition is not a raw voltage, pulse-width, frequency, or contact-change summary. It is the change in predicted STN efficacy of the STN component between the STN-only 3-month setting and the combined STN+SNr setting.
+
+First train an endpoint/domain-matched STN efficacy map using only pre-SNr STN-only data:
+
+```text
+Y_STN3m_i = alpha_u
+          + theta_STN(u) * X_STN3m_i(u)
+          + beta_u       * Y_Preop_i
+          + error_i,u
+```
+
+For lower-is-better scales:
+
+```text
+M_STN(u) = -theta_STN(u)
+```
+
+For SE-ADL:
+
+```text
+M_STN(u) = theta_STN(u)
+```
+
+Then score any STN setting `E` against this STN efficacy map:
+
+```text
+S_STN(E) =
+  sum_{u in Omega_STN} E(u) * M_STN(u)
+  / (sum_{u in Omega_STN} E(u) + lambda)
+```
+
+Define:
+
+```text
+DeltaSTNScore_i =
+  S_STN(E_STN_component_i,combined)
+  - S_STN(E_STN_component_i,STN-only3m)
+```
+
+Interpretation:
+
+```text
+DeltaSTNScore_i > 0
+  combined-phase STN component is closer to the learned STN efficacy map
+
+DeltaSTNScore_i < 0
+  combined-phase STN component is less aligned with the learned STN efficacy map
+```
+
+This definition is acceptable because `M_STN` is trained on STN-only 3-month outcomes before SNr is added; it is not trained on STN+SNr outcomes.
+
+Endpoint/domain matching is required:
+
+- For chronic SNr 3-month models, train the STN map from the matching STN-only 3-month scale or symptom domain.
+- For immediate SNr motor models, use a motor-specific STN map trained from STN-only 3-month motor outcome as the main definition.
+- A STN immediate motor-derived acute map may be used only as sensitivity analysis.
+- Do not use a total-score STN map as the main `DeltaSTNScore` for a motor-only immediate endpoint.
+
+For strict SNr LOOCV prediction, train `M_STN` inside each outer training fold and use that fold-specific STN map to compute `DeltaSTNScore` for both training and held-out patients. For final descriptive maps, a full-sample pre-SNr STN map may be used and should be reported as a same-cohort, pre-SNr-derived nuisance adjustment rather than an external independent model.
+
+Required diagnostics:
+
+```text
+cor(DeltaSTNScore, Y_STN3m)
+cor(DeltaSTNScore, SNr exposure features)
+```
+
+Also run a physical STN-change sensitivity covariate that does not depend on clinical outcome, such as charge-rate or e-field overlap change, to test whether conclusions depend on the learned STN efficacy map.
 
 ### Primary SNr Gain Model
 
@@ -722,7 +795,7 @@ Definitions:
 - `Y_AB_post_i`: selected post-combination raw clinical score for patient `i`.
 - `Y_STN3m_i`: STN-only 3-month raw clinical score for patient `i`.
 - `C_SNr_bilat(i,k)`: final SNr-component target-level bilateral seed-target connectivity for target `k`.
-- `DeltaSTNScore_i`: scalar summary of STN component exposure change between STN-only and combined programming.
+- `DeltaSTNScore_i`: endpoint/domain-matched change in predicted STN efficacy score for the STN component between STN-only 3 months and the combined setting.
 - `theta_SNr,k`: SNr gain target coefficient of interest.
 
 Question:
@@ -766,7 +839,7 @@ Definitions:
 
 - `Y_AB3m_i`: raw STN+SNr 3-month clinical score for patient `i`.
 - `C_SNr3m_bilat(i,k)`: STN+SNr 3-month SNr-component bilateral connectivity to target `k`.
-- `DeltaSTNScore_3m_i`: STN component exposure change from STN-only 3 months to STN+SNr 3 months.
+- `DeltaSTNScore_3m_i`: endpoint/domain-matched change in predicted STN efficacy score from STN-only 3 months to the STN component of STN+SNr 3 months.
 - `theta_SNr_chronic,k`: chronic SNr gain target coefficient.
 
 Question:
@@ -792,7 +865,7 @@ Definitions:
 
 - `Y_ABimmediate_i`: raw STN+SNr immediate clinical score for patient `i`.
 - `C_SNrImmediate_bilat(i,k)`: STN+SNr immediate SNr-component bilateral connectivity to target `k`.
-- `DeltaSTNScore_immediate_i`: STN component exposure change from STN-only 3 months to STN+SNr immediate programming.
+- `DeltaSTNScore_immediate_i`: motor-domain change in predicted STN efficacy score from STN-only 3 months to the STN component of STN+SNr immediate programming.
 - `theta_SNr_immediate,k`: immediate SNr gain target coefficient.
 
 Question:
@@ -802,7 +875,7 @@ In patients with the same STN-only 3-month clinical state and the same immediate
 does final SNr immediate connectivity to target k predict better STN+SNr immediate outcome?
 ```
 
-The `Y_STN3m` covariate controls the pre-SNr disease state. `DeltaSTNScore_immediate` controls concurrent STN component reprogramming in the immediate STN+SNr setting. If a same-day pre-SNr STN-only score becomes available, add a sensitivity model using that same-day baseline to control short-term disease fluctuation more directly.
+The `Y_STN3m` covariate controls the pre-SNr disease state. `DeltaSTNScore_immediate` controls concurrent STN component reprogramming in the immediate STN+SNr setting using a motor-domain STN efficacy map. If a same-day pre-SNr STN-only score becomes available, add a sensitivity model using that same-day baseline to control short-term disease fluctuation more directly.
 
 #### Rank-Based SNr Implementation
 
@@ -862,7 +935,7 @@ Therefore, the SNr target maps and target scores are patient-level between-subje
 The SNr gain analyses are scientifically meaningful under these conditions:
 
 - `Y_STN3m` adequately represents the clinical state before SNr addition.
-- `DeltaSTNScore` adequately summarizes STN-component changes for the SNr gain model.
+- `DeltaSTNScore` is constructed from an endpoint/domain-matched STN efficacy map trained only on pre-SNr STN-only data.
 - The final SNr setting is a clinically optimized setting, not an arbitrary or poorly explored setting.
 - Acute programming response and side-effect thresholds used to choose the final SNr setting have reasonable relevance to the 3-month outcome.
 - SNr target-level connectivity has enough across-patient variability to estimate target weights.
@@ -886,7 +959,9 @@ Main limitations:
 - The maps are not pure causal maps of SNr spatial efficacy.
 - Clinician selection can induce indication bias because different SNr regions may be selected for different patient subtypes.
 - `Y_STN3m` controls total pre-SNr severity, but may not fully control symptom composition, DBS responsiveness, future prognosis, or side-effect limitations.
+- `DeltaSTNScore` is a same-cohort, pre-SNr-derived nuisance adjustment unless an external STN efficacy map is used.
 - `DeltaSTNScore` may be an incomplete summary of STN reprogramming because STN changes can involve contact, amplitude, pulse width, frequency, e-field shape, and fiber recruitment.
+- `DeltaSTNScore` may be noisy or overfit because the STN efficacy map is trained in the same small cohort.
 - `C_SNr_bilat(i,k)` and `DeltaSTNScore` may be collinear if certain SNr target connectivity profiles are systematically paired with certain STN programming changes.
 - Low-coverage targets, locations, or streamlines can generate unstable coefficients.
 - With `n = 16`, interaction models such as `C_SNr_bilat(k) * subtype` or `C_SNr_bilat(k) * DeltaSTNScore` are usually too unstable for primary inference.
@@ -914,20 +989,32 @@ Do not interpret `STN+SNr - STN-alone` as pure SNr benefit if STN parameters cha
 The primary SNr gain model controls this by including:
 
 ```text
-DeltaSTNScore = STN exposure scalar in combined setting - STN exposure scalar in STN-alone setting
+DeltaSTNScore =
+  S_STN(E_STN_component,combined)
+  - S_STN(E_STN_component,STN-only3m)
 ```
 
-Recommended main scalar:
+where `S_STN` is the STN efficacy score computed from an endpoint/domain-matched STN map trained only on pre-SNr STN-only data.
+
+Do not use raw contact, voltage, pulse width, or frequency change as the main `DeltaSTNScore`. Those physical summaries are sensitivity covariates.
+
+Main chronic SNr 3-month analysis:
 
 ```text
-STNScore_i = sum of STN-component exposure in a prespecified STN motor ROI
+DeltaSTNScore_3m =
+  S_STN_domain(E_STN_component,STN+SNr3m)
+  - S_STN_domain(E_STN_component,STN-only3m)
 ```
 
-or, once an STN model is available:
+Main SNr immediate motor analysis:
 
 ```text
-STNScore_i = weighted overlap with the learned STN target-level or sweet-spot model
+DeltaSTNScore_immediate =
+  S_STN_motor(E_STN_component,STN+SNr immediate)
+  - S_STN_motor(E_STN_component,STN-only3m)
 ```
+
+Report this as a same-cohort, pre-SNr-derived nuisance adjustment unless the STN map comes from an external dataset.
 
 ### Residualized SNr Sensitivity Model
 
@@ -951,7 +1038,7 @@ Use leave-one-patient-out predictions for any residualized model to avoid optimi
 
 Voxel sweet spots are secondary localization outputs. For each voxel and outcome, model the relation between subject-level stimulation exposure at that voxel and clinical response after the target-level model has been specified.
 
-For the STN model, use STN-alone exposure and STN response. For the SNr gain model, use SNr-component exposure and endpoint-specific post-score models adjusted for STN-3m baseline and STN exposure change. Run the chronic gain endpoint for `STN+SNr 3m` and the immediate gain endpoint for `STN+SNr immediate`.
+For the STN model, use STN-alone exposure and STN response. For the SNr gain model, use SNr-component exposure and endpoint-specific post-score models adjusted for STN-3m baseline and endpoint/domain-matched STN efficacy-map score change. Run the chronic gain endpoint for `STN+SNr 3m` and the immediate gain endpoint for `STN+SNr immediate`.
 
 Voxel maps should not drive primary predictor selection.
 
@@ -1018,7 +1105,7 @@ Definitions:
 - `Y_AB_post_i`: selected raw STN+SNr post-combination clinical score.
 - `Y_STN3m_i`: raw STN-only 3-month clinical score.
 - `X_SNr_i(v)`: bilateral homologous SNr-component E-field exposure at canonical SNr voxel `v`.
-- `DeltaSTNScore_i`: STN component exposure change between STN-only and combined programming.
+- `DeltaSTNScore_i`: endpoint/domain-matched change in predicted STN efficacy score for the STN component between STN-only and combined programming.
 - `theta_SNr(v)`: direct SNr voxel gain coefficient.
 
 For lower-is-better scales:
@@ -1598,8 +1685,8 @@ Run the following sensitivity analyses:
 - one-at-a-time STN covariate sensitivity with medication or LEDD change when medication state differs;
 - patient-level overlap with a published STN sweet spot as an external plausibility check;
 - STN-only negative-control model using SNr exposure to test whether SNr-addition maps reflect general electrode placement quality;
-- target-specific STN exposure change instead of scalar `DeltaSTNScore`;
-- minimal-STN-change subgroup after excluding subjects with the largest absolute STN exposure change;
+- target-specific STN efficacy-score change instead of scalar `DeltaSTNScore`;
+- minimal-physical-STN-change subgroup after excluding subjects with the largest absolute outcome-independent STN exposure change;
 - binary VTA intersection instead of continuous peak exposure;
 - interleaving-specific union, overlap, and frequency-weighted exposure summaries;
 - local ROI-expanded peak exposure using connected-region STN/SNr primary masks dilated by `2-3 mm`;
@@ -1726,7 +1813,7 @@ Expected output groups:
 - STN voxel maps should be described as STN connectivity-derived candidate sweet/sour zones based on target-level STN efficacy weights.
 - STN-immediate results should be described as early STN-only target connectivity response models, or acute STN stimulation response models only when same-day STN-OFF baseline is used.
 - STN adaptation results should be described as secondary programming/adaptation analyses, not as the main STN efficacy model.
-- SNr gain results should be described as clinical optimization-informed SNr target-level gain models adjusted for STN-3m baseline and concurrent STN exposure change.
+- SNr gain results should be described as clinical optimization-informed SNr target-level gain models adjusted for STN-3m baseline and concurrent STN efficacy-map score change.
 - SNr chronic gain results should be described as adjusted target-level associations with `STN+SNr 3m` outcome.
 - SNr immediate gain results should be described as adjusted target-level associations with `STN+SNr immediate` outcome.
 - Residualized SNr results should be described as STN-model-adjusted SNr-associated residual benefit, not as definitive pure SNr causal effect.
