@@ -6,6 +6,14 @@
 
 这是 seed-target / fiber-derived target-level 模型。单条 streamline 用于构建 target feature、QC、贡献图和可视化，但不作为主分析中的 top-correlation predictor。
 
+
+频率定义固定为：
+
+```text
+HF  = high-frequency stimulation component, frequency_Hz >= 100
+ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
+```
+
 ## 终点
 
 主终点：

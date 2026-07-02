@@ -6,6 +6,14 @@ Which predefined targets connected to the HF stimulation territory show normativ
 
 This is a seed-target / fiber-derived target-level model. Individual streamlines are used to build target features, QC, contribution maps, and visualizations. Single streamlines are not selected as the primary top-correlation predictors.
 
+
+Frequency definitions:
+
+```text
+HF  = high-frequency stimulation component, frequency_Hz >= 100
+ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
+```
+
 ## Endpoint
 
 Primary endpoint:

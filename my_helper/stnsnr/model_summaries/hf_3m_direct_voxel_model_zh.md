@@ -6,6 +6,14 @@
 
 这是一个局部刺激 sweet spot 模型。原 STN-only 阶段在这里解释为 HF-only DBS territory，而不是解剖学 STN-only 模型。STN/SNr mask 只用于 territory 定义、覆盖描述和可视化 overlay，不用于把模型效应硬分给某一个核团。
 
+
+频率定义固定为：
+
+```text
+HF  = high-frequency stimulation component, frequency_Hz >= 100
+ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
+```
+
 ## 终点
 
 主终点：
@@ -44,7 +52,7 @@ Omega_HF = cohort-covered HF stimulation territory within the STN/SNr and peri-S
 X_HF_only_i(v) = (X_HF_left_i(v) + X_HF_right_i(v)) / 2
 ```
 
-模型拟合使用 coverage mask 内的连续暴露值。active-voxel 阈值只用于 coverage/QC 以及 HF/LF overlap 归属：
+模型拟合使用 coverage mask 内的连续暴露值。active-voxel 阈值只用于 coverage/QC 以及 HF/ULF overlap 归属：
 
 ```text
 tau = 0.2 V/mm

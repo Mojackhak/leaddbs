@@ -1,12 +1,12 @@
 # STN/SNr DWI Registration Technical Details
 
-Date: 2026-07-02
+Date: 2026-07-03
 
 ## Purpose
 
-This document fixes the technical plan for registering the imported STN/SNr cohort DWI scans into the existing Lead-DBS subject spaces. The registration outputs are prerequisites for patient-specific seed-target tracking, VTA/ROI projection into DWI space, and native/MNI streamline display.
+This document fixes the technical plan for importing, staging, and registering the STN/SNr cohort DWI scans into the existing Lead-DBS subject spaces. The staged DWI and b0 outputs are prerequisites for patient-specific seed-target tracking, VTA/ROI projection into DWI space, and native/MNI streamline display.
 
-This stage performs DWI staging, automatic b0 extraction, and b0-to-anchorNative registration only. It does not run tractography, normative connectome analysis, or sweet/sour spot modeling.
+The import/staging stage refreshes raw BIDS DWI files, stages DWI derivatives, and extracts b0 images. Registration is a separate step and is not required for a staging-only refresh. Neither stage runs tractography, normative connectome analysis, or sweet/sour spot modeling.
 
 The first completed T2 branch used Lead-DBS ANTs linear registration under `coregistration/dwi_t2/`. Because manual QC still showed large residual errors in some subjects, the next pilot adds two method-comparison branches for three subjects only:
 
@@ -24,36 +24,37 @@ Study root:
 /Volumes/VAL/STNSNr
 ```
 
-DWI import log:
+DWI source root:
 
 ```text
-/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_import_20260701_013240.csv
+/Volumes/VAL/STNSNrdwi
 ```
 
-Included subjects are the 12 rows with copied volumetric DWI:
+DWI import logs are written to:
 
 ```text
-LinJia
-HuFengXian
-YuDongJian
-WuYueFen
-LiPing
-MaoXiaoMing
+/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_import_<timestamp>.csv
+```
+
+Included subjects are the 16 valid DWI four-file sets:
+
+```text
 ChenLingHua
+ChenMeiJu
 FanDongDong
+GengHui
+HuFengXian
 HuangDan
+LiPing
+LinJia
+MaoXiaoMing
+ShengGuoLiang
+WuYueFen
+YuDongJian
 ZhangMing
 ZhangXiaoHong
-ChenMeiJu
-```
-
-The following subjects are excluded from this registration batch because the import log indicates partial-recovery, single-slice, or tiled DWI exports:
-
-```text
-ShengGuoLiang
-GengHui
-ZhengXiangQuan
 ZhaoPeiGen
+ZhengXiangQuan
 ```
 
 ## Registration Chain
@@ -84,9 +85,13 @@ preprocessing/dwi/sub-<Subject>_ses-preop_dwi.bvec
   -> preprocessing/dwi/sub-<Subject>_ses-preop_dwi_b0.nii
 ```
 
-The import helper defines b0 volumes as `bval < 50`. If multiple b0 volumes are present, it writes their mean. Existing staged b0 files are overwritten during import/staging so the b0 always matches the current staged DWI and sidecars.
+The import helper defines b0 volumes as `bval < 10`. If multiple b0 volumes are present, it writes their mean. Existing staged b0 files are overwritten during import/staging so the b0 always matches the current staged DWI and sidecars.
 
 The b0 image must inherit the affine/header of the corresponding 4D DWI frame. It must not be independently recentered. This keeps b0, FA, masks, and tractography products on the same DWI grid.
+
+For single-slice tiled DWI inputs, the extracted b0 must still preserve the
+singleton z dimension, for example `X x Y x 1`, so file readers outside SPM do
+not interpret the b0 as a two-dimensional image.
 
 Tractography remains in native DWI space. MNI atlas ROIs should be projected into DWI space by:
 
@@ -106,7 +111,16 @@ The existing ANTs T2 output under `coregistration/dwi_t2/` remains available as 
 
 ## Output Convention
 
-The raw BIDS data under `rawdata/` must not be modified. Each included subject receives staged derivative files under:
+Raw BIDS DWI files under `rawdata/sub-<Subject>/ses-preop/dwi/` may be refreshed from `/Volumes/VAL/STNSNrdwi` during a controlled re-import. Each imported source basename is normalized to the Lead-DBS BIDS basename:
+
+```text
+sub-<Subject>_ses-preop_dwi.nii.gz
+sub-<Subject>_ses-preop_dwi.json
+sub-<Subject>_ses-preop_dwi.bval
+sub-<Subject>_ses-preop_dwi.bvec
+```
+
+Each included subject receives staged derivative files under:
 
 ```text
 /Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<Subject>/preprocessing/dwi
@@ -192,7 +206,7 @@ Use the existing subject-specific `anchorNative` T2 as fixed image. Resolve the 
 derivatives/leaddbs/sub-<Subject>/coregistration/anat/*space-anchorNative_desc-preproc*_T2w.nii
 ```
 
-Prefer `acq-iso_T2w` when present; otherwise use `acq-ax_T2w` or the first non-AppleDouble anchorNative T2. For this 12-subject batch, T2 is mandatory and there is no automatic T1 fallback.
+Prefer `acq-iso_T2w` when present; otherwise use `acq-ax_T2w` or the first non-AppleDouble anchorNative T2. For the 16-subject STN/SNr DWI cohort, T2 is mandatory for registration and there is no automatic T1 fallback.
 
 ## QC Outputs
 
@@ -254,7 +268,19 @@ Low through-plane resolution is a QC warning, not an automatic exclusion.
 
 ## Pipeline Entry
 
-The full 12-subject baseline ANTs T2 pipeline entry is:
+The 16-subject raw DWI re-import and staging-only entry is:
+
+```text
+/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_import_stage.m
+```
+
+Run command:
+
+```bash
+matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_import_stage.m')"
+```
+
+The baseline ANTs T2 registration entry is:
 
 ```text
 /Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_registration.m

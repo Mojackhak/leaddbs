@@ -12,7 +12,8 @@ The public entry points are:
 - `stnsnr/run_stnsnr_build_active_contact_dataset.py`: build the 16-subject active-contact coordinate dataset.
 - `stnsnr/run_stnsnr_generate_random_stimulation_table.py`: generate a reproducible random test stimulation table for the active contacts.
 - `stnsnr/run_stnsnr_compare_roi_definitions.m`: compare HybraPD STN/SNr labels with the `Custom_Ewert_Zhang_Middlebrooks0.05` atlas.
-- `stnsnr/run_stnsnr_dwi_registration.m`: stage the imported STN/SNr cohort DWI files and register each b0 image to the existing Lead-DBS anchorNative T2.
+- `stnsnr/run_stnsnr_dwi_import_stage.m`: re-import the 16-subject STN/SNr DWI four-file sets into BIDS rawdata, then stage DWI and b0 derivatives without running b0-to-T2 registration.
+- `stnsnr/run_stnsnr_dwi_registration.m`: stage imported STN/SNr cohort DWI files and register each b0 image to the existing Lead-DBS anchorNative T2.
 - `stnsnr/run_stnsnr_dwi_registration_method_pilot.m`: run the three-subject SPM and Hybrid SPM+ANTs b0-to-anchorNative T2 registration pilot.
 
 ## Folder Layout
@@ -150,7 +151,7 @@ The STN/SNr DWI registration batch is documented in:
 /Users/mojackhu/Github/leaddbs/my_helper/stnsnr/dwi_registration_technical_details.md
 ```
 
-Lead-DBS DWI import/staging now recreates the staged b0 image automatically from the imported 4D DWI and gradient sidecars. Existing staged b0 files are overwritten during import/staging. The b0 extraction helper uses `bval < 50`, averages multiple b0 volumes, and preserves the original DWI affine/header without independently recentering the b0 image.
+Lead-DBS DWI import/staging now recreates the staged b0 image automatically from the imported 4D DWI and gradient sidecars. Existing staged b0 files are overwritten during import/staging. The b0 extraction helper uses `bval < 10`, averages multiple b0 volumes, and preserves the original DWI affine/header without independently recentering the b0 image.
 
 When a staged b0 exists under `preprocessing/dwi/`, the Lead-DBS Coregister UI exposes it as a pseudo-preop modality named `B0`. `B0` reuses the existing MR coregistration methods and writes formal UI outputs under:
 
@@ -162,7 +163,13 @@ coregistration/transformations/sub-<Subject>_from-anchorNative_to-b0_desc-<metho
 
 The `B0` item is not an anatomical MRI and is appended after true preop anatomical modalities, so it is available for b0-to-anchorNative QC without becoming the default anchor.
 
-The 12-subject ANTs T2 baseline entry point is:
+The 16-subject raw DWI re-import and staging-only entry point is:
+
+```bash
+matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_import_stage.m')"
+```
+
+The ANTs T2 registration entry point is:
 
 ```bash
 matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_registration.m')"

@@ -6,6 +6,14 @@ Which subject-specific DWI seed-target connectivity features from the HF stimula
 
 This is an individualized seed-target / fiber-derived target-level model. It uses each subject's DWI-derived tractography rather than only public normative connectomes.
 
+
+Frequency definitions:
+
+```text
+HF  = high-frequency stimulation component, frequency_Hz >= 100
+ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
+```
+
 ## Endpoint
 
 Primary endpoint:

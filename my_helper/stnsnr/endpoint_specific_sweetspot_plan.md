@@ -1,12 +1,28 @@
-# STN/SNr Endpoint-Specific Sweet-Spot and Fiber Model Plan
+# HF/ULF Endpoint-Specific Sweet-Spot and Fiber Model Plan
 
 Date: 2026-06-25
 
 ## Summary
 
-This document records the planned analysis for symptom-specific STN and SNr sweet-spot and target-level seed-target models in the STN/SNr DBS cohort. The plan combines the endpoint-specific ANCOVA-style model in `/Users/mojackhu/Downloads/STN_SNr_endpoint_specific_sweetspot_pseudocode.md` with the previous decisions for public connectomes, individualized DWI tractography, ROI definition, streamline interpretation, stimulation exposure, and sensitivity analyses.
+This document records the planned analysis for symptom-specific HF-only efficacy and HF-adjusted ULF-only add-on gain mapping in the STN/SNr DBS cohort. The plan combines the endpoint-specific ANCOVA-style model in `/Users/mojackhu/Downloads/STN_SNr_endpoint_specific_sweetspot_pseudocode.md` with the previous decisions for public connectomes, individualized DWI tractography, ROI definition, streamline interpretation, stimulation exposure, and sensitivity analyses.
 
-The primary seed-target connectivity analysis uses target-level predictors. Individual streamlines are used to construct target connectivity features, QC, and visualization, but top correlated fibers are not selected as the primary predictive variables. STN and SNr are not used to crop VTA or truncate streamlines. Instead, prebuilt STN/SNr connected-region atlases define anatomical gating, endpoint grouping, and interpretation for the model outputs.
+The primary scientific framing is frequency-component based rather than nucleus-assignment based. The former STN-only phase is treated as HF-only stimulation. The former combined STN+SNr phase is treated as HF+ULF stimulation. The two main estimands are:
+
+```text
+HF-only efficacy heatmap
+HF-adjusted ULF-only add-on gain heatmap
+```
+
+Frequency definitions are fixed as:
+
+```text
+HF  = high-frequency stimulation component, frequency_Hz >= 100
+ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
+```
+
+The primary seed-target connectivity analysis uses target-level predictors. Individual streamlines are used to construct target connectivity features, QC, and visualization, but top correlated fibers are not selected as the primary predictive variables. STN and SNr are not used to crop VTA, truncate streamlines, or hard-assign model effects. Instead, prebuilt STN/SNr connected-region atlases define anatomical context, endpoint grouping, territory overlays, and sensitivity analyses.
+
+If a voxel or streamline is activated by both HF and ULF components, it is attributed to the HF model and contributes to `DeltaHFScore` adjustment rather than to `X_ULF_only`. Only ULF-only activated voxels or streamlines enter the ULF add-on predictor.
 
 The implementation-level technical details for normative and individualized DWI target-level connectivity analysis are recorded in:
 
@@ -22,12 +38,12 @@ The six model-specific summaries are:
 
 | Research question | Model class | Summary document |
 |---|---|---|
-| STN 3m efficacy | Direct voxel-level | [`stn_3m_direct_voxel_model.md`](model_summaries/stn_3m_direct_voxel_model.md) |
-| STN 3m efficacy | Normative connectome seed-target / fiber-derived target-level | [`stn_3m_normative_connectome_seed_target_model.md`](model_summaries/stn_3m_normative_connectome_seed_target_model.md) |
-| STN 3m efficacy | Individualized DWI seed-target / fiber-derived target-level | [`stn_3m_individualized_dwi_seed_target_model.md`](model_summaries/stn_3m_individualized_dwi_seed_target_model.md) |
-| SNr add-on gain | Direct voxel-level | [`snr_gain_direct_voxel_model.md`](model_summaries/snr_gain_direct_voxel_model.md) |
-| SNr add-on gain | Normative connectome seed-target / fiber-derived target-level | [`snr_gain_normative_connectome_seed_target_model.md`](model_summaries/snr_gain_normative_connectome_seed_target_model.md) |
-| SNr add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`snr_gain_individualized_dwi_seed_target_model.md`](model_summaries/snr_gain_individualized_dwi_seed_target_model.md) |
+| HF-only 3m efficacy | Direct voxel-level | [`hf_3m_direct_voxel_model.md`](model_summaries/hf_3m_direct_voxel_model.md) |
+| HF-only 3m efficacy | Normative connectome seed-target / fiber-derived target-level | [`hf_3m_normative_connectome_seed_target_model.md`](model_summaries/hf_3m_normative_connectome_seed_target_model.md) |
+| HF-only 3m efficacy | Individualized DWI seed-target / fiber-derived target-level | [`hf_3m_individualized_dwi_seed_target_model.md`](model_summaries/hf_3m_individualized_dwi_seed_target_model.md) |
+| HF-adjusted ULF-only add-on gain | Direct voxel-level | [`ulf_addon_gain_direct_voxel_model.md`](model_summaries/ulf_addon_gain_direct_voxel_model.md) |
+| HF-adjusted ULF-only add-on gain | Normative connectome seed-target / fiber-derived target-level | [`ulf_addon_gain_normative_connectome_seed_target_model.md`](model_summaries/ulf_addon_gain_normative_connectome_seed_target_model.md) |
+| HF-adjusted ULF-only add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`ulf_addon_gain_individualized_dwi_seed_target_model.md`](model_summaries/ulf_addon_gain_individualized_dwi_seed_target_model.md) |
 
 ## Fixed Inputs and Defaults
 
@@ -64,23 +80,23 @@ The authoritative STN/SNr seed-target target-atlas registry is:
 
 For seed-target fiber tracking, target ROI source, threshold, sensitivity atlas, and interpretation boundaries should follow this registry. The current section records the broader sweet-spot plan, while the registry is the fixed source for pathway-specific target atlas selection.
 
-### Model ROI Priority
+### Model Territory and ROI Priority
 
-For model-level ROI definitions, prefer the prebuilt connected-region atlases:
+For model-level territory definitions and seed-target endpoint grouping, prefer the prebuilt connected-region atlases:
 
 ```text
-STN model ROI atlas:
+HF territory atlas:
   /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STN-connected regions
 
-SNr model ROI atlas:
+ULF territory atlas:
   /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/SNr-connected regions
 ```
 
-Each connected-region atlas contains side-specific binary masks and a `roi_manifest.csv` that records the upstream atlas source, threshold, role, and category for each ROI. Use the connected-region atlas ROI files directly for model gating, candidate fiber classification, endpoint grouping, coverage summaries, and visualization overlays.
+Each connected-region atlas contains side-specific binary masks and a `roi_manifest.csv` that records the upstream atlas source, threshold, role, and category for each ROI. Use the connected-region atlas ROI files directly for candidate fiber classification, endpoint grouping, coverage summaries, and visualization overlays. Do not use these masks to hard-split overlapping VTA or streamlines into anatomic STN versus SNr effects.
 
-For STN analyses, use `STN-connected regions` first. Its primary ROIs include `STN`, `SNr`, `M1`, `SMA`, `preSMA`, `premotor`, `GPe`, and `GPi`, with optional or exploratory `DLPFC`, `ACC`, `OFC`, and `vmPFC` masks.
+For HF-only analyses, use `STN-connected regions` first as the historical HF territory atlas. Its primary ROIs include `STN`, `SNr`, `M1`, `SMA`, `preSMA`, `premotor`, `GPe`, and `GPi`, with optional or exploratory `DLPFC`, `ACC`, `OFC`, and `vmPFC` masks.
 
-For SNr analyses, use `SNr-connected regions` first. Its primary ROIs include `SNr`, `STN`, `VA_thalamus`, `VLA_thalamus`, `VLP_thalamus`, `VM_thalamus`, `posterior_putamen`, `PPN`, and `superior_colliculus`, with optional or exploratory `caudate`, `MD_thalamus`, `CM_thalamus`, `Pf_thalamus`, `sPf_thalamus`, `FEF`, `SMA`, `preSMA`, `premotor`, `M1`, and `DLPFC` masks.
+For ULF-only add-on analyses, use `SNr-connected regions` first as the historical ULF target-territory atlas. Its primary ROIs include `SNr`, `STN`, `VA_thalamus`, `VLA_thalamus`, `VLP_thalamus`, `VM_thalamus`, `posterior_putamen`, `PPN`, and `superior_colliculus`, with optional or exploratory `caudate`, `MD_thalamus`, `CM_thalamus`, `Pf_thalamus`, `sPf_thalamus`, `FEF`, `SMA`, `preSMA`, `premotor`, `M1`, and `DLPFC` masks.
 
 `Custom_Ewert_Zhang_Middlebrooks0.05` remains the upstream source for the STN and SNr masks inside the connected-region atlases and is retained as a sensitivity or fallback source for standalone STN/SNr masks. Neither connected-region ROIs nor Custom STN/SNr masks should be used to clip stimulation fields.
 
@@ -349,11 +365,11 @@ For each target `k`, fit a target-wise ANCOVA or rank-based partial model in the
 Y_post(i) = alpha_k
           + theta_k * Z(C_bilat(i,k))
           + beta_k  * Z(Y_baseline(i))
-          + gamma_k * Z(DeltaSTNScore(i))
+          + gamma_k * Z(DeltaHFScore(i))
           + error(i,k)
 ```
 
-For STN-only models, `Y_baseline` is `Y_Preop` and `DeltaSTNScore` is omitted unless the model explicitly studies STN reprogramming. For SNr gain models, `Y_baseline` is `Y_STN3m` and `DeltaSTNScore` is retained.
+For HF-only models, `Y_baseline` is `Y_Preop` and `DeltaHFScore` is omitted unless the model explicitly studies HF reprogramming. For ULF add-on gain models, `Y_baseline` is `Y_HF3m` and `DeltaHFScore` is retained.
 
 Define the benefit-oriented target weight as:
 
@@ -369,7 +385,7 @@ w_k = theta_k
 
 for SE-ADL. Positive `w_k` always means more connectivity to that target predicts better outcome.
 
-Target quality filtering precedes efficacy ranking. Exclude targets with too few streamlines, near-zero across-patient variance, excessive individualized-DWI reconstruction failure, or high collinearity with baseline or `DeltaSTNScore`.
+Target quality filtering precedes efficacy ranking. Exclude targets with too few streamlines, near-zero across-patient variance, excessive individualized-DWI reconstruction failure, or high collinearity with baseline or `DeltaHFScore`.
 
 Default target selection in each training fold:
 
@@ -403,7 +419,7 @@ For leave-one-patient-out validation:
 Compare the full model against a covariate-only model:
 
 ```text
-Y_post ~ Y_baseline + DeltaSTNScore
+Y_post ~ Y_baseline + DeltaHFScore
 ```
 
 The target-level score must provide predictive information beyond these covariates to support a connectivity claim.
@@ -472,77 +488,77 @@ In all models, orient coefficients and residual scores so that positive benefit 
 
 ### STN-Alone Efficacy Model
 
-Use two STN-only model layers.
+Use two HF-only model layers.
 
-Primary STN model:
+Primary HF model:
 
 ```text
-chronic STN-only efficacy model
+chronic HF-only efficacy model
 ```
 
 This model answers:
 
 ```text
-Which target-level STN seed-target connectivity features are associated with stable STN-only benefit at 3 months?
+Which target-level HF seed-target connectivity features are associated with stable HF-only benefit at 3 months?
 ```
 
-Secondary STN model:
+Secondary HF model:
 
 ```text
-early / acute STN-only response model
+early / acute HF-only response model
 ```
 
 This model answers:
 
 ```text
-Which target-level STN seed-target connectivity features are associated with the early response after STN activation?
+Which target-level HF seed-target connectivity features are associated with the early response after STN activation?
 ```
 
-The chronic STN-only model is the primary STN model because it localizes stable STN DBS benefit and uses the same STN-3m clinical state that serves as the baseline for SNr-addition models.
+The chronic HF-only model is the primary HF model because it localizes stable HF DBS benefit and uses the same HF-only 3m clinical state that serves as the baseline for ULF-addition models.
 
 #### Primary Chronic STN-Only Model
 
 For each scale and target `k`:
 
 ```text
-Y_STN3m_i = alpha_0
-          + alpha_STN,k * C_STN3m_bilat(i,k)
+Y_HF3m_i = alpha_0
+          + alpha_HF,k * C_HF3m_bilat(i,k)
           + alpha_B     * Y_Preop_i
           + error_i
 ```
 
 Definitions:
 
-- `Y_STN3m_i`: raw STN-only 3-month clinical score for patient `i`.
+- `Y_HF3m_i`: raw HF-only 3-month clinical score for patient `i`.
 - `Y_Preop_i`: raw preoperative score for patient `i`.
-- `C_STN3m_bilat(i,k)`: bilateral target-level STN seed-target connectivity for target `k` under STN-only 3-month programming.
-- `alpha_STN,k`: target-specific STN efficacy coefficient.
+- `C_HF3m_bilat(i,k)`: bilateral target-level HF seed-target connectivity for target `k` under HF-only 3-month programming.
+- `alpha_HF,k`: target-specific HF efficacy coefficient.
 
 Use a baseline-adjusted rank-based partial Spearman estimator for the main implementation:
 
 ```text
 STNBenefitScore_k =
   corr_spearman(
-    residual(rank(C_STN3m_bilat(k)) ~ rank(Y_Preop)),
-    benefit_oriented_residual(rank(Y_STN3m) ~ rank(Y_Preop))
+    residual(rank(C_HF3m_bilat(k)) ~ rank(Y_Preop)),
+    benefit_oriented_residual(rank(Y_HF3m) ~ rank(Y_Preop))
   )
 ```
 
 For scales where lower scores are better, multiply the outcome residual by `-1` before the final correlation. For SE-ADL, keep the residual direction because higher scores are better.
 
 ```text
-STNBenefitScore_k > 0 means stronger target-level STN connectivity predicts better baseline-adjusted STN-3m outcome.
+STNBenefitScore_k > 0 means stronger target-level HF connectivity predicts better baseline-adjusted STN-3m outcome.
 ```
 
-Do not use change score or percent improvement as the primary STN sweet-spot outcome. The existing improvement-rate table can be used for compatibility checks, smoke tests, descriptive reporting, and sensitivity analyses.
+Do not use change score or percent improvement as the primary HF sweet-spot outcome. The existing improvement-rate table can be used for compatibility checks, smoke tests, descriptive reporting, and sensitivity analyses.
 
-Voxel- and fiber-level STN maps are secondary localization and visualization outputs. They must not replace target-level predictor selection in the primary connectivity model.
+Voxel- and fiber-level HF maps are secondary localization and visualization outputs. They must not replace target-level predictor selection in the primary connectivity model.
 
 #### STN Target-Level Score And Voxel Visualization
 
-The STN efficacy analysis uses the same target-level equal-within-target seed-target framework as the SNr gain analysis.
+The HF efficacy analysis uses the same target-level equal-within-target seed-target framework as the ULF add-on gain analysis.
 
-Candidate STN targets are defined by the `STN-connected regions` atlas and the seed-target atlas registry. The main target families include:
+Candidate HF targets are defined by the `STN-connected regions` atlas and the seed-target atlas registry. The main target families include:
 
 ```text
 M1
@@ -558,43 +574,43 @@ vmPFC
 SNr
 ```
 
-For each STN target `k`, estimate a benefit-oriented target weight:
+For each HF target `k`, estimate a benefit-oriented target weight:
 
 ```text
-w_STN,k = benefit-oriented STN target weight
+w_HF,k = benefit-oriented HF target weight
 ```
 
 For lower-is-better scales:
 
 ```text
-w_STN,k = -alpha_STN,k
+w_HF,k = -alpha_HF,k
 ```
 
 For SE-ADL:
 
 ```text
-w_STN,k = alpha_STN,k
+w_HF,k = alpha_HF,k
 ```
 
-Positive `w_STN,k` means stronger STN connectivity to target `k` predicts better STN-only outcome after baseline adjustment. Negative `w_STN,k` means the target behaves as a sour or non-beneficial STN connectivity target.
+Positive `w_HF,k` means stronger HF connectivity to target `k` predicts better HF-only outcome after baseline adjustment. Negative `w_HF,k` means the target behaves as a sour or non-beneficial HF connectivity target.
 
-The selected STN target set is chosen inside the training fold:
+The selected HF target set is chosen inside the training fold:
 
 ```text
-S_STN = selected sweet and sour STN targets
+S_HF = selected sweet and sour HF targets
 ```
 
-The patient-level STN target score is:
+The patient-level HF target score is:
 
 ```text
-STNTargetScore_i =
-  sum_{k in S_STN} w_STN,k * Z(C_STN3m_bilat(i,k))
-  / sum_{k in S_STN} abs(w_STN,k)
+HFTargetScore_i =
+  sum_{k in S_HF} w_HF,k * Z(C_HF3m_bilat(i,k))
+  / sum_{k in S_HF} abs(w_HF,k)
 ```
 
-This score is the primary STN connectivity predictor for prediction and cross-validation. Individual STN fibers are not selected by top correlation as the primary STN predictor.
+This score is the primary HF connectivity predictor for prediction and cross-validation. Individual HF-associated fibers are not selected by top correlation as the primary HF predictor.
 
-After fitting the target-level STN model, project `w_STN,k` back into the STN seed nucleus to generate STN voxel-level visualization:
+After fitting the target-level HF model, project `w_HF,k` back into the HF territory to generate HF voxel-level visualization:
 
 ```text
 STN_lh_coverage.nii.gz
@@ -610,7 +626,7 @@ STN_rh_net.nii.gz
 STN_rh_stability.nii.gz
 ```
 
-These STN maps answer:
+These HF maps answer:
 
 ```text
 Within STN, which voxels have connectivity profiles biased toward STN sweet targets,
@@ -621,13 +637,13 @@ They are target-derived STN seed-zone maps, not direct voxel-wise causal efficac
 
 #### Secondary Early / Acute STN-Only Model
 
-For scales with valid immediate STN assessment, fit an early STN-only model.
+For scales with valid immediate STN assessment, fit an early HF-only model.
 
 If only preoperative baseline is available:
 
 ```text
 Y_STNImmediate_i = alpha_0
-                 + alpha_STN,k_early * C_STNImmediate_bilat(i,k)
+                 + alpha_HF,k_early * C_STNImmediate_bilat(i,k)
                  + alpha_B           * Y_Preop_i
                  + error_i
 ```
@@ -635,7 +651,7 @@ Y_STNImmediate_i = alpha_0
 Name this model:
 
 ```text
-early STN-only response model
+early HF-only response model
 ```
 
 Do not call it a pure acute STN effect, because the preoperative-to-immediate interval may include perioperative recovery, microlesion effects, medication changes, and timing differences.
@@ -644,7 +660,7 @@ If a same-day STN-OFF baseline exists at the first programming visit, use it ins
 
 ```text
 Y_STNImmediate_i = alpha_0
-                 + alpha_STN,k_acute * C_STNImmediate_bilat(i,k)
+                 + alpha_HF,k_acute * C_STNImmediate_bilat(i,k)
                  + alpha_B           * Y_STNOffSameDay_i
                  + error_i
 ```
@@ -655,51 +671,51 @@ Name this cleaner version:
 acute STN stimulation response model
 ```
 
-With the currently inspected score tables, immediate STN and STN+SNr assessments are available for `UPDRS-III` and `UPDRS-III axial`. Pain, quality-of-life, and most non-motor scales should not be forced into immediate STN models unless valid immediate assessments exist.
+With the currently inspected score tables, immediate STN and STN+SNr assessments are available for `UPDRS-III` and `UPDRS-III axial`. Pain, quality-of-life, and most non-motor scales should not be forced into immediate HF models unless valid immediate assessments exist.
 
 #### Optional STN Chronic Adaptation Model
 
 Use this only as a secondary mechanism model when STN-immediate and STN-3m programming differ enough to justify studying chronic adaptation or programming optimization:
 
 ```text
-Y_STN3m_i = alpha_0
-          + alpha_STN,k_adapt * C_STN3m_bilat(i,k)
+Y_HF3m_i = alpha_0
+          + alpha_HF,k_adapt * C_HF3m_bilat(i,k)
           + alpha_B           * Y_STNImmediate_i
-          + alpha_D           * DeltaSTNScore_ImmTo3m_i
+          + alpha_D           * DeltaHFScore_ImmTo3m_i
           + error_i
 ```
 
 where:
 
 ```text
-DeltaSTNScore_ImmTo3m = STNScore_STN3m - STNScore_STNImmediate
+DeltaHFScore_ImmTo3m = HFScore_STN3m - HFScore_STNImmediate
 ```
 
-Here `STNScore` should use the same endpoint/domain-matched and model-family-matched STN efficacy-model scoring function `S_STN_family(E)`, not raw programming parameters. This optional adaptation covariate is distinct from the SNr-gain `DeltaSTNScore`, which compares the STN-only 3-month setting with the STN component of combined STN+SNr stimulation.
+Here `HFScore` should use the same endpoint/domain-matched and model-family-matched HF efficacy-model scoring function `S_HF_family(E)`, not raw programming parameters. This optional adaptation covariate is distinct from the ULF-add-on-gain `DeltaHFScore`, which compares the HF-only 3-month setting with the HF component of combined STN+SNr stimulation.
 
-This optional model should not replace the primary chronic STN-only model.
+This optional model should not replace the primary chronic HF-only model.
 
-The chronic STN model also supports an optional residualized SNr model by predicting the STN contribution under the STN component of combined stimulation.
+The chronic HF model also supports an optional residualized ULF model by predicting the HF contribution under the HF component of combined stimulation.
 
-### SNr Gain Endpoint Selection
+### ULF Add-On Gain Endpoint Selection
 
-The SNr model should use raw post-combination scores when available, following an ANCOVA-style endpoint-specific design. The SNr model family has one primary estimand:
+The ULF add-on model should use raw post-combination scores when available, following an ANCOVA-style endpoint-specific design. The ULF add-on model family has one primary estimand:
 
 ```text
-clinical optimization-informed SNr-target gain model
+clinical optimization-informed ULF-target gain model
 ```
 
-This model asks whether the final clinician-optimized SNr component exposure predicts better STN+SNr outcome after controlling the pre-SNr STN 3-month clinical state and the concurrent STN efficacy-map score change of the STN component.
+This model asks whether the final clinician-optimized ULF component exposure predicts better STN+SNr outcome after controlling the pre-ULF HF-only 3-month clinical state and the concurrent HF efficacy-map score change of the HF component.
 
 The model has two endpoints:
 
 ```text
-chronic SNr gain endpoint:
+chronic ULF add-on gain endpoint:
   baseline phase = STN-3m
   post phase     = STN+SNr-3m
   model class    = chronic
 
-immediate SNr gain endpoint:
+immediate ULF add-on gain endpoint:
   baseline phase = STN-3m
   post phase     = STN+SNr-immediate
   model class    = immediate
@@ -707,30 +723,30 @@ immediate SNr gain endpoint:
 
 Use `MIN_N_FOR_MODEL = 12`. Do not hard-code scale names into endpoint selection. Choose each endpoint per scale based on complete paired score and exposure availability.
 
-### DeltaSTNScore Construction
+### DeltaHFScore Construction
 
-`DeltaSTNScore` is the scalar covariate used to control STN component reprogramming in SNr gain models. The preferred definition is not a raw voltage, pulse-width, frequency, or contact-change summary. It is the change in predicted STN efficacy of the STN component between the STN-only 3-month setting and the combined STN+SNr setting.
+`DeltaHFScore` is the scalar covariate used to control HF component reprogramming in ULF add-on gain models. The preferred definition is not a raw voltage, pulse-width, frequency, or contact-change summary. It is the change in predicted HF efficacy of the HF component between the HF-only 3-month setting and the combined HF+ULF setting.
 
-The STN adjustment must be model-family matched:
+The HF adjustment must be model-family matched:
 
 ```text
-SNr direct voxel-level model
-  -> use STN direct voxel-level efficacy model
+ULF direct voxel-level model
+  -> use HF direct voxel-level efficacy model
 
-SNr normative connectome seed-target model
-  -> use STN normative connectome seed-target efficacy model
+ULF normative connectome seed-target model
+  -> use HF normative connectome seed-target efficacy model
 
-SNr individualized DWI seed-target model
-  -> use STN individualized DWI seed-target efficacy model
+ULF individualized DWI seed-target model
+  -> use HF individualized DWI seed-target efficacy model
 ```
 
-Do not use a cross-family STN adjustment as the primary covariate. For example, do not use a direct voxel-level STN map as the main `DeltaSTNScore` in a normative or individualized seed-target SNr model.
+Do not use a cross-family HF adjustment as the primary covariate. For example, do not use a direct voxel-level HF map as the main `DeltaHFScore` in a normative or individualized seed-target ULF model.
 
-For the direct voxel-level family, train an endpoint/domain-matched STN efficacy map using only pre-SNr STN-only data:
+For the direct voxel-level family, train an endpoint/domain-matched HF efficacy map using only pre-ULF HF-only data:
 
 ```text
-Y_STN3m_i = alpha_u
-          + theta_STN(u) * X_STN3m_i(u)
+Y_HF3m_i = alpha_u
+          + theta_HF(u) * X_HF_only_i(u)
           + beta_u       * Y_Preop_i
           + error_i,u
 ```
@@ -738,213 +754,213 @@ Y_STN3m_i = alpha_u
 For lower-is-better scales:
 
 ```text
-M_STN(u) = -theta_STN(u)
+M_HF(u) = -theta_HF(u)
 ```
 
 For SE-ADL:
 
 ```text
-M_STN(u) = theta_STN(u)
+M_HF(u) = theta_HF(u)
 ```
 
-Then score any STN setting `E` against this direct voxel-level STN efficacy map:
+Then score any HF setting `E` against this direct voxel-level HF efficacy map:
 
 ```text
-S_STN_voxel(E) =
-  sum_{u in Omega_STN} E(u) * M_STN(u)
-  / (sum_{u in Omega_STN} E(u) + lambda)
+S_HF_voxel(E) =
+  sum_{u in Omega_HF} E(u) * M_HF(u)
+  / (sum_{u in Omega_HF} E(u) + lambda)
 ```
 
-For the normative seed-target family, use the STN normative target-level score:
+For the normative seed-target family, use the HF normative target-level score:
 
 ```text
-S_STN_norm(E) =
-  sum_{k in S_STN_norm} w_STN,k_norm * Z_train(C_norm_STN_component(E,k))
-  / sum_{k in S_STN_norm} abs(w_STN,k_norm)
+S_HF_norm(E) =
+  sum_{k in S_HF_norm} w_HF,k_norm * Z_train(C_norm_HF_component(E,k))
+  / sum_{k in S_HF_norm} abs(w_HF,k_norm)
 ```
 
-For the individualized DWI seed-target family, use the STN individualized DWI target-level score:
+For the individualized DWI seed-target family, use the HF individualized DWI target-level score:
 
 ```text
-S_STN_ind(E) =
-  sum_{k in S_STN_ind} w_STN,k_ind * Z_train(C_ind_STN_component(E,k))
-  / sum_{k in S_STN_ind} abs(w_STN,k_ind)
+S_HF_ind(E) =
+  sum_{k in S_HF_ind} w_HF,k_ind * Z_train(C_ind_HF_component(E,k))
+  / sum_{k in S_HF_ind} abs(w_HF,k_ind)
 ```
 
 Use the score from the matching model family:
 
 ```text
-DeltaSTNScore_family,i =
-  S_STN_family(E_STN_component_i,combined)
-  - S_STN_family(E_STN_component_i,STN-only3m)
+DeltaHFScore_family,i =
+  S_HF_family(E_HF_component_i,combined)
+  - S_HF_family(E_HF_component_i,HF-only3m)
 ```
 
 Interpretation:
 
 ```text
-DeltaSTNScore_i > 0
-  combined-phase STN component is closer to the learned STN efficacy map
+DeltaHFScore_i > 0
+  combined-phase HF component is closer to the learned HF efficacy map
 
-DeltaSTNScore_i < 0
-  combined-phase STN component is less aligned with the learned STN efficacy map
+DeltaHFScore_i < 0
+  combined-phase HF component is less aligned with the learned HF efficacy map
 ```
 
-This definition is acceptable because the STN efficacy model is trained on STN-only 3-month outcomes before SNr is added; it is not trained on STN+SNr outcomes. In strict prediction, target selection, weights, voxel maps, patient-specific reconstruction, and `Z_train()` scaling are all learned or computed within the outer training fold.
+This definition is acceptable because the HF efficacy model is trained on HF-only 3-month outcomes before ULF is added; it is not trained on STN+SNr outcomes. In strict prediction, target selection, weights, voxel maps, patient-specific reconstruction, and `Z_train()` scaling are all learned or computed within the outer training fold.
 
 Endpoint/domain matching is required:
 
-- For chronic SNr 3-month models, train the STN map from the matching STN-only 3-month scale or symptom domain.
-- For immediate SNr motor models, use a motor-specific STN map trained from STN-only 3-month motor outcome as the main definition.
-- A STN immediate motor-derived acute map may be used only as sensitivity analysis.
-- Do not use a total-score STN map as the main `DeltaSTNScore` for a motor-only immediate endpoint.
+- For chronic ULF 3-month models, train the HF map from the matching HF-only 3-month scale or symptom domain.
+- For immediate ULF motor models, use a motor-specific HF map trained from HF-only 3-month motor outcome as the main definition.
+- A HF immediate motor-derived acute map may be used only as sensitivity analysis.
+- Do not use a total-score HF map as the main `DeltaHFScore` for a motor-only immediate endpoint.
 
-For strict SNr LOOCV prediction, train the model-matched STN efficacy model inside each outer training fold and use that fold-specific STN model to compute `DeltaSTNScore` for both training and held-out patients. For final descriptive maps, a full-sample pre-SNr STN model may be used and should be reported as a same-cohort, pre-SNr-derived nuisance adjustment rather than an external independent model.
+For strict ULF LOOCV prediction, train the model-matched HF efficacy model inside each outer training fold and use that fold-specific HF model to compute `DeltaHFScore` for both training and held-out patients. For final descriptive maps, a full-sample pre-ULF HF model may be used and should be reported as a same-cohort, pre-ULF-derived nuisance adjustment rather than an external independent model.
 
 Required diagnostics:
 
 ```text
-cor(DeltaSTNScore, Y_STN3m)
-cor(DeltaSTNScore, SNr exposure features)
+cor(DeltaHFScore, Y_HF3m)
+cor(DeltaHFScore, ULF exposure features)
 ```
 
-Also run a physical STN-change sensitivity covariate that does not depend on clinical outcome, such as charge-rate or e-field overlap change, to test whether conclusions depend on the learned STN efficacy map.
+Also run a physical HF-change sensitivity covariate that does not depend on clinical outcome, such as charge-rate or e-field overlap change, to test whether conclusions depend on the learned HF efficacy map.
 
-### Primary SNr Gain Model
+### Primary ULF Add-On Gain Model
 
-For each scale and target `k`, fit the clinical optimization-informed SNr-target gain model:
+For each scale and target `k`, fit the clinical optimization-informed ULF-target gain model:
 
 ```text
 Y_AB_post_i = alpha_0
-            + theta_SNr,k * C_SNr_bilat(i,k)
-            + beta         * Y_STN3m_i
-            + gamma        * DeltaSTNScore_i
+            + theta_ULF,k * C_ULF_only_bilat(i,k)
+            + beta         * Y_HF3m_i
+            + gamma        * DeltaHFScore_i
             + error_i
 ```
 
 Definitions:
 
 - `Y_AB_post_i`: selected post-combination raw clinical score for patient `i`.
-- `Y_STN3m_i`: STN-only 3-month raw clinical score for patient `i`.
-- `C_SNr_bilat(i,k)`: final SNr-component target-level bilateral seed-target connectivity for target `k`.
-- `DeltaSTNScore_i`: endpoint/domain-matched change in predicted STN efficacy score for the STN component between STN-only 3 months and the combined setting.
-- `theta_SNr,k`: SNr gain target coefficient of interest.
+- `Y_HF3m_i`: HF-only 3-month raw clinical score for patient `i`.
+- `C_ULF_only_bilat(i,k)`: final ULF-component target-level bilateral seed-target connectivity for target `k`.
+- `DeltaHFScore_i`: endpoint/domain-matched change in predicted HF efficacy score for the HF component between HF-only 3 months and the combined setting.
+- `theta_ULF,k`: ULF add-on gain target coefficient of interest.
 
 Question:
 
 ```text
-Among patients with comparable STN-only 3-month clinical state and comparable STN-component changes,
-does final SNr seed-target connectivity to target k predict better STN+SNr outcome?
+Among patients with comparable HF-only 3-month clinical state and comparable HF-component changes,
+does final ULF seed-target connectivity to target k predict better STN+SNr outcome?
 ```
 
 Interpretation:
 
-`theta_SNr,k` is the adjusted target-level association between clinician-optimized final SNr-component connectivity and the STN+SNr outcome, conditional on pre-SNr clinical state and concurrent STN reprogramming.
+`theta_ULF,k` is the adjusted target-level association between clinician-optimized final ULF-component connectivity and the STN+SNr outcome, conditional on pre-ULF clinical state and concurrent HF reprogramming.
 
 For scales where lower scores are better:
 
 ```text
-H_SNr,k = -theta_SNr,k
+H_ULF,k = -theta_ULF,k
 ```
 
 For SE-ADL, where higher scores are better:
 
 ```text
-H_SNr,k = theta_SNr,k
+H_ULF,k = theta_ULF,k
 ```
 
 Positive heatmap values always indicate better predicted clinical outcome.
 
-#### Chronic SNr Gain Model
+#### Chronic ULF Add-On Gain Model
 
-Use this model to estimate the long-term target-level distribution of SNr-associated gain after adding SNr to STN stimulation:
+Use this model to estimate the long-term target-level distribution of ULF-associated gain after adding ULF to HF stimulation:
 
 ```text
 Y_AB3m_i = alpha_0
-         + theta_SNr_chronic,k * C_SNr3m_bilat(i,k)
-         + beta                 * Y_STN3m_i
-         + gamma                * DeltaSTNScore_3m_i
+         + theta_ULF_chronic,k * C_ULF_only_3m_bilat(i,k)
+         + beta                 * Y_HF3m_i
+         + gamma                * DeltaHFScore_3m_i
          + error_i
 ```
 
 Definitions:
 
 - `Y_AB3m_i`: raw STN+SNr 3-month clinical score for patient `i`.
-- `C_SNr3m_bilat(i,k)`: STN+SNr 3-month SNr-component bilateral connectivity to target `k`.
-- `DeltaSTNScore_3m_i`: endpoint/domain-matched change in predicted STN efficacy score from STN-only 3 months to the STN component of STN+SNr 3 months.
-- `theta_SNr_chronic,k`: chronic SNr gain target coefficient.
+- `C_ULF_only_3m_bilat(i,k)`: STN+SNr 3-month ULF-component bilateral connectivity to target `k`.
+- `DeltaHFScore_3m_i`: endpoint/domain-matched change in predicted HF efficacy score from HF-only 3 months to the HF component of STN+SNr 3 months.
+- `theta_ULF_chronic,k`: chronic ULF add-on gain target coefficient.
 
 Question:
 
 ```text
-In patients with the same STN-only 3-month clinical state and the same STN component change,
-does final SNr 3-month connectivity to target k predict better STN+SNr 3-month outcome?
+In patients with the same HF-only 3-month clinical state and the same HF component change,
+does final ULF 3-month connectivity to target k predict better STN+SNr 3-month outcome?
 ```
 
-#### Immediate SNr Gain Model
+#### Immediate ULF Add-On Gain Model
 
-Use this model to estimate the immediate target-level distribution of SNr-associated gain after adding SNr to STN stimulation:
+Use this model to estimate the immediate target-level distribution of ULF-associated gain after adding ULF to HF stimulation:
 
 ```text
 Y_ABimmediate_i = alpha_0
-                + theta_SNr_immediate,k * C_SNrImmediate_bilat(i,k)
-                + beta                   * Y_STN3m_i
-                + gamma                  * DeltaSTNScore_immediate_i
+                + theta_ULF_immediate,k * C_ULF_only_immediate_bilat(i,k)
+                + beta                   * Y_HF3m_i
+                + gamma                  * DeltaHFScore_immediate_i
                 + error_i
 ```
 
 Definitions:
 
 - `Y_ABimmediate_i`: raw STN+SNr immediate clinical score for patient `i`.
-- `C_SNrImmediate_bilat(i,k)`: STN+SNr immediate SNr-component bilateral connectivity to target `k`.
-- `DeltaSTNScore_immediate_i`: motor-domain change in predicted STN efficacy score from STN-only 3 months to the STN component of STN+SNr immediate programming.
-- `theta_SNr_immediate,k`: immediate SNr gain target coefficient.
+- `C_ULF_only_immediate_bilat(i,k)`: STN+SNr immediate ULF-component bilateral connectivity to target `k`.
+- `DeltaHFScore_immediate_i`: motor-domain change in predicted HF efficacy score from HF-only 3 months to the HF component of STN+SNr immediate programming.
+- `theta_ULF_immediate,k`: immediate ULF add-on gain target coefficient.
 
 Question:
 
 ```text
-In patients with the same STN-only 3-month clinical state and the same immediate-phase STN component change,
-does final SNr immediate connectivity to target k predict better STN+SNr immediate outcome?
+In patients with the same HF-only 3-month clinical state and the same immediate-phase HF component change,
+does final ULF immediate connectivity to target k predict better STN+SNr immediate outcome?
 ```
 
-The `Y_STN3m` covariate controls the pre-SNr disease state. `DeltaSTNScore_immediate` controls concurrent STN component reprogramming in the immediate STN+SNr setting using a motor-domain STN efficacy map. If a same-day pre-SNr STN-only score becomes available, add a sensitivity model using that same-day baseline to control short-term disease fluctuation more directly.
+The `Y_HF3m` covariate controls the pre-ULF disease state. `DeltaHFScore_immediate` controls concurrent HF component reprogramming in the immediate HF+ULF setting using a motor-domain HF efficacy map. If a same-day pre-ULF HF-only score becomes available, add a sensitivity model using that same-day baseline to control short-term disease fluctuation more directly.
 
-#### Rank-Based SNr Implementation
+#### Rank-Based ULF Implementation
 
 Use a rank-based partial Spearman estimator as the main implementation for `n = 16`:
 
-1. Rank-transform `Y_AB_post`, `C_SNr_bilat(k)`, `Y_STN3m`, and `DeltaSTNScore`.
-2. Regress ranked `Y_AB_post` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
-3. Regress ranked `C_SNr_bilat(k)` on ranked `Y_STN3m` and ranked `DeltaSTNScore`; keep residuals.
+1. Rank-transform `Y_AB_post`, `C_ULF_only_bilat(k)`, `Y_HF3m`, and `DeltaHFScore`.
+2. Regress ranked `Y_AB_post` on ranked `Y_HF3m` and ranked `DeltaHFScore`; keep residuals.
+3. Regress ranked `C_ULF_only_bilat(k)` on ranked `Y_HF3m` and ranked `DeltaHFScore`; keep residuals.
 4. Correlate the two residual vectors.
 5. Flip sign when higher clinical score means worse outcome, so positive scores always indicate benefit.
 
 ```text
-SNrChronicGainScore_k > 0 means stronger target-level SNr connectivity predicts better chronic STN+SNr outcome.
-SNrImmediateGainScore_k > 0 means stronger target-level SNr connectivity predicts better immediate STN+SNr outcome.
+SNrChronicGainScore_k > 0 means stronger target-level ULF connectivity predicts better chronic STN+SNr outcome.
+SNrImmediateGainScore_k > 0 means stronger target-level ULF connectivity predicts better immediate STN+SNr outcome.
 ```
 
-### SNr Gain Estimand Boundaries
+### ULF Add-On Gain Estimand Boundaries
 
-The time zero for SNr-addition models is:
+The time zero for ULF-addition models is:
 
 ```text
-STN-only 3-month assessment, immediately before adding or optimizing SNr stimulation
+HF-only 3-month assessment, immediately before adding or optimizing ULF stimulation
 ```
 
-The SNr models do not estimate:
+The ULF add-on models do not estimate:
 
 ```text
 total STN+SNr improvement from preoperative baseline
-percent improvement difference between STN+SNr and STN-only
-the outcome each patient would have had at every untested SNr location
+percent improvement difference between STN+SNr and HF-only
+the outcome each patient would have had at every untested ULF location
 ```
 
-They estimate target-level spatial associations between final SNr seed-target connectivity and post-combination outcome after conditioning on the selected baseline state.
+They estimate target-level spatial associations between final ULF seed-target connectivity and post-combination outcome after conditioning on the selected baseline state.
 
-The observed final SNr location is clinician-selected:
+The observed final ULF location is clinician-selected:
 
 ```text
-C_i* = final SNr setting selected for patient i after clinical programming
+C_i* = final ULF setting selected for patient i after clinical programming
 ```
 
 Thus the observed outcome is:
@@ -956,54 +972,54 @@ Y_i(C_i*)
 not the full set of counterfactual outcomes:
 
 ```text
-Y_i(s) for every possible SNr location s
+Y_i(s) for every possible ULF location s
 ```
 
-Therefore, the SNr target maps and target scores are patient-level between-subject spatial association models. They are not within-patient randomized location-response maps.
+Therefore, the ULF target maps and target scores are patient-level between-subject spatial association models. They are not within-patient randomized location-response maps.
 
-### Scientific Preconditions for SNr Gain Inference
+### Scientific Preconditions for ULF Add-On Gain Inference
 
-The SNr gain analyses are scientifically meaningful under these conditions:
+The ULF add-on gain analyses are scientifically meaningful under these conditions:
 
-- `Y_STN3m` adequately represents the clinical state before SNr addition.
-- `DeltaSTNScore` is constructed from an endpoint/domain-matched and model-family-matched STN efficacy model trained only on pre-SNr STN-only data.
-- The final SNr setting is a clinically optimized setting, not an arbitrary or poorly explored setting.
-- Acute programming response and side-effect thresholds used to choose the final SNr setting have reasonable relevance to the 3-month outcome.
-- SNr target-level connectivity has enough across-patient variability to estimate target weights.
-- Within comparable ranges of `Y_STN3m` and `DeltaSTNScore`, there is sufficient overlap in SNr target connectivity to avoid relying mainly on extrapolation.
-- Unmeasured prognosis factors, symptom subtypes, medication changes, rehabilitation intensity, anatomy, and programming style do not strongly determine both the final SNr location and the later STN+SNr outcome.
+- `Y_HF3m` adequately represents the clinical state before SNr addition.
+- `DeltaHFScore` is constructed from an endpoint/domain-matched and model-family-matched HF efficacy model trained only on pre-ULF HF-only data.
+- The final ULF setting is a clinically optimized setting, not an arbitrary or poorly explored setting.
+- Acute programming response and side-effect thresholds used to choose the final ULF setting have reasonable relevance to the 3-month outcome.
+- ULF target-level connectivity has enough across-patient variability to estimate target weights.
+- Within comparable ranges of `Y_HF3m` and `DeltaHFScore`, there is sufficient overlap in ULF target connectivity to avoid relying mainly on extrapolation.
+- Unmeasured prognosis factors, symptom subtypes, medication changes, rehabilitation intensity, anatomy, and programming style do not strongly determine both the final ULF location and the later STN+SNr outcome.
 - STN and SNr effects are sufficiently separable for an additive model to remain interpretable.
 
 Coverage must be reported for every target-level model and every secondary voxel or fiber output:
 
 ```text
 Coverage(k) = number of patients with usable bilateral connectivity for target k
-ExposureCoverage(k) = sum_i C_SNr_bilat(i,k)
+ExposureCoverage(k) = sum_i C_ULF_only_bilat(i,k)
 ```
 
 Only targets, regions, or streamlines with adequate coverage should receive strong anatomical interpretation.
 
-### Potential Problems with the SNr Gain Definition
+### Potential Problems with the ULF Add-On Gain Definition
 
 Main limitations:
 
 - The maps are not pure causal maps of SNr spatial efficacy.
 - Clinician selection can induce indication bias because different SNr regions may be selected for different patient subtypes.
-- `Y_STN3m` controls total pre-SNr severity, but may not fully control symptom composition, DBS responsiveness, future prognosis, or side-effect limitations.
-- `DeltaSTNScore` is a same-cohort, pre-SNr-derived nuisance adjustment unless an external model-family-matched STN efficacy model is used.
-- `DeltaSTNScore` may be an incomplete summary of STN reprogramming because STN changes can involve contact, amplitude, pulse width, frequency, e-field shape, and fiber recruitment.
-- `DeltaSTNScore` may be noisy or overfit because the model-matched STN efficacy model is trained in the same small cohort.
-- `C_SNr_bilat(i,k)` and `DeltaSTNScore` may be collinear if certain SNr target connectivity profiles are systematically paired with certain STN programming changes.
+- `Y_HF3m` controls total pre-ULF severity, but may not fully control symptom composition, DBS responsiveness, future prognosis, or side-effect limitations.
+- `DeltaHFScore` is a same-cohort, pre-ULF-derived nuisance adjustment unless an external model-family-matched HF efficacy model is used.
+- `DeltaHFScore` may be an incomplete summary of HF reprogramming because HF component changes can involve contact, amplitude, pulse width, frequency, e-field shape, and fiber recruitment.
+- `DeltaHFScore` may be noisy or overfit because the model-matched HF efficacy model is trained in the same small cohort.
+- `C_ULF_only_bilat(i,k)` and `DeltaHFScore` may be collinear if certain ULF target connectivity profiles are systematically paired with certain HF programming changes.
 - Low-coverage targets, locations, or streamlines can generate unstable coefficients.
-- With `n = 16`, interaction models such as `C_SNr_bilat(k) * subtype` or `C_SNr_bilat(k) * DeltaSTNScore` are usually too unstable for primary inference.
+- With `n = 16`, interaction models such as `C_ULF_only_bilat(k) * subtype` or `C_ULF_only_bilat(k) * DeltaHFScore` are usually too unstable for primary inference.
 - Normative connectomes support group-level structural interpretation; individualized DWI analyses are needed for subject-specific anatomy but remain limited by reconstruction quality.
 - Random or Gaussian proxy stimulation results validate the pipeline only and should not be biologically interpreted.
 
 The most defensible wording is:
 
 ```text
-adjusted relative SNr-target gain map
-clinical optimization-informed SNr-target gain map
+adjusted relative ULF-target gain map
+clinical optimization-informed ULF-target gain map
 ```
 
 Avoid:
@@ -1017,49 +1033,49 @@ evidence that every patient should be stimulated at this location
 
 Do not interpret `STN+SNr - STN-alone` as pure SNr benefit if STN parameters changed between phases.
 
-The primary SNr gain model controls this by including:
+The primary ULF add-on gain model controls this by including:
 
 ```text
-DeltaSTNScore =
-  S_STN_family(E_STN_component,combined)
-  - S_STN_family(E_STN_component,STN-only3m)
+DeltaHFScore =
+  S_HF_family(E_HF_component,combined)
+  - S_HF_family(E_HF_component,HF-only3m)
 ```
 
-where `S_STN_family` is the STN efficacy score computed from the model-family-matched STN model trained only on pre-SNr STN-only data.
+where `S_HF_family` is the HF efficacy score computed from the model-family-matched HF model trained only on pre-ULF HF-only data.
 
-Do not use raw contact, voltage, pulse width, or frequency change as the main `DeltaSTNScore`. Those physical summaries are sensitivity covariates.
+Do not use raw contact, voltage, pulse width, or frequency change as the main `DeltaHFScore`. Those physical summaries are sensitivity covariates.
 
 Main chronic SNr 3-month analysis:
 
 ```text
-DeltaSTNScore_3m =
-  S_STN_family,domain(E_STN_component,STN+SNr3m)
-  - S_STN_family,domain(E_STN_component,STN-only3m)
+DeltaHFScore_3m =
+  S_HF_family,domain(E_HF_component,STN+SNr3m)
+  - S_HF_family,domain(E_HF_component,HF-only3m)
 ```
 
 Main SNr immediate motor analysis:
 
 ```text
-DeltaSTNScore_immediate =
-  S_STN_family,motor(E_STN_component,STN+SNr immediate)
-  - S_STN_family,motor(E_STN_component,STN-only3m)
+DeltaHFScore_immediate =
+  S_HF_family,motor(E_HF_component,STN+SNr immediate)
+  - S_HF_family,motor(E_HF_component,HF-only3m)
 ```
 
-Report this as a same-cohort, pre-SNr-derived nuisance adjustment unless the model-matched STN efficacy model comes from an external dataset.
+Report this as a same-cohort, pre-ULF-derived nuisance adjustment unless the model-matched HF efficacy model comes from an external dataset.
 
 ### Residualized SNr Sensitivity Model
 
 As a complementary sensitivity analysis:
 
 1. Train an STN response model on STN-alone data.
-2. Predict the expected STN contribution in the combined phase using the combined-phase STN component.
+2. Predict the expected HF contribution in the combined phase using the combined-phase HF component.
 3. Compute:
 
 ```text
-Y_SNr_residual = observed STN+SNr outcome - predicted STN contribution
+Y_SNr_residual = observed STN+SNr outcome - predicted HF contribution
 ```
 
-4. Model `Y_SNr_residual` against SNr-component target-level connectivity.
+4. Model `Y_SNr_residual` against ULF-component target-level connectivity.
 
 Use leave-one-patient-out predictions for any residualized model to avoid optimistic reuse of the same patient in both training and prediction.
 
@@ -1069,7 +1085,7 @@ Use leave-one-patient-out predictions for any residualized model to avoid optimi
 
 Voxel sweet spots are secondary localization outputs. For each voxel and outcome, model the relation between subject-level stimulation exposure at that voxel and clinical response after the target-level model has been specified.
 
-For the STN model, use STN-alone exposure and STN response. For the SNr gain model, use SNr-component exposure and endpoint-specific post-score models adjusted for STN-3m baseline and endpoint/domain-matched STN efficacy-map score change. Run the chronic gain endpoint for `STN+SNr 3m` and the immediate gain endpoint for `STN+SNr immediate`.
+For the HF model, use HF-only exposure and HF response. For the ULF add-on gain model, use ULF-component exposure and endpoint-specific post-score models adjusted for HF-3m baseline and endpoint/domain-matched HF efficacy-map score change. Run the chronic gain endpoint for `STN+SNr 3m` and the immediate gain endpoint for `STN+SNr immediate`.
 
 Voxel maps should not drive primary predictor selection.
 
@@ -1089,69 +1105,69 @@ This analysis is secondary/exploratory relative to the target-level seed-target 
 
 #### STN Direct Voxel Model
 
-For the STN-only chronic efficacy model, the seed nucleus is STN and the exposure is the STN-only STN component:
+For the HF-only chronic efficacy model, the seed nucleus is STN and the exposure is the HF-only component:
 
 ```text
-Y_STN3m_i = alpha_v
-          + theta_STN(v) * X_STN3m_i(v)
+Y_HF3m_i = alpha_v
+          + theta_HF(v) * X_HF_only_i(v)
           + beta_v       * Y_Preop_i
           + error_i,v
 ```
 
 Definitions:
 
-- `Y_STN3m_i`: raw STN-only 3-month clinical score.
+- `Y_HF3m_i`: raw HF-only 3-month clinical score.
 - `Y_Preop_i`: raw preoperative clinical score.
-- `X_STN3m_i(v)`: bilateral homologous STN E-field exposure at canonical STN voxel `v`.
-- `theta_STN(v)`: direct STN voxel coefficient.
+- `X_HF_only_i(v)`: bilateral homologous STN E-field exposure at canonical STN voxel `v`.
+- `theta_HF(v)`: direct STN voxel coefficient.
 
 For lower-is-better scales:
 
 ```text
-M_STN(v) = -theta_STN(v)
+M_HF(v) = -theta_HF(v)
 ```
 
 For SE-ADL:
 
 ```text
-M_STN(v) = theta_STN(v)
+M_HF(v) = theta_HF(v)
 ```
 
-Positive `M_STN(v)` means stronger STN exposure at voxel `v` predicts better baseline-adjusted STN-only outcome.
+Positive `M_HF(v)` means stronger HF exposure at voxel `v` predicts better baseline-adjusted HF-only outcome.
 
 #### SNr Direct Voxel Model
 
-For the SNr gain model, the seed nucleus is SNr and the exposure is the SNr component in the combined setting:
+For the ULF add-on gain model, the seed nucleus is SNr and the exposure is the ULF component in the combined setting:
 
 ```text
 Y_AB_post_i = alpha_v
-            + theta_SNr(v) * X_SNr_i(v)
-            + beta_v       * Y_STN3m_i
-            + gamma_v      * DeltaSTNScore_i
+            + theta_ULF(v) * X_ULF_only_i(v)
+            + beta_v       * Y_HF3m_i
+            + gamma_v      * DeltaHFScore_i
             + error_i,v
 ```
 
 Definitions:
 
 - `Y_AB_post_i`: selected raw STN+SNr post-combination clinical score.
-- `Y_STN3m_i`: raw STN-only 3-month clinical score.
-- `X_SNr_i(v)`: bilateral homologous SNr-component E-field exposure at canonical SNr voxel `v`.
-- `DeltaSTNScore_i`: endpoint/domain-matched change in predicted STN efficacy score for the STN component between STN-only and combined programming.
-- `theta_SNr(v)`: direct SNr voxel gain coefficient.
+- `Y_HF3m_i`: raw HF-only 3-month clinical score.
+- `X_ULF_only_i(v)`: bilateral homologous ULF-component E-field exposure at canonical ULF voxel `v`.
+- `DeltaHFScore_i`: endpoint/domain-matched change in predicted HF efficacy score for the HF component between HF-only and combined programming.
+- `theta_ULF(v)`: direct ULF voxel gain coefficient.
 
 For lower-is-better scales:
 
 ```text
-M_SNr(v) = -theta_SNr(v)
+M_ULF(v) = -theta_ULF(v)
 ```
 
 For SE-ADL:
 
 ```text
-M_SNr(v) = theta_SNr(v)
+M_ULF(v) = theta_ULF(v)
 ```
 
-Positive `M_SNr(v)` means stronger SNr exposure at voxel `v` predicts better adjusted STN+SNr outcome.
+Positive `M_ULF(v)` means stronger ULF exposure at voxel `v` predicts better adjusted STN+SNr outcome.
 
 #### Bilateral Homologous Voxel Exposure
 
@@ -1267,7 +1283,7 @@ Adjusted partial Spearman:
 3. residualize ranked `X(v)` against ranked covariates;
 4. correlate residuals.
 
-The adjusted partial Spearman version is closer to published voxel sweet-spot mapping, while still accommodating `Y_STN3m`, `Y_Preop`, and `DeltaSTNScore` covariates.
+The adjusted partial Spearman version is closer to published voxel sweet-spot mapping, while still accommodating `Y_HF3m`, `Y_Preop`, and `DeltaHFScore` covariates.
 
 #### Sweet Spot Score
 
@@ -1345,7 +1361,7 @@ or `5000` for final analysis if runtime permits.
 
 #### Direct Voxel Outputs
 
-For each STN or SNr direct voxel model, export:
+For each STN or ULF direct voxel model, export:
 
 ```text
 direct_voxel_<seed>_coverage.nii.gz
@@ -1393,7 +1409,7 @@ Direct voxel maps are not definitive causal maps. Low-coverage voxels and region
 
 The main voxel-level visualization is generated by projecting target-level weights back into the stimulated seed nucleus. It is not a separate voxel-wise discovery model.
 
-For the STN model, the seed nucleus is STN. For the SNr gain model, the seed nucleus is SNr. In the A/B notation used in the uploaded modeling notes, `B` corresponds to the added SNr component for SNr-gain analyses.
+For the HF model, the seed nucleus is STN. For the ULF add-on gain model, the seed nucleus is SNr. In the A/B notation used in the uploaded modeling notes, `B` corresponds to the added ULF component for ULF-add-on-gain analyses.
 
 The target-level model first estimates target weights:
 
@@ -1401,18 +1417,18 @@ The target-level model first estimates target weights:
 w_k = benefit-oriented target weight
 ```
 
-For STN-only efficacy models:
+For HF-only efficacy models:
 
 ```text
-w_k = w_STN,k
-S   = S_STN
+w_k = w_HF,k
+S   = S_HF
 Omega_h = same-side STN mask
 ```
 
-For SNr gain models:
+For ULF add-on gain models:
 
 ```text
-w_k = w_SNr,k
+w_k = w_ULF,k
 S   = S_SNr
 Omega_h = same-side SNr mask
 ```
@@ -1585,10 +1601,10 @@ Main candidate fiber definitions:
 STN-associated candidate fiber:
   whole streamline intersects the `STN-connected regions` STN ROI
 
-SNr-associated candidate fiber:
+ULF-associated candidate fiber:
   whole streamline intersects the `SNr-connected regions` SNr ROI
 
-STN+SNr-associated candidate fiber:
+HF+ULF-associated candidate fiber:
   whole streamline intersects both connected-region STN and SNr ROIs
 ```
 
@@ -1631,10 +1647,10 @@ For fiber contribution outputs within selected targets:
 
 ### Main Tests
 
-- STN primary model: baseline-adjusted partial Spearman or ANCOVA between target-level STN-only 3-month bilateral connectivity and STN-only 3-month raw score, adjusting for preoperative raw score.
+- HF primary model: baseline-adjusted partial Spearman or ANCOVA between target-level HF-only 3-month bilateral connectivity and HF-only 3-month raw score, adjusting for preoperative raw score.
 - STN secondary early model: baseline-adjusted partial Spearman or ANCOVA between target-level STN-immediate bilateral connectivity and STN-immediate raw score, adjusting for preoperative score or same-day STN-OFF score when available.
-- SNr chronic gain model: endpoint-specific target-level partial Spearman or ANCOVA with `Y_STN3m` and `DeltaSTNScore_3m` as covariates, estimating adjusted chronic SNr target weights.
-- SNr immediate gain model: endpoint-specific target-level partial Spearman or ANCOVA with `Y_STN3m` and `DeltaSTNScore_immediate` as covariates, estimating adjusted immediate SNr target weights.
+- ULF chronic add-on gain model: endpoint-specific target-level partial Spearman or ANCOVA with `Y_HF3m` and `DeltaHFScore_3m` as covariates, estimating adjusted chronic ULF target weights.
+- ULF immediate add-on gain model: endpoint-specific target-level partial Spearman or ANCOVA with `Y_HF3m` and `DeltaHFScore_immediate` as covariates, estimating adjusted immediate ULF target weights.
 - Primary inference is scale-specific; do not combine heterogeneous scales into one primary model.
 - Correct multiple comparisons across tested targets within each scale, connectome or DWI source, and model class using FDR.
 - Use patient-level permutation tests with seed `42` for empirical significance.
@@ -1643,14 +1659,14 @@ For fiber contribution outputs within selected targets:
 
 Recommended reporting hierarchy:
 
-- primary STN endpoint: chronic STN-only efficacy model using `Preop -> STN-3m`;
-- secondary STN endpoint: early / acute STN-only response model using `Preop -> STN-immediate`, or `STN-OFF same-day -> STN-immediate` when same-day baseline exists;
-- optional STN endpoint: chronic adaptation model using `STN-immediate -> STN-3m`;
-- primary SNr chronic gain endpoint: adjusted `STN+SNr 3m` outcome model using `Y_STN3m` and `DeltaSTNScore_3m`;
-- primary SNr immediate gain endpoint: adjusted `STN+SNr immediate` outcome model using `Y_STN3m` and `DeltaSTNScore_immediate`;
-- primary SNr mechanistic endpoint: UPDRS-III immediate SNr-addition model when valid immediate data are available;
-- key secondary SNr endpoint: UPDRS-III chronic SNr-addition model to evaluate longer-term motor relevance;
-- symptom-specific secondary SNr endpoints: axial UPDRS-III, FOG-Q, KPPS, PDQ-39, MADRS, ADL, SE-ADL, and other available scales using their selected endpoints;
+- primary HF endpoint: chronic HF-only efficacy model using `Preop -> STN-3m`;
+- secondary HF endpoint: early / acute HF-only response model using `Preop -> STN-immediate`, or `STN-OFF same-day -> STN-immediate` when same-day baseline exists;
+- optional HF endpoint: chronic adaptation model using `STN-immediate -> STN-3m`;
+- primary ULF chronic add-on gain endpoint: adjusted `STN+SNr 3m` outcome model using `Y_HF3m` and `DeltaHFScore_3m`;
+- primary ULF immediate add-on gain endpoint: adjusted `STN+SNr immediate` outcome model using `Y_HF3m` and `DeltaHFScore_immediate`;
+- primary SNr mechanistic endpoint: UPDRS-III immediate ULF-addition model when valid immediate data are available;
+- key secondary ULF endpoint: UPDRS-III chronic ULF-addition model to evaluate longer-term motor relevance;
+- symptom-specific secondary ULF endpoints: axial UPDRS-III, FOG-Q, KPPS, PDQ-39, MADRS, ADL, SE-ADL, and other available scales using their selected endpoints;
 - exploratory cross-scale summaries: map overlap, meta-map, or pooled/global model.
 
 ### Cross-Validation
@@ -1715,9 +1731,9 @@ Run the following sensitivity analyses:
 - STN percent-improvement model for comparability with older STN DBS sweet-spot studies;
 - one-at-a-time STN covariate sensitivity with medication or LEDD change when medication state differs;
 - patient-level overlap with a published STN sweet spot as an external plausibility check;
-- STN-only negative-control model using SNr exposure to test whether SNr-addition maps reflect general electrode placement quality;
-- target-specific STN efficacy-score change instead of scalar `DeltaSTNScore`;
-- minimal-physical-STN-change subgroup after excluding subjects with the largest absolute outcome-independent STN exposure change;
+- HF-only negative-control model using ULF exposure to test whether ULF-addition maps reflect general electrode placement quality;
+- target-specific HF efficacy-score change instead of scalar `DeltaHFScore`;
+- minimal-physical-STN-change subgroup after excluding subjects with the largest absolute outcome-independent HF exposure change;
 - binary VTA intersection instead of continuous peak exposure;
 - interleaving-specific union, overlap, and frequency-weighted exposure summaries;
 - local ROI-expanded peak exposure using connected-region STN/SNr primary masks dilated by `2-3 mm`;
@@ -1725,7 +1741,7 @@ Run the following sensitivity analyses:
 - OSS-DBS/PAM pathway activation model when valid outputs exist;
 - repeated analyses across dTOR-985, MGH-USC HCP 32, and PPMI 85 connectomes;
 - normative-only, normative-guided individualized DWI, and individualized-DWI-only target-level model comparison.
-- direct voxel-level sweet spot mapping for STN-only efficacy and SNr gain using bilateral homologous voxel exposure;
+- direct voxel-level sweet spot mapping for HF-only efficacy and ULF add-on gain using bilateral homologous voxel exposure;
 - direct voxel coverage threshold sensitivity with `0.18`, `0.20`, and `0.22 V/mm`;
 - direct voxel paired-mask threshold sensitivity with `P_left_to_R > 0.5` and `> 0.7`;
 - direct voxel unsmoothed versus `1-2 mm` smoothed display sensitivity.
@@ -1754,19 +1770,19 @@ Reusable functions should be grouped by responsibility:
 1. Validate inputs and write provenance.
 2. Load active contact and stimulation parameter tables.
 3. Detect interleaving programs and split them into explicit subprogram definitions.
-4. Build STN-alone, combined-STN-component, and combined-SNr-component exposure maps, including interleaving union and overlap maps where needed.
+4. Build STN-alone, combined-HF-component, and combined-ULF-component exposure maps, including interleaving union and overlap maps where needed.
 5. Load raw clinical scores and improvement-rate tables.
 6. Select endpoint per scale.
 7. Build side-specific and bilateral target-level connectivity matrices for normative and individualized DWI sources.
 8. Extract secondary voxel and streamline exposure matrices for localization, QC, and visualization.
-9. Fit the primary chronic STN-only target model.
-10. Fit secondary STN-only early / acute target models where valid immediate data exist.
-11. Fit optional STN chronic adaptation target models when justified by programming changes.
-12. Fit endpoint-specific SNr chronic gain target models with `Y_STN3m` and `DeltaSTNScore_3m`.
-13. Fit endpoint-specific SNr immediate gain target models with `Y_STN3m` and `DeltaSTNScore_immediate`.
+9. Fit the primary chronic HF-only target model.
+10. Fit secondary HF-only early / acute target models where valid immediate data exist.
+11. Fit optional HF chronic adaptation target models when justified by programming changes.
+12. Fit endpoint-specific ULF chronic add-on gain target models with `Y_HF3m` and `DeltaHFScore_3m`.
+13. Fit endpoint-specific ULF immediate add-on gain target models with `Y_HF3m` and `DeltaHFScore_immediate`.
 14. Fit sensitivity models, including normative-only and DWI-only variants.
 15. Label fibers within selected targets by connected-region STN/SNr and endpoint masks, with HCPex labels as supplemental endpoint labels.
-16. Generate target-derived seed voxel maps for STN and SNr models: coverage, sweet, sour, net, and stability maps for left and right sides.
+16. Generate target-derived seed voxel maps for HF and ULF models: coverage, sweet, sour, net, and stability maps for left and right sides.
 17. Run direct voxel-level STN and SNr sweet spot analyses as secondary/exploratory models, including nested LOOCV and patient-level permutation tests.
 18. Export CSV/Mat/JSON provenance, target weights, target scores, target-derived voxel maps, direct voxel maps, and visualization-ready fiber subsets.
 
@@ -1785,20 +1801,20 @@ Expected output groups:
 - `target_connectivity/`: left, right, and bilateral target-level connectivity matrices.
 - `exposure/`: subject-level exposure summaries and secondary streamline exposure matrices.
 - `exposure/interleaving/`: subprogram exposure maps, union maps, overlap maps, and optional timing-weighted maps.
-- `models/stn/chronic/`: primary chronic STN-only target weights, target scores, and secondary maps.
-- `models/stn/early/`: secondary early / acute STN-only target results.
-- `models/stn/adaptation/`: optional STN chronic adaptation target results.
-- `models/snr/chronic_gain/`: endpoint-specific chronic SNr target-gain model results.
-- `models/snr/immediate_gain/`: endpoint-specific immediate SNr target-gain model results.
+- `models/hf/chronic/`: primary chronic HF-only target weights, target scores, and secondary maps.
+- `models/hf/early/`: secondary early / acute HF-only target results.
+- `models/hf/adaptation/`: optional HF chronic adaptation target results.
+- `models/snr/chronic_gain/`: endpoint-specific chronic ULF target-gain model results.
+- `models/snr/immediate_gain/`: endpoint-specific immediate ULF target-gain model results.
 - `models/cross_scale/`: map-level similarity metrics and secondary global maps.
-- `voxel_maps/target_derived/stn/`: left/right STN coverage, sweet, sour, net, and stability NIfTI maps derived from STN target weights.
-- `voxel_maps/target_derived/snr/`: left/right SNr coverage, sweet, sour, net, and stability NIfTI maps derived from SNr target weights.
-- `voxel_maps/loocv/stn/`: fold-specific STN target-derived maps and held-out voxel overlap scores when STN voxel scores are used for prediction.
-- `voxel_maps/loocv/snr/`: fold-specific SNr target-derived maps and held-out voxel overlap scores when SNr voxel scores are used for prediction.
+- `voxel_maps/target_derived/stn/`: left/right STN coverage, sweet, sour, net, and stability NIfTI maps derived from HF target weights.
+- `voxel_maps/target_derived/snr/`: left/right SNr coverage, sweet, sour, net, and stability NIfTI maps derived from ULF target weights.
+- `voxel_maps/loocv/stn/`: fold-specific HF target-derived maps and held-out voxel overlap scores when STN voxel scores are used for prediction.
+- `voxel_maps/loocv/snr/`: fold-specific ULF target-derived maps and held-out voxel overlap scores when ULF voxel scores are used for prediction.
 - `voxel_maps/dwi_group/stn/`: individualized-DWI group-average and coverage-weighted STN seed voxel maps.
 - `voxel_maps/dwi_group/snr/`: individualized-DWI group-average and coverage-weighted SNr seed voxel maps.
 - `direct_voxel/stn/`: direct STN voxel sweet spot maps, coverage masks, paired masks, LOOCV predictions, and permutation summaries.
-- `direct_voxel/snr/`: direct SNr voxel sweet spot maps, coverage masks, paired masks, LOOCV predictions, and permutation summaries.
+- `direct_voxel/snr/`: direct ULF voxel sweet spot maps, coverage masks, paired masks, LOOCV predictions, and permutation summaries.
 - `direct_voxel/qc/`: homologous voxel mapping QC, deformation QC, and visual overlay summaries.
 - `sensitivity/`: all sensitivity model outputs.
 - `visualization/`: selected-target fiber subsets, sweet/sour target summaries, secondary maps, HCPex endpoint summaries.
@@ -1817,8 +1833,8 @@ Expected output groups:
 - The primary model has one row per patient; left and right hemispheres are not treated as independent samples.
 - Target-level DWI coverage is checked before individualized-DWI or normative-guided-DWI models are interpreted.
 - Target-derived voxel maps are generated by back-projecting target weights into the seed nucleus, not by selecting top voxel-wise correlations.
-- STN target-derived voxel maps are generated for the STN-only efficacy model using `w_STN,k` and the STN seed mask.
-- SNr target-derived voxel maps are generated for SNr gain models using `w_SNr,k` and the SNr seed mask.
+- HF target-derived voxel maps are generated for the HF-only efficacy model using `w_HF,k` and the HF seed/territory mask.
+- ULF target-derived voxel maps are generated for ULF add-on gain models using `w_ULF,k` and the SNr seed mask.
 - Left and right seed voxel maps are generated separately without flipping.
 - Voxel visualization includes coverage, sweet, sour, net, and stability maps.
 - Any voxel-map overlap score used for prediction is generated inside the training fold, not from all subjects.
@@ -1827,11 +1843,11 @@ Expected output groups:
 - Nonlinear left/right homology uses inverse sampling into a right canonical grid with trilinear interpolation for E-field values.
 - Direct voxel coverage masks are defined within training folds for LOOCV.
 - Direct voxel models are compared against covariate-only models and evaluated with patient-level permutation tests.
-- The primary STN model uses raw STN-3m score adjusted for raw preoperative score, not percent improvement as the main outcome.
-- STN-immediate models are marked secondary and use same-day STN-OFF baseline when available.
-- SNr chronic gain models include both `Y_STN3m` and `DeltaSTNScore_3m`.
-- SNr immediate gain models include both `Y_STN3m` and `DeltaSTNScore_immediate`.
-- SNr results include target coverage summaries and secondary coverage maps; low-coverage targets, regions, or streamlines are not strongly interpreted.
+- The primary HF model uses raw STN-3m score adjusted for raw preoperative score, not percent improvement as the main outcome.
+- HF-immediate models are marked secondary and use same-day STN-OFF baseline when available.
+- ULF chronic add-on gain models include both `Y_HF3m` and `DeltaHFScore_3m`.
+- ULF immediate add-on gain models include both `Y_HF3m` and `DeltaHFScore_immediate`.
+- ULF results include target coverage summaries and secondary coverage maps; low-coverage targets, regions, or streamlines are not strongly interpreted.
 - The implementation can run a PPMI smoke test before dTOR full-scale analysis.
 - dTOR and MGH access is chunked and memory-safe.
 - `my_helper/fiber/stnsnr` contains only pipeline scripts, not core helper functions.
@@ -1840,15 +1856,15 @@ Expected output groups:
 
 ## Interpretation Rules
 
-- Primary STN results should be described as chronic STN-only therapeutic target connectivity patterns and, secondarily, sweet spots or fiber contribution maps.
-- STN voxel maps should be described as STN connectivity-derived candidate sweet/sour zones based on target-level STN efficacy weights.
-- STN-immediate results should be described as early STN-only target connectivity response models, or acute STN stimulation response models only when same-day STN-OFF baseline is used.
-- STN adaptation results should be described as secondary programming/adaptation analyses, not as the main STN efficacy model.
-- SNr gain results should be described as clinical optimization-informed SNr target-level gain models adjusted for STN-3m baseline and concurrent STN efficacy-map score change.
-- SNr chronic gain results should be described as adjusted target-level associations with `STN+SNr 3m` outcome.
-- SNr immediate gain results should be described as adjusted target-level associations with `STN+SNr immediate` outcome.
-- Residualized SNr results should be described as STN-model-adjusted SNr-associated residual benefit, not as definitive pure SNr causal effect.
-- SNr target maps should not be described as pure causal maps showing that every patient should be stimulated at a given SNr location.
+- Primary HF results should be described as chronic HF-only therapeutic target connectivity patterns and, secondarily, sweet spots or fiber contribution maps.
+- HF voxel maps should be described as HF connectivity-derived candidate sweet/sour zones based on target-level HF efficacy weights.
+- HF-immediate results should be described as early HF-only target connectivity response models, or acute STN stimulation response models only when same-day STN-OFF baseline is used.
+- HF adaptation results should be described as secondary programming/adaptation analyses, not as the main HF efficacy model.
+- ULF add-on gain results should be described as clinical optimization-informed ULF target-level gain models adjusted for HF-3m baseline and concurrent HF efficacy-map score change.
+- ULF chronic add-on gain results should be described as adjusted target-level associations with `STN+SNr 3m` outcome.
+- ULF immediate add-on gain results should be described as adjusted target-level associations with `STN+SNr immediate` outcome.
+- Residualized ULF results should be described as HF-model-adjusted ULF-associated residual benefit, not as definitive pure SNr causal effect.
+- ULF target maps should not be described as pure causal maps showing that every patient should be stimulated at a given ULF location.
 - Target-derived voxel maps should be described as connectivity-derived candidate sweet/sour seed zones, not direct voxel-wise causal efficacy maps.
 - Positive target-derived seed voxels indicate connectivity profiles biased toward sweet targets; negative voxels indicate connectivity profiles biased toward sour targets.
 - Low-coverage seed voxels should be shown as transparent or gray and should not receive strong anatomical interpretation.

@@ -286,7 +286,24 @@ Vo.fname = b0Path;
 Vo.n = [1, 1];
 Vo.dt = [16, 0];
 Vo.descrip = sprintf('Mean b0 extracted from %s without header recentering', get_file_name(dwiPath));
-spm_write_vol(Vo, b0);
+if V(1).dim(3) == 1
+    write_single_slice_b0(dwiPath, b0Path, b0);
+else
+    spm_write_vol(Vo, b0);
+end
+end
+
+function write_single_slice_b0(dwiPath, b0Path, b0)
+info = niftiinfo(dwiPath);
+info.ImageSize = info.ImageSize(1:3);
+info.PixelDimensions = info.PixelDimensions(1:3);
+info.Datatype = 'single';
+info.BitsPerPixel = 32;
+info.Filename = b0Path;
+if isfile(b0Path)
+    delete(b0Path);
+end
+niftiwrite(reshape(single(b0), info.ImageSize), b0Path, info, 'Compressed', false);
 end
 
 function validate_b0_geometry(dwiPath, b0Path)

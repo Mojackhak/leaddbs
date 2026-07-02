@@ -6,6 +6,14 @@ Which voxels in the high-frequency stimulation territory have HF-only exposure a
 
 This is a direct local stimulation sweet-spot model. The former STN-only phase is interpreted as HF-only DBS territory, not as an anatomic STN-only model. STN/SNr masks are used for territory definition, coverage description, and visualization overlays, not for hard assignment of model effects to one nucleus.
 
+
+Frequency definitions:
+
+```text
+HF  = high-frequency stimulation component, frequency_Hz >= 100
+ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
+```
+
 ## Endpoint
 
 Primary endpoint:
@@ -44,7 +52,7 @@ The model does not split overlapping or border-zone voxels into STN versus SNr. 
 X_HF_only_i(v) = (X_HF_left_i(v) + X_HF_right_i(v)) / 2
 ```
 
-Use continuous exposure for model fitting inside the coverage mask. The active-voxel threshold is used for coverage/QC and HF/LF overlap assignment:
+Use continuous exposure for model fitting inside the coverage mask. The active-voxel threshold is used for coverage/QC and HF/ULF overlap assignment:
 
 ```text
 tau = 0.2 V/mm

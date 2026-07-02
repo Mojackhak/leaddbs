@@ -6,6 +6,14 @@
 
 这是 individualized seed-target / fiber-derived target-level 模型。它使用每个 subject 的 DWI tractography，而不是只依赖公共 normative connectome。
 
+
+频率定义固定为：
+
+```text
+HF  = high-frequency stimulation component, frequency_Hz >= 100
+ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
+```
+
 ## 终点
 
 主终点：
