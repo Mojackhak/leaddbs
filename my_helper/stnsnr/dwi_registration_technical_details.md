@@ -6,7 +6,7 @@ Date: 2026-07-02
 
 This document fixes the technical plan for registering the imported STN/SNr cohort DWI scans into the existing Lead-DBS subject spaces. The registration outputs are prerequisites for patient-specific seed-target tracking, VTA/ROI projection into DWI space, and native/MNI streamline display.
 
-This stage performs DWI staging and b0-to-anchorNative T2 registration only. It does not run tractography, normative connectome analysis, or sweet/sour spot modeling.
+This stage performs DWI staging, automatic b0 extraction, and b0-to-anchorNative registration only. It does not run tractography, normative connectome analysis, or sweet/sour spot modeling.
 
 The first completed T2 branch used Lead-DBS ANTs linear registration under `coregistration/dwi_t2/`. Because manual QC still showed large residual errors in some subjects, the next pilot adds two method-comparison branches for three subjects only:
 
@@ -71,9 +71,22 @@ The DWI registration chain is:
 ```text
 raw BIDS DWI
   -> derivatives/leaddbs/sub-*/preprocessing/dwi
-  -> b0 extraction in native DWI space
+  -> automatic b0 extraction in native DWI space
   -> b0-to-anchorNative T2 linear registration
 ```
+
+During DWI import/staging, Lead-DBS automatically recreates the staged b0 image from the imported 4D DWI and gradient sidecars:
+
+```text
+preprocessing/dwi/sub-<Subject>_ses-preop_dwi.nii
+preprocessing/dwi/sub-<Subject>_ses-preop_dwi.bval
+preprocessing/dwi/sub-<Subject>_ses-preop_dwi.bvec
+  -> preprocessing/dwi/sub-<Subject>_ses-preop_dwi_b0.nii
+```
+
+The import helper defines b0 volumes as `bval < 50`. If multiple b0 volumes are present, it writes their mean. Existing staged b0 files are overwritten during import/staging so the b0 always matches the current staged DWI and sidecars.
+
+The b0 image must inherit the affine/header of the corresponding 4D DWI frame. It must not be independently recentered. This keeps b0, FA, masks, and tractography products on the same DWI grid.
 
 Tractography remains in native DWI space. MNI atlas ROIs should be projected into DWI space by:
 
@@ -87,7 +100,7 @@ DWI streamlines should be displayed in MNI space by:
 DWI streamline -> anchorNative T2/anchorNative T1 -> MNI
 ```
 
-The previous direct b0-to-anchorNative T1 outputs under `coregistration/dwi/` remain available only for comparison. They are not the primary registration chain for downstream STN/SNr tracking.
+The previous direct b0-to-anchorNative T1 outputs under `coregistration/dwi/` remain available only for comparison. Coregister UI B0 outputs under `coregistration/anat/` and `coregistration/transformations/` are formal Lead-DBS UI products. The T2 registration pilot outputs remain separate method-comparison branches for downstream tracking evaluation.
 
 The existing ANTs T2 output under `coregistration/dwi_t2/` remains available as the baseline comparator. The SPM and Hybrid pilot outputs must not overwrite it.
 
@@ -110,6 +123,19 @@ sub-<Subject>_ses-preop_dwi_b0.nii
 ```
 
 The b0 image must inherit the affine/header of the corresponding 4D DWI frame. It must not be independently recentered. This is intentionally different from workflows that correct only the b0 header, because tractography, FA, masks, and b0 must remain on the same DWI grid.
+
+The staged b0 is exposed to the Lead-DBS Coregister UI as a pseudo-preop modality named `B0` when it exists under `preprocessing/dwi/`. `B0` is not an anatomical MRI modality; it is a DWI b0 image made visible in the anatomical coregistration interface so existing method selection, recompute, approval, and checkreg logic can be reused.
+
+The Coregister UI `B0` output convention is:
+
+```text
+coregistration/anat/sub-<Subject>_ses-preop_space-anchorNative_desc-preproc_B0.nii
+coregistration/transformations/sub-<Subject>_from-b0_to-anchorNative_desc-<method>.mat
+coregistration/transformations/sub-<Subject>_from-anchorNative_to-b0_desc-<method>.mat
+coregistration/checkreg/sub-<Subject>_ses-preop_space-anchorNative_desc-preproc_B0.png
+```
+
+The default formal Coregister UI target is the current anchorNative T1. The existing anchor selection and substitute-anchor controls remain available. The `B0` item is appended after anatomical preop modalities and must never become the default anchor.
 
 Existing ANTs T2 comparison files:
 

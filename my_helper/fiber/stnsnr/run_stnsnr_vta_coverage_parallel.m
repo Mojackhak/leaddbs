@@ -9,14 +9,16 @@ workbook = '/Users/mojackhu/Research/STNSNr/summary/cohort/subj/followup_stimula
 cohortOutputDir = '/Volumes/VAL/STNSNr/summary/vta';
 workerScript = fullfile(repoDir, 'my_helper', 'fiber', 'stnsnr', ...
     'run_stnsnr_vta_coverage_worker.m');
-matlabExe = getenv_default('STNSNR_MATLAB_EXE', '/Applications/MATLAB_R2024b.app/bin/matlab');
-workerCount = env_number('STNSNR_VTA_WORKERS', 2);
-dryRun = env_flag('STNSNR_VTA_DRY_RUN', false);
+matlabExe = mh_fiber_getenv_default('STNSNR_MATLAB_EXE', '/Applications/MATLAB_R2024b.app/bin/matlab');
+workerCount = mh_fiber_env_number('STNSNR_VTA_WORKERS', 2, ...
+    'run_stnsnr_vta_coverage_parallel:InvalidEnvNumber');
+dryRun = mh_fiber_env_flag('STNSNR_VTA_DRY_RUN', false, ...
+    'run_stnsnr_vta_coverage_parallel:InvalidEnvFlag');
 
 rows = readtable(workbook, 'Sheet', 'Contact Parameters', 'VariableNamingRule', 'preserve', ...
     'TextType', 'string');
 subjectIds = unique(string(rows.ID), 'stable');
-requestedIds = split_env_list(getenv('STNSNR_VTA_SUBJECT_IDS'));
+requestedIds = mh_fiber_split_env_list(getenv('STNSNR_VTA_SUBJECT_IDS'));
 if ~isempty(requestedIds)
     subjectIds = subjectIds(ismember(subjectIds, requestedIds));
 end
@@ -26,7 +28,7 @@ if isempty(subjectIds)
 end
 
 workerCount = max(1, min(workerCount, numel(subjectIds)));
-chunks = split_subjects(subjectIds, workerCount);
+chunks = mh_fiber_split_subjects(subjectIds, workerCount);
 timestamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
 logDir = fullfile(cohortOutputDir, 'logs', ['parallel_', timestamp]);
 mkdir(logDir);
@@ -39,13 +41,14 @@ for i = 1:workerCount
     batchExpr = sprintf('run(''%s'')', workerScript);
     innerCmd = sprintf(['if command -v conda >/dev/null 2>&1; then ', ...
         'conda run -n leaddbs %s -batch %s; else %s -batch %s; fi'], ...
-        shell_quote(matlabExe), shell_quote(batchExpr), ...
-        shell_quote(matlabExe), shell_quote(batchExpr));
+        mh_fiber_shell_quote(matlabExe), mh_fiber_shell_quote(batchExpr), ...
+        mh_fiber_shell_quote(matlabExe), mh_fiber_shell_quote(batchExpr));
     cmd = sprintf(['env STNSNR_VTA_SUBJECT_IDS=%s ', ...
         'STNSNR_VTA_SKIP_COMPLETED=true ', ...
         'STNSNR_VTA_SKIP_LOCKED=false ', ...
         '/bin/zsh -lc %s > %s 2>&1 & echo $!'], ...
-        shell_quote(subjectList), shell_quote(innerCmd), shell_quote(logPath));
+        mh_fiber_shell_quote(subjectList), mh_fiber_shell_quote(innerCmd), ...
+        mh_fiber_shell_quote(logPath));
     if dryRun
         pid = "dry-run";
         statusText = "dry_run";
@@ -80,65 +83,3 @@ fprintf('After workers finish, run:\n');
 fprintf('/Applications/MATLAB_R2024b.app/bin/matlab -batch "run(''%s'')"\n', ...
     fullfile(repoDir, 'my_helper', 'fiber', 'stnsnr', ...
     'run_stnsnr_vta_coverage_cohort_aggregate.m'));
-
-function chunks = split_subjects(subjectIds, workerCount)
-chunks = cell(workerCount, 1);
-for i = 1:workerCount
-    chunks{i} = strings(0, 1);
-end
-for i = 1:numel(subjectIds)
-    workerIdx = mod(i - 1, workerCount) + 1;
-    chunks{workerIdx}(end+1, 1) = subjectIds(i);
-end
-end
-
-function values = split_env_list(rawValue)
-if isempty(rawValue)
-    values = strings(0, 1);
-    return;
-end
-parts = string(regexp(rawValue, '[,;]+', 'split'));
-values = strtrim(parts(:));
-values = values(values ~= "");
-end
-
-function value = env_number(name, defaultValue)
-rawValue = strtrim(string(getenv(name)));
-if rawValue == ""
-    value = defaultValue;
-    return;
-end
-value = str2double(rawValue);
-if isnan(value) || value < 1 || value ~= fix(value)
-    error('run_stnsnr_vta_coverage_parallel:InvalidEnvNumber', ...
-        'Invalid positive integer for %s: %s', name, rawValue);
-end
-end
-
-function value = env_flag(name, defaultValue)
-rawValue = lower(strtrim(string(getenv(name))));
-if rawValue == ""
-    value = defaultValue;
-elseif ismember(rawValue, ["1", "true", "yes", "on"])
-    value = true;
-elseif ismember(rawValue, ["0", "false", "no", "off"])
-    value = false;
-else
-    error('run_stnsnr_vta_coverage_parallel:InvalidEnvFlag', ...
-        'Invalid logical value for %s: %s', name, rawValue);
-end
-end
-
-function value = getenv_default(name, defaultValue)
-rawValue = string(getenv(name));
-if strlength(rawValue) == 0
-    value = defaultValue;
-else
-    value = char(rawValue);
-end
-end
-
-function quoted = shell_quote(value)
-value = char(string(value));
-quoted = ['''', strrep(value, '''', '''"''"'''), ''''];
-end

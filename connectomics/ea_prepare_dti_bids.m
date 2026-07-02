@@ -22,8 +22,10 @@ try
     
     % Find DWI files in rawdata (search recursively)
     rawDwiFiles = dir(fullfile(rawDataDir, '**', '*_dwi.nii.gz'));
+    rawDwiFiles = rawDwiFiles(~startsWith({rawDwiFiles.name}, '._'));
     if isempty(rawDwiFiles)
         rawDwiFiles = dir(fullfile(rawDataDir, '**', '*_dwi.nii'));
+        rawDwiFiles = rawDwiFiles(~startsWith({rawDwiFiles.name}, '._'));
     end
     
     if ~isempty(rawDwiFiles)
@@ -69,6 +71,8 @@ try
         options.prefs.bvec = fullfile('preprocessing', 'dwi', [dwiBaseName, '.bvec']);
         options.prefs.b0 = fullfile('preprocessing', 'dwi', [dwiBaseName, '_b0.nii']);
         options.prefs.fa = fullfile('preprocessing', 'dwi', [dwiBaseName, '_fa.nii']);
+
+        ea_ensure_b0_from_dwi(options, 'Force', true);
         
         disp(['DWI files prepared: ', targetDwi]);
     else
@@ -77,4 +81,3 @@ try
 catch ME
     warning('Failed to prepare DWI files: %s', ME.message);
 end
-

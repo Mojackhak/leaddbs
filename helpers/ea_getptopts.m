@@ -164,13 +164,16 @@ if contains(directory, ['derivatives', filesep, 'leaddbs'])
         
         % First check if DWI already exists in preprocessing/dwi
         dwiFiles = dir(fullfile(derivDwiDir, '*_dwi.nii'));
+        dwiFiles = dwiFiles(~startsWith({dwiFiles.name}, '._'));
         
         if isempty(dwiFiles)
             % If not found, look in rawdata (search recursively)
             rawDataDir = fullfile(fileparts(fileparts(options.subj.subjDir)), 'rawdata', ['sub-', options.subj.subjId]);
             rawDwiFiles = dir(fullfile(rawDataDir, '**', '*_dwi.nii.gz'));
+            rawDwiFiles = rawDwiFiles(~startsWith({rawDwiFiles.name}, '._'));
             if isempty(rawDwiFiles)
                 rawDwiFiles = dir(fullfile(rawDataDir, '**', '*_dwi.nii'));
+                rawDwiFiles = rawDwiFiles(~startsWith({rawDwiFiles.name}, '._'));
             end
         else
             % DWI already in preprocessing - use it
@@ -236,6 +239,20 @@ if contains(directory, ['derivatives', filesep, 'leaddbs'])
                 % Fiber tracking output (BIDS: stored in connectomics/dMRI/)
                 options.prefs.FTR_unnormalized = fullfile('connectomics', 'dMRI', 'FTR.mat');
                 options.prefs.FTR_normalized   = fullfile('connectomics', 'dMRI', 'FTR_normalized.mat');
+            end
+        end
+
+        if isfield(options.prefs, 'dti') && isfield(options.prefs, 'bval') && isfield(options.prefs, 'bvec') && isfield(options.prefs, 'b0')
+            [~, b0Status] = ea_ensure_b0_from_dwi(options, 'Force', true);
+            if b0Status.ok
+                try
+                    options.subj.preproc.anat = options.bids.getPreprocAnat(subjId, options.modality);
+                    options.subj.coreg.anat = options.bids.getCoregAnat(subjId, options.modality);
+                    options.subj.coreg.transform = options.bids.getCoregTransform(subjId, options.modality);
+                    options.subj.coreg.checkreg = options.bids.getCoregCheckreg(subjId, options.modality);
+                catch ME
+                    warning('Failed to refresh B0 subject fields: %s', ME.message);
+                end
             end
         end
 

@@ -492,6 +492,11 @@ classdef BIDSFetcher
                 preprocAnat.preop.(modality) = fullfile(baseDir, [baseName, 'acq-', parsed.acq, '_', parsed.suffix, parsed.ext]);
             end
 
+            b0Image = obj.getPreprocB0(subjId);
+            if ~isempty(b0Image)
+                preprocAnat.preop.B0 = b0Image;
+            end
+
             if ~exist('preferMRCT', 'var')
                 preferMRCT = obj.settings.preferMRCT;
             end
@@ -535,8 +540,12 @@ classdef BIDSFetcher
             for i=1:length(session)
                 modality = fieldnames(preprocAnat.(session{i}));
                 for j=1:length(modality)
-                    anat = strrep(preprocAnat.(session{i}).(modality{j}), LeadDBSDirs.preprocDir, LeadDBSDirs.coregDir);
-                    coregAnat.(session{i}).(modality{j}) = strrep(anat , ['ses-', session{i}, '_'], ['ses-', session{i}, '_space-', obj.anchorSpace, '_']);
+                    if strcmp(modality{j}, 'B0')
+                        coregAnat.(session{i}).(modality{j}) = fullfile(LeadDBSDirs.coregDir, 'anat', ['sub-', subjId, '_ses-preop_space-', obj.anchorSpace, '_desc-preproc_B0', obj.settings.niiFileExt]);
+                    else
+                        anat = strrep(preprocAnat.(session{i}).(modality{j}), LeadDBSDirs.preprocDir, LeadDBSDirs.coregDir);
+                        coregAnat.(session{i}).(modality{j}) = strrep(anat , ['ses-', session{i}, '_'], ['ses-', session{i}, '_space-', obj.anchorSpace, '_']);
+                    end
                 end
             end
 
@@ -566,7 +575,7 @@ classdef BIDSFetcher
             % Set pre-op MR transformation
             if numel(fields) >1
                 for i = 2:numel(fields)
-                    spaceTag = erase(fields{i}, '_');
+                    spaceTag = obj.getCoregSpaceTag(fields{i});
                     coregTransform.(fields{i}).forwardBaseName = [baseName, 'from-', spaceTag, '_to-', obj.anchorSpace, '_desc-'];
                     coregTransform.(fields{i}).inverseBaseName = [baseName, 'from-', obj.anchorSpace, '_to-', spaceTag, '_desc-'];
                 end
@@ -580,7 +589,7 @@ classdef BIDSFetcher
                         coregTransform.CT.forwardBaseName = [baseName, 'from-CT_to-', obj.anchorSpace, '_desc-'];
                         coregTransform.CT.inverseBaseName = [baseName, 'from-', obj.anchorSpace, '_to-CT_desc-'];
                     else % Set post-op MRI transformation
-                        spaceTag = erase(fields{i}, '_');
+                        spaceTag = obj.getCoregSpaceTag(fields{i});
                         coregTransform.(fields{i}).forwardBaseName = [baseName, 'from-', spaceTag, '_to-', obj.anchorSpace, '_desc-'];
                         coregTransform.(fields{i}).inverseBaseName = [baseName, 'from-', obj.anchorSpace, '_to-', spaceTag, '_desc-'];
                     end
@@ -843,6 +852,47 @@ classdef BIDSFetcher
 
             % Get log
             log = [baseName, label, '.txt'];
+        end
+
+        function b0Image = getPreprocB0(obj, subjId)
+            % Return the staged DWI b0 image as a pseudo-preop modality.
+            LeadDBSDirs = obj.getLeadDBSDirs(subjId);
+            b0Dir = fullfile(LeadDBSDirs.preprocDir, 'dwi');
+            b0Image = '';
+
+            if ~isfolder(b0Dir)
+                return;
+            end
+
+            b0Files = dir(fullfile(b0Dir, '*_b0.nii'));
+            if isempty(b0Files)
+                return;
+            end
+
+            b0Names = {b0Files.name};
+            b0Files(startsWith(b0Names, '._')) = [];
+            if isempty(b0Files)
+                return;
+            end
+
+            b0Names = {b0Files.name};
+            subjectMask = startsWith(b0Names, ['sub-', subjId, '_']);
+            if any(subjectMask)
+                b0Files = b0Files(subjectMask);
+                b0Names = {b0Files.name};
+            end
+
+            [~, order] = sort(b0Names);
+            b0Files = b0Files(order);
+            b0Image = fullfile(b0Files(1).folder, b0Files(1).name);
+        end
+
+        function spaceTag = getCoregSpaceTag(obj, modality)
+            if strcmp(modality, 'B0')
+                spaceTag = 'b0';
+            else
+                spaceTag = erase(modality, '_');
+            end
         end
     end
 

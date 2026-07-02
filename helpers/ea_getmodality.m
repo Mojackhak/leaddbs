@@ -15,7 +15,9 @@ end
 modality = cell(size(BIDSFilePath));
 
 for i=1:length(BIDSFilePath)
-    if ~opts.acq || ~isempty(regexp(BIDSFilePath{i}, '_CT\.nii(.gz)?$', 'once')) % Skip plane label
+    if ~isempty(regexp(BIDSFilePath{i}, '(_b0|_B0|_desc-preproc_B0)\.nii(\.gz)?$', 'once'))
+        modality{i} = 'B0';
+    elseif ~opts.acq || ~isempty(regexp(BIDSFilePath{i}, '_CT\.nii(.gz)?$', 'once')) % Skip plane label
         modality{i} = regexp(BIDSFilePath{i}, '(?<=_)([^\W_]+)(?=\.nii(\.gz)?$)', 'match', 'once');
     else % Keep plane label
         modality{i} = regexp(BIDSFilePath{i}, '(?<=_acq-)((ax|sag|cor|iso)\d*_[^\W_]+)(?=\.nii(\.gz)?$)', 'match', 'once');

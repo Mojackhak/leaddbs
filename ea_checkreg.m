@@ -86,6 +86,14 @@ end
 checkregImages = [preopCoregImages; postopCoregImages; preopNormImage; brainshiftImage];
 checkregImages = checkregImages(cellfun(@(f) ea_reglocked(options, f)~=1 & isfile(f), checkregImages));
 
+if isfield(options.subj.coreg.anat.preop, 'B0') ...
+        && isfield(options.subj.preproc.anat.preop, 'B0') ...
+        && isfile(options.subj.preproc.anat.preop.B0) ...
+        && ea_reglocked(options, options.subj.coreg.anat.preop.B0) ~= 1 ...
+        && ~ismember(options.subj.coreg.anat.preop.B0, checkregImages)
+    checkregImages = [checkregImages; {options.subj.coreg.anat.preop.B0}];
+end
+
 % fMRI
 restfiles = dir([options.root,options.patientname,filesep,options.prefs.rest_searchstring]);
 options.prefs.n_rest = numel(restfiles);
@@ -393,6 +401,7 @@ elseif strcmp(options.subj.postopModality, 'CT') && strcmp(currvol, options.subj
 
     % Override anchormodality
     options.subj.AnchorModality = handles.anchormod.String;
+    anchorImage = options.subj.coreg.anat.preop.(options.subj.AnchorModality);
 
     % Run CT coregistration
     ea_coregpostopct(options);
@@ -447,6 +456,7 @@ else % MR
     else  % other images
         % Override anchormodality
         options.subj.AnchorModality = handles.anchormod.String;
+        anchorImage = options.subj.coreg.anat.preop.(options.subj.AnchorModality);
 
         session = regexp(currvol, '(?<=_ses-)(preop|postop)', 'match', 'once');
         modality = ea_getmodality(currvol);
