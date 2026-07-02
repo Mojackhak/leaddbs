@@ -45,6 +45,10 @@ The six model-specific summaries are:
 | HF-adjusted ULF-only add-on gain | Normative connectome seed-target / fiber-derived target-level | [`ulf_addon_gain_normative_connectome_seed_target_model.md`](model_summaries/ulf_addon_gain_normative_connectome_seed_target_model.md) |
 | HF-adjusted ULF-only add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`ulf_addon_gain_individualized_dwi_seed_target_model.md`](model_summaries/ulf_addon_gain_individualized_dwi_seed_target_model.md) |
 
+For HF-only direct voxel model execution, the model-specific summary
+[`hf_3m_direct_voxel_model.md`](model_summaries/hf_3m_direct_voxel_model.md)
+is the authoritative specification.
+
 ## Fixed Inputs and Defaults
 
 - Repository root: `/Users/mojackhu/Github/leaddbs`.
@@ -1144,11 +1148,11 @@ Resolved HF/STN settings (these fix, for the HF/STN direct voxel model only, the
 
 - Exposure `X_HF_only`: the real Horn/SimBio `sim-efield` (raw variant, kept in `V/m`) from each subject's `3m/STN` MNI stimulation folder `stimulations/MNI152NLin2009bAsym/*_3m_STN_*/sub-*_sim-efield_model-simbio_hemi-{L,R}.nii`. Combine alternating same-side subprograms by voxel-wise maximum.
 - Territory / coverage: intersect with `STNSNr-connected regions/{rh,lh}/STNSNrplus.nii.gz` (already 2 mm dilated). Use `tau = 200 V/m` and fit where `Coverage(v) >= 5` (override the generic `>= 8` preference), with `180`/`220 V/m` as threshold sensitivity.
-- Bilateral homology: right `STNSNrplus` as canonical grid; map the left E-field with `ea_flip_lr_nonlinear` + `templates/space/MNI152NLin2009bAsym/fliplr/Composite.nii.gz`; paired-mask threshold `P_left_to_R > 0.5` (primary), `> 0.7` (sensitivity).
+- Bilateral homology: right `STNSNrplus` as canonical grid; map the left E-field with `ea_flip_lr_nonlinear` + `templates/space/MNI152NLin2009bAsym/fliplr/Composite.nii.gz`; no paired-mask membership threshold is used for the HF direct voxel executable model.
 - Estimator: residualized ANCOVA (OLS), no standardization of `X` or `M`; sweet-spot score uses `lambda = 0`.
 - Permutation: patient-level Freedman-Lane, `B = 1000`, seed `42`, primary statistic LOOCV Pearson `r`. The `coef` map stores raw `theta`, no per-voxel FDR.
-- Endpoints: first pass = MDS-UPDRS III and MDS-UPDRS III axial (both lower-is-better) from `subject_effect_origin.xlsx`, joined by subject name; a patient missing `Y_HF3m` or a side's E-field is dropped from that scale only.
-- Outputs: keep the `direct_voxel_HF_*` file names under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale>/`; unsmoothed map is primary, `1-2 mm` FWHM smoothed map is a sensitivity output.
+- Endpoints: first pass = MDS-UPDRS III and MDS-UPDRS III axial (both lower-is-better) from `subject_effect_origin.xlsx`, joined by `ID`; a patient missing `Y_HF3m` or a side's e-field fails scale-level QC as specified in the model summary.
+- Outputs: keep the `direct_voxel_HF_*` file names under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale>/tau180|tau200|tau220/`; `tau200` and unsmoothed maps are primary, `1-2 mm` FWHM smoothed maps are sensitivity outputs.
 
 #### SNr Direct Voxel Model
 
@@ -1208,10 +1212,10 @@ c_L(v) = phi_inverse_L_to_R(c_R(v))
 
 Do not require the transformed left voxel center to land exactly on a right voxel center. Homology is defined in continuous physical space, not by discrete voxel index matching.
 
-For continuous E-field maps, sample the left side with trilinear interpolation:
+For continuous E-field maps, map the left side into right canonical space using the model-specific left/right transform. The HF direct voxel executable model uses `ea_flip_lr_nonlinear` with Lead-DBS default interpolation, as fixed in `model_summaries/hf_3m_direct_voxel_model.md`.
 
 ```text
-E_L_to_R_i(v) = interp_linear(E_L_i, c_L(v))
+E_L_to_R_i(v) = transformed left-side exposure on the right canonical grid
 ```
 
 The patient-level bilateral exposure for voxel `v` is:
@@ -1228,20 +1232,13 @@ n = 16
 
 and avoiding left/right pseudo-replication.
 
-The paired analysis mask is:
+The default executable direct voxel mask is not a paired-membership mask. It is the model-specific canonical right territory intersected with the training-fold coverage mask:
 
 ```text
-Omega_pair = right canonical seed voxels whose inverse-warped left homologous location remains inside the left seed mask
+Omega_direct = right canonical territory intersected with {Coverage(v) >= threshold}
 ```
 
-For binary seed masks, use nearest-neighbor only for final discrete mask export. For paired-mask construction, prefer linear interpolation of the left mask into the right canonical grid:
-
-```text
-P_left_to_R(v) = interp_linear(1_left_seed_mask, c_L(v))
-Omega_pair = {v in Omega_R: P_left_to_R(v) > 0.5}
-```
-
-Use `> 0.7` as a conservative sensitivity threshold, or retain `P_left_to_R(v)` as a voxel weight.
+Do not introduce a left-to-right paired-mask membership threshold for the HF direct voxel model. Any future paired-mask analysis would be a separate, explicitly labeled sensitivity model rather than the primary executable specification.
 
 #### Coverage Mask
 
@@ -1306,8 +1303,8 @@ After a direct voxel map `M(v)` is learned, compute patient-level overlap:
 
 ```text
 SweetSpotScore_i =
-  sum_{v in Omega_pair} X_i(v) * M(v)
-  / (sum_{v in Omega_pair} X_i(v) + lambda)
+  sum_{v in Omega_direct} X_i(v) * M(v)
+  / (sum_{v in Omega_direct} X_i(v) + lambda)
 ```
 
 Then fit the final prediction model:
@@ -1760,7 +1757,6 @@ Run the following sensitivity analyses:
 - normative-only, normative-guided individualized DWI, and individualized-DWI-only target-level model comparison.
 - direct voxel-level sweet spot mapping for HF-only efficacy and ULF add-on gain using bilateral homologous voxel exposure;
 - direct voxel coverage threshold sensitivity with `0.18`, `0.20`, and `0.22 V/mm`;
-- direct voxel paired-mask threshold sensitivity with `P_left_to_R > 0.5` and `> 0.7`;
 - direct voxel unsmoothed versus `1-2 mm` smoothed display sensitivity.
 
 ## Implementation Outline
