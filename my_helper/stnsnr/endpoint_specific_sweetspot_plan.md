@@ -1150,7 +1150,7 @@ Resolved HF/STN settings (these fix, for the HF/STN direct voxel model only, the
 - Territory / coverage: intersect with `STNSNr-connected regions/{rh,lh}/STNSNrplus.nii.gz` (already 2 mm dilated). Use `tau = 200 V/m` and fit where `Coverage(v) >= 5` (override the generic `>= 8` preference), with `180`/`220 V/m` as threshold sensitivity.
 - Bilateral homology: right `STNSNrplus` as canonical grid; map the left E-field with `ea_flip_lr_nonlinear` + `templates/space/MNI152NLin2009bAsym/fliplr/Composite.nii.gz`; no paired-mask membership threshold is used for the HF direct voxel executable model.
 - Estimator: residualized ANCOVA (OLS), no standardization of `X` or `M`; sweet-spot score uses `lambda = 0`.
-- Permutation: patient-level Freedman-Lane, `B = 1000`, seed `42`, primary statistic LOOCV Pearson `r`. The `coef` map stores raw `theta`, no per-voxel FDR.
+- Permutation: patient-level Freedman-Lane, formal `B = 10000`, smoke/exploratory `B = 1000`, seed `42`, primary statistic LOOCV Pearson `r`. The `coef` map stores raw `theta`, no per-voxel FDR.
 - Endpoints: first pass = MDS-UPDRS III and MDS-UPDRS III axial (both lower-is-better) from `subject_effect_origin.xlsx`, joined by `ID`; a patient missing `Y_HF3m` or a side's e-field fails scale-level QC as specified in the model summary.
 - Outputs: keep the `direct_voxel_HF_*` file names under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale>/tau180|tau200|tau220/`; `tau200` and unsmoothed maps are primary, `1-2 mm` FWHM smoothed maps are sensitivity outputs.
 
@@ -1366,10 +1366,11 @@ Use Freedman-Lane permutation for significance testing:
 Suggested permutations:
 
 ```text
-B = 1000
+formal analysis: B = 10000
+smoke/exploratory: B = 1000
 ```
 
-or `5000` for final analysis if runtime permits.
+Use seed `42` and compute Monte Carlo permutation P values with the plus-one correction.
 
 #### Direct Voxel Outputs
 

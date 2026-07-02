@@ -166,8 +166,8 @@ Missing-data rule: missing `Y_HF3m`, missing `Y_Preop`, or failed e-field availa
   Q2 = 1 - SSE_HFScore_model / SSE_YPreop_only
   ```
 
-- Patient-level Freedman-Lane permutation uses `B=1000` and random seed `42`. For each permutation, fit the nuisance model `Y ~ Y_Preop`, permute the nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including coverage, map, score, and prediction. The primary permutation statistic is LOOCV Pearson `r`.
-- Subject-level bootstrap uses `B=1000` and seed `42`. Each bootstrap resample reruns the full map-building process, including `Omega_HF_tau`, and `direct_voxel_HF_bootstrap_se.nii.gz` stores voxel-wise standard deviation of `theta_HF(v)`.
+- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the formal analysis. Smoke/exploratory runs use `B=1000`. For each permutation, fit the nuisance model `Y ~ Y_Preop`, permute the nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including coverage, map, score, and prediction. The primary permutation statistic is LOOCV Pearson `r`.
+- Subject-level bootstrap uses `B=10000` and seed `42` for the formal analysis. Smoke/exploratory runs use `B=1000`. Each bootstrap resample reruns the full map-building process, including `Omega_HF_tau`, and `direct_voxel_HF_bootstrap_se.nii.gz` stores voxel-wise standard deviation of `theta_HF(v)`.
 
 ## Execution Structure
 
@@ -194,7 +194,7 @@ Python statistical jobs: 14
 random seed: 42
 ```
 
-Parallel jobs derive deterministic child seeds from seed `42`. MATLAB preprocessing and Python postprocessing run as separate phases to avoid CPU oversubscription. A smoke mode should be available for quick pipeline checks by reducing permutations, bootstraps, scales, and tau values.
+Parallel jobs derive deterministic child seeds from seed `42`. MATLAB preprocessing and Python postprocessing run as separate phases to avoid CPU oversubscription. A smoke mode should be available for quick pipeline checks by using `B=1000` permutations/bootstrap resamples and a reduced scale/tau set.
 
 Intermediate audit outputs are retained, including right/flipped exposure products, ROI design matrices, manifests, lock files, and completion markers. Completed outputs are skipped by default; force-rerun options should be available.
 

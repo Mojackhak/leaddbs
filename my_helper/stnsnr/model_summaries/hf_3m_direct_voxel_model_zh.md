@@ -166,8 +166,8 @@ Y_HF3m_i = alpha
   Q2 = 1 - SSE_HFScore_model / SSE_YPreop_only
   ```
 
-- Patient-level Freedman-Lane permutation 使用 `B=1000` 和随机种子 `42`。每次置换先拟合 nuisance model `Y ~ Y_Preop`，置换 nuisance residuals，重构 `Y*`，然后完整重跑 LOOCV pipeline，包括 coverage、map、score 和 prediction。主置换统计量为 LOOCV Pearson `r`。
-- Subject-level bootstrap 使用 `B=1000` 和随机种子 `42`。每次 bootstrap 重采样都重跑完整 map-building 流程，包括 `Omega_HF_tau`；`direct_voxel_HF_bootstrap_se.nii.gz` 存储 `theta_HF(v)` 的 voxel-wise 标准差。
+- Patient-level Freedman-Lane permutation 在正式分析中使用 `B=10000` 和随机种子 `42`。smoke/exploratory 运行使用 `B=1000`。每次置换先拟合 nuisance model `Y ~ Y_Preop`，置换 nuisance residuals，重构 `Y*`，然后完整重跑 LOOCV pipeline，包括 coverage、map、score 和 prediction。主置换统计量为 LOOCV Pearson `r`。
+- Subject-level bootstrap 在正式分析中使用 `B=10000` 和随机种子 `42`。smoke/exploratory 运行使用 `B=1000`。每次 bootstrap 重采样都重跑完整 map-building 流程，包括 `Omega_HF_tau`；`direct_voxel_HF_bootstrap_se.nii.gz` 存储 `theta_HF(v)` 的 voxel-wise 标准差。
 
 ## 执行结构
 
@@ -194,7 +194,7 @@ Python statistical jobs: 14
 random seed: 42
 ```
 
-并行任务从 seed `42` 派生确定性子种子。MATLAB 预处理与 Python 后处理分阶段运行，避免 CPU oversubscription。应提供 smoke mode，通过减少 permutation、bootstrap、scale 和 tau 数量来快速检查流程。
+并行任务从 seed `42` 派生确定性子种子。MATLAB 预处理与 Python 后处理分阶段运行，避免 CPU oversubscription。应提供 smoke mode，使用 `B=1000` 次 permutation/bootstrap 重采样，并减少 scale 和 tau 数量来快速检查流程。
 
 保留中间审计输出，包括 right/flipped exposure products、ROI design matrices、manifest、lock files 和 completion markers。默认跳过已完成结果，同时提供 force-rerun 选项。
 
