@@ -1140,6 +1140,16 @@ M_HF(v) = theta_HF(v)
 
 Positive `M_HF(v)` means stronger HF exposure at voxel `v` predicts better baseline-adjusted HF-only outcome.
 
+Resolved HF/STN settings (these fix, for the HF/STN direct voxel model only, the options left open in the generic subsections below; see `model_summaries/hf_3m_direct_voxel_model.md`). The generic subsections still apply to the ULF/SNr direct voxel model unchanged.
+
+- Exposure `X_HF_only`: the real Horn/SimBio `sim-efield` (raw variant, kept in `V/m`) from each subject's `3m/STN` MNI stimulation folder `stimulations/MNI152NLin2009bAsym/*_3m_STN_*/sub-*_sim-efield_model-simbio_hemi-{L,R}.nii`. Combine alternating same-side subprograms by voxel-wise maximum.
+- Territory / coverage: intersect with `STNSNr-connected regions/{rh,lh}/STNSNrplus.nii.gz` (already 2 mm dilated). Use `tau = 200 V/m` and fit where `Coverage(v) >= 5` (override the generic `>= 8` preference), with `180`/`220 V/m` as threshold sensitivity.
+- Bilateral homology: right `STNSNrplus` as canonical grid; map the left E-field with `ea_flip_lr_nonlinear` + `templates/space/MNI152NLin2009bAsym/fliplr/Composite.nii.gz`; paired-mask threshold `P_left_to_R > 0.5` (primary), `> 0.7` (sensitivity).
+- Estimator: residualized ANCOVA (OLS), no standardization of `X` or `M`; sweet-spot score uses `lambda = 0`.
+- Permutation: patient-level Freedman-Lane, `B = 1000`, seed `42`, primary statistic LOOCV Pearson `r`. The `coef` map stores raw `theta`, no per-voxel FDR.
+- Endpoints: first pass = MDS-UPDRS III and MDS-UPDRS III axial (both lower-is-better) from `subject_effect_origin.xlsx`, joined by subject name; a patient missing `Y_HF3m` or a side's E-field is dropped from that scale only.
+- Outputs: keep the `direct_voxel_HF_*` file names under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale>/`; unsmoothed map is primary, `1-2 mm` FWHM smoothed map is a sensitivity output.
+
 #### SNr Direct Voxel Model
 
 For the ULF add-on gain model, the seed nucleus is SNr and the exposure is the ULF component in the combined setting:
@@ -1365,6 +1375,8 @@ B = 1000
 or `5000` for final analysis if runtime permits.
 
 #### Direct Voxel Outputs
+
+For the HF/STN model, the resolved exposure/territory/estimator/permutation/endpoint choices are listed under "Resolved HF/STN settings" in the `STN Direct Voxel Model` subsection above; HF outputs keep the `direct_voxel_HF_*` file names and land under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale>/`.
 
 For each STN or ULF direct voxel model, export:
 

@@ -10,6 +10,14 @@ p.addParameter('SubjectIds', {}, @(x) iscell(x) || isstring(x) || ischar(x));
 p.addParameter('AnchorModality', 'T2w', @(x) ischar(x) || isstring(x));
 p.addParameter('CoregistrationTag', 'dwi_t2', @(x) ischar(x) || isstring(x));
 p.addParameter('CoregistrationMethod', 'ANTs', @(x) ischar(x) || isstring(x));
+p.addParameter('DistortionCorrection', 'none', @(x) ischar(x) || isstring(x));
+p.addParameter('PhaseEncodingVector', [0 1 0], @(x) isnumeric(x) && numel(x) == 3);
+p.addParameter('TotalReadoutTime', NaN, @(x) isnumeric(x) && isscalar(x));
+p.addParameter('DefaultTotalReadoutTime', 0.05, @(x) isnumeric(x) && isscalar(x) && x >= 0);
+p.addParameter('Synb0ContainerEngine', 'auto', @(x) ischar(x) || isstring(x));
+p.addParameter('Synb0Image', 'leonyichencai/synb0-disco:v3.1', @(x) ischar(x) || isstring(x));
+p.addParameter('FreeSurferLicense', '', @(x) ischar(x) || isstring(x));
+p.addParameter('Synb0MinDockerMemoryGB', 12, @(x) isnumeric(x) && isscalar(x) && x >= 0);
 p.addParameter('AllowT1Fallback', false, @(x) islogical(x) || isnumeric(x));
 p.addParameter('RunCoregistration', true, @(x) islogical(x) || isnumeric(x));
 p.addParameter('GenerateOptionalDwiQc', true, @(x) islogical(x) || isnumeric(x));
@@ -23,6 +31,14 @@ opts.ImportLog = char(string(opts.ImportLog));
 opts.AnchorModality = normalize_anchor_modality(opts.AnchorModality);
 opts.CoregistrationTag = char(string(opts.CoregistrationTag));
 opts.CoregistrationMethod = normalize_coregistration_method(opts.CoregistrationMethod);
+opts.DistortionCorrection = normalize_distortion_correction(opts.DistortionCorrection);
+opts.PhaseEncodingVector = double(opts.PhaseEncodingVector(:)');
+opts.TotalReadoutTime = double(opts.TotalReadoutTime);
+opts.DefaultTotalReadoutTime = double(opts.DefaultTotalReadoutTime);
+opts.Synb0ContainerEngine = char(string(opts.Synb0ContainerEngine));
+opts.Synb0Image = char(string(opts.Synb0Image));
+opts.FreeSurferLicense = char(string(opts.FreeSurferLicense));
+opts.Synb0MinDockerMemoryGB = double(opts.Synb0MinDockerMemoryGB);
 opts.AllowT1Fallback = logical(opts.AllowT1Fallback);
 opts.RunCoregistration = logical(opts.RunCoregistration);
 opts.GenerateOptionalDwiQc = logical(opts.GenerateOptionalDwiQc);
@@ -87,6 +103,7 @@ try
     row.qc_dir = paths.qcDir;
     row.anchor_modality = opts.AnchorModality;
     row.coregistration_method = opts.CoregistrationMethod;
+    row.distortion_correction = opts.DistortionCorrection;
     row.anchor_anat = resolve_anchor_anat(paths.subjectDir, opts.AnchorModality, opts.AllowT1Fallback);
     row.normalization_forward = resolve_anchor_to_mni_transform(paths.subjectDir, paths.patientName);
 
@@ -98,6 +115,47 @@ try
     row.b0_count = sum(bvals < 10);
 
     stage_dwi_derivatives(paths, opts.Force);
+    if strcmp(opts.DistortionCorrection, 'synb0')
+        [row.total_readout_time, row.total_readout_time_source] = ...
+            resolve_total_readout_time_for_status(paths.json, opts.TotalReadoutTime, opts.DefaultTotalReadoutTime);
+        row.phase_encoding_vector = sprintf('%g %g %g', opts.PhaseEncodingVector);
+        row.synb0_status = 'started';
+        row.eddy_status = 'not_started';
+        t1Anat = resolve_anchor_t1(paths.subjectDir);
+        dcResult = mh_fiber_dwi_distortion_correction(paths, t1Anat, ...
+            'Force', opts.Force, ...
+            'PhaseEncodingVector', opts.PhaseEncodingVector, ...
+            'TotalReadoutTime', opts.TotalReadoutTime, ...
+            'DefaultTotalReadoutTime', opts.DefaultTotalReadoutTime, ...
+            'Synb0ContainerEngine', opts.Synb0ContainerEngine, ...
+            'Synb0Image', opts.Synb0Image, ...
+            'FreeSurferLicense', opts.FreeSurferLicense, ...
+            'Synb0MinDockerMemoryGB', opts.Synb0MinDockerMemoryGB);
+        paths.dwi = dcResult.dwi;
+        paths.bval = dcResult.bval;
+        paths.bvec = dcResult.bvec;
+        paths.b0 = dcResult.b0;
+        row.staged_dwi = paths.dwi;
+        row.b0 = paths.b0;
+        row.synb0_status = dcResult.synb0Status;
+        row.eddy_status = dcResult.eddyStatus;
+        row.rotated_bvec = dcResult.rotatedBvec;
+        row.topup_field = dcResult.topupFieldcoef;
+        row.total_readout_time = dcResult.totalReadoutTime;
+        row.total_readout_time_source = dcResult.totalReadoutTimeSource;
+        row.phase_encoding_vector = sprintf('%g %g %g', dcResult.phaseEncodingVector);
+        write_overlay_png(dcResult.distortedB0, dcResult.b0, ...
+            fullfile(paths.qcDir, [subjectId, '_distorted_b0_vs_corrected_b0.png']), ...
+            [subjectId, ' distorted b0 vs corrected b0']);
+    else
+        row.synb0_status = 'skipped';
+        row.eddy_status = 'skipped';
+        row.rotated_bvec = '';
+        row.topup_field = '';
+        row.total_readout_time = NaN;
+        row.total_readout_time_source = '';
+        row.phase_encoding_vector = '';
+    end
     [row.dim_x, row.dim_y, row.dim_z, row.voxel_x, row.voxel_y, row.voxel_z] = ...
         read_dwi_geometry(paths.dwi);
     row.low_resolution_warning = row.voxel_z >= 4;
@@ -138,6 +196,14 @@ try
 catch ME
     row.status = 'registration_failed';
     row.message = compact_message(ME.message);
+    if strcmp(row.distortion_correction, 'synb0')
+        if strlength(string(row.synb0_status)) == 0 || strcmp(row.synb0_status, 'started')
+            row.synb0_status = 'failed';
+        end
+        if strlength(string(row.eddy_status)) == 0
+            row.eddy_status = 'not_started';
+        end
+    end
     fprintf(2, 'Subject %s failed: %s\n', subjectId, ME.message);
 end
 
@@ -383,6 +449,15 @@ if force || ~isfile(outputs.dwiToAnchor) || ~isfile(outputs.anchorToDwi) || ...
             run_spm_coregistration_branch(paths, anchorAnat, outputs);
         case 'Hybrid SPM & ANTs'
             run_hybrid_spm_ants_coregistration_branch(paths, anchorAnat, outputs, anchorModality);
+        case 'FLIRT BBR'
+            try
+                run_flirtbbr_coregistration_branch(paths, anchorAnat, outputs);
+            catch ME
+                warning('mh_fiber_register_imported_dwi_batch:FlirtBbrFailed', ...
+                    'FLIRT BBR failed for %s: %s. Falling back to ANTs linear registration.', ...
+                    paths.patientName, ME.message);
+                run_ants_ui_coregistration_branch(paths, anchorAnat, outputs);
+            end
         otherwise
             error('Unsupported UI-style DWI coregistration method: %s', coregMethod);
     end
@@ -530,6 +605,37 @@ if isfile(paths.fa)
 end
 end
 
+function run_flirtbbr_coregistration_branch(paths, anchorAnat, outputs)
+ensure_dir(outputs.workDir);
+affineFiles = ea_flirtbbr(anchorAnat, paths.b0, outputs.b0OnAnchor, 1);
+copy_transform_file(affineFiles{1}, outputs.dwiToAnchor);
+copy_transform_file(affineFiles{2}, outputs.anchorToDwi);
+
+ea_fsl_apply_coregistration(paths.b0, anchorAnat, outputs.anchorOnB0, ...
+    outputs.anchorToDwi, 'spline');
+if isfile(paths.fa)
+    ea_fsl_apply_coregistration(anchorAnat, paths.fa, outputs.faOnAnchor, ...
+        outputs.dwiToAnchor, 'spline');
+end
+end
+
+function run_ants_ui_coregistration_branch(paths, anchorAnat, outputs)
+ensure_dir(outputs.workDir);
+options = struct();
+options.coregmr.method = 'ANTs';
+options.coregb0.addSyN = 0;
+affineFiles = ea_coregimages(options, paths.b0, anchorAnat, outputs.b0OnAnchor, {}, 1, [], 1);
+copy_transform_file(affineFiles{1}, outputs.dwiToAnchor);
+copy_transform_file(affineFiles{2}, outputs.anchorToDwi);
+
+ea_ants_apply_transforms([], anchorAnat, outputs.anchorOnB0, 0, ...
+    paths.b0, outputs.anchorToDwi, 'Linear');
+if isfile(paths.fa)
+    ea_ants_apply_transforms([], paths.fa, outputs.faOnAnchor, 0, ...
+        anchorAnat, outputs.dwiToAnchor, 'Linear');
+end
+end
+
 function move_branch_root_intermediates_to_work(paths, workDir)
 patterns = { ...
     [paths.patientName, '_work_b0_spm*'], ...
@@ -647,6 +753,10 @@ end
 error('No anchorNative %s found in %s', anchorModality, anatDir);
 end
 
+function t1Anat = resolve_anchor_t1(subjectDir)
+t1Anat = resolve_anchor_anat(subjectDir, 'T1w', false);
+end
+
 function transformPath = resolve_anchor_to_mni_transform(subjectDir, patientName)
 transformPath = fullfile(subjectDir, 'normalization', 'transformations', ...
     [patientName, '_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz']);
@@ -660,6 +770,24 @@ if ~isfile(transformPath)
 end
 if ~isfile(transformPath)
     error('Missing anchorNative-to-MNI transform for %s.', patientName);
+end
+end
+
+function [totalReadoutTime, source] = resolve_total_readout_time_for_status(jsonPath, requestedValue, defaultValue)
+if ~isnan(requestedValue)
+    totalReadoutTime = requestedValue;
+    source = 'parameter';
+    return;
+end
+source = 'default';
+totalReadoutTime = defaultValue;
+try
+    metadata = jsondecode(fileread(jsonPath));
+    if isfield(metadata, 'TotalReadoutTime') && isnumeric(metadata.TotalReadoutTime) && metadata.TotalReadoutTime > 0
+        totalReadoutTime = metadata.TotalReadoutTime;
+        source = 'json';
+    end
+catch
 end
 end
 
@@ -684,8 +812,22 @@ switch lower(strtrim(coregMethod))
         coregMethod = 'SPM';
     case {'hybrid spm & ants', 'hybridspmants', 'hybrid spm and ants'}
         coregMethod = 'Hybrid SPM & ANTs';
+    case {'flirt bbr', 'flirtbbr', 'bbr', 'fsl flirt bbr'}
+        coregMethod = 'FLIRT BBR';
     otherwise
-        error('Unsupported CoregistrationMethod: %s. Use ANTs, SPM, or Hybrid SPM & ANTs.', coregMethod);
+        error('Unsupported CoregistrationMethod: %s. Use ANTs, SPM, Hybrid SPM & ANTs, or FLIRT BBR.', coregMethod);
+end
+end
+
+function distortionCorrection = normalize_distortion_correction(distortionCorrection)
+distortionCorrection = lower(strtrim(char(string(distortionCorrection))));
+switch distortionCorrection
+    case {'', 'none', 'off', 'false', 'no'}
+        distortionCorrection = 'none';
+    case {'synb0', 'synb0-disco', 'synb0_disco'}
+        distortionCorrection = 'synb0';
+    otherwise
+        error('Unsupported DistortionCorrection: %s. Use none or synb0.', distortionCorrection);
 end
 end
 
@@ -695,6 +837,8 @@ switch coregMethod
         suffix = 'spm';
     case {'ANTs', 'Hybrid SPM & ANTs'}
         suffix = 'ants';
+    case 'FLIRT BBR'
+        suffix = 'flirtbbr';
     otherwise
         error('Unsupported CoregistrationMethod for transform suffix: %s', coregMethod);
 end
@@ -806,6 +950,7 @@ row.staged_dwi = '';
 row.b0 = '';
 row.anchor_modality = '';
 row.coregistration_method = '';
+row.distortion_correction = '';
 row.anchor_anat = '';
 row.normalization_forward = '';
 row.dwi_to_anchor_transform = '';
@@ -828,6 +973,13 @@ row.forward_transform_exists = false;
 row.inverse_transform_exists = false;
 row.fa_status = '';
 row.mask_status = '';
+row.synb0_status = '';
+row.eddy_status = '';
+row.rotated_bvec = '';
+row.topup_field = '';
+row.total_readout_time = NaN;
+row.total_readout_time_source = '';
+row.phase_encoding_vector = '';
 end
 
 function vals = load_numeric_vector(path)

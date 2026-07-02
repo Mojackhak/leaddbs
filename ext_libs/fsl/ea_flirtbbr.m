@@ -53,6 +53,7 @@ volumedir = [fileparts(ea_niifileparts(outputimage)), filesep];
 
 % name of the output transformation
 [~, movname] = ea_niifileparts(movingimage);
+[~, fixname] = ea_niifileparts(fixedimage);
 xfm = [movname, '2', fixname, '_flirtbbr'];
 
 basedir = [fileparts(mfilename('fullpath')), filesep];
