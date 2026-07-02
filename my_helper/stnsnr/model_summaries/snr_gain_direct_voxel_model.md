@@ -41,24 +41,24 @@ If these maps diverge, interpret the SNr exposure pattern as strongly coupled to
 - SNr-component stimulation fields for STN+SNr 3-month and STN+SNr immediate programming.
 - SNr seed masks from `SNr-connected regions`.
 - STN-only 3-month raw score and post-combination raw scores.
-- STN-only efficacy maps trained from pre-SNr STN-only data for each scale or symptom domain.
-- `DeltaSTNScore` for each endpoint, computed from the corresponding STN efficacy map.
+- STN direct voxel-level efficacy maps trained from pre-SNr STN-only data for each scale or symptom domain.
+- `DeltaSTNScore` for each endpoint, computed from the corresponding direct voxel-level STN efficacy map.
 - Homologous left-right SNr voxel mapping QC outputs.
 
-The preferred STN adjustment is:
+The preferred STN adjustment is model-matched to this direct voxel-level SNr model. It must come from the STN 3m direct voxel-level model, not from a seed-target or target-level STN model:
 
 ```text
-S_STN(E) =
+S_STN_voxel(E) =
   sum_{u in Omega_STN} E(u) * M_STN(u)
   / (sum_{u in Omega_STN} E(u) + lambda)
 
 DeltaSTNScore_3m =
-  S_STN_domain(E_STN_component,STN+SNr3m)
-  - S_STN_domain(E_STN_component,STN-only3m)
+  S_STN_voxel,domain(E_STN_component,STN+SNr3m)
+  - S_STN_voxel,domain(E_STN_component,STN-only3m)
 
 DeltaSTNScore_immediate =
-  S_STN_motor(E_STN_component,STN+SNrImmediate)
-  - S_STN_motor(E_STN_component,STN-only3m)
+  S_STN_voxel,motor(E_STN_component,STN+SNrImmediate)
+  - S_STN_voxel,motor(E_STN_component,STN-only3m)
 ```
 
 For lower-is-better scales, `M_STN = -theta_STN`; for SE-ADL, `M_STN = theta_STN`. The STN map must be trained only on STN-only outcomes before SNr is added.
@@ -170,8 +170,8 @@ Y_AB_post_domain_i = alpha
 - For immediate outcomes, use motor-specific `Y_STN3m_motor` and motor-specific `DeltaSTNScore_immediate_motor`.
 - Use fully nested leave-one-patient-out cross-validation.
 - Define coverage mask and fit voxel maps using training patients only.
-- For strict out-of-sample prediction, train the STN efficacy map inside each outer fold before computing fold-specific `DeltaSTNScore`.
-- Report the STN efficacy-map validation used to build `DeltaSTNScore`: LOOCV `Q2`, improvement over `Y_STN3m ~ Y_Preop`, and STN map stability. If the STN map is unstable, downgrade `DeltaSTNScore` to exploratory adjustment.
+- For strict out-of-sample prediction, train the model-matched direct voxel-level STN efficacy map inside each outer fold before computing fold-specific `DeltaSTNScore`.
+- Report the direct voxel-level STN efficacy-map validation used to build `DeltaSTNScore`: LOOCV `Q2`, improvement over `Y_STN3m ~ Y_Preop`, and STN map stability. If the STN map is unstable, downgrade `DeltaSTNScore` to exploratory adjustment.
 - Compare against covariate-only prediction: `Y_AB_post_domain ~ Y_STN3m_domain + DeltaSTNScore_domain`.
 - Compare against the clinical optimized strategy model without `DeltaSTNScore`.
 - Run `DeltaSTNPhys` sensitivity using an outcome-independent STN-change measure such as charge-rate change, raw STN e-field energy change, STN VTA overlap change, or STN field centroid distance.
@@ -204,6 +204,6 @@ Display maps with coverage overlays. Low-coverage SNr voxels should be transpare
 
 ## Interpretation Boundary
 
-This model is a local SNr / STN-SNr border-zone stimulation association model for SNr add-on benefit. It is not a network mechanism model and should not be interpreted as pure causal evidence that stimulating a single SNr voxel guarantees benefit. Because STN and SNr are adjacent, apparent SNr sweet voxels may reflect dorsal SNr, ventral STN, the STN-SNr border zone, or passing fibers. Unless an external STN efficacy map is used, `DeltaSTNScore` is a same-cohort, pre-SNr-derived nuisance adjustment and may be noisy in a small cohort.
+This model is a local SNr / STN-SNr border-zone stimulation association model for SNr add-on benefit. It is not a network mechanism model and should not be interpreted as pure causal evidence that stimulating a single SNr voxel guarantees benefit. Because STN and SNr are adjacent, apparent SNr sweet voxels may reflect dorsal SNr, ventral STN, the STN-SNr border zone, or passing fibers. Unless an external model-matched direct voxel-level STN efficacy map is used, `DeltaSTNScore` is a same-cohort, pre-SNr-derived nuisance adjustment and may be noisy in a small cohort.
 
 The main model estimates a STN-change-adjusted SNr add-on association, not the overall real-world effect of an optimized combined STN+SNr programming strategy.

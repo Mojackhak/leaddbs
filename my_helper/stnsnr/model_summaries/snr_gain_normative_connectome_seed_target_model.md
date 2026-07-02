@@ -41,26 +41,26 @@ If these maps diverge, interpret the SNr target pattern as strongly coupled to S
 - SNr targets from the seed-target atlas registry, including VA/VLA/VLP/VM thalamus, STN, posterior putamen, caudate, PPN, superior colliculus, MD, CM, Pf, sPf, FEF, SMA, preSMA, premotor, M1, and DLPFC.
 - SNr-component stimulation maps for each endpoint.
 - Raw clinical scores.
-- STN-only efficacy maps trained from pre-SNr STN-only data for each scale or symptom domain.
-- `DeltaSTNScore` for each endpoint, computed from the corresponding STN efficacy map.
+- STN normative connectome seed-target efficacy models trained from pre-SNr STN-only data for each scale or symptom domain.
+- `DeltaSTNScore` for each endpoint, computed from the corresponding normative STN target-level score.
 
-The preferred STN adjustment is:
+The preferred STN adjustment is model-matched to this normative connectome seed-target SNr model. It must come from the STN 3m normative connectome seed-target model, not from a direct voxel-level or individualized DWI STN model:
 
 ```text
-S_STN(E) =
-  sum_{u in Omega_STN} E(u) * M_STN(u)
-  / (sum_{u in Omega_STN} E(u) + lambda)
+S_STN_norm(E) =
+  sum_{k in S_STN_norm} w_STN,k_norm * Z_train(C_norm_STN_component(E,k))
+  / sum_{k in S_STN_norm} abs(w_STN,k_norm)
 
 DeltaSTNScore_3m =
-  S_STN_domain(E_STN_component,STN+SNr3m)
-  - S_STN_domain(E_STN_component,STN-only3m)
+  S_STN_norm,domain(E_STN_component,STN+SNr3m)
+  - S_STN_norm,domain(E_STN_component,STN-only3m)
 
 DeltaSTNScore_immediate =
-  S_STN_motor(E_STN_component,STN+SNrImmediate)
-  - S_STN_motor(E_STN_component,STN-only3m)
+  S_STN_norm,motor(E_STN_component,STN+SNrImmediate)
+  - S_STN_norm,motor(E_STN_component,STN-only3m)
 ```
 
-For lower-is-better scales, `M_STN = -theta_STN`; for SE-ADL, `M_STN = theta_STN`. The STN map must be trained only on STN-only outcomes before SNr is added.
+For lower-is-better scales, `w_STN,k_norm = -theta_STN,k`; for SE-ADL, `w_STN,k_norm = theta_STN,k`. Target selection, target weights, and `Z_train()` scaling must be learned from STN-only outcomes inside the same training fold before SNr is added.
 
 ## Feature Construction
 
@@ -152,8 +152,8 @@ Y_AB_post_domain_i = alpha
 - For immediate outcomes, use motor-specific `Y_STN3m_motor` and motor-specific `DeltaSTNScore_immediate_motor`.
 - Use fully nested leave-one-patient-out cross-validation.
 - Estimate target weights, select targets, and standardize features inside training folds only.
-- For strict out-of-sample prediction, train the STN efficacy map inside each outer fold before computing fold-specific `DeltaSTNScore`.
-- Report the STN efficacy-map validation used to build `DeltaSTNScore`: LOOCV `Q2`, improvement over `Y_STN3m ~ Y_Preop`, and STN map stability. If the STN map is unstable, downgrade `DeltaSTNScore` to exploratory adjustment.
+- For strict out-of-sample prediction, train the model-matched normative STN seed-target model inside each outer fold before computing fold-specific `DeltaSTNScore`.
+- Report the normative STN target-model validation used to build `DeltaSTNScore`: LOOCV `Q2`, improvement over `Y_STN3m ~ Y_Preop`, target selection stability, and target-weight stability. If the STN target model is unstable, downgrade `DeltaSTNScore` to exploratory adjustment.
 - Compare against covariate-only prediction: `Y_AB_post_domain ~ Y_STN3m_domain + DeltaSTNScore_domain`.
 - Compare against the clinical optimized strategy model without `DeltaSTNScore`.
 - Run `DeltaSTNPhys` sensitivity using an outcome-independent STN-change measure such as charge-rate change, raw STN e-field energy change, STN VTA overlap change, or STN field centroid distance.
@@ -183,6 +183,6 @@ The SNr voxel maps are target-derived seed voxel maps created by back-projecting
 
 ## Interpretation Boundary
 
-This model estimates clinical optimization-informed SNr target-gain associations adjusted for STN 3-month baseline and concurrent STN reprogramming. It supports network interpretation but does not prove that any individual streamline or target is causally sufficient. Because STN and SNr are adjacent, SNr-target maps may reflect dorsal SNr, ventral STN, the STN-SNr border zone, or passing fibers. Unless an external STN efficacy map is used, `DeltaSTNScore` is a same-cohort, pre-SNr-derived nuisance adjustment and may be noisy in a small cohort.
+This model estimates clinical optimization-informed SNr target-gain associations adjusted for STN 3-month baseline and concurrent STN reprogramming. It supports network interpretation but does not prove that any individual streamline or target is causally sufficient. Because STN and SNr are adjacent, SNr-target maps may reflect dorsal SNr, ventral STN, the STN-SNr border zone, or passing fibers. Unless an external model-matched normative STN target model is used, `DeltaSTNScore` is a same-cohort, pre-SNr-derived nuisance adjustment and may be noisy in a small cohort.
 
 The main model estimates a STN-change-adjusted SNr add-on target-connectivity association, not the overall real-world effect of an optimized combined STN+SNr programming strategy.

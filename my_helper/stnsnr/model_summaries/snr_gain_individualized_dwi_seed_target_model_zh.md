@@ -41,26 +41,26 @@ Y_AB_post ~ C_ind_SNr_component(k) + Y_STN3m_domain
 - 投影到患者 DWI space 的 SNr seed 和 target masks。
 - 投影到 DWI space 的 SNr-component stimulation maps 或 e-field-like proxy maps。
 - 原始临床分数。
-- 由 pre-SNr STN-only data 训练得到的、针对各量表或症状域的 STN-only efficacy maps。
-- 每个 endpoint 对应的 `DeltaSTNScore`，由相应 STN efficacy map 计算。
+- 由 pre-SNr STN-only data 训练得到的、针对各量表或症状域的 STN individualized DWI seed-target efficacy models。
+- 每个 endpoint 对应的 `DeltaSTNScore`，由相应 individualized DWI STN target-level score 计算。
 
-优先 STN adjustment 定义为：
+优先 STN adjustment 必须与该 individualized DWI seed-target SNr 模型对应。它来自 STN 3m individualized DWI seed-target 模型，而不是 direct voxel-level 或 normative-only STN 模型。对于优先的 normative-guided individualized DWI SNr 模型，STN adjustment 也使用同样的 normative-guided individualized DWI 策略；对于 individualized-DWI-only 敏感性模型，STN adjustment 也使用 individualized-DWI-only 版本。
 
 ```text
-S_STN(E) =
-  sum_{u in Omega_STN} E(u) * M_STN(u)
-  / (sum_{u in Omega_STN} E(u) + lambda)
+S_STN_ind(E) =
+  sum_{k in S_STN_ind} w_STN,k_ind * Z_train(C_ind_STN_component(E,k))
+  / sum_{k in S_STN_ind} abs(w_STN,k_ind)
 
 DeltaSTNScore_3m =
-  S_STN_domain(E_STN_component,STN+SNr3m)
-  - S_STN_domain(E_STN_component,STN-only3m)
+  S_STN_ind,domain(E_STN_component,STN+SNr3m)
+  - S_STN_ind,domain(E_STN_component,STN-only3m)
 
 DeltaSTNScore_immediate =
-  S_STN_motor(E_STN_component,STN+SNrImmediate)
-  - S_STN_motor(E_STN_component,STN-only3m)
+  S_STN_ind,motor(E_STN_component,STN+SNrImmediate)
+  - S_STN_ind,motor(E_STN_component,STN-only3m)
 ```
 
-对于低分更好的量表，`M_STN = -theta_STN`；对于 SE-ADL，`M_STN = theta_STN`。STN map 必须只使用加入 SNr 前的 STN-only outcomes 训练。
+对于低分更好的量表，`w_STN,k_ind = -theta_STN,k`；对于 SE-ADL，`w_STN,k_ind = theta_STN,k`。Target selection、target weights、patient-specific target reconstruction 和 `Z_train()` scaling 在严格 prediction 中必须不使用 held-out patient。
 
 ## 特征构建
 
@@ -150,8 +150,8 @@ individualized-DWI-only
 - 使用 fully nested leave-one-patient-out cross-validation。
 - 对 normative-guided 模型，normative target weights 和 selected targets 必须在不包含 held-out patient 的情况下学习。
 - 对 DWI-only 敏感性模型，target weights、target selection 和 standardization 必须在 training folds 内完成。
-- 严格 out-of-sample prediction 中，STN efficacy map 必须在每个 outer fold 内训练，再计算 fold-specific `DeltaSTNScore`。
-- 报告用于构建 `DeltaSTNScore` 的 STN efficacy-map validation：LOOCV `Q2`、相对 `Y_STN3m ~ Y_Preop` 的改进、以及 STN map stability。如果 STN map 不稳定，`DeltaSTNScore` 应降级为 exploratory adjustment。
+- 严格 out-of-sample prediction 中，model-matched individualized DWI STN seed-target model 必须在每个 outer fold 内训练，再计算 fold-specific `DeltaSTNScore`。
+- 报告用于构建 `DeltaSTNScore` 的 individualized DWI STN target-model validation：LOOCV `Q2`、相对 `Y_STN3m ~ Y_Preop` 的改进、target reconstruction coverage、target selection stability 和 target-weight stability。如果 individualized STN target model 不稳定或稀疏，`DeltaSTNScore` 应降级为 exploratory adjustment。
 - 与 covariate-only prediction `Y_AB_post_domain ~ Y_STN3m_domain + DeltaSTNScore_domain` 和 normative-only model 比较。
 - 与不包含 `DeltaSTNScore` 的 clinical optimized strategy model 比较。
 - 运行 `DeltaSTNPhys` 敏感性分析，使用 outcome-independent STN-change 指标，例如 charge-rate change、raw STN e-field energy change、STN VTA overlap change 或 STN field centroid distance。
@@ -181,6 +181,6 @@ Group SNr voxel maps 通过将患者特异的 DWI target-derived maps warp 到 t
 
 ## 解释边界
 
-该模型检验与 add-on benefit 相关的 SNr target-connectivity pattern 是否存在于每个患者自己的 DWI tractography 中。它具有 subject-specific 特点，但受 DWI tractography 质量、registration、target coverage、streamline false positives 和 false negatives 限制。缺失或稀疏 streamlines 应被视为 QC 限制，而不是生物学不存在的证据。由于 STN 和 SNr 相邻，SNr-target maps 可能反映 dorsal SNr、ventral STN、STN-SNr border zone、registration uncertainty 或 passing fibers。除非使用外部 STN efficacy map，否则 `DeltaSTNScore` 是 same-cohort、pre-SNr-derived nuisance adjustment，在小样本中可能有噪声。
+该模型检验与 add-on benefit 相关的 SNr target-connectivity pattern 是否存在于每个患者自己的 DWI tractography 中。它具有 subject-specific 特点，但受 DWI tractography 质量、registration、target coverage、streamline false positives 和 false negatives 限制。缺失或稀疏 streamlines 应被视为 QC 限制，而不是生物学不存在的证据。由于 STN 和 SNr 相邻，SNr-target maps 可能反映 dorsal SNr、ventral STN、STN-SNr border zone、registration uncertainty 或 passing fibers。除非使用外部且 model-matched 的 individualized DWI STN target model，否则 `DeltaSTNScore` 是 same-cohort、pre-SNr-derived nuisance adjustment，在小样本中可能有噪声。
 
 主模型估计 STN-change-adjusted SNr add-on target-connectivity association，而不是 optimized combined STN+SNr programming strategy 的总体真实世界效果。

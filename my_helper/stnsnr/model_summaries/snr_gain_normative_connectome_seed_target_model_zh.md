@@ -41,26 +41,26 @@ Y_AB_post ~ C_norm_SNr_component(k) + Y_STN3m_domain
 - 来自 seed-target atlas registry 的 SNr targets，包括 VA/VLA/VLP/VM thalamus、STN、posterior putamen、caudate、PPN、superior colliculus、MD、CM、Pf、sPf、FEF、SMA、preSMA、premotor、M1 和 DLPFC。
 - 每个 endpoint 的 SNr-component stimulation maps。
 - 原始临床分数。
-- 由 pre-SNr STN-only data 训练得到的、针对各量表或症状域的 STN-only efficacy maps。
-- 每个 endpoint 对应的 `DeltaSTNScore`，由相应 STN efficacy map 计算。
+- 由 pre-SNr STN-only data 训练得到的、针对各量表或症状域的 STN normative connectome seed-target efficacy models。
+- 每个 endpoint 对应的 `DeltaSTNScore`，由相应 normative STN target-level score 计算。
 
-优先 STN adjustment 定义为：
+优先 STN adjustment 必须与该 normative connectome seed-target SNr 模型对应。它来自 STN 3m normative connectome seed-target 模型，而不是 direct voxel-level 或 individualized DWI STN 模型：
 
 ```text
-S_STN(E) =
-  sum_{u in Omega_STN} E(u) * M_STN(u)
-  / (sum_{u in Omega_STN} E(u) + lambda)
+S_STN_norm(E) =
+  sum_{k in S_STN_norm} w_STN,k_norm * Z_train(C_norm_STN_component(E,k))
+  / sum_{k in S_STN_norm} abs(w_STN,k_norm)
 
 DeltaSTNScore_3m =
-  S_STN_domain(E_STN_component,STN+SNr3m)
-  - S_STN_domain(E_STN_component,STN-only3m)
+  S_STN_norm,domain(E_STN_component,STN+SNr3m)
+  - S_STN_norm,domain(E_STN_component,STN-only3m)
 
 DeltaSTNScore_immediate =
-  S_STN_motor(E_STN_component,STN+SNrImmediate)
-  - S_STN_motor(E_STN_component,STN-only3m)
+  S_STN_norm,motor(E_STN_component,STN+SNrImmediate)
+  - S_STN_norm,motor(E_STN_component,STN-only3m)
 ```
 
-对于低分更好的量表，`M_STN = -theta_STN`；对于 SE-ADL，`M_STN = theta_STN`。STN map 必须只使用加入 SNr 前的 STN-only outcomes 训练。
+对于低分更好的量表，`w_STN,k_norm = -theta_STN,k`；对于 SE-ADL，`w_STN,k_norm = theta_STN,k`。Target selection、target weights 和 `Z_train()` scaling 必须在同一 training fold 内由 STN-only outcomes 学习，且发生在加入 SNr 之前。
 
 ## 特征构建
 
@@ -152,8 +152,8 @@ Y_AB_post_domain_i = alpha
 - 对 immediate outcomes，使用 motor-specific `Y_STN3m_motor` 和 motor-specific `DeltaSTNScore_immediate_motor`。
 - 使用 fully nested leave-one-patient-out cross-validation。
 - Target weights、target selection 和 feature standardization 只能在 training folds 内完成。
-- 严格 out-of-sample prediction 中，STN efficacy map 必须在每个 outer fold 内训练，再计算 fold-specific `DeltaSTNScore`。
-- 报告用于构建 `DeltaSTNScore` 的 STN efficacy-map validation：LOOCV `Q2`、相对 `Y_STN3m ~ Y_Preop` 的改进、以及 STN map stability。如果 STN map 不稳定，`DeltaSTNScore` 应降级为 exploratory adjustment。
+- 严格 out-of-sample prediction 中，model-matched normative STN seed-target model 必须在每个 outer fold 内训练，再计算 fold-specific `DeltaSTNScore`。
+- 报告用于构建 `DeltaSTNScore` 的 normative STN target-model validation：LOOCV `Q2`、相对 `Y_STN3m ~ Y_Preop` 的改进、target selection stability 和 target-weight stability。如果 STN target model 不稳定，`DeltaSTNScore` 应降级为 exploratory adjustment。
 - 与 covariate-only prediction 比较：`Y_AB_post_domain ~ Y_STN3m_domain + DeltaSTNScore_domain`。
 - 与不包含 `DeltaSTNScore` 的 clinical optimized strategy model 比较。
 - 运行 `DeltaSTNPhys` 敏感性分析，使用 outcome-independent STN-change 指标，例如 charge-rate change、raw STN e-field energy change、STN VTA overlap change 或 STN field centroid distance。
@@ -183,6 +183,6 @@ SNr voxel maps 是通过 normative streamline density 将 `w_SNr,k` 反投影到
 
 ## 解释边界
 
-该模型估计 clinical optimization-informed SNr target-gain associations，并调整 STN 3 个月 baseline 和 concurrent STN reprogramming。它支持 network interpretation，但不能证明任何单条 streamline 或 target 具有充分因果性。由于 STN 和 SNr 相邻，SNr-target maps 可能反映 dorsal SNr、ventral STN、STN-SNr border zone 或 passing fibers。除非使用外部 STN efficacy map，否则 `DeltaSTNScore` 是 same-cohort、pre-SNr-derived nuisance adjustment，在小样本中可能有噪声。
+该模型估计 clinical optimization-informed SNr target-gain associations，并调整 STN 3 个月 baseline 和 concurrent STN reprogramming。它支持 network interpretation，但不能证明任何单条 streamline 或 target 具有充分因果性。由于 STN 和 SNr 相邻，SNr-target maps 可能反映 dorsal SNr、ventral STN、STN-SNr border zone 或 passing fibers。除非使用外部且 model-matched 的 normative STN target model，否则 `DeltaSTNScore` 是 same-cohort、pre-SNr-derived nuisance adjustment，在小样本中可能有噪声。
 
 主模型估计 STN-change-adjusted SNr add-on target-connectivity association，而不是 optimized combined STN+SNr programming strategy 的总体真实世界效果。

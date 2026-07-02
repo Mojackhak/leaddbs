@@ -41,24 +41,24 @@ Y_AB_post ~ X_SNr_component(v) + Y_STN3m_domain
 - STN+SNr 3 个月和 STN+SNr immediate programming 的 SNr-component stimulation fields。
 - 来自 `SNr-connected regions` 的 SNr seed masks。
 - STN-only 3 个月 raw score 和 post-combination raw scores。
-- 由 pre-SNr STN-only data 训练得到的、针对各量表或症状域的 STN-only efficacy maps。
-- 每个 endpoint 对应的 `DeltaSTNScore`，由相应 STN efficacy map 计算。
+- 由 pre-SNr STN-only data 训练得到的、针对各量表或症状域的 STN direct voxel-level efficacy maps。
+- 每个 endpoint 对应的 `DeltaSTNScore`，由相应 direct voxel-level STN efficacy map 计算。
 - 左右 SNr homologous voxel mapping QC 输出。
 
-优先 STN adjustment 定义为：
+优先 STN adjustment 必须与该 direct voxel-level SNr 模型对应。它来自 STN 3m direct voxel-level 模型，而不是 seed-target 或 target-level STN 模型：
 
 ```text
-S_STN(E) =
+S_STN_voxel(E) =
   sum_{u in Omega_STN} E(u) * M_STN(u)
   / (sum_{u in Omega_STN} E(u) + lambda)
 
 DeltaSTNScore_3m =
-  S_STN_domain(E_STN_component,STN+SNr3m)
-  - S_STN_domain(E_STN_component,STN-only3m)
+  S_STN_voxel,domain(E_STN_component,STN+SNr3m)
+  - S_STN_voxel,domain(E_STN_component,STN-only3m)
 
 DeltaSTNScore_immediate =
-  S_STN_motor(E_STN_component,STN+SNrImmediate)
-  - S_STN_motor(E_STN_component,STN-only3m)
+  S_STN_voxel,motor(E_STN_component,STN+SNrImmediate)
+  - S_STN_voxel,motor(E_STN_component,STN-only3m)
 ```
 
 对于低分更好的量表，`M_STN = -theta_STN`；对于 SE-ADL，`M_STN = theta_STN`。STN map 必须只使用加入 SNr 前的 STN-only outcomes 训练。
@@ -170,8 +170,8 @@ Y_AB_post_domain_i = alpha
 - 对 immediate outcomes，使用 motor-specific `Y_STN3m_motor` 和 motor-specific `DeltaSTNScore_immediate_motor`。
 - 使用 fully nested leave-one-patient-out cross-validation。
 - Coverage mask 和 voxel maps 必须只用 training patients 定义和拟合。
-- 严格 out-of-sample prediction 中，STN efficacy map 必须在每个 outer fold 内训练，再计算 fold-specific `DeltaSTNScore`。
-- 报告用于构建 `DeltaSTNScore` 的 STN efficacy-map validation：LOOCV `Q2`、相对 `Y_STN3m ~ Y_Preop` 的改进、以及 STN map stability。如果 STN map 不稳定，`DeltaSTNScore` 应降级为 exploratory adjustment。
+- 严格 out-of-sample prediction 中，model-matched direct voxel-level STN efficacy map 必须在每个 outer fold 内训练，再计算 fold-specific `DeltaSTNScore`。
+- 报告用于构建 `DeltaSTNScore` 的 direct voxel-level STN efficacy-map validation：LOOCV `Q2`、相对 `Y_STN3m ~ Y_Preop` 的改进、以及 STN map stability。如果 STN map 不稳定，`DeltaSTNScore` 应降级为 exploratory adjustment。
 - 与 covariate-only prediction 比较：`Y_AB_post_domain ~ Y_STN3m_domain + DeltaSTNScore_domain`。
 - 与不包含 `DeltaSTNScore` 的 clinical optimized strategy model 比较。
 - 运行 `DeltaSTNPhys` 敏感性分析，使用 outcome-independent STN-change 指标，例如 charge-rate change、raw STN e-field energy change、STN VTA overlap change 或 STN field centroid distance。
@@ -204,6 +204,6 @@ direct_voxel_SNr_homologous_mapping_qc.json
 
 ## 解释边界
 
-该模型是 SNr add-on benefit 的局部 SNr / STN-SNr border-zone 刺激关联模型。它不是 network mechanism model，也不应被解释为刺激单个 SNr voxel 必然产生获益的纯因果证据。由于 STN 和 SNr 相邻，表面上的 SNr sweet voxels 可能反映 dorsal SNr、ventral STN、STN-SNr border zone 或 passing fibers。除非使用外部 STN efficacy map，否则 `DeltaSTNScore` 是 same-cohort、pre-SNr-derived nuisance adjustment，在小样本中可能有噪声。
+该模型是 SNr add-on benefit 的局部 SNr / STN-SNr border-zone 刺激关联模型。它不是 network mechanism model，也不应被解释为刺激单个 SNr voxel 必然产生获益的纯因果证据。由于 STN 和 SNr 相邻，表面上的 SNr sweet voxels 可能反映 dorsal SNr、ventral STN、STN-SNr border zone 或 passing fibers。除非使用外部且 model-matched 的 direct voxel-level STN efficacy map，否则 `DeltaSTNScore` 是 same-cohort、pre-SNr-derived nuisance adjustment，在小样本中可能有噪声。
 
 主模型估计 STN-change-adjusted SNr add-on association，而不是 optimized combined STN+SNr programming strategy 的总体真实世界效果。
