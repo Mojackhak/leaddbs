@@ -1898,3 +1898,39 @@ Phase 2AR validation results:
 - Static search confirms the target-component analyzer calls
   `mh_coverage_validate_category_totals` instead of keeping a local
   `findgroups` category-total validation loop.
+
+## Phase 2AS Implementation Scope
+
+Status: **completed**.
+
+Phase 2AS applies the shared cell-row table builder to the VTA process launcher:
+
+- Update `mh_vta_launch_process_workers` to build its worker job table through
+  `mh_util_cell_rows_to_table`.
+- Preserve the existing seven-column job table schema:
+  `worker_index`, `subject_ids`, `pid`, `log_path`, `status`,
+  `inner_command_path`, and `launch_command_path`.
+- Keep job row values, dry-run behavior, command-file paths, and CSV readability
+  unchanged.
+- Leave DWI script-local `cell2table` calls out of scope for this VTA phase.
+
+Phase 2AS validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_vta_launch_process_workers`.
+- MATLAB dry-run smoke test proving a two-worker launch returns the same
+  seven-column job table schema, writes command files, uses semicolon-separated
+  subject chunks, and keeps string-valued job metadata readable.
+- Static verification that VTA process launcher no longer calls `cell2table`
+  directly.
+
+Phase 2AS validation results:
+
+- `git diff --check` passed.
+- `mh_vta_launch_process_workers` passed focused `checkcode` with zero
+  messages.
+- MATLAB dry-run smoke test passed for a two-worker launch, confirming the
+  seven-column job table schema, round-robin semicolon-separated subject chunks,
+  command-file creation, dry-run status metadata, and CSV readability.
+- Static search confirms `mh_vta_launch_process_workers` now calls
+  `mh_util_cell_rows_to_table` instead of `cell2table` directly.

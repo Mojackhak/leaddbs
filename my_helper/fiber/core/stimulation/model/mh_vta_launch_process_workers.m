@@ -62,9 +62,9 @@ for i = 1:workerCount
         innerCommandPath, launchCommandPath};
 end
 
-jobs = cell2table(jobRows, 'VariableNames', ...
-    {'worker_index', 'subject_ids', 'pid', 'log_path', 'status', ...
-    'inner_command_path', 'launch_command_path'});
+jobVars = {'worker_index', 'subject_ids', 'pid', 'log_path', 'status', ...
+    'inner_command_path', 'launch_command_path'};
+jobs = mh_util_cell_rows_to_table(jobRows, jobVars);
 end
 
 function write_command_file(path, commandText)
