@@ -255,3 +255,40 @@ Phase 2B validation completed:
 - `checkcode` on the new task helpers, default config, and both STNSNr analyzers;
   only existing dynamic-growth performance warnings remain in the large
   analyzers.
+
+## Phase 2C Implementation Scope
+
+Status: **implemented**.
+
+Phase 2C adds the first reusable batch execution helper for VTA tasks:
+
+- Add `mh_vta_execution_config(cfg, taskCount)` to resolve
+  `cfg.vta.executionMode`, `cfg.vta.parallel`, and `cfg.vta.parallelWorkers`,
+  with safe fallback to sequential execution when the Parallel Computing Toolbox
+  is unavailable.
+- Add `mh_vta_run_compute_tasks(cfg, S, options, tasks)` to run an array of
+  atomic VTA compute tasks through either sequential execution or `parfor`.
+- Update STNSNr program-side generation to call the batch helper while keeping
+  default execution mode sequential. This preserves current behavior and creates
+  one shared call site for future task-level parpool/process scheduling.
+
+Phase 2C validation target:
+
+- MATLAB smoke test for `mh_vta_execution_config` sequential defaults and
+  explicit parpool fallback behavior when parallel execution is unavailable.
+- MATLAB smoke test with a stub `mh_vta_compute` proving
+  `mh_vta_run_compute_tasks` executes two side tasks and returns standardized
+  result structs.
+- `git diff --check`.
+
+Phase 2C validation completed:
+
+- `git diff --check`
+- MATLAB smoke test for `mh_vta_execution_config` defaults, explicit sequential
+  behavior, and invalid-mode rejection.
+- MATLAB smoke test with a temporary `mh_vta_compute` stub proving
+  `mh_vta_run_compute_tasks` executes right and left side tasks and preserves
+  standardized result ordering/path metadata.
+- `checkcode` passes cleanly for `mh_vta_execution_config` and
+  `mh_vta_run_compute_tasks`; the large STNSNr analyzer still has only existing
+  dynamic-growth performance warnings.
