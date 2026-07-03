@@ -2183,3 +2183,33 @@ Phase 2AZ validation results:
   model keys produce standard `model-simbio` paths, legacy model strings still
   resolve through the existing Lead-DBS fallback, and unsupported explicit model
   keys raise `mh_vta_model_registry:UnsupportedModel`.
+
+## Phase 2BA Implementation Scope
+
+Status: **completed**.
+
+Phase 2BA adds explicit model-key support to one-side standard e-field path
+lookups:
+
+- Add an optional `ModelKey` parameter to `mh_fiber_vta_efield_path`.
+- When `ModelKey` is provided, pass it to `mh_fiber_vta_paths` as
+  `cfg.vta.modelKey` so path model labels resolve through the VTA registry.
+- Preserve the existing `Model` parameter for legacy callers and keep the
+  default path unchanged.
+
+Phase 2BA validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_vta_efield_path` and `mh_fiber_vta_paths`.
+- MATLAB synthetic smoke test proving default, legacy `Model`, and explicit
+  `ModelKey` calls produce standard paths, and unsupported explicit model keys
+  raise `mh_vta_model_registry:UnsupportedModel`.
+
+Phase 2BA validation results:
+
+- `git diff --check` passed.
+- `mh_fiber_vta_efield_path` and `mh_fiber_vta_paths` passed focused
+  `checkcode` with zero messages.
+- MATLAB synthetic smoke test confirmed default, legacy `Model`, and explicit
+  `ModelKey` calls produce standard `model-simbio` paths, and unsupported
+  explicit model keys raise `mh_vta_model_registry:UnsupportedModel`.

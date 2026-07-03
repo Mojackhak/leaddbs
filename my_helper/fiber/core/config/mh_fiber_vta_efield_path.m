@@ -5,6 +5,7 @@ parser = inputParser;
 parser.FunctionName = 'mh_fiber_vta_efield_path';
 parser.addParameter('Space', 'mni', @(x) ischar(x) || isstring(x));
 parser.addParameter('Model', 'SimBio/FieldTrip (see Horn 2017)', @(x) ischar(x) || isstring(x));
+parser.addParameter('ModelKey', '', @(x) ischar(x) || isstring(x));
 parser.parse(varargin{:});
 opts = parser.Results;
 
@@ -17,7 +18,12 @@ stimFolders.native = fullfile(char(string(subjectDir)), 'stimulations', 'native'
 
 cfg = struct();
 cfg.patientName = char(string(patientName));
-cfg.vta = struct('model', char(string(opts.Model)));
+cfg.vta = struct();
+if strlength(string(opts.ModelKey)) > 0
+    cfg.vta.modelKey = char(string(opts.ModelKey));
+else
+    cfg.vta.model = char(string(opts.Model));
+end
 
 vta = mh_fiber_vta_paths(cfg, stimFolders);
 space = lower(char(string(opts.Space)));
