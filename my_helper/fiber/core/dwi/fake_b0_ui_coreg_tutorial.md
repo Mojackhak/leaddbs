@@ -145,6 +145,69 @@ If `SubjectIds` is omitted, subjects are resolved in this order: copied subjects
 from `ImportLog` when provided, then BIDS DWI files discovered under
 `StudyRoot/rawdata/sub-*/ses-preop/dwi/`.
 
+## DICOM DWI conversion
+
+Use `mh_fiber_convert_dicom_dwi_to_leaddbs.m` when the source is a DWI DICOM
+folder rather than an already converted BIDS DWI set. The function runs
+`dcm2niix`, selects the complete DWI four-file set, and writes Lead-DBS/BIDS
+compatible output names. If the converted NIfTI is a single-slice SaveBySlc
+mosaic, the function calls the reusable mosaic reconstruction backend before
+writing the final output.
+
+```matlab
+result = mh_fiber_convert_dicom_dwi_to_leaddbs( ...
+    'DicomDir', '/path/to/dwi_dicoms', ...
+    'OutputDir', '/path/to/rawdata/sub-SubA/ses-preop/dwi', ...
+    'OutputBase', 'sub-SubA_ses-preop_dwi', ...
+    'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
+    'Parallel', true, ...
+    'ParallelWorkers', 4, ...
+    'Force', false);
+```
+
+The final output is:
+
+```text
+<OutputDir>/<OutputBase>.nii.gz
+<OutputDir>/<OutputBase>.json
+<OutputDir>/<OutputBase>.bval
+<OutputDir>/<OutputBase>.bvec
+<OutputDir>/<OutputBase>_dicom_conversion_qc.json
+```
+
+The conversion decision is:
+
+1. Run `dcm2niix` into a temporary working directory.
+2. Select the converted DWI candidate with matching `.nii.gz`, `.json`,
+   `.bval`, and `.bvec` files.
+3. If the converted NIfTI has `dimZ > 1`, copy it directly to the requested
+   Lead-DBS/BIDS output names.
+4. If the converted NIfTI has `dimZ == 1`, call
+   `mh_fiber_reconstruct_mosaic_dwi.m` with the same DICOM directory and write
+   the repaired 4D DWI.
+5. Validate the final NIfTI, bval, and bvec counts.
+
+The batch entry point accepts one row per DICOM folder:
+
+```matlab
+inputs = table( ...
+    ["SubA"; "SubB"], ...
+    ["/path/to/subA/dicom"; "/path/to/subB/dicom"], ...
+    ["/path/to/subA/dwi"; "/path/to/subB/dwi"], ...
+    ["sub-SubA_ses-preop_dwi"; "sub-SubB_ses-preop_dwi"], ...
+    'VariableNames', {'Subject', 'DicomDir', 'OutputDir', 'OutputBase'});
+
+status = mh_fiber_convert_dicom_dwi_to_leaddbs_batch(inputs, ...
+    'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
+    'Parallel', true, ...
+    'ParallelWorkers', 4, ...
+    'Force', false);
+```
+
+This converter does not run Synb0-DISCO, topup, eddy, or Lead-DBS
+coregistration. It only prepares a valid raw DWI four-file set for the existing
+preprocessing workflow.
+
 ## SaveBySlc mosaic reconstruction
 
 Some Siemens `SaveBySlc` DWI exports can appear as a single-slice NIfTI with a
