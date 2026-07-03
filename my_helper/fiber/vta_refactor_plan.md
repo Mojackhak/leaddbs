@@ -2717,3 +2717,30 @@ Phase 2BQ validation completed:
 - Static verification confirmed the generic fallback
   `DISTAL Nano (Ewert 2017)` string appears only in `mh_vta_default_gm_atlas`
   and documentation.
+
+## Phase 2BR Implementation Scope
+
+Status: **completed**.
+
+Phase 2BR centralizes VTA task request defaults that are currently duplicated
+between the stim-spec task path and the already-built stimulation task path:
+
+- Add `mh_vta_task_request_defaults` as the shared source for default
+  `ModelKey`, `Force`, `OutputSpaces`, and `GmAtlas` parser values.
+- Keep stim-spec model precedence unchanged: explicit `stimSpec.model` wins over
+  `cfg.vta.modelKey`, which wins over `mh_vta_default_model_key`.
+- Keep built-stimulation model precedence unchanged: `cfg.vta.modelKey` wins
+  over `mh_vta_default_model_key`.
+- Preserve existing force, output-space, and gray-matter atlas fallbacks while
+  removing duplicated local helper functions from the two task runners.
+
+Phase 2BR validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the new helper and touched task runners passed with
+  zero messages.
+- MATLAB synthetic smoke test covered task-default precedence for stim-spec and
+  built-stimulation paths without running FEM.
+- Static verification confirmed `mh_vta_run_built_stimulation_tasks` and
+  `mh_vta_run_stim_spec_tasks` no longer carry duplicated local default helper
+  functions.

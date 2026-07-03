@@ -3,11 +3,12 @@ function [taskResults, taskArray, cfg, S, options, stimFolders] = mh_vta_run_sti
 
 parser = inputParser;
 parser.FunctionName = 'mh_vta_run_stim_spec_tasks';
-parser.addParameter('ModelKey', default_model_key(cfg, stimSpec), @(x) ischar(x) || isstring(x));
-parser.addParameter('Force', default_force(cfg), @(x) islogical(x) || isnumeric(x));
-parser.addParameter('OutputSpaces', default_output_spaces(cfg), @(x) ischar(x) || isstring(x) || iscell(x));
+defaults = mh_vta_task_request_defaults(cfg, stimSpec);
+parser.addParameter('ModelKey', defaults.modelKey, @(x) ischar(x) || isstring(x));
+parser.addParameter('Force', defaults.force, @(x) islogical(x) || isnumeric(x));
+parser.addParameter('OutputSpaces', defaults.outputSpaces, @(x) ischar(x) || isstring(x) || iscell(x));
 parser.addParameter('ExportThresholdVPerMm', [], @(x) isempty(x) || (isnumeric(x) && isscalar(x)));
-parser.addParameter('GmAtlas', default_gm_atlas(cfg), @(x) isempty(x) || ischar(x) || isstring(x));
+parser.addParameter('GmAtlas', defaults.gmAtlas, @(x) isempty(x) || ischar(x) || isstring(x));
 parser.addParameter('UseAtlas', [], @(x) isempty(x) || islogical(x) || isnumeric(x));
 parser.addParameter('RemoveElectrode', [], @(x) isempty(x) || islogical(x) || isnumeric(x));
 parser.parse(varargin{:});
@@ -27,34 +28,4 @@ cfg = mh_fiber_set_stimulation(cfg, stimSpec);
     'GmAtlas', opts.GmAtlas, ...
     'UseAtlas', opts.UseAtlas, ...
     'RemoveElectrode', opts.RemoveElectrode);
-end
-
-function modelKey = default_model_key(cfg, stimSpec)
-if isfield(stimSpec, 'model') && strlength(string(stimSpec.model)) > 0
-    modelKey = stimSpec.model;
-elseif isfield(cfg, 'vta') && isfield(cfg.vta, 'modelKey') && strlength(string(cfg.vta.modelKey)) > 0
-    modelKey = cfg.vta.modelKey;
-else
-    modelKey = mh_vta_default_model_key();
-end
-end
-
-function force = default_force(cfg)
-if isfield(cfg, 'forceRecomputeVTA')
-    force = logical(cfg.forceRecomputeVTA);
-else
-    force = false;
-end
-end
-
-function spaces = default_output_spaces(cfg)
-spaces = mh_vta_output_spaces_from_config(cfg);
-end
-
-function atlas = default_gm_atlas(cfg)
-if isfield(cfg, 'vta') && isfield(cfg.vta, 'gmAtlas')
-    atlas = cfg.vta.gmAtlas;
-else
-    atlas = '';
-end
 end
