@@ -62,6 +62,8 @@ centralized in `mh_vta_default_gm_atlas`; project analyzers should still inject
 their own atlas choices explicitly.
 Task-runner parser defaults for VTA request fields are centralized in
 `mh_vta_task_request_defaults`.
+Backend request-field and force fallbacks are centralized in
+`mh_vta_request_field` and `mh_vta_config_force`.
 Standard VTA path lookups use `mh_fiber_vta_paths` and
 `mh_fiber_vta_efield_path`.
 VTA MAT volume reads use `mh_vta_read_vat_volume`.

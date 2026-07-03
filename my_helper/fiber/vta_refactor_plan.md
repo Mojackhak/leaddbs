@@ -2744,3 +2744,27 @@ Phase 2BR validation completed:
 - Static verification confirmed `mh_vta_run_built_stimulation_tasks` and
   `mh_vta_run_stim_spec_tasks` no longer carry duplicated local default helper
   functions.
+
+## Phase 2BS Implementation Scope
+
+Status: **completed**.
+
+Phase 2BS centralizes SimBio backend request/config fallback helpers:
+
+- Add `mh_vta_request_field` as the shared model-layer accessor for optional
+  request fields with explicit fallback values.
+- Add `mh_vta_config_force` as the shared model-layer accessor for
+  `cfg.forceRecomputeVTA`.
+- Update the SimBio two-source and one-solve backends to use these helpers.
+- Preserve existing semantics: a present request field wins even when empty,
+  and missing `cfg.forceRecomputeVTA` means `false`.
+
+Phase 2BS validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the new helpers and touched backends passed with zero
+  messages.
+- MATLAB synthetic smoke test covered request-field fallback behavior and config
+  force fallback behavior without running FEM.
+- Static verification confirmed the SimBio backends no longer carry duplicated
+  local `request_field` or `cfg_force` helper functions.

@@ -1,11 +1,11 @@
 function vta = mh_vta_backend_simbio_onesolve(cfg, S, options, request)
 % Compute SimBio/Horn VTA outputs using one simultaneous multi-voltage solve.
 
-stimFolders = request_field(request, 'stimFolders', []);
+stimFolders = mh_vta_request_field(request, 'stimFolders', []);
 vta = mh_fiber_vta_paths(cfg, stimFolders);
 sides = mh_vta_normalize_sides(request);
-force = request_field(request, 'force', cfg_force(cfg));
-spaces = request_field(request, 'outputSpaces', mh_vta_output_spaces_from_config());
+force = mh_vta_request_field(request, 'force', mh_vta_config_force(cfg));
+spaces = mh_vta_request_field(request, 'outputSpaces', mh_vta_output_spaces_from_config());
 
 options.native = 1;
 options.orignative = 1;
@@ -239,20 +239,5 @@ elseif side == 2
     code = 'L';
 else
     error('mh_vta_backend_simbio_onesolve:InvalidSide', 'Invalid side index: %d', side);
-end
-end
-
-function value = request_field(request, fieldName, fallback)
-if isfield(request, fieldName)
-    value = request.(fieldName);
-else
-    value = fallback;
-end
-end
-
-function value = cfg_force(cfg)
-value = false;
-if isfield(cfg, 'forceRecomputeVTA')
-    value = logical(cfg.forceRecomputeVTA);
 end
 end

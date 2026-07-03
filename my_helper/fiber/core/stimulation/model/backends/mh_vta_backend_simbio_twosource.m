@@ -1,11 +1,11 @@
 function vta = mh_vta_backend_simbio_twosource(cfg, S, options, request)
 % Compute SimBio/Horn VTA outputs using the standard Lead-DBS source handling.
 
-stimFolders = request_field(request, 'stimFolders', []);
+stimFolders = mh_vta_request_field(request, 'stimFolders', []);
 vta = mh_fiber_vta_paths(cfg, stimFolders);
 sides = mh_vta_normalize_sides(request);
-force = request_field(request, 'force', cfg_force(cfg));
-spaces = request_field(request, 'outputSpaces', mh_vta_output_spaces_from_config());
+force = mh_vta_request_field(request, 'force', mh_vta_config_force(cfg));
+spaces = mh_vta_request_field(request, 'outputSpaces', mh_vta_output_spaces_from_config());
 
 for i = 1:numel(sides)
     side = sides{i};
@@ -26,19 +26,4 @@ if ~isempty(missingAfter)
         'VTA generation did not produce required file: %s', missingAfter{1});
 end
 vta = mh_vta_attach_volumes(vta);
-end
-
-function value = request_field(request, fieldName, fallback)
-if isfield(request, fieldName)
-    value = request.(fieldName);
-else
-    value = fallback;
-end
-end
-
-function value = cfg_force(cfg)
-value = false;
-if isfield(cfg, 'forceRecomputeVTA')
-    value = logical(cfg.forceRecomputeVTA);
-end
 end
