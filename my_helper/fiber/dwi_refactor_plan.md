@@ -181,6 +181,21 @@ sidecar 里的 `FakeCoregisterVolume`/`ExcludeFromNormalization`。Group 4 的 `
   and shell quoting. Project wrappers should become thinner but keep their
   existing hard-coded STNSNr defaults until the later project-decoupling phase.
 
+### Phase 2 implementation notes
+
+- Phase 2 introduces three explicit Group 3 boundaries while keeping the public
+  `mh_fiber_register_imported_dwi_batch` signature stable:
+  `mh_fiber_dwi_bids_jobspec` builds BIDS/Lead-DBS subject path specs,
+  `mh_fiber_process_imported_dwi` consumes one fully resolved job spec, and
+  `mh_fiber_process_imported_dwi_batch` dispatches those specs serially with
+  per-subject error capture.
+- This phase intentionally does not add `parfor` yet. Parallel registration and
+  Synb0 memory-aware concurrency belong to Phase 3, after the jobSpec boundary
+  has been verified in serial mode.
+- The single-subject processing core must not discover subjects, parse import
+  logs, or construct BIDS subject paths. Those project/layout responsibilities
+  stay in the jobSpec builder and wrapper layer.
+
 ## 验证
 
 - **数值回归（核心）**：把 1 个真实被试**拷贝**到临时 studyRoot（不覆写 `/Volumes/VAL` 下非 Git 文件），
