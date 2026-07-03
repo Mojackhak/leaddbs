@@ -20,6 +20,9 @@ p.addParameter('Synb0MinDockerMemoryGB', 12, @(x) isnumeric(x) && isscalar(x) &&
 p.addParameter('AllowT1Fallback', false, @(x) islogical(x) || isnumeric(x));
 p.addParameter('RunCoregistration', [], @(x) isempty(x) || islogical(x) || isnumeric(x));
 p.addParameter('GenerateOptionalDwiQc', true, @(x) islogical(x) || isnumeric(x));
+p.addParameter('Parallel', false, @(x) islogical(x) || isnumeric(x));
+p.addParameter('ParallelWorkers', 4, @(x) isnumeric(x) && isscalar(x) && x >= 1);
+p.addParameter('MaxConcurrentSynb0', [], @(x) isempty(x) || (isnumeric(x) && isscalar(x) && x >= 1));
 p.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
 p.parse(varargin{:});
 opts = normalize_options(p.Results);
@@ -65,6 +68,13 @@ opts.FreeSurferLicense = char(string(opts.FreeSurferLicense));
 opts.Synb0MinDockerMemoryGB = double(opts.Synb0MinDockerMemoryGB);
 opts.AllowT1Fallback = logical(opts.AllowT1Fallback);
 opts.GenerateOptionalDwiQc = logical(opts.GenerateOptionalDwiQc);
+opts.Parallel = logical(opts.Parallel);
+opts.ParallelWorkers = max(1, round(double(opts.ParallelWorkers)));
+if isempty(opts.MaxConcurrentSynb0)
+    opts.MaxConcurrentSynb0 = [];
+else
+    opts.MaxConcurrentSynb0 = max(1, round(double(opts.MaxConcurrentSynb0)));
+end
 opts.Force = logical(opts.Force);
 if isempty(opts.RunCoregistration)
     opts.RunCoregistration = ~strcmp(opts.DistortionCorrection, 'synb0');

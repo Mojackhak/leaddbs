@@ -196,6 +196,20 @@ sidecar 里的 `FakeCoregisterVolume`/`ExcludeFromNormalization`。Group 4 的 `
   logs, or construct BIDS subject paths. Those project/layout responsibilities
   stay in the jobSpec builder and wrapper layer.
 
+### Phase 3 implementation notes
+
+- Phase 3 adds opt-in subject-level parallelism to
+  `mh_fiber_process_imported_dwi_batch`. The default remains serial, so existing
+  callers keep the same behavior unless `Parallel=true` is passed.
+- When `DistortionCorrection='synb0'`, the effective worker count is capped by
+  `MaxConcurrentSynb0` when provided, otherwise by the available Docker/system
+  memory divided by `Synb0MinDockerMemoryGB`. The cap applies to the `parfor`
+  worker argument so an existing larger pool can be reused without launching too
+  many simultaneous Synb0 containers.
+- Parallel workers should set common native thread environment variables to one
+  thread per MATLAB worker to reduce FSL/ANTs/ITK over-subscription during batch
+  execution.
+
 ## 验证
 
 - **数值回归（核心）**：把 1 个真实被试**拷贝**到临时 studyRoot（不覆写 `/Volumes/VAL` 下非 Git 文件），
