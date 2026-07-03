@@ -1,6 +1,9 @@
 # VTA 计算模块重构计划
 
-> 状态：**计划（未执行）**。本文件仅为设计文档，尚未改动任何代码。
+> Status: **Phase 1 implementation in progress**. The initial checkpoint
+> commit `ddb6888f0` recorded this plan before code changes. Phase 1 keeps
+> existing public entry points compatible while extracting shared VTA,
+> coverage, utility, and visualization primitives.
 
 ## Context（背景与目标）
 
@@ -135,3 +138,30 @@ Layer 1  刺激规格   stimSpec 构建/校验（已基本就绪）
 - **并行验证**：小样本（1–2 subject）比对 parpool 模式与串行模式输出一致；全 cohort 记录并行前后墙钟时间。
 - **图表验证**：目视检查 cohort/per-subject figures——占比类图为环形/100% 堆叠且扇区标百分比、和为 100%；分布类为 boxplot；趋势类为 line；配色/字体全项目统一。底层数值表（CSV）不受绘图改动影响。
 - 运行入口：`matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('.../stnsnr/run_stnsnr_vta_coverage.m')"`。
+
+## Phase 1 Implementation Scope
+
+Phase 1 implements the smallest behavior-preserving cut through the plan:
+
+- Add `core/util/` helpers for labels, repository resolution, directory/file
+  validation, JSON writing, and VTA output introspection.
+- Add `core/coverage/` helpers for reference-grid construction, image sampling,
+  generic membership-partition region classification, category summaries, and
+  reference NIfTI writing.
+- Add `core/stimulation/model/` with `mh_vta_compute`, `mh_vta_settings`, and a
+  model registry. Existing `mh_fiber_ensure_vta*` functions become compatibility
+  wrappers around the facade.
+- Add `core/stimulation/model/backends/` and `core/stimulation/model/fem/` so
+  the SimBio two-source backend, SimBio one-solve backend, and one-solve FEM
+  primitives have separate responsibilities.
+- Add `core/viz/` helpers for shared style, stable palettes, donut composition
+  plots, 100% stacked share bars, box plots, and threshold trend plots.
+- Update STNSNr coverage code to receive an explicit region specification for
+  classification atlas paths. STN/SNr output category names remain compatible:
+  `STN_only`, `SNr_only`, `STN_SNr`, and `Outside`.
+
+Deferred beyond Phase 1:
+
+- Replacing process-level worker launch with a full task-level parpool harness.
+- Full cohort-scale numerical regression, because it requires the external
+  `/Volumes/VAL/STNSNr` subject data and long FEM generation runtime.
