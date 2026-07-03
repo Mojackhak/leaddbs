@@ -2819,3 +2819,26 @@ Phase 2BU validation completed:
 - Static verification confirmed VTA request force defaults no longer duplicate
   direct `cfg.forceRecomputeVTA` fallback logic outside `mh_vta_config_force`
   and project-level assignment sites.
+
+## Phase 2BV Implementation Scope
+
+Status: **completed**.
+
+Phase 2BV removes the remaining local option-field accessor from VTA execution
+option application:
+
+- Update `mh_vta_apply_execution_options` to use the existing
+  `mh_util_get_field` helper for optional parser-result fields.
+- Remove the local `get_option` helper from `mh_vta_apply_execution_options`.
+- Preserve existing semantics: a present option field wins, and a missing field
+  keeps the current `cfg.vta` value.
+
+Phase 2BV validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for `mh_vta_apply_execution_options` passed with zero
+  messages.
+- MATLAB synthetic smoke test covered default-preserving and explicit override
+  execution-option application without running FEM.
+- Static verification confirmed `mh_vta_apply_execution_options` no longer
+  carries a local `get_option` helper.
