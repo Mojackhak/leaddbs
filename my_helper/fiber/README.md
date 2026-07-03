@@ -61,6 +61,11 @@ through the facade. Current STN/SNr execution remains sequential unless the
 project launcher uses the existing process-level worker script, but the task
 contract is shared by future parpool and process execution modes.
 
+Process-isolated launches are now routed through
+`mh_vta_launch_process_workers`, which centralizes subject chunking, dry-run job
+tables, Conda-aware MATLAB batch command construction, and PID/log metadata for
+the STN/SNr process worker entry point.
+
 Coverage analysis is separate from VTA generation. `core/coverage/` builds the
 reference grid, samples e-field and atlas masks, and classifies VTA voxels with
 a generic membership-partition region specification. STN/SNr analyses inject

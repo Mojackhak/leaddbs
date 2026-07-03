@@ -292,3 +292,32 @@ Phase 2C validation completed:
 - `checkcode` passes cleanly for `mh_vta_execution_config` and
   `mh_vta_run_compute_tasks`; the large STNSNr analyzer still has only existing
   dynamic-growth performance warnings.
+
+## Phase 2D Implementation Scope
+
+Phase 2D encapsulates the current process-isolated worker launcher behind a
+reusable harness while preserving the existing subject-level worker behavior:
+
+- Add `mh_vta_launch_process_workers(subjectIds, workerScript, logDir, ...)`
+  under `core/stimulation/model/`.
+- The helper owns round-robin subject chunking, environment variable assembly,
+  Conda-aware MATLAB batch command construction, dry-run mode, PID capture, and
+  job table construction.
+- Update `stnsnr/run_stnsnr_vta_coverage_parallel.m` to build project-specific
+  inputs and delegate process launching to the helper.
+- Keep the existing worker script and cohort aggregation flow unchanged.
+
+Phase 2D intentionally does **not** complete task-level process execution for
+program-by-side VTA tasks. It is the first process-mode harness extraction; the
+remaining step is to connect the program-side task list from Phase 2B/2C to a
+process executor and then validate process/parpool/sequential equivalence on a
+small subject subset.
+
+Phase 2D validation target:
+
+- MATLAB dry-run smoke test for `mh_vta_launch_process_workers`, verifying
+  subject chunking, environment assignment, command construction, log paths, and
+  no real worker launch.
+- MATLAB dry-run smoke test for `run_stnsnr_vta_coverage_parallel.m` with a
+  temporary workbook and `STNSNR_VTA_DRY_RUN=true`.
+- `git diff --check`.

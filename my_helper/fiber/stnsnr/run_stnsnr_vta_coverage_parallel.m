@@ -4,9 +4,12 @@ repoDir = '/Users/mojackhu/Github/leaddbs';
 cd(repoDir);
 addpath(genpath(repoDir));
 
-subjectRoot = '/Volumes/VAL/STNSNr/derivatives/leaddbs';
-workbook = '/Users/mojackhu/Research/STNSNr/summary/cohort/subj/followup_stimulation.xlsx';
-cohortOutputDir = '/Volumes/VAL/STNSNr/summary/vta';
+subjectRoot = mh_fiber_getenv_default('STNSNR_VTA_SUBJECT_ROOT', ...
+    '/Volumes/VAL/STNSNr/derivatives/leaddbs');
+workbook = mh_fiber_getenv_default('STNSNR_VTA_WORKBOOK', ...
+    '/Users/mojackhu/Research/STNSNr/summary/cohort/subj/followup_stimulation.xlsx');
+cohortOutputDir = mh_fiber_getenv_default('STNSNR_VTA_COHORT_OUTPUT_DIR', ...
+    '/Volumes/VAL/STNSNr/summary/vta');
 workerScript = fullfile(repoDir, 'my_helper', 'fiber', 'stnsnr', ...
     'run_stnsnr_vta_coverage_worker.m');
 matlabExe = mh_fiber_getenv_default('STNSNR_MATLAB_EXE', '/Applications/MATLAB_R2024b.app/bin/matlab');
@@ -28,46 +31,21 @@ if isempty(subjectIds)
 end
 
 workerCount = max(1, min(workerCount, numel(subjectIds)));
-chunks = mh_fiber_split_subjects(subjectIds, workerCount);
 timestamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
 logDir = fullfile(cohortOutputDir, 'logs', ['parallel_', timestamp]);
-mkdir(logDir);
+envValues = struct();
+envValues.STNSNR_VTA_SUBJECT_ROOT = subjectRoot;
+envValues.STNSNR_VTA_WORKBOOK = workbook;
+envValues.STNSNR_VTA_COHORT_OUTPUT_DIR = cohortOutputDir;
+envValues.STNSNR_VTA_SKIP_COMPLETED = true;
+envValues.STNSNR_VTA_SKIP_LOCKED = false;
 
-jobRows = cell(workerCount, 5);
-for i = 1:workerCount
-    ids = chunks{i};
-    subjectList = strjoin(ids, ',');
-    logPath = fullfile(logDir, sprintf('worker_%02d.log', i));
-    batchExpr = sprintf('run(''%s'')', workerScript);
-    innerCmd = sprintf(['if command -v conda >/dev/null 2>&1; then ', ...
-        'conda run -n leaddbs %s -batch %s; else %s -batch %s; fi'], ...
-        mh_fiber_shell_quote(matlabExe), mh_fiber_shell_quote(batchExpr), ...
-        mh_fiber_shell_quote(matlabExe), mh_fiber_shell_quote(batchExpr));
-    cmd = sprintf(['env STNSNR_VTA_SUBJECT_IDS=%s ', ...
-        'STNSNR_VTA_SKIP_COMPLETED=true ', ...
-        'STNSNR_VTA_SKIP_LOCKED=false ', ...
-        '/bin/zsh -lc %s > %s 2>&1 & echo $!'], ...
-        mh_fiber_shell_quote(subjectList), mh_fiber_shell_quote(innerCmd), ...
-        mh_fiber_shell_quote(logPath));
-    if dryRun
-        pid = "dry-run";
-        statusText = "dry_run";
-        fprintf('Dry-run worker %02d: %s\n', i, subjectList);
-    else
-        [status, output] = system(cmd);
-        if status ~= 0
-            error('run_stnsnr_vta_coverage_parallel:LaunchFailed', ...
-                'Could not launch worker %d: %s', i, output);
-        end
-        pid = strtrim(string(output));
-        statusText = "running";
-        fprintf('Launched worker %02d PID %s: %s\n', i, pid, subjectList);
-    end
-    jobRows(i, :) = {i, subjectList, pid, logPath, statusText};
-end
-
-jobs = cell2table(jobRows, 'VariableNames', ...
-    {'worker_index', 'subject_ids', 'pid', 'log_path', 'status'});
+jobs = mh_vta_launch_process_workers(subjectIds, workerScript, logDir, ...
+    'WorkerCount', workerCount, ...
+    'MatlabExe', matlabExe, ...
+    'DryRun', dryRun, ...
+    'CondaEnv', 'leaddbs', ...
+    'Env', envValues);
 jobsCsv = fullfile(logDir, 'parallel_jobs.csv');
 writetable(jobs, jobsCsv);
 writetable(jobs, fullfile(cohortOutputDir, 'parallel_jobs_latest.csv'));
