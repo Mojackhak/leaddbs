@@ -457,23 +457,18 @@ end
 
 function write_outputs(outputDir, coverageTable, componentQcTable, manifest, mainThreshold)
 writetable(coverageTable, fullfile(outputDir, 'cohort_target_component_vta_coverage_long.csv'));
-wide = make_wide_table(coverageTable);
+keyVars = {'component_id', 'subject_id', 'patient_name', 'phase', 'protocol', ...
+    'side', 'target', 'component_origin', 'threshold_v_per_mm', 'threshold_v_per_m', ...
+    'total_vta_voxels', 'total_vta_volume_mm3', 'program_count', ...
+    'program_overlap_voxels', 'program_overlap_volume_mm3', 'raw_contacts', ...
+    'lead_contacts', 'voltages', 'pulse_widths', 'frequencies', 'stimulation_pattern'};
+wide = mh_coverage_category_wide_table(coverageTable, keyVars);
 writetable(wide, fullfile(outputDir, 'cohort_target_component_vta_coverage_wide.csv'));
 summary = summarize_distribution(coverageTable);
 writetable(summary, fullfile(outputDir, 'cohort_target_component_distribution_summary.csv'));
 writetable(componentQcTable, fullfile(outputDir, 'cohort_target_component_contact_qc.csv'));
 mh_util_write_json(fullfile(outputDir, 'cohort_target_component_generation_manifest.json'), manifest);
 write_summary_figures(outputDir, coverageTable, mainThreshold);
-end
-
-function wide = make_wide_table(coverageTable)
-keyVars = {'component_id', 'subject_id', 'patient_name', 'phase', 'protocol', ...
-    'side', 'target', 'component_origin', 'threshold_v_per_mm', 'threshold_v_per_m', ...
-    'total_vta_voxels', 'total_vta_volume_mm3', 'program_count', ...
-    'program_overlap_voxels', 'program_overlap_volume_mm3', 'raw_contacts', ...
-    'lead_contacts', 'voltages', 'pulse_widths', 'frequencies', 'stimulation_pattern'};
-wideInput = coverageTable(:, [keyVars, {'category', 'volume_mm3'}]);
-wide = unstack(wideInput, 'volume_mm3', 'category');
 end
 
 function summary = summarize_distribution(coverageTable)

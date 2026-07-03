@@ -639,7 +639,7 @@ end
 
 function write_cohort_outputs(outputDir, coverageTable, contactTable, manifest, mainThreshold)
 writetable(coverageTable, fullfile(outputDir, 'cohort_vta_coverage_long.csv'));
-wide = unstack(coverageTable, 'volume_mm3', 'category');
+wide = mh_coverage_category_wide_table(coverageTable);
 writetable(wide, fullfile(outputDir, 'cohort_vta_coverage_wide.csv'));
 
 byCondition = summarize_by_condition(coverageTable);

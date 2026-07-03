@@ -1539,3 +1539,42 @@ Phase 2AI validation completed:
 - Static search confirms the STN/SNr summary-figure trend blocks call
   `mh_coverage_threshold_trend_table` instead of duplicating
   `findgroups(... threshold_v_per_mm)` trend preparation.
+
+## Phase 2AJ Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AJ centralizes long-to-wide category coverage table construction:
+
+- Add `mh_coverage_category_wide_table(tableIn, keyVars)` under `core/coverage`.
+- Preserve the existing behavior: unstack `volume_mm3` by `category`, either
+  using all existing non-value columns or a caller-provided stable key-column
+  list.
+- Update STN/SNr cohort coverage and target-component coverage output writers
+  to call the shared helper.
+- Remove the target-component analyzer-local `make_wide_table` helper.
+- Keep CSV filenames, long table schemas, selected target-component key columns,
+  and wide table values unchanged.
+
+Phase 2AJ validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_category_wide_table` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic smoke test proving full-table unstacking and key-limited
+  unstacking match the previous inline behavior.
+- Static verification that the STN/SNr analyzers call the shared helper and no
+  longer define `make_wide_table` or inline `unstack(..., 'volume_mm3',
+  'category')`.
+
+Phase 2AJ validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_coverage_category_wide_table`; the two
+  large STN/SNr analyzers still report only their existing dynamic-growth
+  warnings.
+- MATLAB synthetic smoke test verifies full-table unstacking and key-limited
+  unstacking match the previous inline behavior.
+- Static search confirms the STN/SNr analyzers call
+  `mh_coverage_category_wide_table` and no longer define `make_wide_table` or
+  inline `unstack(..., 'volume_mm3', 'category')`.
