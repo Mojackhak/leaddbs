@@ -578,15 +578,8 @@ end
 function write_condition_figure(conditionDirs, patientName, phase, protocol, sideCode, thresholdLabel, categoryRows)
 base = mh_fiber_stnsnr_vta_artifact_base(patientName, phase, protocol, ...
     sideCode, thresholdLabel);
-figPath = fullfile(conditionDirs.figures, [base, '_desc-vtaCoverage.png']);
-names = string(categoryRows(:, 1));
-volumes = cell2mat(categoryRows(:, 3));
-totalVolume = sum(volumes);
-fig = mh_viz_composition_donut(names, volumes, ...
-    'Title', sprintf('%s %s %s %s %s', patientName, phase, protocol, sideCode, thresholdLabel), ...
-    'CenterText', sprintf('%.0f mm3', totalVolume), ...
-    'OutputPath', figPath);
-close(fig);
+titleText = sprintf('%s %s %s %s %s', patientName, phase, protocol, sideCode, thresholdLabel);
+mh_coverage_write_composition_figure(conditionDirs.figures, base, categoryRows, titleText);
 end
 
 function write_subject_summary(path, subjectId, patientName, coverageTable, mainThreshold)

@@ -1384,3 +1384,42 @@ Phase 2AE validation completed:
   the previous inline behavior on small in-memory sampled e-field arrays.
 - Static search confirms both STN/SNr analyzers call the shared helpers and no
   longer contain duplicated `hitCount` threshold loops.
+
+## Phase 2AF Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AF centralizes the repeated VTA coverage composition-figure writer:
+
+- Add `mh_coverage_write_composition_figure` under `core/coverage`.
+- Preserve the existing figure behavior: use category names from column 1,
+  volumes from column 3, center text as the rounded total volume in `mm3`,
+  write through `mh_viz_composition_donut`, and close the hidden figure.
+- Update STN/SNr condition coverage and target-component coverage figure
+  writers to compute only their project-specific base label and title, then
+  call the shared helper.
+- Keep figure filenames, titles, image resolution, palette, and chart layout
+  unchanged.
+
+Phase 2AF validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_write_composition_figure` and both
+  touched STN/SNr analyzers.
+- MATLAB synthetic smoke test using a temporary `mh_viz_composition_donut` stub
+  to verify names, volumes, title, center text, output path, and figure close
+  behavior without writing a real PNG.
+- Static verification that the STN/SNr analyzers no longer call
+  `mh_viz_composition_donut` directly.
+
+Phase 2AF validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_coverage_write_composition_figure`; the two
+  large STN/SNr analyzers still report only their existing dynamic-growth
+  warnings.
+- MATLAB synthetic smoke test with a temporary `mh_viz_composition_donut` stub
+  verifies names, volumes, title, center text, output path, and figure close
+  behavior without writing a real PNG.
+- Static search confirms the STN/SNr analyzers no longer call
+  `mh_viz_composition_donut` directly.
