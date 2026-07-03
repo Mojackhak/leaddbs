@@ -450,3 +450,36 @@ Deferred validation:
   program-side e-field outputs.
 - Full cohort timing and numerical regression against
   `cohort_vta_coverage_long.csv`.
+
+## Phase 2G Validation Audit
+
+Status: **partial validation completed**.
+
+Phase 2G checked what can be verified safely against the available real STNSNr
+outputs without overwriting non-Git files under `/Volumes/VAL`:
+
+- Confirmed the real STNSNr subject root exists at
+  `/Volumes/VAL/STNSNr/derivatives/leaddbs`.
+- Confirmed the real stimulation workbook exists at
+  `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/followup_stimulation.xlsx`.
+- Confirmed existing cohort outputs exist under `/Volumes/VAL/STNSNr/summary/vta`.
+- Ran `mh_fiber_run_stnsnr_vta_coverage` with `CohortOnly = true` into a
+  temporary `/tmp/stnsnr_vta_cohort_reg_*` output directory.
+- Compared the regenerated temporary `cohort_vta_coverage_long.csv` against the
+  existing `/Volumes/VAL/STNSNr/summary/vta/cohort_vta_coverage_long.csv`.
+  The tables matched exactly for row count, column count, variable names, key
+  columns, and numeric coverage columns: 1536 rows x 25 columns.
+
+Real subject reruns remain deferred because even with `ForceVta = false`, the
+STNSNr subject pipeline rewrites subject-level CSV/manifest files under
+`/Volumes/VAL/STNSNr/derivatives/leaddbs/<subject>/connectomics/stnsnr_vta_coverage`.
+Those files are outside Git, so they should not be overwritten without an
+explicit validation run decision and backup/trash policy.
+
+Still deferred:
+
+- Real FEM process-mode execution on a copied or explicitly approved 1-2 subject
+  validation subset.
+- Numerical equivalence among sequential, parpool, and process modes for
+  program-side e-field outputs.
+- Full cohort timing comparison after an approved real execution run.
