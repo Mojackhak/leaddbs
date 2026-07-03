@@ -483,3 +483,45 @@ Still deferred:
 - Numerical equivalence among sequential, parpool, and process modes for
   program-side e-field outputs.
 - Full cohort timing comparison after an approved real execution run.
+
+## Phase 2H Implementation Scope
+
+Status: **implemented**.
+
+Phase 2H applies the same execution-harness controls to target-component
+counterfactual VTA generation:
+
+- Add the `VtaExecutionMode`, `VtaParallelWorkers`, `VtaMatlabExe`,
+  `VtaCondaEnv`, `VtaProcessWorkDir`, `VtaProcessPollSeconds`, and
+  `VtaProcessTimeoutSeconds` parameters to
+  `mh_fiber_run_stnsnr_target_component_vta_distribution`.
+- Apply those options to each generated counterfactual component cfg before VTA
+  task execution.
+- Replace the direct `mh_vta_run_compute_task` call with
+  `mh_vta_run_compute_tasks` so target-component generation uses the same
+  sequential/parpool/process execution harness as cohort coverage.
+- Add matching environment variable overrides to
+  `stnsnr/run_stnsnr_target_component_vta_distribution.m`.
+- Keep default behavior unchanged: sequential execution with one worker.
+
+Phase 2H validation target:
+
+- `git diff --check`
+- Focused `checkcode` for the target-component analyzer and runner.
+- Static verification that target-component counterfactual generation calls
+  `mh_vta_run_compute_tasks` and that the project runner passes VTA execution
+  parameters into the core analyzer.
+
+Phase 2H validation completed:
+
+- `git diff --check`
+- Focused `checkcode`: the target-component runner is clean; the large
+  target-component analyzer still has only its existing dynamic-growth
+  performance warning.
+- Static verification that the target-component analyzer applies
+  `mh_vta_apply_execution_options`, calls `mh_vta_run_compute_tasks`, and records
+  VTA execution options in its manifest.
+- Static verification that `run_stnsnr_target_component_vta_distribution.m`
+  reads and passes the shared `STNSNR_VTA_*` execution environment variables.
+- MATLAB stub smoke test proving the single-task `mh_vta_run_compute_tasks`
+  path returns the same result metadata expected by target-component generation.

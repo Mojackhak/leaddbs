@@ -93,6 +93,10 @@ The non-parallel STN/SNr cohort script reads the same execution environment
 variables before calling `mh_fiber_run_stnsnr_vta_coverage`, so execution mode
 selection does not require editing the script.
 
+The STN/SNr target-component VTA distribution runner uses the same
+`STNSNR_VTA_*` execution environment variables for counterfactual component VTA
+generation.
+
 Coverage analysis is separate from VTA generation. `core/coverage/` builds the
 reference grid, samples e-field and atlas masks, and classifies VTA voxels with
 a generic membership-partition region specification. STN/SNr analyses inject

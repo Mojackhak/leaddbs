@@ -13,6 +13,13 @@ parser.addParameter('MainThresholdVPerMm', 0.20, @(x) isnumeric(x) && isscalar(x
 parser.addParameter('OutputVoxelSizeMm', 0.5, @(x) isnumeric(x) && isscalar(x) && x > 0);
 parser.addParameter('ForceVta', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ForceOutputs', false, @(x) islogical(x) || isnumeric(x));
+parser.addParameter('VtaExecutionMode', 'sequential', @(x) ischar(x) || isstring(x));
+parser.addParameter('VtaParallelWorkers', 1, @(x) isnumeric(x) && isscalar(x) && x >= 1);
+parser.addParameter('VtaMatlabExe', '/Applications/MATLAB_R2024b.app/bin/matlab', @(x) ischar(x) || isstring(x));
+parser.addParameter('VtaCondaEnv', 'leaddbs', @(x) ischar(x) || isstring(x));
+parser.addParameter('VtaProcessWorkDir', '', @(x) ischar(x) || isstring(x));
+parser.addParameter('VtaProcessPollSeconds', 2, @(x) isnumeric(x) && isscalar(x) && x > 0);
+parser.addParameter('VtaProcessTimeoutSeconds', 0, @(x) isnumeric(x) && isscalar(x) && x >= 0);
 parser.parse(varargin{:});
 opts = parser.Results;
 
@@ -68,6 +75,11 @@ manifest.gray_matter_conductivity_s_per_m = 0.33;
 manifest.white_matter_conductivity_s_per_m = 0.14;
 manifest.analysis_unit = 'subject_id x phase x protocol x side x target';
 manifest.component_count = height(components);
+manifest.vta_execution_mode = char(string(opts.VtaExecutionMode));
+manifest.vta_parallel_workers = double(opts.VtaParallelWorkers);
+manifest.vta_process_work_dir = char(string(opts.VtaProcessWorkDir));
+manifest.vta_process_poll_seconds = double(opts.VtaProcessPollSeconds);
+manifest.vta_process_timeout_seconds = double(opts.VtaProcessTimeoutSeconds);
 manifest.component_origin_definitions = struct( ...
     'observed_single_target', 'Original side-level condition contains only one target.', ...
     'observed_target_union', 'Multiple same-target contacts or alternating subprograms represented as a union.', ...
@@ -321,6 +333,7 @@ cfg.forceRecomputeVTA = logical(opts.ForceVta);
 cfg.vta.modelKey = 'simbio';
 cfg.vta.model = mh_fiber_model_name('simbio');
 cfg.vta.gmAtlas = 'DISTAL Minimal (Ewert 2017)';
+cfg = mh_vta_apply_execution_options(cfg, opts);
 stimSpec = rows_to_stim_spec(componentRows, label);
 cfg = mh_fiber_set_stimulation(cfg, stimSpec);
 [S, options, stimFolders] = mh_fiber_build_stimulation(cfg);
@@ -336,7 +349,8 @@ request.gmAtlas = 'DISTAL Minimal (Ewert 2017)';
 request.useAtlas = true;
 request.removeElectrode = true;
 task = mh_vta_make_compute_task(cfg, stimFolders, sideCode, request);
-taskResult = mh_vta_run_compute_task(cfg, S, options, task);
+taskResults = mh_vta_run_compute_tasks(cfg, S, options, task);
+taskResult = taskResults(1);
 
 efieldPath = taskResult.efield_mni;
 mh_util_must_be_file(efieldPath, sprintf('target-component e-field for %s', componentId));
