@@ -186,6 +186,13 @@ The later code implementation should keep the image preprocessing and statistica
   - write CSV/JSON outputs, figures, and NIfTI maps with `nibabel`;
   - fill ROI vectors back into the right canonical reference grid.
 
+Python statistical postprocessing must run through the `leaddbs` Conda
+environment, for example with `conda run -n leaddbs python ...` or an
+activated `leaddbs` shell. Installing, upgrading, or adjusting Python packages
+inside this environment is acceptable when required for the analysis, but the
+final package state should be recorded in the run manifest or an accompanying
+environment export for auditability.
+
 Default resource use should be optimized but reproducible:
 
 ```text

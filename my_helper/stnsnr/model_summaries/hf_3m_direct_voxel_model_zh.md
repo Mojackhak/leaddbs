@@ -186,6 +186,11 @@ Y_HF3m_i = alpha
   - 用 `nibabel` 写出 CSV/JSON、figures 和 NIfTI maps；
   - 将 ROI vector 填回右侧标准 reference grid。
 
+Python 统计后处理必须在 `leaddbs` Conda 环境中运行，例如使用
+`conda run -n leaddbs python ...`，或先激活 `leaddbs` 环境后执行。
+若分析需要，允许在该环境内安装、升级或调整必要 Python 包；最终包状态
+应写入 run manifest，或另行导出 environment 文件，便于审计和复现。
+
 默认资源使用应尽量高效且可复现：
 
 ```text

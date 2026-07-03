@@ -57,6 +57,7 @@ is the authoritative specification.
 - STN/SNr pipeline scripts remain under `/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr` and should only call reusable core functions.
 - Core functions should remain under `/Users/mojackhu/Github/leaddbs/my_helper/fiber/core`.
 - Default Conda environment for Lead-DBS tasks: `leaddbs`.
+- Python statistical postprocessing for the HF/LF model family should run in the `leaddbs` Conda environment; installing or adjusting required Python packages in that environment is allowed when recorded in the run manifest or an environment export.
 - Random seed for all stochastic analysis steps: `42`.
 - Current placeholder stimulation table:
   `/Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset/random_stimulation_parameters.csv`.
