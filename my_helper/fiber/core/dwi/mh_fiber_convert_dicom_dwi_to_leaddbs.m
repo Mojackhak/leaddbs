@@ -91,12 +91,12 @@ else
         result.Status = 'dry_run_direct_dwi';
         result.Message = 'DWI DICOM conversion produced a multi-slice DWI; no files written.';
     else
+        result.Status = 'converted_direct_dwi';
+        result.Message = 'ok';
         copy_direct_candidate(candidate, paths);
         augment_final_json(paths.Json, opts, result, true);
         validate_final_outputs(paths);
         write_qc_json(paths.QcJson, opts, result, candidate);
-        result.Status = 'converted_direct_dwi';
-        result.Message = 'ok';
     end
 end
 
