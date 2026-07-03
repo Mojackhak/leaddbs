@@ -1458,3 +1458,43 @@ Phase 2AG validation completed:
   behavior.
 - Static search confirms the target-component analyzer now calls
   `mh_coverage_iqr` and no longer defines `local_iqr`.
+
+## Phase 2AH Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AH centralizes the repeated category-by-group matrix construction used by
+the STN/SNr cohort and target-component stacked-share figures:
+
+- Add `mh_coverage_category_matrix(groupValues, categoryValues, values)` under
+  `core/coverage`.
+- Preserve the existing behavior: stable unique group labels, stable unique
+  category labels, zero-filled missing group/category combinations, and the
+  first matching value for duplicate group/category rows.
+- Update `write_cohort_figures` and `write_summary_figures` to call the shared
+  helper before `mh_viz_stacked_share_bar`.
+- Keep stacked-share figure titles, filenames, value source columns, and
+  plotting behavior unchanged.
+
+Phase 2AH validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_category_matrix` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic smoke test proving stable ordering, missing-combination zero
+  fill, duplicate first-value behavior, and numeric matrix values match the
+  previous inline loop behavior.
+- Static verification that the STN/SNr analyzers no longer contain duplicated
+  nested category-matrix loops for stacked-share figures.
+
+Phase 2AH validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_coverage_category_matrix`; the two large
+  STN/SNr analyzers still report only their existing dynamic-growth warnings.
+- MATLAB synthetic smoke test verifies stable ordering, missing-combination
+  zero fill, duplicate first-value behavior, and numeric matrix values match the
+  previous inline loop behavior.
+- Static search confirms the STN/SNr analyzers call
+  `mh_coverage_category_matrix` and no longer contain duplicated nested
+  category-matrix loops for stacked-share figures.

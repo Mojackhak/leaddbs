@@ -503,17 +503,8 @@ mh_util_make_dir(figureDir);
 mainRows = coverageTable(abs(coverageTable.threshold_v_per_mm - mainThreshold) < 1e-9, :);
 summary = summarize_distribution(mainRows);
 
-targets = unique(summary.target, 'stable');
-categories = unique(summary.category, 'stable');
-matrix = zeros(numel(targets), numel(categories));
-for t = 1:numel(targets)
-    for c = 1:numel(categories)
-        row = summary.target == targets(t) & summary.category == categories(c);
-        if any(row)
-            matrix(t, c) = summary.mean_percent_total_vta(find(row, 1));
-        end
-    end
-end
+[targets, categories, matrix] = mh_coverage_category_matrix( ...
+    summary.target, summary.category, summary.mean_percent_total_vta);
 fig = mh_viz_stacked_share_bar(targets, categories, matrix, ...
     'Title', sprintf('Target-component VTA coverage share at %.2f V/mm', mainThreshold), ...
     'OutputPath', fullfile(figureDir, 'target_component_stacked_bar_thr0p20.png'));

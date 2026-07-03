@@ -685,18 +685,9 @@ mh_util_make_dir(figureDir);
 mainRows = coverageTable(abs(coverageTable.threshold_v_per_mm - mainThreshold) < 1e-9, :);
 byCondition = summarize_by_condition(mainRows);
 
-groupLabels = unique(strcat(byCondition.phase, " / ", byCondition.protocol), 'stable');
-categories = unique(byCondition.category, 'stable');
-shareMatrix = zeros(numel(groupLabels), numel(categories));
-for g = 1:numel(groupLabels)
-    groupKey = strcat(byCondition.phase, " / ", byCondition.protocol);
-    for c = 1:numel(categories)
-        row = groupKey == groupLabels(g) & byCondition.category == categories(c);
-        if any(row)
-            shareMatrix(g, c) = byCondition.mean_percent_total_vta(find(row, 1));
-        end
-    end
-end
+groupKey = strcat(byCondition.phase, " / ", byCondition.protocol);
+[groupLabels, categories, shareMatrix] = mh_coverage_category_matrix( ...
+    groupKey, byCondition.category, byCondition.mean_percent_total_vta);
 fig = mh_viz_stacked_share_bar(groupLabels, categories, shareMatrix, ...
     'Title', 'Mean VTA compartment share at 0.20 V/mm', ...
     'OutputPath', fullfile(figureDir, 'coverage_stacked_bar_thr0p20.png'));
