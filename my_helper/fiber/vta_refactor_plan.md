@@ -295,6 +295,8 @@ Phase 2C validation completed:
 
 ## Phase 2D Implementation Scope
 
+Status: **implemented**.
+
 Phase 2D encapsulates the current process-isolated worker launcher behind a
 reusable harness while preserving the existing subject-level worker behavior:
 
@@ -320,4 +322,39 @@ Phase 2D validation target:
   no real worker launch.
 - MATLAB dry-run smoke test for `run_stnsnr_vta_coverage_parallel.m` with a
   temporary workbook and `STNSNR_VTA_DRY_RUN=true`.
+- `git diff --check`.
+
+Phase 2D validation completed:
+
+- `git diff --check`
+- MATLAB dry-run smoke test for `mh_vta_launch_process_workers`, verifying
+  subject chunking, environment assignment, command construction, log paths,
+  dry-run status, and semicolon-separated job-table subject lists.
+- MATLAB dry-run smoke test for `run_stnsnr_vta_coverage_parallel.m` with a
+  temporary workbook/output directory and `STNSNR_VTA_DRY_RUN=true`, verifying
+  the project launcher delegates to the shared process harness and preserves
+  project-specific environment overrides.
+
+## Phase 2E Implementation Scope
+
+Phase 2E connects the program-side task list from Phase 2B/2C to process-mode
+execution while keeping sequential execution as the default:
+
+- Extend the task batch helper so `cfg.vta.executionMode = 'process'` is a
+  supported task execution mode instead of only a subject-level launcher mode.
+- Add a task-worker entry point that receives serialized `(program x side)`
+  task payloads, reconstructs the shared VTA inputs, and calls
+  `mh_vta_run_compute_task` in an isolated MATLAB process.
+- Keep existing STNSNr subject-level process workers compatible; they remain a
+  project launcher around whole-subject batches, while Phase 2E handles
+  intra-subject program-side tasks.
+- Validate with dry-run and stubbed compute tests before any real FEM run.
+
+Phase 2E validation target:
+
+- MATLAB smoke test proving sequential and process-mode dry-run planning create
+  equivalent task ordering and expected output metadata for two side tasks.
+- MATLAB stub-worker smoke test proving a serialized task payload can be loaded
+  and executed by the process task-worker entry point without requiring real FEM
+  data.
 - `git diff --check`.
