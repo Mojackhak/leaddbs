@@ -13,9 +13,7 @@ vtaA = mh_fiber_vta_paths(cfgA, []);
 vtaB = mh_fiber_vta_paths(cfgB, []);
 
 outDir = fullfile(cfgA.outputRoot, outputName);
-if ~isfolder(outDir)
-    mkdir(outDir);
-end
+mh_util_make_dir(outDir);
 
 sides = {'R', 'L'};
 rows = {};

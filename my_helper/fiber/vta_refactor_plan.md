@@ -2005,3 +2005,38 @@ Phase 2AU validation results:
 - Static search confirms `mh_fiber_compare_vta_schemes` calls
   `mh_vta_read_vat_volume` and no longer defines a local `read_vat_volume`
   function.
+
+## Phase 2AV Implementation Scope
+
+Status: **completed**.
+
+Phase 2AV removes the remaining hand-written output directory creation from VTA
+scheme comparison:
+
+- Update `mh_fiber_compare_vta_schemes` to call the shared
+  `mh_util_make_dir` helper for its comparison output directory.
+- Preserve output directory paths, CSV and Markdown filenames, comparison table
+  schema, and report contents.
+- Leave temporary Dice-resampling cleanup and optional activation CSV probing
+  unchanged because those are file-existence checks rather than reusable
+  directory setup.
+
+Phase 2AV validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_compare_vta_schemes` and
+  `mh_util_make_dir`.
+- MATLAB synthetic smoke test proving `mh_util_make_dir` creates a missing
+  output directory and is idempotent when called again.
+- Static verification that `mh_fiber_compare_vta_schemes` no longer calls
+  `mkdir` directly.
+
+Phase 2AV validation results:
+
+- `git diff --check` passed.
+- `mh_fiber_compare_vta_schemes` and `mh_util_make_dir` passed focused
+  `checkcode` with zero messages.
+- MATLAB synthetic smoke test confirmed `mh_util_make_dir` creates a missing
+  directory and remains idempotent when called again.
+- Static search confirms `mh_fiber_compare_vta_schemes` no longer calls
+  `mkdir` directly.
