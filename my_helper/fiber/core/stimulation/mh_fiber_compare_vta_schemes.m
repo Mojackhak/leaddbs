@@ -24,8 +24,8 @@ for i = 1:numel(sides)
     sideA = vtaA.mni.(side);
     sideB = vtaB.mni.(side);
     diceStats = dice_binary_nii(sideA.binaryNii, sideB.binaryNii);
-    volumeA = read_vat_volume(sideA.binaryMat);
-    volumeB = read_vat_volume(sideB.binaryMat);
+    volumeA = mh_vta_read_vat_volume(sideA.binaryMat);
+    volumeB = mh_vta_read_vat_volume(sideB.binaryMat);
     activationA = read_activation(cfgA, side);
     activationB = read_activation(cfgB, side);
 
@@ -86,19 +86,6 @@ stats.b_voxels = nnz(b);
 
 if ~isempty(tmpPath) && isfile(tmpPath)
     delete(tmpPath);
-end
-end
-
-function volume = read_vat_volume(matPath)
-if ~isfile(matPath)
-    volume = NaN;
-    return;
-end
-data = load(matPath, 'vatvolume');
-if isfield(data, 'vatvolume')
-    volume = data.vatvolume;
-else
-    volume = NaN;
 end
 end
 

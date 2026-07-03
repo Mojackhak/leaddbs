@@ -1968,3 +1968,40 @@ Phase 2AT validation results:
 - Static search confirms VTA stimulation code now uses `mh_util_cell_rows_to_table`
   for cell-row table construction; remaining direct `cell2table` calls are in
   DWI scripts outside this VTA phase.
+
+## Phase 2AU Implementation Scope
+
+Status: **completed**.
+
+Phase 2AU removes the remaining local VTA MAT volume reader from scheme
+comparison:
+
+- Update `mh_fiber_compare_vta_schemes` to call the shared
+  `mh_vta_read_vat_volume` helper.
+- Remove the analyzer-local `read_vat_volume` function.
+- Preserve the existing behavior for missing MAT files and MAT files without a
+  `vatvolume` variable: return `NaN`.
+- Keep scheme comparison CSV and Markdown schemas unchanged.
+
+Phase 2AU validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_compare_vta_schemes` and
+  `mh_vta_read_vat_volume`.
+- MATLAB synthetic smoke test proving `mh_vta_read_vat_volume` returns the
+  saved `vatvolume`, returns `NaN` for missing files, and returns `NaN` when the
+  variable is absent.
+- Static verification that `mh_fiber_compare_vta_schemes` no longer defines a
+  local `read_vat_volume` function.
+
+Phase 2AU validation results:
+
+- `git diff --check` passed.
+- `mh_fiber_compare_vta_schemes` and `mh_vta_read_vat_volume` passed focused
+  `checkcode` with zero messages.
+- MATLAB synthetic smoke tests passed for reading a saved `vatvolume`, returning
+  `NaN` for a missing MAT file, and returning `NaN` when the MAT file lacks
+  `vatvolume`.
+- Static search confirms `mh_fiber_compare_vta_schemes` calls
+  `mh_vta_read_vat_volume` and no longer defines a local `read_vat_volume`
+  function.

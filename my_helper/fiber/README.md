@@ -55,6 +55,7 @@ conductivity, threshold, atlas, and electrode-removal settings are centralized
 in `mh_vta_settings`.
 Standard VTA path lookups use `mh_fiber_vta_paths` and
 `mh_fiber_vta_efield_path`.
+VTA MAT volume reads use `mh_vta_read_vat_volume`.
 Coverage thresholding samples e-field lists with
 `mh_coverage_sample_efields_to_grid` and classifies one threshold with
 `mh_coverage_threshold_sampled_efields`.
