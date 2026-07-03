@@ -70,6 +70,8 @@ Coverage output file checks use `mh_coverage_require_output_files`.
 Threshold-series validation uses `mh_coverage_validate_threshold_series`.
 Required table-variable checks use `mh_util_require_table_vars` when callers
 need first-missing-column error behavior.
+Cell-row table construction uses `mh_util_cell_rows_to_table` when callers own
+the output schema and string-variable list.
 Horn backend calls use `mh_vta_run_horn_with_retry` for deterministic retry and
 post-write success handling.
 
