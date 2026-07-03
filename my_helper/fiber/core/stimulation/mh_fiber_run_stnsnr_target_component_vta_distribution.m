@@ -238,7 +238,7 @@ patterns = unique(sideRows.stimulation_pattern, 'stable');
 efieldPaths = strings(0, 1);
 if isscalar(patterns) && patterns == "continuous"
     label = mh_util_sanitize_label(sprintf('stnsnr_vta_%s_%s_%s_continuous', subjectId, phase, protocol));
-    efieldPaths(end+1, 1) = efield_path(subjectDir, patientName, label, sideCode);
+    efieldPaths(end+1, 1) = mh_fiber_vta_efield_path(subjectDir, patientName, label, sideCode);
 elseif isscalar(patterns) && patterns == "alternating"
     alternatingRows = conditionRows(conditionRows.stimulation_pattern == "alternating", :);
     for i = 1:height(alternatingRows)
@@ -247,7 +247,8 @@ elseif isscalar(patterns) && patterns == "alternating"
                 any(componentRows.raw_contact == one.raw_contact)
             label = mh_util_sanitize_label(sprintf('stnsnr_vta_%s_%s_%s_alt_%s_%s_c%d_row%d', ...
                 subjectId, phase, protocol, one.side(1), one.target(1), one.raw_contact(1), i));
-            efieldPaths(end+1, 1) = efield_path(subjectDir, patientName, label, sideCode); %#ok<AGROW>
+            efieldPaths(end+1, 1) = mh_fiber_vta_efield_path( ...
+                subjectDir, patientName, label, sideCode); %#ok<AGROW>
         end
     end
 else
@@ -611,9 +612,4 @@ required = {'cohort_target_component_vta_coverage_long.csv', ...
 for i = 1:numel(required)
     mh_util_must_be_file(fullfile(outputDir, required{i}), sprintf('target-component output %s', required{i}));
 end
-end
-
-function path = efield_path(subjectDir, patientName, stimLabel, sideCode)
-path = fullfile(subjectDir, 'stimulations', ea_nt(0), char(stimLabel), ...
-    sprintf('%s_sim-efield_model-simbio_hemi-%s.nii', patientName, sideCode));
 end

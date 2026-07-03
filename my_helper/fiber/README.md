@@ -53,6 +53,8 @@ single facade. Existing public helpers such as `mh_fiber_ensure_vta` and
 Model selection is resolved through `mh_vta_model_registry`, while Horn
 conductivity, threshold, atlas, and electrode-removal settings are centralized
 in `mh_vta_settings`.
+Standard VTA path lookups use `mh_fiber_vta_paths` and
+`mh_fiber_vta_efield_path`.
 Horn backend calls use `mh_vta_run_horn_with_retry` for deterministic retry and
 post-write success handling.
 

@@ -1119,3 +1119,38 @@ Phase 2X validation completed:
   alternating, and mixed inputs, plus list labels for table and vector inputs.
 - Static search confirms no local `condition_pattern` or `component_pattern`
   functions remain in the STN/SNr analyzers.
+
+## Phase 2Y Implementation Scope
+
+Status: **implemented**.
+
+Phase 2Y removes the target-component analyzer's hand-written standard e-field
+path constructor:
+
+- Add `mh_fiber_vta_efield_path` as a shared VTA path helper that delegates
+  standard filename construction to `mh_fiber_vta_paths`.
+- Replace the target-component analyzer-local `efield_path` helper with the
+  shared path helper.
+- Preserve existing MNI SimBio e-field filenames and side labels exactly.
+- Keep observed component e-field selection logic unchanged.
+
+Phase 2Y validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_vta_efield_path` and the target-component
+  analyzer.
+- MATLAB synthetic smoke test proving the shared helper returns the same MNI
+  SimBio e-field path as the previous hard-coded format for both hemispheres.
+- Static verification that the target-component analyzer calls
+  `mh_fiber_vta_efield_path` and no longer defines a local `efield_path`.
+
+Phase 2Y validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_fiber_vta_efield_path`; the large
+  target-component analyzer still reports only its existing dynamic-growth
+  warning.
+- MATLAB synthetic smoke test verifies that right and left MNI SimBio e-field
+  paths match the previous hard-coded filename format.
+- Static search confirms the target-component analyzer calls
+  `mh_fiber_vta_efield_path` and no longer defines a local `efield_path`.
