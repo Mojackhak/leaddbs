@@ -2300,3 +2300,41 @@ Phase 2BC validation results:
   non-default model key, direct `mh_fiber_set_stimulation` inherits
   `cfg.vta.modelKey` when `stimSpec.model` is absent, and default calls still
   produce `simbio`.
+
+## Phase 2BD Implementation Scope
+
+Status: **completed**.
+
+Phase 2BD exposes task-level process dry-run control at the STN/SNr project
+layer:
+
+- Add `VtaProcessDryRun` to the shared execution-option plumbing and STN/SNr
+  analyzers.
+- Add `STNSNR_VTA_PROCESS_DRY_RUN` environment handling to STN/SNr project
+  scripts and forward it through the subject-level process launcher.
+- Record the selected task-level process dry-run flag in cohort and
+  target-component manifests.
+- Preserve default behavior because omitted parameters and environment
+  variables still leave `cfg.vta.processDryRun = false`.
+
+Phase 2BD validation target:
+
+- `git diff --check`
+- Focused `checkcode` for touched execution helper, analyzers, and scripts.
+- MATLAB synthetic smoke test proving `mh_vta_apply_execution_options` applies
+  `VtaProcessDryRun`.
+- MATLAB dry-run smoke test proving the subject-level launcher forwards
+  `STNSNR_VTA_PROCESS_DRY_RUN` into worker command files.
+
+Phase 2BD validation results:
+
+- `git diff --check` passed.
+- Touched execution helper and STN/SNr project scripts passed focused
+  `checkcode` with zero messages.
+- The two touched large STN/SNr analyzers report only pre-existing `AGROW`
+  `checkcode` messages outside the refactored execution-option plumbing.
+- MATLAB synthetic smoke test confirmed `mh_vta_apply_execution_options` applies
+  `VtaProcessDryRun`.
+- MATLAB dry-run smoke test confirmed the subject-level launcher writes
+  `STNSNR_VTA_PROCESS_DRY_RUN='true'` into the worker launch command file while
+  redirecting output to a temporary directory.
