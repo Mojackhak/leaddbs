@@ -48,6 +48,8 @@ The six model-specific summaries are:
 For HF-only direct voxel model execution, the model-specific summary
 [`hf_3m_direct_voxel_model.md`](model_summaries/hf_3m_direct_voxel_model.md)
 is the authoritative specification.
+HF direct voxel output file semantics are also defined there and should not be
+duplicated as a separate source of truth in this master plan.
 
 ## Fixed Inputs and Defaults
 

@@ -228,12 +228,46 @@ direct_voxel_HF_mapping_qc.json
 direct_voxel_HF_generation_manifest.json
 ```
 
-map 定义：
+输出语义：
 
-- `direct_voxel_HF_coef.nii.gz` 存储 full-sample final model 的原始 `theta_HF(v)`；不做逐 voxel FDR。
-- `direct_voxel_HF_sweet_sour.nii.gz` 存储 benefit-oriented `M_HF(v)`。
-- `direct_voxel_HF_stability.nii.gz` 是 LOOCV training folds 中 `theta_HF(v) > 0` 的折比例。
-- `direct_voxel_HF_bootstrap_se.nii.gz` 是 full-process bootstrap 下 `theta_HF(v)` 的标准差。
+- `direct_voxel_HF_coverage.nii.gz` 存储
+  `Coverage_tau(v) = sum_i I(X_HF_i(v) > tau)`。它用于定义
+  `Omega_HF_tau`，也用于把低覆盖 voxel 显示为透明或灰色。
+- `direct_voxel_HF_coef.nii.gz` 存储 full-sample final ANCOVA map 的原始
+  `theta_HF(v)`。该 map 纳入该 scale/tau 下所有有效患者，并控制
+  `Y_Preop`；不做逐 voxel FDR。它用于最终空间报告，不用于无偏预测性能评估。
+- `direct_voxel_HF_sweet_sour.nii.gz` 存储 benefit-oriented map
+  `M_HF(v)`。低分更好的量表使用 `M_HF(v) = -theta_HF(v)`；高分更好的量表
+  使用 `M_HF(v) = theta_HF(v)`。因此正值统一表示 sweet 或 benefit-associated voxel。
+- `direct_voxel_HF_stability.nii.gz` 存储 LOOCV training folds 中
+  `theta_HF(v) > 0` 的折比例。它是方向稳定性 map，不是 p 值，也不是显著性阈值图。
+- `direct_voxel_HF_bootstrap_se.nii.gz` 存储 subject-level full-process
+  bootstrap 下 `theta_HF(v)` 的 voxel-wise 标准差。正式分析使用 `B=10000`；
+  smoke/exploratory 运行使用 `B=1000`。
+- `direct_voxel_HF_scores.csv` 存储患者级 exposure-weighted map matching
+  score，使用 full-sample reporting map 计算：
+
+  ```text
+  HFScore_i = sum_v X_HF_i(v) * M_HF(v) / sum_v X_HF_i(v)
+  ```
+
+  该 score 是 stimulation-to-map predictor。若分母为 0，则该 score 记为
+  `NaN`。
+- `direct_voxel_HF_loocv_predictions.csv` 存储 held-out LOOCV prediction
+  table。每行记录 held-out 患者的 `HFScore_LOOCV`、真实结局、HFScore model
+  预测值、covariate-only baseline 预测值和残差。held-out score 必须用该 fold
+  的 training-only map 计算，不能用 full-sample map。
+- `direct_voxel_HF_permutation_summary.csv` 存储 Freedman-Lane permutation
+  汇总。主统计量为 LOOCV Pearson `r`。正式分析使用 `B=10000`；
+  smoke/exploratory 运行使用 `B=1000`。
+- `direct_voxel_HF_mapping_qc.json` 存储 scale/tau 级 mapping QC，包括患者纳入、
+  coverage、`Omega_HF_tau` voxel 数、退化 voxel、NaN 处理和 design matrix 维度。
+- `direct_voxel_HF_generation_manifest.json` 存储 provenance，包括输入、输出、
+  参数、随机种子、代码版本、Conda `leaddbs` 环境和 Python 包状态。
+
+`direct_voxel_HF_scores.csv` 和 `direct_voxel_HF_loocv_predictions.csv` 的用途不同：
+前者是用于报告的患者级空间匹配 predictor；后者是验证表，用于判断该 predictor
+加上 `Y_Preop` 后能否预测 held-out 结局。
 
 主统计 map 不平滑。另在系数估计后生成 `FWHM=1 mm` 和 `FWHM=2 mm` 的敏感性展示 map，并重新回掩膜到 territory。
 

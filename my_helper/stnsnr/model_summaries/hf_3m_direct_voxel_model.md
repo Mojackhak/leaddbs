@@ -230,12 +230,53 @@ direct_voxel_HF_mapping_qc.json
 direct_voxel_HF_generation_manifest.json
 ```
 
-Map definitions:
+Output semantics:
 
-- `direct_voxel_HF_coef.nii.gz` stores the raw full-sample final-model `theta_HF(v)`; no per-voxel FDR is applied.
-- `direct_voxel_HF_sweet_sour.nii.gz` stores the benefit-oriented `M_HF(v)`.
-- `direct_voxel_HF_stability.nii.gz` is the fraction of LOOCV training folds with `theta_HF(v) > 0`.
-- `direct_voxel_HF_bootstrap_se.nii.gz` is the full-process bootstrap standard deviation of `theta_HF(v)`.
+- `direct_voxel_HF_coverage.nii.gz` stores
+  `Coverage_tau(v) = sum_i I(X_HF_i(v) > tau)`. It defines
+  `Omega_HF_tau` and supports low-coverage transparency or gray display.
+- `direct_voxel_HF_coef.nii.gz` stores the raw full-sample final ANCOVA
+  coefficient `theta_HF(v)`. All valid patients for the scale/tau are included,
+  `Y_Preop` is controlled, and no per-voxel FDR is applied. This map is for
+  final spatial reporting, not unbiased predictive-performance estimation.
+- `direct_voxel_HF_sweet_sour.nii.gz` stores the benefit-oriented map
+  `M_HF(v)`. For lower-is-better scales, `M_HF(v) = -theta_HF(v)`; for
+  higher-is-better scales, `M_HF(v) = theta_HF(v)`. Positive values therefore
+  consistently mean sweet or benefit-associated voxels.
+- `direct_voxel_HF_stability.nii.gz` stores the fraction of LOOCV training
+  folds with `theta_HF(v) > 0`. It is a direction-stability map, not a p-value
+  or thresholded significance map.
+- `direct_voxel_HF_bootstrap_se.nii.gz` stores the voxel-wise standard
+  deviation of `theta_HF(v)` from subject-level full-process bootstrap. Formal
+  analysis uses `B=10000`; smoke/exploratory runs use `B=1000`.
+- `direct_voxel_HF_scores.csv` stores patient-level exposure-weighted map
+  matching scores computed from the full-sample reporting map:
+
+  ```text
+  HFScore_i = sum_v X_HF_i(v) * M_HF(v) / sum_v X_HF_i(v)
+  ```
+
+  The score is a stimulation-to-map predictor. If the denominator is zero, the
+  score is recorded as `NaN`.
+- `direct_voxel_HF_loocv_predictions.csv` stores held-out LOOCV predictions.
+  Each row records the held-out patient's `HFScore_LOOCV`, true outcome,
+  HFScore-model prediction, covariate-only baseline prediction, and residuals.
+  The held-out score must be computed from the training-only map in that fold,
+  never from the full-sample map.
+- `direct_voxel_HF_permutation_summary.csv` stores the Freedman-Lane
+  permutation summary. The primary statistic is LOOCV Pearson `r`. Formal
+  analysis uses `B=10000`; smoke/exploratory runs use `B=1000`.
+- `direct_voxel_HF_mapping_qc.json` stores scale/tau-level mapping QC,
+  including patient inclusion, coverage, `Omega_HF_tau` voxel count, degenerate
+  voxels, NaN handling, and design-matrix dimensions.
+- `direct_voxel_HF_generation_manifest.json` stores provenance, including
+  inputs, outputs, parameters, random seed, code version, Conda `leaddbs`
+  environment, and Python package state.
+
+`direct_voxel_HF_scores.csv` and `direct_voxel_HF_loocv_predictions.csv` serve
+different purposes: the scores file is the patient-level spatial matching
+predictor for reporting, whereas the LOOCV file is the validation table showing
+whether that predictor plus `Y_Preop` predicts held-out outcomes.
 
 Primary statistical maps are unsmoothed. Additional sensitivity display maps are generated after coefficient estimation with `FWHM=1 mm` and `FWHM=2 mm`, then re-masked to the territory.
 
