@@ -1227,3 +1227,40 @@ Phase 2AA validation completed:
   previous formatter behavior, including plus and slash sanitization.
 - Static search confirms no local `make_condition_key` helper or inline
   condition/target key sanitizer remains in the STN/SNr analyzers.
+
+## Phase 2AB Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AB centralizes STN/SNr VTA coverage artifact basenames:
+
+- Add `mh_fiber_stnsnr_vta_artifact_base` under `core/stimulation`.
+- Preserve the condition-level basename format:
+  `<patient>_phase-<phase>_protocol-<protocol>_hemi-<side>_thr-<threshold>`.
+- Preserve the target-component basename format by inserting
+  `_target-<target>` before `_thr-<threshold>`.
+- Update condition and target-component mask writers and figure writers to use
+  the shared basename helper.
+- Keep mask suffixes, figure suffixes, descriptions, paths, and visualization
+  behavior unchanged.
+
+Phase 2AB validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_stnsnr_vta_artifact_base` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic smoke test proving condition-level and target-component
+  basenames match the previous `sprintf` plus sanitizer output.
+- Static verification that direct VTA coverage basename format strings no
+  longer remain in the STN/SNr analyzers.
+
+Phase 2AB validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_fiber_stnsnr_vta_artifact_base`; the two
+  large STN/SNr analyzers still report only their existing dynamic-growth
+  warnings.
+- MATLAB synthetic smoke test verifies condition-level and target-component
+  basenames match the previous `sprintf` plus sanitizer output.
+- Static search confirms direct VTA coverage basename format strings no longer
+  remain in the STN/SNr analyzers.

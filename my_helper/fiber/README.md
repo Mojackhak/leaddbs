@@ -74,6 +74,8 @@ STN/SNr observed VTA program labels use
 `mh_fiber_stnsnr_vta_program_label`.
 STN/SNr condition and target directory keys use
 `mh_fiber_stnsnr_condition_key`.
+STN/SNr VTA coverage artifact basenames use
+`mh_fiber_stnsnr_vta_artifact_base`.
 
 Process-isolated launches are now routed through
 `mh_vta_launch_process_workers`, which centralizes subject chunking, dry-run job
