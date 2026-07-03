@@ -13,16 +13,7 @@ parser.addParameter('MainThresholdVPerMm', 0.20, @(x) isnumeric(x) && isscalar(x
 parser.addParameter('OutputVoxelSizeMm', 0.5, @(x) isnumeric(x) && isscalar(x) && x > 0);
 parser.addParameter('ForceVta', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ForceOutputs', false, @(x) islogical(x) || isnumeric(x));
-parser.addParameter('VtaGmAtlas', 'DISTAL Minimal (Ewert 2017)', @(x) ischar(x) || isstring(x));
-parser.addParameter('VtaModelKey', 'simbio', @(x) ischar(x) || isstring(x));
-parser.addParameter('VtaExecutionMode', 'sequential', @(x) ischar(x) || isstring(x));
-parser.addParameter('VtaParallelWorkers', 1, @(x) isnumeric(x) && isscalar(x) && x >= 1);
-parser.addParameter('VtaMatlabExe', '/Applications/MATLAB_R2024b.app/bin/matlab', @(x) ischar(x) || isstring(x));
-parser.addParameter('VtaCondaEnv', 'leaddbs', @(x) ischar(x) || isstring(x));
-parser.addParameter('VtaProcessWorkDir', '', @(x) ischar(x) || isstring(x));
-parser.addParameter('VtaProcessDryRun', false, @(x) islogical(x) || isnumeric(x));
-parser.addParameter('VtaProcessPollSeconds', 2, @(x) isnumeric(x) && isscalar(x) && x > 0);
-parser.addParameter('VtaProcessTimeoutSeconds', 0, @(x) isnumeric(x) && isscalar(x) && x >= 0);
+parser = mh_fiber_stnsnr_add_vta_parser_params(parser);
 parser.parse(varargin{:});
 opts = parser.Results;
 
@@ -78,14 +69,7 @@ manifest.gray_matter_conductivity_s_per_m = 0.33;
 manifest.white_matter_conductivity_s_per_m = 0.14;
 manifest.analysis_unit = 'subject_id x phase x protocol x side x target';
 manifest.component_count = height(components);
-manifest.vta_gm_atlas = char(string(opts.VtaGmAtlas));
-manifest.vta_model_key = char(string(opts.VtaModelKey));
-manifest.vta_execution_mode = char(string(opts.VtaExecutionMode));
-manifest.vta_parallel_workers = double(opts.VtaParallelWorkers);
-manifest.vta_process_work_dir = char(string(opts.VtaProcessWorkDir));
-manifest.vta_process_dry_run = logical(opts.VtaProcessDryRun);
-manifest.vta_process_poll_seconds = double(opts.VtaProcessPollSeconds);
-manifest.vta_process_timeout_seconds = double(opts.VtaProcessTimeoutSeconds);
+manifest = mh_fiber_stnsnr_add_vta_manifest_fields(manifest, opts);
 manifest.component_origin_definitions = struct( ...
     'observed_single_target', 'Original side-level condition contains only one target.', ...
     'observed_target_union', 'Multiple same-target contacts or alternating subprograms represented as a union.', ...

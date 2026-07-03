@@ -2401,3 +2401,37 @@ Phase 2BF validation results:
   messages.
 - MATLAB synthetic smoke test confirmed valid totals pass, inconsistent total
   columns fail, and sum mismatches still fail with the caller-provided error ID.
+
+## Phase 2BG Implementation Scope
+
+Status: **completed**.
+
+Phase 2BG centralizes STN/SNr project-layer VTA option plumbing:
+
+- Add a shared helper that registers the common STN/SNr `Vta*` parser
+  parameters used by cohort coverage and target-component distribution.
+- Add a shared helper that copies the selected STN/SNr VTA options into output
+  manifests.
+- Update both STN/SNr analyzers to use the shared helpers.
+- Preserve all existing defaults, parser parameter names, manifest field names,
+  and option value conversions.
+
+Phase 2BG validation target:
+
+- `git diff --check`
+- Focused `checkcode` for the two new helpers and both touched analyzers.
+- MATLAB synthetic smoke test proving the shared parser helper accepts
+  non-default VTA options and the shared manifest helper produces the same VTA
+  manifest fields and value types as the previous inline assignments.
+
+Phase 2BG validation results:
+
+- `git diff --check` passed.
+- `mh_fiber_stnsnr_add_vta_parser_params` and
+  `mh_fiber_stnsnr_add_vta_manifest_fields` passed focused `checkcode` with
+  zero messages.
+- The two touched large STN/SNr analyzers report only pre-existing `AGROW`
+  `checkcode` messages outside the refactored option plumbing.
+- MATLAB synthetic smoke test confirmed the shared parser helper accepts
+  non-default VTA options and the shared manifest helper produces the expected
+  VTA manifest fields and value types while preserving existing manifest fields.
