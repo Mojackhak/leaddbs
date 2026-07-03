@@ -1700,3 +1700,48 @@ Phase 2AM validation results:
   formats.
 - Static search confirms the analyzer-local required table-column loops were
   replaced with `mh_util_require_table_vars`.
+
+## Phase 2AN Implementation Scope
+
+Status: **completed**.
+
+Phase 2AN centralizes category summary-table construction for VTA coverage:
+
+- Add `mh_coverage_category_summary_table(tableIn, groupVars, ...)` under
+  `core/coverage`.
+- Preserve the cohort summary schema by default:
+  `groupVars`, `threshold_v_per_mm`, `category`, `mean_volume_mm3`,
+  `median_volume_mm3`, `sd_volume_mm3`, and `mean_percent_total_vta`.
+- Support target-component summary extras through options:
+  `n_components`, `n_subjects`, `iqr_volume_mm3`, `min_volume_mm3`, and
+  `max_volume_mm3`.
+- Update STN/SNr cohort and target-component summary builders to call the
+  shared helper while keeping output column order, names, grouping keys, and
+  `omitnan` behavior unchanged.
+
+Phase 2AN validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_category_summary_table` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic smoke test comparing cohort-style and target-component-style
+  summary outputs against hand-computed expected values, including duplicate
+  rows, NaN omission, component counts, unique-subject counts, IQR, and min/max.
+- Static verification that the two STN/SNr analyzers call the shared helper and
+  no longer duplicate splitapply-based category summary statistics.
+
+Phase 2AN validation results:
+
+- `git diff --check` passed.
+- `mh_coverage_category_summary_table` passed focused `checkcode` with zero
+  messages.
+- The two touched STN/SNr analyzers report only pre-existing `AGROW`
+  `checkcode` messages outside the refactored summary builders.
+- MATLAB synthetic regression tests passed by comparing helper output with the
+  previous explicit `findgroups`/`splitapply` formulas for both cohort-style and
+  target-component-style summaries.
+- The smoke test covered duplicate rows, NaN omission, component counts,
+  unique-subject counts, IQR, min/max, and missing-column errors.
+- Static search confirms the STN/SNr summary builders call
+  `mh_coverage_category_summary_table` instead of duplicating category summary
+  statistic blocks.

@@ -658,16 +658,7 @@ summary = table(phase, protocol, side, total, 'VariableNames', ...
 end
 
 function byCondition = summarize_by_condition(coverageTable)
-[G, phase, protocol, threshold, category] = findgroups(coverageTable.phase, ...
-    coverageTable.protocol, coverageTable.threshold_v_per_mm, coverageTable.category);
-meanVolume = splitapply(@(x) mean(x, 'omitnan'), coverageTable.volume_mm3, G);
-medianVolume = splitapply(@(x) median(x, 'omitnan'), coverageTable.volume_mm3, G);
-sdVolume = splitapply(@(x) std(x, 'omitnan'), coverageTable.volume_mm3, G);
-meanPercent = splitapply(@(x) mean(x, 'omitnan'), coverageTable.percent_total_vta, G);
-byCondition = table(phase, protocol, threshold, category, meanVolume, medianVolume, ...
-    sdVolume, meanPercent, 'VariableNames', {'phase', 'protocol', ...
-    'threshold_v_per_mm', 'category', 'mean_volume_mm3', 'median_volume_mm3', ...
-    'sd_volume_mm3', 'mean_percent_total_vta'});
+byCondition = mh_coverage_category_summary_table(coverageTable, {'phase', 'protocol'});
 end
 
 function sensitivity = summarize_threshold_sensitivity(coverageTable)
