@@ -1,0 +1,62 @@
+<svg viewBox="0 0 700 400" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif" role="img" aria-labelledby="ttl desc">
+<title id="ttl">按数据语义选择图型的示意</title>
+<desc id="desc">四个面板：VTA 类别占比用环形图，多分组占比用 100% 堆叠条，跨被试分布用箱线图，阈值敏感性用折线图。</desc>
+
+<rect x="0" y="0" width="700" height="400" rx="14" fill="#ffffff" stroke="#e1e0d9" stroke-width="1"/>
+<text x="30" y="32" font-size="15" font-weight="500" fill="#0b0b0b">按数据语义选择图型（VTA 覆盖示例）</text>
+
+<rect x="20" y="48" width="320" height="160" rx="12" fill="#fcfcfb" stroke="#e1e0d9" stroke-width="1"/>
+<rect x="360" y="48" width="320" height="160" rx="12" fill="#fcfcfb" stroke="#e1e0d9" stroke-width="1"/>
+<rect x="20" y="224" width="320" height="156" rx="12" fill="#fcfcfb" stroke="#e1e0d9" stroke-width="1"/>
+<rect x="360" y="224" width="320" height="156" rx="12" fill="#fcfcfb" stroke="#e1e0d9" stroke-width="1"/>
+
+<text x="36" y="72" font-size="13" font-weight="500" fill="#0b0b0b">VTA 类别占比 · 和=100% → 环形图</text>
+<path d="M105,128 L105,76 A52,52 0 0 1 121.07,177.46 Z" fill="#2a78d6"/>
+<path d="M105,128 L121.07,177.46 A52,52 0 0 1 55.54,144.07 Z" fill="#1baf7a"/>
+<path d="M105,128 L55.54,144.07 A52,52 0 0 1 74.43,85.93 Z" fill="#4a3aa7"/>
+<path d="M105,128 L74.43,85.93 A52,52 0 0 1 105,76 Z" fill="#898781"/>
+<circle cx="105" cy="128" r="28" fill="#ffffff"/>
+<text x="105" y="125" font-size="11" fill="#52514e" text-anchor="middle">总 VTA</text>
+<text x="105" y="140" font-size="11" font-weight="500" fill="#0b0b0b" text-anchor="middle">100%</text>
+<g font-size="11" fill="#0b0b0b">
+<rect x="185" y="80" width="10" height="10" rx="2" fill="#2a78d6"/><text x="201" y="89">STN_only 45%</text>
+<rect x="185" y="104" width="10" height="10" rx="2" fill="#1baf7a"/><text x="201" y="113">SNr_only 25%</text>
+<rect x="185" y="128" width="10" height="10" rx="2" fill="#4a3aa7"/><text x="201" y="137">STN∩SNr 20%</text>
+<rect x="185" y="152" width="10" height="10" rx="2" fill="#898781"/><text x="201" y="161">Outside 10%</text>
+</g>
+
+<text x="376" y="72" font-size="13" font-weight="500" fill="#0b0b0b">多分组占比 → 100% 堆叠条</text>
+<text x="380" y="98" font-size="11" fill="#52514e">immediate</text>
+<rect x="380" y="104" width="140" height="26" fill="#2a78d6"/>
+<rect x="520" y="104" width="70" height="26" fill="#1baf7a"/>
+<rect x="590" y="104" width="42" height="26" fill="#4a3aa7"/>
+<rect x="632" y="104" width="28" height="26" fill="#898781"/>
+<text x="450" y="121" font-size="11" fill="#ffffff" text-anchor="middle">50%</text>
+<text x="555" y="121" font-size="11" fill="#ffffff" text-anchor="middle">25%</text>
+<text x="380" y="152" font-size="11" fill="#52514e">3m</text>
+<rect x="380" y="158" width="112" height="26" fill="#2a78d6"/>
+<rect x="492" y="158" width="84" height="26" fill="#1baf7a"/>
+<rect x="576" y="158" width="50" height="26" fill="#4a3aa7"/>
+<rect x="626" y="158" width="34" height="26" fill="#898781"/>
+<text x="436" y="175" font-size="11" fill="#ffffff" text-anchor="middle">40%</text>
+<text x="534" y="175" font-size="11" fill="#ffffff" text-anchor="middle">30%</text>
+
+<text x="36" y="248" font-size="13" font-weight="500" fill="#0b0b0b">跨被试分布 → 箱线图</text>
+<g stroke="#2a78d6" stroke-width="1.5" fill="#E6F1FB">
+<line x1="95" y1="270" x2="95" y2="346"/><rect x="78" y="288" width="34" height="40"/><line x1="78" y1="308" x2="112" y2="308" stroke-width="2"/>
+<line x1="185" y1="278" x2="185" y2="352"/><rect x="168" y="296" width="34" height="34"/><line x1="168" y1="312" x2="202" y2="312" stroke-width="2"/>
+<line x1="275" y1="282" x2="275" y2="356"/><rect x="258" y="302" width="34" height="32"/><line x1="258" y1="318" x2="292" y2="318" stroke-width="2"/>
+</g>
+<g font-size="10" fill="#52514e" text-anchor="middle">
+<text x="95" y="372">STN_only</text><text x="185" y="372">STN∩SNr</text><text x="275" y="372">Outside</text>
+</g>
+
+<text x="376" y="248" font-size="13" font-weight="500" fill="#0b0b0b">阈值敏感性 → 折线</text>
+<text x="378" y="268" font-size="10" fill="#52514e">总 VTA 体积 (mm³)</text>
+<line x1="410" y1="350" x2="660" y2="350" stroke="#c3c2b7" stroke-width="1"/>
+<polyline points="440,288 530,312 620,334" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<g fill="#2a78d6"><circle cx="440" cy="288" r="5"/><circle cx="530" cy="312" r="5"/><circle cx="620" cy="334" r="5"/></g>
+<g font-size="10" fill="#52514e" text-anchor="middle">
+<text x="440" y="368">0.18</text><text x="530" y="368">0.20</text><text x="620" y="368">0.22</text>
+</g>
+</svg>

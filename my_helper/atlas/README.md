@@ -55,3 +55,38 @@ Supported operations:
 - PPN and Allen superior colliculus masks: `> 0`.
 
 See `seed_target_binary_atlas_builder_plan.md` for details and rationale.
+
+## Custom SNr Left-To-Right Flip QA
+
+Run this atlas QA script from MATLAB to verify how Lead-DBS nonlinear
+left-to-right flipping maps the continuous Custom left SNr atlas onto the
+native right SNr atlas:
+
+```bash
+/Applications/MATLAB_R2024b.app/bin/matlab -batch "run('/Users/mojackhu/Github/leaddbs/my_helper/atlas/run_custom_snr_lr_flip_test.m')"
+```
+
+The script uses `ea_flip_lr_nonlinear` only; it does not use a manual x-axis
+mirror. It writes outputs to:
+
+```text
+/Volumes/VAL/STNSNr/summary/atlas_qc/lr_flip/Custom_Ewert_Zhang_Middlebrooks_SNr/
+```
+
+Main outputs:
+
+- `lh_SNr_flipped_to_right.nii.gz`
+- `lh_SNr_flipped_to_right_on_rh_grid.nii.gz`
+- `lh_SNr_flip_vs_rh_continuous_diff.nii.gz`
+- `lh_SNr_flip_vs_rh_metrics.csv`
+- `lh_SNr_flip_vs_rh_manifest.json`
+
+The metrics CSV reports continuous-image difference metrics and thresholded
+Dice/Jaccard/volume metrics at `0.001`, `0.01`, `0.05`, `0.25`, and `0.5`.
+Do not use `> 0` as the main overlap threshold: Lead-DBS' default B-spline
+interpolation can create tiny nonzero values and small negative or above-one
+values around mask boundaries. The `> 0.05` threshold is the primary threshold
+for the Custom STN/SNr atlas definitions used in this project.
+
+This script is an atlas flip QA utility, not a fiber tracking pipeline. Keep it
+under `my_helper/atlas` rather than `my_helper/fiber/stnsnr`.
