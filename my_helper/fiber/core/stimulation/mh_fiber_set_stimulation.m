@@ -40,7 +40,7 @@ if ~isfield(stimSpec, 'label')
     stimSpec.label = '';
 end
 if ~isfield(stimSpec, 'model')
-    stimSpec.model = 'simbio';
+    stimSpec.model = '';
 end
 if ~isfield(stimSpec, 'space')
     stimSpec.space = 'native_and_mni';

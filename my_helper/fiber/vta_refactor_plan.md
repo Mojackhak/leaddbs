@@ -2261,3 +2261,42 @@ Phase 2BB validation results:
   `mh_vta_run_stim_spec_tasks` honors a non-default `ModelKey` in
   `cfg.vta.modelKey`, the built stimulation metadata, and the task request, and
   also defaults from `stimSpec.model` when `ModelKey` is omitted.
+
+## Phase 2BC Implementation Scope
+
+Status: **completed**.
+
+Phase 2BC keeps stimulation specifications synchronized with externalized VTA
+model keys before task execution:
+
+- Add a `Model` option to `mh_fiber_stnsnr_stimspec_from_table` and use
+  `opts.VtaModelKey` when STN/SNr analyzers build stimulation specs.
+- Preserve default STN/SNr behavior by defaulting the helper option to
+  `simbio`.
+- Update `mh_fiber_set_stimulation` so a struct stimulation spec with a missing
+  or empty `model` field inherits `cfg.vta.modelKey` instead of being normalized
+  to `simbio` first.
+- Preserve default behavior for existing default configs because
+  `cfg.vta.modelKey` remains `simbio`.
+
+Phase 2BC validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_stnsnr_stimspec_from_table`,
+  `mh_fiber_set_stimulation`, and the touched STN/SNr analyzers.
+- MATLAB synthetic smoke test proving STN/SNr stimspec construction accepts a
+  non-default model key, direct `mh_fiber_set_stimulation` inherits
+  `cfg.vta.modelKey` when `stimSpec.model` is absent, and default calls still
+  produce `simbio`.
+
+Phase 2BC validation results:
+
+- `git diff --check` passed.
+- `mh_fiber_stnsnr_stimspec_from_table` and `mh_fiber_set_stimulation` passed
+  focused `checkcode` with zero messages.
+- The two touched large STN/SNr analyzers report only pre-existing `AGROW`
+  `checkcode` messages outside the refactored stimulation-spec plumbing.
+- MATLAB synthetic smoke test confirmed STN/SNr stimspec construction accepts a
+  non-default model key, direct `mh_fiber_set_stimulation` inherits
+  `cfg.vta.modelKey` when `stimSpec.model` is absent, and default calls still
+  produce `simbio`.

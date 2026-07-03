@@ -438,7 +438,8 @@ for i = 1:numel(programs)
     cfg.vta.model = mh_fiber_model_name(modelKey);
     cfg.vta.gmAtlas = char(string(opts.VtaGmAtlas));
     cfg = mh_vta_apply_execution_options(cfg, opts);
-    stimSpec = mh_fiber_stnsnr_stimspec_from_table(rows, programs(i).label);
+    stimSpec = mh_fiber_stnsnr_stimspec_from_table(rows, programs(i).label, ...
+        'Model', modelKey);
 
     activeSides = unique(string(rows.Side), 'stable');
     [taskResults, taskArray, cfg, ~, ~, stimFolders] = mh_vta_run_stim_spec_tasks( ...
