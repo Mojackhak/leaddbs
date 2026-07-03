@@ -3,7 +3,7 @@ function [taskResults, taskArray, cfg, S, options, stimFolders] = mh_vta_run_sti
 
 parser = inputParser;
 parser.FunctionName = 'mh_vta_run_stim_spec_tasks';
-parser.addParameter('ModelKey', default_model_key(cfg), @(x) ischar(x) || isstring(x));
+parser.addParameter('ModelKey', default_model_key(cfg, stimSpec), @(x) ischar(x) || isstring(x));
 parser.addParameter('Force', default_force(cfg), @(x) islogical(x) || isnumeric(x));
 parser.addParameter('OutputSpaces', default_output_spaces(cfg), @(x) ischar(x) || isstring(x) || iscell(x));
 parser.addParameter('ExportThresholdVPerMm', [], @(x) isempty(x) || (isnumeric(x) && isscalar(x)));
@@ -31,6 +31,7 @@ if ~isempty(opts.RemoveElectrode)
     request.removeElectrode = logical(opts.RemoveElectrode);
 end
 
+stimSpec.model = request.modelKey;
 cfg = mh_fiber_set_stimulation(cfg, stimSpec);
 [S, options, stimFolders] = mh_fiber_build_stimulation(cfg);
 request.stimFolders = stimFolders;
@@ -43,8 +44,10 @@ taskArray = vertcat(taskCells{:});
 taskResults = mh_vta_run_compute_tasks(cfg, S, options, taskArray);
 end
 
-function modelKey = default_model_key(cfg)
-if isfield(cfg, 'vta') && isfield(cfg.vta, 'modelKey') && strlength(string(cfg.vta.modelKey)) > 0
+function modelKey = default_model_key(cfg, stimSpec)
+if isfield(stimSpec, 'model') && strlength(string(stimSpec.model)) > 0
+    modelKey = stimSpec.model;
+elseif isfield(cfg, 'vta') && isfield(cfg.vta, 'modelKey') && strlength(string(cfg.vta.modelKey)) > 0
     modelKey = cfg.vta.modelKey;
 else
     modelKey = 'simbio';

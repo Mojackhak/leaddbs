@@ -118,13 +118,15 @@ shared inside one MATLAB process. Process-mode configuration lives under
 `cfg.vta.processTimeoutSeconds`.
 
 STN/SNr cohort coverage exposes the same controls as
-`VtaExecutionMode`, `VtaParallelWorkers`, `VtaMatlabExe`, `VtaCondaEnv`,
-`VtaProcessWorkDir`, `VtaProcessPollSeconds`, and
+`VtaModelKey`, `VtaExecutionMode`, `VtaParallelWorkers`, `VtaMatlabExe`,
+`VtaCondaEnv`, `VtaProcessWorkDir`, `VtaProcessPollSeconds`, and
 `VtaProcessTimeoutSeconds`. The subject-level launcher forwards matching
-`STNSNR_VTA_EXECUTION_MODE`, `STNSNR_VTA_PARALLEL_WORKERS`,
-`STNSNR_VTA_TASK_MATLAB_EXE`, `STNSNR_VTA_TASK_CONDA_ENV`,
-`STNSNR_VTA_PROCESS_WORK_DIR`, `STNSNR_VTA_PROCESS_POLL_SECONDS`, and
-`STNSNR_VTA_PROCESS_TIMEOUT_SECONDS` environment variables to worker processes.
+`STNSNR_VTA_MODEL_KEY`, `STNSNR_VTA_EXECUTION_MODE`,
+`STNSNR_VTA_PARALLEL_WORKERS`, `STNSNR_VTA_TASK_MATLAB_EXE`,
+`STNSNR_VTA_TASK_CONDA_ENV`, `STNSNR_VTA_PROCESS_WORK_DIR`,
+`STNSNR_VTA_PROCESS_POLL_SECONDS`, and `STNSNR_VTA_PROCESS_TIMEOUT_SECONDS`
+environment variables to worker processes. `STNSNR_VTA_MODEL_KEY` defaults to
+`simbio`.
 Subject ID chunks are written and forwarded as semicolon-separated lists, which
 are parsed by `mh_fiber_split_env_list`. The launcher writes full shell command
 lines to per-worker command files and stores those command file paths in

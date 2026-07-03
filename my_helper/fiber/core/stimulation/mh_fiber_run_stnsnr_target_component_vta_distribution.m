@@ -14,6 +14,7 @@ parser.addParameter('OutputVoxelSizeMm', 0.5, @(x) isnumeric(x) && isscalar(x) &
 parser.addParameter('ForceVta', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ForceOutputs', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('VtaGmAtlas', 'DISTAL Minimal (Ewert 2017)', @(x) ischar(x) || isstring(x));
+parser.addParameter('VtaModelKey', 'simbio', @(x) ischar(x) || isstring(x));
 parser.addParameter('VtaExecutionMode', 'sequential', @(x) ischar(x) || isstring(x));
 parser.addParameter('VtaParallelWorkers', 1, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('VtaMatlabExe', '/Applications/MATLAB_R2024b.app/bin/matlab', @(x) ischar(x) || isstring(x));
@@ -77,6 +78,7 @@ manifest.white_matter_conductivity_s_per_m = 0.14;
 manifest.analysis_unit = 'subject_id x phase x protocol x side x target';
 manifest.component_count = height(components);
 manifest.vta_gm_atlas = char(string(opts.VtaGmAtlas));
+manifest.vta_model_key = char(string(opts.VtaModelKey));
 manifest.vta_execution_mode = char(string(opts.VtaExecutionMode));
 manifest.vta_parallel_workers = double(opts.VtaParallelWorkers);
 manifest.vta_process_work_dir = char(string(opts.VtaProcessWorkDir));
@@ -275,16 +277,17 @@ function efieldPaths = generate_component_efield(componentRows, subjectDir, pati
 sideCode = char(component.side);
 componentId = char(component.component_id);
 label = mh_fiber_stnsnr_target_component_vta_label(componentId);
+modelKey = char(string(opts.VtaModelKey));
 cfg = mh_fiber_default_config(subjectDir, label);
 cfg.forceRecomputeVTA = logical(opts.ForceVta);
-cfg.vta.modelKey = 'simbio';
-cfg.vta.model = mh_fiber_model_name('simbio');
+cfg.vta.modelKey = modelKey;
+cfg.vta.model = mh_fiber_model_name(modelKey);
 cfg.vta.gmAtlas = char(string(opts.VtaGmAtlas));
 cfg = mh_vta_apply_execution_options(cfg, opts);
 stimSpec = mh_fiber_stnsnr_stimspec_from_table(componentRows, label);
 [taskResults, ~, cfg] = mh_vta_run_stim_spec_tasks( ...
     cfg, stimSpec, {sideCode}, ...
-    'ModelKey', 'simbio', ...
+    'ModelKey', modelKey, ...
     'Force', logical(opts.ForceVta), ...
     'OutputSpaces', {'mni'}, ...
     'ExportThresholdVPerMm', exportThresholdVPerMm, ...

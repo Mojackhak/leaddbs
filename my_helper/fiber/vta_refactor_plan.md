@@ -2213,3 +2213,51 @@ Phase 2BA validation results:
 - MATLAB synthetic smoke test confirmed default, legacy `Model`, and explicit
   `ModelKey` calls produce standard `model-simbio` paths, and unsupported
   explicit model keys raise `mh_vta_model_registry:UnsupportedModel`.
+
+## Phase 2BB Implementation Scope
+
+Status: **completed**.
+
+Phase 2BB externalizes the STN/SNr project VTA model key:
+
+- Add `VtaModelKey` parameters to `mh_fiber_run_stnsnr_vta_coverage` and
+  `mh_fiber_run_stnsnr_target_component_vta_distribution`, defaulting to
+  `simbio`.
+- Use `opts.VtaModelKey` when assigning `cfg.vta.modelKey`, resolving
+  `cfg.vta.model`, and calling `mh_vta_run_stim_spec_tasks`.
+- Ensure `mh_vta_run_stim_spec_tasks` writes the selected `ModelKey` back to
+  `stimSpec.model` before `mh_fiber_set_stimulation` so the built stimulation
+  structure, cfg metadata, task request, and backend dispatch stay synchronized.
+- Add `STNSNR_VTA_MODEL_KEY` environment handling to STN/SNr project scripts
+  and forward it through the subject-level process launcher.
+- Record the selected model key in cohort and target-component manifests.
+- Preserve default behavior because omitted parameters and environment
+  variables still select the existing SimBio two-source backend.
+
+Phase 2BB validation target:
+
+- `git diff --check`
+- Focused `checkcode` for touched STN/SNr analyzers and scripts.
+- Static verification that the analyzers no longer hard-code `ModelKey`,
+  `cfg.vta.modelKey`, or `mh_fiber_model_name` to `simbio`.
+- MATLAB dry-run smoke test proving the parallel launcher forwards
+  `STNSNR_VTA_MODEL_KEY` into worker command files.
+- MATLAB synthetic smoke test proving `mh_vta_run_stim_spec_tasks` honors a
+  non-default `ModelKey` in both `cfg.vta.modelKey` and the task request.
+
+Phase 2BB validation results:
+
+- `git diff --check` passed.
+- Touched STN/SNr project scripts and `mh_vta_run_stim_spec_tasks` passed
+  focused `checkcode` with zero messages.
+- The two touched large STN/SNr analyzers report only pre-existing `AGROW`
+  `checkcode` messages outside the refactored model-key plumbing.
+- Static search confirms the analyzers no longer hard-code task `ModelKey`,
+  `cfg.vta.modelKey`, or `mh_fiber_model_name` to `simbio`.
+- MATLAB dry-run smoke test confirmed the subject-level launcher writes
+  `STNSNR_VTA_MODEL_KEY='onesolve'` into the worker launch command file while
+  redirecting output to a temporary directory.
+- MATLAB synthetic smoke test with temporary build/run stubs confirmed
+  `mh_vta_run_stim_spec_tasks` honors a non-default `ModelKey` in
+  `cfg.vta.modelKey`, the built stimulation metadata, and the task request, and
+  also defaults from `stimSpec.model` when `ModelKey` is omitted.
