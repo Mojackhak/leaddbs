@@ -50,7 +50,7 @@ mh_util_must_be_folder(repoDir, 'repository directory');
 mh_util_must_be_folder(subjectRoot, 'Lead-DBS subject root');
 mh_util_must_be_file(workbook, 'stimulation workbook');
 mh_util_must_be_folder(atlasDir, 'STN/SNr atlas directory');
-regionSpec = stnsnr_region_spec(atlasDir);
+regionSpec = mh_fiber_stnsnr_region_spec(atlasDir);
 mh_coverage_verify_region_spec(regionSpec, 'mh_fiber_run_stnsnr_vta_coverage');
 
 thresholdsVPerMm = unique(double(opts.ThresholdsVPerMm(:))', 'stable');
@@ -941,12 +941,6 @@ stringVars = {'subject_id', 'patient_name', 'workbook_id', 'name_en', 'name_zh',
 for i = 1:numel(stringVars)
     tableOut.(stringVars{i}) = string(tableOut.(stringVars{i}));
 end
-end
-
-function regionSpec = stnsnr_region_spec(atlasDir)
-regionSpec = mh_coverage_region_spec_from_hemi_atlas(atlasDir, {'STN', 'SNr'});
-regionSpec.project = 'STNSNr';
-regionSpec.description = 'Project-injected STN/SNr classification atlas specification.';
 end
 
 function key = make_condition_key(phase, protocol)

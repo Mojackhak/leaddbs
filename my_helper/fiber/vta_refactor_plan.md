@@ -525,3 +525,23 @@ Phase 2H validation completed:
   reads and passes the shared `STNSNR_VTA_*` execution environment variables.
 - MATLAB stub smoke test proving the single-task `mh_vta_run_compute_tasks`
   path returns the same result metadata expected by target-component generation.
+
+## Phase 2I Implementation Scope
+
+Phase 2I removes the duplicated STN/SNr region-spec helper from the two STNSNr
+analyzers:
+
+- Add `mh_fiber_stnsnr_region_spec(atlasDir)` as the single project-level
+  region-spec constructor for the injected STN/SNr classification atlas.
+- Replace local `stnsnr_region_spec` functions in cohort coverage and
+  target-component coverage with calls to the shared helper.
+- Keep the region names, project label, description, and hemisphere atlas layout
+  unchanged.
+
+Phase 2I validation target:
+
+- `git diff --check`
+- Focused `checkcode` for the new helper and both touched analyzers.
+- MATLAB smoke test proving `mh_fiber_stnsnr_region_spec` returns the expected
+  project metadata, region names, category scheme, and per-hemisphere mask path
+  fields.

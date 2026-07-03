@@ -101,7 +101,8 @@ Coverage analysis is separate from VTA generation. `core/coverage/` builds the
 reference grid, samples e-field and atlas masks, and classifies VTA voxels with
 a generic membership-partition region specification. STN/SNr analyses inject
 their own STN and SNr atlas paths at the project layer; the coverage engine does
-not hard-code those region names or paths.
+not hard-code those region names or paths. The shared STN/SNr project region
+specification is built by `mh_fiber_stnsnr_region_spec`.
 
 Composition figures use `core/viz/` semantic plotting helpers: part-whole VTA
 category summaries are drawn as donut charts or 100 percent stacked share bars,
