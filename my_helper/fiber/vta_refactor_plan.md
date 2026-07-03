@@ -1083,3 +1083,39 @@ Phase 2W validation completed:
 - Static search confirms the target-component analyzer no longer defines
   `join_numeric` and that STN/SNr analyzer report-field joins call
   `mh_util_join_values`.
+
+## Phase 2X Implementation Scope
+
+Status: **implemented**.
+
+Phase 2X centralizes STN/SNr stimulation-pattern report labels:
+
+- Add `mh_fiber_stnsnr_stimulation_pattern_label` under `core/stimulation`.
+- Support the two existing label modes:
+  - condition union mode: `continuous`, `alternating_union`, or `mixed_union`.
+  - list mode: unique stable stimulation patterns joined with semicolons.
+- Update STN/SNr cohort coverage and target-component coverage to call the
+  shared helper and remove their local `condition_pattern` and
+  `component_pattern` functions.
+- Keep output `stimulation_pattern` values unchanged.
+
+Phase 2X validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_stnsnr_stimulation_pattern_label` and both
+  touched STN/SNr analyzers.
+- MATLAB synthetic smoke test proving condition-union labels and list labels
+  match previous behavior for continuous, alternating, and mixed inputs.
+- Static verification that no local `condition_pattern` or `component_pattern`
+  functions remain in the STN/SNr analyzers.
+
+Phase 2X validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for
+  `mh_fiber_stnsnr_stimulation_pattern_label`; the two large STN/SNr analyzers
+  still report only their existing dynamic-growth warnings.
+- MATLAB synthetic smoke test verifies condition-union labels for continuous,
+  alternating, and mixed inputs, plus list labels for table and vector inputs.
+- Static search confirms no local `condition_pattern` or `component_pattern`
+  functions remain in the STN/SNr analyzers.

@@ -534,7 +534,8 @@ for s = 1:numel(sides)
         paths = write_condition_masks(ref, vtaMask, categories, overlapMask, conditionDirs, ...
             patientName, phase, protocol, sideCode, thresholdLabel, forceOutputs);
         categoryRows = mh_coverage_category_summary_rows(categories, vtaMask, ref.voxel_volume_mm3);
-        pattern = condition_pattern(conditionRows);
+        pattern = mh_fiber_stnsnr_stimulation_pattern_label(conditionRows, ...
+            'Column', 'StimulationPattern', 'Mode', 'condition_union');
         rawContacts = mh_util_join_values(conditionRows.RawContact(conditionRows.Side == string(sideCode)));
         leadContacts = mh_util_join_values(conditionRows.LeadContact(conditionRows.Side == string(sideCode)));
         targets = mh_util_join_values(unique(string(conditionRows.Target(conditionRows.Side == string(sideCode))), 'stable'));
@@ -853,17 +854,6 @@ end
 
 function key = make_condition_key(phase, protocol)
 key = mh_util_sanitize_label(sprintf('%s_%s', phase, protocol));
-end
-
-function pattern = condition_pattern(rows)
-patterns = unique(string(rows.StimulationPattern), 'stable');
-if isscalar(patterns) && patterns == "continuous"
-    pattern = 'continuous';
-elseif isscalar(patterns) && patterns == "alternating"
-    pattern = 'alternating_union';
-else
-    pattern = 'mixed_union';
-end
 end
 
 function tf = subject_outputs_complete(subjectOutput, patientName)
