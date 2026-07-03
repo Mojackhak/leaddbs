@@ -671,3 +671,39 @@ Phase 2L validation completed:
   script writes outputs to the env-selected directory, produces
   `cohort_vta_coverage_long.csv` at 1536 x 25, and records the env-selected
   `vta_gm_atlas` in `cohort_vta_generation_manifest.json`.
+
+## Phase 2M Implementation Scope
+
+Status: **implemented**.
+
+Phase 2M removes the remaining local stimulation-label sanitizer while
+preserving existing label semantics:
+
+- Extend `mh_util_sanitize_label` with optional `PreservePlus` and `ErrorId`
+  arguments. Defaults must preserve current utility behavior, including
+  converting `+` to `plus`.
+- Update `mh_fiber_set_stimulation` to call `mh_util_sanitize_label` with
+  `PreservePlus = true`, preserving its previous explicit-label behavior.
+- Preserve the previous `mh_fiber_set_stimulation:InvalidLabel` error for labels
+  that sanitize to an empty string.
+
+Phase 2M validation target:
+
+- `git diff --check`
+- Focused `checkcode` for the utility and `mh_fiber_set_stimulation`.
+- MATLAB smoke test proving default utility behavior is unchanged,
+  `PreservePlus` keeps `+`, explicit stimulation labels keep `+`, and empty
+  explicit labels still raise `mh_fiber_set_stimulation:InvalidLabel`.
+
+Phase 2M validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_util_sanitize_label` and
+  `mh_fiber_set_stimulation`.
+- MATLAB smoke test proving default `mh_util_sanitize_label('STN+SNr')` remains
+  `STNplusSNr`, `PreservePlus = true` returns `STN+SNr`, utility `ErrorId`
+  rejects empty sanitized labels, explicit stimulation labels preserve `+`, and
+  empty explicit stimulation labels still raise
+  `mh_fiber_set_stimulation:InvalidLabel`.
+- Static search confirms `mh_fiber_set_stimulation` now calls
+  `mh_util_sanitize_label` and no local `sanitize_label` function remains.

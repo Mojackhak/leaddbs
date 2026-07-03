@@ -14,7 +14,9 @@ validate_sources(stimSpec.sources, cfg.maxSourcesPerSide);
 if ~isfield(stimSpec, 'label') || strlength(string(stimSpec.label)) == 0
     stimSpec.label = mh_fiber_make_stim_label(stimSpec);
 else
-    stimSpec.label = sanitize_label(stimSpec.label);
+    stimSpec.label = mh_util_sanitize_label(stimSpec.label, ...
+        'PreservePlus', true, ...
+        'ErrorId', 'mh_fiber_set_stimulation:InvalidLabel');
 end
 
 if ~isfield(stimSpec, 'model') || strlength(string(stimSpec.model)) == 0
@@ -112,15 +114,5 @@ switch lower(unit)
         unit = 'mA';
     otherwise
         error('mh_fiber_set_stimulation:InvalidUnit', 'Unsupported stimulation unit: %s', unit);
-end
-end
-
-function label = sanitize_label(label)
-label = char(string(label));
-label = regexprep(label, '[^A-Za-z0-9_+-]+', '_');
-label = regexprep(label, '_+', '_');
-label = regexprep(label, '^_|_$', '');
-if isempty(label)
-    error('mh_fiber_set_stimulation:InvalidLabel', 'Stimulation label is empty after sanitization.');
 end
 end
