@@ -784,3 +784,41 @@ Phase 2O validation completed:
 - Static search confirms both STN/SNr analyzers call
   `mh_vta_run_stim_spec_tasks` and no longer call
   `mh_vta_make_compute_task` directly.
+
+## Phase 2P Implementation Scope
+
+Status: **implemented**.
+
+Phase 2P tightens the shared utility boundary for the VTA-facing default
+configuration:
+
+- Replace `mh_fiber_default_config`'s local `resolve_repo_dir` helper with the
+  shared `mh_util_resolve_repo_dir`.
+- Keep subject-dir validation, fallback path behavior, and generated `cfg`
+  fields unchanged.
+- Leave DWI/ROI-local `resolve_repo_dir` helpers out of scope for this VTA
+  cleanup because those scripts belong to separate non-VTA workflows.
+
+Phase 2P validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_default_config` and
+  `mh_util_resolve_repo_dir`.
+- MATLAB smoke test using a temporary subject directory proving
+  `mh_fiber_default_config` resolves `cfg.repoDir` to the repository root and
+  keeps standard VTA defaults intact.
+- Static verification that `mh_fiber_default_config` calls
+  `mh_util_resolve_repo_dir` and no longer defines a local `resolve_repo_dir`.
+
+Phase 2P validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_fiber_default_config` and
+  `mh_util_resolve_repo_dir`.
+- MATLAB smoke test with a temporary `sub-smoke` subject directory verifies that
+  `mh_fiber_default_config` resolves `cfg.repoDir` to
+  `/Users/mojackhu/Github/leaddbs` and preserves standard VTA defaults,
+  including `modelKey = simbio`, `executionMode = sequential`, and
+  `gmAtlas = DISTAL Nano (Ewert 2017)`.
+- Static search confirms `mh_fiber_default_config` calls
+  `mh_util_resolve_repo_dir` and no longer defines a local `resolve_repo_dir`.

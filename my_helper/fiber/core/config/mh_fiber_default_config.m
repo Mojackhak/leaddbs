@@ -14,7 +14,7 @@ if ~isfolder(subjectDir)
 end
 
 thisFile = mfilename('fullpath');
-repoDir = resolve_repo_dir(thisFile);
+repoDir = mh_util_resolve_repo_dir(thisFile);
 [~, patientName] = fileparts(subjectDir);
 subjectId = regexprep(patientName, '^sub-', '');
 
@@ -182,20 +182,4 @@ for i = 1:numel(candidates)
         return;
     end
 end
-end
-
-function repoDir = resolve_repo_dir(startPath)
-repoDir = fileparts(startPath);
-while strlength(string(repoDir)) > 0
-    if isfolder(fullfile(repoDir, 'templates')) && isfolder(fullfile(repoDir, 'my_helper'))
-        return;
-    end
-    parentDir = fileparts(repoDir);
-    if strcmp(parentDir, repoDir)
-        break;
-    end
-    repoDir = parentDir;
-end
-error('mh_fiber_default_config:RepoRootNotFound', ...
-    'Cannot resolve Lead-DBS repo root from: %s', startPath);
 end
