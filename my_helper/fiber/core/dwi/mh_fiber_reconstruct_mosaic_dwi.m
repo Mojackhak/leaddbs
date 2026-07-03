@@ -48,7 +48,7 @@ if opts.DryRun
 end
 
 ensure_output_available(paths, opts.Force);
-ensure_dir(opts.OutputDir);
+mh_util_make_dir(opts.OutputDir);
 
 mosaicData = niftiread(opts.SourceNifti);
 if ndims(mosaicData) < 4
@@ -92,10 +92,14 @@ for i = 1:numel(required)
             '%s must be provided.', required{i});
     end
 end
-must_be_file(opts.SourceNifti, 'source NIfTI');
-must_be_file(opts.SourceJson, 'source JSON');
-must_be_file(opts.SourceBval, 'source bval');
-must_be_file(opts.SourceBvec, 'source bvec');
+mh_util_must_be_file(opts.SourceNifti, 'source NIfTI', ...
+    'mh_fiber_reconstruct_mosaic_dwi:MissingFile');
+mh_util_must_be_file(opts.SourceJson, 'source JSON', ...
+    'mh_fiber_reconstruct_mosaic_dwi:MissingFile');
+mh_util_must_be_file(opts.SourceBval, 'source bval', ...
+    'mh_fiber_reconstruct_mosaic_dwi:MissingFile');
+mh_util_must_be_file(opts.SourceBvec, 'source bvec', ...
+    'mh_fiber_reconstruct_mosaic_dwi:MissingFile');
 end
 
 function paths = output_paths(outputDir, outputBase)
@@ -144,7 +148,7 @@ function reconstructed = reconstruct_all_volumes(mosaicData, geometry, useParall
 outSize = geometry.OutputImageSize;
 reconstructed = zeros(outSize, 'like', mosaicData);
 volumeCount = geometry.VolumeCount;
-useParallel = useParallel && volumeCount > 1 && ensure_parallel_pool(workerCount);
+useParallel = useParallel && volumeCount > 1 && mh_fiber_ensure_parallel_pool(workerCount);
 
 if useParallel
     parfor volumeIndex = 1:volumeCount
@@ -189,8 +193,8 @@ outInfo.Description = 'SaveBySlc mosaic reconstructed DWI';
 
 tempDir = tempname;
 mkdir(tempDir);
-cleanupObj = onCleanup(@() cleanup_temp_dir(tempDir));
-tempBase = fullfile(tempDir, strip_nii_gz_ext(get_file_name(outputPath)));
+cleanupObj = onCleanup(@() mh_fiber_cleanup_temp_dir(tempDir));
+tempBase = fullfile(tempDir, mh_fiber_nii_basename(outputPath));
 niftiwrite(data, tempBase, outInfo, 'Compressed', true);
 tempOutput = [tempBase, '.nii.gz'];
 if ~isfile(tempOutput)
@@ -199,7 +203,7 @@ if ~isfile(tempOutput)
 end
 movefile(tempOutput, outputPath, 'f');
 clear cleanupObj;
-cleanup_temp_dir(tempDir);
+mh_fiber_cleanup_temp_dir(tempDir);
 end
 
 function pixdim = output_pixel_dimensions(sourceInfo, outInfo, volumeCount)
@@ -244,7 +248,8 @@ end
 if isfield(geometry, 'ReferenceNifti')
     metadata.MosaicReferenceNifti = geometry.ReferenceNifti;
 end
-write_json(targetJson, metadata);
+mh_util_write_json(targetJson, metadata, ...
+    'mh_fiber_reconstruct_mosaic_dwi:CannotWriteJson');
 end
 
 function write_qc_json(qcJson, opts, geometry, paths)
@@ -270,7 +275,8 @@ qc.VolumeCount = geometry.VolumeCount;
 qc.TileSlotCount = geometry.TileSlotCount;
 qc.UnusedTileCount = geometry.UnusedTileCount;
 qc.Warning = geometry.Warning;
-write_json(qcJson, qc);
+mh_util_write_json(qcJson, qc, ...
+    'mh_fiber_reconstruct_mosaic_dwi:CannotWriteJson');
 end
 
 function validate_output(paths, geometry)
@@ -281,69 +287,12 @@ if ~isequal(double(info.ImageSize), geometry.OutputImageSize)
         mat2str(double(info.ImageSize)), mat2str(geometry.OutputImageSize));
 end
 
-bvals = load_numeric_vector(paths.Bval);
-bvecCount = bvec_volume_count(paths.Bvec);
+bvals = mh_fiber_load_bval(paths.Bval);
+bvecCount = mh_fiber_bvec_count(paths.Bvec);
 if numel(bvals) ~= geometry.VolumeCount || bvecCount ~= geometry.VolumeCount
     error('mh_fiber_reconstruct_mosaic_dwi:OutputGradientMismatch', ...
         'Output gradient counts do not match reconstructed volume count.');
 end
-end
-
-function tf = ensure_parallel_pool(workerCount)
-tf = false;
-if exist('parpool', 'file') ~= 2 || exist('gcp', 'file') ~= 2 || ...
-        ~license('test', 'Distrib_Computing_Toolbox')
-    return;
-end
-try
-    pool = gcp('nocreate');
-    if isempty(pool)
-        parpool('local', workerCount);
-    elseif pool.NumWorkers < workerCount
-        delete(pool);
-        parpool('local', workerCount);
-    end
-    tf = true;
-catch
-    tf = false;
-end
-end
-
-function vals = load_numeric_vector(path)
-vals = load(path);
-vals = vals(:)';
-if isempty(vals) || ~isnumeric(vals)
-    error('mh_fiber_reconstruct_mosaic_dwi:InvalidNumericVector', ...
-        'Could not read numeric values from %s', path);
-end
-end
-
-function count = bvec_volume_count(path)
-bvec = load(path);
-if size(bvec, 1) == 3
-    count = size(bvec, 2);
-elseif size(bvec, 2) == 3
-    count = size(bvec, 1);
-else
-    error('mh_fiber_reconstruct_mosaic_dwi:InvalidBvec', ...
-        'bvec file must be 3 x N or N x 3: %s', path);
-end
-end
-
-function write_json(path, data)
-fid = fopen(path, 'w');
-if fid < 0
-    error('mh_fiber_reconstruct_mosaic_dwi:CannotWriteJson', ...
-        'Cannot write JSON: %s', path);
-end
-cleanupObj = onCleanup(@() fclose(fid));
-try
-    txt = jsonencode(data, 'PrettyPrint', true);
-catch
-    txt = jsonencode(data);
-end
-fprintf(fid, '%s\n', txt);
-clear cleanupObj;
 end
 
 function bits = bits_per_pixel(className)
@@ -358,38 +307,5 @@ switch className
         bits = 64;
     otherwise
         bits = 32;
-end
-end
-
-function name = get_file_name(path)
-[~, name, ext] = fileparts(path);
-if strcmp(ext, '.gz')
-    [~, innerName, innerExt] = fileparts(name);
-    name = [innerName, innerExt, ext];
-else
-    name = [name, ext];
-end
-end
-
-function base = strip_nii_gz_ext(name)
-base = regexprep(name, '\.nii(\.gz)?$', '');
-end
-
-function ensure_dir(path)
-if ~isfolder(path)
-    mkdir(path);
-end
-end
-
-function cleanup_temp_dir(path)
-if ~isempty(path) && isfolder(path)
-    rmdir(path, 's');
-end
-end
-
-function must_be_file(path, label)
-if ~isfile(path)
-    error('mh_fiber_reconstruct_mosaic_dwi:MissingFile', ...
-        'Missing %s: %s', label, path);
 end
 end

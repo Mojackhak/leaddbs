@@ -31,7 +31,7 @@ status = mh_fiber_reconstruct_mosaic_dwi_batch(inputs, ...
     'Force', opts.Force, ...
     'DryRun', opts.DryRun);
 
-ensure_dir(opts.RepairRoot);
+mh_util_make_dir(opts.RepairRoot);
 writetable(status, fullfile(opts.RepairRoot, 'mosaic_reconstruction_status.csv'));
 
 if opts.ReplaceRawdata && ~opts.DryRun
@@ -109,7 +109,7 @@ end
 function replacement = replace_rawdata_outputs(status, opts)
 timestamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
 trashRoot = fullfile(getenv('HOME'), '.Trash', ['leaddbs_savebyslc_rawdata_', timestamp]);
-ensure_dir(trashRoot);
+mh_util_make_dir(trashRoot);
 
 rows = {};
 for i = 1:height(status)
@@ -121,7 +121,7 @@ for i = 1:height(status)
 
     targetDir = fullfile(opts.StudyRoot, 'rawdata', ['sub-', subject], 'ses-preop', 'dwi');
     targetBase = ['sub-', subject, '_ses-preop_dwi'];
-    ensure_dir(targetDir);
+    mh_util_make_dir(targetDir);
     sourceFiles = {char(string(status.OutputNifti(i))), char(string(status.OutputJson(i))), ...
         char(string(status.OutputBval(i))), char(string(status.OutputBvec(i)))};
     targetFiles = {fullfile(targetDir, [targetBase, '.nii.gz']), ...
@@ -144,7 +144,7 @@ replacement = cell2table(rows, 'VariableNames', {'Subject', 'ReplacementStatus',
 end
 
 function trashPath = move_to_trash(path, trashRoot)
-ensure_dir(trashRoot);
+mh_util_make_dir(trashRoot);
 [~, name, ext] = fileparts(path);
 if strcmp(ext, '.gz')
     [~, innerName, innerExt] = fileparts(name);
@@ -159,10 +159,4 @@ while isfile(trashPath)
     counter = counter + 1;
 end
 movefile(path, trashPath);
-end
-
-function ensure_dir(path)
-if ~isfolder(path)
-    mkdir(path);
-end
 end

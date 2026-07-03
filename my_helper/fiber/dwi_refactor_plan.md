@@ -1,6 +1,6 @@
 # DWI 导入/预处理/配准模块重构计划
 
-> Status: **planning**. 目标是把 DWI 相关代码的「后端计算」与「项目/患者调用」解耦，
+> Status: **in progress**. 目标是把 DWI 相关代码的「后端计算」与「项目/患者调用」解耦，
 > 并给最重的 registration/Synb0/eddy 阶段补上被试级并行。范围对齐三点决策：
 > (1) 让 Group 3 收敛到 Groups 1&2 已有的三段式；(2) 被试级 `parfor` + 内存/容器感知并发上限；
 > (3) 把重复私有 helper 收敛到已有 `core/util/`。
@@ -160,6 +160,26 @@ sidecar 里的 `FakeCoregisterVolume`/`ExcludeFromNormalization`。Group 4 的 `
    默认仍串行，显式开启才并行。
 4. **Phase 4（可选）— import 核心化 + stnsnr 脚本参数化**：抽四件套导入 core+batch，stnsnr 脚本变薄。
 5. **Phase 5（可选）— 全 batch 统一**：convert/mosaic 也切到共享 pool helper + 统一状态 schema。
+
+## Implementation notes
+
+- Phase 1 starts with shared helper extraction before changing the registration
+  orchestration boundary. The first implementation pass adds DWI-specific
+  helpers for bval/bvec validation, NIfTI basename handling, shell quoting,
+  temporary directory cleanup, compact error messages, parallel pool reuse, and
+  mean b0 extraction. Existing DWI modules should then call these helpers instead
+  of keeping private local copies.
+- The shared mean b0 extractor must preserve the previous single-slice handling
+  from `mh_fiber_register_imported_dwi_batch.m`, because single-slice mosaic
+  candidates require `niftiwrite` rather than `spm_write_vol` for a valid b0
+  output.
+- This phase is intended to be behavior-preserving. It should not change DICOM
+  conversion, mosaic reconstruction, Synb0/topup/eddy outputs, pseudo B0 naming,
+  or Lead-DBS UI/normalization seams.
+- Current Phase 1 scope also covers the STNSNr DWI wrappers that still carry
+  local copies of DWI file validation, bval/bvec counting, directory creation,
+  and shell quoting. Project wrappers should become thinner but keep their
+  existing hard-coded STNSNr defaults until the later project-decoupling phase.
 
 ## 验证
 

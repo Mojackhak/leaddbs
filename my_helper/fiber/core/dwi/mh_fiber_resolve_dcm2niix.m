@@ -7,7 +7,11 @@ parser.addParameter('RepoDir', '', @(x) ischar(x) || isstring(x));
 parser.parse(varargin{:});
 repoDir = char(string(parser.Results.RepoDir));
 if isempty(repoDir)
-    repoDir = resolve_repo_dir();
+    repoDir = mh_util_resolve_repo_dir(mfilename('fullpath'));
+    if ~isfile(fullfile(repoDir, 'ea_normalize.m'))
+        error('mh_fiber_resolve_dcm2niix:RepoDirNotFound', ...
+            'Could not resolve Lead-DBS repository root. Provide RepoDir explicitly.');
+    end
 end
 
 candidates = dcm2niix_candidates(repoDir);
@@ -53,7 +57,7 @@ candidates{end + 1} = '/Applications/Slicer.app/Contents/Extensions-34045/Slicer
 end
 
 function tf = executable_works(path)
-[status, ~] = system(sprintf('%s -h', shell_quote(path)));
+[status, ~] = system(sprintf('%s -h', mh_fiber_shell_quote(path)));
 tf = status == 0;
 end
 
@@ -65,24 +69,4 @@ elseif startsWith(path, '/Applications/Slicer.app')
 else
     source = 'custom';
 end
-end
-
-function repoDir = resolve_repo_dir()
-repoDir = fileparts(mfilename('fullpath'));
-while true
-    if isfile(fullfile(repoDir, 'ea_normalize.m'))
-        return;
-    end
-    parentDir = fileparts(repoDir);
-    if strcmp(parentDir, repoDir)
-        break;
-    end
-    repoDir = parentDir;
-end
-error('mh_fiber_resolve_dcm2niix:RepoDirNotFound', ...
-    'Could not resolve Lead-DBS repository root. Provide RepoDir explicitly.');
-end
-
-function quoted = shell_quote(path)
-quoted = ['''', strrep(path, '''', '''"''"'''), ''''];
 end

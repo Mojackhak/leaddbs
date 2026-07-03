@@ -17,7 +17,7 @@ validate_input_columns(inputTable);
 
 nRows = height(inputTable);
 rows = repmat(empty_row(), nRows, 1);
-useSubjectParallel = opts.Parallel && nRows > 1 && ensure_parallel_pool(opts.ParallelWorkers);
+useSubjectParallel = opts.Parallel && nRows > 1 && mh_fiber_ensure_parallel_pool(opts.ParallelWorkers);
 
 if useSubjectParallel
     parfor i = 1:nRows
@@ -95,7 +95,7 @@ try
     row.Dcm2niixSource = result.Dcm2niixSource;
 catch ME
     row.Status = 'failed';
-    row.Message = compact_message(ME.message);
+    row.Message = mh_fiber_compact_message(ME.message);
 end
 end
 
@@ -136,33 +136,5 @@ if ismember(column, inputTable.Properties.VariableNames)
     value = row_value(inputTable, rowIndex, column);
 else
     value = '';
-end
-end
-
-function tf = ensure_parallel_pool(workerCount)
-tf = false;
-if exist('parpool', 'file') ~= 2 || exist('gcp', 'file') ~= 2 || ...
-        ~license('test', 'Distrib_Computing_Toolbox')
-    return;
-end
-try
-    pool = gcp('nocreate');
-    if isempty(pool)
-        parpool('local', workerCount);
-    elseif pool.NumWorkers < workerCount
-        delete(pool);
-        parpool('local', workerCount);
-    end
-    tf = true;
-catch
-    tf = false;
-end
-end
-
-function message = compact_message(message)
-message = char(string(message));
-message = regexprep(message, '\s+', ' ');
-if numel(message) > 500
-    message = [message(1:500), '...'];
 end
 end

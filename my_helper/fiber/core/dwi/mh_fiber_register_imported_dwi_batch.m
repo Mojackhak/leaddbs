@@ -25,7 +25,7 @@ p.parse(varargin{:});
 opts = p.Results;
 
 opts.StudyRoot = char(string(opts.StudyRoot));
-opts.RepoDir = resolve_repo_dir(opts.RepoDir);
+opts.RepoDir = resolve_repo_dir_from_option(opts.RepoDir);
 opts.ImportLog = char(string(opts.ImportLog));
 opts.AnchorModality = normalize_anchor_modality(opts.AnchorModality);
 opts.CoregistrationTag = char(string(opts.CoregistrationTag));
@@ -70,9 +70,7 @@ addpath(genpath(opts.RepoDir));
 
 derivativesRoot = fullfile(opts.StudyRoot, 'derivatives', 'leaddbs');
 importLogDir = fullfile(derivativesRoot, 'import_logs');
-if ~isfolder(importLogDir)
-    mkdir(importLogDir);
-end
+mh_util_make_dir(importLogDir);
 
 [subjects, sourceBases] = resolve_subjects(opts);
 rows = repmat(empty_status_row(), numel(subjects), 1);
@@ -175,7 +173,7 @@ try
         read_dwi_geometry(paths.dwi);
     row.low_resolution_warning = row.voxel_z >= 4;
 
-    extract_b0(paths.dwi, paths.b0, bvals, opts.Force);
+    mh_fiber_extract_mean_b0(paths.dwi, paths.b0, bvals, opts.Force);
     validate_b0_geometry(paths.dwi, paths.b0);
 
     if opts.GenerateOptionalDwiQc
@@ -218,7 +216,7 @@ try
     row.message = 'ok';
 catch ME
     row.status = 'registration_failed';
-    row.message = compact_message(ME.message);
+    row.message = mh_fiber_compact_message(ME.message, 240);
     if strcmp(row.distortion_correction, 'synb0')
         if strlength(string(row.synb0_status)) == 0 || strcmp(row.synb0_status, 'started')
             row.synb0_status = 'failed';
@@ -231,7 +229,7 @@ catch ME
 end
 
 if ~isfolder(row.qc_dir) && strlength(string(row.qc_dir)) > 0
-    mkdir(row.qc_dir);
+    mh_util_make_dir(row.qc_dir);
 end
 if strlength(string(row.qc_dir)) > 0
     write_subject_json(row, fullfile(row.qc_dir, [subjectId, '_dwi_registration_qc.json']));
@@ -283,21 +281,14 @@ end
 if ~isfile(paths.rawDwiGz) && ~isfile(paths.rawDwiNii)
     error('Raw DWI image not found: %s', paths.rawDwiGz);
 end
-must_be_file(paths.rawJson, 'raw DWI JSON');
-must_be_file(paths.rawBval, 'raw DWI bval');
-must_be_file(paths.rawBvec, 'raw DWI bvec');
+mh_util_must_be_file(paths.rawJson, 'raw DWI JSON');
+mh_util_must_be_file(paths.rawBval, 'raw DWI bval');
+mh_util_must_be_file(paths.rawBvec, 'raw DWI bvec');
 end
 
 function [nVolumes, bvals, bvecCount] = validate_gradients(bvalPath, bvecPath, dwiPath)
-bvals = load_numeric_vector(bvalPath);
-bvec = load(bvecPath);
-if size(bvec, 1) == 3
-    bvecCount = size(bvec, 2);
-elseif size(bvec, 2) == 3
-    bvecCount = size(bvec, 1);
-else
-    error('bvec file must be 3 x N or N x 3: %s', bvecPath);
-end
+bvals = mh_fiber_load_bval(bvalPath);
+bvecCount = mh_fiber_bvec_count(bvecPath);
 
 dwiInfoPath = dwiPath;
 tempNii = '';
@@ -310,7 +301,7 @@ if endsWith(dwiPath, '.gz')
     tempNii = tempDir;
 end
 
-cleanupObj = onCleanup(@() cleanup_temp_dir(tempNii));
+cleanupObj = onCleanup(@() mh_fiber_cleanup_temp_dir(tempNii));
 V = spm_vol(dwiInfoPath);
 nVolumes = numel(V);
 if numel(bvals) ~= nVolumes
@@ -325,9 +316,9 @@ end
 end
 
 function stage_dwi_derivatives(paths, force)
-ensure_dir(paths.dwiDir);
-ensure_dir(paths.coregDir);
-ensure_dir(paths.qcDir);
+mh_util_make_dir(paths.dwiDir);
+mh_util_make_dir(paths.coregDir);
+mh_util_make_dir(paths.qcDir);
 
 if force || ~isfile(paths.dwi)
     if isfile(paths.rawDwiGz)
@@ -370,7 +361,7 @@ metadata.ExpectedCoregisteredImage = paths.fakeB0Coreg;
 metadataPath = sidecar_json_path(dcResult.b0);
 write_subject_json(metadata, metadataPath);
 
-ensure_dir(paths.coregAnatDir);
+mh_util_make_dir(paths.coregAnatDir);
 write_subject_json(metadata, sidecar_json_path(paths.fakeB0Coreg));
 end
 
@@ -380,52 +371,6 @@ jsonPath = regexprep(imagePath, '\.nii(\.gz)?$', '.json');
 if strcmp(jsonPath, imagePath)
     jsonPath = [imagePath, '.json'];
 end
-end
-
-function extract_b0(dwiPath, b0Path, bvals, force)
-if isfile(b0Path) && ~force
-    return;
-end
-
-idx = find(bvals < 10);
-if isempty(idx)
-    error('Cannot extract b0 because no bval < 10 was found.');
-end
-
-V = spm_vol(dwiPath);
-if numel(V) ~= numel(bvals)
-    error('Staged DWI volume count no longer matches bval count.');
-end
-
-b0 = zeros(V(1).dim, 'double');
-for i = 1:numel(idx)
-    b0 = b0 + double(spm_read_vols(V(idx(i))));
-end
-b0 = b0 ./ numel(idx);
-
-Vo = V(idx(1));
-Vo.fname = b0Path;
-Vo.n = [1, 1];
-Vo.dt = [16, 0];
-Vo.descrip = sprintf('Mean b0 extracted from %s without header recentering', get_file_name(dwiPath));
-if V(1).dim(3) == 1
-    write_single_slice_b0(dwiPath, b0Path, b0);
-else
-    spm_write_vol(Vo, b0);
-end
-end
-
-function write_single_slice_b0(dwiPath, b0Path, b0)
-info = niftiinfo(dwiPath);
-info.ImageSize = info.ImageSize(1:3);
-info.PixelDimensions = info.PixelDimensions(1:3);
-info.Datatype = 'single';
-info.BitsPerPixel = 32;
-info.Filename = b0Path;
-if isfile(b0Path)
-    delete(b0Path);
-end
-niftiwrite(reshape(single(b0), info.ImageSize), b0Path, info, 'Compressed', false);
 end
 
 function validate_b0_geometry(dwiPath, b0Path)
@@ -448,13 +393,14 @@ faOnAnchor = '';
 if command_exists('dwi2mask')
     if ~isfile(paths.brainMask)
         cmd = sprintf('dwi2mask %s %s -fslgrad %s %s -force', ...
-            q(paths.dwi), q(paths.brainMask), q(paths.bvec), q(paths.bval));
+            mh_fiber_shell_quote(paths.dwi), mh_fiber_shell_quote(paths.brainMask), ...
+            mh_fiber_shell_quote(paths.bvec), mh_fiber_shell_quote(paths.bval));
         [status, out] = system(cmd);
         if status == 0
             copy_if_missing(paths.brainMask, paths.trackingMask, false);
             maskStatus = 'generated';
         else
-            maskStatus = ['failed: ', compact_message(out)];
+            maskStatus = ['failed: ', mh_fiber_compact_message(out, 240)];
         end
     else
         copy_if_missing(paths.brainMask, paths.trackingMask, false);
@@ -466,18 +412,20 @@ if command_exists('dwi2tensor') && command_exists('tensor2metric')
     tensorMif = fullfile(paths.dwiDir, [paths.patientName, '_ses-preop_dwi_tensor.mif']);
     if ~isfile(faPath)
         cmd1 = sprintf('dwi2tensor %s %s -fslgrad %s %s -force', ...
-            q(paths.dwi), q(tensorMif), q(paths.bvec), q(paths.bval));
+            mh_fiber_shell_quote(paths.dwi), mh_fiber_shell_quote(tensorMif), ...
+            mh_fiber_shell_quote(paths.bvec), mh_fiber_shell_quote(paths.bval));
         [status1, out1] = system(cmd1);
         if status1 == 0
-            cmd2 = sprintf('tensor2metric %s -fa %s -force', q(tensorMif), q(faPath));
+            cmd2 = sprintf('tensor2metric %s -fa %s -force', ...
+                mh_fiber_shell_quote(tensorMif), mh_fiber_shell_quote(faPath));
             [status2, out2] = system(cmd2);
             if status2 == 0
                 faStatus = 'generated';
             else
-                faStatus = ['failed: ', compact_message(out2)];
+                faStatus = ['failed: ', mh_fiber_compact_message(out2, 240)];
             end
         else
-            faStatus = ['failed: ', compact_message(out1)];
+            faStatus = ['failed: ', mh_fiber_compact_message(out1, 240)];
         end
     else
         faStatus = 'exists';
@@ -486,7 +434,7 @@ end
 end
 
 function [dwiToAnchor, anchorToDwi, b0OnAnchor, anchorOnB0, faOnAnchor] = ensure_b0_anchor_coregistration(paths, anchorAnat, anchorModality, coregMethod, force)
-ensure_dir(paths.coregDir);
+mh_util_make_dir(paths.coregDir);
 
 if use_legacy_ants_outputs(paths, coregMethod)
     [dwiToAnchor, anchorToDwi, b0OnAnchor, anchorOnB0, faOnAnchor] = ...
@@ -495,7 +443,7 @@ if use_legacy_ants_outputs(paths, coregMethod)
 end
 
 outputs = ui_style_coreg_outputs(paths, anchorModality, coregMethod);
-ensure_dir(outputs.workDir);
+mh_util_make_dir(outputs.workDir);
 move_branch_root_intermediates_to_work(paths, outputs.workDir);
 
 if force || ~isfile(outputs.dwiToAnchor) || ~isfile(outputs.anchorToDwi) || ...
@@ -575,7 +523,7 @@ end
 
 faOnAnchor = '';
 if isfile(paths.fa)
-    faOnAnchor = fullfile(paths.coregDir, [strip_nii_ext(get_file_name(paths.fa)), '2', anchorName, '.nii']);
+    faOnAnchor = fullfile(paths.coregDir, [mh_fiber_nii_basename(paths.fa), '2', anchorName, '.nii']);
     if force || ~isfile(faOnAnchor)
         ea_ants_apply_transforms([], paths.fa, faOnAnchor, 0, anchorAnat, dwiToAnchor, 'Linear');
     end
@@ -608,7 +556,7 @@ outputs.spmInitAnchorToDwi = fullfile(paths.coregDir, ...
 end
 
 function run_spm_coregistration_branch(paths, anchorAnat, outputs)
-ensure_dir(outputs.workDir);
+mh_util_make_dir(outputs.workDir);
 workB0 = fullfile(outputs.workDir, [paths.patientName, '_work_b0_spm.nii']);
 copyfile(paths.b0, workB0, 'f');
 
@@ -626,7 +574,7 @@ end
 end
 
 function run_hybrid_spm_ants_coregistration_branch(paths, anchorAnat, outputs, anchorModality)
-ensure_dir(outputs.workDir);
+mh_util_make_dir(outputs.workDir);
 anchorLabel = anchor_label(anchorModality);
 spmInitB0 = fullfile(outputs.workDir, [paths.patientName, '_b0_spm_init.nii']);
 copyfile(paths.b0, spmInitB0, 'f');
@@ -662,7 +610,7 @@ end
 end
 
 function run_flirtbbr_coregistration_branch(paths, anchorAnat, outputs)
-ensure_dir(outputs.workDir);
+mh_util_make_dir(outputs.workDir);
 affineFiles = ea_flirtbbr(anchorAnat, paths.b0, outputs.b0OnAnchor, 1);
 copy_transform_file(affineFiles{1}, outputs.dwiToAnchor);
 copy_transform_file(affineFiles{2}, outputs.anchorToDwi);
@@ -676,7 +624,7 @@ end
 end
 
 function run_ants_ui_coregistration_branch(paths, anchorAnat, outputs)
-ensure_dir(outputs.workDir);
+mh_util_make_dir(outputs.workDir);
 options = struct();
 options.coregmr.method = 'ANTs';
 options.coregb0.addSyN = 0;
@@ -718,12 +666,12 @@ function copy_transform_file(source, target)
 if isempty(source) || ~isfile(source)
     error('Transform source file does not exist: %s', source);
 end
-ensure_dir(fileparts(target));
+mh_util_make_dir(fileparts(target));
 copyfile(source, target, 'f');
 end
 
 function write_qc_overlays(paths, anchorAnat, b0OnAnchor, anchorOnB0, faOnAnchor, anchorModality)
-ensure_dir(paths.qcDir);
+mh_util_make_dir(paths.qcDir);
 anchorLabel = anchor_label(anchorModality);
 write_overlay_png(anchorAnat, b0OnAnchor, ...
     fullfile(paths.qcDir, [paths.subjectId, '_b0_on_', anchorLabel, '.png']), ...
@@ -1013,26 +961,17 @@ for i = 1:numel(values)
 end
 end
 
-function repoDir = resolve_repo_dir(repoDir)
+function repoDir = resolve_repo_dir_from_option(repoDir)
 repoDir = char(string(repoDir));
 if ~isempty(repoDir)
     return;
 end
 
-searchDir = fileparts(mfilename('fullpath'));
-while true
-    if isfile(fullfile(searchDir, 'ea_normalize.m'))
-        repoDir = searchDir;
-        return;
-    end
-    parentDir = fileparts(searchDir);
-    if strcmp(parentDir, searchDir)
-        break;
-    end
-    searchDir = parentDir;
+repoDir = mh_util_resolve_repo_dir(mfilename('fullpath'));
+if ~isfile(fullfile(repoDir, 'ea_normalize.m'))
+    error('mh_fiber_register_imported_dwi_batch:RepoRootNotFound', ...
+        'Could not resolve Lead-DBS repository root. Provide RepoDir explicitly.');
 end
-error('mh_fiber_register_imported_dwi_batch:RepoRootNotFound', ...
-    'Could not resolve Lead-DBS repository root. Provide RepoDir explicitly.');
 end
 
 function sourceBase = lookup_source_base(sourceBases, subjectId)
@@ -1090,26 +1029,6 @@ row.fake_b0_coreg_target = '';
 row.fake_b0_metadata = '';
 end
 
-function vals = load_numeric_vector(path)
-vals = load(path);
-vals = vals(:)';
-if isempty(vals) || ~isnumeric(vals)
-    error('Could not read numeric values from %s', path);
-end
-end
-
-function ensure_dir(path)
-if ~isfolder(path)
-    mkdir(path);
-end
-end
-
-function must_be_file(path, label)
-if ~isfile(path)
-    error('Missing %s: %s', label, path);
-end
-end
-
 function copy_if_missing(source, target, force)
 if force || ~isfile(target)
     copyfile(source, target);
@@ -1131,36 +1050,6 @@ end
 [~, order] = sort([d.datenum]);
 d = d(order);
 path = fullfile(d(end).folder, d(end).name);
-end
-
-function name = get_file_name(path)
-[~, name, ext] = fileparts(path);
-name = [name, ext];
-end
-
-function stem = strip_nii_ext(name)
-stem = regexprep(name, '\.nii(\.gz)?$', '');
-end
-
-function s = compact_message(s)
-s = char(string(s));
-s = regexprep(s, '\s+', ' ');
-if numel(s) > 240
-    s = [s(1:237), '...'];
-end
-end
-
-function qpath = q(path)
-qpath = ['''', strrep(path, '''', '''"''"'''), ''''];
-end
-
-function cleanup_temp_dir(path)
-if strlength(string(path)) > 0 && isfolder(path)
-    try
-        rmdir(path, 's');
-    catch
-    end
-end
 end
 
 function vol = normalize_volume(vol)
@@ -1205,15 +1094,9 @@ end
 
 function write_subject_json(row, path)
 try
-    txt = jsonencode(row, 'PrettyPrint', true);
-catch
-    txt = jsonencode(row);
+    mh_util_write_json(path, row, 'mh_fiber_register_imported_dwi_batch:CannotWriteJson');
+catch ME
+    warning('mh_fiber_register_imported_dwi_batch:JsonWriteFailed', ...
+        'Could not write JSON %s: %s', path, ME.message);
 end
-fid = fopen(path, 'w');
-if fid < 0
-    warning('Could not open QC JSON for writing: %s', path);
-    return;
-end
-cleanup = onCleanup(@() fclose(fid));
-fprintf(fid, '%s\n', txt);
 end

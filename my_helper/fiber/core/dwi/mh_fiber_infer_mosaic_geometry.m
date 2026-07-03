@@ -20,9 +20,12 @@ sourceBvec = char(string(sourceBvec));
 dicomDir = char(string(opts.DicomDir));
 referenceNifti = char(string(opts.ReferenceNifti));
 
-must_be_file(sourceNifti, 'source NIfTI');
-must_be_file(sourceBval, 'source bval');
-must_be_file(sourceBvec, 'source bvec');
+mh_util_must_be_file(sourceNifti, 'source NIfTI', ...
+    'mh_fiber_infer_mosaic_geometry:MissingFile');
+mh_util_must_be_file(sourceBval, 'source bval', ...
+    'mh_fiber_infer_mosaic_geometry:MissingFile');
+mh_util_must_be_file(sourceBvec, 'source bvec', ...
+    'mh_fiber_infer_mosaic_geometry:MissingFile');
 
 info = niftiinfo(sourceNifti);
 imageSize = double(info.ImageSize);
@@ -34,8 +37,8 @@ if numel(imageSize) < 4
     imageSize(4) = 1;
 end
 
-bvals = load_numeric_vector(sourceBval);
-bvecCount = bvec_volume_count(sourceBvec);
+bvals = mh_fiber_load_bval(sourceBval);
+bvecCount = mh_fiber_bvec_count(sourceBvec);
 volumeCount = imageSize(4);
 if numel(bvals) ~= volumeCount
     error('mh_fiber_infer_mosaic_geometry:BvalVolumeMismatch', ...
@@ -136,7 +139,8 @@ geometry.DicomAcquisitionMatrix = double(dicomInfo.AcquisitionMatrix(:)');
 end
 
 function geometry = infer_from_reference(geometry, referenceNifti)
-must_be_file(referenceNifti, 'reference NIfTI');
+mh_util_must_be_file(referenceNifti, 'reference NIfTI', ...
+    'mh_fiber_infer_mosaic_geometry:MissingFile');
 refInfo = niftiinfo(referenceNifti);
 refSize = double(refInfo.ImageSize);
 if numel(refSize) < 3
@@ -265,34 +269,6 @@ for i = 1:numel(entries)
 end
 end
 
-function vals = load_numeric_vector(path)
-vals = load(path);
-vals = vals(:)';
-if isempty(vals) || ~isnumeric(vals)
-    error('mh_fiber_infer_mosaic_geometry:InvalidNumericVector', ...
-        'Could not read numeric values from %s', path);
-end
-end
-
-function count = bvec_volume_count(path)
-bvec = load(path);
-if size(bvec, 1) == 3
-    count = size(bvec, 2);
-elseif size(bvec, 2) == 3
-    count = size(bvec, 1);
-else
-    error('mh_fiber_infer_mosaic_geometry:InvalidBvec', ...
-        'bvec file must be 3 x N or N x 3: %s', path);
-end
-end
-
 function tf = is_integer_division(numerator, denominator)
 tf = denominator ~= 0 && abs(numerator / denominator - round(numerator / denominator)) < 1e-8;
-end
-
-function must_be_file(path, label)
-if ~isfile(path)
-    error('mh_fiber_infer_mosaic_geometry:MissingFile', ...
-        'Missing %s: %s', label, path);
-end
 end

@@ -17,7 +17,7 @@ p.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
 p.parse(varargin{:});
 opts = p.Results;
 
-repoDir = resolve_repo_dir(opts.RepoDir);
+repoDir = resolve_repo_dir_from_option(opts.RepoDir);
 addpath(genpath(repoDir));
 
 subjectIds = opts.SubjectIds;
@@ -45,24 +45,15 @@ result = mh_fiber_register_imported_dwi_batch( ...
     'Force', logical(opts.Force));
 end
 
-function repoDir = resolve_repo_dir(repoDir)
+function repoDir = resolve_repo_dir_from_option(repoDir)
 repoDir = char(string(repoDir));
 if ~isempty(repoDir)
     return;
 end
 
-searchDir = fileparts(mfilename('fullpath'));
-while true
-    if isfile(fullfile(searchDir, 'ea_normalize.m'))
-        repoDir = searchDir;
-        return;
-    end
-    parentDir = fileparts(searchDir);
-    if strcmp(parentDir, searchDir)
-        break;
-    end
-    searchDir = parentDir;
+repoDir = mh_util_resolve_repo_dir(mfilename('fullpath'));
+if ~isfile(fullfile(repoDir, 'ea_normalize.m'))
+    error('run_project_dwi_fake_b0_coreg:RepoRootNotFound', ...
+        'Could not resolve Lead-DBS repository root. Provide RepoDir explicitly.');
 end
-error('run_project_dwi_fake_b0_coreg:RepoRootNotFound', ...
-    'Could not resolve Lead-DBS repository root. Provide RepoDir explicitly.');
 end

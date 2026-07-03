@@ -24,14 +24,19 @@ opts.Synb0Image = char(string(opts.Synb0Image));
 opts.Synb0ContainerEngine = char(string(opts.Synb0ContainerEngine));
 opts.FreeSurferLicense = char(string(opts.FreeSurferLicense));
 opts.Synb0MinDockerMemoryGB = double(opts.Synb0MinDockerMemoryGB);
-must_be_file(paths.dwi, 'staged DWI');
-must_be_file(paths.bval, 'bval');
-must_be_file(paths.bvec, 'bvec');
-must_be_file(paths.json, 'DWI JSON');
-must_be_file(t1Image, 'anchorNative T1w');
+mh_util_must_be_file(paths.dwi, 'staged DWI', ...
+    'mh_fiber_dwi_distortion_correction:MissingFile');
+mh_util_must_be_file(paths.bval, 'bval', ...
+    'mh_fiber_dwi_distortion_correction:MissingFile');
+mh_util_must_be_file(paths.bvec, 'bvec', ...
+    'mh_fiber_dwi_distortion_correction:MissingFile');
+mh_util_must_be_file(paths.json, 'DWI JSON', ...
+    'mh_fiber_dwi_distortion_correction:MissingFile');
+mh_util_must_be_file(t1Image, 'anchorNative T1w', ...
+    'mh_fiber_dwi_distortion_correction:MissingFile');
 
 workDir = fullfile(paths.dwiDir, 'work', 'synb0_eddy');
-ensure_dir(workDir);
+mh_util_make_dir(workDir);
 
 rawBase = [paths.patientName, '_ses-preop'];
 distortedB0 = fullfile(workDir, [rawBase, '_desc-distorted_b0.nii']);
@@ -42,8 +47,8 @@ formalBvec = fullfile(paths.dwiDir, [rawBase, '_desc-preproc_dwi.bvec']);
 formalB0 = fullfile(paths.dwiDir, [rawBase, '_desc-preproc_b0.nii']);
 synb0Acqparams = fullfile(workDir, 'synb0_acqparams.txt');
 
-bvals = load_numeric_vector(paths.bval);
-extract_mean_b0(paths.dwi, distortedB0, bvals, opts.Force);
+bvals = mh_fiber_load_bval(paths.bval);
+mh_fiber_extract_mean_b0(paths.dwi, distortedB0, bvals, opts.Force);
 
 [totalReadoutTime, readoutSource] = resolve_total_readout_time(paths.json, ...
     opts.TotalReadoutTime, opts.DefaultTotalReadoutTime);
@@ -58,7 +63,7 @@ synb0Result = ea_synb0(distortedB0, t1Image, synb0Acqparams, synb0RunDir, ...
     'Force', opts.Force);
 
 maskImage = fullfile(workDir, [rawBase, '_desc-synb0_brain.nii']);
-maskBase = strip_nii_ext(maskImage);
+maskBase = mh_fiber_strip_nii_ext(maskImage);
 maskPath = [maskBase, '_mask.nii'];
 if opts.Force || ~isfile(maskPath)
     ea_bet(synb0Result.syntheticB0, 1, maskImage, 0.5);
@@ -66,7 +71,8 @@ end
 if ~isfile(maskPath) && isfile([maskPath, '.gz'])
     gunzip([maskPath, '.gz'], fileparts(maskPath));
 end
-must_be_file(maskPath, 'eddy brain mask');
+mh_util_must_be_file(maskPath, 'eddy brain mask', ...
+    'mh_fiber_dwi_distortion_correction:MissingFile');
 
 eddyResult = ea_eddy(paths.dwi, maskPath, paths.bval, paths.bvec, synb0Result.topupPrefix, correctedPrefix, ...
     'PhaseEncodingVector', opts.PhaseEncodingVector, ...
@@ -77,7 +83,7 @@ eddyResult = ea_eddy(paths.dwi, maskPath, paths.bval, paths.bvec, synb0Result.to
 copy_or_gunzip(eddyResult.correctedDwi, formalDwi, opts.Force);
 copyfile(paths.bval, formalBval, 'f');
 copyfile(eddyResult.rotatedBvec, formalBvec, 'f');
-extract_mean_b0(formalDwi, formalB0, bvals, opts.Force);
+mh_fiber_extract_mean_b0(formalDwi, formalB0, bvals, opts.Force);
 validate_bvec_count(formalBvec, count_dwi_volumes(formalDwi));
 
 result = struct();
@@ -141,40 +147,15 @@ else
 end
 end
 
-function extract_mean_b0(dwiPath, b0Path, bvals, force)
-if isfile(b0Path) && ~force
-    return;
-end
-idx = find(bvals < 10);
-if isempty(idx)
-    error('Cannot extract b0 because no bval < 10 was found.');
-end
-V = spm_vol(dwiPath);
-if numel(V) ~= numel(bvals)
-    error('DWI volume count does not match bval count for b0 extraction.');
-end
-b0 = zeros(V(1).dim, 'double');
-for i = 1:numel(idx)
-    b0 = b0 + double(spm_read_vols(V(idx(i))));
-end
-b0 = b0 ./ numel(idx);
-Vo = V(idx(1));
-Vo.fname = b0Path;
-Vo.n = [1, 1];
-Vo.dt = [16, 0];
-Vo.descrip = sprintf('Mean b0 extracted from %s', get_file_name(dwiPath));
-spm_write_vol(Vo, b0);
-end
-
 function copy_or_gunzip(source, target, force)
 if isfile(target) && ~force
     return;
 end
-ensure_dir(fileparts(target));
+mh_util_make_dir(fileparts(target));
 if endsWith(source, '.nii.gz')
     tempDir = tempname;
     mkdir(tempDir);
-    cleanupObj = onCleanup(@() cleanup_temp_dir(tempDir));
+    cleanupObj = onCleanup(@() mh_fiber_cleanup_temp_dir(tempDir));
     gunzip(source, tempDir);
     [~, base] = fileparts(source);
     copyfile(fullfile(tempDir, base), target, 'f');
@@ -189,53 +170,8 @@ nVolumes = numel(V);
 end
 
 function validate_bvec_count(path, nVolumes)
-bvec = load(path);
-if size(bvec, 1) == 3
-    count = size(bvec, 2);
-elseif size(bvec, 2) == 3
-    count = size(bvec, 1);
-else
-    error('bvec file must be 3 x N or N x 3: %s', path);
-end
+count = mh_fiber_bvec_count(path);
 if count ~= nVolumes
     error('bvec count (%d) does not match DWI volume count (%d).', count, nVolumes);
-end
-end
-
-function vals = load_numeric_vector(path)
-vals = load(path);
-vals = vals(:)';
-if isempty(vals) || ~isnumeric(vals)
-    error('Could not read numeric values from %s', path);
-end
-end
-
-function must_be_file(path, label)
-if ~isfile(path)
-    error('Missing %s: %s', label, path);
-end
-end
-
-function ensure_dir(path)
-if ~isfolder(path)
-    mkdir(path);
-end
-end
-
-function name = get_file_name(path)
-[~, name, ext] = fileparts(path);
-name = [name, ext];
-end
-
-function stem = strip_nii_ext(path)
-stem = regexprep(path, '\.nii(\.gz)?$', '');
-end
-
-function cleanup_temp_dir(path)
-if isfolder(path)
-    try
-        rmdir(path, 's');
-    catch
-    end
 end
 end
