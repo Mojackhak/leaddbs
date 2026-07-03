@@ -13,35 +13,20 @@ parser.addParameter('RemoveElectrode', [], @(x) isempty(x) || islogical(x) || is
 parser.parse(varargin{:});
 opts = parser.Results;
 
-request = struct();
-request.modelKey = char(string(opts.ModelKey));
-request.force = logical(opts.Force);
-request.sides = mh_vta_normalize_sides(struct('sides', {sides}));
-request.outputSpaces = normalize_output_spaces(opts.OutputSpaces);
-if ~isempty(opts.ExportThresholdVPerMm)
-    request.exportThresholdVPerMm = double(opts.ExportThresholdVPerMm);
-end
-if ~isempty(opts.GmAtlas)
-    request.gmAtlas = char(string(opts.GmAtlas));
-end
-if ~isempty(opts.UseAtlas)
-    request.useAtlas = logical(opts.UseAtlas);
-end
-if ~isempty(opts.RemoveElectrode)
-    request.removeElectrode = logical(opts.RemoveElectrode);
-end
-
-stimSpec.model = request.modelKey;
+modelKey = char(string(opts.ModelKey));
+stimSpec.model = modelKey;
 cfg = mh_fiber_set_stimulation(cfg, stimSpec);
 [S, options, stimFolders] = mh_fiber_build_stimulation(cfg);
-request.stimFolders = stimFolders;
-
-taskCells = cell(numel(request.sides), 1);
-for i = 1:numel(request.sides)
-    taskCells{i} = mh_vta_make_compute_task(cfg, stimFolders, request.sides{i}, request);
-end
-taskArray = vertcat(taskCells{:});
-taskResults = mh_vta_run_compute_tasks(cfg, S, options, taskArray);
+[taskResults, taskArray, cfg] = mh_vta_run_built_stimulation_tasks( ...
+    cfg, S, options, stimFolders, ...
+    'Sides', sides, ...
+    'ModelKey', modelKey, ...
+    'Force', opts.Force, ...
+    'OutputSpaces', opts.OutputSpaces, ...
+    'ExportThresholdVPerMm', opts.ExportThresholdVPerMm, ...
+    'GmAtlas', opts.GmAtlas, ...
+    'UseAtlas', opts.UseAtlas, ...
+    'RemoveElectrode', opts.RemoveElectrode);
 end
 
 function modelKey = default_model_key(cfg, stimSpec)
@@ -76,9 +61,4 @@ if isfield(cfg, 'vta') && isfield(cfg.vta, 'gmAtlas')
 else
     atlas = '';
 end
-end
-
-function spaces = normalize_output_spaces(value)
-spaces = cellstr(string(value));
-spaces = reshape(spaces, 1, []);
 end

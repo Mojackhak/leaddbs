@@ -86,11 +86,12 @@ the default and selects task-level `parpool` or `process` execution when
 `cfg.vta.executionMode` requests those modes.
 Generated stimulation labels use `mh_util_sanitize_label` through
 `mh_fiber_make_stim_label`.
-`mh_vta_run_stim_spec_tasks` owns the shared cfg/stimSpec-to-task assembly path
-so project analyzers only need to prepare project-specific stimulation specs.
-`mh_vta_run_built_stimulation_tasks` provides the same task-harness dispatch
-for pipelines that must customize an already built Lead-DBS stimulation
-structure before VTA generation.
+`mh_vta_run_stim_spec_tasks` owns cfg/stimSpec normalization and stimulation
+building so project analyzers only need to prepare project-specific stimulation
+specs. It delegates built stimulation dispatch to
+`mh_vta_run_built_stimulation_tasks`, which owns shared side-task construction
+and task-harness execution for both analyzer-generated and manually customized
+Lead-DBS stimulation structures.
 STN/SNr analyzers share `mh_fiber_stnsnr_stimspec_from_table` for converting
 workbook-style and normalized contact rows into Layer 1 stimulation specs.
 STN/SNr stimulation-pattern report labels use

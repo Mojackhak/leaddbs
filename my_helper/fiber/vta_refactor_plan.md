@@ -2488,3 +2488,33 @@ Phase 2BI validation completed:
   and dispatches through `mh_vta_run_compute_tasks` without real FEM data.
 - Static verification confirmed the sub-001 two-scheme pipeline no longer calls
   the legacy `mh_fiber_ensure_vta*` wrappers.
+
+## Phase 2BJ Implementation Scope
+
+Status: **completed**.
+
+Phase 2BJ removes duplicated task assembly from the stim-spec helper:
+
+- Keep `mh_vta_run_stim_spec_tasks` responsible for normalizing the requested
+  model key, attaching the stimulation specification to `cfg`, and building
+  `S`, `options`, and `stimFolders`.
+- Delegate the already-built stimulation dispatch to
+  `mh_vta_run_built_stimulation_tasks` so stim-spec callers and manual
+  stimulation callers share side-task construction, request forwarding, and
+  execution-mode selection.
+- Preserve the public return values and ordering of
+  `mh_vta_run_stim_spec_tasks`: `taskResults`, `taskArray`, `cfg`, `S`,
+  `options`, and `stimFolders`.
+
+Phase 2BJ validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for `mh_vta_run_stim_spec_tasks` and
+  `mh_vta_run_built_stimulation_tasks` passed with zero messages.
+- MATLAB synthetic smoke test with temporary `mh_fiber_build_stimulation` and
+  `mh_vta_run_built_stimulation_tasks` stubs confirmed
+  `mh_vta_run_stim_spec_tasks` sets `stimSpec.model`, builds stimulation once,
+  forwards all VTA options to the built-stimulation helper, and preserves output
+  ordering without real FEM data.
+- Static verification confirmed `mh_vta_run_stim_spec_tasks` no longer calls
+  `mh_vta_make_compute_task` or `mh_vta_run_compute_tasks` directly.
