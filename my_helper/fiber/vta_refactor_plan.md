@@ -640,3 +640,34 @@ Phase 2K validation completed:
   `request.gmAtlas`; they use `opts.VtaGmAtlas`.
 - MATLAB dry-run regression for `run_stnsnr_vta_coverage_parallel.m`, proving
   `STNSNR_VTA_GM_ATLAS` is forwarded into worker command files.
+
+## Phase 2L Implementation Scope
+
+Status: **implemented**.
+
+Phase 2L makes the cohort aggregation script consistent with the parallel
+launcher and worker scripts:
+
+- Read `STNSNR_VTA_SUBJECT_ROOT`, `STNSNR_VTA_WORKBOOK`,
+  `STNSNR_VTA_COHORT_OUTPUT_DIR`, and `STNSNR_VTA_GM_ATLAS` in
+  `stnsnr/run_stnsnr_vta_coverage_cohort_aggregate.m`.
+- Pass those values into `mh_fiber_run_stnsnr_vta_coverage` with
+  `CohortOnly = true`.
+- Keep default behavior unchanged when the environment variables are unset.
+
+Phase 2L validation target:
+
+- `git diff --check`
+- Focused `checkcode` for the aggregate script.
+- Non-destructive aggregate smoke/regression into `/tmp`, verifying custom
+  output directory use and cohort CSV shape against existing outputs.
+
+Phase 2L validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `run_stnsnr_vta_coverage_cohort_aggregate.m`.
+- Non-destructive aggregate script regression with
+  `STNSNR_VTA_COHORT_OUTPUT_DIR=/tmp/stnsnr_vta_aggregate_env_*`, verifying the
+  script writes outputs to the env-selected directory, produces
+  `cohort_vta_coverage_long.csv` at 1536 x 25, and records the env-selected
+  `vta_gm_atlas` in `cohort_vta_generation_manifest.json`.

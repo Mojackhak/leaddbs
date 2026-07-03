@@ -99,6 +99,8 @@ generation.
 The project VTA gray-matter restriction atlas is selected with `VtaGmAtlas` or
 the `STNSNR_VTA_GM_ATLAS` environment variable, defaulting to
 `DISTAL Minimal (Ewert 2017)`.
+The cohort aggregation script reads the same subject-root, workbook,
+cohort-output, and gray-matter-atlas environment overrides as the launcher.
 
 Coverage analysis is separate from VTA generation. `core/coverage/` builds the
 reference grid, samples e-field and atlas masks, and classifies VTA voxels with
