@@ -335,9 +335,10 @@ request.exportThresholdVPerMm = exportThresholdVPerMm;
 request.gmAtlas = 'DISTAL Minimal (Ewert 2017)';
 request.useAtlas = true;
 request.removeElectrode = true;
-vta = mh_vta_compute(cfg, S, options, request);
+task = mh_vta_make_compute_task(cfg, stimFolders, sideCode, request);
+taskResult = mh_vta_run_compute_task(cfg, S, options, task);
 
-efieldPath = vta.mni.(sideCode).efieldNii;
+efieldPath = taskResult.efield_mni;
 mh_util_must_be_file(efieldPath, sprintf('target-component e-field for %s', componentId));
 efieldPaths = {efieldPath};
 

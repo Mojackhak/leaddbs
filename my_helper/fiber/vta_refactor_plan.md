@@ -214,3 +214,44 @@ Phase 2A validation completed:
   `hitCount` logic against repeated threshold sampling.
 - `checkcode` on the new scalar sampler and both STNSNr analyzers; only existing
   dynamic-growth performance warnings remain in the large analyzers.
+
+## Phase 2B Implementation Scope
+
+Status: **implemented**.
+
+Phase 2B starts the execution-harness migration without changing runtime
+parallelism yet:
+
+- Add VTA execution defaults to `mh_fiber_default_config`:
+  `cfg.vta.parallel`, `cfg.vta.parallelWorkers`, and `cfg.vta.executionMode`.
+- Add shared task primitives under `core/stimulation/model/`:
+  - `mh_vta_make_compute_task(cfg, stimFolders, sideCode, request)` builds one
+    atomic `(stimLabel x side)` task with expected standard VTA/e-field paths.
+  - `mh_vta_run_compute_task(cfg, S, options, task)` executes that task by
+    calling `mh_vta_compute` with `request.sides = {sideCode}` and returns
+    standardized output paths/status metadata.
+- Route STNSNr program e-field generation through those primitives so each
+  program side is represented as a task before execution. Phase 2B still runs
+  tasks sequentially; it is the behavior-preserving bridge to later
+  `executionMode = 'parpool' | 'process'`.
+
+Phase 2B validation target:
+
+- MATLAB smoke test for VTA execution defaults and task construction.
+- MATLAB smoke test with a stub `mh_vta_compute` proving
+  `mh_vta_run_compute_task` passes only the task side and returns the expected
+  MNI paths.
+- `git diff --check`.
+
+Phase 2B validation completed:
+
+- `git diff --check`
+- MATLAB smoke test for `cfg.vta.parallel`, `cfg.vta.parallelWorkers`, and
+  `cfg.vta.executionMode` defaults plus `mh_vta_make_compute_task` path/request
+  construction.
+- MATLAB smoke test with a temporary `mh_vta_compute` stub proving
+  `mh_vta_run_compute_task` passes `request.sides = {'R'}` for a right-side
+  task and returns standard MNI/native output path metadata.
+- `checkcode` on the new task helpers, default config, and both STNSNr analyzers;
+  only existing dynamic-growth performance warnings remain in the large
+  analyzers.

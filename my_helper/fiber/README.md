@@ -54,6 +54,13 @@ Model selection is resolved through `mh_vta_model_registry`, while Horn
 conductivity, threshold, atlas, and electrode-removal settings are centralized
 in `mh_vta_settings`.
 
+STN/SNr VTA generation is being migrated toward explicit atomic compute tasks.
+`mh_vta_make_compute_task` records the standard paths and request metadata for
+one stimulation label and side; `mh_vta_run_compute_task` executes that task
+through the facade. Current STN/SNr execution remains sequential unless the
+project launcher uses the existing process-level worker script, but the task
+contract is shared by future parpool and process execution modes.
+
 Coverage analysis is separate from VTA generation. `core/coverage/` builds the
 reference grid, samples e-field and atlas masks, and classifies VTA voxels with
 a generic membership-partition region specification. STN/SNr analyses inject

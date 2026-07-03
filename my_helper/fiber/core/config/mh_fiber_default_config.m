@@ -38,6 +38,9 @@ cfg.vta.modelKey = 'simbio';
 cfg.vta.model = 'SimBio/FieldTrip (see Horn 2017)';
 cfg.vta.space = 'native_and_mni';
 cfg.vta.gmAtlas = 'DISTAL Nano (Ewert 2017)';
+cfg.vta.parallel = false;
+cfg.vta.parallelWorkers = 1;
+cfg.vta.executionMode = 'sequential';
 
 cfg.paths = struct();
 cfg.paths.mniFiber = fullfile(subjectDir, 'connectomics', 'dMRI', 'FTR_normalized.mat');

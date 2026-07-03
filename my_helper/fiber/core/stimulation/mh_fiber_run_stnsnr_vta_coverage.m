@@ -433,13 +433,18 @@ for i = 1:numel(programs)
     request.gmAtlas = 'DISTAL Minimal (Ewert 2017)';
     request.useAtlas = true;
     request.removeElectrode = true;
-    vta = mh_vta_compute(cfg, S, options, request);
 
     efield = struct();
+    tasks = cell(numel(activeSides), 1);
+    taskResults = cell(numel(activeSides), 1);
     for s = 1:numel(activeSides)
         sideCode = char(activeSides(s));
-        efieldPath = vta.mni.(sideCode).efieldNii;
-        binaryPath = vta.mni.(sideCode).binaryNii;
+        task = mh_vta_make_compute_task(cfg, stimFolders, sideCode, request);
+        tasks{s} = rmfield_safe(task, {'request'});
+        taskResult = mh_vta_run_compute_task(cfg, S, options, task);
+        taskResults{s} = rmfield_safe(taskResult, {'request'});
+        efieldPath = taskResult.efield_mni;
+        binaryPath = taskResult.binary_mni;
         mh_util_must_be_file(efieldPath, sprintf('MNI e-field for %s side %s', cfg.stimLabel, sideCode));
         efield.(sideCode) = efieldPath;
         if isfile(binaryPath)
@@ -450,6 +455,8 @@ for i = 1:numel(programs)
     programs(i).efield_mni = efield;
     programs(i).stim_folder_mni = stimFolders.mni;
     programs(i).stim_folder_native = stimFolders.native;
+    programs(i).vta_tasks = vertcat(tasks{:});
+    programs(i).vta_task_results = vertcat(taskResults{:});
 end
 end
 
