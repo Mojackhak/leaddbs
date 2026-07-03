@@ -25,14 +25,17 @@ The helper requires recursive MATLAB path setup, for example `addpath(genpath('/
 my_helper/fiber/
   README.md
   core/
+    coverage/       e-field grid sampling, atlas region partitioning, coverage summaries
     config/         configuration, validation, output folders, VTA paths
     dwi/            DWI staging, b0 extraction, b0-to-anchor registration, QC
     io/             FTR/TCK/VTK readers, writers, and reports
     roi/            atlas ROI definitions and mask generation
     connectomes/    public-connectome helper functions
     selection/      fiber-mask selection, subsets, and sampling
-    stimulation/    stimulation specs, VTA generation, scheme comparison
+    stimulation/    stimulation specs, VTA facade/backends, scheme comparison
     tracking/       main runners, MRtrix, seed-target, SIFT2
+    util/           shared filesystem, label, repository, and JSON helpers
+    viz/            shared plotting styles and semantic chart helpers
     visualization/  scenes, figures, plots, electrode styling
     ui/             toolbar/object-control helpers
   pipelines/
@@ -41,6 +44,26 @@ my_helper/fiber/
 ```
 
 Core implementation functions live under `core/`. The `stnsnr/` folder must only contain pipeline scripts that call core functions; ROI specs, selectors, chunked connectome readers, and report writers belong under `core/`.
+
+## VTA Computation Modules
+
+VTA generation now uses `core/stimulation/model/mh_vta_compute.m` as the
+single facade. Existing public helpers such as `mh_fiber_ensure_vta` and
+`mh_fiber_ensure_vta_onesolve` remain compatibility wrappers around the facade.
+Model selection is resolved through `mh_vta_model_registry`, while Horn
+conductivity, threshold, atlas, and electrode-removal settings are centralized
+in `mh_vta_settings`.
+
+Coverage analysis is separate from VTA generation. `core/coverage/` builds the
+reference grid, samples e-field and atlas masks, and classifies VTA voxels with
+a generic membership-partition region specification. STN/SNr analyses inject
+their own STN and SNr atlas paths at the project layer; the coverage engine does
+not hard-code those region names or paths.
+
+Composition figures use `core/viz/` semantic plotting helpers: part-whole VTA
+category summaries are drawn as donut charts or 100 percent stacked share bars,
+while distribution and threshold-sensitivity outputs remain box plots and line
+plots with shared styling.
 
 ## STN/SNr Cohort Test Datasets
 

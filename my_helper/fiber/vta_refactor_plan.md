@@ -1,9 +1,9 @@
 # VTA 计算模块重构计划
 
-> Status: **Phase 1 implementation in progress**. The initial checkpoint
-> commit `ddb6888f0` recorded this plan before code changes. Phase 1 keeps
-> existing public entry points compatible while extracting shared VTA,
-> coverage, utility, and visualization primitives.
+> Status: **Phase 1 implemented**. The initial checkpoint commit `ddb6888f0`
+> recorded this plan before code changes. Phase 1 keeps existing public entry
+> points compatible while extracting shared VTA, coverage, utility, and
+> visualization primitives.
 
 ## Context（背景与目标）
 
@@ -165,3 +165,12 @@ Deferred beyond Phase 1:
 - Replacing process-level worker launch with a full task-level parpool harness.
 - Full cohort-scale numerical regression, because it requires the external
   `/Volumes/VAL/STNSNr` subject data and long FEM generation runtime.
+
+Phase 1 validation completed:
+
+- `git diff --check`
+- MATLAB smoke test for `mh_vta_model_registry`, `mh_fiber_model_name`, generic
+  membership-partition classification, category summary rows, and category voxel
+  accounting.
+- MATLAB smoke test for `mh_viz_composition_donut` and
+  `mh_viz_stacked_share_bar` PNG export in `-batch` mode.

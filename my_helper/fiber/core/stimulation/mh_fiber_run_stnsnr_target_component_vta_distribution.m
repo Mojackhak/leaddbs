@@ -18,7 +18,7 @@ opts = parser.Results;
 
 repoDir = char(string(opts.RepoDir));
 if isempty(repoDir)
-    repoDir = resolve_repo_dir(mfilename('fullpath'));
+    repoDir = mh_util_resolve_repo_dir(mfilename('fullpath'));
 end
 subjectRoot = char(string(opts.SubjectRoot));
 contactQcCsv = char(string(opts.ContactQcCsv));
@@ -29,20 +29,21 @@ if isempty(atlasDir)
 end
 outputDir = char(string(opts.OutputDir));
 
-must_be_folder(repoDir, 'repository directory');
-must_be_folder(subjectRoot, 'Lead-DBS subject root');
-must_be_file(contactQcCsv, 'cohort contact mapping QC CSV');
-must_be_folder(atlasDir, 'STN/SNr atlas directory');
-verify_atlas_files(atlasDir);
+mh_util_must_be_folder(repoDir, 'repository directory');
+mh_util_must_be_folder(subjectRoot, 'Lead-DBS subject root');
+mh_util_must_be_file(contactQcCsv, 'cohort contact mapping QC CSV');
+mh_util_must_be_folder(atlasDir, 'STN/SNr atlas directory');
+regionSpec = stnsnr_region_spec(atlasDir);
+mh_coverage_verify_region_spec(regionSpec, 'mh_fiber_run_stnsnr_target_component_vta_distribution');
 
 thresholdsVPerMm = unique(double(opts.ThresholdsVPerMm(:))', 'stable');
 thresholdsVPerM = thresholdsVPerMm .* 1000;
 mainThreshold = double(opts.MainThresholdVPerMm);
 exportThreshold = min(thresholdsVPerMm);
 
-make_dir(outputDir);
-make_dir(fullfile(outputDir, 'figures'));
-make_dir(fullfile(outputDir, 'masks'));
+mh_util_make_dir(outputDir);
+mh_util_make_dir(fullfile(outputDir, 'figures'));
+mh_util_make_dir(fullfile(outputDir, 'masks'));
 
 contactTable = readtable(contactQcCsv, 'TextType', 'string');
 contactTable = normalize_contact_table(contactTable);
@@ -57,6 +58,7 @@ manifest.repo_dir = repoDir;
 manifest.subject_root = subjectRoot;
 manifest.contact_qc_csv = contactQcCsv;
 manifest.atlas_dir = atlasDir;
+manifest.region_spec = regionSpec;
 manifest.output_dir = outputDir;
 manifest.thresholds_v_per_mm = thresholdsVPerMm;
 manifest.thresholds_v_per_m = thresholdsVPerM;
@@ -87,7 +89,7 @@ for c = 1:height(components)
 
     fprintf('\n[%d/%d] Target-component VTA: %s %s %s %s %s\n', ...
         c, height(components), subjectId, phase, protocol, sideCode, target);
-    must_be_folder(subjectDir, ['subject directory for ', subjectId]);
+    mh_util_must_be_folder(subjectDir, ['subject directory for ', subjectId]);
 
     componentRows = contactTable(contactTable.subject_id == component.subject_id & ...
         contactTable.phase == component.phase & contactTable.protocol == component.protocol & ...
@@ -104,7 +106,7 @@ for c = 1:height(components)
 
     componentDirs = prepare_component_dirs(outputDir, component);
     [componentCoverageRows, componentManifest] = analyze_component_coverage( ...
-        efieldPaths, componentRows, component, componentOrigin, componentDirs, atlasDir, ...
+        efieldPaths, componentRows, component, componentOrigin, componentDirs, regionSpec, ...
         thresholdsVPerMm, thresholdsVPerM, mainThreshold, opts.OutputVoxelSizeMm, ...
         logical(opts.ForceOutputs));
 
@@ -215,7 +217,7 @@ components = unique(contactTable(:, keyVars), 'rows', 'stable');
 components.patient_name = "sub-" + components.name_en;
 componentId = strings(height(components), 1);
 for i = 1:height(components)
-    componentId(i) = string(sanitize_label(sprintf('%s_%s_%s_%s_%s', ...
+    componentId(i) = string(mh_util_sanitize_label(sprintf('%s_%s_%s_%s_%s', ...
         components.subject_id(i), components.phase(i), components.protocol(i), ...
         components.side(i), components.target(i))));
 end
@@ -280,7 +282,7 @@ patterns = unique(sideRows.stimulation_pattern, 'stable');
 
 efieldPaths = strings(0, 1);
 if isscalar(patterns) && patterns == "continuous"
-    label = sanitize_label(sprintf('stnsnr_vta_%s_%s_%s_continuous', subjectId, phase, protocol));
+    label = mh_util_sanitize_label(sprintf('stnsnr_vta_%s_%s_%s_continuous', subjectId, phase, protocol));
     efieldPaths(end+1, 1) = efield_path(subjectDir, patientName, label, sideCode);
 elseif isscalar(patterns) && patterns == "alternating"
     alternatingRows = conditionRows(conditionRows.stimulation_pattern == "alternating", :);
@@ -288,7 +290,7 @@ elseif isscalar(patterns) && patterns == "alternating"
         one = alternatingRows(i, :);
         if one.side == string(sideCode) && one.target == string(target) && ...
                 any(componentRows.raw_contact == one.raw_contact)
-            label = sanitize_label(sprintf('stnsnr_vta_%s_%s_%s_alt_%s_%s_c%d_row%d', ...
+            label = mh_util_sanitize_label(sprintf('stnsnr_vta_%s_%s_%s_alt_%s_%s_c%d_row%d', ...
                 subjectId, phase, protocol, one.side(1), one.target(1), one.raw_contact(1), i));
             efieldPaths(end+1, 1) = efield_path(subjectDir, patientName, label, sideCode); %#ok<AGROW>
         end
@@ -305,7 +307,7 @@ if isempty(efieldPaths)
 end
 efieldPaths = cellstr(efieldPaths);
 for i = 1:numel(efieldPaths)
-    must_be_file(efieldPaths{i}, sprintf('observed e-field for %s', char(component.component_id)));
+    mh_util_must_be_file(efieldPaths{i}, sprintf('observed e-field for %s', char(component.component_id)));
 end
 end
 
@@ -313,7 +315,7 @@ function efieldPaths = generate_component_efield(componentRows, subjectDir, pati
     component, exportThresholdVPerMm, opts)
 sideCode = char(component.side);
 componentId = char(component.component_id);
-label = sanitize_label(['stnsnr_target_component_', componentId]);
+label = mh_util_sanitize_label(['stnsnr_target_component_', componentId]);
 cfg = mh_fiber_default_config(subjectDir, label);
 cfg.forceRecomputeVTA = logical(opts.ForceVta);
 cfg.vta.modelKey = 'simbio';
@@ -322,22 +324,21 @@ cfg.vta.gmAtlas = 'DISTAL Minimal (Ewert 2017)';
 stimSpec = rows_to_stim_spec(componentRows, label);
 cfg = mh_fiber_set_stimulation(cfg, stimSpec);
 [S, options, stimFolders] = mh_fiber_build_stimulation(cfg);
-options.prefs.machine.vatsettings.horn_cgm = 0.33;
-options.prefs.machine.vatsettings.horn_cwm = 0.14;
-options.prefs.machine.vatsettings.horn_ethresh = exportThresholdVPerMm;
-options.prefs.machine.vatsettings.horn_useatlas = 1;
-options.prefs.machine.vatsettings.horn_atlasset = 'DISTAL Minimal (Ewert 2017)';
-options.prefs.machine.vatsettings.horn_removeElectrode = 1;
 
-vta = mh_fiber_vta_paths(cfg, stimFolders);
+request = struct();
+request.modelKey = 'simbio';
+request.stimFolders = stimFolders;
+request.force = logical(opts.ForceVta);
+request.sides = {sideCode};
+request.outputSpaces = {'mni'};
+request.exportThresholdVPerMm = exportThresholdVPerMm;
+request.gmAtlas = 'DISTAL Minimal (Ewert 2017)';
+request.useAtlas = true;
+request.removeElectrode = true;
+vta = mh_vta_compute(cfg, S, options, request);
+
 efieldPath = vta.mni.(sideCode).efieldNii;
-if logical(opts.ForceVta) || ~isfile(efieldPath)
-    fprintf('Generating component e-field: %s side %s\n', label, sideCode);
-    run_horn_with_retry(S, side_to_index(sideCode), options, label, efieldPath);
-else
-    fprintf('Reusing component e-field: %s side %s\n', label, sideCode);
-end
-must_be_file(efieldPath, sprintf('target-component e-field for %s', componentId));
+mh_util_must_be_file(efieldPath, sprintf('target-component e-field for %s', componentId));
 efieldPaths = {efieldPath};
 
 if ~strcmp(patientName, cfg.patientName)
@@ -371,49 +372,10 @@ source = struct('side', '', 'contact', NaN, 'amp', NaN, 'unit', 'V', ...
     'pulseWidth', NaN, 'frequency', NaN, 'cathode', true, 'anode', 'case');
 end
 
-function run_horn_with_retry(S, sideIdx, options, stimLabel, efieldPath)
-maxAttempts = 4;
-for attempt = 1:maxAttempts
-    try
-        rng(stable_retry_seed(stimLabel, sideIdx, attempt), 'twister');
-        ea_genvat_horn([], S, sideIdx, options, stimLabel);
-        return;
-    catch ME
-        if isfile(efieldPath)
-            warning('mh_fiber_run_stnsnr_target_component_vta_distribution:HornPostWriteFailure', ...
-                ['Lead-DBS Horn raised an error after writing the expected e-field ', ...
-                'for %s side %d: %s'], stimLabel, sideIdx, ME.message);
-            return;
-        end
-        if ~is_horn_index_error(ME) || attempt == maxAttempts
-            rethrow(ME);
-        end
-        warning('mh_fiber_run_stnsnr_target_component_vta_distribution:HornIndexRetry', ...
-            'Retrying Lead-DBS Horn e-field generation for %s side %d after index error (%d/%d).', ...
-            stimLabel, sideIdx, attempt, maxAttempts);
-    end
-end
-end
-
-function seed = stable_retry_seed(stimLabel, sideIdx, attempt)
-labelValues = double(char(string(stimLabel)));
-seed = 42 + 1009 * double(attempt) + 101 * double(sideIdx) + sum(labelValues);
-seed = mod(seed, 2^32 - 1);
-if seed == 0
-    seed = 42;
-end
-end
-
-function tf = is_horn_index_error(ME)
-stackNames = string({ME.stack.name});
-tf = contains(ME.message, 'Array indices must be positive integers') && ...
-    any(stackNames == "ea_write_vta_nii");
-end
-
 function [coverageRows, componentManifest] = analyze_component_coverage( ...
-    efieldPaths, componentRows, component, componentOrigin, componentDirs, atlasDir, ...
+    efieldPaths, componentRows, component, componentOrigin, componentDirs, regionSpec, ...
     thresholdsVPerMm, thresholdsVPerM, mainThreshold, outputVoxelSize, forceOutputs)
-coverageRows = cell(numel(thresholdsVPerM) * 4, 30);
+coverageRows = {};
 coverageRow = 0;
 componentManifest = struct();
 componentManifest.component_id = char(component.component_id);
@@ -428,13 +390,9 @@ componentManifest.efield_paths = efieldPaths;
 componentManifest.thresholds = struct([]);
 
 sideCode = char(component.side);
-ref = build_component_reference_grid(efieldPaths, outputVoxelSize);
-stnMask = sample_mask_to_grid(atlas_path(atlasDir, sideCode, 'STN'), ref);
-snrMask = sample_mask_to_grid(atlas_path(atlasDir, sideCode, 'SNr'), ref);
-if ~any(stnMask(:)) || ~any(snrMask(:))
-    error('mh_fiber_run_stnsnr_target_component_vta_distribution:EmptyReslicedAtlasMask', ...
-        'Empty STN/SNr mask after reslicing for %s.', char(component.component_id));
-end
+ref = mh_coverage_reference_grid(efieldPaths, outputVoxelSize, ...
+    'ErrorId', 'mh_fiber_run_stnsnr_target_component_vta_distribution:ReferenceGridTooLarge');
+regionMasks = mh_coverage_sample_region_masks(regionSpec, sideCode, ref);
 
 for t = 1:numel(thresholdsVPerM)
     thresholdVPerMm = thresholdsVPerMm(t);
@@ -442,13 +400,12 @@ for t = 1:numel(thresholdsVPerM)
     thresholdLabel = threshold_label(thresholdVPerMm);
     hitCount = zeros(ref.dim, 'uint16');
     for e = 1:numel(efieldPaths)
-        hitCount = hitCount + uint16(sample_threshold_to_grid(efieldPaths{e}, ref, thresholdVPerM));
+        hitCount = hitCount + uint16(mh_coverage_sample_threshold_to_grid(efieldPaths{e}, ref, thresholdVPerM));
     end
     vtaMask = hitCount > 0;
     overlapMask = hitCount > 1;
-    categories = classify_vta(vtaMask, stnMask, snrMask);
-    categorySum = nnz(categories.STN_only) + nnz(categories.SNr_only) + ...
-        nnz(categories.STN_SNr) + nnz(categories.Outside);
+    categories = mh_coverage_classify_membership(vtaMask, regionMasks);
+    categorySum = mh_coverage_category_voxel_sum(categories);
     totalVoxels = nnz(vtaMask);
     if categorySum ~= totalVoxels
         error('mh_fiber_run_stnsnr_target_component_vta_distribution:CategorySumMismatch', ...
@@ -456,8 +413,7 @@ for t = 1:numel(thresholdsVPerM)
     end
     paths = write_component_masks(ref, vtaMask, categories, overlapMask, componentDirs, ...
         component, thresholdLabel, forceOutputs);
-    categoryRows = category_summary_rows(categories, vtaMask, stnMask, snrMask, ...
-        ref.voxel_volume_mm3);
+    categoryRows = mh_coverage_category_summary_rows(categories, vtaMask, ref.voxel_volume_mm3);
     for r = 1:size(categoryRows, 1)
         coverageRow = coverageRow + 1;
         coverageRows(coverageRow, :) = { ...
@@ -488,106 +444,9 @@ for t = 1:numel(thresholdsVPerM)
 end
 end
 
-function ref = build_component_reference_grid(efieldPaths, voxelSize)
-allCorners = zeros(0, 3);
-template = ea_load_nii(efieldPaths{1});
-for i = 1:numel(efieldPaths)
-    nii = ea_load_nii(efieldPaths{i});
-    dim = size(nii.img);
-    corners = [ ...
-        1, 1, 1; dim(1), 1, 1; 1, dim(2), 1; 1, 1, dim(3); ...
-        dim(1), dim(2), 1; dim(1), 1, dim(3); 1, dim(2), dim(3); dim(1), dim(2), dim(3)];
-    allCorners = [allCorners; ea_vox2mm(corners, nii.mat)]; %#ok<AGROW>
-end
-minMm = floor(min(allCorners, [], 1) ./ voxelSize) .* voxelSize - voxelSize;
-maxMm = ceil(max(allCorners, [], 1) ./ voxelSize) .* voxelSize + voxelSize;
-dim = max(1, ceil((maxMm - minMm) ./ voxelSize) + 1);
-if prod(dim) > 12000000
-    error('mh_fiber_run_stnsnr_target_component_vta_distribution:ReferenceGridTooLarge', ...
-        'Component reference grid is too large: %s voxels.', mat2str(dim));
-end
-mat = [voxelSize, 0, 0, minMm(1); 0, voxelSize, 0, minMm(2); ...
-    0, 0, voxelSize, minMm(3); 0, 0, 0, 1];
-ref = struct();
-ref.dim = dim;
-ref.mat = mat;
-ref.template = template;
-ref.voxel_size_mm = voxelSize;
-ref.voxel_volume_mm3 = abs(det(mat(1:3, 1:3)));
-end
-
-function mask = sample_threshold_to_grid(sourcePath, ref, threshold)
-source = ea_load_nii(sourcePath);
-mask = sample_image_to_grid(source, ref, threshold, 'threshold');
-end
-
-function mask = sample_mask_to_grid(sourcePath, ref)
-source = ea_load_nii(sourcePath);
-mask = sample_image_to_grid(source, ref, 0, 'binary');
-end
-
-function mask = sample_image_to_grid(source, ref, threshold, mode)
-mask = false(ref.dim);
-sourceImg = double(source.img);
-sourceSize = size(sourceImg);
-total = prod(ref.dim);
-chunkSize = 250000;
-for startIdx = 1:chunkSize:total
-    stopIdx = min(total, startIdx + chunkSize - 1);
-    idx = (startIdx:stopIdx)';
-    [x, y, z] = ind2sub(ref.dim, idx);
-    xyzMm = ea_vox2mm([x, y, z], ref.mat);
-    srcVox = round(ea_mm2vox(xyzMm, source.mat));
-    inside = srcVox(:, 1) >= 1 & srcVox(:, 1) <= sourceSize(1) & ...
-        srcVox(:, 2) >= 1 & srcVox(:, 2) <= sourceSize(2) & ...
-        srcVox(:, 3) >= 1 & srcVox(:, 3) <= sourceSize(3);
-    if any(inside)
-        lin = sub2ind(sourceSize, srcVox(inside, 1), srcVox(inside, 2), srcVox(inside, 3));
-        vals = sourceImg(lin);
-        switch mode
-            case 'threshold'
-                hit = vals >= threshold;
-            case 'binary'
-                hit = vals > threshold;
-            otherwise
-                error('mh_fiber_run_stnsnr_target_component_vta_distribution:InvalidSampleMode', ...
-                    'Invalid sample mode: %s', mode);
-        end
-        idxInside = idx(inside);
-        mask(idxInside(hit)) = true;
-    end
-end
-end
-
-function categories = classify_vta(vtaMask, stnMask, snrMask)
-categories = struct();
-categories.STN_only = vtaMask & stnMask & ~snrMask;
-categories.SNr_only = vtaMask & snrMask & ~stnMask;
-categories.STN_SNr = vtaMask & stnMask & snrMask;
-categories.Outside = vtaMask & ~(stnMask | snrMask);
-end
-
-function rows = category_summary_rows(categories, vtaMask, stnMask, snrMask, voxelVolume)
-names = {'STN_only', 'SNr_only', 'STN_SNr', 'Outside'};
-denominators = [nnz(stnMask & ~snrMask), nnz(snrMask & ~stnMask), nnz(stnMask & snrMask), NaN];
-totalVoxels = nnz(vtaMask);
-rows = cell(numel(names), 5);
-for i = 1:numel(names)
-    count = nnz(categories.(names{i}));
-    volume = count * voxelVolume;
-    percentTotal = 100 * count / max(1, totalVoxels);
-    if isnan(denominators(i)) || denominators(i) == 0
-        percentAnatomical = NaN;
-    else
-        percentAnatomical = 100 * count / denominators(i);
-    end
-    rows(i, :) = {names{i}, count, volume, percentTotal, percentAnatomical};
-end
-end
-
 function paths = write_component_masks(ref, vtaMask, categories, overlapMask, componentDirs, ...
     component, thresholdLabel, forceOutputs)
-base = sanitize_label(sprintf('%s_phase-%s_protocol-%s_hemi-%s_target-%s_thr-%s', ...
+base = mh_util_sanitize_label(sprintf('%s_phase-%s_protocol-%s_hemi-%s_target-%s_thr-%s', ...
     component.patient_name, component.phase, component.protocol, component.side, ...
     component.target, thresholdLabel));
 paths = struct();
@@ -595,60 +454,41 @@ paths.vta = fullfile(componentDirs.masks, [base, '_desc-vta.nii']);
 paths.category = fullfile(componentDirs.masks, [base, '_desc-vtaCategory.nii']);
 paths.overlap = fullfile(componentDirs.masks, [base, '_desc-vtaProgramOverlap.nii']);
 if forceOutputs || ~isfile(paths.vta)
-    write_ref_nii(ref, double(vtaMask), paths.vta, 2, 'stnsnr target component vta');
+    mh_coverage_write_ref_nii(ref, double(vtaMask), paths.vta, 2, 'stnsnr target component vta');
 end
 if forceOutputs || ~isfile(paths.category)
-    categoryImg = zeros(ref.dim, 'uint8');
-    categoryImg(categories.STN_only) = 1;
-    categoryImg(categories.SNr_only) = 2;
-    categoryImg(categories.STN_SNr) = 3;
-    categoryImg(categories.Outside) = 4;
-    write_ref_nii(ref, categoryImg, paths.category, 2, 'stnsnr target component category');
+    mh_coverage_write_ref_nii(ref, categories.categoryImg, paths.category, 2, ...
+        'stnsnr target component category');
 end
 if forceOutputs || ~isfile(paths.overlap)
-    write_ref_nii(ref, double(overlapMask), paths.overlap, 2, ...
+    mh_coverage_write_ref_nii(ref, double(overlapMask), paths.overlap, 2, ...
         'stnsnr target component program overlap');
 end
 end
 
-function write_ref_nii(ref, img, outputPath, datatype, description)
-nii = ref.template;
-nii.img = img;
-nii.dim = ref.dim;
-nii.mat = ref.mat;
-nii.dt = [datatype, 0];
-nii.n = [1, 1];
-nii.descrip = description;
-nii.fname = outputPath;
-ea_write_nii(nii);
-end
-
 function write_component_figure(componentDirs, component, thresholdLabel, categoryRows)
-figPath = fullfile(componentDirs.figures, [sanitize_label(sprintf( ...
+figPath = fullfile(componentDirs.figures, [mh_util_sanitize_label(sprintf( ...
     '%s_phase-%s_protocol-%s_hemi-%s_target-%s_thr-%s', component.patient_name, ...
     component.phase, component.protocol, component.side, component.target, thresholdLabel)), ...
     '_desc-vtaCoverage.png']);
-fig = figure('Visible', 'off', 'Color', 'w', 'Position', [100, 100, 760, 420]);
-cleanup = onCleanup(@() close(fig));
 names = string(categoryRows(:, 1));
 volumes = cell2mat(categoryRows(:, 3));
-bar(categorical(names), volumes);
-ylabel('Volume (mm3)');
-title(sprintf('%s %s %s %s target %s %s', component.patient_name, component.phase, ...
-    component.protocol, component.side, component.target, thresholdLabel), 'Interpreter', 'none');
-grid on;
-exportgraphics(fig, figPath, 'Resolution', 220, 'BackgroundColor', 'white');
-clear cleanup;
+fig = mh_viz_composition_donut(names, volumes, ...
+    'Title', sprintf('%s %s %s %s target %s %s', component.patient_name, component.phase, ...
+    component.protocol, component.side, component.target, thresholdLabel), ...
+    'CenterText', sprintf('%.0f mm3', sum(volumes)), ...
+    'OutputPath', figPath);
+close(fig);
 end
 
 function dirs = prepare_component_dirs(outputDir, component)
-conditionKey = sanitize_label(sprintf('%s_%s', component.phase, component.protocol));
-targetKey = sanitize_label(sprintf('%s_%s', conditionKey, component.target));
+conditionKey = mh_util_sanitize_label(sprintf('%s_%s', component.phase, component.protocol));
+targetKey = mh_util_sanitize_label(sprintf('%s_%s', conditionKey, component.target));
 dirs = struct();
 dirs.masks = fullfile(outputDir, 'masks', targetKey);
 dirs.figures = fullfile(outputDir, 'figures', targetKey);
-make_dir(dirs.masks);
-make_dir(dirs.figures);
+mh_util_make_dir(dirs.masks);
+mh_util_make_dir(dirs.figures);
 end
 
 function row = component_qc_row(component, componentRows, componentOrigin, efieldPaths)
@@ -708,7 +548,7 @@ writetable(wide, fullfile(outputDir, 'cohort_target_component_vta_coverage_wide.
 summary = summarize_distribution(coverageTable);
 writetable(summary, fullfile(outputDir, 'cohort_target_component_distribution_summary.csv'));
 writetable(componentQcTable, fullfile(outputDir, 'cohort_target_component_contact_qc.csv'));
-write_json(fullfile(outputDir, 'cohort_target_component_generation_manifest.json'), manifest);
+mh_util_write_json(fullfile(outputDir, 'cohort_target_component_generation_manifest.json'), manifest);
 write_summary_figures(outputDir, coverageTable, mainThreshold);
 end
 
@@ -754,37 +594,30 @@ end
 
 function write_summary_figures(outputDir, coverageTable, mainThreshold)
 figureDir = fullfile(outputDir, 'figures');
-make_dir(figureDir);
+mh_util_make_dir(figureDir);
 mainRows = coverageTable(abs(coverageTable.threshold_v_per_mm - mainThreshold) < 1e-9, :);
 summary = summarize_distribution(mainRows);
 
-barData = unstack(summary(:, {'target', 'category', 'mean_volume_mm3'}), ...
-    'mean_volume_mm3', 'category');
-targets = categorical(barData.target);
-categories = {'STN_only', 'SNr_only', 'STN_SNr', 'Outside'};
-matrix = zeros(height(barData), numel(categories));
-for i = 1:numel(categories)
-    if ismember(categories{i}, barData.Properties.VariableNames)
-        matrix(:, i) = barData.(categories{i});
+targets = unique(summary.target, 'stable');
+categories = unique(summary.category, 'stable');
+matrix = zeros(numel(targets), numel(categories));
+for t = 1:numel(targets)
+    for c = 1:numel(categories)
+        row = summary.target == targets(t) & summary.category == categories(c);
+        if any(row)
+            matrix(t, c) = summary.mean_percent_total_vta(find(row, 1));
+        end
     end
 end
-fig = figure('Visible', 'off', 'Color', 'w', 'Position', [100, 100, 760, 420]);
-bar(targets, matrix, 'stacked');
-ylabel('Mean volume (mm3)');
-title(sprintf('Target-component VTA coverage at %.2f V/mm', mainThreshold));
-legend(categories, 'Location', 'eastoutside', 'Interpreter', 'none');
-grid on;
-exportgraphics(fig, fullfile(figureDir, 'target_component_stacked_bar_thr0p20.png'), ...
-    'Resolution', 220, 'BackgroundColor', 'white');
+fig = mh_viz_stacked_share_bar(targets, categories, matrix, ...
+    'Title', sprintf('Target-component VTA coverage share at %.2f V/mm', mainThreshold), ...
+    'OutputPath', fullfile(figureDir, 'target_component_stacked_bar_thr0p20.png'));
 close(fig);
 
-fig = figure('Visible', 'off', 'Color', 'w', 'Position', [100, 100, 920, 420]);
-boxchart(categorical(strcat(mainRows.target, " / ", mainRows.category)), mainRows.volume_mm3);
-ylabel('Volume (mm3)');
-title(sprintf('Target-component category volumes at %.2f V/mm', mainThreshold));
-grid on;
-exportgraphics(fig, fullfile(figureDir, 'target_component_boxplot_thr0p20.png'), ...
-    'Resolution', 220, 'BackgroundColor', 'white');
+fig = mh_viz_box(strcat(mainRows.target, " / ", mainRows.category), mainRows.volume_mm3, ...
+    'YLabel', 'Volume (mm3)', ...
+    'Title', sprintf('Target-component category volumes at %.2f V/mm', mainThreshold), ...
+    'OutputPath', fullfile(figureDir, 'target_component_boxplot_thr0p20.png'));
 close(fig);
 
 totalRows = unique(coverageTable(:, {'component_id', 'target', 'threshold_v_per_mm', ...
@@ -792,21 +625,12 @@ totalRows = unique(coverageTable(:, {'component_id', 'target', 'threshold_v_per_
 [G, target, threshold] = findgroups(totalRows.target, totalRows.threshold_v_per_mm);
 meanTotal = splitapply(@(x) mean(x, 'omitnan'), totalRows.total_vta_volume_mm3, G);
 plotTable = table(target, threshold, meanTotal);
-fig = figure('Visible', 'off', 'Color', 'w', 'Position', [100, 100, 620, 420]);
-hold on;
-targetValues = unique(plotTable.target, 'stable');
-for i = 1:numel(targetValues)
-    one = sortrows(plotTable(plotTable.target == targetValues(i), :), 'threshold');
-    plot(one.threshold, one.meanTotal, '-o', 'LineWidth', 1.5, 'DisplayName', targetValues(i));
-end
-hold off;
-xlabel('Threshold (V/mm)');
-ylabel('Mean total VTA volume (mm3)');
-title('Target-component threshold sensitivity');
-legend('Location', 'best');
-grid on;
-exportgraphics(fig, fullfile(figureDir, 'target_component_threshold_sensitivity.png'), ...
-    'Resolution', 220, 'BackgroundColor', 'white');
+fig = mh_viz_trend_line(plotTable.threshold, plotTable.meanTotal, ...
+    'Group', plotTable.target, ...
+    'XLabel', 'Threshold (V/mm)', ...
+    'YLabel', 'Mean total VTA volume (mm3)', ...
+    'Title', 'Target-component threshold sensitivity', ...
+    'OutputPath', fullfile(figureDir, 'target_component_threshold_sensitivity.png'));
 close(fig);
 end
 
@@ -863,7 +687,7 @@ required = {'cohort_target_component_vta_coverage_long.csv', ...
     fullfile('figures', 'target_component_boxplot_thr0p20.png'), ...
     fullfile('figures', 'target_component_threshold_sensitivity.png')};
 for i = 1:numel(required)
-    must_be_file(fullfile(outputDir, required{i}), sprintf('target-component output %s', required{i}));
+    mh_util_must_be_file(fullfile(outputDir, required{i}), sprintf('target-component output %s', required{i}));
 end
 end
 
@@ -875,93 +699,13 @@ function label = threshold_label(value)
 label = strrep(sprintf('%.2f', value), '.', 'p');
 end
 
+function regionSpec = stnsnr_region_spec(atlasDir)
+regionSpec = mh_coverage_region_spec_from_hemi_atlas(atlasDir, {'STN', 'SNr'});
+regionSpec.project = 'STNSNr';
+regionSpec.description = 'Project-injected STN/SNr classification atlas specification.';
+end
+
 function path = efield_path(subjectDir, patientName, stimLabel, sideCode)
 path = fullfile(subjectDir, 'stimulations', ea_nt(0), char(stimLabel), ...
     sprintf('%s_sim-efield_model-simbio_hemi-%s.nii', patientName, sideCode));
-end
-
-function path = atlas_path(atlasDir, sideCode, roi)
-switch sideCode
-    case 'L'
-        hemi = 'lh';
-    case 'R'
-        hemi = 'rh';
-    otherwise
-        error('mh_fiber_run_stnsnr_target_component_vta_distribution:InvalidSide', ...
-            'Invalid side: %s', sideCode);
-end
-path = fullfile(atlasDir, hemi, [roi, '.nii.gz']);
-must_be_file(path, sprintf('%s %s atlas mask', sideCode, roi));
-end
-
-function verify_atlas_files(atlasDir)
-must_be_file(atlas_path(atlasDir, 'L', 'STN'), 'left STN atlas');
-must_be_file(atlas_path(atlasDir, 'R', 'STN'), 'right STN atlas');
-must_be_file(atlas_path(atlasDir, 'L', 'SNr'), 'left SNr atlas');
-must_be_file(atlas_path(atlasDir, 'R', 'SNr'), 'right SNr atlas');
-end
-
-function sideIdx = side_to_index(sideCode)
-switch upper(char(sideCode))
-    case 'R'
-        sideIdx = 1;
-    case 'L'
-        sideIdx = 2;
-    otherwise
-        error('mh_fiber_run_stnsnr_target_component_vta_distribution:InvalidSide', ...
-            'Invalid side: %s', sideCode);
-end
-end
-
-function out = sanitize_label(value)
-out = char(string(value));
-out = regexprep(out, '\+', 'plus');
-out = regexprep(out, '[^A-Za-z0-9_+-]+', '_');
-out = regexprep(out, '_+', '_');
-out = regexprep(out, '^_|_$', '');
-end
-
-function make_dir(path)
-if ~isfolder(path)
-    mkdir(path);
-end
-end
-
-function must_be_file(path, description)
-if ~isfile(path)
-    error('mh_fiber_run_stnsnr_target_component_vta_distribution:MissingFile', ...
-        'Missing %s: %s', description, path);
-end
-end
-
-function must_be_folder(path, description)
-if ~isfolder(path)
-    error('mh_fiber_run_stnsnr_target_component_vta_distribution:MissingFolder', ...
-        'Missing %s: %s', description, path);
-end
-end
-
-function repoDir = resolve_repo_dir(pathInRepo)
-repoDir = fileparts(pathInRepo);
-while ~isempty(repoDir) && ~isfolder(fullfile(repoDir, 'ea_modules'))
-    parent = fileparts(repoDir);
-    if strcmp(parent, repoDir)
-        break;
-    end
-    repoDir = parent;
-end
-if isempty(repoDir) || ~isfolder(fullfile(repoDir, 'ea_modules'))
-    repoDir = pwd;
-end
-end
-
-function write_json(path, data)
-fid = fopen(path, 'w');
-if fid < 0
-    error('mh_fiber_run_stnsnr_target_component_vta_distribution:CannotWriteJson', ...
-        'Cannot write JSON: %s', path);
-end
-cleanup = onCleanup(@() fclose(fid));
-fprintf(fid, '%s\n', jsonencode(data, PrettyPrint = true));
-clear cleanup;
 end

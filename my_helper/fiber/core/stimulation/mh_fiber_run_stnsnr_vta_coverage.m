@@ -27,7 +27,7 @@ opts = parser.Results;
 
 repoDir = char(string(opts.RepoDir));
 if isempty(repoDir)
-    repoDir = resolve_repo_dir(mfilename('fullpath'));
+    repoDir = mh_util_resolve_repo_dir(mfilename('fullpath'));
 end
 subjectRoot = char(string(opts.SubjectRoot));
 workbook = char(string(opts.Workbook));
@@ -39,11 +39,12 @@ if isempty(atlasDir)
 end
 cohortOutputDir = char(string(opts.CohortOutputDir));
 
-must_be_folder(repoDir, 'repository directory');
-must_be_folder(subjectRoot, 'Lead-DBS subject root');
-must_be_file(workbook, 'stimulation workbook');
-must_be_folder(atlasDir, 'STN/SNr atlas directory');
-verify_atlas_files(atlasDir);
+mh_util_must_be_folder(repoDir, 'repository directory');
+mh_util_must_be_folder(subjectRoot, 'Lead-DBS subject root');
+mh_util_must_be_file(workbook, 'stimulation workbook');
+mh_util_must_be_folder(atlasDir, 'STN/SNr atlas directory');
+regionSpec = stnsnr_region_spec(atlasDir);
+mh_coverage_verify_region_spec(regionSpec, 'mh_fiber_run_stnsnr_vta_coverage');
 
 thresholdsVPerMm = unique(double(opts.ThresholdsVPerMm(:))', 'stable');
 thresholdsVPerM = thresholdsVPerMm .* 1000;
@@ -64,8 +65,8 @@ if height(subjects) == 0
         'No subjects matched the requested subject filter.');
 end
 
-make_dir(cohortOutputDir);
-make_dir(fullfile(cohortOutputDir, 'figures'));
+mh_util_make_dir(cohortOutputDir);
+mh_util_make_dir(fullfile(cohortOutputDir, 'figures'));
 
 coverageRows = {};
 contactRows = {};
@@ -76,6 +77,7 @@ manifest.subject_root = subjectRoot;
 manifest.workbook = workbook;
 manifest.sheet = sheetName;
 manifest.atlas_dir = atlasDir;
+manifest.region_spec = regionSpec;
 manifest.thresholds_v_per_mm = thresholdsVPerMm;
 manifest.thresholds_v_per_m = thresholdsVPerM;
 manifest.main_threshold_v_per_mm = mainThreshold;
@@ -115,7 +117,7 @@ for s = 1:height(subjects)
     try
         fprintf('\n[%d/%d] STN/SNr VTA coverage: %s (%s)\n', ...
             s, height(subjects), subjectId, patientName);
-        must_be_folder(subjectDir, ['subject directory for ', subjectId]);
+        mh_util_must_be_folder(subjectDir, ['subject directory for ', subjectId]);
 
         subjectOutput = fullfile(subjectDir, 'connectomics', 'stnsnr_vta_coverage');
         if logical(opts.SkipCompletedSubjects) && subject_outputs_complete(subjectOutput, patientName)
@@ -127,7 +129,7 @@ for s = 1:height(subjects)
         end
         lockCleanup = []; %#ok<NASGU>
         if logical(opts.UseSubjectLocks)
-            make_dir(subjectOutput);
+            mh_util_make_dir(subjectOutput);
             [lockCleanup, lockAcquired] = acquire_subject_lock(subjectOutput, subjectId, patientName, opts);
             if ~lockAcquired
                 fprintf('Skipping locked subject: %s (%s)\n', subjectId, patientName);
@@ -170,7 +172,7 @@ for s = 1:height(subjects)
                 programs = ensure_program_efields(programs, subjectDir, exportThreshold, opts);
                 [conditionRowsOut, conditionManifest] = analyze_condition_coverage( ...
                     programs, conditionRows, subjectId, patientName, phases(p), protocols(q), ...
-                    conditionKey, conditionDirs, atlasDir, thresholdsVPerMm, thresholdsVPerM, ...
+                    conditionKey, conditionDirs, regionSpec, thresholdsVPerMm, thresholdsVPerM, ...
                     mainThreshold, opts.OutputVoxelSizeMm, logical(opts.ForceOutputs));
 
                 subjectCoverageRows = [subjectCoverageRows; conditionRowsOut]; %#ok<AGROW>
@@ -189,7 +191,7 @@ for s = 1:height(subjects)
         subjectManifest.contact_mapping_qc = fullfile(dirs.reports, [patientName, '_contact_mapping_qc.csv']);
         subjectManifest.conditions = conditionManifests;
         subjectManifest.status = 'ok';
-        write_json(fullfile(dirs.manifest, [patientName, '_vta_coverage_manifest.json']), subjectManifest);
+        mh_util_write_json(fullfile(dirs.manifest, [patientName, '_vta_coverage_manifest.json']), subjectManifest);
 
         coverageRows = [coverageRows; subjectCoverageRows];
         clear lockCleanup;
@@ -392,7 +394,7 @@ if ~isempty(continuousRows)
     programs(programIdx).rows = continuousRows;
     programs(programIdx).pattern = 'continuous';
     programs(programIdx).alternating_group = '';
-    programs(programIdx).label = sanitize_label(sprintf('stnsnr_vta_%s_%s_%s_continuous', ...
+    programs(programIdx).label = mh_util_sanitize_label(sprintf('stnsnr_vta_%s_%s_%s_continuous', ...
         subjectId, phase, protocol));
 end
 
@@ -403,7 +405,7 @@ for i = 1:height(alternatingRows)
     programs(programIdx).rows = oneRow;
     programs(programIdx).pattern = 'alternating_subprogram';
     programs(programIdx).alternating_group = char(string(oneRow.AlternatingGroup(1)));
-    programs(programIdx).label = sanitize_label(sprintf('stnsnr_vta_%s_%s_%s_alt_%s_%s_c%d_row%d', ...
+        programs(programIdx).label = mh_util_sanitize_label(sprintf('stnsnr_vta_%s_%s_%s_alt_%s_%s_c%d_row%d', ...
         subjectId, phase, protocol, oneRow.Side(1), oneRow.Target(1), oneRow.RawContact(1), i));
 end
 end
@@ -419,28 +421,26 @@ for i = 1:numel(programs)
     stimSpec = rows_to_stim_spec(rows, programs(i).label);
     cfg = mh_fiber_set_stimulation(cfg, stimSpec);
     [S, options, stimFolders] = mh_fiber_build_stimulation(cfg);
-    options.prefs.machine.vatsettings.horn_cgm = 0.33;
-    options.prefs.machine.vatsettings.horn_cwm = 0.14;
-    options.prefs.machine.vatsettings.horn_ethresh = exportThresholdVPerMm;
-    options.prefs.machine.vatsettings.horn_useatlas = 1;
-    options.prefs.machine.vatsettings.horn_atlasset = 'DISTAL Minimal (Ewert 2017)';
-    options.prefs.machine.vatsettings.horn_removeElectrode = 1;
 
-    vta = mh_fiber_vta_paths(cfg, stimFolders);
     activeSides = unique(string(rows.Side), 'stable');
+    request = struct();
+    request.modelKey = 'simbio';
+    request.stimFolders = stimFolders;
+    request.force = logical(opts.ForceVta);
+    request.sides = cellstr(activeSides);
+    request.outputSpaces = {'mni'};
+    request.exportThresholdVPerMm = exportThresholdVPerMm;
+    request.gmAtlas = 'DISTAL Minimal (Ewert 2017)';
+    request.useAtlas = true;
+    request.removeElectrode = true;
+    vta = mh_vta_compute(cfg, S, options, request);
+
     efield = struct();
     for s = 1:numel(activeSides)
         sideCode = char(activeSides(s));
-        sideIdx = side_to_index(sideCode);
         efieldPath = vta.mni.(sideCode).efieldNii;
         binaryPath = vta.mni.(sideCode).binaryNii;
-        if logical(opts.ForceVta) || ~isfile(efieldPath)
-            fprintf('Generating e-field: %s side %s\n', cfg.stimLabel, sideCode);
-            run_horn_with_retry(S, sideIdx, options, cfg.stimLabel, efieldPath);
-        else
-            fprintf('Reusing e-field: %s side %s\n', cfg.stimLabel, sideCode);
-        end
-        must_be_file(efieldPath, sprintf('MNI e-field for %s side %s', cfg.stimLabel, sideCode));
+        mh_util_must_be_file(efieldPath, sprintf('MNI e-field for %s side %s', cfg.stimLabel, sideCode));
         efield.(sideCode) = efieldPath;
         if isfile(binaryPath)
             programs(i).binary_mni.(sideCode) = binaryPath;
@@ -451,45 +451,6 @@ for i = 1:numel(programs)
     programs(i).stim_folder_mni = stimFolders.mni;
     programs(i).stim_folder_native = stimFolders.native;
 end
-end
-
-function run_horn_with_retry(S, sideIdx, options, stimLabel, efieldPath)
-maxAttempts = 4;
-for attempt = 1:maxAttempts
-    try
-        rng(stable_retry_seed(stimLabel, sideIdx, attempt), 'twister');
-        ea_genvat_horn([], S, sideIdx, options, stimLabel);
-        return;
-    catch ME
-        if isfile(efieldPath)
-            warning('mh_fiber_run_stnsnr_vta_coverage:HornPostWriteFailure', ...
-                ['Lead-DBS Horn raised an error after writing the expected e-field ', ...
-                'for %s side %d: %s'], stimLabel, sideIdx, ME.message);
-            return;
-        end
-        if ~is_horn_index_error(ME) || attempt == maxAttempts
-            rethrow(ME);
-        end
-        warning('mh_fiber_run_stnsnr_vta_coverage:HornIndexRetry', ...
-            'Retrying Lead-DBS Horn e-field generation for %s side %d after index error (%d/%d).', ...
-            stimLabel, sideIdx, attempt, maxAttempts);
-    end
-end
-end
-
-function seed = stable_retry_seed(stimLabel, sideIdx, attempt)
-labelValues = double(char(string(stimLabel)));
-seed = 42 + 1009 * double(attempt) + 101 * double(sideIdx) + sum(labelValues);
-seed = mod(seed, 2^32 - 1);
-if seed == 0
-    seed = 42;
-end
-end
-
-function tf = is_horn_index_error(ME)
-stackNames = string({ME.stack.name});
-tf = contains(ME.message, 'Array indices must be positive integers') && ...
-    any(stackNames == "ea_write_vta_nii");
 end
 
 function stimSpec = rows_to_stim_spec(rows, label)
@@ -518,7 +479,7 @@ source = struct('side', '', 'contact', NaN, 'amp', NaN, 'unit', 'V', ...
 end
 
 function [coverageRows, conditionManifest] = analyze_condition_coverage(programs, conditionRows, ...
-    subjectId, patientName, phase, protocol, conditionKey, conditionDirs, atlasDir, ...
+    subjectId, patientName, phase, protocol, conditionKey, conditionDirs, regionSpec, ...
     thresholdsVPerMm, thresholdsVPerM, mainThreshold, outputVoxelSize, forceOutputs)
 
 coverageRows = {};
@@ -550,29 +511,23 @@ for s = 1:numel(sides)
     sideManifest.program_labels = programLabels;
     sideManifest.thresholds = struct([]);
 
+    ref = mh_coverage_reference_grid(efieldPaths, outputVoxelSize, ...
+        'ErrorId', 'mh_fiber_run_stnsnr_vta_coverage:ReferenceGridTooLarge');
+    regionMasks = mh_coverage_sample_region_masks(regionSpec, sideCode, ref);
+
     for t = 1:numel(thresholdsVPerM)
         thresholdVPerMm = thresholdsVPerMm(t);
         thresholdVPerM = thresholdsVPerM(t);
         thresholdLabel = threshold_label(thresholdVPerMm);
-        ref = build_condition_reference_grid(efieldPaths, outputVoxelSize);
         hitCount = zeros(ref.dim, 'uint16');
         for e = 1:numel(efieldPaths)
-            hitCount = hitCount + uint16(sample_threshold_to_grid(efieldPaths{e}, ref, thresholdVPerM));
+            hitCount = hitCount + uint16(mh_coverage_sample_threshold_to_grid(efieldPaths{e}, ref, thresholdVPerM));
         end
         vtaMask = hitCount > 0;
         overlapMask = hitCount > 1;
 
-        stnMask = sample_mask_to_grid(atlas_path(atlasDir, sideCode, 'STN'), ref);
-        snrMask = sample_mask_to_grid(atlas_path(atlasDir, sideCode, 'SNr'), ref);
-        if ~any(stnMask(:)) || ~any(snrMask(:))
-            error('mh_fiber_run_stnsnr_vta_coverage:EmptyReslicedAtlasMask', ...
-                'Empty STN/SNr mask after reslicing for %s %s %s side %s.', ...
-                subjectId, phase, protocol, sideCode);
-        end
-
-        categories = classify_vta(vtaMask, stnMask, snrMask);
-        categorySum = nnz(categories.STN_only) + nnz(categories.SNr_only) + ...
-            nnz(categories.STN_SNr) + nnz(categories.Outside);
+        categories = mh_coverage_classify_membership(vtaMask, regionMasks);
+        categorySum = mh_coverage_category_voxel_sum(categories);
         totalVoxels = nnz(vtaMask);
         if categorySum ~= totalVoxels
             error('mh_fiber_run_stnsnr_vta_coverage:CategorySumMismatch', ...
@@ -581,7 +536,7 @@ for s = 1:numel(sides)
 
         paths = write_condition_masks(ref, vtaMask, categories, overlapMask, conditionDirs, ...
             patientName, phase, protocol, sideCode, thresholdLabel, forceOutputs);
-        categoryRows = category_summary_rows(categories, vtaMask, stnMask, snrMask, ref.voxel_volume_mm3);
+        categoryRows = mh_coverage_category_summary_rows(categories, vtaMask, ref.voxel_volume_mm3);
         pattern = condition_pattern(conditionRows);
         rawContacts = strjoin(string(conditionRows.RawContact(conditionRows.Side == string(sideCode)))', ';');
         leadContacts = strjoin(string(conditionRows.LeadContact(conditionRows.Side == string(sideCode)))', ';');
@@ -615,152 +570,36 @@ for s = 1:numel(sides)
 end
 end
 
-function ref = build_condition_reference_grid(efieldPaths, voxelSize)
-allCorners = [];
-template = ea_load_nii(efieldPaths{1});
-for i = 1:numel(efieldPaths)
-    nii = ea_load_nii(efieldPaths{i});
-    dim = size(nii.img);
-    corners = [ ...
-        1, 1, 1; dim(1), 1, 1; 1, dim(2), 1; 1, 1, dim(3); ...
-        dim(1), dim(2), 1; dim(1), 1, dim(3); 1, dim(2), dim(3); dim(1), dim(2), dim(3)];
-    allCorners = [allCorners; ea_vox2mm(corners, nii.mat)]; %#ok<AGROW>
-end
-minMm = floor(min(allCorners, [], 1) ./ voxelSize) .* voxelSize - voxelSize;
-maxMm = ceil(max(allCorners, [], 1) ./ voxelSize) .* voxelSize + voxelSize;
-dim = max(1, ceil((maxMm - minMm) ./ voxelSize) + 1);
-if prod(dim) > 12000000
-    error('mh_fiber_run_stnsnr_vta_coverage:ReferenceGridTooLarge', ...
-        'Condition reference grid is too large: %s voxels.', mat2str(dim));
-end
-mat = [voxelSize, 0, 0, minMm(1); 0, voxelSize, 0, minMm(2); ...
-    0, 0, voxelSize, minMm(3); 0, 0, 0, 1];
-ref = struct();
-ref.dim = dim;
-ref.mat = mat;
-ref.template = template;
-ref.voxel_size_mm = voxelSize;
-ref.voxel_volume_mm3 = abs(det(mat(1:3, 1:3)));
-end
-
-function mask = sample_threshold_to_grid(sourcePath, ref, threshold)
-source = ea_load_nii(sourcePath);
-mask = sample_image_to_grid(source, ref, threshold, 'threshold');
-end
-
-function mask = sample_mask_to_grid(sourcePath, ref)
-source = ea_load_nii(sourcePath);
-mask = sample_image_to_grid(source, ref, 0, 'binary');
-end
-
-function mask = sample_image_to_grid(source, ref, threshold, mode)
-mask = false(ref.dim);
-sourceImg = double(source.img);
-sourceSize = size(sourceImg);
-total = prod(ref.dim);
-chunkSize = 250000;
-for startIdx = 1:chunkSize:total
-    stopIdx = min(total, startIdx + chunkSize - 1);
-    idx = (startIdx:stopIdx)';
-    [x, y, z] = ind2sub(ref.dim, idx);
-    xyzMm = ea_vox2mm([x, y, z], ref.mat);
-    srcVox = round(ea_mm2vox(xyzMm, source.mat));
-    inside = srcVox(:, 1) >= 1 & srcVox(:, 1) <= sourceSize(1) & ...
-        srcVox(:, 2) >= 1 & srcVox(:, 2) <= sourceSize(2) & ...
-        srcVox(:, 3) >= 1 & srcVox(:, 3) <= sourceSize(3);
-    if any(inside)
-        lin = sub2ind(sourceSize, srcVox(inside, 1), srcVox(inside, 2), srcVox(inside, 3));
-        vals = sourceImg(lin);
-        switch mode
-            case 'threshold'
-                hit = vals >= threshold;
-            case 'binary'
-                hit = vals > threshold;
-            otherwise
-                error('mh_fiber_run_stnsnr_vta_coverage:InvalidSampleMode', ...
-                    'Invalid sample mode: %s', mode);
-        end
-        idxInside = idx(inside);
-        mask(idxInside(hit)) = true;
-    end
-end
-end
-
-function categories = classify_vta(vtaMask, stnMask, snrMask)
-categories = struct();
-categories.STN_only = vtaMask & stnMask & ~snrMask;
-categories.SNr_only = vtaMask & snrMask & ~stnMask;
-categories.STN_SNr = vtaMask & stnMask & snrMask;
-categories.Outside = vtaMask & ~(stnMask | snrMask);
-end
-
-function rows = category_summary_rows(categories, vtaMask, stnMask, snrMask, voxelVolume)
-names = {'STN_only', 'SNr_only', 'STN_SNr', 'Outside'};
-denominators = [nnz(stnMask & ~snrMask), nnz(snrMask & ~stnMask), nnz(stnMask & snrMask), NaN];
-totalVoxels = nnz(vtaMask);
-rows = cell(numel(names), 5);
-for i = 1:numel(names)
-    count = nnz(categories.(names{i}));
-    volume = count * voxelVolume;
-    percentTotal = 100 * count / max(1, totalVoxels);
-    if isnan(denominators(i)) || denominators(i) == 0
-        percentAnatomical = NaN;
-    else
-        percentAnatomical = 100 * count / denominators(i);
-    end
-    rows(i, :) = {names{i}, count, volume, percentTotal, percentAnatomical};
-end
-end
-
 function paths = write_condition_masks(ref, vtaMask, categories, overlapMask, conditionDirs, ...
     patientName, phase, protocol, sideCode, thresholdLabel, forceOutputs)
-base = sanitize_label(sprintf('%s_phase-%s_protocol-%s_hemi-%s_thr-%s', ...
+base = mh_util_sanitize_label(sprintf('%s_phase-%s_protocol-%s_hemi-%s_thr-%s', ...
     patientName, phase, protocol, sideCode, thresholdLabel));
 paths = struct();
 paths.vta = fullfile(conditionDirs.masks, [base, '_desc-vta.nii']);
 paths.category = fullfile(conditionDirs.masks, [base, '_desc-vtaCategory.nii']);
 paths.overlap = fullfile(conditionDirs.masks, [base, '_desc-vtaProgramOverlap.nii']);
 if forceOutputs || ~isfile(paths.vta)
-    write_ref_nii(ref, double(vtaMask), paths.vta, 2, 'stnsnr thresholded vta');
+    mh_coverage_write_ref_nii(ref, double(vtaMask), paths.vta, 2, 'stnsnr thresholded vta');
 end
 if forceOutputs || ~isfile(paths.category)
-    categoryImg = zeros(ref.dim, 'uint8');
-    categoryImg(categories.STN_only) = 1;
-    categoryImg(categories.SNr_only) = 2;
-    categoryImg(categories.STN_SNr) = 3;
-    categoryImg(categories.Outside) = 4;
-    write_ref_nii(ref, categoryImg, paths.category, 2, 'stnsnr vta category');
+    mh_coverage_write_ref_nii(ref, categories.categoryImg, paths.category, 2, 'stnsnr vta category');
 end
 if forceOutputs || ~isfile(paths.overlap)
-    write_ref_nii(ref, double(overlapMask), paths.overlap, 2, 'stnsnr alternating overlap');
+    mh_coverage_write_ref_nii(ref, double(overlapMask), paths.overlap, 2, 'stnsnr alternating overlap');
 end
-end
-
-function write_ref_nii(ref, img, outputPath, datatype, description)
-nii = ref.template;
-nii.img = img;
-nii.dim = ref.dim;
-nii.mat = ref.mat;
-nii.dt = [datatype, 0];
-nii.n = [1, 1];
-nii.descrip = description;
-nii.fname = outputPath;
-ea_write_nii(nii);
 end
 
 function write_condition_figure(conditionDirs, patientName, phase, protocol, sideCode, thresholdLabel, categoryRows)
-figPath = fullfile(conditionDirs.figures, [sanitize_label(sprintf('%s_phase-%s_protocol-%s_hemi-%s_thr-%s', ...
+figPath = fullfile(conditionDirs.figures, [mh_util_sanitize_label(sprintf('%s_phase-%s_protocol-%s_hemi-%s_thr-%s', ...
     patientName, phase, protocol, sideCode, thresholdLabel)), '_desc-vtaCoverage.png']);
-fig = figure('Visible', 'off', 'Color', 'w', 'Position', [100, 100, 760, 420]);
-cleanup = onCleanup(@() close(fig));
 names = string(categoryRows(:, 1));
 volumes = cell2mat(categoryRows(:, 3));
-bar(categorical(names), volumes);
-ylabel('Volume (mm3)');
-title(sprintf('%s %s %s %s %s', patientName, phase, protocol, sideCode, thresholdLabel), ...
-    'Interpreter', 'none');
-grid on;
-exportgraphics(fig, figPath, 'Resolution', 220, 'BackgroundColor', 'white');
+totalVolume = sum(volumes);
+fig = mh_viz_composition_donut(names, volumes, ...
+    'Title', sprintf('%s %s %s %s %s', patientName, phase, protocol, sideCode, thresholdLabel), ...
+    'CenterText', sprintf('%.0f mm3', totalVolume), ...
+    'OutputPath', figPath);
+close(fig);
 end
 
 function write_subject_summary(path, subjectId, patientName, coverageTable, mainThreshold)
@@ -796,10 +635,10 @@ for s = 1:height(subjects)
     contactCsv = fullfile(subjectOutput, 'reports', [patientName, '_contact_mapping_qc.csv']);
     manifestJson = fullfile(subjectOutput, 'manifest', [patientName, '_vta_coverage_manifest.json']);
     summaryMd = fullfile(subjectOutput, 'reports', [patientName, '_vta_coverage_summary.md']);
-    must_be_file(coverageCsv, sprintf('per-subject coverage CSV for %s', subjectId));
-    must_be_file(contactCsv, sprintf('per-subject contact QC CSV for %s', subjectId));
-    must_be_file(manifestJson, sprintf('per-subject manifest JSON for %s', subjectId));
-    must_be_file(summaryMd, sprintf('per-subject summary Markdown for %s', subjectId));
+    mh_util_must_be_file(coverageCsv, sprintf('per-subject coverage CSV for %s', subjectId));
+    mh_util_must_be_file(contactCsv, sprintf('per-subject contact QC CSV for %s', subjectId));
+    mh_util_must_be_file(manifestJson, sprintf('per-subject manifest JSON for %s', subjectId));
+    mh_util_must_be_file(summaryMd, sprintf('per-subject summary Markdown for %s', subjectId));
     coverageTables{s} = normalize_coverage_table(readtable(coverageCsv, 'TextType', 'string'));
     contactTables{s} = normalize_contact_table(readtable(contactCsv, 'TextType', 'string'));
     collectedSubjects{s} = struct('id', subjectId, 'patient_name', patientName, ...
@@ -881,7 +720,7 @@ sensitivity = summarize_threshold_sensitivity(coverageTable);
 writetable(sensitivity, fullfile(outputDir, 'cohort_vta_threshold_sensitivity.csv'));
 
 writetable(contactTable, fullfile(outputDir, 'cohort_contact_mapping_qc.csv'));
-write_json(fullfile(outputDir, 'cohort_vta_generation_manifest.json'), manifest);
+mh_util_write_json(fullfile(outputDir, 'cohort_vta_generation_manifest.json'), manifest);
 write_cohort_figures(outputDir, coverageTable, mainThreshold);
 end
 
@@ -913,44 +752,45 @@ end
 
 function write_cohort_figures(outputDir, coverageTable, mainThreshold)
 figureDir = fullfile(outputDir, 'figures');
-make_dir(figureDir);
+mh_util_make_dir(figureDir);
 mainRows = coverageTable(abs(coverageTable.threshold_v_per_mm - mainThreshold) < 1e-9, :);
 byCondition = summarize_by_condition(mainRows);
 
-fig = figure('Visible', 'off', 'Color', 'w', 'Position', [100, 100, 900, 450]);
-cleanup = onCleanup(@() close(fig));
-groups = categorical(strcat(byCondition.phase, " / ", byCondition.protocol, " / ", byCondition.category));
-bar(groups, byCondition.mean_volume_mm3);
-ylabel('Mean volume (mm3)');
-title('Mean VTA compartment volume at 0.20 V/mm');
-grid on;
-exportgraphics(fig, fullfile(figureDir, 'coverage_stacked_bar_thr0p20.png'), ...
-    'Resolution', 220, 'BackgroundColor', 'white');
-clear cleanup;
+groupLabels = unique(strcat(byCondition.phase, " / ", byCondition.protocol), 'stable');
+categories = unique(byCondition.category, 'stable');
+shareMatrix = zeros(numel(groupLabels), numel(categories));
+for g = 1:numel(groupLabels)
+    groupKey = strcat(byCondition.phase, " / ", byCondition.protocol);
+    for c = 1:numel(categories)
+        row = groupKey == groupLabels(g) & byCondition.category == categories(c);
+        if any(row)
+            shareMatrix(g, c) = byCondition.mean_percent_total_vta(find(row, 1));
+        end
+    end
+end
+fig = mh_viz_stacked_share_bar(groupLabels, categories, shareMatrix, ...
+    'Title', 'Mean VTA compartment share at 0.20 V/mm', ...
+    'OutputPath', fullfile(figureDir, 'coverage_stacked_bar_thr0p20.png'));
+close(fig);
 
-fig = figure('Visible', 'off', 'Color', 'w', 'Position', [100, 100, 900, 450]);
-cleanup = onCleanup(@() close(fig));
-boxchart(categorical(strcat(mainRows.phase, " / ", mainRows.protocol, " / ", mainRows.category)), ...
-    mainRows.volume_mm3);
-ylabel('Volume (mm3)');
-title('VTA compartment volume distribution at 0.20 V/mm');
-grid on;
-exportgraphics(fig, fullfile(figureDir, 'coverage_boxplot_by_condition_thr0p20.png'), ...
-    'Resolution', 220, 'BackgroundColor', 'white');
-clear cleanup;
+fig = mh_viz_box(strcat(mainRows.phase, " / ", mainRows.protocol, " / ", mainRows.category), ...
+    mainRows.volume_mm3, ...
+    'YLabel', 'Volume (mm3)', ...
+    'Title', 'VTA compartment volume distribution at 0.20 V/mm', ...
+    'OutputPath', fullfile(figureDir, 'coverage_boxplot_by_condition_thr0p20.png'));
+close(fig);
 
 totalRows = unique(coverageTable(:, {'phase', 'protocol', 'side', 'threshold_v_per_mm', ...
     'subject_id', 'total_vta_volume_mm3'}), 'rows');
 [G, threshold] = findgroups(totalRows.threshold_v_per_mm);
 meanTotal = splitapply(@(x) mean(x, 'omitnan'), totalRows.total_vta_volume_mm3, G);
-fig = figure('Visible', 'off', 'Color', 'w', 'Position', [100, 100, 620, 420]);
-plot(threshold, meanTotal, '-o', 'LineWidth', 1.5);
-xlabel('Threshold (V/mm)');
-ylabel('Mean total VTA volume (mm3)');
-title('Threshold sensitivity');
-grid on;
-exportgraphics(fig, fullfile(figureDir, 'coverage_threshold_sensitivity.png'), ...
-    'Resolution', 220, 'BackgroundColor', 'white');
+fig = mh_viz_trend_line(threshold, meanTotal, ...
+    'Group', "cohort", ...
+    'XLabel', 'Threshold (V/mm)', ...
+    'YLabel', 'Mean total VTA volume (mm3)', ...
+    'Title', 'Threshold sensitivity', ...
+    'OutputPath', fullfile(figureDir, 'coverage_threshold_sensitivity.png'));
+close(fig);
 end
 
 function validate_cohort_outputs(coverageTable, contactTable, outputDir, thresholdsVPerMm)
@@ -988,7 +828,7 @@ required = {'cohort_vta_coverage_long.csv', 'cohort_vta_coverage_wide.csv', ...
     'cohort_vta_coverage_by_condition.csv', 'cohort_vta_threshold_sensitivity.csv', ...
     'cohort_contact_mapping_qc.csv', 'cohort_vta_generation_manifest.json'};
 for i = 1:numel(required)
-    must_be_file(fullfile(outputDir, required{i}), required{i});
+    mh_util_must_be_file(fullfile(outputDir, required{i}), required{i});
 end
 end
 
@@ -997,7 +837,7 @@ required = {'cohort_vta_coverage_long.csv', 'cohort_vta_coverage_wide.csv', ...
     'cohort_vta_coverage_by_condition.csv', 'cohort_vta_threshold_sensitivity.csv', ...
     'cohort_contact_mapping_qc.csv', 'cohort_vta_generation_manifest.json'};
 for i = 1:numel(required)
-    must_be_file(fullfile(outputDir, required{i}), required{i});
+    mh_util_must_be_file(fullfile(outputDir, required{i}), required{i});
 end
 end
 
@@ -1072,39 +912,14 @@ for i = 1:numel(stringVars)
 end
 end
 
-function path = atlas_path(atlasDir, sideCode, roi)
-switch sideCode
-    case 'L'
-        hemi = 'lh';
-    case 'R'
-        hemi = 'rh';
-    otherwise
-        error('mh_fiber_run_stnsnr_vta_coverage:InvalidSide', 'Invalid side: %s', sideCode);
-end
-path = fullfile(atlasDir, hemi, [roi, '.nii.gz']);
-must_be_file(path, sprintf('%s %s atlas mask', sideCode, roi));
-end
-
-function verify_atlas_files(atlasDir)
-must_be_file(atlas_path(atlasDir, 'L', 'STN'), 'left STN atlas');
-must_be_file(atlas_path(atlasDir, 'R', 'STN'), 'right STN atlas');
-must_be_file(atlas_path(atlasDir, 'L', 'SNr'), 'left SNr atlas');
-must_be_file(atlas_path(atlasDir, 'R', 'SNr'), 'right SNr atlas');
-end
-
-function sideIdx = side_to_index(sideCode)
-switch upper(char(sideCode))
-    case 'R'
-        sideIdx = 1;
-    case 'L'
-        sideIdx = 2;
-    otherwise
-        error('mh_fiber_run_stnsnr_vta_coverage:InvalidSide', 'Invalid side: %s', sideCode);
-end
+function regionSpec = stnsnr_region_spec(atlasDir)
+regionSpec = mh_coverage_region_spec_from_hemi_atlas(atlasDir, {'STN', 'SNr'});
+regionSpec.project = 'STNSNr';
+regionSpec.description = 'Project-injected STN/SNr classification atlas specification.';
 end
 
 function key = make_condition_key(phase, protocol)
-key = sanitize_label(sprintf('%s_%s', phase, protocol));
+key = mh_util_sanitize_label(sprintf('%s_%s', phase, protocol));
 end
 
 function pattern = condition_pattern(rows)
@@ -1120,14 +935,6 @@ end
 
 function label = threshold_label(value)
 label = strrep(sprintf('%.2f', value), '.', 'p');
-end
-
-function out = sanitize_label(value)
-out = char(string(value));
-out = regexprep(out, '\+', 'plus');
-out = regexprep(out, '[^A-Za-z0-9_+-]+', '_');
-out = regexprep(out, '_+', '_');
-out = regexprep(out, '^_|_$', '');
 end
 
 function tf = subject_outputs_complete(subjectOutput, patientName)
@@ -1189,39 +996,19 @@ dirs.reports = fullfile(rootDir, 'reports');
 dirs.masks = fullfile(rootDir, 'masks');
 dirs.figures = fullfile(rootDir, 'figures');
 dirs.manifest = fullfile(rootDir, 'manifest');
-make_dir(dirs.root);
-make_dir(dirs.reports);
-make_dir(dirs.masks);
-make_dir(dirs.figures);
-make_dir(dirs.manifest);
+mh_util_make_dir(dirs.root);
+mh_util_make_dir(dirs.reports);
+mh_util_make_dir(dirs.masks);
+mh_util_make_dir(dirs.figures);
+mh_util_make_dir(dirs.manifest);
 end
 
 function dirs = prepare_condition_dirs(parentDirs, conditionKey)
 dirs = struct();
 dirs.masks = fullfile(parentDirs.masks, conditionKey);
 dirs.figures = fullfile(parentDirs.figures, conditionKey);
-make_dir(dirs.masks);
-make_dir(dirs.figures);
-end
-
-function make_dir(path)
-if ~isfolder(path)
-    mkdir(path);
-end
-end
-
-function write_json(path, data)
-fid = fopen(path, 'w');
-if fid < 0
-    error('mh_fiber_run_stnsnr_vta_coverage:CannotWriteJson', 'Cannot write JSON: %s', path);
-end
-cleanup = onCleanup(@() fclose(fid));
-try
-    text = jsonencode(data, PrettyPrint=true);
-catch
-    text = jsonencode(data);
-end
-fprintf(fid, '%s\n', text);
+mh_util_make_dir(dirs.masks);
+mh_util_make_dir(dirs.figures);
 end
 
 function out = rmfield_safe(in, fields)
@@ -1237,33 +1024,5 @@ if isfield(s, fieldName)
     value = s.(fieldName);
 else
     value = fallback;
-end
-end
-
-function must_be_file(path, description)
-if ~isfile(path)
-    error('mh_fiber_run_stnsnr_vta_coverage:MissingFile', ...
-        'Missing %s: %s', description, path);
-end
-end
-
-function must_be_folder(path, description)
-if ~isfolder(path)
-    error('mh_fiber_run_stnsnr_vta_coverage:MissingFolder', ...
-        'Missing %s: %s', description, path);
-end
-end
-
-function repoDir = resolve_repo_dir(startPath)
-repoDir = fileparts(startPath);
-while ~isempty(repoDir) && ~isfolder(fullfile(repoDir, '.git'))
-    parent = fileparts(repoDir);
-    if strcmp(parent, repoDir)
-        break;
-    end
-    repoDir = parent;
-end
-if isempty(repoDir) || ~isfolder(fullfile(repoDir, '.git'))
-    repoDir = '/Users/mojackhu/Github/leaddbs';
 end
 end

@@ -1,5 +1,5 @@
 function [cfg, S, options, stimFolders] = mh_fiber_build_l2_l5to8_stimulation(cfg, vtaMode)
-% Build the current clinical L2/R2 plus L5-L8/R5-R8 stimulation setting.
+% Build the sub-001 clinical L2/R2 plus L5-L8/R5-R8 stimulation setting.
 
 if nargin < 2 || strlength(string(vtaMode)) == 0
     vtaMode = 'lead_dbs_twosource';
