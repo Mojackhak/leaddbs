@@ -96,6 +96,9 @@ selection does not require editing the script.
 The STN/SNr target-component VTA distribution runner uses the same
 `STNSNR_VTA_*` execution environment variables for counterfactual component VTA
 generation.
+The project VTA gray-matter restriction atlas is selected with `VtaGmAtlas` or
+the `STNSNR_VTA_GM_ATLAS` environment variable, defaulting to
+`DISTAL Minimal (Ewert 2017)`.
 
 Coverage analysis is separate from VTA generation. `core/coverage/` builds the
 reference grid, samples e-field and atlas masks, and classifies VTA voxels with

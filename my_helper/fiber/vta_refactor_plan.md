@@ -603,3 +603,40 @@ Phase 2J validation completed:
   `/tmp/stnsnr_vta_contact_reg_*`; regenerated coverage table matched existing
   output shape at 1536 x 25, and regenerated contact QC matched existing output
   shape, key columns, logical column, and numeric columns at 194 x 20.
+
+## Phase 2K Implementation Scope
+
+Status: **implemented**.
+
+Phase 2K externalizes the VTA gray-matter restriction atlas used by the STNSNr
+project analyzers:
+
+- Add `VtaGmAtlas` to `mh_fiber_run_stnsnr_vta_coverage` and
+  `mh_fiber_run_stnsnr_target_component_vta_distribution`.
+- Replace analyzer-internal hardcoded `DISTAL Minimal (Ewert 2017)` assignments
+  with `opts.VtaGmAtlas` when populating `cfg.vta.gmAtlas` and
+  `request.gmAtlas`.
+- Add `STNSNR_VTA_GM_ATLAS` overrides to the STNSNr project scripts and the
+  subject-level parallel launcher environment propagation.
+- Keep default behavior unchanged by defaulting to
+  `DISTAL Minimal (Ewert 2017)`.
+
+Phase 2K validation target:
+
+- `git diff --check`
+- Focused `checkcode` for touched STNSNr scripts/analyzers.
+- Static search confirming STNSNr analyzers no longer assign hardcoded
+  `DISTAL Minimal (Ewert 2017)` directly.
+- MATLAB dry-run regression for the parallel launcher proving
+  `STNSNR_VTA_GM_ATLAS` is forwarded to worker command files.
+
+Phase 2K validation completed:
+
+- `git diff --check`
+- Focused `checkcode`: STNSNr project scripts are clean; the two large analyzers
+  still have only their existing dynamic-growth performance warnings.
+- Static search confirms STNSNr analyzers no longer assign hardcoded
+  `DISTAL Minimal (Ewert 2017)` directly to `cfg.vta.gmAtlas` or
+  `request.gmAtlas`; they use `opts.VtaGmAtlas`.
+- MATLAB dry-run regression for `run_stnsnr_vta_coverage_parallel.m`, proving
+  `STNSNR_VTA_GM_ATLAS` is forwarded into worker command files.

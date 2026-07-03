@@ -22,6 +22,7 @@ parser.addParameter('CohortOnly', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('SkipCompletedSubjects', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('UseSubjectLocks', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('SkipLockedSubjects', false, @(x) islogical(x) || isnumeric(x));
+parser.addParameter('VtaGmAtlas', 'DISTAL Minimal (Ewert 2017)', @(x) ischar(x) || isstring(x));
 parser.addParameter('VtaExecutionMode', 'sequential', @(x) ischar(x) || isstring(x));
 parser.addParameter('VtaParallelWorkers', 1, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('VtaMatlabExe', '/Applications/MATLAB_R2024b.app/bin/matlab', @(x) ischar(x) || isstring(x));
@@ -94,6 +95,7 @@ manifest.white_matter_conductivity_s_per_m = 0.14;
 manifest.selected_subject_count = height(subjects);
 manifest.write_cohort_outputs = logical(opts.WriteCohortOutputs);
 manifest.cohort_only = logical(opts.CohortOnly);
+manifest.vta_gm_atlas = char(string(opts.VtaGmAtlas));
 manifest.vta_execution_mode = char(string(opts.VtaExecutionMode));
 manifest.vta_parallel_workers = double(opts.VtaParallelWorkers);
 manifest.vta_process_work_dir = char(string(opts.VtaProcessWorkDir));
@@ -429,7 +431,7 @@ for i = 1:numel(programs)
     cfg.forceRecomputeVTA = logical(opts.ForceVta);
     cfg.vta.modelKey = 'simbio';
     cfg.vta.model = mh_fiber_model_name('simbio');
-    cfg.vta.gmAtlas = 'DISTAL Minimal (Ewert 2017)';
+    cfg.vta.gmAtlas = char(string(opts.VtaGmAtlas));
     cfg = mh_vta_apply_execution_options(cfg, opts);
     stimSpec = rows_to_stim_spec(rows, programs(i).label);
     cfg = mh_fiber_set_stimulation(cfg, stimSpec);
@@ -443,7 +445,7 @@ for i = 1:numel(programs)
     request.sides = cellstr(activeSides);
     request.outputSpaces = {'mni'};
     request.exportThresholdVPerMm = exportThresholdVPerMm;
-    request.gmAtlas = 'DISTAL Minimal (Ewert 2017)';
+    request.gmAtlas = char(string(opts.VtaGmAtlas));
     request.useAtlas = true;
     request.removeElectrode = true;
 
