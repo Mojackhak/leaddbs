@@ -1423,3 +1423,38 @@ Phase 2AF validation completed:
   behavior without writing a real PNG.
 - Static search confirms the STN/SNr analyzers no longer call
   `mh_viz_composition_donut` directly.
+
+## Phase 2AG Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AG moves the target-component analyzer's local IQR statistic into the
+shared coverage layer:
+
+- Add `mh_coverage_iqr(values)` under `core/coverage`.
+- Preserve the existing behavior: drop `NaN` values, return `NaN` for empty
+  inputs, and compute `quantile(values, 0.75) - quantile(values, 0.25)`.
+- Update `mh_fiber_run_stnsnr_target_component_vta_distribution` to use the
+  shared helper in `summarize_distribution`.
+- Remove the analyzer-local `local_iqr` helper.
+
+Phase 2AG validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_iqr` and the target-component analyzer.
+- MATLAB synthetic smoke test proving finite values, mixed `NaN` values, all
+  `NaN` values, and column-vector inputs match the previous local helper
+  behavior.
+- Static verification that the target-component analyzer no longer defines
+  `local_iqr`.
+
+Phase 2AG validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_coverage_iqr`; the target-component
+  analyzer still reports only its existing dynamic-growth warning.
+- MATLAB synthetic smoke test verifies finite values, mixed `NaN` values, all
+  `NaN` values, and column-vector inputs match the previous local helper
+  behavior.
+- Static search confirms the target-component analyzer now calls
+  `mh_coverage_iqr` and no longer defines `local_iqr`.

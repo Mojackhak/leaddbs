@@ -60,6 +60,8 @@ Coverage thresholding samples e-field lists with
 `mh_coverage_threshold_sampled_efields`.
 Coverage composition figures are written through
 `mh_coverage_write_composition_figure`.
+Coverage summary statistics use `mh_coverage_iqr` for NaN-robust interquartile
+range values.
 Horn backend calls use `mh_vta_run_horn_with_retry` for deterministic retry and
 post-write success handling.
 

@@ -485,7 +485,7 @@ nSubjects = splitapply(@(x) numel(unique(string(x))), coverageTable.subject_id, 
 meanVolume = splitapply(@(x) mean(x, 'omitnan'), coverageTable.volume_mm3, G);
 medianVolume = splitapply(@(x) median(x, 'omitnan'), coverageTable.volume_mm3, G);
 sdVolume = splitapply(@(x) std(x, 'omitnan'), coverageTable.volume_mm3, G);
-iqrVolume = splitapply(@local_iqr, coverageTable.volume_mm3, G);
+iqrVolume = splitapply(@mh_coverage_iqr, coverageTable.volume_mm3, G);
 minVolume = splitapply(@(x) min(x, [], 'omitnan'), coverageTable.volume_mm3, G);
 maxVolume = splitapply(@(x) max(x, [], 'omitnan'), coverageTable.volume_mm3, G);
 meanPercent = splitapply(@(x) mean(x, 'omitnan'), coverageTable.percent_total_vta, G);
@@ -495,15 +495,6 @@ summary = table(target, phase, protocol, threshold, category, nComponents, nSubj
     'n_components', 'n_subjects', 'mean_volume_mm3', 'median_volume_mm3', ...
     'sd_volume_mm3', 'iqr_volume_mm3', 'min_volume_mm3', 'max_volume_mm3', ...
     'mean_percent_total_vta'});
-end
-
-function value = local_iqr(values)
-values = values(~isnan(values));
-if isempty(values)
-    value = NaN;
-else
-    value = quantile(values, 0.75) - quantile(values, 0.25);
-end
 end
 
 function write_summary_figures(outputDir, coverageTable, mainThreshold)
