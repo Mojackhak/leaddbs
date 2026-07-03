@@ -5,15 +5,15 @@ if ~ea_reglocked(options, options.subj.preopAnat.(options.subj.AnchorModality).n
     % Setup log
     if options.prefs.diary
         ea_mkdir(fileparts(options.subj.norm.log.logBaseName));
-        diary([options.subj.norm.log.logBaseName, datestr(now, 'yyyymmddTHHMMss'), '.log']);
+        diary([options.subj.norm.log.logBaseName, char(datetime('now', 'Format', 'yyyyMMdd''T''HHmmss')), '.log']);
     end
 
     isReApply = ismember(lower(options.normalize.method), lower({'(Re-)apply (priorly) estimated normalization', 'Apply', 'ReApply'}));
-    runOptions = options;
+    runOptions = ea_exclude_b0_from_normalization(options);
     refineContext = [];
 
     if ~isReApply
-        [runOptions, refineContext] = ea_norm_refine_prepare(options);
+        [runOptions, refineContext] = ea_norm_refine_prepare(runOptions);
         if isfield(refineContext, 'cancelled') && refineContext.cancelled
             if options.prefs.diary
                 diary off;
@@ -22,8 +22,8 @@ if ~ea_reglocked(options, options.subj.preopAnat.(options.subj.AnchorModality).n
         end
 
         % Dump method before running normalization, needed by apply functions.
-        ea_dumpmethod(options, 'norm');
-        ea_norm_refine_update_log(options, refineContext);
+        ea_dumpmethod(runOptions, 'norm');
+        ea_norm_refine_update_log(runOptions, refineContext);
     end
 
     % Do normalization
@@ -71,4 +71,22 @@ if ~ea_reglocked(options, options.subj.preopAnat.(options.subj.AnchorModality).n
         ea_segmask_cleanup(options);
         ea_cprintf('CmdWinWarnings', 'Normalization has been rerun. Please also rerun brain shift correction!\n');
     end
+end
+end
+
+function options = ea_exclude_b0_from_normalization(options)
+% Keep pseudo B0 volumes available for coregistration while excluding them
+% from all normalization backends reached through ea_normalize.
+if isfield(options, 'subj') && isfield(options.subj, 'coreg') && ...
+        isfield(options.subj.coreg, 'anat') && isfield(options.subj.coreg.anat, 'preop') && ...
+        isfield(options.subj.coreg.anat.preop, 'B0')
+    options.subj.coreg.anat.preop = rmfield(options.subj.coreg.anat.preop, 'B0');
+    fprintf('Excluding pseudo B0 volume from normalization inputs.\n');
+end
+
+if isfield(options, 'subj') && isfield(options.subj, 'norm') && ...
+        isfield(options.subj.norm, 'anat') && isfield(options.subj.norm.anat, 'preop') && ...
+        isfield(options.subj.norm.anat.preop, 'B0')
+    options.subj.norm.anat.preop = rmfield(options.subj.norm.anat.preop, 'B0');
+end
 end

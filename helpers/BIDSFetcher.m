@@ -882,12 +882,18 @@ classdef BIDSFetcher
                 b0Names = {b0Files.name};
             end
 
+            preferredMask = contains(b0Names, '_desc-preproc_b0.nii');
+            if any(preferredMask)
+                b0Files = b0Files(preferredMask);
+                b0Names = {b0Files.name};
+            end
+
             [~, order] = sort(b0Names);
             b0Files = b0Files(order);
             b0Image = fullfile(b0Files(1).folder, b0Files(1).name);
         end
 
-        function spaceTag = getCoregSpaceTag(obj, modality)
+        function spaceTag = getCoregSpaceTag(~, modality)
             if strcmp(modality, 'B0')
                 spaceTag = 'b0';
             else

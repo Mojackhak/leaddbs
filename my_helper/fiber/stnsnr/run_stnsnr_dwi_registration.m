@@ -12,12 +12,14 @@ switch runMode
         coregistrationTag = 'dwi_t2';
         coregistrationMethod = 'ANTs';
         distortionCorrection = 'none';
+        runCoregistration = true;
         forceRun = false;
     case 'synb0_pilot'
         subjectIds = {'ChenMeiJu'};
-        coregistrationTag = 'dwi_t2_synb0';
-        coregistrationMethod = 'FLIRTBBR';
+        coregistrationTag = 'dwi_synb0_fakeb0';
+        coregistrationMethod = 'ANTs';
         distortionCorrection = 'synb0';
+        runCoregistration = false;
         forceRun = true;
     otherwise
         error('Unsupported runMode: %s', runMode);
@@ -33,7 +35,7 @@ args = { ...
     'CoregistrationMethod', coregistrationMethod, ...
     'DistortionCorrection', distortionCorrection, ...
     'AllowT1Fallback', false, ...
-    'RunCoregistration', true, ...
+    'RunCoregistration', runCoregistration, ...
     'GenerateOptionalDwiQc', true, ...
     'Force', forceRun};
 

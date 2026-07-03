@@ -19,7 +19,7 @@ p.addParameter('Synb0Image', 'leonyichencai/synb0-disco:v3.1', @(x) ischar(x) ||
 p.addParameter('FreeSurferLicense', '', @(x) ischar(x) || isstring(x));
 p.addParameter('Synb0MinDockerMemoryGB', 12, @(x) isnumeric(x) && isscalar(x) && x >= 0);
 p.addParameter('AllowT1Fallback', false, @(x) islogical(x) || isnumeric(x));
-p.addParameter('RunCoregistration', true, @(x) islogical(x) || isnumeric(x));
+p.addParameter('RunCoregistration', [], @(x) isempty(x) || islogical(x) || isnumeric(x));
 p.addParameter('GenerateOptionalDwiQc', true, @(x) islogical(x) || isnumeric(x));
 p.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
 p.parse(varargin{:});
@@ -40,12 +40,17 @@ opts.Synb0Image = char(string(opts.Synb0Image));
 opts.FreeSurferLicense = char(string(opts.FreeSurferLicense));
 opts.Synb0MinDockerMemoryGB = double(opts.Synb0MinDockerMemoryGB);
 opts.AllowT1Fallback = logical(opts.AllowT1Fallback);
-opts.RunCoregistration = logical(opts.RunCoregistration);
 opts.GenerateOptionalDwiQc = logical(opts.GenerateOptionalDwiQc);
 opts.Force = logical(opts.Force);
 
 if isempty(opts.CoregistrationTag)
     error('CoregistrationTag must not be empty.');
+end
+
+if isempty(opts.RunCoregistration)
+    opts.RunCoregistration = ~strcmp(opts.DistortionCorrection, 'synb0');
+else
+    opts.RunCoregistration = logical(opts.RunCoregistration);
 end
 
 if ~isfolder(opts.StudyRoot)
@@ -144,6 +149,9 @@ try
         row.total_readout_time = dcResult.totalReadoutTime;
         row.total_readout_time_source = dcResult.totalReadoutTimeSource;
         row.phase_encoding_vector = sprintf('%g %g %g', dcResult.phaseEncodingVector);
+        row.fake_b0_preproc = dcResult.b0;
+        row.fake_b0_coreg_target = paths.fakeB0Coreg;
+        row.fake_b0_metadata = write_fake_b0_metadata(paths, dcResult);
         write_overlay_png(dcResult.distortedB0, dcResult.b0, ...
             fullfile(paths.qcDir, [subjectId, '_distorted_b0_vs_corrected_b0.png']), ...
             [subjectId, ' distorted b0 vs corrected b0']);
@@ -155,6 +163,9 @@ try
         row.total_readout_time = NaN;
         row.total_readout_time_source = '';
         row.phase_encoding_vector = '';
+        row.fake_b0_preproc = '';
+        row.fake_b0_coreg_target = '';
+        row.fake_b0_metadata = '';
     end
     [row.dim_x, row.dim_y, row.dim_z, row.voxel_x, row.voxel_y, row.voxel_z] = ...
         read_dwi_geometry(paths.dwi);
@@ -176,6 +187,7 @@ try
             opts.CoregistrationMethod, opts.Force);
         row.forward_transform_exists = isfile(row.dwi_to_anchor_transform);
         row.inverse_transform_exists = isfile(row.anchor_to_dwi_transform);
+        row.coregistration_status = 'registered';
         write_qc_overlays(paths, row.anchor_anat, row.b0_on_anchor, row.anchor_on_b0, ...
             paths.faOnAnchor, opts.AnchorModality);
     else
@@ -185,10 +197,17 @@ try
         row.anchor_on_b0 = '';
         row.forward_transform_exists = false;
         row.inverse_transform_exists = false;
+        if strcmp(opts.DistortionCorrection, 'synb0')
+            row.coregistration_status = 'pending_ui';
+        else
+            row.coregistration_status = 'skipped';
+        end
     end
 
     if opts.RunCoregistration
         row.status = 'registered';
+    elseif strcmp(opts.DistortionCorrection, 'synb0')
+        row.status = 'pending_ui_coregistration';
     else
         row.status = 'staged';
     end
@@ -237,6 +256,7 @@ paths.rawBval = fullfile(rawDwiDir, [rawBase, '.bval']);
 paths.rawBvec = fullfile(rawDwiDir, [rawBase, '.bvec']);
 paths.dwiDir = dwiDir;
 paths.coregDir = coregDir;
+paths.coregAnatDir = fullfile(subjectDir, 'coregistration', 'anat');
 paths.coregTag = opts.CoregistrationTag;
 paths.qcDir = qcDir;
 paths.dwi = fullfile(dwiDir, [rawBase, '.nii']);
@@ -244,6 +264,8 @@ paths.json = fullfile(dwiDir, [rawBase, '.json']);
 paths.bval = fullfile(dwiDir, [rawBase, '.bval']);
 paths.bvec = fullfile(dwiDir, [rawBase, '.bvec']);
 paths.b0 = fullfile(dwiDir, [rawBase, '_b0.nii']);
+paths.fakeB0Coreg = fullfile(paths.coregAnatDir, ...
+    [patientName, '_ses-preop_space-anchorNative_desc-preproc_B0.nii']);
 paths.fa = fullfile(dwiDir, [rawBase, '_fa.nii']);
 paths.faOnAnchor = '';
 paths.brainMask = fullfile(dwiDir, 'brainmask.nii');
@@ -324,6 +346,36 @@ vox = sqrt(sum(V(1).mat(1:3, 1:3).^2, 1));
 voxX = vox(1);
 voxY = vox(2);
 voxZ = vox(3);
+end
+
+function metadataPath = write_fake_b0_metadata(paths, dcResult)
+metadata = struct();
+metadata.FakeCoregisterVolume = true;
+metadata.SourceImage = dcResult.b0;
+metadata.GeneratedFrom = 'Synb0/topup/eddy corrected mean b0';
+metadata.IntendedUse = 'coregistration_qc_only';
+metadata.ExcludeFromNormalization = true;
+metadata.CorrectedDwi = dcResult.dwi;
+metadata.RotatedBvec = dcResult.rotatedBvec;
+metadata.TopupField = dcResult.topupFieldcoef;
+metadata.TotalReadoutTime = dcResult.totalReadoutTime;
+metadata.TotalReadoutTimeSource = dcResult.totalReadoutTimeSource;
+metadata.PhaseEncodingVector = sprintf('%g %g %g', dcResult.phaseEncodingVector);
+metadata.ExpectedCoregisteredImage = paths.fakeB0Coreg;
+
+metadataPath = sidecar_json_path(dcResult.b0);
+write_subject_json(metadata, metadataPath);
+
+ensure_dir(paths.coregAnatDir);
+write_subject_json(metadata, sidecar_json_path(paths.fakeB0Coreg));
+end
+
+function jsonPath = sidecar_json_path(imagePath)
+imagePath = char(string(imagePath));
+jsonPath = regexprep(imagePath, '\.nii(\.gz)?$', '.json');
+if strcmp(jsonPath, imagePath)
+    jsonPath = [imagePath, '.json'];
+end
 end
 
 function extract_b0(dwiPath, b0Path, bvals, force)
@@ -769,7 +821,7 @@ if ~isfile(transformPath)
     end
 end
 if ~isfile(transformPath)
-    error('Missing anchorNative-to-MNI transform for %s.', patientName);
+    transformPath = '';
 end
 end
 
@@ -973,6 +1025,7 @@ row.forward_transform_exists = false;
 row.inverse_transform_exists = false;
 row.fa_status = '';
 row.mask_status = '';
+row.coregistration_status = '';
 row.synb0_status = '';
 row.eddy_status = '';
 row.rotated_bvec = '';
@@ -980,6 +1033,9 @@ row.topup_field = '';
 row.total_readout_time = NaN;
 row.total_readout_time_source = '';
 row.phase_encoding_vector = '';
+row.fake_b0_preproc = '';
+row.fake_b0_coreg_target = '';
+row.fake_b0_metadata = '';
 end
 
 function vals = load_numeric_vector(path)
