@@ -1264,3 +1264,39 @@ Phase 2AB validation completed:
   basenames match the previous `sprintf` plus sanitizer output.
 - Static search confirms direct VTA coverage basename format strings no longer
   remain in the STN/SNr analyzers.
+
+## Phase 2AC Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AC routes generated stimulation-label sanitization through the shared
+label utility:
+
+- Update `mh_fiber_make_stim_label` to call `mh_util_sanitize_label`.
+- Preserve the existing generated-label behavior by converting dots to `p`
+  before sanitization and passing `PreservePlus = true`.
+- Keep token grouping, amplitude formatting, source ordering, and explicit
+  stimulation-label handling unchanged.
+- Remove the local duplicated regex sanitizer from `mh_fiber_make_stim_label`.
+
+Phase 2AC validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_make_stim_label`.
+- MATLAB synthetic smoke test proving generated labels match the previous
+  manual regex sanitizer behavior for bilateral grouping, decimal amplitudes,
+  plus-preserving units, and punctuation cleanup.
+- Static verification that `mh_fiber_make_stim_label` no longer contains the
+  duplicated non-utility sanitizer regex sequence.
+
+Phase 2AC validation completed:
+
+- `git diff --check`
+- `checkcode` for `mh_fiber_make_stim_label` still reports only its existing
+  dynamic-growth warnings.
+- MATLAB synthetic smoke test verifies generated labels match the previous
+  manual regex sanitizer behavior for bilateral grouping, decimal amplitudes,
+  plus-preserving units, and punctuation cleanup.
+- Static search confirms `mh_fiber_make_stim_label` now calls
+  `mh_util_sanitize_label(label, 'PreservePlus', true)` and no longer contains
+  the duplicated non-utility sanitizer regex sequence.

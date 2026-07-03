@@ -64,6 +64,8 @@ one stimulation label and side; `mh_vta_run_compute_task` executes that task
 through the facade. Current STN/SNr execution remains sequential unless the
 project launcher uses the existing process-level worker script, but the task
 contract is shared by future parpool and process execution modes.
+Generated stimulation labels use `mh_util_sanitize_label` through
+`mh_fiber_make_stim_label`.
 `mh_vta_run_stim_spec_tasks` owns the shared cfg/stimSpec-to-task assembly path
 so project analyzers only need to prepare project-specific stimulation specs.
 STN/SNr analyzers share `mh_fiber_stnsnr_stimspec_from_table` for converting

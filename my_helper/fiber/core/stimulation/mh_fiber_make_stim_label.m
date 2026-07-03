@@ -36,9 +36,7 @@ end
 
 label = ['clinical_', strjoin(tokens, '_')];
 label = regexprep(label, '\.', 'p');
-label = regexprep(label, '[^A-Za-z0-9_+-]+', '_');
-label = regexprep(label, '_+', '_');
-label = regexprep(label, '^_|_$', '');
+label = mh_util_sanitize_label(label, 'PreservePlus', true);
 
 end
 
