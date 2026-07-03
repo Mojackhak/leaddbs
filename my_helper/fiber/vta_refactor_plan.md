@@ -1011,3 +1011,38 @@ Phase 2U validation completed:
   inputs, and embedded single quotes.
 - Static search confirms `mh_fiber_run_stnsnr_vta_coverage` calls
   `mh_fiber_shell_quote` and no longer defines a local `shell_quote`.
+
+## Phase 2V Implementation Scope
+
+Status: **implemented**.
+
+Phase 2V removes remaining local struct-field helpers from the STN/SNr VTA
+coverage analyzer:
+
+- Add `mh_util_rmfield_safe(in, fields)` under `core/util`.
+- Add `mh_util_get_field(s, fieldName, fallback)` under `core/util`.
+- Preserve the current behavior: remove only fields that are present, leave
+  other fields unchanged, and return fallback values for missing fields.
+- Update STN/SNr cohort coverage to call the shared utilities and remove the
+  local `rmfield_safe` and `safe_get_field` functions.
+
+Phase 2V validation target:
+
+- `git diff --check`
+- Focused `checkcode` for the two new utilities and
+  `mh_fiber_run_stnsnr_vta_coverage`.
+- MATLAB synthetic smoke test proving present-field removal, missing-field
+  no-op behavior, present-field lookup, and fallback lookup.
+- Static verification that no local `rmfield_safe` or `safe_get_field`
+  functions remain in the STN/SNr VTA coverage analyzer.
+
+Phase 2V validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_util_rmfield_safe` and
+  `mh_util_get_field`; the large STN/SNr coverage analyzer still reports only
+  its existing dynamic-growth warnings.
+- MATLAB synthetic smoke test verifies present-field removal, missing-field
+  no-op behavior, present-field lookup, and fallback lookup.
+- Static search confirms no local `rmfield_safe` or `safe_get_field` functions
+  remain in the STN/SNr VTA coverage analyzer.

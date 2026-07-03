@@ -161,7 +161,7 @@ for s = 1:height(subjects)
         subjectRows = rows(string(rows.ID) == string(subjectId), :);
         [numContacts, probeOptions] = resolve_subject_num_contacts(subjectDir);
         subjectManifest.num_contacts_per_side = numContacts;
-        subjectManifest.electrode_model = safe_get_field(probeOptions, 'elmodel', '');
+        subjectManifest.electrode_model = mh_util_get_field(probeOptions, 'elmodel', '');
 
         mappedRows = map_contacts(subjectRows, numContacts, subjectDir);
         contactRows = append_table_rows(contactRows, mappedRows, subjectId, patientName);
@@ -452,8 +452,8 @@ for i = 1:numel(programs)
     for s = 1:numel(taskResults)
         taskResult = taskResults(s);
         sideCode = taskResult.side;
-        taskMetadata{s} = rmfield_safe(taskArray(s), {'request'});
-        taskResultMetadata{s} = rmfield_safe(taskResult, {'request'});
+        taskMetadata{s} = mh_util_rmfield_safe(taskArray(s), {'request'});
+        taskResultMetadata{s} = mh_util_rmfield_safe(taskResult, {'request'});
         efieldPath = taskResult.efield_mni;
         binaryPath = taskResult.binary_mni;
         mh_util_must_be_file(efieldPath, sprintf('MNI e-field for %s side %s', cfg.stimLabel, sideCode));
@@ -480,7 +480,7 @@ conditionManifest = struct();
 conditionManifest.phase = char(phase);
 conditionManifest.protocol = char(protocol);
 conditionManifest.condition_key = conditionKey;
-conditionManifest.programs = rmfield_safe(programs, {'rows'});
+conditionManifest.programs = mh_util_rmfield_safe(programs, {'rows'});
 conditionManifest.sides = {};
 
 sides = ["L", "R"];
@@ -933,20 +933,4 @@ dirs.masks = fullfile(parentDirs.masks, conditionKey);
 dirs.figures = fullfile(parentDirs.figures, conditionKey);
 mh_util_make_dir(dirs.masks);
 mh_util_make_dir(dirs.figures);
-end
-
-function out = rmfield_safe(in, fields)
-out = in;
-present = fields(isfield(out, fields));
-if ~isempty(present)
-    out = rmfield(out, present);
-end
-end
-
-function value = safe_get_field(s, fieldName, fallback)
-if isfield(s, fieldName)
-    value = s.(fieldName);
-else
-    value = fallback;
-end
 end

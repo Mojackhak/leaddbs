@@ -123,6 +123,8 @@ STN/SNr contact mapping tables are normalized through
 `mh_fiber_stnsnr_normalize_contact_table`, which accepts both workbook-style
 headers and normalized per-subject contact QC CSV headers.
 Shared table string-column conversion uses `mh_util_force_string_vars`.
+Shared struct field access/removal uses `mh_util_get_field` and
+`mh_util_rmfield_safe`.
 General labels are sanitized through `mh_util_sanitize_label`; explicit
 stimulation labels preserve plus signs for backward-compatible folder names.
 
