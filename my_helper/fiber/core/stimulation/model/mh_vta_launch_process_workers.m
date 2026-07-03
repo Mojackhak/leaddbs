@@ -1,13 +1,16 @@
 function jobs = mh_vta_launch_process_workers(subjectIds, workerScript, logDir, varargin)
 % Launch process-isolated MATLAB workers for subject chunks.
 
+executionDefaults = mh_vta_default_execution_options();
 parser = inputParser;
 parser.FunctionName = 'mh_vta_launch_process_workers';
 parser.addParameter('WorkerCount', 1, @(x) isnumeric(x) && isscalar(x) && x >= 1);
-parser.addParameter('MatlabExe', '/Applications/MATLAB_R2024b.app/bin/matlab', ...
+parser.addParameter('MatlabExe', executionDefaults.matlabExe, ...
     @(x) ischar(x) || isstring(x));
-parser.addParameter('DryRun', false, @(x) islogical(x) || isnumeric(x));
-parser.addParameter('CondaEnv', 'leaddbs', @(x) ischar(x) || isstring(x));
+parser.addParameter('DryRun', executionDefaults.processDryRun, ...
+    @(x) islogical(x) || isnumeric(x));
+parser.addParameter('CondaEnv', executionDefaults.condaEnv, ...
+    @(x) ischar(x) || isstring(x));
 parser.addParameter('Env', struct(), @isstruct);
 parser.parse(varargin{:});
 opts = parser.Results;

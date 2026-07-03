@@ -128,7 +128,8 @@ to isolated MATLAB workers for cases where Lead-DBS global state should not be
 shared inside one MATLAB process. Process-mode configuration lives under
 `cfg.vta.matlabExe`, `cfg.vta.condaEnv`, `cfg.vta.processWorkDir`,
 `cfg.vta.processDryRun`, `cfg.vta.processPollSeconds`, and
-`cfg.vta.processTimeoutSeconds`.
+`cfg.vta.processTimeoutSeconds`. Default execution values are centralized in
+`mh_vta_default_execution_options`.
 
 STN/SNr cohort coverage exposes the same controls as
 `VtaModelKey`, `VtaExecutionMode`, `VtaParallelWorkers`, `VtaMatlabExe`,

@@ -22,20 +22,22 @@ results = load_results(jobs);
 end
 
 function settings = process_settings(cfg, exec, taskCount)
+defaults = mh_vta_default_execution_options();
 settings = struct();
 settings.repo_dir = get_cfg_option(cfg, 'repoDir', ...
     mh_util_resolve_repo_dir(mfilename('fullpath')));
 settings.worker_count = max(1, min(exec.parallel_workers, taskCount));
 settings.matlab_exe = get_vta_option(cfg, 'matlabExe', ...
-    '/Applications/MATLAB_R2024b.app/bin/matlab');
-settings.conda_env = get_vta_option(cfg, 'condaEnv', 'leaddbs');
-settings.dry_run = logical(get_vta_option(cfg, 'processDryRun', false));
+    defaults.matlabExe);
+settings.conda_env = get_vta_option(cfg, 'condaEnv', defaults.condaEnv);
+settings.dry_run = logical(get_vta_option(cfg, 'processDryRun', ...
+    defaults.processDryRun));
 settings.poll_seconds = max(0.1, double(get_vta_option(cfg, ...
-    'processPollSeconds', 2)));
+    'processPollSeconds', defaults.processPollSeconds)));
 settings.timeout_seconds = max(0, double(get_vta_option(cfg, ...
-    'processTimeoutSeconds', 0)));
+    'processTimeoutSeconds', defaults.processTimeoutSeconds)));
 
-workDir = char(string(get_vta_option(cfg, 'processWorkDir', '')));
+workDir = char(string(get_vta_option(cfg, 'processWorkDir', defaults.processWorkDir)));
 if isempty(workDir)
     outputDir = char(string(get_cfg_option(cfg, 'outputDir', tempdir)));
     timestamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss_SSS'));

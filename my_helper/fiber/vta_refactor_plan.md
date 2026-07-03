@@ -2595,3 +2595,39 @@ Phase 2BM validation completed:
   the default.
 - Static verification confirmed STN/SNr VTA project scripts and the shared
   parser no longer duplicate the default `simbio` model-key fallback.
+
+## Phase 2BN Implementation Scope
+
+Status: **completed**.
+
+Phase 2BN centralizes VTA task execution defaults:
+
+- Add `mh_vta_default_execution_options` as the single source for default
+  task-execution settings: execution mode, worker count, MATLAB executable,
+  Conda environment, process dry-run flag, process work directory, poll
+  interval, and timeout.
+- Update `mh_fiber_default_config`, STN/SNr parser defaults, task process
+  execution settings, and process worker launcher defaults to read from this
+  helper.
+- Update STN/SNr project scripts to use the shared defaults as environment
+  fallbacks while preserving all existing environment variable names and default
+  values.
+- Preserve existing default behavior: sequential execution, one worker,
+  `/Applications/MATLAB_R2024b.app/bin/matlab`, Conda env `leaddbs`, poll
+  interval `2`, timeout `0`, empty process work directory, and process dry-run
+  disabled.
+
+Phase 2BN validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the new helper and touched VTA/STN/SNr execution
+  default callers passed with zero messages.
+- MATLAB synthetic smoke test confirmed `mh_fiber_default_config`, the STN/SNr
+  parser defaults, and `mh_vta_execution_config` use
+  `mh_vta_default_execution_options`.
+- MATLAB dry-run smoke test confirmed the subject-level process launcher and
+  task-level process dry-run path still prepare metadata without launching real
+  workers or running FEM.
+- Static verification confirmed VTA/STN/SNr execution-default call sites no
+  longer duplicate the MATLAB executable and Conda environment defaults outside
+  `mh_vta_default_execution_options`.

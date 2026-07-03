@@ -5,11 +5,13 @@ if nargin < 2 || isempty(taskCount)
     taskCount = 1;
 end
 
+defaults = mh_vta_default_execution_options();
 exec = struct();
-exec.requested_mode = get_vta_option(cfg, 'executionMode', 'sequential');
+exec.requested_mode = get_vta_option(cfg, 'executionMode', defaults.executionMode);
 exec.mode = lower(char(string(exec.requested_mode)));
-exec.parallel = logical(get_vta_option(cfg, 'parallel', false));
-exec.parallel_workers = max(1, round(double(get_vta_option(cfg, 'parallelWorkers', 1))));
+exec.parallel = logical(get_vta_option(cfg, 'parallel', defaults.parallel));
+exec.parallel_workers = max(1, round(double(get_vta_option(cfg, ...
+    'parallelWorkers', defaults.parallelWorkers))));
 exec.task_count = max(0, double(taskCount));
 
 if exec.task_count <= 1 && ~strcmp(exec.mode, 'process')
