@@ -70,6 +70,8 @@ STN/SNr analyzers share `mh_fiber_stnsnr_stimspec_from_table` for converting
 workbook-style and normalized contact rows into Layer 1 stimulation specs.
 STN/SNr stimulation-pattern report labels use
 `mh_fiber_stnsnr_stimulation_pattern_label`.
+STN/SNr observed VTA program labels use
+`mh_fiber_stnsnr_vta_program_label`.
 
 Process-isolated launches are now routed through
 `mh_vta_launch_process_workers`, which centralizes subject chunking, dry-run job

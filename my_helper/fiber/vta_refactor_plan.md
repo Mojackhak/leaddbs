@@ -1154,3 +1154,40 @@ Phase 2Y validation completed:
   paths match the previous hard-coded filename format.
 - Static search confirms the target-component analyzer calls
   `mh_fiber_vta_efield_path` and no longer defines a local `efield_path`.
+
+## Phase 2Z Implementation Scope
+
+Status: **implemented**.
+
+Phase 2Z centralizes the stable STN/SNr observed VTA program label format:
+
+- Add `mh_fiber_stnsnr_vta_program_label` under `core/stimulation`.
+- Preserve both existing observed program label formats:
+  - continuous condition labels:
+    `stnsnr_vta_<subject>_<phase>_<protocol>_continuous`.
+  - alternating subprogram labels:
+    `stnsnr_vta_<subject>_<phase>_<protocol>_alt_<side>_<target>_c<rawContact>_row<rowIndex>`.
+- Update STN/SNr cohort coverage and target-component coverage to call the
+  shared helper instead of duplicating `sprintf` plus label sanitization.
+- Keep all downstream stimulation labels and e-field folder lookups unchanged.
+
+Phase 2Z validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_stnsnr_vta_program_label` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic smoke test proving continuous, alternating, and sanitized
+  special-character labels match the previous formats.
+- Static verification that direct `stnsnr_vta_%s_%s_%s` format strings no
+  longer remain in the STN/SNr analyzers.
+
+Phase 2Z validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_fiber_stnsnr_vta_program_label`; the two
+  large STN/SNr analyzers still report only their existing dynamic-growth
+  warnings.
+- MATLAB synthetic smoke test verifies continuous, alternating, and sanitized
+  special-character labels match the previous `sprintf` plus sanitizer output.
+- Static search confirms direct `stnsnr_vta_%s_%s_%s` format strings now live
+  only in the shared helper and documentation, not in the STN/SNr analyzers.
