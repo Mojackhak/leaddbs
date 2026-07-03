@@ -7,19 +7,42 @@ if nargin < 2 || isempty(stimFolders)
     stimFolders.mni = cfg.paths.stimMni;
 end
 
-modelLabel = 'simbio';
-if isfield(cfg, 'vta') && isfield(cfg.vta, 'model')
-    try
-        modelLabel = ea_simModel2Label(cfg.vta.model);
-    catch
-        modelLabel = 'simbio';
-    end
-end
+modelLabel = model_label_from_config(cfg);
 
 vta = struct();
 vta.native = side_paths(stimFolders.native, cfg.patientName, modelLabel);
 vta.mni = side_paths(stimFolders.mni, cfg.patientName, modelLabel);
 
+end
+
+function modelLabel = model_label_from_config(cfg)
+modelLabel = 'simbio';
+if ~isfield(cfg, 'vta')
+    return;
+end
+
+if isfield(cfg.vta, 'modelKey') && strlength(string(cfg.vta.modelKey)) > 0
+    entry = mh_vta_model_registry(cfg.vta.modelKey);
+    modelLabel = entry.modelLabel;
+    return;
+end
+
+if isfield(cfg.vta, 'model') && strlength(string(cfg.vta.model)) > 0
+    modelLabel = model_label_from_legacy_model(cfg.vta.model);
+end
+end
+
+function modelLabel = model_label_from_legacy_model(modelName)
+try
+    entry = mh_vta_model_registry(modelName);
+    modelLabel = entry.modelLabel;
+catch
+    try
+        modelLabel = ea_simModel2Label(modelName);
+    catch
+        modelLabel = 'simbio';
+    end
+end
 end
 
 function paths = side_paths(stimDir, patientName, modelLabel)

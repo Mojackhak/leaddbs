@@ -2148,3 +2148,38 @@ Phase 2AY validation results:
 - MATLAB synthetic smoke test passed for a missing `categoryScheme`, explicit
   `membership_partition`, and unsupported scheme rejection with the
   caller-prefixed `UnsupportedCategoryScheme` error.
+
+## Phase 2AZ Implementation Scope
+
+Status: **completed**.
+
+Phase 2AZ routes standard VTA path model-label resolution through the model
+registry:
+
+- Update `mh_fiber_vta_paths` so explicit `cfg.vta.modelKey` values resolve
+  through `mh_vta_model_registry(...).modelLabel`.
+- Preserve backward compatibility for legacy callers that provide only
+  `cfg.vta.model` by first trying the registry aliases and then falling back to
+  Lead-DBS `ea_simModel2Label` behavior.
+- Preserve existing standard file names for current SimBio two-source and
+  one-solve backends because both registry entries use `modelLabel = simbio`.
+- Make unsupported explicit model keys fail at the registry boundary instead of
+  silently falling back to SimBio paths.
+
+Phase 2AZ validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_vta_paths` and `mh_vta_model_registry`.
+- MATLAB synthetic smoke test proving SimBio and one-solve model keys produce
+  standard `model-simbio` paths, legacy model strings still resolve, and an
+  unsupported explicit model key raises `mh_vta_model_registry:UnsupportedModel`.
+
+Phase 2AZ validation results:
+
+- `git diff --check` passed.
+- `mh_fiber_vta_paths` and `mh_vta_model_registry` passed focused `checkcode`
+  with zero messages.
+- MATLAB synthetic smoke test confirmed SimBio, one-solve, and one-solve alias
+  model keys produce standard `model-simbio` paths, legacy model strings still
+  resolve through the existing Lead-DBS fallback, and unsupported explicit model
+  keys raise `mh_vta_model_registry:UnsupportedModel`.
