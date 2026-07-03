@@ -116,6 +116,8 @@ not hard-code those region names or paths. The shared STN/SNr project region
 specification is built by `mh_fiber_stnsnr_region_spec`.
 Standard VTA/category/overlap mask outputs are written through
 `mh_coverage_write_standard_masks`.
+Coverage threshold values are formatted for filenames with
+`mh_coverage_threshold_label`.
 STN/SNr contact mapping tables are normalized through
 `mh_fiber_stnsnr_normalize_contact_table`, which accepts both workbook-style
 headers and normalized per-subject contact QC CSV headers.

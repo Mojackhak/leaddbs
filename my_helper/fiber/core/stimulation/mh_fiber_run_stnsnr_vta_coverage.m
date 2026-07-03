@@ -515,7 +515,7 @@ for s = 1:numel(sides)
     for t = 1:numel(thresholdsVPerM)
         thresholdVPerMm = thresholdsVPerMm(t);
         thresholdVPerM = thresholdsVPerM(t);
-        thresholdLabel = threshold_label(thresholdVPerMm);
+        thresholdLabel = mh_coverage_threshold_label(thresholdVPerMm);
         hitCount = zeros(ref.dim, 'uint16');
         for e = 1:numel(efieldPaths)
             hitCount = hitCount + uint16(sampledEfields{e} >= thresholdVPerM);
@@ -864,10 +864,6 @@ elseif isscalar(patterns) && patterns == "alternating"
 else
     pattern = 'mixed_union';
 end
-end
-
-function label = threshold_label(value)
-label = strrep(sprintf('%.2f', value), '.', 'p');
 end
 
 function tf = subject_outputs_complete(subjectOutput, patientName)

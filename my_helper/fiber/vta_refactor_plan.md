@@ -943,3 +943,38 @@ Phase 2S validation completed:
   numeric variables keep their original values and type.
 - Static search confirms no local `force_string_vars` functions remain in the
   STN/SNr analyzers.
+
+## Phase 2T Implementation Scope
+
+Status: **implemented**.
+
+Phase 2T removes duplicated threshold-label formatting from the two STN/SNr
+analyzers:
+
+- Add `mh_coverage_threshold_label(value)` under `core/coverage`.
+- Preserve the current formatting exactly: `sprintf('%.2f', value)` followed by
+  replacing `.` with `p`.
+- Update STN/SNr cohort coverage and target-component coverage to call the
+  shared helper and remove their local `threshold_label` functions.
+- Keep existing output filenames and threshold labels unchanged.
+
+Phase 2T validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_threshold_label` and both touched STN/SNr
+  analyzers.
+- MATLAB synthetic smoke test proving representative thresholds format to the
+  previous labels, including rounding behavior.
+- Static verification that no local `threshold_label` functions remain in the
+  STN/SNr analyzers.
+
+Phase 2T validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_coverage_threshold_label`; the two large
+  STN/SNr analyzers still report only their existing dynamic-growth warnings.
+- MATLAB synthetic smoke test verifies representative labels and rounding:
+  `0.2 -> 0p20`, `0 -> 0p00`, `1.234 -> 1p23`,
+  `1.235 -> 1p24`, and `12 -> 12p00`.
+- Static search confirms no local `threshold_label` functions remain in the
+  STN/SNr analyzers.

@@ -328,7 +328,7 @@ end
 for t = 1:numel(thresholdsVPerM)
     thresholdVPerMm = thresholdsVPerMm(t);
     thresholdVPerM = thresholdsVPerM(t);
-    thresholdLabel = threshold_label(thresholdVPerMm);
+    thresholdLabel = mh_coverage_threshold_label(thresholdVPerMm);
     hitCount = zeros(ref.dim, 'uint16');
     for e = 1:numel(efieldPaths)
         hitCount = hitCount + uint16(sampledEfields{e} >= thresholdVPerM);
@@ -615,10 +615,6 @@ end
 
 function value = join_numeric(values)
 value = strjoin(string(values(:))', ';');
-end
-
-function label = threshold_label(value)
-label = strrep(sprintf('%.2f', value), '.', 'p');
 end
 
 function path = efield_path(subjectDir, patientName, stimLabel, sideCode)
