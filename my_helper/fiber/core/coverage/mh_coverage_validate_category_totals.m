@@ -36,6 +36,9 @@ for g = 1:max_group(G)
         error(char(string(opts.CountErrorId)), char(string(opts.CountMessage)), groupValues{:});
     end
     totalVoxels = one.(totalVoxelColumn);
+    if any(abs(totalVoxels - totalVoxels(1)) > double(opts.Tolerance))
+        error(char(string(opts.SumErrorId)), char(string(opts.SumMessage)), groupValues{:});
+    end
     if abs(sum(one.(voxelColumn)) - totalVoxels(1)) > double(opts.Tolerance)
         error(char(string(opts.SumErrorId)), char(string(opts.SumMessage)), groupValues{:});
     end

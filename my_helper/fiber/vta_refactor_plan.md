@@ -2371,3 +2371,33 @@ Phase 2BE validation results:
 - Shared coverage validators passed focused `checkcode` with zero messages.
 - MATLAB synthetic smoke test confirmed cohort-style category totals pass for a
   three-region eight-category table and fail when a category row is missing.
+
+## Phase 2BF Implementation Scope
+
+Status: **completed**.
+
+Phase 2BF strengthens the shared category-total validator:
+
+- Update `mh_coverage_validate_category_totals` to require that all category
+  rows within a group report the same `total_vta_voxels` value before comparing
+  `sum(voxel_count)` against that total.
+- Reuse the caller-provided sum error ID/message for inconsistent totals because
+  the output group is internally inconsistent in the same category-total
+  contract.
+- Preserve existing row-count validation, missing-column errors, custom column
+  options, and tolerance behavior.
+
+Phase 2BF validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_validate_category_totals`.
+- MATLAB synthetic smoke test proving valid totals pass, inconsistent total
+  columns fail, and sum mismatches still fail with the caller-provided error ID.
+
+Phase 2BF validation results:
+
+- `git diff --check` passed.
+- `mh_coverage_validate_category_totals` passed focused `checkcode` with zero
+  messages.
+- MATLAB synthetic smoke test confirmed valid totals pass, inconsistent total
+  columns fail, and sum mismatches still fail with the caller-provided error ID.
