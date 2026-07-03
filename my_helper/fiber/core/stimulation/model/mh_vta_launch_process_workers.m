@@ -28,7 +28,7 @@ jobRows = cell(workerCount, 7);
 for i = 1:workerCount
     ids = chunks{i};
     subjectList = strjoin(ids, ';');
-    subjectEnvList = strjoin(ids, ',');
+    subjectEnvList = subjectList;
     logPath = fullfile(logDir, sprintf('worker_%02d.log', i));
     batchExpr = sprintf('run(%s)', mh_vta_matlab_string_literal(workerScript));
     innerCmd = mh_vta_matlab_batch_command(opts.MatlabExe, batchExpr, opts.CondaEnv);
@@ -38,6 +38,10 @@ for i = 1:workerCount
     envPrefix = env_assignments(envValues);
     cmd = sprintf('%s /bin/zsh -lc %s > %s 2>&1 & echo $!', ...
         envPrefix, mh_fiber_shell_quote(innerCmd), mh_fiber_shell_quote(logPath));
+    innerCommandPath = fullfile(logDir, sprintf('worker_%02d_inner_command.sh', i));
+    launchCommandPath = fullfile(logDir, sprintf('worker_%02d_launch_command.sh', i));
+    write_command_file(innerCommandPath, innerCmd);
+    write_command_file(launchCommandPath, cmd);
 
     if logical(opts.DryRun)
         pid = "dry-run";
@@ -54,12 +58,23 @@ for i = 1:workerCount
         fprintf('Launched process worker %02d PID %s: %s\n', i, pid, subjectList);
     end
 
-    jobRows(i, :) = {i, subjectList, pid, logPath, statusText, innerCmd, cmd};
+    jobRows(i, :) = {i, subjectList, pid, logPath, statusText, ...
+        innerCommandPath, launchCommandPath};
 end
 
 jobs = cell2table(jobRows, 'VariableNames', ...
     {'worker_index', 'subject_ids', 'pid', 'log_path', 'status', ...
-    'inner_command', 'launch_command'});
+    'inner_command_path', 'launch_command_path'});
+end
+
+function write_command_file(path, commandText)
+fid = fopen(path, 'w');
+if fid < 0
+    error('mh_vta_launch_process_workers:CannotWriteCommandFile', ...
+        'Cannot write command file: %s', path);
+end
+cleanup = onCleanup(@() fclose(fid));
+fprintf(fid, '#!/bin/zsh\n%s\n', commandText);
 end
 
 function text = env_assignments(envValues)

@@ -75,6 +75,24 @@ shared inside one MATLAB process. Process-mode configuration lives under
 `cfg.vta.processDryRun`, `cfg.vta.processPollSeconds`, and
 `cfg.vta.processTimeoutSeconds`.
 
+STN/SNr cohort coverage exposes the same controls as
+`VtaExecutionMode`, `VtaParallelWorkers`, `VtaMatlabExe`, `VtaCondaEnv`,
+`VtaProcessWorkDir`, `VtaProcessPollSeconds`, and
+`VtaProcessTimeoutSeconds`. The subject-level launcher forwards matching
+`STNSNR_VTA_EXECUTION_MODE`, `STNSNR_VTA_PARALLEL_WORKERS`,
+`STNSNR_VTA_TASK_MATLAB_EXE`, `STNSNR_VTA_TASK_CONDA_ENV`,
+`STNSNR_VTA_PROCESS_WORK_DIR`, `STNSNR_VTA_PROCESS_POLL_SECONDS`, and
+`STNSNR_VTA_PROCESS_TIMEOUT_SECONDS` environment variables to worker processes.
+Subject ID chunks are written and forwarded as semicolon-separated lists, which
+are parsed by `mh_fiber_split_env_list`. The launcher writes full shell command
+lines to per-worker command files and stores those command file paths in
+`parallel_jobs.csv`, keeping the CSV readable by MATLAB `readtable` when
+`Delimiter` is set to `','`.
+
+The non-parallel STN/SNr cohort script reads the same execution environment
+variables before calling `mh_fiber_run_stnsnr_vta_coverage`, so execution mode
+selection does not require editing the script.
+
 Coverage analysis is separate from VTA generation. `core/coverage/` builds the
 reference grid, samples e-field and atlas masks, and classifies VTA voxels with
 a generic membership-partition region specification. STN/SNr analyses inject

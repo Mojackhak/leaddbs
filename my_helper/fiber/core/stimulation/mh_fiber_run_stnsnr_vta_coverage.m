@@ -22,6 +22,13 @@ parser.addParameter('CohortOnly', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('SkipCompletedSubjects', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('UseSubjectLocks', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('SkipLockedSubjects', false, @(x) islogical(x) || isnumeric(x));
+parser.addParameter('VtaExecutionMode', 'sequential', @(x) ischar(x) || isstring(x));
+parser.addParameter('VtaParallelWorkers', 1, @(x) isnumeric(x) && isscalar(x) && x >= 1);
+parser.addParameter('VtaMatlabExe', '/Applications/MATLAB_R2024b.app/bin/matlab', @(x) ischar(x) || isstring(x));
+parser.addParameter('VtaCondaEnv', 'leaddbs', @(x) ischar(x) || isstring(x));
+parser.addParameter('VtaProcessWorkDir', '', @(x) ischar(x) || isstring(x));
+parser.addParameter('VtaProcessPollSeconds', 2, @(x) isnumeric(x) && isscalar(x) && x > 0);
+parser.addParameter('VtaProcessTimeoutSeconds', 0, @(x) isnumeric(x) && isscalar(x) && x >= 0);
 parser.parse(varargin{:});
 opts = parser.Results;
 
@@ -87,6 +94,11 @@ manifest.white_matter_conductivity_s_per_m = 0.14;
 manifest.selected_subject_count = height(subjects);
 manifest.write_cohort_outputs = logical(opts.WriteCohortOutputs);
 manifest.cohort_only = logical(opts.CohortOnly);
+manifest.vta_execution_mode = char(string(opts.VtaExecutionMode));
+manifest.vta_parallel_workers = double(opts.VtaParallelWorkers);
+manifest.vta_process_work_dir = char(string(opts.VtaProcessWorkDir));
+manifest.vta_process_poll_seconds = double(opts.VtaProcessPollSeconds);
+manifest.vta_process_timeout_seconds = double(opts.VtaProcessTimeoutSeconds);
 manifest.subjects = {};
 
 if logical(opts.CohortOnly)
@@ -418,6 +430,7 @@ for i = 1:numel(programs)
     cfg.vta.modelKey = 'simbio';
     cfg.vta.model = mh_fiber_model_name('simbio');
     cfg.vta.gmAtlas = 'DISTAL Minimal (Ewert 2017)';
+    cfg = mh_vta_apply_execution_options(cfg, opts);
     stimSpec = rows_to_stim_spec(rows, programs(i).label);
     cfg = mh_fiber_set_stimulation(cfg, stimSpec);
     [S, options, stimFolders] = mh_fiber_build_stimulation(cfg);

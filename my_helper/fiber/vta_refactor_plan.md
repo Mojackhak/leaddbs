@@ -387,3 +387,66 @@ Deferred validation:
   program-side e-field outputs.
 - Full cohort timing and numerical regression against
   `cohort_vta_coverage_long.csv`.
+
+## Phase 2F Implementation Scope
+
+Status: **implemented**.
+
+Phase 2F wires the execution harness into the STNSNr project entry points so
+the new modes are selectable during real cohort runs:
+
+- Add `VtaExecutionMode`, `VtaParallelWorkers`, `VtaMatlabExe`, `VtaCondaEnv`,
+  `VtaProcessWorkDir`, `VtaProcessPollSeconds`, and
+  `VtaProcessTimeoutSeconds` parameters to
+  `mh_fiber_run_stnsnr_vta_coverage`.
+- Pass those options into each per-program VTA cfg before
+  `mh_vta_run_compute_tasks` is called.
+- Add matching environment variable overrides to
+  `stnsnr/run_stnsnr_vta_coverage_worker.m` so subject-level process workers can
+  choose intra-subject `sequential`, `parpool`, or `process` execution without
+  code edits.
+- Add the same environment variable overrides to
+  `stnsnr/run_stnsnr_vta_coverage.m` for non-parallel cohort runs.
+- Propagate those environment variables from
+  `stnsnr/run_stnsnr_vta_coverage_parallel.m` into spawned subject workers.
+- Keep subject-level job CSV files readable by MATLAB `readtable` by writing
+  full shell commands to per-worker command files and storing only command file
+  paths in the job table.
+- Keep all defaults behavior-preserving: execution remains sequential with one
+  worker unless explicitly overridden.
+
+Phase 2F validation target:
+
+- MATLAB parser/config smoke test proving the STNSNr coverage entry point
+  writes the requested execution mode into the per-program cfg before task
+  dispatch.
+- MATLAB dry-run regression for `run_stnsnr_vta_coverage_parallel.m`, verifying
+  worker environment propagation for VTA execution options.
+- MATLAB dry-run regression proving `parallel_jobs_latest.csv` remains a
+  seven-column comma-delimited table when read with MATLAB `readtable`.
+- `git diff --check` and focused `checkcode`.
+
+Phase 2F validation completed:
+
+- `git diff --check`
+- Focused `checkcode` passes cleanly for `mh_vta_apply_execution_options`,
+  `mh_vta_launch_process_workers`, `mh_fiber_env_double`, and the STNSNr worker
+  and parallel launcher scripts.
+- MATLAB smoke test for `mh_vta_apply_execution_options`, verifying execution
+  mode normalization, worker count, process MATLAB/Conda settings, poll/timeout
+  settings, and invalid-mode rejection.
+- MATLAB dry-run regression for `run_stnsnr_vta_coverage_parallel.m`, verifying
+  execution environment propagation into per-worker command files and confirming
+  `parallel_jobs_latest.csv` remains a seven-column comma-delimited job table.
+- MATLAB dry-run regression for `mh_vta_launch_process_workers`, verifying
+  command-file generation and semicolon-separated subject env chunks.
+- Static verification that both non-parallel and worker STNSNr scripts pass the
+  VTA execution parameters into `mh_fiber_run_stnsnr_vta_coverage`.
+
+Deferred validation:
+
+- Real FEM process-mode execution on a 1-2 subject subset.
+- Numerical equivalence among sequential, parpool, and process modes for
+  program-side e-field outputs.
+- Full cohort timing and numerical regression against
+  `cohort_vta_coverage_long.csv`.
