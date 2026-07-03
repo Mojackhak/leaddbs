@@ -62,6 +62,7 @@ Coverage composition figures are written through
 `mh_coverage_write_composition_figure`.
 Coverage summary statistics use `mh_coverage_iqr` for NaN-robust interquartile
 range values.
+Total VTA summary tables use `mh_coverage_total_vta_summary`.
 Category summary tables use `mh_coverage_category_summary_table`.
 Stacked coverage-share figure matrices use `mh_coverage_category_matrix`.
 Threshold-sensitivity trend tables use `mh_coverage_threshold_trend_table`.

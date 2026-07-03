@@ -651,10 +651,7 @@ write_cohort_figures(outputDir, coverageTable, mainThreshold);
 end
 
 function summary = summarize_total_vta(tableIn)
-[G, phase, protocol, side] = findgroups(tableIn.phase, tableIn.protocol, tableIn.side);
-total = splitapply(@(x) max(x), tableIn.total_vta_volume_mm3, G);
-summary = table(phase, protocol, side, total, 'VariableNames', ...
-    {'phase', 'protocol', 'side', 'total_vta_volume_mm3'});
+summary = mh_coverage_total_vta_summary(tableIn, {'phase', 'protocol', 'side'});
 end
 
 function byCondition = summarize_by_condition(coverageTable)

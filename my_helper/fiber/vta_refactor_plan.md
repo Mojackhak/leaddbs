@@ -1814,3 +1814,44 @@ Phase 2AP validation results:
   string variables, and preserve empty-row `table()` output behavior.
 - Static search confirms the touched `rows_to_*_table` helpers now call
   `mh_util_cell_rows_to_table` instead of calling `cell2table` directly.
+
+## Phase 2AQ Implementation Scope
+
+Status: **completed**.
+
+Phase 2AQ centralizes total VTA summary-table construction:
+
+- Add `mh_coverage_total_vta_summary(tableIn, groupVars, ...)` under
+  `core/coverage`.
+- Preserve the cohort summary behavior: group by caller-provided variables and
+  report the maximum `total_vta_volume_mm3` per group.
+- Update the STN/SNr cohort summary writer to call the shared helper while
+  keeping output column order and variable names unchanged.
+- Keep target-component distribution summaries unchanged because they summarize
+  category rows rather than per-condition total VTA maxima.
+
+Phase 2AQ validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_total_vta_summary` and the touched
+  cohort analyzer.
+- MATLAB synthetic regression test proving helper output matches the previous
+  `findgroups`/`splitapply(@max)` formula, including stable group columns and
+  duplicate rows.
+- Static verification that the cohort analyzer no longer defines a local
+  `summarize_total_vta` implementation with `splitapply(@max)`.
+
+Phase 2AQ validation results:
+
+- `git diff --check` passed.
+- `mh_coverage_total_vta_summary` passed focused `checkcode` with zero
+  messages.
+- The touched cohort analyzer reports only pre-existing `AGROW` `checkcode`
+  messages outside the refactored total-summary wrapper.
+- MATLAB synthetic regression tests passed by comparing helper output with the
+  previous explicit `findgroups`/`splitapply(@max)` formula, including duplicate
+  rows, stable group columns, custom output-column naming, and missing-column
+  errors.
+- Static search confirms the cohort analyzer delegates `summarize_total_vta` to
+  `mh_coverage_total_vta_summary` instead of implementing `splitapply(@max)`
+  locally.
