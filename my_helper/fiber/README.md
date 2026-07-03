@@ -169,8 +169,9 @@ stimulation labels preserve plus signs for backward-compatible folder names.
 
 Composition figures use `core/viz/` semantic plotting helpers: part-whole VTA
 category summaries are drawn as donut charts or 100 percent stacked share bars,
-while distribution and threshold-sensitivity outputs remain box plots and line
-plots with shared styling.
+with readable percentage labels on visible composition segments, while
+distribution and threshold-sensitivity outputs remain box plots and line plots
+with shared styling.
 
 ## STN/SNr Cohort Test Datasets
 

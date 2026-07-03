@@ -2435,3 +2435,26 @@ Phase 2BG validation results:
 - MATLAB synthetic smoke test confirmed the shared parser helper accepts
   non-default VTA options and the shared manifest helper produces the expected
   VTA manifest fields and value types while preserving existing manifest fields.
+
+## Phase 2BH Implementation Scope
+
+Status: **completed**.
+
+Phase 2BH completes the percentage-label requirement for 100 percent stacked
+share figures:
+
+- Update `mh_viz_stacked_share_bar` to place percentage labels inside readable
+  nonzero stack segments.
+- Preserve existing normalized-share calculation, color palette, figure titles,
+  legend behavior, export behavior, and default figure size.
+- Avoid clutter by labeling only stack segments above a configurable minimum
+  share threshold while keeping all categories represented in the legend.
+
+Phase 2BH validation completed:
+
+- `git diff --check` passed with no whitespace errors.
+- Focused `checkcode` for `mh_viz_stacked_share_bar` passed with zero
+  messages.
+- MATLAB synthetic smoke test confirmed stacked-share figures contain
+  percentage text labels for visible segments, omit labels below the minimum
+  share threshold, and still export PNG files in `-batch` mode.
