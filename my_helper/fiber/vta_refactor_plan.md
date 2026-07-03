@@ -1659,3 +1659,44 @@ Phase 2AL validation results:
 - MATLAB synthetic smoke tests passed for valid threshold series, missing
   threshold rows, monotonicity failure, multi-column cohort grouping, and
   target-component grouping.
+
+## Phase 2AM Implementation Scope
+
+Status: **completed**.
+
+Phase 2AM centralizes remaining analyzer-local required table-column checks:
+
+- Add `mh_util_require_table_vars(tableIn, requiredVars, errorId, messageFormat)`
+  under `core/util`.
+- Preserve the existing behavior: check required variables in caller-provided
+  order and raise on the first missing variable.
+- Preserve caller-specific public errors by passing the existing missing-column
+  error IDs and message formats from the STN/SNr workbook reader and
+  target-component contact-QC validator.
+- Leave coverage-helper internal all-missing-column messages unchanged because
+  they intentionally report complete missing-column lists.
+- Leave output-file required lists unchanged because Phase 2AK already routes
+  those through `mh_coverage_require_output_files`.
+
+Phase 2AM validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_util_require_table_vars` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic smoke test proving present columns pass and missing columns
+  raise the caller-provided error ID for both workbook-style and contact-QC
+  table schemas.
+- Static verification that the two STN/SNr analyzers no longer contain
+  analyzer-local `for i = 1:numel(required)` table-column validation loops.
+
+Phase 2AM validation results:
+
+- `git diff --check` passed.
+- `mh_util_require_table_vars` passed focused `checkcode` with zero messages.
+- The two touched STN/SNr analyzers report only pre-existing `AGROW`
+  `checkcode` messages outside the refactored required-column checks.
+- MATLAB synthetic smoke tests passed for present workbook/contact-QC columns
+  and missing-column failures using caller-provided error IDs and message
+  formats.
+- Static search confirms the analyzer-local required table-column loops were
+  replaced with `mh_util_require_table_vars`.
