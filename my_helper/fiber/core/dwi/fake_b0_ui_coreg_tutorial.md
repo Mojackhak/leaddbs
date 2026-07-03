@@ -29,6 +29,8 @@ JSON, bval, and bvec files into `rawdata`.
 
 ```mermaid
 flowchart TD
+    Z["mh_fiber_reconstruct_mosaic_dwi_batch.m"] --> Z2["optional SaveBySlc mosaic repair"]
+    Z2 --> A
     A["run_project_dwi_fake_b0_coreg.m"] --> B["mh_fiber_register_imported_dwi_batch.m"]
     A2["STNSNr wrapper scripts"] --> A
     B --> C["validate raw DWI, JSON, bval, and bvec"]
@@ -69,6 +71,12 @@ parameters for the fake-B0 workflow are:
 
 `mh_fiber_dwi_distortion_correction.m` runs the Synb0-DISCO, topup, eddy, and
 corrected-b0 extraction steps.
+
+`mh_fiber_reconstruct_mosaic_dwi.m` repairs one Siemens `SaveBySlc` tiled DWI
+set before it is used as a normal BIDS DWI input. `mh_fiber_infer_mosaic_geometry.m`
+derives `TileSize`, `TileGrid`, and `SliceCount` from DICOM metadata when
+available. `mh_fiber_reconstruct_mosaic_dwi_batch.m` applies the same repair to
+multiple independent inputs.
 
 `BIDSFetcher.getPreprocB0()` exposes
 `preprocessing/dwi/*_desc-preproc_b0.nii` as the Lead-DBS pseudo `B0` modality.
@@ -136,6 +144,108 @@ current derived outputs.
 If `SubjectIds` is omitted, subjects are resolved in this order: copied subjects
 from `ImportLog` when provided, then BIDS DWI files discovered under
 `StudyRoot/rawdata/sub-*/ses-preop/dwi/`.
+
+## SaveBySlc mosaic reconstruction
+
+Some Siemens `SaveBySlc` DWI exports can appear as a single-slice NIfTI with a
+large in-plane matrix, such as `972 x 945 x 1 x 66`. These are tiled mosaic
+frames, not normal 3D slice stacks. They must be repaired before the
+Synb0-DISCO, topup, and eddy workflow.
+
+The reusable repair entry point is:
+
+```matlab
+result = mh_fiber_reconstruct_mosaic_dwi( ...
+    'SourceNifti', '/path/to/sub-SubA_bad_mosaic.nii.gz', ...
+    'SourceJson', '/path/to/sub-SubA_bad_mosaic.json', ...
+    'SourceBval', '/path/to/sub-SubA_bad_mosaic.bval', ...
+    'SourceBvec', '/path/to/sub-SubA_bad_mosaic.bvec', ...
+    'DicomDir', '/path/to/source_dicom_series', ...
+    'OutputDir', '/path/to/repaired_dwi', ...
+    'OutputBase', 'sub-SubA_ses-preop_dwi', ...
+    'Parallel', true, ...
+    'ParallelWorkers', 4, ...
+    'Force', false);
+```
+
+The geometry inference order is:
+
+1. DICOM metadata from `DicomDir`;
+2. same-protocol `ReferenceNifti`;
+3. explicit `TileSize`, `TileGrid`, and `SliceCount`.
+
+DICOM is preferred because it can provide the full mosaic frame size, tile
+matrix, and total slice count. For the STNSNr 64-direction SaveBySlc data, the
+expected inference is:
+
+```text
+Rows=945
+Columns=972
+AcquisitionMatrix=[108; 0; 0; 105]
+NumberOfSlices=5148
+VolumeCount=66
+TileSize=[108 105]
+TileGrid=[9 9]
+SliceCount=78
+Output size=108 x 105 x 78 x 66
+```
+
+The batch entry point accepts an input table with source paths and writes one
+status row per subject:
+
+```matlab
+inputs = table( ...
+    ["SubA"; "SubB"], ...
+    ["/path/to/sub-SubA_bad_mosaic.nii.gz"; "/path/to/sub-SubB_bad_mosaic.nii.gz"], ...
+    ["/path/to/sub-SubA_bad_mosaic.json"; "/path/to/sub-SubB_bad_mosaic.json"], ...
+    ["/path/to/sub-SubA_bad_mosaic.bval"; "/path/to/sub-SubB_bad_mosaic.bval"], ...
+    ["/path/to/sub-SubA_bad_mosaic.bvec"; "/path/to/sub-SubB_bad_mosaic.bvec"], ...
+    ["/path/to/sub-SubA_dicoms"; "/path/to/sub-SubB_dicoms"], ...
+    ["/path/to/repaired/sub-SubA"; "/path/to/repaired/sub-SubB"], ...
+    ["sub-SubA_ses-preop_dwi"; "sub-SubB_ses-preop_dwi"], ...
+    'VariableNames', {'Subject', 'SourceNifti', 'SourceJson', 'SourceBval', ...
+    'SourceBvec', 'DicomDir', 'OutputDir', 'OutputBase'});
+
+status = mh_fiber_reconstruct_mosaic_dwi_batch(inputs, ...
+    'Parallel', true, ...
+    'ParallelWorkers', 4, ...
+    'Force', false);
+```
+
+The STNSNr wrapper uses the same backend and only supplies project-specific
+paths for `GengHui` and `ZhaoPeiGen`:
+
+```matlab
+repoDir = '/Users/mojackhu/Github/leaddbs';
+addpath(genpath(repoDir));
+
+status = run_stnsnr_reconstruct_savebyslc_dwi( ...
+    'RepoDir', repoDir, ...
+    'RepairRoot', fullfile('/Volumes/VAL/STNSNr', 'derivatives', ...
+        'leaddbs', 'import_logs', 'savebyslc_repair'), ...
+    'ReplaceRawdata', false, ...
+    'Parallel', true, ...
+    'ParallelWorkers', 4);
+```
+
+With `ReplaceRawdata=false`, repaired files are written to the repair directory
+only. After manual QC, rerun with `ReplaceRawdata=true` to move the bad rawdata
+four-file set to Trash and copy the repaired BIDS-compatible files into
+`rawdata/sub-<ID>/ses-preop/dwi/`.
+
+Expected repaired files are:
+
+```text
+<RepairRoot>/sub-<ID>/sub-<ID>_ses-preop_dwi.nii.gz
+<RepairRoot>/sub-<ID>/sub-<ID>_ses-preop_dwi.json
+<RepairRoot>/sub-<ID>/sub-<ID>_ses-preop_dwi.bval
+<RepairRoot>/sub-<ID>/sub-<ID>_ses-preop_dwi.bvec
+<RepairRoot>/sub-<ID>/sub-<ID>_ses-preop_dwi_mosaic_reconstruction_qc.json
+```
+
+The repaired DWI is acceptable for the normal preprocessing runner only when
+the output is 4D, the slice count is plausible, bval and bvec counts match the
+volume count, and the JSON records `MosaicReconstruction=true`.
 
 ## Expected files
 
