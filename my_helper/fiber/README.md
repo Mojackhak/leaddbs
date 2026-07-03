@@ -71,6 +71,7 @@ Process-isolated launches are now routed through
 `mh_vta_launch_process_workers`, which centralizes subject chunking, dry-run job
 tables, Conda-aware MATLAB batch command construction, and PID/log metadata for
 the STN/SNr process worker entry point.
+Shell command quoting uses the shared `mh_fiber_shell_quote` helper.
 
 Task-level process execution uses the same execution-harness family:
 `mh_vta_run_compute_tasks` keeps sequential execution as the default, while

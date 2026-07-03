@@ -881,7 +881,7 @@ end
 
 function [cleanup, acquired] = acquire_subject_lock(subjectOutput, subjectId, patientName, opts)
 lockDir = fullfile(subjectOutput, '.stnsnr_vta_coverage.lock');
-[status, message] = system(sprintf('mkdir %s', shell_quote(lockDir)));
+[status, message] = system(sprintf('mkdir %s', mh_fiber_shell_quote(lockDir)));
 acquired = status == 0;
 cleanup = [];
 if ~acquired
@@ -911,11 +911,6 @@ if isfolder(lockDir)
             'Could not release subject lock %s: %s', lockDir, ME.message);
     end
 end
-end
-
-function quoted = shell_quote(value)
-value = char(string(value));
-quoted = ['''', strrep(value, '''', '''"''"'''), ''''];
 end
 
 function dirs = prepare_subject_dirs(rootDir)

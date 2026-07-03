@@ -978,3 +978,36 @@ Phase 2T validation completed:
   `1.235 -> 1p24`, and `12 -> 12p00`.
 - Static search confirms no local `threshold_label` functions remain in the
   STN/SNr analyzers.
+
+## Phase 2U Implementation Scope
+
+Status: **implemented**.
+
+Phase 2U removes the remaining local shell quoting helper from the STN/SNr VTA
+coverage analyzer:
+
+- Replace the analyzer-local `shell_quote` function used for subject lock
+  directory creation with the shared `mh_fiber_shell_quote` helper.
+- Preserve the existing POSIX single-quote escaping semantics exactly.
+- Leave unrelated DWI script-local shell quoting out of scope for this VTA
+  refactor slice.
+
+Phase 2U validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_run_stnsnr_vta_coverage` and
+  `mh_fiber_shell_quote`.
+- MATLAB synthetic smoke test proving `mh_fiber_shell_quote` preserves existing
+  quoting behavior for spaces and embedded single quotes.
+- Static verification that `mh_fiber_run_stnsnr_vta_coverage` calls
+  `mh_fiber_shell_quote` and no longer defines a local `shell_quote`.
+
+Phase 2U validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_fiber_shell_quote`; the large STN/SNr
+  coverage analyzer still reports only its existing dynamic-growth warnings.
+- MATLAB synthetic smoke test verifies quoting for paths with spaces, string
+  inputs, and embedded single quotes.
+- Static search confirms `mh_fiber_run_stnsnr_vta_coverage` calls
+  `mh_fiber_shell_quote` and no longer defines a local `shell_quote`.
