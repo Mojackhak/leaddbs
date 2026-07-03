@@ -62,6 +62,8 @@ one stimulation label and side; `mh_vta_run_compute_task` executes that task
 through the facade. Current STN/SNr execution remains sequential unless the
 project launcher uses the existing process-level worker script, but the task
 contract is shared by future parpool and process execution modes.
+`mh_vta_run_stim_spec_tasks` owns the shared cfg/stimSpec-to-task assembly path
+so project analyzers only need to prepare project-specific stimulation specs.
 
 Process-isolated launches are now routed through
 `mh_vta_launch_process_workers`, which centralizes subject chunking, dry-run job

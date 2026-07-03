@@ -286,21 +286,15 @@ cfg.vta.model = mh_fiber_model_name('simbio');
 cfg.vta.gmAtlas = char(string(opts.VtaGmAtlas));
 cfg = mh_vta_apply_execution_options(cfg, opts);
 stimSpec = rows_to_stim_spec(componentRows, label);
-cfg = mh_fiber_set_stimulation(cfg, stimSpec);
-[S, options, stimFolders] = mh_fiber_build_stimulation(cfg);
-
-request = struct();
-request.modelKey = 'simbio';
-request.stimFolders = stimFolders;
-request.force = logical(opts.ForceVta);
-request.sides = {sideCode};
-request.outputSpaces = {'mni'};
-request.exportThresholdVPerMm = exportThresholdVPerMm;
-request.gmAtlas = char(string(opts.VtaGmAtlas));
-request.useAtlas = true;
-request.removeElectrode = true;
-task = mh_vta_make_compute_task(cfg, stimFolders, sideCode, request);
-taskResults = mh_vta_run_compute_tasks(cfg, S, options, task);
+[taskResults, ~, cfg] = mh_vta_run_stim_spec_tasks( ...
+    cfg, stimSpec, {sideCode}, ...
+    'ModelKey', 'simbio', ...
+    'Force', logical(opts.ForceVta), ...
+    'OutputSpaces', {'mni'}, ...
+    'ExportThresholdVPerMm', exportThresholdVPerMm, ...
+    'GmAtlas', char(string(opts.VtaGmAtlas)), ...
+    'UseAtlas', true, ...
+    'RemoveElectrode', true);
 taskResult = taskResults(1);
 
 efieldPath = taskResult.efield_mni;

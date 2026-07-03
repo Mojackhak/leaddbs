@@ -740,3 +740,47 @@ Phase 2N validation completed:
   output file exists after a Horn error. The smoke test runs from the temporary
   stub directory so MATLAB resolves the stub instead of the repository-root
   `ea_genvat_horn.m`.
+
+## Phase 2O Implementation Scope
+
+Status: **implemented**.
+
+Phase 2O removes the remaining duplicated VTA task-assembly sequence from the
+two STN/SNr analyzers while preserving project-specific stimulation semantics:
+
+- Add `mh_vta_run_stim_spec_tasks` as a shared Layer 2 helper that consumes a
+  prepared `cfg`, a Layer 1 `stimSpec`, a side list, and request options.
+- The helper applies the stimulation spec, builds Lead-DBS stimulation inputs,
+  constructs one atomic task per side, and dispatches those tasks through
+  `mh_vta_run_compute_tasks`.
+- Update STN/SNr cohort coverage and target-component coverage so each
+  analyzer still owns table-to-`stimSpec` conversion, while task request
+  construction and execution live in the VTA model layer.
+- Keep default execution, output paths, request fields, GM atlas injection, and
+  task result metadata unchanged.
+
+Phase 2O validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_vta_run_stim_spec_tasks` and both touched STN/SNr
+  analyzers.
+- MATLAB synthetic smoke test with temporary stubs proving the helper builds
+  ordered side tasks and forwards request options without requiring real FEM
+  data.
+- Static verification that both STN/SNr analyzers call
+  `mh_vta_run_stim_spec_tasks` and no longer call
+  `mh_vta_make_compute_task` directly.
+
+Phase 2O validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_vta_run_stim_spec_tasks`; the two large
+  STN/SNr analyzers still report only their existing dynamic-growth warnings.
+- MATLAB synthetic smoke test with temporary stubs verifies that
+  `mh_vta_run_stim_spec_tasks` applies the stimulation spec, builds ordered R/L
+  side tasks, forwards output-space, threshold, GM atlas, atlas-use, electrode
+  removal, force, and model request options, and dispatches through
+  `mh_vta_run_compute_tasks` without real FEM data.
+- Static search confirms both STN/SNr analyzers call
+  `mh_vta_run_stim_spec_tasks` and no longer call
+  `mh_vta_make_compute_task` directly.

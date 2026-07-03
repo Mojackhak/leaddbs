@@ -434,28 +434,17 @@ for i = 1:numel(programs)
     cfg.vta.gmAtlas = char(string(opts.VtaGmAtlas));
     cfg = mh_vta_apply_execution_options(cfg, opts);
     stimSpec = rows_to_stim_spec(rows, programs(i).label);
-    cfg = mh_fiber_set_stimulation(cfg, stimSpec);
-    [S, options, stimFolders] = mh_fiber_build_stimulation(cfg);
 
     activeSides = unique(string(rows.Side), 'stable');
-    request = struct();
-    request.modelKey = 'simbio';
-    request.stimFolders = stimFolders;
-    request.force = logical(opts.ForceVta);
-    request.sides = cellstr(activeSides);
-    request.outputSpaces = {'mni'};
-    request.exportThresholdVPerMm = exportThresholdVPerMm;
-    request.gmAtlas = char(string(opts.VtaGmAtlas));
-    request.useAtlas = true;
-    request.removeElectrode = true;
-
-    tasks = cell(numel(activeSides), 1);
-    for s = 1:numel(activeSides)
-        sideCode = char(activeSides(s));
-        tasks{s} = mh_vta_make_compute_task(cfg, stimFolders, sideCode, request);
-    end
-    taskArray = vertcat(tasks{:});
-    taskResults = mh_vta_run_compute_tasks(cfg, S, options, taskArray);
+    [taskResults, taskArray, cfg, ~, ~, stimFolders] = mh_vta_run_stim_spec_tasks( ...
+        cfg, stimSpec, activeSides, ...
+        'ModelKey', 'simbio', ...
+        'Force', logical(opts.ForceVta), ...
+        'OutputSpaces', {'mni'}, ...
+        'ExportThresholdVPerMm', exportThresholdVPerMm, ...
+        'GmAtlas', char(string(opts.VtaGmAtlas)), ...
+        'UseAtlas', true, ...
+        'RemoveElectrode', true);
 
     efield = struct();
     taskMetadata = cell(numel(taskArray), 1);
