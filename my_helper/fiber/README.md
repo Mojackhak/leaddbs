@@ -114,6 +114,8 @@ a generic membership-partition region specification. STN/SNr analyses inject
 their own STN and SNr atlas paths at the project layer; the coverage engine does
 not hard-code those region names or paths. The shared STN/SNr project region
 specification is built by `mh_fiber_stnsnr_region_spec`.
+Standard VTA/category/overlap mask outputs are written through
+`mh_coverage_write_standard_masks`.
 STN/SNr contact mapping tables are normalized through
 `mh_fiber_stnsnr_normalize_contact_table`, which accepts both workbook-style
 headers and normalized per-subject contact QC CSV headers.

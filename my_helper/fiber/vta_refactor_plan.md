@@ -864,3 +864,45 @@ Phase 2Q validation completed:
   and space.
 - Static search confirms no local `rows_to_stim_spec` or `empty_source`
   functions remain in the STN/SNr analyzers.
+
+## Phase 2R Implementation Scope
+
+Status: **implemented**.
+
+Phase 2R removes duplicated standard coverage-mask writing from the two STN/SNr
+analyzers:
+
+- Add `mh_coverage_write_standard_masks` under `core/coverage`.
+- The helper builds the standard VTA, category, and program-overlap mask paths
+  from an output directory and base label, preserves the existing suffixes, and
+  writes each NIfTI only when forced or missing.
+- Update STN/SNr cohort coverage and target-component coverage so they keep
+  project-specific base-label construction and description text, but delegate
+  path construction and NIfTI writing to the shared coverage helper.
+- Keep output filenames, force/reuse behavior, datatypes, and descriptions
+  unchanged.
+
+Phase 2R validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_write_standard_masks` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic smoke test with a temporary `mh_coverage_write_ref_nii` stub
+  proving the helper writes the three standard paths when forced and reuses
+  existing paths when not forced.
+- Static verification that the STN/SNr analyzers call
+  `mh_coverage_write_standard_masks` and no longer call
+  `mh_coverage_write_ref_nii` directly.
+
+Phase 2R validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_coverage_write_standard_masks`; the two
+  large STN/SNr analyzers still report only their existing dynamic-growth
+  warnings.
+- MATLAB synthetic smoke test with a temporary `mh_coverage_write_ref_nii` stub
+  verifies that `mh_coverage_write_standard_masks` writes the three standard
+  paths when forced and reuses existing paths without rewriting when not forced.
+- Static search confirms the STN/SNr analyzers call
+  `mh_coverage_write_standard_masks` and no longer call
+  `mh_coverage_write_ref_nii` directly.

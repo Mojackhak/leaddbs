@@ -571,19 +571,12 @@ function paths = write_condition_masks(ref, vtaMask, categories, overlapMask, co
     patientName, phase, protocol, sideCode, thresholdLabel, forceOutputs)
 base = mh_util_sanitize_label(sprintf('%s_phase-%s_protocol-%s_hemi-%s_thr-%s', ...
     patientName, phase, protocol, sideCode, thresholdLabel));
-paths = struct();
-paths.vta = fullfile(conditionDirs.masks, [base, '_desc-vta.nii']);
-paths.category = fullfile(conditionDirs.masks, [base, '_desc-vtaCategory.nii']);
-paths.overlap = fullfile(conditionDirs.masks, [base, '_desc-vtaProgramOverlap.nii']);
-if forceOutputs || ~isfile(paths.vta)
-    mh_coverage_write_ref_nii(ref, double(vtaMask), paths.vta, 2, 'stnsnr thresholded vta');
-end
-if forceOutputs || ~isfile(paths.category)
-    mh_coverage_write_ref_nii(ref, categories.categoryImg, paths.category, 2, 'stnsnr vta category');
-end
-if forceOutputs || ~isfile(paths.overlap)
-    mh_coverage_write_ref_nii(ref, double(overlapMask), paths.overlap, 2, 'stnsnr alternating overlap');
-end
+paths = mh_coverage_write_standard_masks(ref, conditionDirs.masks, base, ...
+    vtaMask, categories.categoryImg, overlapMask, ...
+    'Force', forceOutputs, ...
+    'VtaDescription', 'stnsnr thresholded vta', ...
+    'CategoryDescription', 'stnsnr vta category', ...
+    'OverlapDescription', 'stnsnr alternating overlap');
 end
 
 function write_condition_figure(conditionDirs, patientName, phase, protocol, sideCode, thresholdLabel, categoryRows)
