@@ -30,7 +30,7 @@ simbio.backend = 'mh_vta_backend_simbio_twosource';
 simbio.supportsVoltage = true;
 simbio.supportsCurrent = true;
 simbio.supportsMultiVoltage = false;
-simbio.outputs = {'native', 'mni'};
+simbio.outputs = mh_vta_output_spaces_from_config();
 
 oneSolve = simbio;
 oneSolve.key = 'simbio_onesolve';

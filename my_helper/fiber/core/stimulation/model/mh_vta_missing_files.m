@@ -4,7 +4,8 @@ function missing = mh_vta_missing_files(vta, varargin)
 parser = inputParser;
 parser.FunctionName = 'mh_vta_missing_files';
 parser.addParameter('Sides', {'R', 'L'}, @(x) isnumeric(x) || iscell(x) || ischar(x) || isstring(x));
-parser.addParameter('Spaces', {'native', 'mni'}, @(x) iscell(x) || ischar(x) || isstring(x));
+parser.addParameter('Spaces', mh_vta_output_spaces_from_config(), ...
+    @(x) iscell(x) || ischar(x) || isstring(x));
 parser.addParameter('Kinds', {'binaryMat', 'binaryNii', 'efieldNii'}, ...
     @(x) iscell(x) || ischar(x) || isstring(x));
 parser.parse(varargin{:});

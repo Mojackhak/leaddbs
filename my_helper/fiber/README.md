@@ -55,6 +55,8 @@ conductivity, threshold, atlas, and electrode-removal settings are centralized
 in `mh_vta_settings`.
 The generic omitted-model fallback is centralized in
 `mh_vta_default_model_key`.
+Generic VTA config and request output-space defaults are centralized in
+`mh_vta_default_config_space` and `mh_vta_output_spaces_from_config`.
 Standard VTA path lookups use `mh_fiber_vta_paths` and
 `mh_fiber_vta_efield_path`.
 VTA MAT volume reads use `mh_vta_read_vat_volume`.

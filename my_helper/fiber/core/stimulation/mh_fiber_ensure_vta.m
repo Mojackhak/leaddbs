@@ -6,7 +6,7 @@ request.modelKey = 'simbio';
 request.stimFolders = stimFolders;
 request.force = cfg.forceRecomputeVTA;
 request.sides = {'R', 'L'};
-request.outputSpaces = {'native', 'mni'};
+request.outputSpaces = mh_vta_output_spaces_from_config();
 
 vta = mh_vta_compute(cfg, S, options, request);
 end

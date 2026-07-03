@@ -48,11 +48,7 @@ end
 end
 
 function spaces = default_output_spaces(cfg)
-if isfield(cfg, 'vta') && isfield(cfg.vta, 'space') && strcmp(char(string(cfg.vta.space)), 'native_and_mni')
-    spaces = {'native', 'mni'};
-else
-    spaces = {'mni'};
-end
+spaces = mh_vta_output_spaces_from_config(cfg);
 end
 
 function atlas = default_gm_atlas(cfg)

@@ -43,7 +43,7 @@ if ~isfield(stimSpec, 'model')
     stimSpec.model = '';
 end
 if ~isfield(stimSpec, 'space')
-    stimSpec.space = 'native_and_mni';
+    stimSpec.space = mh_vta_default_config_space();
 end
 
 required = {'side', 'contact', 'amp', 'unit', 'pulseWidth', 'frequency', 'cathode', 'anode'};

@@ -5,7 +5,7 @@ stimFolders = request_field(request, 'stimFolders', []);
 vta = mh_fiber_vta_paths(cfg, stimFolders);
 sides = mh_vta_normalize_sides(request);
 force = request_field(request, 'force', cfg_force(cfg));
-spaces = request_field(request, 'outputSpaces', {'native', 'mni'});
+spaces = request_field(request, 'outputSpaces', mh_vta_output_spaces_from_config());
 
 for i = 1:numel(sides)
     side = sides{i};

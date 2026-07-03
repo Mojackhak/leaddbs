@@ -2661,3 +2661,33 @@ Phase 2BO validation completed:
 - Static verification confirmed fallback/default call sites no longer duplicate
   the default `simbio` model key outside `mh_vta_default_model_key`; explicit
   model selections still use `simbio` where semantically intended.
+
+## Phase 2BP Implementation Scope
+
+Status: **completed**.
+
+Phase 2BP centralizes generic VTA output-space defaults:
+
+- Add `mh_vta_default_config_space` for the default config/stimulation-spec
+  space string, currently `native_and_mni`.
+- Add `mh_vta_output_spaces_from_config` to derive default request output
+  spaces from `cfg.vta.space`, preserving the existing rule:
+  `native_and_mni` produces `{'native', 'mni'}` and other/missing values fall
+  back to `{'mni'}` where the existing task helpers did so.
+- Update config defaults, stimulation-spec defaults, task helpers, backend
+  request fallbacks, and missing-file checks to use these helpers.
+- Preserve explicit output-space choices, including STN/SNr project requests
+  for `{'mni'}` and compatibility wrapper requests for `{'native', 'mni'}`.
+
+Phase 2BP validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the new helpers and touched output-space default
+  callers passed with zero messages.
+- MATLAB synthetic smoke test confirmed default config/stimSpec space values,
+  task helper config-derived output spaces, backend/missing-file generic
+  fallback behavior, model-registry output metadata, and explicit `{'mni'}`
+  overrides are unchanged.
+- Static verification confirmed default output-space call sites no longer
+  duplicate the `native_and_mni` and `{'native', 'mni'}` defaults outside the
+  shared helpers and explicit semantic selections.
