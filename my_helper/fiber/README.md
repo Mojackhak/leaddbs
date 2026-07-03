@@ -63,6 +63,7 @@ Coverage composition figures are written through
 Coverage summary statistics use `mh_coverage_iqr` for NaN-robust interquartile
 range values.
 Stacked coverage-share figure matrices use `mh_coverage_category_matrix`.
+Threshold-sensitivity trend tables use `mh_coverage_threshold_trend_table`.
 Horn backend calls use `mh_vta_run_horn_with_retry` for deterministic retry and
 post-write success handling.
 

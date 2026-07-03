@@ -1498,3 +1498,44 @@ Phase 2AH validation completed:
 - Static search confirms the STN/SNr analyzers call
   `mh_coverage_category_matrix` and no longer contain duplicated nested
   category-matrix loops for stacked-share figures.
+
+## Phase 2AI Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AI centralizes threshold-sensitivity trend table construction used by
+the STN/SNr cohort and target-component summary figures:
+
+- Add `mh_coverage_threshold_trend_table(tableIn, groupVars)` under
+  `core/coverage`.
+- Preserve the existing behavior: deduplicate caller-provided total-VTA rows,
+  group by stable threshold alone or by stable group variables plus threshold,
+  and compute mean total VTA volume with `omitnan`.
+- Update `write_cohort_figures` and `write_summary_figures` to call the shared
+  helper before `mh_viz_trend_line`.
+- Keep trend figure titles, filenames, axis labels, group labels, and plotted
+  values unchanged.
+
+Phase 2AI validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_threshold_trend_table` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic smoke test proving ungrouped cohort trends, grouped target
+  trends, duplicate-row deduplication, stable ordering, and `NaN` omission match
+  the previous inline behavior.
+- Static verification that the STN/SNr analyzers no longer contain duplicated
+  `findgroups(... threshold_v_per_mm)` trend-preparation blocks.
+
+Phase 2AI validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_coverage_threshold_trend_table`; the two
+  large STN/SNr analyzers still report only their existing dynamic-growth
+  warnings.
+- MATLAB synthetic smoke test verifies ungrouped cohort trends, grouped target
+  trends, duplicate-row deduplication, stable ordering, and `NaN` omission match
+  the previous inline behavior.
+- Static search confirms the STN/SNr summary-figure trend blocks call
+  `mh_coverage_threshold_trend_table` instead of duplicating
+  `findgroups(... threshold_v_per_mm)` trend preparation.
