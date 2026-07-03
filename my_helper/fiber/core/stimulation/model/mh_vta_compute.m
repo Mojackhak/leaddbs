@@ -9,7 +9,7 @@ if ~isfield(request, 'modelKey') || strlength(string(request.modelKey)) == 0
     if isfield(cfg, 'vta') && isfield(cfg.vta, 'modelKey')
         request.modelKey = cfg.vta.modelKey;
     else
-        request.modelKey = 'simbio';
+        request.modelKey = mh_vta_default_model_key();
     end
 end
 entry = mh_vta_model_registry(request.modelKey);

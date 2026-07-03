@@ -8,7 +8,8 @@ end
 parser = inputParser;
 parser.FunctionName = 'mh_fiber_stimspec_from_table';
 addParameter(parser, 'Label', '', @(x) ischar(x) || isstring(x));
-addParameter(parser, 'Model', 'simbio', @(x) ischar(x) || isstring(x));
+addParameter(parser, 'Model', mh_vta_default_model_key(), ...
+    @(x) ischar(x) || isstring(x));
 addParameter(parser, 'Space', 'native_and_mni', @(x) ischar(x) || isstring(x));
 addParameter(parser, 'Unit', 'V', @(x) ischar(x) || isstring(x));
 parse(parser, varargin{:});

@@ -16,7 +16,8 @@ vta.mni = side_paths(stimFolders.mni, cfg.patientName, modelLabel);
 end
 
 function modelLabel = model_label_from_config(cfg)
-modelLabel = 'simbio';
+entry = mh_vta_model_registry(mh_vta_default_model_key());
+modelLabel = entry.modelLabel;
 if ~isfield(cfg, 'vta')
     return;
 end
@@ -40,7 +41,8 @@ catch
     try
         modelLabel = ea_simModel2Label(modelName);
     catch
-        modelLabel = 'simbio';
+        entry = mh_vta_model_registry(mh_vta_default_model_key());
+        modelLabel = entry.modelLabel;
     end
 end
 end

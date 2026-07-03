@@ -3,7 +3,8 @@ function stimSpec = mh_fiber_stnsnr_stimspec_from_table(rows, label, varargin)
 
 parser = inputParser;
 parser.FunctionName = 'mh_fiber_stnsnr_stimspec_from_table';
-parser.addParameter('Model', 'simbio', @(x) ischar(x) || isstring(x));
+parser.addParameter('Model', mh_fiber_stnsnr_default_vta_model_key(), ...
+    @(x) ischar(x) || isstring(x));
 parser.parse(varargin{:});
 opts = parser.Results;
 

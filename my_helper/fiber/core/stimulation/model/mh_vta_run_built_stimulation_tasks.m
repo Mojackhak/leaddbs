@@ -49,7 +49,7 @@ function modelKey = default_model_key(cfg)
 if isfield(cfg, 'vta') && isfield(cfg.vta, 'modelKey') && strlength(string(cfg.vta.modelKey)) > 0
     modelKey = cfg.vta.modelKey;
 else
-    modelKey = 'simbio';
+    modelKey = mh_vta_default_model_key();
 end
 end
 

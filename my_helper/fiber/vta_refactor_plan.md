@@ -2631,3 +2631,33 @@ Phase 2BN validation completed:
 - Static verification confirmed VTA/STN/SNr execution-default call sites no
   longer duplicate the MATLAB executable and Conda environment defaults outside
   `mh_vta_default_execution_options`.
+
+## Phase 2BO Implementation Scope
+
+Status: **completed**.
+
+Phase 2BO centralizes the generic VTA default model key:
+
+- Add `mh_vta_default_model_key` as the generic fallback model key for VTA
+  stimulation specs, task requests, config defaults, and path lookup defaults.
+- Update fallback/default call sites to use this helper while leaving explicit
+  semantic model selections unchanged, including the compatibility
+  `mh_fiber_ensure_vta` wrapper, the sub-001 two-source branch, and the model
+  registry entry itself.
+- Update the STN/SNr project default model-key helper to delegate to the generic
+  VTA helper so project defaults and core defaults stay aligned.
+- Preserve existing default behavior: omitted VTA model keys still select
+  `simbio`.
+
+Phase 2BO validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the new helper and touched model-default callers
+  passed with zero messages.
+- MATLAB synthetic smoke test confirmed default config, stimulation-spec
+  helpers, VTA path lookup, compute-task fallback, stubbed `mh_vta_compute`
+  fallback, and STN/SNr project defaults all resolve to the generic default
+  model key.
+- Static verification confirmed fallback/default call sites no longer duplicate
+  the default `simbio` model key outside `mh_vta_default_model_key`; explicit
+  model selections still use `simbio` where semantically intended.

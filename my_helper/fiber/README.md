@@ -53,6 +53,8 @@ single facade. Existing public helpers such as `mh_fiber_ensure_vta` and
 Model selection is resolved through `mh_vta_model_registry`, while Horn
 conductivity, threshold, atlas, and electrode-removal settings are centralized
 in `mh_vta_settings`.
+The generic omitted-model fallback is centralized in
+`mh_vta_default_model_key`.
 Standard VTA path lookups use `mh_fiber_vta_paths` and
 `mh_fiber_vta_efield_path`.
 VTA MAT volume reads use `mh_vta_read_vat_volume`.

@@ -34,8 +34,8 @@ cfg.forceRegenerateFigures = false;
 cfg.overwriteOutputs = false;
 
 cfg.vta = struct();
-cfg.vta.modelKey = 'simbio';
-cfg.vta.model = 'SimBio/FieldTrip (see Horn 2017)';
+cfg.vta.modelKey = mh_vta_default_model_key();
+cfg.vta.model = mh_fiber_model_name(cfg.vta.modelKey);
 cfg.vta.space = 'native_and_mni';
 cfg.vta.gmAtlas = 'DISTAL Nano (Ewert 2017)';
 executionDefaults = mh_vta_default_execution_options();
