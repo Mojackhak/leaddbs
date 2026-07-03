@@ -16,8 +16,10 @@ for i = 1:numel(sides)
     missingBefore = mh_vta_missing_files(vta, 'Sides', {side}, 'Spaces', spaces);
     if force || ~isempty(missingBefore)
         sideIdx = mh_util_side_to_index(side);
+        headmodelPath = headmodel_path(options, sideIdx);
         fprintf('Preparing Lead-DBS headmodel for one-solve VTA, side %s...\n', side);
-        ea_genvat_horn([], S, sideIdx, options, cfg.stimLabel);
+        mh_vta_run_horn_with_retry(S, sideIdx, options, cfg.stimLabel, headmodelPath, ...
+            'WarningPrefix', 'mh_vta_backend_simbio_onesolve');
 
         fprintf('Running one-solve multi-voltage VTA, side %s...\n', side);
         solve_one_side(cfg, S, options, sideIdx);
@@ -51,9 +53,7 @@ coords_mm = ea_load_reconstruction(options);
 coords = coords_mm{side};
 elspec = options.elspec;
 
-headmodelDir = fullfile(options.subj.subjDir, 'headmodel', ea_nt(options));
-filePrefix = ['sub-', options.subj.subjId, '_desc-'];
-headmodelPath = fullfile(headmodelDir, [filePrefix, 'headmodel', num2str(side), '.mat']);
+headmodelPath = headmodel_path(options, side);
 if ~isfile(headmodelPath)
     error('mh_vta_backend_simbio_onesolve:MissingHeadmodel', ...
         'Headmodel file is missing after ea_genvat_horn call: %s', headmodelPath);
@@ -128,6 +128,12 @@ mniOptions.native = 0;
 mniOptions.orignative = 1;
 ea_write_vta_nii(S, cfg.stimLabel, midpts_mni, indices, elspec, actContact_mni, ...
     voltValues, constvol, thresh, mesh, gradient, side, '', mniOptions);
+end
+
+function path = headmodel_path(options, side)
+headmodelDir = fullfile(options.subj.subjDir, 'headmodel', ea_nt(options));
+filePrefix = ['sub-', options.subj.subjId, '_desc-'];
+path = fullfile(headmodelDir, [filePrefix, 'headmodel', num2str(side), '.mat']);
 end
 
 function U = contact_voltage_vector(S, side)

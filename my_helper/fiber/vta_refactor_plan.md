@@ -707,3 +707,36 @@ Phase 2M validation completed:
   `mh_fiber_set_stimulation:InvalidLabel`.
 - Static search confirms `mh_fiber_set_stimulation` now calls
   `mh_util_sanitize_label` and no local `sanitize_label` function remains.
+
+## Phase 2N Implementation Scope
+
+Status: **implemented**.
+
+Phase 2N unifies Horn invocation retry behavior across VTA backends:
+
+- Route the SimBio one-solve backend's headmodel-preparation
+  `ea_genvat_horn` call through `mh_vta_run_horn_with_retry`.
+- Generalize the retry helper wording from "expected e-field" to "expected
+  output" because the one-solve backend treats the headmodel file as the
+  expected post-write artifact.
+- Keep the two-source backend behavior unchanged.
+
+Phase 2N validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_vta_run_horn_with_retry` and
+  `mh_vta_backend_simbio_onesolve`.
+- MATLAB synthetic smoke test with a temporary `ea_genvat_horn` stub proving the
+  retry helper returns successfully when the expected output file exists after a
+  Horn error.
+
+Phase 2N validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_vta_run_horn_with_retry` and
+  `mh_vta_backend_simbio_onesolve`.
+- MATLAB synthetic smoke test with a temporary `ea_genvat_horn` stub verifies
+  that `mh_vta_run_horn_with_retry` returns successfully when the expected
+  output file exists after a Horn error. The smoke test runs from the temporary
+  stub directory so MATLAB resolves the stub instead of the repository-root
+  `ea_genvat_horn.m`.

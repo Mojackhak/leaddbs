@@ -53,6 +53,8 @@ single facade. Existing public helpers such as `mh_fiber_ensure_vta` and
 Model selection is resolved through `mh_vta_model_registry`, while Horn
 conductivity, threshold, atlas, and electrode-removal settings are centralized
 in `mh_vta_settings`.
+Horn backend calls use `mh_vta_run_horn_with_retry` for deterministic retry and
+post-write success handling.
 
 STN/SNr VTA generation is being migrated toward explicit atomic compute tasks.
 `mh_vta_make_compute_task` records the standard paths and request metadata for
