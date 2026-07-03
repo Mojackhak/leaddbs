@@ -2571,3 +2571,27 @@ Phase 2BL validation completed:
 - Static verification confirmed STN/SNr VTA scripts no longer duplicate the
   default `DISTAL Minimal (Ewert 2017)` string; the default appears only in
   documentation and `mh_fiber_stnsnr_default_vta_gm_atlas`.
+
+## Phase 2BM Implementation Scope
+
+Status: **completed**.
+
+Phase 2BM centralizes the STN/SNr project default VTA model key:
+
+- Add `mh_fiber_stnsnr_default_vta_model_key` as the single source for the
+  default STN/SNr `VtaModelKey` value.
+- Update the shared STN/SNr VTA parser helper and STN/SNr project scripts to
+  use this helper as their environment-variable fallback/default.
+- Preserve the existing default value, `simbio`, and keep
+  `STNSNR_VTA_MODEL_KEY`/`VtaModelKey` injection behavior unchanged.
+
+Phase 2BM validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the new helper, the shared parser helper, and touched
+  STN/SNr project scripts passed with zero messages.
+- MATLAB synthetic smoke test confirmed the helper returns `simbio`, the parser
+  default uses the helper value, and explicit parser injection still overrides
+  the default.
+- Static verification confirmed STN/SNr VTA project scripts and the shared
+  parser no longer duplicate the default `simbio` model-key fallback.

@@ -6,7 +6,8 @@ addpath(genpath(repoDir));
 
 vtaGmAtlas = mh_fiber_getenv_default('STNSNR_VTA_GM_ATLAS', ...
     mh_fiber_stnsnr_default_vta_gm_atlas());
-vtaModelKey = mh_fiber_getenv_default('STNSNR_VTA_MODEL_KEY', 'simbio');
+vtaModelKey = mh_fiber_getenv_default('STNSNR_VTA_MODEL_KEY', ...
+    mh_fiber_stnsnr_default_vta_model_key());
 vtaExecutionMode = mh_fiber_getenv_default('STNSNR_VTA_EXECUTION_MODE', 'sequential');
 vtaParallelWorkers = mh_fiber_env_number('STNSNR_VTA_PARALLEL_WORKERS', 1, ...
     'run_stnsnr_target_component_vta_distribution:InvalidEnvNumber');

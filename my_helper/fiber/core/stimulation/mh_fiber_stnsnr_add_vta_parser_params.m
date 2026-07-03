@@ -3,7 +3,8 @@ function parser = mh_fiber_stnsnr_add_vta_parser_params(parser)
 
 parser.addParameter('VtaGmAtlas', mh_fiber_stnsnr_default_vta_gm_atlas(), ...
     @(x) ischar(x) || isstring(x));
-parser.addParameter('VtaModelKey', 'simbio', @(x) ischar(x) || isstring(x));
+parser.addParameter('VtaModelKey', mh_fiber_stnsnr_default_vta_model_key(), ...
+    @(x) ischar(x) || isstring(x));
 parser.addParameter('VtaExecutionMode', 'sequential', @(x) ischar(x) || isstring(x));
 parser.addParameter('VtaParallelWorkers', 1, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('VtaMatlabExe', '/Applications/MATLAB_R2024b.app/bin/matlab', ...
