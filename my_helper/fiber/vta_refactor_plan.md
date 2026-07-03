@@ -558,3 +558,48 @@ Phase 2I validation completed:
 - Static search confirms both STNSNr analyzers now call
   `mh_fiber_stnsnr_region_spec` and no local `stnsnr_region_spec` functions
   remain.
+
+## Phase 2J Implementation Scope
+
+Status: **implemented**.
+
+Phase 2J removes duplicated STN/SNr contact-table normalization from the cohort
+coverage and target-component analyzers:
+
+- Add `mh_fiber_stnsnr_normalize_contact_table(tableIn)` as the shared
+  normalizer for old workbook-style headers and normalized per-subject contact
+  QC CSV headers.
+- Preserve accepted legacy column names, normalized snake_case names, string
+  columns, logical parsing for `contact_side_rule_ok`, and numeric conversion
+  for contact/parameter columns.
+- Replace local `normalize_contact_table` functions in both analyzers with
+  calls to the shared helper.
+- Keep analyzer-local `force_string_vars` helpers that are still used for
+  analyzer-specific output tables.
+
+Phase 2J validation target:
+
+- `git diff --check`
+- Focused `checkcode` for the new helper and both touched analyzers.
+- MATLAB synthetic smoke test covering old header renaming, string conversion,
+  numeric conversion, and logical parsing.
+- Non-destructive cohort-only aggregation regression into `/tmp`, comparing the
+  regenerated cohort contact QC and coverage tables against existing real
+  outputs.
+
+Phase 2J validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_fiber_stnsnr_normalize_contact_table`; the
+  two large analyzers still have only their existing dynamic-growth performance
+  warnings.
+- MATLAB synthetic smoke test covering legacy header renaming, string
+  conversion, numeric conversion, valid logical parsing, and invalid logical
+  rejection.
+- Static search confirms both analyzers call
+  `mh_fiber_stnsnr_normalize_contact_table` and no local
+  `normalize_contact_table` functions remain.
+- Non-destructive cohort-only aggregation regression into
+  `/tmp/stnsnr_vta_contact_reg_*`; regenerated coverage table matched existing
+  output shape at 1536 x 25, and regenerated contact QC matched existing output
+  shape, key columns, logical column, and numeric columns at 194 x 20.

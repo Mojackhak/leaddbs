@@ -671,7 +671,8 @@ for s = 1:height(subjects)
     mh_util_must_be_file(manifestJson, sprintf('per-subject manifest JSON for %s', subjectId));
     mh_util_must_be_file(summaryMd, sprintf('per-subject summary Markdown for %s', subjectId));
     coverageTables{s} = normalize_coverage_table(readtable(coverageCsv, 'TextType', 'string'));
-    contactTables{s} = normalize_contact_table(readtable(contactCsv, 'TextType', 'string'));
+    contactTables{s} = mh_fiber_stnsnr_normalize_contact_table( ...
+        readtable(contactCsv, 'TextType', 'string'));
     collectedSubjects{s} = struct('id', subjectId, 'patient_name', patientName, ...
         'coverage_csv', coverageCsv, 'contact_mapping_qc', contactCsv, ...
         'manifest_json', manifestJson, 'summary_md', summaryMd, 'status', 'collected');
@@ -687,55 +688,11 @@ stringVars = {'subject_id', 'patient_name', 'phase', 'protocol', 'condition_key'
 tableOut = force_string_vars(tableOut, stringVars);
 end
 
-function tableOut = normalize_contact_table(tableOut)
-oldNames = {'ID', 'NameEn', 'NameZh', 'Phase', 'Protocol', 'Contact', 'Target', ...
-    'Side', 'Voltage', 'PulseWidth', 'Frequency', 'ParameterSource', ...
-    'StimulationPattern', 'AlternatingGroup', 'Notes', 'SubjectDir', ...
-    'NumContactsPerSide', 'RawContact', 'LeadContact', 'ContactSideRuleOk'};
-newNames = {'subject_id', 'name_en', 'name_zh', 'phase', 'protocol', 'contact', ...
-    'target', 'side', 'voltage', 'pulse_width', 'frequency', 'parameter_source', ...
-    'stimulation_pattern', 'alternating_group', 'notes', 'subject_dir', ...
-    'num_contacts_per_side', 'raw_contact', 'lead_contact', 'contact_side_rule_ok'};
-tableOut = rename_table_vars(tableOut, oldNames, newNames);
-stringVars = {'subject_id', 'patient_name', 'workbook_id', 'name_en', 'name_zh', ...
-    'phase', 'protocol', 'target', 'side', 'parameter_source', ...
-    'stimulation_pattern', 'alternating_group', 'notes', 'subject_dir'};
-tableOut = force_string_vars(tableOut, stringVars);
-if ismember('contact_side_rule_ok', tableOut.Properties.VariableNames)
-    tableOut.contact_side_rule_ok = force_logical_values(tableOut.contact_side_rule_ok);
-end
-end
-
-function tableOut = rename_table_vars(tableOut, oldNames, newNames)
-for i = 1:numel(oldNames)
-    if ismember(oldNames{i}, tableOut.Properties.VariableNames) && ...
-            ~ismember(newNames{i}, tableOut.Properties.VariableNames)
-        tableOut = renamevars(tableOut, oldNames{i}, newNames{i});
-    end
-end
-end
-
 function tableOut = force_string_vars(tableOut, stringVars)
 for i = 1:numel(stringVars)
     if ismember(stringVars{i}, tableOut.Properties.VariableNames)
         tableOut.(stringVars{i}) = string(tableOut.(stringVars{i}));
     end
-end
-end
-
-function values = force_logical_values(values)
-if islogical(values)
-    return;
-end
-if isnumeric(values)
-    values = logical(values);
-    return;
-end
-textValues = lower(strtrim(string(values)));
-values = ismember(textValues, ["1", "true", "yes"]);
-if any(~ismember(textValues, ["0", "false", "no", "1", "true", "yes"]))
-    error('mh_fiber_run_stnsnr_vta_coverage:InvalidLogicalColumn', ...
-        'Could not parse logical values in contact_side_rule_ok.');
 end
 end
 

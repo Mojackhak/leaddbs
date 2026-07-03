@@ -103,6 +103,9 @@ a generic membership-partition region specification. STN/SNr analyses inject
 their own STN and SNr atlas paths at the project layer; the coverage engine does
 not hard-code those region names or paths. The shared STN/SNr project region
 specification is built by `mh_fiber_stnsnr_region_spec`.
+STN/SNr contact mapping tables are normalized through
+`mh_fiber_stnsnr_normalize_contact_table`, which accepts both workbook-style
+headers and normalized per-subject contact QC CSV headers.
 
 Composition figures use `core/viz/` semantic plotting helpers: part-whole VTA
 category summaries are drawn as donut charts or 100 percent stacked share bars,
