@@ -72,6 +72,8 @@ STN/SNr stimulation-pattern report labels use
 `mh_fiber_stnsnr_stimulation_pattern_label`.
 STN/SNr observed VTA program labels use
 `mh_fiber_stnsnr_vta_program_label`.
+STN/SNr condition and target directory keys use
+`mh_fiber_stnsnr_condition_key`.
 
 Process-isolated launches are now routed through
 `mh_vta_launch_process_workers`, which centralizes subject chunking, dry-run job

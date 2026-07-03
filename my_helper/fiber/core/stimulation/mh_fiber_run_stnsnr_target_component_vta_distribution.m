@@ -415,8 +415,8 @@ close(fig);
 end
 
 function dirs = prepare_component_dirs(outputDir, component)
-conditionKey = mh_util_sanitize_label(sprintf('%s_%s', component.phase, component.protocol));
-targetKey = mh_util_sanitize_label(sprintf('%s_%s', conditionKey, component.target));
+targetKey = mh_fiber_stnsnr_condition_key(component.phase, component.protocol, ...
+    'Target', component.target);
 dirs = struct();
 dirs.masks = fullfile(outputDir, 'masks', targetKey);
 dirs.figures = fullfile(outputDir, 'figures', targetKey);

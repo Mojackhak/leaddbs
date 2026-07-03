@@ -1191,3 +1191,39 @@ Phase 2Z validation completed:
   special-character labels match the previous `sprintf` plus sanitizer output.
 - Static search confirms direct `stnsnr_vta_%s_%s_%s` format strings now live
   only in the shared helper and documentation, not in the STN/SNr analyzers.
+
+## Phase 2AA Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AA centralizes STN/SNr condition and target directory keys:
+
+- Add `mh_fiber_stnsnr_condition_key` under `core/stimulation`.
+- Preserve the existing condition key format:
+  `mh_util_sanitize_label(sprintf('%s_%s', phase, protocol))`.
+- Preserve the existing target key behavior by sanitizing the condition key
+  first, then sanitizing `conditionKey_target`.
+- Update STN/SNr cohort coverage and target-component coverage to call the
+  shared helper instead of keeping local or inline key formatting.
+- Remove the cohort coverage analyzer's local `make_condition_key` helper.
+
+Phase 2AA validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_stnsnr_condition_key` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic smoke test proving condition and target keys match the
+  previous formatter behavior, including plus and slash sanitization.
+- Static verification that no local `make_condition_key` helper or inline
+  `sprintf('%s_%s', phase, protocol)` condition-key formatter remains in the
+  STN/SNr analyzers.
+
+Phase 2AA validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_fiber_stnsnr_condition_key`; the two large
+  STN/SNr analyzers still report only their existing dynamic-growth warnings.
+- MATLAB synthetic smoke test verifies condition and target keys match the
+  previous formatter behavior, including plus and slash sanitization.
+- Static search confirms no local `make_condition_key` helper or inline
+  condition/target key sanitizer remains in the STN/SNr analyzers.

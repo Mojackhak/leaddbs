@@ -180,7 +180,7 @@ for s = 1:height(subjects)
                         'No rows for %s %s %s.', subjectId, phases(p), protocols(q));
                 end
 
-                conditionKey = make_condition_key(phases(p), protocols(q));
+                conditionKey = mh_fiber_stnsnr_condition_key(phases(p), protocols(q));
                 conditionDirs = prepare_condition_dirs(dirs, conditionKey);
                 programs = build_condition_programs(conditionRows, subjectId, phases(p), protocols(q));
                 programs = ensure_program_efields(programs, subjectDir, exportThreshold, opts);
@@ -855,10 +855,6 @@ stringVars = {'subject_id', 'patient_name', 'workbook_id', 'name_en', 'name_zh',
 for i = 1:numel(stringVars)
     tableOut.(stringVars{i}) = string(tableOut.(stringVars{i}));
 end
-end
-
-function key = make_condition_key(phase, protocol)
-key = mh_util_sanitize_label(sprintf('%s_%s', phase, protocol));
 end
 
 function tf = subject_outputs_complete(subjectOutput, patientName)
