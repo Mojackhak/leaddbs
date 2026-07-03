@@ -1934,3 +1934,37 @@ Phase 2AS validation results:
   command-file creation, dry-run status metadata, and CSV readability.
 - Static search confirms `mh_vta_launch_process_workers` now calls
   `mh_util_cell_rows_to_table` instead of `cell2table` directly.
+
+## Phase 2AT Implementation Scope
+
+Status: **completed**.
+
+Phase 2AT applies the shared cell-row table builder to VTA scheme comparison:
+
+- Update `mh_fiber_compare_vta_schemes` to build its comparison table through
+  `mh_util_cell_rows_to_table`.
+- Preserve the existing comparison table schema and variable order.
+- Preserve the existing `side` column type because the Markdown writer indexes
+  it with `comparison.side{i}`.
+- Keep VTA volume, Dice, activation-count, CSV, and Markdown behavior unchanged.
+
+Phase 2AT validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_compare_vta_schemes`.
+- MATLAB synthetic regression proving the shared helper with the comparison
+  schema matches the previous `cell2table` behavior and keeps the `side` column
+  cell-indexable.
+- Static verification that VTA stimulation code no longer calls `cell2table`
+  directly outside DWI scripts.
+
+Phase 2AT validation results:
+
+- `git diff --check` passed.
+- `mh_fiber_compare_vta_schemes` passed focused `checkcode` with zero messages.
+- MATLAB synthetic regression confirmed the comparison schema built through
+  `mh_util_cell_rows_to_table` matches the previous `cell2table` behavior and
+  preserves a cell-indexable `side` column for Markdown rendering.
+- Static search confirms VTA stimulation code now uses `mh_util_cell_rows_to_table`
+  for cell-row table construction; remaining direct `cell2table` calls are in
+  DWI scripts outside this VTA phase.
