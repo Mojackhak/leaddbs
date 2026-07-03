@@ -2040,3 +2040,33 @@ Phase 2AV validation results:
   directory and remains idempotent when called again.
 - Static search confirms `mh_fiber_compare_vta_schemes` no longer calls
   `mkdir` directly.
+
+## Phase 2AW Implementation Scope
+
+Status: **completed**.
+
+Phase 2AW routes stimulation-parameter directory creation through the shared
+utility layer:
+
+- Update `mh_fiber_build_stimulation` to call `mh_util_make_dir` for both
+  native-space and MNI-space stimulation folders.
+- Preserve the exact folder paths built from `cfg.subjectDir`, `ea_nt`, and
+  `cfg.stimLabel`.
+- Preserve the saved `*_desc-stimparameters.mat` filenames and stimulation
+  structure contents.
+- Leave global Lead-DBS `ea_mkdir` usage outside `my_helper/fiber` out of scope.
+
+Phase 2AW validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_build_stimulation` and `mh_util_make_dir`.
+- Static verification that `mh_fiber_build_stimulation` no longer calls
+  `ea_mkdir` directly.
+
+Phase 2AW validation results:
+
+- `git diff --check` passed.
+- `mh_fiber_build_stimulation` and `mh_util_make_dir` passed focused
+  `checkcode` with zero messages.
+- Static search confirms `mh_fiber_build_stimulation` no longer calls
+  `ea_mkdir` directly.

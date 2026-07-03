@@ -72,8 +72,8 @@ S = ea_activecontacts(S);
 stimFolders = struct();
 stimFolders.native = fullfile(cfg.subjectDir, 'stimulations', ea_nt(1), cfg.stimLabel);
 stimFolders.mni = fullfile(cfg.subjectDir, 'stimulations', ea_nt(0), cfg.stimLabel);
-ea_mkdir(stimFolders.native);
-ea_mkdir(stimFolders.mni);
+mh_util_make_dir(stimFolders.native);
+mh_util_make_dir(stimFolders.mni);
 
 save(fullfile(stimFolders.native, [cfg.patientName, '_desc-stimparameters.mat']), 'S');
 save(fullfile(stimFolders.mni, [cfg.patientName, '_desc-stimparameters.mat']), 'S');
