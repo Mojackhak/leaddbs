@@ -13,7 +13,8 @@ The public entry points are:
 - `stnsnr/run_stnsnr_generate_random_stimulation_table.py`: generate a reproducible random test stimulation table for the active contacts.
 - `stnsnr/run_stnsnr_compare_roi_definitions.m`: compare HybraPD STN/SNr labels with the `Custom_Ewert_Zhang_Middlebrooks0.05` atlas.
 - `stnsnr/run_stnsnr_dwi_import_stage.m`: re-import the 16-subject STN/SNr DWI four-file sets into BIDS rawdata, then stage DWI and b0 derivatives without running b0-to-T2 registration.
-- `stnsnr/run_stnsnr_dwi_registration.m`: stage imported STN/SNr cohort DWI files and register each b0 image to the existing Lead-DBS anchorNative T2.
+- `core/dwi/run_project_dwi_fake_b0_coreg.m`: run the project-agnostic Synb0/eddy fake-B0 UI-coreg staging workflow.
+- `stnsnr/run_stnsnr_dwi_registration.m`: STNSNr wrapper for the project-agnostic Synb0/eddy fake-B0 UI-coreg workflow.
 - `stnsnr/run_stnsnr_dwi_registration_method_pilot.m`: run the three-subject SPM and Hybrid SPM+ANTs b0-to-anchorNative T2 registration pilot.
 
 ## Folder Layout
@@ -169,21 +170,35 @@ The 16-subject raw DWI re-import and staging-only entry point is:
 matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_import_stage.m')"
 ```
 
-The ANTs T2 registration entry point is:
+The project-agnostic Synb0/eddy fake-B0 UI-coreg entry point is:
+
+```matlab
+run_project_dwi_fake_b0_coreg( ...
+    'StudyRoot', '/path/to/project', ...
+    'SubjectIds', {'SubA', 'SubB'}, ...
+    'FreeSurferLicense', '/Applications/freesurfer/8.2.0/license.txt')
+```
+
+The STNSNr wrapper is:
 
 ```bash
 matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_registration.m')"
 ```
 
-For the imported STN/SNr cohort, staged DWI files use the actual BIDS basename without forcing `acq-iso` into the filename:
+For the imported STN/SNr cohort, the wrapper provides the STNSNr study root and
+import log, then calls the project-agnostic runner. The fake-B0 workflow writes:
 
 ```text
-preprocessing/dwi/sub-<Subject>_ses-preop_dwi.nii
-preprocessing/dwi/sub-<Subject>_ses-preop_dwi_b0.nii
-coregistration/dwi_t2/sub-<Subject>_ses-preop_dwi_b02<anchorT2base>_ants1.mat
+preprocessing/dwi/sub-<Subject>_ses-preop_desc-preproc_dwi.nii
+preprocessing/dwi/sub-<Subject>_ses-preop_desc-preproc_b0.nii
+coregistration/anat/sub-<Subject>_ses-preop_space-anchorNative_desc-preproc_B0.nii
 ```
 
-The script is resumable and reuses existing outputs unless `Force` is enabled. It uses ANTs linear b0-to-anchorNative T2 registration and does not call workflows that independently recenter only the b0 header. Existing direct b0-to-T1 outputs under `coregistration/dwi/` are retained for comparison, but the primary STN/SNr registration outputs are written under `coregistration/dwi_t2/`.
+The script is resumable and reuses existing outputs unless `Force` is enabled.
+It does not run scripted b0-to-T2 registration in fake-B0 mode. Instead, the
+corrected b0 is exposed to the Lead-DBS `Coregister Volumes` UI as pseudo `B0`.
+SPM is usually tried first, but the accepted method should be chosen from manual
+QC of the coregistration result.
 
 The three-subject method pilot compares SPM and Hybrid SPM+ANTs against the existing ANTs T2 results for `ChenMeiJu`, `ZhangXiaoHong`, and `ZhangMing`:
 

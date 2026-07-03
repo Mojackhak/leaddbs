@@ -2,10 +2,9 @@ function result = mh_fiber_register_imported_dwi_batch(varargin)
 % Stage imported BIDS DWI files and register b0 to anchorNative anatomy.
 
 p = inputParser;
-p.addParameter('StudyRoot', '/Volumes/VAL/STNSNr', @(x) ischar(x) || isstring(x));
-p.addParameter('RepoDir', '/Users/mojackhu/Github/leaddbs', @(x) ischar(x) || isstring(x));
-p.addParameter('ImportLog', fullfile('/Volumes/VAL/STNSNr', 'derivatives', 'leaddbs', ...
-    'import_logs', 'dwi_import_20260701_013240.csv'), @(x) ischar(x) || isstring(x));
+p.addParameter('StudyRoot', '', @(x) ischar(x) || isstring(x));
+p.addParameter('RepoDir', '', @(x) ischar(x) || isstring(x));
+p.addParameter('ImportLog', '', @(x) ischar(x) || isstring(x));
 p.addParameter('SubjectIds', {}, @(x) iscell(x) || isstring(x) || ischar(x));
 p.addParameter('AnchorModality', 'T2w', @(x) ischar(x) || isstring(x));
 p.addParameter('CoregistrationTag', 'dwi_t2', @(x) ischar(x) || isstring(x));
@@ -26,7 +25,7 @@ p.parse(varargin{:});
 opts = p.Results;
 
 opts.StudyRoot = char(string(opts.StudyRoot));
-opts.RepoDir = char(string(opts.RepoDir));
+opts.RepoDir = resolve_repo_dir(opts.RepoDir);
 opts.ImportLog = char(string(opts.ImportLog));
 opts.AnchorModality = normalize_anchor_modality(opts.AnchorModality);
 opts.CoregistrationTag = char(string(opts.CoregistrationTag));
@@ -45,6 +44,11 @@ opts.Force = logical(opts.Force);
 
 if isempty(opts.CoregistrationTag)
     error('CoregistrationTag must not be empty.');
+end
+
+if isempty(opts.StudyRoot)
+    error('mh_fiber_register_imported_dwi_batch:MissingStudyRootParameter', ...
+        'StudyRoot must be provided.');
 end
 
 if isempty(opts.RunCoregistration)
@@ -73,7 +77,7 @@ end
 [subjects, sourceBases] = resolve_subjects(opts);
 rows = repmat(empty_status_row(), numel(subjects), 1);
 
-fprintf('Running STN/SNr DWI registration batch for %d subjects.\n', numel(subjects));
+fprintf('Running DWI registration batch for %d subjects.\n', numel(subjects));
 for i = 1:numel(subjects)
     subjectId = subjects{i};
     fprintf('\n[%d/%d] %s\n', i, numel(subjects), subjectId);
@@ -934,53 +938,101 @@ end
 end
 
 function [subjects, sourceBases] = resolve_subjects(opts)
+sourceBases = containers.Map('KeyType', 'char', 'ValueType', 'char');
+importSubjects = {};
+
+if ~isempty(opts.ImportLog) && isfile(opts.ImportLog)
+    [importSubjects, sourceBases] = read_subjects_from_import_log(opts.ImportLog);
+end
+
 if ~isempty(opts.SubjectIds)
     subjects = cellstr(string(opts.SubjectIds));
+elseif ~isempty(importSubjects)
+    subjects = importSubjects;
 else
-    subjects = default_subjects();
+    subjects = discover_subjects_from_rawdata(opts.StudyRoot);
 end
 
+subjects = stable_unique(subjects);
+if isempty(subjects)
+    error('mh_fiber_register_imported_dwi_batch:NoSubjects', ...
+        ['No subjects were provided or discovered. Provide SubjectIds, pass an ImportLog ', ...
+        'with copied DWI rows, or add BIDS DWI files under StudyRoot/rawdata/sub-*/ses-preop/dwi/.']);
+end
+end
+
+function [subjects, sourceBases] = read_subjects_from_import_log(importLog)
+subjects = {};
 sourceBases = containers.Map('KeyType', 'char', 'ValueType', 'char');
-if isfile(opts.ImportLog)
-    try
-        T = readtable(opts.ImportLog, 'TextType', 'string');
-        if all(ismember(["phase", "subject", "status", "source_base", "extension"], string(T.Properties.VariableNames)))
-            copied = T(strcmp(T.phase, "copy_result") & strcmp(T.status, "copied") & strcmp(T.extension, ".nii.gz"), :);
-            if ~isempty(copied) && isempty(opts.SubjectIds)
-                detected = cellstr(copied.subject);
-                subjects = stable_intersect(default_subjects(), detected);
-            end
-            for i = 1:height(T)
-                subjStr = string(T.subject(i));
-                srcStr = string(T.source_base(i));
-                if ~ismissing(subjStr) && ~ismissing(srcStr) && strlength(subjStr) > 0 && strlength(srcStr) > 0
-                    sourceBases(char(subjStr)) = char(srcStr);
-                end
+try
+    T = readtable(importLog, 'TextType', 'string');
+    if all(ismember(["phase", "subject", "status", "source_base", "extension"], string(T.Properties.VariableNames)))
+        copied = T(strcmp(T.phase, "copy_result") & strcmp(T.status, "copied") & strcmp(T.extension, ".nii.gz"), :);
+        subjects = stable_unique(cellstr(copied.subject));
+        for i = 1:height(T)
+            subjStr = string(T.subject(i));
+            srcStr = string(T.source_base(i));
+            if ~ismissing(subjStr) && ~ismissing(srcStr) && strlength(subjStr) > 0 && strlength(srcStr) > 0
+                sourceBases(char(subjStr)) = char(srcStr);
             end
         end
-    catch ME
-        warning('mh_fiber_register_imported_dwi_batch:ImportLogReadFailed', ...
-            'Could not parse import log %s: %s', opts.ImportLog, ME.message);
+    end
+catch ME
+    warning('mh_fiber_register_imported_dwi_batch:ImportLogReadFailed', ...
+        'Could not parse import log %s: %s', importLog, ME.message);
+end
+end
+
+function subjects = discover_subjects_from_rawdata(studyRoot)
+pattern = fullfile(studyRoot, 'rawdata', 'sub-*', 'ses-preop', 'dwi', '*_dwi.nii.gz');
+dwiFiles = dir(pattern);
+dwiFiles = dwiFiles(~startsWith({dwiFiles.name}, '._'));
+subjects = {};
+for i = 1:numel(dwiFiles)
+    dwiDir = dwiFiles(i).folder;
+    sessionDir = fileparts(fileparts(dwiDir));
+    [~, patientName] = fileparts(sessionDir);
+    if startsWith(patientName, 'sub-')
+        subjects{end+1} = char(extractAfter(patientName, 'sub-')); %#ok<AGROW>
     end
 end
+subjects = stable_unique(subjects);
 end
 
-function subjects = default_subjects()
-subjects = {'LinJia', 'HuFengXian', 'YuDongJian', 'WuYueFen', ...
-    'LiPing', 'MaoXiaoMing', 'ChenLingHua', 'FanDongDong', ...
-    'HuangDan', 'ZhangMing', 'ZhangXiaoHong', 'ChenMeiJu'};
-end
-
-function out = stable_intersect(reference, detected)
+function out = stable_unique(values)
+values = string(values);
 out = {};
-for i = 1:numel(reference)
-    if any(strcmp(reference{i}, detected))
-        out{end+1} = reference{i}; %#ok<AGROW>
+for i = 1:numel(values)
+    if ismissing(values(i))
+        continue;
+    end
+    value = char(values(i));
+    if ~isempty(value) && ~any(strcmp(out, value))
+        out{end+1} = value; %#ok<AGROW>
     end
 end
-if isempty(out)
-    out = reference;
 end
+
+function repoDir = resolve_repo_dir(repoDir)
+repoDir = char(string(repoDir));
+if ~isempty(repoDir)
+    return;
+end
+
+searchDir = fileparts(mfilename('fullpath'));
+while true
+    if isfile(fullfile(searchDir, 'ea_normalize.m'))
+        repoDir = searchDir;
+        return;
+    end
+    parentDir = fileparts(searchDir);
+    if strcmp(parentDir, searchDir)
+        break;
+    end
+    searchDir = parentDir;
+end
+error('mh_fiber_register_imported_dwi_batch:RepoRootNotFound', ...
+    'Could not resolve Lead-DBS repository root. Provide RepoDir explicitly.');
 end
 
 function sourceBase = lookup_source_base(sourceBases, subjectId)

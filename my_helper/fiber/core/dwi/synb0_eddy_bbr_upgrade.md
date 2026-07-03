@@ -1,10 +1,10 @@
-# STN/SNr DWI preprocessing with Synb0-DISCO, eddy, and Lead-DBS pseudo B0 coregistration
+# DWI preprocessing with Synb0-DISCO, eddy, and Lead-DBS pseudo B0 coregistration
 
-This document describes the STN/SNr diffusion MRI preprocessing workflow used to
-generate a distortion-corrected diffusion series and a corrected mean b0 image
-that can be reviewed through the standard Lead-DBS coregistration interface. The
-workflow is designed to reuse Lead-DBS functionality with minimal changes to the
-normalization code path.
+This document describes a project-agnostic diffusion MRI preprocessing workflow
+used to generate a distortion-corrected diffusion series and a corrected mean b0
+image that can be reviewed through the standard Lead-DBS coregistration
+interface. The workflow is designed to reuse Lead-DBS functionality with minimal
+changes to the normalization code path.
 
 ## Overview
 
@@ -26,7 +26,8 @@ inside `ea_normalize` before any normalization backend is called.
 ## DWI import and validation
 
 The import stage copies BIDS-compatible DWI files into the study `rawdata`
-directory. For each included subject, the expected input set is:
+directory. Other projects can provide the same layout directly without using the
+STNSNr import script. For each included subject, the expected input set is:
 
 ```text
 rawdata/sub-<ID>/ses-preop/dwi/sub-<ID>_ses-preop_dwi.nii.gz
@@ -37,9 +38,10 @@ rawdata/sub-<ID>/ses-preop/dwi/sub-<ID>_ses-preop_dwi.bvec
 
 Before distortion correction, the batch runner checks that the DWI image and
 sidecars are present, that the NIfTI image is readable, and that the bval and
-bvec counts match the number of DWI volumes. The staged DWI is copied into the
-Lead-DBS derivative tree before preprocessing so that the raw provenance copy in
-`rawdata` remains unchanged.
+bvec counts match the number of DWI volumes. Subjects are provided explicitly,
+read from an import log, or discovered from `StudyRoot/rawdata/sub-*`. The staged
+DWI is copied into the Lead-DBS derivative tree before preprocessing so that the
+raw provenance copy in `rawdata` remains unchanged.
 
 ## Susceptibility distortion correction
 

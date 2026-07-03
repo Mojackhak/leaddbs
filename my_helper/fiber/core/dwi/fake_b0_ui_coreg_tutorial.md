@@ -1,15 +1,17 @@
-# Fake B0 UI-coreg tutorial for STN/SNr DWI preprocessing
+# Fake B0 UI-coreg tutorial for project DWI preprocessing
 
-This tutorial describes how to run and review the STN/SNr DWI workflow that
-generates a corrected DWI series and exposes the corrected mean b0 as a Lead-DBS
-pseudo `B0` volume for UI-based coregistration.
+This tutorial describes how to run and review the project-agnostic DWI workflow
+that generates a corrected DWI series and exposes the corrected mean b0 as a
+Lead-DBS pseudo `B0` volume for UI-based coregistration. STNSNr paths and
+subjects are examples only; reusable code should be called with project-specific
+`StudyRoot`, `SubjectIds`, and optional `ImportLog` values.
 
 ## Prerequisites
 
 - Lead-DBS repository:
   `/Users/mojackhu/Github/leaddbs`
-- Study root:
-  `/Volumes/VAL/STNSNr`
+- Study root containing Lead-DBS-compatible `rawdata` and `derivatives`
+  directories.
 - Imported DWI data in BIDS-compatible `rawdata/sub-<ID>/ses-preop/dwi/`
   directories.
 - Conda environment for Lead-DBS work: `leaddbs`.
@@ -27,8 +29,8 @@ JSON, bval, and bvec files into `rawdata`.
 
 ```mermaid
 flowchart TD
-    A["run_stnsnr_dwi_registration.m"] --> B["mh_fiber_register_imported_dwi_batch.m"]
-    A2["run_stnsnr_dwi_synb0_bbr_pilot.m"] --> B
+    A["run_project_dwi_fake_b0_coreg.m"] --> B["mh_fiber_register_imported_dwi_batch.m"]
+    A2["STNSNr wrapper scripts"] --> A
     B --> C["validate raw DWI, JSON, bval, and bvec"]
     B --> D["stage DWI derivatives"]
     D --> E["mh_fiber_dwi_distortion_correction.m"]
@@ -47,14 +49,13 @@ flowchart TD
 
 ## Main entry points
 
-`run_stnsnr_dwi_registration.m` is the cohort runner. Its default mode keeps the
-historical imported-DWI behavior with `DistortionCorrection='none'` and scripted
-DWI-to-T2w coregistration.
+`run_project_dwi_fake_b0_coreg.m` is the project-agnostic fake-B0 entry point.
+It expects a project `StudyRoot` and either explicit `SubjectIds`, a copied-DWI
+`ImportLog`, or discoverable BIDS DWI files under `rawdata/sub-*/ses-preop/dwi/`.
 
-`run_stnsnr_dwi_synb0_bbr_pilot.m` is the single-subject pilot runner for the
-current Synb0, eddy, and fake-B0 UI-coreg workflow. The file name is preserved
-for compatibility, but the current behavior no longer uses the deprecated direct
-scripted b0-to-T2w alignment path.
+`run_stnsnr_dwi_registration.m` and `run_stnsnr_dwi_synb0_bbr_pilot.m` are thin
+STNSNr wrappers. They only provide STNSNr paths and pilot subject choices before
+calling the project-agnostic runner.
 
 `mh_fiber_register_imported_dwi_batch.m` is the batch implementation. The key
 parameters for the fake-B0 workflow are:
@@ -75,35 +76,34 @@ corrected-b0 extraction steps.
 `ea_normalize.m` removes pseudo `B0` inputs before dispatching to normalization
 backends.
 
-## ChenMeiJu pilot command
+## Project-agnostic pilot command
 
-Run the pilot from MATLAB in the `leaddbs` environment:
-
-```matlab
-run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_synb0_bbr_pilot.m')
-```
-
-The equivalent direct call is:
+Run a pilot subject from MATLAB in the `leaddbs` environment:
 
 ```matlab
 repoDir = '/Users/mojackhu/Github/leaddbs';
 addpath(genpath(repoDir));
 
-result = mh_fiber_register_imported_dwi_batch( ...
+result = run_project_dwi_fake_b0_coreg( ...
+    'StudyRoot', '/path/to/project', ...
+    'RepoDir', repoDir, ...
+    'PilotSubject', 'SubA', ...
+    'FreeSurferLicense', '/Applications/freesurfer/8.2.0/license.txt', ...
+    'Force', true);
+```
+
+The equivalent STNSNr example is:
+
+```matlab
+repoDir = '/Users/mojackhu/Github/leaddbs';
+addpath(genpath(repoDir));
+
+result = run_project_dwi_fake_b0_coreg( ...
     'StudyRoot', '/Volumes/VAL/STNSNr', ...
     'RepoDir', repoDir, ...
     'ImportLog', fullfile('/Volumes/VAL/STNSNr', 'derivatives', 'leaddbs', ...
         'import_logs', 'dwi_import_20260701_013240.csv'), ...
-    'SubjectIds', {'ChenMeiJu'}, ...
-    'AnchorModality', 'T2w', ...
-    'CoregistrationTag', 'dwi_synb0_fakeb0', ...
-    'CoregistrationMethod', 'ANTs', ...
-    'DistortionCorrection', 'synb0', ...
-    'PhaseEncodingVector', [0 1 0], ...
-    'DefaultTotalReadoutTime', 0.05, ...
-    'AllowT1Fallback', false, ...
-    'RunCoregistration', false, ...
-    'GenerateOptionalDwiQc', true, ...
+    'PilotSubject', 'ChenMeiJu', ...
     'Force', true);
 ```
 
@@ -113,59 +113,56 @@ Lead-DBS UI.
 
 ## Batch command template
 
-After the pilot passes QC, the same workflow can be applied to a subject list:
+After the pilot passes QC, the same workflow can be applied to an explicit
+subject list:
 
 ```matlab
 repoDir = '/Users/mojackhu/Github/leaddbs';
 addpath(genpath(repoDir));
 
-subjectIds = {'LinJia', 'HuFengXian', 'YuDongJian'};
+subjectIds = {'SubA', 'SubB', 'SubC'};
 
-result = mh_fiber_register_imported_dwi_batch( ...
-    'StudyRoot', '/Volumes/VAL/STNSNr', ...
+result = run_project_dwi_fake_b0_coreg( ...
+    'StudyRoot', '/path/to/project', ...
     'RepoDir', repoDir, ...
-    'ImportLog', fullfile('/Volumes/VAL/STNSNr', 'derivatives', 'leaddbs', ...
-        'import_logs', 'dwi_import_20260701_013240.csv'), ...
     'SubjectIds', subjectIds, ...
-    'AnchorModality', 'T2w', ...
-    'CoregistrationTag', 'dwi_synb0_fakeb0', ...
-    'DistortionCorrection', 'synb0', ...
-    'PhaseEncodingVector', [0 1 0], ...
-    'DefaultTotalReadoutTime', 0.05, ...
-    'RunCoregistration', false, ...
-    'GenerateOptionalDwiQc', true, ...
+    'FreeSurferLicense', '/Applications/freesurfer/8.2.0/license.txt', ...
     'Force', false);
 ```
 
 Use `Force=true` only when intentionally rerunning a subject and replacing the
 current derived outputs.
 
+If `SubjectIds` is omitted, subjects are resolved in this order: copied subjects
+from `ImportLog` when provided, then BIDS DWI files discovered under
+`StudyRoot/rawdata/sub-*/ses-preop/dwi/`.
+
 ## Expected files
 
 Corrected DWI outputs:
 
 ```text
-/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.nii
-/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.bval
-/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.bvec
+<StudyRoot>/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.nii
+<StudyRoot>/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.bval
+<StudyRoot>/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.bvec
 ```
 
 Corrected B0 output:
 
 ```text
-/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_b0.nii
+<StudyRoot>/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_b0.nii
 ```
 
 Expected Lead-DBS UI coregistration target:
 
 ```text
-/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/coregistration/anat/sub-<ID>_ses-preop_space-anchorNative_desc-preproc_B0.nii
+<StudyRoot>/derivatives/leaddbs/sub-<ID>/coregistration/anat/sub-<ID>_ses-preop_space-anchorNative_desc-preproc_B0.nii
 ```
 
 Status CSV outputs are written under:
 
 ```text
-/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/
+<StudyRoot>/derivatives/leaddbs/import_logs/
 ```
 
 The expected status before UI review is:
@@ -228,7 +225,7 @@ supported path for the fake-B0 workflow.
 If the Lead-DBS UI does not show `B0`, confirm that this file exists:
 
 ```text
-/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_b0.nii
+<StudyRoot>/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_b0.nii
 ```
 
 If Synb0-DISCO fails with an inference or container memory error, increase Docker
