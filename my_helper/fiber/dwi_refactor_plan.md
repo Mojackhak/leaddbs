@@ -210,6 +210,18 @@ sidecar 里的 `FakeCoregisterVolume`/`ExcludeFromNormalization`。Group 4 的 `
   thread per MATLAB worker to reduce FSL/ANTs/ITK over-subscription during batch
   execution.
 
+### Coregistration backend extraction notes
+
+- The b0-to-anchor registration branches are split out of
+  `mh_fiber_process_imported_dwi` into a dedicated backend module,
+  `mh_fiber_dwi_coregister_b0_to_anchor`. The processing core remains
+  responsible for choosing whether coregistration should run, while the backend
+  owns SPM, ANTs, hybrid SPM+ANTs, and FLIRT BBR output generation.
+- This extraction preserves the current UI-style output names and legacy ANTs
+  compatibility behavior. It does not re-enable automatic coregistration for the
+  Synb0 fake-B0 workflow; `RunCoregistration=false` still leaves B0 pending for
+  Lead-DBS UI coregistration and manual QC.
+
 ## 验证
 
 - **数值回归（核心）**：把 1 个真实被试**拷贝**到临时 studyRoot（不覆写 `/Volumes/VAL` 下非 Git 文件），
