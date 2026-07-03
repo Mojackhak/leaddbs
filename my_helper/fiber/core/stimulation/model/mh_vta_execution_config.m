@@ -7,10 +7,10 @@ end
 
 defaults = mh_vta_default_execution_options();
 exec = struct();
-exec.requested_mode = get_vta_option(cfg, 'executionMode', defaults.executionMode);
+exec.requested_mode = mh_vta_config_field(cfg, 'executionMode', defaults.executionMode);
 exec.mode = lower(char(string(exec.requested_mode)));
-exec.parallel = logical(get_vta_option(cfg, 'parallel', defaults.parallel));
-exec.parallel_workers = max(1, round(double(get_vta_option(cfg, ...
+exec.parallel = logical(mh_vta_config_field(cfg, 'parallel', defaults.parallel));
+exec.parallel_workers = max(1, round(double(mh_vta_config_field(cfg, ...
     'parallelWorkers', defaults.parallelWorkers))));
 exec.task_count = max(0, double(taskCount));
 
@@ -48,14 +48,6 @@ switch exec.mode
     otherwise
         error('mh_vta_execution_config:UnsupportedMode', ...
             'Unsupported VTA execution mode: %s', exec.mode);
-end
-end
-
-function value = get_vta_option(cfg, fieldName, fallback)
-if isfield(cfg, 'vta') && isfield(cfg.vta, fieldName)
-    value = cfg.vta.(fieldName);
-else
-    value = fallback;
 end
 end
 

@@ -2768,3 +2768,29 @@ Phase 2BS validation completed:
   force fallback behavior without running FEM.
 - Static verification confirmed the SimBio backends no longer carry duplicated
   local `request_field` or `cfg_force` helper functions.
+
+## Phase 2BT Implementation Scope
+
+Status: **completed**.
+
+Phase 2BT centralizes VTA config-field fallback lookup used by execution
+configuration and process-task settings:
+
+- Add `mh_vta_config_field` as the shared accessor for optional `cfg.vta`
+  fields with explicit fallback values.
+- Update `mh_vta_execution_config` and `mh_vta_run_compute_tasks_process` to use
+  this helper for `cfg.vta` execution fields.
+- Update process-task root config lookups to use the existing
+  `mh_util_get_field` helper instead of local `get_cfg_option`.
+- Preserve existing semantics: a present `cfg.vta` field wins even when empty,
+  and missing root or VTA fields use their previous fallbacks.
+
+Phase 2BT validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the new helper and touched execution/process files
+  passed with zero messages.
+- MATLAB synthetic smoke test covered VTA config-field fallback and
+  `mh_vta_execution_config` mode/worker resolution without running FEM.
+- Static verification confirmed the touched execution/process files no longer
+  carry local `get_vta_option` or `get_cfg_option` helper functions.

@@ -24,22 +24,22 @@ end
 function settings = process_settings(cfg, exec, taskCount)
 defaults = mh_vta_default_execution_options();
 settings = struct();
-settings.repo_dir = get_cfg_option(cfg, 'repoDir', ...
+settings.repo_dir = mh_util_get_field(cfg, 'repoDir', ...
     mh_util_resolve_repo_dir(mfilename('fullpath')));
 settings.worker_count = max(1, min(exec.parallel_workers, taskCount));
-settings.matlab_exe = get_vta_option(cfg, 'matlabExe', ...
+settings.matlab_exe = mh_vta_config_field(cfg, 'matlabExe', ...
     defaults.matlabExe);
-settings.conda_env = get_vta_option(cfg, 'condaEnv', defaults.condaEnv);
-settings.dry_run = logical(get_vta_option(cfg, 'processDryRun', ...
+settings.conda_env = mh_vta_config_field(cfg, 'condaEnv', defaults.condaEnv);
+settings.dry_run = logical(mh_vta_config_field(cfg, 'processDryRun', ...
     defaults.processDryRun));
-settings.poll_seconds = max(0.1, double(get_vta_option(cfg, ...
+settings.poll_seconds = max(0.1, double(mh_vta_config_field(cfg, ...
     'processPollSeconds', defaults.processPollSeconds)));
-settings.timeout_seconds = max(0, double(get_vta_option(cfg, ...
+settings.timeout_seconds = max(0, double(mh_vta_config_field(cfg, ...
     'processTimeoutSeconds', defaults.processTimeoutSeconds)));
 
-workDir = char(string(get_vta_option(cfg, 'processWorkDir', defaults.processWorkDir)));
+workDir = char(string(mh_vta_config_field(cfg, 'processWorkDir', defaults.processWorkDir)));
 if isempty(workDir)
-    outputDir = char(string(get_cfg_option(cfg, 'outputDir', tempdir)));
+    outputDir = char(string(mh_util_get_field(cfg, 'outputDir', tempdir)));
     timestamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss_SSS'));
     workDir = fullfile(outputDir, 'vta_process_tasks', timestamp);
 end
@@ -231,24 +231,8 @@ end
 
 if failedCount > 0
     failed = failed(1:failedCount);
-    error('mh_vta_run_compute_tasks_process:TaskFailed', ...
-        'One or more VTA process tasks failed: %s', char(strjoin(failed, ' | ')));
+error('mh_vta_run_compute_tasks_process:TaskFailed', ...
+    'One or more VTA process tasks failed: %s', char(strjoin(failed, ' | ')));
 end
 results = vertcat(resultCells{:});
-end
-
-function value = get_cfg_option(cfg, fieldName, fallback)
-if isfield(cfg, fieldName)
-    value = cfg.(fieldName);
-else
-    value = fallback;
-end
-end
-
-function value = get_vta_option(cfg, fieldName, fallback)
-if isfield(cfg, 'vta') && isfield(cfg.vta, fieldName)
-    value = cfg.vta.(fieldName);
-else
-    value = fallback;
-end
 end
