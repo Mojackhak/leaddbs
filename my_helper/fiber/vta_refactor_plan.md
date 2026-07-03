@@ -1745,3 +1745,30 @@ Phase 2AN validation results:
 - Static search confirms the STN/SNr summary builders call
   `mh_coverage_category_summary_table` instead of duplicating category summary
   statistic blocks.
+
+## Phase 2AO Documentation Sync
+
+Status: **completed**.
+
+Phase 2AO updates user-facing execution documentation to match the current VTA
+task harness:
+
+- Replace stale README wording that described task-level `parpool` support as a
+  future capability.
+- Document the current behavior: sequential execution remains the default, and
+  `cfg.vta.executionMode` can select `parpool` or `process` task execution
+  through `mh_vta_run_compute_tasks`.
+- Leave code unchanged because the execution harness already implements the
+  documented modes.
+
+Phase 2AO validation target:
+
+- `git diff --check`
+- Static verification that README no longer describes parpool/process task
+  execution as future-only.
+
+Phase 2AO validation results:
+
+- `git diff --check` passed.
+- Static search confirms README no longer contains the stale future-parpool
+  wording or the old sequential-unless-process-launcher sentence.

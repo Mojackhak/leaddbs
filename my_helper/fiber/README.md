@@ -73,12 +73,12 @@ need first-missing-column error behavior.
 Horn backend calls use `mh_vta_run_horn_with_retry` for deterministic retry and
 post-write success handling.
 
-STN/SNr VTA generation is being migrated toward explicit atomic compute tasks.
+STN/SNr VTA generation uses explicit atomic compute tasks.
 `mh_vta_make_compute_task` records the standard paths and request metadata for
 one stimulation label and side; `mh_vta_run_compute_task` executes that task
-through the facade. Current STN/SNr execution remains sequential unless the
-project launcher uses the existing process-level worker script, but the task
-contract is shared by future parpool and process execution modes.
+through the facade. `mh_vta_run_compute_tasks` keeps sequential execution as
+the default and selects task-level `parpool` or `process` execution when
+`cfg.vta.executionMode` requests those modes.
 Generated stimulation labels use `mh_util_sanitize_label` through
 `mh_fiber_make_stim_label`.
 `mh_vta_run_stim_spec_tasks` owns the shared cfg/stimSpec-to-task assembly path
