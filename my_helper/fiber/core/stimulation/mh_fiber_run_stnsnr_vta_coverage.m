@@ -512,33 +512,23 @@ for s = 1:numel(sides)
     ref = mh_coverage_reference_grid(efieldPaths, outputVoxelSize, ...
         'ErrorId', 'mh_fiber_run_stnsnr_vta_coverage:ReferenceGridTooLarge');
     regionMasks = mh_coverage_sample_region_masks(regionSpec, sideCode, ref);
-    sampledEfields = cell(numel(efieldPaths), 1);
-    for e = 1:numel(efieldPaths)
-        sampledEfields{e} = mh_coverage_sample_scalar_to_grid(efieldPaths{e}, ref);
-    end
+    sampledEfields = mh_coverage_sample_efields_to_grid(efieldPaths, ref);
 
     for t = 1:numel(thresholdsVPerM)
         thresholdVPerMm = thresholdsVPerMm(t);
         thresholdVPerM = thresholdsVPerM(t);
         thresholdLabel = mh_coverage_threshold_label(thresholdVPerMm);
-        hitCount = zeros(ref.dim, 'uint16');
-        for e = 1:numel(efieldPaths)
-            hitCount = hitCount + uint16(sampledEfields{e} >= thresholdVPerM);
-        end
-        vtaMask = hitCount > 0;
-        overlapMask = hitCount > 1;
-
-        categories = mh_coverage_classify_membership(vtaMask, regionMasks);
-        categorySum = mh_coverage_category_voxel_sum(categories);
-        totalVoxels = nnz(vtaMask);
-        if categorySum ~= totalVoxels
-            error('mh_fiber_run_stnsnr_vta_coverage:CategorySumMismatch', ...
-                'Category voxel sum does not equal total VTA voxel count.');
-        end
+        thresholdResult = mh_coverage_threshold_sampled_efields( ...
+            sampledEfields, ref, thresholdVPerM, regionMasks, ...
+            'ErrorId', 'mh_fiber_run_stnsnr_vta_coverage:CategorySumMismatch');
+        vtaMask = thresholdResult.vta_mask;
+        overlapMask = thresholdResult.overlap_mask;
+        categories = thresholdResult.categories;
+        totalVoxels = thresholdResult.total_voxels;
 
         paths = write_condition_masks(ref, vtaMask, categories, overlapMask, conditionDirs, ...
             patientName, phase, protocol, sideCode, thresholdLabel, forceOutputs);
-        categoryRows = mh_coverage_category_summary_rows(categories, vtaMask, ref.voxel_volume_mm3);
+        categoryRows = thresholdResult.category_rows;
         pattern = mh_fiber_stnsnr_stimulation_pattern_label(conditionRows, ...
             'Column', 'StimulationPattern', 'Mode', 'condition_union');
         rawContacts = mh_util_join_values(conditionRows.RawContact(conditionRows.Side == string(sideCode)));

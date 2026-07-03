@@ -1341,3 +1341,46 @@ Phase 2AD validation completed:
 - Static search confirms the target-component analyzer now calls the shared
   helpers instead of directly constructing the component ID format or
   `stnsnr_target_component_` label.
+
+## Phase 2AE Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AE extracts the common coverage threshold primitive used by the STN/SNr
+condition and target-component analyzers:
+
+- Add `mh_coverage_sample_efields_to_grid` under `core/coverage` to sample a
+  list of e-field NIfTIs onto one reference grid.
+- Add `mh_coverage_threshold_sampled_efields` under `core/coverage` to combine
+  sampled e-fields at one threshold, derive VTA and overlap masks, classify
+  region membership, validate category voxel sums, and return category summary
+  rows.
+- Update both STN/SNr analyzers to call the shared helpers instead of repeating
+  the sampling, hit-count, VTA/overlap mask, classification, and category-sum
+  logic.
+- Keep threshold labels, mask-writing descriptions, report rows, figures, and
+  manifest fields unchanged.
+
+Phase 2AE validation target:
+
+- `git diff --check`
+- Focused `checkcode` for both new coverage helpers and both touched STN/SNr
+  analyzers.
+- MATLAB synthetic smoke test proving thresholded VTA masks, overlap masks,
+  total voxels, overlap voxels, and category rows match the previous inline
+  behavior on small in-memory sampled e-field arrays.
+- Static verification that both STN/SNr analyzers call the shared helpers, pass
+  their original category-sum error IDs, and no longer contain duplicated
+  `hitCount` threshold loops.
+
+Phase 2AE validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_coverage_sample_efields_to_grid` and
+  `mh_coverage_threshold_sampled_efields`; the two large STN/SNr analyzers
+  still report only their existing dynamic-growth warnings.
+- MATLAB synthetic smoke test verifies thresholded VTA masks, overlap masks,
+  total voxels, overlap voxels, category rows, and category-row voxel sums match
+  the previous inline behavior on small in-memory sampled e-field arrays.
+- Static search confirms both STN/SNr analyzers call the shared helpers and no
+  longer contain duplicated `hitCount` threshold loops.
