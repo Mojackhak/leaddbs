@@ -102,10 +102,10 @@ X_HF_only_i(v) = (E_R_i(v) + E_L_to_R_i(v)) / 2
 tau_primary = 200 V/m
 tau_sensitivity = {180, 220} V/m
 Coverage_tau(v) = sum_i 1[X_HF_only_i(v) > tau]
-Omega_HF_tau = right_STNSNrplus intersect {v : Coverage_tau(v) >= 5}
+Omega_HF_tau = {v : Coverage_tau(v) >= 5}
 ```
 
-模型在 `Omega_HF_tau` 内使用连续 `X_HF_only_i(v)` 拟合；`tau` 只用于 coverage 和 QC。主分析使用 `tau=200 V/m`；`tau=180` 和 `tau=220 V/m` 是完整敏感性分析。
+模型在 `Omega_HF_tau` 内使用连续 `X_HF_only_i(v)` 拟合；`tau` 只用于 coverage 和 QC。`Omega_HF_tau` 不再与 `right_STNSNrplus` 做 intersection；`STNSNrplus` 只作为 canonical/reference grid、解剖 overlay 和 coverage/QC 背景。主分析使用 `tau=200 V/m`；`tau=180` 和 `tau=220 V/m` 是完整敏感性分析。
 
 coverage mask、voxel map、HF score 和验证预测均在每个 LOOCV training fold 内计算。留出患者不参与该 fold 的 coverage mask 或 voxel map 定义。
 

@@ -102,10 +102,10 @@ Define the analysis mask inside each training set:
 tau_primary = 200 V/m
 tau_sensitivity = {180, 220} V/m
 Coverage_tau(v) = sum_i 1[X_HF_only_i(v) > tau]
-Omega_HF_tau = right_STNSNrplus intersect {v : Coverage_tau(v) >= 5}
+Omega_HF_tau = {v : Coverage_tau(v) >= 5}
 ```
 
-Continuous `X_HF_only_i(v)` values are used for modeling inside `Omega_HF_tau`; `tau` is only used to define coverage and QC. Main output uses `tau=200 V/m`; `tau=180` and `tau=220 V/m` are full sensitivity analyses.
+Continuous `X_HF_only_i(v)` values are used for modeling inside `Omega_HF_tau`; `tau` is only used to define coverage and QC. `Omega_HF_tau` is no longer intersected with `right_STNSNrplus`; `STNSNrplus` is retained only as the canonical/reference grid, anatomical overlay, and coverage/QC background. Main output uses `tau=200 V/m`; `tau=180` and `tau=220 V/m` are full sensitivity analyses.
 
 Coverage masks, voxel maps, HF scores, and validation predictions are computed inside each LOOCV training fold. The held-out patient never contributes to that fold's coverage mask or voxel map.
 

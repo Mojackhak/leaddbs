@@ -1147,7 +1147,7 @@ Positive `M_HF(v)` means stronger HF exposure at voxel `v` predicts better basel
 Resolved HF/STN settings (these fix, for the HF/STN direct voxel model only, the options left open in the generic subsections below; see `model_summaries/hf_3m_direct_voxel_model.md`). The generic subsections still apply to the ULF/SNr direct voxel model unchanged.
 
 - Exposure `X_HF_only`: the real Horn/SimBio `sim-efield` (raw variant, kept in `V/m`) from each subject's `3m/STN` MNI stimulation folder `stimulations/MNI152NLin2009bAsym/*_3m_STN_*/sub-*_sim-efield_model-simbio_hemi-{L,R}.nii`. Combine alternating same-side subprograms by voxel-wise maximum.
-- Territory / coverage: intersect with `STNSNr-connected regions/{rh,lh}/STNSNrplus.nii.gz` (already 2 mm dilated). Use `tau = 200 V/m` and fit where `Coverage(v) >= 5` (override the generic `>= 8` preference), with `180`/`220 V/m` as threshold sensitivity.
+- Territory / coverage: use `tau = 200 V/m` and fit where `Coverage(v) >= 5` (override the generic `>= 8` preference), with `180`/`220 V/m` as threshold sensitivity. Do not intersect `Omega_HF_tau` with `right_STNSNrplus`; keep `STNSNr-connected regions/{rh,lh}/STNSNrplus.nii.gz` only as the canonical/reference grid, anatomical overlay, and coverage/QC background.
 - Bilateral homology: right `STNSNrplus` as canonical grid; map the left E-field with `ea_flip_lr_nonlinear` + `templates/space/MNI152NLin2009bAsym/fliplr/Composite.nii.gz`; no paired-mask membership threshold is used for the HF direct voxel executable model.
 - Estimator: residualized ANCOVA (OLS), no standardization of `X` or `M`; sweet-spot score uses `lambda = 0`.
 - Permutation: patient-level Freedman-Lane, formal `B = 10000`, smoke/exploratory `B = 1000`, seed `42`, primary statistic LOOCV Pearson `r`. The `coef` map stores raw `theta`, no per-voxel FDR.
@@ -1233,10 +1233,10 @@ n = 16
 
 and avoiding left/right pseudo-replication.
 
-The default executable direct voxel mask is not a paired-membership mask. It is the model-specific canonical right territory intersected with the training-fold coverage mask:
+The default executable HF direct voxel mask is not a paired-membership mask and is not hard-gated by the model-specific anatomical territory. It is defined by the training-fold coverage mask:
 
 ```text
-Omega_direct = right canonical territory intersected with {Coverage(v) >= threshold}
+Omega_direct = {Coverage(v) >= threshold}
 ```
 
 Do not introduce a left-to-right paired-mask membership threshold for the HF direct voxel model. Any future paired-mask analysis would be a separate, explicitly labeled sensitivity model rather than the primary executable specification.
