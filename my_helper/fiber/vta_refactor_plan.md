@@ -2458,3 +2458,33 @@ Phase 2BH validation completed:
 - MATLAB synthetic smoke test confirmed stacked-share figures contain
   percentage text labels for visible segments, omit labels below the minimum
   share threshold, and still export PNG files in `-batch` mode.
+
+## Phase 2BI Implementation Scope
+
+Status: **completed**.
+
+Phase 2BI routes manually built stimulation structures through the shared VTA
+task harness:
+
+- Add `mh_vta_run_built_stimulation_tasks` for callers that already have
+  `cfg`, `S`, `options`, and `stimFolders`, but still need shared side-task
+  construction and sequential/parpool/process dispatch.
+- Update the sub-001 two-scheme pipeline to call this helper instead of the
+  legacy compatibility wrappers.
+- Set the sub-001 two-source and one-solve `cfg.vta.modelKey` values before
+  building stimulation structures so cfg metadata, `S.model`, task requests,
+  and backend dispatch stay synchronized.
+- Preserve existing output path labels: the one-solve backend still resolves to
+  the standard `model-simbio` file names through the VTA registry.
+
+Phase 2BI validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for `mh_vta_run_built_stimulation_tasks` and the sub-001
+  two-scheme pipeline passed with zero messages.
+- MATLAB synthetic smoke test with a temporary `mh_vta_compute` stub confirmed
+  the built-stimulation helper creates ordered side tasks, canonicalizes
+  `onesolve` to `simbio_onesolve`, forwards model/atlas/output-space options,
+  and dispatches through `mh_vta_run_compute_tasks` without real FEM data.
+- Static verification confirmed the sub-001 two-scheme pipeline no longer calls
+  the legacy `mh_fiber_ensure_vta*` wrappers.
