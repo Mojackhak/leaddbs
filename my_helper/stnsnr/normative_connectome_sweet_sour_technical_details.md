@@ -480,44 +480,75 @@ It is not direct voxel-wise causal evidence.
 
 ### Direct Voxel-Level Sweet Spot Mapping
 
-Direct voxel-level sweet spot mapping is a secondary local stimulation analysis. It directly relates voxel-level E-field exposure inside STN or SNr to clinical outcome. It is separate from target-derived voxel visualization.
+Direct voxel-level sweet spot mapping is a secondary local stimulation analysis. It directly relates voxel-level E-field exposure to clinical outcome. It is separate from target-derived voxel visualization.
 
-Model purpose:
-
-```text
-HF direct voxel model:
-  identify HF territory voxels where HF-only exposure predicts better HF-only outcome
-
-ULF direct voxel model:
-  identify ULF voxels where ULF-component exposure predicts better STN+SNr outcome
-```
-
-#### Direct STN Voxel Model
-
-For each canonical homologous STN voxel `v`:
+The executable HF direct voxel model is fully specified in:
 
 ```text
-Y_HF3m_i = alpha_v
-          + theta_HF(v) * X_HF_only_i(v)
-          + beta_v       * Y_Preop_i
-          + error_i,v
+my_helper/stnsnr/model_summaries/hf_3m_direct_voxel_model.md
 ```
 
-For lower-is-better scales:
+That model supersedes older generic direct-voxel notes for HF. In particular, the HF model:
+
+- uses a right-hemisphere MNI brainmask candidate grid (`brainmask > 0`, voxel-center `x > 0`);
+- uses sparse candidate construction based on any valid subject with `X_HF_only > 180 V/m`;
+- uses `Coverage(v) >= 5` only for all generated HF results;
+- uses baseline-adjusted partial Spearman as the primary estimator and OLS ANCOVA as a full supplemental estimator;
+- uses `ea_flip_lr_nonlinear` for left-to-right E-field mapping;
+- does not use `Omega_pair`, paired-mask membership thresholds, or `direct_voxel_<seed>_paired_mask.nii.gz`;
+- records, but does not generate, the reference-literature `Coverage>=8` / 50% E-field rule;
+- uses LOOCV as the sole validation design for `n = 16`.
+
+#### HF Direct Voxel Model
+
+For each canonical right-hemisphere candidate voxel `v`, the primary map is:
 
 ```text
-M_HF(v) = -theta_HF(v)
+rho_HF(v) =
+  corr(
+    resid(rank(Y_post_i)       ~ rank(Y_base_i)),
+    resid(rank(X_HF_only_i(v)) ~ rank(Y_base_i))
+  )
 ```
 
-For SE-ADL:
+Benefit orientation:
 
 ```text
-M_HF(v) = theta_HF(v)
+M_HF(v) = -rho_HF(v)   for lower-is-better scales
+M_HF(v) =  rho_HF(v)   for higher-is-better scales
 ```
 
-#### Direct SNr Voxel Model
+The OLS ANCOVA map is supplemental:
 
-For each canonical homologous ULF voxel `v`:
+```text
+Y_post_i = alpha_v
+         + theta_HF(v) * X_HF_only_i(v)
+         + beta_v      * Y_base_i
+         + error_i,v
+```
+
+The patient-level score is:
+
+```text
+HFScore_i =
+  sum_v X_HF_only_i(v) * M_HF(v)
+  / sum_v X_HF_only_i(v)
+```
+
+The final prediction model is:
+
+```text
+Y_post_i = alpha
+         + delta * HFScore_i
+         + beta  * Y_base_i
+         + error_i
+```
+
+Primary validation statistic is LOOCV Spearman rho. Pearson `r`, MAE, RMSE, and `Q2` are secondary metrics.
+
+#### Generic ULF Direct Voxel Context
+
+ULF direct voxel models may still use a model-specific anatomical/candidate mask and covariate structure:
 
 ```text
 Y_AB_post_i = alpha_v
@@ -527,180 +558,53 @@ Y_AB_post_i = alpha_v
             + error_i,v
 ```
 
-For lower-is-better scales:
+The ULF model should explicitly state whether it follows the HF candidate-grid approach or a separate ULF-specific mask. Do not inherit HF settings silently.
+
+#### HF Direct Voxel Outputs
+
+For each scale, tau, and estimator:
 
 ```text
-M_ULF(v) = -theta_ULF(v)
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau*/partial_spearman/
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau*/ols_ancova/
 ```
 
-For SE-ADL:
+export:
 
 ```text
-M_ULF(v) = theta_ULF(v)
+direct_voxel_HF_coverage.nii.gz
+direct_voxel_HF_coef.nii.gz
+direct_voxel_HF_sweet_sour.nii.gz
+direct_voxel_HF_stability.nii.gz
+direct_voxel_HF_bootstrap_se.nii.gz
+direct_voxel_HF_scores.csv
+direct_voxel_HF_loocv_predictions.csv
+direct_voxel_HF_permutation_summary.csv
+direct_voxel_HF_mapping_qc.json
+direct_voxel_HF_generation_manifest.json
 ```
 
-Positive values in `M_HF` or `M_ULF` indicate voxels where stronger exposure predicts better adjusted outcome.
-
-#### Homologous Voxel Definition
-
-Direct voxel models require a shared bilateral voxel coordinate system. The main analysis uses a right canonical seed grid and inverse sampling of the left side.
-
-For each right canonical voxel center:
+Display smoothing is output only under:
 
 ```text
-c_R(v)
+display_smooth_fwhm1mm/
+display_smooth_fwhm2mm/
 ```
 
-define the homologous left continuous coordinate:
+and must not be used for HFScore, LOOCV, permutation, or bootstrap.
+
+#### HF QC Sensitivity
+
+Spatial jitter QC is run only for the primary `tau200/partial_spearman` model:
 
 ```text
-c_L(v) = phi_inverse_L_to_R(c_R(v))
+formal jitter resamples: B = 1000
+smoke jitter resamples:  B = 100
+FWHM = 2 mm
+sigma = 0.849 mm
 ```
 
-Do not require transformed left voxel centers to coincide with right voxel centers. Homology is continuous-space correspondence, not discrete voxel-index matching.
-
-For E-field maps, use trilinear interpolation:
-
-```text
-E_L_to_R_i(v) = interp_linear(E_L_i, c_L(v))
-```
-
-The bilateral exposure entering the voxel model is:
-
-```text
-X_i(v) = (E_R_i(c_R(v)) + E_L_to_R_i(v)) / 2
-```
-
-This yields one exposure value per patient per voxel, so the model remains patient-level (`n = 16`) and does not treat hemispheres as independent observations.
-
-Paired mask:
-
-```text
-P_left_to_R(v) = interp_linear(1_left_seed_mask, c_L(v))
-Omega_pair = {v in Omega_R: P_left_to_R(v) > 0.5}
-```
-
-Sensitivity:
-
-```text
-P_left_to_R(v) > 0.7
-```
-
-#### Coverage Mask
-
-Use E-field coverage filtering before voxel-wise fitting:
-
-```text
-Coverage(v) = sum_i 1[X_i(v) > tau]
-```
-
-Main threshold:
-
-```text
-tau = 0.2 V/mm
-```
-
-Sensitivity thresholds:
-
-```text
-tau = 0.18, 0.20, 0.22 V/mm
-```
-
-Preferred coverage rule:
-
-```text
-Coverage(v) >= 8
-```
-
-Exploratory relaxed rules for small masks:
-
-```text
-Coverage(v) >= 5 or 6
-```
-
-Coverage masks must be recomputed inside each training fold in cross-validation.
-
-#### Estimation And Prediction
-
-Use residualized ANCOVA or adjusted partial Spearman.
-
-Residualized ANCOVA:
-
-```text
-Y_post ~ covariates
-X(v)   ~ covariates
-theta(v) = coefficient linking residualized X(v) to residualized Y_post
-```
-
-Adjusted partial Spearman:
-
-```text
-rank-transform Y_post, X(v), and covariates
-residualize ranked Y_post and ranked X(v) against ranked covariates
-correlate residuals
-```
-
-Patient-level direct voxel overlap score:
-
-```text
-SweetSpotScore_i =
-  sum_{v in Omega_pair} X_i(v) * M(v)
-  / (sum_{v in Omega_pair} X_i(v) + lambda)
-```
-
-Final prediction model:
-
-```text
-Y_post_i = alpha
-         + delta * SweetSpotScore_i
-         + covariates
-         + error_i
-```
-
-Use fully nested leave-one-patient-out cross-validation:
-
-1. define coverage mask in training patients only;
-2. fit voxel map in training patients only;
-3. compute training and held-out sweet spot scores from the training-fold map;
-4. fit the training-fold prediction model;
-5. predict the held-out patient.
-
-Use patient-level Freedman-Lane permutation to test whether the direct voxel score improves prediction beyond covariates.
-
-#### Direct Voxel Output Files
-
-For each seed and endpoint, export:
-
-```text
-direct_voxel_<seed>_coverage.nii.gz
-direct_voxel_<seed>_coef.nii.gz
-direct_voxel_<seed>_sweet_sour.nii.gz
-direct_voxel_<seed>_stability.nii.gz
-direct_voxel_<seed>_bootstrap_se.nii.gz
-direct_voxel_<seed>_paired_mask.nii.gz
-direct_voxel_<seed>_sweetspot_scores.csv
-direct_voxel_<seed>_loocv_predictions.csv
-direct_voxel_<seed>_permutation_summary.csv
-direct_voxel_<seed>_homologous_mapping_qc.json
-```
-
-Use light display smoothing only:
-
-```text
-FWHM = 1-2 mm
-```
-
-Report unsmoothed and smoothed sensitivity maps.
-
-#### Homologous Mapping QC
-
-Required QC:
-
-- Dice overlap between right seed mask and left seed mask warped to right canonical grid.
-- Size of right seed mask, warped-left seed mask, and paired mask.
-- Inverse-consistency error when forward and inverse transforms are available.
-- Jacobian positivity check; widespread `Jacobian <= 0` invalidates the homology mapping.
-- Visual overlays of right seed mask, warped-left seed mask, paired mask, warped-left E-field, right E-field, and averaged bilateral exposure.
+Each subject-side E-field receives an independent 3D translation, then the model reruns candidate construction, `Omega_HF_tau`, full-sample map building, HF scores, and LOOCV metrics. Save summary tables and jitter standard deviation maps, not every jittered NIfTI map.
 
 Interpretation boundary:
 
@@ -1205,6 +1109,8 @@ direct_voxel_<seed>_permutation_summary.csv
 direct_voxel_<seed>_homologous_mapping_qc.json
 ```
 
+This generic output list does not apply to the executable HF direct voxel model. HF uses the `direct_voxel_HF_*` output family under `<scale_slug>/tau*/partial_spearman|ols_ancova/`, does not export `paired_mask`, and uses `direct_voxel_HF_scores.csv` rather than `sweetspot_scores.csv`.
+
 ## Execution Plan
 
 ### Stage 1: Input Validation
@@ -1440,7 +1346,7 @@ low-coverage seed voxels are transparent or gray in visualization
 voxel overlap scores used for prediction are generated from training-fold maps only
 direct voxel-level sweet spot mapping is secondary/exploratory and does not replace target-level primary inference
 direct voxel models use bilateral homologous voxel exposure and keep one row per patient
-nonlinear homologous voxel mapping uses inverse sampling into a right canonical grid and trilinear interpolation for E-field values
+nonlinear homologous voxel mapping uses model-specific transform rules; the executable HF model uses `ea_flip_lr_nonlinear`, while inverse-sampling/trilinear descriptions are generic non-HF context only
 direct voxel coverage masks are defined inside each training fold during LOOCV
 direct voxel models are compared against covariate-only models with patient-level permutation tests
 PPMI smoke test completes before MGH or dTOR

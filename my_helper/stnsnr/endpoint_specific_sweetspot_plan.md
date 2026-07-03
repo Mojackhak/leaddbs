@@ -1147,16 +1147,17 @@ M_HF(v) = theta_HF(v)
 
 Positive `M_HF(v)` means stronger HF exposure at voxel `v` predicts better baseline-adjusted HF-only outcome.
 
-Resolved HF/STN settings (these fix, for the HF/STN direct voxel model only, the options left open in the generic subsections below; see `model_summaries/hf_3m_direct_voxel_model.md`). The generic subsections still apply to the ULF/SNr direct voxel model unchanged.
+Resolved HF/STN settings (these fix, for the HF/STN direct voxel model only, the options left open in the generic subsections below; see `model_summaries/hf_3m_direct_voxel_model.md`). The generic subsections still apply to the ULF/SNr direct voxel model unchanged unless explicitly overridden there.
 
 - Exposure `X_HF_only`: the real Horn/SimBio `sim-efield` (raw variant, kept in `V/m`) from each subject's `3m/STN` MNI stimulation folder `stimulations/MNI152NLin2009bAsym/*_3m_STN_*/sub-*_sim-efield_model-simbio_hemi-{L,R}.nii`. Combine alternating same-side subprograms by voxel-wise maximum.
-- Territory / coverage: use `tau = 200 V/m` and fit where `Coverage(v) >= 5` (override the generic `>= 8` preference), with `180`/`220 V/m` as threshold sensitivity. Do not intersect `Omega_HF_tau` with `right_STNSNrplus`; keep `STNSNr-connected regions/{rh,lh}/STNSNrplus.nii.gz` only as the canonical/reference grid, anatomical overlay, and coverage/QC background.
-- Bilateral homology: right `STNSNrplus` as canonical grid; map the left E-field with `ea_flip_lr_nonlinear` + `templates/space/MNI152NLin2009bAsym/fliplr/Composite.nii.gz`; no paired-mask membership threshold is used for the HF direct voxel executable model.
-- Estimator: residualized ANCOVA (OLS), no standardization of `X` or `M`; sweet-spot score uses `lambda = 0`.
-- Permutation: patient-level Freedman-Lane, formal `B = 10000`, smoke/exploratory `B = 1000`, seed `42`, primary statistic LOOCV Pearson `r`. The `coef` map stores raw `theta`, no per-voxel FDR.
-- Bootstrap: subject-level full-process bootstrap, formal `B = 10000`, smoke/exploratory `B = 1000`, seed `42`; rerun map building including `Omega_HF_tau` and store voxel-wise `theta` standard error.
+- Candidate / coverage: use the MNI152NLin2009bAsym `brainmask.nii.gz > 0` right hemisphere (`x > 0`) as the canonical reference mask. Build a sparse candidate mask from any valid subject with `X_HF_only > 180 V/m`; fit each tau where `Coverage(v) >= 5`, with `tau = 200 V/m` primary and `180`/`220 V/m` sensitivity. Do not intersect `Omega_HF_tau` with `right_STNSNrplus`; keep `STNSNr-connected regions/{rh,lh}/STNSNrplus.nii.gz` only as anatomical overlay and coverage/QC background.
+- Bilateral homology: map the left E-field to the right canonical brainmask grid with `ea_flip_lr_nonlinear` + `templates/space/MNI152NLin2009bAsym/fliplr/Composite.nii.gz`; no paired-mask membership threshold is used for the HF direct voxel executable model.
+- Estimator: primary baseline-adjusted partial Spearman with average ranks and benefit-oriented `rho`; OLS ANCOVA is a full parallel supplemental estimator. The sweet-spot score uses `lambda = 0`.
+- Permutation: patient-level Freedman-Lane, formal `B = 10000`, smoke/exploratory `B = 1000`, seed `42`, primary statistic LOOCV Spearman rho, plus-one two-sided p value. The primary `coef` map stores `rho_HF(v)`; the OLS supplemental `coef` map stores `theta_HF(v)`. No per-voxel FDR is applied.
+- Bootstrap: subject-level full-process bootstrap, formal `B = 10000`, smoke/exploratory `B = 1000`, seed `42`; rerun map building including `Omega_HF_tau` and store voxel-wise estimator standard error.
+- Spatial jitter QC: primary `tau200/partial_spearman` only, formal `B = 1000`, smoke `B = 100`, independent subject-side 3D translation jitter with Gaussian `FWHM = 2 mm`, linear E-field interpolation, and outside fill `0`.
 - Endpoints: first pass = MDS-UPDRS III and MDS-UPDRS III axial (both lower-is-better) from `subject_effect_origin.xlsx`, joined by `ID`; a patient missing `Y_HF3m` or a side's e-field fails scale-level QC as specified in the model summary.
-- Outputs: keep the `direct_voxel_HF_*` file names under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale>/tau180|tau200|tau220/`; `tau200` and unsmoothed maps are primary, `1-2 mm` FWHM smoothed maps are sensitivity outputs.
+- Outputs: keep the `direct_voxel_HF_*` file names under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau180|tau200|tau220/partial_spearman|ols_ancova/`; `tau200/partial_spearman` and unsmoothed maps are primary, `1-2 mm` FWHM smoothed maps are display-only outputs.
 
 #### SNr Direct Voxel Model
 
@@ -1266,13 +1267,13 @@ Sensitivity thresholds:
 tau = 0.18, 0.20, 0.22 V/mm
 ```
 
-Preferred coverage rule:
+Generic non-HF preferred coverage rule:
 
 ```text
 Coverage(v) >= 8
 ```
 
-meaning at least 50% of patients have suprathreshold exposure at that voxel. If this is too strict for the small STN/SNr masks and `n = 16`, prespecify an exploratory relaxed rule:
+meaning at least 50% of patients have suprathreshold exposure at that voxel. This generic rule is not used to generate HF direct voxel results. The HF executable model uses `Coverage(v) >= 5` only and records the 50% rule in its reference-coverage checklist.
 
 ```text
 Coverage(v) >= 5 or 6
@@ -1351,7 +1352,8 @@ Y_post ~ covariates
 Report:
 
 ```text
-LOOCV Pearson r
+model-specific primary LOOCV statistic
+LOOCV Pearson r as a secondary metric when not primary
 LOOCV Spearman rho
 MAE
 RMSE
@@ -1387,9 +1389,9 @@ Use seed `42`. The bootstrap is used to estimate map stability/resampling uncert
 
 #### Direct Voxel Outputs
 
-For the HF/STN model, the resolved exposure/territory/estimator/permutation/endpoint choices are listed under "Resolved HF/STN settings" in the `STN Direct Voxel Model` subsection above; HF outputs keep the `direct_voxel_HF_*` file names and land under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale>/`.
+For the HF/STN model, the resolved exposure/territory/estimator/permutation/endpoint choices are listed under "Resolved HF/STN settings" in the `STN Direct Voxel Model` subsection above; HF outputs keep the `direct_voxel_HF_*` file names and land under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau*/partial_spearman|ols_ancova/`.
 
-For each STN or ULF direct voxel model, export:
+For each generic non-HF/ULF direct voxel model, export:
 
 ```text
 direct_voxel_<seed>_coverage.nii.gz
@@ -1403,6 +1405,8 @@ direct_voxel_<seed>_loocv_predictions.csv
 direct_voxel_<seed>_permutation_summary.csv
 direct_voxel_<seed>_homologous_mapping_qc.json
 ```
+
+The executable HF direct voxel model is the exception to this generic list: it does not export `paired_mask`, uses `direct_voxel_HF_scores.csv` instead of `sweetspot_scores`, and follows the full output semantics in `model_summaries/hf_3m_direct_voxel_model.md`.
 
 Smoothing is optional and should be light:
 
@@ -1867,7 +1871,7 @@ Expected output groups:
 - Any voxel-map overlap score used for prediction is generated inside the training fold, not from all subjects.
 - Direct voxel-level sweet spot mapping is marked secondary/exploratory and does not replace the target-level primary model.
 - Direct voxel models use bilateral homologous voxel exposure, keeping one value per patient per voxel.
-- Nonlinear left/right homology uses inverse sampling into a right canonical grid with trilinear interpolation for E-field values.
+- Nonlinear left/right homology uses model-specific transform rules. The executable HF direct voxel model uses `ea_flip_lr_nonlinear` into the right-hemisphere MNI brainmask candidate grid; older inverse-sampling/trilinear descriptions are generic/non-HF context only.
 - Direct voxel coverage masks are defined within training folds for LOOCV.
 - Direct voxel models are compared against covariate-only models and evaluated with patient-level permutation tests.
 - The primary HF model uses raw STN-3m score adjusted for raw preoperative score, not percent improvement as the main outcome.
