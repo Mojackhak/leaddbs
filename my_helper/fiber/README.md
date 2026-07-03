@@ -66,6 +66,7 @@ Stacked coverage-share figure matrices use `mh_coverage_category_matrix`.
 Threshold-sensitivity trend tables use `mh_coverage_threshold_trend_table`.
 Long-to-wide category coverage tables use `mh_coverage_category_wide_table`.
 Coverage output file checks use `mh_coverage_require_output_files`.
+Threshold-series validation uses `mh_coverage_validate_threshold_series`.
 Horn backend calls use `mh_vta_run_horn_with_retry` for deterministic retry and
 post-write success handling.
 

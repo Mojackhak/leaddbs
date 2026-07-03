@@ -1618,3 +1618,44 @@ Phase 2AK validation completed:
 - Static search confirms output-file validation now calls
   `mh_coverage_require_output_files`; remaining `for i = 1:numel(required)`
   loops are table-column validation loops, not output-file checks.
+
+## Phase 2AL Implementation Scope
+
+Status: **completed**.
+
+Phase 2AL centralizes threshold-series validation for total VTA volumes:
+
+- Add `mh_coverage_validate_threshold_series(totalRows, groupVars, thresholds)`
+  under `core/coverage`.
+- Preserve the existing validation behavior: sort each group by
+  `threshold_v_per_mm`, require one row per expected threshold, and require
+  `total_vta_volume_mm3` to be monotonic non-increasing within a `1e-6`
+  tolerance.
+- Support caller-provided missing-threshold and monotonicity error IDs plus
+  message formats so STN/SNr cohort and target-component validators keep their
+  current public errors.
+- Update both STN/SNr validators to call the shared helper after constructing
+  their existing deduplicated `totalRows` tables.
+
+Phase 2AL validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_validate_threshold_series` and both
+  touched STN/SNr analyzers.
+- MATLAB synthetic smoke test proving valid series pass, missing-threshold
+  series raise the caller-provided missing error ID, increasing-volume series
+  raise the caller-provided monotonicity error ID, and multi-column group labels
+  work.
+- Static verification that the STN/SNr analyzers no longer contain duplicated
+  sorted-threshold monotonicity loops.
+
+Phase 2AL validation results:
+
+- `git diff --check` passed.
+- `mh_coverage_validate_threshold_series` passed focused `checkcode` with zero
+  messages.
+- The two touched STN/SNr analyzers report only pre-existing `AGROW`
+  `checkcode` messages outside the refactored validation blocks.
+- MATLAB synthetic smoke tests passed for valid threshold series, missing
+  threshold rows, monotonicity failure, multi-column cohort grouping, and
+  target-component grouping.
