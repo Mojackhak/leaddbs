@@ -1855,3 +1855,46 @@ Phase 2AQ validation results:
 - Static search confirms the cohort analyzer delegates `summarize_total_vta` to
   `mh_coverage_total_vta_summary` instead of implementing `splitapply(@max)`
   locally.
+
+## Phase 2AR Implementation Scope
+
+Status: **completed**.
+
+Phase 2AR centralizes category-total output validation:
+
+- Add `mh_coverage_validate_category_totals(tableIn, groupVars, expectedRows, ...)`
+  under `core/coverage`.
+- Preserve the target-component validation behavior: for each
+  `component_id x threshold_v_per_mm` group, require exactly four category rows
+  and require `sum(voxel_count)` to equal the group's `total_vta_voxels`.
+- Support caller-provided row-count and voxel-sum error IDs plus message
+  formats so target-component validation keeps its public errors.
+- Preserve numeric group-value formatting for threshold messages such as
+  `%.2f`.
+
+Phase 2AR validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_validate_category_totals` and the touched
+  target-component analyzer.
+- MATLAB synthetic smoke test proving valid category totals pass, row-count
+  failures raise the caller-provided missing-category error ID with numeric
+  threshold formatting, and voxel-sum failures raise the caller-provided mismatch
+  error ID.
+- Static verification that the target-component analyzer no longer contains the
+  local category-total `findgroups` validation loop.
+
+Phase 2AR validation results:
+
+- `git diff --check` passed.
+- `mh_coverage_validate_category_totals` passed focused `checkcode` with zero
+  messages.
+- The touched target-component analyzer reports only its pre-existing `AGROW`
+  `checkcode` message outside the refactored validation block.
+- MATLAB synthetic smoke tests passed for valid category totals, missing
+  category rows with caller-provided row-count error ID and numeric threshold
+  formatting, voxel-sum mismatch with caller-provided mismatch error ID, and
+  missing required columns.
+- Static search confirms the target-component analyzer calls
+  `mh_coverage_validate_category_totals` instead of keeping a local
+  `findgroups` category-total validation loop.
