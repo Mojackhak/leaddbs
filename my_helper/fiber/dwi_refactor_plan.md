@@ -222,6 +222,18 @@ sidecar 里的 `FakeCoregisterVolume`/`ExcludeFromNormalization`。Group 4 的 `
   Synb0 fake-B0 workflow; `RunCoregistration=false` still leaves B0 pending for
   Lead-DBS UI coregistration and manual QC.
 
+### Shared batch runner notes
+
+- The repeated DWI batch dispatch skeletons are consolidated into
+  `mh_fiber_run_item_batch`. The runner receives an item count, an item function,
+  an empty status row, and opt-in parallel options. It owns serial/`parfor`
+  dispatch and preallocation; each domain batch still owns its input schema,
+  per-row worker function, and status columns.
+- The runner also preserves the existing single-item behavior used by DICOM
+  conversion and mosaic reconstruction: if there is only one batch row and
+  `Parallel=true`, subject-level parallelism is not used and the item function is
+  told it may use internal volume-level parallelism.
+
 ## 验证
 
 - **数值回归（核心）**：把 1 个真实被试**拷贝**到临时 studyRoot（不覆写 `/Volumes/VAL` 下非 Git 文件），

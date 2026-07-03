@@ -16,19 +16,11 @@ inputTable = normalize_inputs(inputs);
 validate_input_columns(inputTable);
 
 nRows = height(inputTable);
-rows = repmat(empty_row(), nRows, 1);
-useSubjectParallel = opts.Parallel && nRows > 1 && mh_fiber_ensure_parallel_pool(opts.ParallelWorkers);
-
-if useSubjectParallel
-    parfor i = 1:nRows
-        rows(i) = convert_row(inputTable, i, opts, false);
-    end
-else
-    for i = 1:nRows
-        useVolumeParallel = opts.Parallel && nRows == 1;
-        rows(i) = convert_row(inputTable, i, opts, useVolumeParallel);
-    end
-end
+rows = mh_fiber_run_item_batch(nRows, ...
+    @(rowIndex, useVolumeParallel, ~) convert_row(inputTable, rowIndex, opts, useVolumeParallel), ...
+    empty_row(), ...
+    'Parallel', opts.Parallel, ...
+    'ParallelWorkers', opts.ParallelWorkers);
 
 summary = struct2table(rows, 'AsArray', true);
 end

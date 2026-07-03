@@ -8,23 +8,21 @@ opts = normalize_batch_options(opts);
 jobSpecs = normalize_job_specs(jobSpecs);
 
 nJobs = numel(jobSpecs);
-rows = repmat(empty_batch_row(), nJobs, 1);
 workerCount = resolve_worker_count(opts, nJobs);
-useParallel = opts.Parallel && workerCount > 1 && mh_fiber_ensure_parallel_pool(workerCount);
 
-if useParallel
+if opts.Parallel && workerCount > 1
     fprintf('Running DWI processing batch for %d subjects with %d parallel workers.\n', ...
         nJobs, workerCount);
-    parfor (i = 1:nJobs, workerCount)
-        rows(i) = process_one_job(jobSpecs(i), opts, true);
-    end
 else
     fprintf('Running DWI processing batch for %d subjects serially.\n', nJobs);
-    for i = 1:nJobs
-        fprintf('\n[%d/%d] %s\n', i, nJobs, char(string(jobSpecs(i).subjectId)));
-        rows(i) = process_one_job(jobSpecs(i), opts, false);
-    end
 end
+rows = mh_fiber_run_item_batch(nJobs, ...
+    @(jobIndex, ~, isParallelWorker) process_one_job(jobSpecs(jobIndex), opts, isParallelWorker), ...
+    empty_batch_row(), ...
+    'Parallel', opts.Parallel && workerCount > 1, ...
+    'ParallelWorkers', workerCount, ...
+    'WorkerSetupFcn', @configure_single_thread_worker, ...
+    'ProgressLabelFcn', @(jobIndex) jobSpecs(jobIndex).subjectId);
 
 summary = struct2table(rows, 'AsArray', true);
 end
@@ -118,10 +116,7 @@ elseif isunix && isfile('/proc/meminfo')
 end
 end
 
-function row = process_one_job(jobSpec, opts, isParallelWorker)
-if isParallelWorker
-    configure_single_thread_worker();
-end
+function row = process_one_job(jobSpec, opts, ~)
 row = mh_fiber_process_imported_dwi(jobSpec, opts);
 end
 
