@@ -1151,6 +1151,7 @@ Resolved HF/STN settings (these fix, for the HF/STN direct voxel model only, the
 - Bilateral homology: right `STNSNrplus` as canonical grid; map the left E-field with `ea_flip_lr_nonlinear` + `templates/space/MNI152NLin2009bAsym/fliplr/Composite.nii.gz`; no paired-mask membership threshold is used for the HF direct voxel executable model.
 - Estimator: residualized ANCOVA (OLS), no standardization of `X` or `M`; sweet-spot score uses `lambda = 0`.
 - Permutation: patient-level Freedman-Lane, formal `B = 10000`, smoke/exploratory `B = 1000`, seed `42`, primary statistic LOOCV Pearson `r`. The `coef` map stores raw `theta`, no per-voxel FDR.
+- Bootstrap: subject-level full-process bootstrap, formal `B = 10000`, smoke/exploratory `B = 1000`, seed `42`; rerun map building including `Omega_HF_tau` and store voxel-wise `theta` standard error.
 - Endpoints: first pass = MDS-UPDRS III and MDS-UPDRS III axial (both lower-is-better) from `subject_effect_origin.xlsx`, joined by `ID`; a patient missing `Y_HF3m` or a side's e-field fails scale-level QC as specified in the model summary.
 - Outputs: keep the `direct_voxel_HF_*` file names under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale>/tau180|tau200|tau220/`; `tau200` and unsmoothed maps are primary, `1-2 mm` FWHM smoothed maps are sensitivity outputs.
 
@@ -1371,6 +1372,15 @@ smoke/exploratory: B = 1000
 ```
 
 Use seed `42` and compute Monte Carlo permutation P values with the plus-one correction.
+
+Suggested subject-level bootstrap resamples:
+
+```text
+formal analysis: B = 10000
+smoke/exploratory: B = 1000
+```
+
+Use seed `42`. The bootstrap is used to estimate map stability/resampling uncertainty, not as the primary voxel-wise significance test.
 
 #### Direct Voxel Outputs
 
