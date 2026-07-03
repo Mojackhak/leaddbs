@@ -2518,3 +2518,31 @@ Phase 2BJ validation completed:
   ordering without real FEM data.
 - Static verification confirmed `mh_vta_run_stim_spec_tasks` no longer calls
   `mh_vta_make_compute_task` or `mh_vta_run_compute_tasks` directly.
+
+## Phase 2BK Implementation Scope
+
+Status: **completed**.
+
+Phase 2BK removes duplicated STN/SNr manifest conductivity defaults:
+
+- Move `gray_matter_conductivity_s_per_m` and
+  `white_matter_conductivity_s_per_m` manifest fields into
+  `mh_fiber_stnsnr_add_vta_manifest_fields`.
+- Populate those fields from `mh_vta_settings()` so manifest metadata and Horn
+  VTA defaults share one source.
+- Remove analyzer-local hardcoded `0.33` and `0.14` assignments from cohort
+  coverage and target-component distribution manifests.
+- Preserve existing manifest field names and numeric values.
+
+Phase 2BK validation completed:
+
+- `git diff --check` passed.
+- `mh_fiber_stnsnr_add_vta_manifest_fields` passed focused `checkcode` with
+  zero messages; the two touched large STN/SNr analyzers still report only
+  pre-existing `AGROW` messages outside the manifest change.
+- MATLAB synthetic smoke test confirmed the shared manifest helper writes
+  conductivity values from `mh_vta_settings()` while preserving existing VTA
+  manifest option fields.
+- Static verification confirmed the STN/SNr analyzers no longer hard-code
+  manifest conductivity values; those fields are assigned only in the shared
+  manifest helper.

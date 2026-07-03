@@ -105,6 +105,9 @@ STN/SNr VTA coverage artifact basenames use
 STN/SNr target-component identifiers and generated target-component VTA labels
 use `mh_fiber_stnsnr_target_component_id` and
 `mh_fiber_stnsnr_target_component_vta_label`.
+STN/SNr VTA manifest fields, including conductivity defaults from
+`mh_vta_settings`, are populated through
+`mh_fiber_stnsnr_add_vta_manifest_fields`.
 
 Process-isolated launches are now routed through
 `mh_vta_launch_process_workers`, which centralizes subject chunking, dry-run job
