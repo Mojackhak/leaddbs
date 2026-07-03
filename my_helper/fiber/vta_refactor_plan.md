@@ -2794,3 +2794,28 @@ Phase 2BT validation completed:
   `mh_vta_execution_config` mode/worker resolution without running FEM.
 - Static verification confirmed the touched execution/process files no longer
   carry local `get_vta_option` or `get_cfg_option` helper functions.
+
+## Phase 2BU Implementation Scope
+
+Status: **completed**.
+
+Phase 2BU completes use of the shared VTA force fallback helper:
+
+- Update `mh_vta_task_request_defaults` to use `mh_vta_config_force` instead of
+  carrying a local `resolve_force` helper.
+- Update the two compatibility wrappers, `mh_fiber_ensure_vta` and
+  `mh_fiber_ensure_vta_onesolve`, to populate `request.force` through
+  `mh_vta_config_force`.
+- Preserve existing behavior for normal configs where `cfg.forceRecomputeVTA`
+  is present; missing force config now follows the shared fallback of `false`.
+
+Phase 2BU validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for touched force-default callers passed with zero
+  messages.
+- MATLAB synthetic smoke test covered `mh_vta_task_request_defaults` and the
+  shared config-force fallback without running FEM.
+- Static verification confirmed VTA request force defaults no longer duplicate
+  direct `cfg.forceRecomputeVTA` fallback logic outside `mh_vta_config_force`
+  and project-level assignment sites.

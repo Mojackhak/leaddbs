@@ -10,7 +10,7 @@ end
 
 defaults = struct();
 defaults.modelKey = resolve_model_key(cfg, stimSpec);
-defaults.force = resolve_force(cfg);
+defaults.force = mh_vta_config_force(cfg);
 defaults.outputSpaces = mh_vta_output_spaces_from_config(cfg);
 defaults.gmAtlas = resolve_gm_atlas(cfg);
 end
@@ -24,14 +24,6 @@ elseif isstruct(cfg) && isfield(cfg, 'vta') && isfield(cfg.vta, 'modelKey') && .
     modelKey = char(string(cfg.vta.modelKey));
 else
     modelKey = mh_vta_default_model_key();
-end
-end
-
-function force = resolve_force(cfg)
-if isstruct(cfg) && isfield(cfg, 'forceRecomputeVTA')
-    force = logical(cfg.forceRecomputeVTA);
-else
-    force = false;
 end
 end
 

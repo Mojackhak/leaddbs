@@ -4,7 +4,7 @@ function vta = mh_fiber_ensure_vta_onesolve(cfg, S, options, stimFolders)
 request = struct();
 request.modelKey = 'simbio_onesolve';
 request.stimFolders = stimFolders;
-request.force = cfg.forceRecomputeVTA;
+request.force = mh_vta_config_force(cfg);
 request.sides = {'R', 'L'};
 request.outputSpaces = mh_vta_output_spaces_from_config();
 
