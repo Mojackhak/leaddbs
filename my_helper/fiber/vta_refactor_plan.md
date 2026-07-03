@@ -528,6 +528,8 @@ Phase 2H validation completed:
 
 ## Phase 2I Implementation Scope
 
+Status: **implemented**.
+
 Phase 2I removes the duplicated STN/SNr region-spec helper from the two STNSNr
 analyzers:
 
@@ -545,3 +547,14 @@ Phase 2I validation target:
 - MATLAB smoke test proving `mh_fiber_stnsnr_region_spec` returns the expected
   project metadata, region names, category scheme, and per-hemisphere mask path
   fields.
+
+Phase 2I validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_fiber_stnsnr_region_spec`; the two large
+  analyzers still have only their existing dynamic-growth performance warnings.
+- MATLAB smoke test proving the shared helper returns project `STNSNr`,
+  `membership_partition`, STN/SNr region names, and L/R mask path fields.
+- Static search confirms both STNSNr analyzers now call
+  `mh_fiber_stnsnr_region_spec` and no local `stnsnr_region_spec` functions
+  remain.
