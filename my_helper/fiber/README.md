@@ -125,6 +125,7 @@ headers and normalized per-subject contact QC CSV headers.
 Shared table string-column conversion uses `mh_util_force_string_vars`.
 Shared struct field access/removal uses `mh_util_get_field` and
 `mh_util_rmfield_safe`.
+Semicolon-joined report fields use `mh_util_join_values`.
 General labels are sanitized through `mh_util_sanitize_label`; explicit
 stimulation labels preserve plus signs for backward-compatible folder names.
 

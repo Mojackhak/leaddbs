@@ -535,9 +535,9 @@ for s = 1:numel(sides)
             patientName, phase, protocol, sideCode, thresholdLabel, forceOutputs);
         categoryRows = mh_coverage_category_summary_rows(categories, vtaMask, ref.voxel_volume_mm3);
         pattern = condition_pattern(conditionRows);
-        rawContacts = strjoin(string(conditionRows.RawContact(conditionRows.Side == string(sideCode)))', ';');
-        leadContacts = strjoin(string(conditionRows.LeadContact(conditionRows.Side == string(sideCode)))', ';');
-        targets = strjoin(unique(string(conditionRows.Target(conditionRows.Side == string(sideCode))), 'stable')', ';');
+        rawContacts = mh_util_join_values(conditionRows.RawContact(conditionRows.Side == string(sideCode)));
+        leadContacts = mh_util_join_values(conditionRows.LeadContact(conditionRows.Side == string(sideCode)));
+        targets = mh_util_join_values(unique(string(conditionRows.Target(conditionRows.Side == string(sideCode))), 'stable'));
 
         for r = 1:size(categoryRows, 1)
             coverageRows(end+1, :) = { ...

@@ -1046,3 +1046,40 @@ Phase 2V validation completed:
   no-op behavior, present-field lookup, and fallback lookup.
 - Static search confirms no local `rmfield_safe` or `safe_get_field` functions
   remain in the STN/SNr VTA coverage analyzer.
+
+## Phase 2W Implementation Scope
+
+Status: **implemented**.
+
+Phase 2W centralizes repeated semicolon-joined report-field formatting used by
+the STN/SNr VTA analyzers:
+
+- Add `mh_util_join_values(values, 'Delimiter', ';')` under `core/util`.
+- Preserve the current behavior: reshape inputs to a row string array and join
+  values with semicolons by default.
+- Update STN/SNr cohort coverage and target-component coverage to use the
+  shared helper for raw contacts, lead contacts, target lists, e-field path
+  lists, voltages, pulse widths, and frequencies.
+- Remove the target-component analyzer's local `join_numeric` helper.
+
+Phase 2W validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_util_join_values` and both touched STN/SNr
+  analyzers.
+- MATLAB synthetic smoke test proving numeric arrays, string arrays, cellstr
+  inputs, column vectors, and custom delimiters format as expected.
+- Static verification that the target-component analyzer no longer defines
+  `join_numeric` and that STN/SNr analyzer semicolon joins call
+  `mh_util_join_values`.
+
+Phase 2W validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_util_join_values`; the two large STN/SNr
+  analyzers still report only their existing dynamic-growth warnings.
+- MATLAB synthetic smoke test verifies numeric row and column vectors, string
+  arrays, cellstr inputs, and a custom delimiter.
+- Static search confirms the target-component analyzer no longer defines
+  `join_numeric` and that STN/SNr analyzer report-field joins call
+  `mh_util_join_values`.
