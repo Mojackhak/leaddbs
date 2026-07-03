@@ -746,18 +746,14 @@ end
 required = {'cohort_vta_coverage_long.csv', 'cohort_vta_coverage_wide.csv', ...
     'cohort_vta_coverage_by_condition.csv', 'cohort_vta_threshold_sensitivity.csv', ...
     'cohort_contact_mapping_qc.csv', 'cohort_vta_generation_manifest.json'};
-for i = 1:numel(required)
-    mh_util_must_be_file(fullfile(outputDir, required{i}), required{i});
-end
+mh_coverage_require_output_files(outputDir, required);
 end
 
 function validate_cohort_files_only(outputDir)
 required = {'cohort_vta_coverage_long.csv', 'cohort_vta_coverage_wide.csv', ...
     'cohort_vta_coverage_by_condition.csv', 'cohort_vta_threshold_sensitivity.csv', ...
     'cohort_contact_mapping_qc.csv', 'cohort_vta_generation_manifest.json'};
-for i = 1:numel(required)
-    mh_util_must_be_file(fullfile(outputDir, required{i}), required{i});
-end
+mh_coverage_require_output_files(outputDir, required);
 end
 
 function result = make_result(coverageTable, contactTable, manifest, cohortOutputDir)

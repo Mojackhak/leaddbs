@@ -1578,3 +1578,43 @@ Phase 2AJ validation completed:
 - Static search confirms the STN/SNr analyzers call
   `mh_coverage_category_wide_table` and no longer define `make_wide_table` or
   inline `unstack(..., 'volume_mm3', 'category')`.
+
+## Phase 2AK Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AK centralizes repeated coverage output-file existence checks:
+
+- Add `mh_coverage_require_output_files(outputDir, requiredFiles)` under
+  `core/coverage`.
+- Support an optional `DescriptionPrefix` so callers can preserve existing
+  `mh_util_must_be_file` descriptions.
+- Update STN/SNr cohort coverage output validation, cohort files-only
+  validation, and target-component output validation to call the shared helper
+  instead of open-coding the required-file loop.
+- Keep required filename lists, nested figure paths, error behavior, and
+  validation order unchanged.
+
+Phase 2AK validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_require_output_files` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic smoke test proving present files pass, nested relative paths
+  pass, missing files raise through `mh_util_must_be_file`, and description
+  prefixes are accepted.
+- Static verification that the STN/SNr analyzers no longer contain duplicated
+  `for i = 1:numel(required)` output-file loops.
+
+Phase 2AK validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_coverage_require_output_files`; the two
+  large STN/SNr analyzers still report only their existing dynamic-growth
+  warnings.
+- MATLAB synthetic smoke test verifies present files pass, nested relative paths
+  pass, missing files raise through `mh_util_must_be_file`, and description
+  prefixes are accepted.
+- Static search confirms output-file validation now calls
+  `mh_coverage_require_output_files`; remaining `for i = 1:numel(required)`
+  loops are table-column validation loops, not output-file checks.
