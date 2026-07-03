@@ -433,7 +433,7 @@ for i = 1:numel(programs)
     cfg.vta.model = mh_fiber_model_name('simbio');
     cfg.vta.gmAtlas = char(string(opts.VtaGmAtlas));
     cfg = mh_vta_apply_execution_options(cfg, opts);
-    stimSpec = rows_to_stim_spec(rows, programs(i).label);
+    stimSpec = mh_fiber_stnsnr_stimspec_from_table(rows, programs(i).label);
 
     activeSides = unique(string(rows.Side), 'stable');
     [taskResults, taskArray, cfg, ~, ~, stimFolders] = mh_vta_run_stim_spec_tasks( ...
@@ -469,31 +469,6 @@ for i = 1:numel(programs)
     programs(i).vta_tasks = vertcat(taskMetadata{:});
     programs(i).vta_task_results = vertcat(taskResultMetadata{:});
 end
-end
-
-function stimSpec = rows_to_stim_spec(rows, label)
-stimSpec = struct();
-stimSpec.label = char(string(label));
-stimSpec.model = 'simbio';
-stimSpec.space = 'native_and_mni';
-stimSpec.sources = repmat(empty_source(), height(rows), 1);
-for i = 1:height(rows)
-    source = empty_source();
-    source.side = char(rows.Side(i));
-    source.contact = double(rows.LeadContact(i));
-    source.amp = double(rows.Voltage(i));
-    source.unit = 'V';
-    source.pulseWidth = double(rows.PulseWidth(i));
-    source.frequency = double(rows.Frequency(i));
-    source.cathode = true;
-    source.anode = 'case';
-    stimSpec.sources(i) = source;
-end
-end
-
-function source = empty_source()
-source = struct('side', '', 'contact', NaN, 'amp', NaN, 'unit', 'V', ...
-    'pulseWidth', NaN, 'frequency', NaN, 'cathode', true, 'anode', 'case');
 end
 
 function [coverageRows, conditionManifest] = analyze_condition_coverage(programs, conditionRows, ...

@@ -822,3 +822,45 @@ Phase 2P validation completed:
   `gmAtlas = DISTAL Nano (Ewert 2017)`.
 - Static search confirms `mh_fiber_default_config` calls
   `mh_util_resolve_repo_dir` and no longer defines a local `resolve_repo_dir`.
+
+## Phase 2Q Implementation Scope
+
+Status: **implemented**.
+
+Phase 2Q removes the duplicated STN/SNr table-to-stimulation-spec conversion
+from the two STN/SNr analyzers:
+
+- Add `mh_fiber_stnsnr_stimspec_from_table(rows, label)` as a shared
+  project-level Layer 1 helper.
+- Support both workbook-style columns (`Side`, `LeadContact`, `Voltage`,
+  `PulseWidth`, `Frequency`) and normalized columns (`side`, `lead_contact`,
+  `voltage`, `pulse_width`, `frequency`).
+- Delegate the final source construction to the generic
+  `mh_fiber_stimspec_from_table` helper so source defaults remain centralized.
+- Update STN/SNr cohort coverage and target-component coverage to call the
+  shared helper and remove their local `rows_to_stim_spec` and `empty_source`
+  functions.
+
+Phase 2Q validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_fiber_stnsnr_stimspec_from_table` and both
+  touched STN/SNr analyzers.
+- MATLAB synthetic smoke test proving workbook-style and normalized STN/SNr
+  tables produce identical stimulation specs for side, contact, voltage, pulse
+  width, frequency, unit, cathode, anode, model, and space.
+- Static verification that no local `rows_to_stim_spec` or `empty_source`
+  functions remain in the STN/SNr analyzers.
+
+Phase 2Q validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_fiber_stnsnr_stimspec_from_table` and
+  `mh_fiber_stimspec_from_table`; the two large STN/SNr analyzers still report
+  only their existing dynamic-growth warnings.
+- MATLAB synthetic smoke test proves workbook-style and normalized STN/SNr
+  tables produce matching source fields for side, contact, voltage, pulse width,
+  frequency, unit, cathode, and anode while preserving requested labels, model,
+  and space.
+- Static search confirms no local `rows_to_stim_spec` or `empty_source`
+  functions remain in the STN/SNr analyzers.

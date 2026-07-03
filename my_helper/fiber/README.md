@@ -64,6 +64,8 @@ project launcher uses the existing process-level worker script, but the task
 contract is shared by future parpool and process execution modes.
 `mh_vta_run_stim_spec_tasks` owns the shared cfg/stimSpec-to-task assembly path
 so project analyzers only need to prepare project-specific stimulation specs.
+STN/SNr analyzers share `mh_fiber_stnsnr_stimspec_from_table` for converting
+workbook-style and normalized contact rows into Layer 1 stimulation specs.
 
 Process-isolated launches are now routed through
 `mh_vta_launch_process_workers`, which centralizes subject chunking, dry-run job

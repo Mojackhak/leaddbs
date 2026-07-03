@@ -285,7 +285,7 @@ cfg.vta.modelKey = 'simbio';
 cfg.vta.model = mh_fiber_model_name('simbio');
 cfg.vta.gmAtlas = char(string(opts.VtaGmAtlas));
 cfg = mh_vta_apply_execution_options(cfg, opts);
-stimSpec = rows_to_stim_spec(componentRows, label);
+stimSpec = mh_fiber_stnsnr_stimspec_from_table(componentRows, label);
 [taskResults, ~, cfg] = mh_vta_run_stim_spec_tasks( ...
     cfg, stimSpec, {sideCode}, ...
     'ModelKey', 'simbio', ...
@@ -305,31 +305,6 @@ if ~strcmp(patientName, cfg.patientName)
     error('mh_fiber_run_stnsnr_target_component_vta_distribution:PatientNameMismatch', ...
         'Unexpected patient name mismatch for %s.', componentId);
 end
-end
-
-function stimSpec = rows_to_stim_spec(rows, label)
-stimSpec = struct();
-stimSpec.label = char(string(label));
-stimSpec.model = 'simbio';
-stimSpec.space = 'native_and_mni';
-stimSpec.sources = repmat(empty_source(), height(rows), 1);
-for i = 1:height(rows)
-    source = empty_source();
-    source.side = char(rows.side(i));
-    source.contact = double(rows.lead_contact(i));
-    source.amp = double(rows.voltage(i));
-    source.unit = 'V';
-    source.pulseWidth = double(rows.pulse_width(i));
-    source.frequency = double(rows.frequency(i));
-    source.cathode = true;
-    source.anode = 'case';
-    stimSpec.sources(i) = source;
-end
-end
-
-function source = empty_source()
-source = struct('side', '', 'contact', NaN, 'amp', NaN, 'unit', 'V', ...
-    'pulseWidth', NaN, 'frequency', NaN, 'cathode', true, 'anode', 'case');
 end
 
 function [coverageRows, componentManifest] = analyze_component_coverage( ...
