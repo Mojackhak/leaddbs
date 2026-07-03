@@ -393,6 +393,10 @@ sideCode = char(component.side);
 ref = mh_coverage_reference_grid(efieldPaths, outputVoxelSize, ...
     'ErrorId', 'mh_fiber_run_stnsnr_target_component_vta_distribution:ReferenceGridTooLarge');
 regionMasks = mh_coverage_sample_region_masks(regionSpec, sideCode, ref);
+sampledEfields = cell(numel(efieldPaths), 1);
+for e = 1:numel(efieldPaths)
+    sampledEfields{e} = mh_coverage_sample_scalar_to_grid(efieldPaths{e}, ref);
+end
 
 for t = 1:numel(thresholdsVPerM)
     thresholdVPerMm = thresholdsVPerMm(t);
@@ -400,7 +404,7 @@ for t = 1:numel(thresholdsVPerM)
     thresholdLabel = threshold_label(thresholdVPerMm);
     hitCount = zeros(ref.dim, 'uint16');
     for e = 1:numel(efieldPaths)
-        hitCount = hitCount + uint16(mh_coverage_sample_threshold_to_grid(efieldPaths{e}, ref, thresholdVPerM));
+        hitCount = hitCount + uint16(sampledEfields{e} >= thresholdVPerM);
     end
     vtaMask = hitCount > 0;
     overlapMask = hitCount > 1;

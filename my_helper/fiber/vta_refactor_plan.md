@@ -174,3 +174,43 @@ Phase 1 validation completed:
   accounting.
 - MATLAB smoke test for `mh_viz_composition_donut` and
   `mh_viz_stacked_share_bar` PNG export in `-batch` mode.
+
+## Phase 2A Implementation Scope
+
+Status: **implemented**.
+
+Phase 2A targets the threshold-scanning redundancy from Goal 3 without changing
+VTA generation semantics:
+
+- Add `mh_coverage_sample_scalar_to_grid(sourcePath, ref)` to resample an
+  e-field NIfTI onto the condition/component reference grid once as a numeric
+  array.
+- In STNSNr cohort coverage and target-component coverage, precompute one
+  sampled e-field array per program/component e-field before the threshold loop.
+- For each threshold, derive `hitCount` from the in-memory sampled arrays with
+  `sampledEfield >= thresholdVPerM` instead of reloading and resampling the same
+  NIfTI for every threshold.
+- Preserve existing nearest-neighbor sampling, outside-grid non-hit behavior,
+  output CSV fields, output mask names, and category calculations.
+- Keep `mh_coverage_sample_threshold_to_grid` for compatibility and tests that
+  need direct one-threshold sampling.
+
+Phase 2A validation target:
+
+- MATLAB smoke test proving `mh_coverage_sample_scalar_to_grid(path, ref) >= t`
+  matches `mh_coverage_sample_threshold_to_grid(path, ref, t)` on a synthetic
+  NIfTI for multiple thresholds.
+- MATLAB smoke test proving multi-threshold in-memory `hitCount` union/overlap
+  logic matches repeated threshold sampling for two synthetic e-fields.
+- `git diff --check`.
+
+Phase 2A validation completed:
+
+- `git diff --check`
+- MATLAB synthetic NIfTI smoke test comparing scalar sampling plus in-memory
+  thresholding against repeated direct threshold sampling, including `t = 0`
+  outside-grid behavior.
+- MATLAB synthetic two-e-field smoke test comparing in-memory union/overlap
+  `hitCount` logic against repeated threshold sampling.
+- `checkcode` on the new scalar sampler and both STNSNr analyzers; only existing
+  dynamic-growth performance warnings remain in the large analyzers.
