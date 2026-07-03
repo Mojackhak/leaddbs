@@ -2338,3 +2338,36 @@ Phase 2BD validation results:
 - MATLAB dry-run smoke test confirmed the subject-level launcher writes
   `STNSNR_VTA_PROCESS_DRY_RUN='true'` into the worker launch command file while
   redirecting output to a temporary directory.
+
+## Phase 2BE Implementation Scope
+
+Status: **completed**.
+
+Phase 2BE applies region-derived category-total validation to STN/SNr cohort
+coverage outputs:
+
+- Update cohort output validation to receive the injected `regionSpec`.
+- Use `mh_coverage_region_category_count(regionSpec)` and
+  `mh_coverage_validate_category_totals` to validate each
+  `subject_id x phase x protocol x condition_key x side x threshold` group.
+- Preserve existing contact QC row-count, subject-count, contact-side-rule, and
+  threshold monotonicity checks.
+- Preserve default STN/SNr behavior because the injected two-region spec still
+  expects four category rows per group.
+
+Phase 2BE validation target:
+
+- `git diff --check`
+- Focused `checkcode` for the touched cohort analyzer and shared coverage
+  validators.
+- MATLAB synthetic smoke test proving cohort category totals pass for a
+  three-region eight-category table and fail when a category row is missing.
+
+Phase 2BE validation results:
+
+- `git diff --check` passed.
+- The touched cohort analyzer reports only pre-existing `AGROW` `checkcode`
+  messages outside the refactored validation logic.
+- Shared coverage validators passed focused `checkcode` with zero messages.
+- MATLAB synthetic smoke test confirmed cohort-style category totals pass for a
+  three-region eight-category table and fail when a category row is missing.
