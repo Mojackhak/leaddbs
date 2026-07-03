@@ -12,7 +12,7 @@ exec.parallel = logical(get_vta_option(cfg, 'parallel', false));
 exec.parallel_workers = max(1, round(double(get_vta_option(cfg, 'parallelWorkers', 1))));
 exec.task_count = max(0, double(taskCount));
 
-if exec.task_count <= 1
+if exec.task_count <= 1 && ~strcmp(exec.mode, 'process')
     exec.mode = 'sequential';
     exec.parallel = false;
     exec.parallel_workers = 1;
@@ -39,6 +39,10 @@ switch exec.mode
         else
             exec.reason = 'parpool';
         end
+    case 'process'
+        exec.parallel = true;
+        exec.parallel_workers = min(exec.parallel_workers, max(1, exec.task_count));
+        exec.reason = 'process';
     otherwise
         error('mh_vta_execution_config:UnsupportedMode', ...
             'Unsupported VTA execution mode: %s', exec.mode);

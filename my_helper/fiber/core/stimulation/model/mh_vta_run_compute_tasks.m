@@ -19,6 +19,9 @@ switch exec.mode
         parfor i = 1:numel(tasks)
             resultCells{i} = mh_vta_run_compute_task(cfg, S, options, tasks(i));
         end
+    case 'process'
+        results = mh_vta_run_compute_tasks_process(cfg, S, options, tasks, exec);
+        return;
     otherwise
         error('mh_vta_run_compute_tasks:UnsupportedMode', ...
             'Unsupported VTA execution mode: %s', exec.mode);

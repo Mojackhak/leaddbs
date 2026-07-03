@@ -30,8 +30,8 @@ for i = 1:workerCount
     subjectList = strjoin(ids, ';');
     subjectEnvList = strjoin(ids, ',');
     logPath = fullfile(logDir, sprintf('worker_%02d.log', i));
-    batchExpr = sprintf('run(''%s'')', char(string(workerScript)));
-    innerCmd = matlab_batch_command(opts.MatlabExe, batchExpr, opts.CondaEnv);
+    batchExpr = sprintf('run(%s)', mh_vta_matlab_string_literal(workerScript));
+    innerCmd = mh_vta_matlab_batch_command(opts.MatlabExe, batchExpr, opts.CondaEnv);
 
     envValues = opts.Env;
     envValues.STNSNR_VTA_SUBJECT_IDS = subjectEnvList;
@@ -60,23 +60,6 @@ end
 jobs = cell2table(jobRows, 'VariableNames', ...
     {'worker_index', 'subject_ids', 'pid', 'log_path', 'status', ...
     'inner_command', 'launch_command'});
-end
-
-function cmd = matlab_batch_command(matlabExe, batchExpr, condaEnv)
-matlabExe = char(string(matlabExe));
-batchExpr = char(string(batchExpr));
-condaEnv = char(string(condaEnv));
-
-if strlength(string(condaEnv)) > 0
-    cmd = sprintf(['if command -v conda >/dev/null 2>&1; then ', ...
-        'conda run -n %s %s -batch %s; else %s -batch %s; fi'], ...
-        mh_fiber_shell_quote(condaEnv), mh_fiber_shell_quote(matlabExe), ...
-        mh_fiber_shell_quote(batchExpr), mh_fiber_shell_quote(matlabExe), ...
-        mh_fiber_shell_quote(batchExpr));
-else
-    cmd = sprintf('%s -batch %s', mh_fiber_shell_quote(matlabExe), ...
-        mh_fiber_shell_quote(batchExpr));
-end
 end
 
 function text = env_assignments(envValues)

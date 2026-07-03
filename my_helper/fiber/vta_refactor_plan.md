@@ -337,11 +337,16 @@ Phase 2D validation completed:
 
 ## Phase 2E Implementation Scope
 
+Status: **implemented**.
+
 Phase 2E connects the program-side task list from Phase 2B/2C to process-mode
 execution while keeping sequential execution as the default:
 
 - Extend the task batch helper so `cfg.vta.executionMode = 'process'` is a
   supported task execution mode instead of only a subject-level launcher mode.
+- Add process-mode configuration defaults for the MATLAB executable, Conda
+  environment, dry-run planning, task work directory, polling interval, and
+  timeout.
 - Add a task-worker entry point that receives serialized `(program x side)`
   task payloads, reconstructs the shared VTA inputs, and calls
   `mh_vta_run_compute_task` in an isolated MATLAB process.
@@ -358,3 +363,27 @@ Phase 2E validation target:
   and executed by the process task-worker entry point without requiring real FEM
   data.
 - `git diff --check`.
+
+Phase 2E validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for the new process-mode helpers and touched VTA
+  execution/config files.
+- MATLAB smoke test proving `cfg.vta.executionMode = 'process'` plus
+  `cfg.vta.processDryRun = true` serializes two side tasks, writes worker
+  manifests, and preserves task ordering/result metadata without launching
+  workers.
+- MATLAB stub-worker smoke test proving `mh_vta_compute_task_worker` can load a
+  serialized payload and execute `mh_vta_run_compute_task` with a stubbed
+  `mh_vta_compute`.
+- MATLAB dry-run regression for `mh_vta_launch_process_workers`, confirming the
+  subject-level STNSNr launcher still preserves subject chunking, Conda-aware
+  command construction, and environment assignment.
+
+Deferred validation:
+
+- Real FEM process-mode execution on a 1-2 subject subset.
+- Numerical equivalence among sequential, parpool, and process modes for
+  program-side e-field outputs.
+- Full cohort timing and numerical regression against
+  `cohort_vta_coverage_long.csv`.

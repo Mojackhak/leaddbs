@@ -41,6 +41,12 @@ cfg.vta.gmAtlas = 'DISTAL Nano (Ewert 2017)';
 cfg.vta.parallel = false;
 cfg.vta.parallelWorkers = 1;
 cfg.vta.executionMode = 'sequential';
+cfg.vta.matlabExe = '/Applications/MATLAB_R2024b.app/bin/matlab';
+cfg.vta.condaEnv = 'leaddbs';
+cfg.vta.processDryRun = false;
+cfg.vta.processWorkDir = '';
+cfg.vta.processPollSeconds = 2;
+cfg.vta.processTimeoutSeconds = 0;
 
 cfg.paths = struct();
 cfg.paths.mniFiber = fullfile(subjectDir, 'connectomics', 'dMRI', 'FTR_normalized.mat');

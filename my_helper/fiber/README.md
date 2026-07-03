@@ -66,11 +66,14 @@ Process-isolated launches are now routed through
 tables, Conda-aware MATLAB batch command construction, and PID/log metadata for
 the STN/SNr process worker entry point.
 
-Task-level process execution is planned as the same execution-harness family:
+Task-level process execution uses the same execution-harness family:
 `mh_vta_run_compute_tasks` keeps sequential execution as the default, while
 `cfg.vta.executionMode = 'process'` dispatches serialized program-side VTA tasks
 to isolated MATLAB workers for cases where Lead-DBS global state should not be
-shared inside one MATLAB process.
+shared inside one MATLAB process. Process-mode configuration lives under
+`cfg.vta.matlabExe`, `cfg.vta.condaEnv`, `cfg.vta.processWorkDir`,
+`cfg.vta.processDryRun`, `cfg.vta.processPollSeconds`, and
+`cfg.vta.processTimeoutSeconds`.
 
 Coverage analysis is separate from VTA generation. `core/coverage/` builds the
 reference grid, samples e-field and atlas masks, and classifies VTA voxels with
