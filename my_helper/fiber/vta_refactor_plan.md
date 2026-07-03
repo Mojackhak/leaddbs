@@ -2115,3 +2115,36 @@ Phase 2AX validation results:
   eight-category table.
 - Static search confirms target-component validation no longer hard-codes four
   category rows or 2280 coverage rows.
+
+## Phase 2AY Implementation Scope
+
+Status: **completed**.
+
+Phase 2AY enforces the region-spec category-scheme contract at the shared
+validation boundary:
+
+- Update `mh_coverage_verify_region_spec` to reject non-`membership_partition`
+  `regionSpec.categoryScheme` values before coverage analysis starts.
+- Preserve the default behavior for legacy or minimal region specs without a
+  `categoryScheme` field by treating the missing field as
+  `membership_partition`.
+- Preserve existing mask-path validation and caller-provided error-prefix
+  behavior.
+
+Phase 2AY validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_verify_region_spec` and
+  `mh_coverage_region_category_count`.
+- MATLAB synthetic smoke test proving a missing `categoryScheme` passes, an
+  explicit `membership_partition` scheme passes, and an unsupported scheme
+  raises the caller-prefixed `UnsupportedCategoryScheme` error.
+
+Phase 2AY validation results:
+
+- `git diff --check` passed.
+- `mh_coverage_verify_region_spec` and `mh_coverage_region_category_count`
+  passed focused `checkcode` with zero messages.
+- MATLAB synthetic smoke test passed for a missing `categoryScheme`, explicit
+  `membership_partition`, and unsupported scheme rejection with the
+  caller-prefixed `UnsupportedCategoryScheme` error.
