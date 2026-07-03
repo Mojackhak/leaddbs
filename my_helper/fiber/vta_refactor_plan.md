@@ -906,3 +906,40 @@ Phase 2R validation completed:
 - Static search confirms the STN/SNr analyzers call
   `mh_coverage_write_standard_masks` and no longer call
   `mh_coverage_write_ref_nii` directly.
+
+## Phase 2S Implementation Scope
+
+Status: **implemented**.
+
+Phase 2S removes the duplicated table string-column conversion helper from the
+two STN/SNr analyzers:
+
+- Add `mh_util_force_string_vars(tableIn, stringVars)` under `core/util`.
+- Preserve the current behavior: convert only variables present in the table,
+  leave missing requested variables ignored, and leave all other variables
+  unchanged.
+- Update STN/SNr cohort coverage and target-component coverage to call the
+  shared utility and remove their local `force_string_vars` functions.
+- Keep output table variable names, row counts, and value conversions unchanged.
+
+Phase 2S validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_util_force_string_vars` and both touched STN/SNr
+  analyzers.
+- MATLAB synthetic smoke test proving selected present variables are converted
+  to string, missing requested variables are ignored, and untouched variables
+  keep their original type/value.
+- Static verification that no local `force_string_vars` functions remain in the
+  STN/SNr analyzers.
+
+Phase 2S validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_util_force_string_vars`; the two large
+  STN/SNr analyzers still report only their existing dynamic-growth warnings.
+- MATLAB synthetic smoke test verifies that selected present variables are
+  converted to string, missing requested variables are ignored, and untouched
+  numeric variables keep their original values and type.
+- Static search confirms no local `force_string_vars` functions remain in the
+  STN/SNr analyzers.

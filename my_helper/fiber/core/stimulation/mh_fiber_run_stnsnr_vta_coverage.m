@@ -644,15 +644,7 @@ function tableOut = normalize_coverage_table(tableOut)
 stringVars = {'subject_id', 'patient_name', 'phase', 'protocol', 'condition_key', ...
     'side', 'category', 'stimulation_pattern', 'raw_contacts', 'lead_contacts', ...
     'targets', 'vta_mask_path', 'category_mask_path', 'program_overlap_mask_path'};
-tableOut = force_string_vars(tableOut, stringVars);
-end
-
-function tableOut = force_string_vars(tableOut, stringVars)
-for i = 1:numel(stringVars)
-    if ismember(stringVars{i}, tableOut.Properties.VariableNames)
-        tableOut.(stringVars{i}) = string(tableOut.(stringVars{i}));
-    end
-end
+tableOut = mh_util_force_string_vars(tableOut, stringVars);
 end
 
 function write_cohort_outputs(outputDir, coverageTable, contactTable, manifest, mainThreshold)

@@ -142,14 +142,6 @@ result.summaryCsv = fullfile(outputDir, 'cohort_target_component_distribution_su
 result.manifestJson = fullfile(outputDir, 'cohort_target_component_generation_manifest.json');
 end
 
-function tableOut = force_string_vars(tableOut, stringVars)
-for i = 1:numel(stringVars)
-    if ismember(stringVars{i}, tableOut.Properties.VariableNames)
-        tableOut.(stringVars{i}) = string(tableOut.(stringVars{i}));
-    end
-end
-end
-
 function validate_contact_table(contactTable)
 required = {'subject_id', 'name_en', 'phase', 'protocol', 'target', 'side', ...
     'voltage', 'pulse_width', 'frequency', 'stimulation_pattern', ...
@@ -453,7 +445,7 @@ stringVars = {'component_id', 'subject_id', 'patient_name', 'phase', 'protocol',
     'side', 'target', 'component_origin', 'category', 'raw_contacts', 'lead_contacts', ...
     'voltages', 'pulse_widths', 'frequencies', 'stimulation_pattern', 'efield_paths', ...
     'vta_mask_path', 'category_mask_path', 'program_overlap_mask_path'};
-tableOut = force_string_vars(tableOut, stringVars);
+tableOut = mh_util_force_string_vars(tableOut, stringVars);
 end
 
 function tableOut = rows_to_component_qc_table(rows)
@@ -468,7 +460,7 @@ tableOut = cell2table(rows, 'VariableNames', { ...
 stringVars = {'component_id', 'subject_id', 'patient_name', 'phase', 'protocol', ...
     'side', 'target', 'component_origin', 'raw_contacts', 'lead_contacts', ...
     'voltages', 'pulse_widths', 'frequencies', 'stimulation_pattern', 'efield_paths'};
-tableOut = force_string_vars(tableOut, stringVars);
+tableOut = mh_util_force_string_vars(tableOut, stringVars);
 end
 
 function write_outputs(outputDir, coverageTable, componentQcTable, manifest, mainThreshold)
