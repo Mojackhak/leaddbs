@@ -2691,3 +2691,29 @@ Phase 2BP validation completed:
 - Static verification confirmed default output-space call sites no longer
   duplicate the `native_and_mni` and `{'native', 'mni'}` defaults outside the
   shared helpers and explicit semantic selections.
+
+## Phase 2BQ Implementation Scope
+
+Status: **completed**.
+
+Phase 2BQ centralizes the generic VTA gray-matter atlas fallback:
+
+- Add `mh_vta_default_gm_atlas` as the generic fallback used by
+  `mh_fiber_default_config`.
+- Update the default config to read `cfg.vta.gmAtlas` from this helper instead
+  of embedding the atlas string directly.
+- Preserve the existing fallback value, `DISTAL Nano (Ewert 2017)`.
+- Keep project-level atlas injection unchanged: STN/SNr continues to use
+  `mh_fiber_stnsnr_default_vta_gm_atlas` and explicit `VtaGmAtlas`/environment
+  overrides.
+
+Phase 2BQ validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the new helper and `mh_fiber_default_config` passed
+  with zero messages.
+- MATLAB synthetic smoke test confirmed `mh_fiber_default_config` uses the
+  helper value while preserving model, output-space, and execution defaults.
+- Static verification confirmed the generic fallback
+  `DISTAL Nano (Ewert 2017)` string appears only in `mh_vta_default_gm_atlas`
+  and documentation.

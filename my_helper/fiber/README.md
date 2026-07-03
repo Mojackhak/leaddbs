@@ -57,6 +57,9 @@ The generic omitted-model fallback is centralized in
 `mh_vta_default_model_key`.
 Generic VTA config and request output-space defaults are centralized in
 `mh_vta_default_config_space` and `mh_vta_output_spaces_from_config`.
+The generic fallback gray-matter atlas for `mh_fiber_default_config` is
+centralized in `mh_vta_default_gm_atlas`; project analyzers should still inject
+their own atlas choices explicitly.
 Standard VTA path lookups use `mh_fiber_vta_paths` and
 `mh_fiber_vta_efield_path`.
 VTA MAT volume reads use `mh_vta_read_vat_volume`.
