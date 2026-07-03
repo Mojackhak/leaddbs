@@ -172,9 +172,9 @@ components = unique(contactTable(:, keyVars), 'rows', 'stable');
 components.patient_name = "sub-" + components.name_en;
 componentId = strings(height(components), 1);
 for i = 1:height(components)
-    componentId(i) = string(mh_util_sanitize_label(sprintf('%s_%s_%s_%s_%s', ...
+    componentId(i) = string(mh_fiber_stnsnr_target_component_id( ...
         components.subject_id(i), components.phase(i), components.protocol(i), ...
-        components.side(i), components.target(i))));
+        components.side(i), components.target(i)));
 end
 components.component_id = componentId;
 components = movevars(components, {'component_id', 'patient_name'}, 'After', 'subject_id');
@@ -277,7 +277,7 @@ function efieldPaths = generate_component_efield(componentRows, subjectDir, pati
     component, exportThresholdVPerMm, opts)
 sideCode = char(component.side);
 componentId = char(component.component_id);
-label = mh_util_sanitize_label(['stnsnr_target_component_', componentId]);
+label = mh_fiber_stnsnr_target_component_vta_label(componentId);
 cfg = mh_fiber_default_config(subjectDir, label);
 cfg.forceRecomputeVTA = logical(opts.ForceVta);
 cfg.vta.modelKey = 'simbio';

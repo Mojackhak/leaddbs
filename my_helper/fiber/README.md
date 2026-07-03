@@ -78,6 +78,9 @@ STN/SNr condition and target directory keys use
 `mh_fiber_stnsnr_condition_key`.
 STN/SNr VTA coverage artifact basenames use
 `mh_fiber_stnsnr_vta_artifact_base`.
+STN/SNr target-component identifiers and generated target-component VTA labels
+use `mh_fiber_stnsnr_target_component_id` and
+`mh_fiber_stnsnr_target_component_vta_label`.
 
 Process-isolated launches are now routed through
 `mh_vta_launch_process_workers`, which centralizes subject chunking, dry-run job

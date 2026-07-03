@@ -1300,3 +1300,44 @@ Phase 2AC validation completed:
 - Static search confirms `mh_fiber_make_stim_label` now calls
   `mh_util_sanitize_label(label, 'PreservePlus', true)` and no longer contains
   the duplicated non-utility sanitizer regex sequence.
+
+## Phase 2AD Implementation Scope
+
+Status: **implemented**.
+
+Phase 2AD centralizes STN/SNr target-component identifiers and their generated
+VTA stimulation labels:
+
+- Add `mh_fiber_stnsnr_target_component_id` under `core/stimulation`.
+- Add `mh_fiber_stnsnr_target_component_vta_label` under `core/stimulation`.
+- Preserve the existing component ID format:
+  `<subject_id>_<phase>_<protocol>_<side>_<target>`, sanitized with
+  `mh_util_sanitize_label`.
+- Preserve the existing generated target-component VTA label format:
+  `stnsnr_target_component_<component_id>`, sanitized with
+  `mh_util_sanitize_label`.
+- Update `mh_fiber_run_stnsnr_target_component_vta_distribution` to call the
+  shared helpers instead of hand-writing the ID and label format.
+
+Phase 2AD validation target:
+
+- `git diff --check`
+- Focused `checkcode` for both new helpers and the target-component analyzer.
+- MATLAB synthetic smoke test proving component IDs and target-component VTA
+  labels match the previous formatter behavior, including plus and slash
+  sanitization.
+- Static verification that the target-component analyzer no longer directly
+  constructs the component ID format or `stnsnr_target_component_` label.
+
+Phase 2AD validation completed:
+
+- `git diff --check`
+- `checkcode` passes cleanly for `mh_fiber_stnsnr_target_component_id` and
+  `mh_fiber_stnsnr_target_component_vta_label`; the target-component analyzer
+  still reports only its existing dynamic-growth warning.
+- MATLAB synthetic smoke test verifies component IDs and target-component VTA
+  labels match the previous formatter behavior, including plus and slash
+  sanitization.
+- Static search confirms the target-component analyzer now calls the shared
+  helpers instead of directly constructing the component ID format or
+  `stnsnr_target_component_` label.
