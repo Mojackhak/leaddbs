@@ -2546,3 +2546,28 @@ Phase 2BK validation completed:
 - Static verification confirmed the STN/SNr analyzers no longer hard-code
   manifest conductivity values; those fields are assigned only in the shared
   manifest helper.
+
+## Phase 2BL Implementation Scope
+
+Status: **completed**.
+
+Phase 2BL centralizes the STN/SNr project default VTA gray-matter atlas:
+
+- Add `mh_fiber_stnsnr_default_vta_gm_atlas` as the single source for the
+  default STN/SNr `VtaGmAtlas` value.
+- Update the shared STN/SNr VTA parser helper and STN/SNr project scripts to
+  use this helper as their environment-variable fallback/default.
+- Preserve the existing default value, `DISTAL Minimal (Ewert 2017)`, and keep
+  `STNSNR_VTA_GM_ATLAS`/`VtaGmAtlas` injection behavior unchanged.
+
+Phase 2BL validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the new helper, the shared parser helper, and touched
+  STN/SNr project scripts passed with zero messages.
+- MATLAB synthetic smoke test confirmed the helper returns the existing default
+  atlas, the parser default uses the helper value, and explicit parser
+  injection still overrides the default.
+- Static verification confirmed STN/SNr VTA scripts no longer duplicate the
+  default `DISTAL Minimal (Ewert 2017)` string; the default appears only in
+  documentation and `mh_fiber_stnsnr_default_vta_gm_atlas`.

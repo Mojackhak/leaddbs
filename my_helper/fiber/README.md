@@ -108,6 +108,9 @@ use `mh_fiber_stnsnr_target_component_id` and
 STN/SNr VTA manifest fields, including conductivity defaults from
 `mh_vta_settings`, are populated through
 `mh_fiber_stnsnr_add_vta_manifest_fields`.
+The STN/SNr default VTA gray-matter atlas is centralized in
+`mh_fiber_stnsnr_default_vta_gm_atlas`; project scripts still accept
+`STNSNR_VTA_GM_ATLAS` overrides.
 
 Process-isolated launches are now routed through
 `mh_vta_launch_process_workers`, which centralizes subject chunking, dry-run job

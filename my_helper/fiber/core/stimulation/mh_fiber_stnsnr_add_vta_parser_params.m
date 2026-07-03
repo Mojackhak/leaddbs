@@ -1,7 +1,7 @@
 function parser = mh_fiber_stnsnr_add_vta_parser_params(parser)
 % Add shared STN/SNr VTA model, atlas, and execution parser parameters.
 
-parser.addParameter('VtaGmAtlas', 'DISTAL Minimal (Ewert 2017)', ...
+parser.addParameter('VtaGmAtlas', mh_fiber_stnsnr_default_vta_gm_atlas(), ...
     @(x) ischar(x) || isstring(x));
 parser.addParameter('VtaModelKey', 'simbio', @(x) ischar(x) || isstring(x));
 parser.addParameter('VtaExecutionMode', 'sequential', @(x) ischar(x) || isstring(x));
