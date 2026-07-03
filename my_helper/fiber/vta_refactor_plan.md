@@ -2070,3 +2070,48 @@ Phase 2AW validation results:
   `checkcode` with zero messages.
 - Static search confirms `mh_fiber_build_stimulation` no longer calls
   `ea_mkdir` directly.
+
+## Phase 2AX Implementation Scope
+
+Status: **completed**.
+
+Phase 2AX removes a remaining STN/SNr four-category assumption from
+target-component validation:
+
+- Add `mh_coverage_region_category_count(regionSpec)` under `core/coverage` to
+  compute the membership-partition category count as `2^N` for `N` injected
+  regions.
+- Update `mh_fiber_run_stnsnr_target_component_vta_distribution` so coverage
+  row-count validation and per-component category-total validation derive the
+  expected category rows from the injected `regionSpec`.
+- Preserve current STN/SNr behavior: two injected regions still require four
+  category rows per component and threshold, and the expected coverage row count
+  remains `190 * numel(thresholds) * 4 = 2280` for the current project data.
+- Keep the STN/SNr-specific component QC target-count checks unchanged because
+  they validate the project target-component catalog rather than region
+  membership categories.
+
+Phase 2AX validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_coverage_region_category_count` and the touched
+  target-component analyzer.
+- MATLAB synthetic smoke test proving the helper returns `2^N`, rejects missing
+  or unsupported region specifications, and feeds the shared category-total
+  validator for a three-region eight-category table.
+- Static verification that target-component validation no longer hard-codes
+  four category rows or 2280 coverage rows.
+
+Phase 2AX validation results:
+
+- `git diff --check` passed.
+- `mh_coverage_region_category_count` passed focused `checkcode` with zero
+  messages.
+- The touched target-component analyzer reports only pre-existing `AGROW`
+  `checkcode` messages outside the refactored validation logic.
+- MATLAB synthetic smoke test confirmed the helper returns `2^N` for a
+  three-region specification, rejects missing regions, rejects unsupported
+  category schemes, and feeds `mh_coverage_validate_category_totals` for an
+  eight-category table.
+- Static search confirms target-component validation no longer hard-codes four
+  category rows or 2280 coverage rows.

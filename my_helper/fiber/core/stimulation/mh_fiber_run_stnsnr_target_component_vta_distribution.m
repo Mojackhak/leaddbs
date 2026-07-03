@@ -132,7 +132,7 @@ end
 coverageTable = rows_to_coverage_table(coverageRows);
 componentQcTable = rows_to_component_qc_table(componentQcRows);
 write_outputs(outputDir, coverageTable, componentQcTable, manifest, mainThreshold);
-validate_outputs(outputDir, coverageTable, componentQcTable, thresholdsVPerMm);
+validate_outputs(outputDir, coverageTable, componentQcTable, thresholdsVPerMm, regionSpec);
 
 result = struct();
 result.outputDir = outputDir;
@@ -499,14 +499,16 @@ fig = mh_viz_trend_line(plotTable.threshold_v_per_mm, plotTable.mean_total_vta_v
 close(fig);
 end
 
-function validate_outputs(outputDir, coverageTable, componentQcTable, thresholdsVPerMm)
+function validate_outputs(outputDir, coverageTable, componentQcTable, thresholdsVPerMm, regionSpec)
 if height(componentQcTable) ~= 190
     error('mh_fiber_run_stnsnr_target_component_vta_distribution:ComponentQcRowCount', ...
         'Expected 190 component QC rows, found %d.', height(componentQcTable));
 end
-if height(coverageTable) ~= 2280
+expectedCategoryRows = mh_coverage_region_category_count(regionSpec);
+expectedCoverageRows = height(componentQcTable) * numel(thresholdsVPerMm) * expectedCategoryRows;
+if height(coverageTable) ~= expectedCoverageRows
     error('mh_fiber_run_stnsnr_target_component_vta_distribution:CoverageRowCount', ...
-        'Expected 2280 coverage rows, found %d.', height(coverageTable));
+        'Expected %d coverage rows, found %d.', expectedCoverageRows, height(coverageTable));
 end
 stnCount = nnz(componentQcTable.target == "STN");
 snrCount = nnz(componentQcTable.target == "SNr");
@@ -516,9 +518,9 @@ if stnCount ~= 126 || snrCount ~= 64
 end
 
 mh_coverage_validate_category_totals(coverageTable, ...
-    {'component_id', 'threshold_v_per_mm'}, 4, ...
+    {'component_id', 'threshold_v_per_mm'}, expectedCategoryRows, ...
     'CountErrorId', 'mh_fiber_run_stnsnr_target_component_vta_distribution:MissingCategoryRows', ...
-    'CountMessage', 'Expected four category rows for %s at %.2f.', ...
+    'CountMessage', sprintf('Expected %d category rows for %%s at %%.2f.', expectedCategoryRows), ...
     'SumErrorId', 'mh_fiber_run_stnsnr_target_component_vta_distribution:CategoryVoxelMismatch', ...
     'SumMessage', 'Category voxel count does not equal total VTA voxel count.');
 
