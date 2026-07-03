@@ -1772,3 +1772,30 @@ Phase 2AO validation results:
 - `git diff --check` passed.
 - Static search confirms README no longer contains the stale future-parpool
   wording or the old sequential-unless-process-launcher sentence.
+
+## Phase 2AP Implementation Scope
+
+Status: **in progress**.
+
+Phase 2AP centralizes repeated cell-row table construction boilerplate:
+
+- Add `mh_util_cell_rows_to_table(rows, variableNames, stringVars)` under
+  `core/util`.
+- Preserve existing empty-row behavior: return `table()` when `rows` is empty.
+- Preserve caller-owned schemas by keeping variable-name and string-variable
+  lists in each STN/SNr analyzer.
+- Update cohort coverage/contact table builders and target-component
+  coverage/component-QC table builders to call the shared utility.
+- Keep table column order, numeric values, string conversions, and empty-table
+  behavior unchanged.
+
+Phase 2AP validation target:
+
+- `git diff --check`
+- Focused `checkcode` for `mh_util_cell_rows_to_table` and both touched
+  STN/SNr analyzers.
+- MATLAB synthetic regression test proving helper-built tables match the
+  previous `cell2table` plus string-conversion behavior for all four local
+  table schemas, including empty-row outputs.
+- Static verification that the touched STN/SNr analyzers no longer call
+  `cell2table` directly in their `rows_to_*_table` helpers.

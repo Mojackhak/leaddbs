@@ -747,32 +747,18 @@ result.contactQcCsv = fullfile(cohortOutputDir, 'cohort_contact_mapping_qc.csv')
 end
 
 function tableOut = rows_to_coverage_table(rows)
-if isempty(rows)
-    tableOut = table();
-    return;
-end
-tableOut = cell2table(rows, 'VariableNames', { ...
+variableNames = { ...
     'subject_id', 'patient_name', 'phase', 'protocol', 'condition_key', 'side', ...
     'threshold_v_per_mm', 'threshold_v_per_m', 'category', 'voxel_count', ...
     'volume_mm3', 'percent_total_vta', 'percent_anatomical_compartment', ...
     'total_vta_voxels', 'total_vta_volume_mm3', 'program_overlap_voxels', ...
     'program_overlap_volume_mm3', 'stimulation_pattern', 'program_count', ...
     'raw_contacts', 'lead_contacts', 'targets', 'vta_mask_path', ...
-    'category_mask_path', 'program_overlap_mask_path'});
-tableOut.subject_id = string(tableOut.subject_id);
-tableOut.patient_name = string(tableOut.patient_name);
-tableOut.phase = string(tableOut.phase);
-tableOut.protocol = string(tableOut.protocol);
-tableOut.condition_key = string(tableOut.condition_key);
-tableOut.side = string(tableOut.side);
-tableOut.category = string(tableOut.category);
-tableOut.stimulation_pattern = string(tableOut.stimulation_pattern);
-tableOut.raw_contacts = string(tableOut.raw_contacts);
-tableOut.lead_contacts = string(tableOut.lead_contacts);
-tableOut.targets = string(tableOut.targets);
-tableOut.vta_mask_path = string(tableOut.vta_mask_path);
-tableOut.category_mask_path = string(tableOut.category_mask_path);
-tableOut.program_overlap_mask_path = string(tableOut.program_overlap_mask_path);
+    'category_mask_path', 'program_overlap_mask_path'};
+stringVars = {'subject_id', 'patient_name', 'phase', 'protocol', 'condition_key', ...
+    'side', 'category', 'stimulation_pattern', 'raw_contacts', 'lead_contacts', ...
+    'targets', 'vta_mask_path', 'category_mask_path', 'program_overlap_mask_path'};
+tableOut = mh_util_cell_rows_to_table(rows, variableNames, stringVars);
 end
 
 function rowsOut = append_table_rows(rowsOut, tableIn, subjectId, patientName)
@@ -789,22 +775,16 @@ end
 end
 
 function tableOut = rows_to_contact_table(rows)
-if isempty(rows)
-    tableOut = table();
-    return;
-end
-tableOut = cell2table(rows, 'VariableNames', { ...
+variableNames = { ...
     'subject_id', 'patient_name', 'workbook_id', 'name_en', 'name_zh', ...
     'phase', 'protocol', 'target', 'side', 'raw_contact', 'lead_contact', ...
     'num_contacts_per_side', 'voltage', 'pulse_width', 'frequency', ...
     'parameter_source', 'stimulation_pattern', 'alternating_group', ...
-    'subject_dir', 'contact_side_rule_ok'});
+    'subject_dir', 'contact_side_rule_ok'};
 stringVars = {'subject_id', 'patient_name', 'workbook_id', 'name_en', 'name_zh', ...
     'phase', 'protocol', 'target', 'side', 'parameter_source', ...
     'stimulation_pattern', 'alternating_group', 'subject_dir'};
-for i = 1:numel(stringVars)
-    tableOut.(stringVars{i}) = string(tableOut.(stringVars{i}));
-end
+tableOut = mh_util_cell_rows_to_table(rows, variableNames, stringVars);
 end
 
 function tf = subject_outputs_complete(subjectOutput, patientName)
