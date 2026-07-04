@@ -2942,7 +2942,7 @@ Phase 2BY validation completed:
 
 ## Phase 2BZ Validation Scope
 
-Status: **in progress**.
+Status: **completed**.
 
 Phase 2BZ runs the first real FEM copied-subset validation after the safe
 mode-equivalence audit:
@@ -2958,11 +2958,28 @@ mode-equivalence audit:
 - Defer parpool `ForceVta = true` and full-cohort timing until the process-mode
   FEM gate completes successfully.
 
-Phase 2BZ validation target:
+Phase 2BZ validation completed:
 
-- Fresh copied validation root exists and records `prepare_only = true`.
-- `process` mode with `ForceVta = true` completes on copied `SNr003`.
-- Resulting copied-root cohort outputs are present under `summary/vta/process`.
-- Worker logs and run output confirm actual VTA generation rather than reuse.
-- No writes are made to the real `/Volumes/VAL/STNSNr/derivatives/leaddbs`
+- Fresh copied validation root created:
+  `/Volumes/VAL/STNSNr/validation/vta_refactor_subset_20260703_235948`.
+- Prepare-only setup copied `SNr003` / `sub-LinJia` into the fresh root and
+  wrote `validation_manifest.json` with `prepare_only = true`.
+- `process` mode with `ForceVta = true`, `ForceOutputs = true`, and two workers
+  completed on the copied subject root.
+- Process task payload/result accounting completed: 14 non-sidecar payload MAT
+  files and 14 non-sidecar result MAT files.
+- Worker logs confirm actual FEM generation, including `Generating
+  VTA/e-field`, `Loading headmodel`, and `Writing files`; final retained worker
+  logs contain generation evidence for both process workers.
+- Copied subject output contains 56 non-sidecar e-field NIfTI files and 28
+  non-sidecar binary VTA NIfTI files.
+- Resulting copied-root cohort outputs are present under `summary/vta/process`;
+  `cohort_vta_coverage_long.csv` has 96 data rows and
+  `cohort_contact_mapping_qc.csv` has 14 data rows.
+- Compared with the earlier `ForceVta = false` copied-root process run, all
+  non-path coverage columns and all non-path contact-QC columns matched exactly;
+  differences were limited to validation-root-specific path strings.
+- No writes were made to the real `/Volumes/VAL/STNSNr/derivatives/leaddbs`
   subject root.
+- Remaining deferred gate: real `ForceVta = true` parpool execution and any
+  full-cohort timing comparison.
