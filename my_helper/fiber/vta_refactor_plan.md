@@ -2939,3 +2939,30 @@ Phase 2BY validation completed:
   `cohort_contact_mapping_qc.csv` outputs across all three modes: 14 data rows.
 - Remaining deferred gate: real `ForceVta = true` FEM process/parpool execution
   and any full-cohort timing comparison.
+
+## Phase 2BZ Validation Scope
+
+Status: **in progress**.
+
+Phase 2BZ runs the first real FEM copied-subset validation after the safe
+mode-equivalence audit:
+
+- Use a fresh validation root so the completed
+  `/Volumes/VAL/STNSNr/validation/vta_refactor_subset_20260703_234615`
+  `ForceVta = false` evidence remains unchanged.
+- Copy the same one-subject subset, `SNr003` / `sub-LinJia`, from the real
+  STN/SNr Lead-DBS subject root into the fresh validation root.
+- Run `mh_fiber_run_stnsnr_vta_subset_validation` with `ForceVta = true`,
+  `ForceOutputs = true`, `Modes = {'process'}`, and two process workers.
+- Keep all real FEM writes confined to the copied validation root.
+- Defer parpool `ForceVta = true` and full-cohort timing until the process-mode
+  FEM gate completes successfully.
+
+Phase 2BZ validation target:
+
+- Fresh copied validation root exists and records `prepare_only = true`.
+- `process` mode with `ForceVta = true` completes on copied `SNr003`.
+- Resulting copied-root cohort outputs are present under `summary/vta/process`.
+- Worker logs and run output confirm actual VTA generation rather than reuse.
+- No writes are made to the real `/Volumes/VAL/STNSNr/derivatives/leaddbs`
+  subject root.
