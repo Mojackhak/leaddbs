@@ -158,9 +158,9 @@ M_HF(v) =  rho_HF(v)   for higher-is-better scales
 
 正值统一表示 sweet 或 benefit-associated。
 
-### 补充估计器：OLS ANCOVA
+### 可选补充估计器：OLS ANCOVA
 
-OLS ANCOVA 作为完整平行补充分析：
+OLS ANCOVA 保留为未来可选补充估计器。当前可执行分析不运行该分支，也不生成对应输出文件。
 
 ```text
 Y_post_i = alpha_v
@@ -169,7 +169,7 @@ Y_post_i = alpha_v
          + error_i,v
 ```
 
-OLS estimator 在 `ols_ancova/` estimator 目录下生成同一套输出。该目录下的 `direct_voxel_HF_coef.nii.gz` 存储 `theta_HF(v)`；主分析 `partial_spearman/` 目录下的同名文件存储 `rho_HF(v)`。
+如果未来启用 OLS estimator，它应在 `ols_ancova/` estimator 目录下生成同一套输出。该目录下的 `direct_voxel_HF_coef.nii.gz` 存储 `theta_HF(v)`；当前主分析 `partial_spearman/` 目录下的同名文件存储 `rho_HF(v)`。
 
 ### 患者层面 Score
 
@@ -230,7 +230,7 @@ prediction model 在 raw post-score 尺度上拟合。主验证统计量仍然�
 
 - Subject-level bootstrap 在正式主分析中使用 `B=10000` 和随机种子 `42`。smoke/exploratory 运行使用 `B=1000`。正式 bootstrap 只对 `tau200/partial_spearman` 运行。每次 bootstrap 重采样都重跑完整 map-building 流程，包括 `Omega_HF_tau`；`direct_voxel_HF_bootstrap_se.nii.gz` 存储 estimator map 的 voxel-wise 标准差。
 
-对非主分支（`tau180/partial_spearman`、`tau220/partial_spearman` 和所有 `ols_ancova` 分支），仍运行 LOOCV，但不生成正式 permutation/bootstrap 输出。对应 manifest 和 QC JSON 必须记录：
+对非主已执行分支（`tau180/partial_spearman` 和 `tau220/partial_spearman`），仍运行 LOOCV，但不生成正式 permutation/bootstrap 输出。对应 manifest 和 QC JSON 必须记录：
 
 ```text
 resampling_status = not_run_nonprimary
@@ -260,7 +260,8 @@ resampling_reason = formal resampling restricted to tau200/partial_spearman
   - 读取 MAT v7 design matrix 或 optional NPZ mirror；
   - 对所有生成的 tau/estimator 分支执行 LOOCV；
   - 仅对 `tau200/partial_spearman` 执行正式 Freedman-Lane permutation 和 full bootstrap；
-  - 执行 OLS supplemental analysis 和 jitter QC sensitivity；
+  - 对主分析 `tau200/partial_spearman` 执行 jitter QC sensitivity；
+  - 记录可选 OLS ANCOVA 在当前执行中未运行；
   - 用 `nibabel` 写出 CSV/JSON、PDF QC figures 和 NIfTI maps；
   - 将 candidate vector 填回右半球 MNI reference grid。
 
@@ -285,14 +286,13 @@ random seed: 42
 ```text
 /Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/preprocess/
 /Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau180/partial_spearman/
-/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau180/ols_ancova/
 /Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau200/partial_spearman/   # primary
-/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau200/ols_ancova/
 /Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau220/partial_spearman/
-/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau220/ols_ancova/
 ```
 
 `<scale_slug>` 是确定性转换：小写、非字母数字替换为下划线、连续下划线合并、移除首尾下划线。原始 scale column name 写入 manifest。
+
+未来可选 OLS ANCOVA 输出会使用同级 `ols_ancova/` 目录，但当前运行不生成这些目录。
 
 每个 tau/estimator 目录导出：
 
@@ -314,7 +314,7 @@ direct_voxel_HF_generation_manifest.json
 输出语义：
 
 - `direct_voxel_HF_coverage.nii.gz` 存储 `Coverage_tau(v) = sum_i I(X_HF_i(v) > tau)`。使用 `int16`。
-- `direct_voxel_HF_coef.nii.gz` 在 `partial_spearman/` 中存储 `rho_HF(v)`，在 `ols_ancova/` 中存储 `theta_HF(v)`。使用 `float32`。不做逐 voxel FDR。
+- `direct_voxel_HF_coef.nii.gz` 在当前执行的 `partial_spearman/` estimator 中存储 `rho_HF(v)`。如果未来启用可选 OLS ANCOVA，则对应 `ols_ancova/` 文件存储 `theta_HF(v)`。使用 `float32`。不做逐 voxel FDR。
 - `direct_voxel_HF_sweet_sour.nii.gz` 存储 benefit-oriented `M_HF(v)`。
 - `direct_voxel_HF_stability.nii.gz` 存储 LOOCV training folds 中 benefit-oriented map value 为正的折比例。它是方向稳定性 map，不是 p 值，也不是显著性阈值图。
 - `direct_voxel_HF_bootstrap_se.nii.gz` 只在主分支中存储 full-process bootstrap 下 estimator map 的标准差。
@@ -410,7 +410,6 @@ tau = 180, 200, 220 V/m
 LOOCV validation
 Freedman-Lane permutation for tau200/partial_spearman
 partial Spearman voxel association
-OLS supplemental estimator
 subject-level bootstrap for tau200/partial_spearman
 left/right flip deformation audit
 report-only top 10% + stability display masks
@@ -425,6 +424,7 @@ Coverage>=6 optional sensitivity: only documented; no current HF direct voxel ou
 Coverage>=8 / 50% E-field rule: only documented; primary rule remains Coverage>=5
 5/7/10-fold CV: only documented; LOOCV is the sole validation design for n=16
 OSS-DBS: not included in the HF direct voxel model
+optional OLS supplemental estimator: only documented; not run in the current execution
 paper-like spatial similarity score sensitivity: not included; HFScore_mean_main is the primary score
 automatic localization/normalization/electrode reconstruction QC: not included; existing e-fields are assumed to have passed prior manual/clinical QC
 ```

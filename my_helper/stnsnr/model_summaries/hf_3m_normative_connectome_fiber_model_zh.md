@@ -129,6 +129,19 @@ M_HF(l) =  rho_HF(l)   for higher-is-better scales
 
 FDR q 值只用于 QC/display，不用于筛选主模型，也不定义 scoring fiber set。
 
+### 可选补充估计器：OLS ANCOVA
+
+OLS ANCOVA 保留为未来可选补充估计器。当前可执行分析不运行该分支，也不生成对应输出文件。
+
+```text
+Y_post_i = alpha_l
+         + theta_HF(l) * X_HF_i(l)
+         + beta_l      * Y_base_i
+         + error_i,l
+```
+
+如果未来启用，`theta_HF(l)` 将作为 fiber-wise OLS ANCOVA coefficient 报告。当前模型只使用 baseline-adjusted partial Spearman `rho_HF(l)` 估计器进行 map fitting、`NetFiberScore`、LOOCV、permutation、bootstrap 和 display outputs。
+
 ### 主患者层面 Score
 
 主 patient-level score 是 net sweet-minus-sour peak score。在每个 full-sample map 或 LOOCV training fold 内，定义 benefit-oriented fiber weights：
@@ -191,6 +204,7 @@ prediction model 在 raw post-score 尺度上拟合。主验证统计量是 held
 - Formal Freedman-Lane permutation 使用 `B=10000`、seed `42`，仅限 primary dTOR peak-E-field branch。
 - Smoke permutation 使用 `B=1000`、seed `42`。
 - Subject-level bootstrap 使用 `B=10000`、seed `42`，仅限 primary dTOR peak-E-field branch。
+- 可选 OLS ANCOVA 仅作为未来敏感性分析记录，当前执行不运行。
 
 Reference sensitivities：
 
