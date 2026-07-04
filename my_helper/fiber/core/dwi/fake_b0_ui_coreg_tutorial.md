@@ -546,6 +546,14 @@ to a local user directory such as
 staging off the external volume while preserving final project outputs under
 `derivatives/leaddbs`.
 
+If Synb0-DISCO generates `b0_u.nii.gz` but fails during its internal topup step
+with a subsampling compatibility error, inspect the `b0_all.nii.gz` matrix size.
+Odd matrix dimensions such as `108x105x78` are incompatible with the default
+Synb0 `--subsamp=2` levels. The wrapper reruns only the topup step with a
+fallback config that uses `--subsamp=1` at every level, preserving the synthetic
+b0 while producing the expected `topup_fieldcoef.nii.gz` and `topup_movpar.txt`
+outputs for eddy.
+
 If the corrected b0 is anatomically implausible, rerun with the opposite
 phase-encoding vector and compare distorted-b0 versus corrected-b0 overlays.
 

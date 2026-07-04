@@ -107,6 +107,13 @@ Docker Desktop mount translation failures on `/Volumes/...` while keeping the
 archived Synb0 outputs, eddy outputs, corrected DWI, and pseudo `B0` in the
 project derivatives.
 
+Some SaveBySlc-reconstructed DWI datasets have odd in-plane dimensions such as
+`108x105x78`. Synb0-DISCO can still generate the synthetic undistorted b0, but
+its bundled topup configuration may fail because the default `--subsamp=2`
+levels are incompatible with the odd matrix. In that case the wrapper reruns
+only topup with a fallback configuration that sets all subsampling levels to
+`1`, then continues to eddy with the fallback topup outputs.
+
 During DWI import and preprocessing, the raw DWI files are copied from
 `rawdata` into `preprocessing/dwi`, then Synb0-DISCO, topup, and eddy write
 corrected outputs:
