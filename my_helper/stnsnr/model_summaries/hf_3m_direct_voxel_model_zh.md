@@ -434,3 +434,477 @@ automatic localization/normalization/electrode reconstruction QC: not included; 
 该模型估计在控制 baseline 后，HF-only 局部刺激暴露与 3 个月 raw post-treatment outcome 的关联。它应解释为 stimulation-exposed right canonical brainmask candidate space 内的 HF efficacy heatmap，而不是纯解剖 STN map、target-level network mechanism map，也不是 voxel-wise 因果证据。
 
 由于队列为 `n=16`，结果属于 hypothesis-generating。LOOCV 可能不显著；LOOCV 不显著不应解释为不存在生物学 HF sweet spot。`Y_base` 在 voxel map 阶段通过 partial Spearman residualization 控制，同时也保留在最终 prediction model 中，用于评估 `HFScore_mean_main` 的增量预测价值。因此 QC report 必须包含 `HFScore_mean_main` 与 `Y_base` 的关联，以及最终 prediction model 的基础共线性诊断。
+
+## Execution Efficiency
+
+本节定义用于提高 HF direct voxel analysis 项目级计算效率的 implementation-level rules。这些规则只改变 computation scheduling、cache、vectorization 和 disk writing，不改变 statistical estimands、validation design、output semantics、file naming，也不改变任何 `direct_voxel_HF_*` 输出的解释。
+
+优化实现必须保留上文定义的 logical full-process semantics。特别是，LOOCV training folds 仍然各自定义自己的 `Omega_HF_tau`、voxel maps、HF scores 和 held-out predictions。Formal Freedman-Lane permutation 和 subject-level bootstrap 对 primary `tau200/partial_spearman` branch 仍使用 `B=10000` 和 seed `42`。Smoke runs 对 permutation/bootstrap 仍使用 `B=1000`，对 jitter 仍使用 `B=100`。优化实现可以复用数学上不变的 cached subcomputations，但不得为了提速使用 full-sample ranks、full-sample training masks、approximate ranks、adaptive early stopping、改变 tau thresholds、改变 estimators，或降低 formal resampling counts。
+
+### Equivalence Contract
+
+以下量属于 executable statistical definition，必须保持不变：
+
+```text
+tau = 180, 200, 220 V/m
+primary tau = 200 V/m
+Coverage>=5
+LOOCV patient split
+primary estimator = baseline-adjusted partial Spearman
+optional supplemental estimator = OLS ANCOVA, not run in the current execution
+primary score = HFScore_mean_main
+formal permutation B = 10000
+formal bootstrap B = 10000
+formal jitter B = 1000
+seed = 42
+primary permutation statistic = LOOCV Spearman rho
+```
+
+Numerical reductions 尽量使用 `float64`。最终 NIfTI outputs 保持既有 output dtypes：coefficient、sweet/sour、stability 和 bootstrap SE maps 使用 `float32`，coverage maps 使用 `int16`。既有 degenerate-voxel 和 NaN 规则保持不变。
+
+实现必须保留 logical full-process recomputation 与 mathematically equivalent cached computation 的区别。例如，permutation run 逻辑上仍必须等价于为每个 permuted outcome 重新计算 LOOCV map 和 `HFScore_mean_main`，但当 fixed exposure-derived fold caches 与 permuted outcome 无关时，可以复用这些 caches。
+
+### Preprocessing Sidecar Cache
+
+MATLAB/Lead-DBS preprocessing 必须继续按既有 subject-major schema 写出文档化的 MAT v7 design matrix：
+
+```text
+X(subject x candidate_voxel)
+```
+
+此外，formal runs 必须写出 memmap-friendly voxel-major sidecar files 供 Python postprocessing 使用：
+
+```text
+X_float32_voxel_major.npy       # shape = candidate_voxel x subject
+S180_bool.npy                   # X > 180 V/m
+S200_bool.npy                   # X > 200 V/m
+S220_bool.npy                   # X > 220 V/m
+candidate_ijk.npy
+candidate_xyz_mm.npy
+candidate_mask_metadata.json
+```
+
+`X_float32_voxel_major.npy` 是 formal loop 首选输入，因为 voxel chunks 在磁盘上连续。可以额外写出 subject-major mirror 以便使用，但 formal permutation/bootstrap loops 应避免使用 compressed random-access formats。公式中的 `X_all[:, V]` 表示 logical subject-major view；实现可以通过 chunked reads 或 transposition 从 voxel-major sidecar 得到该 view。
+
+MAT 和 compressed NPZ files 可以保留用于 archival、compatibility 和 debugging。Compressed NPZ 不得作为 formal permutation、bootstrap 或 jitter loops 内的主要 random-access input。
+
+Sidecar metadata 必须记录：
+
+```text
+subject order
+candidate voxel order
+affine/header reference
+dtype
+array shape
+memory layout
+source MAT path
+source MAT hash if available
+sidecar creation time
+software version
+```
+
+### Coverage And Fold Mask Cache
+
+对每个 tau，先一次性预计算 full-sample suprathreshold indicators 和 coverage：
+
+```text
+S_tau(v, i) = I[X_i(v) > tau]
+Coverage_tau_all(v) = sum_i S_tau(v, i)
+```
+
+对 LOOCV fold `h`，通过 subtraction 得到 training-fold coverage：
+
+```text
+Coverage_tau_fold_h(v) =
+  Coverage_tau_all(v) - S_tau(v, h)
+```
+
+然后定义 fold-specific statistical mask：
+
+```text
+Omega_HF_tau_fold_h =
+  {v in Candidate : Coverage_tau_fold_h(v) >= 5}
+```
+
+因此 held-out patient 仍不贡献该 fold-specific `Omega_HF_tau`，但 mask 通过 vectorized subtraction 计算，而不是重新扫描完整 exposure matrix。
+
+### Vectorized Partial Spearman Kernel
+
+Primary voxel map 必须使用 vectorized rank-residual partial Spearman kernel。
+
+每个 training fold 的 ranks 必须只在 training set 内计算。LOOCV map fitting、permutation map fitting、bootstrap maps 和 jitter resamples 都禁止使用 full-sample ranks。
+
+对每个 fold `h`：
+
+```text
+b_h = rank(Y_base_train)
+
+R_h = residual-maker matrix for:
+      intercept + b_h
+```
+
+对每个 voxel chunk：
+
+```text
+xrank_h(v) = rank(X_train(v)) within the training fold
+xres_h(v)  = R_h xrank_h(v)
+```
+
+零 exposure variance、零 rank variance 或零 residualized exposure variance 的 degenerate voxels 保持既有 NaN 规则，并从 `HFScore_mean_main` 中排除。
+
+精确 partial Spearman coefficient 为：
+
+```text
+yrank_h = rank(Y_post_train)
+yres_h  = R_h yrank_h
+
+rho_HF_h(v) =
+  dot(yres_h, xres_h(v))
+  / sqrt(sum(yres_h^2) * sum(xres_h(v)^2))
+```
+
+Benefit-oriented map 保持：
+
+```text
+M_HF_h(v) = -rho_HF_h(v)   for lower-is-better scales
+M_HF_h(v) =  rho_HF_h(v)   for higher-is-better scales
+```
+
+### Fold-Level Score Operator For Permutation
+
+Formal Freedman-Lane permutation for the primary `tau200/partial_spearman` branch 应使用 fold-level score operator。
+
+在固定 LOOCV fold 内，以下量与 permuted outcome 无关：
+
+```text
+X exposure matrix
+tau200 suprathreshold indicators
+Coverage_tau200_fold_h
+Omega_HF_tau200_fold_h
+valid nondegenerate exposure voxels
+n_valid_score_voxels
+rank(Y_base_train)
+residualized and normalized rank(X_train(v))
+held-out exposure values
+all-subject exposure values used for scoring
+```
+
+对每个 fold `h`，定义 valid scoring voxel set：
+
+```text
+V_h = Omega_HF_tau200_fold_h intersect valid exposure-residual voxels
+n_h = |V_h|
+```
+
+令 `Z_h` 为 `V_h` 上的 normalized residualized exposure-rank matrix：
+
+```text
+Z_h(:, v) =
+  resid(rank(X_train(v)) ~ 1 + rank(Y_base_train))
+  / sqrt(sum(resid_X_h(v)^2))
+```
+
+令 `X_score_h` 为所有 patients 在 `V_h` 上的 continuous exposure matrix，不是 ranked exposure：
+
+```text
+X_score_h = X_all(:, V_h)
+```
+
+Fold-level score operator 为：
+
+```text
+A_h =
+  direction_sign * X_score_h @ Z_h.T / n_h
+
+direction_sign = -1 for lower-is-better scales
+direction_sign =  1 for higher-is-better scales
+```
+
+对 observed 或 permuted outcome，计算：
+
+```text
+yres_h =
+  resid(rank(Y_train) ~ 1 + rank(Y_base_train))
+
+u_h =
+  yres_h / sqrt(sum(yres_h^2))
+```
+
+然后该 fold 的所有 patient scores 由下式得到：
+
+```text
+HFScore_mean_main_all_patients_h = A_h @ u_h
+```
+
+这等价于先计算 fold-specific partial Spearman map，再应用：
+
+```text
+HFScore_mean_main_i =
+  sum_{v in V_h} X_i(v) * M_HF_h(v) / n_h
+```
+
+对 formal permutation，实现应为每个 reconstructed `Y*` 重新计算 `u_h`，但可以复用 `A_h`。
+
+默认必须保留精确 normalized partial Spearman scaling。只有在不写出 maps、scores、coefficients 或 fold-level model coefficients 的 internal null-statistic-only computations 中，才可以省略 common positive fold-permutation scaling factor。Observed outputs 和任何 debug comparison outputs 必须使用精确 normalization。
+
+Permutation runs 不得写出 per-permutation voxel maps、per-permutation NIfTI files 或 per-permutation score CSV files。只应写出最终 permutation summary，以及复现该 summary 所需的 compact null-statistic arrays。
+
+### Optional Vectorized OLS ANCOVA Kernel
+
+如果未来启用 OLS ANCOVA，应使用 Frisch-Waugh-Lovell residualization kernel，而不是为每个 voxel 单独拟合 statsmodels 或 polyfit model。
+
+对每个 fold 或 full-sample map：
+
+```text
+yres = resid(Y_post ~ 1 + Y_base)
+xres(v) = resid(X(v) ~ 1 + Y_base)
+
+theta_HF(v) =
+  dot(yres, xres(v)) / sum(xres(v)^2)
+```
+
+这会在避免 voxel-wise Python model fitting overhead 的同时，产生相同的 OLS ANCOVA coefficient `theta_HF(v)`。当前执行不运行该分支。
+
+### Score Computation
+
+对 observed maps 和 non-permutation branches，用每个 map 一次 matrix-vector product 计算 `HFScore_mean_main`：
+
+```text
+scores =
+  X_all[:, V_score] @ M_HF[V_score] / n_valid_score_voxels
+```
+
+`X_all` 是 continuous exposure，不是 ranked exposure。Rank transformation 只用于估计 partial Spearman voxel map。
+
+Formal runs 不允许使用 subject-loop by voxel-loop 实现。
+
+### Bootstrap Efficiency
+
+Subject-level bootstrap 仍是 primary `tau200/partial_spearman` branch 的 full-process map stability analysis。它仍使用 `B=10000` 和 seed `42`。
+
+但是，bootstrap 必须尽可能复用 exposure-derived caches。
+
+对每个 bootstrap resample，用 subject counts 表示 resampled patients：
+
+```text
+w_i = number of times subject i appears in the bootstrap sample
+```
+
+然后在不重新扫描 image data 的情况下计算 bootstrap coverage：
+
+```text
+Coverage_tau200_boot(v) =
+  sum_i w_i * I[X_i(v) > 200]
+```
+
+Bootstrap `Omega_HF_tau200_boot` 为：
+
+```text
+Omega_HF_tau200_boot =
+  {v in Candidate : Coverage_tau200_boot(v) >= 5}
+```
+
+`Y_post`、`Y_base` 和 `X(v)` 的 ranks 必须在 expanded bootstrap resample 内计算，或使用完全等价的 weighted-resample representation。禁止使用 full-sample ranks。
+
+Bootstrap SE 必须通过 streaming Welford updates 累积。实现不得保存 10000 个 bootstrap maps。
+
+对每个 voxel，维护：
+
+```text
+bootstrap_mean
+bootstrap_M2
+bootstrap_finite_count
+```
+
+某个 bootstrap map 中缺失、位于 bootstrap `Omega_HF_tau200_boot` 外，或在该 bootstrap resample 中 degenerate 的 voxels，遵循既有 NaN/out-of-valid-map 规则，不得静默填充为 0。
+
+最终 `direct_voxel_HF_bootstrap_se.nii.gz` 存储 finite bootstrap estimator values 的 voxel-wise standard deviation。QC JSON 应记录 finite bootstrap count distribution。
+
+### Spatial Jitter Efficiency
+
+Spatial jitter 只对 primary `tau200/partial_spearman` branch 运行，并保持既有 formal 和 smoke 设置：
+
+```text
+formal jitter resamples = 1000
+smoke jitter resamples  = 100
+```
+
+Jitter 会改变 e-field geometry。因此 primary `X`-derived caches 在 jitter 下失效，不得假装 exposure matrix 未改变而复用。
+
+Jitter 实现可以复用：
+
+```text
+accepted e-field path manifest
+subject/side metadata
+right canonical reference grid
+candidate grid metadata
+affine/header information
+preallocated arrays
+```
+
+每次 jitter iteration 必须按 Spatial Jitter QC Sensitivity 一节的定义，重建 jittered exposure matrix、candidate mask、`Omega_HF_tau200`、full-sample map、HF scores 和 LOOCV validation metrics。
+
+不要保存每一张 jittered NIfTI map。只保存：
+
+```text
+jitter summary table
+map correlation/stability summary
+voxel-wise jitter SD map
+```
+
+### MATLAB/Lead-DBS Preprocessing Efficiency
+
+每个 subject-side 的 accepted HF e-fields 应只处理一次。
+
+同侧 alternating subprograms 在 left/right flipping 前按 voxel-wise maximum 合并。然后左侧 combined HF e-field 使用 `ea_flip_lr_nonlinear` 翻转一次。右侧 combined HF e-field 在 right canonical grid 上采样一次。
+
+推荐 preprocessing artifacts：
+
+```text
+subject_side_right_grid_exposure.nii.gz or .npy
+subject_left_to_right_grid_exposure.nii.gz or .npy
+subject_level_X_HF_only.npy
+flip_audit_summary.json
+```
+
+这些 artifacts 可以被 downstream Python postprocessing 和 jitter setup 复用，但每次 jitter iteration 必须单独生成 jittered exposure matrices。
+
+### Parallel Execution
+
+MATLAB preprocessing 和 Python statistical postprocessing 保持分阶段运行，以避免 CPU oversubscription。
+
+Python postprocessing 应在 `leaddbs` Conda environment 内由单一 long-running Python entry point 调度。应避免在 tau、fold、permutation、bootstrap 或 jitter loops 内反复调用短生命周期 `conda run`。
+
+优先使用 Python worker-level parallelism。导入 NumPy/SciPy 前必须禁用 nested BLAS oversubscription：
+
+```bash
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+```
+
+Run manifest 必须记录有效 worker count 和 BLAS thread settings。
+
+推荐 scheduling order：
+
+```text
+1. MATLAB/Lead-DBS preprocessing and sidecar cache generation
+2. tau200/partial_spearman observed LOOCV
+3. tau200/partial_spearman smoke permutation/bootstrap/jitter
+4. tau200/partial_spearman formal permutation
+5. tau200/partial_spearman formal bootstrap
+6. tau180/tau220 partial_spearman observed LOOCV
+7. optional OLS ANCOVA supplemental branches only if explicitly enabled in a future run
+8. display smoothing, bilateral display maps, PDF QC, and final manifests
+```
+
+Primary-branch QC failures 应在启动 non-primary sensitivity branches 前停止运行。
+
+### Intermediate File Policy
+
+Formal loops 不得写出 fold、permutation、bootstrap 或 jitter intermediate maps，除非显式开启 debug flag。
+
+Default formal outputs 仍为既有文档化输出：
+
+```text
+direct_voxel_HF_coverage.nii.gz
+direct_voxel_HF_coef.nii.gz
+direct_voxel_HF_sweet_sour.nii.gz
+direct_voxel_HF_stability.nii.gz
+direct_voxel_HF_bootstrap_se.nii.gz
+direct_voxel_HF_scores.csv
+direct_voxel_HF_loocv_predictions.csv
+direct_voxel_HF_permutation_summary.csv
+direct_voxel_HF_mapping_qc.json
+direct_voxel_HF_generation_manifest.json
+```
+
+Workers 不得并发 append 同一个 CSV 或 JSON。Workers 应返回 structured block results 给主进程，由主进程原子写出最终 CSV/JSON outputs。
+
+Completed outputs 默认按既有 completion-marker 和 force-rerun policy 跳过。
+
+### Prohibited Speed Shortcuts
+
+Formal runs 中禁止以下 shortcuts：
+
+```text
+adaptive permutation early stopping
+reduced formal B
+changed tau thresholds
+changed Coverage>=5 rule
+changed estimator
+full-sample ranks inside LOOCV/permutation/bootstrap
+approximate ranks
+using anatomical overlay masks as the analysis mask
+dropping requested jitter QC
+using the descriptive sum score in place of HFScore_mean_main
+using compressed NPZ as the random-access formal-loop input
+loop-internal compression/decompression for speed-critical arrays
+```
+
+### Runtime Profile
+
+`direct_voxel_HF_generation_manifest.json` 应包含 runtime profile：
+
+```json
+{
+  "runtime_profile": {
+    "preprocess_s": null,
+    "sidecar_write_s": null,
+    "load_design_s": null,
+    "observed_loocv_s": null,
+    "permutation_s": null,
+    "bootstrap_s": null,
+    "jitter_s": null,
+    "display_qc_s": null,
+    "n_voxels_candidate": null,
+    "n_voxels_tau200_mean": null,
+    "n_voxels_tau200_min": null,
+    "n_voxels_tau200_max": null,
+    "python_jobs": null,
+    "blas_threads": null,
+    "memmap_sidecars": [],
+    "score_operator_enabled": null,
+    "score_operator_exact_scaling": null,
+    "bootstrap_finite_count_summary": null
+  }
+}
+```
+
+### Equivalence And Regression Tests
+
+正式运行前，实现应包含一个小规模 deterministic equivalence test。
+
+对 small voxel subset 和 small resampling count：
+
+```text
+B_perm = 20
+B_boot = 20
+n_voxel_subset = 100 to 1000
+seed = 42
+```
+
+比较 brute-force 和 optimized implementations：
+
+```text
+fold-specific Omega_HF_tau
+partial Spearman rho map
+benefit-oriented M_HF map
+HFScore_mean_main
+LOOCV held-out predictions
+LOOCV Spearman rho
+permutation null statistics
+bootstrap SE for finite voxels
+```
+
+Required tolerances：
+
+```text
+exact equality for masks, subject IDs, voxel IDs, and split indices
+near equality for float outputs under float64 reductions
+same NaN/degenerate voxel locations
+same plus-one p value for the deterministic small test
+```
+
+Final run manifest 应记录 optimized equivalence test 是否通过。
