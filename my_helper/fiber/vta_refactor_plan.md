@@ -3188,3 +3188,67 @@ Run audit policy:
 This run is a model-configuration update from `DISTAL Minimal (Ewert 2017)` to
 `Custom_Ewert_Zhang_Middlebrooks`; regenerated VTA outputs are not expected to
 match the old full-cohort numerical baseline exactly.
+
+### Phase 2CE Attempt 1 Failure and Fix Gate
+
+Status: **failed before full-cohort completion; code fix required before
+restart**.
+
+Attempt 1 used the approved process-mode command and audit root
+`/Volumes/VAL/STNSNr/validation/vta_full_cohort_realroot_rerun_20260704_024228`.
+The previous observed outputs had already been moved to
+`/Volumes/VAL/.Trashes/501/stnsnr_vta_full_rerun_20260704_024228` with original
+paths preserved.
+
+Attempt 1 runtime and boundary status:
+
+- Shell elapsed time: 1208.77 seconds.
+- MATLAB elapsed time: 1191.527392 seconds.
+- `sub-LinJia` completed subject-level regeneration, including 48 thresholded
+  coverage VTA masks.
+- `sub-HuFengXian` failed during its first condition, after writing 16
+  `model-simbio_hemi-*` files and no coverage masks.
+- No subject lock remained after the failed run.
+- No cohort-level replacement outputs were accepted as final.
+
+Observed failure:
+
+- Main MATLAB error:
+  `One or more VTA process tasks failed: Failed to load gray matter mask.`
+- Worker error:
+  `Function GUNZIP was unable to find file .../sub-HuFengXian/atlases/Custom_Ewert_Zhang_Middlebrooks/lh/GPe.nii.gz`.
+
+Root-cause assessment:
+
+- `ea_fem_getmask` calls `ea_ptspecific_atl` when Horn/SimBio needs a native
+  atlas-derived gray-matter mask.
+- `ea_ptspecific_atl` materializes the subject-space atlas by copying, warping,
+  gunzipping, gzipping, and rebuilding `atlas_index.mat` under
+  `sub-*/atlases/<atlas>`.
+- In process mode, left and right VTA workers can enter this subject-space atlas
+  materialization at the same time on a subject whose
+  `Custom_Ewert_Zhang_Middlebrooks/gm_mask` does not yet exist.
+- The first worker can temporarily remove or rewrite `.nii.gz` files while the
+  second worker tries to read them, producing the missing `GPe.nii.gz` failure.
+
+Required fix before restart:
+
+- Add a preflight step in the VTA task orchestration path that serially
+  materializes the requested subject-space VTA gray-matter atlas before
+  launching process or parpool compute workers.
+- Keep the actual VTA task execution in the requested mode (`process`, 4
+  workers for the full-cohort rerun).
+- Validate the preflight on `sub-HuFengXian` before restarting the full cohort.
+- Move the failed partial regenerated outputs for selected subjects to a new
+  timestamped Trash archive before the restart, preserving original paths.
+
+Fix implementation:
+
+- `mh_vta_run_compute_tasks` now materializes requested subject-space
+  gray-matter atlases before launching `process` or `parpool` workers.
+- The preflight respects task-level `useAtlas` and `gmAtlas`, falls back to
+  `cfg.vta.gmAtlas` or `options.atlasset`, and verifies that the subject
+  `gm_mask` exists after `ea_ptspecific_atl`.
+- A process dry-run smoke check on `sub-HuFengXian` completed with
+  `preflight_smoke_after_fix_ok`; it used the same
+  `Custom_Ewert_Zhang_Middlebrooks` atlas and did not launch real VTA workers.
