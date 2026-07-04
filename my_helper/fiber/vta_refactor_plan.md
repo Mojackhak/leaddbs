@@ -2983,3 +2983,31 @@ Phase 2BZ validation completed:
   subject root.
 - Remaining deferred gate: real `ForceVta = true` parpool execution and any
   full-cohort timing comparison.
+
+## Phase 2CA Validation Scope
+
+Status: **in progress**.
+
+Phase 2CA runs real FEM copied-subset validation in parpool mode:
+
+- Use a fresh validation root so the completed process-mode real FEM evidence in
+  `/Volumes/VAL/STNSNr/validation/vta_refactor_subset_20260703_235948` remains
+  unchanged.
+- Copy `SNr003` / `sub-LinJia` from the real STN/SNr Lead-DBS subject root into
+  the fresh validation root.
+- Run `mh_fiber_run_stnsnr_vta_subset_validation` with `ForceVta = true`,
+  `ForceOutputs = true`, `Modes = {'parpool'}`, and two parpool workers.
+- Keep all real FEM writes confined to the copied validation root.
+- Compare parpool cohort outputs against the Phase 2BZ process-mode real FEM
+  outputs, ignoring validation-root-specific path columns.
+
+Phase 2CA validation target:
+
+- Fresh copied validation root exists and records `prepare_only = true`.
+- `parpool` mode with `ForceVta = true` completes on copied `SNr003`.
+- Run output confirms a two-worker parpool and actual VTA generation.
+- Resulting copied-root cohort outputs are present under `summary/vta/parpool`.
+- Non-path coverage and contact-QC outputs match Phase 2BZ process-mode real FEM
+  outputs exactly.
+- No writes are made to the real `/Volumes/VAL/STNSNr/derivatives/leaddbs`
+  subject root.
