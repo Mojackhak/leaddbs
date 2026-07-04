@@ -2908,3 +2908,34 @@ Phase 2BX validation completed:
   overwriting the prepare-only manifest.
 - Static verification confirmed the default existing-root protection remains in
   place.
+
+## Phase 2BY Validation Audit
+
+Status: **completed**.
+
+Phase 2BY ran copied-root execution-mode validation on the prepared
+`SNr003` / `sub-LinJia` validation subset:
+
+- Validation root:
+  `/Volumes/VAL/STNSNr/validation/vta_refactor_subset_20260703_234615`.
+- Ran `sequential`, `process`, and `parpool` modes with `ForceVta = false` and
+  `ForceOutputs = true`.
+- All VTA/e-field tasks reused existing copied-subject outputs; this audit did
+  not run real FEM generation.
+- `process` mode launched isolated worker processes under
+  `process_tasks/process`.
+- `parpool` mode launched a two-worker MATLAB process pool.
+- Mode-specific cohort outputs were written under
+  `summary/vta/sequential`, `summary/vta/process`, and
+  `summary/vta/parpool`.
+
+Phase 2BY validation completed:
+
+- `sequential`, `process`, and `parpool` mode runs completed successfully on the
+  copied subject root.
+- Exact table comparison confirmed identical
+  `cohort_vta_coverage_long.csv` outputs across all three modes: 96 data rows.
+- Exact table comparison confirmed identical
+  `cohort_contact_mapping_qc.csv` outputs across all three modes: 14 data rows.
+- Remaining deferred gate: real `ForceVta = true` FEM process/parpool execution
+  and any full-cohort timing comparison.
