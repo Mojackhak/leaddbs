@@ -14,6 +14,7 @@ parser.addParameter('ReferenceNifti', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('TileSize', [], @(x) isempty(x) || (isnumeric(x) && numel(x) == 2));
 parser.addParameter('TileGrid', [], @(x) isempty(x) || (isnumeric(x) && numel(x) == 2));
 parser.addParameter('SliceCount', [], @(x) isempty(x) || (isnumeric(x) && isscalar(x)));
+parser.addParameter('TileOrder', 'row_major_right_to_left', @(x) ischar(x) || isstring(x));
 parser.addParameter('Parallel', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ParallelWorkers', 4, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
@@ -28,6 +29,7 @@ geometry = mh_fiber_infer_mosaic_geometry(opts.SourceNifti, opts.SourceBval, opt
     'TileSize', opts.TileSize, ...
     'TileGrid', opts.TileGrid, ...
     'SliceCount', opts.SliceCount);
+geometry.TileOrder = opts.TileOrder;
 
 sourceInfo = niftiinfo(opts.SourceNifti);
 sourceSize = double(sourceInfo.ImageSize);
@@ -78,6 +80,9 @@ fields = {'SourceNifti', 'SourceJson', 'SourceBval', 'SourceBvec', 'OutputDir', 
 for i = 1:numel(fields)
     opts.(fields{i}) = char(string(opts.(fields{i})));
 end
+opts.TileOrder = validatestring(char(string(opts.TileOrder)), ...
+    {'row_major_right_to_left', 'row_major_left_to_right'}, ...
+    'mh_fiber_reconstruct_mosaic_dwi', 'TileOrder');
 opts.Parallel = logical(opts.Parallel);
 opts.ParallelWorkers = max(1, round(double(opts.ParallelWorkers)));
 opts.Force = logical(opts.Force);
@@ -129,6 +134,7 @@ result.QcJson = paths.QcJson;
 result.GeometrySource = geometry.GeometrySource;
 result.TileSize = mat2str(geometry.TileSize);
 result.TileGrid = mat2str(geometry.TileGrid);
+result.TileOrder = geometry.TileOrder;
 result.SliceCount = geometry.SliceCount;
 result.VolumeCount = geometry.VolumeCount;
 result.OutputImageSize = mat2str(geometry.OutputImageSize);
@@ -170,8 +176,16 @@ volume = zeros(tileWidth, tileHeight, sliceCount, 'like', frame);
 
 for sliceIndex = 1:sliceCount
     tileZero = sliceIndex - 1;
-    tileCol = mod(tileZero, gridCols);
     tileRow = floor(tileZero / gridCols);
+    switch geometry.TileOrder
+        case 'row_major_right_to_left'
+            tileCol = gridCols - 1 - mod(tileZero, gridCols);
+        case 'row_major_left_to_right'
+            tileCol = mod(tileZero, gridCols);
+        otherwise
+            error('mh_fiber_reconstruct_mosaic_dwi:InvalidTileOrder', ...
+                'Unsupported TileOrder: %s', geometry.TileOrder);
+    end
     xRange = (tileCol * tileWidth + 1):((tileCol + 1) * tileWidth);
     yRange = (tileRow * tileHeight + 1):((tileRow + 1) * tileHeight);
     volume(:, :, sliceIndex) = frame(xRange, yRange);
@@ -195,8 +209,12 @@ tempDir = tempname;
 mkdir(tempDir);
 cleanupObj = onCleanup(@() mh_fiber_cleanup_temp_dir(tempDir));
 tempBase = fullfile(tempDir, mh_fiber_nii_basename(outputPath));
-niftiwrite(data, tempBase, outInfo, 'Compressed', true);
-tempOutput = [tempBase, '.nii.gz'];
+tempNii = [tempBase, '.nii'];
+outInfo.Filename = tempNii;
+niftiwrite(data, tempNii, outInfo, 'Compressed', false);
+writtenNii = find_written_nifti(tempNii);
+gzip(writtenNii);
+tempOutput = [writtenNii, '.gz'];
 if ~isfile(tempOutput)
     error('mh_fiber_reconstruct_mosaic_dwi:NiftiWriteFailed', ...
         'niftiwrite did not create expected file: %s', tempOutput);
@@ -204,6 +222,18 @@ end
 movefile(tempOutput, outputPath, 'f');
 clear cleanupObj;
 mh_fiber_cleanup_temp_dir(tempDir);
+end
+
+function writtenNii = find_written_nifti(expectedPath)
+candidates = {expectedPath, [expectedPath, '.nii']};
+for i = 1:numel(candidates)
+    if isfile(candidates{i})
+        writtenNii = candidates{i};
+        return;
+    end
+end
+error('mh_fiber_reconstruct_mosaic_dwi:NiftiWriteFailed', ...
+    'niftiwrite did not create an uncompressed NIfTI near: %s', expectedPath);
 end
 
 function pixdim = output_pixel_dimensions(sourceInfo, outInfo, volumeCount)
@@ -235,6 +265,7 @@ metadata.MosaicReconstructionSourceBvec = opts.SourceBvec;
 metadata.MosaicGeometrySource = geometry.GeometrySource;
 metadata.MosaicTileSize = geometry.TileSize;
 metadata.MosaicTileGrid = geometry.TileGrid;
+metadata.MosaicTileOrder = geometry.TileOrder;
 metadata.MosaicSliceCount = geometry.SliceCount;
 metadata.MosaicVolumeCount = geometry.VolumeCount;
 metadata.MosaicTileSlotCount = geometry.TileSlotCount;
@@ -270,6 +301,7 @@ qc.SourceImageSize = geometry.SourceImageSize;
 qc.OutputImageSize = geometry.OutputImageSize;
 qc.TileSize = geometry.TileSize;
 qc.TileGrid = geometry.TileGrid;
+qc.TileOrder = geometry.TileOrder;
 qc.SliceCount = geometry.SliceCount;
 qc.VolumeCount = geometry.VolumeCount;
 qc.TileSlotCount = geometry.TileSlotCount;

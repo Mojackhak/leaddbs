@@ -9,6 +9,7 @@ parser.addParameter('OutputBase', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('RepoDir', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('WorkDir', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('ReferenceNifti', '', @(x) ischar(x) || isstring(x));
+parser.addParameter('TileOrder', 'row_major_right_to_left', @(x) ischar(x) || isstring(x));
 parser.addParameter('Parallel', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ParallelWorkers', 4, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
@@ -57,6 +58,7 @@ if candidate.ImageSize(3) == 1
             'SourceBvec', candidate.Bvec, ...
             'DicomDir', opts.DicomDir, ...
             'ReferenceNifti', opts.ReferenceNifti, ...
+            'TileOrder', opts.TileOrder, ...
             'OutputDir', opts.OutputDir, ...
             'OutputBase', opts.OutputBase, ...
             'Parallel', opts.Parallel, ...
@@ -73,6 +75,7 @@ if candidate.ImageSize(3) == 1
             'SourceBvec', candidate.Bvec, ...
             'DicomDir', opts.DicomDir, ...
             'ReferenceNifti', opts.ReferenceNifti, ...
+            'TileOrder', opts.TileOrder, ...
             'OutputDir', opts.OutputDir, ...
             'OutputBase', opts.OutputBase, ...
             'Parallel', opts.Parallel, ...
@@ -116,6 +119,9 @@ fields = {'DicomDir', 'OutputDir', 'OutputBase', 'RepoDir', 'WorkDir', 'Referenc
 for i = 1:numel(fields)
     opts.(fields{i}) = char(string(opts.(fields{i})));
 end
+opts.TileOrder = validatestring(char(string(opts.TileOrder)), ...
+    {'row_major_right_to_left', 'row_major_left_to_right'}, ...
+    'mh_fiber_convert_dicom_dwi_to_leaddbs', 'TileOrder');
 opts.Parallel = logical(opts.Parallel);
 opts.ParallelWorkers = max(1, round(double(opts.ParallelWorkers)));
 opts.Force = logical(opts.Force);
@@ -157,6 +163,7 @@ result.Message = '';
 result.DicomDir = opts.DicomDir;
 result.OutputDir = opts.OutputDir;
 result.OutputBase = opts.OutputBase;
+result.TileOrder = opts.TileOrder;
 result.OutputNifti = paths.Nifti;
 result.OutputJson = paths.Json;
 result.OutputBval = paths.Bval;
@@ -299,10 +306,31 @@ tempDir = tempname;
 mkdir(tempDir);
 cleanupObj = onCleanup(@() mh_fiber_cleanup_temp_dir(tempDir));
 tempBase = fullfile(tempDir, mh_fiber_nii_basename(target));
-niftiwrite(data, tempBase, info, 'Compressed', true);
-movefile([tempBase, '.nii.gz'], target, 'f');
+tempNii = [tempBase, '.nii'];
+info.Filename = tempNii;
+niftiwrite(data, tempNii, info, 'Compressed', false);
+writtenNii = find_written_nifti(tempNii);
+gzip(writtenNii);
+tempOutput = [writtenNii, '.gz'];
+if ~isfile(tempOutput)
+    error('mh_fiber_convert_dicom_dwi_to_leaddbs:NiftiWriteFailed', ...
+        'gzip did not create expected file: %s', tempOutput);
+end
+movefile(tempOutput, target, 'f');
 clear cleanupObj;
 mh_fiber_cleanup_temp_dir(tempDir);
+end
+
+function writtenNii = find_written_nifti(expectedPath)
+candidates = {expectedPath, [expectedPath, '.nii']};
+for i = 1:numel(candidates)
+    if isfile(candidates{i})
+        writtenNii = candidates{i};
+        return;
+    end
+end
+error('mh_fiber_convert_dicom_dwi_to_leaddbs:NiftiWriteFailed', ...
+    'niftiwrite did not create an uncompressed NIfTI near: %s', expectedPath);
 end
 
 function augment_final_json(jsonPath, opts, result, directCopy)
@@ -310,6 +338,7 @@ metadata = jsondecode(fileread(jsonPath));
 metadata.DicomDwiConversion = true;
 metadata.DicomDwiConversionSource = opts.DicomDir;
 metadata.DicomDwiConversionDecision = result.Decision;
+metadata.DicomDwiConversionTileOrder = opts.TileOrder;
 metadata.DicomDwiConversionDirectCopy = directCopy;
 metadata.DicomDwiConversionDcm2niixPath = result.Dcm2niixPath;
 metadata.DicomDwiConversionDcm2niixSource = result.Dcm2niixSource;
@@ -327,6 +356,7 @@ qc.Message = result.Message;
 qc.DicomDir = opts.DicomDir;
 qc.OutputDir = opts.OutputDir;
 qc.OutputBase = opts.OutputBase;
+qc.TileOrder = opts.TileOrder;
 qc.OutputNifti = result.OutputNifti;
 qc.OutputJson = result.OutputJson;
 qc.OutputBval = result.OutputBval;

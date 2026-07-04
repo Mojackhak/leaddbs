@@ -63,6 +63,13 @@ STNSNr 64-direction SaveBySlc cases, this gives a `9 x 9` tile grid with
 `108 x 105` voxels per tile and 78 valid slices per volume. Trailing unused
 tile slots are discarded.
 
+For Siemens SaveBySlc DWI mosaics in this workflow, anatomical slices are read
+in `row_major_right_to_left` order: each mosaic row is traversed from right to
+left, and rows are processed from top to bottom. This tile order is recorded as
+`MosaicTileOrder` in the reconstructed JSON sidecar. Left-to-right
+reconstructions of the same STNSNr SaveBySlc files are considered invalid and
+must not be used for preprocessing.
+
 DICOM-derived geometry is preferred over image-only inference. If DICOM metadata
 are unavailable, a same-protocol reference NIfTI or explicit `TileSize`,
 `TileGrid`, and `SliceCount` parameters are required. Reconstructed outputs are
