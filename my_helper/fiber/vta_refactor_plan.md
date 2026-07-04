@@ -2872,6 +2872,10 @@ Phase 2BW validation completed:
   the runner creates a fresh validation root, copies the selected subject
   directory, writes a validation manifest, and refuses to overwrite an existing
   validation root.
+- Real prepare-only setup copied `SNr003` / `sub-LinJia` into
+  `/Volumes/VAL/STNSNr/validation/vta_refactor_subset_20260703_234615` without
+  running FEM or cohort coverage; the copied subject directory is 3.8G and the
+  validation manifest records `prepare_only = true`.
 - Static verification confirmed the runner treats the real STN/SNr subject root
   only as `SourceSubjectRoot`, and mode-specific cohort outputs/process work
   directories are built under the fresh validation root.
