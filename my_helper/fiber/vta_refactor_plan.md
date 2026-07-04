@@ -3060,3 +3060,32 @@ Phase 2CB validation completed:
 - Remaining deferred gate: destructive/full-FEM full-cohort timing comparison,
   which would require copying or explicitly approving all 16 subjects for a
   full execution run.
+
+## Phase 2CC Feasibility Audit
+
+Status: **completed**.
+
+Phase 2CC audited the storage boundary for a destructive/full-FEM full-cohort
+timing run without creating or deleting files:
+
+- `/Volumes/VAL` capacity: 3.6T total, 1.6T used, 2.0T available.
+- The real STN/SNr Lead-DBS subject root contains 84 `sub-*` directories, but
+  the stimulation workbook selects 16 cohort subjects.
+- The 16 workbook-selected subject directories total approximately 86G:
+  `sub-LinJia` 3.8G, `sub-HuFengXian` 4.8G, `sub-YuDongJian` 4.9G,
+  `sub-WuYueFen` 4.4G, `sub-LiPing` 4.8G, `sub-MaoXiaoMing` 4.6G,
+  `sub-ShengGuoLiang` 4.5G, `sub-ZhangXiaoHong` 5.0G,
+  `sub-ZhengXiangQuan` 4.7G, `sub-ZhaoPeiGen` 5.5G,
+  `sub-ChenLingHua` 4.8G, `sub-FanDongDong` 4.5G, `sub-HuangDan` 7.1G,
+  `sub-ZhangMing` 14G, `sub-GengHui` 5.1G, and `sub-ChenMeiJu` 4.4G.
+- Existing copied-subset validation roots occupy approximately 3.9G, 3.9G, and
+  3.8G; the full-cohort cohort-only validation output occupies 6.5M.
+
+Phase 2CC conclusion:
+
+- Disk capacity is sufficient for a copied full-cohort validation root.
+- The run remains high-cost because it would copy about 86G and run real FEM
+  across all selected subjects.
+- Do not launch destructive/full-FEM full-cohort timing automatically; it should
+  be a separate explicitly approved run with the intended execution mode,
+  worker count, timeout, and cleanup/retention policy.
