@@ -544,7 +544,9 @@ Definitions:
 
 - `Y_HF3m_i`: raw HF-only 3-month clinical score for patient `i`.
 - `Y_Preop_i`: raw preoperative score for patient `i`.
-- `X_HF_i(l)`: right canonical bilateral HF peak e-field exposure for normative fiber `l`.
+- `E_R_i(l)`: right-side peak raw sim-efield sampled along right canonical normative fiber `l`.
+- `E_L_to_R_i(l)`: left-side peak raw sim-efield after `ea_flip_lr_nonlinear`, sampled along the same right canonical normative fiber `l`.
+- `X_HF_i(l) = (E_R_i(l) + E_L_to_R_i(l)) / 2`: patient-level right canonical bilateral HF peak e-field exposure for normative fiber `l`.
 - `rho_HF(l)`: baseline-adjusted fiber-wise association.
 
 Benefit-oriented fiber weight:
@@ -562,6 +564,8 @@ tau_sensitivity = 1500 V/m
 Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
 F_candidate_tau = {l: Coverage_tau(l) >= 5}
 ```
+
+The executable HF normative fiber model uses a right-canonical streamline feature space and the same patient-level coverage rule as the HF direct voxel model. Left stimulation is flipped into the same right-sided feature set; bilateral E-field information is averaged into `X_HF_i(l)`, but the streamline features are not a true bilateral streamline set.
 
 Do not use change score or percent improvement as the primary HF sweet-spot outcome. The existing improvement-rate table can be used for compatibility checks, smoke tests, descriptive reporting, and sensitivity analyses.
 
@@ -590,6 +594,15 @@ After fitting the HF fiber-level model, export selected fiber and density visual
 normative_HF_fiber_display_top1_positive.tck
 normative_HF_fiber_display_top0p5_sour.tck
 normative_HF_fiber_density_map.nii.gz
+normative_HF_fiber_endpoint_labels.csv
+normative_HF_fiber_cortical_endpoint_summary.csv
+normative_HF_fiber_subcortical_crossing_summary.csv
+normative_HF_fiber_label_enrichment.csv
+normative_HF_fiber_unthresholded_weighted_density.nii.gz
+normative_HF_fiber_neglogp_density.nii.gz
+fdr_summary_by_scale.csv
+connectome_scale_performance_summary.csv
+normative_HF_plain_connected_model_comparison.csv
 ```
 
 These HF maps answer:
@@ -1790,7 +1803,7 @@ Expected output groups:
 - `models/snr/chronic_gain/`: endpoint-specific chronic ULF target-gain model results.
 - `models/snr/immediate_gain/`: endpoint-specific immediate ULF target-gain model results.
 - `models/cross_scale/`: map-level similarity metrics and secondary global maps.
-- `fiber_maps/hf_normative/`: right canonical HF normative selected-fiber displays, fiber density maps, top 1% sweet and top 0.5% sour streamlines, and target-label QC summaries.
+- `fiber_maps/hf_normative/`: right canonical HF normative selected-fiber displays, fiber density maps, top 1% sweet and top 0.5% sour streamlines, endpoint/anatomical enrichment, unthresholded landscape maps, FDR display summaries, cross-connectome robustness tables, bootstrap/jitter stability outputs, and plain connected-streamline controls.
 - `voxel_maps/target_derived/snr/`: left/right SNr coverage, sweet, sour, net, and stability NIfTI maps derived from ULF target weights.
 - `fiber_maps/loocv/hf_normative/`: fold-specific HF fiber-level weights, held-out `NetFiberScore`, and selected-fiber QC summaries.
 - `voxel_maps/loocv/snr/`: fold-specific ULF target-derived maps and held-out voxel overlap scores when ULF voxel scores are used for prediction.
@@ -1831,7 +1844,7 @@ Expected output groups:
 - ULF chronic add-on gain models include both `Y_HF3m` and `DeltaHFScore_3m`.
 - ULF immediate add-on gain models include both `Y_HF3m` and `DeltaHFScore_immediate`.
 - ULF results include target coverage summaries and secondary coverage maps; low-coverage targets, regions, or streamlines are not strongly interpreted.
-- The implementation can run a PPMI smoke test before dTOR full-scale analysis.
+- PPMI, MGH, and dTOR all produce figure-grade observed HF normative fiber outputs; dTOR additionally carries formal permutation/bootstrap and jitter QC.
 - dTOR and MGH access is chunked and memory-safe.
 - `my_helper/fiber/stnsnr` contains only pipeline scripts, not core helper functions.
 - scale-specific maps are generated before any cross-scale summary map.

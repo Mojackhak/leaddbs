@@ -80,10 +80,12 @@ pipeline 只做最小 e-field availability check：路径存在、subject/side/c
 
 ```text
 canonical side = right
-X_R_i(l)      = peak raw sim-efield along right canonical fiber l
-X_L_to_R_i(l) = peak left e-field after ea_flip_lr_nonlinear along the same right canonical fiber l
-X_HF_i(l)     = (X_R_i(l) + X_L_to_R_i(l)) / 2
+E_R_i(l)      = peak raw sim-efield along right canonical fiber l
+E_L_to_R_i(l) = peak left e-field after ea_flip_lr_nonlinear along the same right canonical fiber l
+X_HF_i(l)     = (E_R_i(l) + E_L_to_R_i(l)) / 2
 ```
+
+可执行模型使用右侧 canonical streamline feature space。左侧刺激先翻转到右侧 canonical space，再沿同一组右侧 streamline features 采样。因此模型使用双侧 E-field 信息，但 streamline feature set 本身是单侧 canonical，而不是真正的双侧 streamline set。
 
 同侧 alternating HF 子程序先按 voxel-wise maximum 合并后再进行 fiber sampling。Exposure 不按 frequency 或 pulse width 缩放。
 
@@ -96,7 +98,7 @@ Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
 F_candidate_tau = {l: Coverage_tau(l) >= 5}
 ```
 
-`Coverage>=5` 是当前可执行规则。Nature Communications tract-library paper 中的 `>0.5% E-fields` 规则记录在 reference checklist 中，但对本 `n=16` 队列几乎过于宽松。因此当前实现采用 `Coverage>=5` 以提高稳定性。
+fiber model 使用与 HF direct voxel model 一致的 coverage 口径：coverage 按患者层面平均后的 right-canonical exposure rows 计数。患者层面的平均暴露 `X_HF_i(l)` 同时用于 candidate definition、fiber-wise association、scoring、LOOCV 和 prediction。
 
 dTOR connectome 很大（`idx` 约 1182 万条 fibers）。所有 dTOR exposure 和 candidate 计算必须 chunked processing。任何一次性把完整 dTOR `fibers` 矩阵载入内存的实现都无效。
 
@@ -193,15 +195,19 @@ prediction model 在 raw post-score 尺度上拟合。主验证统计量是 held
 Reference sensitivities：
 
 ```text
-1500 V/m candidate threshold sensitivity
+1500 V/m candidate threshold sensitivity with Coverage>=5
 top 1% positive fibers for display
 top 0.5% sour fibers for display
 top1500 positive / top500 negative fiber-score sensitivity for PPMI, MGH, and dTOR
 OSS-DBS all-candidate sensitivity for PPMI, MGH, and dTOR
-2 mm FWHM spatial jitter QC for dTOR selected/display fibers only
+jitter_level_1_selected_display for dTOR selected/display fibers
+jitter_level_2_model_density for dTOR model-density robustness
+plain_connected_streamline_control for PPMI, MGH, and dTOR
 ```
 
 reference papers 中的 5-fold/10-fold CV 设置只写入 reference checklist。当前 `n=16` 执行不生成这些结果；LOOCV 是可执行验证设计。
+
+PPMI、MGH 和 dTOR 都必须生成 figure-grade observed outputs：full-sample maps、LOOCV predictions、score CSVs、selected sweet/sour fibers、density maps、candidate and coverage summaries 和 label summaries。dTOR 额外承担 formal `B=10000` permutation、`B=10000` bootstrap 和 jitter QC。
 
 ## OSS-DBS 敏感性分析
 
@@ -237,15 +243,15 @@ peak_efield_tau800_primary
 peak_efield_tau1500_sensitivity
 top1500_top500_sensitivity
 ossdbs_activation_sensitivity
+plain_connected_streamline_control
 ```
 
-每个 branch 必需输出：
+每个 branch 必需 observed outputs：
 
 ```text
 normative_HF_fiber_weights.csv
 normative_HF_fiber_scores.csv
 normative_HF_fiber_loocv_predictions.csv
-normative_HF_fiber_permutation_summary.csv
 normative_HF_fiber_mapping_qc.json
 normative_HF_fiber_generation_manifest.json
 normative_HF_fiber_display_top1_positive.tck
@@ -253,14 +259,41 @@ normative_HF_fiber_display_top1_positive.mat
 normative_HF_fiber_display_top0p5_sour.tck
 normative_HF_fiber_display_top0p5_sour.mat
 normative_HF_fiber_density_map.nii.gz
+normative_HF_fiber_endpoint_labels.csv
+normative_HF_fiber_cortical_endpoint_summary.csv
+normative_HF_fiber_subcortical_crossing_summary.csv
+normative_HF_fiber_label_enrichment.csv
+normative_HF_fiber_unthresholded_weighted_density.nii.gz
+normative_HF_fiber_positive_weighted_density.nii.gz
+normative_HF_fiber_negative_weighted_density.nii.gz
+normative_HF_fiber_neglogp_density.nii.gz
+normative_HF_fiber_qvalue_summary.csv
+normative_HF_fiber_top_percentile_sweep_summary.csv
+fdr_summary_by_scale.csv
+fdr_thresholded_positive_density_q05.nii.gz
+fdr_thresholded_negative_density_q05.nii.gz
+fdr_thresholded_positive_density_q10.nii.gz
+fdr_thresholded_negative_density_q10.nii.gz
 ```
 
 Primary dTOR peak-E-field branch 额外输出：
 
 ```text
+normative_HF_fiber_permutation_summary.csv
 normative_HF_fiber_bootstrap_se.csv
+normative_HF_fiber_bootstrap_selection_frequency.csv
+normative_HF_fiber_bootstrap_sign_stability.csv
+normative_HF_fiber_fold_selection_frequency.csv
+normative_HF_fiber_fold_sign_stability.csv
+normative_HF_fiber_stability_density_map.nii.gz
 normative_HF_fiber_jitter_summary.csv
+normative_HF_fiber_jitter_model_similarity.csv
+normative_HF_fiber_jitter_selected_overlap.csv
+normative_HF_fiber_jitter_density_correlation.csv
+normative_HF_fiber_jitter_example_density_maps/
 ```
+
+PPMI 和 MGH observed branches 不要求 formal permutation/bootstrap outputs。其 manifest 记录 `resampling_status = observed_only_connectome_robustness`。
 
 OSS branch 额外输出：
 
@@ -268,6 +301,24 @@ OSS branch 额外输出：
 normative_HF_fiber_oss_activation_matrix_summary.csv
 normative_HF_fiber_oss_loocv_predictions.csv
 normative_HF_fiber_oss_permutation_summary.csv
+```
+
+Plain connected-streamline control branch 输出：
+
+```text
+normative_HF_plain_touched_fibers.tck
+normative_HF_plain_touched_density_map.nii.gz
+normative_HF_plain_touched_summary.csv
+normative_HF_plain_connected_model_comparison.csv
+```
+
+Cross-connectome figure summaries 输出在 HF normative connectome fiber summary root：
+
+```text
+connectome_scale_performance_summary.csv
+connectome_scale_overlap_summary.csv
+connectome_density_correlation_summary.csv
+connectome_selected_label_summary.csv
 ```
 
 `normative_HF_fiber_weights.csv` 至少包括：
@@ -287,6 +338,20 @@ is_top1_positive_display
 is_top0p5_sour_display
 is_top1500_positive
 is_top500_negative
+```
+
+`fdr_summary_by_scale.csv` 至少包括：
+
+```text
+scale
+connectome
+branch
+n_q05_positive
+n_q05_negative
+n_q10_positive
+n_q10_negative
+top1_positive_overlap_q_ranked
+top0p5_sour_overlap_q_ranked
 ```
 
 `normative_HF_fiber_scores.csv` 至少包括：
@@ -309,6 +374,39 @@ is_primary_score
 
 `normative_HF_fiber_mapping_qc.json` 记录 candidate counts、coverage distribution、degenerate fiber counts、empty-fold failures、FDR method、target-label summaries、chunking parameters、memory use summaries 和 OSS-DBS status。
 
+`normative_HF_fiber_endpoint_labels.csv` 保存每条 fiber 的 cortical、subcortical 和 STN/SNr territory endpoint/crossing labels。Endpoint labels 只用于 anatomical enrichment、cortical-origin summaries 和 figure annotation，不定义主候选全集或 scoring set。
+
+`normative_HF_fiber_label_enrichment.csv` 将 selected sweet/sour fibers 与 plain touched-streamline background 比较，使 outcome-filtered fibers 可以相对于非 outcome 加权的 stimulation-connectivity density 解释。
+
+### Plain Connected-Streamline Control
+
+Plain control 故意不使用 clinical outcome、`rho_HF(l)`、`M_HF(l)` 或 sweet/sour weights。它只回答 outcome filtering 前 HF stimulation 会触碰到哪些 normative streamlines：
+
+```text
+Touched_i(l) = I[X_HF_i(l) > tau]
+PlainCoverage(l) = sum_i Touched_i(l)
+PlainDensityMap = streamline density of all touched fibers
+```
+
+患者层面 plain scores：
+
+```text
+PlainTouchedCount_i = sum_l Touched_i(l)
+PlainExposureSum_i  = sum_l X_HF_i(l)
+PlainExposureTop5_i = mean top 5% X_HF_i(l) among touched fibers
+```
+
+模型比较：
+
+```text
+Y_post ~ Y_base
+Y_post ~ PlainExposureTop5 + Y_base
+Y_post ~ NetFiberScore + Y_base
+Y_post ~ NetFiberScore + PlainExposureTop5 + Y_base
+```
+
+在本 `n=16` 队列中，联合 `NetFiberScore + PlainExposureTop5` 模型只作为 QC，不作为 primary inference。它用于评估 outcome-filtered fiber profile 是否提供超出 stimulation burden、lead placement 和 connectome density 的信息。
+
 ## 可视化
 
 Target atlases 只在 fiber 建模之后用于 label 和 summary，不定义主预测变量。
@@ -318,10 +416,13 @@ Display outputs：
 - 按 `M_HF(l)` 选取 top 1% positive fibers 用于 sweet streamline visualization；
 - 按负向 `M_HF(l)` 选取 top 0.5% sour fibers 用于 avoidance/sour visualization；
 - selected/display fibers 的 streamline density maps；
-- target-label summary tables，说明 selected fibers 穿过或接触哪些 atlas targets；
+- unthresholded weighted-density maps，展示不经 percentile thresholding 的完整 fiber landscape；
+- `-log(P)` density maps 和 q-value summaries，用于 statistical-certainty display；
+- target-label、cortical endpoint 和 subcortical crossing summary tables，说明 selected fibers 穿过或接触哪些 atlas territories；
+- plain touched-streamline density maps，作为非 outcome 加权的 stimulation-connectivity controls；
 - STN/SNr 和 STNSNrplus overlays 只作为解剖背景。
 
-任何 display fiber subset 都不是统计显著性图。FDR q 值可以显示在 QC 表中，但 display 规则基于 rank/percentile 和方向稳定性，而不是 q-value threshold。
+任何 display fiber subset 都不是主统计显著性图。FDR q 值和 q-thresholded density maps 用于 QC/display 透明性，但不筛选主模型、不定义 `F+`/`F-`，也不进入 `NetFiberScore`。
 
 ## 解释边界
 
@@ -352,12 +453,12 @@ Display outputs：
 以下量属于 executable statistical definition，必须保持不变：
 
 ```text
-connectome order = PPMI smoke, MGH intermediate, dTOR primary
+connectome order = PPMI observed figure-grade, MGH observed figure-grade, dTOR primary
 canonical side = right
 primary exposure = peak raw sim-efield along each normative fiber
 tau_primary = 800 V/m
 tau_sensitivity = 1500 V/m
-Coverage>=5
+Coverage>=5 counted over patient-level averaged right-canonical exposure rows
 LOOCV patient split
 primary estimator = baseline-adjusted partial Spearman
 primary score = NetFiberScore
@@ -378,9 +479,9 @@ Numerical reductions 尽量使用 `float64`。大型 exposure matrices 可用 `f
 Formal runs 必须写出 memmap-friendly fiber-major sidecar files 供 Python postprocessing 使用。PPMI 和 MGH 在可行时可使用单个数组：
 
 ```text
-X_float32_fiber_major.npy       # shape = candidate_fiber x subject
-S800_bool.npy                   # X > 800 V/m
-S1500_bool.npy                  # X > 1500 V/m
+X_float32_fiber_major.npy       # shape = fiber x subject, averaged X_HF
+S800_bool.npy                   # X_HF > 800 V/m
+S1500_bool.npy                  # X_HF > 1500 V/m
 fiber_id.npy
 candidate_fiber_metadata.json
 ```
@@ -447,7 +548,7 @@ Peak selection 应通过 streaming top-k reducers over selected fiber chunks 实
 
 ### Permutation And Bootstrap Efficiency
 
-Freedman-Lane permutation 可以复用 fold-specific exposure sidecars、`S_tau`、coverage subtraction、subject order、baseline ranks 和 chunk metadata。对每个 reconstructed `Y*`，仍必须重新拟合 fiber-wise association、重新选择 `F+`/`F-`、重新计算 `NetFiberScore`，并重新运行 LOOCV prediction statistic。
+Freedman-Lane permutation 可以复用 fold-specific exposure sidecars、`S_tau` arrays、coverage subtraction、subject order、baseline ranks 和 chunk metadata。对每个 reconstructed `Y*`，仍必须重新拟合 fiber-wise association、重新选择 `F+`/`F-`、重新计算 `NetFiberScore`，并重新运行 LOOCV prediction statistic。
 
 Subject-level bootstrap 仍是 primary dTOR peak-E-field branch 的 full-process map stability analysis。对每个 bootstrap resample，用 subject counts 表示采样患者：
 
@@ -479,7 +580,10 @@ Formal loops 不得写出 per-fold、per-permutation 或 per-bootstrap 的 full 
 top 1% positive fibers
 top 0.5% sour fibers
 top1500 positive / top500 negative sensitivity fibers
+downsampled representative unthresholded landscape fibers when explicitly requested
 streamline density maps
+plain touched-streamline density maps
+FDR-thresholded density maps
 target-label QC summaries
 ```
 
@@ -506,6 +610,8 @@ workers 不得并发 append 同一个 CSV 或 JSON。workers 应返回 structure
     "n_fibers_candidate_tau800_mean": null,
     "n_fibers_candidate_tau800_min": null,
     "n_fibers_candidate_tau800_max": null,
+    "coverage_tau800_summary": null,
+    "coverage_tau1500_summary": null,
     "n_chunks": null,
     "chunk_size": null,
     "python_jobs": null,
@@ -534,6 +640,7 @@ seed = 42
 
 ```text
 fold-specific F_candidate_tau
+Coverage_tau
 partial Spearman rho_HF(l)
 benefit-oriented M_HF(l)
 F+ and F-

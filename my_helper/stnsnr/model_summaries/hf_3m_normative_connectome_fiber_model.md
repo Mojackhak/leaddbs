@@ -80,10 +80,12 @@ Right canonical fiber model:
 
 ```text
 canonical side = right
-X_R_i(l)      = peak raw sim-efield along right canonical fiber l
-X_L_to_R_i(l) = peak left e-field after ea_flip_lr_nonlinear along the same right canonical fiber l
-X_HF_i(l)     = (X_R_i(l) + X_L_to_R_i(l)) / 2
+E_R_i(l)      = peak raw sim-efield along right canonical fiber l
+E_L_to_R_i(l) = peak left e-field after ea_flip_lr_nonlinear along the same right canonical fiber l
+X_HF_i(l)     = (E_R_i(l) + E_L_to_R_i(l)) / 2
 ```
+
+The executable model uses a right-canonical streamline feature space. Left-sided stimulation is flipped into the right canonical space and sampled along the same right-sided streamline features. Bilateral E-field information is therefore used, but the streamline feature set itself is one-sided/canonical rather than a true bilateral streamline set.
 
 Alternating same-side HF subprogram e-fields are combined by voxel-wise maximum before fiber sampling. Exposure is not scaled by frequency or pulse width.
 
@@ -96,7 +98,7 @@ Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
 F_candidate_tau = {l: Coverage_tau(l) >= 5}
 ```
 
-`Coverage>=5` is the executable rule. The lower `>0.5% E-fields` criterion in the Nature Communications tract-library paper is documented in the reference checklist, but for this `n=16` cohort it would be effectively too permissive. The current implementation therefore uses `Coverage>=5` for stability.
+The fiber model uses the same coverage logic as the HF direct voxel model: coverage is counted over patient-level averaged right-canonical exposure rows. The averaged patient-level `X_HF_i(l)` is the exposure used for candidate definition, fiber-wise association, scoring, LOOCV, and prediction.
 
 The dTOR connectome is large (`idx` has about 11.82 million fibers). All dTOR exposure and candidate calculations must be chunked. Any implementation that loads the complete dTOR `fibers` matrix into memory is invalid.
 
@@ -193,15 +195,19 @@ The prediction model is fit on the raw post-score scale. The primary validation 
 Reference sensitivities:
 
 ```text
-1500 V/m candidate threshold sensitivity
+1500 V/m candidate threshold sensitivity with Coverage>=5
 top 1% positive fibers for display
 top 0.5% sour fibers for display
 top1500 positive / top500 negative fiber-score sensitivity for PPMI, MGH, and dTOR
 OSS-DBS all-candidate sensitivity for PPMI, MGH, and dTOR
-2 mm FWHM spatial jitter QC for dTOR selected/display fibers only
+jitter_level_1_selected_display for dTOR selected/display fibers
+jitter_level_2_model_density for dTOR model-density robustness
+plain_connected_streamline_control for PPMI, MGH, and dTOR
 ```
 
 The Nature paper 5-fold/10-fold CV settings are documented in the reference checklist only. They are not generated for the current `n=16` execution; LOOCV is the executable validation design.
+
+PPMI, MGH, and dTOR must all produce figure-grade observed outputs: full-sample maps, LOOCV predictions, score CSVs, selected sweet/sour fibers, density maps, candidate and coverage summaries, and label summaries. dTOR additionally carries formal `B=10000` permutation, `B=10000` bootstrap, and jitter QC.
 
 ## OSS-DBS Sensitivity
 
@@ -237,15 +243,15 @@ peak_efield_tau800_primary
 peak_efield_tau1500_sensitivity
 top1500_top500_sensitivity
 ossdbs_activation_sensitivity
+plain_connected_streamline_control
 ```
 
-Required outputs per branch:
+Required observed outputs per branch:
 
 ```text
 normative_HF_fiber_weights.csv
 normative_HF_fiber_scores.csv
 normative_HF_fiber_loocv_predictions.csv
-normative_HF_fiber_permutation_summary.csv
 normative_HF_fiber_mapping_qc.json
 normative_HF_fiber_generation_manifest.json
 normative_HF_fiber_display_top1_positive.tck
@@ -253,14 +259,41 @@ normative_HF_fiber_display_top1_positive.mat
 normative_HF_fiber_display_top0p5_sour.tck
 normative_HF_fiber_display_top0p5_sour.mat
 normative_HF_fiber_density_map.nii.gz
+normative_HF_fiber_endpoint_labels.csv
+normative_HF_fiber_cortical_endpoint_summary.csv
+normative_HF_fiber_subcortical_crossing_summary.csv
+normative_HF_fiber_label_enrichment.csv
+normative_HF_fiber_unthresholded_weighted_density.nii.gz
+normative_HF_fiber_positive_weighted_density.nii.gz
+normative_HF_fiber_negative_weighted_density.nii.gz
+normative_HF_fiber_neglogp_density.nii.gz
+normative_HF_fiber_qvalue_summary.csv
+normative_HF_fiber_top_percentile_sweep_summary.csv
+fdr_summary_by_scale.csv
+fdr_thresholded_positive_density_q05.nii.gz
+fdr_thresholded_negative_density_q05.nii.gz
+fdr_thresholded_positive_density_q10.nii.gz
+fdr_thresholded_negative_density_q10.nii.gz
 ```
 
 Primary dTOR peak-E-field branch additionally writes:
 
 ```text
+normative_HF_fiber_permutation_summary.csv
 normative_HF_fiber_bootstrap_se.csv
+normative_HF_fiber_bootstrap_selection_frequency.csv
+normative_HF_fiber_bootstrap_sign_stability.csv
+normative_HF_fiber_fold_selection_frequency.csv
+normative_HF_fiber_fold_sign_stability.csv
+normative_HF_fiber_stability_density_map.nii.gz
 normative_HF_fiber_jitter_summary.csv
+normative_HF_fiber_jitter_model_similarity.csv
+normative_HF_fiber_jitter_selected_overlap.csv
+normative_HF_fiber_jitter_density_correlation.csv
+normative_HF_fiber_jitter_example_density_maps/
 ```
+
+PPMI and MGH observed branches do not require formal permutation/bootstrap outputs. Their manifests record `resampling_status = observed_only_connectome_robustness`.
 
 OSS branch additionally writes:
 
@@ -268,6 +301,24 @@ OSS branch additionally writes:
 normative_HF_fiber_oss_activation_matrix_summary.csv
 normative_HF_fiber_oss_loocv_predictions.csv
 normative_HF_fiber_oss_permutation_summary.csv
+```
+
+Plain connected-streamline control branch writes:
+
+```text
+normative_HF_plain_touched_fibers.tck
+normative_HF_plain_touched_density_map.nii.gz
+normative_HF_plain_touched_summary.csv
+normative_HF_plain_connected_model_comparison.csv
+```
+
+Cross-connectome figure summaries are written at the HF normative connectome fiber summary root:
+
+```text
+connectome_scale_performance_summary.csv
+connectome_scale_overlap_summary.csv
+connectome_density_correlation_summary.csv
+connectome_selected_label_summary.csv
 ```
 
 `normative_HF_fiber_weights.csv` includes at least:
@@ -287,6 +338,20 @@ is_top1_positive_display
 is_top0p5_sour_display
 is_top1500_positive
 is_top500_negative
+```
+
+`fdr_summary_by_scale.csv` includes at least:
+
+```text
+scale
+connectome
+branch
+n_q05_positive
+n_q05_negative
+n_q10_positive
+n_q10_negative
+top1_positive_overlap_q_ranked
+top0p5_sour_overlap_q_ranked
 ```
 
 `normative_HF_fiber_scores.csv` includes:
@@ -309,6 +374,39 @@ is_primary_score
 
 `normative_HF_fiber_mapping_qc.json` records candidate counts, coverage distribution, degenerate fiber counts, empty-fold failures, FDR method, target-label summaries, chunking parameters, memory use summaries, and OSS-DBS status.
 
+`normative_HF_fiber_endpoint_labels.csv` stores per-fiber endpoint and crossing labels from cortical, subcortical, and STN/SNr territory atlases. Endpoint labels support anatomical enrichment, cortical-origin summaries, and figure annotation only; they do not define the primary candidate universe or scoring set.
+
+`normative_HF_fiber_label_enrichment.csv` compares selected sweet/sour fibers against the plain touched-streamline background, so outcome-filtered fibers can be interpreted against non-outcome-weighted stimulation-connectivity density.
+
+### Plain Connected-Streamline Control
+
+The plain control intentionally does not use clinical outcome, `rho_HF(l)`, `M_HF(l)`, or sweet/sour weights. It asks which normative streamlines are touched by HF stimulation before outcome filtering:
+
+```text
+Touched_i(l) = I[X_HF_i(l) > tau]
+PlainCoverage(l) = sum_i Touched_i(l)
+PlainDensityMap = streamline density of all touched fibers
+```
+
+Patient-level plain scores:
+
+```text
+PlainTouchedCount_i = sum_l Touched_i(l)
+PlainExposureSum_i  = sum_l X_HF_i(l)
+PlainExposureTop5_i = mean top 5% X_HF_i(l) among touched fibers
+```
+
+Model comparisons:
+
+```text
+Y_post ~ Y_base
+Y_post ~ PlainExposureTop5 + Y_base
+Y_post ~ NetFiberScore + Y_base
+Y_post ~ NetFiberScore + PlainExposureTop5 + Y_base
+```
+
+The joint `NetFiberScore + PlainExposureTop5` model is QC only for this `n=16` cohort. It tests whether the outcome-filtered fiber profile adds information beyond stimulation burden, lead placement, and connectome density.
+
 ## Visualization
 
 Target atlases are used after fiber modeling to label and summarize fibers, not to define primary predictors.
@@ -318,10 +416,13 @@ Display outputs:
 - top 1% positive fibers by `M_HF(l)` for sweet streamline visualization;
 - top 0.5% sour fibers by negative `M_HF(l)` for avoidance/sour visualization;
 - streamline density maps for selected/display fibers;
-- target-label summary tables showing which atlas targets are traversed or contacted by selected fibers;
+- unthresholded weighted-density maps showing the full fiber landscape without percentile thresholding;
+- `-log(P)` density maps and q-value summaries for statistical-certainty display;
+- target-label, cortical endpoint, and subcortical crossing summary tables showing which atlas territories are traversed or contacted by selected fibers;
+- plain touched-streamline density maps as non-outcome-weighted stimulation-connectivity controls;
 - STN/SNr and STNSNrplus overlays as anatomical context only.
 
-No display fiber subset is a statistical significance map. FDR q-values may be shown in QC tables, but the display rule is based on rank/percentile and direction stability rather than q-value thresholding.
+No display fiber subset is the primary statistical significance map. FDR q-values and q-thresholded density maps are generated for QC/display transparency, but they do not filter the primary model, define `F+`/`F-`, or enter `NetFiberScore`.
 
 ## Interpretation Boundary
 
@@ -352,12 +453,12 @@ The optimized implementation must preserve the logical full-process semantics de
 The following quantities are part of the executable statistical definition and must remain unchanged:
 
 ```text
-connectome order = PPMI smoke, MGH intermediate, dTOR primary
+connectome order = PPMI observed figure-grade, MGH observed figure-grade, dTOR primary
 canonical side = right
 primary exposure = peak raw sim-efield along each normative fiber
 tau_primary = 800 V/m
 tau_sensitivity = 1500 V/m
-Coverage>=5
+Coverage>=5 counted over patient-level averaged right-canonical exposure rows
 LOOCV patient split
 primary estimator = baseline-adjusted partial Spearman
 primary score = NetFiberScore
@@ -378,9 +479,9 @@ Numerical reductions should use `float64` where feasible. Stored large exposure 
 Formal runs must write memmap-friendly fiber-major sidecar files for Python postprocessing. PPMI and MGH may use single arrays when feasible:
 
 ```text
-X_float32_fiber_major.npy       # shape = candidate_fiber x subject
-S800_bool.npy                   # X > 800 V/m
-S1500_bool.npy                  # X > 1500 V/m
+X_float32_fiber_major.npy       # shape = fiber x subject, averaged X_HF
+S800_bool.npy                   # X_HF > 800 V/m
+S1500_bool.npy                  # X_HF > 1500 V/m
 fiber_id.npy
 candidate_fiber_metadata.json
 ```
@@ -447,7 +548,7 @@ Peak selection should be implemented by streaming top-k reducers over selected f
 
 ### Permutation And Bootstrap Efficiency
 
-Freedman-Lane permutation may reuse fold-specific exposure sidecars, `S_tau`, coverage subtraction, subject order, baseline ranks, and chunk metadata. For each reconstructed `Y*`, it must refit the fiber-wise association, reselect `F+`/`F-`, recompute `NetFiberScore`, and rerun the LOOCV prediction statistic.
+Freedman-Lane permutation may reuse fold-specific exposure sidecars, `S_tau` arrays, coverage subtraction, subject order, baseline ranks, and chunk metadata. For each reconstructed `Y*`, it must refit the fiber-wise association, reselect `F+`/`F-`, recompute `NetFiberScore`, and rerun the LOOCV prediction statistic.
 
 Subject-level bootstrap remains a full-process map stability analysis for the primary dTOR peak-E-field branch. For each bootstrap resample, represent sampled patients by subject counts:
 
@@ -479,7 +580,10 @@ Formal loops must not write per-fold, per-permutation, or per-bootstrap full fib
 top 1% positive fibers
 top 0.5% sour fibers
 top1500 positive / top500 negative sensitivity fibers
+downsampled representative unthresholded landscape fibers when explicitly requested
 streamline density maps
+plain touched-streamline density maps
+FDR-thresholded density maps
 target-label QC summaries
 ```
 
@@ -506,6 +610,8 @@ Workers must not concurrently append to shared CSV or JSON files. Workers should
     "n_fibers_candidate_tau800_mean": null,
     "n_fibers_candidate_tau800_min": null,
     "n_fibers_candidate_tau800_max": null,
+    "coverage_tau800_summary": null,
+    "coverage_tau1500_summary": null,
     "n_chunks": null,
     "chunk_size": null,
     "python_jobs": null,
@@ -534,6 +640,7 @@ Compare brute-force and optimized implementations for:
 
 ```text
 fold-specific F_candidate_tau
+Coverage_tau
 partial Spearman rho_HF(l)
 benefit-oriented M_HF(l)
 F+ and F-

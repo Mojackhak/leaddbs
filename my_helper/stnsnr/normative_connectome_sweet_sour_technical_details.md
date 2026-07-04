@@ -678,7 +678,9 @@ Definitions:
 ```text
 Y_HF3m_i = raw HF-only 3-month clinical score for subject i
 Y_Preop_i = raw preoperative clinical score for subject i
-X_HF_i(l) = right canonical bilateral HF peak e-field exposure for normative fiber l
+E_R_i(l) = right-side peak raw sim-efield sampled along right canonical normative fiber l
+E_L_to_R_i(l) = left-side peak raw sim-efield after ea_flip_lr_nonlinear, sampled along the same right canonical normative fiber l
+X_HF_i(l) = (E_R_i(l) + E_L_to_R_i(l)) / 2
 rho_HF(l) = baseline-adjusted fiber-wise association
 ```
 
@@ -692,6 +694,8 @@ tau_sensitivity = 1500 V/m
 Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
 F_candidate_tau = {l: Coverage_tau(l) >= 5}
 ```
+
+The executable model uses a right-canonical streamline feature space and the same patient-level coverage rule as the HF direct voxel model. Left-sided stimulation is flipped into the right canonical space and sampled along the same right-sided streamline features. Bilateral E-field information is averaged into `X_HF_i(l)`, but the feature set itself remains one-sided/canonical.
 
 Benefit-oriented implementation:
 
@@ -743,7 +747,11 @@ Display outputs:
 top 1% positive fibers for sweet streamline display
 top 0.5% sour fibers for avoidance/sour display
 streamline density maps for selected/display fibers
-target-label summaries for QC and anatomical interpretation
+unthresholded weighted-density maps
+-log(P) statistical-certainty density maps
+FDR q-value summaries and q-thresholded density maps for QC/display
+endpoint/cortical/subcortical label summaries for QC and anatomical interpretation
+plain connected-streamline control summaries
 ```
 
 Reference sensitivity coverage:
@@ -751,7 +759,9 @@ Reference sensitivity coverage:
 ```text
 top1500 positive / top500 negative fiber-score sensitivity
 OSS-DBS all-candidate sensitivity
-2 mm FWHM spatial jitter QC for dTOR selected/display fibers only
+plain_connected_streamline_control
+jitter_level_1_selected_display
+jitter_level_2_model_density
 5-fold and 10-fold CV documented only; LOOCV remains executable validation
 ```
 
@@ -1145,12 +1155,12 @@ This generic output list does not apply to the executable HF direct voxel model.
 
 ### Stage 4: Target Connectivity Extraction
 
-1. Run PPMI smoke test first.
-2. Load connectome streamlines in chunks.
-3. Compute side-specific target connectivity `C(i,h,k)` using same-side targets.
-4. Average left and right features into patient-level `C_bilat(i,k)`.
-5. Record target coverage, streamline counts, and reconstruction failures.
-6. Repeat for MGH and dTOR after PPMI validation.
+1. Load connectome streamlines in chunks.
+2. For HF normative fiber modeling, generate figure-grade observed outputs for PPMI, MGH, and dTOR.
+3. For target-level ULF and individualized-DWI models, compute side-specific target connectivity `C(i,h,k)` using same-side targets.
+4. Average left and right target-level features into patient-level `C_bilat(i,k)`.
+5. Record target coverage, streamline counts, candidate counts, label summaries, and reconstruction failures.
+6. Reserve formal permutation/bootstrap and jitter QC for the dTOR primary HF normative fiber branch.
 7. Compute individualized DWI target connectivity and coverage after DWI registration QC passes.
 
 ### Stage 5: Secondary Voxel And Fiber Extraction
@@ -1353,7 +1363,8 @@ direct voxel models use bilateral homologous voxel exposure and keep one row per
 nonlinear homologous voxel mapping uses model-specific transform rules; the executable HF model uses `ea_flip_lr_nonlinear`, while inverse-sampling/trilinear descriptions are generic non-HF context only
 direct voxel coverage masks are defined inside each training fold during LOOCV
 direct voxel models are compared against covariate-only models with patient-level permutation tests
-PPMI smoke test completes before MGH or dTOR
+PPMI, MGH, and dTOR all produce figure-grade observed HF normative fiber summaries
+dTOR primary HF normative fiber branch additionally produces formal permutation/bootstrap and jitter QC
 STN chronic, ULF chronic add-on gain, and ULF immediate add-on gain outputs are created
 low-coverage targets, voxels, and streamlines are flagged
 all outputs include provenance
