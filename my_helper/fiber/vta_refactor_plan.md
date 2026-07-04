@@ -3089,3 +3089,51 @@ Phase 2CC conclusion:
 - Do not launch destructive/full-FEM full-cohort timing automatically; it should
   be a separate explicitly approved run with the intended execution mode,
   worker count, timeout, and cleanup/retention policy.
+
+## Phase 2CD Final Refactor Gate
+
+Status: **completed with explicit full-FEM full-cohort opt-in gate**.
+
+The VTA refactor is ready under the completed validation envelope:
+
+- Process-backed and parpool-backed execution paths both completed real FEM on a
+  copied STNSNr subject root with writes confined to validation directories.
+- Sequential, process, and parpool copied-subset cohort outputs matched exactly
+  for coverage and contact-QC CSVs after excluding validation-root-specific path
+  columns.
+- Full-cohort cohort aggregation completed non-destructively with
+  `CohortOnly = true` in 7.303271 seconds and matched the existing full-cohort
+  baseline exactly.
+- The copied full-cohort FEM run is a stress/timing and retention-policy gate,
+  not a remaining ordinary refactor task.
+
+Recommended launch policy for the optional copied full-cohort FEM gate:
+
+- Run it only after explicit approval of execution mode, worker count, timeout,
+  and retention/cleanup policy.
+- Prefer one full-cohort `process` run first, because process workers isolate
+  MATLAB state and already matched parpool behavior on the copied real-FEM
+  subset.
+- Use a fresh validation root under `/Volumes/VAL/STNSNr/validation` and keep
+  the real subject root read-only.
+- Retain the validation root until coverage CSVs, contact-QC CSVs, worker logs,
+  and NIfTI counts have been reviewed. If cleanup is approved later, move the
+  copied root to Trash instead of permanently deleting it.
+
+Proposed approved-run command:
+
+```matlab
+cd('/Users/mojackhu/Github/leaddbs');
+addpath(genpath(pwd));
+
+r = mh_fiber_run_stnsnr_vta_subset_validation( ...
+    'Modes', {'process'}, ...
+    'MaxSubjects', 16, ...
+    'ForceVta', true, ...
+    'ForceOutputs', true, ...
+    'ParallelWorkers', 4, ...
+    'VtaProcessTimeoutSeconds', 28800);
+```
+
+After the optional process run passes, a second copied-root parpool run can be
+approved separately if full-cohort process-vs-parpool timing is still needed.
