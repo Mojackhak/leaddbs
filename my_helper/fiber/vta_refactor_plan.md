@@ -3137,3 +3137,54 @@ r = mh_fiber_run_stnsnr_vta_subset_validation( ...
 
 After the optional process run passes, a second copied-root parpool run can be
 approved separately if full-cohort process-vs-parpool timing is still needed.
+
+## Phase 2CE Real-Root Full-Cohort Rerun Plan
+
+Status: **approved for execution**.
+
+Phase 2CE reruns the observed STN/SNr full-cohort VTA generation on the real
+Lead-DBS subject root after moving the previous outputs to Trash:
+
+- Execution target: `/Volumes/VAL/STNSNr/derivatives/leaddbs`.
+- Subject scope: the 16 subjects selected by
+  `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/followup_stimulation.xlsx`.
+- VTA model: `simbio`.
+- VTA FEM gray-matter atlas: `Custom_Ewert_Zhang_Middlebrooks`.
+- FEM gray-matter surface policy: use the atlas `gm_mask.nii.gz` with the
+  existing Lead-DBS/Horn surface behavior, equivalent to an approximately 0.5
+  relative-intensity surface threshold.
+- Coverage classification atlas:
+  `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/Custom_Ewert_Zhang_Middlebrooks0.05`.
+- ROI/connected-region binary definition remains
+  `Custom_Ewert_Zhang_Middlebrooks > 0.05`.
+- Execution mode: task-level `process` with 4 VTA workers.
+- Target-component outputs under
+  `/Volumes/VAL/STNSNr/summary/vta/target_component_distribution` remain out of
+  scope and must not be moved or regenerated in this run.
+
+Deletion and retention policy:
+
+- Move previous outputs to Trash; do not permanently delete non-Git files.
+- Preserve original relative paths in the Trash archive for recovery.
+- Move all selected-subject `stimulations/**/**/*model-simbio_hemi-*` payloads
+  and matching AppleDouble sidecars.
+- Move each selected subject's
+  `connectomics/stnsnr_vta_coverage` directory.
+- Move observed cohort outputs, figures, logs, manifest files, and
+  `parallel_jobs_latest.csv` under `/Volumes/VAL/STNSNr/summary/vta`, while
+  preserving `target_component_distribution`.
+
+Run audit policy:
+
+- Create a timestamped audit directory under
+  `/Volumes/VAL/STNSNr/validation`.
+- Save selected-subject, pre-run VTA/e-field, pre-run subject-output, pre-run
+  cohort-output, checksum, and Trash manifest files before starting MATLAB.
+- Record shell `/usr/bin/time`, MATLAB `tic/toc`, and process worker logs.
+- Validate regenerated per-subject reports, manifests, 48 thresholded coverage
+  masks per subject, cohort table dimensions, manifest model settings, and
+  worker logs after the run.
+
+This run is a model-configuration update from `DISTAL Minimal (Ewert 2017)` to
+`Custom_Ewert_Zhang_Middlebrooks`; regenerated VTA outputs are not expected to
+match the old full-cohort numerical baseline exactly.
