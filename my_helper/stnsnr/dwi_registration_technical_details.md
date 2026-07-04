@@ -101,6 +101,12 @@ raw BIDS DWI
   -> pseudo B0 exposed to Lead-DBS UI
 ```
 
+For projects stored on external volumes, the Docker-facing Synb0 staging
+directory can be moved to a local user path with `Synb0WorkRoot`. This avoids
+Docker Desktop mount translation failures on `/Volumes/...` while keeping the
+archived Synb0 outputs, eddy outputs, corrected DWI, and pseudo `B0` in the
+project derivatives.
+
 During DWI import and preprocessing, the raw DWI files are copied from
 `rawdata` into `preprocessing/dwi`, then Synb0-DISCO, topup, and eddy write
 corrected outputs:

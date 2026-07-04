@@ -12,6 +12,7 @@ p.addParameter('Synb0Image', 'leonyichencai/synb0-disco:v3.1', @(x) ischar(x) ||
 p.addParameter('Synb0ContainerEngine', 'auto', @(x) ischar(x) || isstring(x));
 p.addParameter('FreeSurferLicense', '', @(x) ischar(x) || isstring(x));
 p.addParameter('Synb0MinDockerMemoryGB', 12, @(x) isnumeric(x) && isscalar(x) && x >= 0);
+p.addParameter('Synb0WorkRoot', '', @(x) ischar(x) || isstring(x));
 p.parse(paths, t1Image, varargin{:});
 opts = p.Results;
 
@@ -24,6 +25,7 @@ opts.Synb0Image = char(string(opts.Synb0Image));
 opts.Synb0ContainerEngine = char(string(opts.Synb0ContainerEngine));
 opts.FreeSurferLicense = char(string(opts.FreeSurferLicense));
 opts.Synb0MinDockerMemoryGB = double(opts.Synb0MinDockerMemoryGB);
+opts.Synb0WorkRoot = char(string(opts.Synb0WorkRoot));
 mh_util_must_be_file(paths.dwi, 'staged DWI', ...
     'mh_fiber_dwi_distortion_correction:MissingFile');
 mh_util_must_be_file(paths.bval, 'bval', ...
@@ -54,13 +56,15 @@ mh_fiber_extract_mean_b0(paths.dwi, distortedB0, bvals, opts.Force);
     opts.TotalReadoutTime, opts.DefaultTotalReadoutTime);
 write_synb0_acqparams(synb0Acqparams, opts.PhaseEncodingVector, totalReadoutTime);
 
-synb0RunDir = resolve_synb0_run_dir(workDir, opts.Force);
+projectSynb0RunDir = resolve_synb0_run_dir(workDir, opts.Force);
+synb0RunDir = resolve_synb0_execution_dir(projectSynb0RunDir, opts.Synb0WorkRoot, paths.patientName);
 synb0Result = ea_synb0(distortedB0, t1Image, synb0Acqparams, synb0RunDir, ...
     'ContainerEngine', opts.Synb0ContainerEngine, ...
     'Synb0Image', opts.Synb0Image, ...
     'FreeSurferLicense', opts.FreeSurferLicense, ...
     'MinDockerMemoryGB', opts.Synb0MinDockerMemoryGB, ...
     'Force', opts.Force);
+synb0Result = archive_synb0_result(synb0Result, synb0RunDir, projectSynb0RunDir, opts.Force);
 
 maskImage = fullfile(workDir, [rawBase, '_desc-synb0_brain.nii']);
 maskBase = mh_fiber_strip_nii_ext(maskImage);
@@ -103,6 +107,8 @@ result.eddyIndex = eddyResult.index;
 result.eddyLog = eddyResult.log;
 result.mask = maskPath;
 result.workDir = workDir;
+result.synb0ExecutionDir = synb0Result.executionDir;
+result.synb0ArchiveDir = synb0Result.archiveDir;
 result.totalReadoutTime = totalReadoutTime;
 result.totalReadoutTimeSource = readoutSource;
 result.phaseEncodingVector = opts.PhaseEncodingVector;
@@ -144,6 +150,62 @@ if force
     synb0RunDir = fullfile(workDir, ['synb0_', timestamp]);
 else
     synb0RunDir = fullfile(workDir, 'synb0');
+end
+end
+
+function synb0RunDir = resolve_synb0_execution_dir(projectSynb0RunDir, synb0WorkRoot, patientName)
+if isempty(synb0WorkRoot)
+    synb0RunDir = projectSynb0RunDir;
+    return;
+end
+[~, runName] = fileparts(projectSynb0RunDir);
+safePatientName = regexprep(char(string(patientName)), '[^A-Za-z0-9_.-]', '_');
+synb0RunDir = fullfile(synb0WorkRoot, safePatientName, runName);
+end
+
+function result = archive_synb0_result(result, executionDir, archiveDir, force)
+result.executionDir = executionDir;
+result.archiveDir = executionDir;
+if strcmp(executionDir, archiveDir)
+    return;
+end
+
+mh_util_make_dir(fileparts(archiveDir));
+targetArchiveDir = resolve_archive_target(archiveDir, force);
+[ok, message] = copyfile(executionDir, targetArchiveDir, 'f');
+if ~ok
+    error('mh_fiber_dwi_distortion_correction:Synb0ArchiveFailed', ...
+        'Could not archive Synb0 run from %s to %s: %s', ...
+        executionDir, targetArchiveDir, message);
+end
+result = rewrite_synb0_result_paths(result, executionDir, targetArchiveDir);
+result.executionDir = executionDir;
+result.archiveDir = targetArchiveDir;
+end
+
+function archiveDir = resolve_archive_target(requestedDir, force)
+archiveDir = requestedDir;
+if ~isfolder(archiveDir)
+    return;
+end
+if ~force
+    error('mh_fiber_dwi_distortion_correction:Synb0ArchiveExists', ...
+        'Synb0 archive already exists: %s', archiveDir);
+end
+suffix = 1;
+while isfolder(archiveDir)
+    archiveDir = sprintf('%s_retry%02d', requestedDir, suffix);
+    suffix = suffix + 1;
+end
+end
+
+function result = rewrite_synb0_result_paths(result, executionDir, archiveDir)
+fields = fieldnames(result);
+for i = 1:numel(fields)
+    value = result.(fields{i});
+    if ischar(value) && startsWith(value, executionDir)
+        result.(fields{i}) = [archiveDir, value((length(executionDir) + 1):end)];
+    end
 end
 end
 

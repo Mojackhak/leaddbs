@@ -49,7 +49,8 @@ try
             'Synb0ContainerEngine', opts.Synb0ContainerEngine, ...
             'Synb0Image', opts.Synb0Image, ...
             'FreeSurferLicense', opts.FreeSurferLicense, ...
-            'Synb0MinDockerMemoryGB', opts.Synb0MinDockerMemoryGB);
+            'Synb0MinDockerMemoryGB', opts.Synb0MinDockerMemoryGB, ...
+            'Synb0WorkRoot', opts.Synb0WorkRoot);
         paths.dwi = dcResult.dwi;
         paths.bval = dcResult.bval;
         paths.bvec = dcResult.bvec;
@@ -174,6 +175,7 @@ opts = fill_option(opts, 'Synb0ContainerEngine', 'auto');
 opts = fill_option(opts, 'Synb0Image', 'leonyichencai/synb0-disco:v3.1');
 opts = fill_option(opts, 'FreeSurferLicense', '');
 opts = fill_option(opts, 'Synb0MinDockerMemoryGB', 12);
+opts = fill_option(opts, 'Synb0WorkRoot', '');
 opts = fill_option(opts, 'RunCoregistration', []);
 opts = fill_option(opts, 'GenerateOptionalDwiQc', true);
 opts = fill_option(opts, 'Force', false);
@@ -188,6 +190,7 @@ opts.Synb0ContainerEngine = char(string(opts.Synb0ContainerEngine));
 opts.Synb0Image = char(string(opts.Synb0Image));
 opts.FreeSurferLicense = char(string(opts.FreeSurferLicense));
 opts.Synb0MinDockerMemoryGB = double(opts.Synb0MinDockerMemoryGB);
+opts.Synb0WorkRoot = char(string(opts.Synb0WorkRoot));
 opts.GenerateOptionalDwiQc = logical(opts.GenerateOptionalDwiQc);
 opts.Force = logical(opts.Force);
 if isempty(opts.RunCoregistration)

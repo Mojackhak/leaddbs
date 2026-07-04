@@ -67,10 +67,16 @@ parameters for the fake-B0 workflow are:
 'RunCoregistration', false
 'CoregistrationTag', 'dwi_synb0_fakeb0'
 'Synb0MinDockerMemoryGB', 12
+'Synb0WorkRoot', '/Users/mojackhu/Library/Caches/leaddbs/stnsnr_synb0_work'
 ```
 
 `mh_fiber_dwi_distortion_correction.m` runs the Synb0-DISCO, topup, eddy, and
 corrected-b0 extraction steps.
+When the project is stored on an external volume, `Synb0WorkRoot` can place the
+Docker-mounted `INPUTS` and `OUTPUTS` staging directories on a local user path.
+The completed Synb0 run is then archived back into the project
+`work/synb0_eddy` directory before eddy is called, so downstream derivatives
+remain project-local.
 
 `mh_fiber_reconstruct_mosaic_dwi.m` repairs one Siemens `SaveBySlc` tiled DWI
 set before it is used as a normal BIDS DWI input. `mh_fiber_infer_mosaic_geometry.m`
@@ -203,6 +209,7 @@ The preprocessing run uses:
 'FreeSurferLicense', '/Applications/freesurfer/8.2.0/license.txt'
 'PhaseEncodingVector', [0 1 0]
 'DefaultTotalReadoutTime', 0.05
+'Synb0WorkRoot', '/Users/mojackhu/Library/Caches/leaddbs/stnsnr_synb0_work'
 'Parallel', false
 'MaxConcurrentSynb0', 1
 'Force', true
@@ -531,6 +538,13 @@ If the Lead-DBS UI does not show `B0`, confirm that this file exists:
 
 If Synb0-DISCO fails with an inference or container memory error, increase Docker
 Desktop memory and rerun the pilot with `Force=true`.
+
+If Docker reports a mount error for an external project path, for example a
+`/host_mnt/Volumes/...` mount creation failure, rerun with `Synb0WorkRoot` set
+to a local user directory such as
+`/Users/mojackhu/Library/Caches/leaddbs/stnsnr_synb0_work`. This keeps Docker
+staging off the external volume while preserving final project outputs under
+`derivatives/leaddbs`.
 
 If the corrected b0 is anatomically implausible, rerun with the opposite
 phase-encoding vector and compare distorted-b0 versus corrected-b0 overlays.
