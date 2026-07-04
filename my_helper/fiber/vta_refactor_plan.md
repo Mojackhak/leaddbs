@@ -3026,3 +3026,30 @@ Phase 2CA validation completed:
 - No writes were made to the real `/Volumes/VAL/STNSNr/derivatives/leaddbs`
   subject root.
 - Remaining deferred gate: full-cohort timing comparison.
+
+## Phase 2CB Validation Scope
+
+Status: **in progress**.
+
+Phase 2CB runs a non-destructive full-cohort timing and numerical regression
+audit for the cohort aggregation layer:
+
+- Use the real STN/SNr subject root only as read-only input:
+  `/Volumes/VAL/STNSNr/derivatives/leaddbs`.
+- Run `mh_fiber_run_stnsnr_vta_coverage` with `CohortOnly = true` into a fresh
+  validation output directory under `/Volumes/VAL/STNSNr/validation`.
+- Measure wall-clock runtime for full-cohort cohort-output regeneration.
+- Compare regenerated full-cohort CSV outputs against the existing real
+  `/Volumes/VAL/STNSNr/summary/vta` baseline.
+- Do not run FEM, do not recompute subject-level VTA/e-field files, and do not
+  write subject-level reports/manifests under the real subject root.
+
+Phase 2CB validation target:
+
+- Fresh full-cohort validation output directory is created.
+- `CohortOnly = true` completes for all 16 subjects.
+- Regenerated `cohort_vta_coverage_long.csv` matches the existing baseline in
+  row count, variable names, key columns, and numeric coverage columns.
+- Runtime is recorded in the refactor plan.
+- Remaining destructive/full-FEM full-cohort timing is explicitly separated from
+  this non-destructive aggregation timing audit.
