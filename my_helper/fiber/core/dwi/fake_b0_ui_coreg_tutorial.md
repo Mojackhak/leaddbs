@@ -265,6 +265,25 @@ STNSNr `GengHui` and `ZhaoPeiGen` SaveBySlc files are rejected and must not be
 used as preprocessing inputs. Use the restored original single-slice four-file
 sets as the source when rerunning repair.
 
+The reconstructed NIfTI affine is rebuilt from DICOM orientation and spacing
+rather than copied from the single-slice mosaic header. The backend reads
+`ImageOrientationPatient`, `PixelSpacing`, and `SpacingBetweenSlices` to set the
+3D slice-stack axes. If `ImagePositionPatient` is missing, as in the current UIH
+SaveBySlc data, the output uses `AffineOriginPolicy=centered_no_dicom_ipp` and
+records this fallback in JSON.
+
+The backend also validates the FSL bvec file against DICOM
+`DiffusionGradientOrientation`. The expected image-space bvec is computed as:
+
+```text
+diag([1 -1 1]) * [row; col; normal] * DICOMGradient
+```
+
+where `row` and `col` come from `ImageOrientationPatient` and `normal` is
+`cross(row, col)`. The bvec file is copied unchanged only when the non-b0
+gradient mismatch is below threshold. Otherwise reconstruction stops before
+writing final outputs.
+
 The batch entry point accepts an input table with source paths and writes one
 status row per subject:
 
@@ -321,8 +340,10 @@ Expected repaired files are:
 
 The repaired DWI is acceptable for the normal preprocessing runner only when
 the output is 4D, the slice count is plausible, bval and bvec counts match the
-volume count, the slice montage has anatomical continuity, and the JSON records
-`MosaicReconstruction=true` and `MosaicTileOrder=row_major_right_to_left`.
+volume count, the slice montage has anatomical continuity, Slicer coordinates
+are in a plausible range, and the JSON records `MosaicReconstruction=true`,
+`MosaicTileOrder=row_major_right_to_left`, `MosaicAffineSource=dicom_orientation`,
+and passing bvec validation metrics.
 
 ## Expected files
 

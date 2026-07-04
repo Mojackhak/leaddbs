@@ -97,6 +97,10 @@ try
     row.SliceCount = result.SliceCount;
     row.VolumeCount = result.VolumeCount;
     row.OutputImageSize = result.OutputImageSize;
+    row.AffineSource = result.AffineSource;
+    row.AffineOriginPolicy = result.AffineOriginPolicy;
+    row.BvecValidationMedianError = result.BvecValidationMedianError;
+    row.BvecValidationMaxError = result.BvecValidationMaxError;
 catch ME
     row.Status = 'failed';
     row.Message = mh_fiber_compact_message(ME.message);
@@ -128,6 +132,10 @@ row.TileGrid = '';
 row.SliceCount = NaN;
 row.VolumeCount = NaN;
 row.OutputImageSize = '';
+row.AffineSource = '';
+row.AffineOriginPolicy = '';
+row.BvecValidationMedianError = NaN;
+row.BvecValidationMaxError = NaN;
 end
 
 function value = row_value(inputTable, rowIndex, column)

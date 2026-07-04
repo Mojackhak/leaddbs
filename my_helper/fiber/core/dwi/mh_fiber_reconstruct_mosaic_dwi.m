@@ -30,6 +30,7 @@ geometry = mh_fiber_infer_mosaic_geometry(opts.SourceNifti, opts.SourceBval, opt
     'TileGrid', opts.TileGrid, ...
     'SliceCount', opts.SliceCount);
 geometry.TileOrder = opts.TileOrder;
+geometry = attach_dicom_orientation_metadata(geometry, opts);
 
 sourceInfo = niftiinfo(opts.SourceNifti);
 sourceSize = double(sourceInfo.ImageSize);
@@ -138,6 +139,10 @@ result.TileOrder = geometry.TileOrder;
 result.SliceCount = geometry.SliceCount;
 result.VolumeCount = geometry.VolumeCount;
 result.OutputImageSize = mat2str(geometry.OutputImageSize);
+result.AffineSource = geometry.MosaicAffineSource;
+result.AffineOriginPolicy = geometry.AffineOriginPolicy;
+result.BvecValidationMedianError = geometry.BvecValidationMedianError;
+result.BvecValidationMaxError = geometry.BvecValidationMaxError;
 end
 
 function ensure_output_available(paths, force)
@@ -148,6 +153,263 @@ for i = 1:numel(targets)
             'Output already exists. Use Force=true to overwrite: %s', targets{i});
     end
 end
+end
+
+function geometry = attach_dicom_orientation_metadata(geometry, opts)
+geometry.MosaicAffineSource = 'source_header';
+geometry.AffineOriginPolicy = 'source_header';
+geometry.ImageOrientationPatient = [];
+geometry.VoxelSpacing = [];
+geometry.SliceNormal = [];
+geometry.VoxelToWorldTransform = [];
+geometry.BvecTransformApplied = [];
+geometry.BvecValidationMedianError = NaN;
+geometry.BvecValidationMaxError = NaN;
+geometry.BvecValidationStatus = 'not_run';
+
+if isempty(opts.DicomDir)
+    return;
+end
+
+dicomMeta = read_dicom_metadata(opts.DicomDir);
+validate_dicom_geometry(geometry, dicomMeta);
+geometry.ImageOrientationPatient = [dicomMeta.RowDirection, dicomMeta.ColumnDirection];
+geometry.VoxelSpacing = dicomMeta.VoxelSpacing;
+geometry.SliceNormal = dicomMeta.SliceNormal;
+geometry.VoxelToWorldTransform = dicom_voxel_to_world_transform(geometry, dicomMeta);
+geometry.MosaicAffineSource = 'dicom_orientation';
+geometry.AffineOriginPolicy = dicomMeta.AffineOriginPolicy;
+geometry.BvecTransformApplied = dicomMeta.BvecTransform;
+
+validation = validate_bvec_against_dicom(opts.SourceBvec, geometry, dicomMeta);
+geometry.BvecValidationMedianError = validation.MedianError;
+geometry.BvecValidationMaxError = validation.MaxError;
+geometry.BvecValidationStatus = validation.Status;
+end
+
+function dicomMeta = read_dicom_metadata(dicomDir)
+files = list_files_recursive(dicomDir);
+firstInfo = [];
+firstPath = '';
+rows = [];
+for i = 1:numel(files)
+    path = files{i};
+    [~, name] = fileparts(path);
+    if startsWith(name, '._')
+        continue;
+    end
+    try
+        info = dicominfo(path);
+    catch
+        continue;
+    end
+    if isempty(firstInfo)
+        firstInfo = info;
+        firstPath = path;
+    end
+    if isfield(info, 'InstanceNumber') && isfield(info, 'DiffusionBValue') && ...
+            isfield(info, 'DiffusionGradientOrientation')
+        gradient = double(info.DiffusionGradientOrientation(:)');
+        if numel(gradient) >= 3
+            rows(end + 1, :) = [double(info.InstanceNumber), ...
+                double(info.DiffusionBValue), gradient(1:3)]; %#ok<AGROW>
+        end
+    end
+end
+
+if isempty(firstInfo)
+    error('mh_fiber_reconstruct_mosaic_dwi:NoReadableDicom', ...
+        'No readable DICOM file was found under: %s', dicomDir);
+end
+if isempty(rows)
+    error('mh_fiber_reconstruct_mosaic_dwi:MissingDiffusionGradients', ...
+        'No DICOM diffusion gradients were found under: %s', dicomDir);
+end
+rows = sortrows(rows, 1);
+
+if ~isfield(firstInfo, 'ImageOrientationPatient')
+    error('mh_fiber_reconstruct_mosaic_dwi:MissingImageOrientation', ...
+        'ImageOrientationPatient is required to reconstruct mosaic affine: %s', firstPath);
+end
+
+iop = double(firstInfo.ImageOrientationPatient(:));
+rowDirection = normalize_vector(iop(1:3));
+columnDirection = normalize_vector(iop(4:6));
+sliceNormal = normalize_vector(cross(rowDirection, columnDirection));
+voxelSpacing = dicom_voxel_spacing(firstInfo);
+[transform, originPolicy] = bvec_transform_from_dicom(rowDirection, columnDirection, sliceNormal);
+
+dicomMeta = struct();
+dicomMeta.DicomDir = dicomDir;
+dicomMeta.DicomExample = firstPath;
+dicomMeta.RowDirection = rowDirection(:)';
+dicomMeta.ColumnDirection = columnDirection(:)';
+dicomMeta.SliceNormal = sliceNormal(:)';
+dicomMeta.VoxelSpacing = voxelSpacing;
+dicomMeta.DiffusionRows = rows;
+dicomMeta.BvecTransform = transform;
+dicomMeta.HasImagePositionPatient = isfield(firstInfo, 'ImagePositionPatient');
+if dicomMeta.HasImagePositionPatient
+    dicomMeta.ImagePositionPatient = double(firstInfo.ImagePositionPatient(:)');
+    dicomMeta.AffineOriginPolicy = 'dicom_ipp_first_voxel';
+else
+    dicomMeta.ImagePositionPatient = [];
+    dicomMeta.AffineOriginPolicy = originPolicy;
+end
+if isfield(firstInfo, 'Private_0065_1050')
+    dicomMeta.PrivateSliceCount = double(firstInfo.Private_0065_1050);
+else
+    dicomMeta.PrivateSliceCount = NaN;
+end
+if isfield(firstInfo, 'Private_0065_1071')
+    dicomMeta.PrivateVolumeCount = double(firstInfo.Private_0065_1071);
+else
+    dicomMeta.PrivateVolumeCount = NaN;
+end
+end
+
+function files = list_files_recursive(rootDir)
+entries = dir(rootDir);
+files = {};
+for i = 1:numel(entries)
+    name = entries(i).name;
+    if strcmp(name, '.') || strcmp(name, '..')
+        continue;
+    end
+    path = fullfile(entries(i).folder, name);
+    if entries(i).isdir
+        files = [files, list_files_recursive(path)]; %#ok<AGROW>
+    else
+        files{end + 1} = path; %#ok<AGROW>
+    end
+end
+end
+
+function voxelSpacing = dicom_voxel_spacing(info)
+if isfield(info, 'PixelSpacing')
+    spacing2d = double(info.PixelSpacing(:)');
+else
+    error('mh_fiber_reconstruct_mosaic_dwi:MissingPixelSpacing', ...
+        'PixelSpacing is required to reconstruct mosaic affine.');
+end
+
+if isfield(info, 'SpacingBetweenSlices')
+    sliceSpacing = double(info.SpacingBetweenSlices);
+elseif isfield(info, 'SliceThickness')
+    sliceSpacing = double(info.SliceThickness);
+elseif isfield(info, 'Private_0065_1049')
+    privateSpacing = double(info.Private_0065_1049(:)');
+    sliceSpacing = privateSpacing(min(3, numel(privateSpacing)));
+else
+    error('mh_fiber_reconstruct_mosaic_dwi:MissingSliceSpacing', ...
+        'SpacingBetweenSlices or SliceThickness is required to reconstruct mosaic affine.');
+end
+
+voxelSpacing = [spacing2d(2), spacing2d(1), sliceSpacing];
+end
+
+function validate_dicom_geometry(geometry, dicomMeta)
+if ~isnan(dicomMeta.PrivateSliceCount) && round(dicomMeta.PrivateSliceCount) ~= geometry.SliceCount
+    error('mh_fiber_reconstruct_mosaic_dwi:DicomSliceCountMismatch', ...
+        'DICOM private slice count (%g) does not match inferred slice count (%d).', ...
+        dicomMeta.PrivateSliceCount, geometry.SliceCount);
+end
+if ~isnan(dicomMeta.PrivateVolumeCount) && round(dicomMeta.PrivateVolumeCount) ~= geometry.VolumeCount
+    error('mh_fiber_reconstruct_mosaic_dwi:DicomVolumeCountMismatch', ...
+        'DICOM private volume count (%g) does not match inferred volume count (%d).', ...
+        dicomMeta.PrivateVolumeCount, geometry.VolumeCount);
+end
+if size(dicomMeta.DiffusionRows, 1) ~= geometry.VolumeCount
+    error('mh_fiber_reconstruct_mosaic_dwi:DicomGradientCountMismatch', ...
+        'DICOM diffusion gradient count (%d) does not match volume count (%d).', ...
+        size(dicomMeta.DiffusionRows, 1), geometry.VolumeCount);
+end
+end
+
+function transform = dicom_voxel_to_world_transform(geometry, dicomMeta)
+rowRas = lps_to_ras(dicomMeta.RowDirection);
+columnRas = lps_to_ras(dicomMeta.ColumnDirection);
+normalRas = lps_to_ras(dicomMeta.SliceNormal);
+spacing = dicomMeta.VoxelSpacing;
+
+axis1 = spacing(1) .* rowRas;
+axis2 = -spacing(2) .* columnRas;
+axis3 = spacing(3) .* normalRas;
+
+if dicomMeta.HasImagePositionPatient
+    firstVoxelWorld = lps_to_ras(dicomMeta.ImagePositionPatient);
+    origin = firstVoxelWorld - axis1 - axis2 - axis3;
+else
+    imageSize = geometry.OutputImageSize(1:3);
+    centerVoxel = (double(imageSize) + 1) ./ 2;
+    origin = -centerVoxel(1) .* axis1 - centerVoxel(2) .* axis2 - ...
+        centerVoxel(3) .* axis3;
+end
+
+transform = [axis1(:)', 0; axis2(:)', 0; axis3(:)', 0; origin(:)', 1];
+end
+
+function [transform, originPolicy] = bvec_transform_from_dicom(rowDirection, columnDirection, sliceNormal)
+transform = diag([1, -1, 1]) * [rowDirection(:), columnDirection(:), sliceNormal(:)]';
+originPolicy = 'centered_no_dicom_ipp';
+end
+
+function validation = validate_bvec_against_dicom(sourceBvec, geometry, dicomMeta)
+bvec = load_bvec_matrix(sourceBvec);
+if size(bvec, 2) ~= geometry.VolumeCount
+    error('mh_fiber_reconstruct_mosaic_dwi:BvecVolumeMismatch', ...
+        'bvec count (%d) does not match volume count (%d).', ...
+        size(bvec, 2), geometry.VolumeCount);
+end
+
+bvals = dicomMeta.DiffusionRows(:, 2)';
+dicomGradients = dicomMeta.DiffusionRows(:, 3:5)';
+expected = dicomMeta.BvecTransform * dicomGradients;
+expected = normalize_columns(expected);
+bvec = normalize_columns(bvec);
+nonB0 = bvals >= 10 & sqrt(sum(dicomGradients.^2, 1)) > 0.5;
+errors = sqrt(sum((expected(:, nonB0) - bvec(:, nonB0)).^2, 1));
+validation = struct();
+validation.MedianError = median(errors);
+validation.MaxError = max(errors);
+validation.Status = 'passed';
+if validation.MedianError > 1e-5 || validation.MaxError > 1e-4
+    error('mh_fiber_reconstruct_mosaic_dwi:BvecDicomMismatch', ...
+        ['DICOM gradient to bvec validation failed: median error %.6g, ', ...
+        'max error %.6g.'], validation.MedianError, validation.MaxError);
+end
+end
+
+function bvec = load_bvec_matrix(path)
+bvec = readmatrix(path, 'FileType', 'text');
+if size(bvec, 1) ~= 3 && size(bvec, 2) == 3
+    bvec = bvec';
+end
+if size(bvec, 1) ~= 3
+    error('mh_fiber_reconstruct_mosaic_dwi:InvalidBvec', ...
+        'bvec file must contain a 3 x N direction matrix: %s', path);
+end
+end
+
+function matrix = normalize_columns(matrix)
+norms = sqrt(sum(matrix.^2, 1));
+idx = norms > 0;
+matrix(:, idx) = matrix(:, idx) ./ norms(idx);
+end
+
+function vector = normalize_vector(vector)
+vector = double(vector(:)');
+normValue = norm(vector);
+if normValue == 0
+    error('mh_fiber_reconstruct_mosaic_dwi:InvalidDirectionVector', ...
+        'DICOM direction vector has zero length.');
+end
+vector = vector ./ normValue;
+end
+
+function ras = lps_to_ras(lps)
+lps = double(lps(:)');
+ras = [-lps(1), -lps(2), lps(3)];
 end
 
 function reconstructed = reconstruct_all_volumes(mosaicData, geometry, useParallel, workerCount)
@@ -200,10 +462,13 @@ end
 
 outInfo.Filename = outputPath;
 outInfo.ImageSize = size(data);
-outInfo.PixelDimensions = output_pixel_dimensions(sourceInfo, outInfo, geometry.VolumeCount);
+outInfo.PixelDimensions = output_pixel_dimensions(sourceInfo, outInfo, geometry);
 outInfo.Datatype = class(data);
 outInfo.BitsPerPixel = bits_per_pixel(class(data));
 outInfo.Description = 'SaveBySlc mosaic reconstructed DWI';
+if ~isempty(geometry.VoxelToWorldTransform)
+    outInfo.Transform = affine3d(geometry.VoxelToWorldTransform);
+end
 
 tempDir = tempname;
 mkdir(tempDir);
@@ -236,7 +501,7 @@ error('mh_fiber_reconstruct_mosaic_dwi:NiftiWriteFailed', ...
     'niftiwrite did not create an uncompressed NIfTI near: %s', expectedPath);
 end
 
-function pixdim = output_pixel_dimensions(sourceInfo, outInfo, volumeCount)
+function pixdim = output_pixel_dimensions(sourceInfo, outInfo, geometry)
 sourcePixdim = double(sourceInfo.PixelDimensions);
 if numel(sourcePixdim) < 3
     sourcePixdim(3) = sourcePixdim(min(numel(sourcePixdim), 1));
@@ -250,7 +515,10 @@ if isfield(outInfo, 'PixelDimensions') && numel(outInfo.PixelDimensions) >= 3
     refPixdim = double(outInfo.PixelDimensions);
     pixdim(1:min(numel(refPixdim), 4)) = refPixdim(1:min(numel(refPixdim), 4));
 end
-if volumeCount > 1 && numel(sourcePixdim) >= 4
+if isfield(geometry, 'VoxelSpacing') && numel(geometry.VoxelSpacing) >= 3
+    pixdim(1:3) = geometry.VoxelSpacing(1:3);
+end
+if geometry.VolumeCount > 1 && numel(sourcePixdim) >= 4
     pixdim(4) = sourcePixdim(4);
 end
 end
@@ -271,6 +539,17 @@ metadata.MosaicVolumeCount = geometry.VolumeCount;
 metadata.MosaicTileSlotCount = geometry.TileSlotCount;
 metadata.MosaicUnusedTileCount = geometry.UnusedTileCount;
 metadata.MosaicOutputImageSize = geometry.OutputImageSize;
+metadata.MosaicAffineSource = geometry.MosaicAffineSource;
+metadata.AffineOriginPolicy = geometry.AffineOriginPolicy;
+metadata.ImageOrientationPatient = geometry.ImageOrientationPatient;
+metadata.VoxelSpacing = geometry.VoxelSpacing;
+metadata.SliceNormal = geometry.SliceNormal;
+metadata.VoxelToWorldTransform = geometry.VoxelToWorldTransform;
+metadata.BvecTransformApplied = geometry.BvecTransformApplied;
+metadata.BvecValidationStatus = geometry.BvecValidationStatus;
+metadata.BvecValidationMedianError = geometry.BvecValidationMedianError;
+metadata.BvecValidationMaxError = geometry.BvecValidationMaxError;
+metadata.InPlaneTransform = 'identity';
 metadata.MosaicReconstructionQcJson = paths.QcJson;
 metadata.MosaicReconstructionWarning = geometry.Warning;
 if isfield(geometry, 'DicomDir')
@@ -306,6 +585,17 @@ qc.SliceCount = geometry.SliceCount;
 qc.VolumeCount = geometry.VolumeCount;
 qc.TileSlotCount = geometry.TileSlotCount;
 qc.UnusedTileCount = geometry.UnusedTileCount;
+qc.MosaicAffineSource = geometry.MosaicAffineSource;
+qc.AffineOriginPolicy = geometry.AffineOriginPolicy;
+qc.ImageOrientationPatient = geometry.ImageOrientationPatient;
+qc.VoxelSpacing = geometry.VoxelSpacing;
+qc.SliceNormal = geometry.SliceNormal;
+qc.VoxelToWorldTransform = geometry.VoxelToWorldTransform;
+qc.BvecTransformApplied = geometry.BvecTransformApplied;
+qc.BvecValidationStatus = geometry.BvecValidationStatus;
+qc.BvecValidationMedianError = geometry.BvecValidationMedianError;
+qc.BvecValidationMaxError = geometry.BvecValidationMaxError;
+qc.InPlaneTransform = 'identity';
 qc.Warning = geometry.Warning;
 mh_util_write_json(qcJson, qc, ...
     'mh_fiber_reconstruct_mosaic_dwi:CannotWriteJson');
