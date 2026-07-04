@@ -3029,7 +3029,7 @@ Phase 2CA validation completed:
 
 ## Phase 2CB Validation Scope
 
-Status: **in progress**.
+Status: **completed**.
 
 Phase 2CB runs a non-destructive full-cohort timing and numerical regression
 audit for the cohort aggregation layer:
@@ -3044,12 +3044,19 @@ audit for the cohort aggregation layer:
 - Do not run FEM, do not recompute subject-level VTA/e-field files, and do not
   write subject-level reports/manifests under the real subject root.
 
-Phase 2CB validation target:
+Phase 2CB validation completed:
 
-- Fresh full-cohort validation output directory is created.
-- `CohortOnly = true` completes for all 16 subjects.
-- Regenerated `cohort_vta_coverage_long.csv` matches the existing baseline in
-  row count, variable names, key columns, and numeric coverage columns.
-- Runtime is recorded in the refactor plan.
-- Remaining destructive/full-FEM full-cohort timing is explicitly separated from
-  this non-destructive aggregation timing audit.
+- Fresh full-cohort validation output directory created:
+  `/Volumes/VAL/STNSNr/validation/vta_full_cohort_cohortonly_20260704_005937`.
+- `CohortOnly = true` completed for all 16 subjects in `7.303271` seconds.
+- Regenerated `cohort_vta_coverage_long.csv` had 1536 rows x 25 columns and
+  matched the existing `/Volumes/VAL/STNSNr/summary/vta` baseline exactly.
+- Regenerated `cohort_contact_mapping_qc.csv` had 194 rows x 20 columns and
+  matched the existing baseline exactly.
+- Validation output size was 6.5M and was confined to the fresh validation
+  directory.
+- No FEM, subject-level VTA/e-field generation, or subject-level report/manifest
+  writes were performed.
+- Remaining deferred gate: destructive/full-FEM full-cohort timing comparison,
+  which would require copying or explicitly approving all 16 subjects for a
+  full execution run.
