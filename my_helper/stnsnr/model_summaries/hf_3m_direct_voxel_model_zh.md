@@ -176,27 +176,30 @@ OLS estimator 在 `ols_ancova/` estimator 目录下生成同一套输出。该�
 主患者层面 HF sweet-spot score：
 
 ```text
-HFScore_sum_i =
-  sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v) * M_HF(v)
+V_score = Omega_HF_tau intersect valid M_HF voxels
+n_valid_score_voxels = |V_score|
+
+HFScore_mean_main_i =
+  sum_{v in V_score} X_HF_only_i(v) * M_HF(v)
+  / n_valid_score_voxels
 ```
 
-这是主分析 score，表示 voxel 相关性加权的未归一化总剂量暴露。它不除以 `sum(X)`，也不乘 voxel volume；在固定等体素网格下，voxel volume 只会带来常数缩放。若某 subject/fold 在有效 scoring voxel 内没有 exposure，则 `HFScore_sum_i` 记为 `0`。
+这是主分析 score，表示在对应 full-sample map 或 LOOCV training fold 的固定 scoring voxel set 上，按 voxel 数归一化的 voxel 相关性加权平均 exposure。它除以 `n_valid_score_voxels`，使不同 fold 的 `Omega_HF_tau` 大小不同时 score 数值仍更可比。它不除以 `sum(X)`，也不乘 voxel volume。若 `V_score` 为空，则该 branch/fold 以 QC failure 停止，不生成 score。若某 subject/fold 在非空有效 scoring voxel set 内没有 exposure，则 `HFScore_mean_main_i` 记为 `0`。
 
-旧归一化 score 仅保留为描述性字段：
+对应的未归一化总剂量 exposure score 仅作为文档中的描述性概念保留：
 
 ```text
-HFScore_normalized_descriptive_i =
-  sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v) * M_HF(v)
-  / sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v)
+HFScore_sum_descriptive_i =
+  sum_{v in V_score} X_HF_only_i(v) * M_HF(v)
 ```
 
-`HFScore_normalized_descriptive_i` 不参与主 prediction model、LOOCV statistic、permutation 或 bootstrap。若其 denominator 为 0，则描述性归一化 score 记为 `NaN`。
+`HFScore_sum_descriptive_i` 当前不实际计算，也不写入输出文件；它不参与主 prediction model、LOOCV statistic、permutation 或 bootstrap。文档中保留它只是为了说明主 score 与此前讨论的总剂量 exposure 的关系。
 
 最终预测模型：
 
 ```text
 Y_post_i = alpha
-         + delta * HFScore_sum_i
+         + delta * HFScore_mean_main_i
          + beta  * Y_base_i
          + error_i
 ```
@@ -218,7 +221,7 @@ prediction model 在 raw post-score 尺度上拟合。主验证统计量仍然�
   Q2 = 1 - SSE_HFScore_model / SSE_YBase_only
   ```
 
-- Patient-level Freedman-Lane permutation 在正式主分析中使用 `B=10000` 和随机种子 `42`。smoke/exploratory 运行使用 `B=1000`。正式 permutation 只对 `tau200/partial_spearman` 运行。每次置换先拟合 nuisance model `Y_post ~ Y_base`，置换 nuisance residuals，重构 `Y*`，然后完整重跑 LOOCV pipeline，包括 coverage、map、`HFScore_sum` 和 prediction。主置换统计量为 LOOCV Spearman rho。
+- Patient-level Freedman-Lane permutation 在正式主分析中使用 `B=10000` 和随机种子 `42`。smoke/exploratory 运行使用 `B=1000`。正式 permutation 只对 `tau200/partial_spearman` 运行。每次置换先拟合 nuisance model `Y_post ~ Y_base`，置换 nuisance residuals，重构 `Y*`，然后完整重跑 LOOCV pipeline，包括 coverage、map、`HFScore_mean_main` 和 prediction。主置换统计量为 LOOCV Spearman rho。
 - permutation p value 使用 plus-one two-sided：
 
   ```text
@@ -315,10 +318,10 @@ direct_voxel_HF_generation_manifest.json
 - `direct_voxel_HF_sweet_sour.nii.gz` 存储 benefit-oriented `M_HF(v)`。
 - `direct_voxel_HF_stability.nii.gz` 存储 LOOCV training folds 中 benefit-oriented map value 为正的折比例。它是方向稳定性 map，不是 p 值，也不是显著性阈值图。
 - `direct_voxel_HF_bootstrap_se.nii.gz` 只在主分支中存储 full-process bootstrap 下 estimator map 的标准差。
-- `direct_voxel_HF_scores.csv` 存储患者级 map matching scores。必需字段包括 `HFScore_sum_main`、`HFScore_normalized_descriptive`、`exposure_sum_valid_voxels`、`n_valid_score_voxels`、`score_map_source` 和 `is_primary_score`。只有 `HFScore_sum_main` 是主预测 score。
+- `direct_voxel_HF_scores.csv` 存储患者级 map matching scores。必需字段包括 `HFScore_mean_main`、`exposure_sum_valid_voxels`、`n_valid_score_voxels`、`score_map_source` 和 `is_primary_score`。只有 `HFScore_mean_main` 是主预测 score。`HFScore_sum_descriptive` 仅在文档中保留，不是必需输出字段。
 - `direct_voxel_HF_loocv_predictions.csv` 存储 held-out LOOCV predictions，包括 `HFScore_LOOCV`、真实结局、HFScore-model 预测值、covariate-only baseline 预测值和残差。
 - `direct_voxel_HF_permutation_summary.csv` 只在主分支中存储 Freedman-Lane permutation 汇总，包括 observed LOOCV Spearman rho、plus-one two-sided p value、secondary metrics 和 `B`。
-- `direct_voxel_HF_mapping_qc.json` 存储 scale/tau/estimator 级 QC，包括患者纳入、candidate mask 大小、coverage distribution、`Omega_HF_tau` voxel 数、low-coverage warning、退化 voxel、NaN 处理、zero-exposure score 计数、`corr(HFScore_sum, Y_base)`、prediction coefficient signs、optional VIF 或等价共线性诊断、flip deformation audit metrics 和 design matrix 维度。
+- `direct_voxel_HF_mapping_qc.json` 存储 scale/tau/estimator 级 QC，包括患者纳入、candidate mask 大小、coverage distribution、`Omega_HF_tau` voxel 数、low-coverage warning、退化 voxel、NaN 处理、zero-exposure score 计数、`corr(HFScore_mean_main, Y_base)`、prediction coefficient signs、optional VIF 或等价共线性诊断、flip deformation audit metrics 和 design matrix 维度。
 - `direct_voxel_HF_generation_manifest.json` 存储 provenance，包括输入、输出、参数、随机种子、代码版本、Conda `leaddbs` 环境、Python 包状态、reference-coverage checklist 和 estimator identity。
 
 主统计 map 不平滑。display smoothing 只在系数估计后生成，不用于 HFScore、LOOCV、permutation 或 bootstrap：
@@ -422,7 +425,7 @@ Coverage>=6 optional sensitivity: only documented; no current HF direct voxel ou
 Coverage>=8 / 50% E-field rule: only documented; primary rule remains Coverage>=5
 5/7/10-fold CV: only documented; LOOCV is the sole validation design for n=16
 OSS-DBS: not included in the HF direct voxel model
-paper-like spatial similarity score sensitivity: not included; HFScore_sum is the primary score
+paper-like spatial similarity score sensitivity: not included; HFScore_mean_main is the primary score
 automatic localization/normalization/electrode reconstruction QC: not included; existing e-fields are assumed to have passed prior manual/clinical QC
 ```
 
@@ -430,4 +433,4 @@ automatic localization/normalization/electrode reconstruction QC: not included; 
 
 该模型估计在控制 baseline 后，HF-only 局部刺激暴露与 3 个月 raw post-treatment outcome 的关联。它应解释为 stimulation-exposed right canonical brainmask candidate space 内的 HF efficacy heatmap，而不是纯解剖 STN map、target-level network mechanism map，也不是 voxel-wise 因果证据。
 
-由于队列为 `n=16`，结果属于 hypothesis-generating。LOOCV 可能不显著；LOOCV 不显著不应解释为不存在生物学 HF sweet spot。`Y_base` 在 voxel map 阶段通过 partial Spearman residualization 控制，同时也保留在最终 prediction model 中，用于评估 `HFScore_sum` 的增量预测价值。因此 QC report 必须包含 `HFScore_sum` 与 `Y_base` 的关联，以及最终 prediction model 的基础共线性诊断。
+由于队列为 `n=16`，结果属于 hypothesis-generating。LOOCV 可能不显著；LOOCV 不显著不应解释为不存在生物学 HF sweet spot。`Y_base` 在 voxel map 阶段通过 partial Spearman residualization 控制，同时也保留在最终 prediction model 中，用于评估 `HFScore_mean_main` 的增量预测价值。因此 QC report 必须包含 `HFScore_mean_main` 与 `Y_base` 的关联，以及最终 prediction model 的基础共线性诊断。

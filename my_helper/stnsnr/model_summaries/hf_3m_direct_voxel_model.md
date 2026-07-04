@@ -176,27 +176,30 @@ The OLS estimator generates the same output family under the `ols_ancova/` estim
 Primary patient-level HF sweet-spot score:
 
 ```text
-HFScore_sum_i =
-  sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v) * M_HF(v)
+V_score = Omega_HF_tau intersect valid M_HF voxels
+n_valid_score_voxels = |V_score|
+
+HFScore_mean_main_i =
+  sum_{v in V_score} X_HF_only_i(v) * M_HF(v)
+  / n_valid_score_voxels
 ```
 
-This is the primary analysis score. It is an unnormalized voxel-correlation-weighted total dose exposure. It is not divided by `sum(X)` and is not multiplied by voxel volume; with a fixed isotropic grid, voxel volume only adds a constant scaling factor. If a subject/fold has no exposure in valid scoring voxels, `HFScore_sum_i` is recorded as `0`.
+This is the primary analysis score. It is a voxel-count-normalized, voxel-correlation-weighted mean exposure over the fixed scoring voxel set for the corresponding full-sample map or LOOCV training fold. It is divided by `n_valid_score_voxels` so scores remain comparable when fold-specific `Omega_HF_tau` sizes differ. It is not divided by `sum(X)` and is not multiplied by voxel volume. If `V_score` is empty, the branch/fold fails QC instead of producing a score. If a subject/fold has no exposure in a non-empty valid scoring voxel set, `HFScore_mean_main_i` is recorded as `0`.
 
-The previous normalized score is retained only as a descriptive field:
+The corresponding unnormalized total exposure score is retained only as a documented descriptive concept:
 
 ```text
-HFScore_normalized_descriptive_i =
-  sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v) * M_HF(v)
-  / sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v)
+HFScore_sum_descriptive_i =
+  sum_{v in V_score} X_HF_only_i(v) * M_HF(v)
 ```
 
-`HFScore_normalized_descriptive_i` is not used for the primary prediction model, LOOCV statistic, permutation, or bootstrap. If its denominator is zero, the descriptive normalized score is recorded as `NaN`.
+`HFScore_sum_descriptive_i` is not computed or written by the current executable analysis, and it is not used for the primary prediction model, LOOCV statistic, permutation, or bootstrap. It is kept in the document only to clarify how the main score relates to the previously discussed total dose exposure.
 
 Final prediction model:
 
 ```text
 Y_post_i = alpha
-         + delta * HFScore_sum_i
+         + delta * HFScore_mean_main_i
          + beta  * Y_base_i
          + error_i
 ```
@@ -218,7 +221,7 @@ Missing-data rule: missing `Y_post`, missing `Y_base`, or failed e-field availab
   Q2 = 1 - SSE_HFScore_model / SSE_YBase_only
   ```
 
-- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the formal primary analysis. Smoke/exploratory runs use `B=1000`. Formal permutation is run only for `tau200/partial_spearman`. For each permutation, fit the nuisance model `Y_post ~ Y_base`, permute the nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including coverage, map, `HFScore_sum`, and prediction. The primary permutation statistic is LOOCV Spearman rho.
+- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the formal primary analysis. Smoke/exploratory runs use `B=1000`. Formal permutation is run only for `tau200/partial_spearman`. For each permutation, fit the nuisance model `Y_post ~ Y_base`, permute the nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including coverage, map, `HFScore_mean_main`, and prediction. The primary permutation statistic is LOOCV Spearman rho.
 - Permutation p value is plus-one two-sided:
 
   ```text
@@ -315,10 +318,10 @@ Output semantics:
 - `direct_voxel_HF_sweet_sour.nii.gz` stores benefit-oriented `M_HF(v)`.
 - `direct_voxel_HF_stability.nii.gz` stores the fraction of LOOCV training folds with positive benefit-oriented map value. It is a direction-stability map, not a p-value or thresholded significance map.
 - `direct_voxel_HF_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the primary branch only.
-- `direct_voxel_HF_scores.csv` stores patient-level map matching scores. Required fields include `HFScore_sum_main`, `HFScore_normalized_descriptive`, `exposure_sum_valid_voxels`, `n_valid_score_voxels`, `score_map_source`, and `is_primary_score`. `HFScore_sum_main` is the only primary prediction score.
+- `direct_voxel_HF_scores.csv` stores patient-level map matching scores. Required fields include `HFScore_mean_main`, `exposure_sum_valid_voxels`, `n_valid_score_voxels`, `score_map_source`, and `is_primary_score`. `HFScore_mean_main` is the only primary prediction score. `HFScore_sum_descriptive` is documented only and is not a required output field.
 - `direct_voxel_HF_loocv_predictions.csv` stores held-out LOOCV predictions, including `HFScore_LOOCV`, true outcome, HFScore-model prediction, covariate-only baseline prediction, and residuals.
 - `direct_voxel_HF_permutation_summary.csv` stores the Freedman-Lane permutation summary for the primary branch only, including observed LOOCV Spearman rho, plus-one two-sided p value, secondary metrics, and `B`.
-- `direct_voxel_HF_mapping_qc.json` stores scale/tau/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_HF_tau` voxel count, low-coverage warning, degenerate voxels, NaN handling, zero-exposure score counts, `corr(HFScore_sum, Y_base)`, prediction coefficient signs, optional VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
+- `direct_voxel_HF_mapping_qc.json` stores scale/tau/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_HF_tau` voxel count, low-coverage warning, degenerate voxels, NaN handling, zero-exposure score counts, `corr(HFScore_mean_main, Y_base)`, prediction coefficient signs, optional VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
 - `direct_voxel_HF_generation_manifest.json` stores provenance, including inputs, outputs, parameters, random seed, code version, Conda `leaddbs` environment, Python package state, reference-coverage checklist, and estimator identity.
 
 Primary statistical maps are unsmoothed. Display smoothing is generated only after coefficient estimation and must not be used for HFScore, LOOCV, permutation, or bootstrap:
@@ -422,7 +425,7 @@ Coverage>=6 optional sensitivity: documented only; no current HF direct voxel ou
 Coverage>=8 / 50% E-field rule: documented only; primary rule remains Coverage>=5
 5/7/10-fold CV: documented only; LOOCV is the sole validation design for n=16
 OSS-DBS: not included in the HF direct voxel model
-paper-like spatial similarity score sensitivity: not included; HFScore_sum is the primary score
+paper-like spatial similarity score sensitivity: not included; HFScore_mean_main is the primary score
 automatic localization/normalization/electrode reconstruction QC: not included; existing e-fields are assumed to have passed prior manual/clinical QC
 ```
 
@@ -430,4 +433,4 @@ automatic localization/normalization/electrode reconstruction QC: not included; 
 
 This model estimates local HF-only stimulation association with 3-month raw post-treatment outcome while controlling baseline. It should be interpreted as an HF efficacy heatmap over the stimulation-exposed right canonical brainmask candidate space, not as a pure anatomic STN map, a target-level network mechanism map, or voxel-wise causal proof.
 
-Because the cohort has `n=16`, the result is hypothesis-generating. LOOCV may be non-significant; a non-significant LOOCV result should not be interpreted as proof that no biological HF sweet spot exists. `Y_base` is used in the voxel map through partial Spearman residualization and is also retained in the final prediction model to test the incremental predictive value of `HFScore_sum`. The QC report must therefore include the association between `HFScore_sum` and `Y_base` and a basic collinearity diagnostic for the final prediction model.
+Because the cohort has `n=16`, the result is hypothesis-generating. LOOCV may be non-significant; a non-significant LOOCV result should not be interpreted as proof that no biological HF sweet spot exists. `Y_base` is used in the voxel map through partial Spearman residualization and is also retained in the final prediction model to test the incremental predictive value of `HFScore_mean_main`. The QC report must therefore include the association between `HFScore_mean_main` and `Y_base` and a basic collinearity diagnostic for the final prediction model.

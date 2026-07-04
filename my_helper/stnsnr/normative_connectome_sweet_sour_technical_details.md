@@ -495,7 +495,7 @@ That model supersedes older generic direct-voxel notes for HF. In particular, th
 - uses `Coverage(v) >= 5` only for all generated HF results;
 - documents `Coverage>=6` and `Coverage>=8` as optional sensitivities but does not generate them in the current HF execution;
 - uses baseline-adjusted partial Spearman as the primary estimator and OLS ANCOVA as a full supplemental estimator;
-- uses unnormalized `HFScore_sum = sum_v X_HF_only(v) * M_HF(v)` as the primary patient-level score;
+- uses voxel-count-normalized `HFScore_mean_main = sum_v X_HF_only(v) * M_HF(v) / n_valid_score_voxels` as the primary patient-level score;
 - uses `ea_flip_lr_nonlinear` for left-to-right E-field mapping;
 - records a left/right flip deformation audit as warning-only QC;
 - does not use `Omega_pair`, paired-mask membership thresholds, or `direct_voxel_<seed>_paired_mask.nii.gz`;
@@ -536,17 +536,21 @@ Y_post_i = alpha_v
 The patient-level score is:
 
 ```text
-HFScore_sum_i =
-  sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v) * M_HF(v)
+V_score = Omega_HF_tau intersect valid M_HF voxels
+n_valid_score_voxels = |V_score|
+
+HFScore_mean_main_i =
+  sum_{v in V_score} X_HF_only_i(v) * M_HF(v)
+  / n_valid_score_voxels
 ```
 
-`HFScore_sum_i` is the primary unnormalized total dose exposure score. The normalized score is retained only as a descriptive field in `direct_voxel_HF_scores.csv` and does not enter primary prediction, LOOCV, permutation, or bootstrap.
+`HFScore_mean_main_i` is the primary score. It is divided by the number of valid scoring voxels so full-sample and fold-specific scores remain comparable when `Omega_HF_tau` sizes differ. It is not divided by `sum(X)`. Empty `V_score` is a branch/fold QC failure; no score should be emitted. The unnormalized `HFScore_sum_descriptive_i = sum_v X_i(v) * M(v)` is retained only as a documented concept; it is not computed or written by the current executable analysis and does not enter prediction, LOOCV, permutation, or bootstrap.
 
 The final prediction model is:
 
 ```text
 Y_post_i = alpha
-         + delta * HFScore_sum_i
+         + delta * HFScore_mean_main_i
          + beta  * Y_base_i
          + error_i
 ```
@@ -593,7 +597,7 @@ direct_voxel_HF_generation_manifest.json
 
 `direct_voxel_HF_bootstrap_se.nii.gz` and `direct_voxel_HF_permutation_summary.csv` are generated only for `tau200/partial_spearman`. Non-primary branches record `resampling_status = not_run_nonprimary` in the manifest/QC JSON instead of writing placeholder resampling files.
 
-`direct_voxel_HF_scores.csv` must identify `HFScore_sum_main` as the primary score and keep `HFScore_normalized_descriptive` as descriptive only. Report-only sweet/sour display masks use the top 10% same-sign `M_HF` voxels plus direction-specific stability `>=0.75`; they are not significance maps.
+`direct_voxel_HF_scores.csv` must identify `HFScore_mean_main` as the primary score. `HFScore_sum_descriptive` is documented only and is not a required output field. Report-only sweet/sour display masks use the top 10% same-sign `M_HF` voxels plus direction-specific stability `>=0.75`; they are not significance maps.
 
 Display smoothing is output only under:
 
