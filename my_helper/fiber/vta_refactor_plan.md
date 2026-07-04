@@ -3252,3 +3252,40 @@ Fix implementation:
 - A process dry-run smoke check on `sub-HuFengXian` completed with
   `preflight_smoke_after_fix_ok`; it used the same
   `Custom_Ewert_Zhang_Middlebrooks` atlas and did not launch real VTA workers.
+
+### Phase 2CE Attempt 2 Failure and Environment Gate
+
+Status: **failed before full-cohort completion; MATLAB startup gate required
+before restart**.
+
+Attempt 2 used the atlas preflight fix and wrote to
+`process_tasks_attempt2`. It reached `sub-LinJia` but failed during
+`SNr003_immediate_STNplusSNr_alt_R_SNr_c4_row3_R` because the worker exited
+before writing its result MAT:
+
+- Shell elapsed time: 235.44 seconds.
+- MATLAB elapsed time: 188.663462 seconds.
+- Preflight messages appeared before worker launch:
+  `Ensuring subject-space VTA gray-matter atlas: Custom_Ewert_Zhang_Middlebrooks`.
+- The original `GPe.nii.gz` gray-matter atlas race did not recur.
+- `sub-LinJia` had 64 `model-simbio_hemi-*` files and 12 coverage masks at
+  failure; no other selected subject had regenerated VTA outputs.
+- No subject lock remained after the failure.
+
+Follow-up diagnostics:
+
+- A direct sequential reproduction of the failed payload also exited through
+  MATLAB/Conda without a MATLAB stack trace or result file.
+- A basic MATLAB batch smoke (`disp('matlab_basic_ok')`) and a direct MATLAB
+  batch smoke both failed or hung without MATLAB output after attempt 2.
+- The direct smoke process was terminated after confirming it was the new test
+  process and not a user/other-worktree MATLAB process.
+
+Current gate before another restart:
+
+- Do not start attempt 3 until MATLAB batch startup is stable again.
+- Move attempt 2 partial regenerated VTA/coverage outputs to a separate Trash
+  archive before restarting.
+- If MATLAB remains unable to start while unrelated GUI/batch MATLAB sessions
+  are running, get explicit approval before terminating those unrelated
+  sessions.
