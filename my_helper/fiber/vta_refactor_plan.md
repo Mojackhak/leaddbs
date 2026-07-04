@@ -2986,7 +2986,7 @@ Phase 2BZ validation completed:
 
 ## Phase 2CA Validation Scope
 
-Status: **in progress**.
+Status: **completed**.
 
 Phase 2CA runs real FEM copied-subset validation in parpool mode:
 
@@ -3001,13 +3001,28 @@ Phase 2CA runs real FEM copied-subset validation in parpool mode:
 - Compare parpool cohort outputs against the Phase 2BZ process-mode real FEM
   outputs, ignoring validation-root-specific path columns.
 
-Phase 2CA validation target:
+Phase 2CA validation completed:
 
-- Fresh copied validation root exists and records `prepare_only = true`.
-- `parpool` mode with `ForceVta = true` completes on copied `SNr003`.
-- Run output confirms a two-worker parpool and actual VTA generation.
-- Resulting copied-root cohort outputs are present under `summary/vta/parpool`.
-- Non-path coverage and contact-QC outputs match Phase 2BZ process-mode real FEM
-  outputs exactly.
-- No writes are made to the real `/Volumes/VAL/STNSNr/derivatives/leaddbs`
+- Fresh copied validation root created:
+  `/Volumes/VAL/STNSNr/validation/vta_refactor_subset_20260704_000946`.
+- Prepare-only setup copied `SNr003` / `sub-LinJia` into the fresh root and
+  wrote `validation_manifest.json` with `prepare_only = true`.
+- `parpool` mode with `ForceVta = true`, `ForceOutputs = true`, and two workers
+  completed on the copied subject root.
+- Run output confirmed a two-worker MATLAB process pool and actual FEM
+  generation, including `Generating VTA/e-field`, `Loading headmodel`, and
+  `Writing files`.
+- Copied subject output contains 56 non-sidecar e-field NIfTI files and 28
+  non-sidecar binary VTA NIfTI files.
+- Resulting copied-root cohort outputs are present under `summary/vta/parpool`;
+  `cohort_vta_coverage_long.csv` has 96 data rows and
+  `cohort_contact_mapping_qc.csv` has 14 data rows.
+- Compared with Phase 2BZ process-mode real FEM outputs, all non-path coverage
+  columns and all non-path contact-QC columns matched exactly.
+- Process-vs-parpool NIfTI comparison on matching stimulation outputs showed:
+  14 binary VTA NIfTI files matched exactly, 14 e-field NIfTI files had maximum
+  absolute difference `3.43323e-4`, and 14 Gaussian-smoothed e-field NIfTI files
+  had maximum absolute difference `1.05936e-8`.
+- No writes were made to the real `/Volumes/VAL/STNSNr/derivatives/leaddbs`
   subject root.
+- Remaining deferred gate: full-cohort timing comparison.
