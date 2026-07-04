@@ -3388,3 +3388,49 @@ Fix implementation for attempt 4:
   - `test_process_frozen_gm_mask_cache` verifies process dry-run payloads carry
     a frozen mask copy under the process work directory rather than the mutable
     subject atlas path.
+
+### Phase 2CE Attempt 4 Worker Exit Failure and Retry Plan
+
+Status: **failed early, with the fixed-mask failure resolved**.
+
+Attempt 4 started at `2026-07-04 07:48:22 -0700` and ended at
+`2026-07-04 07:53:22 -0700` with MATLAB status `error`.
+
+Observed progress before failure:
+
+- MATLAB elapsed time: 300.080149 seconds.
+- The process work directory contained 8 payload MAT files and 7 result MAT
+  files.
+- The fixed-mask cache was active: 7 frozen `gm_mask_*.nii.gz` files were
+  created under `process_tasks_attempt4/frozen_gm_masks/sub-LinJia/...`.
+- No `Failed to load gray matter mask`, `GUNZIP`, or `Can't open image file`
+  failure recurred.
+- `sub-LinJia` partial outputs were written; no subject-level long report or
+  manifest was completed.
+
+Observed failure:
+
+- Main MATLAB error:
+  `A VTA task worker exited before writing result(s):
+  task_001_stnsnr_vta_SNr003_3m_STN_alt_L_STN_c2_row2_L`.
+- Worker 01 log contained normal SimBio/VAT progress through `Writing files`
+  and `Calculating isosurface to display...`, then the worker process exited
+  without writing the task result MAT.
+
+Root-cause assessment:
+
+- This is a process-worker liveness failure, not an atlas mask failure.
+- The current process runner treats any early worker exit as fatal even when
+  the remaining work is represented by serialized payloads that can be retried.
+
+Required fix before attempt 5:
+
+- Add bounded retry handling in `mh_vta_run_compute_tasks_process` for missing
+  result MAT files after a worker exits.
+- Retry only the missing jobs, with fresh worker manifests/log paths, and keep
+  the configured worker count for normal batches.
+- Preserve hard failures written as result MAT files; those should still fail
+  via `load_results` with their error reports.
+- Add a regression test that simulates a first worker exit before result write
+  and verifies the missing job is relaunched and completed.
+- Move attempt 4 partial regenerated outputs to Trash before attempt 5.
