@@ -3289,3 +3289,29 @@ Current gate before another restart:
 - If MATLAB remains unable to start while unrelated GUI/batch MATLAB sessions
   are running, get explicit approval before terminating those unrelated
   sessions.
+
+### Phase 2CE Attempt 3 Restart Plan
+
+Status: **approved for restart without terminating existing MATLAB sessions**.
+
+Attempt 3 will reuse the same approved real-root full-cohort command and the
+same model settings:
+
+- `VtaGmAtlas = Custom_Ewert_Zhang_Middlebrooks`.
+- `VtaModelKey = simbio`.
+- `VtaExecutionMode = process`.
+- `VtaParallelWorkers = 4`.
+- Coverage atlas remains `Custom_Ewert_Zhang_Middlebrooks0.05`.
+
+Restart boundary:
+
+- Do not terminate unrelated GUI or batch MATLAB sessions.
+- Use a distinct attempt 3 wrapper, runtime file, process work directory, and
+  shell log under
+  `/Volumes/VAL/STNSNr/validation/vta_full_cohort_realroot_rerun_20260704_024228`.
+- The real-root boundary was rechecked before attempt 3: selected subjects had
+  zero `model-simbio_hemi-*` files, zero `stnsnr_vta_coverage` directories, and
+  zero subject locks; cohort outputs were empty except for the preserved
+  `target_component_distribution` directory.
+- If attempt 3 fails, preserve logs and move any partial regenerated outputs to
+  Trash before any later restart.
