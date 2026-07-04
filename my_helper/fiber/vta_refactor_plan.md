@@ -3315,3 +3315,59 @@ Restart boundary:
   `target_component_distribution` directory.
 - If attempt 3 fails, preserve logs and move any partial regenerated outputs to
   Trash before any later restart.
+
+### Phase 2CE Attempt 3 Failure and Fixed Mask Restart Plan
+
+Status: **failed during subject 7; code fix required before another full
+rerun**.
+
+Attempt 3 started at `2026-07-04 06:37:40 -0700` and ended at
+`2026-07-04 07:31:04 -0700` with MATLAB status `error`.
+
+Observed progress before failure:
+
+- Shell elapsed time: 3219.21 seconds.
+- MATLAB elapsed time: 3203.230720 seconds.
+- Completed subject-level outputs for 6 selected subjects:
+  `sub-LinJia`, `sub-HuFengXian`, `sub-YuDongJian`, `sub-WuYueFen`,
+  `sub-LiPing`, and `sub-MaoXiaoMing`.
+- Failed while processing `sub-ShengGuoLiang`, task
+  `stnsnr_vta_SNr016_immediate_STN_continuous` side `R`.
+- `process_tasks_attempt3` contained 64 payload MAT files and 64 result MAT
+  files, with one result marked as worker error.
+- No selected-subject lock remained after MATLAB exited.
+
+Observed failure:
+
+- Main MATLAB error:
+  `One or more VTA process tasks failed: Failed to load gray matter mask.`
+- Worker log context:
+  `Duplicate .nii/.nii.gz files detected for gm_mask` followed by
+  `Can't open image file.`
+- The failing worker was reading
+  `sub-ShengGuoLiang/atlases/Custom_Ewert_Zhang_Middlebrooks/gm_mask`.
+
+Root-cause refinement:
+
+- The attempt 1 fix serially pre-materialized the subject-space atlas before
+  launching each process-mode task batch.
+- SimBio native `Atlas Based` segmentation still calls `ea_ptspecific_atl`
+  inside each worker before reading `gm_mask.nii.gz`.
+- A worker can therefore still observe a transient or duplicate
+  `gm_mask.nii`/`gm_mask.nii.gz` state while another process is finalizing the
+  atlas-derived mask, producing an unreadable gray-matter mask even after
+  preflight.
+
+Required fix before attempt 4:
+
+- After serial preflight materialization, copy the resolved subject-space
+  `gm_mask` to an immutable per-attempt frozen-mask path under the process work
+  directory.
+- Serialize that frozen-mask path in the worker payload.
+- Update the optional SimBio atlas-segmentation path to use the frozen mask
+  when present and matching `options.atlasset`; otherwise preserve the original
+  Lead-DBS behavior.
+- Move attempt 3 partial regenerated VTA/coverage/cohort outputs to a new Trash
+  archive before attempt 4.
+- Relaunch with a distinct attempt 4 wrapper, process work directory, MATLAB
+  runtime file, result MAT, and shell log.
