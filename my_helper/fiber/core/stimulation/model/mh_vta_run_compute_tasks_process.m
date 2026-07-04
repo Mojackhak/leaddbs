@@ -9,15 +9,34 @@ end
 
 settings = process_settings(cfg, exec, numel(tasks));
 jobs = prepare_task_payloads(cfg, S, options, tasks, settings.work_dir);
-workerJobs = prepare_worker_manifests(jobs, settings);
+workerJobs = prepare_worker_manifests(jobs, settings, 0);
 
 if settings.dry_run
     results = dry_run_results(tasks, jobs, workerJobs);
     return;
 end
 
-workerJobs = launch_workers(workerJobs, settings);
-wait_for_results(jobs, workerJobs, settings);
+pendingJobs = jobs;
+retryIndex = 0;
+while true
+    workerJobs = prepare_worker_manifests(pendingJobs, settings, retryIndex);
+    workerJobs = launch_workers(workerJobs, settings);
+    [complete, missingJobs] = wait_for_results(pendingJobs, workerJobs, settings);
+    if complete
+        break;
+    end
+
+    if retryIndex >= settings.max_retries
+        missingNames = char(strjoin(string({missingJobs.task_name}), ', '));
+        error('mh_vta_run_compute_tasks_process:WorkerExited', ...
+            'A VTA task worker exited before writing result(s): %s', missingNames);
+    end
+
+    retryIndex = retryIndex + 1;
+    pendingJobs = missingJobs;
+    fprintf('Retrying %d missing VTA process task(s), retry %d of %d.\n', ...
+        numel(pendingJobs), retryIndex, settings.max_retries);
+end
 results = load_results(jobs);
 end
 
@@ -36,6 +55,8 @@ settings.poll_seconds = max(0.1, double(mh_vta_config_field(cfg, ...
     'processPollSeconds', defaults.processPollSeconds)));
 settings.timeout_seconds = max(0, double(mh_vta_config_field(cfg, ...
     'processTimeoutSeconds', defaults.processTimeoutSeconds)));
+settings.max_retries = max(0, round(double(mh_vta_config_field(cfg, ...
+    'processMaxRetries', defaults.processMaxRetries))));
 
 workDir = char(string(mh_vta_config_field(cfg, 'processWorkDir', defaults.processWorkDir)));
 if isempty(workDir)
@@ -82,7 +103,7 @@ end
 taskName = label;
 end
 
-function workerJobs = prepare_worker_manifests(jobs, settings)
+function workerJobs = prepare_worker_manifests(jobs, settings, retryIndex)
 chunks = split_indices(numel(jobs), settings.worker_count);
 workerJobs = repmat(struct( ...
     'worker_index', 0, ...
@@ -102,15 +123,31 @@ for i = 1:settings.worker_count
     manifest.created_at = char(datetime('now', 'TimeZone', 'local', ...
         'Format', 'yyyy-MM-dd HH:mm:ss Z'));
     manifestPath = fullfile(settings.work_dir, ...
-        sprintf('worker_%02d_manifest.mat', i));
+        worker_manifest_name(i, retryIndex));
     save(manifestPath, 'manifest', '-v7.3');
 
     workerJobs(i).worker_index = i;
     workerJobs(i).manifest_path = manifestPath;
     workerJobs(i).log_path = fullfile(settings.work_dir, ...
-        sprintf('worker_%02d.log', i));
+        worker_log_name(i, retryIndex));
     workerJobs(i).status = 'prepared';
     workerJobs(i).task_indices = taskIndices;
+end
+end
+
+function name = worker_manifest_name(workerIndex, retryIndex)
+if retryIndex == 0
+    name = sprintf('worker_%02d_manifest.mat', workerIndex);
+else
+    name = sprintf('retry_%02d_worker_%02d_manifest.mat', retryIndex, workerIndex);
+end
+end
+
+function name = worker_log_name(workerIndex, retryIndex)
+if retryIndex == 0
+    name = sprintf('worker_%02d.log', workerIndex);
+else
+    name = sprintf('retry_%02d_worker_%02d.log', retryIndex, workerIndex);
 end
 end
 
@@ -173,11 +210,14 @@ for i = 1:numel(workerJobs)
 end
 end
 
-function wait_for_results(jobs, workerJobs, settings)
+function [complete, missingJobs] = wait_for_results(jobs, workerJobs, settings)
 timer = tic;
+complete = false;
+missingJobs = jobs([]);
 while true
     done = all(arrayfun(@(job) isfile(job.result_path), jobs));
     if done
+        complete = true;
         return;
     end
 
@@ -185,10 +225,8 @@ while true
         workerDone = all(arrayfun(@(job) isfile(job.result_path), ...
             jobs(workerJobs(i).task_indices)));
         if ~workerDone && ~process_alive(workerJobs(i).pid)
-            missing = jobs(~arrayfun(@(job) isfile(job.result_path), jobs));
-            missingNames = char(strjoin(string({missing.task_name}), ', '));
-            error('mh_vta_run_compute_tasks_process:WorkerExited', ...
-                'A VTA task worker exited before writing result(s): %s', missingNames);
+            missingJobs = jobs(~arrayfun(@(job) isfile(job.result_path), jobs));
+            return;
         end
     end
 

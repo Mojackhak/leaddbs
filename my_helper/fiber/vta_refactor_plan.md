@@ -3434,3 +3434,15 @@ Required fix before attempt 5:
 - Add a regression test that simulates a first worker exit before result write
   and verifies the missing job is relaunched and completed.
 - Move attempt 4 partial regenerated outputs to Trash before attempt 5.
+
+Retry fix implementation:
+
+- `mh_vta_run_compute_tasks_process` now keeps completed result MAT files and
+  retries only missing jobs when a worker exits before writing all assigned
+  results.
+- Retry manifests/logs are written with `retry_<N>_worker_<M>_*` names under
+  the same process work directory.
+- Default `processMaxRetries` is 2; hard task failures that write result MATs
+  still fail through `load_results`.
+- Regression test `test_process_worker_exit_retry` verifies that a simulated
+  first worker exit without a result is retried and completed.

@@ -11,4 +11,5 @@ defaults.processDryRun = false;
 defaults.processWorkDir = '';
 defaults.processPollSeconds = 2;
 defaults.processTimeoutSeconds = 0;
+defaults.processMaxRetries = 2;
 end
