@@ -147,6 +147,99 @@ If `SubjectIds` is omitted, subjects are resolved in this order: copied subjects
 from `ImportLog` when provided, then BIDS DWI files discovered under
 `StudyRoot/rawdata/sub-*/ses-preop/dwi/`.
 
+## STNSNr full re-import and fake-B0 preprocessing
+
+The STNSNr cohort refresh uses one controlled runner to rewrite DWI `rawdata`,
+remove stale DWI derivatives, and run Synb0-DISCO, topup, and eddy until the
+corrected pseudo `B0` is ready for Lead-DBS UI coregistration.
+
+```bash
+matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_reimport_preprocess_fakeb0.m')"
+```
+
+The runner imports the 16 `subj_effect.xlsx` subjects in cohort order:
+
+```text
+LinJia
+HuFengXian
+YuDongJian
+WuYueFen
+LiPing
+MaoXiaoMing
+ShengGuoLiang
+ZhangXiaoHong
+ZhengXiangQuan
+ZhaoPeiGen
+ChenLingHua
+FanDongDong
+HuangDan
+ZhangMing
+GengHui
+ChenMeiJu
+```
+
+Before copying, existing target DWI files are moved to macOS Trash under a
+timestamped `stnsnr_dwi_reimport_<timestamp>` directory. The runner moves only
+the target DWI rawdata files, subject `preprocessing/dwi` contents, and existing
+pseudo `B0` coregistration files. It preserves anatomical anchor images,
+normalization transforms, non-B0 anatomical coregistration files, and the
+provenance copy in `/Volumes/VAL/STNSNrdwi`.
+
+The rawdata import writes:
+
+```text
+/Volumes/VAL/STNSNr/rawdata/sub-<ID>/ses-preop/dwi/sub-<ID>_ses-preop_dwi.nii.gz
+/Volumes/VAL/STNSNr/rawdata/sub-<ID>/ses-preop/dwi/sub-<ID>_ses-preop_dwi.json
+/Volumes/VAL/STNSNr/rawdata/sub-<ID>/ses-preop/dwi/sub-<ID>_ses-preop_dwi.bval
+/Volumes/VAL/STNSNr/rawdata/sub-<ID>/ses-preop/dwi/sub-<ID>_ses-preop_dwi.bvec
+```
+
+The preprocessing run uses:
+
+```matlab
+'DistortionCorrection', 'synb0'
+'RunCoregistration', false
+'CoregistrationTag', 'dwi_synb0_fakeb0'
+'FreeSurferLicense', '/Applications/freesurfer/8.2.0/license.txt'
+'PhaseEncodingVector', [0 1 0]
+'DefaultTotalReadoutTime', 0.05
+'Parallel', false
+'MaxConcurrentSynb0', 1
+'Force', true
+```
+
+If a source JSON does not contain a usable total readout time, the runner uses
+`DefaultTotalReadoutTime=0.05`. If a source JSON does not contain a usable phase
+encoding direction, the runner uses `PhaseEncodingVector=[0 1 0]`. These defaults
+must be reviewed if the scanner protocol or DWI conversion changes.
+
+Successful subjects end with:
+
+```text
+status=pending_ui_coregistration
+coregistration_status=pending_ui
+```
+
+The expected corrected outputs are:
+
+```text
+/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.nii
+/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.bval
+/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.bvec
+/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_b0.nii
+```
+
+The import and cleanup logs are written under:
+
+```text
+/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_import_<timestamp>.csv
+/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_reimport_cleanup_<timestamp>.csv
+```
+
+After this step, continue in the Lead-DBS UI and run `Coregister Volumes` for the
+pseudo `B0`. SPM is the usual first-choice method, but the final method should be
+selected by manual QC.
+
 ## DICOM DWI conversion
 
 Use `mh_fiber_convert_dicom_dwi_to_leaddbs.m` when the source is a DWI DICOM
