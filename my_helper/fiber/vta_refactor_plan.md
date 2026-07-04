@@ -2842,3 +2842,36 @@ Phase 2BV validation completed:
   execution-option application without running FEM.
 - Static verification confirmed `mh_vta_apply_execution_options` no longer
   carries a local `get_option` helper.
+
+## Phase 2BW Implementation Scope
+
+Status: **completed**.
+
+Phase 2BW adds a copied-subset validation runner for the deferred real FEM and
+execution-mode equivalence gates:
+
+- Add an STN/SNr project-layer validation runner that copies a selected 1-2
+  subject subset from the real Lead-DBS subject root into a fresh validation
+  root before running VTA coverage.
+- Keep the real `/Volumes/VAL/STNSNr/derivatives/leaddbs` subject root
+  read-only; the runner must fail if the destination validation root already
+  exists, rather than overwriting non-Git outputs.
+- Run validation modes through the existing `mh_fiber_run_stnsnr_vta_coverage`
+  entry point so copied-subset validation exercises the same VTA facade,
+  task harness, atlas injection, and coverage pipeline as cohort runs.
+- Support `sequential`, `process`, and `parpool` mode selection, with process
+  work directories and cohort outputs isolated under the validation root.
+- Default to the first workbook subject when no explicit subject filter is
+  provided, so a single-subject smoke can be launched without editing code.
+
+Phase 2BW validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the new validation runner passed with zero messages.
+- MATLAB synthetic prepare-only smoke using temporary fake subject roots proved
+  the runner creates a fresh validation root, copies the selected subject
+  directory, writes a validation manifest, and refuses to overwrite an existing
+  validation root.
+- Static verification confirmed the runner treats the real STN/SNr subject root
+  only as `SourceSubjectRoot`, and mode-specific cohort outputs/process work
+  directories are built under the fresh validation root.

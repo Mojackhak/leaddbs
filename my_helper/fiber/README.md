@@ -66,6 +66,10 @@ Backend request-field and force fallbacks are centralized in
 `mh_vta_request_field` and `mh_vta_config_force`.
 Execution config reads optional `cfg.vta` fields through
 `mh_vta_config_field`.
+Deferred real FEM/process/parpool checks should be run through
+`mh_fiber_run_stnsnr_vta_subset_validation`, which copies selected STN/SNr
+subjects into a fresh validation root before invoking the shared VTA coverage
+entry point.
 Standard VTA path lookups use `mh_fiber_vta_paths` and
 `mh_fiber_vta_efield_path`.
 VTA MAT volume reads use `mh_vta_read_vat_volume`.
