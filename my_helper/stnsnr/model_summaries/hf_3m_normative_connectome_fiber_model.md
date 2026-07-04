@@ -129,32 +129,50 @@ FDR q-values are computed for QC/display only. They are not used to filter the p
 
 ### Main Patient Score
 
-The primary patient-level score is sweet-only weighted peak 5% mean:
+The primary patient-level score is a net sweet-minus-sour peak score. Within each full-sample map or LOOCV training fold, define benefit-oriented fiber weights:
 
 ```text
-sweet fibers = {l in F_candidate_tau: M_HF(l) > 0}
-weighted_l_i = X_HF_i(l) * M_HF(l)
-
-HFFiberScore_top5_mean_i =
-  mean(top 5% largest weighted_l_i among sweet fibers)
+M_HF(l) = -rho_HF(l)   for lower-is-better scales
+M_HF(l) =  rho_HF(l)   for higher-is-better scales
 ```
 
-If a full-sample map or LOOCV training fold has no sweet fibers, that branch/fold fails QC. If sweet fibers exist but a patient has zero exposure to them, `HFFiberScore_top5_mean_i = 0`.
-
-This score is intentionally closer to the Nature Neuroscience weighted peak Fiber R score than to a target-level aggregate. It uses mean rather than sum so that scores remain more comparable across fold-specific candidate sets.
-
-The previously discussed total fiber exposure score is retained only as a documented concept and is not computed by the current executable analysis:
+Positive/sweet selected fibers:
 
 ```text
-HFFiberScore_sum_descriptive_i =
-  sum_l X_HF_i(l) * M_HF(l)
+F+ = top 1% fibers with largest positive M_HF(l)
 ```
+
+Negative/sour selected fibers:
+
+```text
+F- = top 0.5% fibers with most negative M_HF(l)
+```
+
+For each patient `i`:
+
+```text
+SweetWeighted_i(l) = X_HF_i(l) * M_HF(l),      l in F+
+SourWeighted_i(l)  = X_HF_i(l) * [-M_HF(l)],   l in F-
+
+SweetPeak5_i = mean of top 5% largest SweetWeighted_i(l)
+SourPeak5_i  = mean of top 5% largest SourWeighted_i(l)
+
+NetFiberScore_i = SweetPeak5_i - SourPeak5_i
+```
+
+`F+` and `F-` are selected within `F_candidate_tau`, excluding NaN or degenerate fibers. Percentile counts use `ceil(percent * n)` with at least 1 fiber when the corresponding positive or negative pool is non-empty.
+
+If `F+` is empty, `SweetPeak5_i = 0`. If `F-` is empty, `SourPeak5_i = 0`. If a selected set is non-empty but patient exposure to all selected fibers is zero, the corresponding peak score is `0`.
+
+This score is intentionally closer to the Nature Neuroscience weighted peak Fiber R score than to a target-level aggregate. It uses peak means rather than sums so that scores remain more comparable across fold-specific selected fiber sets while explicitly penalizing sour fiber engagement.
+
+The previously discussed total fiber exposure score is not computed by the current executable analysis.
 
 Final prediction model:
 
 ```text
 Y_post_i = alpha
-         + delta * HFFiberScore_top5_mean_i
+         + delta * NetFiberScore_i
          + beta  * Y_base_i
          + error_i
 ```
@@ -164,7 +182,7 @@ The prediction model is fit on the raw post-score scale. The primary validation 
 ## Validation And Sensitivity
 
 - Primary validation is leave-one-patient-out cross-validation.
-- In each fold, rebuild `F_candidate_tau`, fit fiber weights, compute training and held-out `HFFiberScore_top5_mean`, and fit the final prediction model using training patients only.
+- In each fold, rebuild `F_candidate_tau`, fit `M_HF(l)`, select fold-specific `F+` and `F-`, compute training and held-out `SweetPeak5`, `SourPeak5`, and `NetFiberScore`, and fit the final prediction model using training patients only.
 - Compare against the covariate-only baseline `Y_post ~ Y_base`.
 - Primary metrics: LOOCV Spearman rho and plus-one permutation P value.
 - Secondary metrics: LOOCV Pearson `r`, MAE, RMSE, and `Q2`.
@@ -177,7 +195,7 @@ Reference sensitivities:
 ```text
 1500 V/m candidate threshold sensitivity
 top 1% positive fibers for display
-top 1% sour fibers for display
+top 0.5% sour fibers for display
 top1500 positive / top500 negative fiber-score sensitivity for PPMI, MGH, and dTOR
 OSS-DBS all-candidate sensitivity for PPMI, MGH, and dTOR
 2 mm FWHM spatial jitter QC for dTOR selected/display fibers only
@@ -195,7 +213,7 @@ The OSS branch replaces peak E-field exposure with pathway/axon activation:
 X_HF_OSS_i(l) = OSS-DBS activation value for fiber l under subject i HF stimulation
 ```
 
-The OSS branch runs the same fiber-wise estimator, sweet-only top 5% scoring, and LOOCV prediction workflow. It runs smoke permutation only:
+The OSS branch runs the same fiber-wise estimator, net sweet-minus-sour peak scoring, and LOOCV prediction workflow. It runs smoke permutation only:
 
 ```text
 B = 1000
@@ -232,8 +250,8 @@ normative_HF_fiber_mapping_qc.json
 normative_HF_fiber_generation_manifest.json
 normative_HF_fiber_display_top1_positive.tck
 normative_HF_fiber_display_top1_positive.mat
-normative_HF_fiber_display_top1_sour.tck
-normative_HF_fiber_display_top1_sour.mat
+normative_HF_fiber_display_top0p5_sour.tck
+normative_HF_fiber_display_top0p5_sour.mat
 normative_HF_fiber_density_map.nii.gz
 ```
 
@@ -266,7 +284,7 @@ M_HF
 direction_class
 target_labels_for_qc
 is_top1_positive_display
-is_top1_sour_display
+is_top0p5_sour_display
 is_top1500_positive
 is_top500_negative
 ```
@@ -278,10 +296,14 @@ subject_id
 score_map_source
 connectome
 branch
-HFFiberScore_top5_mean
+SweetPeak5
+SourPeak5
+NetFiberScore
 n_candidate_fibers
-n_sweet_fibers
-n_top5_fibers
+n_sweet_selected_fibers
+n_sour_selected_fibers
+n_sweet_peak_fibers
+n_sour_peak_fibers
 is_primary_score
 ```
 
@@ -294,7 +316,7 @@ Target atlases are used after fiber modeling to label and summarize fibers, not 
 Display outputs:
 
 - top 1% positive fibers by `M_HF(l)` for sweet streamline visualization;
-- top 1% sour fibers by negative `M_HF(l)` for avoidance/sour visualization;
+- top 0.5% sour fibers by negative `M_HF(l)` for avoidance/sour visualization;
 - streamline density maps for selected/display fibers;
 - target-label summary tables showing which atlas targets are traversed or contacted by selected fibers;
 - STN/SNr and STNSNrplus overlays as anatomical context only.
