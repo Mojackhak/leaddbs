@@ -2,7 +2,7 @@
 
 ## Research Question
 
-Which ULF-only normative seed-target connectivity features are associated with additional benefit after ULF stimulation is added to HF stimulation, after adjusting for HF clinical state and model-predicted change in HF target engagement?
+Which ULF-only normative seed-target connectivity features are associated with additional benefit after ULF stimulation is added to HF stimulation, after adjusting for HF clinical state and model-predicted change in HF fiber engagement?
 
 This is a seed-target / fiber-derived target-level model. The main predictor is target-level ULF-only connectivity, not top-ranked single streamlines.
 
@@ -39,16 +39,18 @@ HF-adjusted ULF-only add-on gain
 - Public structural connectomes available in Lead-DBS.
 - HF-only stimulation exposure maps.
 - HF and ULF component exposure maps from HF+ULF programming.
-- Normative HF target-level model trained from HF-only outcomes.
+- Normative HF fiber-level model trained from HF-only outcomes.
 - Seed and target masks from the connected-region atlas registry.
 - Raw HF-only and HF+ULF clinical scores.
 
-The model-matched HF adjustment is computed from the normative HF target-level model:
+The model-matched HF adjustment is computed from the normative HF fiber-level model described in [`hf_3m_normative_connectome_fiber_model.md`](hf_3m_normative_connectome_fiber_model.md):
 
 ```text
 DeltaHFScore =
-  S_HF_norm(C_norm_HF_component,HF+ULF)
-  - S_HF_norm(C_norm_HF_only,HF-only)
+  S_HF_norm_fiber(E_HF_component,HF+ULF)
+  - S_HF_norm_fiber(E_HF_only,HF-only)
+
+S_HF_norm_fiber(E) = HFFiberScore_top5_mean(E)
 ```
 
 `DeltaHFScore` may be z-scored inside training folds, but no fixed scaling coefficient is imposed before regression.
@@ -76,15 +78,15 @@ If a streamline is activated by both HF and ULF components, it is attributed to 
 For each side and target `k`:
 
 ```text
-C_norm_LF_only_side_i(k) =
+C_norm_ULF_only_side_i(k) =
   aggregate_l w_ULF_only_i(l) for streamlines l assigned to target k
 ```
 
 Left and right target features are computed separately and then averaged:
 
 ```text
-C_norm_LF_only_bilat_i(k) =
-  (C_norm_LF_only_left_i(k) + C_norm_LF_only_right_i(k)) / 2
+C_norm_ULF_only_bilat_i(k) =
+  (C_norm_ULF_only_left_i(k) + C_norm_ULF_only_right_i(k)) / 2
 ```
 
 ## Statistical Model
@@ -93,7 +95,7 @@ For each target `k`:
 
 ```text
 Y_HFplusULF_post_i = alpha_k
-                  + theta_ULF(k) * C_norm_LF_only_bilat_i(k)
+                  + theta_ULF(k) * C_norm_ULF_only_bilat_i(k)
                   + beta_k      * Y_HF3m_i
                   + gamma_k     * DeltaHFScore_i
                   + error_i,k
@@ -103,7 +105,7 @@ Sensitivity model:
 
 ```text
 Y_HFplusULF_post_i = alpha_k
-                  + theta_ULF(k) * C_norm_LF_only_bilat_i(k)
+                  + theta_ULF(k) * C_norm_ULF_only_bilat_i(k)
                   + beta_k      * Y_HF3m_i
                   + error_i,k
 ```
@@ -119,15 +121,15 @@ Patient-level ULF-only target score:
 
 ```text
 ULFTargetScore_norm_i =
-  sum_k C_norm_LF_only_bilat_i(k) * W_ULF(k)
-  / (sum_k abs(C_norm_LF_only_bilat_i(k)) + lambda)
+  sum_k C_norm_ULF_only_bilat_i(k) * W_ULF(k)
+  / (sum_k abs(C_norm_ULF_only_bilat_i(k)) + lambda)
 ```
 
 ## Validation
 
 - Run chronic 3-month and immediate endpoints as separate models.
 - Use fully nested leave-one-patient-out cross-validation.
-- Train the normative HF target-level model inside each outer fold before computing fold-specific `DeltaHFScore`.
+- Train the normative HF fiber-level model inside each outer fold before computing fold-specific `DeltaHFScore`.
 - Select ULF targets, fit ULF weights, and compute `ULFTargetScore_norm` inside training folds.
 - Compare against `Y_HFplusULF_post ~ Y_HF3m + DeltaHFScore`.
 - Repeat across available normative connectomes and threshold sensitivities.

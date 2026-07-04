@@ -4,13 +4,13 @@ Date: 2026-07-01
 
 ## Purpose
 
-This document fixes the technical design for symptom-specific HF-only efficacy and HF-adjusted ULF-only add-on target-level seed-target analyses based on the current clinical programming data, public normative structural connectomes, and individualized DWI tractography.
+This document fixes the technical design for symptom-specific HF-only efficacy and HF-adjusted ULF-only add-on analyses based on the current clinical programming data, public normative structural connectomes, and individualized DWI tractography.
 
 The analysis has two main goals:
 
-1. Identify HF-only target-level connectivity features associated with stable HF therapeutic benefit.
+1. Identify HF-only normative connectome fiber-level profiles associated with stable HF therapeutic benefit.
 2. Identify ULF-only target-level connectivity features associated with additional benefit after ULF is added to HF stimulation, while adjusting for predicted HF efficacy change.
-3. Use voxel and fiber outputs as secondary localization, QC, and visualization products rather than as the primary predictor-selection unit.
+3. Use voxel and target-label outputs as localization, QC, and visualization products without overriding each model-specific primary unit.
 
 The main model assignment is frequency-component based rather than nucleus-assignment based. STN/SNr anatomy is retained for cohort description, stimulation territory, target registry, and visualization overlays.
 
@@ -30,7 +30,7 @@ The six model-specific summaries are:
 | Research question | Model class | Summary document |
 |---|---|---|
 | HF-only 3m efficacy | Direct voxel-level | [`hf_3m_direct_voxel_model.md`](model_summaries/hf_3m_direct_voxel_model.md) |
-| HF-only 3m efficacy | Normative connectome seed-target / fiber-derived target-level | [`hf_3m_normative_connectome_seed_target_model.md`](model_summaries/hf_3m_normative_connectome_seed_target_model.md) |
+| HF-only 3m efficacy | Normative connectome DBS Fiber Filtering / fiber-level | [`hf_3m_normative_connectome_fiber_model.md`](model_summaries/hf_3m_normative_connectome_fiber_model.md) |
 | HF-only 3m efficacy | Individualized DWI seed-target / fiber-derived target-level | [`hf_3m_individualized_dwi_seed_target_model.md`](model_summaries/hf_3m_individualized_dwi_seed_target_model.md) |
 | HF-adjusted ULF-only add-on gain | Direct voxel-level | [`ulf_addon_gain_direct_voxel_model.md`](model_summaries/ulf_addon_gain_direct_voxel_model.md) |
 | HF-adjusted ULF-only add-on gain | Normative connectome seed-target / fiber-derived target-level | [`ulf_addon_gain_normative_connectome_seed_target_model.md`](model_summaries/ulf_addon_gain_normative_connectome_seed_target_model.md) |
@@ -282,7 +282,9 @@ OSS-DBS / pathway activation value when available
 
 ### Target-Level Connectivity Features
 
-The primary connectivity model uses target-level features rather than top single-fiber predictors.
+This section applies to individualized DWI seed-target models and ULF add-on target-level models. It no longer defines the primary HF normative connectome model, which is specified as a fiber-level DBS Fiber Filtering model in `model_summaries/hf_3m_normative_connectome_fiber_model.md`.
+
+For target-level model families, the primary connectivity model uses target-level features rather than top single-fiber predictors.
 
 For each target label `k`, each patient `i`, and each side `h` in `{L,R}`, compute side-specific connectivity:
 
@@ -651,127 +653,108 @@ For these scales, lower post-treatment raw scores indicate better outcome. Resid
 
 SE-ADL is higher-is-better. Do not sign-flip SE-ADL outcome residuals when generating benefit-oriented maps.
 
-## STN Model
+## HF Normative Fiber-Level Model
 
-### Primary Chronic STN-Only Efficacy Model
+### Primary Chronic HF-Only Efficacy Model
 
 Purpose:
 
 ```text
-Identify targets where stronger HF-only target connectivity predicts better stable HF-only 3-month outcome.
+Identify normative connectome streamlines where stronger HF-only modulation predicts better stable HF-only 3-month outcome.
 ```
 
-For each clinical scale and each target `k`:
+For each clinical scale and each candidate fiber `l`:
 
 ```text
-Y_HF3m_i = alpha_0
-          + alpha_HF,k * C_HF3m_bilat(i,k)
-          + beta         * Y_Preop_i
-          + error_i
+rho_HF(l) =
+  corr(
+    resid(rank(Y_HF3m_i) ~ rank(Y_Preop_i)),
+    resid(rank(X_HF_i(l)) ~ rank(Y_Preop_i))
+  )
 ```
 
 Definitions:
 
 ```text
-Y_HF3m_i    = raw HF-only 3-month clinical score for subject i
-Y_Preop_i    = raw preoperative clinical score for subject i
-C_HF3m_bilat(i,k) = bilateral HF target-level connectivity for target k
-alpha_HF,k = HF target coefficient of interest
+Y_HF3m_i = raw HF-only 3-month clinical score for subject i
+Y_Preop_i = raw preoperative clinical score for subject i
+X_HF_i(l) = right canonical bilateral HF peak e-field exposure for normative fiber l
+rho_HF(l) = baseline-adjusted fiber-wise association
 ```
 
-Main estimator:
+Candidate fibers:
 
 ```text
-rank-based partial Spearman / residualized regression
+candidate universe = full public connectome, not target-restricted
+canonical side = right
+tau_primary = 800 V/m
+tau_sensitivity = 1500 V/m
+Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
+F_candidate_tau = {l: Coverage_tau(l) >= 5}
 ```
 
 Benefit-oriented implementation:
 
 ```text
-STNBenefitScore_k =
-  corr(
-    residual(rank(C_HF3m_bilat(k)) ~ rank(Y_Preop)),
-    benefit_oriented_residual(rank(Y_HF3m) ~ rank(Y_Preop))
-  )
+M_HF(l) = -rho_HF(l)   for lower-is-better scales
+M_HF(l) =  rho_HF(l)   for higher-is-better scales
 ```
 
 Interpretation:
 
 ```text
-STNBenefitScore_k > 0 = stronger HF target connectivity predicts better baseline-adjusted STN 3-month outcome
-STNBenefitScore_k < 0 = stronger HF target connectivity predicts worse baseline-adjusted STN 3-month outcome
+M_HF(l) > 0 = stronger HF modulation of this fiber predicts better baseline-adjusted HF-only 3-month outcome
+M_HF(l) < 0 = stronger HF modulation of this fiber predicts worse baseline-adjusted HF-only 3-month outcome
 ```
 
-### STN Target Score And STN Seed Voxel Map
+FDR q-values are computed for QC/display only and are not used to filter the primary model.
 
-The primary HF connectivity predictor is a target-level score, not a top-fiber score.
+### HF Fiber Score And Fiber Display
 
-For each HF target `k`, define:
+The primary HF normative connectome predictor is sweet-only weighted peak 5% mean:
 
 ```text
-w_HF,k = benefit-oriented HF target weight
+sweet fibers = {l in F_candidate_tau: M_HF(l) > 0}
+weighted_l_i = X_HF_i(l) * M_HF(l)
+
+HFFiberScore_top5_mean_i =
+  mean(top 5% largest weighted_l_i among sweet fibers)
 ```
 
-For lower-is-better scales:
+If a fold has no sweet fibers, that branch/fold fails QC. If sweet fibers exist but a patient has zero exposure, the patient score is `0`.
+
+Final prediction model:
 
 ```text
-w_HF,k = -alpha_HF,k
+Y_HF3m_i = alpha
+         + delta * HFFiberScore_top5_mean_i
+         + beta  * Y_Preop_i
+         + error_i
 ```
 
-For SE-ADL:
+Display outputs:
 
 ```text
-w_HF,k = alpha_HF,k
+top 1% positive fibers for sweet streamline display
+top 1% sour fibers for avoidance/sour display
+streamline density maps for selected/display fibers
+target-label summaries for QC and anatomical interpretation
 ```
 
-Select STN sweet and sour targets inside the training fold:
+Reference sensitivity coverage:
 
 ```text
-S_HF = selected HF target set
+top1500 positive / top500 negative fiber-score sensitivity
+OSS-DBS all-candidate sensitivity
+2 mm FWHM spatial jitter QC for dTOR selected/display fibers only
+5-fold and 10-fold CV documented only; LOOCV remains executable validation
 ```
 
-Build the patient-level HF target score:
+The model-specific source of truth is:
 
 ```text
-HFTargetScore_i =
-  sum_{k in S_HF} w_HF,k * Z(C_HF3m_bilat(i,k))
-  / sum_{k in S_HF} abs(w_HF,k)
+model_summaries/hf_3m_normative_connectome_fiber_model.md
 ```
-
-For HF voxel-level visualization, back-project `w_HF,k` into the HF territory using target-specific streamline density:
-
-```text
-Omega_h = same-side STN mask
-G_h,k   = streamlines connecting same-side STN to target P_k,h
-```
-
-The same target-derived seed voxel formulas are used:
-
-```text
-Coverage_h(v)
-Sweet_h(v)
-Sour_h(v)
-Net_h(v)
-Stability_h(v)
-```
-
-Required STN output files:
-
-```text
-STN_lh_coverage.nii.gz
-STN_lh_sweet.nii.gz
-STN_lh_sour.nii.gz
-STN_lh_net.nii.gz
-STN_lh_stability.nii.gz
-
-STN_rh_coverage.nii.gz
-STN_rh_sweet.nii.gz
-STN_rh_sour.nii.gz
-STN_rh_net.nii.gz
-STN_rh_stability.nii.gz
-```
-
-These maps show which STN voxels have connectivity profiles biased toward beneficial or detrimental HF targets. They are target-derived visualization maps and should not be interpreted as direct voxel-wise causal efficacy estimates.
 
 ### Secondary STN Immediate Response Model
 
@@ -825,7 +808,7 @@ ULF direct voxel-level model
   -> HF direct voxel-level efficacy model
 
 ULF normative connectome seed-target model
-  -> HF normative connectome seed-target efficacy model
+  -> HF normative connectome fiber-level efficacy model
 
 ULF individualized DWI seed-target model
   -> HF individualized DWI seed-target efficacy model
@@ -857,12 +840,10 @@ S_HF_voxel(E) =
   / (sum_{u in Omega_HF} E(u) + lambda)
 ```
 
-For normative seed-target models, use the model-matched HF target-level score:
+For normative connectome models, use the model-matched HF fiber-level score:
 
 ```text
-S_HF_norm(E) =
-  sum_{k in S_HF_norm} w_HF,k_norm * Z_train(C_norm_HF_component(E,k))
-  / sum_{k in S_HF_norm} abs(w_HF,k_norm)
+S_HF_norm_fiber(E) = HFFiberScore_top5_mean(E)
 ```
 
 For individualized DWI seed-target models, use the model-matched HF target-level score:
@@ -1351,12 +1332,12 @@ STN/SNr atlas registry is used for endpoint definitions and sensitivity/fallback
 VTA/e-field/proxy maps are not cropped to STN/SNr
 interleaving is split into subprograms
 union and overlap interleaving outputs are generated
-primary predictor selection is target-level, not top correlated single fibers
-left and right connectivity are computed separately and averaged to one patient-level bilateral target feature
+HF normative connectome primary predictor selection is fiber-level DBS Fiber Filtering, not target-level aggregation
+target-level ULF and individualized-DWI connectivity are computed left and right separately and averaged to one patient-level bilateral target feature
 primary model tables have one row per patient, not one row per hemisphere
 target-level DWI coverage is checked before individualized-DWI or normative-guided-DWI interpretation
-target-derived voxel maps are generated by target-weight back-projection, not by top voxel-wise correlation
-HF target-derived voxel maps are generated from HF target weights and HF seed/territory masks
+target-derived voxel maps for target-level models are generated by target-weight back-projection, not by top voxel-wise correlation
+HF normative connectome display maps are generated from fiber-level weights, selected streamlines, and streamline-density maps
 ULF target-derived voxel maps are generated from ULF target weights and SNr seed masks
 left and right target-derived voxel maps are generated separately without flipping
 coverage, sweet, sour, net, and stability maps are exported for every reported seed voxel visualization

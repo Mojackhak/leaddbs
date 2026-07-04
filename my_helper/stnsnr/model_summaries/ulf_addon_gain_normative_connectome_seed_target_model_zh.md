@@ -2,7 +2,7 @@
 
 ## 研究问题
 
-加入 ULF 刺激后，哪些 ULF-only normative seed-target connectivity 特征与额外疗效相关，并且这种关联已校正 HF 临床状态和模型预测的 HF target engagement 变化？
+加入 ULF 刺激后，哪些 ULF-only normative seed-target connectivity 特征与额外疗效相关，并且这种关联已校正 HF 临床状态和模型预测的 HF fiber engagement 变化？
 
 这是 seed-target / fiber-derived target-level 模型。主预测变量是 target-level ULF-only connectivity，而不是 top-ranked single streamline。
 
@@ -39,16 +39,18 @@ HF-adjusted ULF-only add-on gain
 - Lead-DBS 中可用的公共 structural connectome。
 - HF-only stimulation exposure map。
 - HF+ULF programming 中的 HF 和 ULF component exposure map。
-- 由 HF-only 结局训练得到的 normative HF target-level model。
+- 由 HF-only 结局训练得到的 normative HF fiber-level model。
 - 来自 connected-region atlas registry 的 seed 和 target mask。
 - HF-only 和 HF+ULF 原始临床分数。
 
-模型匹配的 HF adjustment 来自 normative HF target-level model：
+模型匹配的 HF adjustment 来自 [`hf_3m_normative_connectome_fiber_model.md`](hf_3m_normative_connectome_fiber_model.md) 中定义的 normative HF fiber-level model：
 
 ```text
 DeltaHFScore =
-  S_HF_norm(C_norm_HF_component,HF+ULF)
-  - S_HF_norm(C_norm_HF_only,HF-only)
+  S_HF_norm_fiber(E_HF_component,HF+ULF)
+  - S_HF_norm_fiber(E_HF_only,HF-only)
+
+S_HF_norm_fiber(E) = HFFiberScore_top5_mean(E)
 ```
 
 `DeltaHFScore` 可以在 training fold 内 z-score，但不预先设置固定缩放系数。
@@ -76,15 +78,15 @@ w_ULF_only_i(l) =
 对每侧和 target `k`：
 
 ```text
-C_norm_LF_only_side_i(k) =
+C_norm_ULF_only_side_i(k) =
   aggregate_l w_ULF_only_i(l) for streamlines l assigned to target k
 ```
 
 左右侧 target feature 分别计算后求平均：
 
 ```text
-C_norm_LF_only_bilat_i(k) =
-  (C_norm_LF_only_left_i(k) + C_norm_LF_only_right_i(k)) / 2
+C_norm_ULF_only_bilat_i(k) =
+  (C_norm_ULF_only_left_i(k) + C_norm_ULF_only_right_i(k)) / 2
 ```
 
 ## 统计模型
@@ -93,7 +95,7 @@ C_norm_LF_only_bilat_i(k) =
 
 ```text
 Y_HFplusULF_post_i = alpha_k
-                  + theta_ULF(k) * C_norm_LF_only_bilat_i(k)
+                  + theta_ULF(k) * C_norm_ULF_only_bilat_i(k)
                   + beta_k      * Y_HF3m_i
                   + gamma_k     * DeltaHFScore_i
                   + error_i,k
@@ -103,7 +105,7 @@ Y_HFplusULF_post_i = alpha_k
 
 ```text
 Y_HFplusULF_post_i = alpha_k
-                  + theta_ULF(k) * C_norm_LF_only_bilat_i(k)
+                  + theta_ULF(k) * C_norm_ULF_only_bilat_i(k)
                   + beta_k      * Y_HF3m_i
                   + error_i,k
 ```
@@ -119,15 +121,15 @@ W_ULF(k) =  theta_ULF(k)   for SE-ADL
 
 ```text
 ULFTargetScore_norm_i =
-  sum_k C_norm_LF_only_bilat_i(k) * W_ULF(k)
-  / (sum_k abs(C_norm_LF_only_bilat_i(k)) + lambda)
+  sum_k C_norm_ULF_only_bilat_i(k) * W_ULF(k)
+  / (sum_k abs(C_norm_ULF_only_bilat_i(k)) + lambda)
 ```
 
 ## 验证
 
 - Chronic 3-month 和 immediate endpoint 分开建模。
 - 使用 fully nested leave-one-patient-out cross-validation。
-- 在每个 outer fold 内训练 normative HF target-level model，再计算 fold-specific `DeltaHFScore`。
+- 在每个 outer fold 内训练 normative HF fiber-level model，再计算 fold-specific `DeltaHFScore`。
 - ULF target 选择、ULF weight 拟合和 `ULFTargetScore_norm` 计算均在 training fold 内完成。
 - 与 `Y_HFplusULF_post ~ Y_HF3m + DeltaHFScore` 比较。
 - 在不同 normative connectome 和阈值敏感性中重复分析。
