@@ -20,6 +20,7 @@ parser.addParameter('ParallelWorkers', 2, @(x) isnumeric(x) && isscalar(x) && x 
 parser.addParameter('ForceVta', true, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ForceOutputs', true, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('PrepareOnly', false, @(x) islogical(x) || isnumeric(x));
+parser.addParameter('ReusePreparedRoot', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('VtaGmAtlas', mh_fiber_stnsnr_default_vta_gm_atlas(), ...
     @(x) ischar(x) || isstring(x));
 parser.addParameter('VtaModelKey', mh_fiber_stnsnr_default_vta_model_key(), ...
@@ -59,13 +60,22 @@ mh_util_must_be_folder(repoDir, 'repository directory');
 mh_util_must_be_folder(sourceSubjectRoot, 'source Lead-DBS subject root');
 mh_util_must_be_file(workbook, 'stimulation workbook');
 mh_util_must_be_folder(atlasDir, 'STN/SNr atlas directory');
-assert_fresh_validation_root(validationRoot, sourceSubjectRoot);
+copiedSubjectRoot = fullfile(validationRoot, 'derivatives', 'leaddbs');
+reusePreparedRoot = logical(opts.ReusePreparedRoot);
+if reusePreparedRoot
+    assert_prepared_validation_root(validationRoot, sourceSubjectRoot, copiedSubjectRoot);
+else
+    assert_fresh_validation_root(validationRoot, sourceSubjectRoot);
+end
 
 subjects = select_validation_subjects(workbook, sheetName, opts);
-copiedSubjectRoot = fullfile(validationRoot, 'derivatives', 'leaddbs');
-mh_util_make_dir(fileparts(validationRoot));
-mh_util_make_dir(copiedSubjectRoot);
-copiedSubjects = copy_subject_subset(subjects, sourceSubjectRoot, copiedSubjectRoot);
+if reusePreparedRoot
+    copiedSubjects = collect_prepared_subject_subset(subjects, sourceSubjectRoot, copiedSubjectRoot);
+else
+    mh_util_make_dir(fileparts(validationRoot));
+    mh_util_make_dir(copiedSubjectRoot);
+    copiedSubjects = copy_subject_subset(subjects, sourceSubjectRoot, copiedSubjectRoot);
+end
 
 result = struct();
 result.validationRoot = validationRoot;
@@ -76,6 +86,7 @@ result.sheet = sheetName;
 result.atlasDir = atlasDir;
 result.subjects = copiedSubjects;
 result.prepareOnly = logical(opts.PrepareOnly);
+result.reusePreparedRoot = reusePreparedRoot;
 result.modeResults = struct([]);
 
 if result.prepareOnly
@@ -148,6 +159,15 @@ if path_is_under(validationRoot, sourceSubjectRoot)
     error('mh_fiber_run_stnsnr_vta_subset_validation:UnsafeValidationRoot', ...
         'Validation root must not be inside the source subject root: %s', validationRoot);
 end
+end
+
+function assert_prepared_validation_root(validationRoot, sourceSubjectRoot, copiedSubjectRoot)
+if path_is_under(validationRoot, sourceSubjectRoot)
+    error('mh_fiber_run_stnsnr_vta_subset_validation:UnsafeValidationRoot', ...
+        'Validation root must not be inside the source subject root: %s', validationRoot);
+end
+mh_util_must_be_folder(validationRoot, 'prepared validation root');
+mh_util_must_be_folder(copiedSubjectRoot, 'prepared copied subject root');
 end
 
 function tf = path_is_under(pathValue, rootValue)
@@ -230,6 +250,29 @@ for i = 1:height(subjects)
 end
 end
 
+function copiedSubjects = collect_prepared_subject_subset(subjects, sourceSubjectRoot, copiedSubjectRoot)
+copiedSubjects = repmat(struct( ...
+    'id', '', ...
+    'name_en', '', ...
+    'name_zh', '', ...
+    'source_dir', '', ...
+    'copied_dir', ''), height(subjects), 1);
+
+for i = 1:height(subjects)
+    nameEn = char(string(subjects.NameEn(i)));
+    patientName = ['sub-', nameEn];
+    sourceDir = fullfile(sourceSubjectRoot, patientName);
+    copiedDir = fullfile(copiedSubjectRoot, patientName);
+    mh_util_must_be_folder(sourceDir, ['source subject directory for ', patientName]);
+    mh_util_must_be_folder(copiedDir, ['prepared copied subject directory for ', patientName]);
+    copiedSubjects(i).id = char(string(subjects.ID(i)));
+    copiedSubjects(i).name_en = nameEn;
+    copiedSubjects(i).name_zh = char(string(subjects.NameZh(i)));
+    copiedSubjects(i).source_dir = sourceDir;
+    copiedSubjects(i).copied_dir = copiedDir;
+end
+end
+
 function modes = normalize_modes(value)
 modes = lower(normalize_string_list(value));
 allowed = ["sequential"; "process"; "parpool"];
@@ -282,11 +325,20 @@ manifest.workbook = result.workbook;
 manifest.sheet = result.sheet;
 manifest.atlas_dir = result.atlasDir;
 manifest.prepare_only = result.prepareOnly;
+manifest.reuse_prepared_root = result.reusePreparedRoot;
 manifest.force_vta = logical(opts.ForceVta);
 manifest.force_outputs = logical(opts.ForceOutputs);
 manifest.subjects = result.subjects;
 manifest.mode_results = mode_results_for_manifest(result.modeResults);
-mh_util_write_json(fullfile(result.validationRoot, 'validation_manifest.json'), manifest);
+mh_util_write_json(validation_manifest_path(result), manifest);
+end
+
+function path = validation_manifest_path(result)
+path = fullfile(result.validationRoot, 'validation_manifest.json');
+if result.reusePreparedRoot && isfile(path)
+    timestamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
+    path = fullfile(result.validationRoot, ['validation_manifest_', timestamp, '.json']);
+end
 end
 
 function modeResults = mode_results_for_manifest(results)

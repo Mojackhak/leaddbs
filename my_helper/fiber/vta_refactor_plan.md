@@ -2879,3 +2879,32 @@ Phase 2BW validation completed:
 - Static verification confirmed the runner treats the real STN/SNr subject root
   only as `SourceSubjectRoot`, and mode-specific cohort outputs/process work
   directories are built under the fresh validation root.
+
+## Phase 2BX Implementation Scope
+
+Status: **completed**.
+
+Phase 2BX supports two-stage copied-subset validation after a prepare-only
+setup has created the copied subject root:
+
+- Add an explicit `ReusePreparedRoot` option to
+  `mh_fiber_run_stnsnr_vta_subset_validation`.
+- Keep default behavior unchanged: an existing validation root still fails fast
+  unless `ReusePreparedRoot` is explicitly true.
+- When `ReusePreparedRoot` is true, require the copied subject root and selected
+  copied subject directories to already exist, and do not copy or overwrite
+  subject data again.
+- Allow the prepared
+  `/Volumes/VAL/STNSNr/validation/vta_refactor_subset_20260703_234615` root to
+  be used for subsequent sequential/process/parpool validation runs.
+
+Phase 2BX validation completed:
+
+- `git diff --check` passed.
+- Focused `checkcode` for the validation runner passed with zero messages.
+- MATLAB synthetic smoke proved existing roots still fail by default, while
+  explicit `ReusePreparedRoot = true` accepts a prepared copied-subject root
+  without copying again and writes a timestamped manifest instead of
+  overwriting the prepare-only manifest.
+- Static verification confirmed the default existing-root protection remains in
+  place.
