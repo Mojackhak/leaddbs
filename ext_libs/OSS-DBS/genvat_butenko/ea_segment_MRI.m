@@ -138,8 +138,15 @@ switch settings.butenko_segmAlg
 
         if options.native
             segMaskPath = [options.subj.atlasDir,filesep,options.atlasset,filesep,'segmask_atlas.nii'];
-            ea_ptspecific_atl(options);
-            atlas_gm_mask_path = [options.subj.atlasDir,filesep,options.atlasset,filesep,'gm_mask.nii.gz'];
+            atlas_gm_mask_path = ea_fixed_atlas_gm_mask_path(options);
+            if isempty(atlas_gm_mask_path)
+                ea_ptspecific_atl(options);
+                atlas_gm_mask_path = [options.subj.atlasDir,filesep,options.atlasset,filesep,'gm_mask.nii.gz'];
+            end
+            if ~isfile(atlas_gm_mask_path)
+                error('ea_segment_MRI:MissingAtlasGmMask', ...
+                    'Atlas gray matter mask does not exist: %s', atlas_gm_mask_path);
+            end
             ea_convert_atlas2segmask(atlas_gm_mask_path, segMaskPath, 0.5)
             copyfile(segMaskPath, [outputPaths.outputDir, filesep, segmaskName]);
         else
@@ -214,4 +221,30 @@ switch settings.butenko_segmAlg
             ea_convert_synthSeg2segmask((segMaskPath), ([outputPaths.outputDir, filesep, segmaskName]));
         end
         env = ea_conda_env('OSS-DBSv2');
+end
+end
+
+function maskPath = ea_fixed_atlas_gm_mask_path(options)
+maskPath = '';
+if ~isfield(options, 'fixedAtlasGmMaskCache') || ...
+        ~isfield(options.fixedAtlasGmMaskCache, 'atlas_names') || ...
+        ~isfield(options.fixedAtlasGmMaskCache, 'mask_paths')
+    return;
+end
+
+atlasNames = string(options.fixedAtlasGmMaskCache.atlas_names);
+maskPaths = string(options.fixedAtlasGmMaskCache.mask_paths);
+if numel(atlasNames) ~= numel(maskPaths)
+    return;
+end
+
+match = find(atlasNames == string(options.atlasset), 1, 'last');
+if isempty(match)
+    return;
+end
+
+candidate = char(maskPaths(match));
+if isfile(candidate)
+    maskPath = candidate;
+end
 end

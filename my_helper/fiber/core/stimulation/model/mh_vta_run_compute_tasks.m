@@ -11,7 +11,7 @@ exec = mh_vta_execution_config(cfg, numel(tasks));
 resultCells = cell(numel(tasks), 1);
 
 if any(strcmp(exec.mode, {'parpool', 'process'}))
-    materialize_subject_gm_atlases(cfg, options, tasks);
+    options = materialize_subject_gm_atlases(cfg, options, tasks, exec);
 end
 
 switch exec.mode
@@ -34,8 +34,10 @@ end
 results = vertcat(resultCells{:});
 end
 
-function materialize_subject_gm_atlases(cfg, options, tasks)
+function options = materialize_subject_gm_atlases(cfg, options, tasks, exec)
 atlasNames = requested_gm_atlases(cfg, options, tasks);
+frozenNames = strings(0, 1);
+frozenPaths = strings(0, 1);
 for i = 1:numel(atlasNames)
     atlasName = char(atlasNames(i));
     preflightOptions = options;
@@ -52,6 +54,18 @@ for i = 1:numel(atlasNames)
         error('mh_vta_run_compute_tasks:MissingSubjectGmMask', ...
             'Subject-space gray-matter mask was not materialized: %s', maskPath);
     end
+
+    if strcmp(exec.mode, 'process')
+        frozenPath = freeze_subject_gm_mask(cfg, preflightOptions, atlasName, maskPath);
+        frozenNames(end+1, 1) = string(atlasName); %#ok<AGROW>
+        frozenPaths(end+1, 1) = string(frozenPath); %#ok<AGROW>
+    end
+end
+
+if ~isempty(frozenNames)
+    options.fixedAtlasGmMaskCache = struct( ...
+        'atlas_names', {cellstr(frozenNames)}, ...
+        'mask_paths', {cellstr(frozenPaths)});
 end
 end
 
@@ -100,4 +114,37 @@ end
 
 maskBase = fullfile(options.root, options.patientname, 'atlases', atlasName, 'gm_mask.nii');
 [maskPath, ~] = ea_niigz(maskBase);
+end
+
+function frozenPath = freeze_subject_gm_mask(cfg, options, atlasName, maskPath)
+workDir = process_work_dir(cfg);
+frozenDir = fullfile(workDir, 'frozen_gm_masks', ...
+    mh_util_sanitize_label(options.patientname), mh_util_sanitize_label(atlasName));
+mh_util_make_dir(frozenDir);
+
+timestamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss_SSS'));
+frozenPath = fullfile(frozenDir, ['gm_mask_', timestamp, mask_extension(maskPath)]);
+copyfile(maskPath, frozenPath);
+end
+
+function workDir = process_work_dir(cfg)
+defaults = mh_vta_default_execution_options();
+workDir = char(string(mh_vta_config_field(cfg, 'processWorkDir', defaults.processWorkDir)));
+if isempty(workDir)
+    outputDir = char(string(mh_util_get_field(cfg, 'outputDir', tempdir)));
+    timestamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss_SSS'));
+    workDir = fullfile(outputDir, 'vta_process_tasks', timestamp);
+end
+mh_util_make_dir(workDir);
+end
+
+function ext = mask_extension(maskPath)
+maskPath = char(string(maskPath));
+if endsWith(maskPath, '.nii.gz')
+    ext = '.nii.gz';
+elseif endsWith(maskPath, '.nii')
+    ext = '.nii';
+else
+    [~, ~, ext] = fileparts(maskPath);
+end
 end

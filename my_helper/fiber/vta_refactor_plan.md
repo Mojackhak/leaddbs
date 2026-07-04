@@ -3371,3 +3371,20 @@ Required fix before attempt 4:
   archive before attempt 4.
 - Relaunch with a distinct attempt 4 wrapper, process work directory, MATLAB
   runtime file, result MAT, and shell log.
+
+Fix implementation for attempt 4:
+
+- `mh_vta_run_compute_tasks` now copies the preflight-resolved subject
+  `gm_mask` into `processWorkDir/frozen_gm_masks/<subject>/<atlas>/` and
+  serializes that immutable path in `options.fixedAtlasGmMaskCache`.
+- `ea_segment_MRI` now checks `options.fixedAtlasGmMaskCache` for the active
+  `options.atlasset` before calling `ea_ptspecific_atl` in native
+  `Atlas Based` mode.
+- If no matching frozen mask exists, the original Lead-DBS behavior is kept:
+  call `ea_ptspecific_atl` and read the subject atlas `gm_mask.nii.gz`.
+- Regression tests:
+  - `test_fixed_atlas_gm_mask_cache` verifies native Atlas Based segmentation
+    uses the frozen mask path and does not call `ea_ptspecific_atl`.
+  - `test_process_frozen_gm_mask_cache` verifies process dry-run payloads carry
+    a frozen mask copy under the process work directory rather than the mutable
+    subject atlas path.
