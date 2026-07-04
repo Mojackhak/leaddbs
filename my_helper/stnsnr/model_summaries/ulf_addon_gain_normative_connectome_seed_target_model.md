@@ -50,7 +50,7 @@ DeltaHFScore =
   S_HF_norm_fiber(E_HF_component,HF+ULF)
   - S_HF_norm_fiber(E_HF_only,HF-only)
 
-S_HF_norm_fiber(E) = HFFiberScore_top5_mean(E)
+S_HF_norm_fiber(E) = NetFiberScore(E)
 ```
 
 `DeltaHFScore` may be z-scored inside training folds, but no fixed scaling coefficient is imposed before regression.

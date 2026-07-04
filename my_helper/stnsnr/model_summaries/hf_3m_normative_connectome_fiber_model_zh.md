@@ -129,32 +129,50 @@ FDR q 值只用于 QC/display，不用于筛选主模型，也不定义 scoring 
 
 ### 主患者层面 Score
 
-主 patient-level score 是 sweet-only weighted peak 5% mean：
+主 patient-level score 是 net sweet-minus-sour peak score。在每个 full-sample map 或 LOOCV training fold 内，定义 benefit-oriented fiber weights：
 
 ```text
-sweet fibers = {l in F_candidate_tau: M_HF(l) > 0}
-weighted_l_i = X_HF_i(l) * M_HF(l)
-
-HFFiberScore_top5_mean_i =
-  mean(top 5% largest weighted_l_i among sweet fibers)
+M_HF(l) = -rho_HF(l)   for lower-is-better scales
+M_HF(l) =  rho_HF(l)   for higher-is-better scales
 ```
 
-如果 full-sample map 或 LOOCV training fold 中没有 sweet fibers，则该 branch/fold 以 QC failure 停止。若存在 sweet fibers 但某个 patient 对这些 fibers 的 exposure 为 0，则 `HFFiberScore_top5_mean_i = 0`。
-
-该 score 有意贴近 Nature Neuroscience 的 weighted peak Fiber R score，而不是 target-level aggregate。这里采用 mean 而不是 sum，以增强不同 fold candidate set 之间的可比性。
-
-此前讨论过的 total fiber exposure score 仅作为文档中的概念保留，当前可执行分析不实际计算：
+Positive/sweet selected fibers：
 
 ```text
-HFFiberScore_sum_descriptive_i =
-  sum_l X_HF_i(l) * M_HF(l)
+F+ = top 1% fibers with largest positive M_HF(l)
 ```
+
+Negative/sour selected fibers：
+
+```text
+F- = top 0.5% fibers with most negative M_HF(l)
+```
+
+对每个 patient `i`：
+
+```text
+SweetWeighted_i(l) = X_HF_i(l) * M_HF(l),      l in F+
+SourWeighted_i(l)  = X_HF_i(l) * [-M_HF(l)],   l in F-
+
+SweetPeak5_i = mean of top 5% largest SweetWeighted_i(l)
+SourPeak5_i  = mean of top 5% largest SourWeighted_i(l)
+
+NetFiberScore_i = SweetPeak5_i - SourPeak5_i
+```
+
+`F+` 和 `F-` 在 `F_candidate_tau` 内选择，并排除 NaN 或 degenerate fibers。Percentile counts 使用 `ceil(percent * n)`；当对应 positive 或 negative pool 非空时，至少保留 1 条 fiber。
+
+如果 `F+` 为空，则 `SweetPeak5_i = 0`。如果 `F-` 为空，则 `SourPeak5_i = 0`。如果 selected set 非空但某个 patient 对所有 selected fibers 的 exposure 都为 0，则对应 peak score 为 `0`。
+
+该 score 有意贴近 Nature Neuroscience 的 weighted peak Fiber R score，而不是 target-level aggregate。这里采用 peak means 而不是 sums，以增强不同 fold selected fiber set 之间的可比性，并显式惩罚 sour fiber engagement。
+
+此前讨论过的 total fiber exposure score 当前可执行分析不实际计算。
 
 最终预测模型：
 
 ```text
 Y_post_i = alpha
-         + delta * HFFiberScore_top5_mean_i
+         + delta * NetFiberScore_i
          + beta  * Y_base_i
          + error_i
 ```
@@ -164,7 +182,7 @@ prediction model 在 raw post-score 尺度上拟合。主验证统计量是 held
 ## 验证与敏感性分析
 
 - 主验证使用 leave-one-patient-out cross-validation。
-- 每个 fold 内重建 `F_candidate_tau`、拟合 fiber weights、计算 training 和 held-out `HFFiberScore_top5_mean`，并且只用 training patients 拟合最终 prediction model。
+- 每个 fold 内重建 `F_candidate_tau`、拟合 `M_HF(l)`、选择 fold-specific `F+` 和 `F-`、计算 training 和 held-out `SweetPeak5`、`SourPeak5` 与 `NetFiberScore`，并且只用 training patients 拟合最终 prediction model。
 - 与 covariate-only baseline `Y_post ~ Y_base` 比较。
 - 主指标：LOOCV Spearman rho 和 plus-one permutation P value。
 - 次要指标：LOOCV Pearson `r`、MAE、RMSE 和 `Q2`。
@@ -177,7 +195,7 @@ Reference sensitivities：
 ```text
 1500 V/m candidate threshold sensitivity
 top 1% positive fibers for display
-top 1% sour fibers for display
+top 0.5% sour fibers for display
 top1500 positive / top500 negative fiber-score sensitivity for PPMI, MGH, and dTOR
 OSS-DBS all-candidate sensitivity for PPMI, MGH, and dTOR
 2 mm FWHM spatial jitter QC for dTOR selected/display fibers only
@@ -195,7 +213,7 @@ OSS branch 用 pathway/axon activation 代替 peak E-field exposure：
 X_HF_OSS_i(l) = OSS-DBS activation value for fiber l under subject i HF stimulation
 ```
 
-OSS branch 使用同样的 fiber-wise estimator、sweet-only top 5% scoring 和 LOOCV prediction workflow。OSS branch 只运行 smoke permutation：
+OSS branch 使用同样的 fiber-wise estimator、net sweet-minus-sour peak scoring 和 LOOCV prediction workflow。OSS branch 只运行 smoke permutation：
 
 ```text
 B = 1000
@@ -232,8 +250,8 @@ normative_HF_fiber_mapping_qc.json
 normative_HF_fiber_generation_manifest.json
 normative_HF_fiber_display_top1_positive.tck
 normative_HF_fiber_display_top1_positive.mat
-normative_HF_fiber_display_top1_sour.tck
-normative_HF_fiber_display_top1_sour.mat
+normative_HF_fiber_display_top0p5_sour.tck
+normative_HF_fiber_display_top0p5_sour.mat
 normative_HF_fiber_density_map.nii.gz
 ```
 
@@ -266,7 +284,7 @@ M_HF
 direction_class
 target_labels_for_qc
 is_top1_positive_display
-is_top1_sour_display
+is_top0p5_sour_display
 is_top1500_positive
 is_top500_negative
 ```
@@ -278,10 +296,14 @@ subject_id
 score_map_source
 connectome
 branch
-HFFiberScore_top5_mean
+SweetPeak5
+SourPeak5
+NetFiberScore
 n_candidate_fibers
-n_sweet_fibers
-n_top5_fibers
+n_sweet_selected_fibers
+n_sour_selected_fibers
+n_sweet_peak_fibers
+n_sour_peak_fibers
 is_primary_score
 ```
 
@@ -294,7 +316,7 @@ Target atlases 只在 fiber 建模之后用于 label 和 summary，不定义主�
 Display outputs：
 
 - 按 `M_HF(l)` 选取 top 1% positive fibers 用于 sweet streamline visualization；
-- 按负向 `M_HF(l)` 选取 top 1% sour fibers 用于 avoidance/sour visualization；
+- 按负向 `M_HF(l)` 选取 top 0.5% sour fibers 用于 avoidance/sour visualization；
 - selected/display fibers 的 streamline density maps；
 - target-label summary tables，说明 selected fibers 穿过或接触哪些 atlas targets；
 - STN/SNr 和 STNSNrplus overlays 只作为解剖背景。
@@ -318,3 +340,219 @@ Display outputs：
 ```
 
 主要结论需要依赖 cross-connectome consistency、dTOR 主结果，以及 PPMI/MGH sensitivity results 的透明报告。
+
+## Execution Efficiency
+
+本节定义用于提高 HF normative connectome fiber analysis 项目级计算效率的 implementation-level rules。这些规则只改变 computation scheduling、cache、chunking、vectorization 和 disk writing，不改变 statistical estimands、validation design、output semantics、file naming，也不改变任何 `normative_HF_fiber_*` 输出的解释。
+
+优化实现必须保留上文定义的 logical full-process semantics。LOOCV training folds 仍然各自定义 `F_candidate_tau`、fiber-wise maps、selected `F+`/`F-`、`SweetPeak5`、`SourPeak5`、`NetFiberScore` 和 held-out predictions。Formal Freedman-Lane permutation 与 subject-level bootstrap 对 primary dTOR peak-E-field branch 仍使用 `B=10000` 和 seed `42`。Smoke runs 仍使用 `B=1000`。优化实现可以复用数学上不变的 cached subcomputations，但不得为了提速使用 full-sample ranks、full-sample training masks、approximate ranks、adaptive early stopping、改变 thresholds、改变 estimators、改变 selected-fiber percentages，或降低 formal resampling counts。
+
+### Equivalence Contract
+
+以下量属于 executable statistical definition，必须保持不变：
+
+```text
+connectome order = PPMI smoke, MGH intermediate, dTOR primary
+canonical side = right
+primary exposure = peak raw sim-efield along each normative fiber
+tau_primary = 800 V/m
+tau_sensitivity = 1500 V/m
+Coverage>=5
+LOOCV patient split
+primary estimator = baseline-adjusted partial Spearman
+primary score = NetFiberScore
+F+ = top 1% positive M_HF(l)
+F- = top 0.5% most negative M_HF(l)
+SweetPeak5/SourPeak5 = mean top 5% patient-specific weighted selected fibers
+formal permutation B = 10000 for primary dTOR peak-E-field branch
+formal bootstrap B = 10000 for primary dTOR peak-E-field branch
+OSS-DBS permutation = smoke only, B = 1000
+seed = 42
+primary permutation statistic = LOOCV Spearman rho
+```
+
+Numerical reductions 尽量使用 `float64`。大型 exposure matrices 可用 `float32` 存储；最终 CSV summaries 必须记录每个阶段使用的 dtype。既有 degenerate-fiber 和 NaN 规则保持不变。
+
+### Connectome Sidecar Cache
+
+Formal runs 必须写出 memmap-friendly fiber-major sidecar files 供 Python postprocessing 使用。PPMI 和 MGH 在可行时可使用单个数组：
+
+```text
+X_float32_fiber_major.npy       # shape = candidate_fiber x subject
+S800_bool.npy                   # X > 800 V/m
+S1500_bool.npy                  # X > 1500 V/m
+fiber_id.npy
+candidate_fiber_metadata.json
+```
+
+dTOR 必须使用 chunked sidecars。一次性把完整 dTOR `fibers` matrix 或全部 dTOR exposure values 载入内存是无效实现：
+
+```text
+chunks/
+  X_float32_fiber_major_chunk-000001.npy
+  S800_bool_chunk-000001.npy
+  S1500_bool_chunk-000001.npy
+  fiber_id_chunk-000001.npy
+fiber_chunk_manifest.json
+candidate_fiber_metadata.json
+```
+
+sidecar metadata 必须记录 subject order、fiber order、connectome slug、chunk size、dtype、array shape、memory layout、source connectome path、可用时的 source hash、sidecar creation time、software version，以及该 branch 使用 peak E-field 还是 OSS-DBS activation values。
+
+### Coverage And Fold Candidate Cache
+
+对每个 tau，按 chunk 预计算 suprathreshold indicators 和 coverage：
+
+```text
+S_tau(l, i) = I[X_HF_i(l) > tau]
+Coverage_tau_all(l) = sum_i S_tau(l, i)
+```
+
+对 LOOCV fold `h`，通过 subtraction 得到 training-fold coverage：
+
+```text
+Coverage_tau_fold_h(l) =
+  Coverage_tau_all(l) - S_tau(l, h)
+
+F_candidate_tau_fold_h =
+  {l : Coverage_tau_fold_h(l) >= 5}
+```
+
+因此 held-out patient 仍不贡献该 fold-specific candidate set，但 candidate set 通过 chunked vectorized subtraction 计算，而不是重新扫描 streamlines 或 e-field images。
+
+### Vectorized Fiber-Wise Partial Spearman
+
+Primary fiber map 必须使用 chunked vectorized rank-residual partial Spearman kernel。
+
+每个 training fold 的 ranks 必须只在 training set 内计算。LOOCV map fitting、permutation map fitting、bootstrap maps 和 OSS sensitivity 都禁止使用 full-sample ranks。对每个 fiber chunk，使用 vectorized reductions over subjects 计算 residualized ranked exposure、residualized ranked outcome 和 `rho_HF(l)`。零 exposure variance、零 rank variance 或零 residualized exposure variance 的 degenerate fibers 保持既有 NaN 规则，并从 selected-fiber sets 和 scoring 中排除。
+
+### NetFiberScore Computation
+
+direct voxel 的 linear score operator 不得直接复制到该模型。`NetFiberScore` 包含 selected `F+` 和 `F-` 上 patient-specific top-5% peak operations，因此不是简单线性矩阵乘。
+
+对 observed maps 和每个 permutation/bootstrap fold，实现可以缓存 outcome-independent exposure chunks 和 coverage arrays，但必须重新计算 outcome-dependent pieces：
+
+```text
+M_HF(l)
+F+
+F-
+SweetWeighted_i(l)
+SourWeighted_i(l)
+SweetPeak5_i
+SourPeak5_i
+NetFiberScore_i
+```
+
+Peak selection 应通过 streaming top-k reducers over selected fiber chunks 实现。Formal runs 不得在 streaming top-k 足够时把所有 selected dTOR fibers materialize 到内存中。
+
+### Permutation And Bootstrap Efficiency
+
+Freedman-Lane permutation 可以复用 fold-specific exposure sidecars、`S_tau`、coverage subtraction、subject order、baseline ranks 和 chunk metadata。对每个 reconstructed `Y*`，仍必须重新拟合 fiber-wise association、重新选择 `F+`/`F-`、重新计算 `NetFiberScore`，并重新运行 LOOCV prediction statistic。
+
+Subject-level bootstrap 仍是 primary dTOR peak-E-field branch 的 full-process map stability analysis。对每个 bootstrap resample，用 subject counts 表示采样患者：
+
+```text
+w_i = number of times subject i appears in the bootstrap sample
+
+Coverage_tau_boot(l) =
+  sum_i w_i * I[X_HF_i(l) > tau]
+```
+
+`Y_post`、`Y_base` 和 `X_HF(l)` 的 ranks 必须在 expanded bootstrap resample 内计算，或使用完全等价的 weighted-resample representation。禁止使用 full-sample ranks。Bootstrap summaries 应用 streaming finite-count updates 累积，不得保存 `B=10000` 个完整 fiber-weight tables。
+
+### OSS-DBS Sensitivity Efficiency
+
+OSS-DBS sensitivity 使用相同的 sidecar 和 chunking rules，只是把 peak E-field exposure 替换为 pathway/axon activation values。OSS activation matrices 应写为 all-candidate、connectome-specific sidecars，并带 chunk manifests。OSS runs 只生成 LOOCV 和 smoke permutation：
+
+```text
+B = 1000
+seed = 42
+```
+
+Formal `B=10000` permutation/bootstrap 仍仅限 primary dTOR peak-E-field branch。
+
+### Intermediate File Policy
+
+Formal loops 不得写出 per-fold、per-permutation 或 per-bootstrap 的 full fiber-weight tables，除非显式开启 debug flag。dTOR display outputs 应限制为 selected/display fibers 和 density maps：
+
+```text
+top 1% positive fibers
+top 0.5% sour fibers
+top1500 positive / top500 negative sensitivity fibers
+streamline density maps
+target-label QC summaries
+```
+
+workers 不得并发 append 同一个 CSV 或 JSON。workers 应返回 structured block results 给主进程，由主进程原子写出最终 CSV/JSON outputs。
+
+### Runtime Profile
+
+`normative_HF_fiber_generation_manifest.json` 应包含 runtime profile：
+
+```json
+{
+  "runtime_profile": {
+    "connectome_slug": null,
+    "branch": null,
+    "preprocess_s": null,
+    "sidecar_write_s": null,
+    "load_sidecar_s": null,
+    "observed_loocv_s": null,
+    "permutation_s": null,
+    "bootstrap_s": null,
+    "oss_activation_s": null,
+    "display_qc_s": null,
+    "n_fibers_total": null,
+    "n_fibers_candidate_tau800_mean": null,
+    "n_fibers_candidate_tau800_min": null,
+    "n_fibers_candidate_tau800_max": null,
+    "n_chunks": null,
+    "chunk_size": null,
+    "python_jobs": null,
+    "blas_threads": null,
+    "fiber_major_sidecars": [],
+    "streaming_topk_enabled": null,
+    "bootstrap_finite_count_summary": null
+  }
+}
+```
+
+### Equivalence And Regression Tests
+
+Formal runs 前应包含小规模 deterministic equivalence test。
+
+对 small fiber subset 和 small resampling count：
+
+```text
+B_perm = 20
+B_boot = 20
+n_fiber_subset = 1000 to 10000
+seed = 42
+```
+
+比较 brute-force 和 optimized implementations：
+
+```text
+fold-specific F_candidate_tau
+partial Spearman rho_HF(l)
+benefit-oriented M_HF(l)
+F+ and F-
+SweetPeak5
+SourPeak5
+NetFiberScore
+LOOCV held-out predictions
+LOOCV Spearman rho
+permutation null statistics
+bootstrap finite-count summaries
+```
+
+Required tolerances：
+
+```text
+exact equality for subject IDs, fiber IDs, split indices, F+, and F-
+near equality for float outputs under float64 reductions
+same NaN/degenerate fiber locations
+same plus-one p value for the deterministic small test
+```
+
+最终 run manifest 应记录 optimized equivalence test 是否通过。

@@ -340,3 +340,219 @@ Every displayed streamline is a proven causal tract in every patient.
 ```
 
 The primary claim requires cross-connectome consistency, dTOR primary performance, and transparent reporting of PPMI/MGH sensitivity results.
+
+## Execution Efficiency
+
+This section defines implementation-level rules to increase project-level computational efficiency for the HF normative connectome fiber analysis. These rules change only how computations are scheduled, cached, chunked, vectorized, and written to disk. They do not change the statistical estimands, validation design, output semantics, file naming, or interpretation of any `normative_HF_fiber_*` output.
+
+The optimized implementation must preserve the logical full-process semantics described above. LOOCV training folds still define their own `F_candidate_tau`, fiber-wise maps, selected `F+`/`F-`, `SweetPeak5`, `SourPeak5`, `NetFiberScore`, and held-out predictions. Formal Freedman-Lane permutation and subject-level bootstrap still use `B=10000` and seed `42` for the primary dTOR peak-E-field branch. Smoke runs still use `B=1000`. The optimized implementation may reuse mathematically invariant cached subcomputations, but it must not use full-sample ranks, full-sample training masks, approximate ranks, adaptive early stopping, changed thresholds, changed estimators, changed selected-fiber percentages, or reduced formal resampling counts to gain speed.
+
+### Equivalence Contract
+
+The following quantities are part of the executable statistical definition and must remain unchanged:
+
+```text
+connectome order = PPMI smoke, MGH intermediate, dTOR primary
+canonical side = right
+primary exposure = peak raw sim-efield along each normative fiber
+tau_primary = 800 V/m
+tau_sensitivity = 1500 V/m
+Coverage>=5
+LOOCV patient split
+primary estimator = baseline-adjusted partial Spearman
+primary score = NetFiberScore
+F+ = top 1% positive M_HF(l)
+F- = top 0.5% most negative M_HF(l)
+SweetPeak5/SourPeak5 = mean top 5% patient-specific weighted selected fibers
+formal permutation B = 10000 for primary dTOR peak-E-field branch
+formal bootstrap B = 10000 for primary dTOR peak-E-field branch
+OSS-DBS permutation = smoke only, B = 1000
+seed = 42
+primary permutation statistic = LOOCV Spearman rho
+```
+
+Numerical reductions should use `float64` where feasible. Stored large exposure matrices may use `float32`; final CSV summaries must record the dtype used for each stage. Existing degenerate-fiber and NaN rules remain unchanged.
+
+### Connectome Sidecar Cache
+
+Formal runs must write memmap-friendly fiber-major sidecar files for Python postprocessing. PPMI and MGH may use single arrays when feasible:
+
+```text
+X_float32_fiber_major.npy       # shape = candidate_fiber x subject
+S800_bool.npy                   # X > 800 V/m
+S1500_bool.npy                  # X > 1500 V/m
+fiber_id.npy
+candidate_fiber_metadata.json
+```
+
+dTOR must use chunked sidecars. Loading the complete dTOR `fibers` matrix or all dTOR exposure values into memory is invalid:
+
+```text
+chunks/
+  X_float32_fiber_major_chunk-000001.npy
+  S800_bool_chunk-000001.npy
+  S1500_bool_chunk-000001.npy
+  fiber_id_chunk-000001.npy
+fiber_chunk_manifest.json
+candidate_fiber_metadata.json
+```
+
+The sidecar metadata must record subject order, fiber order, connectome slug, chunk size, dtype, array shape, memory layout, source connectome path, source hash when available, sidecar creation time, software version, and whether the branch uses peak E-field or OSS-DBS activation values.
+
+### Coverage And Fold Candidate Cache
+
+For each tau, precompute suprathreshold indicators and coverage by chunk:
+
+```text
+S_tau(l, i) = I[X_HF_i(l) > tau]
+Coverage_tau_all(l) = sum_i S_tau(l, i)
+```
+
+For LOOCV fold `h`, derive training-fold coverage by subtraction:
+
+```text
+Coverage_tau_fold_h(l) =
+  Coverage_tau_all(l) - S_tau(l, h)
+
+F_candidate_tau_fold_h =
+  {l : Coverage_tau_fold_h(l) >= 5}
+```
+
+The held-out patient therefore still does not contribute to the fold-specific candidate set, but the set is computed by chunked vectorized subtraction rather than rescanning streamlines or e-field images.
+
+### Vectorized Fiber-Wise Partial Spearman
+
+The primary fiber map must use a chunked vectorized rank-residual partial Spearman kernel.
+
+For each training fold, ranks must be computed within the training set only. Full-sample ranks are prohibited for LOOCV map fitting, permutation map fitting, bootstrap maps, and OSS sensitivity. For each fiber chunk, compute residualized ranked exposure, residualized ranked outcome, and `rho_HF(l)` using vectorized reductions over subjects. Degenerate fibers with zero exposure variance, zero rank variance, or zero residualized exposure variance keep the existing NaN rule and are excluded from selected-fiber sets and scoring.
+
+### NetFiberScore Computation
+
+The direct voxel linear score operator must not be copied to this model. `NetFiberScore` contains patient-specific top-5% peak operations over selected `F+` and `F-`, so it is not a simple linear matrix product.
+
+For observed maps and each permutation/bootstrap fold, the implementation may cache outcome-independent exposure chunks and coverage arrays, but it must recompute the outcome-dependent pieces:
+
+```text
+M_HF(l)
+F+
+F-
+SweetWeighted_i(l)
+SourWeighted_i(l)
+SweetPeak5_i
+SourPeak5_i
+NetFiberScore_i
+```
+
+Peak selection should be implemented by streaming top-k reducers over selected fiber chunks. Formal runs must not materialize all selected dTOR fibers in memory when a streaming top-k reducer is sufficient.
+
+### Permutation And Bootstrap Efficiency
+
+Freedman-Lane permutation may reuse fold-specific exposure sidecars, `S_tau`, coverage subtraction, subject order, baseline ranks, and chunk metadata. For each reconstructed `Y*`, it must refit the fiber-wise association, reselect `F+`/`F-`, recompute `NetFiberScore`, and rerun the LOOCV prediction statistic.
+
+Subject-level bootstrap remains a full-process map stability analysis for the primary dTOR peak-E-field branch. For each bootstrap resample, represent sampled patients by subject counts:
+
+```text
+w_i = number of times subject i appears in the bootstrap sample
+
+Coverage_tau_boot(l) =
+  sum_i w_i * I[X_HF_i(l) > tau]
+```
+
+Ranks for `Y_post`, `Y_base`, and `X_HF(l)` must still be computed within the expanded bootstrap resample or an exactly equivalent weighted-resample representation. Full-sample ranks are prohibited. Bootstrap summaries should be accumulated with streaming finite-count updates and must not store `B=10000` complete fiber-weight tables.
+
+### OSS-DBS Sensitivity Efficiency
+
+OSS-DBS sensitivity uses the same sidecar and chunking rules, replacing peak E-field exposure with pathway/axon activation values. OSS activation matrices should be written as all-candidate, connectome-specific sidecars with chunk manifests. OSS runs generate LOOCV and smoke permutation only:
+
+```text
+B = 1000
+seed = 42
+```
+
+Formal `B=10000` permutation/bootstrap remains restricted to the primary dTOR peak-E-field branch.
+
+### Intermediate File Policy
+
+Formal loops must not write per-fold, per-permutation, or per-bootstrap full fiber-weight tables unless a debug flag is explicitly enabled. dTOR display outputs should be limited to selected/display fibers and density maps:
+
+```text
+top 1% positive fibers
+top 0.5% sour fibers
+top1500 positive / top500 negative sensitivity fibers
+streamline density maps
+target-label QC summaries
+```
+
+Workers must not concurrently append to shared CSV or JSON files. Workers should return structured block results to the main process, and the main process writes final CSV/JSON outputs atomically.
+
+### Runtime Profile
+
+`normative_HF_fiber_generation_manifest.json` should include a runtime profile:
+
+```json
+{
+  "runtime_profile": {
+    "connectome_slug": null,
+    "branch": null,
+    "preprocess_s": null,
+    "sidecar_write_s": null,
+    "load_sidecar_s": null,
+    "observed_loocv_s": null,
+    "permutation_s": null,
+    "bootstrap_s": null,
+    "oss_activation_s": null,
+    "display_qc_s": null,
+    "n_fibers_total": null,
+    "n_fibers_candidate_tau800_mean": null,
+    "n_fibers_candidate_tau800_min": null,
+    "n_fibers_candidate_tau800_max": null,
+    "n_chunks": null,
+    "chunk_size": null,
+    "python_jobs": null,
+    "blas_threads": null,
+    "fiber_major_sidecars": [],
+    "streaming_topk_enabled": null,
+    "bootstrap_finite_count_summary": null
+  }
+}
+```
+
+### Equivalence And Regression Tests
+
+Implementation should include a small deterministic equivalence test before formal runs.
+
+For a small fiber subset and small resampling count:
+
+```text
+B_perm = 20
+B_boot = 20
+n_fiber_subset = 1000 to 10000
+seed = 42
+```
+
+Compare brute-force and optimized implementations for:
+
+```text
+fold-specific F_candidate_tau
+partial Spearman rho_HF(l)
+benefit-oriented M_HF(l)
+F+ and F-
+SweetPeak5
+SourPeak5
+NetFiberScore
+LOOCV held-out predictions
+LOOCV Spearman rho
+permutation null statistics
+bootstrap finite-count summaries
+```
+
+Required tolerances:
+
+```text
+exact equality for subject IDs, fiber IDs, split indices, F+, and F-
+near equality for float outputs under float64 reductions
+same NaN/degenerate fiber locations
+same plus-one p value for the deterministic small test
+```
+
+The final run manifest should record whether the optimized equivalence test passed.

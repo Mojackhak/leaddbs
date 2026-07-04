@@ -567,14 +567,19 @@ Do not use change score or percent improvement as the primary HF sweet-spot outc
 
 #### HF Fiber Score And Visualization
 
-The primary HF normative connectome score is sweet-only weighted peak 5% mean:
+The primary HF normative connectome score is a net sweet-minus-sour peak score:
 
 ```text
-sweet fibers = {l in F_candidate_tau: M_HF(l) > 0}
-weighted_l_i = X_HF_i(l) * M_HF(l)
+F+ = top 1% fibers with largest positive M_HF(l)
+F- = top 0.5% fibers with most negative M_HF(l)
 
-HFFiberScore_top5_mean_i =
-  mean(top 5% largest weighted_l_i among sweet fibers)
+SweetWeighted_i(l) = X_HF_i(l) * M_HF(l),      l in F+
+SourWeighted_i(l)  = X_HF_i(l) * [-M_HF(l)],   l in F-
+
+SweetPeak5_i = mean of top 5% largest SweetWeighted_i(l)
+SourPeak5_i  = mean of top 5% largest SourWeighted_i(l)
+
+NetFiberScore_i = SweetPeak5_i - SourPeak5_i
 ```
 
 This score is the primary HF normative connectome predictor for prediction and cross-validation. Target atlases label selected fibers after model fitting, but target labels do not define the primary predictor.
@@ -583,7 +588,7 @@ After fitting the HF fiber-level model, export selected fiber and density visual
 
 ```text
 normative_HF_fiber_display_top1_positive.tck
-normative_HF_fiber_display_top1_sour.tck
+normative_HF_fiber_display_top0p5_sour.tck
 normative_HF_fiber_density_map.nii.gz
 ```
 
@@ -694,7 +699,7 @@ ULF direct voxel-level model
   -> use HF direct voxel-level efficacy model
 
 ULF normative connectome seed-target model
-  -> use HF normative connectome seed-target efficacy model
+  -> use HF normative connectome fiber-level efficacy model
 
 ULF individualized DWI seed-target model
   -> use HF individualized DWI seed-target efficacy model
@@ -734,7 +739,7 @@ S_HF_voxel(E) =
 For the normative connectome family, use the HF normative fiber-level score:
 
 ```text
-S_HF_norm_fiber(E) = HFFiberScore_top5_mean(E)
+S_HF_norm_fiber(E) = NetFiberScore(E)
 ```
 
 For the individualized DWI seed-target family, use the HF individualized DWI target-level score:
@@ -1785,9 +1790,9 @@ Expected output groups:
 - `models/snr/chronic_gain/`: endpoint-specific chronic ULF target-gain model results.
 - `models/snr/immediate_gain/`: endpoint-specific immediate ULF target-gain model results.
 - `models/cross_scale/`: map-level similarity metrics and secondary global maps.
-- `fiber_maps/hf_normative/`: right canonical HF normative selected-fiber displays, fiber density maps, top 1% sweet/sour streamlines, and target-label QC summaries.
+- `fiber_maps/hf_normative/`: right canonical HF normative selected-fiber displays, fiber density maps, top 1% sweet and top 0.5% sour streamlines, and target-label QC summaries.
 - `voxel_maps/target_derived/snr/`: left/right SNr coverage, sweet, sour, net, and stability NIfTI maps derived from ULF target weights.
-- `fiber_maps/loocv/hf_normative/`: fold-specific HF fiber-level weights, held-out `HFFiberScore_top5_mean`, and selected-fiber QC summaries.
+- `fiber_maps/loocv/hf_normative/`: fold-specific HF fiber-level weights, held-out `NetFiberScore`, and selected-fiber QC summaries.
 - `voxel_maps/loocv/snr/`: fold-specific ULF target-derived maps and held-out voxel overlap scores when ULF voxel scores are used for prediction.
 - `voxel_maps/dwi_group/stn/`: individualized-DWI group-average and coverage-weighted STN seed voxel maps.
 - `voxel_maps/dwi_group/snr/`: individualized-DWI group-average and coverage-weighted SNr seed voxel maps.

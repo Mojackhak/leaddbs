@@ -711,23 +711,28 @@ FDR q-values are computed for QC/display only and are not used to filter the pri
 
 ### HF Fiber Score And Fiber Display
 
-The primary HF normative connectome predictor is sweet-only weighted peak 5% mean:
+The primary HF normative connectome predictor is a net sweet-minus-sour peak score:
 
 ```text
-sweet fibers = {l in F_candidate_tau: M_HF(l) > 0}
-weighted_l_i = X_HF_i(l) * M_HF(l)
+F+ = top 1% fibers with largest positive M_HF(l)
+F- = top 0.5% fibers with most negative M_HF(l)
 
-HFFiberScore_top5_mean_i =
-  mean(top 5% largest weighted_l_i among sweet fibers)
+SweetWeighted_i(l) = X_HF_i(l) * M_HF(l),      l in F+
+SourWeighted_i(l)  = X_HF_i(l) * [-M_HF(l)],   l in F-
+
+SweetPeak5_i = mean of top 5% largest SweetWeighted_i(l)
+SourPeak5_i  = mean of top 5% largest SourWeighted_i(l)
+
+NetFiberScore_i = SweetPeak5_i - SourPeak5_i
 ```
 
-If a fold has no sweet fibers, that branch/fold fails QC. If sweet fibers exist but a patient has zero exposure, the patient score is `0`.
+If `F+` is empty, `SweetPeak5=0`. If `F-` is empty, `SourPeak5=0`. If a selected set is non-empty but patient exposure to all selected fibers is zero, the corresponding peak score is `0`.
 
 Final prediction model:
 
 ```text
 Y_HF3m_i = alpha
-         + delta * HFFiberScore_top5_mean_i
+         + delta * NetFiberScore_i
          + beta  * Y_Preop_i
          + error_i
 ```
@@ -736,7 +741,7 @@ Display outputs:
 
 ```text
 top 1% positive fibers for sweet streamline display
-top 1% sour fibers for avoidance/sour display
+top 0.5% sour fibers for avoidance/sour display
 streamline density maps for selected/display fibers
 target-label summaries for QC and anatomical interpretation
 ```
@@ -843,7 +848,7 @@ S_HF_voxel(E) =
 For normative connectome models, use the model-matched HF fiber-level score:
 
 ```text
-S_HF_norm_fiber(E) = HFFiberScore_top5_mean(E)
+S_HF_norm_fiber(E) = NetFiberScore(E)
 ```
 
 For individualized DWI seed-target models, use the model-matched HF target-level score:
