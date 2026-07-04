@@ -44,14 +44,14 @@ Clinical rows are joined to imaging by `ID` (`SNr003`, `SNr006`, etc.). The impr
 
 ## Inputs
 
-- Stimulation parameters for e-field discovery or recomputation:
+- Stimulation parameter audit source:
 
   ```text
   /Users/mojackhu/Research/STNSNr/summary/cohort/subj/followup_stimulation.xlsx
   sheet = Contact Parameters
   ```
 
-  This workbook is the authoritative source when a missing e-field must be recomputed. Existing cohort QC CSV files can be used for audit, but they are not the primary parameter source for recomputation.
+  This workbook can be used to audit stimulation metadata, but the executable HF direct voxel analysis assumes existing e-fields have already been generated correctly after prior manual/clinical QC. The current run does not automatically create missing e-fields.
 
 - HF-only E-field per side, taken from the Lead-DBS Horn/SimBio FEM output for the `3m/STN` condition:
 
@@ -59,7 +59,7 @@ Clinical rows are joined to imaging by `ID` (`SNr003`, `SNr006`, etc.). The impr
   stimulations/MNI152NLin2009bAsym/<stimlabel>_3m_STN_*/sub-<Subject>_sim-efield_model-simbio_hemi-{L,R}.nii
   ```
 
-  Use the raw `sim-efield` variant, not `sim-efieldgauss`. E-field values stay in Lead-DBS native units of `V/m`. If a required e-field is missing, the pipeline should recompute it from `followup_stimulation.xlsx`; if recomputation fails, the scale/run stops with a QC error instead of silently excluding the subject.
+  Use the raw `sim-efield` variant, not `sim-efieldgauss`. E-field values stay in Lead-DBS native units of `V/m`. The pipeline only performs a minimum availability check: the path must exist, the subject/side/condition match must be unique, and the file must be the raw `sim-efield`. If a required e-field is missing or has multiple matches, the scale/run fails with a QC error. Subjects are not silently excluded and missing e-fields are not automatically created in this model.
 
 - Alternating `3m/STN` programs are not modeled as simultaneous double-cathode stimulation. Same-side alternating subprogram e-fields are combined by voxel-wise maximum to form one HF-only field per side.
 
@@ -129,7 +129,7 @@ Coverage_tau(v) = sum_i I[X_HF_only_i(v) > tau]
 Omega_HF_tau = {v in Candidate : Coverage_tau(v) >= 5}
 ```
 
-Continuous `X_HF_only_i(v)` values are used for modeling inside `Omega_HF_tau`; `tau` is only used to define coverage and QC. `Coverage>=8` / 50% E-field coverage from the reference literature is documented in the reference-coverage checklist only; it does not generate a separate HF direct voxel result.
+Continuous `X_HF_only_i(v)` values are used for modeling inside `Omega_HF_tau`; `tau` is only used to define coverage and QC. `Coverage>=6` and `Coverage>=8` are documented optional sensitivity settings only. The current executable analysis does not generate `Coverage>=6/8` maps, scores, LOOCV predictions, permutation results, or bootstrap results. `Coverage>=8` / 50% E-field coverage from the reference literature is retained in the reference-coverage checklist, but it is not used as the main rule for this `n=16` cohort.
 
 Coverage masks, voxel maps, HF scores, and validation predictions are computed inside each LOOCV training fold. The held-out patient never contributes to that fold's `Omega_HF_tau` or voxel map.
 
@@ -147,7 +147,7 @@ rho_HF(v) =
   )
 ```
 
-No additional covariates are included in the primary model. Degenerate voxels with zero exposure variance, zero rank variance, or zero residualized exposure variance are assigned `rho_HF(v)=NaN` and excluded from HFScore numerator and denominator.
+No additional covariates are included in the primary model. Degenerate voxels with zero exposure variance, zero rank variance, or zero residualized exposure variance are assigned `rho_HF(v)=NaN` and excluded from HFScore computation.
 
 Benefit-oriented map:
 
@@ -173,21 +173,30 @@ The OLS estimator generates the same output family under the `ols_ancova/` estim
 
 ### Patient-Level Score
 
-Patient-level HF sweet-spot score:
+Primary patient-level HF sweet-spot score:
 
 ```text
-HFScore_i =
-  sum_v X_HF_only_i(v) * M_HF(v)
-  / sum_v X_HF_only_i(v)
+HFScore_sum_i =
+  sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v) * M_HF(v)
 ```
 
-The denominator is computed only over voxels with a valid `M_HF(v)`. If the denominator is zero for a subject/fold, `HFScore_i` and the corresponding prediction are recorded as `NaN` and excluded from that metric calculation.
+This is the primary analysis score. It is an unnormalized voxel-correlation-weighted total dose exposure. It is not divided by `sum(X)` and is not multiplied by voxel volume; with a fixed isotropic grid, voxel volume only adds a constant scaling factor. If a subject/fold has no exposure in valid scoring voxels, `HFScore_sum_i` is recorded as `0`.
+
+The previous normalized score is retained only as a descriptive field:
+
+```text
+HFScore_normalized_descriptive_i =
+  sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v) * M_HF(v)
+  / sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v)
+```
+
+`HFScore_normalized_descriptive_i` is not used for the primary prediction model, LOOCV statistic, permutation, or bootstrap. If its denominator is zero, the descriptive normalized score is recorded as `NaN`.
 
 Final prediction model:
 
 ```text
 Y_post_i = alpha
-         + delta * HFScore_i
+         + delta * HFScore_sum_i
          + beta  * Y_base_i
          + error_i
 ```
@@ -209,23 +218,31 @@ Missing-data rule: missing `Y_post`, missing `Y_base`, or failed e-field availab
   Q2 = 1 - SSE_HFScore_model / SSE_YBase_only
   ```
 
-- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the formal analysis. Smoke/exploratory runs use `B=1000`. For each permutation, fit the nuisance model `Y_post ~ Y_base`, permute the nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including coverage, map, score, and prediction. The primary permutation statistic is LOOCV Spearman rho.
+- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the formal primary analysis. Smoke/exploratory runs use `B=1000`. Formal permutation is run only for `tau200/partial_spearman`. For each permutation, fit the nuisance model `Y_post ~ Y_base`, permute the nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including coverage, map, `HFScore_sum`, and prediction. The primary permutation statistic is LOOCV Spearman rho.
 - Permutation p value is plus-one two-sided:
 
   ```text
   p = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
   ```
 
-- Subject-level bootstrap uses `B=10000` and seed `42` for the formal analysis. Smoke/exploratory runs use `B=1000`. Each bootstrap resample reruns the full map-building process, including `Omega_HF_tau`, and `direct_voxel_HF_bootstrap_se.nii.gz` stores voxel-wise standard deviation of the estimator map.
+- Subject-level bootstrap uses `B=10000` and seed `42` for the formal primary analysis. Smoke/exploratory runs use `B=1000`. Formal bootstrap is run only for `tau200/partial_spearman`. Each bootstrap resample reruns the full map-building process, including `Omega_HF_tau`, and `direct_voxel_HF_bootstrap_se.nii.gz` stores voxel-wise standard deviation of the estimator map.
+
+For non-primary branches (`tau180/partial_spearman`, `tau220/partial_spearman`, and all `ols_ancova` branches), LOOCV is still run, but formal permutation/bootstrap outputs are not generated. Their manifests and QC JSON files must record:
+
+```text
+resampling_status = not_run_nonprimary
+resampling_reason = formal resampling restricted to tau200/partial_spearman
+```
 
 ## Execution Structure
 
 The later code implementation should keep image preprocessing and statistical postprocessing separated:
 
 - MATLAB/Lead-DBS preprocessing:
-  - discover or recompute required HF-only e-fields;
+  - discover and availability-check required HF-only e-fields;
   - combine alternating same-side subprograms by voxel-wise maximum;
   - call `ea_flip_lr_nonlinear` for all left/right flips;
+  - compute left/right flip deformation audit metrics and record warnings without automatic exclusion;
   - sample exposure into the right-hemisphere MNI brainmask candidate grid;
   - write a MAT v7 design matrix and, optionally, a compressed NPZ mirror.
 
@@ -238,7 +255,9 @@ The later code implementation should keep image preprocessing and statistical po
 
 - Python postprocessing in the `leaddbs` Conda environment:
   - read the MAT v7 design matrix or optional NPZ mirror;
-  - run LOOCV, full Freedman-Lane permutation, full bootstrap, OLS supplemental analysis, and jitter QC sensitivity;
+  - run LOOCV for all generated tau/estimator branches;
+  - run formal Freedman-Lane permutation and full bootstrap only for `tau200/partial_spearman`;
+  - run OLS supplemental analysis and jitter QC sensitivity;
   - write CSV/JSON outputs, PDF QC figures, and NIfTI maps with `nibabel`;
   - fill candidate vectors back into the right-hemisphere MNI reference grid.
 
@@ -252,7 +271,7 @@ Python statistical jobs: 14
 random seed: 42
 ```
 
-Parallel jobs derive deterministic child seeds from seed `42`. MATLAB preprocessing and Python postprocessing run as separate phases to avoid CPU oversubscription. A smoke mode should use `B=1000` permutation/bootstrap resamples and `B=100` jitter resamples.
+Parallel jobs derive deterministic child seeds from seed `42`. MATLAB preprocessing and Python postprocessing run as separate phases to avoid CPU oversubscription. A smoke mode should use `B=1000` permutation/bootstrap resamples for the primary branch and `B=100` jitter resamples.
 
 Intermediate audit outputs are retained, including right/flipped exposure products, candidate masks, ROI design matrices, manifests, lock files, and completion markers. Completed outputs are skipped by default; force-rerun options should be available.
 
@@ -287,17 +306,19 @@ direct_voxel_HF_mapping_qc.json
 direct_voxel_HF_generation_manifest.json
 ```
 
+`direct_voxel_HF_bootstrap_se.nii.gz` and `direct_voxel_HF_permutation_summary.csv` are generated only for the primary `tau200/partial_spearman` branch. Non-primary branches omit these files and record `not_run_nonprimary` in their manifest and QC JSON.
+
 Output semantics:
 
 - `direct_voxel_HF_coverage.nii.gz` stores `Coverage_tau(v) = sum_i I(X_HF_i(v) > tau)`. Use `int16`.
 - `direct_voxel_HF_coef.nii.gz` stores `rho_HF(v)` for `partial_spearman/` and `theta_HF(v)` for `ols_ancova/`. Use `float32`. No per-voxel FDR is applied.
 - `direct_voxel_HF_sweet_sour.nii.gz` stores benefit-oriented `M_HF(v)`.
 - `direct_voxel_HF_stability.nii.gz` stores the fraction of LOOCV training folds with positive benefit-oriented map value. It is a direction-stability map, not a p-value or thresholded significance map.
-- `direct_voxel_HF_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map.
-- `direct_voxel_HF_scores.csv` stores patient-level exposure-weighted map matching scores computed from the full-sample reporting map.
+- `direct_voxel_HF_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the primary branch only.
+- `direct_voxel_HF_scores.csv` stores patient-level map matching scores. Required fields include `HFScore_sum_main`, `HFScore_normalized_descriptive`, `exposure_sum_valid_voxels`, `n_valid_score_voxels`, `score_map_source`, and `is_primary_score`. `HFScore_sum_main` is the only primary prediction score.
 - `direct_voxel_HF_loocv_predictions.csv` stores held-out LOOCV predictions, including `HFScore_LOOCV`, true outcome, HFScore-model prediction, covariate-only baseline prediction, and residuals.
-- `direct_voxel_HF_permutation_summary.csv` stores the Freedman-Lane permutation summary, including observed LOOCV Spearman rho, plus-one two-sided p value, secondary metrics, and `B`.
-- `direct_voxel_HF_mapping_qc.json` stores scale/tau/estimator QC, including patient inclusion, candidate mask size, coverage, `Omega_HF_tau` voxel count, degenerate voxels, NaN handling, denominator-zero counts, and design-matrix dimensions.
+- `direct_voxel_HF_permutation_summary.csv` stores the Freedman-Lane permutation summary for the primary branch only, including observed LOOCV Spearman rho, plus-one two-sided p value, secondary metrics, and `B`.
+- `direct_voxel_HF_mapping_qc.json` stores scale/tau/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_HF_tau` voxel count, low-coverage warning, degenerate voxels, NaN handling, zero-exposure score counts, `corr(HFScore_sum, Y_base)`, prediction coefficient signs, optional VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
 - `direct_voxel_HF_generation_manifest.json` stores provenance, including inputs, outputs, parameters, random seed, code version, Conda `leaddbs` environment, Python package state, reference-coverage checklist, and estimator identity.
 
 Primary statistical maps are unsmoothed. Display smoothing is generated only after coefficient estimation and must not be used for HFScore, LOOCV, permutation, or bootstrap:
@@ -308,6 +329,22 @@ display_smooth_fwhm2mm/
 ```
 
 Generate bilateral homologous display NIfTI files for visualization only by flipping the right canonical map to the left side with `ea_flip_lr_nonlinear` and combining the right statistical map with the flipped left display copy. The bilateral display map is not a separate side-specific statistical model.
+
+Generate report-only display masks for the primary branch. These masks are not significance maps and must not be used for scoring, LOOCV, permutation, or bootstrap:
+
+```text
+sweet_display_mask:
+  M_HF(v) > 0
+  positive M_HF(v) within top 10% among positive voxels in Omega_HF_tau
+  positive-direction stability >= 0.75
+
+sour_display_mask:
+  M_HF(v) < 0
+  absolute negative M_HF(v) within top 10% among negative voxels in Omega_HF_tau
+  negative-direction stability >= 0.75
+```
+
+For sweet display, stability is the fraction of LOOCV training folds with `M_HF(v)>0`. For sour display, stability is the fraction of LOOCV training folds with `M_HF(v)<0`. The anatomical display summary should report display voxels inside `STNSNrplus`, Custom STN, Custom SNr, and outside these masks.
 
 PDF-only QC figures:
 
@@ -320,9 +357,28 @@ bootstrap stability summary
 jitter stability summary
 ```
 
+## Left/Right Flip Deformation Audit
+
+All left/right flips still use `ea_flip_lr_nonlinear`. The flip audit records deformation quality and obvious abnormal values, but ordinary flip differences are warnings only and do not automatically fail the run or exclude subjects.
+
+Record the following fields in `direct_voxel_HF_mapping_qc.json`:
+
+```text
+input/output grid and affine
+finite voxel count
+nonzero voxel count
+max, p95, p99, sum
+suprathreshold volume at 180, 200, and 220 V/m
+intensity-weighted centroid
+L-to-R output overlap with the right canonical brainmask
+optional roundtrip metrics if generated
+```
+
+Empty maps, all-NaN maps, non-finite maps, or obvious path mismatches are input availability/data-integrity failures. Standard interpolation or deformation differences are recorded as warnings only.
+
 ## Spatial Jitter QC Sensitivity
 
-Spatial jitter is a QC sensitivity for spatial uncertainty in stimulation localization and normalization. It is run only for the primary `tau200/partial_spearman` analysis.
+Spatial jitter is an optional robustness stress test applied to the already accepted e-field inputs. It is not an automatic localization/normalization QC procedure and is not an input-validity gate. It is run only for the primary `tau200/partial_spearman` analysis.
 
 ```text
 formal jitter resamples: B = 1000
@@ -337,7 +393,7 @@ For each jitter iteration, draw an independent 3D translation vector for each su
 dx, dy, dz ~ Normal(0, sigma^2)
 ```
 
-Apply translation-only E-field resampling with linear interpolation and outside fill value `0`. Then recompute candidate mask, `Omega_HF_tau`, full-sample map, HF scores, and LOOCV validation metrics. Do not save every jittered NIfTI map. Save a summary table, map correlation/stability summary, and a voxel-wise jitter standard deviation map.
+Apply translation-only E-field resampling with linear interpolation and outside fill value `0`. Then rebuild the candidate mask, `Omega_HF_tau`, full-sample map, HF scores, and LOOCV validation metrics. Do not save every jittered NIfTI map. Save a summary table, map correlation/stability summary, and a voxel-wise jitter standard deviation map.
 
 ## Reference-Parameter Coverage
 
@@ -349,9 +405,12 @@ Covered and generated:
 raw E-field magnitude model
 tau = 180, 200, 220 V/m
 LOOCV validation
-Freedman-Lane permutation
+Freedman-Lane permutation for tau200/partial_spearman
 partial Spearman voxel association
 OLS supplemental estimator
+subject-level bootstrap for tau200/partial_spearman
+left/right flip deformation audit
+report-only top 10% + stability display masks
 2 mm FWHM spatial jitter QC
 1 mm and 2 mm display smoothing
 ```
@@ -359,11 +418,16 @@ OLS supplemental estimator
 Covered but not generated as separate HF direct voxel results:
 
 ```text
+Coverage>=6 optional sensitivity: documented only; no current HF direct voxel outputs
 Coverage>=8 / 50% E-field rule: documented only; primary rule remains Coverage>=5
 5/7/10-fold CV: documented only; LOOCV is the sole validation design for n=16
 OSS-DBS: not included in the HF direct voxel model
+paper-like spatial similarity score sensitivity: not included; HFScore_sum is the primary score
+automatic localization/normalization/electrode reconstruction QC: not included; existing e-fields are assumed to have passed prior manual/clinical QC
 ```
 
 ## Interpretation Boundary
 
 This model estimates local HF-only stimulation association with 3-month raw post-treatment outcome while controlling baseline. It should be interpreted as an HF efficacy heatmap over the stimulation-exposed right canonical brainmask candidate space, not as a pure anatomic STN map, a target-level network mechanism map, or voxel-wise causal proof.
+
+Because the cohort has `n=16`, the result is hypothesis-generating. LOOCV may be non-significant; a non-significant LOOCV result should not be interpreted as proof that no biological HF sweet spot exists. `Y_base` is used in the voxel map through partial Spearman residualization and is also retained in the final prediction model to test the incremental predictive value of `HFScore_sum`. The QC report must therefore include the association between `HFScore_sum` and `Y_base` and a basic collinearity diagnostic for the final prediction model.

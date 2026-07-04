@@ -493,11 +493,17 @@ That model supersedes older generic direct-voxel notes for HF. In particular, th
 - uses a right-hemisphere MNI brainmask candidate grid (`brainmask > 0`, voxel-center `x > 0`);
 - uses sparse candidate construction based on any valid subject with `X_HF_only > 180 V/m`;
 - uses `Coverage(v) >= 5` only for all generated HF results;
+- documents `Coverage>=6` and `Coverage>=8` as optional sensitivities but does not generate them in the current HF execution;
 - uses baseline-adjusted partial Spearman as the primary estimator and OLS ANCOVA as a full supplemental estimator;
+- uses unnormalized `HFScore_sum = sum_v X_HF_only(v) * M_HF(v)` as the primary patient-level score;
 - uses `ea_flip_lr_nonlinear` for left-to-right E-field mapping;
+- records a left/right flip deformation audit as warning-only QC;
 - does not use `Omega_pair`, paired-mask membership thresholds, or `direct_voxel_<seed>_paired_mask.nii.gz`;
+- treats existing e-fields as correct inputs after prior manual/clinical QC and performs only minimum availability/uniqueness checks;
+- restricts formal permutation/bootstrap to `tau200/partial_spearman`;
 - records, but does not generate, the reference-literature `Coverage>=8` / 50% E-field rule;
-- uses LOOCV as the sole validation design for `n = 16`.
+- uses LOOCV as the sole validation design for `n = 16`;
+- adds report-only top 10% + direction-stability display masks that are not significance maps.
 
 #### HF Direct Voxel Model
 
@@ -530,16 +536,17 @@ Y_post_i = alpha_v
 The patient-level score is:
 
 ```text
-HFScore_i =
-  sum_v X_HF_only_i(v) * M_HF(v)
-  / sum_v X_HF_only_i(v)
+HFScore_sum_i =
+  sum_{v in Omega_HF_tau, valid M_HF} X_HF_only_i(v) * M_HF(v)
 ```
+
+`HFScore_sum_i` is the primary unnormalized total dose exposure score. The normalized score is retained only as a descriptive field in `direct_voxel_HF_scores.csv` and does not enter primary prediction, LOOCV, permutation, or bootstrap.
 
 The final prediction model is:
 
 ```text
 Y_post_i = alpha
-         + delta * HFScore_i
+         + delta * HFScore_sum_i
          + beta  * Y_base_i
          + error_i
 ```
@@ -584,6 +591,10 @@ direct_voxel_HF_mapping_qc.json
 direct_voxel_HF_generation_manifest.json
 ```
 
+`direct_voxel_HF_bootstrap_se.nii.gz` and `direct_voxel_HF_permutation_summary.csv` are generated only for `tau200/partial_spearman`. Non-primary branches record `resampling_status = not_run_nonprimary` in the manifest/QC JSON instead of writing placeholder resampling files.
+
+`direct_voxel_HF_scores.csv` must identify `HFScore_sum_main` as the primary score and keep `HFScore_normalized_descriptive` as descriptive only. Report-only sweet/sour display masks use the top 10% same-sign `M_HF` voxels plus direction-specific stability `>=0.75`; they are not significance maps.
+
 Display smoothing is output only under:
 
 ```text
@@ -594,6 +605,8 @@ display_smooth_fwhm2mm/
 and must not be used for HFScore, LOOCV, permutation, or bootstrap.
 
 #### HF QC Sensitivity
+
+Left/right flip deformation audit is warning-only QC. It records grid/affine, finite and nonzero voxel counts, max/p95/p99/sum, suprathreshold volumes at 180/200/220 V/m, intensity-weighted centroid, right-brainmask overlap, and optional roundtrip metrics. Empty maps, all-NaN maps, non-finite maps, or path mismatches are data-integrity failures, but ordinary deformation/interpolation differences do not automatically exclude subjects.
 
 Spatial jitter QC is run only for the primary `tau200/partial_spearman` model:
 
@@ -611,6 +624,7 @@ Interpretation boundary:
 ```text
 Direct voxel maps are local stimulation association maps.
 They are not target-level network mechanism maps and not definitive causal maps.
+For n=16, HF direct voxel results are hypothesis-generating even when LOOCV is positive.
 ```
 
 ## Clinical Endpoint Direction
@@ -1109,7 +1123,7 @@ direct_voxel_<seed>_permutation_summary.csv
 direct_voxel_<seed>_homologous_mapping_qc.json
 ```
 
-This generic output list does not apply to the executable HF direct voxel model. HF uses the `direct_voxel_HF_*` output family under `<scale_slug>/tau*/partial_spearman|ols_ancova/`, does not export `paired_mask`, and uses `direct_voxel_HF_scores.csv` rather than `sweetspot_scores.csv`.
+This generic output list does not apply to the executable HF direct voxel model. HF uses the `direct_voxel_HF_*` output family under `<scale_slug>/tau*/partial_spearman|ols_ancova/`, does not export `paired_mask`, uses `direct_voxel_HF_scores.csv` rather than `sweetspot_scores.csv`, and generates permutation/bootstrap files only for `tau200/partial_spearman`.
 
 ## Execution Plan
 
