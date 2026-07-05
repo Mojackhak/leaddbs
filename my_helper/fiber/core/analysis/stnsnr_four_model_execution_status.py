@@ -155,7 +155,12 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
     efield_summary = ulf_manifest.get("component_efield_summary", {})
 
     rows: list[dict[str, Any]] = []
-    for model_id, model_name in [("A", "HF direct voxel"), ("B", "HF normative fiber PPMI")]:
+    for model_id, model_name in [
+        ("A", "HF direct voxel"),
+        ("B_PPMI", "HF normative fiber PPMI"),
+        ("B_MGH", "HF normative fiber MGH"),
+        ("B_DTOR", "HF normative fiber dTOR"),
+    ]:
         gate_row = gate_rows.get(model_id, {"model_id": model_id, "model": model_name, "decision": "MISSING_OUTPUT"})
         state = classify_hf_model_state(gate_row)
         rows.append(
@@ -177,7 +182,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
 
     for model_id, model_name, dependency_id, branch in [
         ("C", "ULF add-on direct voxel", "A", "chronic/tau200/partial_spearman"),
-        ("D", "ULF add-on normative fiber", "B", "chronic/peak_efield_tau800_primary"),
+        ("D", "ULF add-on normative fiber", "B_DTOR", "chronic/peak_efield_tau800_primary"),
     ]:
         dependency_gate = str(gate_rows.get(dependency_id, {}).get("decision", "MISSING_OUTPUT"))
         state = classify_ulf_model_state(

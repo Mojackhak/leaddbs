@@ -75,11 +75,7 @@ def predictions_are_finite(path: Path, prediction_columns: list[str]) -> bool:
 
 def branch_specs(val_root: Path) -> list[dict[str, Any]]:
     hf_direct_root = val_root / "summary/direct_voxel/hf/mds_updrs_iii_score_stn_3_m/tau200/partial_spearman"
-    hf_fiber_root = (
-        val_root
-        / "summary/normative_connectome_fiber/hf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_3_m/peak_efield_tau800_primary"
-    )
-    return [
+    specs = [
         {
             "model_id": "A",
             "model": "HF direct voxel",
@@ -91,18 +87,32 @@ def branch_specs(val_root: Path) -> list[dict[str, Any]]:
             "prediction_columns": ["prediction_HFScore_model", "prediction_baseline_only"],
             "dependency": "none",
         },
-        {
-            "model_id": "B",
-            "model": "HF normative fiber PPMI",
-            "branch": "peak_efield_tau800_primary",
-            "root": hf_fiber_root,
-            "qc": hf_fiber_root / "normative_HF_fiber_mapping_qc.json",
-            "manifest": hf_fiber_root / "normative_HF_fiber_generation_manifest.json",
-            "predictions": hf_fiber_root / "normative_HF_fiber_loocv_predictions.csv",
-            "prediction_columns": ["prediction_NetFiberScore_model", "prediction_baseline_only"],
-            "dependency": "none",
-        },
     ]
+    for connectome_id, connectome_label, connectome_slug in [
+        ("B_PPMI", "HF normative fiber PPMI", "ppmi_85_ewert_2017"),
+        ("B_MGH", "HF normative fiber MGH", "mgh_usc_hcp_32_horn_2017"),
+        ("B_DTOR", "HF normative fiber dTOR", "dtor_985_full_elias_2024"),
+    ]:
+        hf_fiber_root = (
+            val_root
+            / "summary/normative_connectome_fiber/hf"
+            / connectome_slug
+            / "mds_updrs_iii_score_stn_3_m/peak_efield_tau800_primary"
+        )
+        specs.append(
+            {
+                "model_id": connectome_id,
+                "model": connectome_label,
+                "branch": "peak_efield_tau800_primary",
+                "root": hf_fiber_root,
+                "qc": hf_fiber_root / "normative_HF_fiber_mapping_qc.json",
+                "manifest": hf_fiber_root / "normative_HF_fiber_generation_manifest.json",
+                "predictions": hf_fiber_root / "normative_HF_fiber_loocv_predictions.csv",
+                "prediction_columns": ["prediction_NetFiberScore_model", "prediction_baseline_only"],
+                "dependency": "none",
+            }
+        )
+    return specs
 
 
 def summarize_branch(spec: dict[str, Any]) -> dict[str, Any]:
@@ -137,7 +147,7 @@ def next_action(decision: str, model_id: str) -> str:
     if decision == "PASS_TO_NEXT_ROUND":
         return "eligible_for_smoke_resampling_or_next_gate"
     if decision == "STOP_FORMAL_REMAIN_EXPLORATORY":
-        if model_id in {"A", "B"}:
+        if model_id == "A" or model_id.startswith("B_"):
             return "do_not_start_formal_resampling; downstream ULF dependency remains exploratory"
         return "do_not_start_formal_resampling"
     if decision == "MISSING_OUTPUT":

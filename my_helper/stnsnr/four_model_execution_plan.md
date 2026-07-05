@@ -44,6 +44,7 @@
 - **A ∥ B** proceed in parallel (different preprocessing, different tau, shared statistical kernel).
 - **C only after A is locked**; **D only after B is locked.** If the depended-upon HF model fails QC / is degenerate, the corresponding ULF model is exploratory only, and its `DeltaHFScore` is labeled an *unstable generated covariate* (see each ULF spec's "Locked HF Prerequisite").
 - **Connectome-matched (D):** `ULF/PPMI` uses `HF/PPMI` DeltaHFScore, `ULF/MGH` uses `HF/MGH`, `ULF/dTOR` uses `HF/dTOR`. A shared dTOR-HF adjustment across connectomes may be reported only as `shared_dTOR_HF_adjustment_sensitivity`.
+- **Status reporting for B:** gate/status summaries must report the HF normative fiber observed branches for `PPMI`, `MGH`, and `dTOR` separately; a PPMI-only status row is not sufficient evidence that Model B has completed its observed connectome sequence.
 
 ---
 

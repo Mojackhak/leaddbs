@@ -44,6 +44,7 @@
 - **A ∥ B** 并行推进（不同预处理、不同 tau、共享统计内核）。
 - **C 仅在 A 锁定后**才进入正式分析；**D 仅在 B 锁定后**。若被依赖的 HF 模型 QC 失败/退化，则对应 ULF 模型只能作为 exploratory，且 `DeltaHFScore` 标注为 unstable generated covariate（见各 ULF 规范 “Locked HF Prerequisite”）。
 - 连接组匹配（D）：`ULF/PPMI` 用 `HF/PPMI` 的 DeltaHFScore，`ULF/MGH` 用 `HF/MGH`，`ULF/dTOR` 用 `HF/dTOR`；跨连接组共享只能作为 `shared_dTOR_HF_adjustment_sensitivity`。
+- **B 的状态汇总：** gate/status 汇总必须分别报告 HF normative fiber 的 `PPMI`、`MGH`、`dTOR` observed 分支；只有 PPMI 一行不足以证明模型 B 已完成 observed connectome 序列。
 
 ---
 
