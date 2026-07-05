@@ -9,7 +9,7 @@ This document fixes the technical design for symptom-specific HF-only efficacy a
 The analysis has two main goals:
 
 1. Identify HF-only normative connectome fiber-level profiles associated with stable HF therapeutic benefit.
-2. Identify ULF-only target-level connectivity features associated with additional benefit after ULF is added to HF stimulation, while adjusting for predicted HF efficacy change.
+2. Identify ULF-only normative connectome fiber-level profiles associated with additional benefit after ULF is added to HF stimulation, while adjusting for predicted HF efficacy change.
 3. Use voxel and target-label outputs as localization, QC, and visualization products without overriding each model-specific primary unit.
 
 The main model assignment is frequency-component based rather than nucleus-assignment based. STN/SNr anatomy is retained for cohort description, stimulation territory, target registry, and visualization overlays.
@@ -33,7 +33,7 @@ The six model-specific summaries are:
 | HF-only 3m efficacy | Normative connectome DBS Fiber Filtering / fiber-level | [`hf_3m_normative_connectome_fiber_model.md`](model_summaries/hf_3m_normative_connectome_fiber_model.md) |
 | HF-only 3m efficacy | Individualized DWI seed-target / fiber-derived target-level | [`hf_3m_individualized_dwi_seed_target_model.md`](model_summaries/hf_3m_individualized_dwi_seed_target_model.md) |
 | HF-adjusted ULF-only add-on gain | Direct voxel-level | [`ulf_addon_gain_direct_voxel_model.md`](model_summaries/ulf_addon_gain_direct_voxel_model.md) |
-| HF-adjusted ULF-only add-on gain | Normative connectome seed-target / fiber-derived target-level | [`ulf_addon_gain_normative_connectome_seed_target_model.md`](model_summaries/ulf_addon_gain_normative_connectome_seed_target_model.md) |
+| HF-adjusted ULF-only add-on gain | Normative connectome DBS Fiber Filtering / fiber-level | [`ulf_addon_gain_normative_connectome_fiber_model.md`](model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md) |
 | HF-adjusted ULF-only add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`ulf_addon_gain_individualized_dwi_seed_target_model.md`](model_summaries/ulf_addon_gain_individualized_dwi_seed_target_model.md) |
 
 ## Data Sources
@@ -282,7 +282,7 @@ OSS-DBS / pathway activation value when available
 
 ### Target-Level Connectivity Features
 
-This section applies to individualized DWI seed-target models and ULF add-on target-level models. It no longer defines the primary HF normative connectome model, which is specified as a fiber-level DBS Fiber Filtering model in `model_summaries/hf_3m_normative_connectome_fiber_model.md`.
+This section applies to individualized DWI seed-target models and target-derived visualization outputs. It no longer defines the primary HF or ULF normative connectome models, which are specified as fiber-level DBS Fiber Filtering models in `model_summaries/hf_3m_normative_connectome_fiber_model.md` and `model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md`.
 
 For target-level model families, the primary connectivity model uses target-level features rather than top single-fiber predictors.
 
@@ -822,7 +822,7 @@ The HF adjustment must be model-family matched:
 ULF direct voxel-level model
   -> HF direct voxel-level efficacy model
 
-ULF normative connectome seed-target model
+ULF normative connectome fiber-level model
   -> HF normative connectome fiber-level efficacy model
 
 ULF individualized DWI seed-target model
@@ -977,6 +977,8 @@ For `n = 16`, use rank-based partial Spearman or equivalent residualized regress
 
 For each endpoint and each target `k`:
 
+For individualized-DWI target-level sensitivity models:
+
 1. Rank-transform `Y_AB`, `C_ULF_only_bilat(k)`, `Y_HF3m`, and `DeltaHFScore`.
 2. Regress ranked `Y_AB` on ranked `Y_HF3m` and ranked `DeltaHFScore`; keep residuals.
 3. Regress ranked `C_ULF_only_bilat(k)` on ranked `Y_HF3m` and ranked `DeltaHFScore`; keep residuals.
@@ -998,11 +1000,11 @@ H_ULF,k = theta_ULF,k
 Output names:
 
 ```text
-SNrChronicGainScore_k
-SNrImmediateGainScore_k
+ULFChronicGainTargetScore_k
+ULFImmediateGainTargetScore_k
 ```
 
-Positive values indicate sweet targets. Negative values indicate sour targets. Secondary voxel and streamline outputs may be generated to localize or visualize these target-level findings.
+Positive values indicate sweet targets. Negative values indicate sour targets. Secondary voxel and streamline outputs may be generated to localize or visualize these target-level sensitivity findings.
 
 ## Target-Level Outputs
 
@@ -1153,15 +1155,16 @@ This generic output list does not apply to the executable HF direct voxel model.
 5. Record missingness per scale and endpoint.
 6. Apply `MIN_N_FOR_MODEL = 12`.
 
-### Stage 4: Target Connectivity Extraction
+### Stage 4: Fiber And Target Connectivity Extraction
 
 1. Load connectome streamlines in chunks.
 2. For HF normative fiber modeling, generate figure-grade observed outputs for PPMI, MGH, and dTOR.
-3. For target-level ULF and individualized-DWI models, compute side-specific target connectivity `C(i,h,k)` using same-side targets.
-4. Average left and right target-level features into patient-level `C_bilat(i,k)`.
-5. Record target coverage, streamline counts, candidate counts, label summaries, and reconstruction failures.
-6. Reserve formal permutation/bootstrap and jitter QC for the dTOR primary HF normative fiber branch.
-7. Compute individualized DWI target connectivity and coverage after DWI registration QC passes.
+3. For ULF normative fiber modeling, generate ULF-only fiber-level sidecars after excluding HF-overlap streamlines and use `Coverage_tau(l) >= 5` with `tau800` primary and `tau1500` sensitivity.
+4. For individualized-DWI target-level models, compute side-specific target connectivity `C(i,h,k)` using same-side targets.
+5. Average left and right target-level individualized-DWI features into patient-level `C_bilat(i,k)`.
+6. Record target coverage, streamline counts, candidate counts, label summaries, overlap-exclusion summaries, and reconstruction failures.
+7. Reserve formal permutation/bootstrap and jitter QC for the dTOR primary HF and ULF normative fiber branches as specified in their model-specific documents.
+8. Compute individualized DWI target connectivity and coverage after DWI registration QC passes.
 
 ### Stage 5: Secondary Voxel And Fiber Extraction
 
@@ -1348,12 +1351,13 @@ VTA/e-field/proxy maps are not cropped to STN/SNr
 interleaving is split into subprograms
 union and overlap interleaving outputs are generated
 HF normative connectome primary predictor selection is fiber-level DBS Fiber Filtering, not target-level aggregation
-target-level ULF and individualized-DWI connectivity are computed left and right separately and averaged to one patient-level bilateral target feature
+ULF normative connectome connectivity is computed as right-canonical fiber-level ULF-only exposure with HF-overlap streamlines excluded
+individualized-DWI target-level connectivity is computed left and right separately and averaged to one patient-level bilateral target feature
 primary model tables have one row per patient, not one row per hemisphere
 target-level DWI coverage is checked before individualized-DWI or normative-guided-DWI interpretation
-target-derived voxel maps for target-level models are generated by target-weight back-projection, not by top voxel-wise correlation
+target-derived voxel maps for individualized-DWI target-level models are generated by target-weight back-projection, not by top voxel-wise correlation
 HF normative connectome display maps are generated from fiber-level weights, selected streamlines, and streamline-density maps
-ULF target-derived voxel maps are generated from ULF target weights and SNr seed masks
+ULF normative connectome display maps are generated from fiber-level weights, selected streamlines, and streamline-density maps
 left and right target-derived voxel maps are generated separately without flipping
 coverage, sweet, sour, net, and stability maps are exported for every reported seed voxel visualization
 low-coverage seed voxels are transparent or gray in visualization
