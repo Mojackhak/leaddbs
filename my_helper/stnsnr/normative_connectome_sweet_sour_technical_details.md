@@ -79,7 +79,7 @@ stimulation patterns: continuous, alternating
 
 ### Clinical Score Data
 
-Use the raw clinical score workbook for primary ANCOVA-style endpoint models:
+Use the raw clinical score workbook for the current raw-score spatial models:
 
 ```text
 /Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx
@@ -180,7 +180,7 @@ Main rules:
 /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions
 ```
 
-- Each connected-region atlas contains side-specific binary masks and `roi_manifest.csv`; use these files directly for model gating, candidate fiber classification, endpoint grouping, coverage summaries, and visualization overlays.
+- Each connected-region atlas contains side-specific binary masks and `roi_manifest.csv`; use these files for endpoint grouping, anatomical enrichment, coverage summaries, and visualization overlays. Do not use them to define the primary direct-voxel candidate grid or the primary normative full-connectome fiber candidate universe.
 - In `STNSNr-connected regions`, `STNSNr` is the side-specific STN/SNr union and `STNSNrplus` is `STNSNr` with 2 mm dilation.
 - `Custom_Ewert_Zhang_Middlebrooks0.05` remains the upstream source for STN/SNr masks inside the connected-region atlases and is retained as a sensitivity or fallback source for standalone STN/SNr masks.
 - Non-STN/SNr cortical, thalamic, PPN, and superior colliculus endpoint definitions follow the connected-region atlas manifests and the seed-target atlas registry.
@@ -189,7 +189,8 @@ Main rules:
 
 ### Main Stimulation Exposure
 
-The main exposure is full-field peak E-field or E-field-like proxy exposure.
+The executable non-individualized models use accepted raw Lead-DBS `sim-efield`
+maps in `V/m` as the primary exposure source.
 
 For each subject, side, protocol, and phase, construct stimulation exposure maps for:
 
@@ -199,16 +200,14 @@ HF+ULF HF component
 HF+ULF ULF component
 ```
 
-When true Lead-DBS e-field maps are available, use them as the primary exposure source. When they are not available, use a documented e-field-like proxy:
+Missing or multiply matched required e-field inputs fail the relevant executable
+run unless a model document explicitly defines a separate proxy-only smoke
+branch. Gaussian contact-centered proxy exposure and random-parameter exposure
+are retained only for legacy development, smoke testing, or explicitly labeled
+proxy branches.
 
-```text
-Gaussian contact-centered exposure
-weighted by absolute voltage
-default sigma = 1.5 mm
-multiple contacts in one component combined by voxel-wise maximum
-```
-
-Pulse width and frequency must be stored in provenance. They may be used in sensitivity analyses, such as charge-rate proxy:
+Pulse width and frequency must still be stored in provenance. They may be used
+in sensitivity analyses, such as charge-rate proxy:
 
 ```text
 abs(voltage_V) * pulse_width_us * frequency_Hz
@@ -221,10 +220,10 @@ Do not crop VTA, e-field, or proxy maps to STN/SNr boundaries. VTA may extend be
 Connected-region atlas masks are used for:
 
 ```text
-fiber classification
 endpoint grouping
 voxel-map anatomical overlays
 coverage summaries
+fiber label enrichment
 interpretation boundaries
 ```
 
@@ -241,7 +240,14 @@ Program A -> exposure_A
 Program B -> exposure_B
 ```
 
-Main interleaving output:
+For the current executable direct voxel and normative fiber models, same-component alternating subprograms are combined by pointwise maximum:
+
+```text
+E_component = max(E_A, E_B, ...)
+X_component = max exposure sampled from E_component
+```
+
+Descriptive interleaving output:
 
 ```text
 union exposure = tissue or streamlines exposed by at least one subprogram
@@ -259,7 +265,7 @@ Optional sensitivity output:
 frequency-weighted exposure = weighted sum of subprogram exposures
 ```
 
-Use frequency-weighted exposure only when timing, pulse-count, or duty-cycle information is reliable. Otherwise, report union and overlap without inventing timing weights.
+Use frequency-weighted exposure only when timing, pulse-count, or duty-cycle information is reliable. Otherwise, report union and overlap without inventing timing weights. Union and overlap are descriptive or sensitivity outputs unless a model-specific document explicitly promotes them to a main predictor.
 
 ### Streamline Exposure
 
@@ -328,9 +334,9 @@ The primary statistical table has one row per patient (`n = 16`). Do not treat l
 
 ### Voxel Exposure
 
-Voxel-wise models use subject-level stimulation exposure at each voxel.
+Voxel-wise models use subject-level stimulation exposure at each voxel. The current executable HF and ULF direct voxel models define their candidate masks and coverage rules in their model-specific documents.
 
-Main voxel analysis mask:
+Legacy generic voxel analysis mask:
 
 ```text
 cohort stimulation union mask
@@ -340,9 +346,12 @@ The mask should include voxels exposed in at least a prespecified minimum number
 
 ### Target-Derived Seed Voxel Visualization
 
-The primary voxel-level visualization is a target-derived seed voxel map. It back-projects learned target weights into the seed nucleus using streamline density from each seed voxel to each same-side target.
+For target-level individualized DWI models and explicitly labeled target-level
+sensitivities, the voxel-level visualization is a target-derived seed voxel map.
+It back-projects learned target weights into the seed nucleus using streamline
+density from each seed voxel to each same-side target.
 
-This is a visualization and overlap-scoring layer for the target-level model, not a separate voxel-wise discovery model.
+This is a visualization and overlap-scoring layer for the target-level model, not a separate voxel-wise discovery model. It is distinct from the executable HF and ULF direct voxel models, which are specified in their model summary files.
 
 For each side `h` in `{L,R}`:
 
@@ -1180,8 +1189,9 @@ This generic output list does not apply to the executable HF or ULF direct voxel
 1. Parse HF-only, STN+SNr HF-component, and STN+SNr ULF-component programming rows.
 2. Split interleaving rows by `AlternatingGroup`.
 3. Generate component exposure maps for each subject, side, phase, protocol, and target.
-4. Generate interleaving union and overlap maps.
-5. Save provenance for voltage, pulse width, frequency, contacts, target, side, phase, and protocol.
+4. Generate same-component max-combined executable exposure maps.
+5. Generate interleaving union and overlap maps as descriptive or sensitivity outputs.
+6. Save provenance for voltage, pulse width, frequency, contacts, target, side, phase, and protocol.
 
 ### Stage 3: Clinical Endpoint Assembly
 
@@ -1203,15 +1213,14 @@ This generic output list does not apply to the executable HF or ULF direct voxel
 7. Reserve formal permutation/bootstrap and jitter QC for the dTOR primary HF and ULF normative fiber branches as specified in their model-specific documents.
 8. Compute individualized DWI target connectivity and coverage after DWI registration QC passes.
 
-### Stage 5: Secondary Voxel And Fiber Extraction
+### Stage 5: Direct Voxel And Secondary Fiber Extraction
 
-1. Build cohort stimulation union mask.
-2. Apply minimum coverage rules.
-3. Extract subject-by-voxel exposure matrices in chunks when needed.
-4. Extract selected-target streamline exposure summaries for contribution and visualization.
-5. Compute target-derived seed voxel density, normalized density, coverage, sweet, sour, net, and stability maps for HF efficacy models and ULF add-on gain models.
-6. Compute direct voxel-level STN and SNr sweet spot models using bilateral homologous voxel exposure, nested LOOCV, and patient-level permutation.
-7. Save coverage and exposure prevalence maps.
+1. Build model-specific direct voxel candidate matrices and coverage masks as specified in the HF and ULF direct voxel model documents.
+2. Extract subject-by-voxel exposure matrices in chunks when needed.
+3. Extract selected-target streamline exposure summaries for contribution and visualization.
+4. Compute target-derived seed voxel density, normalized density, coverage, sweet, sour, net, and stability maps only for individualized DWI target-level models or explicitly labeled target-level sensitivities.
+5. Compute direct voxel-level HF and ULF frequency-component sweet spot models using bilateral homologous voxel exposure, nested LOOCV, and patient-level permutation.
+6. Save coverage and exposure prevalence maps.
 
 ### Stage 6: Model Fitting
 
@@ -1363,7 +1372,7 @@ The cohort currently has `n = 16`. High-dimensional interaction models should no
 
 Low-coverage targets, voxels, or streamlines can produce unstable coefficients. Every model must export target coverage summaries and, for secondary maps, coverage maps.
 
-Direct voxel-level sweet spot maps are especially sensitive to small sample size, coverage imbalance, and homologous voxel mapping quality. They should be interpreted as local stimulation association maps and should not replace the target-level seed-target model for primary network interpretation.
+Direct voxel-level sweet spot maps are especially sensitive to small sample size, coverage imbalance, and homologous voxel mapping quality. They should be interpreted as local stimulation association maps and reported alongside normative fiber-level and individualized target-level analyses, not as target-level seed-target maps.
 
 ### Normative Connectome Limits
 
@@ -1386,7 +1395,8 @@ STN-connected regions and SNr-connected regions are used first for model ROI def
 STN/SNr atlas registry is used for endpoint definitions and sensitivity/fallback ROI definitions
 VTA/e-field/proxy maps are not cropped to STN/SNr
 interleaving is split into subprograms
-union and overlap interleaving outputs are generated
+same-component alternating subprograms use max-combined exposure in the executable HF/ULF direct voxel and normative fiber models unless a model document states otherwise
+union and overlap interleaving outputs are descriptive or sensitivity outputs
 HF normative connectome primary predictor selection is fiber-level DBS Fiber Filtering, not target-level aggregation
 ULF normative connectome connectivity is computed as right-canonical fiber-level ULF-only exposure with HF-overlap streamlines excluded
 individualized-DWI target-level connectivity is computed left and right separately and averaged to one patient-level bilateral target feature
@@ -1399,7 +1409,7 @@ left and right target-derived voxel maps are generated separately without flippi
 coverage, sweet, sour, net, and stability maps are exported for every reported seed voxel visualization
 low-coverage seed voxels are transparent or gray in visualization
 voxel overlap scores used for prediction are generated from training-fold maps only
-direct voxel-level sweet spot mapping is secondary/exploratory and does not replace target-level primary inference
+direct voxel-level sweet spot mapping is a non-individualized local stimulation association model, not a target-level seed-target model
 direct voxel models use bilateral homologous voxel exposure and keep one row per patient
 nonlinear homologous voxel mapping uses model-specific transform rules; the executable HF model uses `ea_flip_lr_nonlinear`, while inverse-sampling/trilinear descriptions are generic non-HF context only
 direct voxel coverage masks are defined inside each training fold during LOOCV

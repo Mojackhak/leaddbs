@@ -45,11 +45,17 @@ The six model-specific summaries are:
 | HF-adjusted ULF-only add-on gain | Normative connectome DBS Fiber Filtering / fiber-level | [`ulf_addon_gain_normative_connectome_fiber_model.md`](model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md) |
 | HF-adjusted ULF-only add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`ulf_addon_gain_individualized_dwi_seed_target_model.md`](model_summaries/ulf_addon_gain_individualized_dwi_seed_target_model.md) |
 
-For HF-only direct voxel model execution, the model-specific summary
-[`hf_3m_direct_voxel_model.md`](model_summaries/hf_3m_direct_voxel_model.md)
-is the authoritative specification.
-HF direct voxel output file semantics are also defined there and should not be
-duplicated as a separate source of truth in this master plan.
+For the currently executable non-individualized model families, the model-specific
+summaries are the authoritative specifications. This master plan records the
+overall rationale and shared conventions, but it must not override model-level
+candidate rules, scores, outputs, gatekeeping, or resampling settings.
+
+- HF direct voxel: [`hf_3m_direct_voxel_model.md`](model_summaries/hf_3m_direct_voxel_model.md)
+- HF normative connectome fiber: [`hf_3m_normative_connectome_fiber_model.md`](model_summaries/hf_3m_normative_connectome_fiber_model.md)
+- ULF direct voxel: [`ulf_addon_gain_direct_voxel_model.md`](model_summaries/ulf_addon_gain_direct_voxel_model.md)
+- ULF normative connectome fiber: [`ulf_addon_gain_normative_connectome_fiber_model.md`](model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md)
+
+Individualized DWI documents are intentionally not reconciled in this pass.
 
 ## Fixed Inputs and Defaults
 
@@ -59,9 +65,9 @@ duplicated as a separate source of truth in this master plan.
 - STN/SNr pipeline scripts remain under `/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr` and should only call reusable core functions.
 - Core functions should remain under `/Users/mojackhu/Github/leaddbs/my_helper/fiber/core`.
 - Default Conda environment for Lead-DBS tasks: `leaddbs`.
-- Python statistical postprocessing for the HF/LF model family should run in the `leaddbs` Conda environment; installing or adjusting required Python packages in that environment is allowed when recorded in the run manifest or an environment export.
+- Python statistical postprocessing for the HF/ULF model family should run in the `leaddbs` Conda environment; installing or adjusting required Python packages in that environment is allowed when recorded in the run manifest or an environment export.
 - Random seed for all stochastic analysis steps: `42`.
-- Current placeholder stimulation table:
+- Legacy placeholder stimulation table for early smoke tests only:
   `/Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset/random_stimulation_parameters.csv`.
 - Active contact table:
   `/Users/mojackhu/Research/STNSNr/summary/cohort/lead/contact_activation_dataset/active_contacts.csv`.
@@ -73,9 +79,10 @@ duplicated as a separate source of truth in this master plan.
   `/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_import_20260701_013240.csv`.
 - Current raw clinical score workbook:
   `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx`.
-- Preferred raw score sources for the final ANCOVA endpoint model:
-  `/Users/mojackhu/Research/STNSNr/summary/stats/clinic/coords/scale_raw/scale_subject.xlsx` and
-  `/Users/mojackhu/Research/STNSNr/summary/stats/clinic/effect/3m/scale_subject.xlsx`.
+- The executable non-individualized model documents use
+  `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx`
+  as the current raw clinical score source unless a model document is explicitly revised.
+  Older `summary/stats/clinic/...` exports are retained only as compatibility or audit sources.
 
 ## Atlases and Connectomes
 
@@ -89,7 +96,8 @@ For seed-target fiber tracking, target ROI source, threshold, sensitivity atlas,
 
 ### Model Territory and ROI Priority
 
-For model-level territory definitions and seed-target endpoint grouping, prefer the prebuilt connected-region atlases:
+For anatomical territory overlays, endpoint labels, enrichment summaries, and
+seed-target endpoint grouping, prefer the prebuilt connected-region atlases:
 
 ```text
 HF territory atlas:
@@ -102,7 +110,7 @@ Combined STN/SNr territory atlas:
   /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions
 ```
 
-Each connected-region atlas contains side-specific binary masks and a `roi_manifest.csv` that records the upstream atlas source, threshold, role, and category for each ROI. Use the connected-region atlas ROI files directly for candidate fiber classification, endpoint grouping, coverage summaries, and visualization overlays. Do not use these masks to hard-split overlapping VTA or streamlines into anatomic STN versus SNr effects.
+Each connected-region atlas contains side-specific binary masks and a `roi_manifest.csv` that records the upstream atlas source, threshold, role, and category for each ROI. Use the connected-region atlas ROI files for endpoint grouping, anatomical enrichment, coverage summaries, and visualization overlays. Do not use these masks to define the primary direct-voxel candidate mask or the primary normative full-connectome fiber candidate universe. Do not use these masks to hard-split overlapping VTA or streamlines into anatomic STN versus SNr effects.
 
 For HF-only analyses, use `STN-connected regions` first as the historical HF territory atlas. Its primary ROIs include `STN`, `SNr`, `M1`, `SMA`, `preSMA`, `premotor`, `GPe`, and `GPi`, with optional or exploratory `DLPFC`, `ACC`, `OFC`, and `vmPFC` masks.
 
@@ -114,7 +122,11 @@ For combined STN/SNr analyses, use `STNSNr-connected regions` first. Its primary
 
 ### Endpoint Parcellation
 
-Use connected-region atlas endpoint masks for primary model endpoint grouping. HCPex remains the underlying cortical label source for many connected-region masks and may be used for additional non-STN/SNr endpoint labeling:
+Use connected-region atlas endpoint masks for post-model endpoint grouping,
+label enrichment, and display summaries. They do not define the primary
+predictors for direct voxel models or normative full-connectome fiber models.
+HCPex remains the underlying cortical label source for many connected-region
+masks and may be used for additional non-STN/SNr endpoint labeling:
 
 `/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/labeling/HCPex (Huang 2021).nii`
 
@@ -132,7 +144,9 @@ Because dTOR and MGH are large, implementations must use chunked `matfile` acces
 
 ### Individualized DWI Connectomes
 
-Individualized DWI tractography is incorporated into the same target-level seed-target framework.
+Individualized DWI tractography is incorporated into a target-level seed-target framework.
+This subsection is retained for individualized-DWI planning and does not override
+the current direct voxel or normative full-connectome fiber model documents.
 
 Primary DWI source:
 
@@ -171,20 +185,28 @@ This keeps target selection more stable while testing whether the normative targ
 
 ### Main Exposure Model
 
-Use peak VTA/e-field-like exposure along the full streamline:
+The current executable non-individualized models use accepted Lead-DBS raw
+`sim-efield` maps in `V/m`, not `sim-efieldgauss`, as the primary exposure
+source. Missing or multiply matched required e-field inputs fail the relevant
+run unless a model document explicitly defines a separate proxy-only smoke
+branch.
+
+Direct voxel models sample voxel-wise E-field exposure. Normative connectome
+fiber models sample peak exposure along whole public-connectome streamlines:
 
 ```text
-X_subject,fiber = max stimulation exposure sampled along the full streamline
+X_subject,fiber = max raw sim-efield exposure sampled along the full streamline
 ```
 
-For the current random stimulation table, use an e-field-like proxy:
+For HF-only models, same-side alternating HF subprograms are combined by
+voxel-wise or fiber-wise maximum. For ULF add-on models, HF and ULF components
+are kept separate, ULF-only exposure is tau-specific, and streamlines or voxels
+co-activated by HF and ULF at the branch tau are assigned to HF adjustment rather
+than to the primary ULF-only predictor.
 
-- Gaussian contact-centered exposure, weighted by absolute voltage.
-- Suggested default sigma: `1.5 mm`.
-- Multiple contacts in the same component are combined by voxel-wise maximum.
-- `pulse_width_us` and `frequency_Hz` are stored in provenance and may be used in sensitivity analyses, but are not part of the main spatial exposure weight.
-
-When real programming parameters and Lead-DBS stimulation outputs are available, replace the proxy with true e-field maps without changing the downstream modeling interface.
+Gaussian contact-centered or random-parameter exposure is retained only for
+legacy development, smoke testing, or explicitly labeled proxy branches. It is
+not the primary exposure model for the current non-individualized model files.
 
 ### Interleaving Stimulation Handling
 
@@ -197,7 +219,17 @@ Program A: VTA_A or E_A
 Program B: VTA_B or E_B
 ```
 
-Then represent the overall interleaving exposure with explicit derived maps:
+For the current executable HF and ULF direct voxel and normative fiber models,
+same-component alternating subprograms are combined by pointwise maximum rather
+than by simultaneous field summation:
+
+```text
+E_component = max(E_A, E_B, ...)
+X_component = max exposure sampled from E_component
+```
+
+Then represent descriptive or sensitivity interleaving outputs with explicit
+derived maps:
 
 ```text
 Union exposure:
@@ -220,13 +252,13 @@ X_overlap(i,f) = max exposure along fiber f in the overlap map
 X_weighted(i,f) = max exposure along fiber f in the weighted exposure map
 ```
 
-The default interleaving representation for the main VTA-like exposure is:
+For VTA coverage reporting, the descriptive interleaving representation is:
 
 ```text
 union map = tissue exposed to at least one subprogram during the interleaving cycle
 ```
 
-The overlap map should be reported separately because it represents tissue exposed to both pulse trains and may approximate higher pulse density or repeated stimulation exposure.
+The overlap map should be reported separately because it represents tissue exposed to both pulse trains and may approximate higher pulse density or repeated stimulation exposure. These union/overlap maps are descriptive or sensitivity outputs unless a model document explicitly promotes them to a main predictor.
 
 Do not replace interleaving with:
 
@@ -270,13 +302,15 @@ Report target connectivity patterns, secondary sweet-spot maps, and selected-tar
 
 ### Advanced Sensitivity Model
 
-Use OSS-DBS / pathway activation modeling as an advanced sensitivity analysis. The implementation should reuse Lead-DBS/OSS-DBS outputs when available, especially files matching:
+Use OSS-DBS / pathway activation modeling as an advanced sensitivity analysis for normative fiber models, not for the direct voxel models. The HF normative fiber OSS branch uses a locked `primary_locked` OSS parameter set, inherits the peak-E-field candidate universe, replaces the exposure variable with pathway activation, and runs smoke permutation only unless the model document is explicitly revised.
+
+The implementation should reuse Lead-DBS/OSS-DBS outputs when available, especially files matching:
 
 ```text
 fiberActivation_model-ossdbs_hemi-*.mat
 ```
 
-For OSS-DBS sensitivity, the streamline activation value is the pathway activation state or activation probability from OSS-DBS/PAM rather than peak e-field magnitude.
+For OSS-DBS sensitivity, the streamline activation value is the pathway activation state or activation probability from OSS-DBS/PAM rather than peak e-field magnitude. Candidate streamlines must not be redefined by OSS activation unless a model document explicitly states otherwise.
 
 ## Target-Level Seed-Target Connectivity For Individualized DWI
 
@@ -1757,7 +1791,6 @@ Run the following sensitivity analyses:
 - OSS-DBS/PAM pathway activation model when valid outputs exist;
 - repeated analyses across dTOR-985, MGH-USC HCP 32, and PPMI 85 connectomes;
 - normative fiber, normative-guided individualized DWI, and individualized-DWI-only target-level model comparison.
-- direct voxel-level sweet spot mapping for HF-only efficacy and ULF add-on gain using bilateral homologous voxel exposure;
 - direct voxel coverage threshold sensitivity with `0.18`, `0.20`, and `0.22 V/mm`;
 - direct voxel unsmoothed versus `1-2 mm` smoothed display sensitivity.
 
@@ -1813,9 +1846,9 @@ Expected output groups:
 
 - `provenance/`: input paths, software versions, random seed, model settings.
 - `qc/`: subject inclusion, endpoint selection, missingness, ROI volumes, connectome availability, DWI coverage.
-- `target_connectivity/`: left, right, and bilateral target-level connectivity matrices.
+- `target_connectivity/`: left, right, and bilateral target-level connectivity matrices for individualized DWI and explicitly labeled target-level sensitivity models.
 - `exposure/`: subject-level exposure summaries and secondary streamline exposure matrices.
-- `exposure/interleaving/`: subprogram exposure maps, union maps, overlap maps, and optional timing-weighted maps.
+- `exposure/interleaving/`: subprogram exposure maps, same-component max-combined maps for executable models, union maps, overlap maps, and optional timing-weighted maps.
 - `models/hf/chronic/`: primary chronic HF-only normative fiber weights, fiber scores, selected fibers, density maps, and sensitivity outputs.
 - `models/hf/early/`: secondary early / acute HF-only target results.
 - `models/hf/adaptation/`: optional HF chronic adaptation target results.
@@ -1840,7 +1873,7 @@ Expected output groups:
 - `random_seed` is `42` in all stochastic steps.
 - The analysis does not crop VTA/e-field/proxy maps to STN/SNr masks.
 - Interleaving stimulation is split into subprograms and is not treated as simultaneous double-cathode stimulation.
-- Interleaving outputs include union exposure and overlap exposure when interleaving programs exist.
+- Executable HF/ULF models use same-component max-combined exposure for alternating subprograms unless their model document states otherwise; union and overlap interleaving outputs remain descriptive or sensitivity products.
 - Streamlines are whole connectome streamlines, not STN/SNr internal fragments.
 - STN/SNr model labels come from `STN-connected regions` and `SNr-connected regions`.
 - Non-STN/SNr endpoint labels come from HCPex.
@@ -1855,7 +1888,7 @@ Expected output groups:
 - Left and right seed voxel maps are generated separately without flipping.
 - Voxel visualization includes coverage, sweet, sour, net, and stability maps.
 - Any voxel-map overlap score used for prediction is generated inside the training fold, not from all subjects.
-- Direct voxel-level sweet spot mapping is marked secondary/exploratory and does not replace the target-level primary model.
+- Direct voxel-level sweet spot mapping is a non-individualized local stimulation association model. It is interpreted alongside normative fiber-level models and individualized target-level models; it is not a target-level seed-target model.
 - Direct voxel models use bilateral homologous voxel exposure, keeping one value per patient per voxel.
 - Nonlinear left/right homology uses model-specific transform rules. The executable HF direct voxel model uses `ea_flip_lr_nonlinear` into the right-hemisphere MNI brainmask candidate grid; older inverse-sampling/trilinear descriptions are generic/non-HF context only.
 - Direct voxel coverage masks are defined within training folds for LOOCV.
