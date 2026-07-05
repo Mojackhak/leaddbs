@@ -35,9 +35,9 @@ HF_DEFAULT_SCALES = [
     "MDS-UPDRS III axial score (STN, 3 m)",
 ]
 
-ULF_CHRONIC_DELTA_SCALES = [
-    "ΔMDS-UPDRS III score (+SNr, 3 m)",
-    "ΔMDS-UPDRS III axial score (+SNr, 3 m)",
+ULF_CHRONIC_POST_SCALES = [
+    "MDS-UPDRS III score (STN+SNr, 3 m)",
+    "MDS-UPDRS III axial score (STN+SNr, 3 m)",
 ]
 
 RAW_REQUIRED_COLUMNS = [
@@ -217,17 +217,45 @@ def expected_efield_paths(leaddbs_derivatives: Path, row: pd.Series) -> list[Pat
 
 def scale_base_name(scale: str) -> str:
     base = re.sub(r"^Δ", "", scale)
-    base = re.sub(r"\s*\((STN|\+SNr),\s*3\s*m\)\s*$", "", base)
+    base = re.sub(r"\s*\((STN|STN\+SNr|\+SNr),\s*(3\s*m|immediate)\)\s*$", "", base)
     base = base.strip()
     return base
+
+
+def parse_endpoint_scale(scale: str, default_protocol: str = "STN", default_phase: str = "3m") -> tuple[str, str, str]:
+    """Parse a display endpoint scale into raw scale, protocol, and phase filters."""
+    scale_text = str(scale).strip()
+    match = re.match(r"^(?P<base>.+?)\s*\((?P<protocol>STN|STN\+SNr|\+SNr),\s*(?P<phase>3\s*m|immediate)\)\s*$", scale_text)
+    if not match:
+        return scale_text, default_protocol, default_phase
+    protocol = match.group("protocol")
+    if protocol == "+SNr":
+        protocol = "STN+SNr"
+    phase = match.group("phase").replace(" ", "")
+    if phase == "3m":
+        phase = "3m"
+    return match.group("base").strip(), protocol, phase
 
 
 def infer_scale_direction(scale: str) -> tuple[str, str]:
     if "SE-ADL" in scale:
         return "higher", "builtin: SE-ADL higher-is-better"
     known_lower = [
+        "CCCS",
+        "DSFS",
+        "EAT-10",
+        "ESS",
+        "FSS",
+        "HAMA",
+        "HAMD",
+        "MAES",
+        "ODQ",
+        "RBDSQ",
+        "SCOPA-AUT",
+        "SDQ",
         "UPDRS",
         "MDS-UPDRS",
+        "MDS-UDPRS",
         "FOGQ",
         "FOG-Q",
         "PDQ",
@@ -235,6 +263,9 @@ def infer_scale_direction(scale: str) -> tuple[str, str]:
         "MADRS",
         "ADL",
         "BDI",
+        "Bradykinesia",
+        "Rigidity",
+        "Tremor",
     ]
     if any(token in scale for token in known_lower):
         return "lower", "builtin: motor/non-motor symptom scales lower-is-better"
@@ -293,7 +324,12 @@ def check_matlab_flip(repo_root: Path, matlab_bin: Path, run_check: bool) -> dic
 def build_endpoint_availability(raw_df: pd.DataFrame) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for scale in HF_DEFAULT_SCALES:
-        subset = raw_df[raw_df["Scale"].astype(str).eq(scale)]
+        base_scale, protocol, phase = parse_endpoint_scale(scale)
+        subset = raw_df[
+            raw_df["Scale"].astype(str).eq(base_scale)
+            & raw_df["Protocol"].astype(str).eq(protocol)
+            & raw_df["Phase"].astype(str).eq(phase)
+        ]
         rows.append(
             {
                 "model": "A/B HF",
@@ -305,17 +341,22 @@ def build_endpoint_availability(raw_df: pd.DataFrame) -> list[dict[str, Any]]:
                 "notes": "raw HF endpoint",
             }
         )
-    for scale in ULF_CHRONIC_DELTA_SCALES:
-        subset = raw_df[raw_df["Scale"].astype(str).eq(scale)]
+    for scale in ULF_CHRONIC_POST_SCALES:
+        base_scale, protocol, phase = parse_endpoint_scale(scale)
+        subset = raw_df[
+            raw_df["Scale"].astype(str).eq(base_scale)
+            & raw_df["Protocol"].astype(str).eq(protocol)
+            & raw_df["Phase"].astype(str).eq(phase)
+        ]
         rows.append(
             {
                 "model": "C/D ULF",
-                "endpoint": "chronic 3m delta/reconstructible",
+                "endpoint": "chronic 3m raw post/reconstructible",
                 "scale": scale,
                 "available_subjects": subset["ID"].nunique(),
                 "rows": len(subset),
                 "status": "PASS" if subset["ID"].nunique() >= 12 else "FAIL",
-                "notes": "delta rows present; raw post-score reconstruction must be handled by model code",
+                "notes": "raw STN+SNr endpoint; delta/gain must be reconstructed from raw STN and STN+SNr rows",
             }
         )
     immediate_mask = raw_df["Scale"].astype(str).str.contains("immediate", case=False, na=False) | raw_df["Phase"].astype(str).str.contains(

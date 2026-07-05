@@ -34,6 +34,7 @@ from stnsnr_four_model_readiness import (
     detect_asset_root,
     expected_efield_paths,
     infer_scale_direction,
+    parse_endpoint_scale,
     repo_root_from_file,
     sanitize,
 )
@@ -98,7 +99,12 @@ def run_command(cmd: list[str], timeout_s: int | None = None) -> dict[str, Any]:
 def load_subject_records(clinical_root: Path, scale: str) -> list[SubjectRecord]:
     raw_path = clinical_root / RAW_CLINICAL_FILE
     raw_df = pd.read_excel(raw_path)
-    subset = raw_df[raw_df["Scale"].astype(str).eq(scale)].copy()
+    base_scale, protocol, phase = parse_endpoint_scale(scale)
+    subset = raw_df[
+        raw_df["Scale"].astype(str).eq(base_scale)
+        & raw_df["Protocol"].astype(str).eq(protocol)
+        & raw_df["Phase"].astype(str).eq(phase)
+    ].copy()
     subset = subset.sort_values("ID")
     records: list[SubjectRecord] = []
     for _, row in subset.iterrows():

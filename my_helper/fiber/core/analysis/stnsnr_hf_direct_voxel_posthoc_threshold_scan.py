@@ -160,10 +160,16 @@ def build_heatmap(rows: list[dict[str, Any]], value_column: str) -> pd.DataFrame
 
 
 def scale_names_from_raw_dataframe(raw_df: pd.DataFrame) -> list[str]:
-    """Return scale names in first-seen workbook order."""
-    if "Scale" not in raw_df.columns:
-        raise ValueError("raw clinical dataframe is missing Scale")
-    return [str(scale) for scale in raw_df["Scale"].dropna().drop_duplicates().tolist()]
+    """Return STN 3m endpoint names in first-seen raw scale order."""
+    required = {"Scale", "Protocol", "Phase"}
+    missing = sorted(required.difference(raw_df.columns))
+    if missing:
+        raise ValueError("raw clinical dataframe is missing " + ", ".join(missing))
+    subset = raw_df[
+        raw_df["Protocol"].astype(str).eq("STN")
+        & raw_df["Phase"].astype(str).eq("3m")
+    ]
+    return [f"{scale} (STN, 3 m)" for scale in subset["Scale"].dropna().drop_duplicates().astype(str).tolist()]
 
 
 def load_all_scale_names(clinical_root: Path) -> list[str]:
@@ -175,11 +181,15 @@ def load_all_scale_names(clinical_root: Path) -> list[str]:
 def endpoint_family_for_scale(scale: str) -> str:
     """Classify a scale for all-scale HF direct voxel summaries."""
     scale_text = str(scale)
-    if scale_text.startswith("Δ") or "(+SNr, 3 m)" in scale_text:
-        return "addon_delta_3m"
+    if "(STN+SNr, immediate)" in scale_text:
+        return "raw_stnplus_snr_immediate"
+    if "(STN, immediate)" in scale_text:
+        return "raw_stn_immediate"
+    if "(STN+SNr, 3 m)" in scale_text:
+        return "raw_stnplus_snr_3m"
     if "(STN, 3 m)" in scale_text:
         return "hf_stn3m"
-    return "other"
+    return "hf_stn3m"
 
 
 def build_all_scale_long_table(per_scale_results: list[dict[str, Any]]) -> pd.DataFrame:

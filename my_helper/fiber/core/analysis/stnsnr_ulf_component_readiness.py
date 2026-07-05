@@ -13,6 +13,8 @@ from typing import Any, Iterable
 
 import pandas as pd
 
+from stnsnr_four_model_readiness import parse_endpoint_scale
+
 
 DEFAULT_VAL_ROOT = Path("/Volumes/VAL/STNSNr")
 DEFAULT_CLINICAL_ROOT = Path("/Users/mojackhu/Research/STNSNr/summary/cohort/subj")
@@ -24,7 +26,7 @@ DEFAULT_GATE_STATUS = DEFAULT_VAL_ROOT / "summary/four_model_execution/gate_stat
 DEFAULT_OUTPUT_ROOT = DEFAULT_VAL_ROOT / "summary/four_model_execution/ulf_component_readiness"
 
 DEFAULT_HF_SCALE = "MDS-UPDRS III score (STN, 3 m)"
-DEFAULT_ULF_DELTA_SCALE = "ΔMDS-UPDRS III score (+SNr, 3 m)"
+DEFAULT_ULF_POST_SCALE = "MDS-UPDRS III score (STN+SNr, 3 m)"
 
 
 @dataclass
@@ -79,11 +81,6 @@ def classify_frequency_component(frequency_hz: Any) -> str:
     if frequency <= 50:
         return "ULF"
     return "MID"
-
-
-def reconstruct_post_score_from_delta(hf_reference_score: Any, delta_score: Any) -> float:
-    """Reconstruct raw HF+ULF post score from raw HF reference plus raw delta score."""
-    return float(hf_reference_score) + float(delta_score)
 
 
 def component_efield_paths(derivatives_root: Path, row: dict[str, Any] | pd.Series) -> tuple[Path, Path]:
@@ -186,35 +183,40 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def build_endpoint_reconstruction(raw_df: pd.DataFrame, hf_scale: str, delta_scale: str) -> list[dict[str, Any]]:
-    hf_rows = raw_df[(raw_df["Protocol"].astype(str) == "STN") & (raw_df["Phase"].astype(str) == "3m") & (raw_df["Scale"] == hf_scale)]
-    delta_rows = raw_df[
-        (raw_df["Protocol"].astype(str) == "STN+SNr")
-        & (raw_df["Phase"].astype(str) == "3m")
-        & (raw_df["Scale"] == delta_scale)
-    ]
+def _endpoint_rows(raw_df: pd.DataFrame, endpoint_scale: str) -> pd.DataFrame:
+    base_scale, protocol, phase = parse_endpoint_scale(endpoint_scale)
+    return raw_df[
+        raw_df["Scale"].astype(str).eq(base_scale)
+        & raw_df["Protocol"].astype(str).eq(protocol)
+        & raw_df["Phase"].astype(str).eq(phase)
+    ].copy()
+
+
+def build_endpoint_reconstruction(raw_df: pd.DataFrame, hf_scale: str, post_scale: str) -> list[dict[str, Any]]:
+    hf_rows = _endpoint_rows(raw_df, hf_scale)
+    post_rows = _endpoint_rows(raw_df, post_scale)
     merged = hf_rows[["ID", "Value", "Baseline"]].rename(columns={"Value": "Y_HF_ref", "Baseline": "Baseline_HF"}).merge(
-        delta_rows[["ID", "Value", "Baseline"]].rename(columns={"Value": "Delta_raw", "Baseline": "Baseline_delta"}),
+        post_rows[["ID", "Value", "Baseline"]].rename(columns={"Value": "Y_post_raw", "Baseline": "Baseline_post"}),
         on="ID",
         how="outer",
         indicator=True,
     )
     out: list[dict[str, Any]] = []
     for _, row in merged.sort_values("ID").iterrows():
-        status = "PASS" if row["_merge"] == "both" and pd.notna(row["Y_HF_ref"]) and pd.notna(row["Delta_raw"]) else "FAIL"
-        y_post = ""
+        status = "PASS" if row["_merge"] == "both" and pd.notna(row["Y_HF_ref"]) and pd.notna(row["Y_post_raw"]) else "FAIL"
+        delta_raw = ""
         if status == "PASS":
-            y_post = reconstruct_post_score_from_delta(row["Y_HF_ref"], row["Delta_raw"])
+            delta_raw = float(row["Y_post_raw"]) - float(row["Y_HF_ref"])
         out.append(
             {
                 "subject_id": sanitize(row.get("ID")),
                 "hf_scale": hf_scale,
-                "delta_scale": delta_scale,
+                "post_scale": post_scale,
                 "Y_HF_ref": row.get("Y_HF_ref", ""),
-                "Delta_raw": row.get("Delta_raw", ""),
+                "Y_post_raw": row.get("Y_post_raw", ""),
+                "Delta_raw": delta_raw,
                 "Baseline_HF": row.get("Baseline_HF", ""),
-                "Baseline_delta": row.get("Baseline_delta", ""),
-                "Y_post_reconstructed": y_post,
+                "Baseline_post": row.get("Baseline_post", ""),
                 "status": status,
                 "merge_status": row["_merge"],
             }
@@ -336,14 +338,14 @@ def run_readiness(args: argparse.Namespace) -> int:
     else:
         raw_df = pd.read_excel(raw_clinical)
         stim_df = pd.read_excel(stim_workbook, sheet_name=DEFAULT_STIM_SHEET)
-        endpoint_rows = build_endpoint_reconstruction(raw_df, args.hf_scale, args.delta_scale)
+        endpoint_rows = build_endpoint_reconstruction(raw_df, args.hf_scale, args.post_scale)
         n_endpoint_pass = sum(1 for row in endpoint_rows if row["status"] == "PASS")
         add_check(
             checks,
             "clinical",
             "chronic_endpoint_reconstruction",
             "PASS" if n_endpoint_pass >= int(args.min_subjects) else "FAIL",
-            f"{n_endpoint_pass} subjects reconstructible for {args.delta_scale}",
+            f"{n_endpoint_pass} subjects reconstructible for {args.post_scale}",
             raw_clinical,
         )
         has_immediate = bool((raw_df["Phase"].astype(str).str.lower() == "immediate").any())
@@ -399,12 +401,12 @@ def run_readiness(args: argparse.Namespace) -> int:
         [
             "subject_id",
             "hf_scale",
-            "delta_scale",
+            "post_scale",
             "Y_HF_ref",
+            "Y_post_raw",
             "Delta_raw",
             "Baseline_HF",
-            "Baseline_delta",
-            "Y_post_reconstructed",
+            "Baseline_post",
             "status",
             "merge_status",
         ],
@@ -443,7 +445,7 @@ def run_readiness(args: argparse.Namespace) -> int:
             "derivatives_root": str(derivatives_root),
             "gate_status_path": str(gate_status_path),
             "hf_scale": args.hf_scale,
-            "delta_scale": args.delta_scale,
+            "post_scale": args.post_scale,
             "min_subjects": int(args.min_subjects),
             "endpoint_summary": {
                 "n_rows": len(endpoint_rows),
@@ -475,7 +477,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gate-status", default=str(DEFAULT_GATE_STATUS), help="A/B gate status CSV.")
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT), help="Output root for timestamped readiness runs.")
     parser.add_argument("--hf-scale", default=DEFAULT_HF_SCALE, help="HF reference scale.")
-    parser.add_argument("--delta-scale", default=DEFAULT_ULF_DELTA_SCALE, help="ULF raw delta scale.")
+    parser.add_argument("--post-scale", default=DEFAULT_ULF_POST_SCALE, help="ULF raw post scale.")
+    parser.add_argument("--delta-scale", dest="post_scale", help="Deprecated alias for --post-scale.")
     parser.add_argument("--min-subjects", type=int, default=12, help="Minimum reconstructible subjects.")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero unless fully ready for primary ULF execution.")
     return parser

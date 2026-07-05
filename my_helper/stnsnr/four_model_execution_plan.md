@@ -66,7 +66,7 @@
 - Default resources: MATLAB workers 8; Python jobs 14; random seed 42. The MATLAB phase and Python phase run **serially, in separate phases** to avoid CPU oversubscription.
 
 **Data (verified to exist)**
-- Raw clinical scores: `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx` ✓ (joined by `ID`, e.g. `SNr003`).
+- Raw clinical scores: `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx` ✓ (joined by `ID`, e.g. `SNr003`). This workbook is the raw endpoint table rebuilt from `/Users/mojackhu/Research/STNSNr/summary/stats/clinic/effect/3m/scale_subject.xlsx`: `Scale` stores the 28 clinical feature names, `Protocol`/`Phase` store the stimulation condition, and `Value` is the raw score. It must not contain `Δ...` derived rows; add-on gain/delta endpoints are reconstructed from raw `STN` and raw `STN+SNr` rows.
 - Stimulation parameter audit: same dir, `followup_stimulation.xlsx` (sheet `Contact Parameters`) ✓.
 - `/Volumes/VAL` mounted ✓, contains `reference/` (methodology PDFs) and `summary/` (existing `cohort/ stats/ table/ vta/`).
 - Output roots `/Volumes/VAL/STNSNr/summary/direct_voxel/` and `.../normative_connectome_fiber/` **not yet created** (greenfield).

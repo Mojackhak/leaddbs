@@ -192,24 +192,25 @@ def test_scale_names_and_endpoint_family() -> None:
     raw = pd.DataFrame(
         {
             "Scale": [
-                "MDS-UPDRS III score (STN, 3 m)",
-                "MDS-UPDRS III score (STN, 3 m)",
-                "ΔMDS-UPDRS III score (+SNr, 3 m)",
-                "SE-ADL score (%) (STN, 3 m)",
-            ]
+                "MDS-UPDRS III score",
+                "MDS-UPDRS III score",
+                "MDS-UPDRS III score",
+                "SE-ADL score (%)",
+            ],
+            "Protocol": ["STN", "STN+SNr", "STN", "STN"],
+            "Phase": ["3m", "3m", "immediate", "3m"],
         }
     )
     assert_equal(
         scale_names_from_raw_dataframe(raw),
         [
             "MDS-UPDRS III score (STN, 3 m)",
-            "ΔMDS-UPDRS III score (+SNr, 3 m)",
             "SE-ADL score (%) (STN, 3 m)",
         ],
         "scale order",
     )
     assert_equal(endpoint_family_for_scale("MDS-UPDRS III score (STN, 3 m)"), "hf_stn3m", "STN family")
-    assert_equal(endpoint_family_for_scale("ΔMDS-UPDRS III score (+SNr, 3 m)"), "addon_delta_3m", "delta family")
+    assert_equal(endpoint_family_for_scale("MDS-UPDRS III score (STN+SNr, 3 m)"), "raw_stnplus_snr_3m", "STN+SNr family")
 
 
 def test_all_scale_tables() -> None:
@@ -246,8 +247,8 @@ def test_all_scale_tables() -> None:
             "selected": scan_rows[1],
         },
         {
-            "scale": "ΔMDS-UPDRS III score (+SNr, 3 m)",
-            "scale_slug": "delta_mds_updrs_iii_score_snr_3_m",
+            "scale": "MDS-UPDRS III axial score (STN, 3 m)",
+            "scale_slug": "mds_updrs_iii_axial_score_stn_3_m",
             "scale_direction": "lower",
             "n_subjects": 16,
             "n_candidate_voxels": 6406,

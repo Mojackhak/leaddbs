@@ -40,7 +40,7 @@ Raw post and baseline scores come from:
 /Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx
 ```
 
-Clinical rows are joined to imaging by `ID` (`SNr003`, `SNr006`, etc.). The improvement-rate table is not used by this model. The scale list is configurable. Scale direction is read from an internal direction table for known scales; unknown scales must provide an explicit higher-is-better or lower-is-better direction before the run starts.
+Clinical rows are joined to imaging by `ID` (`SNr003`, `SNr006`, etc.). `subject_effect_origin.xlsx` is a raw endpoint table rebuilt from `scale_subject.xlsx`: `Scale` stores the 28 clinical feature names, `Protocol`/`Phase` store the stimulation condition, `Baseline` stores the corresponding `Pre-op` score, and `Value` stores the raw post/intervention score. The table must not contain `Δ...` derived rows. The improvement-rate table is not used by this model. The scale list is configurable. Scale direction is read from an internal direction table for known scales; unknown scales must provide an explicit higher-is-better or lower-is-better direction before the run starts.
 
 ## Inputs
 
@@ -1431,7 +1431,7 @@ An all-scale exploratory mode may also run the same scan for every `Scale` in `s
 --all-scales
 ```
 
-This all-scale mode includes the 9 `STN, 3 m` endpoints and the 9 `Δ... (+SNr, 3 m)` endpoints. The `STN, 3 m` endpoints are direct A-model HF-only outcomes. The `Δ... (+SNr, 3 m)` endpoints are exploratory associations between HF exposure and later add-on gain endpoints; they must not be interpreted as ULF/SNr causal models.
+This all-scale mode scans the 28 raw clinical scales under the `STN, 3 m` condition. It does not scan `Δ...` endpoints because `subject_effect_origin.xlsx` no longer stores derived delta rows. `STN+SNr` and immediate raw endpoints remain available in the workbook for ULF/add-on reconstruction and secondary analyses, but they are not part of the A-model HF-only all-scale scan unless explicitly requested.
 
 The scan grid is:
 
@@ -1566,7 +1566,7 @@ All-scale mode additionally writes:
   all_scales_posthoc_threshold_scan_manifest.json
 ```
 
-`all_scales_posthoc_threshold_scan_long.csv` contains `18 x 60 = 1080` rows. `all_scales_posthoc_threshold_scan_summary.csv` contains one row per scale, including selected `tau`, selected `Coverage`, selected rho, nominal p, Q2, voxel count, endpoint family, and number of hard-filter-passing grid cells. If a scale has no passing grid cell, selected threshold fields remain empty and `n_passing_grid_cells = 0`.
+`all_scales_posthoc_threshold_scan_long.csv` contains `28 x 60 = 1680` rows when all 28 raw scales are available. `all_scales_posthoc_threshold_scan_summary.csv` contains one row per scale, including selected `tau`, selected `Coverage`, selected rho, nominal p, Q2, voxel count, endpoint family, and number of hard-filter-passing grid cells. If a scale has no passing grid cell, selected threshold fields remain empty and `n_passing_grid_cells = 0`.
 
 All-scale mode uses a shared HF exposure cache to avoid recomputing the same e-field sampling for every scale:
 

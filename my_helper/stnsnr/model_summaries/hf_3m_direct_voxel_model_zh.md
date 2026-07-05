@@ -40,7 +40,7 @@ raw post 和 baseline 分数来自：
 /Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx
 ```
 
-临床行与影像按 `ID`（`SNr003`、`SNr006` 等）连接。本模型不使用改善率宽表。量表列表可配置；已知量表方向由内置方向表提供，未知量表必须在运行前显式指定 higher-is-better 或 lower-is-better。
+临床行与影像按 `ID`（`SNr003`、`SNr006` 等）连接。`subject_effect_origin.xlsx` 是从 `scale_subject.xlsx` 重建的 raw endpoint 表：`Scale` 存放 28 个临床 feature 名，`Protocol`/`Phase` 存放刺激条件，`Baseline` 存放对应 `Pre-op` 分数，`Value` 存放 raw post/intervention score。该表不得包含 `Δ...` 派生行。本模型不使用改善率宽表。量表列表可配置；已知量表方向由内置方向表提供，未知量表必须在运行前显式指定 higher-is-better 或 lower-is-better。
 
 ## 输入
 
@@ -1431,7 +1431,7 @@ All-scale exploratory mode 也可以对 `subject_effect_origin.xlsx` 中每一�
 --all-scales
 ```
 
-All-scale mode 包括 9 个 `STN, 3 m` endpoint 和 9 个 `Δ... (+SNr, 3 m)` endpoint。`STN, 3 m` endpoint 是 A 模型直接对应的 HF-only outcome。`Δ... (+SNr, 3 m)` endpoint 只是 HF exposure 与后续 add-on gain endpoint 的 exploratory association，不得解释为 ULF/SNr causal model。
+All-scale mode 扫描 28 个 raw clinical scales 在 `STN, 3 m` 条件下的 endpoint。它不再扫描 `Δ...` endpoint，因为 `subject_effect_origin.xlsx` 不再存放派生 delta 行。`STN+SNr` 和 immediate raw endpoints 仍保留在工作簿中，用于 ULF/add-on 重建和 secondary analyses；除非明确要求，它们不属于 A 模型 HF-only all-scale scan。
 
 扫描网格为：
 
@@ -1566,7 +1566,7 @@ All-scale mode 额外输出：
   all_scales_posthoc_threshold_scan_manifest.json
 ```
 
-`all_scales_posthoc_threshold_scan_long.csv` 包含 `18 x 60 = 1080` 行。`all_scales_posthoc_threshold_scan_summary.csv` 每个 scale 一行，包含 selected `tau`、selected `Coverage`、selected rho、nominal p、Q2、voxel count、endpoint family 和通过 hard filter 的 grid cell 数。如果某个 scale 没有任何格点通过过滤，selected threshold 字段留空，并明确 `n_passing_grid_cells = 0`。
+`all_scales_posthoc_threshold_scan_long.csv` 在 28 个 raw scales 均可用时包含 `28 x 60 = 1680` 行。`all_scales_posthoc_threshold_scan_summary.csv` 每个 scale 一行，包含 selected `tau`、selected `Coverage`、selected rho、nominal p、Q2、voxel count、endpoint family 和通过 hard filter 的 grid cell 数。如果某个 scale 没有任何格点通过过滤，selected threshold 字段留空，并明确 `n_passing_grid_cells = 0`。
 
 All-scale mode 使用共享 HF exposure cache，避免为每个 scale 重复采样同一套 e-field：
 

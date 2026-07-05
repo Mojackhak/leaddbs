@@ -59,7 +59,7 @@
 - 默认资源：MATLAB workers 8；Python jobs 14；随机种子 42。MATLAB 相与 Python 相**分阶段串行**，避免 CPU 超订。
 
 **数据（已核验存在）**
-- 临床原始分：`/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx` ✓（按 `ID` 如 `SNr003` join）。
+- 临床原始分：`/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx` ✓（按 `ID` 如 `SNr003` join）。该工作簿是从 `/Users/mojackhu/Research/STNSNr/summary/stats/clinic/effect/3m/scale_subject.xlsx` 重建的 raw endpoint 表：`Scale` 存放 28 个临床 feature 名，`Protocol`/`Phase` 存放刺激条件，`Value` 是 raw score。该表不得包含 `Δ...` 派生行；add-on gain/delta endpoint 后续从 raw `STN` 与 raw `STN+SNr` 行现场重建。
 - 刺激参数审计：同目录 `followup_stimulation.xlsx`（sheet `Contact Parameters`）✓。
 - `/Volumes/VAL` 已挂载 ✓，含 `reference/`（方法学 PDF）、`summary/`（现有 `cohort/ stats/ table/ vta/`）。
 - 输出根 `/Volumes/VAL/STNSNr/summary/direct_voxel/` 与 `.../normative_connectome_fiber/` **尚未创建**（全新）。
