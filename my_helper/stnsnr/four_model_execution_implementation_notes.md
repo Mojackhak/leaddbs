@@ -28,7 +28,7 @@ The readiness run verifies and records:
 - MATLAB executable availability and optional `ea_flip_lr_nonlinear` callability.
 - `/Volumes/VAL/STNSNr` mount, `reference/`, `summary/`, and output-root writability.
 - Raw clinical score workbook availability, required columns, subject count, default HF endpoint availability, ULF chronic delta/reconstructibility status, and immediate endpoint availability.
-- `followup_stimulation.xlsx` `Contact Parameters` availability, required columns, subject count, target/frequency sanity, and expected MNI raw `sim-efield` path availability.
+- `followup_stimulation.xlsx` `Contact Parameters` availability, required columns, subject count, target/frequency sanity, and expected MNI raw `sim-efield` path availability. Continuous stimulation uses the condition-level VTA folder. Alternating stimulation is discovered at subprogram/contact level with `alt_<side>_<target>_c<contact>_row*` folder names.
 - Public connectome `data.mat` availability under the asset root.
 - Connected-region atlas availability under the asset root.
 - Scale direction table generation with `SE-ADL` marked higher-is-better and the current score scales marked lower-is-better.

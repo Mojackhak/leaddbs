@@ -180,22 +180,39 @@ def normalize_protocol_for_folder(protocol: str) -> str:
     return protocol
 
 
-def expected_efield_path(leaddbs_derivatives: Path, row: pd.Series) -> Path:
+def _efield_file_in_folder(folder: Path, subject_name: str, side: str) -> Path:
+    return folder / f"sub-{subject_name}_sim-efield_model-simbio_hemi-{side}.nii"
+
+
+def _contact_token(value: Any) -> str:
+    if pd.isna(value):
+        return ""
+    try:
+        return str(int(float(value)))
+    except (TypeError, ValueError):
+        return sanitize(value)
+
+
+def expected_efield_paths(leaddbs_derivatives: Path, row: pd.Series) -> list[Path]:
     name = sanitize(row.get("NameEn"))
     subject_id = sanitize(row.get("ID"))
     phase = sanitize(row.get("Phase"))
     protocol = normalize_protocol_for_folder(row.get("Protocol"))
     pattern = sanitize(row.get("StimulationPattern")) or "continuous"
     side = sanitize(row.get("Side"))
-    folder = f"stnsnr_vta_{subject_id}_{phase}_{protocol}_{pattern}"
-    return (
-        leaddbs_derivatives
-        / f"sub-{name}"
-        / "stimulations"
-        / "MNI152NLin2009bAsym"
-        / folder
-        / f"sub-{name}_sim-efield_model-simbio_hemi-{side}.nii"
-    )
+    target = sanitize(row.get("Target"))
+    base_dir = leaddbs_derivatives / f"sub-{name}" / "stimulations" / "MNI152NLin2009bAsym"
+    if pattern == "alternating":
+        contact = _contact_token(row.get("Contact"))
+        folder_glob = f"stnsnr_vta_{subject_id}_{phase}_{protocol}_alt_{side}_{target}_c{contact}_row*"
+        paths = [_efield_file_in_folder(folder, name, side) for folder in sorted(base_dir.glob(folder_glob))]
+        if not paths:
+            fallback_glob = f"stnsnr_vta_{subject_id}_{phase}_{protocol}_alt_{side}_{target}_c*_row*"
+            paths = [_efield_file_in_folder(folder, name, side) for folder in sorted(base_dir.glob(fallback_glob))]
+        return [path for path in paths if path.name.startswith(f"sub-{name}_")]
+
+    folder = base_dir / f"stnsnr_vta_{subject_id}_{phase}_{protocol}_{pattern}"
+    return [_efield_file_in_folder(folder, name, side)]
 
 
 def scale_base_name(scale: str) -> str:
@@ -337,7 +354,14 @@ def build_scale_direction_table(raw_df: pd.DataFrame) -> list[dict[str, Any]]:
 def build_efield_availability(stim_df: pd.DataFrame, leaddbs_derivatives: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for _, row in stim_df.iterrows():
-        expected = expected_efield_path(leaddbs_derivatives, row)
+        expected_paths = expected_efield_paths(leaddbs_derivatives, row)
+        existing_paths = [path for path in expected_paths if path.is_file()]
+        if len(existing_paths) == 1:
+            status = "PASS"
+        elif len(existing_paths) > 1:
+            status = "MULTIPLE"
+        else:
+            status = "MISSING"
         rows.append(
             {
                 "ID": sanitize(row.get("ID")),
@@ -348,9 +372,11 @@ def build_efield_availability(stim_df: pd.DataFrame, leaddbs_derivatives: Path) 
                 "Side": sanitize(row.get("Side")),
                 "Frequency": sanitize(row.get("Frequency")),
                 "StimulationPattern": sanitize(row.get("StimulationPattern")),
-                "expected_path": str(expected),
-                "exists": expected.is_file(),
-                "status": "PASS" if expected.is_file() else "MISSING",
+                "expected_path": ";".join(str(path) for path in expected_paths),
+                "matched_paths": ";".join(str(path) for path in existing_paths),
+                "n_matches": len(existing_paths),
+                "exists": len(existing_paths) > 0,
+                "status": status,
             }
         )
     return rows
@@ -481,13 +507,35 @@ def run_readiness(args: argparse.Namespace) -> int:
     write_csv(
         output_dir / "four_model_m0_efield_availability.csv",
         efield_rows,
-        ["ID", "NameEn", "Phase", "Protocol", "Target", "Side", "Frequency", "StimulationPattern", "expected_path", "exists", "status"],
+        [
+            "ID",
+            "NameEn",
+            "Phase",
+            "Protocol",
+            "Target",
+            "Side",
+            "Frequency",
+            "StimulationPattern",
+            "expected_path",
+            "matched_paths",
+            "n_matches",
+            "exists",
+            "status",
+        ],
     )
     if efield_rows:
         found = sum(1 for row in efield_rows if row["exists"])
-        missing = len(efield_rows) - found
-        status = "PASS" if missing == 0 else ("WARN" if found > 0 else "FAIL")
-        add_check(checks, "efield", "raw_mni_sim_efield_availability", status, f"found={found} missing={missing} total={len(efield_rows)}", output_dir / "four_model_m0_efield_availability.csv")
+        missing = sum(1 for row in efield_rows if row["status"] == "MISSING")
+        multiple = sum(1 for row in efield_rows if row["status"] == "MULTIPLE")
+        status = "PASS" if missing == 0 and multiple == 0 else ("WARN" if found > 0 else "FAIL")
+        add_check(
+            checks,
+            "efield",
+            "raw_mni_sim_efield_availability",
+            status,
+            f"found={found} missing={missing} multiple={multiple} total={len(efield_rows)}",
+            output_dir / "four_model_m0_efield_availability.csv",
+        )
 
     for name, rel in CONNECTOME_PATHS.items():
         path = asset_root / rel
