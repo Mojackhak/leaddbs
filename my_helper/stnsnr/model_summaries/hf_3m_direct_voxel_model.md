@@ -1496,18 +1496,42 @@ posthoc_threshold_scan_results.csv
 posthoc_threshold_scan_heatmap_q2.csv
 posthoc_threshold_scan_heatmap_rho.csv
 posthoc_threshold_scan_heatmap_n_voxels.csv
+posthoc_threshold_scan_heatmap_rho_annotated_source.csv
 posthoc_selected_threshold_manifest.json
 ```
 
-Figure outputs, when the plotting environment is available, should mirror the CSV heatmaps:
+Figure outputs, when the plotting environment is available, should mirror the CSV heatmaps and include a publication-style annotated rho heatmap:
 
 ```text
 posthoc_threshold_scan_heatmap_q2.png
 posthoc_threshold_scan_heatmap_rho.png
 posthoc_threshold_scan_heatmap_n_voxels.png
+posthoc_threshold_scan_heatmap_rho_annotated.svg
+posthoc_threshold_scan_heatmap_rho_annotated.pdf
+posthoc_threshold_scan_heatmap_rho_annotated.png
 ```
 
-Grid-cell p values are nominal only. If the post-hoc selected branch is later described as significant after threshold scanning, a max-stat permutation is required:
+The annotated rho heatmap uses:
+
+```text
+x axis = tau (V/m)
+y axis = Coverage threshold
+cell color = LOOCV Spearman rho, centered at rho = 0
+cell label = rho rounded to 2 decimals plus nominal-p stars on the next line
+primary branch tau=200 / Coverage>=5 = thin black outline
+post-hoc selected branch = thick black outline
+hard-filter-passing cells = light gray auxiliary marker or outline
+```
+
+Nominal-p stars are:
+
+```text
+*   p < 0.05
+**  p < 0.01
+*** p < 0.001
+```
+
+Grid-cell p values are nominal only and are not corrected by FDR or max-stat permutation. If the post-hoc selected branch is later described as significant after threshold scanning, a max-stat permutation is required:
 
 ```text
 for each permutation:

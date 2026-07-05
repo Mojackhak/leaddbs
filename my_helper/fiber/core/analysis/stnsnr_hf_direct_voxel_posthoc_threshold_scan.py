@@ -58,6 +58,13 @@ COVERAGE_GRID = [5, 6, 7, 8, 10, 12]
 PRIMARY_TAU = 200
 PRIMARY_COVERAGE = 5
 POSTHOC_CANDIDATE_THRESHOLD = 100.0
+ANNOTATED_RHO_REQUIRED_COLUMNS = [
+    "tau",
+    "coverage",
+    "loocv_spearman_rho",
+    "loocv_spearman_nominal_p",
+    "passes_all_hard_filters",
+]
 
 
 def iso_now() -> str:
@@ -148,6 +155,220 @@ def build_heatmap(rows: list[dict[str, Any]], value_column: str) -> pd.DataFrame
     heatmap.index.name = "tau"
     heatmap.columns.name = "coverage"
     return heatmap
+
+
+def significance_stars(p_value: float) -> str:
+    """Return nominal-p significance stars for annotated heatmaps."""
+    p = _finite_float(p_value)
+    if not np.isfinite(p):
+        return ""
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return ""
+
+
+def validate_annotated_rho_input(rows: list[dict[str, Any]] | pd.DataFrame) -> pd.DataFrame:
+    """Validate and return rows needed to draw the annotated rho heatmap."""
+    frame = rows.copy() if isinstance(rows, pd.DataFrame) else pd.DataFrame(rows)
+    missing = [column for column in ANNOTATED_RHO_REQUIRED_COLUMNS if column not in frame.columns]
+    if missing:
+        raise ValueError("annotated rho heatmap input is missing columns: " + ", ".join(missing))
+    return frame
+
+
+def grid_cell_position(
+    tau: int | float,
+    coverage: int | float,
+    tau_order: list[int] | None = None,
+    coverage_order: list[int] | None = None,
+) -> tuple[int, int]:
+    """Return zero-based x/y cell coordinates for a tau/coverage grid cell."""
+    tau_values = TAU_GRID if tau_order is None else tau_order
+    coverage_values = COVERAGE_GRID if coverage_order is None else coverage_order
+    tau_int = int(tau)
+    coverage_int = int(coverage)
+    if tau_int not in tau_values:
+        raise ValueError(f"tau {tau_int} is not in the heatmap tau grid")
+    if coverage_int not in coverage_values:
+        raise ValueError(f"coverage {coverage_int} is not in the heatmap coverage grid")
+    return tau_values.index(tau_int), coverage_values.index(coverage_int)
+
+
+def build_annotated_rho_source(
+    rows: list[dict[str, Any]] | pd.DataFrame,
+    *,
+    selected_tau: int | float | None,
+    selected_coverage: int | float | None,
+) -> pd.DataFrame:
+    """Build source data for the annotated rho heatmap."""
+    frame = validate_annotated_rho_input(rows).copy()
+    frame["tau"] = frame["tau"].astype(int)
+    frame["coverage"] = frame["coverage"].astype(int)
+    frame["rho"] = pd.to_numeric(frame["loocv_spearman_rho"], errors="coerce")
+    frame["nominal_p"] = pd.to_numeric(frame["loocv_spearman_nominal_p"], errors="coerce")
+    frame["stars"] = frame["nominal_p"].map(significance_stars)
+    frame["cell_label"] = frame.apply(
+        lambda row: "" if not np.isfinite(row["rho"]) else f"{row['rho']:.2f}" + (f"\n{row['stars']}" if row["stars"] else ""),
+        axis=1,
+    )
+    frame["passes_all_hard_filters"] = frame["passes_all_hard_filters"].map(_as_bool)
+    frame["is_primary_branch"] = (frame["tau"] == PRIMARY_TAU) & (frame["coverage"] == PRIMARY_COVERAGE)
+    if selected_tau is None or selected_coverage is None:
+        frame["is_selected_branch"] = False
+    else:
+        frame["is_selected_branch"] = (frame["tau"] == int(selected_tau)) & (frame["coverage"] == int(selected_coverage))
+    columns = [
+        "tau",
+        "coverage",
+        "rho",
+        "nominal_p",
+        "stars",
+        "cell_label",
+        "passes_all_hard_filters",
+        "is_primary_branch",
+        "is_selected_branch",
+    ]
+    return frame.sort_values(["coverage", "tau"])[columns]
+
+
+def _pivot_annotated_source(source: pd.DataFrame, value_column: str) -> pd.DataFrame:
+    heatmap = source.pivot(index="coverage", columns="tau", values=value_column)
+    return heatmap.reindex(index=COVERAGE_GRID, columns=TAU_GRID)
+
+
+def write_annotated_rho_heatmap(scan_dir: Path) -> dict[str, Any]:
+    """Render the post-hoc rho heatmap with nominal-p stars and branch outlines."""
+    results_path = scan_dir / "posthoc_threshold_scan_results.csv"
+    manifest_path = scan_dir / "posthoc_selected_threshold_manifest.json"
+    if not results_path.is_file():
+        raise FileNotFoundError(f"missing post-hoc scan results: {results_path}")
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"missing selected threshold manifest: {manifest_path}")
+
+    with manifest_path.open(encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    selected = manifest.get("selected_grid_cell") or {}
+    source = build_annotated_rho_source(
+        pd.read_csv(results_path),
+        selected_tau=selected.get("tau"),
+        selected_coverage=selected.get("coverage"),
+    )
+    source_path = scan_dir / "posthoc_threshold_scan_heatmap_rho_annotated_source.csv"
+    source.to_csv(source_path, index=False)
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib as mpl
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import TwoSlopeNorm
+        from matplotlib.patches import Rectangle
+    except Exception as exc:  # pragma: no cover - optional plotting dependency
+        return {"status": "SKIPPED", "reason": str(exc), "source_csv": str(source_path)}
+
+    mpl.rcParams.update(
+        {
+            "font.family": "sans-serif",
+            "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans", "sans-serif"],
+            "svg.fonttype": "none",
+            "pdf.fonttype": 42,
+            "font.size": 7,
+            "axes.linewidth": 0.8,
+            "axes.spines.right": False,
+            "axes.spines.top": False,
+        }
+    )
+    rho_grid = _pivot_annotated_source(source, "rho").astype(float)
+    label_grid = _pivot_annotated_source(source, "cell_label")
+    pass_grid = _pivot_annotated_source(source, "passes_all_hard_filters").fillna(False).astype(bool)
+    values = rho_grid.to_numpy(dtype=float)
+    finite_values = values[np.isfinite(values)]
+    max_abs = float(np.max(np.abs(finite_values))) if finite_values.size else 1.0
+    max_abs = max(max_abs, 0.1)
+
+    fig, ax = plt.subplots(figsize=(7.2, 4.45))
+    fig.subplots_adjust(left=0.08, right=0.88, bottom=0.2, top=0.9)
+    norm = TwoSlopeNorm(vcenter=0.0, vmin=-max_abs, vmax=max_abs)
+    image = ax.imshow(values, cmap="RdBu_r", norm=norm, aspect="auto")
+    ax.set_xlabel("E-field threshold tau (V/m)")
+    ax.set_ylabel("Coverage threshold")
+    ax.set_title("HF direct voxel post-hoc threshold scan", pad=7)
+    ax.set_xticks(np.arange(len(TAU_GRID)))
+    ax.set_xticklabels([str(item) for item in TAU_GRID])
+    ax.set_yticks(np.arange(len(COVERAGE_GRID)))
+    ax.set_yticklabels([str(item) for item in COVERAGE_GRID])
+    ax.set_xticks(np.arange(-0.5, len(TAU_GRID), 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, len(COVERAGE_GRID), 1), minor=True)
+    ax.grid(which="minor", color="white", linewidth=0.9)
+    ax.tick_params(which="minor", bottom=False, left=False)
+
+    for y_idx, coverage in enumerate(COVERAGE_GRID):
+        for x_idx, tau in enumerate(TAU_GRID):
+            label = label_grid.loc[coverage, tau]
+            rho = rho_grid.loc[coverage, tau]
+            if isinstance(label, str) and label:
+                text_color = "white" if np.isfinite(rho) and abs(float(rho)) > 0.55 * max_abs else "black"
+                ax.text(x_idx, y_idx, label, ha="center", va="center", fontsize=6.5, color=text_color, linespacing=0.9)
+            if bool(pass_grid.loc[coverage, tau]):
+                ax.scatter(x_idx + 0.34, y_idx - 0.34, s=12, c="#BDBDBD", edgecolors="none", zorder=4)
+
+    primary_x, primary_y = grid_cell_position(PRIMARY_TAU, PRIMARY_COVERAGE)
+    ax.add_patch(Rectangle((primary_x - 0.5, primary_y - 0.5), 1, 1, fill=False, edgecolor="black", linewidth=1.0, zorder=5))
+    if selected.get("tau") is not None and selected.get("coverage") is not None:
+        selected_x, selected_y = grid_cell_position(selected["tau"], selected["coverage"])
+        ax.add_patch(Rectangle((selected_x - 0.5, selected_y - 0.5), 1, 1, fill=False, edgecolor="black", linewidth=2.2, zorder=6))
+
+    colorbar = fig.colorbar(image, ax=ax, fraction=0.045, pad=0.025)
+    colorbar.set_label("LOOCV Spearman rho")
+    ax.text(
+        0,
+        -0.18,
+        "Post-hoc exploratory grid search. Stars show nominal p only (* p<0.05, ** p<0.01, *** p<0.001); not FDR/max-stat corrected. Gray dot: passes hard filters.",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=6.5,
+    )
+
+    base = scan_dir / "posthoc_threshold_scan_heatmap_rho_annotated"
+    outputs = {
+        "source_csv": str(source_path),
+        "svg": str(base.with_suffix(".svg")),
+        "pdf": str(base.with_suffix(".pdf")),
+        "png": str(base.with_suffix(".png")),
+    }
+    fig.savefig(outputs["svg"], bbox_inches="tight")
+    fig.savefig(outputs["pdf"], bbox_inches="tight")
+    fig.savefig(outputs["png"], dpi=600, bbox_inches="tight")
+    plt.close(fig)
+
+    manifest["annotated_rho_heatmap"] = {
+        "status": "PASS",
+        "generated_at": iso_now(),
+        "source_results_csv": str(results_path),
+        "outputs": outputs,
+        "x_axis": "tau (V/m)",
+        "y_axis": "Coverage threshold",
+        "color_value": "LOOCV Spearman rho",
+        "color_center": 0,
+        "significance_column": "loocv_spearman_nominal_p",
+        "significance_note": "Nominal p only; not FDR or max-stat corrected.",
+        "stars": {"p<0.05": "*", "p<0.01": "**", "p<0.001": "***"},
+        "primary_branch": {"tau": PRIMARY_TAU, "coverage": PRIMARY_COVERAGE, "outline": "thin black"},
+        "selected_branch": {
+            "tau": selected.get("tau"),
+            "coverage": selected.get("coverage"),
+            "outline": "thick black",
+        },
+        "hard_filter_marker": "light gray dot",
+    }
+    write_json(manifest_path, manifest)
+    return {"status": "PASS", "outputs": outputs}
 
 
 def write_heatmap_figure(path: Path, heatmap: pd.DataFrame, title: str) -> str:
@@ -521,6 +742,10 @@ def write_scan_outputs(scan_dir: Path, rows: list[dict[str, Any]], selected: dic
         "heatmaps": heatmap_outputs,
     }
     write_json(scan_dir / "posthoc_selected_threshold_manifest.json", manifest)
+    annotated_status = write_annotated_rho_heatmap(scan_dir)
+    if annotated_status.get("status") != "PASS":
+        manifest["annotated_rho_heatmap"] = annotated_status
+        write_json(scan_dir / "posthoc_selected_threshold_manifest.json", manifest)
 
 
 def run_posthoc_threshold_scan(args: argparse.Namespace) -> int:
@@ -601,6 +826,20 @@ def run_posthoc_threshold_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_plot_only(args: argparse.Namespace) -> int:
+    """Generate annotated post-hoc rho heatmap from existing scan outputs."""
+    scale_slug = slugify(args.scale)
+    output_root = Path(args.output_root).expanduser().resolve()
+    scan_dir = output_root / scale_slug / "posthoc_threshold_scan"
+    result = write_annotated_rho_heatmap(scan_dir)
+    if result.get("status") != "PASS":
+        raise RuntimeError("annotated rho heatmap generation failed: " + json.dumps(result, sort_keys=True))
+    print(f"Annotated rho heatmap output: {scan_dir}")
+    for key, value in result["outputs"].items():
+        print(f"{key}: {value}")
+    return 0
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", default="", help="Code repo root.")
@@ -610,6 +849,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-root", default=str(DEFAULT_VAL_ROOT / "summary/direct_voxel/hf"), help="HF direct voxel output root.")
     parser.add_argument("--matlab-bin", default=str(DEFAULT_MATLAB), help="MATLAB executable.")
     parser.add_argument("--scale", default=HF_DEFAULT_SCALES[0], help="Raw clinical scale to run.")
+    parser.add_argument("--plot-only", action="store_true", help="Only draw annotated rho heatmap from existing post-hoc scan outputs.")
     parser.add_argument("--force-preprocess", action="store_true", help="Regenerate the post-hoc tau100 sparse exposure sidecar.")
     parser.add_argument("--force-flip", action="store_true", help="Regenerate left-to-right flipped fields.")
     return parser
@@ -618,6 +858,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+    if args.plot_only:
+        return run_plot_only(args)
     return run_posthoc_threshold_scan(args)
 
 

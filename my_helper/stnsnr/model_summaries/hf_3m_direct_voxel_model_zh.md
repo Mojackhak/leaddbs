@@ -1496,18 +1496,42 @@ posthoc_threshold_scan_results.csv
 posthoc_threshold_scan_heatmap_q2.csv
 posthoc_threshold_scan_heatmap_rho.csv
 posthoc_threshold_scan_heatmap_n_voxels.csv
+posthoc_threshold_scan_heatmap_rho_annotated_source.csv
 posthoc_selected_threshold_manifest.json
 ```
 
-如果绘图环境可用，应同步输出与 CSV heatmap 对应的图：
+如果绘图环境可用，应同步输出与 CSV heatmap 对应的图，并额外生成 publication-style annotated rho heatmap：
 
 ```text
 posthoc_threshold_scan_heatmap_q2.png
 posthoc_threshold_scan_heatmap_rho.png
 posthoc_threshold_scan_heatmap_n_voxels.png
+posthoc_threshold_scan_heatmap_rho_annotated.svg
+posthoc_threshold_scan_heatmap_rho_annotated.pdf
+posthoc_threshold_scan_heatmap_rho_annotated.png
 ```
 
-每个格点的 p 值仅为 nominal p。若后续要声称“扫描后仍显著”，必须运行 max-stat permutation：
+Annotated rho heatmap 使用：
+
+```text
+x axis = tau (V/m)
+y axis = Coverage threshold
+cell color = LOOCV Spearman rho, centered at rho = 0
+cell label = rho rounded to 2 decimals plus nominal-p stars on the next line
+primary branch tau=200 / Coverage>=5 = thin black outline
+post-hoc selected branch = thick black outline
+hard-filter-passing cells = light gray auxiliary marker or outline
+```
+
+Nominal-p 星号口径为：
+
+```text
+*   p < 0.05
+**  p < 0.01
+*** p < 0.001
+```
+
+每个格点的 p 值仅为 nominal p，未做 FDR 或 max-stat permutation 校正。若后续要声称“扫描后仍显著”，必须运行 max-stat permutation：
 
 ```text
 for each permutation:

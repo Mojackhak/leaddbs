@@ -8,9 +8,13 @@ import json
 from stnsnr_hf_direct_voxel_posthoc_threshold_scan import (
     COVERAGE_GRID,
     TAU_GRID,
+    build_annotated_rho_source,
     build_heatmap,
+    grid_cell_position,
     row_passes_hard_filters,
     select_best_grid_cell,
+    significance_stars,
+    validate_annotated_rho_input,
 )
 
 
@@ -129,12 +133,65 @@ def test_heatmap_shape() -> None:
     assert_equal(float(heatmap.loc[100, 6]), 0.2, "heatmap value")
 
 
+def test_significance_stars() -> None:
+    assert_equal(significance_stars(0.2), "", "not significant")
+    assert_equal(significance_stars(0.049), "*", "p<0.05")
+    assert_equal(significance_stars(0.009), "**", "p<0.01")
+    assert_equal(significance_stars(0.0009), "***", "p<0.001")
+
+
+def test_annotated_input_validation() -> None:
+    rows = [{"tau": 100, "coverage": 5, "loocv_spearman_rho": 0.1}]
+    try:
+        validate_annotated_rho_input(rows)
+    except ValueError as exc:
+        if "loocv_spearman_nominal_p" not in str(exc):
+            raise AssertionError(f"unexpected validation error: {exc}") from exc
+    else:
+        raise AssertionError("missing annotated heatmap columns should fail")
+
+
+def test_grid_cell_position() -> None:
+    assert_equal(grid_cell_position(200, 5), (3, 0), "primary position")
+    assert_equal(grid_cell_position(250, 10), (5, 4), "selected position")
+
+
+def test_annotated_rho_source() -> None:
+    rows = [
+        {
+            "tau": 250,
+            "coverage": 10,
+            "loocv_spearman_rho": 0.619,
+            "loocv_spearman_nominal_p": 0.0105,
+            "passes_all_hard_filters": True,
+        },
+        {
+            "tau": 200,
+            "coverage": 5,
+            "loocv_spearman_rho": -0.026,
+            "loocv_spearman_nominal_p": 0.92,
+            "passes_all_hard_filters": False,
+        },
+    ]
+    source = build_annotated_rho_source(rows, selected_tau=250, selected_coverage=10)
+    selected = source[(source["tau"] == 250) & (source["coverage"] == 10)].iloc[0]
+    primary = source[(source["tau"] == 200) & (source["coverage"] == 5)].iloc[0]
+    assert_equal(selected["stars"], "*", "selected nominal star")
+    assert_equal(selected["cell_label"], "0.62\n*", "selected cell label")
+    assert_equal(bool(selected["is_selected_branch"]), True, "selected branch marker")
+    assert_equal(bool(primary["is_primary_branch"]), True, "primary branch marker")
+
+
 def main() -> int:
     test_grid_definition()
     test_hard_filter()
     test_selection_priority()
     test_primary_distance_tie_break()
     test_heatmap_shape()
+    test_significance_stars()
+    test_annotated_input_validation()
+    test_grid_cell_position()
+    test_annotated_rho_source()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 
