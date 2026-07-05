@@ -882,3 +882,734 @@ OSS activation only for observed selected fibers instead of the fold candidate u
 ```
 
 Any optimized implementation must pass an exact-equivalence regression test against a brute-force reference on a small deterministic subset before formal runs.
+
+## Execution Priority And Gatekeeping
+
+The normative connectome fiber analysis must be executed as a gated sequence. This section applies only to the HF-only 3m normative connectome fiber-level model and does not apply to direct voxel models.
+
+Current executable branch families:
+
+```text
+primary:
+  peak_efield_tau800_primary
+
+sensitivity:
+  peak_efield_tau1500_sensitivity
+  top1500_top500_sensitivity
+  ossdbs_activation_sensitivity
+
+control:
+  plain_connected_streamline_control
+```
+
+Current connectome roles:
+
+```text
+PPMI 85 (Ewert 2017)          observed figure-grade robustness
+MGH-USC HCP 32 (Horn 2017)    observed figure-grade robustness
+dTOR-985 Full (Elias 2024)    primary analysis
+```
+
+Use the current document version as the only executable specification:
+
+```text
+tau_primary = 800 V/m
+tau_sensitivity = 1500 V/m
+Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
+F_candidate_tau = {l: Coverage_tau(l) >= 5}
+```
+
+Any legacy `cov3` or `EFieldCoverage>=3` rule is non-executable unless the model document is explicitly revised again. OLS ANCOVA remains a future supplemental estimator and is not run. FDR, labels, density maps, q-thresholded maps, and display fibers are QC/display outputs only; they do not define `F+`, `F-`, or `NetFiberScore`.
+
+### Round 0: Version, Branch, Input, And Manifest Freeze
+
+Purpose: guarantee all later outputs correspond to one locked document version and one locked parameter set.
+
+Run checks only; do not run statistics:
+
+```text
+lock document version
+lock scale list
+lock connectome list
+lock branch list
+lock tau / coverage / score / validation parameters
+lock random seed = 42
+check output root writability
+check e-field path manifest
+check clinical table ID join
+check scale direction
+check PPMI / MGH / dTOR data.mat readability
+check ea_flip_lr_nonlinear availability
+check OSS conda env availability, without running OSS
+```
+
+Write:
+
+```text
+run_master_manifest.json
+scale_manifest.csv
+connectome_manifest.csv
+branch_manifest.csv
+efield_input_manifest.csv
+clinical_join_manifest.csv
+environment_manifest.json
+```
+
+Enter Round 1 only if:
+
+```text
+document version is unique
+branch list is unique
+tau800 / tau1500 / Coverage>=5 are locked
+subject_id order is locked
+Y_post / Y_base join by ID
+scale direction is defined
+all required e-field paths exist and are unique by subject/side/condition
+PPMI / MGH / dTOR data.mat are readable
+output root is writable
+seed = 42 is recorded
+```
+
+Failure means stop before sidecar generation or LOOCV.
+
+### Round 1: Sidecar Cache And Exact-Equivalence Regression Test
+
+Purpose: validate implementation equivalence before formal statistics.
+
+Run:
+
+```text
+PPMI / MGH sidecars:
+  X_float32_fiber_major.npy
+  S800_bool.npy
+  S1500_bool.npy
+  fiber_id.npy
+  candidate_fiber_metadata.json
+
+dTOR chunked sidecars:
+  chunks/X_float32_fiber_major_chunk-*.npy
+  chunks/S800_bool_chunk-*.npy
+  chunks/S1500_bool_chunk-*.npy
+  chunks/fiber_id_chunk-*.npy
+  fiber_chunk_manifest.json
+  candidate_fiber_metadata.json
+
+coverage / candidate cache:
+  Coverage_tau800_all
+  Coverage_tau1500_all
+  F_candidate_tau800_full
+  F_candidate_tau1500_full
+  fold-specific candidate masks by subtraction
+  candidate_tau800_union_of_folds
+  candidate_tau1500_union_of_folds
+```
+
+Run exact-equivalence test on a small deterministic subset:
+
+```text
+n_fiber_subset = 1000 to 10000
+B_perm = 20
+B_boot = 20
+seed = 42
+```
+
+Compare optimized against brute-force for:
+
+```text
+fold-specific F_candidate_tau
+rho_HF(l)
+M_HF(l)
+F+
+F-
+SweetPeak5
+SourPeak5
+NetFiberScore
+LOOCV held-out predictions
+LOOCV Spearman rho
+small permutation null statistics
+small bootstrap finite-count summaries
+NaN / degenerate fiber locations
+```
+
+Enter Round 2 only if:
+
+```text
+subject order exactly matches
+fiber_id order exactly matches
+S800 / S1500 coverage exactly matches brute-force
+fold-specific candidate masks exactly match
+F+ / F- exactly match
+NaN / degenerate locations exactly match
+float outputs match within predefined float64 tolerance
+small plus-one p value matches
+dTOR chunked IO has no memory error
+optimized_equivalence_test_passed = true
+```
+
+Failure means stop and fix sidecar, coverage, rank, top-k tie policy, or dTOR chunking.
+
+### Round 2: Primary Observed Run, Total Scale
+
+Purpose: run the lowest-cost observed primary branch and check for non-degenerate behavior.
+
+Run:
+
+```text
+scale = MDS-UPDRS III score
+branch = peak_efield_tau800_primary
+connectome order = PPMI observed -> MGH observed -> dTOR observed
+```
+
+For each connectome compute:
+
+```text
+full-sample rho_HF / M_HF
+F+ top 1%
+F- top 0.5%
+SweetPeak5
+SourPeak5
+NetFiberScore
+LOOCV prediction
+covariate-only baseline comparison
+basic mapping QC
+```
+
+Write numeric core outputs first:
+
+```text
+normative_HF_fiber_weights.csv
+normative_HF_fiber_scores.csv
+normative_HF_fiber_loocv_predictions.csv
+normative_HF_fiber_mapping_qc.json
+normative_HF_fiber_generation_manifest.json
+```
+
+Delay `.tck` display, density maps, endpoint labels, FDR maps, q-thresholded maps, and label enrichment until numeric QC passes.
+
+Enter Round 3 only if:
+
+```text
+at least dTOR primary observed LOOCV completes
+each LOOCV fold has non-empty F_candidate_tau800
+rho_HF is not all NaN
+NetFiberScore has nonzero variance
+held-out prediction is not constant
+final model is fit
+LOOCV Spearman / Pearson / MAE / RMSE / Q2 are finite
+mapping_qc.json has no fatal error
+```
+
+Soft warnings:
+
+```text
+dTOR observed looks technically unstable
+PPMI/MGH and dTOR have completely unexplained direction conflict
+Q2 is extremely worse than baseline-only
+```
+
+Failure means fix tau800/Coverage>=5/e-field sampling, exposure variance, rank ties, top-k reducer, dTOR chunking, fiber ids, or sidecar alignment before running sensitivity or formal branches.
+
+### Round 3: Primary Observed Run, Axial Scale
+
+Purpose: cover the second default first-pass scale while reusing exposure sidecars.
+
+Run:
+
+```text
+scale = MDS-UPDRS III axial score
+branch = peak_efield_tau800_primary
+connectome order = PPMI observed -> MGH observed -> dTOR observed
+```
+
+Run the same observed outputs as Round 2.
+
+Enter Round 4 if:
+
+```text
+axial Y_post / Y_base join succeeds
+valid subjects match sidecar subject order, or a legal subject-subset view exists
+candidate masks are non-empty
+NetFiberScore is not constant
+LOOCV prediction is fit
+```
+
+If axial is missing, low variance, or technically degenerate, mark it as scale-specific failed/not interpretable. Total score may continue. If both total and axial fail, stop the mainline.
+
+### Round 4: Plain Connected-Streamline Control
+
+Purpose: test whether the outcome-filtered fiber model is merely stimulation burden, lead placement, or connectome density.
+
+Run for scales/connectomes that passed observed gates:
+
+```text
+branch = plain_connected_streamline_control
+Touched_i(l) = I[X_HF_i(l) > tau]
+PlainTouchedCount_i
+PlainExposureSum_i
+PlainExposureTop5_i
+```
+
+Compare:
+
+```text
+Y_post ~ Y_base
+Y_post ~ PlainExposureTop5 + Y_base
+Y_post ~ NetFiberScore + Y_base
+Y_post ~ NetFiberScore + PlainExposureTop5 + Y_base
+```
+
+Write:
+
+```text
+normative_HF_plain_touched_summary.csv
+normative_HF_plain_connected_model_comparison.csv
+```
+
+Delay:
+
+```text
+normative_HF_plain_touched_fibers.tck
+normative_HF_plain_touched_density_map.nii.gz
+```
+
+Enter Round 5 only if:
+
+```text
+PlainExposureTop5 is computable
+plain model is fit
+joint model is not singular
+NetFiberScore and PlainExposureTop5 are not perfectly collinear
+```
+
+Recommended collinearity flags:
+
+```text
+|corr(NetFiberScore, PlainExposureTop5)| < 0.85 = ideal
+0.85 to 0.95 = high collinearity warning
+>= 0.95 = severe collinearity warning
+```
+
+If plain control fully explains the primary branch, the main branch may continue as a minimal formal report, but interpretation is downgraded to stimulation burden / placement-associated and OSS/jitter are not recommended.
+
+### Round 5: dTOR Primary Smoke Permutation And Bootstrap
+
+Purpose: test full-process resampling before formal `B=10000`.
+
+Run only:
+
+```text
+connectome = dTOR
+branch = peak_efield_tau800_primary
+scales = scales that passed Round 2/3
+Freedman-Lane smoke permutation B=1000
+subject-level smoke bootstrap B=1000
+seed = 42
+```
+
+Each permutation must rerun the full LOOCV workflow:
+
+```text
+fold-specific candidate
+rho_HF
+M_HF
+F+ / F-
+SweetPeak5 / SourPeak5
+NetFiberScore
+held-out prediction
+LOOCV Spearman
+```
+
+Write:
+
+```text
+smoke_permutation_summary.csv
+smoke_bootstrap_qc_summary.csv
+runtime_profile update
+empty_fold_summary
+degenerate_fiber_summary
+bootstrap_finite_count_summary
+```
+
+Enter Round 6 only if:
+
+```text
+B=1000 permutation completes
+B=1000 bootstrap completes
+plus-one p is computable
+bootstrap finite count distribution is interpretable
+there are not many empty F_candidate folds
+there are not many all-NaN / degenerate maps
+runtime profile indicates B=10000 is feasible
+```
+
+Do not use smoke `p < 0.05` as a hard gate. If smoke technically fails, stop and fix resampling, chunking, top-k, or rank cache. If smoke technically passes but results are fully degenerate, either stop formal as pre-specified futility or run formal only for total scale.
+
+### Round 6: Cheap Observed Sensitivity
+
+Purpose: test whether the primary result depends entirely on tau800 or selected-fiber rule before formal heavy computation.
+
+Run:
+
+```text
+branches:
+  peak_efield_tau1500_sensitivity
+  top1500_top500_sensitivity
+
+connectomes:
+  PPMI
+  MGH
+  dTOR
+```
+
+Run:
+
+```text
+full-sample map
+LOOCV prediction
+scores
+selected fiber summary
+mapping QC
+```
+
+Do not run:
+
+```text
+formal B=10000 permutation
+formal bootstrap
+OSS
+jitter
+```
+
+Write:
+
+```text
+normative_HF_fiber_weights.csv
+normative_HF_fiber_scores.csv
+normative_HF_fiber_loocv_predictions.csv
+normative_HF_fiber_mapping_qc.json
+normative_HF_fiber_top_percentile_sweep_summary.csv
+```
+
+Enter Round 7 only if:
+
+```text
+tau1500 branch completes, or records candidate-empty / threshold-too-strict
+top1500/top500 branch completes
+LOOCV outputs are finite
+mapping QC is interpretable
+```
+
+Soft gate:
+
+```text
+tau800 and tau1500 are directionally consistent, or differences are explained by sparse coverage
+top1500/top500 does not fully reverse the top1%/top0.5% mainline
+dTOR and PPMI/MGH have directionally or anatomically interpretable consistency
+```
+
+If tau1500 is empty, record high-threshold sensitivity empty; this is not a technical failure. If top1500/top500 fully reverses the mainline, mark the result top-k dependent and downgrade interpretation.
+
+### Round 7: dTOR Primary Formal Permutation And Bootstrap
+
+Purpose: generate the core statistical evidence for the current document.
+
+Run only:
+
+```text
+connectome = dTOR
+branch = peak_efield_tau800_primary
+scales = scales that passed smoke and sensitivity hard gates
+```
+
+Recommended order:
+
+```text
+formal permutation B=10000
+formal bootstrap B=10000
+seed = 42
+```
+
+Permutation:
+
+```text
+primary statistic = LOOCV Spearman rho
+p = plus-one two-sided
+```
+
+Bootstrap:
+
+```text
+bootstrap SE
+bootstrap selection frequency
+bootstrap sign stability
+finite-count summaries
+```
+
+Write:
+
+```text
+normative_HF_fiber_permutation_summary.csv
+normative_HF_fiber_bootstrap_se.csv
+normative_HF_fiber_bootstrap_selection_frequency.csv
+normative_HF_fiber_bootstrap_sign_stability.csv
+normative_HF_fiber_fold_selection_frequency.csv
+normative_HF_fiber_fold_sign_stability.csv
+normative_HF_fiber_stability_density_map.nii.gz
+```
+
+Enter Round 8 only if:
+
+```text
+B=10000 permutation completes
+B=10000 bootstrap completes
+all block checkpoints are complete
+plus-one p is computable
+bootstrap finite counts are interpretable
+fold selection frequency is computable
+fold sign stability is computable
+manifest records resampling_status = formal_complete
+```
+
+If formal technically fails, do not run OSS, jitter, or final display. If formal completes but is negative, proceed only to minimal display/report and do not use OSS/jitter as mechanism strengthening.
+
+### Round 8: OSS-DBS Activation Sensitivity
+
+Purpose: test whether the peak E-field fiber profile remains interpretable under pathway/axon activation variables. OSS is sensitivity, not primary.
+
+Run:
+
+```text
+oss_model_set = primary_locked
+axon_model
+axon_diameter_um
+n_nodes
+waveform
+frequency_Hz
+pulse_width_us
+amplitude
+tissue_model
+conductivity_model
+activation_output
+oss_parameter_manifest.json
+```
+
+OSS candidate rule:
+
+```text
+inherit F_candidate_tau800 from peak E-field branch
+do not redefine candidates by OSS activation
+```
+
+Generate:
+
+```text
+X_oss_float32_fiber_major.npy
+PlainOSSActivated_bool.npy
+oss_activation_sidecar_metadata.json
+```
+
+Run order:
+
+```text
+PPMI / ossdbs_activation_sensitivity / observed LOOCV
+MGH / ossdbs_activation_sensitivity / observed LOOCV
+OSS plain activation control
+
+then, only if PPMI/MGH are technically normal:
+  dTOR / ossdbs_activation_sensitivity / observed LOOCV
+  dTOR / OSS smoke permutation B=1000
+  OSS plain activation control
+```
+
+Write:
+
+```text
+normative_HF_fiber_oss_parameter_manifest.json
+normative_HF_fiber_oss_activation_matrix_summary.csv
+normative_HF_fiber_oss_loocv_predictions.csv
+normative_HF_fiber_oss_permutation_summary.csv
+normative_HF_plain_oss_activation_summary.csv
+normative_HF_plain_oss_activation_model_comparison.csv
+```
+
+Enter Round 9 only if:
+
+```text
+OSS parameter manifest is locked
+OSS sidecar candidate fiber ids align with peak branch candidate ids
+OSS activation matrix is not all NaN
+OSS activation matrix is not all zero
+NetFiberScore_OSS has nonzero variance
+OSS LOOCV is fit
+OSS B=1000 smoke permutation completes
+PlainOSSActivationTop5 is computable
+OSS joint control model is fit
+```
+
+Soft support:
+
+```text
+corr(NetFiberScore_OSS, NetFiberScore_peak) > 0
+F+_OSS and F+_peak have nonzero overlap
+selected density / label summary is partly consistent with peak branch
+OSS plain activation control does not fully replace NetFiberScore_OSS
+```
+
+If OSS activation is all zero or mostly tied, mark OSS as failed sensitivity. If OSS and peak branch fully disagree, interpret the result as activation-model dependent. If OSS plain activation fully explains the result, downgrade mechanism interpretation to activation burden.
+
+### Round 9: dTOR Jitter QC
+
+Purpose: test dTOR primary spatial robustness.
+
+Run only:
+
+```text
+connectome = dTOR
+branch = peak_efield_tau800_primary
+scale = scales with completed formal primary result
+```
+
+Level 1:
+
+```text
+jitter_level_1_selected_display
+selected F+ / F- overlap
+display fiber robustness
+selected density correlation
+```
+
+Level 2, only if Level 1 is technically valid:
+
+```text
+jitter_level_2_model_density
+candidate fibers or feasible subset
+density robustness
+model similarity
+```
+
+Write:
+
+```text
+normative_HF_fiber_jitter_summary.csv
+normative_HF_fiber_jitter_model_similarity.csv
+normative_HF_fiber_jitter_selected_overlap.csv
+normative_HF_fiber_jitter_density_correlation.csv
+normative_HF_fiber_jitter_example_density_maps/
+```
+
+Enter Round 10 only if:
+
+```text
+jitter outputs are writable
+jitter selected overlap is computable
+jitter density correlation is computable
+model similarity is computable
+there are no all-empty jitter runs
+```
+
+If Level 1 technically fails, do not run Level 2. If Level 1 passes but is unstable, skip Level 2 and label the final result spatially sensitive. If both levels are stable, use them as spatial robustness support.
+
+### Round 10: Display, FDR, Labels, Density, And Cross-Connectome Summaries
+
+Purpose: generate display and interpretation outputs after numeric branches are locked. Display, FDR q-values, q-thresholded density maps, and label outputs never define the primary model and never enter `NetFiberScore`.
+
+Generate for completed branches:
+
+```text
+top 1% positive fibers
+top 0.5% sour fibers
+selected-fiber density maps
+unthresholded weighted-density maps
+positive weighted-density maps
+negative weighted-density maps
+neglogp density maps
+qvalue summary
+FDR q05 / q10 display density maps
+endpoint labels
+cortical endpoint summary
+subcortical crossing summary
+label enrichment
+plain touched-streamline density maps
+STN/SNr overlays
+cross-connectome summaries
+```
+
+Write:
+
+```text
+normative_HF_fiber_display_top1_positive.tck
+normative_HF_fiber_display_top1_positive.mat
+normative_HF_fiber_display_top0p5_sour.tck
+normative_HF_fiber_display_top0p5_sour.mat
+normative_HF_fiber_density_map.nii.gz
+normative_HF_fiber_endpoint_labels.csv
+normative_HF_fiber_cortical_endpoint_summary.csv
+normative_HF_fiber_subcortical_crossing_summary.csv
+normative_HF_fiber_label_enrichment.csv
+normative_HF_fiber_unthresholded_weighted_density.nii.gz
+normative_HF_fiber_positive_weighted_density.nii.gz
+normative_HF_fiber_negative_weighted_density.nii.gz
+normative_HF_fiber_neglogp_density.nii.gz
+normative_HF_fiber_qvalue_summary.csv
+fdr_summary_by_scale.csv
+fdr_thresholded_positive_density_q05.nii.gz
+fdr_thresholded_negative_density_q05.nii.gz
+fdr_thresholded_positive_density_q10.nii.gz
+fdr_thresholded_negative_density_q10.nii.gz
+connectome_scale_performance_summary.csv
+connectome_scale_overlap_summary.csv
+connectome_density_correlation_summary.csv
+connectome_selected_label_summary.csv
+```
+
+Completion conditions:
+
+```text
+display files derive only from finalized numeric outputs
+FDR / label / display outputs are not used to select the primary model
+label enrichment uses the plain touched-streamline background
+PPMI/MGH manifests record observed_only_connectome_robustness
+dTOR primary manifest records formal permutation/bootstrap status
+OSS manifest records smoke-only status
+unrun branches record explicit not-run reason
+```
+
+### Recommended Minimal Execution Path
+
+The most resource-conscious path that still covers the mainline and planned sensitivity hierarchy is:
+
+```text
+1. Round 0-1:
+   freeze document/inputs, build sidecars, run equivalence tests
+
+2. Round 2:
+   total scale tau800 primary observed
+   PPMI -> MGH -> dTOR
+
+3. Round 3:
+   axial scale tau800 primary observed
+   PPMI -> MGH -> dTOR
+
+4. Round 4:
+   plain connected-streamline control
+
+5. Round 5:
+   dTOR tau800 primary smoke permutation/bootstrap B=1000
+
+6. Round 6:
+   tau1500 sensitivity + top1500/top500 sensitivity observed
+
+7. Round 7:
+   dTOR tau800 primary formal permutation/bootstrap B=10000
+
+8. Round 8:
+   OSS-DBS sensitivity, PPMI/MGH first, then dTOR, B=1000 only
+
+9. Round 9:
+   dTOR jitter QC
+
+10. Round 10:
+   display / FDR / labels / cross-connectome summaries
+```
+
+The core principle is to prove `peak_efield_tau800_primary` is technically valid on total and axial scales, use plain control to separate outcome-filtered fibers from stimulation burden, run dTOR formal inference, and only then invest in OSS, jitter, and display-layer outputs.

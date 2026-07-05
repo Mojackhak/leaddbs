@@ -882,3 +882,734 @@ OSS activation only for observed selected fibers instead of the fold candidate u
 ```
 
 任何 optimized implementation 在正式运行前，都必须在一个 small deterministic subset 上通过相对 brute-force reference 的 exact-equivalence regression test。
+
+## 执行优先级与 Gatekeeping
+
+规范连接组 fiber 分析必须按 gatekeeping 顺序执行。本节只适用于 HF-only 3m normative connectome fiber-level model，不适用于 direct voxel models。
+
+当前可执行 branch 家族：
+
+```text
+primary:
+  peak_efield_tau800_primary
+
+sensitivity:
+  peak_efield_tau1500_sensitivity
+  top1500_top500_sensitivity
+  ossdbs_activation_sensitivity
+
+control:
+  plain_connected_streamline_control
+```
+
+当前 connectome 角色：
+
+```text
+PPMI 85 (Ewert 2017)          observed figure-grade robustness
+MGH-USC HCP 32 (Horn 2017)    observed figure-grade robustness
+dTOR-985 Full (Elias 2024)    primary analysis
+```
+
+当前文档版本是唯一可执行规格：
+
+```text
+tau_primary = 800 V/m
+tau_sensitivity = 1500 V/m
+Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
+F_candidate_tau = {l: Coverage_tau(l) >= 5}
+```
+
+任何历史 `cov3` 或 `EFieldCoverage>=3` 规则均不是当前可执行规格，除非模型文档再次被显式修订。OLS ANCOVA 仍是未来可选补充估计器，本轮不执行。FDR、labels、density maps、q-thresholded maps 和 display fibers 只用于 QC/display，不定义 `F+`、`F-` 或 `NetFiberScore`。
+
+### Round 0: Version, Branch, Input, And Manifest Freeze
+
+目的：确保后续所有输出都对应同一个锁定文档版本和同一个锁定参数集。
+
+只运行检查，不运行统计模型：
+
+```text
+lock document version
+lock scale list
+lock connectome list
+lock branch list
+lock tau / coverage / score / validation parameters
+lock random seed = 42
+check output root writability
+check e-field path manifest
+check clinical table ID join
+check scale direction
+check PPMI / MGH / dTOR data.mat readability
+check ea_flip_lr_nonlinear availability
+check OSS conda env availability, without running OSS
+```
+
+写出：
+
+```text
+run_master_manifest.json
+scale_manifest.csv
+connectome_manifest.csv
+branch_manifest.csv
+efield_input_manifest.csv
+clinical_join_manifest.csv
+environment_manifest.json
+```
+
+进入 Round 1 的条件：
+
+```text
+document version is unique
+branch list is unique
+tau800 / tau1500 / Coverage>=5 are locked
+subject_id order is locked
+Y_post / Y_base join by ID
+scale direction is defined
+all required e-field paths exist and are unique by subject/side/condition
+PPMI / MGH / dTOR data.mat are readable
+output root is writable
+seed = 42 is recorded
+```
+
+若失败，停止在 sidecar generation 或 LOOCV 之前。
+
+### Round 1: Sidecar Cache And Exact-Equivalence Regression Test
+
+目的：在正式统计之前验证优化实现与 brute-force reference 精确等价。
+
+运行：
+
+```text
+PPMI / MGH sidecars:
+  X_float32_fiber_major.npy
+  S800_bool.npy
+  S1500_bool.npy
+  fiber_id.npy
+  candidate_fiber_metadata.json
+
+dTOR chunked sidecars:
+  chunks/X_float32_fiber_major_chunk-*.npy
+  chunks/S800_bool_chunk-*.npy
+  chunks/S1500_bool_chunk-*.npy
+  chunks/fiber_id_chunk-*.npy
+  fiber_chunk_manifest.json
+  candidate_fiber_metadata.json
+
+coverage / candidate cache:
+  Coverage_tau800_all
+  Coverage_tau1500_all
+  F_candidate_tau800_full
+  F_candidate_tau1500_full
+  fold-specific candidate masks by subtraction
+  candidate_tau800_union_of_folds
+  candidate_tau1500_union_of_folds
+```
+
+在小型 deterministic subset 上运行 exact-equivalence test：
+
+```text
+n_fiber_subset = 1000 to 10000
+B_perm = 20
+B_boot = 20
+seed = 42
+```
+
+比较 optimized 与 brute-force 的以下结果：
+
+```text
+fold-specific F_candidate_tau
+rho_HF(l)
+M_HF(l)
+F+
+F-
+SweetPeak5
+SourPeak5
+NetFiberScore
+LOOCV held-out predictions
+LOOCV Spearman rho
+small permutation null statistics
+small bootstrap finite-count summaries
+NaN / degenerate fiber locations
+```
+
+进入 Round 2 的条件：
+
+```text
+subject order exactly matches
+fiber_id order exactly matches
+S800 / S1500 coverage exactly matches brute-force
+fold-specific candidate masks exactly match
+F+ / F- exactly match
+NaN / degenerate locations exactly match
+float outputs match within predefined float64 tolerance
+small plus-one p value matches
+dTOR chunked IO has no memory error
+optimized_equivalence_test_passed = true
+```
+
+若失败，先修复 sidecar、coverage、rank、top-k tie policy 或 dTOR chunking。
+
+### Round 2: Primary Observed Run, Total Scale
+
+目的：先运行成本最低的 observed primary branch，并检查模型是否非退化。
+
+运行：
+
+```text
+scale = MDS-UPDRS III score
+branch = peak_efield_tau800_primary
+connectome order = PPMI observed -> MGH observed -> dTOR observed
+```
+
+每个 connectome 计算：
+
+```text
+full-sample rho_HF / M_HF
+F+ top 1%
+F- top 0.5%
+SweetPeak5
+SourPeak5
+NetFiberScore
+LOOCV prediction
+covariate-only baseline comparison
+basic mapping QC
+```
+
+优先写出 numeric core outputs：
+
+```text
+normative_HF_fiber_weights.csv
+normative_HF_fiber_scores.csv
+normative_HF_fiber_loocv_predictions.csv
+normative_HF_fiber_mapping_qc.json
+normative_HF_fiber_generation_manifest.json
+```
+
+`.tck` display、density maps、endpoint labels、FDR maps、q-thresholded maps 和 label enrichment 延后到 numeric QC 通过后生成。
+
+进入 Round 3 的条件：
+
+```text
+at least dTOR primary observed LOOCV completes
+each LOOCV fold has non-empty F_candidate_tau800
+rho_HF is not all NaN
+NetFiberScore has nonzero variance
+held-out prediction is not constant
+final model is fit
+LOOCV Spearman / Pearson / MAE / RMSE / Q2 are finite
+mapping_qc.json has no fatal error
+```
+
+软警告：
+
+```text
+dTOR observed looks technically unstable
+PPMI/MGH and dTOR have completely unexplained direction conflict
+Q2 is extremely worse than baseline-only
+```
+
+若失败，先修复 tau800/Coverage>=5/e-field sampling、exposure variance、rank ties、top-k reducer、dTOR chunking、fiber ids 或 sidecar alignment，再运行敏感性或 formal branches。
+
+### Round 3: Primary Observed Run, Axial Scale
+
+目的：复用 exposure sidecars，覆盖第二个默认 first-pass scale。
+
+运行：
+
+```text
+scale = MDS-UPDRS III axial score
+branch = peak_efield_tau800_primary
+connectome order = PPMI observed -> MGH observed -> dTOR observed
+```
+
+运行与 Round 2 相同的 observed outputs。
+
+进入 Round 4 的条件：
+
+```text
+axial Y_post / Y_base join succeeds
+valid subjects match sidecar subject order, or a legal subject-subset view exists
+candidate masks are non-empty
+NetFiberScore is not constant
+LOOCV prediction is fit
+```
+
+如果 axial 缺失、低方差或技术退化，将其标记为 scale-specific failed/not interpretable。Total score 可以继续。如果 total 和 axial 都失败，则停止主线。
+
+### Round 4: Plain Connected-Streamline Control
+
+目的：检验 outcome-filtered fiber model 是否只是 stimulation burden、lead placement 或 connectome density 的反映。
+
+对通过 observed gates 的 scales/connectomes 运行：
+
+```text
+branch = plain_connected_streamline_control
+Touched_i(l) = I[X_HF_i(l) > tau]
+PlainTouchedCount_i
+PlainExposureSum_i
+PlainExposureTop5_i
+```
+
+比较：
+
+```text
+Y_post ~ Y_base
+Y_post ~ PlainExposureTop5 + Y_base
+Y_post ~ NetFiberScore + Y_base
+Y_post ~ NetFiberScore + PlainExposureTop5 + Y_base
+```
+
+写出：
+
+```text
+normative_HF_plain_touched_summary.csv
+normative_HF_plain_connected_model_comparison.csv
+```
+
+延后生成：
+
+```text
+normative_HF_plain_touched_fibers.tck
+normative_HF_plain_touched_density_map.nii.gz
+```
+
+进入 Round 5 的条件：
+
+```text
+PlainExposureTop5 is computable
+plain model is fit
+joint model is not singular
+NetFiberScore and PlainExposureTop5 are not perfectly collinear
+```
+
+推荐 collinearity flags：
+
+```text
+|corr(NetFiberScore, PlainExposureTop5)| < 0.85 = ideal
+0.85 to 0.95 = high collinearity warning
+>= 0.95 = severe collinearity warning
+```
+
+如果 plain control 完全解释 primary branch，主分支仍可作为 minimal formal report 继续，但解释降级为 stimulation burden / placement-associated，并且不推荐继续 OSS/jitter。
+
+### Round 5: dTOR Primary Smoke Permutation And Bootstrap
+
+目的：在正式 `B=10000` 前测试 full-process resampling。
+
+只运行：
+
+```text
+connectome = dTOR
+branch = peak_efield_tau800_primary
+scales = scales that passed Round 2/3
+Freedman-Lane smoke permutation B=1000
+subject-level smoke bootstrap B=1000
+seed = 42
+```
+
+每次 permutation 必须重跑完整 LOOCV workflow：
+
+```text
+fold-specific candidate
+rho_HF
+M_HF
+F+ / F-
+SweetPeak5 / SourPeak5
+NetFiberScore
+held-out prediction
+LOOCV Spearman
+```
+
+写出：
+
+```text
+smoke_permutation_summary.csv
+smoke_bootstrap_qc_summary.csv
+runtime_profile update
+empty_fold_summary
+degenerate_fiber_summary
+bootstrap_finite_count_summary
+```
+
+进入 Round 6 的条件：
+
+```text
+B=1000 permutation completes
+B=1000 bootstrap completes
+plus-one p is computable
+bootstrap finite count distribution is interpretable
+there are not many empty F_candidate folds
+there are not many all-NaN / degenerate maps
+runtime profile indicates B=10000 is feasible
+```
+
+不要把 smoke `p < 0.05` 作为硬 gate。如果 smoke 技术失败，则停止并修复 resampling、chunking、top-k 或 rank cache。如果 smoke 技术通过但结果完全退化，可按预设 futility 停止 formal，或只对 total scale 运行 formal。
+
+### Round 6: Cheap Observed Sensitivity
+
+目的：在 formal heavy computation 之前，检查 primary result 是否完全依赖 tau800 或 selected-fiber 规则。
+
+运行：
+
+```text
+branches:
+  peak_efield_tau1500_sensitivity
+  top1500_top500_sensitivity
+
+connectomes:
+  PPMI
+  MGH
+  dTOR
+```
+
+运行：
+
+```text
+full-sample map
+LOOCV prediction
+scores
+selected fiber summary
+mapping QC
+```
+
+不运行：
+
+```text
+formal B=10000 permutation
+formal bootstrap
+OSS
+jitter
+```
+
+写出：
+
+```text
+normative_HF_fiber_weights.csv
+normative_HF_fiber_scores.csv
+normative_HF_fiber_loocv_predictions.csv
+normative_HF_fiber_mapping_qc.json
+normative_HF_fiber_top_percentile_sweep_summary.csv
+```
+
+进入 Round 7 的条件：
+
+```text
+tau1500 branch completes, or records candidate-empty / threshold-too-strict
+top1500/top500 branch completes
+LOOCV outputs are finite
+mapping QC is interpretable
+```
+
+软 gate：
+
+```text
+tau800 and tau1500 are directionally consistent, or differences are explained by sparse coverage
+top1500/top500 does not fully reverse the top1%/top0.5% mainline
+dTOR and PPMI/MGH have directionally or anatomically interpretable consistency
+```
+
+如果 tau1500 为空，记录 high-threshold sensitivity empty；这不是技术失败。如果 top1500/top500 完全反转主线，则标记结果依赖 top-k，并降低解释强度。
+
+### Round 7: dTOR Primary Formal Permutation And Bootstrap
+
+目的：生成当前文档的核心统计证据。
+
+只运行：
+
+```text
+connectome = dTOR
+branch = peak_efield_tau800_primary
+scales = scales that passed smoke and sensitivity hard gates
+```
+
+推荐顺序：
+
+```text
+formal permutation B=10000
+formal bootstrap B=10000
+seed = 42
+```
+
+Permutation：
+
+```text
+primary statistic = LOOCV Spearman rho
+p = plus-one two-sided
+```
+
+Bootstrap：
+
+```text
+bootstrap SE
+bootstrap selection frequency
+bootstrap sign stability
+finite-count summaries
+```
+
+写出：
+
+```text
+normative_HF_fiber_permutation_summary.csv
+normative_HF_fiber_bootstrap_se.csv
+normative_HF_fiber_bootstrap_selection_frequency.csv
+normative_HF_fiber_bootstrap_sign_stability.csv
+normative_HF_fiber_fold_selection_frequency.csv
+normative_HF_fiber_fold_sign_stability.csv
+normative_HF_fiber_stability_density_map.nii.gz
+```
+
+进入 Round 8 的条件：
+
+```text
+B=10000 permutation completes
+B=10000 bootstrap completes
+all block checkpoints are complete
+plus-one p is computable
+bootstrap finite counts are interpretable
+fold selection frequency is computable
+fold sign stability is computable
+manifest records resampling_status = formal_complete
+```
+
+如果 formal 技术失败，不运行 OSS、jitter 或 final display。如果 formal 完成但结果为阴性，只进入 minimal display/report，不把 OSS/jitter 用作机制强化证据。
+
+### Round 8: OSS-DBS Activation Sensitivity
+
+目的：检验 peak E-field fiber profile 在 pathway/axon activation 变量下是否仍可解释。OSS 是敏感性分析，不是 primary。
+
+运行：
+
+```text
+oss_model_set = primary_locked
+axon_model
+axon_diameter_um
+n_nodes
+waveform
+frequency_Hz
+pulse_width_us
+amplitude
+tissue_model
+conductivity_model
+activation_output
+oss_parameter_manifest.json
+```
+
+OSS candidate rule：
+
+```text
+inherit F_candidate_tau800 from peak E-field branch
+do not redefine candidates by OSS activation
+```
+
+生成：
+
+```text
+X_oss_float32_fiber_major.npy
+PlainOSSActivated_bool.npy
+oss_activation_sidecar_metadata.json
+```
+
+运行顺序：
+
+```text
+PPMI / ossdbs_activation_sensitivity / observed LOOCV
+MGH / ossdbs_activation_sensitivity / observed LOOCV
+OSS plain activation control
+
+then, only if PPMI/MGH are technically normal:
+  dTOR / ossdbs_activation_sensitivity / observed LOOCV
+  dTOR / OSS smoke permutation B=1000
+  OSS plain activation control
+```
+
+写出：
+
+```text
+normative_HF_fiber_oss_parameter_manifest.json
+normative_HF_fiber_oss_activation_matrix_summary.csv
+normative_HF_fiber_oss_loocv_predictions.csv
+normative_HF_fiber_oss_permutation_summary.csv
+normative_HF_plain_oss_activation_summary.csv
+normative_HF_plain_oss_activation_model_comparison.csv
+```
+
+进入 Round 9 的条件：
+
+```text
+OSS parameter manifest is locked
+OSS sidecar candidate fiber ids align with peak branch candidate ids
+OSS activation matrix is not all NaN
+OSS activation matrix is not all zero
+NetFiberScore_OSS has nonzero variance
+OSS LOOCV is fit
+OSS B=1000 smoke permutation completes
+PlainOSSActivationTop5 is computable
+OSS joint control model is fit
+```
+
+软支持：
+
+```text
+corr(NetFiberScore_OSS, NetFiberScore_peak) > 0
+F+_OSS and F+_peak have nonzero overlap
+selected density / label summary is partly consistent with peak branch
+OSS plain activation control does not fully replace NetFiberScore_OSS
+```
+
+如果 OSS activation 全零或大部分 tied，标记 OSS failed sensitivity。如果 OSS 与 peak branch 完全不一致，将结果解释为 activation-model dependent。如果 OSS plain activation 完全解释结果，降低机制解释为 activation burden。
+
+### Round 9: dTOR Jitter QC
+
+目的：检验 dTOR primary 的空间稳健性。
+
+只运行：
+
+```text
+connectome = dTOR
+branch = peak_efield_tau800_primary
+scale = scales with completed formal primary result
+```
+
+Level 1：
+
+```text
+jitter_level_1_selected_display
+selected F+ / F- overlap
+display fiber robustness
+selected density correlation
+```
+
+Level 2，仅在 Level 1 技术有效后运行：
+
+```text
+jitter_level_2_model_density
+candidate fibers or feasible subset
+density robustness
+model similarity
+```
+
+写出：
+
+```text
+normative_HF_fiber_jitter_summary.csv
+normative_HF_fiber_jitter_model_similarity.csv
+normative_HF_fiber_jitter_selected_overlap.csv
+normative_HF_fiber_jitter_density_correlation.csv
+normative_HF_fiber_jitter_example_density_maps/
+```
+
+进入 Round 10 的条件：
+
+```text
+jitter outputs are writable
+jitter selected overlap is computable
+jitter density correlation is computable
+model similarity is computable
+there are no all-empty jitter runs
+```
+
+如果 Level 1 技术失败，不运行 Level 2。如果 Level 1 通过但不稳定，跳过 Level 2 并标记最终结果 spatially sensitive。如果两层都稳定，将其作为 spatial robustness 支持。
+
+### Round 10: Display, FDR, Labels, Density, And Cross-Connectome Summaries
+
+目的：在 numeric branches 锁定后生成展示与解释输出。Display、FDR q-values、q-thresholded density maps 和 label outputs 从不定义 primary model，也不进入 `NetFiberScore`。
+
+对已完成 branches 生成：
+
+```text
+top 1% positive fibers
+top 0.5% sour fibers
+selected-fiber density maps
+unthresholded weighted-density maps
+positive weighted-density maps
+negative weighted-density maps
+neglogp density maps
+qvalue summary
+FDR q05 / q10 display density maps
+endpoint labels
+cortical endpoint summary
+subcortical crossing summary
+label enrichment
+plain touched-streamline density maps
+STN/SNr overlays
+cross-connectome summaries
+```
+
+写出：
+
+```text
+normative_HF_fiber_display_top1_positive.tck
+normative_HF_fiber_display_top1_positive.mat
+normative_HF_fiber_display_top0p5_sour.tck
+normative_HF_fiber_display_top0p5_sour.mat
+normative_HF_fiber_density_map.nii.gz
+normative_HF_fiber_endpoint_labels.csv
+normative_HF_fiber_cortical_endpoint_summary.csv
+normative_HF_fiber_subcortical_crossing_summary.csv
+normative_HF_fiber_label_enrichment.csv
+normative_HF_fiber_unthresholded_weighted_density.nii.gz
+normative_HF_fiber_positive_weighted_density.nii.gz
+normative_HF_fiber_negative_weighted_density.nii.gz
+normative_HF_fiber_neglogp_density.nii.gz
+normative_HF_fiber_qvalue_summary.csv
+fdr_summary_by_scale.csv
+fdr_thresholded_positive_density_q05.nii.gz
+fdr_thresholded_negative_density_q05.nii.gz
+fdr_thresholded_positive_density_q10.nii.gz
+fdr_thresholded_negative_density_q10.nii.gz
+connectome_scale_performance_summary.csv
+connectome_scale_overlap_summary.csv
+connectome_density_correlation_summary.csv
+connectome_selected_label_summary.csv
+```
+
+完成条件：
+
+```text
+display files derive only from finalized numeric outputs
+FDR / label / display outputs are not used to select the primary model
+label enrichment uses the plain touched-streamline background
+PPMI/MGH manifests record observed_only_connectome_robustness
+dTOR primary manifest records formal permutation/bootstrap status
+OSS manifest records smoke-only status
+unrun branches record explicit not-run reason
+```
+
+### Recommended Minimal Execution Path
+
+最节省资源但仍覆盖主线和计划敏感性层级的路径是：
+
+```text
+1. Round 0-1:
+   freeze document/inputs, build sidecars, run equivalence tests
+
+2. Round 2:
+   total scale tau800 primary observed
+   PPMI -> MGH -> dTOR
+
+3. Round 3:
+   axial scale tau800 primary observed
+   PPMI -> MGH -> dTOR
+
+4. Round 4:
+   plain connected-streamline control
+
+5. Round 5:
+   dTOR tau800 primary smoke permutation/bootstrap B=1000
+
+6. Round 6:
+   tau1500 sensitivity + top1500/top500 sensitivity observed
+
+7. Round 7:
+   dTOR tau800 primary formal permutation/bootstrap B=10000
+
+8. Round 8:
+   OSS-DBS sensitivity, PPMI/MGH first, then dTOR, B=1000 only
+
+9. Round 9:
+   dTOR jitter QC
+
+10. Round 10:
+   display / FDR / labels / cross-connectome summaries
+```
+
+核心原则是先证明 `peak_efield_tau800_primary` 在 total 和 axial scales 上技术有效，再用 plain control 区分 outcome-filtered fibers 与 stimulation burden，然后运行 dTOR formal inference，最后才投入 OSS、jitter 和 display-layer outputs。
