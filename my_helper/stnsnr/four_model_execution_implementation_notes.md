@@ -163,6 +163,31 @@ and then runs the partial-Spearman `NetFiberScore` observed LOOCV branch. Formal
 
 The driver supports `--max-fibers` only for development self-tests and debugging. Production PPMI smoke runs should leave it unset so the candidate universe remains the full PPMI connectome.
 
+## Four-Model Gate Status Summary
+
+After foundational smoke branches run, the gate status tool reads current manifests/QC files and writes a compact decision table:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_four_model_gate_status.py
+```
+
+The tool does not run any model. It classifies each available primary smoke branch as:
+
+```text
+PASS_TO_NEXT_ROUND
+STOP_FORMAL_REMAIN_EXPLORATORY
+MISSING_OUTPUT
+ERROR
+```
+
+For the current gate, a branch enters the next expensive round only if all executable QC files exist, LOOCV predictions are finite, the primary LOOCV Spearman rho is positive, and Q2 is not negative. This intentionally prevents formal permutation/bootstrap from starting when the primary observed branch does not show incremental signal beyond baseline.
+
 ## Commands
 
 Run from the worktree:
@@ -194,4 +219,11 @@ Run the HF normative fiber observed smoke driver:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_hf_normative_fiber_smoke.py
+```
+
+Summarize gate status:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py
 ```
