@@ -341,3 +341,42 @@ Run the consolidated status report:
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py
 ```
+
+## ULF Component E-field Worklist
+
+When the ULF readiness gate reports missing component-specific e-fields, the
+worklist layer converts the latest readiness CSV into an explicit queue. It
+does not run MATLAB and does not generate e-fields; it only records which
+components must be generated before any ULF voxel or fiber model can execute
+without mixing HF and ULF fields.
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py
+```
+
+Default outputs:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/ulf_component_efield_worklist/
+  ulf_component_efield_worklist.csv
+  ulf_component_efield_worklist_manifest.json
+```
+
+The current expected missing items are continuous mixed STN+SNr
+counterfactual target-component e-fields. Existing observed alternating
+subprogram e-fields are not included in the missing worklist.
+
+Run the worklist generator:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py
+```
