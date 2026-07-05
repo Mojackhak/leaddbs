@@ -1,62 +1,116 @@
 # HF-adjusted ULF-only Add-On Gain 直接 Voxel-Level 模型
 
-## 研究问题
+## Research Question / 研究问题
 
-加入 ULF 刺激后，哪些 ULF-only voxel 的 exposure 与额外临床获益相关，并且这种关联已经校正患者的 HF 临床状态和模型预测的 HF 疗效变化？
+加入 ULF 刺激后，哪些超低频刺激 territory voxels 的 ULF-only exposure 与额外临床获益相关，并且这种关联已校正患者 same-day HF clinical state 和模型预测的 HF efficacy 变化？
 
-这是一个局部 ULF-only add-on sweet-spot 模型。主问题不再定义为解剖 SNr 效应。STN/SNr 及周围区域被视为一个 stimulation territory，HF 和 ULF components 按刺激频率和 exposure overlap 区分。
+这是 direct local ULF-only add-on sweet-spot model。主问题不是解剖 SNr 效应。STN/SNr 及 peri-STN/SNr 区域被视为一个 stimulation territory；HF 和 ULF components 通过 stimulation frequency 和 exposure overlap 区分。
 
-频率定义：
+频率定义固定为：
 
 ```text
 HF  = high-frequency stimulation component, frequency_Hz >= 100
 ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
 ```
 
-同时被 HF 和 ULF 激活的 voxels 归入 HF adjustment model，并从主 ULF-only predictor 中排除。
+同时被 HF 和 ULF 激活的 voxels 归入 HF adjustment model，并从 primary ULF-only predictor 中排除。这是建模选择，不是声称 ULF 在 HF-overlap territory 中不可能有生物学效应。
 
-## 终点
+## Follow-Up Timeline / 随访时间线
+
+模型假定以下 visit sequence：
+
+```text
+T0 = preoperative baseline assessment
+
+T1 = postoperative 1-month HF immediate activation / opening assessment
+
+T2 = HF-only 3-month follow-up
+     same day, before adding ULF:
+       raw HF-only 3-month clinical state is measured
+     same day, after switching to HF+ULF:
+       raw HF+ULF immediate clinical state is measured
+
+T3 = HF+ULF 3-month follow-up
+     approximately 3 months after T2:
+       raw HF+ULF chronic 3-month clinical state is measured
+```
+
+因此，immediate HF+ULF endpoint 与 HF-only 3-month clinical reference state 是同一天测量。Immediate endpoint 相对于 HF-only 3-month reference 不受不同 visit day 的混杂。Chronic endpoint 是 add-on 后随访 endpoint，以 T2 HF-only 3-month state 作为 pre-ULF clinical reference。
+
+## Endpoint Definitions / 终点定义
 
 两个 endpoint families 分开建模。
 
-Chronic endpoint：
+### Primary Chronic Post-Add-On Endpoint
 
 ```text
-Y_post = raw HF+ULF 3-month clinical score
-Y_HF   = raw HF-only 3-month clinical score for the same scale/domain
-DeltaHFScore = predicted change in HF efficacy between HF+ULF programming and HF-only programming
+Y_post_chronic = raw HF+ULF 3-month clinical score at T3
+Y_HF_ref       = raw HF-only 3-month clinical score at T2, same scale/domain
+DeltaHFScore_chronic = predicted change in HF efficacy between
+                       HF+ULF chronic programming and HF-only T2 programming
 ```
 
-Immediate endpoint：
+Primary chronic estimand：
 
 ```text
-Y_post = raw HF+ULF immediate clinical score
-Y_HF   = raw HF-only 3-month clinical score for the corresponding motor scale/domain
-DeltaHFScore = predicted change in HF efficacy between HF+ULF immediate programming and HF-only programming
+HF-state-adjusted ULF-only chronic add-on association
 ```
 
-主要 estimand：
+该 endpoint 估计：在校正患者 T2 HF 临床状态和模型预测的 HF-component efficacy change 后，ULF-only exposure 是否解释 T3 HF+ULF outcome。
+
+### Key Same-Day Immediate Endpoint
 
 ```text
-HF-adjusted ULF-only add-on gain
+Y_post_immediate = raw HF+ULF immediate clinical score at T2, after switching to HF+ULF
+Y_HF_ref         = raw HF-only 3-month clinical score at T2, before switching to HF+ULF
+DeltaHFScore_immediate = predicted change in HF efficacy between
+                         immediate HF+ULF programming and HF-only T2 programming
 ```
+
+Immediate estimand：
+
+```text
+same-day HF-state-adjusted ULF-only acute add-on association
+```
+
+因为 `Y_post_immediate` 和 `Y_HF_ref` 在同一天测量，该 endpoint 是有效的 same-day add-on response endpoint。它仍然与 chronic endpoint 分开建模。默认可作为 key secondary endpoint；只有在 formal resampling 前显式声明时，才可提升为 co-primary。
+
+### Direction-Normalized Gain Sensitivity Endpoints
+
+主模型使用 raw post-HF+ULF scores 并进行 HF-state adjustment。Direction-normalized gain endpoints 保留为 sensitivity analyses。
+
+低分更好量表：
+
+```text
+Gain_immediate = Y_HF_ref - Y_post_immediate
+Gain_chronic   = Y_HF_ref - Y_post_chronic
+```
+
+高分更好量表：
+
+```text
+Gain_immediate = Y_post_immediate - Y_HF_ref
+Gain_chronic   = Y_post_chronic - Y_HF_ref
+```
+
+正 gain 始终表示加入 ULF 后改善。Immediate gain endpoint 是最直接的 same-day add-on effect estimate。Chronic gain endpoint 混合了 add-on response、time-on-stimulation、adaptation、medication/assessment variability 和 disease-course effects。
 
 默认 first-pass endpoints：
 
 ```text
-MDS-UPDRS III total chronic HF+ULF 3-month score
-MDS-UPDRS III total immediate HF+ULF score, if available
+1. MDS-UPDRS III total chronic HF+ULF 3-month score at T3
+2. MDS-UPDRS III total same-day immediate HF+ULF score at T2, if available
 ```
 
-Raw scores 来源于 HF direct voxel model 使用的原始临床表：
+Raw scores 来自 HF direct voxel model 使用的原始临床表：
 
 ```text
 /Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx
 ```
 
-Clinical rows 通过 `ID`（`SNr003`、`SNr006` 等）与 imaging 数据连接。Improvement-rate tables 不用于该模型。Scale direction 读取与 HF direct voxel model 相同的 internal direction table；未知量表必须在运行前显式指定 higher-is-better 或 lower-is-better。
+Clinical rows 通过 `ID`（`SNr003`、`SNr006` 等）与 imaging 数据连接。Improvement-rate tables 不用于 primary raw-score model。Scale direction 读取与 HF direct voxel model 相同的 internal direction table；未知量表必须在运行前显式指定 higher-is-better 或 lower-is-better。
 
-## 输入
+## Inputs / 输入
 
 - Stimulation parameter audit source：
 
@@ -67,9 +121,11 @@ Clinical rows 通过 `ID`（`SNr003`、`SNr006` 等）与 imaging 数据连接�
 
   该 workbook 用于审计 HF 和 ULF component identity、frequencies、pulse widths、amplitudes、sides、contacts 和 phase labels。Existing e-fields 在既往 manual/clinical QC 后视为 accepted inputs。当前 ULF direct voxel analysis 不自动创建 missing e-fields。
 
-- pre-ULF HF phase 的 HF-only E-field per side，用于计算 reference HF score。
+- T2 HF-only 3-month phase 的 HF-only reference E-field per side，用于计算 reference HF score。
 
-- HF+ULF programming 中的 HF component E-field 和 ULF component E-field per side，用于计算 `DeltaHFScore` 和 ULF-only predictor。
+- Same-day T2 immediate HF+ULF programming 中的 HF component E-field 和 ULF component E-field per side，用于 immediate endpoint。
+
+- T3 chronic HF+ULF programming 中的 HF component E-field 和 ULF component E-field per side，用于 chronic endpoint。如果 T3 stimulation settings 与 T2 immediate HF+ULF programming 不变，manifest 必须明确记录复用了同一组 component e-fields。
 
 - 与模型类型匹配的 direct voxel-level HF efficacy map：
 
@@ -77,40 +133,55 @@ Clinical rows 通过 `ID`（`SNr003`、`SNr006` 等）与 imaging 数据连接�
   DeltaHFScore source = HF direct voxel model
   ```
 
-  ULF direct voxel model 不得使用 normative fiber HF score 作为 HF adjustment。Voxel-level ULF models 必须用 voxel-level HF models 进行调整。
+  ULF direct voxel model 不得使用 normative fiber HF score 作为 HF adjustment。Voxel-level ULF models 必须用 voxel-level HF models 调整。
 
 - Canonical reference mask：
 
   ```text
   templates/space/MNI152NLin2009bAsym/brainmask.nii.gz > 0
+  right hemisphere voxel centers, MNI x > 0
   ```
 
-  Candidate voxels 限制在右半球 voxel centers，MNI world coordinate `x > 0`。
-
-- Anatomical overlay masks：
+- STN/SNr and STNSNrplus masks are overlay/QC context only：
 
   ```text
-  templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions/{rh,lh}/STNSNrplus.nii.gz
+  Custom_Ewert_Zhang_Middlebrooks0.05
+  STN-connected regions
+  SNr-connected regions
+  STNSNr-connected regions
   ```
 
   `STNSNrplus` 仅用于 anatomical overlay、territory coverage 和 QC background。它不与 `Omega_ULF_tau` 相交，也不是 statistical candidate mask。
 
-- Left/right homology transform：
+- Python postprocessing environment：
 
   ```text
-  helpers/ea_flip_lr_nonlinear.m
-  templates/space/MNI152NLin2009bAsym/fliplr/{Composite,InverseComposite}.nii.gz
+  conda environment = leaddbs
+  package changes allowed if recorded in generation manifest
   ```
 
-  本模型所有左右翻转都使用 `ea_flip_lr_nonlinear` 和 Lead-DBS default interpolation behavior。
+## Locked HF Prerequisite / 锁定 HF 前置条件
 
-最低 e-field 检查：必需路径存在，subject/side/component/phase 唯一匹配，文件是 raw `sim-efield`，单位记录为 `V/m`。缺失或多重匹配 e-fields 会使 endpoint/run 失败。Subjects 不 silent exclusion，missing e-fields 不自动创建。
+ULF direct voxel analysis 依赖已锁定的 HF direct voxel model。正式运行 ULF 前必须固定：
 
-## 特征构建
+```text
+hf_model_family = direct_voxel
+hf_estimator = partial_spearman
+hf_tau = 200 V/m
+hf_score = HFScore_mean_main
+hf_map = direct_voxel_HF_sweet_sour.nii.gz
+hf_support = V_HF_score
+hf_generation_manifest
+hf_mapping_qc
+```
+
+HF map 必须 endpoint/domain-matched。Chronic ULF endpoint 使用 3-month HF model；immediate motor endpoint 使用 motor-domain HF model。Held-out ULF predictions 必须使用 training-fold HF map 计算 `DeltaHFScore`，不得用 full-sample HF map 给 held-out patient 打分。
+
+## Feature Construction / 特征构建
 
 使用 right-hemisphere MNI brainmask grid 作为 canonical statistical grid。左侧 HF 和 ULF component fields 使用 `ea_flip_lr_nonlinear` 翻转到右侧空间。右侧 fields 采样到同一 right canonical grid。
 
-对每个 subject、side 和 endpoint phase：
+对每个 patient `i` 和 voxel `v`：
 
 ```text
 E_HF_R_i(v)       = right HF component e-field
@@ -119,16 +190,16 @@ E_ULF_R_i(v)      = right ULF component e-field
 E_ULF_L_to_R_i(v) = left ULF component e-field flipped to right canonical space
 ```
 
-Same-side alternating subprograms 按 component 处理：
+如果同侧存在多个 subprogram：
 
 ```text
 E_HF_side_i(v)  = voxel-wise maximum over same-side HF subprograms
 E_ULF_side_i(v) = voxel-wise maximum over same-side ULF subprograms
 ```
 
-Interleaving 不建模为 simultaneous double-cathode stimulation。如果某个 clinical condition 包含 synchronous mixed HF+ULF programming，并通过只开启分配给某个 frequency component 的 contacts 来生成 component-specific fields，manifest 必须将这些 fields 标记为 component-specific proxies。
+Interleaving 不建模为 simultaneous double-cathode stimulation。如果某个 clinical condition 包含 synchronous mixed HF+ULF programming，并通过只开启分配给某个 frequency component 的 contacts 生成 component-specific fields，manifest 必须将这些 fields 标记为 component-specific proxies。
 
-患者级双侧 component exposure：
+Bilateral component exposure：
 
 ```text
 E_HF_component_i(v) =
@@ -140,19 +211,20 @@ E_ULF_component_i(v) =
 
 Frequency 只用于将 component 分类为 HF 或 ULF。主 direct voxel analysis 中 exposure 不按 frequency 或 pulse width 缩放。
 
-Sparse candidate construction：
+### ULF Candidate Space
 
 ```text
-candidate_threshold = 180 V/m
+candidate grid = right hemisphere MNI brainmask voxels
 Candidate_ULF(v) = any valid subject has E_ULF_component_i(v) > 180 V/m
+
+tau_primary = 200 V/m
+tau_sensitivity = 180 / 220 V/m
+Coverage threshold = >= 5 subjects
 ```
 
-对每个 tau：
+对每个 `tau`：
 
 ```text
-tau_primary = 200 V/m
-tau_sensitivity = {180, 220} V/m
-
 HF_active_i(v)  = E_HF_component_i(v)  > tau
 ULF_active_i(v) = E_ULF_component_i(v) > tau
 
@@ -164,15 +236,22 @@ Coverage_ULF_tau(v) = sum_i I[X_ULF_only_i(v) > tau]
 Omega_ULF_tau = {v in Candidate_ULF : Coverage_ULF_tau(v) >= 5}
 ```
 
-`Omega_ULF_tau` 内使用 continuous `X_ULF_only_i(v)` 建模；`tau` 只用于定义 component activity、HF-overlap exclusion、coverage 和 QC。同时被 HF 和 ULF 激活的 voxels 从 ULF predictor 中排除，并在下列文件中表示：
+`Omega_ULF_tau` 内使用 continuous `X_ULF_only_i(v)` 建模；`tau` 只用于定义 component activity、HF-overlap exclusion、coverage 和 QC。同时被 HF 和 ULF 激活的 voxels 从 ULF predictor 中排除，并在输出中显式记录。
+
+### HF-Overlap Exclusion Outputs
+
+必须输出：
 
 ```text
 direct_voxel_ULF_only_HF_overlap_exclusion_mask.nii.gz
+direct_voxel_ULF_only_HF_overlap_exclusion_summary.csv
 ```
+
+`HF_overlap_exclusion_mask` 是 threshold-specific group-level summary，表示至少一个 subject 中被 HF 和 ULF 同时激活而从 ULF-only predictor 排除的 voxels。Subject-level overlap counts 和 volumes 写入 summary CSV 和 mapping QC JSON。
 
 Coverage masks、voxel maps、ULF scores、`DeltaHFScore` 和 validation predictions 都在每个 LOOCV training fold 内计算。Held-out patient 不参与该 fold 的 `Omega_ULF_tau`、ULF voxel map 或 HF adjustment map。
 
-### DeltaHFScore
+## DeltaHFScore
 
 模型匹配的 HF adjustment 来自 HF direct voxel model：
 
@@ -184,28 +263,72 @@ S_HF_voxel(E)_i =
   sum_{u in V_HF_score} E_i(u) * M_HF(u)
   / n_valid_HF_score_voxels
 
-DeltaHFScore_3m_i =
-  S_HF_voxel(E_HF_component, HF+ULF 3m)_i
-  - S_HF_voxel(E_HF_only, HF-only 3m)_i
+DeltaHFScore_chronic_i =
+  S_HF_voxel(E_HF_component, HF+ULF chronic)_i
+  - S_HF_voxel(E_HF_only, HF-only T2)_i
 
 DeltaHFScore_immediate_i =
   S_HF_voxel(E_HF_component, HF+ULF immediate)_i
-  - S_HF_voxel(E_HF_only, HF-only 3m)_i
+  - S_HF_voxel(E_HF_only, HF-only T2)_i
 ```
 
 `DeltaHFScore` 在建模前不赋予固定生物学缩放系数。它可在 training folds 内 z-score 以改善数值稳定性；其 regression coefficient 估计它与 outcome 的关联。在 LOOCV 中，held-out patient 的 `DeltaHFScore` 必须由 training-fold HF map 计算，不能使用 full-sample HF map。
 
-## 统计模型
+### HF-Map Support And Out-Of-Support HF Exposure
 
-### 主估计器：Covariate-Adjusted Partial Spearman
+因为 HF+ULF programming 中的 HF component 可能落在 HF-only model learned support 之外，必须审计 `DeltaHFScore` 是否充分覆盖 HF component reprogramming。
+
+对每个 patient 和 endpoint：
+
+```text
+HF_component_total_exposure =
+  sum_v E_HF_component_i(v)
+
+HF_component_in_support_exposure =
+  sum_{v in V_HF_score} E_HF_component_i(v)
+
+HF_component_out_support_exposure =
+  HF_component_total_exposure - HF_component_in_support_exposure
+
+HF_out_support_fraction =
+  HF_component_out_support_exposure / HF_component_total_exposure
+```
+
+也为 HF-only reference field 计算同样指标。QC 必须报告：
+
+```text
+HF_out_support_fraction_mean
+HF_out_support_fraction_median
+HF_out_support_fraction_max
+subject-level HF_out_support_fraction
+corr(DeltaHFScore, HF_out_support_fraction)
+corr(ULFScore_mean_main, HF_out_support_fraction)
+```
+
+如果 `HF_out_support_fraction` 很高，不能把 `DeltaHFScore` 解释为完全控制 HF contribution。此时主分析仍可运行，但 interpretation boundary 必须降级；可运行预先声明的 sensitivity：
+
+```text
+Y_post_i = alpha
+         + delta * ULFScore_mean_main_i
+         + beta  * Y_HF_ref_i
+         + gamma * DeltaHFScore_i
+         + eta   * HF_out_support_fraction_i
+         + error_i
+```
+
+该 sensitivity 只用于 QC 和解释边界，不替代 primary model。
+
+## Statistical Model / 统计模型
+
+### Primary Estimator: Covariate-Adjusted Partial Spearman
 
 对每个 endpoint 和 voxel `v`，使用 rank-residual partial Spearman，并对 ties 使用 average ranks：
 
 ```text
 rho_ULF(v) =
   corr(
-    resid(rank(Y_post_i)          ~ rank(Y_HF_i) + rank(DeltaHFScore_i)),
-    resid(rank(X_ULF_only_i(v))   ~ rank(Y_HF_i) + rank(DeltaHFScore_i))
+    resid(rank(Y_post_i)          ~ rank(Y_HF_ref_i) + rank(DeltaHFScore_i)),
+    resid(rank(X_ULF_only_i(v))   ~ rank(Y_HF_ref_i) + rank(DeltaHFScore_i))
   )
 ```
 
@@ -227,28 +350,52 @@ M_ULF(v) =  rho_ULF(v)   for higher-is-better scales
 ```text
 rho_ULF_noDeltaHF(v) =
   corr(
-    resid(rank(Y_post_i)        ~ rank(Y_HF_i)),
-    resid(rank(X_ULF_only_i(v)) ~ rank(Y_HF_i))
+    resid(rank(Y_post_i)        ~ rank(Y_HF_ref_i)),
+    resid(rank(X_ULF_only_i(v)) ~ rank(Y_HF_ref_i))
   )
 ```
 
 该分支用于报告 ULF map 对 model-derived HF adjustment 的依赖程度。它不是 primary branch。
 
-### 可选补充估计器：OLS ANCOVA
+### Gain Endpoint Sensitivity Estimator
 
-OLS ANCOVA 保留为未来可选补充估计器。当前可执行分析不运行该分支，也不生成对应输出文件。
+Gain endpoint sensitivity 使用 direction-normalized gain 作为 outcome：
+
+```text
+rho_ULF_gain(v) =
+  corr(
+    resid(rank(Gain_i)          ~ rank(DeltaHFScore_i)),
+    resid(rank(X_ULF_only_i(v)) ~ rank(DeltaHFScore_i))
+  )
+```
+
+该分支回答“加入 ULF 后相对同日 HF state 的改善量”是否与 ULF-only exposure 相关。它是 sensitivity，不替代 raw post-score primary model。
+
+### Total ULF Exposure Sensitivity
+
+主模型排除 HF-overlap voxels。Total ULF exposure sensitivity 不排除 HF-overlap：
+
+```text
+X_ULF_total_i(v) = E_ULF_component_i(v)
+```
+
+该分支用于评估 HF-overlap exclusion rule 对结果的影响。它不是 primary branch。
+
+### Optional Supplemental Estimator: OLS ANCOVA
+
+可选补充估计器，本次不执行：
 
 ```text
 Y_post_i = alpha_v
          + theta_ULF(v) * X_ULF_only_i(v)
-         + beta_v      * Y_HF_i
+         + beta_v      * Y_HF_ref_i
          + gamma_v     * DeltaHFScore_i
          + error_i,v
 ```
 
 如果未来启用，OLS estimator 应在 `ols_ancova/` estimator directory 下生成同一 output family。其 `direct_voxel_ULF_only_coef.nii.gz` 存储 `theta_ULF(v)`，而主 `partial_spearman/` coefficient file 存储 `rho_ULF(v)`。
 
-### 患者层面 Score
+### Patient-Level Score
 
 主患者级 ULF-only sweet-spot score：
 
@@ -268,7 +415,7 @@ Final prediction model：
 ```text
 Y_post_i = alpha
          + delta * ULFScore_mean_main_i
-         + beta  * Y_HF_i
+         + beta  * Y_HF_ref_i
          + gamma * DeltaHFScore_i
          + error_i
 ```
@@ -277,7 +424,7 @@ Covariate-only baseline：
 
 ```text
 Y_post_i = alpha
-         + beta  * Y_HF_i
+         + beta  * Y_HF_ref_i
          + gamma * DeltaHFScore_i
          + error_i
 ```
@@ -286,108 +433,102 @@ No-DeltaHF sensitivity baseline：
 
 ```text
 Y_post_i = alpha
-         + beta * Y_HF_i
+         + beta * Y_HF_ref_i
          + error_i
 ```
 
 Prediction model 在 raw post-score 尺度上拟合。主验证统计量仍为 rank-based LOOCV Spearman rho。
 
-Missing-data rule：missing `Y_post`、missing `Y_HF`、missing `DeltaHFScore` 或 e-field availability failure 会在 QC 后使 endpoint/run 失败。未来 configurable endpoints 若有效样本量低于 12，则跳过该 endpoint。
+Missing-data rule：missing `Y_post`、missing `Y_HF_ref`、missing `DeltaHFScore` 或 e-field availability failure 会在 QC 后使 endpoint/run 失败。未来 configurable endpoints 若有效样本量低于 12，则跳过该 endpoint。
 
-## 验证
+## Validation / 验证
 
-- Chronic 3-month 和 immediate endpoints 分开建模。
-- 使用 leave-one-patient-out cross-validation，不做 inner hyperparameter tuning。
+- Chronic 和 immediate endpoints 分开建模。
+- 主 validation 使用 fully nested LOOCV。
 - 每个 outer fold 内，先重建计算 `DeltaHFScore` 所需的 HF direct voxel map，计算 fold-specific `DeltaHFScore`，再重建 `Omega_ULF_tau`、拟合 ULF-only voxel map、计算 training 和 held-out `ULFScore_mean_main`，并且只用 training patients 拟合 final prediction model。
-- 与 covariate-only baseline `Y_post ~ Y_HF + DeltaHFScore` 比较。
-- 报告 no-DeltaHF sensitivity model `Y_post ~ ULFScore_mean_main + Y_HF`。
+- 与 covariate-only baseline `Y_post ~ Y_HF_ref + DeltaHFScore` 比较。
+- 报告 no-DeltaHF sensitivity model `Y_post ~ ULFScore_mean_main + Y_HF_ref`。
 - 主验证统计量：held-out predictions 与 held-out raw outcomes 的 LOOCV Spearman rho。
 - Secondary metrics：LOOCV Pearson `r`、MAE、RMSE 和 original raw outcome scale 上的 `Q2`。
-- `Q2` 相对 covariate-only baseline 定义：
 
-  ```text
-  Q2 = 1 - SSE_ULFScore_model / SSE_covariate_only
-  ```
+```text
+Q2 = 1 - SSE_ULFScore_model / SSE_covariate_only
+```
 
 - Patient-level Freedman-Lane permutation 在正式主 ULF branch 中使用 `B=10000` 和随机种子 `42`。Smoke/exploratory 运行使用 `B=1000`。Formal permutation 只对 primary `tau200/partial_spearman` chronic endpoint branch 运行，除非 immediate endpoint 被明确提升为 co-primary。
-- 每次 permutation 先拟合 nuisance model `Y_post ~ Y_HF + DeltaHFScore`，置换 nuisance residuals，重构 `Y*`，然后完整重跑 LOOCV pipeline，包括 HF adjustment、ULF coverage、ULF map、`ULFScore_mean_main` 和 prediction。主 permutation statistic 为 LOOCV Spearman rho。
-- Permutation p value 使用 plus-one two-sided：
+- 每次 permutation 先拟合 nuisance model `Y_post ~ Y_HF_ref + DeltaHFScore`，置换 nuisance residuals，重构 `Y*`，然后完整重跑 LOOCV pipeline，包括 HF adjustment、ULF coverage、ULF map、`ULFScore_mean_main` 和 prediction。主 permutation statistic 为 LOOCV Spearman rho。
+- p value 使用 plus-one two-sided：
 
-  ```text
-  p = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
-  ```
+```text
+p = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
+```
 
-- Subject-level bootstrap 对 formal primary branch 使用 `B=10000` 和 seed `42`。Smoke/exploratory 运行使用 `B=1000`。每次 bootstrap resample 都重跑完整 map-building process，包括 `DeltaHFScore`、`Omega_ULF_tau`；`direct_voxel_ULF_only_bootstrap_se.nii.gz` 存储 estimator map 的 voxel-wise standard deviation。
+- Subject-level bootstrap 对 formal primary branch 使用 `B=10000` 和 seed `42`。Smoke/exploratory 运行使用 `B=1000`。每次 bootstrap resample 都重跑完整 map-building process，包括 `DeltaHFScore`、HF support QC 和 `Omega_ULF_tau`；`direct_voxel_ULF_only_bootstrap_se.nii.gz` 存储 estimator map 的 voxel-wise standard deviation。
 
-对非主已执行分支（`tau180/partial_spearman`、`tau220/partial_spearman`、no-DeltaHF sensitivity，以及未设为 co-primary 的 immediate endpoints），仍运行 LOOCV，但不生成 formal permutation/bootstrap outputs。对应 manifests 和 QC JSON 必须记录：
+对非主已执行分支（`tau180/partial_spearman`、`tau220/partial_spearman`、no-DeltaHF sensitivity、gain endpoint sensitivity、total ULF exposure sensitivity，以及未设为 co-primary 的 immediate endpoints），仍运行 LOOCV，但不生成 formal permutation/bootstrap outputs。对应 manifests 和 QC JSON 必须记录：
 
 ```text
 resampling_status = not_run_nonprimary
-resampling_reason = formal resampling restricted to primary tau200/partial_spearman chronic branch
+resampling_reason = formal resampling restricted to primary tau200/partial_spearman branch
 ```
 
-## 执行结构
+## Execution Structure / 执行结构
 
-后续代码实现应分离 image preprocessing 和 statistical postprocessing。
-
-MATLAB/Lead-DBS preprocessing：
+MATLAB preprocessing 负责：
 
 - discover and availability-check required HF-only, HF-component, and ULF-component e-fields；
 - 按 frequency 分类 components（`HF >= 100 Hz`，`ULF <= 50 Hz`）；
-- same-side same-frequency alternating subprograms 按 voxel-wise maximum 合并；
-- 所有左右翻转调用 `ea_flip_lr_nonlinear`；
-- 计算 left/right flip deformation audit metrics，并只记录 warning，不自动排除；
+- 同侧 alternating subprograms 用 voxel-wise maximum 合并；
+- 用 `ea_flip_lr_nonlinear` 执行 left-to-right flip；
 - 将 HF 和 ULF component exposure 采样到 right-hemisphere MNI brainmask candidate grid；
-- 写出 MAT v7 design matrix 和可选 compressed NPZ mirror。
+- 写出 MAT v7 ROI design matrix 和 optional memmap sidecars。
 
-Required design matrix schema：
+Preprocessing output schema 至少包括：
 
 - `X_ULF_only(subject x candidate_voxel)` continuous ULF-only exposure；
 - `E_HF_component(subject x candidate_voxel)` continuous HF component exposure，用于 overlap exclusion 和 `DeltaHFScore`；
-- candidate voxel `ijk` and MNI `xyz_mm`；
-- NIfTI affine/header reference；
-- `subject_id`、source e-field paths、side metadata、component labels、frequency labels 和 clinical raw values；
-- tau/candidate metadata、HF-overlap exclusion metadata、flip metadata 和 jitter metadata placeholders。
+- `E_ULF_component(subject x candidate_voxel)` total ULF component exposure，用于 sensitivity；
+- subject IDs、phase/endpoint labels、side/source e-field paths；
+- raw clinical values `Y_HF_ref`、`Y_post_chronic`、`Y_post_immediate`；
+- tau/candidate metadata、HF-overlap exclusion metadata、HF support metadata、flip metadata 和 jitter metadata placeholders。
 
-Python postprocessing 在 `leaddbs` Conda environment 中运行：
+Python postprocessing 负责：
 
-- read the MAT v7 design matrix or optional NPZ mirror；
-- 在每个 fold 内构建 `Omega_ULF_tau`；
-- 计算 fold-specific HF direct voxel maps 和 `DeltaHFScore`；
-- 运行 partial Spearman map fitting、LOOCV、permutation、bootstrap 和 display output generation；
-- 写出 CSV、JSON、NIfTI maps 和 figures。
+- fit partial Spearman ULF maps；
+- compute fold-specific `DeltaHFScore`；
+- build LOOCV scores and predictions；
+- run permutation/bootstrap/jitter；
+- write CSV/JSON/NIfTI outputs and figures；
+- record Conda `leaddbs` environment state。
 
-默认并行与 HF direct voxel model 保持一致：
-
-```text
-MATLAB preprocessing workers: 8
-Python jobs: 14
-seed: 42
-```
-
-## 下游可视化和输出
-
-Output root：
+Output structure：
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<tau_slug>/partial_spearman/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<scale_slug>/
+  preprocess/
+  tau180/partial_spearman/
+  tau200/partial_spearman/   # primary
+  tau220/partial_spearman/
+  tau200/no_delta_hf/
+  tau200/gain_endpoint/
+  tau200/total_ulf_exposure/
+  tau200/ols_ancova/         # optional future only
 ```
 
-Primary branch：
+`<endpoint_slug>` examples：
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman/
+chronic_3m
+same_day_immediate
+gain_chronic
+gain_immediate
 ```
 
-Sensitivity branches：
+All stochastic operations use seed `42` with deterministic derived sub-seeds recorded in manifest.
 
-```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau180/partial_spearman/
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau220/partial_spearman/
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_no_delta_hf/
-```
+## Downstream Visualization And Outputs / 下游可视化和输出
 
-Required outputs：
+Each executed `tau/estimator/endpoint/scale` directory writes:
 
 ```text
 direct_voxel_ULF_only_coverage.nii.gz
@@ -398,65 +539,87 @@ direct_voxel_ULF_only_bootstrap_se.nii.gz
 direct_voxel_ULF_only_scores.csv
 direct_voxel_ULF_only_loocv_predictions.csv
 direct_voxel_ULF_only_permutation_summary.csv
-direct_voxel_ULF_only_HF_overlap_exclusion_mask.nii.gz
 direct_voxel_ULF_only_mapping_qc.json
 direct_voxel_ULF_only_generation_manifest.json
+direct_voxel_ULF_only_HF_overlap_exclusion_mask.nii.gz
+direct_voxel_ULF_only_HF_overlap_exclusion_summary.csv
+direct_voxel_ULF_only_HF_support_summary.csv
 ```
-
-`direct_voxel_ULF_only_bootstrap_se.nii.gz` 和 `direct_voxel_ULF_only_permutation_summary.csv` 只在 primary branch 中生成。Non-primary branches 不生成这些文件，并在 manifest 和 QC JSON 中记录 `not_run_nonprimary`。
 
 Output semantics：
 
-- `direct_voxel_ULF_only_coverage.nii.gz` 存储 `Coverage_ULF_tau(v)=sum_i I[X_ULF_only_i(v)>tau]`。使用 `int16`。
-- `direct_voxel_ULF_only_coef.nii.gz` 在当前 `partial_spearman/` estimator 中存储 `rho_ULF(v)`。未来可选 OLS outputs 会存储 `theta_ULF(v)`。
-- `direct_voxel_ULF_only_sweet_sour.nii.gz` 存储 benefit-oriented `M_ULF(v)`。正值表示 ULF-only benefit-associated voxels。
-- `direct_voxel_ULF_only_stability.nii.gz` 存储 LOOCV training-fold direction stability，即按 display class 统计 `M_ULF(v)>0` 或 `M_ULF(v)<0` 的方向稳定性。它不是 p value。
-- `direct_voxel_ULF_only_bootstrap_se.nii.gz` 只在 primary branch 中存储 full-process bootstrap 下 estimator map 的标准差。
-- `direct_voxel_ULF_only_scores.csv` 存储 patient-level scores，包括 `ULFScore_mean_main`、`DeltaHFScore`、`Y_HF`、`score_map_source`、`n_valid_score_voxels` 和 `is_primary_score`。
-- `direct_voxel_ULF_only_loocv_predictions.csv` 存储 held-out predictions、observed raw outcome、covariate-only prediction、`ULFScore_mean_main`、`DeltaHFScore` 和 residuals。
-- `direct_voxel_ULF_only_permutation_summary.csv` 只在 primary branch 中存储 Freedman-Lane permutation summary。
-- `direct_voxel_ULF_only_HF_overlap_exclusion_mask.nii.gz` 存储因 branch tau 下 HF 与 ULF 同时 active 而从 ULF-only predictor 中排除的 voxels。
-- `direct_voxel_ULF_only_mapping_qc.json` 存储 endpoint/tau/estimator 级 QC，包括 patient inclusion、candidate mask size、coverage distribution、`Omega_ULF_tau` voxel count、HF-overlap exclusion volume、degenerate voxels、NaN handling、zero-exposure score counts、`corr(ULFScore_mean_main, Y_HF)`、`corr(ULFScore_mean_main, DeltaHFScore)`、coefficient signs、collinearity diagnostics、flip deformation audit metrics 和 design-matrix dimensions。
-- `direct_voxel_ULF_only_generation_manifest.json` 存储 provenance、parameters、code version、conda environment、package state、random seeds 和 runtime profile。
+- `direct_voxel_ULF_only_coverage.nii.gz` stores `Coverage_ULF_tau(v)=sum_i I[X_ULF_only_i(v)>tau]`. Use `int16`.
+- `direct_voxel_ULF_only_coef.nii.gz` stores `rho_ULF(v)` for `partial_spearman`; future `ols_ancova` would store `theta_ULF(v)`.
+- `direct_voxel_ULF_only_sweet_sour.nii.gz` stores benefit-oriented `M_ULF(v)`.
+- `direct_voxel_ULF_only_stability.nii.gz` stores direction stability across LOOCV training folds; it is not a p-value.
+- `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap voxel-wise standard deviation for the formal primary branch.
+- `direct_voxel_ULF_only_scores.csv` stores full-sample and fold-specific `ULFScore_mean_main`, `DeltaHFScore`, `Y_HF_ref`, exposure sums, valid voxel counts, HF-overlap counts, and score-map source.
+- `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed outcomes, nuisance-only predictions, residuals, endpoint labels, and fold QC.
+- `direct_voxel_ULF_only_permutation_summary.csv` stores observed statistic, null distribution summary, plus-one p value, and permutation metadata.
+- `direct_voxel_ULF_only_mapping_qc.json` stores scale/endpoint/tau-level QC.
+- `direct_voxel_ULF_only_generation_manifest.json` stores provenance, parameters, random seed, code version, Conda environment, and runtime profile.
+- `direct_voxel_ULF_only_HF_support_summary.csv` stores subject-level and endpoint-level HF in-support and out-of-support exposure summaries.
 
-主统计 maps 不平滑。Display smoothing 只在系数估计后生成，不用于 ULFScore、LOOCV、permutation、bootstrap 或 jitter：
+Display outputs：
 
 ```text
 display_smooth_fwhm1mm/
 display_smooth_fwhm2mm/
+bilateral_homologous_display/
+qc_figures/
 ```
 
-Display maps 应叠加：
+Main statistical maps are right-canonical and unsmoothed. Smoothing and bilateral homologous maps are display only and must not enter scoring, LOOCV, permutation, bootstrap, or jitter.
+
+Report-only display masks：
 
 ```text
-ULF-only sweet/sour map
-HF-overlap exclusion mask
-STN/SNr anatomical outlines
-STNSNrplus territory background
+sweet_display_mask:
+  M_ULF(v) > 0
+  positive M_ULF(v) within top 10% among positive voxels in Omega_ULF_tau
+  positive-direction stability >= 0.75
+
+sour_display_mask:
+  M_ULF(v) < 0
+  absolute negative M_ULF(v) within top 10% among negative voxels in Omega_ULF_tau
+  negative-direction stability >= 0.75
 ```
 
-## 左右翻转 Deformation Audit
+Display masks are not significance maps and do not define inference.
 
-`ea_flip_lr_nonlinear` 是唯一支持的左右翻转方法。Audit 只记录 warnings，不会自动排除 subjects，除非出现 input integrity failure。
+QC figures are PDF only：
 
-QC metrics：
+```text
+coverage histogram
+HF-overlap exclusion summary
+HF out-of-support summary
+score-vs-outcome scatter
+LOOCV observed-vs-predicted
+DeltaHFScore-vs-outcome scatter
+permutation null
+bootstrap/jitter stability summary
+```
+
+## Left/Right Flip Deformation Audit / 左右翻转 Deformation Audit
+
+`ea_flip_lr_nonlinear` 是唯一左右翻转方法。每个 subject-side component field 的 flip QC 记录：
 
 ```text
 input/output grid and affine
 finite voxel count
 nonzero voxel count
 max, p95, p99, sum
-suprathreshold volume at 180 / 200 / 220 V/m
+suprathreshold volume at 180/200/220 V/m
 intensity-weighted centroid
 L-to-R output overlap with right canonical brainmask
-component label and side metadata
+component label, phase label, and side metadata
 ```
 
-空图、全 NaN 图、非有限值、missing paths 和明显 path/component mismatch 是 hard failures。普通 deformation differences 只作为 warnings。
+Empty images、all-NaN images、non-finite values、missing paths 和 obvious path/component mismatches 是 hard failures。普通 deformation differences 记录为 warnings。
 
 ## Spatial Jitter QC Sensitivity
 
-Spatial jitter 是对已接受 e-field 输入的 robustness stress test。它不是 automatic localization/normalization QC，也不是 input-validity gate。除非某 endpoint 被明确提升为 co-primary，它只对 primary ULF branch 运行。
+Spatial jitter 是对 accepted e-field inputs 的 robustness stress test。它不是 automatic localization/normalization QC，也不是 input-validity gate。除非某 endpoint 被显式提升为 co-primary，否则只对 primary ULF branch 运行。
 
 ```text
 formal jitter resamples: B = 1000
@@ -466,9 +629,9 @@ FWHM: 2 mm
 sigma: 2 / 2.355 = 0.849 mm
 ```
 
-每次 jitter iteration 对每个 subject-side HF 和 ULF component e-field 独立抽取 3D translation vector。对 e-field 执行 translation-only resampling，使用 linear interpolation，outside fill value 为 `0`。随后重建 ULF-only exposure、HF-overlap exclusion、`Omega_ULF_tau`、`DeltaHFScore`、full-sample map、ULF scores 和 LOOCV validation metrics。
+每次 jitter iteration，为每个 subject-side HF 和 ULF component e-field 独立抽取 3D translation vector。使用 linear interpolation 和 outside fill value `0` 执行 translation-only e-field resampling。随后重建 ULF-only exposure、HF-overlap exclusion、`Omega_ULF_tau`、`DeltaHFScore`、HF out-of-support support QC、full-sample map、ULF scores 和 LOOCV validation metrics。
 
-不要保存每张 jittered NIfTI map。只保存 summary table、map correlation/stability summary 和 voxel-wise jitter standard deviation map。
+不保存每次 jittered NIfTI map。保存 summary table、map correlation/stability summary 和 voxel-wise jitter standard deviation map。
 
 ## Reference-Parameter Coverage
 
@@ -480,7 +643,7 @@ right canonical voxel grid
 ea_flip_lr_nonlinear left/right flip
 tau = 180 / 200 / 220 V/m
 Coverage>=5
-baseline/covariate-adjusted partial Spearman
+covariate-adjusted partial Spearman
 LOOCV
 Freedman-Lane permutation for the primary branch
 subject-level bootstrap for the primary branch
@@ -488,7 +651,7 @@ subject-level bootstrap for the primary branch
 display smoothing FWHM 1 mm and 2 mm, display only
 ```
 
-当前 ULF direct voxel execution 中仅记录、不执行的项目：
+当前 ULF direct voxel execution 中仅文档化、不生成结果的项目：
 
 ```text
 Coverage>=6 optional sensitivity: documented only; no current ULF direct voxel outputs
@@ -500,169 +663,186 @@ paper-like spatial similarity score sensitivity: not included; ULFScore_mean_mai
 automatic localization / electrode reconstruction QC: not included; prior manual QC is assumed
 ```
 
-## 解释边界
+## Interpretation Boundary / 解释边界
 
-该模型估计 HF-adjusted ULF-only add-on association。它不是解剖 SNr gain 模型。被 HF 和 ULF 同时激活的 voxels 在主分析中视为 HF-dominant，因此 ULF map 表示在校正 HF clinical state 和 model-predicted HF efficacy changes 后，由 ULF 唯一招募的区域。
+该模型估计 HF-state-adjusted ULF-only add-on association。它不是解剖 SNr gain 模型。主分析中，同时被 HF 和 ULF 激活的 voxels 被视为 HF-dominant，因此 ULF map 表示在校正 HF clinical state 和 model-predicted HF efficacy changes 后，由 ULF 唯一招募的区域。
 
-由于队列为 `n=16`，结果属于 hypothesis-generating。LOOCV 不显著不应解释为不存在生物学 ULF add-on sweet spot。QC report 必须包含 `ULFScore_mean_main`、`Y_HF` 和 `DeltaHFScore` 之间的关联，以及 final prediction model 的基础 collinearity diagnostic。
+因为 immediate HF+ULF endpoint 和 HF-only 3-month clinical reference 在同一天测量，immediate model 可解释为 same-day acute add-on association。Chronic model 仍是 post-add-on follow-up association。
+
+由于 cohort 为 `n=16`，结果是 hypothesis-generating。非显著 LOOCV 结果不应解释为不存在 ULF add-on sweet spot。QC report 必须包括 `ULFScore_mean_main`、`Y_HF_ref` 和 `DeltaHFScore` 之间的关联，`DeltaHFScore` 的 support coverage，以及 final prediction model 的基本 collinearity diagnostic。
 
 应解释为：
 
 ```text
-After accounting for HF state and modeled HF efficacy changes, additional ULF-only exposure in this territory is associated with better or worse post-HF+ULF outcome.
+After accounting for same-day or pre-ULF HF state and modeled HF efficacy changes,
+additional ULF-only exposure in this territory is associated with better or worse
+post-HF+ULF outcome.
 ```
 
 不应解释为：
 
 ```text
 The displayed voxels prove an anatomic SNr-specific causal effect.
+HF-overlap voxels have no ULF biological effect.
+HF-component exposure outside the learned HF map has no biological effect.
+DeltaHFScore fully removes all HF contribution when out-of-support burden is large.
 ```
 
 ## Execution Efficiency
 
-优化实现必须保留上文定义的 logical full-process semantics。特别是，LOOCV training folds 仍然各自定义自己的 HF adjustment map、`DeltaHFScore`、`Omega_ULF_tau`、ULF voxel map、ULF scores 和 held-out predictions。Formal Freedman-Lane permutation 和 subject-level bootstrap 对 primary branch 仍使用 `B=10000` 和 seed `42`。Smoke runs 对 permutation/bootstrap 使用 `B=1000`，对 jitter 使用 `B=100`。
+优化实现必须保持上述 full-process semantics。特别是，LOOCV training folds 仍然必须定义自己的 HF adjustment map、`DeltaHFScore`、HF support QC、`Omega_ULF_tau`、ULF voxel map、ULF scores 和 held-out predictions。Formal Freedman-Lane permutation 和 subject-level bootstrap 对 primary branch 仍使用 `B=10000` 和 seed `42`。Smoke runs 对 permutation/bootstrap 使用 `B=1000`，对 jitter 使用 `B=100`。
 
 ### Equivalence Contract
 
-优化可以复用数学上不变的 cached subcomputations，但不得为了提速使用 full-sample ranks、full-sample training masks、approximate ranks、adaptive early stopping、changed tau thresholds、changed estimators 或 reduced formal resampling counts。
+Optimization 可复用数学不变的 cached subcomputations，但不得为提速而使用 full-sample ranks、full-sample training masks、approximate ranks、adaptive early stopping、changed tau thresholds、changed estimators、changed HF support rules 或 reduced formal resampling counts。
 
-Numerical reductions 尽量使用 `float64`。最终 NIfTI outputs 中 coefficient、sweet/sour、stability 和 bootstrap SE maps 使用 `float32`，coverage 和 binary/exclusion masks 使用 `int16`。
+Numerical reductions 应尽可能使用 `float64`。最终 NIfTI 输出中，coefficient、sweet/sour、stability 和 bootstrap SE maps 使用 `float32`，coverage 和 binary/exclusion masks 使用 `int16`。
 
 ### Preprocessing Sidecar Cache
 
-Formal-loop 首选输入：
+Preferred formal-loop input：
 
 ```text
-X_ULF_only_float32_voxel_major.npy
-E_HF_component_float32_voxel_major.npy
-S180_ULF_only_bool.npy
-S200_ULF_only_bool.npy
-S220_ULF_only_bool.npy
-HF_overlap_tau180_bool.npy
-HF_overlap_tau200_bool.npy
-HF_overlap_tau220_bool.npy
-candidate_ijk.npy
-candidate_xyz_mm.npy
-candidate_mask_metadata.json
+E_ULF_component_<phase>_float32_voxel_major.npy
+E_HF_component_<phase>_on_ulf_grid_float32_voxel_major.npy
+E_HF_component_<phase>_on_hf_score_grid_float32_voxel_major.npy
+E_HF_only_reference_on_hf_score_grid_float32_voxel_major.npy
+X_ULF_only_tau180_<phase>_float32_voxel_major.npy
+X_ULF_only_tau200_<phase>_float32_voxel_major.npy
+X_ULF_only_tau220_<phase>_float32_voxel_major.npy
+S180_ULF_only_<phase>_bool.npy
+S200_ULF_only_<phase>_bool.npy
+S220_ULF_only_<phase>_bool.npy
+HF_overlap_tau180_<phase>_bool.npy
+HF_overlap_tau200_<phase>_bool.npy
+HF_overlap_tau220_<phase>_bool.npy
+candidate_voxel_ijk.npy
+candidate_voxel_mni.npy
+preprocess_sidecar_metadata.json
 ```
 
-Voxel-major layout 是首选，因为 voxel chunks 在磁盘上连续。MAT 和 compressed NPZ files 可以保留用于 archival、compatibility 和 debugging。Compressed NPZ 不得作为 formal permutation、bootstrap 或 jitter loops 内的主要 random-access input。
+MAT v7 design matrix remains the compatibility/archive format. Formal Python loops should use uncompressed memmap-friendly `.npy` sidecars rather than compressed NPZ random access.
 
 ### Coverage And Fold Mask Cache
 
-对每个 tau，预计算：
+For each endpoint phase:
 
 ```text
-S_tau(v, i) = I[X_ULF_only_i(v) > tau]
-Coverage_tau_all(v) = sum_i S_tau(v, i)
-Coverage_tau_fold_h(v) = Coverage_tau_all(v) - S_tau(v, h)
-Omega_ULF_tau_fold_h = {v : Coverage_tau_fold_h(v) >= 5}
+S_tau(v, i, phase) = I[X_ULF_only_i(v, phase,tau) > tau]
+Coverage_tau_all(v, phase) = sum_i S_tau(v, i, phase)
+Coverage_tau_fold_h(v, phase) = Coverage_tau_all(v, phase) - S_tau(v, h, phase)
+Omega_ULF_tau_fold_h(phase) = {v : Coverage_tau_fold_h(v, phase) >= 5}
 ```
 
-`HF_overlap_tau*_bool` 可以缓存，因为它只依赖 accepted HF/ULF component exposures 和 tau，不依赖 outcome。
+`HF_overlap_tau*_bool` 可缓存，因为它只依赖 accepted HF/ULF component exposures 和 tau，不依赖 outcome。
 
 ### Vectorized Partial Spearman Kernel
 
-每个 training fold 的 ranks 必须只在 training set 内计算。LOOCV map fitting、permutation map fitting、bootstrap maps 和 jitter resamples 都禁止使用 full-sample ranks。
+每个 training fold 内，ranks 只能在 training set 内计算。LOOCV map fitting、permutation map fitting、bootstrap maps 和 jitter resamples 中禁止使用 full-sample ranks。
 
-ULF 主估计器对 outcome 和 exposure 同时 residualize：
+ULF primary estimator 同时 residualize outcome 和 exposure against：
 
 ```text
-rank(Y_HF_train)
+rank(Y_HF_ref_train)
 rank(DeltaHFScore_train)
 ```
 
-No-DeltaHF sensitivity 只 residualize：
+No-DeltaHF sensitivity 只 residualize against：
 
 ```text
-rank(Y_HF_train)
+rank(Y_HF_ref_train)
 ```
 
 ### Fold-Level Score Operator For Permutation
 
-Primary branch 的 Formal Freedman-Lane permutation 可使用 fold-level score operator，但必须逻辑上等价于为每个 permuted outcome 重算完整 ULF map 和 `ULFScore_mean_main`。
+Primary branch 的 formal Freedman-Lane permutation 可使用 fold-level score operator，但逻辑上必须等价于对每个 permuted outcome 重新计算完整 ULF map 和 `ULFScore_mean_main`。
 
-每个 permutation 必须拥有自己的：
+Score operator 必须保留：
 
 ```text
+DeltaHFScore if recomputed under the fold/HF map semantics
 rho_ULF(v)
 M_ULF(v)
 V_score
 ULFScore_mean_main
-held-out prediction
+prediction model
 LOOCV statistic
 ```
 
 ### Bootstrap Efficiency
 
-Subject-level bootstrap 仍是 primary branch 的 full-process map stability analysis。它必须重建 bootstrap `DeltaHFScore`、`Omega_ULF_tau`、`rho_ULF` 和 `M_ULF`。Bootstrap SE 通过 streaming Welford updates 累积。实现不得保存 10000 张 bootstrap maps。
+Subject-level bootstrap 仍然是 primary branch 的 full-process map stability analysis。它必须重建 bootstrap `DeltaHFScore`、HF support QC、`Omega_ULF_tau`、`rho_ULF` 和 `M_ULF`。Bootstrap SE 通过 streaming Welford updates 累积。实现不得保存 10000 张 bootstrap maps。
 
 ### Spatial Jitter Efficiency
 
-Jitter 会改变 e-field geometry。因此 primary `X`-derived caches 在 jitter 下失效，不能假装 exposure 未改变而复用。每次 jitter iteration 必须重建 HF component exposure、ULF component exposure、HF-overlap exclusion、ULF-only exposure、candidate mask、`Omega_ULF_tau`、`DeltaHFScore`、map、scores 和 LOOCV metrics。
+Jitter 改变 e-field geometry。Primary `X`-derived caches 在 jitter 下失效，不能当作 exposure 未变化来复用。每次 jitter iteration 必须重建 HF component exposure、ULF component exposure、HF-overlap exclusion、ULF-only exposure、candidate mask、`Omega_ULF_tau`、`DeltaHFScore`、HF support QC、map、scores 和 LOOCV metrics。
 
 ### Prohibited Speed Shortcuts
 
-Formal runs 禁止：
-
 ```text
+lowering B=10000 formal permutation/bootstrap
 adaptive permutation early stopping
-reduced formal B
 changed tau thresholds
 changed Coverage>=5 rule
 changed estimator
-full-sample ranks inside LOOCV/permutation/bootstrap
 approximate ranks
-using anatomical overlay masks as the analysis mask
-dropping requested jitter QC
-using total ULF exposure in place of ULF-only exposure
+full-sample ranks inside LOOCV/permutation/bootstrap
+full-sample Omega used for fold scoring
+reusing full-sample DeltaHFScore for held-out patients
+using a tau-independent X_ULF_only matrix
+using total ULF exposure in place of ULF-only exposure for the primary branch
 including HF-overlap voxels in the primary ULF predictor
-using compressed NPZ as the random-access formal-loop input
+expanding the locked HF score support after seeing ULF results
+imputing or smoothing HF map coefficients outside V_HF_score
 ```
 
 ### Runtime Profile
 
-`direct_voxel_ULF_only_generation_manifest.json` 应包含：
+`direct_voxel_ULF_only_generation_manifest.json` should include：
 
-```json
-{
-  "runtime_profile": {
-    "preprocess_s": null,
-    "sidecar_write_s": null,
-    "load_design_s": null,
-    "observed_loocv_s": null,
-    "permutation_s": null,
-    "bootstrap_s": null,
-    "jitter_s": null,
-    "display_qc_s": null,
-    "n_voxels_candidate": null,
-    "n_voxels_tau200_mean": null,
-    "n_voxels_tau200_min": null,
-    "n_voxels_tau200_max": null,
-    "n_hf_overlap_tau200_mean": null,
-    "python_jobs": null,
-    "blas_threads": null,
-    "memmap_sidecars": [],
-    "bootstrap_finite_count_summary": null
-  }
-}
+```text
+runtime_profile:
+  preprocess_s
+  sidecar_write_s
+  load_design_s
+  hf_score_support_qc_s
+  observed_loocv_s
+  no_delta_hf_s
+  gain_endpoint_s
+  permutation_s
+  bootstrap_s
+  jitter_s
+  display_qc_s
+  n_voxels_candidate
+  n_voxels_tau200_mean/min/max
+  n_voxels_hf_overlap_mean/min/max
+  n_voxels_hf_score_support
+  python_jobs
+  blas_threads
+  memmap_sidecars
+  score_operator_enabled
+  score_operator_exact_scaling
+  bootstrap_finite_count_summary
 ```
 
 ### Equivalence And Regression Tests
 
-正式运行前，在 deterministic subset 上比较 brute-force 和 optimized implementations：
+Before formal execution, run a deterministic small-subset comparison against a brute-force implementation：
 
 ```text
+n_subjects = all available subjects
+n_voxels = 1000 to 10000 deterministic voxels
 B_perm = 20
 B_boot = 20
-n_voxel_subset = 100 to 1000
+B_jitter = 5
 seed = 42
 ```
 
-比较：
+Required exact-equivalence checks：
 
 ```text
 fold-specific DeltaHFScore
+fold-specific HF out-of-support burden
 fold-specific Omega_ULF_tau
 HF-overlap exclusion masks
 partial Spearman rho map
@@ -670,22 +850,15 @@ benefit-oriented M_ULF map
 ULFScore_mean_main
 LOOCV held-out predictions
 LOOCV Spearman rho
-permutation null statistics
-bootstrap SE for finite voxels
+small permutation null statistics
+small bootstrap finite-count summaries
 ```
 
-Required tolerances：
+Floating outputs must match within a predefined `float64` tolerance. Boolean masks and fold membership must match exactly.
 
-```text
-exact equality for masks, subject IDs, voxel IDs, and split indices
-near equality for float outputs under float64 reductions
-same NaN/degenerate voxel locations
-same plus-one p value for the deterministic small test
-```
+## Execution Priority And Gatekeeping / 执行优先级与 Gatekeeping
 
-## 执行优先级与 Gatekeeping
-
-ULF direct voxel analysis 应按 gatekeeping sequence 运行。不要一次性运行所有 sensitivity analyses。
+ULF direct voxel analysis 必须按 gatekeeping sequence 执行。不要一次性运行所有 sensitivity analyses。
 
 ### Round 0: Input Readiness
 
@@ -693,16 +866,25 @@ ULF direct voxel analysis 应按 gatekeeping sequence 运行。不要一次性�
 
 ```text
 clinical table audit:
-  Y_post exists
-  Y_HF exists
+  Y_HF_ref exists at T2 HF-only 3-month same-day reference
+  Y_post_immediate exists at T2 HF+ULF same-day immediate endpoint, if modeled
+  Y_post_chronic exists at T3 HF+ULF 3-month endpoint, if modeled
   DeltaHFScore inputs exist
   ID joins to imaging subject
   scale direction is defined
 
+visit chronology audit:
+  T0 preoperative baseline exists when available
+  T1 1-month HF immediate opening visit exists when available
+  T2 HF-only 3-month and HF+ULF immediate are same-day or same-session
+  T3 HF+ULF 3-month follow-up phase is labeled
+
 e-field availability check:
-  HF-only pre-ULF e-fields exist
-  HF+ULF HF-component e-fields exist
-  HF+ULF ULF-component e-fields exist
+  HF-only T2 reference e-fields exist
+  HF+ULF immediate HF-component e-fields exist when immediate endpoint is modeled
+  HF+ULF immediate ULF-component e-fields exist when immediate endpoint is modeled
+  HF+ULF chronic HF-component e-fields exist when chronic endpoint is modeled
+  HF+ULF chronic ULF-component e-fields exist when chronic endpoint is modeled
   all matches are unique
   raw sim-efield is used
 
@@ -710,39 +892,68 @@ component audit:
   HF frequency >= 100 Hz
   ULF frequency <= 50 Hz
   mixed or proxy component fields are labeled
+
+locked HF model audit:
+  hf_3m_direct_voxel_model tau200/partial_spearman source exists
+  HFScore_mean_main and M_HF support are valid
+  fold-specific map generation is available for LOOCV DeltaHFScore
 ```
 
-只有 primary endpoint subjects 都有完整 clinical 和 e-field inputs，且有效样本量至少为 12，才进入 Round 1。
+只有当所有 primary endpoint subjects 具有完整 clinical 和 e-field inputs，运行 immediate endpoint 时已确认 same-day immediate reference，并且 valid sample size 至少为 12，才进入 Round 1。
 
-### Round 1: Preprocessing And Overlap QC
+### Round 1: Preprocessing, Overlap QC, And HF Support QC
 
 运行 preprocessing sidecars 和 flip audit。确认：
 
 ```text
-X_ULF_only matrix is non-empty
-HF_overlap exclusion mask is non-empty or explicitly zero
+ULF component matrix is non-empty
+X_ULF_only_tau200 matrix is non-empty
+HF_overlap outputs are valid even if overlap is zero
 tau200 Coverage>=5 Omega_ULF is non-empty
 each subject has nonzero HF component exposure
 each subject has nonzero or explicitly absent ULF-only exposure
+DeltaHFScore support summary is generated
+HF_out_support_fraction is not extreme enough to invalidate HF adjustment
 ```
 
-如果大多数 subjects 的 ULF-only exposure 为空，则停止并报告 primary ULF-only predictor 不可建模。
+如果大多数 subjects 的 ULF-only exposure 为空，停止并报告 primary ULF-only predictor 不可建模。如果 HF out-of-support burden 较大，则仅作为 exploratory 继续，或加入预先声明的 HF-out-of-support sensitivity。
 
 ### Round 2: Primary Chronic Observed LOOCV
 
-先运行：
+除非 immediate endpoint 被显式提升为 co-primary，否则先运行：
 
 ```text
 endpoint = MDS-UPDRS III total chronic HF+ULF 3-month score
 branch = tau200 / partial_spearman
 score = ULFScore_mean_main
-covariates = Y_HF + DeltaHFScore
+covariates = Y_HF_ref + DeltaHFScore
 validation = LOOCV
 ```
 
-只有所有 folds 完成、`ULFScore_mean_main` 非常数、held-out predictions finite、LOOCV rho 为正、`Q2 > 0`，且 ULFScore model 优于 `Y_HF + DeltaHFScore`，才进入 Round 3。
+只有当所有 folds 完成、`ULFScore_mean_main` 非常数、held-out predictions 有限、LOOCV rho 为正、`Q2 > 0`，并且 ULFScore model 优于 `Y_HF_ref + DeltaHFScore` 时，才进入 Round 3。
 
-如果 primary chronic branch 为阴性、近常数，或由单个 high-leverage subject 决定，则停止。主分支失败后，不运行 `tau180/tau220` 来寻找更好的阈值。
+如果 primary chronic branch 为负、近似常数、不受 HF map support 支持，或被单个 high-leverage subject 主导，则停止。不要在 primary failure 后运行 `tau180/tau220` 来寻找更好 threshold。
+
+### Round 2b: Same-Day Immediate Observed LOOCV
+
+默认作为 key secondary 运行；只有显式声明时作为 co-primary：
+
+```text
+endpoint = MDS-UPDRS III total same-day immediate HF+ULF score
+branch = tau200 / partial_spearman
+score = ULFScore_mean_main
+covariates = Y_HF_ref + DeltaHFScore_immediate
+validation = LOOCV
+```
+
+如果 complete，也运行 same-day gain sensitivity：
+
+```text
+endpoint = Gain_immediate
+branch = tau200 / partial_spearman_gain_endpoint
+```
+
+如果 immediate endpoint 满足与 chronic observed LOOCV 相同的标准，则可进入 smoke resampling。
 
 ### Round 3: Equivalence And Smoke Resampling
 
@@ -755,11 +966,11 @@ smoke bootstrap B=1000
 smoke jitter B=100
 ```
 
-只有 optimized 和 brute-force paths 匹配、smoke resampling 无 artifacts、bootstrap finite-count distribution 可接受，且 jitter 不反转信号方向时，才进入 Round 4。
+只有当 optimized 和 brute-force paths 一致、smoke resampling 无 artifacts、bootstrap finite-count distribution 可接受，并且 jitter 不反转 signal direction 时，才进入 Round 4。
 
 ### Round 4: Formal Permutation
 
-只对 primary chronic branch 运行：
+只对 primary branch 运行：
 
 ```text
 tau200 / partial_spearman
@@ -768,7 +979,7 @@ seed = 42
 statistic = LOOCV Spearman rho
 ```
 
-Permutation 完成、p value finite 且 observed signal 仍为正时，进入 bootstrap。如果 `p_perm > 0.10` 且 `Q2 <= 0`，停止 heavy analyses，只生成 minimal exploratory report。
+如果 permutation 完成、p value 有限，且 observed signal 仍为正，则进入 bootstrap。如果 `p_perm > 0.10` 且 `Q2 <= 0`，停止 heavy analyses 并生成 minimal exploratory report。
 
 ### Round 5: Formal Bootstrap
 
@@ -780,7 +991,7 @@ B = 10000
 seed = 42
 ```
 
-只有 bootstrap finite counts 可接受、core sign stability 可解释，且多数 bootstrap maps 非空，才继续。
+只有当 bootstrap finite counts 可接受、core sign stability 可解释，并且大多数 bootstrap maps 非空时，才继续。
 
 ### Round 6: Formal Spatial Jitter
 
@@ -792,7 +1003,7 @@ B = 1000
 FWHM = 2 mm
 ```
 
-如果 jitter map correlation 接近 0 或 signal direction 反转，则将结论降级为 spatially fragile exploratory association。
+如果 jitter map correlation 接近 0 或 signal direction 反转，将结论降级为 spatially fragile exploratory association。
 
 ### Round 7: Tau Sensitivity
 
@@ -803,24 +1014,31 @@ tau180 / partial_spearman
 tau220 / partial_spearman
 ```
 
-Tau sensitivity 不运行 formal permutation/bootstrap。`tau180/tau220` 解释为 robustness checks，而不是 threshold search。
+不对 tau sensitivity 运行 formal permutation/bootstrap。将 tau180/tau220 解释为 exposure-definition robustness checks，而不是 threshold search。
 
-### Round 8: Immediate Endpoint
+### Round 8: Additional Sensitivities
 
-只在 chronic primary branch 可解释后运行：
+只在 primary branch 可解释后运行：
 
 ```text
-endpoint = immediate HF+ULF motor score
-branch = tau200 / partial_spearman
-validation = observed LOOCV
-smoke permutation optional
+no-DeltaHF sensitivity
+gain endpoint sensitivity
+total ULF exposure sensitivity
+HF-out-of-support covariate sensitivity when support burden is nontrivial
+Y_base-added collinearity sensitivity if baseline data are complete
 ```
 
-Immediate endpoint 的 formal resampling 需要显式决定将其作为 co-primary。
+`Y_base`-added sensitivity：
+
+```text
+Y_post ~ ULFScore_mean_main + Y_HF_ref + DeltaHFScore + Y_base
+```
+
+它是 collinearity/stability check，不替代 primary model。
 
 ### Round 9: Display And Final Manifests
 
-只有在 statistical branches 完成后，才生成 display smoothing、bilateral homologous display maps、HF-overlap exclusion overlays、STN/SNr outlines、PDF QC 和 final manifests。Display outputs 不得回流到 ULFScore、LOOCV、permutation、bootstrap 或 jitter。
+只有在 statistical branches 完成后，才生成 display smoothing、bilateral homologous display maps、HF-overlap exclusion overlays、HF support burden summaries、STN/SNr outlines、PDF QC 和 final manifests。Display outputs 不得反馈进入 ULFScore、LOOCV、permutation、bootstrap 或 jitter。
 
 ### Round 10: Optional Future Analyses
 
@@ -838,12 +1056,13 @@ automatic localization / electrode reconstruction QC
 
 ### Recommended First Batch
 
-第一批实际运行只应覆盖：
+第一批实际运行只覆盖：
 
 ```text
 Round 0
 Round 1
-Round 2
+Round 2 chronic observed LOOCV
+Round 2b immediate observed LOOCV, if same-day immediate data are complete
 Round 3 smoke only
 ```
 
@@ -851,12 +1070,14 @@ Round 3 smoke only
 
 ```text
 MDS-UPDRS III total chronic endpoint
+MDS-UPDRS III total same-day immediate endpoint, if complete
 tau200
 partial_spearman
 Coverage>=5
 ULF-only exposure
 HF-overlap exclusion
 DeltaHFScore-adjusted model
+HF out-of-support support QC
 ULFScore_mean_main
 LOOCV
 covariate-only comparison
