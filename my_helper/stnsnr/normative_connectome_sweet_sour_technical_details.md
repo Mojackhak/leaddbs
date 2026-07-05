@@ -503,8 +503,8 @@ That model supersedes older generic direct-voxel notes for HF. In particular, th
 
 - uses a right-hemisphere MNI brainmask candidate grid (`brainmask > 0`, voxel-center `x > 0`);
 - uses sparse candidate construction based on any valid subject with `X_HF_only > 180 V/m`;
-- uses `Coverage(v) >= 5` only for all generated HF results;
-- documents `Coverage>=6` and `Coverage>=8` as optional sensitivities but does not generate them in the current HF execution;
+- uses `Coverage(v) >= 5` for the primary HF mainline;
+- documents `Coverage>=6` and `Coverage>=8` as optional sensitivities for the primary mainline; the A-model post-hoc threshold scan is the explicit exploratory exception and generates only scan-level threshold-optimization outputs;
 - uses baseline-adjusted partial Spearman as the primary estimator and keeps OLS ANCOVA as optional future supplemental analysis not run in the current executable analysis;
 - uses voxel-count-normalized `HFScore_mean_main = sum_v X_HF_only(v) * M_HF(v) / n_valid_score_voxels` as the primary patient-level score;
 - uses `ea_flip_lr_nonlinear` for left-to-right E-field mapping;
@@ -512,7 +512,7 @@ That model supersedes older generic direct-voxel notes for HF. In particular, th
 - does not use `Omega_pair`, paired-mask membership thresholds, or `direct_voxel_<seed>_paired_mask.nii.gz`;
 - treats existing e-fields as correct inputs after prior manual/clinical QC and performs only minimum availability/uniqueness checks;
 - restricts formal permutation/bootstrap to `tau200/partial_spearman`;
-- records, but does not generate, the reference-literature `Coverage>=8` / 50% E-field rule;
+- records, but does not use as a primary rule, the reference-literature `Coverage>=8` / 50% E-field rule;
 - uses LOOCV as the sole validation design for `n = 16`;
 - adds report-only top 10% + direction-stability display masks that are not significance maps.
 

@@ -1,0 +1,625 @@
+#!/usr/bin/env python3
+"""Post-hoc tau/coverage threshold scan for the HF direct voxel model."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import platform
+import sys
+import time
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+from scipy.stats import pearsonr, spearmanr
+
+from stnsnr_four_model_readiness import (
+    DEFAULT_CANONICAL_ASSET_ROOT,
+    DEFAULT_CLINICAL_ROOT,
+    DEFAULT_MATLAB,
+    DEFAULT_VAL_ROOT,
+    HF_DEFAULT_SCALES,
+    detect_asset_root,
+    infer_scale_direction,
+    repo_root_from_file,
+)
+from stnsnr_four_model_stats import (
+    benefit_oriented_weights,
+    candidate_mask_from_coverage,
+    coverage_from_suprathreshold,
+    fit_linear_prediction,
+    mean_map_score,
+    partial_spearman_matrix,
+    suprathreshold_matrix,
+)
+from stnsnr_hf_direct_voxel_smoke import (
+    build_exposure_matrix,
+    collect_side_field_paths,
+    filter_hf_stn_rows,
+    fit_baseline_only,
+    flip_left_fields_with_matlab,
+    load_stim_table,
+    load_subject_records,
+    right_brainmask_voxels,
+    slugify,
+    write_csv,
+    write_json,
+)
+
+
+TAU_GRID = [100, 150, 180, 200, 220, 250, 300, 350, 400, 500]
+COVERAGE_GRID = [5, 6, 7, 8, 10, 12]
+PRIMARY_TAU = 200
+PRIMARY_COVERAGE = 5
+POSTHOC_CANDIDATE_THRESHOLD = 100.0
+
+
+def iso_now() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "pass"}
+    return bool(value)
+
+
+def _finite_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return math.nan
+
+
+def safe_pearson(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    finite = np.isfinite(x) & np.isfinite(y)
+    if finite.sum() < 3:
+        return math.nan, math.nan
+    if np.nanstd(x[finite]) == 0 or np.nanstd(y[finite]) == 0:
+        return math.nan, math.nan
+    stat = pearsonr(x[finite], y[finite])
+    return float(stat.statistic), float(stat.pvalue)
+
+
+def safe_spearman(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    finite = np.isfinite(x) & np.isfinite(y)
+    if finite.sum() < 3:
+        return math.nan, math.nan
+    if np.nanstd(x[finite]) == 0 or np.nanstd(y[finite]) == 0:
+        return math.nan, math.nan
+    stat = spearmanr(x[finite], y[finite])
+    return float(stat.statistic), float(stat.pvalue)
+
+
+def row_passes_hard_filters(row: dict[str, Any]) -> bool:
+    """Return whether one grid cell passes the locked post-hoc stability filter."""
+    return (
+        _finite_float(row.get("n_voxels_full")) >= 20
+        and _finite_float(row.get("fold_n_voxels_min")) >= 10
+        and _as_bool(row.get("hfscore_nonconstant_all_folds"))
+        and _as_bool(row.get("all_predictions_finite"))
+        and _finite_float(row.get("q2")) > 0
+        and _finite_float(row.get("loocv_spearman_rho")) > 0
+        and _finite_float(row.get("mae_model")) < _finite_float(row.get("mae_baseline"))
+        and _finite_float(row.get("rmse_model")) < _finite_float(row.get("rmse_baseline"))
+    )
+
+
+def _primary_distance(row: dict[str, Any]) -> tuple[float, float]:
+    return (abs(_finite_float(row.get("tau")) - PRIMARY_TAU), abs(_finite_float(row.get("coverage")) - PRIMARY_COVERAGE))
+
+
+def select_best_grid_cell(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Select the best exploratory grid cell among rows passing all hard filters."""
+    eligible = [row for row in rows if row_passes_hard_filters(row)]
+    if not eligible:
+        return None
+
+    def sort_key(row: dict[str, Any]) -> tuple[float, float, float, float, float, float, float]:
+        tau_distance, coverage_distance = _primary_distance(row)
+        return (
+            -_finite_float(row.get("q2")),
+            -_finite_float(row.get("loocv_spearman_rho")),
+            -_finite_float(row.get("fold_n_voxels_min")),
+            tau_distance,
+            coverage_distance,
+            -_finite_float(row.get("coverage")),
+            -_finite_float(row.get("tau")),
+        )
+
+    return sorted(eligible, key=sort_key)[0]
+
+
+def build_heatmap(rows: list[dict[str, Any]], value_column: str) -> pd.DataFrame:
+    """Build a tau-by-coverage heatmap table for one result column."""
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return pd.DataFrame()
+    heatmap = frame.pivot(index="tau", columns="coverage", values=value_column)
+    heatmap = heatmap.reindex(index=sorted(frame["tau"].unique()), columns=sorted(frame["coverage"].unique()))
+    heatmap.index.name = "tau"
+    heatmap.columns.name = "coverage"
+    return heatmap
+
+
+def write_heatmap_figure(path: Path, heatmap: pd.DataFrame, title: str) -> str:
+    """Write a simple heatmap PNG when matplotlib is available."""
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:  # pragma: no cover - optional plotting dependency
+        return f"SKIPPED: {exc}"
+
+    values = heatmap.to_numpy(dtype=float)
+    fig, ax = plt.subplots(figsize=(8.5, 5.0), constrained_layout=True)
+    image = ax.imshow(values, aspect="auto", origin="lower")
+    ax.set_title(title)
+    ax.set_xlabel("Coverage")
+    ax.set_ylabel("tau (V/m)")
+    ax.set_xticks(np.arange(len(heatmap.columns)))
+    ax.set_xticklabels([str(item) for item in heatmap.columns])
+    ax.set_yticks(np.arange(len(heatmap.index)))
+    ax.set_yticklabels([str(item) for item in heatmap.index])
+    fig.colorbar(image, ax=ax)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    return "PASS"
+
+
+def load_or_build_posthoc_preprocess(args: argparse.Namespace, output_root: Path, scale_slug: str) -> dict[str, Any]:
+    """Load or build a candidate-threshold-100 exposure sidecar for the post-hoc scan."""
+    repo_root = Path(args.repo_root).expanduser().resolve() if args.repo_root else repo_root_from_file()
+    asset_root = detect_asset_root(repo_root, Path(args.asset_root) if args.asset_root else None)
+    clinical_root = Path(args.clinical_root).expanduser().resolve()
+    derivatives_root = Path(args.leaddbs_derivatives).expanduser().resolve()
+    matlab_bin = Path(args.matlab_bin).expanduser().resolve()
+    scale = args.scale
+
+    scan_dir = output_root / scale_slug / "posthoc_threshold_scan"
+    preprocess_dir = scan_dir / "preprocess_candidate_tau100"
+    primary_preprocess_dir = output_root / scale_slug / "preprocess"
+    x_path = preprocess_dir / "X_HF_float32_subject_major.npy"
+    flat_path = preprocess_dir / "candidate_flat_indices.npy"
+    ijk_path = preprocess_dir / "candidate_ijk.npy"
+    xyz_path = preprocess_dir / "candidate_xyz.npy"
+    subjects_path = preprocess_dir / "subjects.csv"
+    qc_path = preprocess_dir / "direct_voxel_HF_posthoc_preprocess_qc.json"
+
+    records = load_subject_records(clinical_root, scale)
+    subject_ids = {record.subject_id for record in records}
+    scale_direction, scale_direction_source = infer_scale_direction(scale)
+    if scale_direction not in {"lower", "higher"}:
+        raise RuntimeError(f"unknown scale direction for {scale!r}; provide explicit direction before running")
+
+    required = [x_path, flat_path, ijk_path, xyz_path, subjects_path, qc_path]
+    if not args.force_preprocess and all(path.is_file() for path in required):
+        subjects = pd.read_csv(subjects_path)
+        expected_subjects = [record.subject_id for record in records]
+        observed_subjects = subjects["subject_id"].astype(str).tolist()
+        if observed_subjects != expected_subjects:
+            raise RuntimeError("post-hoc preprocess subjects do not match current clinical records")
+        return {
+            "repo_root": repo_root,
+            "asset_root": asset_root,
+            "clinical_root": clinical_root,
+            "derivatives_root": derivatives_root,
+            "scan_dir": scan_dir,
+            "preprocess_dir": preprocess_dir,
+            "records": records,
+            "scale_direction": scale_direction,
+            "scale_direction_source": scale_direction_source,
+            "x": np.load(x_path, mmap_mode="r"),
+            "candidate_flat": np.load(flat_path),
+            "candidate_ijk": np.load(ijk_path),
+            "candidate_xyz": np.load(xyz_path),
+            "preprocess_status": "reused",
+            "preprocess_qc_path": qc_path,
+        }
+
+    preprocess_dir.mkdir(parents=True, exist_ok=True)
+    stim_rows = filter_hf_stn_rows(load_stim_table(clinical_root), subject_ids)
+    if stim_rows["ID"].nunique() != len(records):
+        missing_subjects = sorted(subject_ids - set(stim_rows["ID"].astype(str).unique()))
+        raise RuntimeError("missing HF STN stimulation rows for subjects: " + ", ".join(missing_subjects))
+
+    side_paths, side_field_qc = collect_side_field_paths(records, stim_rows, derivatives_root)
+    flipped_left_paths, flip_result = flip_left_fields_with_matlab(
+        repo_root=asset_root,
+        matlab_bin=matlab_bin,
+        side_paths=side_paths,
+        preprocess_dir=primary_preprocess_dir,
+        force=args.force_flip,
+    )
+    ref_img, right_ijk, right_xyz, right_flat = right_brainmask_voxels(asset_root)
+    exposure_all, sampling_qc = build_exposure_matrix(records, side_paths, flipped_left_paths, right_xyz)
+    candidate_sparse = np.any(exposure_all > POSTHOC_CANDIDATE_THRESHOLD, axis=0)
+    candidate_flat = right_flat[candidate_sparse]
+    candidate_ijk = right_ijk[candidate_sparse]
+    candidate_xyz = right_xyz[candidate_sparse]
+    x = exposure_all[:, candidate_sparse].astype(np.float32)
+
+    np.save(x_path, x)
+    np.save(flat_path, candidate_flat)
+    np.save(ijk_path, candidate_ijk)
+    np.save(xyz_path, candidate_xyz)
+    write_csv(subjects_path, [asdict(record) for record in records], ["subject_id", "y_post", "y_base"])
+    write_json(
+        qc_path,
+        {
+            "generated_at": iso_now(),
+            "scale": scale,
+            "scale_direction": scale_direction,
+            "scale_direction_source": scale_direction_source,
+            "n_subjects": len(records),
+            "right_brainmask_voxels": int(right_flat.size),
+            "candidate_threshold_v_per_m": POSTHOC_CANDIDATE_THRESHOLD,
+            "n_candidate_voxels": int(candidate_flat.size),
+            "primary_preprocess_dir_for_flips": str(primary_preprocess_dir),
+            "side_fields": side_field_qc,
+            "flip_result": flip_result,
+            "sampling_qc": sampling_qc,
+        },
+    )
+
+    return {
+        "repo_root": repo_root,
+        "asset_root": asset_root,
+        "clinical_root": clinical_root,
+        "derivatives_root": derivatives_root,
+        "scan_dir": scan_dir,
+        "preprocess_dir": preprocess_dir,
+        "records": records,
+        "scale_direction": scale_direction,
+        "scale_direction_source": scale_direction_source,
+        "x": np.load(x_path, mmap_mode="r"),
+        "candidate_flat": candidate_flat,
+        "candidate_ijk": candidate_ijk,
+        "candidate_xyz": candidate_xyz,
+        "preprocess_status": "built",
+        "preprocess_qc_path": qc_path,
+    }
+
+
+def _empty_grid_result(tau: int, coverage_min: int, reason: str) -> dict[str, Any]:
+    return {
+        "tau": tau,
+        "coverage": coverage_min,
+        "n_voxels_full": 0,
+        "fold_n_voxels_min": 0,
+        "fold_n_voxels_median": 0,
+        "fold_n_voxels_max": 0,
+        "loocv_spearman_rho": math.nan,
+        "loocv_spearman_nominal_p": math.nan,
+        "loocv_pearson_r": math.nan,
+        "loocv_pearson_nominal_p": math.nan,
+        "q2": math.nan,
+        "mae_model": math.nan,
+        "mae_baseline": math.nan,
+        "rmse_model": math.nan,
+        "rmse_baseline": math.nan,
+        "corr_HFScore_mean_main_Y_base": math.nan,
+        "spearman_HFScore_mean_main_Y_base": math.nan,
+        "delta_median": math.nan,
+        "delta_min": math.nan,
+        "delta_max": math.nan,
+        "hfscore_nonconstant_all_folds": False,
+        "all_predictions_finite": False,
+        "passes_all_hard_filters": False,
+        "failure_reason": reason,
+    }
+
+
+def evaluate_grid_cell(
+    x: np.ndarray,
+    y_post: np.ndarray,
+    y_base: np.ndarray,
+    scale_direction: str,
+    tau: int,
+    coverage_min: int,
+) -> dict[str, Any]:
+    s_tau = suprathreshold_matrix(x, tau)
+    coverage = coverage_from_suprathreshold(s_tau)
+    omega = candidate_mask_from_coverage(coverage, coverage_min)
+    n_voxels_full = int(np.count_nonzero(omega))
+    if n_voxels_full == 0:
+        return _empty_grid_result(tau, coverage_min, "empty_full_sample_omega")
+
+    rho = np.full(x.shape[1], np.nan, dtype=np.float32)
+    rho_omega = partial_spearman_matrix(y_post, x[:, omega], y_base)
+    rho[omega] = rho_omega.astype(np.float32)
+    weights = benefit_oriented_weights(rho, scale_direction).astype(np.float32)
+    valid_full = omega & np.isfinite(weights)
+    if not np.any(valid_full):
+        return _empty_grid_result(tau, coverage_min, "no_valid_full_sample_weights")
+    full_scores, n_valid_full = mean_map_score(x, weights, valid_full)
+
+    n_subjects = y_post.shape[0]
+    loocv_pred = np.full(n_subjects, np.nan, dtype=float)
+    loocv_base_pred = np.full(n_subjects, np.nan, dtype=float)
+    loocv_score = np.full(n_subjects, np.nan, dtype=float)
+    fold_n_voxels: list[int] = []
+    deltas: list[float] = []
+    nonconstant_all_folds = True
+    failure_reasons: list[str] = []
+
+    for heldout in range(n_subjects):
+        train = np.array([idx for idx in range(n_subjects) if idx != heldout], dtype=int)
+        coverage_fold = coverage - s_tau[heldout].astype(np.int32)
+        omega_fold = candidate_mask_from_coverage(coverage_fold, coverage_min)
+        n_fold = int(np.count_nonzero(omega_fold))
+        fold_n_voxels.append(n_fold)
+        if n_fold == 0:
+            nonconstant_all_folds = False
+            failure_reasons.append(f"empty_fold_{heldout + 1}")
+            continue
+
+        rho_fold = partial_spearman_matrix(y_post[train], x[train][:, omega_fold], y_base[train])
+        weights_fold_local = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
+        weights_fold = np.full(x.shape[1], np.nan, dtype=np.float32)
+        weights_fold[omega_fold] = weights_fold_local
+        valid_fold = omega_fold & np.isfinite(weights_fold)
+        if not np.any(valid_fold):
+            nonconstant_all_folds = False
+            failure_reasons.append(f"no_valid_fold_weights_{heldout + 1}")
+            continue
+
+        fold_scores, _ = mean_map_score(x, weights_fold, valid_fold)
+        if np.nanstd(fold_scores[train]) == 0:
+            nonconstant_all_folds = False
+            failure_reasons.append(f"constant_training_score_fold_{heldout + 1}")
+            continue
+
+        pred, beta = fit_linear_prediction(
+            y_post[train],
+            fold_scores[train],
+            y_base[train],
+            fold_scores[[heldout]],
+            y_base[[heldout]],
+        )
+        base_pred, _ = fit_baseline_only(y_post[train], y_base[train], y_base[[heldout]])
+        loocv_pred[heldout] = pred[0]
+        loocv_base_pred[heldout] = base_pred[0]
+        loocv_score[heldout] = fold_scores[heldout]
+        deltas.append(float(beta[1]))
+
+    finite_pred = np.isfinite(loocv_pred)
+    finite_base = np.isfinite(loocv_base_pred)
+    all_predictions_finite = bool(np.all(finite_pred) and np.all(finite_base))
+    loocv_spearman_rho, loocv_spearman_p = safe_spearman(y_post, loocv_pred)
+    loocv_pearson_r, loocv_pearson_p = safe_pearson(y_post, loocv_pred)
+
+    finite_model = np.isfinite(y_post) & np.isfinite(loocv_pred)
+    residual_model = y_post[finite_model] - loocv_pred[finite_model]
+    mae_model = float(np.mean(np.abs(residual_model))) if residual_model.size else math.nan
+    rmse_model = float(np.sqrt(np.mean(residual_model * residual_model))) if residual_model.size else math.nan
+
+    finite_baseline = np.isfinite(y_post) & np.isfinite(loocv_base_pred)
+    residual_base = y_post[finite_baseline] - loocv_base_pred[finite_baseline]
+    mae_baseline = float(np.mean(np.abs(residual_base))) if residual_base.size else math.nan
+    rmse_baseline = float(np.sqrt(np.mean(residual_base * residual_base))) if residual_base.size else math.nan
+
+    finite_q2 = np.isfinite(y_post) & np.isfinite(loocv_pred) & np.isfinite(loocv_base_pred)
+    sse_model = float(np.sum((y_post[finite_q2] - loocv_pred[finite_q2]) ** 2))
+    sse_baseline = float(np.sum((y_post[finite_q2] - loocv_base_pred[finite_q2]) ** 2))
+    q2 = float(1.0 - sse_model / sse_baseline) if sse_baseline > 0 else math.nan
+
+    corr_score_base, _ = safe_pearson(full_scores, y_base)
+    spearman_score_base, _ = safe_spearman(full_scores, y_base)
+    fold_array = np.asarray(fold_n_voxels, dtype=float)
+    deltas_array = np.asarray(deltas, dtype=float)
+    row = {
+        "tau": tau,
+        "coverage": coverage_min,
+        "n_voxels_full": n_voxels_full,
+        "n_valid_full_score_voxels": int(n_valid_full),
+        "fold_n_voxels_min": int(np.nanmin(fold_array)) if fold_array.size else 0,
+        "fold_n_voxels_median": float(np.nanmedian(fold_array)) if fold_array.size else math.nan,
+        "fold_n_voxels_max": int(np.nanmax(fold_array)) if fold_array.size else 0,
+        "loocv_spearman_rho": loocv_spearman_rho,
+        "loocv_spearman_nominal_p": loocv_spearman_p,
+        "loocv_pearson_r": loocv_pearson_r,
+        "loocv_pearson_nominal_p": loocv_pearson_p,
+        "q2": q2,
+        "mae_model": mae_model,
+        "mae_baseline": mae_baseline,
+        "rmse_model": rmse_model,
+        "rmse_baseline": rmse_baseline,
+        "corr_HFScore_mean_main_Y_base": corr_score_base,
+        "spearman_HFScore_mean_main_Y_base": spearman_score_base,
+        "delta_median": float(np.nanmedian(deltas_array)) if deltas_array.size else math.nan,
+        "delta_min": float(np.nanmin(deltas_array)) if deltas_array.size else math.nan,
+        "delta_max": float(np.nanmax(deltas_array)) if deltas_array.size else math.nan,
+        "hfscore_nonconstant_all_folds": nonconstant_all_folds,
+        "all_predictions_finite": all_predictions_finite,
+        "failure_reason": ";".join(failure_reasons),
+    }
+    row.update(
+        {
+            "passes_n_voxels_full": _finite_float(row["n_voxels_full"]) >= 20,
+            "passes_fold_n_voxels_min": _finite_float(row["fold_n_voxels_min"]) >= 10,
+            "passes_hfscore_nonconstant": nonconstant_all_folds,
+            "passes_predictions_finite": all_predictions_finite,
+            "passes_q2_positive": _finite_float(row["q2"]) > 0,
+            "passes_spearman_positive": _finite_float(row["loocv_spearman_rho"]) > 0,
+            "passes_mae_improvement": _finite_float(row["mae_model"]) < _finite_float(row["mae_baseline"]),
+            "passes_rmse_improvement": _finite_float(row["rmse_model"]) < _finite_float(row["rmse_baseline"]),
+        }
+    )
+    row["passes_all_hard_filters"] = row_passes_hard_filters(row)
+    return row
+
+
+def write_scan_outputs(scan_dir: Path, rows: list[dict[str, Any]], selected: dict[str, Any] | None, manifest: dict[str, Any]) -> None:
+    results_path = scan_dir / "posthoc_threshold_scan_results.csv"
+    fieldnames = [
+        "tau",
+        "coverage",
+        "n_voxels_full",
+        "n_valid_full_score_voxels",
+        "fold_n_voxels_min",
+        "fold_n_voxels_median",
+        "fold_n_voxels_max",
+        "loocv_spearman_rho",
+        "loocv_spearman_nominal_p",
+        "loocv_pearson_r",
+        "loocv_pearson_nominal_p",
+        "q2",
+        "mae_model",
+        "mae_baseline",
+        "rmse_model",
+        "rmse_baseline",
+        "corr_HFScore_mean_main_Y_base",
+        "spearman_HFScore_mean_main_Y_base",
+        "delta_median",
+        "delta_min",
+        "delta_max",
+        "hfscore_nonconstant_all_folds",
+        "all_predictions_finite",
+        "passes_n_voxels_full",
+        "passes_fold_n_voxels_min",
+        "passes_hfscore_nonconstant",
+        "passes_predictions_finite",
+        "passes_q2_positive",
+        "passes_spearman_positive",
+        "passes_mae_improvement",
+        "passes_rmse_improvement",
+        "passes_all_hard_filters",
+        "failure_reason",
+    ]
+    write_csv(results_path, rows, fieldnames)
+
+    heatmap_outputs: dict[str, str] = {}
+    for value_column, suffix, title in [
+        ("q2", "q2", "Post-hoc threshold scan Q2"),
+        ("loocv_spearman_rho", "rho", "Post-hoc threshold scan LOOCV Spearman rho"),
+        ("n_voxels_full", "n_voxels", "Post-hoc threshold scan full-sample voxel count"),
+    ]:
+        heatmap = build_heatmap(rows, value_column)
+        csv_path = scan_dir / f"posthoc_threshold_scan_heatmap_{suffix}.csv"
+        heatmap.to_csv(csv_path)
+        heatmap_outputs[str(csv_path.name)] = str(csv_path)
+        png_path = scan_dir / f"posthoc_threshold_scan_heatmap_{suffix}.png"
+        figure_status = write_heatmap_figure(png_path, heatmap, title)
+        heatmap_outputs[str(png_path.name)] = figure_status if figure_status != "PASS" else str(png_path)
+
+    manifest = dict(manifest)
+    manifest["selected_grid_cell"] = selected
+    manifest["outputs"] = {
+        "results_csv": str(results_path),
+        "selected_manifest_json": str(scan_dir / "posthoc_selected_threshold_manifest.json"),
+        "heatmaps": heatmap_outputs,
+    }
+    write_json(scan_dir / "posthoc_selected_threshold_manifest.json", manifest)
+
+
+def run_posthoc_threshold_scan(args: argparse.Namespace) -> int:
+    started = time.time()
+    scale_slug = slugify(args.scale)
+    output_root = Path(args.output_root).expanduser().resolve()
+    preprocess = load_or_build_posthoc_preprocess(args, output_root, scale_slug)
+    scan_dir = preprocess["scan_dir"]
+    scan_dir.mkdir(parents=True, exist_ok=True)
+
+    records = preprocess["records"]
+    x = np.asarray(preprocess["x"], dtype=np.float32)
+    y_post = np.array([record.y_post for record in records], dtype=float)
+    y_base = np.array([record.y_base for record in records], dtype=float)
+    rows: list[dict[str, Any]] = []
+    for tau in TAU_GRID:
+        for coverage_min in COVERAGE_GRID:
+            print(f"Evaluating tau={tau} V/m, Coverage>={coverage_min}", flush=True)
+            rows.append(evaluate_grid_cell(x, y_post, y_base, preprocess["scale_direction"], tau, coverage_min))
+
+    selected = select_best_grid_cell(rows)
+    manifest = {
+        "generated_at": iso_now(),
+        "model": "HF direct voxel",
+        "analysis": "posthoc_tau_coverage_threshold_scan",
+        "interpretation": "post-hoc exploratory threshold optimization; does not replace tau200/Coverage>=5 primary branch",
+        "scale": args.scale,
+        "scale_slug": scale_slug,
+        "endpoint": "MDS-UPDRS III score (STN, 3 m)",
+        "estimator": "baseline-adjusted partial Spearman",
+        "score": "HFScore_mean_main",
+        "validation": "LOOCV",
+        "baseline_model": "Y_post ~ Y_base",
+        "primary_branch": {"tau_v_per_m": PRIMARY_TAU, "coverage": PRIMARY_COVERAGE},
+        "tau_grid_v_per_m": TAU_GRID,
+        "coverage_grid": COVERAGE_GRID,
+        "n_grid_cells": len(rows),
+        "candidate_sparse_threshold_v_per_m": POSTHOC_CANDIDATE_THRESHOLD,
+        "preprocess_status": preprocess["preprocess_status"],
+        "preprocess_dir": str(preprocess["preprocess_dir"]),
+        "preprocess_qc_json": str(preprocess["preprocess_qc_path"]),
+        "n_subjects": len(records),
+        "n_candidate_voxels": int(x.shape[1]),
+        "n_passing_grid_cells": int(sum(row_passes_hard_filters(row) for row in rows)),
+        "selection_rule": [
+            "passes all hard stability filters",
+            "highest Q2",
+            "higher LOOCV Spearman rho",
+            "higher fold_n_voxels_min",
+            "closer to tau200/Coverage>=5",
+            "stricter Coverage then higher tau if still tied",
+        ],
+        "max_stat_permutation": {
+            "status": "not_run",
+            "smoke_B": 1000,
+            "formal_B": 10000,
+            "seed": 42,
+            "reason": "initial post-hoc scan only",
+        },
+        "python": {
+            "executable": sys.executable,
+            "version": sys.version,
+            "platform": platform.platform(),
+            "conda_default_env": os.environ.get("CONDA_DEFAULT_ENV", ""),
+        },
+        "runtime_profile": {"total_s": time.time() - started},
+    }
+    write_scan_outputs(scan_dir, rows, selected, manifest)
+    print(f"Post-hoc threshold scan output: {scan_dir}")
+    if selected:
+        print(
+            "Selected exploratory branch: "
+            f"tau={selected['tau']}, Coverage>={selected['coverage']}, "
+            f"rho={selected['loocv_spearman_rho']:.6g}, Q2={selected['q2']:.6g}"
+        )
+    else:
+        print("No grid cell passed all hard stability filters.")
+    return 0
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo-root", default="", help="Code repo root.")
+    parser.add_argument("--asset-root", default=str(DEFAULT_CANONICAL_ASSET_ROOT), help="Lead-DBS asset root.")
+    parser.add_argument("--clinical-root", default=str(DEFAULT_CLINICAL_ROOT), help="Clinical workbook directory.")
+    parser.add_argument("--leaddbs-derivatives", default=str(DEFAULT_VAL_ROOT / "derivatives/leaddbs"), help="Lead-DBS derivatives directory.")
+    parser.add_argument("--output-root", default=str(DEFAULT_VAL_ROOT / "summary/direct_voxel/hf"), help="HF direct voxel output root.")
+    parser.add_argument("--matlab-bin", default=str(DEFAULT_MATLAB), help="MATLAB executable.")
+    parser.add_argument("--scale", default=HF_DEFAULT_SCALES[0], help="Raw clinical scale to run.")
+    parser.add_argument("--force-preprocess", action="store_true", help="Regenerate the post-hoc tau100 sparse exposure sidecar.")
+    parser.add_argument("--force-flip", action="store_true", help="Regenerate left-to-right flipped fields.")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    return run_posthoc_threshold_scan(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -21,7 +21,7 @@
 | **C** | `ulf_addon_gain_direct_voxel_model.md` | ULF-only add-on gain, voxel | 200 V/m (180/220 = exposure-definition sensitivity) | `ULFScore_mean_main`, covariates include `DeltaHFScore` | **locked A** (voxel DeltaHFScore) |
 | **D** | `ulf_addon_gain_normative_connectome_fiber_model.md` | ULF-only add-on gain, fiber | 800 V/m (1500 = exposure-definition sensitivity) | `NetULFFiberScore`, covariates include `DeltaHFScore` | **locked B** (fiber DeltaHFScore) |
 
-**Out of scope (this round):** the two individualized-DWI seed-target models (`*_individualized_dwi_seed_target_model.md`); the `OLS ANCOVA` supplemental estimator (every spec marks it "documented only, not run"); `Coverage>=6/8`, 5/7/10-fold CV, and other documented-only items.
+**Out of scope (this round):** the two individualized-DWI seed-target models (`*_individualized_dwi_seed_target_model.md`); the `OLS ANCOVA` supplemental estimator (every spec marks it "documented only, not run"); 5/7/10-fold CV and other documented-only items. `Coverage>=6/8` remains out of the primary HF direct-voxel mainline, but the A-model post-hoc tau/coverage scan may evaluate it as an exploratory threshold-optimization branch.
 
 ---
 

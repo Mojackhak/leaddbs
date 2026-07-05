@@ -21,7 +21,7 @@
 | **C** | `ulf_addon_gain_direct_voxel_model.md` | ULF-only 加载增益·体素 | 200 V/m（180/220 = 曝光定义敏感性） | `ULFScore_mean_main`，协变量含 `DeltaHFScore` | **锁定的 A**（体素 DeltaHFScore） |
 | **D** | `ulf_addon_gain_normative_connectome_fiber_model.md` | ULF-only 加载增益·纤维 | 800 V/m（1500 = 曝光定义敏感性） | `NetULFFiberScore`，协变量含 `DeltaHFScore` | **锁定的 B**（纤维 DeltaHFScore） |
 
-**范围外（本次不做）**：`*_individualized_dwi_seed_target_model.md` 两个个体化 DWI 种子-靶点模型；`OLS ANCOVA` 补充估计量（各规范均标注“documented only, not run”）；`Coverage>=6/8`、5/7/10-fold CV 等仅文档化项。
+**范围外（本次不做）**：`*_individualized_dwi_seed_target_model.md` 两个个体化 DWI 种子-靶点模型；`OLS ANCOVA` 补充估计量（各规范均标注“documented only, not run”）；5/7/10-fold CV 等仅文档化项。`Coverage>=6/8` 仍不属于 HF direct-voxel primary mainline，但 A-model post-hoc tau/coverage scan 可以把它作为 exploratory threshold-optimization branch 评估。
 
 ---
 

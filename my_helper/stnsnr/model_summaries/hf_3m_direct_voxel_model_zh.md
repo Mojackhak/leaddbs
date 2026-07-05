@@ -129,7 +129,7 @@ Coverage_tau(v) = sum_i I[X_HF_only_i(v) > tau]
 Omega_HF_tau = {v in Candidate : Coverage_tau(v) >= 5}
 ```
 
-模型在 `Omega_HF_tau` 内使用连续 `X_HF_only_i(v)` 拟合；`tau` 只用于 coverage 和 QC。`Coverage>=6` 和 `Coverage>=8` 仅作为文档记录的 optional sensitivity。当前可执行分析不生成 `Coverage>=6/8` map、score、LOOCV prediction、permutation 或 bootstrap 结果。参考文献中的 `Coverage>=8` / 50% E-field coverage 保留在 reference-coverage checklist 中，但不作为本 `n=16` 队列的主规则。
+模型在 `Omega_HF_tau` 内使用连续 `X_HF_only_i(v)` 拟合；`tau` 只用于 coverage 和 QC。`Coverage>=6` 和 `Coverage>=8` 是 primary mainline 的 optional sensitivity，不属于原始 `tau200/Coverage>=5` primary branch。当前唯一的 exploratory 例外是 A-model post-hoc threshold scan：它可以在 `Coverage=5,6,7,8,10,12` 上生成 scan-level 输出，但这些输出仍是 post-hoc，不能替代 primary branch。参考文献中的 `Coverage>=8` / 50% E-field coverage 保留在 reference-coverage checklist 中，但不作为本 `n=16` 队列的主规则。
 
 coverage mask、voxel map、HF score 和验证预测均在每个 LOOCV training fold 内计算。留出患者不参与该 fold 的 `Omega_HF_tau` 或 voxel map 定义。
 
@@ -420,8 +420,8 @@ report-only top 10% + stability display masks
 已覆盖但不生成单独 HF direct voxel 结果：
 
 ```text
-Coverage>=6 optional sensitivity: only documented; no current HF direct voxel outputs
-Coverage>=8 / 50% E-field rule: only documented; primary rule remains Coverage>=5
+Coverage>=6 optional sensitivity: 不在 primary mainline 中生成；仅允许出现在 A-model post-hoc threshold scan 中
+Coverage>=8 / 50% E-field rule: 不在 primary mainline 中生成；primary rule 仍为 Coverage>=5
 5/7/10-fold CV: only documented; LOOCV is the sole validation design for n=16
 OSS-DBS: not included in the HF direct voxel model
 optional OLS supplemental estimator: only documented; not run in the current execution
@@ -1400,6 +1400,130 @@ automatic localization / electrode reconstruction QC
 ```
 
 OLS ANCOVA 是 optional future supplemental estimator，当前 run 不生成输出。OSS-DBS 不属于 direct voxel analysis，应保留在 normative fiber / activation sensitivity 文档中。
+
+### Post-hoc Tau/Coverage Threshold Scan
+
+A 模型的 post-hoc threshold scan 是在原始 primary branch 未通过 gate 后，用于探索 core HF sweet spot 阈值的 exploratory branch。它不能替代或追认为原始 primary analysis：
+
+```text
+primary branch:
+  tau = 200 V/m
+  Coverage >= 5
+
+post-hoc scan:
+  output root = posthoc_threshold_scan/
+  interpretation = exploratory / post-hoc threshold optimization
+```
+
+扫描只针对第一个默认 endpoint：
+
+```text
+endpoint = MDS-UPDRS III score (STN, 3 m)
+estimator = baseline-adjusted partial Spearman
+score = HFScore_mean_main
+validation = LOOCV
+baseline model = Y_post ~ Y_base
+```
+
+扫描网格为：
+
+```text
+tau, V/m:
+  100, 150, 180, 200, 220, 250, 300, 350, 400, 500
+
+Coverage:
+  5, 6, 7, 8, 10, 12
+```
+
+共 `10 x 6 = 60` 个格点。由于 `tau=100` 和 `tau=150` 低于 primary run 默认使用的 sparse candidate threshold，扫描必须构建或复用一个专门的 post-hoc exposure sidecar：
+
+```text
+candidate_sparse_threshold = 100 V/m
+```
+
+不允许用原始 `candidate_threshold=180 V/m` sidecar 来评估 `tau=100` 或 `tau=150`，因为这会遗漏 100-180 V/m 范围内的候选 voxel。
+
+每个格点输出：
+
+```text
+tau
+coverage
+n_voxels_full
+fold_n_voxels_min
+fold_n_voxels_median
+fold_n_voxels_max
+LOOCV Spearman rho
+LOOCV Spearman nominal p
+LOOCV Pearson r
+Q2
+MAE_model
+MAE_baseline
+RMSE_model
+RMSE_baseline
+corr(HFScore_mean_main, Y_base)
+delta_median
+delta_min
+delta_max
+```
+
+硬性稳定性过滤规则为：
+
+```text
+n_voxels_full >= 20
+fold_n_voxels_min >= 10
+HFScore non-constant in every fold
+all held-out predictions finite
+Q2 > 0
+LOOCV Spearman rho > 0
+MAE_model < MAE_baseline
+RMSE_model < RMSE_baseline
+```
+
+只在通过全部硬性过滤的格点中选择 exploratory branch，优先级为：
+
+```text
+1. highest Q2
+2. higher LOOCV Spearman rho if Q2 is tied or practically equivalent
+3. higher fold_n_voxels_min
+4. closer to the original primary branch tau=200 / Coverage>=5
+5. if still tied, stricter Coverage and then higher tau as the more core/conservative branch
+```
+
+必需输出为：
+
+```text
+posthoc_threshold_scan_results.csv
+posthoc_threshold_scan_heatmap_q2.csv
+posthoc_threshold_scan_heatmap_rho.csv
+posthoc_threshold_scan_heatmap_n_voxels.csv
+posthoc_selected_threshold_manifest.json
+```
+
+如果绘图环境可用，应同步输出与 CSV heatmap 对应的图：
+
+```text
+posthoc_threshold_scan_heatmap_q2.png
+posthoc_threshold_scan_heatmap_rho.png
+posthoc_threshold_scan_heatmap_n_voxels.png
+```
+
+每个格点的 p 值仅为 nominal p。若后续要声称“扫描后仍显著”，必须运行 max-stat permutation：
+
+```text
+for each permutation:
+  rerun all 60 tau x Coverage cells
+  record max Q2 or max LOOCV rho
+
+smoke max-stat permutation:
+  B = 1000
+
+formal max-stat permutation:
+  B = 10000
+
+seed = 42
+```
+
+除非明确要求，max-stat permutation 不属于本轮 initial post-hoc scan 输出。
 
 ### Recommended First Batch
 

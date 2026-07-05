@@ -129,7 +129,7 @@ Coverage_tau(v) = sum_i I[X_HF_only_i(v) > tau]
 Omega_HF_tau = {v in Candidate : Coverage_tau(v) >= 5}
 ```
 
-Continuous `X_HF_only_i(v)` values are used for modeling inside `Omega_HF_tau`; `tau` is only used to define coverage and QC. `Coverage>=6` and `Coverage>=8` are documented optional sensitivity settings only. The current executable analysis does not generate `Coverage>=6/8` maps, scores, LOOCV predictions, permutation results, or bootstrap results. `Coverage>=8` / 50% E-field coverage from the reference literature is retained in the reference-coverage checklist, but it is not used as the main rule for this `n=16` cohort.
+Continuous `X_HF_only_i(v)` values are used for modeling inside `Omega_HF_tau`; `tau` is only used to define coverage and QC. `Coverage>=6` and `Coverage>=8` are documented optional sensitivity settings for the primary mainline and are not part of the original `tau200/Coverage>=5` primary branch. The dedicated A-model post-hoc threshold scan is the only current exploratory exception: it may generate scan-level outputs across `Coverage=5,6,7,8,10,12`, but these outputs remain post-hoc and do not replace the primary branch. `Coverage>=8` / 50% E-field coverage from the reference literature is retained in the reference-coverage checklist, but it is not used as the main rule for this `n=16` cohort.
 
 Coverage masks, voxel maps, HF scores, and validation predictions are computed inside each LOOCV training fold. The held-out patient never contributes to that fold's `Omega_HF_tau` or voxel map.
 
@@ -420,8 +420,8 @@ report-only top 10% + stability display masks
 Covered but not generated as separate HF direct voxel results:
 
 ```text
-Coverage>=6 optional sensitivity: documented only; no current HF direct voxel outputs
-Coverage>=8 / 50% E-field rule: documented only; primary rule remains Coverage>=5
+Coverage>=6 optional sensitivity: not generated in the primary mainline; allowed only inside the A-model post-hoc threshold scan
+Coverage>=8 / 50% E-field rule: not generated in the primary mainline; primary rule remains Coverage>=5
 5/7/10-fold CV: documented only; LOOCV is the sole validation design for n=16
 OSS-DBS: not included in the HF direct voxel model
 optional OLS supplemental estimator: documented only; not run in the current execution
@@ -1400,6 +1400,130 @@ automatic localization / electrode reconstruction QC
 ```
 
 OLS ANCOVA is an optional future supplemental estimator and does not generate outputs in the current run. OSS-DBS does not belong to direct voxel analysis and should remain in normative fiber / activation sensitivity documentation.
+
+### Post-hoc Tau/Coverage Threshold Scan
+
+The A-model post-hoc threshold scan is an exploratory branch for selecting a core HF sweet spot threshold after observing that the original primary branch did not pass the gate. It must not replace or relabel the original primary analysis:
+
+```text
+primary branch:
+  tau = 200 V/m
+  Coverage >= 5
+
+post-hoc scan:
+  output root = posthoc_threshold_scan/
+  interpretation = exploratory / post-hoc threshold optimization
+```
+
+The scan is restricted to the first default endpoint:
+
+```text
+endpoint = MDS-UPDRS III score (STN, 3 m)
+estimator = baseline-adjusted partial Spearman
+score = HFScore_mean_main
+validation = LOOCV
+baseline model = Y_post ~ Y_base
+```
+
+The scan grid is:
+
+```text
+tau, V/m:
+  100, 150, 180, 200, 220, 250, 300, 350, 400, 500
+
+Coverage:
+  5, 6, 7, 8, 10, 12
+```
+
+This yields `10 x 6 = 60` grid cells. Because `tau=100` and `tau=150` are below the default sparse candidate threshold used by the primary run, the scan must build or reuse a dedicated post-hoc exposure sidecar with:
+
+```text
+candidate_sparse_threshold = 100 V/m
+```
+
+Using the original `candidate_threshold=180 V/m` sidecar to evaluate `tau=100` or `tau=150` would be incomplete and is not allowed for the post-hoc scan.
+
+Each grid cell reports:
+
+```text
+tau
+coverage
+n_voxels_full
+fold_n_voxels_min
+fold_n_voxels_median
+fold_n_voxels_max
+LOOCV Spearman rho
+LOOCV Spearman nominal p
+LOOCV Pearson r
+Q2
+MAE_model
+MAE_baseline
+RMSE_model
+RMSE_baseline
+corr(HFScore_mean_main, Y_base)
+delta_median
+delta_min
+delta_max
+```
+
+The hard stability filter is:
+
+```text
+n_voxels_full >= 20
+fold_n_voxels_min >= 10
+HFScore non-constant in every fold
+all held-out predictions finite
+Q2 > 0
+LOOCV Spearman rho > 0
+MAE_model < MAE_baseline
+RMSE_model < RMSE_baseline
+```
+
+The selected exploratory grid cell is chosen only among cells passing all hard filters, using this priority order:
+
+```text
+1. highest Q2
+2. higher LOOCV Spearman rho if Q2 is tied or practically equivalent
+3. higher fold_n_voxels_min
+4. closer to the original primary branch tau=200 / Coverage>=5
+5. if still tied, stricter Coverage and then higher tau as the more core/conservative branch
+```
+
+Required outputs are:
+
+```text
+posthoc_threshold_scan_results.csv
+posthoc_threshold_scan_heatmap_q2.csv
+posthoc_threshold_scan_heatmap_rho.csv
+posthoc_threshold_scan_heatmap_n_voxels.csv
+posthoc_selected_threshold_manifest.json
+```
+
+Figure outputs, when the plotting environment is available, should mirror the CSV heatmaps:
+
+```text
+posthoc_threshold_scan_heatmap_q2.png
+posthoc_threshold_scan_heatmap_rho.png
+posthoc_threshold_scan_heatmap_n_voxels.png
+```
+
+Grid-cell p values are nominal only. If the post-hoc selected branch is later described as significant after threshold scanning, a max-stat permutation is required:
+
+```text
+for each permutation:
+  rerun all 60 tau x Coverage cells
+  record max Q2 or max LOOCV rho
+
+smoke max-stat permutation:
+  B = 1000
+
+formal max-stat permutation:
+  B = 10000
+
+seed = 42
+```
+
+The max-stat permutation is not part of the initial post-hoc scan output unless explicitly requested.
 
 ### Recommended First Batch
 
