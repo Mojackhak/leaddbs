@@ -86,6 +86,44 @@ The self-test verifies:
 
 This layer is intentionally model-agnostic. It does not define HF/ULF paths, does not create sidecars, does not perform image/fiber sampling, and does not run formal `B=10000` loops.
 
+## HF Direct Voxel Smoke Driver
+
+The next executable layer implements the primary HF direct voxel observed branch only:
+
+```text
+model = HF direct voxel
+scale = MDS-UPDRS III score (STN, 3 m) by default
+branch = tau200 / partial_spearman
+validation = observed LOOCV
+resampling = not run
+```
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_smoke.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_hf_direct_voxel_smoke.py
+```
+
+This driver reads existing raw `sim-efield` files. It does not create missing e-fields. Alternating same-side subprograms are max-combined in the common right-canonical sampled feature space, which also handles the real case where subprogram local e-field grids differ. Left-side subprogram e-fields are flipped with `ea_flip_lr_nonlinear` into the right canonical space before sampling. The driver samples both right e-fields and left-to-right flipped e-fields on the right MNI brainmask grid, averages them per subject, builds `Candidate` from `180 V/m`, and runs the `tau200 / Coverage>=5` partial-Spearman observed LOOCV branch.
+
+Because `ea_flip_lr_nonlinear` uses interpolation, a flipped E-field magnitude image can contain very small negative interpolation artifacts. The smoke driver clamps negative sampled E-field values to `0` and records the count and minimum value in QC. This is a numeric data-integrity correction for an E-field magnitude image, not a modeling threshold.
+
+Outputs are written under:
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/
+  preprocess/
+  tau200/partial_spearman/
+```
+
+The smoke driver intentionally omits `direct_voxel_HF_permutation_summary.csv` and `direct_voxel_HF_bootstrap_se.nii.gz`; those belong to later gated formal/smoke resampling rounds.
+
 ## Commands
 
 Run from the worktree:
@@ -103,4 +141,11 @@ Run the M1 shared-kernel self-test:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_m1_selftest.py
+```
+
+Run the HF direct voxel observed smoke driver:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_smoke.py
 ```
