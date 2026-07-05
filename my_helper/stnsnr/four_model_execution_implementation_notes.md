@@ -188,6 +188,59 @@ ERROR
 
 For the current gate, a branch enters the next expensive round only if all executable QC files exist, LOOCV predictions are finite, the primary LOOCV Spearman rho is positive, and Q2 is not negative. This intentionally prevents formal permutation/bootstrap from starting when the primary observed branch does not show incremental signal beyond baseline.
 
+## ULF Component Readiness Gate
+
+The next executable layer audits whether the C and D ULF add-on models can start
+without violating their component-separation requirements. It does not run ULF
+voxel maps, ULF fiber maps, DeltaHFScore scoring, permutation, bootstrap, OSS,
+or display outputs.
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py
+```
+
+The gate checks:
+
+- chronic ULF endpoint reconstruction from `subject_effect_origin.xlsx` for the
+  default total motor scale;
+- same-day immediate endpoint availability, recorded as unavailable when the raw
+  table has no immediate rows;
+- frequency-component classification from `followup_stimulation.xlsx` with
+  `HF >= 100 Hz` and `ULF <= 50 Hz`;
+- component-specific `3m/STN+SNr` raw `sim-efield` availability for every
+  subject, side, and frequency-classified component row;
+- A/B dependency status from `four_model_gate_status.csv`, so C and D are
+  labeled exploratory when their matched HF model failed the primary gate.
+
+The gate must not substitute the mixed `STN+SNr` condition-level e-field for
+component-specific HF or ULF e-fields. If component-specific e-fields are
+missing, C/D remain not executable even when mixed condition VTA outputs or
+component stimulation-parameter folders exist.
+
+Outputs are written under:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/ulf_component_readiness/run-YYYYMMDD-HHMMSS/
+  ulf_component_readiness_manifest.json
+  ulf_component_readiness_checks.csv
+  ulf_component_endpoint_reconstruction.csv
+  ulf_component_efield_availability.csv
+```
+
+Expected current status is a hard input failure for C/D model execution if the
+component folders contain only stimulation parameter files and no raw
+`sim-efield` NIfTI files. This is still forward progress: it prevents an invalid
+ULF analysis from being run with a mixed HF+ULF field while recording exactly
+which component e-fields must be generated next.
+
 ## Commands
 
 Run from the worktree:
@@ -226,4 +279,11 @@ Summarize gate status:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py
+```
+
+Run the ULF component readiness gate:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py
 ```
