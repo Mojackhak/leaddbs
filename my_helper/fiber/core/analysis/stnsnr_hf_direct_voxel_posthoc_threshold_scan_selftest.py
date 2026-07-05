@@ -206,10 +206,16 @@ def test_scale_names_and_endpoint_family() -> None:
         [
             "MDS-UPDRS III score (STN, 3 m)",
             "SE-ADL score (%) (STN, 3 m)",
+            "MDS-UPDRS III score (STN, immediate)",
         ],
         "scale order",
     )
     assert_equal(endpoint_family_for_scale("MDS-UPDRS III score (STN, 3 m)"), "hf_stn3m", "STN family")
+    assert_equal(
+        endpoint_family_for_scale("MDS-UPDRS III score (STN, immediate)"),
+        "raw_stn_immediate",
+        "STN immediate family",
+    )
     assert_equal(endpoint_family_for_scale("MDS-UPDRS III score (STN+SNr, 3 m)"), "raw_stnplus_snr_3m", "STN+SNr family")
 
 

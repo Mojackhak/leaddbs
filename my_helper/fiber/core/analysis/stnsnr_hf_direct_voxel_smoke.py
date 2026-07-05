@@ -121,12 +121,19 @@ def load_stim_table(clinical_root: Path) -> pd.DataFrame:
     return pd.read_excel(stim_path, sheet_name=STIM_SHEET)
 
 
-def filter_hf_stn_rows(stim_df: pd.DataFrame, subject_ids: set[str]) -> pd.DataFrame:
+def filter_hf_stn_rows(
+    stim_df: pd.DataFrame,
+    subject_ids: set[str],
+    *,
+    protocol: str = "STN",
+    phase: str = "3m",
+    target: str = "STN",
+) -> pd.DataFrame:
     rows = stim_df[
         stim_df["ID"].astype(str).isin(subject_ids)
-        & stim_df["Phase"].astype(str).eq("3m")
-        & stim_df["Protocol"].astype(str).eq("STN")
-        & stim_df["Target"].astype(str).eq("STN")
+        & stim_df["Phase"].astype(str).eq(phase)
+        & stim_df["Protocol"].astype(str).eq(protocol)
+        & stim_df["Target"].astype(str).eq(target)
     ].copy()
     rows["Frequency"] = pd.to_numeric(rows["Frequency"], errors="coerce")
     rows = rows[rows["Frequency"] >= 100].copy()
@@ -361,7 +368,8 @@ def run_hf_direct_voxel_smoke(args: argparse.Namespace) -> int:
 
     records = load_subject_records(clinical_root, scale)
     subject_ids = {record.subject_id for record in records}
-    stim_rows = filter_hf_stn_rows(load_stim_table(clinical_root), subject_ids)
+    _, protocol, phase = parse_endpoint_scale(scale)
+    stim_rows = filter_hf_stn_rows(load_stim_table(clinical_root), subject_ids, protocol=protocol, phase=phase)
     if stim_rows["ID"].nunique() != len(records):
         missing_subjects = sorted(subject_ids - set(stim_rows["ID"].astype(str).unique()))
         raise RuntimeError("missing HF STN stimulation rows for subjects: " + ", ".join(missing_subjects))

@@ -1431,7 +1431,7 @@ An all-scale exploratory mode may also run the same scan for every `Scale` in `s
 --all-scales
 ```
 
-This all-scale mode scans the 28 raw clinical scales under the `STN, 3 m` condition. It does not scan `Δ...` endpoints because `subject_effect_origin.xlsx` no longer stores derived delta rows. `STN+SNr` and immediate raw endpoints remain available in the workbook for ULF/add-on reconstruction and secondary analyses, but they are not part of the A-model HF-only all-scale scan unless explicitly requested.
+This all-scale mode scans 30 HF-only endpoints: the 28 raw clinical scales under the `STN, 3 m` condition plus the two available `STN, immediate` UPDRS endpoints (`MDS-UPDRS III score` and `MDS-UPDRS III axial score`). It does not scan `Δ...` endpoints because `subject_effect_origin.xlsx` no longer stores derived delta rows. `STN+SNr` raw endpoints remain available in the workbook for ULF/add-on reconstruction and secondary analyses, but they are not part of the A-model HF-only all-scale scan unless explicitly requested.
 
 The scan grid is:
 
@@ -1566,15 +1566,16 @@ All-scale mode additionally writes:
   all_scales_posthoc_threshold_scan_manifest.json
 ```
 
-`all_scales_posthoc_threshold_scan_long.csv` contains `28 x 60 = 1680` rows when all 28 raw scales are available. `all_scales_posthoc_threshold_scan_summary.csv` contains one row per scale, including selected `tau`, selected `Coverage`, selected rho, nominal p, Q2, voxel count, endpoint family, and number of hard-filter-passing grid cells. If a scale has no passing grid cell, selected threshold fields remain empty and `n_passing_grid_cells = 0`.
+`all_scales_posthoc_threshold_scan_long.csv` contains `30 x 60 = 1800` rows when all 30 HF-only endpoints are available. `all_scales_posthoc_threshold_scan_summary.csv` contains one row per endpoint, including selected `tau`, selected `Coverage`, selected rho, nominal p, Q2, voxel count, endpoint family, and number of hard-filter-passing grid cells. If an endpoint has no passing grid cell, selected threshold fields remain empty and `n_passing_grid_cells = 0`.
 
-All-scale mode uses a shared HF exposure cache to avoid recomputing the same e-field sampling for every scale:
+All-scale mode uses condition-specific shared HF exposure caches to avoid recomputing the same e-field sampling for every endpoint:
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/hf/_shared/posthoc_threshold_scan/preprocess_candidate_tau100/
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/_shared/posthoc_threshold_scan/preprocess_candidate_tau100/stn_3m/
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/_shared/posthoc_threshold_scan/preprocess_candidate_tau100/stn_immediate/
 ```
 
-If the shared cache is missing, the pipeline first reuses the existing single-scale tau100 cache when the subject order matches; otherwise it rebuilds the shared cache from the HF e-field inputs.
+The `STN, 3 m` endpoints use `3m/STN` e-fields; the two `STN, immediate` endpoints use `immediate/STN` e-fields. If a shared cache is missing, the pipeline first reuses the matching single-endpoint tau100 cache when the subject order and exposure condition match; otherwise it rebuilds the shared cache from the corresponding HF e-field inputs.
 
 ### Recommended First Batch
 

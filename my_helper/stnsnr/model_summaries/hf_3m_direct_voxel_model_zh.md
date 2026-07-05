@@ -1431,7 +1431,7 @@ All-scale exploratory mode 也可以对 `subject_effect_origin.xlsx` 中每一�
 --all-scales
 ```
 
-All-scale mode 扫描 28 个 raw clinical scales 在 `STN, 3 m` 条件下的 endpoint。它不再扫描 `Δ...` endpoint，因为 `subject_effect_origin.xlsx` 不再存放派生 delta 行。`STN+SNr` 和 immediate raw endpoints 仍保留在工作簿中，用于 ULF/add-on 重建和 secondary analyses；除非明确要求，它们不属于 A 模型 HF-only all-scale scan。
+All-scale mode 扫描 30 个 HF-only endpoints：28 个 raw clinical scales 在 `STN, 3 m` 条件下的 endpoint，加上两个可用的 `STN, immediate` UPDRS endpoint（`MDS-UPDRS III score` 与 `MDS-UPDRS III axial score`）。它不再扫描 `Δ...` endpoint，因为 `subject_effect_origin.xlsx` 不再存放派生 delta 行。`STN+SNr` raw endpoints 仍保留在工作簿中，用于 ULF/add-on 重建和 secondary analyses；除非明确要求，它们不属于 A 模型 HF-only all-scale scan。
 
 扫描网格为：
 
@@ -1566,15 +1566,16 @@ All-scale mode 额外输出：
   all_scales_posthoc_threshold_scan_manifest.json
 ```
 
-`all_scales_posthoc_threshold_scan_long.csv` 在 28 个 raw scales 均可用时包含 `28 x 60 = 1680` 行。`all_scales_posthoc_threshold_scan_summary.csv` 每个 scale 一行，包含 selected `tau`、selected `Coverage`、selected rho、nominal p、Q2、voxel count、endpoint family 和通过 hard filter 的 grid cell 数。如果某个 scale 没有任何格点通过过滤，selected threshold 字段留空，并明确 `n_passing_grid_cells = 0`。
+`all_scales_posthoc_threshold_scan_long.csv` 在 30 个 HF-only endpoints 均可用时包含 `30 x 60 = 1800` 行。`all_scales_posthoc_threshold_scan_summary.csv` 每个 endpoint 一行，包含 selected `tau`、selected `Coverage`、selected rho、nominal p、Q2、voxel count、endpoint family 和通过 hard filter 的 grid cell 数。如果某个 endpoint 没有任何格点通过过滤，selected threshold 字段留空，并明确 `n_passing_grid_cells = 0`。
 
-All-scale mode 使用共享 HF exposure cache，避免为每个 scale 重复采样同一套 e-field：
+All-scale mode 使用 condition-specific shared HF exposure caches，避免为每个 endpoint 重复采样同一套 e-field：
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/hf/_shared/posthoc_threshold_scan/preprocess_candidate_tau100/
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/_shared/posthoc_threshold_scan/preprocess_candidate_tau100/stn_3m/
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/_shared/posthoc_threshold_scan/preprocess_candidate_tau100/stn_immediate/
 ```
 
-如果 shared cache 缺失，pipeline 优先在 subject order 匹配时复用已有单量表 tau100 cache；否则从 HF e-field 输入重新构建 shared cache。
+`STN, 3 m` endpoints 使用 `3m/STN` e-fields；两个 `STN, immediate` endpoints 使用 `immediate/STN` e-fields。如果 shared cache 缺失，pipeline 优先在 subject order 和 exposure condition 均匹配时复用已有单 endpoint tau100 cache；否则从对应 HF e-field 输入重新构建 shared cache。
 
 ### Recommended First Batch
 

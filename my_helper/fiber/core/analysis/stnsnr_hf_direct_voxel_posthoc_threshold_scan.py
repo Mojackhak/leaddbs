@@ -28,6 +28,7 @@ from stnsnr_four_model_readiness import (
     HF_DEFAULT_SCALES,
     detect_asset_root,
     infer_scale_direction,
+    parse_endpoint_scale,
     repo_root_from_file,
 )
 from stnsnr_four_model_stats import (
@@ -160,16 +161,24 @@ def build_heatmap(rows: list[dict[str, Any]], value_column: str) -> pd.DataFrame
 
 
 def scale_names_from_raw_dataframe(raw_df: pd.DataFrame) -> list[str]:
-    """Return STN 3m endpoint names in first-seen raw scale order."""
+    """Return HF-only endpoint names in first-seen raw scale order."""
     required = {"Scale", "Protocol", "Phase"}
     missing = sorted(required.difference(raw_df.columns))
     if missing:
         raise ValueError("raw clinical dataframe is missing " + ", ".join(missing))
-    subset = raw_df[
+    stn_3m = raw_df[
         raw_df["Protocol"].astype(str).eq("STN")
         & raw_df["Phase"].astype(str).eq("3m")
     ]
-    return [f"{scale} (STN, 3 m)" for scale in subset["Scale"].dropna().drop_duplicates().astype(str).tolist()]
+    stn_immediate = raw_df[
+        raw_df["Protocol"].astype(str).eq("STN")
+        & raw_df["Phase"].astype(str).eq("immediate")
+    ]
+    names = [f"{scale} (STN, 3 m)" for scale in stn_3m["Scale"].dropna().drop_duplicates().astype(str).tolist()]
+    names.extend(
+        f"{scale} (STN, immediate)" for scale in stn_immediate["Scale"].dropna().drop_duplicates().astype(str).tolist()
+    )
+    return names
 
 
 def load_all_scale_names(clinical_root: Path) -> list[str]:
@@ -192,6 +201,28 @@ def endpoint_family_for_scale(scale: str) -> str:
     return "hf_stn3m"
 
 
+def endpoint_exposure_condition(scale: str) -> tuple[str, str]:
+    """Return protocol and phase used to find HF e-field inputs for one endpoint."""
+    _, protocol, phase = parse_endpoint_scale(scale)
+    if protocol != "STN":
+        raise ValueError(f"HF direct voxel scan only supports STN protocol endpoints, got {scale!r}")
+    if phase not in {"3m", "immediate"}:
+        raise ValueError(f"HF direct voxel scan only supports 3m or immediate phases, got {scale!r}")
+    return protocol, phase
+
+
+def endpoint_exposure_cache_key(scale: str) -> str:
+    """Return the shared exposure cache key for one endpoint."""
+    protocol, phase = endpoint_exposure_condition(scale)
+    safe_protocol = protocol.lower().replace("+", "plus")
+    return f"{safe_protocol}_{phase}"
+
+
+def shared_preprocess_relative_for_scale(scale: str) -> Path:
+    """Return the condition-specific shared preprocess directory for one endpoint."""
+    return SHARED_PREPROCESS_RELATIVE / endpoint_exposure_cache_key(scale)
+
+
 def build_all_scale_long_table(per_scale_results: list[dict[str, Any]]) -> pd.DataFrame:
     """Build the all-scale long table from per-scale grid rows."""
     rows: list[dict[str, Any]] = []
@@ -199,6 +230,9 @@ def build_all_scale_long_table(per_scale_results: list[dict[str, Any]]) -> pd.Da
         selected = result.get("selected") or {}
         selected_tau = selected.get("tau")
         selected_coverage = selected.get("coverage")
+        result_manifest = result.get("manifest", {})
+        exposure_protocol = result_manifest.get("exposure_protocol", "")
+        exposure_phase = result_manifest.get("exposure_phase", "")
         for row in result["rows"]:
             out = dict(row)
             out.update(
@@ -207,6 +241,8 @@ def build_all_scale_long_table(per_scale_results: list[dict[str, Any]]) -> pd.Da
                     "scale_slug": result["scale_slug"],
                     "scale_direction": result["scale_direction"],
                     "endpoint_family": endpoint_family_for_scale(result["scale"]),
+                    "exposure_protocol": exposure_protocol,
+                    "exposure_phase": exposure_phase,
                     "n_subjects": result["n_subjects"],
                     "n_candidate_voxels": result["n_candidate_voxels"],
                     "is_selected_grid_cell": bool(
@@ -228,11 +264,16 @@ def build_all_scale_summary_table(per_scale_results: list[dict[str, Any]]) -> pd
         grid_rows = result["rows"]
         selected = result.get("selected")
         n_passing = int(sum(_as_bool(row.get("passes_all_hard_filters")) for row in grid_rows))
+        result_manifest = result.get("manifest", {})
+        exposure_protocol = result_manifest.get("exposure_protocol", "")
+        exposure_phase = result_manifest.get("exposure_phase", "")
         row = {
             "scale": result["scale"],
             "scale_slug": result["scale_slug"],
             "scale_direction": result["scale_direction"],
             "endpoint_family": endpoint_family_for_scale(result["scale"]),
+            "exposure_protocol": exposure_protocol,
+            "exposure_phase": exposure_phase,
             "n_subjects": result["n_subjects"],
             "n_candidate_voxels": result["n_candidate_voxels"],
             "n_grid_cells": len(grid_rows),
@@ -530,6 +571,7 @@ def load_or_build_posthoc_preprocess(args: argparse.Namespace, output_root: Path
 
     records = load_subject_records(clinical_root, scale)
     subject_ids = {record.subject_id for record in records}
+    exposure_protocol, exposure_phase = endpoint_exposure_condition(scale)
     scale_direction, scale_direction_source = infer_scale_direction(scale)
     if scale_direction not in {"lower", "higher"}:
         raise RuntimeError(f"unknown scale direction for {scale!r}; provide explicit direction before running")
@@ -551,6 +593,8 @@ def load_or_build_posthoc_preprocess(args: argparse.Namespace, output_root: Path
             "records": records,
             "scale_direction": scale_direction,
             "scale_direction_source": scale_direction_source,
+            "exposure_protocol": exposure_protocol,
+            "exposure_phase": exposure_phase,
             "x": np.load(x_path, mmap_mode="r"),
             "candidate_flat": np.load(flat_path),
             "candidate_ijk": np.load(ijk_path),
@@ -560,10 +604,18 @@ def load_or_build_posthoc_preprocess(args: argparse.Namespace, output_root: Path
         }
 
     preprocess_dir.mkdir(parents=True, exist_ok=True)
-    stim_rows = filter_hf_stn_rows(load_stim_table(clinical_root), subject_ids)
+    stim_rows = filter_hf_stn_rows(
+        load_stim_table(clinical_root),
+        subject_ids,
+        protocol=exposure_protocol,
+        phase=exposure_phase,
+    )
     if stim_rows["ID"].nunique() != len(records):
         missing_subjects = sorted(subject_ids - set(stim_rows["ID"].astype(str).unique()))
-        raise RuntimeError("missing HF STN stimulation rows for subjects: " + ", ".join(missing_subjects))
+        raise RuntimeError(
+            f"missing HF {exposure_protocol} {exposure_phase} stimulation rows for subjects: "
+            + ", ".join(missing_subjects)
+        )
 
     side_paths, side_field_qc = collect_side_field_paths(records, stim_rows, derivatives_root)
     flipped_left_paths, flip_result = flip_left_fields_with_matlab(
@@ -591,6 +643,8 @@ def load_or_build_posthoc_preprocess(args: argparse.Namespace, output_root: Path
         {
             "generated_at": iso_now(),
             "scale": scale,
+            "exposure_protocol": exposure_protocol,
+            "exposure_phase": exposure_phase,
             "scale_direction": scale_direction,
             "scale_direction_source": scale_direction_source,
             "n_subjects": len(records),
@@ -614,6 +668,8 @@ def load_or_build_posthoc_preprocess(args: argparse.Namespace, output_root: Path
         "records": records,
         "scale_direction": scale_direction,
         "scale_direction_source": scale_direction_source,
+        "exposure_protocol": exposure_protocol,
+        "exposure_phase": exposure_phase,
         "x": np.load(x_path, mmap_mode="r"),
         "candidate_flat": candidate_flat,
         "candidate_ijk": candidate_ijk,
@@ -639,17 +695,18 @@ def _load_subject_ids_from_csv(path: Path) -> list[str]:
     return frame["subject_id"].astype(str).tolist()
 
 
-def load_or_build_shared_posthoc_preprocess(args: argparse.Namespace, output_root: Path) -> dict[str, Any]:
-    """Load or build the all-scale shared HF exposure cache."""
+def load_or_build_shared_posthoc_preprocess(args: argparse.Namespace, output_root: Path, seed_scale: str) -> dict[str, Any]:
+    """Load or build a condition-specific all-scale shared HF exposure cache."""
     repo_root = Path(args.repo_root).expanduser().resolve() if args.repo_root else repo_root_from_file()
     asset_root = detect_asset_root(repo_root, Path(args.asset_root) if args.asset_root else None)
     clinical_root = Path(args.clinical_root).expanduser().resolve()
     derivatives_root = Path(args.leaddbs_derivatives).expanduser().resolve()
-    shared_dir = output_root / SHARED_PREPROCESS_RELATIVE
+    exposure_protocol, exposure_phase = endpoint_exposure_condition(seed_scale)
+    shared_dir = output_root / shared_preprocess_relative_for_scale(seed_scale)
     shared_subjects_path = shared_dir / "shared_subjects.csv"
     shared_qc_path = shared_dir / "direct_voxel_HF_posthoc_shared_preprocess_qc.json"
     required = _posthoc_preprocess_required_files(shared_dir)
-    base_records = load_subject_records(clinical_root, HF_DEFAULT_SCALES[0])
+    base_records = load_subject_records(clinical_root, seed_scale)
     expected_subjects = [record.subject_id for record in base_records]
 
     if (
@@ -670,6 +727,8 @@ def load_or_build_shared_posthoc_preprocess(args: argparse.Namespace, output_roo
             "preprocess_status": "shared_reused",
             "preprocess_qc_path": shared_qc_path,
             "subject_ids": expected_subjects,
+            "exposure_protocol": exposure_protocol,
+            "exposure_phase": exposure_phase,
             "x": np.load(required["x"], mmap_mode="r"),
             "candidate_flat": np.load(required["flat"]),
             "candidate_ijk": np.load(required["ijk"]),
@@ -677,8 +736,8 @@ def load_or_build_shared_posthoc_preprocess(args: argparse.Namespace, output_roo
         }
 
     seed_args = argparse.Namespace(**vars(args))
-    seed_args.scale = HF_DEFAULT_SCALES[0]
-    seed_slug = slugify(HF_DEFAULT_SCALES[0])
+    seed_args.scale = seed_scale
+    seed_slug = slugify(seed_scale)
     seed_preprocess = load_or_build_posthoc_preprocess(seed_args, output_root, seed_slug)
     seed_dir = Path(seed_preprocess["preprocess_dir"])
     seed_subjects_path = seed_dir / "subjects.csv"
@@ -697,7 +756,9 @@ def load_or_build_shared_posthoc_preprocess(args: argparse.Namespace, output_roo
             "generated_at": iso_now(),
             "status": "PASS",
             "source": "copied_from_single_scale_tau100_cache",
-            "source_scale": HF_DEFAULT_SCALES[0],
+            "source_scale": seed_scale,
+            "exposure_protocol": exposure_protocol,
+            "exposure_phase": exposure_phase,
             "source_preprocess_dir": str(seed_dir),
             "candidate_threshold_v_per_m": POSTHOC_CANDIDATE_THRESHOLD,
             "n_subjects": len(expected_subjects),
@@ -713,6 +774,8 @@ def load_or_build_shared_posthoc_preprocess(args: argparse.Namespace, output_roo
         "preprocess_status": "shared_copied_from_single_scale",
         "preprocess_qc_path": shared_qc_path,
         "subject_ids": expected_subjects,
+        "exposure_protocol": exposure_protocol,
+        "exposure_phase": exposure_phase,
         "x": np.load(required["x"], mmap_mode="r"),
         "candidate_flat": np.load(required["flat"]),
         "candidate_ijk": np.load(required["ijk"]),
@@ -982,6 +1045,12 @@ def run_scale_posthoc_threshold_scan(
         subject_ids = [record.subject_id for record in records]
         if subject_ids != shared_preprocess["subject_ids"]:
             raise RuntimeError(f"subject order for {scale!r} does not match shared HF exposure cache")
+        exposure_protocol, exposure_phase = endpoint_exposure_condition(scale)
+        if (
+            shared_preprocess.get("exposure_protocol") != exposure_protocol
+            or shared_preprocess.get("exposure_phase") != exposure_phase
+        ):
+            raise RuntimeError(f"shared HF exposure cache condition does not match {scale!r}")
         scale_direction, scale_direction_source = infer_scale_direction(scale)
         if scale_direction not in {"lower", "higher"}:
             raise RuntimeError(f"unknown scale direction for {scale!r}; provide explicit direction before running")
@@ -1006,6 +1075,8 @@ def run_scale_posthoc_threshold_scan(
         "scale_slug": scale_slug,
         "endpoint": scale,
         "endpoint_family": endpoint_family_for_scale(scale),
+        "exposure_protocol": preprocess.get("exposure_protocol", ""),
+        "exposure_phase": preprocess.get("exposure_phase", ""),
         "scale_direction": scale_direction,
         "scale_direction_source": scale_direction_source,
         "estimator": "baseline-adjusted partial Spearman",
@@ -1108,6 +1179,8 @@ def write_all_scale_outputs(
                     "scale": result["scale"],
                     "scale_slug": result["scale_slug"],
                     "endpoint_family": endpoint_family_for_scale(result["scale"]),
+                    "exposure_protocol": result["manifest"].get("exposure_protocol", ""),
+                    "exposure_phase": result["manifest"].get("exposure_phase", ""),
                     "scan_dir": result["scan_dir"],
                     "n_passing_grid_cells": int(sum(_as_bool(row.get("passes_all_hard_filters")) for row in result["rows"])),
                     "selected": result.get("selected"),
@@ -1172,10 +1245,14 @@ def run_all_scales(args: argparse.Namespace) -> int:
     clinical_root = Path(args.clinical_root).expanduser().resolve()
     output_root = Path(args.output_root).expanduser().resolve()
     scales = load_all_scale_names(clinical_root)
-    shared_preprocess = load_or_build_shared_posthoc_preprocess(args, output_root)
+    shared_preprocess_by_condition: dict[str, dict[str, Any]] = {}
     per_scale_results: list[dict[str, Any]] = []
     for idx, scale in enumerate(scales, start=1):
         print(f"Running all-scale post-hoc scan {idx}/{len(scales)}: {scale}", flush=True)
+        condition_key = endpoint_exposure_cache_key(scale)
+        if condition_key not in shared_preprocess_by_condition:
+            shared_preprocess_by_condition[condition_key] = load_or_build_shared_posthoc_preprocess(args, output_root, scale)
+        shared_preprocess = shared_preprocess_by_condition[condition_key]
         per_scale_results.append(run_scale_posthoc_threshold_scan(args, scale, shared_preprocess=shared_preprocess))
     outputs = write_all_scale_outputs(output_root, per_scale_results, time.time() - started, mode="scan")
     print(f"All-scale post-hoc scan summary: {outputs['summary_dir']}")
