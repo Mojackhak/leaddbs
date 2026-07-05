@@ -124,6 +124,45 @@ Outputs are written under:
 
 The smoke driver intentionally omits `direct_voxel_HF_permutation_summary.csv` and `direct_voxel_HF_bootstrap_se.nii.gz`; those belong to later gated formal/smoke resampling rounds.
 
+## HF Normative Connectome Fiber Smoke Driver
+
+The next B-model executable layer targets the cheapest real public connectome first:
+
+```text
+model = HF normative connectome fiber
+connectome = PPMI 85 (Ewert 2017) by default
+scale = MDS-UPDRS III score (STN, 3 m) by default
+branch = peak_efield_tau800_primary
+validation = observed LOOCV
+resampling = not run
+```
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_hf_normative_fiber_smoke.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_hf_normative_fiber_smoke.py
+```
+
+This driver reads the full public connectome from MATLAB v7.3/HDF5 `data.mat` using chunked fiber blocks. It does not target-restrict streamlines. For each subject, right-sided raw `sim-efield` and left-sided `ea_flip_lr_nonlinear` flipped e-fields are sampled along the same right-canonical streamline coordinates. Alternating same-side subprograms are max-reduced in streamline point space before the bilateral average.
+
+The first executable branch writes a subject-by-fiber exposure sidecar, applies:
+
+```text
+tau = 800 V/m
+Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
+F_candidate_tau = Coverage_tau(l) >= 5
+```
+
+and then runs the partial-Spearman `NetFiberScore` observed LOOCV branch. Formal `B=10000`, OSS-DBS, FDR/density/display, and dTOR processing remain later gated stages.
+
+The driver supports `--max-fibers` only for development self-tests and debugging. Production PPMI smoke runs should leave it unset so the candidate universe remains the full PPMI connectome.
+
 ## Commands
 
 Run from the worktree:
@@ -148,4 +187,11 @@ Run the HF direct voxel observed smoke driver:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_smoke.py
+```
+
+Run the HF normative fiber observed smoke driver:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_normative_fiber_smoke.py
 ```
