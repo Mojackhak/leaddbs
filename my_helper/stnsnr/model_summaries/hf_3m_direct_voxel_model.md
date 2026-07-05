@@ -908,3 +908,525 @@ same plus-one p value for the deterministic small test
 ```
 
 The final run manifest should record whether the optimized equivalence test passed.
+
+## Execution Priority And Gatekeeping
+
+The HF direct voxel analysis must be executed as a gated sequence. The goal is not to run every documented sensitivity analysis at once. The first goal is to determine whether the primary branch:
+
+```text
+tau200 / partial_spearman / Coverage>=5 / HFScore_mean_main
+```
+
+provides interpretable incremental LOOCV signal beyond the covariate-only baseline:
+
+```text
+Y_post ~ Y_base
+```
+
+Non-primary branches and display outputs are delayed until the primary branch passes the relevant gates.
+
+### Round 0: Input Readiness And Environment Lock
+
+Run:
+
+```text
+clinical table audit:
+  Y_post exists
+  Y_base exists
+  ID joins to imaging subject
+  scale direction is defined
+
+e-field availability check:
+  each subject x side has a unique 3m/STN raw sim-efield
+  sim-efieldgauss is not used
+  units are recorded as V/m
+  alternating subprograms can be identified and max-combined
+
+left/right flip input audit:
+  ea_flip_lr_nonlinear is callable
+  Composite and InverseComposite transforms exist
+  right canonical grid and brainmask are readable
+
+environment manifest:
+  MATLAB / Lead-DBS version
+  Python conda env = leaddbs
+  conda list --explicit
+  python -m pip freeze
+  seed = 42
+```
+
+Enter Round 1 only if:
+
+```text
+all primary-scale subjects have Y_post and Y_base
+all subject-side e-field paths are uniquely matched
+no missing or duplicated raw e-field
+no empty, all-NaN, or non-finite e-field
+left/right flip helper is callable
+MDS-UPDRS III total has n >= 12, ideally n = 16
+```
+
+Stop and fix inputs if any required e-field is missing or duplicated, clinical merge is incomplete, or scale direction is undefined. Do not silently exclude subjects.
+
+### Round 1: Preprocessing Sidecars And Minimal QC
+
+Run:
+
+```text
+MATLAB / Lead-DBS preprocessing:
+  discover accepted HF-only e-fields
+  combine same-side alternating subprograms by voxel-wise maximum
+  flip left e-field to right canonical space
+  sample right e-field on the right canonical grid
+
+patient-level exposure:
+  X_HF_only_i(v) = (E_R_i(v) + E_L_to_R_i(v)) / 2
+
+sparse candidate sidecars:
+  X_float32_voxel_major.npy
+  S180_bool.npy
+  S200_bool.npy
+  S220_bool.npy
+  candidate_ijk.npy
+  candidate_xyz_mm.npy
+  candidate_mask_metadata.json
+
+flip audit summary:
+  nonzero voxel count
+  max, p95, p99, sum
+  suprathreshold volume at 180 / 200 / 220 V/m
+  intensity-weighted centroid
+  L-to-R output overlap with right canonical brainmask
+```
+
+Enter Round 2 only if:
+
+```text
+X matrix shape = n_subjects x n_candidate_voxels
+n_subjects exactly matches the clinical table
+candidate_voxels > 0
+S180 / S200 / S220 are not all zero
+each subject has nonzero exposure on at least one side
+full-sample tau200 Coverage>=5 Omega is non-empty
+flip audit has no obvious path mismatch
+```
+
+Soft warnings that do not automatically fail the run but must be recorded:
+
+```text
+extreme subject-level suprathreshold volume outlier
+left-to-right flipped exposure centroid outside plausible brain bounds
+exposure_sum_valid_voxels dominated by one or two subjects
+```
+
+If `Omega_tau200` is empty, stop before modeling and report that `tau200/Coverage>=5` is not modelable for this dataset.
+
+### Round 2: Primary Observed LOOCV
+
+Run only the primary branch:
+
+```text
+scale = MDS-UPDRS III total
+branch = tau200 / partial_spearman
+candidate threshold = 180 V/m
+Omega_HF_tau200 = Coverage_200 >= 5
+estimator = baseline-adjusted partial Spearman
+score = HFScore_mean_main
+validation = LOOCV
+baseline = Y_post ~ Y_base
+```
+
+Generate:
+
+```text
+direct_voxel_HF_coverage.nii.gz
+direct_voxel_HF_coef.nii.gz
+direct_voxel_HF_sweet_sour.nii.gz
+direct_voxel_HF_stability.nii.gz
+direct_voxel_HF_scores.csv
+direct_voxel_HF_loocv_predictions.csv
+direct_voxel_HF_mapping_qc.json
+direct_voxel_HF_generation_manifest.json
+```
+
+Do not run in this round:
+
+```text
+axial scale
+tau180 / tau220
+formal permutation
+formal bootstrap
+formal jitter
+OLS
+display smoothing
+top 10% display masks
+```
+
+Enter Round 3 only if:
+
+```text
+all LOOCV folds finish
+each fold has non-empty Omega_tau200
+each fold has non-empty valid M_HF voxels
+degenerate voxel fraction does not make scoring meaningless
+HFScore_mean_main is not constant across subjects
+all held-out predictions are finite
+final prediction model is not numerically singular
+LOOCV Spearman rho_obs > 0
+Q2 > 0
+HFScore model improves MAE or RMSE over Y_base-only baseline
+delta coefficient direction matches benefit-oriented M_HF interpretation
+corr(HFScore_mean_main, Y_base) is not near +/-1
+```
+
+Stop or report a negative/exploratory primary result if:
+
+```text
+LOOCV rho_obs <= 0
+Q2 <= 0
+HFScore model does not improve on Y_base-only baseline
+multiple folds have empty or near-empty V_score
+HFScore_mean_main is nearly constant
+prediction is driven by one high-leverage subject
+```
+
+Do not run `tau180/tau220` to search for a better threshold when the primary branch fails.
+
+### Round 3: Equivalence Test And Smoke Resampling
+
+Run:
+
+```text
+deterministic equivalence / regression test:
+  voxel subset = 100 to 1000
+  B_perm = 20
+  B_boot = 20
+  seed = 42
+  compare brute-force vs optimized
+
+smoke permutation:
+  tau200 / partial_spearman
+  B = 1000
+  Freedman-Lane
+  full LOOCV recomputation semantics
+  statistic = LOOCV Spearman rho
+
+smoke bootstrap:
+  tau200 / partial_spearman
+  B = 1000
+  streaming SE summary
+
+smoke jitter:
+  tau200 / partial_spearman
+  B = 100
+  FWHM = 2 mm
+```
+
+Enter Round 4 only if:
+
+```text
+fold-specific Omega_HF_tau exactly matches brute-force reference
+subject IDs / voxel IDs / split indices exactly match
+rho map approximately matches
+M_HF map approximately matches
+HFScore_mean_main approximately matches
+LOOCV predictions approximately match
+same NaN / degenerate voxel locations
+small-test plus-one p value matches
+permutation null is generated without crash
+bootstrap finite-count distribution is acceptable
+jitter map correlation is not near zero
+jitter LOOCV rho does not systematically reverse direction
+```
+
+Stop and fix implementation if optimized and brute-force paths are not equivalent. If smoke permutation is ordinary and Round 2 already had `Q2 <= 0`, stop and report an exploratory negative result. If smoke jitter is highly unstable, do not run formal jitter unless explicitly needed for a fragility report.
+
+### Round 4: Formal Permutation
+
+Run:
+
+```text
+scale = MDS-UPDRS III total
+branch = tau200 / partial_spearman
+resampling = Freedman-Lane permutation
+B = 10000
+seed = 42
+statistic = LOOCV Spearman rho
+output = direct_voxel_HF_permutation_summary.csv
+```
+
+Each permutation must logically rerun:
+
+```text
+Y_post ~ Y_base nuisance model
+permute residuals
+reconstruct Y*
+rebuild fold-wise map
+recompute HFScore_mean_main
+rerun LOOCV prediction
+compute LOOCV Spearman
+```
+
+Enter Round 5 if:
+
+```text
+formal permutation completes
+plus-one p value is finite
+observed rho is consistent with the smoke run
+permutation null distribution has no implementation artifact
+```
+
+Interpretation gate:
+
+```text
+p_perm <= 0.10:
+  proceed to full bootstrap and sensitivity as a signal-bearing primary branch
+
+p_perm > 0.10 and rho_obs > 0 and Q2 > 0:
+  proceed only to limited stability/sensitivity; label conclusions exploratory
+
+p_perm > 0.10 and Q2 <= 0:
+  stop heavy analyses and produce a minimal report
+```
+
+For this `n=16` cohort, do not use `p < 0.05` as the only gate. Interpret permutation p value together with LOOCV rho, Q2, baseline comparison, and influence diagnostics.
+
+### Round 5: Formal Bootstrap
+
+Run:
+
+```text
+scale = MDS-UPDRS III total
+branch = tau200 / partial_spearman
+resampling = subject-level bootstrap
+B = 10000
+seed = 42
+output = direct_voxel_HF_bootstrap_se.nii.gz
+```
+
+Bootstrap must rebuild:
+
+```text
+bootstrap sample
+Coverage_tau200_boot
+Omega_HF_tau200_boot
+partial Spearman map
+M_HF map
+bootstrap SE
+```
+
+Do not save 10000 bootstrap maps. Use streaming Welford accumulation.
+
+Enter Round 6 only if:
+
+```text
+bootstrap finite-count distribution is not too low
+primary sweet/sour regions are not completely swamped by SE
+direction-stable areas overlap the LOOCV stability map
+most bootstrap maps are not empty
+median finite bootstrap count / B >= 0.70
+core positive-region sign stability >= 0.70
+LOOCV positive-direction stability >= 0.75 regions remain anatomically interpretable
+```
+
+If map direction flips frequently or is supported by only a small subset of bootstrap resamples, do not make strong spatial sweet spot claims.
+
+### Round 6: Formal Spatial Jitter
+
+Run:
+
+```text
+scale = MDS-UPDRS III total
+branch = tau200 / partial_spearman
+jitter B = 1000
+FWHM = 2 mm
+sigma = 0.849 mm
+independent 3D translation per subject-side e-field
+```
+
+Each jitter iteration must rebuild:
+
+```text
+jittered exposure matrix
+candidate mask
+Omega_HF_tau200
+full-sample map
+HF scores
+LOOCV validation metrics
+```
+
+Enter Round 7 if:
+
+```text
+median jitter map correlation > 0.5
+median jitter LOOCV rho remains positive
+core sweet/sour direction does not systematically reverse
+core-region spatial drift stays within an anatomically interpretable range
+```
+
+If jitter map correlation is near zero, LOOCV rho crosses zero with unstable direction, or the core region disappears with 1 to 2 mm translation, downgrade conclusions to:
+
+```text
+spatially fragile exploratory association
+```
+
+### Round 7: Tau Sensitivity
+
+Run observed LOOCV only:
+
+```text
+scale = MDS-UPDRS III total
+branches:
+  tau180 / partial_spearman
+  tau220 / partial_spearman
+```
+
+Do not run formal permutation or formal bootstrap for non-primary branches. Non-primary manifests must record:
+
+```text
+resampling_status = not_run_nonprimary
+resampling_reason = formal resampling restricted to tau200/partial_spearman
+```
+
+Enter Round 8 if:
+
+```text
+tau180, tau200, and tau220 LOOCV rho directions agree
+Q2 is broadly consistent in direction
+tau200 is not the only threshold with a non-reversed effect
+sweet/sour map spatial correlation or core overlap is acceptable
+Omega size changes monotonically with tau
+```
+
+Interpretation:
+
+```text
+tau180 / tau220 agree with tau200:
+  supports threshold robustness
+
+only tau200 has signal:
+  report primary result as threshold-sensitive
+
+tau180 or tau220 reverses direction:
+  avoid strong sweet spot interpretation
+```
+
+### Round 8: Secondary Axial Scale
+
+Run only after the MDS-UPDRS III total mainline is interpretable:
+
+```text
+scale = MDS-UPDRS III axial score
+first branch = tau200 / partial_spearman
+tau180 / tau220 only if tau200 axial passes QC
+validation = observed LOOCV
+smoke permutation = optional
+```
+
+Do not immediately run formal `B=10000` permutation, formal bootstrap, or formal jitter for axial unless axial is promoted to a co-primary endpoint or both total and axial show consistent primary signal.
+
+Enter optional axial smoke resampling or secondary reporting if:
+
+```text
+axial tau200 LOOCV folds all finish
+HFScore is not constant
+rho_obs has the same direction as total score
+Q2 is not worse than baseline
+map has plausible spatial overlap with the total-score map
+```
+
+Report axial as negative or exploratory if:
+
+```text
+axial tau200 rho <= 0
+Q2 <= 0
+map is completely inconsistent with total score
+one subject determines the result
+```
+
+### Round 9: Display, PDF QC, And Final Manifests
+
+Run only after statistical branches are complete:
+
+```text
+display_smooth_fwhm1mm/
+display_smooth_fwhm2mm/
+bilateral homologous display maps
+sweet_display_mask
+sour_display_mask
+
+PDF QC:
+  coverage histogram
+  score-vs-outcome scatter
+  LOOCV observed-vs-predicted scatter
+  permutation null distribution
+  bootstrap stability summary
+  jitter stability summary
+```
+
+Display outputs must not feed back into:
+
+```text
+HFScore
+LOOCV
+permutation
+bootstrap
+jitter
+```
+
+Final reporting requires:
+
+```text
+complete manifest for every generated branch
+mapping_qc.json includes coverage, degenerate voxels, and zero-exposure score counts
+corr(HFScore_mean_main, Y_base) is recorded
+prediction coefficient signs and collinearity diagnostics are recorded
+flip audit is recorded
+package/environment provenance is recorded
+```
+
+### Round 10: Optional Future Analyses
+
+These are not part of the current direct voxel executable mainline:
+
+```text
+OLS ANCOVA
+Coverage>=6
+Coverage>=8 / 50% rule
+5/7/10-fold CV
+OSS-DBS
+paper-like spatial similarity score
+automatic localization / electrode reconstruction QC
+```
+
+OLS ANCOVA is an optional future supplemental estimator and does not generate outputs in the current run. OSS-DBS does not belong to direct voxel analysis and should remain in normative fiber / activation sensitivity documentation.
+
+### Recommended First Batch
+
+The first practical run should cover only:
+
+```text
+Round 0
+Round 1
+Round 2
+Round 3 smoke only
+```
+
+Concrete first-batch scope:
+
+```text
+MDS-UPDRS III total
+tau200
+partial_spearman
+Coverage>=5
+HFScore_mean_main
+LOOCV
+Y_base-only comparison
+equivalence test
+smoke permutation B=1000
+smoke bootstrap B=1000
+smoke jitter B=100
+basic QC JSON + manifest
+```
+
+Only after this batch passes should the analysis proceed to `B=10000` formal permutation and bootstrap.
