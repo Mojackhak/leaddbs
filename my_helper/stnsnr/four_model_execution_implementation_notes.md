@@ -298,3 +298,46 @@ Run the ULF component readiness gate:
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py
 ```
+
+## Four-Model Execution Status Report
+
+The current execution state is distributed across M0 readiness, A/B primary
+gate status, and ULF component readiness outputs. The status report layer
+collects those artifacts into one machine-readable and human-readable snapshot.
+It does not run any model and does not change gates.
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py
+```
+
+The report records, for each model:
+
+- whether required primary observed outputs exist;
+- current gate decision and observed LOOCV metrics;
+- whether downstream dependencies are locked or exploratory;
+- whether missing inputs prevent execution;
+- whether formal resampling is allowed, skipped by gate, or not yet applicable.
+
+Default outputs:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/status/
+  four_model_execution_status.csv
+  four_model_execution_status.md
+  four_model_execution_status_manifest.json
+```
+
+Run the consolidated status report:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py
+```
