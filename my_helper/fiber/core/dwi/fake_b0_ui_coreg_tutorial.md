@@ -428,6 +428,79 @@ only. After manual QC, rerun with `ReplaceRawdata=true` to move the bad rawdata
 four-file set to Trash and copy the repaired BIDS-compatible files into
 `rawdata/sub-<ID>/ses-preop/dwi/`.
 
+## Image-content orientation correction
+
+Some repaired SaveBySlc DWI stacks can have correct slice continuity and valid
+DICOM-derived affines, but the voxel content can still appear upside-down
+relative to the cohort convention used for visual QC. In this case, correct the
+image content and the diffusion gradient table together. Do not rotate the
+NIfTI image alone.
+
+For the current STNSNr `GengHui` and `ZhaoPeiGen` repaired DWI data, the
+candidate correction set is:
+
+```text
+identity
+flipY
+flipZ
+rotX180
+```
+
+The recommended formal correction is `rotX180`, equivalent to flipping the
+second and third voxel axes while leaving the left-right axis unchanged. The
+corresponding bvec update is:
+
+```text
+bvec_corrected = diag([1 -1 -1]) * bvec_original
+```
+
+The correction is a post-hoc image-content correction. It preserves the current
+NIfTI affine/header transform and changes the voxel array and FSL bvec sidecar
+in lockstep. The bval sidecar is copied unchanged. JSON sidecars must record
+`ImageContentOrientationCorrection=true`, the transform name, source paths, and
+source SHA256 values.
+
+Use candidate QC before applying the formal correction:
+
+```matlab
+status = run_stnsnr_dwi_orientation_qc( ...
+    'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
+    'SourceRoot', '/Volumes/VAL/STNSNrdwi', ...
+    'TransformCandidates', {'identity', 'flipY', 'flipZ', 'rotX180'}, ...
+    'GenerateColorFa', true, ...
+    'Force', false);
+```
+
+Candidate outputs are written under:
+
+```text
+/Volumes/VAL/STNSNrdwi/_export_logs/orientation_qc_<timestamp>/sub-<ID>/<candidate>/
+```
+
+Review the b0 montage and color FA. The accepted candidate should show the face
+toward the anterior direction and the cranial vertex superiorly, matching the
+cohort display convention. The color FA should retain plausible tensor
+directions: corpus callosum left-right, corticospinal tract superior-inferior,
+and anterior-posterior fibres anterior-posterior.
+
+After QC approval, apply the same correction to the formal source, rawdata, and
+preprocessing layers without rerunning Synb0-DISCO, topup, or eddy:
+
+```matlab
+status = run_stnsnr_apply_dwi_orientation_correction( ...
+    'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
+    'SourceRoot', '/Volumes/VAL/STNSNrdwi', ...
+    'StudyRoot', '/Volumes/VAL/STNSNr', ...
+    'Transform', 'rotX180', ...
+    'Force', true);
+```
+
+The apply step moves the previous official files to Trash, writes corrected
+replacements with the same filenames, records SHA256 provenance, rotates scalar
+preprocessing images with the same voxel transform, updates JSON provenance,
+and moves stale tensor `.mif` files to Trash rather than preserving tensor data
+with an outdated orientation basis.
+
 Expected repaired files are:
 
 ```text
