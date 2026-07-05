@@ -800,7 +800,9 @@ The model-specific source of truth is:
 model_summaries/hf_3m_normative_connectome_fiber_model.md
 ```
 
-### Secondary STN Immediate Response Model
+### Historical / Future HF Immediate Response Sketch
+
+This section is retained only as a future or historical sketch. It is not part of the current non-individualized executable model-summary files. Do not run or report it as a current primary or secondary analysis unless a dedicated model summary is created and reconciled with the HF/ULF documentation set.
 
 Run this model only for scales with valid immediate STN assessment.
 
@@ -1155,7 +1157,7 @@ voxel_overlap_scores.csv
 loocv_fold_voxel_scores.csv
 ```
 
-Voxel maps are secondary localization outputs. They should be interpreted with connected-region STN/SNr outlines and target-atlas overlays, but the primary target-level model itself is not cropped to those ROIs.
+Target-derived voxel maps are secondary localization outputs for target-level model families. They should be interpreted with connected-region STN/SNr outlines and target-atlas overlays, but the primary target-level model itself is not cropped to those ROIs. This statement does not apply to the executable HF and ULF direct voxel models, which are independent local stimulation association models specified in their model-summary files.
 
 For legacy generic direct voxel-level sweet spot models, export:
 
@@ -1227,13 +1229,16 @@ This generic output list does not apply to the executable HF or ULF direct voxel
 Fit each model separately by scale:
 
 ```text
-STN chronic model
-STN immediate model when valid
-ULF chronic add-on gain model
-ULF immediate add-on gain model
+HF direct voxel 3-month model
+HF normative connectome fiber 3-month model
+ULF direct voxel chronic add-on gain model
+ULF direct voxel immediate add-on gain model when promoted by the model summary
+ULF normative connectome fiber chronic add-on gain model
+ULF normative connectome fiber immediate add-on gain model when promoted by the model summary
+individualized DWI target-level models only in their separate model-summary scope
 ```
 
-Use patient-level permutation tests with random seed `42`. Correct multiple comparisons across tested targets within each scale, connectome or DWI source, endpoint, and model class using FDR.
+Use patient-level permutation tests with random seed `42` according to the model-specific gatekeeping rules. For HF and ULF normative fiber-level models, fiber-wise FDR q-values are QC/display outputs rather than primary filters. For individualized-DWI target-level models, correct multiple comparisons across tested targets within each scale, DWI source, endpoint, and model class using FDR.
 
 ### Stage 7: Stability And Sensitivity
 

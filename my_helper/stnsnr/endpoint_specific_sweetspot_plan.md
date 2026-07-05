@@ -1085,11 +1085,11 @@ Use leave-one-patient-out predictions for any residualized model to avoid optimi
 
 ### Voxel Sweet Spot
 
-Voxel sweet spots are secondary localization outputs. For each voxel and outcome, model the relation between subject-level stimulation exposure at that voxel and clinical response after the target-level model has been specified.
+There are two distinct voxel-map families.
 
-For the HF model, use HF-only exposure and HF response. For the ULF add-on gain model, use ULF-component exposure and endpoint-specific post-score models adjusted for HF-3m baseline and endpoint/domain-matched HF efficacy-map score change. Run the chronic gain endpoint for `STN+SNr 3m` and the immediate gain endpoint for `STN+SNr immediate`.
+Target-derived voxel maps are secondary localization outputs for target-level model families. They back-project target weights into seed voxels after the target-level model has been specified, and they should not drive primary predictor selection.
 
-Voxel maps should not drive primary predictor selection.
+Direct voxel models are independent non-individualized local stimulation models. They are not target-derived maps. For the HF direct voxel model, use HF-only exposure and HF-only 3-month response. For the ULF direct voxel model, use ULF-only exposure and endpoint-specific post-score models adjusted for the HF reference state and endpoint/domain-matched `DeltaHFScore`. Run the chronic gain endpoint for `STN+SNr 3m` and the immediate gain endpoint for `STN+SNr immediate` according to `model_summaries/ulf_addon_gain_direct_voxel_model.md`.
 
 ### Direct Voxel-Level Sweet Spot Mapping
 
@@ -1137,7 +1137,7 @@ M_HF(v) = theta_HF(v)
 
 Positive `M_HF(v)` means stronger HF exposure at voxel `v` predicts better baseline-adjusted HF-only outcome.
 
-Resolved HF/STN settings (these fix, for the HF/STN direct voxel model only, the options left open in the generic subsections below; see `model_summaries/hf_3m_direct_voxel_model.md`). The generic subsections still apply to the ULF/SNr direct voxel model unchanged unless explicitly overridden there.
+Resolved HF direct voxel settings (these fix, for the HF direct voxel model only, the options left open in the generic subsections below; see `model_summaries/hf_3m_direct_voxel_model.md`). The generic subsections still apply to the ULF direct voxel model unless explicitly overridden by `model_summaries/ulf_addon_gain_direct_voxel_model.md`.
 
 - Exposure `X_HF_only`: the real Horn/SimBio `sim-efield` (raw variant, kept in `V/m`) from each subject's `3m/STN` MNI stimulation folder `stimulations/MNI152NLin2009bAsym/*_3m_STN_*/sub-*_sim-efield_model-simbio_hemi-{L,R}.nii`. Combine alternating same-side subprograms by voxel-wise maximum.
 - E-field availability: assume existing e-fields have passed prior manual/clinical QC. The executable HF model only checks path existence, unique subject/side/condition matching, raw `sim-efield` identity, and `V/m` unit provenance. Missing or multiply matched e-fields fail the scale/run; the HF direct voxel model does not automatically recompute e-fields or silently exclude subjects.
@@ -1284,13 +1284,13 @@ Sensitivity thresholds:
 tau = 0.18, 0.20, 0.22 V/mm
 ```
 
-Generic non-HF preferred coverage rule:
+Legacy target-derived or explicitly labeled non-HF sensitivity reference:
 
 ```text
 Coverage(v) >= 8
 ```
 
-meaning at least 50% of patients have suprathreshold exposure at that voxel. This generic rule is not used to generate HF direct voxel results. The HF executable model uses `Coverage(v) >= 5` only and records the 50% rule in its reference-coverage checklist.
+meaning at least 50% of patients have suprathreshold exposure at that voxel. This generic reference rule is not used to generate current HF or ULF direct voxel results. The executable HF and ULF direct voxel model summaries use `Coverage(v) >= 5` and record `Coverage>=6/8` only as optional or reference-coverage checklist items unless a future model summary explicitly promotes them.
 
 ```text
 Coverage(v) >= 5 or 6
@@ -1406,7 +1406,7 @@ Use seed `42`. The bootstrap is used to estimate map stability/resampling uncert
 
 #### Direct Voxel Outputs
 
-For the executable HF direct voxel model, the resolved exposure/territory/estimator/permutation/endpoint choices are listed under "Resolved HF/STN settings" in the `HF Direct Voxel Model` subsection above; HF outputs keep the `direct_voxel_HF_*` file names and land under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau*/partial_spearman/`. Optional future OLS outputs would use sibling `ols_ancova/` directories only if explicitly enabled.
+For the executable HF direct voxel model, the resolved exposure/territory/estimator/permutation/endpoint choices are listed under "Resolved HF direct voxel settings" in the `HF Direct Voxel Model` subsection above; HF outputs keep the `direct_voxel_HF_*` file names and land under `/Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/tau*/partial_spearman/`. Optional future OLS outputs would use sibling `ols_ancova/` directories only if explicitly enabled.
 
 For each generic non-HF/ULF direct voxel model, export:
 
@@ -1697,10 +1697,12 @@ For normative fiber-level outputs, report selected/high-ranked streamlines direc
 
 ### Main Tests
 
+- HF primary direct voxel model: baseline-adjusted partial Spearman between right-canonical voxel-level HF-only 3-month exposure and HF-only 3-month raw score, adjusting for preoperative raw score; OLS ANCOVA is documented only as optional future supplemental analysis.
 - HF primary normative connectome model: baseline-adjusted partial Spearman between right-canonical fiber-level HF-only 3-month exposure and HF-only 3-month raw score, adjusting for preoperative raw score.
-- STN secondary early model: baseline-adjusted partial Spearman or ANCOVA between target-level STN-immediate bilateral connectivity and STN-immediate raw score, adjusting for preoperative score or same-day STN-OFF score when available.
+- ULF chronic add-on gain direct voxel model: endpoint-specific voxel-level partial Spearman with `Y_HF_ref` and `DeltaHFScore_chronic` as nuisance covariates, estimating adjusted chronic `M_ULF(v)` and `ULFScore_mean_main`.
 - ULF chronic add-on gain normative connectome model: endpoint-specific fiber-level partial Spearman with `Y_HF_ref` and `DeltaHFScore_chronic` as nuisance covariates, estimating adjusted chronic `M_ULF(l)` and `NetULFFiberScore`.
-- ULF immediate add-on gain normative connectome model: endpoint-specific fiber-level partial Spearman with same-day `Y_HF_ref` and `DeltaHFScore_immediate` as nuisance covariates, estimating adjusted immediate `M_ULF(l)` and `NetULFFiberScore`.
+- ULF immediate add-on gain direct voxel and normative connectome models: endpoint-specific partial Spearman with same-day `Y_HF_ref` and `DeltaHFScore_immediate` as nuisance covariates, run according to the model-specific direct voxel and normative fiber summaries.
+- HF early or acute response models are future or historical sketches, not current non-individualized executable model-summary files.
 - Primary inference is scale-specific; do not combine heterogeneous scales into one primary model.
 - For HF and ULF normative fiber-level models, output fiber-wise FDR q-values for QC/display only. For individualized-DWI target-level models, correct multiple comparisons across tested targets within each scale, DWI source, and model class using FDR.
 - Use patient-level permutation tests with seed `42` for empirical significance.
@@ -1710,7 +1712,7 @@ For normative fiber-level outputs, report selected/high-ranked streamlines direc
 Recommended reporting hierarchy:
 
 - primary HF endpoint: chronic HF-only efficacy model using `Preop -> STN-3m`;
-- secondary HF endpoint: early / acute HF-only response model using `Preop -> STN-immediate`, or `STN-OFF same-day -> STN-immediate` when same-day baseline exists;
+- future secondary HF endpoint, not part of the current non-individualized executable summaries: early / acute HF-only response model using `Preop -> STN-immediate`, or `STN-OFF same-day -> STN-immediate` when same-day baseline exists;
 - optional HF endpoint: chronic adaptation model using `STN-immediate -> STN-3m`;
 - primary ULF chronic add-on gain endpoint: adjusted raw HF+ULF 3-month outcome model using `Y_HF_ref` and `DeltaHFScore_chronic`;
 - key secondary or explicitly promoted co-primary ULF immediate endpoint: adjusted same-day raw HF+ULF immediate outcome model using same-day `Y_HF_ref` and `DeltaHFScore_immediate`;
@@ -1778,12 +1780,12 @@ If implemented, it must:
 Run the following sensitivity analyses:
 
 - change-score model without baseline as a covariate;
-- STN percent-improvement model for comparability with older STN DBS sweet-spot studies;
-- one-at-a-time STN covariate sensitivity with medication or LEDD change when medication state differs;
+- HF-only percent-improvement model for comparability with older STN DBS sweet-spot studies;
+- one-at-a-time HF covariate sensitivity with medication or LEDD change when medication state differs;
 - patient-level overlap with a published STN sweet spot as an external plausibility check;
 - HF-only negative-control model using ULF exposure to test whether ULF-addition maps reflect general electrode placement quality;
 - model-family-matched and, for normative connectomes, connectome-matched HF efficacy-score change instead of a cross-family `DeltaHFScore`;
-- minimal-physical-STN-change subgroup after excluding subjects with the largest absolute outcome-independent HF exposure change;
+- minimal-physical-HF-change subgroup after excluding subjects with the largest absolute outcome-independent HF exposure change;
 - binary VTA intersection instead of continuous peak exposure;
 - interleaving-specific union, overlap, and frequency-weighted exposure summaries;
 - local ROI-expanded peak exposure using connected-region STN/SNr primary masks dilated by `2-3 mm`;
