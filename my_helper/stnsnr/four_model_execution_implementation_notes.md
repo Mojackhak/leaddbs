@@ -220,10 +220,21 @@ The gate checks:
 - A/B dependency status from `four_model_gate_status.csv`, so C and D are
   labeled exploratory when their matched HF model failed the primary gate.
 
+The gate follows the same e-field path logic as the target-component VTA
+distribution code:
+
+- observed alternating components use observed subprogram e-fields under
+  `stnsnr_vta_<ID>_<phase>_STNplusSNr_alt_<side>_<target>_c<contact>_row<index>`;
+- observed single-target continuous components use the corresponding continuous
+  condition e-field;
+- mixed continuous STN+SNr components use the counterfactual target-component
+  e-field under `stnsnr_target_component_<ID>_<phase>_STNplusSNr_<side>_<target>`.
+
 The gate must not substitute the mixed `STN+SNr` condition-level e-field for
-component-specific HF or ULF e-fields. If component-specific e-fields are
-missing, C/D remain not executable even when mixed condition VTA outputs or
-component stimulation-parameter folders exist.
+frequency-component HF or ULF e-fields. If the required observed subprogram or
+target-component e-fields are missing, C/D remain not executable even when mixed
+condition VTA outputs, thresholded VTA masks, or component stimulation-parameter
+folders exist.
 
 Outputs are written under:
 

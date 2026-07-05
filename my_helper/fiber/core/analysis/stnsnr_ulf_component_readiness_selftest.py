@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from stnsnr_ulf_component_readiness import (
+    alternating_component_efield_paths,
     classify_frequency_component,
     component_efield_paths,
     reconstruct_post_score_from_delta,
@@ -58,6 +59,29 @@ def test_component_path_construction() -> None:
     )
 
 
+def test_alternating_observed_path_construction() -> None:
+    row = {
+        "ID": "SNr007",
+        "NameEn": "HuFengXian",
+        "Phase": "3m",
+        "Protocol": "STN+SNr",
+        "Side": "L",
+        "Target": "SNr",
+        "Contact": 0,
+    }
+    folder, efield = alternating_component_efield_paths(Path("/tmp/leaddbs"), row, 1)
+    assert_equal(
+        str(folder),
+        "/tmp/leaddbs/sub-HuFengXian/stimulations/MNI152NLin2009bAsym/stnsnr_vta_SNr007_3m_STNplusSNr_alt_L_SNr_c0_row1",
+        "alternating observed folder path",
+    )
+    assert_equal(
+        efield.name,
+        "sub-HuFengXian_sim-efield_model-simbio_hemi-L.nii",
+        "alternating observed efield file name",
+    )
+
+
 def test_availability_summary() -> None:
     rows = [
         {"folder_exists": True, "efield_exists": False, "frequency_class": "HF"},
@@ -75,6 +99,7 @@ def main() -> int:
     test_frequency_classification()
     test_delta_score_reconstruction()
     test_component_path_construction()
+    test_alternating_observed_path_construction()
     test_availability_summary()
     print("ULF component readiness self-test passed.")
     return 0

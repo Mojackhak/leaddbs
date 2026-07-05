@@ -57,6 +57,17 @@ def normalize_protocol_for_folder(protocol: Any) -> str:
     return protocol_str
 
 
+def contact_token(value: Any) -> str:
+    """Return the raw contact token used in Lead-DBS stimulation folder labels."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return sanitize(value)
+    if numeric.is_integer():
+        return str(int(numeric))
+    return str(numeric)
+
+
 def classify_frequency_component(frequency_hz: Any) -> str:
     """Classify stimulation frequency into the fixed HF/ULF component labels."""
     try:
@@ -94,16 +105,66 @@ def component_efield_paths(derivatives_root: Path, row: dict[str, Any] | pd.Seri
     return folder, efield
 
 
+def continuous_condition_efield_paths(derivatives_root: Path, row: dict[str, Any] | pd.Series) -> tuple[Path, Path]:
+    """Return expected observed continuous-condition folder and raw sim-efield path."""
+    subject_id = sanitize(row.get("ID"))
+    name = sanitize(row.get("NameEn"))
+    phase = sanitize(row.get("Phase"))
+    protocol = normalize_protocol_for_folder(row.get("Protocol"))
+    side = sanitize(row.get("Side"))
+    folder = (
+        derivatives_root
+        / f"sub-{name}"
+        / "stimulations"
+        / "MNI152NLin2009bAsym"
+        / f"stnsnr_vta_{subject_id}_{phase}_{protocol}_continuous"
+    )
+    efield = folder / f"sub-{name}_sim-efield_model-simbio_hemi-{side}.nii"
+    return folder, efield
+
+
+def alternating_component_efield_paths(
+    derivatives_root: Path,
+    row: dict[str, Any] | pd.Series,
+    alternating_row_index: int,
+) -> tuple[Path, Path]:
+    """Return expected observed alternating subprogram folder and raw sim-efield path."""
+    subject_id = sanitize(row.get("ID"))
+    name = sanitize(row.get("NameEn"))
+    phase = sanitize(row.get("Phase"))
+    protocol = normalize_protocol_for_folder(row.get("Protocol"))
+    side = sanitize(row.get("Side"))
+    target = sanitize(row.get("Target"))
+    contact = contact_token(row.get("Contact"))
+    folder = (
+        derivatives_root
+        / f"sub-{name}"
+        / "stimulations"
+        / "MNI152NLin2009bAsym"
+        / f"stnsnr_vta_{subject_id}_{phase}_{protocol}_alt_{side}_{target}_c{contact}_row{int(alternating_row_index)}"
+    )
+    efield = folder / f"sub-{name}_sim-efield_model-simbio_hemi-{side}.nii"
+    return folder, efield
+
+
 def summarize_component_availability(rows: list[dict[str, Any]]) -> dict[str, Any]:
     counts: dict[str, int] = {}
+    path_mode_counts: dict[str, int] = {}
+    missing_by_path_mode: dict[str, int] = {}
     for row in rows:
-        key = str(row.get("frequency_class", "UNKNOWN"))
-        counts[key] = counts.get(key, 0) + 1
+        frequency_key = str(row.get("frequency_class", "UNKNOWN"))
+        counts[frequency_key] = counts.get(frequency_key, 0) + 1
+        path_key = str(row.get("path_mode", "UNKNOWN"))
+        path_mode_counts[path_key] = path_mode_counts.get(path_key, 0) + 1
+        if not bool(row.get("efield_exists")):
+            missing_by_path_mode[path_key] = missing_by_path_mode.get(path_key, 0) + 1
     return {
         "n_rows": len(rows),
         "n_folders_existing": sum(1 for row in rows if bool(row.get("folder_exists"))),
         "n_efields_existing": sum(1 for row in rows if bool(row.get("efield_exists"))),
         "frequency_class_counts": counts,
+        "path_mode_counts": path_mode_counts,
+        "missing_by_path_mode": missing_by_path_mode,
     }
 
 
@@ -164,28 +225,51 @@ def build_endpoint_reconstruction(raw_df: pd.DataFrame, hf_scale: str, delta_sca
 def build_component_availability(stim_df: pd.DataFrame, derivatives_root: Path) -> list[dict[str, Any]]:
     required = stim_df[(stim_df["Phase"].astype(str) == "3m") & (stim_df["Protocol"].astype(str) == "STN+SNr")].copy()
     rows: list[dict[str, Any]] = []
-    for _, row in required.iterrows():
-        folder, efield = component_efield_paths(derivatives_root, row)
-        frequency_class = classify_frequency_component(row.get("Frequency"))
-        rows.append(
-            {
-                "subject_id": sanitize(row.get("ID")),
-                "name_en": sanitize(row.get("NameEn")),
-                "phase": sanitize(row.get("Phase")),
-                "protocol": sanitize(row.get("Protocol")),
-                "side": sanitize(row.get("Side")),
-                "target": sanitize(row.get("Target")),
-                "contact": row.get("Contact", ""),
-                "frequency_hz": row.get("Frequency", ""),
-                "frequency_class": frequency_class,
-                "stimulation_pattern": sanitize(row.get("StimulationPattern")),
-                "folder_exists": folder.is_dir(),
-                "efield_exists": efield.is_file(),
-                "folder_path": str(folder),
-                "efield_path": str(efield),
-                "status": "PASS" if efield.is_file() and frequency_class in {"HF", "ULF"} else "FAIL",
-            }
-        )
+    condition_keys = ["ID", "Phase", "Protocol"]
+    for _, condition_rows in required.groupby(condition_keys, sort=False):
+        alternating_row_index = 0
+        for _, row in condition_rows.iterrows():
+            pattern = sanitize(row.get("StimulationPattern")).lower()
+            side = sanitize(row.get("Side"))
+            path_mode = ""
+            if pattern == "alternating":
+                alternating_row_index += 1
+                path_mode = "observed_alternating_subprogram"
+                folder, efield = alternating_component_efield_paths(derivatives_root, row, alternating_row_index)
+            elif pattern == "continuous":
+                side_rows = condition_rows[condition_rows["Side"].astype(str) == side]
+                side_targets = [target for target in side_rows["Target"].astype(str).str.strip().unique().tolist() if target]
+                if len(side_targets) == 1:
+                    path_mode = "observed_single_target_continuous_condition"
+                    folder, efield = continuous_condition_efield_paths(derivatives_root, row)
+                else:
+                    path_mode = "counterfactual_target_component_continuous_mixed"
+                    folder, efield = component_efield_paths(derivatives_root, row)
+            else:
+                path_mode = "unsupported_stimulation_pattern"
+                folder, efield = component_efield_paths(derivatives_root, row)
+            frequency_class = classify_frequency_component(row.get("Frequency"))
+            rows.append(
+                {
+                    "subject_id": sanitize(row.get("ID")),
+                    "name_en": sanitize(row.get("NameEn")),
+                    "phase": sanitize(row.get("Phase")),
+                    "protocol": sanitize(row.get("Protocol")),
+                    "side": side,
+                    "target": sanitize(row.get("Target")),
+                    "contact": row.get("Contact", ""),
+                    "frequency_hz": row.get("Frequency", ""),
+                    "frequency_class": frequency_class,
+                    "stimulation_pattern": sanitize(row.get("StimulationPattern")),
+                    "path_mode": path_mode,
+                    "alternating_row_index": alternating_row_index if pattern == "alternating" else "",
+                    "folder_exists": folder.is_dir(),
+                    "efield_exists": efield.is_file(),
+                    "folder_path": str(folder),
+                    "efield_path": str(efield),
+                    "status": "PASS" if efield.is_file() and frequency_class in {"HF", "ULF"} else "FAIL",
+                }
+            )
     return rows
 
 
@@ -339,6 +423,8 @@ def run_readiness(args: argparse.Namespace) -> int:
             "frequency_hz",
             "frequency_class",
             "stimulation_pattern",
+            "path_mode",
+            "alternating_row_index",
             "folder_exists",
             "efield_exists",
             "folder_path",
