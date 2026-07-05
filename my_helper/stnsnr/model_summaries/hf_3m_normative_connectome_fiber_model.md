@@ -564,3 +564,321 @@ Every displayed streamline is a proven causal tract in every patient.
 ```
 
 The primary claim requires dTOR primary performance, PPMI/MGH cross-connectome consistency, transparent label enrichment, and clear separation from the plain connected-streamline control.
+
+## Additional Exact-Equivalence Optimization Rules
+
+This section defines implementation-level acceleration rules only. These rules may change scheduling, caching, vectorization, scratch storage, and checkpointing. They must not change `rho_HF`, `M_HF`, `F+`, `F-`, `SweetPeak5`, `SourPeak5`, `NetFiberScore`, LOOCV, permutation p values, bootstrap summaries, or OSS-DBS branch semantics.
+
+### Outcome-Independent Cache Boundary
+
+Outcome-independent artifacts may be reused across scales, folds, permutations, bootstraps, OSS branches, and display branches when their cache keys match:
+
+```text
+fiber geometry
+fiber_id order
+right-canonical streamline coordinates
+E_R_i(l)
+E_L_to_R_i(l)
+X_HF_i(l)
+S_tau_R(l,i)
+S_tau_L_to_R(l,i)
+Coverage_tau_all(l)
+fold-specific candidate masks by subtraction
+endpoint labels
+subcortical crossing labels
+streamline-to-voxel density lookup
+OSS activation sidecars for a fixed OSS parameter set
+plain exposure and plain activation summaries
+```
+
+Outcome-dependent artifacts must be recomputed whenever `Y_post`, `Y_base`, training membership, permutation residuals, or bootstrap subject counts change:
+
+```text
+rank(Y_post_train)
+rank(Y_base_train), if scale-specific
+rho_HF(l)
+M_HF(l)
+F+
+F-
+SweetPeak5
+SourPeak5
+NetFiberScore
+LOOCV prediction model
+permutation statistic
+bootstrap map and stability summaries
+```
+
+Exposure sidecars are connectome- and branch-specific, not scale-specific, unless scale-specific subject inclusion differs. When two scales use the same valid subjects, they reuse the same exposure sidecars, candidate masks, plain touched-streamline background, endpoint labels, density lookup tables, and OSS activation sidecars. If a scale has missing subjects, create a subject-subset view rather than resampling fibers.
+
+### Cache Keys And Invalidation
+
+Every sidecar and intermediate cache records a deterministic cache key:
+
+```json
+{
+  "cache_key": {
+    "connectome_slug": null,
+    "connectome_path_hash": null,
+    "fiber_id_hash": null,
+    "subject_order_hash": null,
+    "efield_path_manifest_hash": null,
+    "efield_file_hashes": null,
+    "left_to_right_transform_hash": null,
+    "tau_values": [800, 1500],
+    "coverage_rule": "Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]; Coverage >= 5",
+    "candidate_rule": "fold-specific candidate masks by training-subject coverage",
+    "branch": null,
+    "oss_parameter_manifest_hash": null,
+    "software_version": null
+  }
+}
+```
+
+A cache is invalid if any cache-key field changes. If only `Y_post` or `Y_base` changes, exposure sidecars remain valid. If only the scale changes and subject inclusion is identical, exposure sidecars and candidate masks remain valid. If only display settings change, statistical sidecars remain valid. If OSS parameters change, OSS activation sidecars are invalid but peak E-field sidecars remain valid.
+
+### Fold-Level Rank Residual Cache
+
+For each LOOCV fold `h` and fiber chunk, the implementation may cache exposure-rank residuals computed within the training set only:
+
+```text
+xrank_h(l) = rank(X_train(l)) within training fold
+xres_h(l)  = resid(xrank_h(l) ~ 1 + rank(Y_base_train))
+znorm_h(l) = xres_h(l) / sqrt(sum(xres_h(l)^2))
+```
+
+Suggested cache files:
+
+```text
+Z_rankresid_float32_or_float64_chunk-000001_fold-01.npy
+valid_exposure_rankresid_bool_chunk-000001_fold-01.npy
+```
+
+For observed and permuted outcomes, only the outcome side is recomputed:
+
+```text
+yrank_h = rank(Y*_train)
+yres_h  = resid(yrank_h ~ 1 + rank(Y_base_train))
+unorm_h = yres_h / sqrt(sum(yres_h^2))
+rho_HF(l) = dot(znorm_h(l), unorm_h)
+```
+
+`Z_h` may be reused within LOOCV permutation. It cannot be reused across bootstrap resamples because bootstrap changes training-sample multiplicity. It cannot be reused across scales when `Y_base` is scale-specific. Full-sample ranks remain prohibited.
+
+### Batched Permutation Kernel
+
+Permutation dot products may be batched for linear algebra efficiency:
+
+```text
+permutation_batch_size = 32 or 64
+U_h = [u_h_perm1, u_h_perm2, ..., u_h_permK]   # train_subject x K
+RHO_chunk = Z_h_chunk @ U_h
+```
+
+Batching is allowed only for exact vectorized linear algebra. Each permutation still has its own `M_HF(l)`, `F+`, `F-`, `SweetPeak5`, `SourPeak5`, `NetFiberScore`, prediction model, and LOOCV statistic. No permutation may use an averaged, pooled, or shared selected-fiber set.
+
+### Deterministic Top-K Tie Policy
+
+Optimized `argpartition`, heap, or streaming top-k implementations must match brute-force stable sorting. Tie-breaking is deterministic:
+
+```text
+F+ selection key:
+  (-M_HF(l), fiber_id)
+
+F- selection key:
+  (M_HF(l), fiber_id)
+
+Patient-specific SweetPeak5/SourPeak5 key:
+  (-weighted_value, fiber_id)
+```
+
+Higher weight wins; ties are broken by smaller deterministic `fiber_id`. If `argpartition` is used, it must overselect a boundary buffer, stable-sort the buffer with the documented key, and keep the exact requested count.
+
+### dTOR Two-Pass Streaming Top-K
+
+dTOR formal runs must not materialize full candidate-by-subject weighted matrices.
+
+Pass 1 selects fibers across chunks:
+
+```text
+compute rho_HF(l)
+compute M_HF(l)
+update global heap for F+
+update global heap for F-
+```
+
+Pass 2 scores patients by rereading only chunks that contain selected `F+` or `F-` fibers:
+
+```text
+SweetWeighted_i(l) = X_i(l) * M_HF(l)
+SourWeighted_i(l)  = X_i(l) * [-M_HF(l)]
+SweetPeak5_i       = patient-level top 5% mean over SweetWeighted_i(l)
+SourPeak5_i        = patient-level top 5% mean over SourWeighted_i(l)
+NetFiberScore_i    = SweetPeak5_i - SourPeak5_i
+```
+
+Full candidate-weight tables are allowed only for observed small-connectome debug runs. dTOR formal runs must use two-pass streaming selected-fiber and patient-level top-k reducers.
+
+### Coverage Bitmasks And Candidate Unions
+
+Subject-side suprathreshold indicators may be stored as `uint32` or `uint64` bitmasks with popcount-based coverage calculation:
+
+```text
+bit 0 = subject 1 right
+bit 1 = subject 1 left-to-right
+bit 2 = subject 2 right
+bit 3 = subject 2 left-to-right
+...
+```
+
+The transparent bool arrays remain the reference representation:
+
+```text
+S_tau_*_bool.npy
+S_tau_subjectside_u32.npy
+```
+
+Bitmask coverage is permitted only if it passes exact equivalence against bool-array coverage. Fold-specific candidate masks are still defined by held-out subtraction. A `union_of_folds` mask may be cached to reduce IO:
+
+```text
+candidate_tau800_fold_01_bool ... candidate_tau800_fold_16_bool
+candidate_tau1500_fold_01_bool ... candidate_tau1500_fold_16_bool
+candidate_tau800_union_of_folds_bool
+candidate_tau1500_union_of_folds_bool
+```
+
+`union_of_folds` may restrict IO, OSS activation, labeling, and density precomputation. Each fold must still use its own fold-specific candidate mask.
+
+### OSS Candidate-First Activation
+
+OSS-DBS activation is computed only for the union of peak E-field candidate fibers required by the executable OSS branch:
+
+```text
+F_candidate_tau800_union_of_folds
+F_candidate_tau1500_union_of_folds, if sensitivity is requested
+```
+
+Non-candidate fibers are not used by `rho_HF_OSS`, `F+_OSS`, `F-_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation. Omitting their OSS activation does not change the OSS branch result.
+
+OSS activation cache granularity:
+
+```text
+connectome x subject x side x subprogram x oss_parameter_hash x candidate_union
+```
+
+Reusable only when subject, side, subprogram, OSS parameter manifest, candidate fiber set, and connectome geometry match. Changing axon model, axon diameter, pulse width, amplitude, conductivity model, lead/e-field input, connectome geometry, or candidate fiber ids invalidates the cache.
+
+Recommended OSS cache manifests:
+
+```text
+oss_activation_cache_key.json
+oss_subprogram_activation_manifest.csv
+oss_max_reduction_manifest.csv
+```
+
+### Scratch, Checkpoint, And Random Index Control
+
+Formal loops should use local NVMe scratch when available and atomically promote final outputs after validation:
+
+```text
+scratch_root = /local_scratch/<run_id>/
+final_root   = /Volumes/VAL/STNSNr/summary/...
+```
+
+Scratch relocation must not change file contents, subject order, fiber order, random seeds, or output semantics.
+
+Permutation and bootstrap run in resumable blocks:
+
+```text
+permutation_block_size = 100 or 250
+bootstrap_block_size   = 100 or 250
+perm_block_0001_stats.npy
+perm_block_0001_manifest.json
+perm_block_0001.done
+boot_block_0001_accumulator.npz
+boot_block_0001_manifest.json
+boot_block_0001.done
+```
+
+Partial blocks are never counted. Rerun blocks must reuse the same random indices. Workers write block-local outputs only; final CSV/JSON outputs are written atomically by the main process.
+
+Random arrays are generated once from seed `42` and become part of the run definition:
+
+```text
+permutation_indices_seed42.npy
+bootstrap_subject_counts_seed42.npy
+```
+
+Resumed runs must reuse the same arrays and recorded hashes.
+
+### Label, Density, Rank-Pattern, And Chunk Autotune Caches
+
+Endpoint labeling and density maps use precomputed lookup caches:
+
+```text
+fiber_endpoint_label_cache.parquet
+fiber_subcortical_crossing_cache.parquet
+fiber_to_voxel_sparse_index.npz
+fiber_length_cache.npy
+fiber_display_geometry_index.npy
+```
+
+Density maps are generated by joining selected fiber ids to the sparse voxel accumulator. The sparse density lookup must use the same affine, interpolation, streamline sampling rule, and voxelization rule as the brute-force display implementation.
+
+Exact rank-pattern caching is allowed, especially for binary or sparse OSS activation:
+
+```text
+rank_pattern_key = hash(bytes(X_train_l) + train_subject_ids + dtype)
+```
+
+Only exact byte-identical exposure vectors may share rank-residual results. No rounding, binning, or approximate hashing is allowed in formal runs.
+
+Chunk-size autotuning may benchmark:
+
+```text
+50k fibers
+100k fibers
+250k fibers
+500k fibers
+1M fibers
+```
+
+The selected chunk size is the fastest tested size that keeps peak memory below `memory_budget * 0.7`. The manifest records tested sizes, selected size, memory budget, peak memory, and throughput.
+
+### Stage Scheduling
+
+Recommended execution stages:
+
+```text
+Stage 1: sidecar cache and coverage cache
+Stage 2: deterministic equivalence test
+Stage 3: observed LOOCV numeric outputs
+Stage 4: smoke permutation/bootstrap
+Stage 5: formal dTOR permutation
+Stage 6: formal dTOR bootstrap
+Stage 7: OSS smoke branch
+Stage 8: endpoint labels and density maps
+Stage 9: FDR/display-only maps
+Stage 10: cross-connectome summaries
+```
+
+Display and anatomical-label outputs are delayed, not omitted. They are generated exactly once from finalized selected-fiber ids after numeric QC passes.
+
+### Disallowed Acceleration Shortcuts
+
+The following are not valid acceleration strategies because they change the estimand, validation design, or statistical interpretation:
+
+```text
+reducing formal B=10000
+adaptive permutation early stopping
+full-sample ranks in fold-level estimation
+approximate ranks
+full-sample candidate mask replacing fold-specific candidate masks
+fixed full-sample F+/F- used for LOOCV scoring
+permutation score computed only from observed maps
+outcome- or preliminary-rho-based fiber prefiltering
+skip sour fibers
+rewriting SweetPeak5/SourPeak5 as a linear matrix product
+OSS activation only for observed selected fibers instead of the fold candidate universe
+```
+
+Any optimized implementation must pass an exact-equivalence regression test against a brute-force reference on a small deterministic subset before formal runs.

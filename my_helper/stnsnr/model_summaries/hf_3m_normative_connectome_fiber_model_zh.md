@@ -564,3 +564,321 @@ Every displayed streamline is a proven causal tract in every patient.
 ```
 
 主结论需要 dTOR primary performance、PPMI/MGH cross-connectome consistency、transparent label enrichment，以及与 plain connected-streamline control 的清晰区分。
+
+## Additional Exact-Equivalence Optimization Rules / 额外精确等价优化规则
+
+本节只定义 implementation-level acceleration rules。这些规则可以改变调度、缓存、向量化、scratch storage 和 checkpointing，但不得改变 `rho_HF`、`M_HF`、`F+`、`F-`、`SweetPeak5`、`SourPeak5`、`NetFiberScore`、LOOCV、permutation p values、bootstrap summaries 或 OSS-DBS branch semantics。
+
+### Outcome-Independent Cache Boundary
+
+当 cache keys 匹配时，outcome-independent artifacts 可以跨 scales、folds、permutations、bootstraps、OSS branches 和 display branches 复用：
+
+```text
+fiber geometry
+fiber_id order
+right-canonical streamline coordinates
+E_R_i(l)
+E_L_to_R_i(l)
+X_HF_i(l)
+S_tau_R(l,i)
+S_tau_L_to_R(l,i)
+Coverage_tau_all(l)
+fold-specific candidate masks by subtraction
+endpoint labels
+subcortical crossing labels
+streamline-to-voxel density lookup
+OSS activation sidecars for a fixed OSS parameter set
+plain exposure and plain activation summaries
+```
+
+当 `Y_post`、`Y_base`、training membership、permutation residuals 或 bootstrap subject counts 改变时，outcome-dependent artifacts 必须重算：
+
+```text
+rank(Y_post_train)
+rank(Y_base_train), if scale-specific
+rho_HF(l)
+M_HF(l)
+F+
+F-
+SweetPeak5
+SourPeak5
+NetFiberScore
+LOOCV prediction model
+permutation statistic
+bootstrap map and stability summaries
+```
+
+Exposure sidecars 是 connectome- and branch-specific，而不是 scale-specific，除非 scale-specific subject inclusion 不同。当两个 scales 使用完全相同的 valid subjects 时，它们复用同一套 exposure sidecars、candidate masks、plain touched-streamline background、endpoint labels、density lookup tables 和 OSS activation sidecars。如果某个 scale 缺失 subjects，应创建 subject-subset view，而不是重新采样 fibers。
+
+### Cache Keys And Invalidation
+
+每个 sidecar 和 intermediate cache 都必须记录 deterministic cache key：
+
+```json
+{
+  "cache_key": {
+    "connectome_slug": null,
+    "connectome_path_hash": null,
+    "fiber_id_hash": null,
+    "subject_order_hash": null,
+    "efield_path_manifest_hash": null,
+    "efield_file_hashes": null,
+    "left_to_right_transform_hash": null,
+    "tau_values": [800, 1500],
+    "coverage_rule": "Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]; Coverage >= 5",
+    "candidate_rule": "fold-specific candidate masks by training-subject coverage",
+    "branch": null,
+    "oss_parameter_manifest_hash": null,
+    "software_version": null
+  }
+}
+```
+
+任一 cache-key field 改变时，该 cache 即失效。如果只改变 `Y_post` 或 `Y_base`，exposure sidecars 仍有效。如果只改变 scale 且 subject inclusion 相同，exposure sidecars 和 candidate masks 仍有效。如果只改变 display settings，statistical sidecars 仍有效。如果 OSS parameters 改变，OSS activation sidecars 失效，但 peak E-field sidecars 仍有效。
+
+### Fold-Level Rank Residual Cache
+
+对每个 LOOCV fold `h` 和 fiber chunk，可以缓存只在 training set 内计算的 exposure-rank residuals：
+
+```text
+xrank_h(l) = rank(X_train(l)) within training fold
+xres_h(l)  = resid(xrank_h(l) ~ 1 + rank(Y_base_train))
+znorm_h(l) = xres_h(l) / sqrt(sum(xres_h(l)^2))
+```
+
+建议 cache files：
+
+```text
+Z_rankresid_float32_or_float64_chunk-000001_fold-01.npy
+valid_exposure_rankresid_bool_chunk-000001_fold-01.npy
+```
+
+对 observed 和 permuted outcomes，只重算 outcome 侧：
+
+```text
+yrank_h = rank(Y*_train)
+yres_h  = resid(yrank_h ~ 1 + rank(Y_base_train))
+unorm_h = yres_h / sqrt(sum(yres_h^2))
+rho_HF(l) = dot(znorm_h(l), unorm_h)
+```
+
+`Z_h` 可在 LOOCV permutation 内复用。它不能跨 bootstrap resamples 复用，因为 bootstrap 改变 training-sample multiplicity。如果 `Y_base` 是 scale-specific，它也不能跨 scales 复用。仍然禁止 full-sample ranks。
+
+### Batched Permutation Kernel
+
+Permutation dot products 可以按 batch 做线性代数加速：
+
+```text
+permutation_batch_size = 32 or 64
+U_h = [u_h_perm1, u_h_perm2, ..., u_h_permK]   # train_subject x K
+RHO_chunk = Z_h_chunk @ U_h
+```
+
+Batching 只允许用于 exact vectorized linear algebra。每个 permutation 仍必须拥有自己的 `M_HF(l)`、`F+`、`F-`、`SweetPeak5`、`SourPeak5`、`NetFiberScore`、prediction model 和 LOOCV statistic。任何 permutation 都不得使用 averaged、pooled 或 shared selected-fiber set。
+
+### Deterministic Top-K Tie Policy
+
+优化后的 `argpartition`、heap 或 streaming top-k implementation 必须与 brute-force stable sorting 一致。Tie-breaking 固定为：
+
+```text
+F+ selection key:
+  (-M_HF(l), fiber_id)
+
+F- selection key:
+  (M_HF(l), fiber_id)
+
+Patient-specific SweetPeak5/SourPeak5 key:
+  (-weighted_value, fiber_id)
+```
+
+更高 weight 优先；tie 时选择更小的 deterministic `fiber_id`。如果使用 `argpartition`，必须 overselect boundary buffer，再用上述 key 对 buffer stable-sort，并保留精确数量。
+
+### dTOR Two-Pass Streaming Top-K
+
+dTOR formal runs 不得 materialize full candidate-by-subject weighted matrices。
+
+Pass 1 跨 chunks 选择 fibers：
+
+```text
+compute rho_HF(l)
+compute M_HF(l)
+update global heap for F+
+update global heap for F-
+```
+
+Pass 2 只重新读取包含 selected `F+` 或 `F-` fibers 的 chunks 来计算 patient scores：
+
+```text
+SweetWeighted_i(l) = X_i(l) * M_HF(l)
+SourWeighted_i(l)  = X_i(l) * [-M_HF(l)]
+SweetPeak5_i       = patient-level top 5% mean over SweetWeighted_i(l)
+SourPeak5_i        = patient-level top 5% mean over SourWeighted_i(l)
+NetFiberScore_i    = SweetPeak5_i - SourPeak5_i
+```
+
+Full candidate-weight tables 只允许用于 observed small-connectome debug runs。dTOR formal runs 必须使用 two-pass streaming selected-fiber 和 patient-level top-k reducers。
+
+### Coverage Bitmasks And Candidate Unions
+
+Subject-side suprathreshold indicators 可以存为 `uint32` 或 `uint64` bitmasks，并用 popcount 计算 coverage：
+
+```text
+bit 0 = subject 1 right
+bit 1 = subject 1 left-to-right
+bit 2 = subject 2 right
+bit 3 = subject 2 left-to-right
+...
+```
+
+Transparent bool arrays 仍是 reference representation：
+
+```text
+S_tau_*_bool.npy
+S_tau_subjectside_u32.npy
+```
+
+Bitmask coverage 只有在通过 bool-array coverage 的 exact equivalence test 后才允许使用。Fold-specific candidate masks 仍由 held-out subtraction 定义。可以缓存 `union_of_folds` mask 来减少 IO：
+
+```text
+candidate_tau800_fold_01_bool ... candidate_tau800_fold_16_bool
+candidate_tau1500_fold_01_bool ... candidate_tau1500_fold_16_bool
+candidate_tau800_union_of_folds_bool
+candidate_tau1500_union_of_folds_bool
+```
+
+`union_of_folds` 可用于缩小 IO、OSS activation、labeling 和 density precomputation。每个 fold 仍必须使用自己的 fold-specific candidate mask。
+
+### OSS Candidate-First Activation
+
+OSS-DBS activation 只为 executable OSS branch 所需的 peak E-field candidate fiber union 计算：
+
+```text
+F_candidate_tau800_union_of_folds
+F_candidate_tau1500_union_of_folds, if sensitivity is requested
+```
+
+Non-candidate fibers 不进入 `rho_HF_OSS`、`F+_OSS`、`F-_OSS`、`NetFiberScore_OSS`、LOOCV 或 smoke permutation。因此省略这些 fibers 的 OSS activation 不改变 OSS branch result。
+
+OSS activation cache granularity：
+
+```text
+connectome x subject x side x subprogram x oss_parameter_hash x candidate_union
+```
+
+只有 subject、side、subprogram、OSS parameter manifest、candidate fiber set 和 connectome geometry 一致时才可复用。axon model、axon diameter、pulse width、amplitude、conductivity model、lead/e-field input、connectome geometry 或 candidate fiber ids 任一改变都会使 cache 失效。
+
+建议 OSS cache manifests：
+
+```text
+oss_activation_cache_key.json
+oss_subprogram_activation_manifest.csv
+oss_max_reduction_manifest.csv
+```
+
+### Scratch, Checkpoint, And Random Index Control
+
+Formal loops 应在可用时使用 local NVMe scratch，并在验证后 atomic promotion 到最终输出目录：
+
+```text
+scratch_root = /local_scratch/<run_id>/
+final_root   = /Volumes/VAL/STNSNr/summary/...
+```
+
+Scratch relocation 不得改变 file contents、subject order、fiber order、random seeds 或 output semantics。
+
+Permutation 和 bootstrap 使用 resumable blocks：
+
+```text
+permutation_block_size = 100 or 250
+bootstrap_block_size   = 100 or 250
+perm_block_0001_stats.npy
+perm_block_0001_manifest.json
+perm_block_0001.done
+boot_block_0001_accumulator.npz
+boot_block_0001_manifest.json
+boot_block_0001.done
+```
+
+Partial blocks 永不计入。Rerun blocks 必须复用相同 random indices。Workers 只能写 block-local outputs；最终 CSV/JSON outputs 由 main process atomic 写出。
+
+Random arrays 从 seed `42` 一次性生成，并成为 run definition 的一部分：
+
+```text
+permutation_indices_seed42.npy
+bootstrap_subject_counts_seed42.npy
+```
+
+Resumed runs 必须复用同一 arrays 及其 recorded hashes。
+
+### Label, Density, Rank-Pattern, And Chunk Autotune Caches
+
+Endpoint labeling 和 density maps 使用预计算 lookup caches：
+
+```text
+fiber_endpoint_label_cache.parquet
+fiber_subcortical_crossing_cache.parquet
+fiber_to_voxel_sparse_index.npz
+fiber_length_cache.npy
+fiber_display_geometry_index.npy
+```
+
+Density maps 通过 selected fiber ids join 到 sparse voxel accumulator 生成。Sparse density lookup 必须使用与 brute-force display implementation 相同的 affine、interpolation、streamline sampling rule 和 voxelization rule。
+
+允许 exact rank-pattern caching，尤其适合 binary 或 sparse OSS activation：
+
+```text
+rank_pattern_key = hash(bytes(X_train_l) + train_subject_ids + dtype)
+```
+
+只有 exact byte-identical exposure vectors 可以共享 rank-residual results。Formal runs 中禁止 rounding、binning 或 approximate hashing。
+
+Chunk-size autotuning 可 benchmark：
+
+```text
+50k fibers
+100k fibers
+250k fibers
+500k fibers
+1M fibers
+```
+
+最终选择满足 peak memory 低于 `memory_budget * 0.7` 的最快 tested size。Manifest 记录 tested sizes、selected size、memory budget、peak memory 和 throughput。
+
+### Stage Scheduling
+
+推荐执行阶段：
+
+```text
+Stage 1: sidecar cache and coverage cache
+Stage 2: deterministic equivalence test
+Stage 3: observed LOOCV numeric outputs
+Stage 4: smoke permutation/bootstrap
+Stage 5: formal dTOR permutation
+Stage 6: formal dTOR bootstrap
+Stage 7: OSS smoke branch
+Stage 8: endpoint labels and density maps
+Stage 9: FDR/display-only maps
+Stage 10: cross-connectome summaries
+```
+
+Display 和 anatomical-label outputs 是延后生成，不是省略。它们在 numeric QC 通过后，从 finalized selected-fiber ids 精确生成一次。
+
+### Disallowed Acceleration Shortcuts
+
+以下做法不是有效加速，因为它们会改变 estimand、validation design 或 statistical interpretation：
+
+```text
+reducing formal B=10000
+adaptive permutation early stopping
+full-sample ranks in fold-level estimation
+approximate ranks
+full-sample candidate mask replacing fold-specific candidate masks
+fixed full-sample F+/F- used for LOOCV scoring
+permutation score computed only from observed maps
+outcome- or preliminary-rho-based fiber prefiltering
+skip sour fibers
+rewriting SweetPeak5/SourPeak5 as a linear matrix product
+OSS activation only for observed selected fibers instead of the fold candidate universe
+```
+
+任何 optimized implementation 在正式运行前，都必须在一个 small deterministic subset 上通过相对 brute-force reference 的 exact-equivalence regression test。
