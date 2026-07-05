@@ -279,8 +279,6 @@ for i = 1:3
     title([titleText, ' ', names{i}], 'Interpreter', 'none');
 end
 exportgraphics(fig, pngPath, 'Resolution', 150);
-clear cleanupObj;
-close(fig);
 end
 
 function image = rotate_rgb(image)
@@ -298,8 +296,6 @@ for i = 1:3
     title(['color FA ', names{i}], 'Interpreter', 'none');
 end
 exportgraphics(fig, pngPath, 'Resolution', 150);
-clear cleanupObj;
-close(fig);
 end
 
 function text = image_size_string(niftiPath)
