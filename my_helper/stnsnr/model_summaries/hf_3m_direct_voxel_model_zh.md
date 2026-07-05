@@ -1415,7 +1415,7 @@ post-hoc scan:
   interpretation = exploratory / post-hoc threshold optimization
 ```
 
-扫描只针对第一个默认 endpoint：
+单量表默认扫描只针对第一个默认 endpoint：
 
 ```text
 endpoint = MDS-UPDRS III score (STN, 3 m)
@@ -1424,6 +1424,14 @@ score = HFScore_mean_main
 validation = LOOCV
 baseline model = Y_post ~ Y_base
 ```
+
+All-scale exploratory mode 也可以对 `subject_effect_origin.xlsx` 中每一个 `Scale` 运行同一套扫描：
+
+```text
+--all-scales
+```
+
+All-scale mode 包括 9 个 `STN, 3 m` endpoint 和 9 个 `Δ... (+SNr, 3 m)` endpoint。`STN, 3 m` endpoint 是 A 模型直接对应的 HF-only outcome。`Δ... (+SNr, 3 m)` endpoint 只是 HF exposure 与后续 add-on gain endpoint 的 exploratory association，不得解释为 ULF/SNr causal model。
 
 扫描网格为：
 
@@ -1548,6 +1556,25 @@ seed = 42
 ```
 
 除非明确要求，max-stat permutation 不属于本轮 initial post-hoc scan 输出。
+
+All-scale mode 额外输出：
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/posthoc_threshold_scan_all_scales/
+  all_scales_posthoc_threshold_scan_long.csv
+  all_scales_posthoc_threshold_scan_summary.csv
+  all_scales_posthoc_threshold_scan_manifest.json
+```
+
+`all_scales_posthoc_threshold_scan_long.csv` 包含 `18 x 60 = 1080` 行。`all_scales_posthoc_threshold_scan_summary.csv` 每个 scale 一行，包含 selected `tau`、selected `Coverage`、selected rho、nominal p、Q2、voxel count、endpoint family 和通过 hard filter 的 grid cell 数。如果某个 scale 没有任何格点通过过滤，selected threshold 字段留空，并明确 `n_passing_grid_cells = 0`。
+
+All-scale mode 使用共享 HF exposure cache，避免为每个 scale 重复采样同一套 e-field：
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/_shared/posthoc_threshold_scan/preprocess_candidate_tau100/
+```
+
+如果 shared cache 缺失，pipeline 优先在 subject order 匹配时复用已有单量表 tau100 cache；否则从 HF e-field 输入重新构建 shared cache。
 
 ### Recommended First Batch
 

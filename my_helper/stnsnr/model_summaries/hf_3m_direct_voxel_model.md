@@ -1415,7 +1415,7 @@ post-hoc scan:
   interpretation = exploratory / post-hoc threshold optimization
 ```
 
-The scan is restricted to the first default endpoint:
+The single-scale default scan is restricted to the first default endpoint:
 
 ```text
 endpoint = MDS-UPDRS III score (STN, 3 m)
@@ -1424,6 +1424,14 @@ score = HFScore_mean_main
 validation = LOOCV
 baseline model = Y_post ~ Y_base
 ```
+
+An all-scale exploratory mode may also run the same scan for every `Scale` in `subject_effect_origin.xlsx`:
+
+```text
+--all-scales
+```
+
+This all-scale mode includes the 9 `STN, 3 m` endpoints and the 9 `Δ... (+SNr, 3 m)` endpoints. The `STN, 3 m` endpoints are direct A-model HF-only outcomes. The `Δ... (+SNr, 3 m)` endpoints are exploratory associations between HF exposure and later add-on gain endpoints; they must not be interpreted as ULF/SNr causal models.
 
 The scan grid is:
 
@@ -1548,6 +1556,25 @@ seed = 42
 ```
 
 The max-stat permutation is not part of the initial post-hoc scan output unless explicitly requested.
+
+All-scale mode additionally writes:
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/posthoc_threshold_scan_all_scales/
+  all_scales_posthoc_threshold_scan_long.csv
+  all_scales_posthoc_threshold_scan_summary.csv
+  all_scales_posthoc_threshold_scan_manifest.json
+```
+
+`all_scales_posthoc_threshold_scan_long.csv` contains `18 x 60 = 1080` rows. `all_scales_posthoc_threshold_scan_summary.csv` contains one row per scale, including selected `tau`, selected `Coverage`, selected rho, nominal p, Q2, voxel count, endpoint family, and number of hard-filter-passing grid cells. If a scale has no passing grid cell, selected threshold fields remain empty and `n_passing_grid_cells = 0`.
+
+All-scale mode uses a shared HF exposure cache to avoid recomputing the same e-field sampling for every scale:
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/_shared/posthoc_threshold_scan/preprocess_candidate_tau100/
+```
+
+If the shared cache is missing, the pipeline first reuses the existing single-scale tau100 cache when the subject order matches; otherwise it rebuilds the shared cache from the HF e-field inputs.
 
 ### Recommended First Batch
 

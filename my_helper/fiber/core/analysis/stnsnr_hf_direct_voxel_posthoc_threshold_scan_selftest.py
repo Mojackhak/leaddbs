@@ -5,13 +5,19 @@ from __future__ import annotations
 
 import json
 
+import pandas as pd
+
 from stnsnr_hf_direct_voxel_posthoc_threshold_scan import (
     COVERAGE_GRID,
     TAU_GRID,
+    build_all_scale_long_table,
+    build_all_scale_summary_table,
     build_annotated_rho_source,
     build_heatmap,
+    endpoint_family_for_scale,
     grid_cell_position,
     row_passes_hard_filters,
+    scale_names_from_raw_dataframe,
     select_best_grid_cell,
     significance_stars,
     validate_annotated_rho_input,
@@ -182,6 +188,83 @@ def test_annotated_rho_source() -> None:
     assert_equal(bool(primary["is_primary_branch"]), True, "primary branch marker")
 
 
+def test_scale_names_and_endpoint_family() -> None:
+    raw = pd.DataFrame(
+        {
+            "Scale": [
+                "MDS-UPDRS III score (STN, 3 m)",
+                "MDS-UPDRS III score (STN, 3 m)",
+                "ΔMDS-UPDRS III score (+SNr, 3 m)",
+                "SE-ADL score (%) (STN, 3 m)",
+            ]
+        }
+    )
+    assert_equal(
+        scale_names_from_raw_dataframe(raw),
+        [
+            "MDS-UPDRS III score (STN, 3 m)",
+            "ΔMDS-UPDRS III score (+SNr, 3 m)",
+            "SE-ADL score (%) (STN, 3 m)",
+        ],
+        "scale order",
+    )
+    assert_equal(endpoint_family_for_scale("MDS-UPDRS III score (STN, 3 m)"), "hf_stn3m", "STN family")
+    assert_equal(endpoint_family_for_scale("ΔMDS-UPDRS III score (+SNr, 3 m)"), "addon_delta_3m", "delta family")
+
+
+def test_all_scale_tables() -> None:
+    scan_rows = [
+        {
+            "tau": 100,
+            "coverage": 5,
+            "loocv_spearman_rho": 0.1,
+            "loocv_spearman_nominal_p": 0.2,
+            "q2": -0.1,
+            "n_voxels_full": 30,
+            "fold_n_voxels_min": 12,
+            "passes_all_hard_filters": False,
+        },
+        {
+            "tau": 250,
+            "coverage": 10,
+            "loocv_spearman_rho": 0.6,
+            "loocv_spearman_nominal_p": 0.01,
+            "q2": 0.3,
+            "n_voxels_full": 21,
+            "fold_n_voxels_min": 10,
+            "passes_all_hard_filters": True,
+        },
+    ]
+    per_scale = [
+        {
+            "scale": "MDS-UPDRS III score (STN, 3 m)",
+            "scale_slug": "mds_updrs_iii_score_stn_3_m",
+            "scale_direction": "lower",
+            "n_subjects": 16,
+            "n_candidate_voxels": 6406,
+            "rows": scan_rows,
+            "selected": scan_rows[1],
+        },
+        {
+            "scale": "ΔMDS-UPDRS III score (+SNr, 3 m)",
+            "scale_slug": "delta_mds_updrs_iii_score_snr_3_m",
+            "scale_direction": "lower",
+            "n_subjects": 16,
+            "n_candidate_voxels": 6406,
+            "rows": scan_rows,
+            "selected": None,
+        },
+    ]
+    long_table = build_all_scale_long_table(per_scale)
+    summary_table = build_all_scale_summary_table(per_scale)
+    assert_equal(len(long_table), 4, "long table row count")
+    assert_equal(len(summary_table), 2, "summary row count")
+    assert_equal(summary_table.iloc[0]["endpoint_family"], "hf_stn3m", "summary family")
+    assert_equal(summary_table.iloc[0]["selected_tau"], 250, "selected tau")
+    assert_equal(summary_table.iloc[1]["n_passing_grid_cells"], 1, "passing count")
+    assert_equal(pd.isna(summary_table.iloc[1]["selected_tau"]), True, "missing selected tau")
+
+
 def main() -> int:
     test_grid_definition()
     test_hard_filter()
@@ -192,6 +275,8 @@ def main() -> int:
     test_annotated_input_validation()
     test_grid_cell_position()
     test_annotated_rho_source()
+    test_scale_names_and_endpoint_family()
+    test_all_scale_tables()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 
