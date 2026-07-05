@@ -70,6 +70,22 @@ Rows are joined by `ID` (`SNr003`, `SNr006`, etc.). The improvement-rate table i
   conda env: ossdbsv2
   ```
 
+Before any formal OSS-DBS sensitivity run, the primary OSS parameter set must be locked and written to the branch manifest:
+
+```text
+oss_model_set = primary_locked
+axon_model = OSS-DBS default mammalian myelinated axon model
+axon_diameter_um = locked_default_from_ossdbs_or_leaddbs_config
+n_nodes = locked_default_from_ossdbs_or_leaddbs_config
+waveform = clinical rectangular pulse unless otherwise specified
+frequency_Hz = clinical HF frequency
+pulse_width_us = clinical pulse width
+amplitude = clinical amplitude
+tissue_model = same as accepted Lead-DBS / OSS-DBS project default
+conductivity_model = locked and recorded
+activation_output = fractional activation if available, else binary activation
+```
+
 Minimum e-field checks: required path exists, subject/side/condition match is unique, file is raw `sim-efield`, and units are recorded as `V/m`. Missing or multiply matched e-fields fail the scale/run. E-fields are not automatically recomputed.
 
 ## Feature Construction
@@ -99,6 +115,8 @@ F_candidate_tau = {l: Coverage_tau(l) >= 5}
 ```
 
 `X_HF_i(l)` is used for candidate definition, fiber-wise association, scoring, LOOCV, and prediction. dTOR exposure and candidate calculations must be chunked; loading the complete dTOR `fibers` matrix or all exposure values into memory is invalid.
+
+The OSS-DBS branch inherits this same peak E-field candidate universe. `X_HF_OSS_i(l)` is introduced only after candidate selection and must not redefine, shrink, or expand `F_candidate_tau`.
 
 ## Statistical Model
 
@@ -194,13 +212,148 @@ ossdbs_activation_sensitivity
 plain_connected_streamline_control
 ```
 
-OSS-DBS replaces peak E-field exposure with pathway/axon activation:
+### OSS-DBS Activation Sensitivity
+
+OSS-DBS replaces peak E-field exposure with pathway/axon activation after the peak E-field candidate set has been defined:
 
 ```text
 X_HF_OSS_i(l) = OSS-DBS activation value for fiber l under subject i HF stimulation
 ```
 
-The OSS branch uses the same estimator, `NetFiberScore`, and LOOCV workflow. It runs smoke permutation only (`B=1000`, seed `42`).
+For alternating same-side HF subprograms, OSS activation is computed per subprogram and then max-reduced:
+
+```text
+A_side_i,p(l) = OSS activation under HF subprogram p
+A_side_i(l)   = max_p A_side_i,p(l)
+```
+
+The bilateral right-canonical OSS activation exposure is:
+
+```text
+X_HF_OSS_i(l) = (A_R_i(l) + A_L_to_R_i(l)) / 2
+```
+
+The OSS branch uses the same candidate rule as the peak E-field branch:
+
+```text
+Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
+F_candidate_tau = {l: Coverage_tau(l) >= 5}
+tau_primary = 800 V/m
+```
+
+Candidate fibers are not selected by OSS activation. This prevents the sensitivity branch from adding an extra modeling degree of freedom.
+
+OSS fiber-wise estimator:
+
+```text
+rho_HF_OSS(l) =
+  corr(
+    resid(rank(Y_post_i)      ~ rank(Y_base_i)),
+    resid(rank(X_HF_OSS_i(l)) ~ rank(Y_base_i))
+  )
+
+M_HF_OSS(l) = -rho_HF_OSS(l)   for lower-is-better scales
+M_HF_OSS(l) =  rho_HF_OSS(l)   for higher-is-better scales
+```
+
+Positive `M_HF_OSS(l)` means activation of that streamline is benefit-associated. Negative `M_HF_OSS(l)` means activation is worse-outcome-associated.
+
+OSS patient-level score:
+
+```text
+F+_OSS = top 1% fibers with largest positive M_HF_OSS(l)
+F-_OSS = top 0.5% fibers with most negative M_HF_OSS(l)
+
+SweetWeighted_OSS_i(l) = X_HF_OSS_i(l) * M_HF_OSS(l),       l in F+_OSS
+SourWeighted_OSS_i(l)  = X_HF_OSS_i(l) * [-M_HF_OSS(l)],    l in F-_OSS
+
+SweetPeak5_OSS_i = mean top 5% largest SweetWeighted_OSS_i(l)
+SourPeak5_OSS_i  = mean top 5% largest SourWeighted_OSS_i(l)
+
+NetFiberScore_OSS_i = SweetPeak5_OSS_i - SourPeak5_OSS_i
+```
+
+OSS prediction model:
+
+```text
+Y_post_i = alpha
+         + delta * NetFiberScore_OSS_i
+         + beta  * Y_base_i
+         + error_i
+```
+
+For every connectome, scale, and LOOCV fold `h`:
+
+```text
+train = all patients except h
+test  = patient h
+```
+
+The fold workflow is:
+
+1. Use training patients only to compute peak E-field `Coverage_tau800_fold_h`.
+2. Define `F_candidate_tau800_fold_h = {l: Coverage_tau800_fold_h(l) >= 5}`.
+3. Read training and held-out `X_HF_OSS` values from the OSS sidecar for those candidate fibers.
+4. Estimate `rho_HF_OSS(l)` on training patients only.
+5. Convert to `M_HF_OSS(l)`.
+6. Select fold-specific `F+_OSS` and `F-_OSS`.
+7. Compute training and held-out `NetFiberScore_OSS`.
+8. Fit `Y_post ~ NetFiberScore_OSS + Y_base` on training patients only.
+9. Predict held-out `Y_post`.
+10. Write the held-out row to `normative_HF_fiber_oss_loocv_predictions.csv`.
+
+Fold-level prohibitions:
+
+```text
+no full-sample ranks
+no full-sample M_HF_OSS
+no full-sample F+_OSS or F-_OSS
+no held-out patient in candidate definition
+no held-out patient in prediction model fitting
+```
+
+OSS branch permutation is smoke-only:
+
+```text
+B = 1000
+seed = 42
+```
+
+It uses Freedman-Lane residual permutation:
+
+1. Fit nuisance model `Y_post ~ Y_base`.
+2. Extract residuals `e_i`.
+3. Permute residuals to `e_perm_i`.
+4. Reconstruct `Y*_i = fitted_Y_base_i + e_perm_i`.
+5. For each permutation, rerun the full OSS LOOCV workflow, including candidate definition, `rho_HF_OSS`, `M_HF_OSS`, `F+_OSS`/`F-_OSS`, `NetFiberScore_OSS`, held-out prediction, and LOOCV Spearman rho.
+
+Permutation p value:
+
+```text
+p_plus_one = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
+```
+
+OSS does not run formal `B=10000` permutation and does not run bootstrap.
+
+OSS plain activation control tests whether the OSS result mainly reflects activation burden or lead placement:
+
+```text
+PlainOSSActivated_i(l) = I[X_HF_OSS_i(l) > 0]
+PlainOSSActivationCount_i = sum_l PlainOSSActivated_i(l)
+PlainOSSActivationSum_i   = sum_l X_HF_OSS_i(l)
+PlainOSSActivationTop5_i  = mean top 5% X_HF_OSS_i(l) among activated candidate fibers
+```
+
+OSS control model comparisons:
+
+```text
+Y_post ~ Y_base
+Y_post ~ PlainOSSActivationTop5 + Y_base
+Y_post ~ NetFiberScore_OSS + Y_base
+Y_post ~ NetFiberScore_OSS + PlainOSSActivationTop5 + Y_base
+```
+
+The OSS joint model is QC only for this `n=16` cohort and is not interpreted as a causal decomposition.
 
 Plain connected-streamline control intentionally does not use clinical outcome, `rho_HF(l)`, `M_HF(l)`, or sweet/sour weights:
 
@@ -294,6 +447,17 @@ normative_HF_plain_touched_summary.csv
 normative_HF_plain_connected_model_comparison.csv
 ```
 
+OSS-DBS activation sensitivity writes:
+
+```text
+normative_HF_fiber_oss_parameter_manifest.json
+normative_HF_fiber_oss_activation_matrix_summary.csv
+normative_HF_fiber_oss_loocv_predictions.csv
+normative_HF_fiber_oss_permutation_summary.csv
+normative_HF_plain_oss_activation_summary.csv
+normative_HF_plain_oss_activation_model_comparison.csv
+```
+
 Cross-connectome summaries are written at the HF normative connectome fiber summary root:
 
 ```text
@@ -307,9 +471,10 @@ Minimum table semantics:
 
 - `normative_HF_fiber_weights.csv`: `connectome`, `fiber_id`, `tau_v_per_m`, `coverage`, `rho_HF`, `p_uncorrected`, `q_fdr`, `M_HF`, `direction_class`, display/sensitivity flags, and target labels for QC.
 - `normative_HF_fiber_scores.csv`: `subject_id`, `score_map_source`, `connectome`, `branch`, `SweetPeak5`, `SourPeak5`, `NetFiberScore`, candidate/selected/peak fiber counts, and `is_primary_score`.
+- `normative_HF_fiber_scores.csv` in the OSS branch additionally stores `SweetPeak5_OSS`, `SourPeak5_OSS`, and `NetFiberScore_OSS`.
 - `fdr_summary_by_scale.csv`: q-threshold counts and overlap between percentile-selected fibers and q-ranked fibers.
 - `normative_HF_fiber_label_enrichment.csv`: enrichment of selected sweet/sour fibers relative to the plain touched-streamline background.
-- `normative_HF_fiber_mapping_qc.json`: candidate counts, coverage distribution, degenerate fiber counts, empty-fold failures, FDR method, label summaries, chunking parameters, memory use summaries, and OSS-DBS status.
+- `normative_HF_fiber_mapping_qc.json`: candidate counts, coverage distribution, degenerate fiber counts, empty-fold failures, FDR method, label summaries, chunking parameters, memory use summaries, OSS-DBS status, and OSS activation-output type.
 
 PPMI and MGH observed branches do not require formal permutation/bootstrap files. Their manifests record:
 
@@ -357,6 +522,17 @@ chunks/
 fiber_chunk_manifest.json
 candidate_fiber_metadata.json
 ```
+
+OSS activation sidecars are written after peak E-field candidate construction and use the same fiber ids:
+
+```text
+X_oss_float32_fiber_major.npy
+PlainOSSActivated_bool.npy
+oss_parameter_manifest.json
+oss_activation_sidecar_metadata.json
+```
+
+For alternating HF subprograms, subprogram-level activation matrices may be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and averaged `X_HF_OSS_i(l)` variables documented above.
 
 For LOOCV fold `h`, derive training-fold coverage by subtraction:
 

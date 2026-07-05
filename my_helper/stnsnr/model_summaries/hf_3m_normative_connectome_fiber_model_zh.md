@@ -70,6 +70,22 @@ Raw scores 来源：
   conda env: ossdbsv2
   ```
 
+在任何正式 OSS-DBS sensitivity run 前，必须锁定 primary OSS parameter set，并写入该 branch manifest：
+
+```text
+oss_model_set = primary_locked
+axon_model = OSS-DBS default mammalian myelinated axon model
+axon_diameter_um = locked_default_from_ossdbs_or_leaddbs_config
+n_nodes = locked_default_from_ossdbs_or_leaddbs_config
+waveform = clinical rectangular pulse unless otherwise specified
+frequency_Hz = clinical HF frequency
+pulse_width_us = clinical pulse width
+amplitude = clinical amplitude
+tissue_model = same as accepted Lead-DBS / OSS-DBS project default
+conductivity_model = locked and recorded
+activation_output = fractional activation if available, else binary activation
+```
+
 最低 e-field 检查：必需路径存在、subject/side/condition 唯一匹配、文件为 raw `sim-efield`、单位记录为 `V/m`。缺失或多重匹配会使该 scale/run 失败。E-fields 不自动补算。
 
 ## Feature Construction
@@ -99,6 +115,8 @@ F_candidate_tau = {l: Coverage_tau(l) >= 5}
 ```
 
 `X_HF_i(l)` 用于 candidate definition、fiber-wise association、scoring、LOOCV 和 prediction。dTOR exposure 和 candidate 计算必须 chunked；一次性载入完整 dTOR `fibers` matrix 或全部 exposure values 是无效实现。
+
+OSS-DBS branch 继承同一个 peak E-field candidate universe。`X_HF_OSS_i(l)` 只在 candidate selection 之后引入，不能重新定义、缩小或扩大 `F_candidate_tau`。
 
 ## Statistical Model
 
@@ -194,13 +212,148 @@ ossdbs_activation_sensitivity
 plain_connected_streamline_control
 ```
 
-OSS-DBS 用 pathway/axon activation 替代 peak E-field exposure：
+### OSS-DBS Activation Sensitivity
+
+OSS-DBS 在 peak E-field candidate set 已经定义之后，用 pathway/axon activation 替代 peak E-field exposure：
 
 ```text
 X_HF_OSS_i(l) = OSS-DBS activation value for fiber l under subject i HF stimulation
 ```
 
-OSS branch 使用相同 estimator、`NetFiberScore` 和 LOOCV workflow。它只运行 smoke permutation（`B=1000`，seed `42`）。
+对同侧 alternating HF subprograms，先分别计算每个 subprogram 的 OSS activation，再取最大值：
+
+```text
+A_side_i,p(l) = OSS activation under HF subprogram p
+A_side_i(l)   = max_p A_side_i,p(l)
+```
+
+双侧 right-canonical OSS activation exposure 定义为：
+
+```text
+X_HF_OSS_i(l) = (A_R_i(l) + A_L_to_R_i(l)) / 2
+```
+
+OSS branch 使用与 peak E-field branch 相同的 candidate rule：
+
+```text
+Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
+F_candidate_tau = {l: Coverage_tau(l) >= 5}
+tau_primary = 800 V/m
+```
+
+Candidate fibers 不由 OSS activation 筛选。这样避免 sensitivity branch 引入额外建模自由度。
+
+OSS fiber-wise estimator：
+
+```text
+rho_HF_OSS(l) =
+  corr(
+    resid(rank(Y_post_i)      ~ rank(Y_base_i)),
+    resid(rank(X_HF_OSS_i(l)) ~ rank(Y_base_i))
+  )
+
+M_HF_OSS(l) = -rho_HF_OSS(l)   for lower-is-better scales
+M_HF_OSS(l) =  rho_HF_OSS(l)   for higher-is-better scales
+```
+
+正值 `M_HF_OSS(l)` 表示 activation of that streamline is benefit-associated。负值 `M_HF_OSS(l)` 表示 activation is worse-outcome-associated。
+
+OSS patient-level score：
+
+```text
+F+_OSS = top 1% fibers with largest positive M_HF_OSS(l)
+F-_OSS = top 0.5% fibers with most negative M_HF_OSS(l)
+
+SweetWeighted_OSS_i(l) = X_HF_OSS_i(l) * M_HF_OSS(l),       l in F+_OSS
+SourWeighted_OSS_i(l)  = X_HF_OSS_i(l) * [-M_HF_OSS(l)],    l in F-_OSS
+
+SweetPeak5_OSS_i = mean top 5% largest SweetWeighted_OSS_i(l)
+SourPeak5_OSS_i  = mean top 5% largest SourWeighted_OSS_i(l)
+
+NetFiberScore_OSS_i = SweetPeak5_OSS_i - SourPeak5_OSS_i
+```
+
+OSS prediction model：
+
+```text
+Y_post_i = alpha
+         + delta * NetFiberScore_OSS_i
+         + beta  * Y_base_i
+         + error_i
+```
+
+对每个 connectome、scale 和 LOOCV fold `h`：
+
+```text
+train = all patients except h
+test  = patient h
+```
+
+Fold workflow：
+
+1. 只用 training patients 计算 peak E-field `Coverage_tau800_fold_h`。
+2. 定义 `F_candidate_tau800_fold_h = {l: Coverage_tau800_fold_h(l) >= 5}`。
+3. 从 OSS sidecar 读取这些 candidate fibers 上 training 和 held-out 的 `X_HF_OSS`。
+4. 只在 training patients 上估计 `rho_HF_OSS(l)`。
+5. 转换为 `M_HF_OSS(l)`。
+6. 选择 fold-specific `F+_OSS` 和 `F-_OSS`。
+7. 计算 training 和 held-out `NetFiberScore_OSS`。
+8. 只用 training patients 拟合 `Y_post ~ NetFiberScore_OSS + Y_base`。
+9. 预测 held-out `Y_post`。
+10. 将 held-out 行写入 `normative_HF_fiber_oss_loocv_predictions.csv`。
+
+Fold-level prohibitions：
+
+```text
+no full-sample ranks
+no full-sample M_HF_OSS
+no full-sample F+_OSS or F-_OSS
+no held-out patient in candidate definition
+no held-out patient in prediction model fitting
+```
+
+OSS branch permutation 只做 smoke：
+
+```text
+B = 1000
+seed = 42
+```
+
+采用 Freedman-Lane residual permutation：
+
+1. 拟合 nuisance model `Y_post ~ Y_base`。
+2. 提取 residuals `e_i`。
+3. 置换 residuals 得到 `e_perm_i`。
+4. 重构 `Y*_i = fitted_Y_base_i + e_perm_i`。
+5. 每次 permutation 都完整重跑 OSS LOOCV workflow，包括 candidate definition、`rho_HF_OSS`、`M_HF_OSS`、`F+_OSS`/`F-_OSS`、`NetFiberScore_OSS`、held-out prediction 和 LOOCV Spearman rho。
+
+Permutation p value：
+
+```text
+p_plus_one = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
+```
+
+OSS 不运行 formal `B=10000` permutation，也不运行 bootstrap。
+
+OSS plain activation control 用于检验 OSS result 是否主要反映 activation burden 或 lead placement：
+
+```text
+PlainOSSActivated_i(l) = I[X_HF_OSS_i(l) > 0]
+PlainOSSActivationCount_i = sum_l PlainOSSActivated_i(l)
+PlainOSSActivationSum_i   = sum_l X_HF_OSS_i(l)
+PlainOSSActivationTop5_i  = mean top 5% X_HF_OSS_i(l) among activated candidate fibers
+```
+
+OSS control model comparisons：
+
+```text
+Y_post ~ Y_base
+Y_post ~ PlainOSSActivationTop5 + Y_base
+Y_post ~ NetFiberScore_OSS + Y_base
+Y_post ~ NetFiberScore_OSS + PlainOSSActivationTop5 + Y_base
+```
+
+在本 `n=16` 队列中，OSS joint model 只作为 QC，不解释为 causal decomposition。
 
 Plain connected-streamline control 故意不使用 clinical outcome、`rho_HF(l)`、`M_HF(l)` 或 sweet/sour weights：
 
@@ -294,6 +447,17 @@ normative_HF_plain_touched_summary.csv
 normative_HF_plain_connected_model_comparison.csv
 ```
 
+OSS-DBS activation sensitivity writes:
+
+```text
+normative_HF_fiber_oss_parameter_manifest.json
+normative_HF_fiber_oss_activation_matrix_summary.csv
+normative_HF_fiber_oss_loocv_predictions.csv
+normative_HF_fiber_oss_permutation_summary.csv
+normative_HF_plain_oss_activation_summary.csv
+normative_HF_plain_oss_activation_model_comparison.csv
+```
+
 Cross-connectome summaries 写在 HF normative connectome fiber summary root：
 
 ```text
@@ -307,9 +471,10 @@ Minimum table semantics:
 
 - `normative_HF_fiber_weights.csv`: `connectome`, `fiber_id`, `tau_v_per_m`, `coverage`, `rho_HF`, `p_uncorrected`, `q_fdr`, `M_HF`, `direction_class`, display/sensitivity flags, and target labels for QC。
 - `normative_HF_fiber_scores.csv`: `subject_id`, `score_map_source`, `connectome`, `branch`, `SweetPeak5`, `SourPeak5`, `NetFiberScore`, candidate/selected/peak fiber counts, and `is_primary_score`。
+- OSS branch 中的 `normative_HF_fiber_scores.csv` 额外记录 `SweetPeak5_OSS`、`SourPeak5_OSS` 和 `NetFiberScore_OSS`。
 - `fdr_summary_by_scale.csv`: q-threshold counts 以及 percentile-selected fibers 与 q-ranked fibers 的 overlap。
 - `normative_HF_fiber_label_enrichment.csv`: selected sweet/sour fibers 相对 plain touched-streamline background 的 enrichment。
-- `normative_HF_fiber_mapping_qc.json`: candidate counts、coverage distribution、degenerate fiber counts、empty-fold failures、FDR method、label summaries、chunking parameters、memory use summaries 和 OSS-DBS status。
+- `normative_HF_fiber_mapping_qc.json`: candidate counts、coverage distribution、degenerate fiber counts、empty-fold failures、FDR method、label summaries、chunking parameters、memory use summaries、OSS-DBS status 和 OSS activation-output type。
 
 PPMI 和 MGH observed branches 不要求 formal permutation/bootstrap files。其 manifests 记录：
 
@@ -357,6 +522,17 @@ chunks/
 fiber_chunk_manifest.json
 candidate_fiber_metadata.json
 ```
+
+OSS activation sidecars 在 peak E-field candidate construction 后写出，并使用同一组 fiber ids：
+
+```text
+X_oss_float32_fiber_major.npy
+PlainOSSActivated_bool.npy
+oss_parameter_manifest.json
+oss_activation_sidecar_metadata.json
+```
+
+对 alternating HF subprograms，可以缓存 subprogram-level activation matrices，但可执行分析使用上文定义的 max-reduced `A_side_i(l)` 和 averaged `X_HF_OSS_i(l)`。
 
 对 LOOCV fold `h`，通过 subtraction 得到 training-fold coverage：
 
