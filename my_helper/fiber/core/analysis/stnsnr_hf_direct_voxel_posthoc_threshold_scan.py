@@ -61,6 +61,7 @@ PRIMARY_TAU = 200
 PRIMARY_COVERAGE = 5
 POSTHOC_CANDIDATE_THRESHOLD = 100.0
 SHARED_PREPROCESS_RELATIVE = Path("_shared/posthoc_threshold_scan/preprocess_candidate_tau100")
+POSTHOC_SUMMARY_RELATIVE = Path("posthoc_threshold_scan_all_scales")
 ANNOTATED_RHO_REQUIRED_COLUMNS = [
     "tau",
     "coverage",
@@ -348,6 +349,133 @@ def grid_cell_position(
     if coverage_int not in coverage_values:
         raise ValueError(f"coverage {coverage_int} is not in the heatmap coverage grid")
     return tau_values.index(tau_int), coverage_values.index(coverage_int)
+
+
+def is_adjacent_grid_cell(row: dict[str, Any], selected: dict[str, Any]) -> bool:
+    """Return whether a row is adjacent to a selected tau/Coverage cell."""
+    row_tau_idx, row_cov_idx = grid_cell_position(row["tau"], row["coverage"])
+    selected_tau_idx, selected_cov_idx = grid_cell_position(selected["tau"], selected["coverage"])
+    delta_tau = abs(row_tau_idx - selected_tau_idx)
+    delta_cov = abs(row_cov_idx - selected_cov_idx)
+    return (delta_tau <= 1 and delta_cov <= 1) and (delta_tau + delta_cov > 0)
+
+
+def classify_posthoc_candidate_level(scale_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Classify one scale's selected post-hoc candidate using scan-table evidence."""
+    if not scale_rows:
+        raise ValueError("scale_rows is empty")
+    scale = str(scale_rows[0].get("scale", ""))
+    scale_slug = str(scale_rows[0].get("scale_slug", ""))
+    endpoint_family = str(scale_rows[0].get("endpoint_family", endpoint_family_for_scale(scale)))
+    selected_rows = [row for row in scale_rows if _as_bool(row.get("is_selected_grid_cell"))]
+    selected = selected_rows[0] if selected_rows else select_best_grid_cell(scale_rows)
+    passing = [row for row in scale_rows if _as_bool(row.get("passes_all_hard_filters"))]
+    base: dict[str, Any] = {
+        "scale": scale,
+        "scale_slug": scale_slug,
+        "endpoint_family": endpoint_family,
+        "n_grid_cells": len(scale_rows),
+        "n_passing_grid_cells": len(passing),
+        "selected_tau": "",
+        "selected_coverage": "",
+        "selected_rho": "",
+        "selected_nominal_p": "",
+        "selected_q2": "",
+        "n_adjacent_passing_grid_cells": 0,
+        "n_adjacent_passing_positive_rho": 0,
+        "n_adjacent_passing_q2_positive": 0,
+        "candidate_level": "Level 0",
+        "candidate_level_label": "failed_grid_cell",
+        "ulf_propagation": "not_allowed",
+        "can_generate_ulf_sensitivity": False,
+        "can_define_primary_delta_hf": False,
+        "requires_spatial_qc": False,
+        "requires_influence_qc": False,
+        "rationale": "No grid cell passed all hard filters.",
+    }
+    if selected is None:
+        return base
+
+    selected_q2 = _finite_float(selected.get("q2"))
+    selected_p = _finite_float(selected.get("loocv_spearman_nominal_p"))
+    selected_rho = _finite_float(selected.get("loocv_spearman_rho"))
+    adjacent_passing = [row for row in passing if is_adjacent_grid_cell(row, selected)]
+    adjacent_positive = [row for row in adjacent_passing if _finite_float(row.get("loocv_spearman_rho")) > 0]
+    adjacent_q2_positive = [row for row in adjacent_passing if _finite_float(row.get("q2")) > 0]
+    base.update(
+        {
+            "selected_tau": selected.get("tau", ""),
+            "selected_coverage": selected.get("coverage", ""),
+            "selected_rho": selected_rho,
+            "selected_nominal_p": selected_p,
+            "selected_q2": selected_q2,
+            "n_adjacent_passing_grid_cells": len(adjacent_passing),
+            "n_adjacent_passing_positive_rho": len(adjacent_positive),
+            "n_adjacent_passing_q2_positive": len(adjacent_q2_positive),
+        }
+    )
+
+    if len(passing) < 3:
+        base.update(
+            {
+                "candidate_level": "Level 1",
+                "candidate_level_label": "fragile_exploratory_candidate",
+                "ulf_propagation": "not_recommended",
+                "rationale": "Hard filters pass for a selected cell, but fewer than 3 grid cells pass.",
+            }
+        )
+        return base
+    if len(adjacent_passing) < 1:
+        base.update(
+            {
+                "candidate_level": "Level 1",
+                "candidate_level_label": "fragile_exploratory_candidate",
+                "ulf_propagation": "not_recommended",
+                "rationale": "Selected cell is isolated from adjacent passing grid cells.",
+            }
+        )
+        return base
+    if not np.isfinite(selected_q2) or selected_q2 < 0.05:
+        base.update(
+            {
+                "candidate_level": "Level 1",
+                "candidate_level_label": "fragile_exploratory_candidate",
+                "ulf_propagation": "not_recommended",
+                "rationale": "Selected Q2 is below the Level 2 threshold of 0.05.",
+            }
+        )
+        return base
+
+    level = {
+        "candidate_level": "Level 2",
+        "candidate_level_label": "usable_exploratory_candidate",
+        "ulf_propagation": "exploratory_delta_hfscore_sensitivity",
+        "can_generate_ulf_sensitivity": True,
+        "requires_spatial_qc": True,
+        "rationale": "Automatic scan-table criteria satisfy Level 2; spatial interpretability still requires QC.",
+    }
+    if (
+        len(passing) >= 5
+        and len(adjacent_passing) >= 2
+        and np.isfinite(selected_q2)
+        and selected_q2 >= 0.10
+        and np.isfinite(selected_p)
+        and selected_p < 0.05
+    ):
+        level.update(
+            {
+                "candidate_level": "Level 3",
+                "candidate_level_label": "robust_exploratory_candidate",
+                "ulf_propagation": "priority_exploratory_delta_hfscore_sensitivity",
+                "requires_influence_qc": True,
+                "rationale": (
+                    "Automatic scan-table criteria satisfy Level 3; spatial interpretability "
+                    "and single-subject influence still require QC."
+                ),
+            }
+        )
+    base.update(level)
+    return base
 
 
 def build_annotated_rho_source(
@@ -1192,6 +1320,60 @@ def write_all_scale_outputs(
     return {"summary_dir": summary_dir, "long_csv": long_path, "summary_csv": summary_path, "manifest_json": manifest_path}
 
 
+def build_candidate_level_tables(long_table: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build all-scale candidate level and ULF propagation tables."""
+    if long_table.empty:
+        raise ValueError("long_table is empty")
+    required = {"scale", "tau", "coverage", "passes_all_hard_filters", "is_selected_grid_cell"}
+    missing = sorted(required.difference(long_table.columns))
+    if missing:
+        raise ValueError("long_table is missing " + ", ".join(missing))
+    level_rows: list[dict[str, Any]] = []
+    for _, group in long_table.groupby("scale", sort=False):
+        level_rows.append(classify_posthoc_candidate_level(group.to_dict(orient="records")))
+    level_table = pd.DataFrame(level_rows)
+    propagation_table = level_table[level_table["can_generate_ulf_sensitivity"].astype(bool)].copy()
+    return level_table, propagation_table
+
+
+def write_candidate_level_outputs(output_root: Path) -> dict[str, Any]:
+    """Classify existing all-scale post-hoc outputs and write ULF propagation tables."""
+    summary_dir = output_root / POSTHOC_SUMMARY_RELATIVE
+    long_path = summary_dir / "all_scales_posthoc_threshold_scan_long.csv"
+    if not long_path.is_file():
+        raise FileNotFoundError(f"missing all-scale post-hoc long table: {long_path}")
+    long_table = pd.read_csv(long_path)
+    level_table, propagation_table = build_candidate_level_tables(long_table)
+    level_path = summary_dir / "all_scales_posthoc_candidate_levels.csv"
+    propagation_path = summary_dir / "all_scales_posthoc_ulf_propagation_candidates.csv"
+    manifest_path = summary_dir / "all_scales_posthoc_candidate_levels_manifest.json"
+    level_table.to_csv(level_path, index=False)
+    propagation_table.to_csv(propagation_path, index=False)
+    counts = level_table["candidate_level_label"].value_counts(dropna=False).to_dict()
+    manifest = {
+        "generated_at": iso_now(),
+        "analysis": "all_scales_posthoc_candidate_level_classification",
+        "input_long_csv": str(long_path),
+        "output_candidate_levels_csv": str(level_path),
+        "output_ulf_propagation_candidates_csv": str(propagation_path),
+        "n_scales": int(level_table.shape[0]),
+        "n_ulf_sensitivity_candidates": int(propagation_table.shape[0]),
+        "candidate_level_counts": {str(key): int(value) for key, value in counts.items()},
+        "manual_qc_note": (
+            "Level 2/3 labels use automatic scan-table evidence. Spatial interpretability "
+            "and single-subject leverage checks must be completed before final ULF interpretation."
+        ),
+    }
+    write_json(manifest_path, manifest)
+    return {
+        "summary_dir": str(summary_dir),
+        "candidate_levels_csv": str(level_path),
+        "ulf_propagation_candidates_csv": str(propagation_path),
+        "manifest_json": str(manifest_path),
+        "manifest": manifest,
+    }
+
+
 def run_posthoc_threshold_scan(args: argparse.Namespace) -> int:
     run_scale_posthoc_threshold_scan(args, args.scale)
     return 0
@@ -1280,6 +1462,18 @@ def run_all_scales_plot_only(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_classify_levels(args: argparse.Namespace) -> int:
+    """Classify existing all-scale post-hoc scan outputs into candidate levels."""
+    output_root = Path(args.output_root).expanduser().resolve()
+    outputs = write_candidate_level_outputs(output_root)
+    manifest = outputs["manifest"]
+    print(f"Post-hoc candidate level output: {outputs['candidate_levels_csv']}")
+    print(f"ULF propagation candidates: {outputs['ulf_propagation_candidates_csv']}")
+    print(f"Candidate level counts: {manifest['candidate_level_counts']}")
+    print(f"ULF sensitivity candidates: {manifest['n_ulf_sensitivity_candidates']}")
+    return 0
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", default="", help="Code repo root.")
@@ -1291,6 +1485,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scale", default=HF_DEFAULT_SCALES[0], help="Raw clinical scale to run.")
     parser.add_argument("--all-scales", action="store_true", help="Run every Scale from subject_effect_origin.xlsx.")
     parser.add_argument("--plot-only", action="store_true", help="Only draw annotated rho heatmap from existing post-hoc scan outputs.")
+    parser.add_argument("--classify-levels", action="store_true", help="Classify existing all-scale post-hoc outputs into Level 0-4 candidate tables.")
     parser.add_argument("--force-preprocess", action="store_true", help="Regenerate the post-hoc tau100 sparse exposure sidecar.")
     parser.add_argument("--force-flip", action="store_true", help="Regenerate left-to-right flipped fields.")
     return parser
@@ -1299,6 +1494,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+    if args.classify_levels:
+        return run_classify_levels(args)
     if args.all_scales and args.plot_only:
         return run_all_scales_plot_only(args)
     if args.all_scales:

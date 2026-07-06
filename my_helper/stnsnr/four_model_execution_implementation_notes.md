@@ -380,3 +380,47 @@ Run the worklist generator:
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py
 ```
+
+## HF Post-hoc Candidate Level Classification
+
+The next executable layer operationalizes the Level 0-4 post-hoc candidate
+rules from `hf_3m_direct_voxel_model.md`. It reads the existing all-scale
+post-hoc tau/Coverage scan outputs and writes an automatic evidence summary for
+which HF endpoints are eligible to generate exploratory ULF `DeltaHFScore`
+sensitivity branches.
+
+The classifier is implemented inside the existing post-hoc scan module:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_hf_direct_voxel_posthoc_threshold_scan.py
+```
+
+and exposed through the existing pipeline entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py
+```
+
+Run it without recomputing the 60-cell scans:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py \
+  --classify-levels
+```
+
+Default outputs:
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/posthoc_threshold_scan_all_scales/
+  all_scales_posthoc_candidate_levels.csv
+  all_scales_posthoc_ulf_propagation_candidates.csv
+  all_scales_posthoc_candidate_levels_manifest.json
+```
+
+The classifier uses scan-table evidence only: hard-filter pass/fail,
+`n_passing_grid_cells`, selected Q2, nominal p, and adjacent passing grid cells
+on the declared tau/Coverage grid. Spatial interpretability and single-subject
+leverage remain manual/QC-dependent checks, so Level 2/3 rows are labeled
+`requires_spatial_qc=true` and Level 3 rows are also labeled
+`requires_influence_qc=true` before any final ULF interpretation.

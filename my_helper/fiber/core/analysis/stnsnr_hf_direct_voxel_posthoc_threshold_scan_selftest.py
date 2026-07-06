@@ -10,10 +10,12 @@ import pandas as pd
 from stnsnr_hf_direct_voxel_posthoc_threshold_scan import (
     COVERAGE_GRID,
     TAU_GRID,
+    build_candidate_level_tables,
     build_all_scale_long_table,
     build_all_scale_summary_table,
     build_annotated_rho_source,
     build_heatmap,
+    classify_posthoc_candidate_level,
     endpoint_family_for_scale,
     grid_cell_position,
     row_passes_hard_filters,
@@ -272,6 +274,70 @@ def test_all_scale_tables() -> None:
     assert_equal(pd.isna(summary_table.iloc[1]["selected_tau"]), True, "missing selected tau")
 
 
+def _passing_cell(tau: int, coverage: int, *, q2: float = 0.2, p: float = 0.01, selected: bool = False) -> dict:
+    return {
+        "scale": "MDS-UPDRS III score (STN, 3 m)",
+        "scale_slug": "mds_updrs_iii_score_stn_3_m",
+        "endpoint_family": "hf_stn3m",
+        "tau": tau,
+        "coverage": coverage,
+        "n_voxels_full": 30,
+        "fold_n_voxels_min": 12,
+        "hfscore_nonconstant_all_folds": True,
+        "all_predictions_finite": True,
+        "loocv_spearman_rho": 0.5,
+        "loocv_spearman_nominal_p": p,
+        "q2": q2,
+        "mae_model": 8.0,
+        "mae_baseline": 10.0,
+        "rmse_model": 10.0,
+        "rmse_baseline": 12.0,
+        "passes_all_hard_filters": True,
+        "is_selected_grid_cell": selected,
+    }
+
+
+def test_candidate_level_classification() -> None:
+    level1 = classify_posthoc_candidate_level([_passing_cell(300, 10, q2=0.02, selected=True)])
+    assert_equal(level1["candidate_level"], "Level 1", "fragile low support level")
+    assert_equal(level1["can_generate_ulf_sensitivity"], False, "level1 ULF propagation")
+
+    level2_rows = [
+        _passing_cell(250, 8, q2=0.08, p=0.08, selected=True),
+        _passing_cell(220, 8, q2=0.06, p=0.10),
+        _passing_cell(250, 10, q2=0.07, p=0.09),
+    ]
+    level2 = classify_posthoc_candidate_level(level2_rows)
+    assert_equal(level2["candidate_level"], "Level 2", "usable exploratory level")
+    assert_equal(level2["can_generate_ulf_sensitivity"], True, "level2 ULF propagation")
+    assert_equal(level2["requires_spatial_qc"], True, "level2 spatial QC")
+
+    level3_rows = [
+        _passing_cell(250, 8, q2=0.2, p=0.01, selected=True),
+        _passing_cell(220, 8, q2=0.12, p=0.04),
+        _passing_cell(250, 10, q2=0.13, p=0.04),
+        _passing_cell(220, 10, q2=0.11, p=0.04),
+        _passing_cell(300, 8, q2=0.12, p=0.04),
+    ]
+    level3 = classify_posthoc_candidate_level(level3_rows)
+    assert_equal(level3["candidate_level"], "Level 3", "robust exploratory level")
+    assert_equal(level3["requires_influence_qc"], True, "level3 influence QC")
+
+
+def test_candidate_level_tables() -> None:
+    rows = [
+        _passing_cell(250, 8, q2=0.2, p=0.01, selected=True),
+        _passing_cell(220, 8, q2=0.12, p=0.04),
+        _passing_cell(250, 10, q2=0.13, p=0.04),
+        _passing_cell(220, 10, q2=0.11, p=0.04),
+        _passing_cell(300, 8, q2=0.12, p=0.04),
+    ]
+    levels, propagation = build_candidate_level_tables(pd.DataFrame(rows))
+    assert_equal(len(levels), 1, "candidate level row count")
+    assert_equal(len(propagation), 1, "ULF propagation row count")
+    assert_equal(propagation.iloc[0]["candidate_level"], "Level 3", "propagation level")
+
+
 def main() -> int:
     test_grid_definition()
     test_hard_filter()
@@ -284,6 +350,8 @@ def main() -> int:
     test_annotated_rho_source()
     test_scale_names_and_endpoint_family()
     test_all_scale_tables()
+    test_candidate_level_classification()
+    test_candidate_level_tables()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 
