@@ -70,6 +70,19 @@ Implementation status:
 - Not yet complete: remaining-cohort preprocessing and final subject-level
   processing record. Lead-DBS UI B0-to-anchorNative coregistration and manual
   QC are user-performed follow-up steps, not Codex automation requirements.
+- UI staging issue found during manual normalization approval for `Meige008`:
+  Lead-DBS expects the pseudo-B0 image at
+  `coregistration/anat/sub-<ID>_ses-preop_space-anchorNative_desc-preproc_B0.nii`.
+  The automated preprocessing must stage this image and its JSON sidecar from
+  the corrected mean b0 so the user can perform manual UI coreg/QC later.
+  This staging does not run or approve UI coregistration.
+- Regression coverage should assert that the Synb0 path copies the corrected
+  mean b0 to the Lead-DBS coregistration target and writes sidecar fields that
+  mark it as coregistration-only and excluded from normalization.
+- Staging fix verification passed with
+  `test_fake_b0_coreg_target_staging_static.m`,
+  `test_process_imported_dwi_acq_labeled_gz_stage.m`, and
+  `test_synb0_archive_idempotent_reuse_static.m`.
 
 ## Goal
 
@@ -175,6 +188,8 @@ derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_d
 derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.bvec
 derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_b0.nii
 derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_b0.json
+derivatives/leaddbs/sub-<ID>/coregistration/anat/sub-<ID>_ses-preop_space-anchorNative_desc-preproc_B0.nii
+derivatives/leaddbs/sub-<ID>/coregistration/anat/sub-<ID>_ses-preop_space-anchorNative_desc-preproc_B0.json
 ```
 
 ## Execution Parameters

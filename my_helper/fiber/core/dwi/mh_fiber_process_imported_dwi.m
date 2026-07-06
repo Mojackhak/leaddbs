@@ -66,6 +66,7 @@ try
         row.phase_encoding_vector = sprintf('%g %g %g', dcResult.phaseEncodingVector);
         row.fake_b0_preproc = dcResult.b0;
         row.fake_b0_coreg_target = paths.fakeB0Coreg;
+        stage_fake_b0_coreg_target(dcResult.b0, paths.fakeB0Coreg, opts.Force);
         row.fake_b0_metadata = write_fake_b0_metadata(paths, dcResult);
         write_overlay_png(dcResult.distortedB0, dcResult.b0, ...
             fullfile(paths.qcDir, [subjectId, '_distorted_b0_vs_corrected_b0.png']), ...
@@ -302,6 +303,14 @@ write_subject_json(metadata, metadataPath);
 
 mh_util_make_dir(paths.coregAnatDir);
 write_subject_json(metadata, sidecar_json_path(paths.fakeB0Coreg));
+end
+
+function stage_fake_b0_coreg_target(sourceB0, targetB0, force)
+if isfile(targetB0) && ~force
+    return;
+end
+mh_util_make_dir(fileparts(targetB0));
+copyfile(sourceB0, targetB0, 'f');
 end
 
 function jsonPath = sidecar_json_path(imagePath)
