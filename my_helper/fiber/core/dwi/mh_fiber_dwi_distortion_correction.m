@@ -171,6 +171,12 @@ if strcmp(executionDir, archiveDir)
 end
 
 mh_util_make_dir(fileparts(archiveDir));
+if isfolder(archiveDir) && ~force && existing_synb0_archive_complete(archiveDir)
+    result = rewrite_synb0_result_paths(result, executionDir, archiveDir);
+    result.executionDir = executionDir;
+    result.archiveDir = archiveDir;
+    return;
+end
 targetArchiveDir = resolve_archive_target(archiveDir, force);
 [ok, message] = copyfile(executionDir, targetArchiveDir, 'f');
 if ~ok
@@ -181,6 +187,26 @@ end
 result = rewrite_synb0_result_paths(result, executionDir, targetArchiveDir);
 result.executionDir = executionDir;
 result.archiveDir = targetArchiveDir;
+end
+
+function tf = existing_synb0_archive_complete(archiveDir)
+outputsDir = fullfile(archiveDir, 'OUTPUTS');
+syntheticB0 = first_existing({ ...
+    fullfile(outputsDir, 'b0_u.nii.gz'), ...
+    fullfile(outputsDir, 'b0_u.nii')});
+tf = ~isempty(syntheticB0) && ...
+    isfile(fullfile(outputsDir, 'topup_fieldcoef.nii.gz')) && ...
+    isfile(fullfile(outputsDir, 'topup_movpar.txt'));
+end
+
+function path = first_existing(candidates)
+path = '';
+for i = 1:numel(candidates)
+    if isfile(candidates{i})
+        path = candidates{i};
+        return;
+    end
+end
 end
 
 function archiveDir = resolve_archive_target(requestedDir, force)

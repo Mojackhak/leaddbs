@@ -29,8 +29,33 @@ Implementation status:
 - Failed pilot staging artifacts for `Meige001`, `Meige008`, and `Meige021`,
   plus the attempt-1 status CSV, were moved to Trash before rerun:
   `/Volumes/VAL/.Trashes/501/meige_dwi_synb0_pilot_failed_stage_20260706_123734`.
-- Not yet complete: Synb0/eddy pilot runs, full-cohort preprocessing,
-  Lead-DBS UI coregistration QC, and final subject-level processing record.
+- Pilot attempt 2: `Meige001` and `Meige008` completed Synb0/eddy and wrote
+  corrected DWI derivatives. MATLAB was killed with exit code 137 immediately
+  after starting `Meige021`, before the batch status CSV was written. The
+  orphan `Meige021` Synb0 Docker container was monitored until it exited and
+  produced `b0_u.nii.gz`, `topup_fieldcoef.nii.gz`, and `topup_movpar.txt` in
+  the local Synb0 work root. Rerun the pilot with `Force=false` so `ea_synb0`
+  reuses existing Synb0 outputs, completes `Meige021` eddy, and writes a
+  complete three-row status CSV.
+- Pilot attempt 3: `Meige021` completed Synb0/eddy by reusing the completed
+  local Synb0 output. `Meige001` and `Meige008` incorrectly failed during
+  rerun because `archive_synb0_result` treats an existing project Synb0 archive
+  as an error when `Force=false`. Fix rerun idempotency so an existing archive
+  can be reused when required archive outputs are already present, then rerun
+  the pilot status table.
+- Pilot attempt 4: passed. `Meige001`, `Meige008`, and `Meige021` all report
+  `status=pending_ui_coregistration`, `synb0_status=ok`, `eddy_status=ok`, and
+  `coregistration_status=pending_ui` in
+  `/Volumes/VAL/meige/derivatives/leaddbs/import_logs/dwi_registration_synb0_fakeb0_status.csv`.
+  Corrected DWI, corrected b0, bval, bvec, and fake-B0 metadata files exist for
+  all three pilot subjects. Fake-B0 metadata record
+  `FakeCoregisterVolume=true`, `ExcludeFromNormalization=true`, and
+  `PhaseEncodingVector=0 1 0`. `Meige001` used JSON readout `0.046215`;
+  `Meige008` and `Meige021` used default readout `0.05`. `Meige008` has
+  `low_resolution_warning=true` because its DWI voxel z-size is about 5 mm and
+  should receive especially careful UI QC.
+- Not yet complete: pilot visual QC, full-cohort preprocessing, Lead-DBS UI
+  coregistration QC, and final subject-level processing record.
 
 ## Goal
 
