@@ -54,7 +54,20 @@ Implementation status:
   `Meige008` and `Meige021` used default readout `0.05`. `Meige008` has
   `low_resolution_warning=true` because its DWI voxel z-size is about 5 mm and
   should receive especially careful UI QC.
-- Not yet complete: pilot visual QC, full-cohort preprocessing, Lead-DBS UI
+- Pilot visual QC: distorted-vs-corrected b0 overlays for `Meige001`,
+  `Meige008`, and `Meige021` show no obvious phase-encoding polarity reversal
+  or grossly worsened distortion. This supports proceeding to the remaining
+  cohort under the accepted `[0 1 0]`, readout-fallback `0.05` policy, but does
+  not replace the later Lead-DBS UI b0-to-anchorNative manual QC. Preserve the
+  pilot status CSV before processing the remaining subjects so untracked pilot
+  records are not overwritten.
+- Remaining-cohort execution plan: archive the three-row pilot status CSV to a
+  versioned import-log filename, then run the 19 non-pilot subjects
+  (`Meige002-Meige007`, `Meige009-Meige020`, and `Dys022`) with `Force=false`,
+  `MaxConcurrentSynb0=1`, and the same parameter policy. After the remaining
+  run, combine pilot and remaining status rows into a 22-subject processing
+  record.
+- Not yet complete: remaining-cohort preprocessing, Lead-DBS UI
   coregistration QC, and final subject-level processing record.
 
 ## Goal
