@@ -159,6 +159,14 @@ SceneRay SR1202 是 8-contact、非定向 ring lead。Lead-DBS 模型中的几�
 - contacts 是否没有明显偏到伪影的一侧。
 - 对定向电极，还需要确认 orientation / roll 相关信息是否合理。
 
+## 窗口刷新与显示安全约束
+
+手动复核窗口的普通刷新应只更新显示，不应改写 `desc-reconstruction.mat`。例如打开窗口、切换 X-Ray Mode、调整亮度/对比度、切换当前电极或隐藏 fiducials，都属于显示状态变化；这些操作不应改变 reconstruction 文件。只有真正移动 head / tail、手动输入 marker、旋转定向电极，或按完成按钮结束手动校正时，才应写回 reconstruction。
+
+CT 金属伪影强度很高，`ea_contrast` 后的纹理值可能超过 `[0, 1]`。在送入 `surface` 或 `imagesc` 前，应把显示纹理限制在 `[0, 1]`，否则在固定 `caxis([0,1])` 下，局部高强度伪影可能让整块纹理面板显得过度饱和甚至近似纯白。这个限制只影响窗口显示，不改变原始 CT 数据，也不改变 reconstruction 坐标。
+
+窗口首次初始化还必须容忍可选图层为空。比如在低 verbose 设置下，蓝色 trajectory line 可能不会被创建；此时刷新逻辑应跳过该图层的可见性设置，而不是访问空句柄并中断后续切片绘制。否则窗口会停留在只显示 contacts / 空白面板的半初始化状态。
+
 ## 判断定位较好的标准
 
 较好的定位通常同时满足：

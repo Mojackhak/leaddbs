@@ -246,7 +246,9 @@ try
         end
     end
 end
-set(trajectory_plot(1),'visible',ea_bool2onoff(options.visible));
+if ~isempty(trajectory_plot) && all(isgraphics(trajectory_plot))
+    set(trajectory_plot(1),'visible',ea_bool2onoff(options.visible));
+end
 delete(planes);
 clear planes
 planecnt=1;
@@ -338,6 +340,7 @@ for doxx=0:1
     end
 
     imat=ea_contrast(imat,contrast+options.xray*0.1,offset-options.xray*0.3);
+    imat=clampToUnitRange(imat);
 
     planes(planecnt)=surface('XData',xx,'YData',yy,'ZData',zz,'CData',imat,'alphadata',alphamap,'FaceAlpha', 'texturemap','FaceColor','texturemap','EdgeColor','none','alphadatamapping','none');
 
@@ -420,6 +423,7 @@ for subpl=getsuplots(1)
         slice=ea_sample_slice(Vtra,'tra',wsize,'vox',mks,subpl);
     end
     slice=ea_contrast(slice,contrast,offset);
+    displaySlice=clampToUnitRange(slice);
     switch options.subj.postopModality
         case 'MRI'
             [~,minix]=min(slice(:));
@@ -431,9 +435,9 @@ for subpl=getsuplots(1)
     vsize=ea_detvoxsize(Vtra.mat);
     optoffsets(subpl,:)=[offsxx,offsyy].*vsize(1:2);
     try
-        imagesc(slice,[ea_nanmean(slice(slice>0))-3*ea_nanstd(slice(slice>0)) ea_nanmean(slice(slice>0))+3*ea_nanstd(slice(slice>0))]);
+        imagesc(displaySlice,[ea_nanmean(displaySlice(displaySlice>0))-3*ea_nanstd(displaySlice(displaySlice>0)) ea_nanmean(displaySlice(displaySlice>0))+3*ea_nanstd(displaySlice(displaySlice>0))]);
     catch
-        imagesc(slice);
+        imagesc(displaySlice);
     end
 
     hold on
@@ -534,7 +538,10 @@ if isfield(options,'hybridsave')
     options=rmfield(options,'hybridsave');
 end
 
-ea_save_reconstruction(coords_mm,trajectory,markers,elmodel,1,options);
+saveOnUpdate=getappdata(mcfig,'saveonupdatescene');
+if ~isempty(saveOnUpdate) && saveOnUpdate
+    ea_save_reconstruction(coords_mm,trajectory,markers,elmodel,1,options);
+end
 
 setappdata(mcfig,'trajectory_plot',trajectory_plot);
 setappdata(mcfig,'planes',planes);
@@ -557,6 +564,11 @@ resolution=20;
 hdtrajectory(:,1)=interp1q([1:length(trajectory)]',trajectory(:,1),[1:1/resolution:length(trajectory)]');
 hdtrajectory(:,2)=interp1q([1:length(trajectory)]',trajectory(:,2),[1:1/resolution:length(trajectory)]');
 hdtrajectory(:,3)=interp1q([1:length(trajectory)]',trajectory(:,3),[1:1/resolution:length(trajectory)]');
+
+
+function img=clampToUnitRange(img)
+
+img=max(min(img,1),0);
 
 
 function V=getV(mcfig,ID,options)
