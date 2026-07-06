@@ -91,6 +91,10 @@ Implementation status:
   `Meige008`; all pilot/completed subjects checked so far have the UI target
   NIfTI plus JSON sidecar with `FakeCoregisterVolume=true`,
   `ExcludeFromNormalization=true`, and `IntendedUse=coregistration_qc_only`.
+- `Meige004` finished from a MATLAB process that had started before the staging
+  fix, so it also requires copy-only backfill of the UI target NIfTI.
+- Copy-only backfill completed for `Meige004`; it now has the UI target NIfTI
+  and JSON sidecar.
 
 ## Goal
 
