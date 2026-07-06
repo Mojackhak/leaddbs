@@ -32,6 +32,28 @@ formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
 
 No further execution should be started until the workflow is explicitly resumed.
 
+## Local Execution Root Override
+
+The canonical execution documents use `/Volumes/VAL/STNSNr` as the STNSNr VAL
+root. On the current Codex desktop run, `/Volumes/VAL` is not mounted. The
+available local STNSNr root is:
+
+```text
+/Users/mojackhu/Research/STNSNr
+```
+
+When executing this plan in the current environment, pass explicit path
+overrides so generated manifests record the actual local root:
+
+```text
+VAL_ROOT=/Users/mojackhu/Research/STNSNr
+CLINICAL_ROOT=/Users/mojackhu/Research/STNSNr/summary/cohort/subj
+DERIVATIVES_ROOT=/Users/mojackhu/Research/STNSNr/derivatives/leaddbs
+```
+
+This override is an execution-environment substitution only. It does not change
+the scientific model specifications, branch gates, or output semantics.
+
 ## Backend / Workflow Separation
 
 Implementation must distinguish reusable backend code from STN/SNr project
