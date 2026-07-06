@@ -9,7 +9,7 @@ from stnsnr_ulf_component_readiness import (
     alternating_component_efield_paths,
     classify_frequency_component,
     component_efield_paths,
-    reconstruct_post_score_from_delta,
+    dependency_rows,
     summarize_component_availability,
 )
 
@@ -19,22 +19,12 @@ def assert_equal(actual, expected, message: str) -> None:
         raise AssertionError(f"{message}: expected {expected!r}, got {actual!r}")
 
 
-def assert_close(actual: float, expected: float, message: str, tol: float = 1e-9) -> None:
-    if abs(actual - expected) > tol:
-        raise AssertionError(f"{message}: expected {expected!r}, got {actual!r}")
-
-
 def test_frequency_classification() -> None:
     assert_equal(classify_frequency_component(130), "HF", "130 Hz should be HF")
     assert_equal(classify_frequency_component(100), "HF", "100 Hz should be HF")
     assert_equal(classify_frequency_component(50), "ULF", "50 Hz should be ULF")
     assert_equal(classify_frequency_component(30), "ULF", "30 Hz should be ULF")
     assert_equal(classify_frequency_component(75), "MID", "75 Hz should be MID")
-
-
-def test_delta_score_reconstruction() -> None:
-    assert_close(reconstruct_post_score_from_delta(34, -12), 22, "lower-is-better raw delta score")
-    assert_close(reconstruct_post_score_from_delta(70, 20), 90, "higher-is-better raw delta score")
 
 
 def test_component_path_construction() -> None:
@@ -95,12 +85,36 @@ def test_availability_summary() -> None:
     assert_equal(summary["frequency_class_counts"], {"HF": 1, "ULF": 2}, "frequency class counts")
 
 
+def test_dependency_rows_use_explicit_connectome_id() -> None:
+    rows = dependency_rows(
+        {
+            "A": {
+                "decision": "STOP_FORMAL_REMAIN_EXPLORATORY",
+                "hf_prediction_validity_status": "failed_unstable",
+                "spearman_rho": -0.1,
+                "q2": -0.2,
+            },
+            "B_PPMI": {
+                "decision": "STOP_FORMAL_REMAIN_EXPLORATORY",
+                "hf_prediction_validity_status": "failed_unstable",
+                "spearman_rho": -0.3,
+                "q2": -0.4,
+            },
+        }
+    )
+    assert_equal(rows[0]["hf_model_id"], "A", "C dependency model")
+    assert_equal(rows[1]["hf_model_id"], "B_PPMI", "D dependency model")
+    assert_equal(rows[1]["downstream_model_id"], "D", "D downstream model")
+    assert_equal(rows[1]["dependency_status"], "EXPLORATORY_UNSTABLE", "D dependency status")
+    assert_equal(rows[1]["hf_prediction_validity_status"], "failed_unstable", "D HF validity status")
+
+
 def main() -> int:
     test_frequency_classification()
-    test_delta_score_reconstruction()
     test_component_path_construction()
     test_alternating_observed_path_construction()
     test_availability_summary()
+    test_dependency_rows_use_explicit_connectome_id()
     print("ULF component readiness self-test passed.")
     return 0
 

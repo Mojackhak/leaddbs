@@ -4,6 +4,34 @@ This note records the first executable implementation layer for `four_model_exec
 
 The full four-model program is intentionally gated. The first code layer only implements M0 readiness checks and manifest generation. It does not run voxel or fiber statistics, does not compute E-field sidecars, and does not start formal permutation, bootstrap, jitter, OSS-DBS, or display stages.
 
+## Pause Checkpoint
+
+Execution is paused after the 2026-07-06 status refresh. The latest observed
+branches and status files were regenerated from the single retained worktree:
+
+```text
+/Users/mojackhu/Github/leaddbs
+```
+
+Current refreshed outputs:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/gate_status/four_model_gate_status.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/status/four_model_execution_status.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/status/four_model_execution_status.md
+```
+
+Current state:
+
+```text
+A/B primary observed HF branches: failed_unstable
+C/D observed ULF branches: OBSERVED_COMPLETE_EXPLORATORY
+ULF component e-fields: 64/64 available
+formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
+```
+
+No further execution should be started until the workflow is explicitly resumed.
+
 ## Backend / Workflow Separation
 
 Implementation must distinguish reusable backend code from STN/SNr project
@@ -65,7 +93,10 @@ The readiness run verifies and records:
 - Connected-region atlas availability under the asset root.
 - Scale direction table generation with `SE-ADL` marked higher-is-better and the current score scales marked lower-is-better.
 
-The a409 worktree may not contain gitignored heavy assets such as `templates/` and `connectomes/`. The M0 tool therefore accepts an explicit `--asset-root` and otherwise falls back to `/Users/mojackhu/Github/leaddbs` when the current worktree lacks those assets.
+Historical Codex worktrees may not contain gitignored heavy assets such as
+`templates/` and `connectomes/`. The M0 tool therefore accepts an explicit
+`--asset-root` and otherwise falls back to `/Users/mojackhu/Github/leaddbs`
+when the current worktree lacks those assets.
 
 ## Outputs
 
@@ -117,6 +148,19 @@ The self-test verifies:
 - plus-one two-sided permutation p values use the documented formula.
 
 This layer is intentionally model-agnostic. It does not define HF/ULF paths, does not create sidecars, does not perform image/fiber sampling, and does not run formal `B=10000` loops.
+
+## ULF Dependency Identifiers
+
+ULF readiness and status code use explicit HF dependency IDs from
+`four_model_gate_status.csv`:
+
+```text
+C direct voxel depends on A
+D PPMI normative fiber depends on B_PPMI
+```
+
+There is no generic `B` gate-status row. Additional D connectome variants must
+bind to their matching `B_<connectome>` dependency explicitly.
 
 ## HF Direct Voxel Smoke Driver
 

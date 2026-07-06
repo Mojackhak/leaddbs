@@ -2,8 +2,36 @@
 
 > **Purpose.** This is the `/goal` plan document for executing the four STN/SNr HF/ULF modeling tracks.
 > **Authoritative model specs.** The English files under `my_helper/stnsnr/model_summaries/` define model-level executable behavior. This document defines cross-model orchestration, current implementation state, current gate/status results, and the next engineering priorities.
-> **Workspace.** `/Users/mojackhu/.codex/worktrees/a409/leaddbs`
+> **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Last updated.** 2026-07-06
+
+---
+
+## Pause Checkpoint
+
+Execution is paused after the 2026-07-06 status refresh. The current checkpoint
+has completed only observed/non-formal branches and lightweight readiness/status
+generation:
+
+```text
+A HF direct voxel observed branch rerun from /Users/mojackhu/Github/leaddbs
+B PPMI/MGH/dTOR HF normative fiber observed branches rerun from /Users/mojackhu/Github/leaddbs
+C ULF direct voxel observed branches rerun from /Users/mojackhu/Github/leaddbs
+D ULF normative fiber PPMI observed branches rerun from /Users/mojackhu/Github/leaddbs
+A/B gate status refreshed with explicit hf_prediction_validity_status
+ULF readiness refreshed with C -> A and D PPMI -> B_PPMI dependency mapping
+Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/status/
+```
+
+Current gate result:
+
+```text
+A, B_PPMI, B_MGH, B_DTOR = failed_unstable
+C, D = OBSERVED_COMPLETE_EXPLORATORY
+formal permutation/bootstrap/jitter/OSS = not run, correctly skipped by gate
+```
+
+Do not continue execution from this checkpoint unless explicitly resumed.
 
 ---
 
@@ -185,14 +213,17 @@ Current status is based on existing outputs under:
 
 Current `four_model_gate_status.csv` reports:
 
-| Model | Branch | rho | Q2 | Gate |
-|---|---:|---:|---:|---|
-| A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
-| B PPMI | `peak_efield_tau800_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
-| B MGH | `peak_efield_tau800_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
-| B dTOR | `peak_efield_tau800_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
+| Model | Branch | rho | Q2 | Gate | HF validity |
+|---|---:|---:|---:|---|---|
+| A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B PPMI | `peak_efield_tau800_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B MGH | `peak_efield_tau800_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B dTOR | `peak_efield_tau800_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
 
-These observed branches exist and have finite predictions, but they do not justify formal primary-branch permutation/bootstrap. They should be reported as exploratory/negative unless a new pre-declared branch passes a valid gate.
+These observed branches exist and have finite predictions, but their explicit
+HF validity state is `failed_unstable`; they do not justify formal
+primary-branch permutation/bootstrap. They should be reported as
+exploratory/negative unless a new pre-declared branch passes a valid gate.
 
 ### C/D ULF Readiness
 
@@ -303,7 +334,15 @@ For ULF, Level 2/3 candidates are sensitivity-only. Only an original primary `pr
 
 ### Currently Implemented Gate
 
-The current `run_stnsnr_four_model_gate_status.py` code uses a coarse observed-signal gate:
+The current `run_stnsnr_four_model_gate_status.py` code emits two related
+fields:
+
+```text
+decision = coarse engineering stop/go gate
+hf_prediction_validity_status = explicit HF model validity state
+```
+
+The coarse engineering gate remains:
 
 ```text
 PASS_TO_NEXT_ROUND:
@@ -318,31 +357,44 @@ STOP_FORMAL_REMAIN_EXPLORATORY:
   but rho <= 0 or Q2 < 0
 ```
 
-This is sufficient to prevent expensive formal loops from running on clearly negative observed branches.
-
-### Target Gate To Align With Model Specs
-
-The code should later be upgraded to emit the stricter HF state:
+The explicit HF validity state is:
 
 ```text
-predictive_valid
-stable_nonpredictive
-failed_unstable
+predictive_valid:
+  rho > 0, Q2 > 0, model MAE/RMSE improve over baseline,
+  score is non-constant, and residual-dominance proxy does not flag a single
+  subject as dominating the result
+
+stable_nonpredictive:
+  output exists and predictions are finite, but the available predictive
+  checks do not justify predictive_valid
+
+failed_unstable:
+  missing output, non-finite prediction, rho <= 0, Q2 <= 0,
+  degenerate score, or otherwise failed observed prediction
 ```
 
-The stricter target gate must include:
+The residual-dominance proxy is an implementation-level screen, not a full
+influence analysis. If it blocks a candidate branch, the manifest should make
+that reason explicit and the branch should remain exploratory.
+
+This is sufficient to prevent expensive formal loops from running on clearly
+negative observed branches while also satisfying the model requirement that A/B
+carry an explicit HF validity status.
+
+### Future Gate Extensions
+
+Future code may add stronger diagnostics around the same state labels:
 
 ```text
-Q2 > 0
-MAE_model < MAE_baseline
-RMSE_model < RMSE_baseline
-score non-constant
-all held-out predictions finite
-no single high-leverage subject explains the result
-threshold-neighborhood or resampling stability when available
+formal influence diagnostics
+threshold-neighborhood stability summaries
+resampling stability summaries
 ```
 
-Until that code alignment is implemented, the existing gate-status CSV should be interpreted as an engineering stop/go gate, not a complete scientific prediction-validity classifier.
+These diagnostics should refine the evidence behind `predictive_valid` rather
+than redefine post-hoc selected branches as original primary analyses.
+
 
 ---
 
@@ -490,7 +542,7 @@ must not define the scientific model.
 Run from the worktree:
 
 ```bash
-cd /Users/mojackhu/.codex/worktrees/a409/leaddbs
+cd /Users/mojackhu/Github/leaddbs
 ```
 
 M0 readiness:

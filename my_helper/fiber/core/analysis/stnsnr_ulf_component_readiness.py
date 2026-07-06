@@ -287,10 +287,15 @@ def read_gate_status(gate_status_path: Path) -> dict[str, dict[str, Any]]:
 
 def dependency_rows(gate_rows: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for model_id, downstream in [("A", "C"), ("B", "D")]:
+    for model_id, downstream in [("A", "C"), ("B_PPMI", "D")]:
         row = gate_rows.get(model_id, {})
         decision = sanitize(row.get("decision")) if row else "MISSING_GATE_STATUS"
-        if decision == "PASS_TO_NEXT_ROUND":
+        validity_status = sanitize(row.get("hf_prediction_validity_status")) if row else ""
+        if validity_status == "predictive_valid":
+            dependency_status = "LOCKED"
+        elif validity_status in {"stable_nonpredictive", "failed_unstable"}:
+            dependency_status = "EXPLORATORY_UNSTABLE"
+        elif decision == "PASS_TO_NEXT_ROUND":
             dependency_status = "LOCKED"
         elif decision == "MISSING_GATE_STATUS":
             dependency_status = "UNKNOWN"
@@ -301,6 +306,7 @@ def dependency_rows(gate_rows: dict[str, dict[str, Any]]) -> list[dict[str, Any]
                 "hf_model_id": model_id,
                 "downstream_model_id": downstream,
                 "hf_gate_decision": decision,
+                "hf_prediction_validity_status": validity_status,
                 "dependency_status": dependency_status,
                 "spearman_rho": row.get("spearman_rho", ""),
                 "q2": row.get("q2", ""),

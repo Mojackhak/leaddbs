@@ -24,12 +24,14 @@ def test_hf_stop_gate_state() -> None:
             "decision": "STOP_FORMAL_REMAIN_EXPLORATORY",
             "output_exists": True,
             "predictions_finite": True,
+            "hf_prediction_validity_status": "failed_unstable",
             "spearman_rho": -0.03,
             "q2": -0.2,
         }
     )
     assert_equal(state["execution_status"], "OBSERVED_COMPLETE_STOPPED_BY_GATE", "HF stopped status")
     assert_equal(state["formal_resampling_status"], "SKIP_GATE_FAILED", "HF formal status")
+    assert_equal(state["hf_prediction_validity_status"], "failed_unstable", "HF validity status")
 
 
 def test_hf_pass_gate_state() -> None:
@@ -38,6 +40,7 @@ def test_hf_pass_gate_state() -> None:
             "decision": "PASS_TO_NEXT_ROUND",
             "output_exists": True,
             "predictions_finite": True,
+            "hf_prediction_validity_status": "predictive_valid",
             "spearman_rho": 0.3,
             "q2": 0.1,
         }
@@ -49,6 +52,7 @@ def test_hf_pass_gate_state() -> None:
 def test_ulf_input_failure_state() -> None:
     state = classify_ulf_model_state(
         hf_dependency_decision="STOP_FORMAL_REMAIN_EXPLORATORY",
+        hf_prediction_validity_status="failed_unstable",
         readiness_status="NOT_EXECUTABLE_INPUT_FAILURE",
         efield_summary={"n_efields_existing": 12, "n_rows": 64},
     )
@@ -60,6 +64,7 @@ def test_ulf_input_failure_state() -> None:
 def test_c_observed_exploratory_state() -> None:
     state = classify_c_observed_state(
         hf_dependency_decision="STOP_FORMAL_REMAIN_EXPLORATORY",
+        hf_prediction_validity_status="failed_unstable",
         readiness_status="EXPLORATORY_ONLY_UNSTABLE_HF_DEPENDENCY",
         efield_summary={"n_efields_existing": 64, "n_rows": 64},
         c_outputs={"both_branches_exist": True},
@@ -72,6 +77,7 @@ def test_c_observed_exploratory_state() -> None:
 def test_d_observed_exploratory_state() -> None:
     state = classify_d_observed_state(
         hf_dependency_decision="STOP_FORMAL_REMAIN_EXPLORATORY",
+        hf_prediction_validity_status="failed_unstable",
         readiness_status="EXPLORATORY_ONLY_UNSTABLE_HF_DEPENDENCY",
         efield_summary={"n_efields_existing": 64, "n_rows": 64},
         d_outputs={"both_branches_exist": True},

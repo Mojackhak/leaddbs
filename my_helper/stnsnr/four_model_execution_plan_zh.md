@@ -2,8 +2,35 @@
 
 > **用途。** 这是执行 STN/SNr HF/ULF 四模型程序的 `/goal` 总方案文档。
 > **权威模型规格。** `my_helper/stnsnr/model_summaries/` 下的英文文档定义各模型的 executable behavior。本文件定义跨模型编排、当前实现状态、当前 gate/status 结果和下一步工程优先级。
-> **Workspace。** `/Users/mojackhu/.codex/worktrees/a409/leaddbs`
+> **Workspace。** `/Users/mojackhu/Github/leaddbs`
 > **Last updated。** 2026-07-06
+
+---
+
+## Pause Checkpoint
+
+执行已在 2026-07-06 status refresh 后暂停。当前 checkpoint 只完成
+observed/non-formal branches 和轻量 readiness/status generation：
+
+```text
+A HF direct voxel observed branch rerun from /Users/mojackhu/Github/leaddbs
+B PPMI/MGH/dTOR HF normative fiber observed branches rerun from /Users/mojackhu/Github/leaddbs
+C ULF direct voxel observed branches rerun from /Users/mojackhu/Github/leaddbs
+D ULF normative fiber PPMI observed branches rerun from /Users/mojackhu/Github/leaddbs
+A/B gate status refreshed with explicit hf_prediction_validity_status
+ULF readiness refreshed with C -> A and D PPMI -> B_PPMI dependency mapping
+Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/status/
+```
+
+当前 gate 结果：
+
+```text
+A, B_PPMI, B_MGH, B_DTOR = failed_unstable
+C, D = OBSERVED_COMPLETE_EXPLORATORY
+formal permutation/bootstrap/jitter/OSS = not run, correctly skipped by gate
+```
+
+除非明确恢复执行，否则不要从该 checkpoint 继续运行。
 
 ---
 
@@ -185,14 +212,16 @@ figure-grade display/FDR/enrichment layers beyond existing post-hoc heatmaps
 
 当前 `four_model_gate_status.csv` 报告：
 
-| Model | Branch | rho | Q2 | Gate |
-|---|---:|---:|---:|---|
-| A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
-| B PPMI | `peak_efield_tau800_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
-| B MGH | `peak_efield_tau800_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
-| B dTOR | `peak_efield_tau800_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
+| Model | Branch | rho | Q2 | Gate | HF validity |
+|---|---:|---:|---:|---|---|
+| A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B PPMI | `peak_efield_tau800_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B MGH | `peak_efield_tau800_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B dTOR | `peak_efield_tau800_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
 
-这些 observed branches 已存在且 predictions finite，但不足以支持 formal primary-branch permutation/bootstrap。除非新的预声明分支通过有效 gate，否则应报告为 exploratory/negative。
+这些 observed branches 已存在且 predictions finite，但显式 HF validity state 为
+`failed_unstable`，不足以支持 formal primary-branch permutation/bootstrap。
+除非新的预声明分支通过有效 gate，否则应报告为 exploratory/negative。
 
 ### C/D ULF Readiness
 
@@ -303,7 +332,14 @@ Level 4 post_selection_validated_hf_model:
 
 ### 当前已实现 Gate
 
-当前 `run_stnsnr_four_model_gate_status.py` 使用较粗的 observed-signal gate：
+当前 `run_stnsnr_four_model_gate_status.py` 输出两个相关字段：
+
+```text
+decision = coarse engineering stop/go gate
+hf_prediction_validity_status = explicit HF model validity state
+```
+
+其中 coarse engineering gate 仍为：
 
 ```text
 PASS_TO_NEXT_ROUND:
@@ -318,31 +354,43 @@ STOP_FORMAL_REMAIN_EXPLORATORY:
   but rho <= 0 or Q2 < 0
 ```
 
-这个 gate 足以阻止在明显 negative observed branch 上运行昂贵 formal loops。
-
-### 后续应对齐的目标 Gate
-
-后续代码应升级为输出更严格的 HF state：
+显式 HF validity state 为：
 
 ```text
-predictive_valid
-stable_nonpredictive
-failed_unstable
+predictive_valid:
+  rho > 0, Q2 > 0, model MAE/RMSE improve over baseline,
+  score is non-constant, and residual-dominance proxy does not flag a single
+  subject as dominating the result
+
+stable_nonpredictive:
+  output exists and predictions are finite, but the available predictive
+  checks do not justify predictive_valid
+
+failed_unstable:
+  missing output, non-finite prediction, rho <= 0, Q2 <= 0,
+  degenerate score, or otherwise failed observed prediction
 ```
 
-更严格的目标 gate 需要纳入：
+residual-dominance proxy 是 implementation-level screen，不是完整 influence
+analysis。如果它阻断某个 candidate branch，manifest 应明确记录原因，该
+branch 仍应保持 exploratory。
+
+这既能阻止在明显 negative observed branch 上运行昂贵 formal loops，也满足
+A/B 必须携带 explicit HF validity status 的模型要求。
+
+### Future Gate Extensions
+
+后续代码可以在同一组 state labels 下增加更强诊断：
 
 ```text
-Q2 > 0
-MAE_model < MAE_baseline
-RMSE_model < RMSE_baseline
-score non-constant
-all held-out predictions finite
-no single high-leverage subject explains the result
-threshold-neighborhood or resampling stability when available
+formal influence diagnostics
+threshold-neighborhood stability summaries
+resampling stability summaries
 ```
 
-在该代码对齐完成前，现有 gate-status CSV 应解释为工程 stop/go gate，而不是完整科学 prediction-validity classifier。
+这些诊断应强化 `predictive_valid` 背后的证据，而不是把 post-hoc selected
+branches 重新定义为 original primary analyses。
+
 
 ---
 
@@ -486,7 +534,7 @@ Thin workflow scripts 可以调用 backend modules，但 backend modules 必须�
 从 worktree 运行：
 
 ```bash
-cd /Users/mojackhu/.codex/worktrees/a409/leaddbs
+cd /Users/mojackhu/Github/leaddbs
 ```
 
 M0 readiness：

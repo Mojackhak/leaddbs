@@ -22,12 +22,13 @@ def iso_now() -> str:
 def classify_hf_model_state(gate_row: dict[str, Any]) -> dict[str, str]:
     """Classify a foundational HF model from its gate-status row."""
     decision = str(gate_row.get("decision", "MISSING_OUTPUT"))
+    validity_status = str(gate_row.get("hf_prediction_validity_status", "") or "")
     output_exists = as_bool(gate_row.get("output_exists"))
     predictions_finite = as_bool(gate_row.get("predictions_finite"))
-    if decision == "PASS_TO_NEXT_ROUND":
+    if validity_status == "predictive_valid":
         execution_status = "READY_FOR_NEXT_ROUND"
         formal_status = "ELIGIBLE_AFTER_SMOKE_RESAMPLING"
-    elif decision == "STOP_FORMAL_REMAIN_EXPLORATORY" and output_exists and predictions_finite:
+    elif output_exists and predictions_finite and validity_status in {"stable_nonpredictive", "failed_unstable"}:
         execution_status = "OBSERVED_COMPLETE_STOPPED_BY_GATE"
         formal_status = "SKIP_GATE_FAILED"
     elif decision == "MISSING_OUTPUT" or not output_exists:
@@ -40,17 +41,19 @@ def classify_hf_model_state(gate_row: dict[str, Any]) -> dict[str, str]:
         "execution_status": execution_status,
         "dependency_status": "NONE",
         "formal_resampling_status": formal_status,
+        "hf_prediction_validity_status": validity_status or "not_evaluable",
     }
 
 
 def classify_ulf_model_state(
     *,
     hf_dependency_decision: str,
+    hf_prediction_validity_status: str = "",
     readiness_status: str,
     efield_summary: dict[str, Any],
 ) -> dict[str, str]:
     """Classify a downstream ULF model from its HF dependency and component-readiness status."""
-    dependency_status = classify_dependency(hf_dependency_decision)
+    dependency_status = classify_dependency(hf_dependency_decision, hf_prediction_validity_status)
     missing_inputs = int(efield_summary.get("n_rows", 0)) - int(efield_summary.get("n_efields_existing", 0))
     if readiness_status == "NOT_EXECUTABLE_INPUT_FAILURE" or missing_inputs > 0:
         execution_status = "NOT_EXECUTABLE_INPUT_FAILURE"
@@ -68,12 +71,14 @@ def classify_ulf_model_state(
         "execution_status": execution_status,
         "dependency_status": dependency_status,
         "formal_resampling_status": formal_status,
+        "hf_prediction_validity_status": hf_prediction_validity_status or "not_evaluable",
     }
 
 
 def classify_c_observed_state(
     *,
     hf_dependency_decision: str,
+    hf_prediction_validity_status: str = "",
     readiness_status: str,
     efield_summary: dict[str, Any],
     c_outputs: dict[str, Any],
@@ -82,10 +87,11 @@ def classify_c_observed_state(
     if not c_outputs.get("both_branches_exist"):
         return classify_ulf_model_state(
             hf_dependency_decision=hf_dependency_decision,
+            hf_prediction_validity_status=hf_prediction_validity_status,
             readiness_status=readiness_status,
             efield_summary=efield_summary,
         )
-    dependency_status = classify_dependency(hf_dependency_decision)
+    dependency_status = classify_dependency(hf_dependency_decision, hf_prediction_validity_status)
     if dependency_status == "LOCKED":
         formal_status = "NOT_STARTED_PRIMARY_OBSERVED_FIRST"
         next_status = "OBSERVED_COMPLETE_READY_FOR_GATE"
@@ -96,12 +102,14 @@ def classify_c_observed_state(
         "execution_status": next_status,
         "dependency_status": dependency_status,
         "formal_resampling_status": formal_status,
+        "hf_prediction_validity_status": hf_prediction_validity_status or "not_evaluable",
     }
 
 
 def classify_d_observed_state(
     *,
     hf_dependency_decision: str,
+    hf_prediction_validity_status: str = "",
     readiness_status: str,
     efield_summary: dict[str, Any],
     d_outputs: dict[str, Any],
@@ -110,10 +118,11 @@ def classify_d_observed_state(
     if not d_outputs.get("both_branches_exist"):
         return classify_ulf_model_state(
             hf_dependency_decision=hf_dependency_decision,
+            hf_prediction_validity_status=hf_prediction_validity_status,
             readiness_status=readiness_status,
             efield_summary=efield_summary,
         )
-    dependency_status = classify_dependency(hf_dependency_decision)
+    dependency_status = classify_dependency(hf_dependency_decision, hf_prediction_validity_status)
     if dependency_status == "LOCKED":
         formal_status = "NOT_STARTED_PRIMARY_OBSERVED_FIRST"
         next_status = "OBSERVED_COMPLETE_READY_FOR_GATE"
@@ -124,10 +133,15 @@ def classify_d_observed_state(
         "execution_status": next_status,
         "dependency_status": dependency_status,
         "formal_resampling_status": formal_status,
+        "hf_prediction_validity_status": hf_prediction_validity_status or "not_evaluable",
     }
 
 
-def classify_dependency(decision: str) -> str:
+def classify_dependency(decision: str, hf_prediction_validity_status: str = "") -> str:
+    if hf_prediction_validity_status == "predictive_valid":
+        return "LOCKED"
+    if hf_prediction_validity_status in {"stable_nonpredictive", "failed_unstable"}:
+        return "EXPLORATORY_UNSTABLE"
     if decision == "PASS_TO_NEXT_ROUND":
         return "LOCKED"
     if decision == "STOP_FORMAL_REMAIN_EXPLORATORY":
@@ -269,12 +283,15 @@ def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
     lines = [
         "# Four-Model Execution Status",
         "",
-        "| Model | Status | Dependency | Formal resampling | Next action |",
-        "|---|---|---|---|---|",
+        "Current cohort size is `n=16`. These outputs remain hypothesis-generating unless a branch passes the declared gate and the corresponding formal validation is run.",
+        "",
+        "| Model | Status | Dependency | HF validity | Formal resampling | Next action |",
+        "|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
             "| {model_id}: {model} | {execution_status} | {dependency_status} | "
+            "{hf_prediction_validity_status} | "
             "{formal_resampling_status} | {next_action} |".format(**row)
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -322,10 +339,13 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
         ("C", "ULF add-on direct voxel", "A", "chronic/tau200/partial_spearman_no_delta_hf+delta_hf_adjusted"),
         ("D", "ULF add-on normative fiber PPMI", "B_PPMI", "chronic/ppmi/peak_efield_tau800_no_delta_hf+delta_hf_adjusted"),
     ]:
-        dependency_gate = str(gate_rows.get(dependency_id, {}).get("decision", "MISSING_OUTPUT"))
+        dependency_row = gate_rows.get(dependency_id, {})
+        dependency_gate = str(dependency_row.get("decision", "MISSING_OUTPUT"))
+        dependency_validity = str(dependency_row.get("hf_prediction_validity_status", "") or "")
         if model_id == "C":
             state = classify_c_observed_state(
                 hf_dependency_decision=dependency_gate,
+                hf_prediction_validity_status=dependency_validity,
                 readiness_status=ulf_readiness_status,
                 efield_summary=efield_summary,
                 c_outputs=c_outputs,
@@ -347,6 +367,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
         elif model_id == "D":
             state = classify_d_observed_state(
                 hf_dependency_decision=dependency_gate,
+                hf_prediction_validity_status=dependency_validity,
                 readiness_status=ulf_readiness_status,
                 efield_summary=efield_summary,
                 d_outputs=d_outputs,
@@ -368,6 +389,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
         else:
             state = classify_ulf_model_state(
                 hf_dependency_decision=dependency_gate,
+                hf_prediction_validity_status=dependency_validity,
                 readiness_status=ulf_readiness_status,
                 efield_summary=efield_summary,
             )
@@ -440,6 +462,7 @@ def run_status(args: argparse.Namespace) -> int:
         "execution_status",
         "dependency_model",
         "dependency_status",
+        "hf_prediction_validity_status",
         "formal_resampling_status",
         "gate_decision",
         "spearman_rho",
