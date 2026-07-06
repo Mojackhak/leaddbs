@@ -612,12 +612,20 @@ HF_component_out_HF_selected_top5_source_tau
 
 HF_out_candidate_fraction_source_tau =
   HF_component_out_HF_candidate_sum_source_tau
-  / max(HF_component_total_exposure_sum_source_tau, epsilon)
+  / HF_component_total_exposure_sum_source_tau
 
 HF_out_selected_fraction_source_tau =
   HF_component_out_HF_selected_sum_source_tau
-  / max(HF_component_total_exposure_sum_source_tau, epsilon)
+  / HF_component_total_exposure_sum_source_tau
 ```
+
+If `HF_component_total_touched_count_source_tau = 0` or `HF_component_total_exposure_sum_source_tau <= 0` for any required subject or fold, set:
+
+```text
+delta_hfscore_support_status = invalid_no_hfcomponent_exposure
+```
+
+Do not compute support fractions by adding an epsilon denominator in that case, and do not classify the branch as `adequate`.
 
 Write:
 
@@ -650,6 +658,10 @@ delta_hfscore_support_status = invalid_extreme_out_of_support
   if cohort median HF_out_candidate_fraction_source_tau > 0.50
   or more than 25% of subjects have HF_out_candidate_fraction_source_tau > 0.80
   or a required subject/fold is nearly completely outside the HF score support
+
+delta_hfscore_support_status = invalid_no_hfcomponent_exposure
+  if a required subject/fold has no suprathreshold HF-component exposure
+  or nonpositive total HF-component exposure under the locked HF source tau
 ```
 
 Interpretation:
@@ -663,6 +675,12 @@ limited:
 
 invalid_extreme_out_of_support:
   DeltaHFScore inputs are invalid for the DeltaHF-adjusted branch.
+  If the DeltaHF-adjusted branch is the intended primary branch,
+  record ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure.
+
+invalid_no_hfcomponent_exposure:
+  DeltaHFScore inputs are invalid because the HF-component projection
+  cannot be interpreted for at least one required subject/fold.
   If the DeltaHF-adjusted branch is the intended primary branch,
   record ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure.
 ```
@@ -1185,11 +1203,136 @@ Y_post_i ~ X_ULF_only_i(l,tau) + Y_HF_ref_i
 
 This does not replace the primary partial Spearman estimator.
 
-### 10.9 Future ULF OSS-DBS activation sensitivity
+### 10.9 ULF OSS-DBS activation sensitivity
 
-Not part of the current executable mainline unless explicitly enabled.
+ULF OSS-DBS activation sensitivity is a planned sensitivity round. It tests whether the realized primary ULF peak-E-field source remains interpretable when the ULF exposure value is replaced by modeled ULF pathway/axon activation.
 
-If enabled, the OSS branch should inherit the ULF peak-E-field candidate universe and replace `X_ULF_only` with modeled ULF activation after candidate definition. OSS activation must not redefine candidate fibers or participate in tau/Coverage threshold selection.
+It does not participate in:
+
+```text
+HF-derived branch-role assignment
+ULF tau/Coverage source resolver
+ulf_norm_fiber_source_status
+ulf_norm_fiber_prediction_status
+ulf_norm_fiber_endpoint_model_status
+DeltaHFScore source definition
+```
+
+Candidate inheritance:
+
+```text
+oss_candidate_source_branch = realized_primary_model_id
+oss_inherited_tau_v_per_m = realized_primary_selected_tau_v_per_m
+oss_inherited_coverage = realized_primary_selected_coverage
+F_candidate_ULF_OSS = F_candidate_ULF_selected_tau_selected_coverage
+```
+
+OSS activation must not redefine candidate fibers and must not participate in tau/Coverage threshold selection.
+
+For each subject and fiber:
+
+```text
+A_ULF_OSS_i(l) = OSS-DBS modeled ULF-component activation along fiber l
+```
+
+HF-overlap exclusion remains the same peak-E-field rule used by the realized primary ULF model:
+
+```text
+HF_touched_i(l) =
+  X_HF_component_i(l) > hf_norm_fiber_selected_tau_v_per_m,
+    if matched HF source exists
+  false,
+    if matched HF source is absent_no_stable_grid
+```
+
+The OSS ULF-only exposure is:
+
+```text
+X_ULF_only_OSS_i(l) =
+  A_ULF_OSS_i(l), if l in F_candidate_ULF_OSS and not HF_touched_i(l)
+  0,              otherwise
+```
+
+The OSS branch inherits the nuisance design of the realized primary branch.
+
+No-DeltaHF OSS prediction model:
+
+```text
+Y_post_i = alpha
+         + delta * NetULFFiberScore_OSS_i
+         + beta  * Y_HF_ref_i
+         + error_i
+```
+
+DeltaHF-adjusted OSS prediction model:
+
+```text
+Y_post_i = alpha
+         + delta * NetULFFiberScore_OSS_i
+         + beta  * Y_HF_ref_i
+         + gamma * DeltaHFScore_i
+         + error_i
+```
+
+`DeltaHFScore` remains the matched HF normative fiber score projection. It is not replaced by an HF OSS score.
+
+Within the inherited candidate universe, recompute:
+
+```text
+M_ULF_OSS(l)
+F+_ULF_OSS = top 1% positive OSS fibers
+F-_ULF_OSS = top 0.5% sour OSS fibers
+SweetPeak5_ULF_OSS
+SourPeak5_ULF_OSS
+NetULFFiberScore_OSS
+LOOCV predictions
+```
+
+Run order:
+
+```text
+PPMI observed LOOCV
+MGH observed LOOCV
+dTOR observed LOOCV, only after PPMI/MGH are technically valid
+dTOR smoke Freedman-Lane permutation B=1000
+```
+
+Do not run default formal `B=10000` permutation/bootstrap for ULF OSS unless the model document is explicitly revised. The OSS result is activation-model robustness evidence only.
+
+Required OSS manifest fields:
+
+```text
+ulf_oss_sensitivity_status
+oss_model_set
+axon_model
+axon_diameter_um
+n_nodes
+waveform
+ULF_frequency_Hz
+pulse_width_us
+amplitude
+tissue_model
+conductivity_model
+activation_output_type
+oss_candidate_source_branch
+oss_inherited_tau_v_per_m
+oss_inherited_coverage
+oss_hf_overlap_tau_source
+branch_role
+delta_hfscore_role
+```
+
+Allowed `ulf_oss_sensitivity_status` values:
+
+```text
+not_run_no_formal_realized_primary
+not_run_missing_oss_inputs
+not_run_cross_connectome_technical_failure
+passed_activation_consistent
+passed_activation_model_dependent
+failed_activation_degenerate
+failed_oss_design_or_prediction
+```
 
 
 ## 11. Validation
@@ -1218,6 +1361,8 @@ Within each training fold:
 10. Compare against the branch-specific nuisance-only baseline.
 ```
 
+For the OSS sensitivity branch, steps 3-7 inherit the realized primary branch's selected-source candidate universe and HF-overlap exclusion rule, replace `X_ULF_only` with `X_ULF_only_OSS`, and recompute `M_ULF_OSS`, `F+_ULF_OSS`, `F-_ULF_OSS`, `SweetPeak5_ULF_OSS`, `SourPeak5_ULF_OSS`, and `NetULFFiberScore_OSS` within the training fold.
+
 Forbidden fold-level operations:
 
 ```text
@@ -1225,12 +1370,14 @@ no full-sample ULF candidate mask for LOOCV scoring
 no full-sample ranks
 no full-sample M_ULF
 no full-sample F+_ULF or F-_ULF
+no full-sample F+_ULF_OSS or F-_ULF_OSS for OSS branches
 no held-out patient in candidate definition
 no held-out patient in ULF map fitting
 no held-out patient in selected-fiber selection
 no held-out patient in final prediction-model fitting
 no full-sample HF model for held-out DeltaHFScore
 no threshold selected using the held-out patient's outcome in nested/adaptive validation
+no OSS activation-defined candidate set
 ```
 
 Core observed stage:
@@ -1316,6 +1463,8 @@ NetULFFiberScore
 bootstrap stability summaries
 ```
 
+If an OSS bootstrap is explicitly promoted in a future run, rerun OSS activation scoring inside the inherited selected-source candidate universe and recompute `M_ULF_OSS`, `F+_ULF_OSS`, `F-_ULF_OSS`, and `NetULFFiberScore_OSS`. OSS bootstrap is not part of the default ULF OSS round.
+
 Do not store full `B=10000` fiber-weight tables. Use streaming finite-count, selection-frequency, and sign-stability summaries.
 
 ### 12.3 Max-stat permutation for threshold scans
@@ -1397,7 +1546,38 @@ Y_post ~ NetULFFiberScore + PlainULFOnlyExposureTop5 + Y_HF_ref
 
 The joint model is QC only. With `n=16`, it must not be interpreted as strong causal decomposition.
 
-### 13.2 Additional burden QC variables
+### 13.2 OSS activation plain control
+
+For OSS sensitivity branches, compute a plain activation burden control within the inherited selected-source candidate universe:
+
+```text
+PlainOSSActivated_i(l) = I[X_ULF_only_OSS_i(l) > 0]
+PlainOSSActivationCount_i = sum_l PlainOSSActivated_i(l)
+PlainOSSActivationSum_i   = sum_l X_ULF_only_OSS_i(l)
+PlainOSSActivationTop5_i  = mean top 5% X_ULF_only_OSS_i(l) among activated candidate fibers
+```
+
+Compare for DeltaHF-adjusted OSS branches:
+
+```text
+Y_post ~ Y_HF_ref + DeltaHFScore
+Y_post ~ PlainOSSActivationTop5 + Y_HF_ref + DeltaHFScore
+Y_post ~ NetULFFiberScore_OSS + Y_HF_ref + DeltaHFScore
+Y_post ~ NetULFFiberScore_OSS + PlainOSSActivationTop5 + Y_HF_ref + DeltaHFScore
+```
+
+Compare for no-DeltaHF OSS branches:
+
+```text
+Y_post ~ Y_HF_ref
+Y_post ~ PlainOSSActivationTop5 + Y_HF_ref
+Y_post ~ NetULFFiberScore_OSS + Y_HF_ref
+Y_post ~ NetULFFiberScore_OSS + PlainOSSActivationTop5 + Y_HF_ref
+```
+
+The OSS joint control model is QC only. It tests whether the OSS sensitivity result mainly reflects activation burden rather than outcome-filtered activation profile.
+
+### 13.3 Additional burden QC variables
 
 Compute but do not force into the primary model:
 
@@ -1470,6 +1650,17 @@ normative_ULF_fiber_threshold_scan_maxstat_permutation_summary.csv, if run
 normative_ULF_fiber_threshold_scan_nested_validation_predictions.csv, if run
 ```
 
+OSS-DBS activation sensitivity outputs, if run:
+
+```text
+normative_ULF_fiber_oss_parameter_manifest.json
+normative_ULF_fiber_oss_activation_matrix_summary.csv
+normative_ULF_fiber_oss_loocv_predictions.csv
+normative_ULF_fiber_oss_permutation_summary.csv
+normative_ULF_plain_oss_activation_summary.csv
+normative_ULF_plain_oss_activation_model_comparison.csv
+```
+
 `normative_ULF_fiber_weights.csv` fields:
 
 ```text
@@ -1493,6 +1684,11 @@ ulf_norm_fiber_source_status
 ulf_norm_fiber_prediction_status
 ulf_norm_fiber_endpoint_model_status
 ulf_norm_fiber_selected_adjacent_passing_grid_cells
+ulf_oss_sensitivity_status
+oss_activation_output_type
+oss_candidate_source_branch
+oss_inherited_tau_v_per_m
+oss_inherited_coverage
 fiber_id
 tau_v_per_m
 coverage_ULF_only
@@ -1537,9 +1733,17 @@ hf_source_adjacent_passing_grid_cells
 ulf_norm_fiber_source_status
 ulf_norm_fiber_prediction_status
 ulf_norm_fiber_endpoint_model_status
+ulf_oss_sensitivity_status
+oss_activation_output_type
+oss_candidate_source_branch
+oss_inherited_tau_v_per_m
+oss_inherited_coverage
 NetULFFiberScore
+NetULFFiberScore_OSS
 SweetPeak5_ULF
 SourPeak5_ULF
+SweetPeak5_ULF_OSS
+SourPeak5_ULF_OSS
 PlainULFOnlyExposureTop5
 PlainULFTotalExposureTop5
 PlainHFComponentExposureTop5
@@ -1574,6 +1778,7 @@ Y_post_observed
 Y_post_predicted_ULF_model
 Y_post_predicted_nuisance_only
 NetULFFiberScore_LOOCV
+NetULFFiberScore_OSS_LOOCV
 Y_HF_ref
 DeltaHFScore_LOOCV
 DeltaHFScore_z_LOOCV
@@ -1635,6 +1840,9 @@ S{tau}_ULF_total_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
 HF_overlap_ulf_tau{tau}_hf_overlap_rule_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
 fiber_id.npy
 candidate_fiber_metadata.json
+X_ULF_OSS_activation_float32_fiber_major.npy, for inherited selected-source candidates if OSS is run
+OSS_ULFActivated_bool.npy, for inherited selected-source candidates if OSS is run
+oss_activation_sidecar_metadata.json, if OSS is run
 ```
 
 For dTOR:
@@ -1648,9 +1856,12 @@ chunks/
   S{tau}_ULF_only_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
   S_HF_component_hf_overlap_rule_bool_chunk-*.npy
   HF_overlap_ulf_tau{tau}_hf_overlap_rule_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
+  X_ULF_OSS_activation_float32_fiber_major_chunk-*.npy, for inherited selected-source candidates if OSS is run
+  OSS_ULFActivated_bool_chunk-*.npy, for inherited selected-source candidates if OSS is run
   fiber_id_chunk-*.npy
 fiber_chunk_manifest.json
 candidate_fiber_metadata.json
+oss_activation_sidecar_metadata.json, if OSS is run
 ```
 
 Loading all dTOR streamlines or all dTOR exposure values into memory is invalid.
@@ -1668,6 +1879,7 @@ candidate fiber metadata
 endpoint label lookup
 density lookup
 HF support lookup for locked HF model
+OSS activation sidecars for a fixed OSS parameter set and inherited candidate source
 ```
 
 ### 15.3 Outcome-dependent objects
@@ -1685,6 +1897,12 @@ F-_ULF
 SweetPeak5_ULF
 SourPeak5_ULF
 NetULFFiberScore
+M_ULF_OSS, for OSS branches
+F+_ULF_OSS, for OSS branches
+F-_ULF_OSS, for OSS branches
+SweetPeak5_ULF_OSS, for OSS branches
+SourPeak5_ULF_OSS, for OSS branches
+NetULFFiberScore_OSS, for OSS branches
 final prediction model
 ```
 
@@ -1704,6 +1922,9 @@ using target-level aggregation as the primary model
 using total ULF exposure in place of ULF-only exposure for the primary model
 using full-sample HF model to compute held-out DeltaHFScore
 extrapolating HF weights to out-of-support fibers
+using OSS activation to redefine ULF candidate fibers
+using OSS activation to select tau/Coverage source cells
+using HF OSS activation to redefine HF-overlap exclusion
 ```
 
 Every optimized implementation must pass exact-equivalence regression testing against a small deterministic brute-force subset before formal execution.
@@ -1729,6 +1950,7 @@ sensitivity:
   ulf_total_exposure_tau800_cov5_sensitivity
   ulf_gain_endpoint_sensitivity
   ulf_delta_hf_from_hf_neighbor_source_sensitivity
+  ulf_ossdbs_activation_sensitivity
 
 source_resolver_scan:
   ulf_tau_coverage_source_resolver_scan
@@ -1812,12 +2034,12 @@ bootstrap summaries
 
 Proceed to Round 2 only if optimized and brute-force outputs match within tolerance and dTOR chunked IO has no memory error.
 
-### Round 2: Observed LOOCV For All Available ULF Add-On Endpoint Rows, Source Resolver, And Endpoint Realization
+### Round 2: Chronic Observed LOOCV, Source Resolver, And Endpoint Realization
 
 Run:
 
 ```text
-for each available endpoint/scale row in the chronic and same-day immediate endpoint families:
+for each available endpoint/scale row in the chronic endpoint family:
   core branches =
     ulf_peak_efield_tau800_cov5_delta_hf_adjusted
     ulf_peak_efield_tau800_cov5_no_delta_hf
@@ -1871,7 +2093,26 @@ ulf_primary_branch is recorded in the manifest
 ulf_norm_fiber_endpoint_model_status is recorded in the manifest
 ```
 
-Proceed to Round 3 after every requested endpoint row either completes observed outputs or records an endpoint-level technical/input failure.
+Proceed to Round 2b after every requested chronic endpoint row either completes observed outputs or records an endpoint-level technical/input failure.
+
+### Round 2b: Same-Day Immediate Observed LOOCV
+
+The same-day immediate endpoint family uses the same Round 2 resolver. Any secondary or co-primary status is reporting hierarchy only, must be declared before formal resampling, and does not change resolver classification, branch role, prediction-status assignment, endpoint realization, or output generation. Its branch-specific covariates are:
+
+```text
+endpoint = same-day immediate HF+ULF score
+delta_hf_adjusted nuisance baseline = Y_post_immediate ~ Y_HF_ref + DeltaHFScore_immediate
+no_delta_hf nuisance baseline       = Y_post_immediate ~ Y_HF_ref
+```
+
+The same-day gain sensitivity can be run only after the same-day immediate selected-source resolver is complete:
+
+```text
+Gain_immediate ~ NetULFFiberScore_deltaHF + DeltaHFScore_immediate
+Gain_immediate ~ NetULFFiberScore_noDeltaHF
+```
+
+Proceed to Round 3 after every requested same-day immediate endpoint row either completes observed outputs or records an endpoint-level technical/input failure. If no same-day immediate rows are requested or complete, record that fact and proceed to Round 3.
 
 ### Round 3: Plain controls and burden diagnostics
 
@@ -1928,7 +2169,7 @@ scan_fallback_accepted:
   at selected_coverage, for executable branches when inputs allow
 
 absent_no_stable_grid:
-  skip Round 6; report no stable source in Round 9 summary
+  skip Round 6; report no stable source in Round 10 summary
 ```
 
 Tau-neighborhood sensitivity cannot replace the selected source.
@@ -1946,13 +2187,63 @@ formal bootstrap B=10000
 seed = 42
 ```
 
-Proceed to Round 8 only if formal resampling completes and manifests record:
+Proceed to Round 8 after Round 7 either completes formal resampling or records that no formal realized-primary model is available for the endpoint row.
+
+If formal resampling completes, manifests record:
 
 ```text
 resampling_status = formal_complete
 ```
 
-### Round 8: ULF jitter QC
+### Round 8: ULF OSS-DBS Activation Sensitivity
+
+Run after the dTOR realized-primary model has completed formal resampling for the endpoint row. If the endpoint row has no completed formal realized-primary model, record `ulf_oss_sensitivity_status = not_run_no_formal_realized_primary`.
+
+OSS is activation-model robustness evidence and does not alter the realized primary model, ULF source status, prediction status, endpoint status, or DeltaHFScore source.
+
+Run:
+
+```text
+oss_model_set = primary_locked
+candidate source = realized primary selected-source candidate universe
+exposure replacement = X_ULF_only_OSS
+nuisance design = realized primary branch nuisance design
+PPMI observed LOOCV cross-connectome check
+MGH observed LOOCV cross-connectome check
+dTOR observed LOOCV, only if PPMI/MGH OSS checks are technically valid or explicitly waived
+dTOR smoke Freedman-Lane permutation B=1000
+```
+
+Write:
+
+```text
+normative_ULF_fiber_oss_parameter_manifest.json
+normative_ULF_fiber_oss_activation_matrix_summary.csv
+normative_ULF_fiber_oss_loocv_predictions.csv
+normative_ULF_fiber_oss_permutation_summary.csv
+normative_ULF_plain_oss_activation_summary.csv
+normative_ULF_plain_oss_activation_model_comparison.csv
+```
+
+OSS technical-pass criteria:
+
+```text
+OSS parameter manifest is locked
+OSS activation sidecars align with inherited selected-source candidate fiber ids
+OSS activation matrix is not all NaN
+OSS activation matrix is not all zero
+NetULFFiberScore_OSS has nonzero variance
+OSS LOOCV is fit
+OSS B=1000 smoke permutation completes
+PlainOSSActivationTop5 is computable
+OSS joint control model is fit
+```
+
+Proceed to Round 9 after OSS either satisfies the technical-pass criteria or records an explicit not-run/failure status. If OSS activation is all zero or mostly tied, mark `ulf_oss_sensitivity_status = failed_activation_degenerate` and continue to Round 9 without using OSS as robustness support. If PPMI/MGH OSS checks fail and are not explicitly waived, mark `ulf_oss_sensitivity_status = not_run_cross_connectome_technical_failure`. If OSS is technically valid and directionally consistent with the peak-E-field result, mark `ulf_oss_sensitivity_status = passed_activation_consistent`. If OSS and peak-E-field results disagree while remaining technically valid, mark `ulf_oss_sensitivity_status = passed_activation_model_dependent`.
+
+If required OSS activation files, component labels, or locked OSS parameter metadata are missing, mark `ulf_oss_sensitivity_status = not_run_missing_oss_inputs`. If OSS inputs exist but the OSS branch nuisance design, LOOCV prediction model, or plain activation control is singular or otherwise not estimable, mark `ulf_oss_sensitivity_status = failed_oss_design_or_prediction`.
+
+### Round 9: ULF jitter QC
 
 Run only for dTOR branches with completed formal realized-primary results.
 
@@ -1973,7 +2264,7 @@ LOOCV prediction
 
 If jitter is unstable, report the result as spatially fragile.
 
-### Round 9: Display, FDR, labels, density, and cross-connectome summaries
+### Round 10: Display, FDR, labels, density, and cross-connectome summaries
 
 Generate display outputs only after numeric branches are locked. Display, FDR, labels, density, and cross-connectome outputs must derive from finalized numeric outputs and must not alter the primary model.
 

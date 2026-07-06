@@ -36,6 +36,47 @@ Do not continue execution from this checkpoint unless explicitly resumed.
 
 ---
 
+## Patch / Rerun Policy
+
+Any patch that changes executable model behavior invalidates the affected current
+outputs until the affected branches are rerun and their status manifests are
+refreshed. This includes patches to:
+
+```text
+source resolver logic
+hard computability filters
+prediction-status definitions
+branch-role assignment
+DeltaHFScore construction or support QC
+tau/Coverage grids or fallback ranking
+HF-overlap exclusion
+OSS-DBS activation sensitivity
+manifest/QC schema
+output naming or branch mapping
+```
+
+After such a patch, do not interpret stale output tables, maps, prediction CSVs,
+or consolidated status files as current results. The rerun must record:
+
+```text
+git branch
+git commit or local patch identifier
+authoritative model document version/date
+affected model(s)
+affected endpoint rows
+affected branches
+rerun command
+input/output roots
+manifest/QC refresh timestamp
+```
+
+Documentation-only wording changes do not by themselves require rerunning model
+outputs unless they change the declared executable behavior. If documentation
+changes the intended resolver or branch-role rule, the matching implementation
+and outputs must be patched and rerun before being reported as current.
+
+---
+
 ## 1. Goal
 
 Run a reproducible, manifest-backed four-model program on the `n=16` STN/SNr DBS cohort:
@@ -229,6 +270,7 @@ The current codebase is no longer greenfield. The following layers already exist
 ```text
 C formal ULF direct voxel resampling, gain endpoints, total-ULF sensitivity, and all-endpoint reporting driver
 D formal ULF normative fiber resampling, dTOR main branch, OSS, and figure-grade outputs
+shared reusable resolver/manifest/score architecture across voxel, fiber, HF, and ULF models
 formal B=10000 permutation/bootstrap loops
 formal spatial jitter loops
 OSS-DBS activation branch
@@ -413,9 +455,13 @@ Run these only after the relevant resolver/status fields identify the branch to 
 formal B=10000 permutation
 formal B=10000 bootstrap
 formal FWHM 2 mm jitter
-OSS-DBS activation sensitivity
+HF/ULF normative fiber OSS-DBS activation sensitivity
 figure-grade FDR/enrichment/display outputs
 ```
+
+If any upstream model or resolver patch lands before this work starts, rerun the
+affected observed/status branches first and treat previous downstream-ready flags
+as stale until refreshed.
 
 ---
 
@@ -510,6 +556,65 @@ Thin workflow scripts may call backend modules, but backend modules must remain
 usable with explicit paths and parameters supplied by the workflow. If a backend
 needs defaults for local convenience, those defaults must be overridable and
 must not define the scientific model.
+
+### Reusable Four-Model Architecture
+
+The four model documents intentionally share many concepts. New implementation
+work should increase reuse instead of copying model-specific logic across A/B/C/D.
+The reusable backend layer should expose shared components for:
+
+```text
+endpoint-row loading and ID joins
+tau/Coverage grid evaluation
+pre-specified versus scan-fallback source resolution
+adjacent-grid support counting
+hard computability filter evaluation
+prediction-status evaluation from MAE/RMSE versus baseline
+LOOCV prediction and nuisance-only baseline fitting
+permutation/bootstrap/jitter orchestration
+branch-role resolution from matched HF source/prediction status
+DeltaHFScore projection and support QC
+HF-overlap exclusion
+NetScore construction for voxel and fiber families
+manifest/QC schema writing
+stale-output detection after executable patches
+```
+
+Model-specific workflow scripts should provide configuration, not duplicate
+algorithms:
+
+```text
+model family = direct_voxel or normative_fiber
+therapy role = HF foundational or ULF add-on
+feature backend = voxel or streamline
+pre-specified tau/Coverage
+scan grids
+endpoint family
+branch names
+output roots
+connectome selection
+OSS enabled or disabled
+```
+
+The same shared resolver contract should produce parallel fields for direct
+voxel and normative fiber:
+
+```text
+hf_voxel_source_status
+hf_voxel_prediction_status
+hf_norm_fiber_source_status
+hf_norm_fiber_prediction_status
+ulf_voxel_source_status
+ulf_voxel_prediction_status
+ulf_norm_fiber_source_status
+ulf_norm_fiber_prediction_status
+ulf_endpoint_model_status
+ulf_norm_fiber_endpoint_model_status
+```
+
+Any new code that implements one of these shared concepts for only one model
+must either place the reusable logic in `my_helper/fiber/core/` immediately or
+document why temporary duplication is required and add a follow-up refactor task.
 
 ---
 
@@ -632,4 +737,6 @@ Every branch has QC JSON, manifest JSON, predictions CSV, and score CSV.
 Formal resampling is tied to the resolver-selected reporting branch.
 Fallback-selected thresholds are explicitly labeled as scan-fallback sources and are never relabeled as pre-specified sources.
 The final report states n=16 and hypothesis-generating interpretation.
+All affected outputs and consolidated status files have been rerun after the latest executable patch.
+Reusable backend components cover shared resolver, branch-role, score, DeltaHFScore, manifest, and stale-output logic.
 ```

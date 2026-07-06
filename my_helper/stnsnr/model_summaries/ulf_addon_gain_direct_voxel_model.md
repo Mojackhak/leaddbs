@@ -73,7 +73,7 @@ Immediate estimand:
 same-day HF-state-adjusted ULF-only acute add-on association
 ```
 
-Because `Y_post_immediate` and `Y_HF_ref` are measured on the same day, this endpoint is a valid same-day add-on response endpoint. It is still modeled separately from the chronic endpoint. It may be treated as a key secondary endpoint by default, or promoted to co-primary only if explicitly declared before running formal resampling.
+Because `Y_post_immediate` and `Y_HF_ref` are measured on the same day, this endpoint is a valid same-day add-on response endpoint. Chronic and same-day immediate endpoint families are modeled separately, but engineering execution treats every available endpoint/scale row equivalently within its endpoint family. Reporting hierarchy may designate chronic rows as primary and immediate rows as secondary or explicitly promoted co-primary; this hierarchy does not change resolver classification, branch role, prediction-status assignment, or output generation.
 
 ### Direction-Normalized Gain Sensitivity Endpoints
 
@@ -95,11 +95,11 @@ Gain_chronic   = Y_post_chronic - Y_HF_ref
 
 Positive gain always means improvement after adding ULF. The immediate gain endpoint is the cleanest direct same-day add-on effect estimate. The chronic gain endpoint combines add-on response, time-on-stimulation, adaptation, medication/assessment variability, and disease-course effects.
 
-Default first-pass endpoints:
+Executable endpoint rows:
 
 ```text
-1. MDS-UPDRS III total chronic HF+ULF 3-month score at T3
-2. MDS-UPDRS III total same-day immediate HF+ULF score at T2, if available
+all available HF+ULF post-add-on clinical scales joined by ID
+within the chronic and same-day immediate endpoint families
 ```
 
 Raw scores come from the raw clinical table used by the HF direct voxel model:
@@ -1530,7 +1530,7 @@ If Round 2 assigns `absent_no_stable_grid` to the intended primary branch, skip 
 
 ### Round 2b: Same-Day Immediate Observed LOOCV
 
-The same-day immediate endpoint uses the same Round 2 resolver. It is key secondary by default and becomes co-primary only if explicitly declared before formal resampling. Its branch-specific covariates are:
+The same-day immediate endpoint uses the same Round 2 resolver. Any secondary or co-primary status is reporting hierarchy only, must be declared before formal resampling, and does not change resolver classification or output generation. Its branch-specific covariates are:
 
 ```text
 endpoint = same-day immediate HF+ULF score

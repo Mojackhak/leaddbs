@@ -302,7 +302,7 @@ Report target connectivity patterns, secondary sweet-spot maps, and selected-tar
 
 ### Advanced Sensitivity Model
 
-Use OSS-DBS / pathway activation modeling as an advanced sensitivity analysis for normative fiber models, not for the direct voxel models. The HF normative fiber OSS branch uses a locked `primary_locked` OSS parameter set, inherits the peak-E-field candidate universe, replaces the exposure variable with pathway activation, and runs smoke permutation only unless the model document is explicitly revised.
+Use OSS-DBS / pathway activation modeling as an advanced sensitivity analysis for normative fiber models, not for the direct voxel models. The HF normative fiber OSS branch uses a locked `primary_locked` OSS parameter set, inherits the peak-E-field candidate universe, replaces the exposure variable with pathway activation, and runs smoke permutation only unless the model document is explicitly revised. The ULF normative fiber OSS branch inherits the realized primary ULF selected-source candidate universe, keeps the matched HF-overlap exclusion rule, replaces `X_ULF_only` with modeled ULF activation, and does not participate in the ULF tau/Coverage source resolver or endpoint-status assignment.
 
 The implementation should reuse Lead-DBS/OSS-DBS outputs when available, especially files matching:
 
@@ -1899,7 +1899,7 @@ Expected output groups:
 - `models/ulf/immediate_gain/`: endpoint-specific immediate ULF direct voxel, normative fiber, and target-level sensitivity results.
 - `models/cross_scale/`: map-level similarity metrics and secondary global maps.
 - `fiber_maps/hf_normative/`: right canonical HF normative selected-fiber displays, fiber density maps, top 1% sweet and top 0.5% sour streamlines, endpoint/anatomical enrichment, unthresholded landscape maps, FDR display summaries, cross-connectome robustness tables, bootstrap/jitter stability outputs, and plain connected-streamline controls.
-- `fiber_maps/ulf_normative/`: right canonical ULF normative selected-fiber displays, ULF-only fiber density maps, top 1% sweet and top 0.5% sour streamlines, HF-overlap exclusion summaries, DeltaHFScore support QC, endpoint/anatomical enrichment, FDR display summaries, cross-connectome robustness tables, and plain connected-streamline controls.
+- `fiber_maps/ulf_normative/`: right canonical ULF normative selected-fiber displays, ULF-only fiber density maps, top 1% sweet and top 0.5% sour streamlines, HF-overlap exclusion summaries, DeltaHFScore support QC, ULF OSS-DBS activation sensitivity outputs, endpoint/anatomical enrichment, FDR display summaries, cross-connectome robustness tables, and plain connected-streamline controls.
 - `voxel_maps/target_derived/ulf/`: left/right target-derived ULF maps only for individualized DWI target-level models or explicitly labeled target-level sensitivities.
 - `fiber_maps/loocv/hf_normative/`: fold-specific HF fiber-level weights, held-out `NetFiberScore`, and selected-fiber QC summaries.
 - `voxel_maps/loocv/snr/`: fold-specific ULF target-derived maps and held-out voxel overlap scores when ULF voxel scores are used for prediction.

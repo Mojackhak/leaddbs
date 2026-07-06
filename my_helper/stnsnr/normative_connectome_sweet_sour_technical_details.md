@@ -1076,7 +1076,7 @@ no_delta_hf:
            + error_i
 ```
 
-The ULF normative model also writes HF-overlap exclusion summaries, `DeltaHFScore` support/out-of-support QC for the DeltaHF-adjusted branch, plain connected-streamline controls, display density maps, endpoint/anatomical enrichment, and cross-connectome observed robustness summaries. Formal `B=10000` permutation/bootstrap is restricted to the dTOR branch recorded as primary by the branch-role resolver unless another endpoint is explicitly promoted.
+The ULF normative model also writes HF-overlap exclusion summaries, `DeltaHFScore` support/out-of-support QC for the DeltaHF-adjusted branch, plain connected-streamline controls, ULF OSS-DBS activation sensitivity outputs, display density maps, endpoint/anatomical enrichment, and cross-connectome observed robustness summaries. Formal `B=10000` permutation/bootstrap is restricted to the dTOR branch recorded as primary by the branch-role resolver unless another endpoint is explicitly promoted; the default ULF OSS-DBS branch is smoke sensitivity and does not redefine the ULF source resolver or endpoint status.
 
 ### Individualized DWI Target-Level Rank-Based Implementation
 
