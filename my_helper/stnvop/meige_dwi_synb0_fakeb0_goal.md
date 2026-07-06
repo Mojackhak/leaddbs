@@ -11,6 +11,10 @@ Implementation status:
   implemented and covered by a focused MATLAB test.
 - Meige read-only jobSpec validation: 22 subjects resolved to existing raw DWI
   four-file sets.
+- Meige project wrapper with non-destructive `DryRun` mode: implemented and
+  covered by a focused MATLAB test.
+- Next implementation target: Synb0/eddy pilot execution for `Meige001`,
+  `Meige008`, and `Meige021`.
 - Not yet complete: Synb0/eddy pilot runs, full-cohort preprocessing,
   Lead-DBS UI coregistration QC, and final subject-level processing record.
 
