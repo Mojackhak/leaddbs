@@ -268,6 +268,8 @@ If the nuisance design fails, the branch is not interpreted as nonpredictive. It
 ulf_branch_input_status = invalid_nuisance_design
 ```
 
+Branch input/design failure has priority over `absent_no_stable_grid`. If a branch cannot evaluate the declared grid because branch-specific inputs or the branch nuisance design are invalid, record `ulf_endpoint_model_status = primary_branch_input_failure` when that branch is primary. Do not reclassify this condition as `absent_no_stable_grid`.
+
 The pre-specified ULF source is:
 
 ```text
@@ -443,32 +445,51 @@ Coverage:
   5, 6, 7, 8, 10, 12
 ```
 
-For each tau, Coverage threshold, and endpoint phase:
+For each ULF source tau, Coverage threshold, and endpoint phase:
 
 ```text
-HF_active_i(v, phase)  = E_HF_component_i(v, phase)  > tau
-ULF_active_i(v, phase) = E_ULF_component_i(v, phase) > tau
+tau_ULF_source =
+  current ULF source-grid tau
 
-X_ULF_only_i(v, phase, tau) =
-  E_ULF_component_i(v, phase), if ULF_active_i(v, phase) and not HF_active_i(v, phase)
+tau_HF_overlap =
+  hf_voxel_selected_tau_v_per_m,
+    if hf_voxel_source_status is pre_specified_accepted or scan_fallback_accepted
+  +Inf,
+    if hf_voxel_source_status is absent_no_stable_grid
+
+HF_active_i(v, phase) =
+  E_HF_component_i(v, phase) > tau_HF_overlap
+
+ULF_active_i(v, phase, tau_ULF_source) =
+  E_ULF_component_i(v, phase) > tau_ULF_source
+
+X_ULF_only_i(v, phase, tau_ULF_source) =
+  E_ULF_component_i(v, phase),
+    if ULF_active_i(v, phase, tau_ULF_source)
+    and not HF_active_i(v, phase)
   0,                         otherwise
 
-Coverage_ULF_tau(v, phase) = sum_i I[X_ULF_only_i(v, phase, tau) > tau]
+Coverage_ULF_tau(v, phase) =
+  sum_i I[X_ULF_only_i(v, phase, tau_ULF_source) > tau_ULF_source]
+
 Omega_ULF_tau_coverage(phase) =
   {v in Candidate_ULF_phase : Coverage_ULF_tau(v, phase) >= coverage_threshold}
 ```
 
-For ULF, `tau` is part of the exposure definition. It defines component activity, HF-overlap exclusion, ULF-only zeroing, coverage, and QC. Therefore, each tau/Coverage grid cell rebuilds ULF-only exposure and HF-overlap exclusion. Round 2 first evaluates the pre-specified `tau=200 V/m, Coverage>=5` source, then evaluates the declared scan grid if the pre-specified source is not accepted. Round 7 tau sensitivity is centered on the selected ULF source, using `0.9 * selected_tau` and `1.1 * selected_tau` at `selected_coverage` when those thresholds are valid and supported.
+For ULF, `tau_ULF_source` is part of the ULF exposure definition. It defines ULF component activity, ULF-only zeroing, ULF coverage, and ULF QC. HF component activity for HF-overlap exclusion is not defined by the ULF source tau. If an HF source exists, HF activity uses the locked HF selected tau so every HF-component decision in the ULF model is aligned with the HF direct voxel source used to compute `DeltaHFScore`. If no HF source exists, `tau_HF_overlap = +Inf`, no HF-overlap voxels are excluded, and ULF-only exposure equals ULF exposure after ULF thresholding. Therefore, each ULF tau/Coverage grid cell rebuilds ULF-only exposure and HF-overlap exclusion using the current ULF tau and the fixed HF overlap rule. Round 2 first evaluates the pre-specified `ULF tau=200 V/m, Coverage>=5` source, then evaluates the declared scan grid if the pre-specified source is not accepted. Round 7 tau sensitivity is centered on the selected ULF source, using `0.9 * selected_tau` and `1.1 * selected_tau` at `selected_coverage` when those thresholds are valid and supported.
 
 Continuous `X_ULF_only_i(v, phase, tau)` values are used for modeling inside `Omega_ULF_tau_coverage`. Voxels with both HF and ULF activation are excluded from the primary ULF-only predictor and represented by HF-overlap outputs.
 
 ### HF-Overlap Exclusion Outputs
 
-HF-overlap is subject-specific, phase-specific, and tau-specific:
+HF-overlap is subject-specific, phase-specific, ULF-tau-specific, and HF-overlap-rule-specific:
 
 ```text
-HF_ULF_overlap_i(v, phase, tau) = HF_active_i(v, phase) and ULF_active_i(v, phase)
+HF_ULF_overlap_i(v, phase, tau_ULF_source, tau_HF_overlap) =
+  HF_active_i(v, phase) and ULF_active_i(v, phase, tau_ULF_source)
 ```
+
+When `tau_HF_overlap = +Inf`, the overlap mask is all false and the manifest must record `hf_overlap_rule = no_hf_source_no_overlap_exclusion`.
 
 Do not store only one ambiguous binary overlap mask. Required overlap outputs are:
 
@@ -532,23 +553,27 @@ S_HF_voxel(E)_i =
 
 HF exposure outside `V_HF_score` contributes `0` to `DeltaHFScore` because the HF model has no learned coefficient there. This zero contribution means "unscored / outside learned support", not "biologically no HF effect".
 
-DeltaHFScore support adequacy is defined only from the HF component reprogramming change:
+DeltaHFScore support adequacy is defined from the HF+ULF HF-component suprathreshold coverage range, not from e-field intensity sums or from the HF-only reference coverage. The coverage threshold is the locked HF selected tau:
 
 ```text
-DeltaE_HF_i(u) =
-  abs(E_HFplusULF_HFcomp_i(u) - E_HF_only_reference_i(u))
+tau_HF_selected =
+  hf_voxel_selected_tau_v_per_m
 
-HF_delta_total_sum_i =
-  sum_{u in right_canonical_HF_grid} DeltaE_HF_i(u)
+A_HFplusULF_HFcomp_i =
+  {u in right_canonical_HF_grid : E_HFplusULF_HFcomp_i(u) > tau_HF_selected}
 
-HF_delta_in_support_sum_i =
-  sum_{u in V_HF_score} DeltaE_HF_i(u)
+HF_component_coverage_total_voxels_i =
+  count(A_HFplusULF_HFcomp_i)
 
-HF_delta_out_support_fraction_i =
-  1 - HF_delta_in_support_sum_i / max(HF_delta_total_sum_i, epsilon)
+HF_component_coverage_in_support_voxels_i =
+  count(A_HFplusULF_HFcomp_i intersect V_HF_score)
+
+HF_component_coverage_out_support_fraction_i =
+  1 - HF_component_coverage_in_support_voxels_i
+      / HF_component_coverage_total_voxels_i
 ```
 
-Do not separately use raw HF+ULF HF-component out-of-support exposure as a DeltaHFScore validity criterion. DeltaHFScore estimates a change from HF-only reference to HF+ULF HF component programming, so the support adequacy criterion is whether that change lies within `V_HF_score`.
+If `HF_component_coverage_total_voxels_i = 0` for any required subject or fold, set `delta_hfscore_support_status = invalid_no_hfcomponent_coverage` for that branch. Do not compute the fraction by adding an epsilon denominator. Do not use the intensity sum of `DeltaE_HF_i(u)` as the support adequacy criterion.
 
 Required outputs:
 
@@ -569,9 +594,10 @@ ulf_selected_tau_v_per_m
 ulf_selected_coverage
 score_map_source
 n_hf_score_voxels
-HF_delta_total_sum
-HF_delta_in_support_sum
-HF_delta_out_support_fraction
+tau_HF_selected
+HF_component_coverage_total_voxels
+HF_component_coverage_in_support_voxels
+HF_component_coverage_out_support_fraction
 delta_hfscore_support_status
 DeltaHFScore_in_support
 DeltaHFScore_source_branch
@@ -583,8 +609,8 @@ Default decision rules:
 ```text
 Proceed without downgrading:
   delta_hfscore_support_status = adequate
-  cohort median HF_delta_out_support_fraction <= 0.20
-  and no more than 25% of subjects have HF_delta_out_support_fraction > 0.50
+  cohort median HF_component_coverage_out_support_fraction <= 0.20
+  and no more than 25% of subjects have HF_component_coverage_out_support_fraction > 0.50
 
 Proceed but downgrade interpretation:
   delta_hfscore_support_status = limited
@@ -592,17 +618,19 @@ Proceed but downgrade interpretation:
   but not invalid_extreme_out_of_support
 
 Do not run the DeltaHF-adjusted branch:
+  delta_hfscore_support_status = invalid_no_hfcomponent_coverage
+  or
   delta_hfscore_support_status = invalid_extreme_out_of_support
-  cohort median HF_delta_out_support_fraction > 0.50
-  or more than 25% of subjects have HF_delta_out_support_fraction > 0.80
-  or the HF component reprogramming change is almost entirely outside the locked HF model support for a required subject or fold.
+  cohort median HF_component_coverage_out_support_fraction > 0.50
+  or more than 25% of subjects have HF_component_coverage_out_support_fraction > 0.80
+  or the HF+ULF HF-component suprathreshold coverage is almost entirely outside the locked HF model support for a required subject or fold.
 ```
 
 When downgraded, report:
 
 ```text
 DeltaHFScore represents only the in-support projection of HF-component change.
-Substantial HF-component reprogramming change lay outside the learned HF 3-month map support.
+Substantial HF+ULF HF-component suprathreshold coverage lay outside the learned HF 3-month map support.
 ```
 
 Recommended sensitivity when delta-support limitation is nontrivial:
@@ -611,7 +639,7 @@ Recommended sensitivity when delta-support limitation is nontrivial:
 Y_post ~ ULFScore_mean_main + Y_HF_ref + DeltaHFScore_in_support
 ```
 
-with `HF_delta_out_support_fraction` reported descriptively. Do not include raw HF out-of-support exposure as a fourth predictor in the primary DeltaHFScore support analysis.
+with `HF_component_coverage_out_support_fraction` reported descriptively. Do not include raw HF out-of-support exposure as a fourth predictor in the primary DeltaHFScore support analysis.
 
 Do not expand the locked HF support after seeing ULF results. DeltaHFScore must use the HF selected source recorded by the HF resolver. Voxels outside the accepted HF source remain unscored.
 
@@ -765,7 +793,7 @@ Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, or failed e-field avail
 - Model chronic T3 and same-day immediate T2 endpoints separately.
 - Use leave-one-patient-out cross-validation with no inner hyperparameter tuning.
 - In each outer fold, rebuild the branch-specific nuisance inputs, rebuild `Omega_ULF_tau_coverage`, fit the ULF-only voxel map, compute training and held-out `ULFScore_mean_main`, and fit the final prediction model using only training patients.
-- For the DeltaHF-adjusted branch, rebuild the HF direct voxel map needed for `DeltaHFScore`, compute fold-specific `DeltaHFScore`, compute fold-specific `HF_delta_out_support_fraction`, and compare against `Y_post ~ Y_HF_ref + DeltaHFScore`.
+- For the DeltaHF-adjusted branch, rebuild the HF direct voxel map needed for `DeltaHFScore`, compute fold-specific `DeltaHFScore`, compute fold-specific `HF_component_coverage_out_support_fraction`, and compare against `Y_post ~ Y_HF_ref + DeltaHFScore`.
 - For the no-DeltaHF branch, omit `DeltaHFScore` from map estimation, scoring, prediction, permutation nuisance models, and baseline comparison; compare against `Y_post ~ Y_HF_ref`.
 - Run executed core branches at the observed LOOCV stage according to the locked HF branch-role rules. The branch-role resolver records which branch is interpreted as primary after the HF result is classified.
 - For each executed branch, assign `ulf_voxel_source_status` from the ULF hard computability filter and local tau/Coverage support.
@@ -816,7 +844,7 @@ Required design matrix schema:
 - `E_HF_component_phase_on_ulf_grid(subject x ulf_candidate_voxel)` continuous HF component exposure used for HF-overlap exclusion;
 - `X_ULF_only_tau{100,150,180,200,220,250,300,350,400,500}_phase(subject x ulf_candidate_voxel)` tau-specific ULF-only exposure;
 - `S_tau{100,150,180,200,220,250,300,350,400,500}_ULF_only_phase(subject x ulf_candidate_voxel)` Boolean suprathreshold ULF-only sidecars;
-- `HF_overlap_tau{100,150,180,200,220,250,300,350,400,500}_phase(subject x ulf_candidate_voxel)` Boolean HF/ULF overlap sidecars;
+- `HF_overlap_ulf_tau{100,150,180,200,220,250,300,350,400,500}_hf_overlap_rule_phase(subject x ulf_candidate_voxel)` Boolean HF/ULF overlap sidecars;
 - `E_HF_component_phase_on_hf_score_grid(subject x hf_score_voxel)` continuous HF component exposure used for `DeltaHFScore`;
 - `E_HF_only_reference_on_hf_score_grid(subject x hf_score_voxel)` continuous HF-only reference exposure used for `DeltaHFScore`;
 - ULF candidate voxel `ijk` and MNI `xyz_mm`;
@@ -825,7 +853,7 @@ Required design matrix schema:
 - `subject_id`, source e-field paths, side metadata, component labels, frequency labels, visit labels, and clinical raw values;
 - tau/candidate metadata, HF-overlap exclusion metadata, HF-support metadata, flip metadata, and jitter metadata placeholders.
 
-The implementation must not store a single tau-independent `X_ULF_only` as the formal input. `X_ULF_only` is tau-specific because tau defines ULF activity, HF activity, and overlap exclusion.
+The implementation must not store a single ULF-tau-independent `X_ULF_only` as the formal input. `X_ULF_only` is ULF-tau-specific because `tau_ULF_source` defines ULF activity and ULF coverage, while the locked HF selected tau defines HF activity for overlap exclusion.
 
 Python postprocessing in the `leaddbs` Conda environment:
 
@@ -902,11 +930,11 @@ Output semantics:
 - `direct_voxel_ULF_only_sweet_sour.nii.gz` stores benefit-oriented `M_ULF(v)`. Positive values indicate ULF-only benefit-associated voxels.
 - `direct_voxel_ULF_only_stability.nii.gz` stores LOOCV training-fold direction stability of `M_ULF(v)>0` or `M_ULF(v)<0`, depending on display class. It is not a p value.
 - `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the accepted selected source of the primary branch only.
-- `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `delta_hfscore_role`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_delta_out_support_fraction`, `delta_hfscore_support_status`, `score_map_source`, `n_valid_score_voxels`, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, and `is_primary_score`.
+- `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `delta_hfscore_role`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_component_coverage_out_support_fraction`, `delta_hfscore_support_status`, `score_map_source`, `n_valid_score_voxels`, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, and `is_primary_score`.
 - `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed raw outcome, branch-specific nuisance-only prediction, `ULFScore_mean_main`, `DeltaHFScore` when applicable, DeltaHFScore support fields, `MAE_nuisance_baseline`, `RMSE_nuisance_baseline`, and residuals.
 - `direct_voxel_ULF_only_permutation_summary.csv` stores Freedman-Lane permutation summary for the accepted selected source of the primary branch only.
-- HF-overlap files store subject-level and cohort-level voxels excluded from the ULF-only predictor because both HF and ULF are active at the branch tau.
-- DeltaHFScore support files store the in-support and out-of-support HF component reprogramming change used to determine whether `DeltaHFScore` is within the learned HF model support.
+- HF-overlap files store subject-level and cohort-level voxels excluded from the ULF-only predictor because ULF is active at the ULF source tau and HF is active at the locked HF selected tau.
+- DeltaHFScore support files store the in-support and out-of-support HF+ULF HF-component suprathreshold coverage used to determine whether `DeltaHFScore` is within the learned HF model support.
 - `direct_voxel_ULF_only_mapping_qc.json` stores endpoint/tau/Coverage/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_ULF_tau_coverage` voxel count, HF-overlap exclusion volume, DeltaHFScore delta-support adequacy, degenerate voxels, NaN handling, zero-exposure score counts, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_branch_input_status`, `branch_nuisance_design_status`, `corr(ULFScore_mean_main, Y_HF_ref)`, `corr(ULFScore_mean_main, DeltaHFScore)`, `corr(Y_HF_ref, DeltaHFScore)`, coefficient signs, VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
 - `direct_voxel_ULF_only_generation_manifest.json` stores provenance, parameters, code version, conda environment, package state, random seeds, visit labels, same-day immediate reference confirmation, component-proxy labels, HF-derived branch role fields, ULF resolver fields, and runtime profile.
 
@@ -1057,16 +1085,16 @@ S_tau300_ULF_only_<phase>_bool.npy
 S_tau350_ULF_only_<phase>_bool.npy
 S_tau400_ULF_only_<phase>_bool.npy
 S_tau500_ULF_only_<phase>_bool.npy
-HF_overlap_tau100_<phase>_bool.npy
-HF_overlap_tau150_<phase>_bool.npy
-HF_overlap_tau180_<phase>_bool.npy
-HF_overlap_tau200_<phase>_bool.npy
-HF_overlap_tau220_<phase>_bool.npy
-HF_overlap_tau250_<phase>_bool.npy
-HF_overlap_tau300_<phase>_bool.npy
-HF_overlap_tau350_<phase>_bool.npy
-HF_overlap_tau400_<phase>_bool.npy
-HF_overlap_tau500_<phase>_bool.npy
+HF_overlap_ulf_tau100_hf_overlap_rule_<phase>_bool.npy
+HF_overlap_ulf_tau150_hf_overlap_rule_<phase>_bool.npy
+HF_overlap_ulf_tau180_hf_overlap_rule_<phase>_bool.npy
+HF_overlap_ulf_tau200_hf_overlap_rule_<phase>_bool.npy
+HF_overlap_ulf_tau220_hf_overlap_rule_<phase>_bool.npy
+HF_overlap_ulf_tau250_hf_overlap_rule_<phase>_bool.npy
+HF_overlap_ulf_tau300_hf_overlap_rule_<phase>_bool.npy
+HF_overlap_ulf_tau350_hf_overlap_rule_<phase>_bool.npy
+HF_overlap_ulf_tau400_hf_overlap_rule_<phase>_bool.npy
+HF_overlap_ulf_tau500_hf_overlap_rule_<phase>_bool.npy
 ulf_candidate_ijk.npy
 ulf_candidate_xyz_mm.npy
 hf_score_support_ijk.npy
@@ -1089,7 +1117,7 @@ Omega_ULF_tau_coverage_fold_h(phase) =
   {v : Coverage_tau_fold_h(v, phase) >= coverage_threshold}
 ```
 
-`coverage_threshold` is the current grid cell's Coverage value in Round 2 and `selected_coverage` for selected-source formal analyses. `HF_overlap_tau*_bool` can be cached because it depends only on accepted HF/ULF component exposures and tau, not on outcome.
+`coverage_threshold` is the current grid cell's Coverage value in Round 2 and `selected_coverage` for selected-source formal analyses. `HF_overlap_ulf_tau*_hf_overlap_rule_bool` can be cached because it depends only on accepted HF/ULF component exposures, ULF tau, and the locked HF-overlap rule, not on outcome.
 
 ### Vectorized Partial Spearman Kernel
 
@@ -1175,7 +1203,7 @@ using compressed NPZ as the random-access formal-loop input
     "n_voxels_selected_min": null,
     "n_voxels_selected_max": null,
     "n_hf_overlap_selected_mean": null,
-    "hf_out_support_fraction_summary": null,
+    "hf_component_coverage_out_support_fraction_summary": null,
     "python_jobs": null,
     "blas_threads": null,
     "memmap_sidecars": [],
@@ -1266,17 +1294,19 @@ locked HF model audit:
   fold-specific map generation is available for LOOCV DeltaHFScore when a source exists
 ```
 
-`available_ulf_endpoint_count` is the number of ULF endpoint rows that pass Round 0 endpoint/input readiness, including clinical availability, defined scale direction, `n_subjects >= 12`, uniquely matched endpoint-specific raw e-fields, and required branch inputs. Endpoint rows that fail Round 0 are recorded as input/readiness failures and are not included in the Round 2 all-endpoint denominator.
+`available_ulf_endpoint_count` is the number of ULF endpoint rows that pass Round 0 endpoint readiness, including clinical availability, defined scale direction, `n_subjects >= 12`, uniquely matched endpoint-specific raw e-fields, and at least one executable branch. Endpoint rows that fail Round 0 are recorded as input/readiness failures and are not included in the Round 2 all-endpoint denominator. Branch-specific inputs are evaluated separately: invalid `DeltaHFScore` fails only the `delta_hf_adjusted` branch, while `no_delta_hf` may still run.
 
 After the locked HF resolver is read, define executed ULF branches:
 
 ```text
 if hf_voxel_source_status is pre_specified_accepted or scan_fallback_accepted:
   run no_delta_hf
-  run delta_hf_adjusted
+  attempt/run delta_hf_adjusted only if DeltaHFScore inputs are valid
 
 if hf_voxel_prediction_status == error_predictive:
   ulf_primary_branch = delta_hf_adjusted
+  if DeltaHFScore inputs are invalid:
+    ulf_endpoint_model_status = primary_branch_input_failure
 
 if hf_voxel_prediction_status == error_nonpredictive:
   ulf_primary_branch = no_delta_hf
@@ -1296,11 +1326,11 @@ E_ULF_component matrix is non-empty
 E_HF_component matrix is non-empty
 X_ULF_only_tau{100,150,180,200,220,250,300,350,400,500} sidecars are available
 S_tau{100,150,180,200,220,250,300,350,400,500} sidecars are available
-HF_overlap_tau{100,150,180,200,220,250,300,350,400,500} outputs are valid even if overlap is zero
+HF_overlap_ulf_tau{100,150,180,200,220,250,300,350,400,500}_hf_overlap_rule outputs are valid even if overlap is zero
 each subject has nonzero HF component exposure
 each subject has nonzero or explicitly absent ULF-only exposure
 DeltaHFScore support summary is generated for delta_hf_adjusted branches
-HF_delta_out_support_fraction and delta_hfscore_support_status are recorded for delta_hf_adjusted branches
+HF_component_coverage_out_support_fraction and delta_hfscore_support_status are recorded for delta_hf_adjusted branches
 ```
 
 If the full-sample `tau200/Coverage>=5` ULF Omega is empty, Round 1 still proceeds to Round 2. The pre-specified grid cannot be accepted, and the scan resolver determines whether a fallback source exists. If ULF-only exposure is empty for most subjects across the declared grid, record the support limitation and allow Round 2 to assign `absent_no_stable_grid`.
@@ -1357,7 +1387,7 @@ RMSE_model
 RMSE_nuisance_baseline
 corr(ULFScore_mean_main, Y_HF_ref)
 corr(ULFScore_mean_main, DeltaHFScore) if applicable
-HF_delta_out_support_fraction_summary if applicable
+HF_component_coverage_out_support_fraction_summary if applicable
 ```
 
 Then assign:
