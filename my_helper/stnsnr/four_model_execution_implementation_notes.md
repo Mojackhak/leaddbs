@@ -474,11 +474,11 @@ Run the worklist generator:
 
 The intended next executable layer replaces the older post-hoc candidate-level
 classification with the direct-voxel source resolver from
-`hf_3m_direct_voxel_model.md`. It reads the existing all-scale post-hoc
+`hf_3m_direct_voxel_model.md`. It reads the existing all-endpoint Round 2
 tau/Coverage scan outputs and writes an automatic summary of which HF endpoints
 have a stable source for downstream ULF `DeltaHFScore` construction.
 
-The classifier is implemented inside the existing post-hoc scan module:
+The classifier is implemented inside the existing tau/Coverage scan module:
 
 ```text
 my_helper/fiber/core/analysis/stnsnr_hf_direct_voxel_posthoc_threshold_scan.py
@@ -492,7 +492,7 @@ my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py
 
 The current code still exposes historical candidate-level refresh outputs under
 the same entry point. Until code is updated, use the scan tables only as input
-evidence for the intended resolver.
+evidence for the intended Round 2 resolver.
 
 Historical refresh command without recomputing the 60-cell scans:
 

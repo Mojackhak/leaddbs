@@ -1346,7 +1346,7 @@ tau220 / partial_spearman
 run for both delta_hf_adjusted and no_delta_hf core roles when inputs allow
 ```
 
-Do not run formal permutation/bootstrap for tau sensitivity. Interpret tau180/tau220 as exposure-definition robustness checks, not threshold search.
+Do not run formal permutation/bootstrap for tau sensitivity. Interpret fixed neighboring-threshold branches as exposure-definition robustness checks, not threshold search.
 
 ### Round 8: Additional Sensitivities
 

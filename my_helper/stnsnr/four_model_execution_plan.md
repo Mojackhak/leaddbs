@@ -191,7 +191,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | M0 readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_m0_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_readiness.py` | implemented |
 | M1 stats selftest | `my_helper/fiber/stnsnr/run_stnsnr_four_model_m1_selftest.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_stats.py` | implemented |
 | A observed primary | `my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_smoke.py` | `my_helper/fiber/core/analysis/stnsnr_hf_direct_voxel_smoke.py` | implemented |
-| A post-hoc scan | `my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py` | `my_helper/fiber/core/analysis/stnsnr_hf_direct_voxel_posthoc_threshold_scan.py` | implemented |
+| A Round 2 tau/Coverage resolver scan | `my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py` | `my_helper/fiber/core/analysis/stnsnr_hf_direct_voxel_posthoc_threshold_scan.py` | implemented |
 | B observed primary | `my_helper/fiber/stnsnr/run_stnsnr_hf_normative_fiber_smoke.py` | `my_helper/fiber/core/analysis/stnsnr_hf_normative_fiber_smoke.py` | implemented |
 | Legacy A/B status CSV | `my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_gate_status.py` | implemented |
 | Four-model status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py` | implemented |
@@ -204,7 +204,7 @@ The current codebase is no longer greenfield. The following layers already exist
 ### Not Yet Implemented
 
 ```text
-C formal ULF direct voxel resampling, gain endpoints, total-ULF sensitivity, and all-scale driver
+C formal ULF direct voxel resampling, gain endpoints, total-ULF sensitivity, and all-endpoint reporting driver
 D formal ULF normative fiber resampling, dTOR main branch, OSS, and figure-grade outputs
 formal B=10000 permutation/bootstrap loops
 formal spatial jitter loops
@@ -294,9 +294,9 @@ Current observed outputs:
 
 Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. Formal resampling, OSS-DBS activation, density maps, endpoint enrichment, and dTOR-scale figure-grade outputs have not been run.
 
-### A All-Scale Post-Hoc Scan
+### A Round 2 All-Endpoint Tau/Coverage Resolver Scan
 
-The A-model all-scale post-hoc scan exists at:
+The A-model all-endpoint tau/Coverage resolver scan exists at:
 
 ```text
 /Volumes/VAL/STNSNr/summary/direct_voxel/hf/posthoc_threshold_scan_all_scales/
@@ -311,7 +311,7 @@ It contains:
 30 endpoints x 60 tau/Coverage grid cells = 1800 rows
 ```
 
-The scan is used by the A-model source resolver only if the pre-specified `tau200/Coverage>=5` branch is not accepted. The hard computability filter is:
+The scan is part of Round 2. It first evaluates the pre-specified `tau200/Coverage>=5` cell for each endpoint, then uses the remaining grid cells only when that pre-specified source is not accepted. The hard computability filter is:
 
 ```text
 n_subjects >= 12
@@ -512,7 +512,7 @@ A HF direct voxel observed primary:
   python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_smoke.py
 ```
 
-A HF direct voxel post-hoc scan, one scale:
+A HF direct voxel Round 2 tau/Coverage resolver scan, one endpoint:
 
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
@@ -520,7 +520,7 @@ A HF direct voxel post-hoc scan, one scale:
   --scale "MDS-UPDRS III score (STN, 3 m)"
 ```
 
-A HF direct voxel post-hoc scan, all scales:
+A HF direct voxel Round 2 tau/Coverage resolver scan, all endpoints:
 
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
