@@ -32,7 +32,7 @@ for iside=1:length(options.sides)
     end
 
     markers(side).head=coords_mm{side}(1,:); %#ok<AGROW>
-    markers(side).tail=coords_mm{side}(4,:); %#ok<AGROW>
+    markers(side).tail=coords_mm{side}(end,:); %#ok<AGROW>
     [xunitv, yunitv] = ea_calcxy(coords_mm{side}(1,:), coords_mm{side}(end,:));
     markers(side).x=coords_mm{side}(1,:)+xunitv*(options.elspec.lead_diameter/2);
     markers(side).y=coords_mm{side}(1,:)+yunitv*(options.elspec.lead_diameter/2);
@@ -53,6 +53,8 @@ switch model
         % pass through (same nomenclature)
     case 'Medtronic 3387'
         % pass through (same nomenclature)
+    case 'SceneRay SR1202'
+        model='SceneRay SR1202';
     case 'Boston Scientific Vercise Directed'
         model='Boston Vercise Directional';
     case 'Aleva directSTIM Directed'

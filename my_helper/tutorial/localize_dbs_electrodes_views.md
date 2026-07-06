@@ -97,6 +97,23 @@ X-Ray Mode 的作用是：
 
 X-Ray Mode 不适合直接用亮斑中心作为最终 marker 位置，因为它显示的是厚层投影，不是单层几何截面。开启 X-Ray 后看到的斜向亮带、分叉或两条伪影线，可能来自电极轴向投影和 CT streak artifact 的叠加。
 
+## SceneRay SR1202 和 PaCER 定位约定
+
+SceneRay SR1202 是 8-contact、非定向 ring lead。Lead-DBS 模型中的几何参数为：
+
+- lead 直径：1.27 mm。
+- contact 长度：1.5 mm。
+- contact 间隔：0.5 mm。
+- contact 中心沿长轴的位置：0.75、2.75、4.75、6.75、8.75、10.75、12.75、14.75 mm。
+
+在 PaCER 自动重建和手动复核窗口中，应使用同一个 marker 约定：
+
+- head / 红点：第 1 个 contact 的中心。
+- tail / 绿点：第 8 个 contact 的中心。
+- 蓝色轴线：第 1 个 contact 中心到第 8 个 contact 中心定义的长轴。
+
+因此，SR1202 的 tail 不应落在第 4 个 contact 中心。若自动重建后看到紫色 contacts 只覆盖远端一半电极，或绿色 tail 明显停在第 4 个 contact 附近，说明自动重建几何没有按 8-contact SR1202 解释，需要重新检查 PaCER 电极型号和输出 marker。
+
 ## 推荐定位流程
 
 ### 1. 先用 X-Ray Mode 粗定轴线
