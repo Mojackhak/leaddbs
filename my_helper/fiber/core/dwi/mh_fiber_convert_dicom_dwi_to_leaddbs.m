@@ -9,6 +9,7 @@ parser.addParameter('OutputBase', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('RepoDir', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('WorkDir', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('ReferenceNifti', '', @(x) ischar(x) || isstring(x));
+parser.addParameter('TileOrder', 'row_major_right_to_left', @(x) ischar(x) || isstring(x));
 parser.addParameter('Parallel', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ParallelWorkers', 4, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
@@ -21,7 +22,7 @@ paths = output_paths(opts.OutputDir, opts.OutputBase);
 result = base_result(opts, paths);
 if ~opts.DryRun
     ensure_output_available(paths, opts.Force);
-    ensure_dir(opts.OutputDir);
+    mh_util_make_dir(opts.OutputDir);
 end
 
 [workDir, cleanupObj] = prepare_work_dir(opts);
@@ -33,10 +34,10 @@ result.WorkDir = workDir;
 [cmd, status, output] = run_dcm2niix(dcm2niixPath, opts.DicomDir, workDir);
 result.Dcm2niixCommand = cmd;
 result.Dcm2niixStatus = status;
-result.Dcm2niixOutput = compact_message(output);
+result.Dcm2niixOutput = mh_fiber_compact_message(output);
 if status ~= 0
     error('mh_fiber_convert_dicom_dwi_to_leaddbs:Dcm2niixFailed', ...
-        'dcm2niix failed for %s: %s', opts.DicomDir, compact_message(output));
+        'dcm2niix failed for %s: %s', opts.DicomDir, mh_fiber_compact_message(output));
 end
 
 candidate = select_dwi_candidate(workDir);
@@ -57,6 +58,7 @@ if candidate.ImageSize(3) == 1
             'SourceBvec', candidate.Bvec, ...
             'DicomDir', opts.DicomDir, ...
             'ReferenceNifti', opts.ReferenceNifti, ...
+            'TileOrder', opts.TileOrder, ...
             'OutputDir', opts.OutputDir, ...
             'OutputBase', opts.OutputBase, ...
             'Parallel', opts.Parallel, ...
@@ -73,6 +75,7 @@ if candidate.ImageSize(3) == 1
             'SourceBvec', candidate.Bvec, ...
             'DicomDir', opts.DicomDir, ...
             'ReferenceNifti', opts.ReferenceNifti, ...
+            'TileOrder', opts.TileOrder, ...
             'OutputDir', opts.OutputDir, ...
             'OutputBase', opts.OutputBase, ...
             'Parallel', opts.Parallel, ...
@@ -116,6 +119,9 @@ fields = {'DicomDir', 'OutputDir', 'OutputBase', 'RepoDir', 'WorkDir', 'Referenc
 for i = 1:numel(fields)
     opts.(fields{i}) = char(string(opts.(fields{i})));
 end
+opts.TileOrder = validatestring(char(string(opts.TileOrder)), ...
+    {'row_major_right_to_left', 'row_major_left_to_right'}, ...
+    'mh_fiber_convert_dicom_dwi_to_leaddbs', 'TileOrder');
 opts.Parallel = logical(opts.Parallel);
 opts.ParallelWorkers = max(1, round(double(opts.ParallelWorkers)));
 opts.Force = logical(opts.Force);
@@ -157,6 +163,7 @@ result.Message = '';
 result.DicomDir = opts.DicomDir;
 result.OutputDir = opts.OutputDir;
 result.OutputBase = opts.OutputBase;
+result.TileOrder = opts.TileOrder;
 result.OutputNifti = paths.Nifti;
 result.OutputJson = paths.Json;
 result.OutputBval = paths.Bval;
@@ -193,19 +200,20 @@ cleanupObj = [];
 if isempty(opts.WorkDir)
     workDir = tempname;
     mkdir(workDir);
-    cleanupObj = onCleanup(@() cleanup_temp_dir(workDir));
+    cleanupObj = onCleanup(@() mh_fiber_cleanup_temp_dir(workDir));
 else
     workDir = opts.WorkDir;
     if isfolder(workDir) && opts.Force
         rmdir(workDir, 's');
     end
-    ensure_dir(workDir);
+    mh_util_make_dir(workDir);
 end
 end
 
 function [cmd, status, output] = run_dcm2niix(dcm2niixPath, dicomDir, workDir)
 cmd = sprintf('%s -f converted_%%p_s%%s -i y -b y -ba n -z y -o %s %s', ...
-    shell_quote(dcm2niixPath), shell_quote(workDir), shell_quote(dicomDir));
+    mh_fiber_shell_quote(dcm2niixPath), mh_fiber_shell_quote(workDir), ...
+    mh_fiber_shell_quote(dicomDir));
 [status, output] = system(cmd);
 end
 
@@ -218,7 +226,7 @@ for i = 1:numel(niiFiles)
         continue;
     end
     niftiPath = fullfile(niiFiles(i).folder, name);
-    base = strip_nii_ext(name);
+    base = mh_fiber_strip_nii_ext(name);
     paths = sidecar_paths(niiFiles(i).folder, base, niftiPath);
     if ~isfile(paths.Json) || ~isfile(paths.Bval) || ~isfile(paths.Bvec)
         continue;
@@ -229,8 +237,8 @@ for i = 1:numel(niiFiles)
         if numel(imageSize) < 4
             imageSize(4) = 1;
         end
-        bvals = load_numeric_vector(paths.Bval);
-        bvecCount = bvec_volume_count(paths.Bvec);
+        bvals = mh_fiber_load_bval(paths.Bval);
+        bvecCount = mh_fiber_bvec_count(paths.Bvec);
         if numel(bvals) ~= imageSize(4) || bvecCount ~= imageSize(4) || ~any(bvals < 10)
             continue;
         end
@@ -296,12 +304,33 @@ info = niftiinfo(source);
 info.Filename = target;
 tempDir = tempname;
 mkdir(tempDir);
-cleanupObj = onCleanup(@() cleanup_temp_dir(tempDir));
-tempBase = fullfile(tempDir, strip_nii_ext(get_file_name(target)));
-niftiwrite(data, tempBase, info, 'Compressed', true);
-movefile([tempBase, '.nii.gz'], target, 'f');
+cleanupObj = onCleanup(@() mh_fiber_cleanup_temp_dir(tempDir));
+tempBase = fullfile(tempDir, mh_fiber_nii_basename(target));
+tempNii = [tempBase, '.nii'];
+info.Filename = tempNii;
+niftiwrite(data, tempNii, info, 'Compressed', false);
+writtenNii = find_written_nifti(tempNii);
+gzip(writtenNii);
+tempOutput = [writtenNii, '.gz'];
+if ~isfile(tempOutput)
+    error('mh_fiber_convert_dicom_dwi_to_leaddbs:NiftiWriteFailed', ...
+        'gzip did not create expected file: %s', tempOutput);
+end
+movefile(tempOutput, target, 'f');
 clear cleanupObj;
-cleanup_temp_dir(tempDir);
+mh_fiber_cleanup_temp_dir(tempDir);
+end
+
+function writtenNii = find_written_nifti(expectedPath)
+candidates = {expectedPath, [expectedPath, '.nii']};
+for i = 1:numel(candidates)
+    if isfile(candidates{i})
+        writtenNii = candidates{i};
+        return;
+    end
+end
+error('mh_fiber_convert_dicom_dwi_to_leaddbs:NiftiWriteFailed', ...
+    'niftiwrite did not create an uncompressed NIfTI near: %s', expectedPath);
 end
 
 function augment_final_json(jsonPath, opts, result, directCopy)
@@ -309,13 +338,15 @@ metadata = jsondecode(fileread(jsonPath));
 metadata.DicomDwiConversion = true;
 metadata.DicomDwiConversionSource = opts.DicomDir;
 metadata.DicomDwiConversionDecision = result.Decision;
+metadata.DicomDwiConversionTileOrder = opts.TileOrder;
 metadata.DicomDwiConversionDirectCopy = directCopy;
 metadata.DicomDwiConversionDcm2niixPath = result.Dcm2niixPath;
 metadata.DicomDwiConversionDcm2niixSource = result.Dcm2niixSource;
 metadata.DicomDwiConversionQcJson = result.QcJson;
 metadata.DicomDwiConversionConvertedImageSize = result.ConvertedImageSize;
 metadata.DicomDwiConversionOutputImageSize = result.OutputImageSize;
-write_json(jsonPath, metadata);
+mh_util_write_json(jsonPath, metadata, ...
+    'mh_fiber_convert_dicom_dwi_to_leaddbs:CannotWriteJson');
 end
 
 function write_qc_json(qcJson, opts, result, candidate)
@@ -325,6 +356,7 @@ qc.Message = result.Message;
 qc.DicomDir = opts.DicomDir;
 qc.OutputDir = opts.OutputDir;
 qc.OutputBase = opts.OutputBase;
+qc.TileOrder = opts.TileOrder;
 qc.OutputNifti = result.OutputNifti;
 qc.OutputJson = result.OutputJson;
 qc.OutputBval = result.OutputBval;
@@ -340,14 +372,19 @@ qc.ConvertedBval = candidate.Bval;
 qc.ConvertedBvec = candidate.Bvec;
 qc.ConvertedImageSize = candidate.ImageSize;
 qc.OutputImageSize = result.OutputImageSize;
-write_json(qcJson, qc);
+mh_util_write_json(qcJson, qc, ...
+    'mh_fiber_convert_dicom_dwi_to_leaddbs:CannotWriteJson');
 end
 
 function validate_final_outputs(paths)
-must_be_file(paths.Nifti, 'output NIfTI');
-must_be_file(paths.Json, 'output JSON');
-must_be_file(paths.Bval, 'output bval');
-must_be_file(paths.Bvec, 'output bvec');
+mh_util_must_be_file(paths.Nifti, 'output NIfTI', ...
+    'mh_fiber_convert_dicom_dwi_to_leaddbs:MissingFile');
+mh_util_must_be_file(paths.Json, 'output JSON', ...
+    'mh_fiber_convert_dicom_dwi_to_leaddbs:MissingFile');
+mh_util_must_be_file(paths.Bval, 'output bval', ...
+    'mh_fiber_convert_dicom_dwi_to_leaddbs:MissingFile');
+mh_util_must_be_file(paths.Bvec, 'output bvec', ...
+    'mh_fiber_convert_dicom_dwi_to_leaddbs:MissingFile');
 
 info = niftiinfo(paths.Nifti);
 imageSize = double(info.ImageSize);
@@ -355,8 +392,8 @@ if numel(imageSize) < 4
     error('mh_fiber_convert_dicom_dwi_to_leaddbs:OutputNot4D', ...
         'Output DWI is not 4D: %s', paths.Nifti);
 end
-bvals = load_numeric_vector(paths.Bval);
-bvecCount = bvec_volume_count(paths.Bvec);
+bvals = mh_fiber_load_bval(paths.Bval);
+bvecCount = mh_fiber_bvec_count(paths.Bvec);
 if numel(bvals) ~= imageSize(4)
     error('mh_fiber_convert_dicom_dwi_to_leaddbs:BvalMismatch', ...
         'bval count (%d) does not match output volume count (%d).', ...
@@ -371,86 +408,4 @@ if ~any(bvals < 10)
     error('mh_fiber_convert_dicom_dwi_to_leaddbs:MissingB0', ...
         'Output DWI has no b0 volume with bval < 10.');
 end
-end
-
-function vals = load_numeric_vector(path)
-vals = load(path);
-vals = vals(:)';
-if isempty(vals) || ~isnumeric(vals)
-    error('mh_fiber_convert_dicom_dwi_to_leaddbs:InvalidNumericVector', ...
-        'Could not read numeric values from %s', path);
-end
-end
-
-function count = bvec_volume_count(path)
-bvec = load(path);
-if size(bvec, 1) == 3
-    count = size(bvec, 2);
-elseif size(bvec, 2) == 3
-    count = size(bvec, 1);
-else
-    error('mh_fiber_convert_dicom_dwi_to_leaddbs:InvalidBvec', ...
-        'bvec file must be 3 x N or N x 3: %s', path);
-end
-end
-
-function write_json(path, data)
-fid = fopen(path, 'w');
-if fid < 0
-    error('mh_fiber_convert_dicom_dwi_to_leaddbs:CannotWriteJson', ...
-        'Cannot write JSON: %s', path);
-end
-cleanupObj = onCleanup(@() fclose(fid));
-try
-    txt = jsonencode(data, 'PrettyPrint', true);
-catch
-    txt = jsonencode(data);
-end
-fprintf(fid, '%s\n', txt);
-clear cleanupObj;
-end
-
-function message = compact_message(message)
-message = char(string(message));
-message = regexprep(message, '\s+', ' ');
-if numel(message) > 500
-    message = [message(1:500), '...'];
-end
-end
-
-function base = strip_nii_ext(name)
-base = regexprep(name, '\.nii(\.gz)?$', '');
-end
-
-function name = get_file_name(path)
-[~, name, ext] = fileparts(path);
-if strcmp(ext, '.gz')
-    [~, innerName, innerExt] = fileparts(name);
-    name = [innerName, innerExt, ext];
-else
-    name = [name, ext];
-end
-end
-
-function ensure_dir(path)
-if ~isfolder(path)
-    mkdir(path);
-end
-end
-
-function cleanup_temp_dir(path)
-if ~isempty(path) && isfolder(path)
-    rmdir(path, 's');
-end
-end
-
-function must_be_file(path, label)
-if ~isfile(path)
-    error('mh_fiber_convert_dicom_dwi_to_leaddbs:MissingFile', ...
-        'Missing %s: %s', label, path);
-end
-end
-
-function quoted = shell_quote(path)
-quoted = ['''', strrep(path, '''', '''"''"'''), ''''];
 end

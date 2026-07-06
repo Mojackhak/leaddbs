@@ -63,6 +63,22 @@ STNSNr 64-direction SaveBySlc cases, this gives a `9 x 9` tile grid with
 `108 x 105` voxels per tile and 78 valid slices per volume. Trailing unused
 tile slots are discarded.
 
+For Siemens SaveBySlc DWI mosaics in this workflow, anatomical slices are read
+in `row_major_right_to_left` order: each mosaic row is traversed from right to
+left, and rows are processed from top to bottom. This tile order is recorded as
+`MosaicTileOrder` in the reconstructed JSON sidecar. Left-to-right
+reconstructions of the same STNSNr SaveBySlc files are considered invalid and
+must not be used for preprocessing.
+
+The reconstructed NIfTI spatial transform is rebuilt from DICOM orientation and
+spacing rather than inherited from the single-slice mosaic NIfTI header.
+`ImageOrientationPatient`, `PixelSpacing`, and `SpacingBetweenSlices` define the
+target slice-stack axes. When `ImagePositionPatient` is absent, the output uses
+a centered origin fallback and records `AffineOriginPolicy=centered_no_dicom_ipp`
+in the JSON provenance. The bvec sidecar is copied unchanged only after the
+DICOM `DiffusionGradientOrientation` vectors are transformed into image space
+and shown to match the supplied FSL bvecs within tolerance.
+
 DICOM-derived geometry is preferred over image-only inference. If DICOM metadata
 are unavailable, a same-protocol reference NIfTI or explicit `TileSize`,
 `TileGrid`, and `SliceCount` parameters are required. Reconstructed outputs are

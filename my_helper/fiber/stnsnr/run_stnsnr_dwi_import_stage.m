@@ -27,7 +27,7 @@ subjects = { ...
     'ZhengXiangQuan'};
 
 importLogDir = fullfile(studyRoot, 'derivatives', 'leaddbs', 'import_logs');
-ensure_dir(importLogDir);
+mh_util_make_dir(importLogDir);
 importLog = fullfile(importLogDir, ['dwi_import_', timestamp, '.csv']);
 
 rows = {};
@@ -45,7 +45,7 @@ for i = 1:numel(subjects)
     rows = append_log(rows, 'source_validation', subjectId, patientName, 'valid', ...
         sourceBase, '', sourceDir, '', '', '', 'Source DWI set passed validation');
 
-    ensure_dir(targetDir);
+    mh_util_make_dir(targetDir);
     targetPaths = target_dwi_paths(targetDir, targetBase);
     [rows, sourceInfo.(subjectId)] = copy_source_set(rows, subjectId, patientName, sourceBase, sourcePaths, targetPaths);
 
@@ -131,10 +131,10 @@ paths.b0 = fullfile(stagedDir, [targetBase, '_b0.nii']);
 end
 
 function validate_dwi_set(niiPath, bvalPath, bvecPath, jsonPath)
-must_be_file(niiPath, 'DWI NIfTI');
-must_be_file(jsonPath, 'DWI JSON');
-must_be_file(bvalPath, 'DWI bval');
-must_be_file(bvecPath, 'DWI bvec');
+mh_util_must_be_file(niiPath, 'DWI NIfTI');
+mh_util_must_be_file(jsonPath, 'DWI JSON');
+mh_util_must_be_file(bvalPath, 'DWI bval');
+mh_util_must_be_file(bvecPath, 'DWI bvec');
 
 info = niftiinfo(niiPath);
 imageSize = double(info.ImageSize);
@@ -142,8 +142,8 @@ if numel(imageSize) ~= 4
     error('DWI NIfTI is not 4D: %s', niiPath);
 end
 
-bvals = load_numeric_vector(bvalPath);
-bvecCount = bvec_volume_count(bvecPath);
+bvals = mh_fiber_load_bval(bvalPath);
+bvecCount = mh_fiber_bvec_count(bvecPath);
 if numel(bvals) ~= imageSize(4)
     error('bval count (%d) does not match DWI volume count (%d): %s', ...
         numel(bvals), imageSize(4), bvalPath);
@@ -204,7 +204,7 @@ end
 end
 
 function validate_b0_geometry(dwiPath, b0Path)
-must_be_file(b0Path, 'staged DWI b0');
+mh_util_must_be_file(b0Path, 'staged DWI b0');
 Vd = spm_vol(dwiPath);
 Vb = spm_vol(b0Path);
 if ~isequal(Vd(1).dim, Vb.dim)
@@ -212,25 +212,6 @@ if ~isequal(Vd(1).dim, Vb.dim)
 end
 if max(abs(Vd(1).mat(:) - Vb.mat(:))) > 1e-5
     error('b0 affine/header does not match the staged DWI first frame: %s', b0Path);
-end
-end
-
-function vals = load_numeric_vector(path)
-vals = load(path);
-vals = vals(:)';
-if isempty(vals) || ~isnumeric(vals)
-    error('Could not read numeric values from %s', path);
-end
-end
-
-function count = bvec_volume_count(path)
-bvec = load(path);
-if size(bvec, 1) == 3
-    count = size(bvec, 2);
-elseif size(bvec, 2) == 3
-    count = size(bvec, 1);
-else
-    error('bvec file must be 3 x N or N x 3: %s', path);
 end
 end
 
@@ -255,7 +236,7 @@ writetable(T, path);
 end
 
 function hash = file_sha256(path)
-cmd = sprintf('shasum -a 256 %s', shell_quote(path));
+cmd = sprintf('shasum -a 256 %s', mh_fiber_shell_quote(path));
 [status, out] = system(cmd);
 if status ~= 0
     error('Failed to compute SHA-256 for %s: %s', path, out);
@@ -267,22 +248,6 @@ end
 hash = lower(tokens{1});
 end
 
-function quoted = shell_quote(path)
-quoted = ['''', strrep(char(path), '''', '''"''"'''), ''''];
-end
-
 function field = extension_field(extension)
 field = matlab.lang.makeValidName(strrep(extension, '.', '_'));
-end
-
-function ensure_dir(path)
-if ~isfolder(path)
-    mkdir(path);
-end
-end
-
-function must_be_file(path, label)
-if ~isfile(path)
-    error('Missing %s: %s', label, path);
-end
 end

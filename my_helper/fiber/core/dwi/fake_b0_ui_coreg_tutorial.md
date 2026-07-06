@@ -67,16 +67,24 @@ parameters for the fake-B0 workflow are:
 'RunCoregistration', false
 'CoregistrationTag', 'dwi_synb0_fakeb0'
 'Synb0MinDockerMemoryGB', 12
+'Synb0WorkRoot', '/Users/mojackhu/Library/Caches/leaddbs/stnsnr_synb0_work'
 ```
 
 `mh_fiber_dwi_distortion_correction.m` runs the Synb0-DISCO, topup, eddy, and
 corrected-b0 extraction steps.
+When the project is stored on an external volume, `Synb0WorkRoot` can place the
+Docker-mounted `INPUTS` and `OUTPUTS` staging directories on a local user path.
+The completed Synb0 run is then archived back into the project
+`work/synb0_eddy` directory before eddy is called, so downstream derivatives
+remain project-local.
 
 `mh_fiber_reconstruct_mosaic_dwi.m` repairs one Siemens `SaveBySlc` tiled DWI
 set before it is used as a normal BIDS DWI input. `mh_fiber_infer_mosaic_geometry.m`
 derives `TileSize`, `TileGrid`, and `SliceCount` from DICOM metadata when
 available. `mh_fiber_reconstruct_mosaic_dwi_batch.m` applies the same repair to
-multiple independent inputs.
+multiple independent inputs. The default Siemens tile order for this workflow is
+`row_major_right_to_left`, meaning slices are read from right to left within
+each mosaic row, with rows processed from top to bottom.
 
 `BIDSFetcher.getPreprocB0()` exposes
 `preprocessing/dwi/*_desc-preproc_b0.nii` as the Lead-DBS pseudo `B0` modality.
@@ -145,6 +153,90 @@ If `SubjectIds` is omitted, subjects are resolved in this order: copied subjects
 from `ImportLog` when provided, then BIDS DWI files discovered under
 `StudyRoot/rawdata/sub-*/ses-preop/dwi/`.
 
+## STNSNr full re-import and fake-B0 preprocessing
+
+The STNSNr cohort refresh uses one controlled runner to rewrite DWI `rawdata`,
+remove stale DWI derivatives, and run Synb0-DISCO, topup, and eddy until the
+corrected pseudo `B0` is ready for Lead-DBS UI coregistration.
+
+```bash
+matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_reimport_preprocess_fakeb0.m')"
+```
+
+The project runner imports the cohort subjects listed in the project sheet. The
+subject list is intentionally supplied by the project layer and is not encoded
+in reusable DWI modules.
+
+```text
+sub-<ID-01>
+sub-<ID-02>
+...
+sub-<ID-N>
+```
+
+Before copying, existing target DWI files are moved to macOS Trash under a
+timestamped `stnsnr_dwi_reimport_<timestamp>` directory. The runner moves only
+the target DWI rawdata files, subject `preprocessing/dwi` contents, and existing
+pseudo `B0` coregistration files. It preserves anatomical anchor images,
+normalization transforms, non-B0 anatomical coregistration files, and the
+provenance copy in `/Volumes/VAL/STNSNrdwi`.
+
+The rawdata import writes:
+
+```text
+/Volumes/VAL/STNSNr/rawdata/sub-<ID>/ses-preop/dwi/sub-<ID>_ses-preop_dwi.nii.gz
+/Volumes/VAL/STNSNr/rawdata/sub-<ID>/ses-preop/dwi/sub-<ID>_ses-preop_dwi.json
+/Volumes/VAL/STNSNr/rawdata/sub-<ID>/ses-preop/dwi/sub-<ID>_ses-preop_dwi.bval
+/Volumes/VAL/STNSNr/rawdata/sub-<ID>/ses-preop/dwi/sub-<ID>_ses-preop_dwi.bvec
+```
+
+The preprocessing run uses:
+
+```matlab
+'DistortionCorrection', 'synb0'
+'RunCoregistration', false
+'CoregistrationTag', 'dwi_synb0_fakeb0'
+'FreeSurferLicense', '/Applications/freesurfer/8.2.0/license.txt'
+'PhaseEncodingVector', [0 1 0]
+'DefaultTotalReadoutTime', 0.05
+'Synb0WorkRoot', '/Users/mojackhu/Library/Caches/leaddbs/stnsnr_synb0_work'
+'Parallel', false
+'MaxConcurrentSynb0', 1
+'Force', true
+```
+
+If a source JSON does not contain a usable total readout time, the runner uses
+`DefaultTotalReadoutTime=0.05`. If a source JSON does not contain a usable phase
+encoding direction, the runner uses `PhaseEncodingVector=[0 1 0]`. These defaults
+must be reviewed if the scanner protocol or DWI conversion changes.
+
+Successful subjects end with:
+
+```text
+status=pending_ui_coregistration
+coregistration_status=pending_ui
+```
+
+The expected corrected outputs are:
+
+```text
+/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.nii
+/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.bval
+/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.bvec
+/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_b0.nii
+```
+
+The import and cleanup logs are written under:
+
+```text
+/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_import_<timestamp>.csv
+/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_reimport_cleanup_<timestamp>.csv
+```
+
+After this step, continue in the Lead-DBS UI and run `Coregister Volumes` for the
+pseudo `B0`. SPM is the usual first-choice method, but the final method should be
+selected by manual QC.
+
 ## DICOM DWI conversion
 
 Use `mh_fiber_convert_dicom_dwi_to_leaddbs.m` when the source is a DWI DICOM
@@ -160,6 +252,7 @@ result = mh_fiber_convert_dicom_dwi_to_leaddbs( ...
     'OutputDir', '/path/to/rawdata/sub-SubA/ses-preop/dwi', ...
     'OutputBase', 'sub-SubA_ses-preop_dwi', ...
     'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
+    'TileOrder', 'row_major_right_to_left', ...
     'Parallel', true, ...
     'ParallelWorkers', 4, ...
     'Force', false);
@@ -199,6 +292,7 @@ inputs = table( ...
 
 status = mh_fiber_convert_dicom_dwi_to_leaddbs_batch(inputs, ...
     'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
+    'TileOrder', 'row_major_right_to_left', ...
     'Parallel', true, ...
     'ParallelWorkers', 4, ...
     'Force', false);
@@ -226,6 +320,7 @@ result = mh_fiber_reconstruct_mosaic_dwi( ...
     'DicomDir', '/path/to/source_dicom_series', ...
     'OutputDir', '/path/to/repaired_dwi', ...
     'OutputBase', 'sub-SubA_ses-preop_dwi', ...
+    'TileOrder', 'row_major_right_to_left', ...
     'Parallel', true, ...
     'ParallelWorkers', 4, ...
     'Force', false);
@@ -253,6 +348,32 @@ SliceCount=78
 Output size=108 x 105 x 78 x 66
 ```
 
+The default tile readout order is `row_major_right_to_left`. This reads each
+row from the right side of the mosaic image to the left side, then advances from
+the top row to the bottom row. Earlier left-to-right reconstructions of
+subject-specific SaveBySlc files are rejected and must not be used as
+preprocessing inputs. Use the restored original single-slice four-file sets as
+the source when rerunning repair.
+
+The reconstructed NIfTI affine is rebuilt from DICOM orientation and spacing
+rather than copied from the single-slice mosaic header. The backend reads
+`ImageOrientationPatient`, `PixelSpacing`, and `SpacingBetweenSlices` to set the
+3D slice-stack axes. If `ImagePositionPatient` is missing, as in the current UIH
+SaveBySlc data, the output uses `AffineOriginPolicy=centered_no_dicom_ipp` and
+records this fallback in JSON.
+
+The backend also validates the FSL bvec file against DICOM
+`DiffusionGradientOrientation`. The expected image-space bvec is computed as:
+
+```text
+diag([1 -1 1]) * [row; col; normal] * DICOMGradient
+```
+
+where `row` and `col` come from `ImageOrientationPatient` and `normal` is
+`cross(row, col)`. The bvec file is copied unchanged only when the non-b0
+gradient mismatch is below threshold. Otherwise reconstruction stops before
+writing final outputs.
+
 The batch entry point accepts an input table with source paths and writes one
 status row per subject:
 
@@ -270,13 +391,14 @@ inputs = table( ...
     'SourceBvec', 'DicomDir', 'OutputDir', 'OutputBase'});
 
 status = mh_fiber_reconstruct_mosaic_dwi_batch(inputs, ...
+    'TileOrder', 'row_major_right_to_left', ...
     'Parallel', true, ...
     'ParallelWorkers', 4, ...
     'Force', false);
 ```
 
-The STNSNr wrapper uses the same backend and only supplies project-specific
-paths for `GengHui` and `ZhaoPeiGen`:
+The project wrapper uses the same backend and only supplies project-specific
+paths and subject IDs provided by the caller:
 
 ```matlab
 repoDir = '/Users/mojackhu/Github/leaddbs';
@@ -284,6 +406,7 @@ addpath(genpath(repoDir));
 
 status = run_stnsnr_reconstruct_savebyslc_dwi( ...
     'RepoDir', repoDir, ...
+    'Subjects', {'<SubjectA>', '<SubjectB>'}, ...
     'RepairRoot', fullfile('/Volumes/VAL/STNSNr', 'derivatives', ...
         'leaddbs', 'import_logs', 'savebyslc_repair'), ...
     'ReplaceRawdata', false, ...
@@ -295,6 +418,98 @@ With `ReplaceRawdata=false`, repaired files are written to the repair directory
 only. After manual QC, rerun with `ReplaceRawdata=true` to move the bad rawdata
 four-file set to Trash and copy the repaired BIDS-compatible files into
 `rawdata/sub-<ID>/ses-preop/dwi/`.
+
+## Image-content orientation correction
+
+Some repaired SaveBySlc DWI stacks can have correct slice continuity and valid
+DICOM-derived affines, but the voxel content can still appear upside-down
+relative to the cohort convention used for visual QC. In this case, correct the
+image content and the diffusion gradient table together. Do not rotate the
+NIfTI image alone.
+
+For repaired DWI data that require image-content orientation QC, the candidate
+correction set is:
+
+```text
+identity
+flipY
+flipZ
+rotX180
+```
+
+The accepted formal correction must be chosen from QC. For example, `flipZ`
+flips the third voxel axis while leaving left-right and anterior-posterior axes
+unchanged. The corresponding bvec update is:
+
+```text
+bvec_corrected = diag([1 1 -1]) * bvec_original
+```
+
+The correction is a post-hoc image-content correction. It preserves the current
+NIfTI affine/header transform and changes the voxel array and FSL bvec sidecar
+in lockstep. The bval sidecar is copied unchanged. JSON sidecars must record
+`ImageContentOrientationCorrection=true`, the transform name, source paths,
+source SHA256 values, and the correction chain when an incremental correction
+is applied after a previous orientation correction.
+
+Use candidate QC before applying the formal correction:
+
+```matlab
+status = run_stnsnr_dwi_orientation_qc( ...
+    'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
+    'SourceRoot', '/Volumes/VAL/STNSNrdwi', ...
+    'SubjectIds', {'<SubjectA>', '<SubjectB>'}, ...
+    'TransformCandidates', {'identity', 'flipY', 'flipZ', 'rotX180'}, ...
+    'GenerateColorFa', true, ...
+    'Force', false);
+```
+
+Candidate outputs are written under:
+
+```text
+/Volumes/VAL/STNSNrdwi/_export_logs/orientation_qc_<timestamp>/sub-<ID>/<candidate>/
+```
+
+Review the b0 montage and color FA. The accepted candidate should show the face
+toward the anterior direction and the cranial vertex superiorly, matching the
+cohort display convention. The color FA should retain plausible tensor
+directions: corpus callosum left-right, corticospinal tract superior-inferior,
+and anterior-posterior fibres anterior-posterior.
+
+After QC approval, apply the same correction to the formal source, rawdata, and
+preprocessing layers without rerunning Synb0-DISCO, topup, or eddy:
+
+```matlab
+status = run_stnsnr_apply_dwi_orientation_correction( ...
+    'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
+    'SourceRoot', '/Volumes/VAL/STNSNrdwi', ...
+    'StudyRoot', '/Volumes/VAL/STNSNr', ...
+    'SubjectIds', {'<SubjectA>', '<SubjectB>'}, ...
+    'Transform', 'flipZ', ...
+    'Force', true);
+```
+
+If a previous formal correction was applied but QC later shows that an
+additional transform is required, apply only the incremental transform and set
+`AllowIncrementalCorrection=true`. For example, adding `flipY` after an earlier
+`rotX180` makes the net correction equivalent to `flipZ`:
+
+```matlab
+status = run_stnsnr_apply_dwi_orientation_correction( ...
+    'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
+    'SourceRoot', '/Volumes/VAL/STNSNrdwi', ...
+    'StudyRoot', '/Volumes/VAL/STNSNr', ...
+    'SubjectIds', {'<SubjectA>', '<SubjectB>'}, ...
+    'Transform', 'flipY', ...
+    'AllowIncrementalCorrection', true, ...
+    'Force', true);
+```
+
+The apply step moves the previous official files to Trash, writes corrected
+replacements with the same filenames, records SHA256 provenance, rotates scalar
+preprocessing images with the same voxel transform, updates JSON provenance,
+and moves stale tensor `.mif` files to Trash rather than preserving tensor data
+with an outdated orientation basis.
 
 Expected repaired files are:
 
@@ -308,7 +523,10 @@ Expected repaired files are:
 
 The repaired DWI is acceptable for the normal preprocessing runner only when
 the output is 4D, the slice count is plausible, bval and bvec counts match the
-volume count, and the JSON records `MosaicReconstruction=true`.
+volume count, the slice montage has anatomical continuity, Slicer coordinates
+are in a plausible range, and the JSON records `MosaicReconstruction=true`,
+`MosaicTileOrder=row_major_right_to_left`, `MosaicAffineSource=dicom_orientation`,
+and passing bvec validation metrics.
 
 ## Expected files
 
@@ -403,6 +621,21 @@ If the Lead-DBS UI does not show `B0`, confirm that this file exists:
 
 If Synb0-DISCO fails with an inference or container memory error, increase Docker
 Desktop memory and rerun the pilot with `Force=true`.
+
+If Docker reports a mount error for an external project path, for example a
+`/host_mnt/Volumes/...` mount creation failure, rerun with `Synb0WorkRoot` set
+to a local user directory such as
+`/Users/mojackhu/Library/Caches/leaddbs/stnsnr_synb0_work`. This keeps Docker
+staging off the external volume while preserving final project outputs under
+`derivatives/leaddbs`.
+
+If Synb0-DISCO generates `b0_u.nii.gz` but fails during its internal topup step
+with a subsampling compatibility error, inspect the `b0_all.nii.gz` matrix size.
+Odd matrix dimensions such as `108x105x78` are incompatible with the default
+Synb0 `--subsamp=2` levels. The wrapper reruns only the topup step with a
+fallback config that uses `--subsamp=1` at every level, preserving the synthetic
+b0 while producing the expected `topup_fieldcoef.nii.gz` and `topup_movpar.txt`
+outputs for eddy.
 
 If the corrected b0 is anatomically implausible, rerun with the opposite
 phase-encoding vector and compare distorted-b0 versus corrected-b0 overlays.

@@ -13,11 +13,15 @@ p.addParameter('PhaseEncodingVector', [0 1 0], @(x) isnumeric(x) && numel(x) == 
 p.addParameter('DefaultTotalReadoutTime', 0.05, @(x) isnumeric(x) && isscalar(x) && x >= 0);
 p.addParameter('FreeSurferLicense', '', @(x) ischar(x) || isstring(x));
 p.addParameter('Synb0MinDockerMemoryGB', 12, @(x) isnumeric(x) && isscalar(x) && x >= 0);
+p.addParameter('Synb0WorkRoot', '', @(x) ischar(x) || isstring(x));
+p.addParameter('Parallel', false, @(x) islogical(x) || isnumeric(x));
+p.addParameter('ParallelWorkers', 4, @(x) isnumeric(x) && isscalar(x) && x >= 1);
+p.addParameter('MaxConcurrentSynb0', [], @(x) isempty(x) || (isnumeric(x) && isscalar(x) && x >= 1));
 p.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
 p.parse(varargin{:});
 opts = p.Results;
 
-repoDir = resolve_repo_dir(opts.RepoDir);
+repoDir = resolve_repo_dir_from_option(opts.RepoDir);
 addpath(genpath(repoDir));
 
 subjectIds = opts.SubjectIds;
@@ -39,30 +43,25 @@ result = mh_fiber_register_imported_dwi_batch( ...
     'DefaultTotalReadoutTime', double(opts.DefaultTotalReadoutTime), ...
     'FreeSurferLicense', char(string(opts.FreeSurferLicense)), ...
     'Synb0MinDockerMemoryGB', double(opts.Synb0MinDockerMemoryGB), ...
+    'Synb0WorkRoot', char(string(opts.Synb0WorkRoot)), ...
+    'Parallel', logical(opts.Parallel), ...
+    'ParallelWorkers', max(1, round(double(opts.ParallelWorkers))), ...
+    'MaxConcurrentSynb0', opts.MaxConcurrentSynb0, ...
     'AllowT1Fallback', false, ...
     'RunCoregistration', false, ...
     'GenerateOptionalDwiQc', true, ...
     'Force', logical(opts.Force));
 end
 
-function repoDir = resolve_repo_dir(repoDir)
+function repoDir = resolve_repo_dir_from_option(repoDir)
 repoDir = char(string(repoDir));
 if ~isempty(repoDir)
     return;
 end
 
-searchDir = fileparts(mfilename('fullpath'));
-while true
-    if isfile(fullfile(searchDir, 'ea_normalize.m'))
-        repoDir = searchDir;
-        return;
-    end
-    parentDir = fileparts(searchDir);
-    if strcmp(parentDir, searchDir)
-        break;
-    end
-    searchDir = parentDir;
+repoDir = mh_util_resolve_repo_dir(mfilename('fullpath'));
+if ~isfile(fullfile(repoDir, 'ea_normalize.m'))
+    error('run_project_dwi_fake_b0_coreg:RepoRootNotFound', ...
+        'Could not resolve Lead-DBS repository root. Provide RepoDir explicitly.');
 end
-error('run_project_dwi_fake_b0_coreg:RepoRootNotFound', ...
-    'Could not resolve Lead-DBS repository root. Provide RepoDir explicitly.');
 end

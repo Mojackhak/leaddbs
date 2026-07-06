@@ -1,6 +1,6 @@
 # DWI 导入/预处理/配准模块重构计划
 
-> Status: **planning**. 目标是把 DWI 相关代码的「后端计算」与「项目/患者调用」解耦，
+> Status: **implemented**. 目标是把 DWI 相关代码的「后端计算」与「项目/患者调用」解耦，
 > 并给最重的 registration/Synb0/eddy 阶段补上被试级并行。范围对齐三点决策：
 > (1) 让 Group 3 收敛到 Groups 1&2 已有的三段式；(2) 被试级 `parfor` + 内存/容器感知并发上限；
 > (3) 把重复私有 helper 收敛到已有 `core/util/`。
@@ -46,12 +46,14 @@ DICOM -> mh_fiber_convert_dicom_dwi_to_leaddbs -> dcm2niix
 - **Group 2 mosaic 修复**（已三段式、已 `parfor`）：
   `core/dwi/mh_fiber_reconstruct_mosaic_dwi.m`、`..._batch.m`、`core/dwi/mh_fiber_infer_mosaic_geometry.m`、
   项目 wrapper `stnsnr/run_stnsnr_reconstruct_savebyslc_dwi.m`
-- **Group 3 preproc/Synb0/eddy（耦合 + 串行，本轮重点）**：
-  编排+计算熔合 `core/dwi/mh_fiber_register_imported_dwi_batch.m`（1220 行）、
+- **Group 3 preproc/Synb0/eddy（已解耦 + opt-in `parfor`）**：
+  项目/BIDS jobSpec 构建 `core/dwi/mh_fiber_dwi_bids_jobspec.m`、
+  单被试处理核心 `core/dwi/mh_fiber_process_imported_dwi.m`、
+  薄 batch 调度 `core/dwi/mh_fiber_process_imported_dwi_batch.m`、
+  兼容旧入口 `core/dwi/mh_fiber_register_imported_dwi_batch.m`、
+  coreg backend `core/dwi/mh_fiber_dwi_coregister_b0_to_anchor.m`、
   数值内核 `core/dwi/mh_fiber_dwi_distortion_correction.m`、
-  预设 wrapper `core/dwi/run_project_dwi_fake_b0_coreg.m`、
-  项目脚本 `stnsnr/run_stnsnr_dwi_registration.m`、
-  `stnsnr/run_stnsnr_dwi_import_stage.m`（import+copy+sha256+stage 脚本）
+  预设 wrapper `core/dwi/run_project_dwi_fake_b0_coreg.m`
 - **Group 4 Lead-DBS UI 接入（稳定 seam，不动语义）**：
   `helpers/BIDSFetcher.m` 的 `getPreprocB0`、`ea_normalize.m` 过滤 pseudo B0
 - **Group 5 文档**：`core/dwi/fake_b0_ui_coreg_tutorial.md`、`core/dwi/synb0_eddy_bbr_upgrade.md`、`README.md`
@@ -159,7 +161,92 @@ sidecar 里的 `FakeCoregisterVolume`/`ExcludeFromNormalization`。Group 4 的 `
 3. **Phase 3 — registration 并行**：接入 `mh_fiber_run_item_batch` + `parfor` + Synb0 内存并发上限；
    默认仍串行，显式开启才并行。
 4. **Phase 4（可选）— import 核心化 + stnsnr 脚本参数化**：抽四件套导入 core+batch，stnsnr 脚本变薄。
-5. **Phase 5（可选）— 全 batch 统一**：convert/mosaic 也切到共享 pool helper + 统一状态 schema。
+5. **Phase 5（可选）— 状态/QC schema 统一**：convert/mosaic/register 仍保留各自状态字段；
+   如需更统一的 cohort-level reporting，可另行收敛 CSV/JSON schema。
+
+## Implementation notes
+
+- Phase 1 starts with shared helper extraction before changing the registration
+  orchestration boundary. The first implementation pass adds DWI-specific
+  helpers for bval/bvec validation, NIfTI basename handling, shell quoting,
+  temporary directory cleanup, compact error messages, parallel pool reuse, and
+  mean b0 extraction. Existing DWI modules should then call these helpers instead
+  of keeping private local copies.
+- The shared mean b0 extractor must preserve the previous single-slice handling
+  from `mh_fiber_register_imported_dwi_batch.m`, because single-slice mosaic
+  candidates require `niftiwrite` rather than `spm_write_vol` for a valid b0
+  output.
+- This phase is intended to be behavior-preserving. It should not change DICOM
+  conversion, mosaic reconstruction, Synb0/topup/eddy outputs, pseudo B0 naming,
+  or Lead-DBS UI/normalization seams.
+- Current Phase 1 scope also covers the STNSNr DWI wrappers that still carry
+  local copies of DWI file validation, bval/bvec counting, directory creation,
+  and shell quoting. Project wrappers should become thinner but keep their
+  existing hard-coded STNSNr defaults until the later project-decoupling phase.
+
+### Phase 2 implementation notes
+
+- Phase 2 introduces three explicit Group 3 boundaries while keeping the public
+  `mh_fiber_register_imported_dwi_batch` signature stable:
+  `mh_fiber_dwi_bids_jobspec` builds BIDS/Lead-DBS subject path specs,
+  `mh_fiber_process_imported_dwi` consumes one fully resolved job spec, and
+  `mh_fiber_process_imported_dwi_batch` dispatches those specs serially with
+  per-subject error capture.
+- This phase intentionally does not add `parfor` yet. Parallel registration and
+  Synb0 memory-aware concurrency belong to Phase 3, after the jobSpec boundary
+  has been verified in serial mode.
+- The single-subject processing core must not discover subjects, parse import
+  logs, or construct BIDS subject paths. Those project/layout responsibilities
+  stay in the jobSpec builder and wrapper layer.
+
+### Phase 3 implementation notes
+
+- Phase 3 adds opt-in subject-level parallelism to
+  `mh_fiber_process_imported_dwi_batch`. The default remains serial, so existing
+  callers keep the same behavior unless `Parallel=true` is passed.
+- When `DistortionCorrection='synb0'`, the effective worker count is capped by
+  `MaxConcurrentSynb0` when provided, otherwise by the available Docker/system
+  memory divided by `Synb0MinDockerMemoryGB`. The cap applies to the `parfor`
+  worker argument so an existing larger pool can be reused without launching too
+  many simultaneous Synb0 containers.
+- Parallel workers should set common native thread environment variables to one
+  thread per MATLAB worker to reduce FSL/ANTs/ITK over-subscription during batch
+  execution.
+
+### Coregistration backend extraction notes
+
+- The b0-to-anchor registration branches are split out of
+  `mh_fiber_process_imported_dwi` into a dedicated backend module,
+  `mh_fiber_dwi_coregister_b0_to_anchor`. The processing core remains
+  responsible for choosing whether coregistration should run, while the backend
+  owns SPM, ANTs, hybrid SPM+ANTs, and FLIRT BBR output generation.
+- This extraction preserves the current UI-style output names and legacy ANTs
+  compatibility behavior. It does not re-enable automatic coregistration for the
+  Synb0 fake-B0 workflow; `RunCoregistration=false` still leaves B0 pending for
+  Lead-DBS UI coregistration and manual QC.
+
+### Shared batch runner notes
+
+- The repeated DWI batch dispatch skeletons are consolidated into
+  `mh_fiber_run_item_batch`. The runner receives an item count, an item function,
+  an empty status row, and opt-in parallel options. It owns serial/`parfor`
+  dispatch and preallocation; each domain batch still owns its input schema,
+  per-row worker function, and status columns.
+- The runner also preserves the existing single-item behavior used by DICOM
+  conversion and mosaic reconstruction: if there is only one batch row and
+  `Parallel=true`, subject-level parallelism is not used and the item function is
+  told it may use internal volume-level parallelism.
+
+### Implemented checkpoints
+
+- `d57f89c08` shared duplicated DWI helper utilities.
+- `d6357d655` split imported DWI processing into jobSpec, single-subject core,
+  and thin batch dispatcher.
+- `9fa3831a2` added opt-in subject-level parallelism with Synb0 concurrency
+  limits.
+- `ba97f5fa5` extracted the DWI b0-to-anchor coregistration backend.
+- `f8fa4f5ba` moved convert, mosaic, and imported-DWI batches onto the shared
+  item batch runner.
 
 ## 验证
 

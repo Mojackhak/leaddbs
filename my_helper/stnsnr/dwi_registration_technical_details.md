@@ -4,11 +4,27 @@ Date: 2026-07-03
 
 ## Purpose
 
-This document fixes the technical plan for importing, staging, and registering the STN/SNr cohort DWI scans into the existing Lead-DBS subject spaces. The staged DWI and b0 outputs are prerequisites for patient-specific seed-target tracking, VTA/ROI projection into DWI space, and native/MNI streamline display.
+This document fixes the technical plan for importing, preprocessing, and
+reviewing the STN/SNr cohort DWI scans in the existing Lead-DBS subject spaces.
+The corrected DWI and corrected pseudo `B0` outputs are prerequisites for
+patient-specific seed-target tracking, VTA/ROI projection into DWI space, and
+native/MNI streamline display.
 
-The import/staging stage refreshes raw BIDS DWI files, stages DWI derivatives, and extracts b0 images. Registration is a separate step and is not required for a staging-only refresh. Neither stage runs tractography, normative connectome analysis, or sweet/sour spot modeling.
+The current cohort refresh rewrites raw BIDS DWI files from
+`/Volumes/VAL/STNSNrdwi`, removes stale DWI derivatives, runs Synb0-DISCO,
+topup, and eddy, and then exposes the corrected mean b0 as a Lead-DBS pseudo
+`B0` volume. The workflow intentionally stops before the Lead-DBS UI
+`Coregister Volumes` step so the user can select SPM, ANTs, or another available
+method after manual QC.
 
-The first completed T2 branch used Lead-DBS ANTs linear registration under `coregistration/dwi_t2/`. Because manual QC still showed large residual errors in some subjects, the next pilot adds two method-comparison branches for three subjects only:
+Neither the import/preprocessing stage nor the later UI coregistration stage
+runs tractography, normative connectome analysis, or sweet/sour spot modeling.
+
+Earlier automatic T2 registration branches are retained only as historical
+comparators. The first completed T2 branch used Lead-DBS ANTs linear
+registration under `coregistration/dwi_t2/`. Because manual QC still showed
+large residual errors in some subjects, the method-comparison pilot added two
+branches for three subjects only:
 
 ```text
 ChenMeiJu
@@ -36,25 +52,26 @@ DWI import logs are written to:
 /Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_import_<timestamp>.csv
 ```
 
-Included subjects are the 16 valid DWI four-file sets:
+Included subjects are the 16 DWI four-file sets from
+`summary/cohort/subj/subj_effect.xlsx`, imported in cohort order:
 
 ```text
-ChenLingHua
-ChenMeiJu
-FanDongDong
-GengHui
-HuFengXian
-HuangDan
-LiPing
 LinJia
+HuFengXian
+YuDongJian
+WuYueFen
+LiPing
 MaoXiaoMing
 ShengGuoLiang
-WuYueFen
-YuDongJian
-ZhangMing
 ZhangXiaoHong
-ZhaoPeiGen
 ZhengXiangQuan
+ZhaoPeiGen
+ChenLingHua
+FanDongDong
+HuangDan
+ZhangMing
+GengHui
+ChenMeiJu
 ```
 
 ## Registration Chain
@@ -65,24 +82,50 @@ The existing anatomical normalization is reused:
 anchorNative T1 -> MNI152NLin2009bAsym
 ```
 
-The fixed anatomical image for DWI registration is the already coregistered anchorNative T2. This uses the closer T2-like contrast between DWI b0 and anatomical T2, while still keeping all registration outputs in the same Lead-DBS anchorNative subject space.
+For the current fake-B0 workflow, the automatic preprocessing stage does not
+write a b0-to-anatomy transform. The corrected b0 is exposed as pseudo `B0` for
+the Lead-DBS UI, where SPM is the usual first-choice coregistration method and
+the final method is selected by manual QC. The fixed anatomical image remains
+the already coregistered anchorNative anatomy selected by Lead-DBS.
 
-The DWI registration chain is:
+The current DWI preprocessing chain is:
 
 ```text
 raw BIDS DWI
   -> derivatives/leaddbs/sub-*/preprocessing/dwi
-  -> automatic b0 extraction in native DWI space
-  -> b0-to-anchorNative T2 linear registration
+  -> distorted mean b0 extraction
+  -> Synb0-DISCO synthetic undistorted b0
+  -> FSL topup susceptibility field estimation
+  -> FSL eddy correction with rotated bvecs
+  -> corrected DWI and corrected mean b0
+  -> pseudo B0 exposed to Lead-DBS UI
 ```
 
-During DWI import/staging, Lead-DBS automatically recreates the staged b0 image from the imported 4D DWI and gradient sidecars:
+For projects stored on external volumes, the Docker-facing Synb0 staging
+directory can be moved to a local user path with `Synb0WorkRoot`. This avoids
+Docker Desktop mount translation failures on `/Volumes/...` while keeping the
+archived Synb0 outputs, eddy outputs, corrected DWI, and pseudo `B0` in the
+project derivatives.
+
+Some SaveBySlc-reconstructed DWI datasets have odd in-plane dimensions such as
+`108x105x78`. Synb0-DISCO can still generate the synthetic undistorted b0, but
+its bundled topup configuration may fail because the default `--subsamp=2`
+levels are incompatible with the odd matrix. In that case the wrapper reruns
+only topup with a fallback configuration that sets all subsampling levels to
+`1`, then continues to eddy with the fallback topup outputs.
+
+During DWI import and preprocessing, the raw DWI files are copied from
+`rawdata` into `preprocessing/dwi`, then Synb0-DISCO, topup, and eddy write
+corrected outputs:
 
 ```text
 preprocessing/dwi/sub-<Subject>_ses-preop_dwi.nii
 preprocessing/dwi/sub-<Subject>_ses-preop_dwi.bval
 preprocessing/dwi/sub-<Subject>_ses-preop_dwi.bvec
-  -> preprocessing/dwi/sub-<Subject>_ses-preop_dwi_b0.nii
+  -> preprocessing/dwi/sub-<Subject>_ses-preop_desc-preproc_dwi.nii
+  -> preprocessing/dwi/sub-<Subject>_ses-preop_desc-preproc_dwi.bval
+  -> preprocessing/dwi/sub-<Subject>_ses-preop_desc-preproc_dwi.bvec
+  -> preprocessing/dwi/sub-<Subject>_ses-preop_desc-preproc_b0.nii
 ```
 
 The import helper defines b0 volumes as `bval < 10`. If multiple b0 volumes are present, it writes their mean. Existing staged b0 files are overwritten during import/staging so the b0 always matches the current staged DWI and sidecars.
@@ -105,7 +148,11 @@ DWI streamlines should be displayed in MNI space by:
 DWI streamline -> anchorNative T2/anchorNative T1 -> MNI
 ```
 
-The previous direct b0-to-anchorNative T1 outputs under `coregistration/dwi/` remain available only for comparison. Coregister UI B0 outputs under `coregistration/anat/` and `coregistration/transformations/` are formal Lead-DBS UI products. The T2 registration pilot outputs remain separate method-comparison branches for downstream tracking evaluation.
+The previous direct b0-to-anchorNative T1 outputs under `coregistration/dwi/`
+remain available only for comparison. Coregister UI B0 outputs under
+`coregistration/anat/` and `coregistration/transformations/` are formal Lead-DBS
+UI products after manual UI execution. The T2 registration pilot outputs remain
+separate method-comparison branches for downstream tracking evaluation.
 
 The existing ANTs T2 output under `coregistration/dwi_t2/` remains available as the baseline comparator. The SPM and Hybrid pilot outputs must not overwrite it.
 
@@ -134,6 +181,24 @@ sub-<Subject>_ses-preop_dwi.bval
 sub-<Subject>_ses-preop_dwi.bvec
 sub-<Subject>_ses-preop_dwi.json
 sub-<Subject>_ses-preop_dwi_b0.nii
+```
+
+Expected corrected fake-B0 preprocessing files:
+
+```text
+sub-<Subject>_ses-preop_desc-preproc_dwi.nii
+sub-<Subject>_ses-preop_desc-preproc_dwi.bval
+sub-<Subject>_ses-preop_desc-preproc_dwi.bvec
+sub-<Subject>_ses-preop_desc-preproc_b0.nii
+sub-<Subject>_ses-preop_desc-preproc_b0.json
+```
+
+The corrected b0 JSON sidecar records:
+
+```text
+FakeCoregisterVolume=true
+IntendedUse=coregistration_qc_only
+ExcludeFromNormalization=true
 ```
 
 The b0 image must inherit the affine/header of the corresponding 4D DWI frame. It must not be independently recentered. This is intentionally different from workflows that correct only the b0 header, because tractography, FA, masks, and b0 must remain on the same DWI grid.
@@ -253,7 +318,13 @@ QC status must record:
 
 ## Failure Handling
 
-The batch is resumable. Existing outputs are reused unless `Force` is explicitly enabled.
+The re-import/preprocessing batch is intentionally destructive only to the
+target DWI products. Existing rawdata DWI files, subject `preprocessing/dwi`
+contents, and pseudo `B0` coregistration files are moved to macOS Trash before
+replacement. The source `/Volumes/VAL/STNSNrdwi` files are never modified.
+
+The preprocessing batch uses `Force=true` after this cleanup so corrected DWI
+and pseudo `B0` outputs are regenerated from the current rawdata.
 
 A subject must be marked `registration_failed` for the branch being run if:
 
@@ -264,11 +335,35 @@ A subject must be marked `registration_failed` for the branch being run if:
 - the selected registration method fails;
 - forward or inverse transform is missing after registration.
 
+For the fake-B0 preprocessing branch, successful rows must be marked:
+
+```text
+status=pending_ui_coregistration
+coregistration_status=pending_ui
+```
+
+The row must not be marked `registered` before manual Lead-DBS UI
+coregistration.
+
 Low through-plane resolution is a QC warning, not an automatic exclusion.
 
 ## Pipeline Entry
 
-The 16-subject raw DWI re-import and staging-only entry is:
+The 16-subject raw DWI re-import, cleanup, Synb0-DISCO, topup, eddy, and
+fake-B0 preprocessing entry is:
+
+```text
+/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_reimport_preprocess_fakeb0.m
+```
+
+Run command:
+
+```bash
+matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_reimport_preprocess_fakeb0.m')"
+```
+
+The previous 16-subject raw DWI re-import and staging-only entry is retained for
+historical comparison:
 
 ```text
 /Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_import_stage.m

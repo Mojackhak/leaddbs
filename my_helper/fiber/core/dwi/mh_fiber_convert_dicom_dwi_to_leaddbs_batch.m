@@ -5,6 +5,7 @@ parser = inputParser;
 parser.FunctionName = 'mh_fiber_convert_dicom_dwi_to_leaddbs_batch';
 parser.addRequired('inputs', @(x) istable(x) || isstruct(x));
 parser.addParameter('RepoDir', '', @(x) ischar(x) || isstring(x));
+parser.addParameter('TileOrder', 'row_major_right_to_left', @(x) ischar(x) || isstring(x));
 parser.addParameter('Parallel', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ParallelWorkers', 4, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
@@ -16,25 +17,20 @@ inputTable = normalize_inputs(inputs);
 validate_input_columns(inputTable);
 
 nRows = height(inputTable);
-rows = repmat(empty_row(), nRows, 1);
-useSubjectParallel = opts.Parallel && nRows > 1 && ensure_parallel_pool(opts.ParallelWorkers);
-
-if useSubjectParallel
-    parfor i = 1:nRows
-        rows(i) = convert_row(inputTable, i, opts, false);
-    end
-else
-    for i = 1:nRows
-        useVolumeParallel = opts.Parallel && nRows == 1;
-        rows(i) = convert_row(inputTable, i, opts, useVolumeParallel);
-    end
-end
+rows = mh_fiber_run_item_batch(nRows, ...
+    @(rowIndex, useVolumeParallel, ~) convert_row(inputTable, rowIndex, opts, useVolumeParallel), ...
+    empty_row(), ...
+    'Parallel', opts.Parallel, ...
+    'ParallelWorkers', opts.ParallelWorkers);
 
 summary = struct2table(rows, 'AsArray', true);
 end
 
 function opts = normalize_options(opts)
 opts.RepoDir = char(string(opts.RepoDir));
+opts.TileOrder = validatestring(char(string(opts.TileOrder)), ...
+    {'row_major_right_to_left', 'row_major_left_to_right'}, ...
+    'mh_fiber_convert_dicom_dwi_to_leaddbs_batch', 'TileOrder');
 opts.Parallel = logical(opts.Parallel);
 opts.ParallelWorkers = max(1, round(double(opts.ParallelWorkers)));
 opts.Force = logical(opts.Force);
@@ -67,6 +63,7 @@ row.OutputDir = row_value(inputTable, rowIndex, 'OutputDir');
 row.OutputBase = row_value(inputTable, rowIndex, 'OutputBase');
 row.WorkDir = optional_row_value(inputTable, rowIndex, 'WorkDir');
 row.ReferenceNifti = optional_row_value(inputTable, rowIndex, 'ReferenceNifti');
+row.TileOrder = optional_row_value(inputTable, rowIndex, 'TileOrder', opts.TileOrder);
 row.Status = 'started';
 
 try
@@ -77,6 +74,7 @@ try
         'RepoDir', opts.RepoDir, ...
         'WorkDir', row.WorkDir, ...
         'ReferenceNifti', row.ReferenceNifti, ...
+        'TileOrder', row.TileOrder, ...
         'Parallel', useVolumeParallel, ...
         'ParallelWorkers', opts.ParallelWorkers, ...
         'Force', opts.Force, ...
@@ -93,9 +91,10 @@ try
     row.ConvertedImageSize = result.ConvertedImageSize;
     row.OutputImageSize = result.OutputImageSize;
     row.Dcm2niixSource = result.Dcm2niixSource;
+    row.TileOrder = result.TileOrder;
 catch ME
     row.Status = 'failed';
-    row.Message = compact_message(ME.message);
+    row.Message = mh_fiber_compact_message(ME.message);
 end
 end
 
@@ -110,6 +109,7 @@ row.OutputDir = '';
 row.OutputBase = '';
 row.WorkDir = '';
 row.ReferenceNifti = '';
+row.TileOrder = '';
 row.OutputNifti = '';
 row.OutputJson = '';
 row.OutputBval = '';
@@ -131,38 +131,13 @@ end
 value = char(string(value));
 end
 
-function value = optional_row_value(inputTable, rowIndex, column)
+function value = optional_row_value(inputTable, rowIndex, column, defaultValue)
+if nargin < 4
+    defaultValue = '';
+end
 if ismember(column, inputTable.Properties.VariableNames)
     value = row_value(inputTable, rowIndex, column);
 else
-    value = '';
-end
-end
-
-function tf = ensure_parallel_pool(workerCount)
-tf = false;
-if exist('parpool', 'file') ~= 2 || exist('gcp', 'file') ~= 2 || ...
-        ~license('test', 'Distrib_Computing_Toolbox')
-    return;
-end
-try
-    pool = gcp('nocreate');
-    if isempty(pool)
-        parpool('local', workerCount);
-    elseif pool.NumWorkers < workerCount
-        delete(pool);
-        parpool('local', workerCount);
-    end
-    tf = true;
-catch
-    tf = false;
-end
-end
-
-function message = compact_message(message)
-message = char(string(message));
-message = regexprep(message, '\s+', ' ');
-if numel(message) > 500
-    message = [message(1:500), '...'];
+    value = defaultValue;
 end
 end

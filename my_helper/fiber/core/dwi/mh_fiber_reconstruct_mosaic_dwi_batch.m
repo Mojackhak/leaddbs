@@ -4,12 +4,16 @@ function summary = mh_fiber_reconstruct_mosaic_dwi_batch(inputs, varargin)
 parser = inputParser;
 parser.FunctionName = 'mh_fiber_reconstruct_mosaic_dwi_batch';
 parser.addRequired('inputs', @(x) istable(x) || isstruct(x));
+parser.addParameter('TileOrder', 'row_major_right_to_left', @(x) ischar(x) || isstring(x));
 parser.addParameter('Parallel', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ParallelWorkers', 4, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('DryRun', false, @(x) islogical(x) || isnumeric(x));
 parser.parse(inputs, varargin{:});
 opts = parser.Results;
+opts.TileOrder = validatestring(char(string(opts.TileOrder)), ...
+    {'row_major_right_to_left', 'row_major_left_to_right'}, ...
+    'mh_fiber_reconstruct_mosaic_dwi_batch', 'TileOrder');
 opts.Parallel = logical(opts.Parallel);
 opts.ParallelWorkers = max(1, round(double(opts.ParallelWorkers)));
 opts.Force = logical(opts.Force);
@@ -19,19 +23,11 @@ inputTable = normalize_inputs(inputs);
 validate_input_columns(inputTable);
 
 nRows = height(inputTable);
-rows = repmat(empty_row(), nRows, 1);
-useSubjectParallel = opts.Parallel && nRows > 1 && ensure_parallel_pool(opts.ParallelWorkers);
-
-if useSubjectParallel
-    parfor i = 1:nRows
-        rows(i) = reconstruct_row(inputTable, i, opts, false);
-    end
-else
-    for i = 1:nRows
-        useVolumeParallel = opts.Parallel && nRows == 1;
-        rows(i) = reconstruct_row(inputTable, i, opts, useVolumeParallel);
-    end
-end
+rows = mh_fiber_run_item_batch(nRows, ...
+    @(rowIndex, useVolumeParallel, ~) reconstruct_row(inputTable, rowIndex, opts, useVolumeParallel), ...
+    empty_row(), ...
+    'Parallel', opts.Parallel, ...
+    'ParallelWorkers', opts.ParallelWorkers);
 
 summary = struct2table(rows, 'AsArray', true);
 end
@@ -66,6 +62,7 @@ row.DicomDir = optional_row_value(inputTable, rowIndex, 'DicomDir');
 row.ReferenceNifti = optional_row_value(inputTable, rowIndex, 'ReferenceNifti');
 row.OutputDir = row_value(inputTable, rowIndex, 'OutputDir');
 row.OutputBase = row_value(inputTable, rowIndex, 'OutputBase');
+row.TileOrder = optional_row_value(inputTable, rowIndex, 'TileOrder', opts.TileOrder);
 row.Status = 'started';
 
 try
@@ -81,6 +78,7 @@ try
         'TileSize', optional_numeric_row_value(inputTable, rowIndex, 'TileSize'), ...
         'TileGrid', optional_numeric_row_value(inputTable, rowIndex, 'TileGrid'), ...
         'SliceCount', optional_numeric_row_value(inputTable, rowIndex, 'SliceCount'), ...
+        'TileOrder', row.TileOrder, ...
         'Parallel', useVolumeParallel, ...
         'ParallelWorkers', opts.ParallelWorkers, ...
         'Force', opts.Force, ...
@@ -95,12 +93,17 @@ try
     row.GeometrySource = result.GeometrySource;
     row.TileSize = result.TileSize;
     row.TileGrid = result.TileGrid;
+    row.TileOrder = result.TileOrder;
     row.SliceCount = result.SliceCount;
     row.VolumeCount = result.VolumeCount;
     row.OutputImageSize = result.OutputImageSize;
+    row.AffineSource = result.AffineSource;
+    row.AffineOriginPolicy = result.AffineOriginPolicy;
+    row.BvecValidationMedianError = result.BvecValidationMedianError;
+    row.BvecValidationMaxError = result.BvecValidationMaxError;
 catch ME
     row.Status = 'failed';
-    row.Message = compact_message(ME.message);
+    row.Message = mh_fiber_compact_message(ME.message);
 end
 end
 
@@ -117,6 +120,7 @@ row.DicomDir = '';
 row.ReferenceNifti = '';
 row.OutputDir = '';
 row.OutputBase = '';
+row.TileOrder = '';
 row.OutputNifti = '';
 row.OutputJson = '';
 row.OutputBval = '';
@@ -128,6 +132,10 @@ row.TileGrid = '';
 row.SliceCount = NaN;
 row.VolumeCount = NaN;
 row.OutputImageSize = '';
+row.AffineSource = '';
+row.AffineOriginPolicy = '';
+row.BvecValidationMedianError = NaN;
+row.BvecValidationMaxError = NaN;
 end
 
 function value = row_value(inputTable, rowIndex, column)
@@ -140,11 +148,14 @@ end
 value = char(string(value));
 end
 
-function value = optional_row_value(inputTable, rowIndex, column)
+function value = optional_row_value(inputTable, rowIndex, column, defaultValue)
+if nargin < 4
+    defaultValue = '';
+end
 if ismember(column, inputTable.Properties.VariableNames)
     value = row_value(inputTable, rowIndex, column);
 else
-    value = '';
+    value = defaultValue;
 end
 end
 
@@ -164,33 +175,5 @@ if isnumeric(raw)
     value = double(raw);
 else
     value = str2num(char(string(raw))); %#ok<ST2NM>
-end
-end
-
-function tf = ensure_parallel_pool(workerCount)
-tf = false;
-if exist('parpool', 'file') ~= 2 || exist('gcp', 'file') ~= 2 || ...
-        ~license('test', 'Distrib_Computing_Toolbox')
-    return;
-end
-try
-    pool = gcp('nocreate');
-    if isempty(pool)
-        parpool('local', workerCount);
-    elseif pool.NumWorkers < workerCount
-        delete(pool);
-        parpool('local', workerCount);
-    end
-    tf = true;
-catch
-    tf = false;
-end
-end
-
-function message = compact_message(message)
-message = char(string(message));
-message = regexprep(message, '\s+', ' ');
-if numel(message) > 500
-    message = [message(1:500), '...'];
 end
 end
