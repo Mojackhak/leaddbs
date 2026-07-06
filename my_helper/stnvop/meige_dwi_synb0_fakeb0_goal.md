@@ -15,6 +15,9 @@ Implementation status:
   covered by a focused MATLAB test.
 - Next implementation target: Synb0/eddy pilot execution for `Meige001`,
   `Meige008`, and `Meige021`.
+- Pilot preflight: passed. Dry-run parameters match this document; raw DWI
+  four-file sets, anchorNative T1w/T2w images, Docker, local Synb0 image, and
+  FreeSurfer license are present for the pilot run.
 - Not yet complete: Synb0/eddy pilot runs, full-cohort preprocessing,
   Lead-DBS UI coregistration QC, and final subject-level processing record.
 
