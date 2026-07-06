@@ -149,7 +149,7 @@ Clinical rows are joined to imaging by `ID` (`SNr003`, `SNr006`, etc.). Improvem
   templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions/{rh,lh}/STNSNrplus.nii.gz
   ```
 
-  `STNSNrplus` is used only for anatomical overlay, territory coverage, and QC background. It is not intersected with `Omega_ULF_tau` and is not the statistical candidate mask.
+  `STNSNrplus` is used only for anatomical overlay, territory coverage, and QC background. It is not intersected with `Omega_ULF_tau_coverage` and is not the statistical candidate mask.
 
 - Left/right homology transform:
 
@@ -164,15 +164,17 @@ Minimum e-field checks: required paths must exist, subject/side/component/phase 
 
 ## Locked HF Prerequisite
 
-The ULF direct voxel model may enter formal analysis only after the HF direct voxel model source for `DeltaHFScore` has been locked.
+The ULF direct voxel model may enter Round 2 only after the matched HF direct voxel resolver has been locked. The DeltaHF-adjusted ULF branch may enter formal analysis only when the HF resolver has accepted a source and fold-specific `DeltaHFScore` can be computed.
 
-Locked HF source:
+Locked HF resolver fields when a source exists:
 
 ```text
 model_family = hf_3m_direct_voxel_model
 scale        = matched scale/domain
-branch       = tau200 / partial_spearman
-coverage     = Coverage>=5
+hf_voxel_source_status = pre_specified_accepted | scan_fallback_accepted
+hf_voxel_prediction_status = error_predictive | error_nonpredictive
+tau          = hf_voxel_selected_tau_v_per_m
+coverage     = hf_voxel_selected_coverage
 score        = HFScore_mean_main
 map source   = training-fold map for LOOCV
 full-sample map = descriptive and full-sample score output only
@@ -182,8 +184,8 @@ The ULF direct voxel implementation does not hard-code a single primary branch b
 
 ```text
 if hf_voxel_source_status = pre_specified_accepted or scan_fallback_accepted:
-  run delta_hf_adjusted
   run no_delta_hf
+  run delta_hf_adjusted only if fold-specific DeltaHFScore inputs are valid
 
 if hf_voxel_prediction_status = error_predictive:
   ulf_primary_branch = delta_hf_adjusted
@@ -199,6 +201,12 @@ if hf_voxel_source_status = absent_no_stable_grid:
   run no_delta_hf only
   ulf_primary_branch = no_delta_hf
   delta_hfscore_role = not_run_no_stable_hf_voxel_source
+
+if hf_voxel_prediction_status = error_predictive
+and fold-specific DeltaHFScore inputs are invalid:
+  ulf_primary_branch = delta_hf_adjusted
+  delta_hfscore_role = primary_input_failure
+  no_delta_hf_role   = sensitivity_report_only
 ```
 
 The branch-role decision must be written to the model manifest:
@@ -218,11 +226,11 @@ branch_role_decision_reason
 hf_model_support_status
 ```
 
-If the matched HF resolver returns `absent_no_stable_grid`, or if the accepted HF source cannot provide valid fold-specific support for held-out `DeltaHFScore`, the DeltaHF-adjusted branch is not run for that endpoint. A `scan_fallback_accepted` source may define the primary ULF branch when its `hf_voxel_prediction_status` is `error_predictive`, but the manifest must still record `hf_voxel_threshold_source = scan_fallback`.
+If the matched HF resolver returns `absent_no_stable_grid`, or if the accepted HF source cannot provide valid fold-specific support for held-out `DeltaHFScore`, the DeltaHF-adjusted branch is not run for that endpoint. A `scan_fallback_accepted` source may define the primary ULF branch when its `hf_voxel_prediction_status` is `error_predictive`, but the manifest must still record `hf_voxel_threshold_source = scan_fallback`. If the HF-derived primary branch is `delta_hf_adjusted` but the DeltaHFScore branch inputs are invalid, do not silently promote `no_delta_hf` to primary; record `ulf_endpoint_model_status = primary_branch_input_failure`.
 
 ## ULF Voxel Source And Prediction Resolver
 
-The HF resolver decides which ULF branches are run and which branch is interpreted as primary. The ULF resolver then evaluates the stability and prediction-error behavior of each executed ULF branch. ULF source or prediction status must not change the HF-derived branch role; it qualifies whether the selected primary branch is stable, error-predictive, or support-limited.
+The HF resolver decides which ULF branches are run and which branch is interpreted as primary. The ULF resolver then evaluates the stability and prediction-error behavior of each executed ULF branch. ULF source or prediction status must not change the HF-derived branch role; it qualifies whether the selected primary branch is source-stable, error-predictive, or input-limited.
 
 The hard computability filter for each executed ULF endpoint, branch, and tau/Coverage grid cell is:
 
@@ -260,6 +268,26 @@ If the nuisance design fails, the branch is not interpreted as nonpredictive. It
 ulf_branch_input_status = invalid_nuisance_design
 ```
 
+The pre-specified ULF source is:
+
+```text
+tau = 200 V/m
+Coverage >= 5
+estimator = branch-specific partial Spearman
+score = ULFScore_mean_main
+validation = LOOCV
+```
+
+If the pre-specified source is not accepted, the fallback source must be selected only from the declared ULF tau/Coverage scan grid:
+
+```text
+tau, V/m:
+  100, 150, 180, 200, 220, 250, 300, 350, 400, 500
+
+Coverage:
+  5, 6, 7, 8, 10, 12
+```
+
 Define ULF voxel source status for every executed endpoint and branch:
 
 ```text
@@ -285,7 +313,7 @@ For `scan_fallback_accepted`, choose the fallback grid without using outcome-per
 5. prefer higher tau
 ```
 
-Adjacent grid cells are defined on the declared ULF source scan grid; horizontal, vertical, and diagonal one-step neighbors all count. If only the pre-specified tau200/Coverage>=5 branch has been run, fallback status is not assignable and the branch remains `pre_specified_accepted` or `absent_no_stable_grid`.
+Adjacent grid cells are defined on the declared ULF source scan grid; horizontal, vertical, and diagonal one-step neighbors all count. The Round 2 scan table must contain all declared grid cells needed to assign `pre_specified_accepted`, `scan_fallback_accepted`, or `absent_no_stable_grid`.
 
 Define ULF voxel prediction status only after a source exists:
 
@@ -330,10 +358,12 @@ ulf_endpoint_model_status = primary_branch_error_nonpredictive
 ulf_endpoint_model_status = absent_no_stable_ulf_grid
   if the primary branch has ulf_voxel_source_status = absent_no_stable_grid
 
-ulf_endpoint_model_status = exploratory_high_leverage_or_support_limited
-  if the primary branch is computable but high-leverage dominance,
-  excessive HF out-of-support burden, or nonfatal nuisance collinearity limits interpretation
+ulf_endpoint_model_status = primary_branch_input_failure
+  if the primary branch cannot be evaluated because required clinical, e-field,
+  HF-source, DeltaHFScore, or nuisance-design inputs are invalid
 ```
+
+High-leverage dominance, excessive HF out-of-support burden, and nonfatal nuisance collinearity are QC limitations. They must be recorded in the manifest, but they do not replace `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, or `ulf_endpoint_model_status` unless they make the hard computability filter or branch input checks fail.
 
 Required ULF resolver manifest/QC fields:
 
@@ -397,16 +427,25 @@ Frequency only classifies the component as HF or ULF. Exposure is not scaled by 
 Sparse ULF candidate construction is phase-specific:
 
 ```text
-candidate_threshold = 180 V/m
-Candidate_ULF_phase(v) = any valid subject has E_ULF_component_i(v, phase) > 180 V/m
+candidate_sparse_threshold = 100 V/m
+Candidate_ULF_phase(v) = any valid subject has E_ULF_component_i(v, phase) > 100 V/m
 ```
 
-For each tau and endpoint phase:
+The candidate mask is used only for sparse matrix construction. It is not the statistical threshold. A candidate mask built at `180 V/m` is incomplete for the intended resolver because the declared scan includes `tau=100` and `tau=150`.
+
+The declared ULF source scan grid is:
 
 ```text
-tau_primary = 200 V/m
-tau_sensitivity = {180, 220} V/m
+tau, V/m:
+  100, 150, 180, 200, 220, 250, 300, 350, 400, 500
 
+Coverage:
+  5, 6, 7, 8, 10, 12
+```
+
+For each tau, Coverage threshold, and endpoint phase:
+
+```text
 HF_active_i(v, phase)  = E_HF_component_i(v, phase)  > tau
 ULF_active_i(v, phase) = E_ULF_component_i(v, phase) > tau
 
@@ -415,12 +454,13 @@ X_ULF_only_i(v, phase, tau) =
   0,                         otherwise
 
 Coverage_ULF_tau(v, phase) = sum_i I[X_ULF_only_i(v, phase, tau) > tau]
-Omega_ULF_tau(phase) = {v in Candidate_ULF_phase : Coverage_ULF_tau(v, phase) >= 5}
+Omega_ULF_tau_coverage(phase) =
+  {v in Candidate_ULF_phase : Coverage_ULF_tau(v, phase) >= coverage_threshold}
 ```
 
-For ULF, `tau` is part of the exposure definition. It defines component activity, HF-overlap exclusion, ULF-only zeroing, coverage, and QC. Therefore, `tau180/tau200/tau220` are not merely coverage sensitivities; they are exposure-definition sensitivities.
+For ULF, `tau` is part of the exposure definition. It defines component activity, HF-overlap exclusion, ULF-only zeroing, coverage, and QC. Therefore, each tau/Coverage grid cell rebuilds ULF-only exposure and HF-overlap exclusion. Round 2 first evaluates the pre-specified `tau=200 V/m, Coverage>=5` source, then evaluates the declared scan grid if the pre-specified source is not accepted. Round 7 tau sensitivity is centered on the selected ULF source, using `0.9 * selected_tau` and `1.1 * selected_tau` at `selected_coverage` when those thresholds are valid and supported.
 
-Continuous `X_ULF_only_i(v, phase, tau)` values are used for modeling inside `Omega_ULF_tau`. Voxels with both HF and ULF activation are excluded from the primary ULF-only predictor and represented by HF-overlap outputs.
+Continuous `X_ULF_only_i(v, phase, tau)` values are used for modeling inside `Omega_ULF_tau_coverage`. Voxels with both HF and ULF activation are excluded from the primary ULF-only predictor and represented by HF-overlap outputs.
 
 ### HF-Overlap Exclusion Outputs
 
@@ -448,7 +488,7 @@ The model-matched HF adjustment comes from the locked HF direct voxel model.
 For a given full-sample map or LOOCV training fold:
 
 ```text
-V_HF_score = Omega_HF_tau200 intersect valid M_HF voxels
+V_HF_score = Omega_HF_selected_tau_selected_coverage intersect valid M_HF voxels
 n_valid_HF_score_voxels = |V_HF_score|
 
 S_HF_voxel(E)_i =
@@ -492,7 +532,7 @@ S_HF_voxel(E)_i =
 
 HF exposure outside `V_HF_score` contributes `0` to `DeltaHFScore` because the HF model has no learned coefficient there. This zero contribution means "unscored / outside learned support", not "biologically no HF effect".
 
-Out-of-support burden must be quantified for every subject, endpoint phase, tau, and LOOCV fold:
+Out-of-support burden must be quantified for every subject, endpoint phase, locked HF source, ULF selected source, and LOOCV fold:
 
 ```text
 HF_in_support_sum_i = sum_{u in V_HF_score} E_HF_component_i(u)
@@ -522,7 +562,10 @@ Required fields include:
 subject_id
 endpoint
 phase
-tau
+hf_selected_tau_v_per_m
+hf_selected_coverage
+ulf_selected_tau_v_per_m
+ulf_selected_coverage
 score_map_source
 n_hf_score_voxels
 HF_in_support_sum
@@ -572,7 +615,7 @@ Y_post ~ ULFScore_mean_main + Y_HF_ref + DeltaHFScore_in_support
 
 with `HF_out_support_*` reported descriptively instead of included as a fourth predictor.
 
-Do not expand the primary HF support after seeing ULF results. A predeclared sensitivity may use the locked HF `tau180/partial_spearman` support if it was generated independently, but voxels never covered by any HF-only model remain unscored.
+Do not expand the locked HF support after seeing ULF results. DeltaHFScore must use the HF selected source recorded by the HF resolver. Voxels outside the accepted HF source remain unscored.
 
 ## Statistical Model
 
@@ -669,7 +712,7 @@ If enabled in a future run, the OLS estimator should generate the same output fa
 Primary patient-level ULF-only sweet-spot score:
 
 ```text
-V_score = Omega_ULF_tau intersect valid M_ULF voxels
+V_score = Omega_ULF_tau_coverage intersect valid M_ULF voxels
 n_valid_score_voxels = |V_score|
 
 ULFScore_mean_main_i =
@@ -723,10 +766,10 @@ Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, or failed e-field avail
 
 - Model chronic T3 and same-day immediate T2 endpoints separately.
 - Use leave-one-patient-out cross-validation with no inner hyperparameter tuning.
-- In each outer fold, rebuild the branch-specific nuisance inputs, rebuild `Omega_ULF_tau`, fit the ULF-only voxel map, compute training and held-out `ULFScore_mean_main`, and fit the final prediction model using only training patients.
+- In each outer fold, rebuild the branch-specific nuisance inputs, rebuild `Omega_ULF_tau_coverage`, fit the ULF-only voxel map, compute training and held-out `ULFScore_mean_main`, and fit the final prediction model using only training patients.
 - For the DeltaHF-adjusted branch, rebuild the HF direct voxel map needed for `DeltaHFScore`, compute fold-specific `DeltaHFScore`, compute fold-specific HF out-of-support burden, and compare against `Y_post ~ Y_HF_ref + DeltaHFScore`.
 - For the no-DeltaHF branch, omit `DeltaHFScore` from map estimation, scoring, prediction, permutation nuisance models, and baseline comparison; compare against `Y_post ~ Y_HF_ref`.
-- Run both core branches at the observed LOOCV stage when inputs permit. The branch-role resolver records which one is interpreted as primary after the HF result is classified.
+- Run executed core branches at the observed LOOCV stage according to the locked HF branch-role rules. The branch-role resolver records which branch is interpreted as primary after the HF result is classified.
 - For each executed branch, assign `ulf_voxel_source_status` from the ULF hard computability filter and local tau/Coverage support.
 - For each accepted ULF source, assign `ulf_voxel_prediction_status` from MAE/RMSE improvement over the branch-specific nuisance-only baseline.
 - Report the gain endpoint sensitivity when endpoint data are complete.
@@ -738,7 +781,7 @@ Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, or failed e-field avail
   Q2 = 1 - SSE_ULFScore_model / SSE_covariate_only
   ```
 
-- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the branch recorded as primary by the branch-role resolver. Smoke/exploratory runs use `B=1000`. Formal permutation is run only for the selected primary `tau200/partial_spearman` chronic endpoint branch unless the immediate endpoint is explicitly promoted to co-primary.
+- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the accepted selected source of the branch recorded as primary by the branch-role resolver. Smoke/exploratory runs use `B=1000`. Formal permutation is run only when that primary branch has `ulf_voxel_source_status` equal to `pre_specified_accepted` or `scan_fallback_accepted`, unless the immediate endpoint is explicitly promoted to co-primary.
 - For each permutation, fit the branch-specific nuisance model, permute nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including branch-specific nuisance inputs, ULF coverage, ULF map, `ULFScore_mean_main`, and prediction. The primary permutation statistic is LOOCV Spearman rho.
 - Permutation p value is plus-one two-sided:
 
@@ -746,13 +789,13 @@ Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, or failed e-field avail
   p = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
   ```
 
-- Subject-level bootstrap uses `B=10000` and seed `42` for the branch recorded as primary by the branch-role resolver. Smoke/exploratory runs use `B=1000`. Each bootstrap resample reruns the full branch-specific map-building process, including `DeltaHFScore` and HF support QC only for the DeltaHF-adjusted branch, `Omega_ULF_tau`, and `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores voxel-wise standard deviation of the estimator map.
+- Subject-level bootstrap uses `B=10000` and seed `42` for the accepted selected source of the branch recorded as primary by the branch-role resolver. Smoke/exploratory runs use `B=1000`. Each bootstrap resample reruns the full branch-specific map-building process, including `DeltaHFScore` and HF support QC only for the DeltaHF-adjusted branch, `Omega_ULF_tau_coverage`, and `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores voxel-wise standard deviation of the estimator map.
 
-For non-primary executed branches (`tau180/partial_spearman`, `tau220/partial_spearman`, the non-selected core branch, gain endpoint sensitivity, total-ULF sensitivity, and immediate endpoints unless co-primary), LOOCV is still run, but formal permutation/bootstrap outputs are not generated. Their manifests and QC JSON files must record:
+For non-primary executed branches, non-selected tau/Coverage cells, gain endpoint sensitivity, total-ULF sensitivity, and immediate endpoints unless co-primary, LOOCV may be run for reporting, but formal permutation/bootstrap outputs are not generated. Branches with no stable ULF source also omit formal resampling. Their manifests and QC JSON files must record:
 
 ```text
-resampling_status = not_run_nonprimary
-resampling_reason = formal resampling restricted to primary tau200/partial_spearman chronic branch unless endpoint promoted to co-primary
+resampling_status = not_run_nonprimary | not_run_no_stable_source
+resampling_reason = formal resampling restricted to accepted selected-source primary branch unless endpoint promoted to co-primary
 ```
 
 ## Execution Structure
@@ -773,9 +816,9 @@ Required design matrix schema:
 
 - `E_ULF_component_phase(subject x ulf_candidate_voxel)` continuous ULF component exposure;
 - `E_HF_component_phase_on_ulf_grid(subject x ulf_candidate_voxel)` continuous HF component exposure used for HF-overlap exclusion;
-- `X_ULF_only_tau180_phase(subject x ulf_candidate_voxel)` tau-specific ULF-only exposure;
-- `X_ULF_only_tau200_phase(subject x ulf_candidate_voxel)` tau-specific ULF-only exposure;
-- `X_ULF_only_tau220_phase(subject x ulf_candidate_voxel)` tau-specific ULF-only exposure;
+- `X_ULF_only_tau{100,150,180,200,220,250,300,350,400,500}_phase(subject x ulf_candidate_voxel)` tau-specific ULF-only exposure;
+- `S_tau{100,150,180,200,220,250,300,350,400,500}_ULF_only_phase(subject x ulf_candidate_voxel)` Boolean suprathreshold ULF-only sidecars;
+- `HF_overlap_tau{100,150,180,200,220,250,300,350,400,500}_phase(subject x ulf_candidate_voxel)` Boolean HF/ULF overlap sidecars;
 - `E_HF_component_phase_on_hf_score_grid(subject x hf_score_voxel)` continuous HF component exposure used for `DeltaHFScore`;
 - `E_HF_only_reference_on_hf_score_grid(subject x hf_score_voxel)` continuous HF-only reference exposure used for `DeltaHFScore`;
 - ULF candidate voxel `ijk` and MNI `xyz_mm`;
@@ -789,7 +832,7 @@ The implementation must not store a single tau-independent `X_ULF_only` as the f
 Python postprocessing in the `leaddbs` Conda environment:
 
 - read the MAT v7 design matrix or optional NPZ mirror;
-- construct `Omega_ULF_tau` inside each fold;
+- construct `Omega_ULF_tau_coverage` inside each fold;
 - compute fold-specific HF direct voxel maps and `DeltaHFScore`;
 - compute HF out-of-support burden for `DeltaHFScore`;
 - run partial Spearman map fitting, LOOCV, permutation, bootstrap, and display output generation;
@@ -808,25 +851,23 @@ seed: 42
 Output root:
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<tau_slug>/<branch_slug>/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<source_slug>/<branch_slug>/
 ```
 
-Core branches:
+Selected-source branch examples:
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_delta_hf_adjusted/
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_no_delta_hf/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200_cov5/partial_spearman_delta_hf_adjusted/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200_cov5/partial_spearman_no_delta_hf/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau<selected>_cov<selected>/partial_spearman_<branch_role>/
 ```
 
-Sensitivity branches:
+Non-selected source-neighborhood, gain, and total-ULF sensitivity outputs may be generated for reporting, but they are not formal selected-source outputs:
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau180/partial_spearman_delta_hf_adjusted/
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau180/partial_spearman_no_delta_hf/
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau220/partial_spearman_delta_hf_adjusted/
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau220/partial_spearman_no_delta_hf/
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_gain_endpoint/
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_total_ulf_exposure/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<neighborhood_source_slug>/partial_spearman_<branch_role>/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<selected_source_slug>/partial_spearman_gain_endpoint/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<selected_source_slug>/partial_spearman_total_ulf_exposure/
 ```
 
 Required outputs:
@@ -850,23 +891,25 @@ direct_voxel_ULF_only_mapping_qc.json
 direct_voxel_ULF_only_generation_manifest.json
 ```
 
-`direct_voxel_ULF_only_bootstrap_se.nii.gz` and `direct_voxel_ULF_only_permutation_summary.csv` are generated only for the primary branch. Non-primary branches omit these files and record `not_run_nonprimary` in their manifest and QC JSON.
+Selected-source NIfTI, score, and LOOCV prediction outputs are generated only for branches with `ulf_voxel_source_status` equal to `pre_specified_accepted` or `scan_fallback_accepted`. Endpoints or branches with `absent_no_stable_grid` generate only resolver scan tables plus QC/manifest rows.
 
-For continuous/statistical NIfTI outputs, voxels outside the model support are written as `NaN`, not `0`. This applies to coefficient, sweet/sour, stability, bootstrap SE, HF-overlap fraction, smoothed-display, and homologous-display statistical maps outside `Omega_ULF_tau` or outside the right-canonical candidate grid. `0` is reserved for true zero-valued estimates inside support. Integer coverage/count maps and binary/exclusion display masks remain `0` outside support because their data type and semantics are count/false rather than continuous effect.
+`direct_voxel_ULF_only_bootstrap_se.nii.gz` and `direct_voxel_ULF_only_permutation_summary.csv` are generated only for the accepted selected source of the primary branch. Non-primary branches omit these files and record `not_run_nonprimary` in their manifest and QC JSON. Branches with no stable source record `not_run_no_stable_source`.
+
+For continuous/statistical NIfTI outputs, voxels outside the model support are written as `NaN`, not `0`. This applies to coefficient, sweet/sour, stability, bootstrap SE, HF-overlap fraction, smoothed-display, and homologous-display statistical maps outside `Omega_ULF_tau_coverage` or outside the right-canonical candidate grid. `0` is reserved for true zero-valued estimates inside support. Integer coverage/count maps and binary/exclusion display masks remain `0` outside support because their data type and semantics are count/false rather than continuous effect.
 
 Output semantics:
 
-- `direct_voxel_ULF_only_coverage.nii.gz` stores `Coverage_ULF_tau(v)=sum_i I[X_ULF_only_i(v, phase,tau)>tau]`. Use `int16`.
+- `direct_voxel_ULF_only_coverage.nii.gz` stores `Coverage_ULF_tau(v)=sum_i I[X_ULF_only_i(v, phase,tau)>tau]` for the selected tau/Coverage source. Use `int16`.
 - `direct_voxel_ULF_only_coef.nii.gz` stores `rho_ULF(v)` for the executed `partial_spearman/` estimator. Optional future OLS outputs would store `theta_ULF(v)`.
 - `direct_voxel_ULF_only_sweet_sour.nii.gz` stores benefit-oriented `M_ULF(v)`. Positive values indicate ULF-only benefit-associated voxels.
 - `direct_voxel_ULF_only_stability.nii.gz` stores LOOCV training-fold direction stability of `M_ULF(v)>0` or `M_ULF(v)<0`, depending on display class. It is not a p value.
-- `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the primary branch only.
+- `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the accepted selected source of the primary branch only.
 - `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `delta_hfscore_role`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_out_support_fraction`, `score_map_source`, `n_valid_score_voxels`, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, and `is_primary_score`.
 - `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed raw outcome, branch-specific nuisance-only prediction, `ULFScore_mean_main`, `DeltaHFScore` when applicable, HF support burden fields, `MAE_nuisance_baseline`, `RMSE_nuisance_baseline`, and residuals.
-- `direct_voxel_ULF_only_permutation_summary.csv` stores Freedman-Lane permutation summary for the primary branch only.
+- `direct_voxel_ULF_only_permutation_summary.csv` stores Freedman-Lane permutation summary for the accepted selected source of the primary branch only.
 - HF-overlap files store subject-level and cohort-level voxels excluded from the ULF-only predictor because both HF and ULF are active at the branch tau.
 - DeltaHFScore support files store the in-support and out-of-support HF component exposure used to determine whether `DeltaHFScore` is within the learned HF model support.
-- `direct_voxel_ULF_only_mapping_qc.json` stores endpoint/tau/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_ULF_tau` voxel count, HF-overlap exclusion volume, HF out-of-support burden, degenerate voxels, NaN handling, zero-exposure score counts, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_branch_input_status`, `branch_nuisance_design_status`, `corr(ULFScore_mean_main, Y_HF_ref)`, `corr(ULFScore_mean_main, DeltaHFScore)`, `corr(Y_HF_ref, DeltaHFScore)`, coefficient signs, VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
+- `direct_voxel_ULF_only_mapping_qc.json` stores endpoint/tau/Coverage/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_ULF_tau_coverage` voxel count, HF-overlap exclusion volume, HF out-of-support burden, degenerate voxels, NaN handling, zero-exposure score counts, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_branch_input_status`, `branch_nuisance_design_status`, `corr(ULFScore_mean_main, Y_HF_ref)`, `corr(ULFScore_mean_main, DeltaHFScore)`, `corr(Y_HF_ref, DeltaHFScore)`, coefficient signs, VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
 - `direct_voxel_ULF_only_generation_manifest.json` stores provenance, parameters, code version, conda environment, package state, random seeds, visit labels, same-day immediate reference confirmation, component-proxy labels, HF-derived branch role fields, ULF resolver fields, and runtime profile.
 
 Primary statistical maps are unsmoothed. Display smoothing is generated only after coefficient estimation and must not be used for ULFScore, LOOCV, permutation, bootstrap, or jitter:
@@ -917,7 +960,7 @@ FWHM: 2 mm
 sigma: 2 / 2.355 = 0.849 mm
 ```
 
-For each jitter iteration, draw an independent 3D translation vector for each subject-side HF and ULF component e-field. Apply translation-only e-field resampling with linear interpolation and outside fill value `0`. Then rebuild ULF-only exposure, HF-overlap exclusion, `Omega_ULF_tau`, `DeltaHFScore`, HF out-of-support support QC, full-sample map, ULF scores, and LOOCV validation metrics.
+For each jitter iteration, draw an independent 3D translation vector for each subject-side HF and ULF component e-field. Apply translation-only e-field resampling with linear interpolation and outside fill value `0`. Then rebuild ULF-only exposure, HF-overlap exclusion, `Omega_ULF_tau_coverage`, `DeltaHFScore`, HF out-of-support support QC, full-sample map, ULF scores, and LOOCV validation metrics.
 
 Do not save every jittered NIfTI map. Save a summary table, map correlation/stability summary, and voxel-wise jitter standard deviation map.
 
@@ -929,21 +972,22 @@ The ULF direct voxel model covers the same direct voxel parameter family as the 
 raw sim-efield, not sim-efieldgauss
 right canonical voxel grid
 ea_flip_lr_nonlinear left/right flip
-tau = 180 / 200 / 220 V/m
-Coverage>=5
-covariate-adjusted partial Spearman
+pre-specified source = tau200/Coverage>=5
+declared tau scan grid = 100, 150, 180, 200, 220, 250, 300, 350, 400, 500 V/m
+declared Coverage scan grid = 5, 6, 7, 8, 10, 12
+branch-specific partial Spearman
 LOOCV
-Freedman-Lane permutation for the primary branch
-subject-level bootstrap for the primary branch
-2 mm FWHM spatial jitter QC
+Freedman-Lane permutation for accepted selected-source primary branch
+subject-level bootstrap for accepted selected-source primary branch
+2 mm FWHM spatial jitter QC for accepted selected-source primary branch
 display smoothing FWHM 1 mm and 2 mm, display only
 ```
 
 Documented-only items for the current ULF direct voxel execution:
 
 ```text
-Coverage>=6 optional sensitivity: documented only; no current ULF direct voxel outputs
-Coverage>=8 / 50% E-field rule: documented only; primary rule remains Coverage>=5
+Coverage>=6 standalone sensitivity: not generated separately; Coverage>=6 can still become the selected source if the Round 2 resolver selects that grid cell
+Coverage>=8 / 50% E-field standalone rule: not generated separately; Coverage>=8 can still become the selected source if the Round 2 resolver selects that grid cell
 5/7/10-fold CV: documented only; LOOCV is executable
 optional OLS supplemental estimator: documented only; not run in the current execution
 OSS-DBS: not part of direct voxel; belongs to normative fiber / activation sensitivity
@@ -978,11 +1022,11 @@ DeltaHFScore fully removes all HF contribution when out-of-support burden is lar
 
 ## Execution Efficiency
 
-The optimized implementation must preserve the logical full-process semantics described above. In particular, LOOCV training folds still define their own HF adjustment map, `DeltaHFScore`, HF support QC, `Omega_ULF_tau`, ULF voxel map, ULF scores, and held-out predictions. Formal Freedman-Lane permutation and subject-level bootstrap still use `B=10000` and seed `42` for the primary branch. Smoke runs use `B=1000` for permutation/bootstrap and `B=100` for jitter.
+The optimized implementation must preserve the logical full-process semantics described above. In particular, LOOCV training folds still define their own HF adjustment map, `DeltaHFScore`, HF support QC, `Omega_ULF_tau_coverage`, ULF voxel map, ULF scores, and held-out predictions. Formal Freedman-Lane permutation and subject-level bootstrap still use `B=10000` and seed `42` for accepted selected-source primary branches. Smoke runs use `B=1000` for permutation/bootstrap and `B=100` for jitter.
 
 ### Equivalence Contract
 
-Optimization may reuse mathematically invariant cached subcomputations, but it must not use full-sample ranks, full-sample training masks, approximate ranks, adaptive early stopping, changed tau thresholds, changed estimators, changed HF support rules, or reduced formal resampling counts to gain speed.
+Optimization may reuse mathematically invariant cached subcomputations, but it must not use full-sample ranks, full-sample training masks, approximate ranks, adaptive early stopping, changed declared tau/Coverage settings, changed estimators, changed HF support rules, or reduced formal resampling counts to gain speed.
 
 Numerical reductions should use `float64` where feasible. Final NIfTI outputs use `float32` for coefficient, sweet/sour, stability, and bootstrap SE maps, and `int16` for coverage and binary/exclusion masks.
 
@@ -995,15 +1039,36 @@ E_ULF_component_<phase>_float32_voxel_major.npy
 E_HF_component_<phase>_on_ulf_grid_float32_voxel_major.npy
 E_HF_component_<phase>_on_hf_score_grid_float32_voxel_major.npy
 E_HF_only_reference_on_hf_score_grid_float32_voxel_major.npy
+X_ULF_only_tau100_<phase>_float32_voxel_major.npy
+X_ULF_only_tau150_<phase>_float32_voxel_major.npy
 X_ULF_only_tau180_<phase>_float32_voxel_major.npy
 X_ULF_only_tau200_<phase>_float32_voxel_major.npy
 X_ULF_only_tau220_<phase>_float32_voxel_major.npy
-S180_ULF_only_<phase>_bool.npy
-S200_ULF_only_<phase>_bool.npy
-S220_ULF_only_<phase>_bool.npy
+X_ULF_only_tau250_<phase>_float32_voxel_major.npy
+X_ULF_only_tau300_<phase>_float32_voxel_major.npy
+X_ULF_only_tau350_<phase>_float32_voxel_major.npy
+X_ULF_only_tau400_<phase>_float32_voxel_major.npy
+X_ULF_only_tau500_<phase>_float32_voxel_major.npy
+S_tau100_ULF_only_<phase>_bool.npy
+S_tau150_ULF_only_<phase>_bool.npy
+S_tau180_ULF_only_<phase>_bool.npy
+S_tau200_ULF_only_<phase>_bool.npy
+S_tau220_ULF_only_<phase>_bool.npy
+S_tau250_ULF_only_<phase>_bool.npy
+S_tau300_ULF_only_<phase>_bool.npy
+S_tau350_ULF_only_<phase>_bool.npy
+S_tau400_ULF_only_<phase>_bool.npy
+S_tau500_ULF_only_<phase>_bool.npy
+HF_overlap_tau100_<phase>_bool.npy
+HF_overlap_tau150_<phase>_bool.npy
 HF_overlap_tau180_<phase>_bool.npy
 HF_overlap_tau200_<phase>_bool.npy
 HF_overlap_tau220_<phase>_bool.npy
+HF_overlap_tau250_<phase>_bool.npy
+HF_overlap_tau300_<phase>_bool.npy
+HF_overlap_tau350_<phase>_bool.npy
+HF_overlap_tau400_<phase>_bool.npy
+HF_overlap_tau500_<phase>_bool.npy
 ulf_candidate_ijk.npy
 ulf_candidate_xyz_mm.npy
 hf_score_support_ijk.npy
@@ -1022,10 +1087,11 @@ For each tau and phase, precompute:
 S_tau(v, i, phase) = I[X_ULF_only_i(v, phase,tau) > tau]
 Coverage_tau_all(v, phase) = sum_i S_tau(v, i, phase)
 Coverage_tau_fold_h(v, phase) = Coverage_tau_all(v, phase) - S_tau(v, h, phase)
-Omega_ULF_tau_fold_h(phase) = {v : Coverage_tau_fold_h(v, phase) >= 5}
+Omega_ULF_tau_coverage_fold_h(phase) =
+  {v : Coverage_tau_fold_h(v, phase) >= coverage_threshold}
 ```
 
-`HF_overlap_tau*_bool` can be cached because it depends only on accepted HF/ULF component exposures and tau, not on outcome.
+`coverage_threshold` is the current grid cell's Coverage value in Round 2 and `selected_coverage` for selected-source formal analyses. `HF_overlap_tau*_bool` can be cached because it depends only on accepted HF/ULF component exposures and tau, not on outcome.
 
 ### Vectorized Partial Spearman Kernel
 
@@ -1046,7 +1112,7 @@ rank(Y_HF_ref_train)
 
 ### Fold-Level Score Operator For Permutation
 
-Formal Freedman-Lane permutation for the primary branch may use a fold-level score operator, but it must remain logically equivalent to recomputing the full ULF map and `ULFScore_mean_main` for every permuted outcome.
+Formal Freedman-Lane permutation for the accepted selected-source primary branch may use a fold-level score operator, but it must remain logically equivalent to recomputing the full ULF map and `ULFScore_mean_main` for every permuted outcome.
 
 Each permutation must have its own:
 
@@ -1062,11 +1128,11 @@ LOOCV statistic
 
 ### Bootstrap Efficiency
 
-Subject-level bootstrap remains a full-process map stability analysis for the primary branch. It must rebuild bootstrap `DeltaHFScore`, HF support QC, `Omega_ULF_tau`, `rho_ULF`, and `M_ULF`. Bootstrap SE is accumulated by streaming Welford updates. The implementation must not store 10000 bootstrap maps.
+Subject-level bootstrap remains a full-process map stability analysis for the accepted selected-source primary branch. It must rebuild bootstrap `DeltaHFScore`, HF support QC, `Omega_ULF_tau_coverage`, `rho_ULF`, and `M_ULF`. Bootstrap SE is accumulated by streaming Welford updates. The implementation must not store 10000 bootstrap maps.
 
 ### Spatial Jitter Efficiency
 
-Jitter changes e-field geometry. Primary `X`-derived caches are invalid under jitter and must not be reused as if exposure were unchanged. Each jitter iteration must rebuild HF component exposure, ULF component exposure, HF-overlap exclusion, ULF-only exposure, candidate mask, `Omega_ULF_tau`, `DeltaHFScore`, HF support QC, map, scores, and LOOCV metrics.
+Jitter changes e-field geometry. Primary `X`-derived caches are invalid under jitter and must not be reused as if exposure were unchanged. Each jitter iteration must rebuild HF component exposure, ULF component exposure, HF-overlap exclusion, ULF-only exposure, candidate mask, `Omega_ULF_tau_coverage`, `DeltaHFScore`, HF support QC, map, scores, and LOOCV metrics.
 
 ### Prohibited Speed Shortcuts
 
@@ -1075,8 +1141,7 @@ Formal runs prohibit:
 ```text
 adaptive permutation early stopping
 reduced formal B
-changed tau thresholds
-changed Coverage>=5 rule
+changed declared tau/Coverage settings
 changed estimator
 full-sample ranks inside LOOCV/permutation/bootstrap
 approximate ranks
@@ -1106,10 +1171,12 @@ using compressed NPZ as the random-access formal-loop input
     "jitter_s": null,
     "display_qc_s": null,
     "n_voxels_candidate": null,
-    "n_voxels_tau200_mean": null,
-    "n_voxels_tau200_min": null,
-    "n_voxels_tau200_max": null,
-    "n_hf_overlap_tau200_mean": null,
+    "selected_tau_v_per_m": null,
+    "selected_coverage": null,
+    "n_voxels_selected_mean": null,
+    "n_voxels_selected_min": null,
+    "n_voxels_selected_max": null,
+    "n_hf_overlap_selected_mean": null,
     "hf_out_support_fraction_summary": null,
     "python_jobs": null,
     "blas_threads": null,
@@ -1135,7 +1202,7 @@ Compare:
 ```text
 fold-specific DeltaHFScore
 fold-specific HF out-of-support burden
-fold-specific Omega_ULF_tau
+fold-specific Omega_ULF_tau_coverage
 HF-overlap exclusion masks
 partial Spearman rho map
 benefit-oriented M_ULF map
@@ -1157,9 +1224,9 @@ same plus-one p value for the deterministic small test
 
 ## Execution Priority And Reporting Workflow
 
-Run the ULF direct voxel analysis in stages so the HF-derived branch role and ULF branch classification are written before expensive reporting analyses run.
+Run the ULF direct voxel analysis in stages so the HF-derived branch role, ULF selected source, and endpoint classification are written before expensive reporting analyses run.
 
-### Round 0: Input Readiness
+### Round 0: Input Readiness And HF Resolver Lock
 
 Run:
 
@@ -1168,9 +1235,9 @@ clinical table audit:
   Y_HF_ref exists at T2 HF-only 3-month same-day reference
   Y_post_immediate exists at T2 HF+ULF same-day immediate endpoint, if modeled
   Y_post_chronic exists at T3 HF+ULF 3-month endpoint, if modeled
-  DeltaHFScore inputs exist
   ID joins to imaging subject
   scale direction is defined
+  n_subjects >= 12 for every modeled endpoint row
 
 visit chronology audit:
   T0 preoperative baseline exists when available
@@ -1194,98 +1261,189 @@ component audit:
 
 locked HF model audit:
   hf_3m_direct_voxel_model source resolver fields exist
-  HFScore_mean_main and M_HF support are valid
-  fold-specific map generation is available for LOOCV DeltaHFScore
-  hf_voxel_source_status and hf_voxel_prediction_status are recorded
+  hf_voxel_source_status is recorded
+  hf_voxel_prediction_status is recorded
+  hf_voxel_selected_tau_v_per_m and hf_voxel_selected_coverage are recorded when a source exists
+  HFScore_mean_main and M_HF support are valid when a source exists
+  fold-specific map generation is available for LOOCV DeltaHFScore when a source exists
 ```
 
-Continue only if all primary endpoint subjects have complete clinical and e-field inputs, same-day immediate reference is confirmed when immediate endpoint is run, and valid sample size is at least 12.
+`available_ulf_endpoint_count` is the number of ULF endpoint rows that pass Round 0 endpoint/input readiness, including clinical availability, defined scale direction, `n_subjects >= 12`, uniquely matched endpoint-specific raw e-fields, and required branch inputs. Endpoint rows that fail Round 0 are recorded as input/readiness failures and are not included in the Round 2 all-endpoint denominator.
 
-### Round 1: Preprocessing, Overlap QC, And HF Support QC
-
-Run preprocessing sidecars and flip audit. Confirm:
+After the locked HF resolver is read, define executed ULF branches:
 
 ```text
-ULF component matrix is non-empty
-X_ULF_only_tau200 matrix is non-empty
-HF_overlap outputs are valid even if overlap is zero
-tau200 Coverage>=5 Omega_ULF is non-empty
+if hf_voxel_source_status is pre_specified_accepted or scan_fallback_accepted:
+  run no_delta_hf
+  run delta_hf_adjusted
+
+if hf_voxel_prediction_status == error_predictive:
+  ulf_primary_branch = delta_hf_adjusted
+
+if hf_voxel_prediction_status == error_nonpredictive:
+  ulf_primary_branch = no_delta_hf
+
+if hf_voxel_source_status == absent_no_stable_grid:
+  run no_delta_hf only
+  ulf_primary_branch = no_delta_hf
+```
+
+### Round 1: Preprocessing Sidecars, Overlap QC, And HF Support QC
+
+Run preprocessing sidecars and flip audit:
+
+```text
+candidate_sparse_threshold = 100 V/m
+E_ULF_component matrix is non-empty
+E_HF_component matrix is non-empty
+X_ULF_only_tau{100,150,180,200,220,250,300,350,400,500} sidecars are available
+S_tau{100,150,180,200,220,250,300,350,400,500} sidecars are available
+HF_overlap_tau{100,150,180,200,220,250,300,350,400,500} outputs are valid even if overlap is zero
 each subject has nonzero HF component exposure
 each subject has nonzero or explicitly absent ULF-only exposure
-DeltaHFScore support summary is generated
-HF_out_support_fraction is not extreme enough to invalidate HF adjustment
+DeltaHFScore support summary is generated for delta_hf_adjusted branches
+HF_out_support_fraction is recorded for delta_hf_adjusted branches
 ```
 
-If ULF-only exposure is empty for most subjects, report that the primary ULF-only predictor is not modelable. If HF out-of-support burden is large, record the support limitation and add the predeclared HF-out-of-support sensitivity when needed.
+If the full-sample `tau200/Coverage>=5` ULF Omega is empty, Round 1 still proceeds to Round 2. The pre-specified grid cannot be accepted, and the scan resolver determines whether a fallback source exists. If ULF-only exposure is empty for most subjects across the declared grid, record the support limitation and allow Round 2 to assign `absent_no_stable_grid`.
 
-### Round 2: Core Chronic Observed LOOCV
+### Round 2: Observed LOOCV, Tau/Coverage Scan, Branch Role, And Source Resolver
 
-Run first unless immediate endpoint has been explicitly promoted:
+Run the same observed LOOCV resolver for every available ULF endpoint row, endpoint phase, and executed branch. The engineering implementation treats all available endpoints equivalently; chronic, immediate, total score, and subscale rows are endpoint rows, not special execution classes.
+
+For each endpoint/phase/branch, first evaluate the pre-specified grid:
 
 ```text
-endpoint = MDS-UPDRS III total chronic HF+ULF 3-month score
-core branches =
-  tau200 / partial_spearman / delta_hf_adjusted
-  tau200 / partial_spearman / no_delta_hf
+branch = tau200 / Coverage>=5 / partial_spearman / <delta_hf_adjusted|no_delta_hf>
+candidate_sparse_threshold = 100 V/m
+Omega_ULF_tau200_cov5 = {v in Candidate_tau100 : Coverage_200 >= 5}
 score = ULFScore_mean_main
-covariates =
-  delta_hf_adjusted: Y_HF_ref + DeltaHFScore
-  no_delta_hf:       Y_HF_ref
 validation = LOOCV
+nuisance baseline:
+  no_delta_hf:       Y_post ~ Y_HF_ref
+  delta_hf_adjusted: Y_post ~ Y_HF_ref + DeltaHFScore
 ```
 
-After both core branches finish, use the locked HF result to record:
+If the pre-specified grid is not accepted, use the tau/Coverage scan inside this same round to select a fallback source or declare no stable source. The scan grid is:
 
 ```text
-hf_voxel_source_status
-hf_voxel_prediction_status
-ulf_primary_branch
-delta_hfscore_role
-branch_role_decision_reason
+tau, V/m:
+  100, 150, 180, 200, 220, 250, 300, 350, 400, 500
+
+Coverage:
+  5, 6, 7, 8, 10, 12
 ```
 
-Then assign ULF branch and endpoint status:
+This yields `60` grid cells per endpoint/phase/branch and `available_ulf_endpoint_count x executed_branch_count x 60` rows for a single phase. `tau=100` and `tau=150` require a dedicated candidate sidecar with `candidate_sparse_threshold = 100 V/m`; using a sidecar built at `180 V/m` for those cells is incomplete and not allowed.
+
+Each grid cell reports:
 
 ```text
-ulf_voxel_source_status
-ulf_voxel_prediction_status
-ulf_endpoint_model_status
-ulf_branch_input_status
+tau
+coverage
+branch
+branch_role
+n_subjects
+n_voxels_full
+fold_n_voxels_min
+fold_n_voxels_median
+fold_n_voxels_max
 branch_nuisance_design_status
+LOOCV Spearman rho
+LOOCV Spearman nominal p
+LOOCV Pearson r
+Q2
+MAE_model
+MAE_nuisance_baseline
+RMSE_model
+RMSE_nuisance_baseline
+corr(ULFScore_mean_main, Y_HF_ref)
+corr(ULFScore_mean_main, DeltaHFScore) if applicable
+HF_out_support_fraction_summary if applicable
 ```
 
-Proceed to reporting analyses only if the branch selected as primary has `ulf_voxel_source_status` equal to `pre_specified_accepted` or `scan_fallback_accepted`, `ULFScore_mean_main` is non-constant, held-out predictions are finite, the branch nuisance design is valid, and the result is not dominated by one high-leverage subject. LOOCV rho, `Q2`, MAE, RMSE, and nuisance-baseline comparisons remain required report fields; only MAE/RMSE against the branch-specific nuisance baseline define `ulf_voxel_prediction_status`.
+Then assign:
 
-If neither core chronic branch is computable because required inputs are missing, nuisance design is invalid, predictions are non-finite, ULFScore is near-constant, no stable ULF grid exists, or one subject dominates the result, record the corresponding branch input/source status and do not use tau sensitivity to search for a replacement.
+```text
+ulf_voxel_source_status =
+  pre_specified_accepted if tau200/Coverage>=5 and at least 2 adjacent cells pass the hard computability filter
+  scan_fallback_accepted if tau200/Coverage>=5 is not accepted and a fallback grid cell passes the same source-stability rule
+  absent_no_stable_grid if no stable grid cell exists
+
+ulf_voxel_prediction_status =
+  error_predictive if MAE_model < MAE_nuisance_baseline and RMSE_model < RMSE_nuisance_baseline
+  error_nonpredictive if a source exists but either error comparison fails
+  not_applicable if no stable source exists
+```
+
+For `scan_fallback_accepted`, choose the fallback grid without using `Q2`, rho, nominal p, or any other outcome-performance metric:
+
+```text
+1. minimize grid distance from tau200/Coverage>=5
+2. maximize adjacent passing grid cells
+3. maximize fold_n_voxels_min
+4. prefer stricter Coverage
+5. prefer higher tau
+```
+
+Generate per endpoint/phase/branch with an accepted selected source:
+
+```text
+direct_voxel_ULF_only_coverage.nii.gz
+direct_voxel_ULF_only_coef.nii.gz
+direct_voxel_ULF_only_sweet_sour.nii.gz
+direct_voxel_ULF_only_stability.nii.gz
+direct_voxel_ULF_only_scores.csv
+direct_voxel_ULF_only_loocv_predictions.csv
+direct_voxel_ULF_only_mapping_qc.json
+direct_voxel_ULF_only_generation_manifest.json
+```
+
+For branches with `absent_no_stable_grid`, do not generate selected-source NIfTI maps, score files, LOOCV prediction files, permutation summaries, bootstrap maps, or jitter outputs. Generate only resolver scan tables plus a branch-level QC/manifest row recording `ulf_voxel_source_status = absent_no_stable_grid` and `ulf_voxel_prediction_status = not_applicable`.
+
+The HF-selected primary branch controls endpoint-level reporting:
+
+```text
+ulf_endpoint_model_status = primary_branch_error_predictive
+  if the primary branch has an accepted ULF source
+  and ulf_voxel_prediction_status = error_predictive
+
+ulf_endpoint_model_status = primary_branch_error_nonpredictive
+  if the primary branch has an accepted ULF source
+  but ulf_voxel_prediction_status = error_nonpredictive
+
+ulf_endpoint_model_status = absent_no_stable_ulf_grid
+  if the primary branch has ulf_voxel_source_status = absent_no_stable_grid
+
+ulf_endpoint_model_status = primary_branch_input_failure
+  if the primary branch cannot be evaluated because required inputs are invalid
+```
+
+Permutation p values, LOOCV rho, `Q2`, bootstrap stability, and jitter stability are inference-strength or robustness fields. They do not change `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, or the HF-derived `ulf_primary_branch`.
+
+If Round 2 assigns `absent_no_stable_grid` to the primary branch, skip Round 3 through Round 7 for that endpoint/branch and proceed directly to Round 8 summary/manifest reporting.
 
 ### Round 2b: Same-Day Immediate Observed LOOCV
 
-Run as key secondary, or as co-primary only if explicitly declared:
+The same-day immediate endpoint uses the same Round 2 resolver. It is key secondary by default and becomes co-primary only if explicitly declared before formal resampling. Its branch-specific covariates are:
 
 ```text
-endpoint = MDS-UPDRS III total same-day immediate HF+ULF score
-core branches =
-  tau200 / partial_spearman / delta_hf_adjusted
-  tau200 / partial_spearman / no_delta_hf
-score = ULFScore_mean_main
-covariates =
-  delta_hf_adjusted: Y_HF_ref + DeltaHFScore_immediate
-  no_delta_hf:       Y_HF_ref
-validation = LOOCV
+endpoint = same-day immediate HF+ULF score
+delta_hf_adjusted nuisance baseline = Y_post_immediate ~ Y_HF_ref + DeltaHFScore_immediate
+no_delta_hf nuisance baseline       = Y_post_immediate ~ Y_HF_ref
 ```
 
-Also run the same-day gain sensitivity if complete:
+The same-day gain sensitivity can be run only after the same-day immediate selected-source resolver is complete:
 
 ```text
 endpoint = Gain_immediate
-branch = tau200 / partial_spearman_gain_endpoint
+source = selected ULF source from the same-day immediate resolver
+branch = partial_spearman_gain_endpoint
 ```
-
-The immediate endpoint may enter smoke reporting if it satisfies the same computability and source-status criteria as chronic observed LOOCV.
 
 ### Round 3: Equivalence And Smoke Reporting
 
-Run:
+Run only for accepted selected-source primary branches:
 
 ```text
 deterministic equivalence test
@@ -1294,63 +1452,79 @@ smoke bootstrap B=1000
 smoke jitter B=100
 ```
 
-Formal reporting analyses require optimized and brute-force paths to match, smoke resampling to run without artifacts, bootstrap finite-count distribution to be acceptable, and jitter direction to be recorded.
+Formal reporting analyses require optimized and brute-force paths to match, smoke resampling to run without artifacts, bootstrap finite-count distribution to be acceptable, and jitter direction to be recorded. Failure here does not create a new source candidate; it records an implementation or robustness limitation for the selected source.
 
 ### Round 4: Formal Permutation Reporting
 
-Run only for the branch recorded as primary by the branch-role resolver:
+Run only for the accepted selected source of the branch recorded as primary by the branch-role resolver:
 
 ```text
-tau200 / partial_spearman
+source = ulf_voxel_selected_tau_v_per_m / ulf_voxel_selected_coverage
 branch_role = ulf_primary_branch
 B = 10000
 seed = 42
 statistic = LOOCV Spearman rho
 ```
 
-Permutation, p value, LOOCV rho, and `Q2` are inference-strength fields. They do not change `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, or the HF-derived `ulf_primary_branch`.
+Permutation, p value, LOOCV rho, and `Q2` are inference-strength fields. They do not change source, prediction, endpoint, or branch-role status.
 
 ### Round 5: Formal Bootstrap
 
-Run:
+Run only for the accepted selected source of the primary branch:
 
 ```text
-tau200 / partial_spearman
+source = ulf_voxel_selected_tau_v_per_m / ulf_voxel_selected_coverage
 branch_role = ulf_primary_branch
 B = 10000
 seed = 42
 ```
 
-Proceed only if bootstrap finite counts are acceptable, core sign stability is interpretable, and most bootstrap maps are not empty.
+Bootstrap finite counts, core sign stability, and empty-map frequency are robustness fields. They do not select a replacement source.
 
 ### Round 6: Formal Spatial Jitter
 
-Run:
+Run only for the accepted selected source of the primary branch:
 
 ```text
-tau200 / partial_spearman
+source = ulf_voxel_selected_tau_v_per_m / ulf_voxel_selected_coverage
 branch_role = ulf_primary_branch
 B = 1000
 FWHM = 2 mm
 ```
 
-If jitter map correlation is near zero or the signal direction reverses, downgrade conclusions to spatially fragile exploratory association.
+If jitter map correlation is near zero or the signal direction reverses, downgrade conclusions to spatially fragile exploratory association. Do not use jitter to select a new source.
 
-### Round 7: Tau Sensitivity
+### Round 7: Selected-Source Exposure-Definition Neighborhood Sensitivity
 
-Run observed LOOCV only:
+Run observed LOOCV sensitivity around the ULF source selected in Round 2:
 
 ```text
-tau180 / partial_spearman
-tau220 / partial_spearman
-run for both delta_hf_adjusted and no_delta_hf core roles when inputs allow
+pre_specified_accepted:
+  report 0.9 * selected_tau and 1.1 * selected_tau,
+  at selected_coverage, for executed branches when inputs allow
+
+scan_fallback_accepted:
+  report 0.9 * selected_tau and 1.1 * selected_tau,
+  at selected_coverage, for executed branches when inputs allow
+
+absent_no_stable_grid:
+  skip Round 7; report no stable source in Round 8
 ```
 
-Do not run formal permutation/bootstrap for tau sensitivity. Interpret fixed neighboring-threshold branches as exposure-definition robustness checks, not threshold search.
+If `0.9 * selected_tau` or `1.1 * selected_tau` is outside the available exposure sidecar support or has no computable coverage, record that sensitivity branch as not computable. These tau-sensitivity branches are not fallback candidates and cannot replace the selected source. Coverage-neighborhood summaries may be reported separately using adjacent Coverage cells at `selected_tau`, but they are secondary support diagnostics.
 
-### Round 8: Additional Sensitivities
+Do not run formal permutation or formal bootstrap for tau-sensitivity or coverage-neighborhood cells. Non-selected manifests must record:
 
-Run only after the primary branch is interpretable:
+```text
+resampling_status = not_run_nonprimary
+resampling_reason = selected-source neighborhood sensitivity only
+```
+
+### Round 8: Additional Sensitivities And Endpoint Summary
+
+Run after endpoint resolver fields are complete. For accepted primary branches, also wait for selected-source reporting fields; for `absent_no_stable_grid` primary branches, use the absent QC/manifest row.
+
+Accepted primary branch sensitivities:
 
 ```text
 non-selected core branch comparison
@@ -1372,9 +1546,30 @@ no_delta_hf:
 
 It is a collinearity/stability check, not a replacement primary model.
 
+Endpoint summary must include:
+
+```text
+hf_voxel_source_status
+hf_voxel_prediction_status
+ulf_primary_branch
+ulf_voxel_source_status
+ulf_voxel_prediction_status
+ulf_endpoint_model_status
+selected_tau_v_per_m
+selected_coverage
+selected_adjacent_passing_grid_cells
+selected_grid_distance_from_pre_specified
+MAE_model and MAE_nuisance_baseline
+RMSE_model and RMSE_nuisance_baseline
+Q2 and LOOCV rho
+permutation null distribution when formal permutation exists
+bootstrap finite-count summary when formal bootstrap exists
+jitter stability summary when jitter exists
+```
+
 ### Round 9: Display And Final Manifests
 
-Generate display smoothing, bilateral homologous display maps, HF-overlap exclusion overlays, HF support burden summaries, STN/SNr outlines, PDF QC, and final manifests only after statistical branches complete. Display outputs must not feed back into ULFScore, LOOCV, permutation, bootstrap, or jitter.
+Generate display smoothing, bilateral homologous display maps, HF-overlap exclusion overlays, HF support burden summaries, STN/SNr outlines, PDF QC, and final manifests after resolver and reporting fields are complete. Display outputs must not feed back into ULFScore, LOOCV, permutation, bootstrap, jitter, source selection, prediction status, or endpoint status.
 
 ### Round 10: Optional Future Analyses
 
@@ -1382,8 +1577,7 @@ Not part of the current executable mainline:
 
 ```text
 OLS ANCOVA
-Coverage>=6
-Coverage>=8 / 50% rule
+standalone Coverage sensitivity outside the Round 2 resolver
 5/7/10-fold CV
 OSS-DBS direct voxel analysis
 paper-like spatial similarity score
@@ -1392,34 +1586,37 @@ automatic localization / electrode reconstruction QC
 
 ### Recommended First Batch
 
-The first practical run should cover only:
+The first practical run should cover:
 
 ```text
 Round 0
 Round 1
-Round 2 chronic observed LOOCV
-Round 2b immediate observed LOOCV, if same-day immediate data are complete
-Round 3 smoke only
+Round 2 chronic observed LOOCV and source resolver
+Round 2b immediate observed LOOCV and source resolver, if same-day immediate data are complete
+Round 3 smoke only for accepted selected-source primary branches
 ```
 
 Concrete first-batch scope:
 
 ```text
-MDS-UPDRS III total chronic endpoint
-MDS-UPDRS III total same-day immediate endpoint, if complete
-tau200
+all available ULF endpoint rows that pass Round 0
+declared Round 2 tau/Coverage scan grid
+executed branches determined by the locked HF resolver
 partial_spearman
-Coverage>=5
 ULF-only exposure
 HF-overlap exclusion
-DeltaHFScore-adjusted model
-HF out-of-support support QC
+DeltaHFScore-adjusted branch when HF source exists
+no-DeltaHF branch
+HF out-of-support support QC when DeltaHFScore is used
 ULFScore_mean_main
 LOOCV
-covariate-only comparison
+branch-specific nuisance-baseline comparison
 equivalence test
-smoke permutation B=1000
-smoke bootstrap B=1000
-smoke jitter B=100
+smoke permutation B=1000 for accepted selected-source primary branches
+smoke bootstrap B=1000 for accepted selected-source primary branches
+smoke jitter B=100 for accepted selected-source primary branches
+resolver scan tables
 basic QC JSON + manifest
 ```
+
+Only after this batch passes and an accepted selected source exists should that endpoint proceed to `B=10000` formal permutation and bootstrap.
