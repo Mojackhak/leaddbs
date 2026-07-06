@@ -237,6 +237,77 @@ resampling_status = not_run_nonprimary
 resampling_reason = formal resampling restricted to tau200/partial_spearman
 ```
 
+
+### Prediction-Validity Gate And Downstream Role
+
+Spatial/rank-direction stability and patient-level predictive validity are treated as separate evidence axes.
+A voxel map may show stable `rho`, stable sign, or a low nominal permutation `p`, while still failing to predict individual outcome beyond the clinical baseline model.
+
+Define the HF prediction-validity status for every primary-scale run:
+
+```text
+hf_prediction_validity_status = predictive_valid
+  if LOOCV rho_obs > 0
+  and Q2 > 0
+  and MAE_model < MAE_YBase_only
+  and RMSE_model < RMSE_YBase_only
+  and HFScore_mean_main is not near-constant
+  and no single high-leverage subject explains the result
+
+hf_prediction_validity_status = stable_nonpredictive
+  if map direction, rho, or permutation behavior appears stable
+  but Q2 <= 0
+  or MAE/RMSE are not better than Y_base-only
+
+hf_prediction_validity_status = failed_unstable
+  if rho_obs <= 0
+  or fold score masks are empty/near-empty
+  or scores are near-constant
+  or predictions are non-finite
+  or the result is dominated by a single subject
+```
+
+A `stable_nonpredictive` HF model may still be exported as an exploratory HF-only association map, with its coverage, stability, scores, and support masks preserved for audit and downstream sensitivity analyses. It must not be interpreted as a validated individual HF efficacy predictor.
+
+Downstream ULF rule:
+
+```text
+if hf_prediction_validity_status == predictive_valid:
+  DeltaHFScore may be treated as a model-supported HF efficacy-change covariate.
+
+if hf_prediction_validity_status == stable_nonpredictive:
+  DeltaHFScore may be computed for engineering compatibility and sensitivity analysis,
+  but it must be labeled unstable_generated_covariate.
+  ULF interpretation should use the no-DeltaHF branch as the main model.
+
+if hf_prediction_validity_status == failed_unstable:
+  DeltaHFScore should not be used for primary adjustment.
+  Compute it only if finite map support exists and an explicit fragility/sensitivity report is requested.
+```
+
+Required manifest/QC fields:
+
+```text
+hf_prediction_validity_status
+hf_prediction_failure_reasons
+rho_obs
+p_perm if available
+Q2
+MAE_model
+MAE_YBase_only
+RMSE_model
+RMSE_YBase_only
+high_leverage_subjects
+hf_downstream_delta_hfscore_role
+```
+
+The scientific interpretation is therefore:
+
+```text
+Stable map behavior can support a spatial hypothesis.
+It does not by itself validate HFScore_mean_main as a patient-level counterfactual HF efficacy model.
+```
+
 ## Execution Structure
 
 The later code implementation should keep image preprocessing and statistical postprocessing separated:
@@ -434,6 +505,8 @@ automatic localization/normalization/electrode reconstruction QC: not included; 
 This model estimates local HF-only stimulation association with 3-month raw post-treatment outcome while controlling baseline. It should be interpreted as an HF efficacy heatmap over the stimulation-exposed right canonical brainmask candidate space, not as a pure anatomic STN map, a target-level network mechanism map, or voxel-wise causal proof.
 
 Because the cohort has `n=16`, the result is hypothesis-generating. LOOCV may be non-significant; a non-significant LOOCV result should not be interpreted as proof that no biological HF sweet spot exists. `Y_base` is used in the voxel map through partial Spearman residualization and is also retained in the final prediction model to test the incremental predictive value of `HFScore_mean_main`. The QC report must therefore include the association between `HFScore_mean_main` and `Y_base` and a basic collinearity diagnostic for the final prediction model.
+
+If the map appears spatially or directionally stable but has `Q2 <= 0` or does not improve MAE/RMSE over the `Y_base`-only baseline, the correct interpretation is `stable_nonpredictive`: the map may represent a reproducible exposure-outcome association pattern in this small cohort, but it is not a validated patient-level HF efficacy predictor. In that case, the map can be retained for hypothesis generation and for downstream ULF sensitivity calculations, but any generated `DeltaHFScore` must be labeled as an unstable generated covariate rather than a reliable HF efficacy-change adjustment.
 
 ## Execution Efficiency
 
@@ -1090,7 +1163,7 @@ HFScore_mean_main is nearly constant
 prediction is driven by one high-leverage subject
 ```
 
-Do not run `tau180/tau220` to search for a better threshold when the primary branch fails.
+Do not run `tau180/tau220` to search for a better threshold when the primary branch fails. If downstream ULF code requires a paired `DeltaHFScore` sensitivity branch, export the finite HF map/support metadata as `stable_nonpredictive` or `failed_unstable` rather than blocking the ULF no-DeltaHF main analysis. The exported HF support is then used only to compute an explicitly labeled unstable generated covariate, not to claim validated HF prediction.
 
 ### Round 3: Equivalence Test And Smoke Resampling
 
@@ -1403,7 +1476,7 @@ OLS ANCOVA is an optional future supplemental estimator and does not generate ou
 
 ### Post-hoc Tau/Coverage Threshold Scan
 
-The A-model post-hoc threshold scan is an exploratory branch for selecting a core HF sweet spot threshold after observing that the original primary branch did not pass the gate. It must not replace or relabel the original primary analysis:
+The A-model post-hoc threshold scan is an exploratory branch for selecting a core HF sweet spot threshold after observing that the original primary branch did not pass the gate. It may generate a biologically plausible high-dose/high-coverage core-territory hypothesis, but it must not replace or relabel the original primary analysis:
 
 ```text
 primary branch:
@@ -1555,7 +1628,7 @@ formal max-stat permutation:
 seed = 42
 ```
 
-The max-stat permutation is not part of the initial post-hoc scan output unless explicitly requested.
+The max-stat permutation is not part of the initial post-hoc scan output unless explicitly requested. If a high-tau/high-coverage branch is later advanced, it should be described as a candidate model for post-selection validation, nested/adaptive validation, independent endpoint replication, or prospective testing, not as a rescued version of the original `tau200/Coverage>=5` primary branch.
 
 All-scale mode additionally writes:
 
