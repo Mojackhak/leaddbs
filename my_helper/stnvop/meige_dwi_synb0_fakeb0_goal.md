@@ -83,6 +83,14 @@ Implementation status:
   `test_fake_b0_coreg_target_staging_static.m`,
   `test_process_imported_dwi_acq_labeled_gz_stage.m`, and
   `test_synb0_archive_idempotent_reuse_static.m`.
+- Backfill required for subjects that finished before the staging fix:
+  `Meige001`, `Meige002`, `Meige003`, and `Meige008` currently have corrected
+  b0 sidecars but are missing the Lead-DBS UI target NIfTI. `Meige021` already
+  has the target. Copy-only backfill must not overwrite existing targets.
+- Copy-only backfill completed for `Meige001`, `Meige002`, `Meige003`, and
+  `Meige008`; all pilot/completed subjects checked so far have the UI target
+  NIfTI plus JSON sidecar with `FakeCoregisterVolume=true`,
+  `ExcludeFromNormalization=true`, and `IntendedUse=coregistration_qc_only`.
 
 ## Goal
 
