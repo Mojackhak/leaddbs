@@ -67,8 +67,9 @@ Implementation status:
   `MaxConcurrentSynb0=1`, and the same parameter policy. After the remaining
   run, combine pilot and remaining status rows into a 22-subject processing
   record.
-- Not yet complete: remaining-cohort preprocessing, Lead-DBS UI
-  coregistration QC, and final subject-level processing record.
+- Not yet complete: remaining-cohort preprocessing and final subject-level
+  processing record. Lead-DBS UI B0-to-anchorNative coregistration and manual
+  QC are user-performed follow-up steps, not Codex automation requirements.
 
 ## Goal
 
@@ -79,8 +80,8 @@ project-agnostic DWI workflow used for STN/SNr:
 2. run Synb0-DISCO, topup, and eddy distortion correction;
 3. write corrected DWI and corrected mean b0 derivatives;
 4. expose the corrected mean b0 as the Lead-DBS pseudo `B0` image;
-5. complete b0-to-anchorNative anatomical alignment through the Lead-DBS
-   Coregister Volumes UI with manual QC.
+5. prepare the pseudo `B0` image and metadata for later user-performed
+   Lead-DBS Coregister Volumes UI alignment and manual QC.
 
 The workflow must preserve rawdata provenance and must not write DWI-derived
 images into the normalization input set.
@@ -229,10 +230,10 @@ archived.
    - `Meige021`: Philips 60-slice group with missing readout metadata.
 6. Review pilot QC outputs before running all 22 subjects.
 7. Run the full cohort serially or with `MaxConcurrentSynb0 = 1`.
-8. Use the Lead-DBS Coregister Volumes UI to align pseudo `B0` to the
-   anchorNative anatomy, then manually accept or reject each subject.
-9. Record final status, failures, reruns, and accepted UI coregistration method
-   in a Meige processing record.
+8. Record final preprocessing status, failures, and reruns in a Meige
+   processing record.
+9. Leave Lead-DBS Coregister Volumes UI alignment and manual accept/reject QC
+   to the user as a follow-up step outside this automated goal.
 
 ## Pilot QC Criteria
 
@@ -253,7 +254,7 @@ cohort execution.
 
 ## Expected Batch Status
 
-Before UI coregistration, successful subjects should report:
+Successful automated preprocessing should report:
 
 ```text
 status = pending_ui_coregistration
@@ -262,7 +263,7 @@ synb0_status = ok
 eddy_status = ok
 ```
 
-After UI coregistration, the expected pseudo-B0 target is:
+The expected pseudo-B0 target prepared for later manual UI coregistration is:
 
 ```text
 derivatives/leaddbs/sub-<ID>/coregistration/anat/sub-<ID>_ses-preop_space-anchorNative_desc-preproc_B0.nii
@@ -291,7 +292,8 @@ The goal is complete when:
 2. pilot subjects pass QC under the accepted parameter policy;
 3. all included subjects have corrected DWI, corrected b0, b0 metadata, and
    status rows;
-4. all accepted pseudo-B0 images have Lead-DBS UI coregistration outputs;
+4. pseudo-B0 targets are prepared for later user-performed Lead-DBS UI
+   coregistration;
 5. no pseudo-B0 image is included in normalization inputs or outputs;
-6. a final Meige processing record documents subject-level status, reruns, and
-   accepted coregistration decisions.
+6. a final Meige processing record documents subject-level preprocessing
+   status and reruns.
