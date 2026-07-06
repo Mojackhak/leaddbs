@@ -424,3 +424,91 @@ on the declared tau/Coverage grid. Spatial interpretability and single-subject
 leverage remain manual/QC-dependent checks, so Level 2/3 rows are labeled
 `requires_spatial_qc=true` and Level 3 rows are also labeled
 `requires_influence_qc=true` before any final ULF interpretation.
+
+## ULF Direct Voxel Observed Driver
+
+The next C-model executable layer runs the observed-only ULF direct voxel
+branch. It is intentionally limited to LOOCV observed modeling and does not run
+formal permutation, bootstrap, jitter, gain endpoints, total-ULF sensitivity, or
+immediate endpoints unless explicitly requested by later arguments.
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py
+```
+
+Lightweight implementation self-test:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed_selftest.py
+```
+
+Default endpoint:
+
+```text
+post scale = MDS-UPDRS III score (STN+SNr, 3 m)
+HF reference scale = same base scale under STN, 3 m
+tau = 200 V/m
+Coverage>=5
+estimator = baseline-adjusted partial Spearman
+```
+
+The driver reads the latest `ulf_component_efield_availability.csv`, samples
+component-specific HF and ULF raw `sim-efield` files into the same right
+canonical brainmask feature space used by the HF direct voxel driver, and
+creates:
+
+```text
+E_HF_component_i(v)  = bilateral average of HF component e-fields
+E_ULF_component_i(v) = bilateral average of ULF component e-fields
+X_ULF_only_i(v)      = E_ULF_component_i(v) when ULF is active and HF is not active
+```
+
+Same-side same-frequency rows are max-combined before bilateral averaging.
+Left-sided fields are flipped with `ea_flip_lr_nonlinear`. The driver does not
+generate missing component e-fields.
+
+Both core branches are executed when inputs allow:
+
+```text
+tau200/partial_spearman_no_delta_hf
+tau200/partial_spearman_delta_hf_adjusted
+```
+
+Given the current A primary gate failure, the no-DeltaHF branch is the
+interpretation-primary branch in the manifest unless a matched HF model is later
+upgraded to `predictive_valid` or Level 4. The DeltaHF-adjusted branch is
+therefore recorded as an unstable-generated-covariate sensitivity branch.
+
+For the DeltaHF-adjusted branch, `DeltaHFScore` is computed fold-locally. In
+each ULF LOOCV fold, the driver refits the matched HF direct voxel map from
+training patients only, projects both the HF-only reference component and the
+HF component under HF+ULF programming onto that training-fold map, and subtracts
+the two scores. The held-out patient never contributes to the fold-specific HF
+map, ULF map, ULF scoring set, or final prediction model.
+
+Default outputs:
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<scale_slug>/
+  preprocess/
+  tau200/partial_spearman_no_delta_hf/
+  tau200/partial_spearman_delta_hf_adjusted/
+```
+
+Each branch writes observed scores, LOOCV predictions, NIfTI maps, QC JSON, and
+a generation manifest. The branch manifests record `ulf_primary_branch`,
+`delta_hfscore_role`, `hf_prediction_validity_status`, and
+`resampling_status=not_run_observed_only`.
+
+The consolidated execution status reporter should treat C as observed-complete
+when both C branch manifests exist. This does not make C formal-resampling
+eligible; the formal status remains gate-restricted because matched A is not
+currently `predictive_valid`.

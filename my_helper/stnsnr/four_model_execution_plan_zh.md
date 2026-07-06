@@ -151,12 +151,13 @@ hf_model_support_status
 | Four-model status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py` | implemented |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
+| C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
 | Raw clinical rebuild | direct core script | `my_helper/fiber/core/analysis/stnsnr_rebuild_subject_effect_origin.py` | implemented |
 
 ### 尚未实现
 
 ```text
-C formal ULF direct voxel model driver
+C formal ULF direct voxel resampling, gain endpoints, total-ULF sensitivity, and all-scale driver
 D formal ULF normative fiber model driver
 formal B=10000 permutation/bootstrap loops
 formal spatial jitter loops
@@ -208,6 +209,25 @@ D dependency: B_dTOR is exploratory/unstable
 no_delta_hf = primary / primary exploratory
 delta_hf_adjusted = sensitivity or unstable-generated-covariate branch
 ```
+
+### C ULF Direct Voxel Observed Branch
+
+C observed-only driver 已实现，并已运行默认 chronic endpoint：
+
+```text
+post scale = MDS-UPDRS III score (STN+SNr, 3 m)
+HF reference = MDS-UPDRS III score (STN, 3 m)
+output root = /Volumes/VAL/STNSNr/summary/direct_voxel/ulf/mds_updrs_iii_score_stn_snr_3_m/tau200/
+```
+
+当前 observed 输出：
+
+| Branch | rho | Q2 | Interpretation role |
+|---|---:|---:|---|
+| `partial_spearman_no_delta_hf` | `0.9190` | `-0.1442` | 在当前 failed HF dependency 下为解释主线，但按 Q2 仍不具备预测性 |
+| `partial_spearman_delta_hf_adjusted` | `0.9543` | `0.1238` | 因 matched A primary HF 为 `failed_unstable`，只能作为 unstable-generated-covariate sensitivity |
+
+两个 branch 均写出 scores、LOOCV predictions、NIfTI maps、QC JSON 和 manifests。Formal resampling 仍受 gate 控制，尚未运行。
 
 ### A All-Scale Post-Hoc Scan
 
@@ -468,6 +488,13 @@ ULF component e-field worklist：
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py
+```
+
+C ULF direct voxel observed branch：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py
 ```
 
 Consolidated execution status：

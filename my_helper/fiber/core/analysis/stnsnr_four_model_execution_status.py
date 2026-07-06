@@ -71,6 +71,34 @@ def classify_ulf_model_state(
     }
 
 
+def classify_c_observed_state(
+    *,
+    hf_dependency_decision: str,
+    readiness_status: str,
+    efield_summary: dict[str, Any],
+    c_outputs: dict[str, Any],
+) -> dict[str, str]:
+    """Classify C after its observed-only direct voxel branches exist."""
+    if not c_outputs.get("both_branches_exist"):
+        return classify_ulf_model_state(
+            hf_dependency_decision=hf_dependency_decision,
+            readiness_status=readiness_status,
+            efield_summary=efield_summary,
+        )
+    dependency_status = classify_dependency(hf_dependency_decision)
+    if dependency_status == "LOCKED":
+        formal_status = "NOT_STARTED_PRIMARY_OBSERVED_FIRST"
+        next_status = "OBSERVED_COMPLETE_READY_FOR_GATE"
+    else:
+        formal_status = "NOT_APPLICABLE_DEPENDENCY_UNSTABLE"
+        next_status = "OBSERVED_COMPLETE_EXPLORATORY"
+    return {
+        "execution_status": next_status,
+        "dependency_status": dependency_status,
+        "formal_resampling_status": formal_status,
+    }
+
+
 def classify_dependency(decision: str) -> str:
     if decision == "PASS_TO_NEXT_ROUND":
         return "LOCKED"
@@ -93,6 +121,44 @@ def read_json(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def default_c_output_root(val_root: Path) -> Path:
+    return val_root / "summary/direct_voxel/ulf/mds_updrs_iii_score_stn_snr_3_m/tau200"
+
+
+def read_c_observed_outputs(val_root: Path) -> dict[str, Any]:
+    root = default_c_output_root(val_root)
+    branches = {
+        "no_delta_hf": root / "partial_spearman_no_delta_hf",
+        "delta_hf_adjusted": root / "partial_spearman_delta_hf_adjusted",
+    }
+    out: dict[str, Any] = {"root": str(root), "branches": {}, "both_branches_exist": False}
+    for key, branch_dir in branches.items():
+        manifest = branch_dir / "direct_voxel_ULF_only_generation_manifest.json"
+        qc = branch_dir / "direct_voxel_ULF_only_mapping_qc.json"
+        scores = branch_dir / "direct_voxel_ULF_only_scores.csv"
+        predictions = branch_dir / "direct_voxel_ULF_only_loocv_predictions.csv"
+        manifest_data = read_json(manifest)
+        qc_data = read_json(qc)
+        out["branches"][key] = {
+            "branch_dir": str(branch_dir),
+            "manifest_path": str(manifest),
+            "qc_path": str(qc),
+            "manifest_exists": manifest.is_file(),
+            "qc_exists": qc.is_file(),
+            "scores_exists": scores.is_file(),
+            "predictions_exists": predictions.is_file(),
+            "metrics": qc_data.get("loocv_metrics", {}),
+            "ulf_primary_branch": manifest_data.get("ulf_primary_branch", ""),
+            "delta_hfscore_role": manifest_data.get("delta_hfscore_role", ""),
+            "hf_prediction_validity_status": manifest_data.get("hf_prediction_validity_status", ""),
+        }
+    out["both_branches_exist"] = all(
+        row["manifest_exists"] and row["qc_exists"] and row["scores_exists"] and row["predictions_exists"]
+        for row in out["branches"].values()
+    )
+    return out
 
 
 def latest_run_dir(root: Path) -> Path | None:
@@ -153,6 +219,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
     ulf_manifest = read_json(ulf_manifest_path)
     ulf_readiness_status = str(ulf_manifest.get("status", "MISSING_ULF_READINESS"))
     efield_summary = ulf_manifest.get("component_efield_summary", {})
+    c_outputs = read_c_observed_outputs(val_root)
 
     rows: list[dict[str, Any]] = []
     for model_id, model_name in [
@@ -181,15 +248,41 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
         )
 
     for model_id, model_name, dependency_id, branch in [
-        ("C", "ULF add-on direct voxel", "A", "chronic/tau200/partial_spearman"),
+        ("C", "ULF add-on direct voxel", "A", "chronic/tau200/partial_spearman_no_delta_hf+delta_hf_adjusted"),
         ("D", "ULF add-on normative fiber", "B_DTOR", "chronic/peak_efield_tau800_primary"),
     ]:
         dependency_gate = str(gate_rows.get(dependency_id, {}).get("decision", "MISSING_OUTPUT"))
-        state = classify_ulf_model_state(
-            hf_dependency_decision=dependency_gate,
-            readiness_status=ulf_readiness_status,
-            efield_summary=efield_summary,
-        )
+        if model_id == "C":
+            state = classify_c_observed_state(
+                hf_dependency_decision=dependency_gate,
+                readiness_status=ulf_readiness_status,
+                efield_summary=efield_summary,
+                c_outputs=c_outputs,
+            )
+            no_delta = c_outputs.get("branches", {}).get("no_delta_hf", {})
+            delta = c_outputs.get("branches", {}).get("delta_hf_adjusted", {})
+            metrics = no_delta.get("metrics", {})
+            input_summary = component_summary_text(efield_summary)
+            if c_outputs.get("both_branches_exist"):
+                input_summary = (
+                    f"{input_summary}; C observed branches exist; "
+                    f"no_delta rho={metrics.get('spearman_rho', '')}, Q2={metrics.get('q2', '')}; "
+                    f"delta rho={delta.get('metrics', {}).get('spearman_rho', '')}, "
+                    f"Q2={delta.get('metrics', {}).get('q2', '')}"
+                )
+            latest_manifest = str(no_delta.get("manifest_path", ""))
+            spearman_rho = metrics.get("spearman_rho", "")
+            q2 = metrics.get("q2", "")
+        else:
+            state = classify_ulf_model_state(
+                hf_dependency_decision=dependency_gate,
+                readiness_status=ulf_readiness_status,
+                efield_summary=efield_summary,
+            )
+            input_summary = component_summary_text(efield_summary)
+            latest_manifest = str(ulf_manifest_path) if ulf_manifest_path else ""
+            spearman_rho = ""
+            q2 = ""
         rows.append(
             {
                 "model_id": model_id,
@@ -197,11 +290,11 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
                 "branch": branch,
                 "dependency_model": dependency_id,
                 "gate_decision": "",
-                "spearman_rho": "",
-                "q2": "",
+                "spearman_rho": spearman_rho,
+                "q2": q2,
                 "readiness_status": ulf_readiness_status,
-                "input_summary": component_summary_text(efield_summary),
-                "latest_manifest": str(ulf_manifest_path) if ulf_manifest_path else "",
+                "input_summary": input_summary,
+                "latest_manifest": latest_manifest,
                 "next_action": next_action_for_state(state),
                 **state,
             }
@@ -210,6 +303,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
     manifest_inputs = {
         "gate_status_csv": str(gate_csv),
         "ulf_readiness_manifest": str(ulf_manifest_path) if ulf_manifest_path else "",
+        "c_observed_outputs": c_outputs,
     }
     return rows, manifest_inputs
 
@@ -230,6 +324,10 @@ def next_action_for_state(state: dict[str, str]) -> str:
         return "generate missing component-specific e-fields before any ULF execution"
     if execution_status == "EXPLORATORY_ONLY_UNSTABLE_HF_DEPENDENCY":
         return "ULF can only be exploratory unless matched HF dependency is locked"
+    if execution_status == "OBSERVED_COMPLETE_EXPLORATORY":
+        return "observed ULF branches complete; skip formal resampling unless matched HF dependency is locked"
+    if execution_status == "OBSERVED_COMPLETE_READY_FOR_GATE":
+        return "review observed ULF metrics before formal resampling"
     if execution_status == "MISSING_PRIMARY_OBSERVED_OUTPUT":
         return "run primary observed smoke branch first"
     return "inspect source manifests and QC"

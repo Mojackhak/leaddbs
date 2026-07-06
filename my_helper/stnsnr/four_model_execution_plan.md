@@ -151,12 +151,13 @@ The current codebase is no longer greenfield. The following layers already exist
 | Four-model status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py` | implemented |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
+| C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
 | Raw clinical rebuild | direct core script | `my_helper/fiber/core/analysis/stnsnr_rebuild_subject_effect_origin.py` | implemented |
 
 ### Not Yet Implemented
 
 ```text
-C formal ULF direct voxel model driver
+C formal ULF direct voxel resampling, gain endpoints, total-ULF sensitivity, and all-scale driver
 D formal ULF normative fiber model driver
 formal B=10000 permutation/bootstrap loops
 formal spatial jitter loops
@@ -208,6 +209,25 @@ Therefore C/D are executable only under the ULF branch-role policy:
 no_delta_hf = primary / primary exploratory
 delta_hf_adjusted = sensitivity or unstable-generated-covariate branch
 ```
+
+### C ULF Direct Voxel Observed Branch
+
+The C observed-only driver has been implemented and run for the default chronic endpoint:
+
+```text
+post scale = MDS-UPDRS III score (STN+SNr, 3 m)
+HF reference = MDS-UPDRS III score (STN, 3 m)
+output root = /Volumes/VAL/STNSNr/summary/direct_voxel/ulf/mds_updrs_iii_score_stn_snr_3_m/tau200/
+```
+
+Current observed outputs:
+
+| Branch | rho | Q2 | Interpretation role |
+|---|---:|---:|---|
+| `partial_spearman_no_delta_hf` | `0.9190` | `-0.1442` | interpretation-primary under current failed HF dependency, but not predictive by Q2 |
+| `partial_spearman_delta_hf_adjusted` | `0.9543` | `0.1238` | unstable-generated-covariate sensitivity because matched A primary HF is `failed_unstable` |
+
+Both branches write scores, LOOCV predictions, NIfTI maps, QC JSON, and manifests. Formal resampling remains gated and has not been run.
 
 ### A All-Scale Post-Hoc Scan
 
@@ -468,6 +488,13 @@ ULF component e-field worklist:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py
+```
+
+C ULF direct voxel observed branch:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py
 ```
 
 Consolidated execution status:
