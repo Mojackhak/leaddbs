@@ -363,7 +363,7 @@ ulf_endpoint_model_status = primary_branch_input_failure
   HF-source, DeltaHFScore, or nuisance-design inputs are invalid
 ```
 
-High-leverage dominance, excessive HF out-of-support burden, and nonfatal nuisance collinearity are QC limitations. They must be recorded in the manifest, but they do not replace `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, or `ulf_endpoint_model_status` unless they make the hard computability filter or branch input checks fail.
+High-leverage dominance, excessive DeltaHFScore delta-support limitation, and nonfatal nuisance collinearity are QC limitations. They must be recorded in the manifest, but they do not replace `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, or `ulf_endpoint_model_status` unless they make the hard computability filter or branch input checks fail.
 
 Required ULF resolver manifest/QC fields:
 
@@ -512,9 +512,9 @@ If the HF component settings in HF+ULF are identical to the T2 HF-only reference
 
 `DeltaHFScore` is not assigned a fixed biological scaling coefficient before modeling. It may be z-scored within training folds for numerical stability; its regression coefficient estimates its association with outcome. In LOOCV, `DeltaHFScore` for the held-out patient must be computed from the training-fold HF map, not a full-sample HF map.
 
-### HF-Map Support And Out-Of-Support HF Exposure
+### HF-Map Support And DeltaHFScore Support Adequacy
 
-`M_HF(u)` is defined only on `V_HF_score`. If an HF component field in the HF+ULF condition has suprathreshold exposure outside the HF 3-month model support, those voxels must not be extrapolated, smoothed into support, nearest-neighbor assigned, or added to the locked HF map post hoc.
+`M_HF(u)` is defined only on `V_HF_score`. DeltaHFScore must quantify the predicted effect of HF component reprogramming only where the locked HF selected source has learned support. Voxels outside the accepted HF source must not be extrapolated, smoothed into support, nearest-neighbor assigned, or added to the locked HF map post hoc.
 
 Primary rule:
 
@@ -532,22 +532,23 @@ S_HF_voxel(E)_i =
 
 HF exposure outside `V_HF_score` contributes `0` to `DeltaHFScore` because the HF model has no learned coefficient there. This zero contribution means "unscored / outside learned support", not "biologically no HF effect".
 
-Out-of-support burden must be quantified for every subject, endpoint phase, locked HF source, ULF selected source, and LOOCV fold:
+DeltaHFScore support adequacy is defined only from the HF component reprogramming change:
 
 ```text
-HF_in_support_sum_i = sum_{u in V_HF_score} E_HF_component_i(u)
-HF_total_sum_i      = sum_{u in right_canonical_HF_grid} E_HF_component_i(u)
-HF_out_support_sum_i = HF_total_sum_i - HF_in_support_sum_i
+DeltaE_HF_i(u) =
+  abs(E_HFplusULF_HFcomp_i(u) - E_HF_only_reference_i(u))
 
-HF_out_support_fraction_i =
-  HF_out_support_sum_i / max(HF_total_sum_i, epsilon)
+HF_delta_total_sum_i =
+  sum_{u in right_canonical_HF_grid} DeltaE_HF_i(u)
 
-HF_out_support_volume_tau_i =
-  voxel_volume * count_v[ E_HF_component_i(v) > tau and v notin V_HF_score ]
+HF_delta_in_support_sum_i =
+  sum_{u in V_HF_score} DeltaE_HF_i(u)
 
-HF_out_support_top5_i =
-  mean top 5% E_HF_component_i(v) among voxels with E_HF_component_i(v) > tau and v notin V_HF_score
+HF_delta_out_support_fraction_i =
+  1 - HF_delta_in_support_sum_i / max(HF_delta_total_sum_i, epsilon)
 ```
+
+Do not separately use raw HF+ULF HF-component out-of-support exposure as a DeltaHFScore validity criterion. DeltaHFScore estimates a change from HF-only reference to HF+ULF HF component programming, so the support adequacy criterion is whether that change lies within `V_HF_score`.
 
 Required outputs:
 
@@ -568,11 +569,10 @@ ulf_selected_tau_v_per_m
 ulf_selected_coverage
 score_map_source
 n_hf_score_voxels
-HF_in_support_sum
-HF_out_support_sum
-HF_out_support_fraction
-HF_out_support_volume_tau
-HF_out_support_top5
+HF_delta_total_sum
+HF_delta_in_support_sum
+HF_delta_out_support_fraction
+delta_hfscore_support_status
 DeltaHFScore_in_support
 DeltaHFScore_source_branch
 fold_id if LOOCV
@@ -582,38 +582,36 @@ Default decision rules:
 
 ```text
 Proceed without downgrading:
-  cohort median HF_out_support_fraction <= 0.20
-  and no more than 25% of subjects have HF_out_support_fraction > 0.50
+  delta_hfscore_support_status = adequate
+  cohort median HF_delta_out_support_fraction <= 0.20
+  and no more than 25% of subjects have HF_delta_out_support_fraction > 0.50
 
 Proceed but downgrade interpretation:
-  cohort median HF_out_support_fraction > 0.20
-  or more than 25% of subjects have HF_out_support_fraction > 0.50
+  delta_hfscore_support_status = limited
+  support is worse than adequate
+  but not invalid_extreme_out_of_support
 
-Do not treat ULF model as confirmatory:
-  HF_out_support_fraction is extreme enough that DeltaHFScore no longer represents the HF component change for many subjects,
-  or the HF component was reprogrammed mainly into territory never covered by the locked HF model.
+Do not run the DeltaHF-adjusted branch:
+  delta_hfscore_support_status = invalid_extreme_out_of_support
+  cohort median HF_delta_out_support_fraction > 0.50
+  or more than 25% of subjects have HF_delta_out_support_fraction > 0.80
+  or the HF component reprogramming change is almost entirely outside the locked HF model support for a required subject or fold.
 ```
 
 When downgraded, report:
 
 ```text
 DeltaHFScore represents only the in-support projection of HF-component change.
-Substantial HF-component exposure lay outside the learned HF 3-month map support.
+Substantial HF-component reprogramming change lay outside the learned HF 3-month map support.
 ```
 
-Recommended sensitivity when out-of-support burden is nontrivial:
-
-```text
-Y_post ~ ULFScore_mean_main + Y_HF_ref + DeltaHFScore_in_support + HF_out_support_top5
-```
-
-or, if collinearity is severe:
+Recommended sensitivity when delta-support limitation is nontrivial:
 
 ```text
 Y_post ~ ULFScore_mean_main + Y_HF_ref + DeltaHFScore_in_support
 ```
 
-with `HF_out_support_*` reported descriptively instead of included as a fourth predictor.
+with `HF_delta_out_support_fraction` reported descriptively. Do not include raw HF out-of-support exposure as a fourth predictor in the primary DeltaHFScore support analysis.
 
 Do not expand the locked HF support after seeing ULF results. DeltaHFScore must use the HF selected source recorded by the HF resolver. Voxels outside the accepted HF source remain unscored.
 
@@ -767,7 +765,7 @@ Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, or failed e-field avail
 - Model chronic T3 and same-day immediate T2 endpoints separately.
 - Use leave-one-patient-out cross-validation with no inner hyperparameter tuning.
 - In each outer fold, rebuild the branch-specific nuisance inputs, rebuild `Omega_ULF_tau_coverage`, fit the ULF-only voxel map, compute training and held-out `ULFScore_mean_main`, and fit the final prediction model using only training patients.
-- For the DeltaHF-adjusted branch, rebuild the HF direct voxel map needed for `DeltaHFScore`, compute fold-specific `DeltaHFScore`, compute fold-specific HF out-of-support burden, and compare against `Y_post ~ Y_HF_ref + DeltaHFScore`.
+- For the DeltaHF-adjusted branch, rebuild the HF direct voxel map needed for `DeltaHFScore`, compute fold-specific `DeltaHFScore`, compute fold-specific `HF_delta_out_support_fraction`, and compare against `Y_post ~ Y_HF_ref + DeltaHFScore`.
 - For the no-DeltaHF branch, omit `DeltaHFScore` from map estimation, scoring, prediction, permutation nuisance models, and baseline comparison; compare against `Y_post ~ Y_HF_ref`.
 - Run executed core branches at the observed LOOCV stage according to the locked HF branch-role rules. The branch-role resolver records which branch is interpreted as primary after the HF result is classified.
 - For each executed branch, assign `ulf_voxel_source_status` from the ULF hard computability filter and local tau/Coverage support.
@@ -834,7 +832,7 @@ Python postprocessing in the `leaddbs` Conda environment:
 - read the MAT v7 design matrix or optional NPZ mirror;
 - construct `Omega_ULF_tau_coverage` inside each fold;
 - compute fold-specific HF direct voxel maps and `DeltaHFScore`;
-- compute HF out-of-support burden for `DeltaHFScore`;
+- compute DeltaHFScore delta-support adequacy;
 - run partial Spearman map fitting, LOOCV, permutation, bootstrap, and display output generation;
 - write CSV, JSON, NIfTI maps, and figures.
 
@@ -904,12 +902,12 @@ Output semantics:
 - `direct_voxel_ULF_only_sweet_sour.nii.gz` stores benefit-oriented `M_ULF(v)`. Positive values indicate ULF-only benefit-associated voxels.
 - `direct_voxel_ULF_only_stability.nii.gz` stores LOOCV training-fold direction stability of `M_ULF(v)>0` or `M_ULF(v)<0`, depending on display class. It is not a p value.
 - `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the accepted selected source of the primary branch only.
-- `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `delta_hfscore_role`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_out_support_fraction`, `score_map_source`, `n_valid_score_voxels`, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, and `is_primary_score`.
-- `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed raw outcome, branch-specific nuisance-only prediction, `ULFScore_mean_main`, `DeltaHFScore` when applicable, HF support burden fields, `MAE_nuisance_baseline`, `RMSE_nuisance_baseline`, and residuals.
+- `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `delta_hfscore_role`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_delta_out_support_fraction`, `delta_hfscore_support_status`, `score_map_source`, `n_valid_score_voxels`, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, and `is_primary_score`.
+- `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed raw outcome, branch-specific nuisance-only prediction, `ULFScore_mean_main`, `DeltaHFScore` when applicable, DeltaHFScore support fields, `MAE_nuisance_baseline`, `RMSE_nuisance_baseline`, and residuals.
 - `direct_voxel_ULF_only_permutation_summary.csv` stores Freedman-Lane permutation summary for the accepted selected source of the primary branch only.
 - HF-overlap files store subject-level and cohort-level voxels excluded from the ULF-only predictor because both HF and ULF are active at the branch tau.
-- DeltaHFScore support files store the in-support and out-of-support HF component exposure used to determine whether `DeltaHFScore` is within the learned HF model support.
-- `direct_voxel_ULF_only_mapping_qc.json` stores endpoint/tau/Coverage/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_ULF_tau_coverage` voxel count, HF-overlap exclusion volume, HF out-of-support burden, degenerate voxels, NaN handling, zero-exposure score counts, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_branch_input_status`, `branch_nuisance_design_status`, `corr(ULFScore_mean_main, Y_HF_ref)`, `corr(ULFScore_mean_main, DeltaHFScore)`, `corr(Y_HF_ref, DeltaHFScore)`, coefficient signs, VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
+- DeltaHFScore support files store the in-support and out-of-support HF component reprogramming change used to determine whether `DeltaHFScore` is within the learned HF model support.
+- `direct_voxel_ULF_only_mapping_qc.json` stores endpoint/tau/Coverage/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_ULF_tau_coverage` voxel count, HF-overlap exclusion volume, DeltaHFScore delta-support adequacy, degenerate voxels, NaN handling, zero-exposure score counts, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_branch_input_status`, `branch_nuisance_design_status`, `corr(ULFScore_mean_main, Y_HF_ref)`, `corr(ULFScore_mean_main, DeltaHFScore)`, `corr(Y_HF_ref, DeltaHFScore)`, coefficient signs, VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
 - `direct_voxel_ULF_only_generation_manifest.json` stores provenance, parameters, code version, conda environment, package state, random seeds, visit labels, same-day immediate reference confirmation, component-proxy labels, HF-derived branch role fields, ULF resolver fields, and runtime profile.
 
 Primary statistical maps are unsmoothed. Display smoothing is generated only after coefficient estimation and must not be used for ULFScore, LOOCV, permutation, bootstrap, or jitter:
@@ -924,7 +922,7 @@ Display maps should overlay:
 ```text
 ULF-only sweet/sour map
 HF-overlap exclusion coverage/fraction map
-HF out-of-support burden summaries
+DeltaHFScore delta-support summaries
 STN/SNr anatomical outlines
 STNSNrplus territory background
 ```
@@ -960,7 +958,7 @@ FWHM: 2 mm
 sigma: 2 / 2.355 = 0.849 mm
 ```
 
-For each jitter iteration, draw an independent 3D translation vector for each subject-side HF and ULF component e-field. Apply translation-only e-field resampling with linear interpolation and outside fill value `0`. Then rebuild ULF-only exposure, HF-overlap exclusion, `Omega_ULF_tau_coverage`, `DeltaHFScore`, HF out-of-support support QC, full-sample map, ULF scores, and LOOCV validation metrics.
+For each jitter iteration, draw an independent 3D translation vector for each subject-side HF and ULF component e-field. Apply translation-only e-field resampling with linear interpolation and outside fill value `0`. Then rebuild ULF-only exposure, HF-overlap exclusion, `Omega_ULF_tau_coverage`, `DeltaHFScore`, DeltaHFScore delta-support QC, full-sample map, ULF scores, and LOOCV validation metrics.
 
 Do not save every jittered NIfTI map. Save a summary table, map correlation/stability summary, and voxel-wise jitter standard deviation map.
 
@@ -1017,7 +1015,7 @@ Do not interpret as:
 The displayed voxels prove an anatomic SNr-specific causal effect.
 HF-overlap voxels have no ULF biological effect.
 HF-component exposure outside the learned HF map has no biological effect.
-DeltaHFScore fully removes all HF contribution when out-of-support burden is large.
+DeltaHFScore fully removes all HF contribution when HF component reprogramming change is mostly outside the locked HF model support.
 ```
 
 ## Execution Efficiency
@@ -1201,7 +1199,7 @@ Compare:
 
 ```text
 fold-specific DeltaHFScore
-fold-specific HF out-of-support burden
+fold-specific DeltaHFScore delta-support adequacy
 fold-specific Omega_ULF_tau_coverage
 HF-overlap exclusion masks
 partial Spearman rho map
@@ -1302,7 +1300,7 @@ HF_overlap_tau{100,150,180,200,220,250,300,350,400,500} outputs are valid even i
 each subject has nonzero HF component exposure
 each subject has nonzero or explicitly absent ULF-only exposure
 DeltaHFScore support summary is generated for delta_hf_adjusted branches
-HF_out_support_fraction is recorded for delta_hf_adjusted branches
+HF_delta_out_support_fraction and delta_hfscore_support_status are recorded for delta_hf_adjusted branches
 ```
 
 If the full-sample `tau200/Coverage>=5` ULF Omega is empty, Round 1 still proceeds to Round 2. The pre-specified grid cannot be accepted, and the scan resolver determines whether a fallback source exists. If ULF-only exposure is empty for most subjects across the declared grid, record the support limitation and allow Round 2 to assign `absent_no_stable_grid`.
@@ -1359,7 +1357,7 @@ RMSE_model
 RMSE_nuisance_baseline
 corr(ULFScore_mean_main, Y_HF_ref)
 corr(ULFScore_mean_main, DeltaHFScore) if applicable
-HF_out_support_fraction_summary if applicable
+HF_delta_out_support_fraction_summary if applicable
 ```
 
 Then assign:
@@ -1530,7 +1528,7 @@ Accepted primary branch sensitivities:
 non-selected core branch comparison
 gain endpoint sensitivity
 total ULF exposure sensitivity
-HF-out-of-support covariate sensitivity when support burden is nontrivial
+DeltaHFScore delta-support sensitivity when support limitation is nontrivial
 Y_base-added collinearity sensitivity if baseline data are complete
 ```
 
@@ -1569,7 +1567,7 @@ jitter stability summary when jitter exists
 
 ### Round 9: Display And Final Manifests
 
-Generate display smoothing, bilateral homologous display maps, HF-overlap exclusion overlays, HF support burden summaries, STN/SNr outlines, PDF QC, and final manifests after resolver and reporting fields are complete. Display outputs must not feed back into ULFScore, LOOCV, permutation, bootstrap, jitter, source selection, prediction status, or endpoint status.
+Generate display smoothing, bilateral homologous display maps, HF-overlap exclusion overlays, DeltaHFScore support summaries, STN/SNr outlines, PDF QC, and final manifests after resolver and reporting fields are complete. Display outputs must not feed back into ULFScore, LOOCV, permutation, bootstrap, jitter, source selection, prediction status, or endpoint status.
 
 ### Round 10: Optional Future Analyses
 
@@ -1607,7 +1605,7 @@ ULF-only exposure
 HF-overlap exclusion
 DeltaHFScore-adjusted branch when HF source exists
 no-DeltaHF branch
-HF out-of-support support QC when DeltaHFScore is used
+DeltaHFScore delta-support QC when DeltaHFScore is used
 ULFScore_mean_main
 LOOCV
 branch-specific nuisance-baseline comparison
