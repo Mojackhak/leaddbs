@@ -32,27 +32,23 @@ formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
 
 No further execution should be started until the workflow is explicitly resumed.
 
-## Local Execution Root Override
+## Execution Root Availability
 
 The canonical execution documents use `/Volumes/VAL/STNSNr` as the STNSNr VAL
-root. On the current Codex desktop run, `/Volumes/VAL` is not mounted. The
-available local STNSNr root is:
+root. During this resumed Codex run, `/Volumes/VAL` was initially unavailable,
+so one M0 readiness check was run against the local mirror
+`/Users/mojackhu/Research/STNSNr` and reported failures because that mirror does
+not contain the complete external-drive project structure.
+
+After the external drive was mounted, the canonical root was available again:
 
 ```text
-/Users/mojackhu/Research/STNSNr
+/Volumes/VAL/STNSNr
 ```
 
-When executing this plan in the current environment, pass explicit path
-overrides so generated manifests record the actual local root:
-
-```text
-VAL_ROOT=/Users/mojackhu/Research/STNSNr
-CLINICAL_ROOT=/Users/mojackhu/Research/STNSNr/summary/cohort/subj
-DERIVATIVES_ROOT=/Users/mojackhu/Research/STNSNr/derivatives/leaddbs
-```
-
-This override is an execution-environment substitution only. It does not change
-the scientific model specifications, branch gates, or output semantics.
+Subsequent execution should use the canonical `/Volumes/VAL/STNSNr` defaults
+unless the drive is unavailable again. The temporary local-root readiness output
+is an environment diagnostic only and is not the authoritative four-model status.
 
 ## Backend / Workflow Separation
 
