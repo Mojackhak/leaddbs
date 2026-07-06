@@ -208,7 +208,8 @@ The next B-model executable layer targets the cheapest real public connectome fi
 model = HF normative connectome fiber
 connectome = PPMI 85 (Ewert 2017) by default
 scale = MDS-UPDRS III score (STN, 3 m) by default
-branch = peak_efield_tau800_primary
+legacy/current output branch = peak_efield_tau800_primary
+revised spec branch = peak_efield_tau800_cov5_primary
 validation = observed LOOCV
 resampling = not run
 ```
@@ -231,11 +232,12 @@ The first executable branch writes a subject-by-fiber exposure sidecar, applies:
 
 ```text
 tau = 800 V/m
+coverage = Coverage>=5
 Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
 F_candidate_tau = Coverage_tau(l) >= 5
 ```
 
-and then runs the partial-Spearman `NetFiberScore` observed LOOCV branch. Formal `B=10000`, OSS-DBS, FDR/density/display, and dTOR processing remain later gated stages.
+and then runs the partial-Spearman `NetFiberScore` observed LOOCV branch. Existing outputs use the legacy folder/branch name `peak_efield_tau800_primary`; documentation now maps that branch to revised `peak_efield_tau800_cov5_primary` until a future code/output migration renames directories. Formal `B=10000`, OSS-DBS, FDR/density/display, dTOR processing, and the revised `posthoc_tau_coverage_threshold_scan` remain later gated stages.
 
 The driver supports `--max-fibers` only for development self-tests and debugging. Production PPMI smoke runs should leave it unset so the candidate universe remains the full PPMI connectome.
 
@@ -642,14 +644,19 @@ sidecar for the same connectome and scale whenever available. This keeps the
 Both D core branches are executed when inputs allow:
 
 ```text
-ulf_peak_efield_tau800_no_delta_hf
-ulf_peak_efield_tau800_delta_hf_adjusted
+legacy/current output: ulf_peak_efield_tau800_no_delta_hf
+revised spec:          ulf_peak_efield_tau800_cov5_no_delta_hf
+
+legacy/current output: ulf_peak_efield_tau800_delta_hf_adjusted
+revised spec:          ulf_peak_efield_tau800_cov5_delta_hf_adjusted
 ```
 
 Given the current B_PPMI primary gate failure for the observed PPMI branch, the no-DeltaHF branch is the
 interpretation-primary branch in the manifest unless a matched HF normative
-fiber model is later upgraded to `predictive_valid`. The DeltaHF-adjusted branch
-is recorded as an unstable-generated-covariate sensitivity branch.
+fiber model is later upgraded to `predictive_valid` and not burden-dominated,
+or a selected HF source reaches post-hoc Level 4. The DeltaHF-adjusted branch
+is recorded as an unstable-generated-covariate sensitivity branch under the
+current failed B_PPMI dependency.
 
 Default outputs:
 
@@ -660,9 +667,12 @@ Default outputs:
   ulf_peak_efield_tau800_delta_hf_adjusted/
 ```
 
+These are legacy/current output directory names. They map to revised spec branches `ulf_peak_efield_tau800_cov5_no_delta_hf` and `ulf_peak_efield_tau800_cov5_delta_hf_adjusted`; the implementation has not renamed existing output folders in this documentation-only update.
+
 Each branch writes observed scores, LOOCV predictions, fiber weights, QC JSON,
 and a generation manifest. The branch manifests record `ulf_primary_branch`,
-`delta_hfscore_role`, `hf_prediction_validity_status`, and
+`delta_hfscore_role`, `hf_prediction_validity_status`, the relevant
+`hf_norm_fiber_*` source-status fields when available, and
 `resampling_status=not_run_observed_only`.
 
 Current PPMI observed run:

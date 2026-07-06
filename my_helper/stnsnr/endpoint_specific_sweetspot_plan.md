@@ -596,12 +596,18 @@ Candidate fibers are drawn from the full public connectome, not predefined targe
 
 ```text
 tau_primary = 800 V/m
+coverage_primary = Coverage>=5
 tau_sensitivity = 1500 V/m
+coverage_sensitivity = Coverage>=5
+threshold_scan_tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
+threshold_scan_coverage_grid = [5, 6, 7, 8, 10, 12]
 Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
-F_candidate_tau = {l: Coverage_tau(l) >= 5}
+F_candidate_tau = {l: Coverage_tau(l) >= coverage_min}
 ```
 
 The executable HF normative fiber model uses a right-canonical streamline feature space and the same patient-level coverage rule as the HF direct voxel model. Left stimulation is flipped into the same right-sided feature set; bilateral E-field information is averaged into `X_HF_i(l)`, but the streamline features are not a true bilateral streamline set.
+
+The revised canonical HF normative branches are `peak_efield_tau800_cov5_primary`, `peak_efield_tau1500_cov5_sensitivity`, and the exploratory `posthoc_tau_coverage_threshold_scan`. The post-hoc scan may nominate a high-dose/high-coverage candidate, but it does not replace the original tau800/Coverage>=5 primary branch without post-selection validation.
 
 Do not use change score or percent improvement as the primary HF sweet-spot outcome. The existing improvement-rate table can be used for compatibility checks, smoke tests, descriptive reporting, and sensitivity analyses.
 
@@ -1648,13 +1654,19 @@ For HF and ULF normative connectome fiber-level models, the candidate universe i
 ```text
 HF candidate fiber:
   Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
-  F_candidate_tau = {l: Coverage_tau(l) >= 5}
+  F_candidate_tau = {l: Coverage_tau(l) >= coverage_min}
   tau_primary = 800 V/m
+  coverage_primary = Coverage>=5
+  optional threshold scan tau = [400, 600, 800, 1000, 1200, 1500, 2000]
+  optional threshold scan coverage = [5, 6, 7, 8, 10, 12]
 
 ULF candidate fiber:
   Coverage_ULF_tau(l) = sum_i I[X_ULF_only_i(l,tau) > tau]
-  F_candidate_ULF_tau = {l: Coverage_ULF_tau(l) >= 5}
+  F_candidate_ULF_tau_cov = {l: Coverage_ULF_tau(l) >= coverage_min}
   tau_primary = 800 V/m
+  coverage_primary = Coverage>=5
+  optional threshold scan tau = [400, 600, 800, 1000, 1200, 1500, 2000]
+  optional threshold scan coverage = [5, 6, 7, 8, 10, 12]
 ```
 
 The streamline exposure value is still sampled from the full stimulation map along the whole streamline:

@@ -15,9 +15,9 @@ generation:
 
 ```text
 A HF direct voxel observed branch rerun from /Users/mojackhu/Github/leaddbs
-B PPMI/MGH/dTOR HF normative fiber observed branches rerun from /Users/mojackhu/Github/leaddbs
+B PPMI/MGH/dTOR HF normative fiber observed branches rerun from /Users/mojackhu/Github/leaddbs using the legacy/current output branch name that maps to revised `peak_efield_tau800_cov5_primary`
 C ULF direct voxel observed branches rerun from /Users/mojackhu/Github/leaddbs
-D ULF normative fiber PPMI observed branches rerun from /Users/mojackhu/Github/leaddbs
+D ULF normative fiber PPMI observed branches rerun from /Users/mojackhu/Github/leaddbs using legacy/current output branch names that map to revised cov5 branch names
 A/B gate status refreshed with explicit hf_prediction_validity_status
 ULF readiness refreshed with C -> A and D PPMI -> B_PPMI dependency mapping
 Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/status/
@@ -84,7 +84,7 @@ A and B are foundational HF models. They can run independently and in parallel:
 
 ```text
 A = HF direct voxel, tau200/Coverage>=5 primary
-B = HF normative fiber, tau800/Coverage>=5 primary
+B = HF normative fiber, peak_efield_tau800_cov5_primary
 ```
 
 Their outputs are classified by fitted results:
@@ -133,7 +133,7 @@ no_delta_hf:
 The interpretation role is resolved after reading the matched HF result:
 
 ```text
-if matched HF is predictive_valid:
+if matched HF is predictive_valid and not burden_dominated:
   ulf_primary_branch = delta_hf_adjusted
   delta_hfscore_role = primary_nuisance_adjustment
   no_delta_hf_role   = sensitivity
@@ -147,15 +147,34 @@ if matched HF is failed_unstable:
   ulf_primary_branch = no_delta_hf when ULF inputs remain valid
   delta_hfscore_role = exploratory_only_or_not_run
   no_delta_hf_role   = primary exploratory branch
+
+if matched HF is burden_dominated:
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = burden_or_placement_sensitivity_only
+
+if matched HF source is posthoc Level 2 or Level 3:
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = exploratory_selected_threshold_sensitivity_only
+
+if matched HF source is posthoc Level 4:
+  ulf_primary_branch may be delta_hf_adjusted
+  delta_hfscore_role = post_selection_validated_hf_adjustment
 ```
 
 Manifests for C/D must record:
 
 ```text
 hf_prediction_validity_status
+hf_norm_fiber_prediction_validity_status, for D/B normative fiber dependencies
+hf_norm_fiber_burden_dominated, for D/B normative fiber dependencies
+hf_norm_fiber_threshold_source, for D/B normative fiber dependencies
+hf_norm_fiber_selected_tau_v_per_m, for D/B normative fiber dependencies
+hf_norm_fiber_selected_coverage, for D/B normative fiber dependencies
+hf_norm_fiber_posthoc_candidate_level, for D/B normative fiber dependencies
 ulf_primary_branch
 ulf_core_branches_run
 delta_hfscore_role
+delta_hfscore_allowed_role
 branch_role_decision_reason
 hf_model_support_status
 ```
@@ -214,11 +233,11 @@ Current status is based on existing outputs under:
 Current `four_model_gate_status.csv` reports:
 
 | Model | Branch | rho | Q2 | Gate | HF validity |
-|---|---:|---:|---:|---|---|
+|---|---|---:|---:|---|---|
 | A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
-| B PPMI | `peak_efield_tau800_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
-| B MGH | `peak_efield_tau800_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
-| B dTOR | `peak_efield_tau800_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B PPMI | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B MGH | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B dTOR | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
 
 These observed branches exist and have finite predictions, but their explicit
 HF validity state is `failed_unstable`; they do not justify formal
@@ -276,8 +295,8 @@ Current observed outputs:
 
 | Branch | rho | Q2 | Interpretation role |
 |---|---:|---:|---|
-| `ulf_peak_efield_tau800_no_delta_hf` | `0.9293` | `0.0922` | interpretation-primary under current failed B_PPMI dependency |
-| `ulf_peak_efield_tau800_delta_hf_adjusted` | `0.9411` | `0.1170` | unstable-generated-covariate sensitivity because matched B_PPMI primary HF is `failed_unstable` |
+| legacy/current output `ulf_peak_efield_tau800_no_delta_hf`; revised spec `ulf_peak_efield_tau800_cov5_no_delta_hf` | `0.9293` | `0.0922` | interpretation-primary under current failed B_PPMI dependency |
+| legacy/current output `ulf_peak_efield_tau800_delta_hf_adjusted`; revised spec `ulf_peak_efield_tau800_cov5_delta_hf_adjusted` | `0.9411` | `0.1170` | unstable-generated-covariate sensitivity because matched B_PPMI primary HF is `failed_unstable` |
 
 Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. Formal resampling, OSS-DBS activation, density maps, endpoint enrichment, and dTOR-scale figure-grade outputs remain gated and have not been run.
 
@@ -327,6 +346,18 @@ Level 4 post_selection_validated_hf_model:
 ```
 
 For ULF, Level 2/3 candidates are sensitivity-only. Only an original primary `predictive_valid` HF model or a Level 4 post-selection validated HF model can define primary `DeltaHFScore`. Per endpoint, only one selected post-hoc candidate may be propagated; neighboring cells are robustness evidence and must not be added as separate covariates.
+
+### B Normative Fiber Post-Hoc Threshold Scan Status
+
+The revised B-model specification adds an executable exploratory scan:
+
+```text
+branch = posthoc_tau_coverage_threshold_scan
+tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
+coverage_grid = [5, 6, 7, 8, 10, 12]
+```
+
+No B-model normative fiber threshold-scan output is assumed to exist in the current status snapshot. If it is run later, the original tau800/Coverage>=5 branch remains `peak_efield_tau800_cov5_primary`; a selected post-hoc B candidate may feed D only as a separately named `DeltaHFScore` sensitivity unless it reaches Level 4 post-selection validation.
 
 ---
 
@@ -423,11 +454,14 @@ than redefine post-hoc selected branches as original primary analyses.
 4. D ULF normative fiber PPMI observed has been implemented with both branches:
 
    ```text
-   ulf_peak_efield_tau800_delta_hf_adjusted
-   ulf_peak_efield_tau800_no_delta_hf
+   legacy/current output: ulf_peak_efield_tau800_delta_hf_adjusted
+   revised spec:          ulf_peak_efield_tau800_cov5_delta_hf_adjusted
+
+   legacy/current output: ulf_peak_efield_tau800_no_delta_hf
+   revised spec:          ulf_peak_efield_tau800_cov5_no_delta_hf
    ```
 
-   Given the current B_PPMI gate, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF fiber model is later upgraded to `predictive_valid`. dTOR main execution remains deferred until a justified fiber branch passes the relevant gate or is explicitly run as exploratory.
+   Given the current B_PPMI gate, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF fiber model is later upgraded to `predictive_valid` and not burden-dominated, or a selected HF source reaches post-hoc Level 4. dTOR main execution remains deferred until a justified fiber branch passes the relevant gate or is explicitly run as exploratory.
 
 ### Deferred Expensive Work
 

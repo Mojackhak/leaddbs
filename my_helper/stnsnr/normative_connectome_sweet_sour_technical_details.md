@@ -721,12 +721,18 @@ Candidate fibers:
 candidate universe = full public connectome, not target-restricted
 canonical side = right
 tau_primary = 800 V/m
+coverage_primary = Coverage>=5
 tau_sensitivity = 1500 V/m
+coverage_sensitivity = Coverage>=5
+threshold_scan_tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
+threshold_scan_coverage_grid = [5, 6, 7, 8, 10, 12]
 Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
-F_candidate_tau = {l: Coverage_tau(l) >= 5}
+F_candidate_tau = {l: Coverage_tau(l) >= coverage_min}
 ```
 
 The executable model uses a right-canonical streamline feature space and the same patient-level coverage rule as the HF direct voxel model. Left-sided stimulation is flipped into the right canonical space and sampled along the same right-sided streamline features. Bilateral E-field information is averaged into `X_HF_i(l)`, but the feature set itself remains one-sided/canonical.
+
+The original interpretive primary branch remains `peak_efield_tau800_cov5_primary`. The predeclared high-threshold sensitivity is `peak_efield_tau1500_cov5_sensitivity`. The full tau x Coverage grid is a post-hoc exploratory threshold scan named `posthoc_tau_coverage_threshold_scan`; it may nominate a high-dose/high-coverage candidate, but it does not replace the original tau800/Coverage>=5 primary branch unless explicit post-selection validation records a Level 4 HF source.
 
 Benefit-oriented implementation:
 
@@ -788,8 +794,10 @@ plain connected-streamline control summaries
 Reference sensitivity coverage:
 
 ```text
+peak_efield_tau1500_cov5_sensitivity
 top1500 positive / top500 negative fiber-score sensitivity
 OSS-DBS all-candidate sensitivity
+posthoc_tau_coverage_threshold_scan
 plain_connected_streamline_control
 jitter_level_1_selected_display
 jitter_level_2_model_density
@@ -846,12 +854,15 @@ Always run the two core ULF branches when inputs are available:
   no_delta_hf:       Y_post ~ ULFPredictor + Y_HF_ref
 
 Then assign the interpretive primary branch from the locked HF result:
-  predictive_valid      -> delta_hf_adjusted is primary
-  stable_nonpredictive  -> no_delta_hf is primary
-  unstable_or_failed    -> no_delta_hf is primary exploratory if ULF inputs remain valid
+  predictive_valid and not burden_dominated -> delta_hf_adjusted is primary
+  stable_nonpredictive                      -> no_delta_hf is primary
+  failed_unstable                           -> no_delta_hf is primary exploratory if ULF inputs remain valid
+  burden_dominated                          -> no_delta_hf is primary; DeltaHFScore is burden/placement sensitivity only
+  posthoc Level 2/3 HF source               -> no_delta_hf is primary; DeltaHFScore is exploratory selected-threshold sensitivity only
+  posthoc Level 4 HF source                 -> delta_hf_adjusted may be primary
 ```
 
-The manifest must record `hf_prediction_validity_status`, `ulf_primary_branch`, `delta_hfscore_role`, and `branch_role_decision_reason`.
+The manifest must record `hf_norm_fiber_prediction_validity_status`, `hf_norm_fiber_burden_dominated`, `hf_norm_fiber_threshold_source`, selected tau/coverage fields, `hf_norm_fiber_posthoc_candidate_level`, `ulf_primary_branch`, `delta_hfscore_allowed_role`, `delta_hfscore_role`, and `branch_role_decision_reason`.
 
 The model has two endpoints:
 
@@ -913,6 +924,8 @@ For normative connectome models, use the model-matched HF fiber-level score:
 ```text
 S_HF_norm_fiber(E) = NetFiberScore(E)
 ```
+
+For ULF normative fiber models, `DeltaHFScore` is interpreted as a primary HF adjustment only when the matched HF normative fiber source is `predictive_valid` and not burden-dominated, or when a post-hoc selected HF source has reached Level 4 post-selection validation. Stable nonpredictive, failed unstable, burden-dominated, and Level 2/3 post-hoc sources may be computed only as sensitivity or fragility covariates.
 
 For individualized DWI seed-target models, use the model-matched HF target-level score:
 
@@ -1021,10 +1034,16 @@ Candidate rule:
 
 ```text
 tau_primary = 800 V/m
+coverage_primary = Coverage>=5
 tau_sensitivity = 1500 V/m
+coverage_sensitivity = Coverage>=5
+ulf_threshold_scan_tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
+ulf_threshold_scan_coverage_grid = [5, 6, 7, 8, 10, 12]
 Coverage_ULF_tau(l) = sum_i I[X_ULF_only_i(l,tau) > tau]
-F_candidate_ULF_tau = {l: Coverage_ULF_tau(l) >= 5}
+F_candidate_ULF_tau_cov = {l: Coverage_ULF_tau(l) >= coverage_min}
 ```
+
+The core tau800/Coverage>=5 branch pair is named `ulf_peak_efield_tau800_cov5_delta_hf_adjusted` and `ulf_peak_efield_tau800_cov5_no_delta_hf`; `ulf_peak_efield_tau800_cov5_primary_by_hf_status` denotes the branch selected by the matched HF-source resolver. `ulf_tau_coverage_exposure_definition_threshold_scan` is an optional post-hoc ULF-only exposure-definition scan and must not rescue or relabel the original tau800/Coverage>=5 primary result.
 
 Benefit-oriented fiber weights and patient score:
 

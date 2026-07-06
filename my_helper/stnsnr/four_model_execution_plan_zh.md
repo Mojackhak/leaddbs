@@ -14,9 +14,9 @@ observed/non-formal branches 和轻量 readiness/status generation：
 
 ```text
 A HF direct voxel observed branch rerun from /Users/mojackhu/Github/leaddbs
-B PPMI/MGH/dTOR HF normative fiber observed branches rerun from /Users/mojackhu/Github/leaddbs
+B PPMI/MGH/dTOR HF normative fiber observed branches rerun from /Users/mojackhu/Github/leaddbs using the legacy/current output branch name that maps to revised `peak_efield_tau800_cov5_primary`
 C ULF direct voxel observed branches rerun from /Users/mojackhu/Github/leaddbs
-D ULF normative fiber PPMI observed branches rerun from /Users/mojackhu/Github/leaddbs
+D ULF normative fiber PPMI observed branches rerun from /Users/mojackhu/Github/leaddbs using legacy/current output branch names that map to revised cov5 branch names
 A/B gate status refreshed with explicit hf_prediction_validity_status
 ULF readiness refreshed with C -> A and D PPMI -> B_PPMI dependency mapping
 Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/status/
@@ -83,7 +83,7 @@ A 和 B 是 foundational HF 模型，可独立并行运行：
 
 ```text
 A = HF direct voxel, tau200/Coverage>=5 primary
-B = HF normative fiber, tau800/Coverage>=5 primary
+B = HF normative fiber, peak_efield_tau800_cov5_primary
 ```
 
 其输出按拟合结果分类：
@@ -132,7 +132,7 @@ no_delta_hf:
 解释角色由 matched HF 结果决定：
 
 ```text
-if matched HF is predictive_valid:
+if matched HF is predictive_valid and not burden_dominated:
   ulf_primary_branch = delta_hf_adjusted
   delta_hfscore_role = primary_nuisance_adjustment
   no_delta_hf_role   = sensitivity
@@ -146,15 +146,34 @@ if matched HF is failed_unstable:
   ulf_primary_branch = no_delta_hf when ULF inputs remain valid
   delta_hfscore_role = exploratory_only_or_not_run
   no_delta_hf_role   = primary exploratory branch
+
+if matched HF is burden_dominated:
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = burden_or_placement_sensitivity_only
+
+if matched HF source is posthoc Level 2 or Level 3:
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = exploratory_selected_threshold_sensitivity_only
+
+if matched HF source is posthoc Level 4:
+  ulf_primary_branch may be delta_hf_adjusted
+  delta_hfscore_role = post_selection_validated_hf_adjustment
 ```
 
 C/D manifest 必须记录：
 
 ```text
 hf_prediction_validity_status
+hf_norm_fiber_prediction_validity_status, for D/B normative fiber dependencies
+hf_norm_fiber_burden_dominated, for D/B normative fiber dependencies
+hf_norm_fiber_threshold_source, for D/B normative fiber dependencies
+hf_norm_fiber_selected_tau_v_per_m, for D/B normative fiber dependencies
+hf_norm_fiber_selected_coverage, for D/B normative fiber dependencies
+hf_norm_fiber_posthoc_candidate_level, for D/B normative fiber dependencies
 ulf_primary_branch
 ulf_core_branches_run
 delta_hfscore_role
+delta_hfscore_allowed_role
 branch_role_decision_reason
 hf_model_support_status
 ```
@@ -213,11 +232,11 @@ figure-grade display/FDR/enrichment layers beyond existing post-hoc heatmaps
 当前 `four_model_gate_status.csv` 报告：
 
 | Model | Branch | rho | Q2 | Gate | HF validity |
-|---|---:|---:|---:|---|---|
+|---|---|---:|---:|---|---|
 | A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
-| B PPMI | `peak_efield_tau800_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
-| B MGH | `peak_efield_tau800_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
-| B dTOR | `peak_efield_tau800_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B PPMI | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B MGH | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
+| B dTOR | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
 
 这些 observed branches 已存在且 predictions finite，但显式 HF validity state 为
 `failed_unstable`，不足以支持 formal primary-branch permutation/bootstrap。
@@ -274,8 +293,8 @@ output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85
 
 | Branch | rho | Q2 | Interpretation role |
 |---|---:|---:|---|
-| `ulf_peak_efield_tau800_no_delta_hf` | `0.9293` | `0.0922` | 在当前 failed B_PPMI dependency 下为解释主线 |
-| `ulf_peak_efield_tau800_delta_hf_adjusted` | `0.9411` | `0.1170` | 因 matched B_PPMI primary HF 为 `failed_unstable`，只能作为 unstable-generated-covariate sensitivity |
+| legacy/current output `ulf_peak_efield_tau800_no_delta_hf`; revised spec `ulf_peak_efield_tau800_cov5_no_delta_hf` | `0.9293` | `0.0922` | 在当前 failed B_PPMI dependency 下为解释主线 |
+| legacy/current output `ulf_peak_efield_tau800_delta_hf_adjusted`; revised spec `ulf_peak_efield_tau800_cov5_delta_hf_adjusted` | `0.9411` | `0.1170` | 因 matched B_PPMI primary HF 为 `failed_unstable`，只能作为 unstable-generated-covariate sensitivity |
 
 两个 branch 均写出 scores、LOOCV predictions、fiber weights、QC JSON 和 manifests。Formal resampling、OSS-DBS activation、density maps、endpoint enrichment 和 dTOR-scale figure-grade outputs 仍受 gate 控制，尚未运行。
 
@@ -325,6 +344,18 @@ Level 4 post_selection_validated_hf_model:
 ```
 
 对于 ULF，Level 2/3 candidates 只能作为 sensitivity。只有原始 primary `predictive_valid` HF model 或 Level 4 post-selection validated HF model 才能定义 primary `DeltaHFScore`。每个 endpoint 只能传播一个 selected post-hoc candidate；neighboring cells 是 robustness evidence，不能作为单独 covariates 加入模型。
+
+### B Normative Fiber Post-Hoc Threshold Scan Status
+
+Revised B-model specification 增加了一个 executable exploratory scan：
+
+```text
+branch = posthoc_tau_coverage_threshold_scan
+tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
+coverage_grid = [5, 6, 7, 8, 10, 12]
+```
+
+当前 status snapshot 不假定已经存在 B-model normative fiber threshold-scan output。若之后运行该 scan，原始 tau800/Coverage>=5 branch 仍为 `peak_efield_tau800_cov5_primary`；selected post-hoc B candidate 只能作为单独命名的 D-model `DeltaHFScore` sensitivity 传播，除非它达到 Level 4 post-selection validation。
 
 ---
 
@@ -419,11 +450,14 @@ branches 重新定义为 original primary analyses。
 4. D ULF normative fiber PPMI observed 已实现，并同时运行：
 
    ```text
-   ulf_peak_efield_tau800_delta_hf_adjusted
-   ulf_peak_efield_tau800_no_delta_hf
+   legacy/current output: ulf_peak_efield_tau800_delta_hf_adjusted
+   revised spec:          ulf_peak_efield_tau800_cov5_delta_hf_adjusted
+
+   legacy/current output: ulf_peak_efield_tau800_no_delta_hf
+   revised spec:          ulf_peak_efield_tau800_cov5_no_delta_hf
    ```
 
-   在当前 B_PPMI gate 下，除非 matched HF fiber model 后续升级为 `predictive_valid`，否则 no-DeltaHF branch 是解释上的 primary branch。dTOR main execution 仍 deferred，除非某个 justified fiber branch 通过相关 gate，或被明确作为 exploratory 运行。
+   在当前 B_PPMI gate 下，除非 matched HF fiber model 后续升级为 `predictive_valid` 且不是 burden-dominated，或 selected HF source 达到 post-hoc Level 4，否则 no-DeltaHF branch 是解释上的 primary branch。dTOR main execution 仍 deferred，除非某个 justified fiber branch 通过相关 gate，或被明确作为 exploratory 运行。
 
 ### Deferred Expensive Work
 

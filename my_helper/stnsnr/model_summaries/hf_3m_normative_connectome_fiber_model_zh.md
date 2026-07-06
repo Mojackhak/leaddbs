@@ -1,6 +1,11 @@
-# HF-Only 3m Normative Connectome Fiber-Level Model
+# HF-Only 3m Normative Connectome Fiber-Level 模型 — Revised
 
-## Research Question
+> 中文同步镜像：本文件按 2026-07-06 threshold-scan and downstream-status revised 英文规范同步；branch 名、字段名、路径和代码块保持英文。
+
+Version: 2026-07-06 threshold-scan and downstream-status specification
+Scope: HF-only 3m normative connectome fiber-level model; provides source-model status and DeltaHFScore eligibility for ULF add-on fiber models.
+
+## Research Question / 研究问题
 
 哪些被 HF stimulation 触碰到的 normative connectome streamlines 与更好的 3-month HF-only 临床结局相关？
 
@@ -13,7 +18,7 @@ HF  = high-frequency stimulation component, frequency_Hz >= 100
 ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
 ```
 
-## Endpoint
+## Endpoint / 终点
 
 Primary endpoint:
 
@@ -42,7 +47,7 @@ Raw scores 来源：
 
 临床行按 `ID` 连接（如 `SNr003`, `SNr006`）。本模型不使用 improvement-rate table。Scale direction 来自共享 direction table；未知量表必须在运行前显式定义 higher-is-better 或 lower-is-better。
 
-## Inputs
+## Inputs / 输入
 
 - `3m/STN` 条件下的 HF-only raw `sim-efield` maps，单位为 `V/m`。使用 raw `sim-efield`，不使用 `sim-efieldgauss`。
 - Public Lead-DBS structural connectomes：
@@ -88,7 +93,8 @@ activation_output = fractional activation if available, else binary activation
 
 最低 e-field 检查：必需路径存在、subject/side/condition 唯一匹配、文件为 raw `sim-efield`、单位记录为 `V/m`。缺失或多重匹配会使该 scale/run 失败。E-fields 不自动补算。
 
-## Feature Construction
+
+## Feature Construction / 特征构建
 
 候选全集是 full public connectome，而不是 target-restricted seed-target tracts。
 
@@ -105,22 +111,65 @@ X_HF_i(l)     = (E_R_i(l) + E_L_to_R_i(l)) / 2
 
 同侧 alternating HF subprogram e-fields 在 fiber sampling 前按 voxel-wise maximum 合并。Exposure 不按 frequency 或 pulse width 缩放。
 
-候选规则与 HF direct voxel coverage logic 保持一致：
+Primary candidate rule:
 
 ```text
 tau_primary = 800 V/m
-tau_sensitivity = 1500 V/m
+coverage_primary = Coverage>=5
 Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
-F_candidate_tau = {l: Coverage_tau(l) >= 5}
+F_candidate_tau = {l: Coverage_tau(l) >= coverage_min}
+```
+
+The original interpretive primary branch remains:
+
+```text
+peak_efield_tau800_cov5_primary
+```
+
+The high-threshold single sensitivity remains:
+
+```text
+peak_efield_tau1500_cov5_sensitivity
+```
+
+A dedicated post-hoc tau/Coverage threshold scan is now part of the executable exploratory family:
+
+```text
+hf_norm_fiber_threshold_scan_tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
+hf_norm_fiber_threshold_scan_coverage_grid    = [5, 6, 7, 8, 10, 12]
+```
+
+Interpretation of threshold families:
+
+```text
+tau800/Coverage>=5:
+  original primary branch
+
+tau1500/Coverage>=5:
+  predeclared high-threshold sensitivity
+
+full tau x Coverage scan:
+  post-hoc high-dose / high-coverage candidate search
+  not a replacement for the original primary branch
 ```
 
 `X_HF_i(l)` 用于 candidate definition、fiber-wise association、scoring、LOOCV 和 prediction。dTOR exposure 和 candidate 计算必须 chunked；一次性载入完整 dTOR `fibers` matrix 或全部 exposure values 是无效实现。
 
-OSS-DBS branch 继承同一个 peak E-field candidate universe。`X_HF_OSS_i(l)` 只在 candidate selection 之后引入，不能重新定义、缩小或扩大 `F_candidate_tau`。
+For the post-hoc threshold scan, only `tau` and `Coverage` vary. The selected-fiber rule is fixed:
 
-## Statistical Model
+```text
+F+ = top 1% positive fibers
+F- = top 0.5% sour fibers
+SweetPeak5/SourPeak5 = patient-level mean of top 5% weighted selected fibers
+```
 
-### Primary Estimator
+Do not scan `top-k`, `top percentile`, `SweetPeak percentile`, `SourPeak percentile`, estimator family, connectome choice, or OSS-DBS activation variables inside the same threshold search. Top-count sensitivity remains a separate branch.
+
+The OSS-DBS branch inherits the peak E-field candidate universe from the branch being tested. `X_HF_OSS_i(l)` is introduced only after candidate selection and must not redefine, shrink, or expand `F_candidate_tau`.
+
+## Statistical Model / 统计模型
+
+### Primary Estimator / 主估计器
 
 对每条 candidate fiber `l`，使用 baseline-adjusted partial Spearman，并对 ties 使用 average ranks：
 
@@ -143,7 +192,7 @@ M_HF(l) =  rho_HF(l)   for higher-is-better scales
 
 正值 `M_HF(l)` 表示 sweet 或 benefit-associated。负值 `M_HF(l)` 表示 sour 或 worse-outcome-associated。FDR q-values 只用于 QC/display，不筛选主模型，也不定义 scoring fiber set。
 
-### Optional Supplemental Estimator
+### Optional Supplemental Estimator / 可选补充估计器
 
 OLS ANCOVA 保留为未来可选补充估计器。当前可执行分析不运行该分支，也不生成对应输出文件。
 
@@ -156,7 +205,7 @@ Y_post_i = alpha_l
 
 如果未来启用，`theta_HF(l)` 将作为 fiber-wise OLS ANCOVA coefficient 报告。当前模型只使用 baseline-adjusted partial Spearman `rho_HF(l)` 估计器进行 map fitting、`NetFiberScore`、LOOCV、permutation、bootstrap 和 display outputs。
 
-### Patient-Level Score
+### Patient-Level Score / 患者层面评分
 
 在每个 full-sample map 或 LOOCV training fold 内：
 
@@ -186,13 +235,20 @@ Y_post_i = alpha
 
 模型在 raw post-score 尺度上拟合。主验证统计量是 held-out predictions 与 held-out raw outcomes 之间的 LOOCV Spearman rho。
 
-## Validation
+## Validation / 验证
 
 - 使用 leave-one-patient-out cross-validation。
 - 每个 fold 内重建 `F_candidate_tau`、拟合 `M_HF(l)`、选择 fold-specific `F+` 和 `F-`、计算 training 和 held-out `NetFiberScore`，并且只用 training patients 拟合 prediction model。
 - 与 covariate-only baseline `Y_post ~ Y_base` 比较。
 - Primary metrics：LOOCV Spearman rho 和 plus-one permutation P value。
 - Secondary metrics：LOOCV Pearson `r`、MAE、RMSE 和 `Q2`。
+
+Define `Q2` against the covariate-only clinical baseline:
+
+```text
+Q2 = 1 - SSE_NetFiberScore_model / SSE_YBase_only
+```
+
 - Formal Freedman-Lane permutation：`B=10000`，seed `42`，仅限 dTOR primary peak-E-field branch。
 - Subject-level bootstrap：`B=10000`，seed `42`，仅限 dTOR primary peak-E-field branch。
 - Smoke permutation/bootstrap：`B=1000`，seed `42`。
@@ -200,19 +256,248 @@ Y_post_i = alpha
 
 PPMI、MGH 和 dTOR 都生成 observed figure-grade outputs。dTOR 额外承担 formal permutation、bootstrap 和 jitter QC。参考 Nature papers 中的 5-fold/10-fold CV 只写入 reference checklist；对本 `n=16` 队列，LOOCV 是可执行验证设计。
 
-## Sensitivity And Controls
+
+### Prediction-Validity Status And ULF Propagation / 预测有效性状态与 ULF 传播
+
+Spatial, selected-fiber, bootstrap, fold-sign, cross-connectome, or nominal permutation stability and patient-level predictive validity are separate evidence axes. A normative HF fiber profile may be anatomically or directionally stable while failing to improve out-of-sample individual prediction beyond the clinical baseline model.
+
+Define the HF normative fiber source-model status for every scale, connectome, and branch that may feed ULF `DeltaHFScore`:
+
+```text
+hf_norm_fiber_prediction_validity_status = predictive_valid
+  if LOOCV rho_obs > 0
+  and Q2 > 0
+  and MAE_model < MAE_YBase_only
+  and RMSE_model < RMSE_YBase_only
+  and NetFiberScore is not near-constant
+  and all held-out predictions are finite
+  and no single high-leverage subject explains the result
+  and selected F+/F- stability is acceptable
+  and the result is not fully replaced by PlainExposureTop5
+
+hf_norm_fiber_prediction_validity_status = stable_nonpredictive
+  if fiber direction, selected-fiber density, bootstrap/fold stability,
+  nominal rho/p behavior, or cross-connectome anatomical support appears stable,
+  but Q2 <= 0
+  or MAE/RMSE do not improve over Y_base-only
+  or NetFiberScore does not add prediction beyond plain stimulation burden
+
+hf_norm_fiber_prediction_validity_status = failed_unstable
+  if LOOCV rho_obs <= 0
+  or candidate fibers are empty/near-empty in multiple folds
+  or rho_HF is all/mostly NaN
+  or NetFiberScore is near-constant
+  or predictions are non-finite
+  or F+/F- selection is highly unstable
+  or one high-leverage subject dominates
+  or connectome-specific contradiction is severe and unexplained
+```
+
+Burden-dominated flag:
+
+```text
+hf_norm_fiber_burden_dominated = true
+  if PlainExposureTop5 + Y_base performs similarly to or better than
+     NetFiberScore + Y_base
+  or NetFiberScore loses sign/benefit after PlainExposureTop5 is added
+  or |corr(NetFiberScore, PlainExposureTop5)| >= 0.95
+```
+
+A burden-dominated HF fiber model may still be reported as a stimulation-burden / placement-associated finding, but it must not be treated as a mechanistic patient-level HF efficacy-change predictor.
+
+Downstream ULF rule:
+
+```text
+predictive_valid:
+  DeltaHFScore may be treated as a model-supported HF efficacy-change covariate.
+  ULF delta_hf_adjusted may be the interpretive primary branch.
+
+stable_nonpredictive:
+  DeltaHFScore may be computed for engineering compatibility and sensitivity only.
+  It must be labeled unstable_generated_covariate.
+  ULF no_delta_hf is the interpretive primary branch.
+
+failed_unstable:
+  DeltaHFScore must not define primary ULF interpretation.
+  It may be omitted, or computed only for explicit fragility reporting if finite support exists.
+  ULF no_delta_hf is the exploratory primary branch when ULF inputs are otherwise valid.
+
+burden_dominated:
+  DeltaHFScore may be used only as a burden/placement sensitivity covariate.
+  It cannot be interpreted as a clean HF efficacy-change adjustment.
+```
+
+Required manifest/QC fields:
+
+```text
+hf_norm_fiber_prediction_validity_status
+hf_norm_fiber_prediction_failure_reasons
+hf_norm_fiber_burden_dominated
+rho_obs
+p_perm if available
+Q2
+MAE_model
+MAE_YBase_only
+RMSE_model
+RMSE_YBase_only
+corr_NetFiberScore_YBase
+corr_NetFiberScore_PlainExposureTop5
+plain_control_incremental_status
+high_leverage_subjects
+selected_fiber_stability_summary
+cross_connectome_support_status
+delta_hfscore_allowed_role
+```
+
+Scientific interpretation:
+
+```text
+Stable normative fiber-map behavior can support a network-level spatial hypothesis.
+It does not by itself validate NetFiberScore as an individual HF efficacy predictor.
+```
+
+## Sensitivity And Controls / 敏感性与对照
 
 Executable branches:
 
 ```text
-peak_efield_tau800_primary
-peak_efield_tau1500_sensitivity
-top1500_top500_sensitivity
-ossdbs_activation_sensitivity
-plain_connected_streamline_control
+primary:
+  peak_efield_tau800_cov5_primary
+
+sensitivity:
+  peak_efield_tau1500_cov5_sensitivity
+  top1500_top500_sensitivity
+  ossdbs_activation_sensitivity
+
+posthoc_candidate_search:
+  posthoc_tau_coverage_threshold_scan
+
+control:
+  plain_connected_streamline_control
 ```
 
-### OSS-DBS Activation Sensitivity
+
+### Post-Hoc Tau/Coverage Threshold Scan / 事后 Tau-Coverage 阈值扫描
+
+Purpose: identify whether a high-dose / high-coverage normative streamline core shows stronger patient-level predictive signal than the original broad primary branch.
+
+This branch is exploratory model selection. It does not relabel or rescue the original primary branch:
+
+```text
+primary result = tau800/Coverage>=5 result
+posthoc result = selected high-core candidate, if any
+```
+
+Executable grid:
+
+```text
+tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
+coverage_grid    = [5, 6, 7, 8, 10, 12]
+```
+
+For each grid cell:
+
+```text
+Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
+F_candidate_tau_cov = {l: Coverage_tau(l) >= coverage_min}
+```
+
+Each grid cell reruns the complete observed LOOCV workflow:
+
+```text
+fold-specific candidate fibers
+rho_HF(l)
+M_HF(l)
+F+ = top 1% positive fibers
+F- = top 0.5% sour fibers
+SweetPeak5 / SourPeak5
+NetFiberScore
+Y_post ~ NetFiberScore + Y_base
+LOOCV prediction
+covariate-only baseline comparison
+```
+
+Hard filters for a usable grid cell:
+
+```text
+fold_n_candidate_fibers_min >= 1000 for dTOR
+fold_n_candidate_fibers_min >= 100 for PPMI/MGH observed robustness
+n_positive_pool_min >= 20
+n_negative_pool_min >= 10
+NetFiberScore non-constant in every fold
+all held-out predictions finite
+LOOCV rho_obs > 0
+Q2 > 0
+MAE_model < MAE_YBase_only
+RMSE_model < RMSE_YBase_only
+no single high-leverage subject explains the result
+not burden-dominated by PlainExposureTop5
+```
+
+Selection rule for post-hoc candidate reporting:
+
+```text
+selection_connectome = dTOR
+selection_statistic = Q2 first, then LOOCV rho as tie-breaker
+eligible_cells = cells passing hard filters
+neighbor_support = adjacent tau/Coverage cells with positive rho and Q2 > 0
+```
+
+PPMI and MGH are not used to select the threshold. They provide observed cross-connectome robustness for the dTOR-selected and neighboring cells.
+
+If a selected branch is to be described as threshold-scan significant, run max-stat permutation over the full tau x Coverage family:
+
+```text
+for each permutation:
+  rerun all grid cells
+  record max statistic over eligible cells
+
+p_max = plus-one probability of permuted max >= observed max
+```
+
+A stronger predictive claim requires nested/adaptive validation or independent validation:
+
+```text
+outer fold:
+  leave one patient out
+inner training set:
+  scan tau/Coverage and select threshold
+outer held-out patient:
+  score and predict using the selected inner-fold threshold and map
+```
+
+Candidate levels:
+
+```text
+Level 0 = failed_grid_cell
+  any hard-filter criterion fails
+  ULF propagation = not allowed
+
+Level 1 = fragile_exploratory_candidate
+  hard filters pass but signal is isolated, Q2 is weak, neighboring cells disagree,
+  selected fibers are unstable, or burden-dominated behavior is present
+  ULF propagation = not recommended
+
+Level 2 = usable_exploratory_candidate
+  hard filters pass, at least 3 grid cells pass, at least 1 adjacent cell supports,
+  Q2 > 0.05, MAE/RMSE both improve, and no severe plain-control replacement
+  ULF propagation = exploratory DeltaHFScore sensitivity only
+
+Level 3 = robust_exploratory_candidate
+  Level 2 plus at least 5 passing grid cells, at least 2 adjacent supporting cells,
+  Q2 >= 0.10, selected nominal p < 0.05, stable selected-fiber density,
+  no high-leverage domination, and at least one non-dTOR connectome has compatible support
+  ULF propagation = priority exploratory DeltaHFScore sensitivity only
+
+Level 4 = post_selection_validated_hf_norm_fiber_model
+  Level 3 plus nested/adaptive validation or equivalent post-selection validation with
+  outer LOOCV rho > 0, Q2 > 0, MAE/RMSE improvement, and preferably max-stat p <= 0.05
+  ULF propagation = may define DeltaHF-adjusted ULF primary branch
+```
+
+Only one selected post-hoc HF candidate per endpoint/scale may generate a downstream ULF `DeltaHFScore` branch. Neighboring threshold cells provide robustness evidence; they are not separate nuisance covariates in the same `n=16` ULF model.
+
+### OSS-DBS Activation Sensitivity / OSS-DBS 激活敏感性
 
 OSS-DBS 在 peak E-field candidate set 已经定义之后，用 pathway/axon activation 替代 peak E-field exposure：
 
@@ -383,7 +668,7 @@ jitter_level_1_selected_display = selected/display fibers only
 jitter_level_2_model_density    = model-density robustness over candidate fibers or feasible subset
 ```
 
-## Outputs
+## Outputs / 输出
 
 Output root:
 
@@ -469,6 +754,26 @@ connectome_density_correlation_summary.csv
 connectome_selected_label_summary.csv
 ```
 
+Post-hoc threshold scan outputs are written under:
+
+```text
+/Volumes/VAL/STNSNr/summary/normative_connectome_fiber/hf/<connectome_slug>/<scale_slug>/posthoc_threshold_scan/
+```
+
+Required post-hoc threshold scan outputs:
+
+```text
+normative_HF_fiber_threshold_scan_results.csv
+normative_HF_fiber_threshold_scan_heatmap_q2.csv
+normative_HF_fiber_threshold_scan_heatmap_rho.csv
+normative_HF_fiber_threshold_scan_heatmap_mae_delta.csv
+normative_HF_fiber_threshold_scan_heatmap_rmse_delta.csv
+normative_HF_fiber_threshold_scan_heatmap_n_fibers.csv
+normative_HF_fiber_threshold_scan_selected_manifest.json
+normative_HF_fiber_threshold_scan_maxstat_permutation_summary.csv, if run
+normative_HF_fiber_threshold_scan_nested_validation_predictions.csv, if run
+```
+
 Minimum table semantics:
 
 - `normative_HF_fiber_weights.csv`: `connectome`, `fiber_id`, `tau_v_per_m`, `coverage`, `rho_HF`, `p_uncorrected`, `q_fdr`, `M_HF`, `direction_class`, display/sensitivity flags, and target labels for QC。
@@ -476,7 +781,8 @@ Minimum table semantics:
 - OSS branch 中的 `normative_HF_fiber_scores.csv` 额外记录 `SweetPeak5_OSS`、`SourPeak5_OSS` 和 `NetFiberScore_OSS`。
 - `fdr_summary_by_scale.csv`: q-threshold counts 以及 percentile-selected fibers 与 q-ranked fibers 的 overlap。
 - `normative_HF_fiber_label_enrichment.csv`: selected sweet/sour fibers 相对 plain touched-streamline background 的 enrichment。
-- `normative_HF_fiber_mapping_qc.json`: candidate counts、coverage distribution、degenerate fiber counts、empty-fold failures、FDR method、label summaries、chunking parameters、memory use summaries、OSS-DBS status 和 OSS activation-output type。
+- `normative_HF_fiber_mapping_qc.json`: candidate counts, coverage distribution, degenerate fiber counts, empty-fold failures, FDR method, label summaries, chunking parameters, memory use summaries, OSS-DBS status, OSS activation-output type, prediction-validity status, burden-dominated flag, and DeltaHFScore downstream eligibility.
+- `normative_HF_fiber_threshold_scan_results.csv`: one row per connectome, scale, tau, and coverage cell; includes candidate counts, selected-fiber counts, LOOCV metrics, baseline comparisons, plain-control status, high-leverage diagnostics, post-hoc candidate level, and ULF propagation role.
 
 PPMI 和 MGH observed branches 不要求 formal permutation/bootstrap files。其 manifests 记录：
 
@@ -484,7 +790,7 @@ PPMI 和 MGH observed branches 不要求 formal permutation/bootstrap files。�
 resampling_status = observed_only_connectome_robustness
 ```
 
-## Visualization
+## Visualization / 可视化
 
 Display outputs include:
 
@@ -499,7 +805,7 @@ Display outputs include:
 
 任何 display subset 都不是主统计显著性图。FDR q-values 和 q-thresholded density maps 用于 QC/display 透明性，但不筛选主模型、不定义 `F+`/`F-`，也不进入 `NetFiberScore`。
 
-## Execution Efficiency
+## Execution Efficiency / 执行效率
 
 Formal runs 必须 chunked 且 memmap-friendly。
 
@@ -507,8 +813,13 @@ PPMI/MGH 可使用单个 sidecar arrays：
 
 ```text
 X_float32_fiber_major.npy       # shape = fiber x subject, averaged X_HF
+S400_bool.npy                   # X_HF > 400 V/m, if threshold scan enabled
+S600_bool.npy                   # X_HF > 600 V/m, if threshold scan enabled
 S800_bool.npy                   # X_HF > 800 V/m
+S1000_bool.npy                  # X_HF > 1000 V/m, if threshold scan enabled
+S1200_bool.npy                  # X_HF > 1200 V/m, if threshold scan enabled
 S1500_bool.npy                  # X_HF > 1500 V/m
+S2000_bool.npy                  # X_HF > 2000 V/m, if threshold scan enabled
 fiber_id.npy
 candidate_fiber_metadata.json
 ```
@@ -518,8 +829,13 @@ dTOR 必须使用 chunked sidecars：
 ```text
 chunks/
   X_float32_fiber_major_chunk-000001.npy
+  S400_bool_chunk-000001.npy
+  S600_bool_chunk-000001.npy
   S800_bool_chunk-000001.npy
+  S1000_bool_chunk-000001.npy
+  S1200_bool_chunk-000001.npy
   S1500_bool_chunk-000001.npy
+  S2000_bool_chunk-000001.npy
   fiber_id_chunk-000001.npy
 fiber_chunk_manifest.json
 candidate_fiber_metadata.json
@@ -549,7 +865,7 @@ F_candidate_tau_fold_h = {l : Coverage_tau_fold_h(l) >= 5}
 
 `normative_HF_fiber_generation_manifest.json` 记录 runtime profile、connectome slug、branch、chunk size/count、sidecar dtype/layout、Python jobs、BLAS threads、candidate counts、coverage summaries、bootstrap finite-count summaries，以及 optimized equivalence test 是否通过。
 
-## Interpretation Boundary
+## Interpretation Boundary / 解释边界
 
 该模型估计 normative fiber-level HF stimulation associations。它比 seed-target target-level modeling 更接近 DBS Fiber Filtering，但仍使用 population connectomes，不能证明 patient-specific axonal causality。
 
@@ -567,11 +883,23 @@ Every displayed streamline is a proven causal tract in every patient.
 
 主结论需要 dTOR primary performance、PPMI/MGH cross-connectome consistency、transparent label enrichment，以及与 plain connected-streamline control 的清晰区分。
 
+
+
+If the map appears stable but has `Q2 <= 0` or does not improve MAE/RMSE over the `Y_base`-only baseline, interpret the result as:
+
+```text
+stable_nonpredictive normative HF fiber profile
+```
+
+This status can support a hypothesis about a reproducible fiber-level stimulation pattern, but it does not validate `NetFiberScore` as a patient-level counterfactual HF efficacy model. In downstream ULF analysis, a `DeltaHFScore` derived from this source must be labeled as an unstable generated covariate and used only as sensitivity, with no-DeltaHF as the interpretive primary branch.
+
+High-tau/high-Coverage post-hoc scan results may define candidate high-dose core streamline profiles, but they do not replace the original tau800/Coverage>=5 primary branch unless they pass explicit post-selection validation and are recorded as Level 4.
+
 ## Additional Exact-Equivalence Optimization Rules / 额外精确等价优化规则
 
 本节只定义 implementation-level acceleration rules。这些规则可以改变调度、缓存、向量化、scratch storage 和 checkpointing，但不得改变 `rho_HF`、`M_HF`、`F+`、`F-`、`SweetPeak5`、`SourPeak5`、`NetFiberScore`、LOOCV、permutation p values、bootstrap summaries 或 OSS-DBS branch semantics。
 
-### Outcome-Independent Cache Boundary
+### Outcome-Independent Cache Boundary / 结果无关缓存边界
 
 当 cache keys 匹配时，outcome-independent artifacts 可以跨 scales、folds、permutations、bootstraps、OSS branches 和 display branches 复用：
 
@@ -612,7 +940,7 @@ bootstrap map and stability summaries
 
 Exposure sidecars 是 connectome- and branch-specific，而不是 scale-specific，除非 scale-specific subject inclusion 不同。当两个 scales 使用完全相同的 valid subjects 时，它们复用同一套 exposure sidecars、candidate masks、plain touched-streamline background、endpoint labels、density lookup tables 和 OSS activation sidecars。如果某个 scale 缺失 subjects，应创建 subject-subset view，而不是重新采样 fibers。
 
-### Cache Keys And Invalidation
+### Cache Keys And Invalidation / 缓存键与失效
 
 每个 sidecar 和 intermediate cache 都必须记录 deterministic cache key：
 
@@ -626,7 +954,7 @@ Exposure sidecars 是 connectome- and branch-specific，而不是 scale-specific
     "efield_path_manifest_hash": null,
     "efield_file_hashes": null,
     "left_to_right_transform_hash": null,
-    "tau_values": [800, 1500],
+    "tau_values": [400, 600, 800, 1000, 1200, 1500, 2000],
     "coverage_rule": "Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]; Coverage >= 5",
     "candidate_rule": "fold-specific candidate masks by training-subject coverage",
     "branch": null,
@@ -638,7 +966,7 @@ Exposure sidecars 是 connectome- and branch-specific，而不是 scale-specific
 
 任一 cache-key field 改变时，该 cache 即失效。如果只改变 `Y_post` 或 `Y_base`，exposure sidecars 仍有效。如果只改变 scale 且 subject inclusion 相同，exposure sidecars 和 candidate masks 仍有效。如果只改变 display settings，statistical sidecars 仍有效。如果 OSS parameters 改变，OSS activation sidecars 失效，但 peak E-field sidecars 仍有效。
 
-### Fold-Level Rank Residual Cache
+### Fold-Level Rank Residual Cache / Fold 层面 rank residual 缓存
 
 对每个 LOOCV fold `h` 和 fiber chunk，可以缓存只在 training set 内计算的 exposure-rank residuals：
 
@@ -666,7 +994,7 @@ rho_HF(l) = dot(znorm_h(l), unorm_h)
 
 `Z_h` 可在 LOOCV permutation 内复用。它不能跨 bootstrap resamples 复用，因为 bootstrap 改变 training-sample multiplicity。如果 `Y_base` 是 scale-specific，它也不能跨 scales 复用。仍然禁止 full-sample ranks。
 
-### Batched Permutation Kernel
+### Batched Permutation Kernel / 批量 permutation kernel
 
 Permutation dot products 可以按 batch 做线性代数加速：
 
@@ -678,7 +1006,7 @@ RHO_chunk = Z_h_chunk @ U_h
 
 Batching 只允许用于 exact vectorized linear algebra。每个 permutation 仍必须拥有自己的 `M_HF(l)`、`F+`、`F-`、`SweetPeak5`、`SourPeak5`、`NetFiberScore`、prediction model 和 LOOCV statistic。任何 permutation 都不得使用 averaged、pooled 或 shared selected-fiber set。
 
-### Deterministic Top-K Tie Policy
+### Deterministic Top-K Tie Policy / 确定性 Top-K tie 策略
 
 优化后的 `argpartition`、heap 或 streaming top-k implementation 必须与 brute-force stable sorting 一致。Tie-breaking 固定为：
 
@@ -695,7 +1023,7 @@ Patient-specific SweetPeak5/SourPeak5 key:
 
 更高 weight 优先；tie 时选择更小的 deterministic `fiber_id`。如果使用 `argpartition`，必须 overselect boundary buffer，再用上述 key 对 buffer stable-sort，并保留精确数量。
 
-### dTOR Two-Pass Streaming Top-K
+### dTOR Two-Pass Streaming Top-K / dTOR 双遍流式 Top-K
 
 dTOR formal runs 不得 materialize full candidate-by-subject weighted matrices。
 
@@ -720,7 +1048,7 @@ NetFiberScore_i    = SweetPeak5_i - SourPeak5_i
 
 Full candidate-weight tables 只允许用于 observed small-connectome debug runs。dTOR formal runs 必须使用 two-pass streaming selected-fiber 和 patient-level top-k reducers。
 
-### Coverage Bitmasks And Candidate Unions
+### Coverage Bitmasks And Candidate Unions / Coverage bitmask 与 candidate union
 
 Subject-side suprathreshold indicators 可以存为 `uint32` 或 `uint64` bitmasks，并用 popcount 计算 coverage：
 
@@ -750,7 +1078,7 @@ candidate_tau1500_union_of_folds_bool
 
 `union_of_folds` 可用于缩小 IO、OSS activation、labeling 和 density precomputation。每个 fold 仍必须使用自己的 fold-specific candidate mask。
 
-### OSS Candidate-First Activation
+### OSS Candidate-First Activation / OSS candidate-first activation
 
 OSS-DBS activation 只为 executable OSS branch 所需的 peak E-field candidate fiber union 计算：
 
@@ -777,7 +1105,7 @@ oss_subprogram_activation_manifest.csv
 oss_max_reduction_manifest.csv
 ```
 
-### Scratch, Checkpoint, And Random Index Control
+### Scratch, Checkpoint, And Random Index Control / Scratch、checkpoint 与随机索引控制
 
 Formal loops 应在可用时使用 local NVMe scratch，并在验证后 atomic promotion 到最终输出目录：
 
@@ -812,7 +1140,7 @@ bootstrap_subject_counts_seed42.npy
 
 Resumed runs 必须复用同一 arrays 及其 recorded hashes。
 
-### Label, Density, Rank-Pattern, And Chunk Autotune Caches
+### Label, Density, Rank-Pattern, And Chunk Autotune Caches / label、density、rank-pattern 与 chunk autotune 缓存
 
 Endpoint labeling 和 density maps 使用预计算 lookup caches：
 
@@ -846,7 +1174,7 @@ Chunk-size autotuning 可 benchmark：
 
 最终选择满足 peak memory 低于 `memory_budget * 0.7` 的最快 tested size。Manifest 记录 tested sizes、selected size、memory budget、peak memory 和 throughput。
 
-### Stage Scheduling
+### Stage Scheduling / 阶段调度
 
 推荐执行阶段：
 
@@ -855,17 +1183,20 @@ Stage 1: sidecar cache and coverage cache
 Stage 2: deterministic equivalence test
 Stage 3: observed LOOCV numeric outputs
 Stage 4: smoke permutation/bootstrap
-Stage 5: formal dTOR permutation
-Stage 6: formal dTOR bootstrap
-Stage 7: OSS smoke branch
-Stage 8: endpoint labels and density maps
-Stage 9: FDR/display-only maps
-Stage 10: cross-connectome summaries
+Stage 5: prediction-validity classification and plain-control role assignment
+Stage 6: optional post-hoc tau/Coverage threshold scan
+Stage 7: optional max-stat or nested/adaptive validation for selected post-hoc candidate
+Stage 8: formal dTOR permutation for the resolved primary branch
+Stage 9: formal dTOR bootstrap for the resolved primary branch
+Stage 10: OSS smoke branch
+Stage 11: endpoint labels and density maps
+Stage 12: FDR/display-only maps
+Stage 13: cross-connectome summaries
 ```
 
 Display 和 anatomical-label outputs 是延后生成，不是省略。它们在 numeric QC 通过后，从 finalized selected-fiber ids 精确生成一次。
 
-### Disallowed Acceleration Shortcuts
+### Disallowed Acceleration Shortcuts / 禁用的加速捷径
 
 以下做法不是有效加速，因为它们会改变 estimand、validation design 或 statistical interpretation：
 
@@ -893,12 +1224,15 @@ OSS activation only for observed selected fibers instead of the fold candidate u
 
 ```text
 primary:
-  peak_efield_tau800_primary
+  peak_efield_tau800_cov5_primary
 
 sensitivity:
-  peak_efield_tau1500_sensitivity
+  peak_efield_tau1500_cov5_sensitivity
   top1500_top500_sensitivity
   ossdbs_activation_sensitivity
+
+posthoc_candidate_search:
+  posthoc_tau_coverage_threshold_scan
 
 control:
   plain_connected_streamline_control
@@ -916,9 +1250,12 @@ dTOR-985 Full (Elias 2024)    primary analysis
 
 ```text
 tau_primary = 800 V/m
+coverage_primary = Coverage>=5
 tau_sensitivity = 1500 V/m
+threshold_scan_tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
+threshold_scan_coverage_grid = [5, 6, 7, 8, 10, 12]
 Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
-F_candidate_tau = {l: Coverage_tau(l) >= 5}
+F_candidate_tau = {l: Coverage_tau(l) >= coverage_min}
 ```
 
 任何历史 `cov3` 或 `EFieldCoverage>=3` 规则均不是当前可执行规格，除非模型文档再次被显式修订。OLS ANCOVA 仍是未来可选补充估计器，本轮不执行。FDR、labels、density maps、q-thresholded maps 和 display fibers 只用于 QC/display，不定义 `F+`、`F-` 或 `NetFiberScore`。
@@ -934,7 +1271,10 @@ lock document version
 lock scale list
 lock connectome list
 lock branch list
-lock tau / coverage / score / validation parameters
+lock tau800/Coverage>=5 primary parameters
+lock tau1500/Coverage>=5 sensitivity parameters
+lock post-hoc tau/Coverage threshold-scan grid
+lock score / validation parameters
 lock random seed = 42
 check output root writability
 check e-field path manifest
@@ -962,7 +1302,7 @@ environment_manifest.json
 ```text
 document version is unique
 branch list is unique
-tau800 / tau1500 / Coverage>=5 are locked
+tau800/Coverage>=5 primary, tau1500/Coverage>=5 sensitivity, and threshold-scan grid are locked
 subject_id order is locked
 Y_post / Y_base join by ID
 scale direction is defined
@@ -983,27 +1323,22 @@ seed = 42 is recorded
 ```text
 PPMI / MGH sidecars:
   X_float32_fiber_major.npy
-  S800_bool.npy
-  S1500_bool.npy
+  S{tau}_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
   fiber_id.npy
   candidate_fiber_metadata.json
 
 dTOR chunked sidecars:
   chunks/X_float32_fiber_major_chunk-*.npy
-  chunks/S800_bool_chunk-*.npy
-  chunks/S1500_bool_chunk-*.npy
+  chunks/S{tau}_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
   chunks/fiber_id_chunk-*.npy
   fiber_chunk_manifest.json
   candidate_fiber_metadata.json
 
 coverage / candidate cache:
-  Coverage_tau800_all
-  Coverage_tau1500_all
-  F_candidate_tau800_full
-  F_candidate_tau1500_full
+  Coverage_tau{tau}_all for all scan taus
+  F_candidate_tau{tau}_cov{coverage}_full for all required tau/Coverage cells
   fold-specific candidate masks by subtraction
-  candidate_tau800_union_of_folds
-  candidate_tau1500_union_of_folds
+  candidate_tau{tau}_cov{coverage}_union_of_folds for executable primary, sensitivity, and scan cells
 ```
 
 在小型 deterministic subset 上运行 exact-equivalence test：
@@ -1058,7 +1393,7 @@ optimized_equivalence_test_passed = true
 
 ```text
 scale = MDS-UPDRS III score
-branch = peak_efield_tau800_primary
+branch = peak_efield_tau800_cov5_primary
 connectome order = PPMI observed -> MGH observed -> dTOR observed
 ```
 
@@ -1119,7 +1454,7 @@ Q2 is extremely worse than baseline-only
 
 ```text
 scale = MDS-UPDRS III axial score
-branch = peak_efield_tau800_primary
+branch = peak_efield_tau800_cov5_primary
 connectome order = PPMI observed -> MGH observed -> dTOR observed
 ```
 
@@ -1201,7 +1536,7 @@ NetFiberScore and PlainExposureTop5 are not perfectly collinear
 
 ```text
 connectome = dTOR
-branch = peak_efield_tau800_primary
+branch = peak_efield_tau800_cov5_primary
 scales = scales that passed Round 2/3
 Freedman-Lane smoke permutation B=1000
 subject-level smoke bootstrap B=1000
@@ -1254,7 +1589,7 @@ runtime profile indicates B=10000 is feasible
 
 ```text
 branches:
-  peak_efield_tau1500_sensitivity
+  peak_efield_tau1500_cov5_sensitivity
   top1500_top500_sensitivity
 
 connectomes:
@@ -1311,6 +1646,44 @@ dTOR and PPMI/MGH have directionally or anatomically interpretable consistency
 
 如果 tau1500 为空，记录 high-threshold sensitivity empty；这不是技术失败。如果 top1500/top500 完全反转主线，则标记结果依赖 top-k，并降低解释强度。
 
+
+### Round 6.5: Prediction-Validity Classification And Optional Post-Hoc Threshold Scan
+
+Purpose: separate stable-map behavior from patient-level predictive validity, and optionally search for a high-dose/high-coverage core-fiber candidate.
+
+First classify the original tau800/Coverage>=5 branch:
+
+```text
+predictive_valid
+stable_nonpredictive
+failed_unstable
+```
+
+Also assign:
+
+```text
+hf_norm_fiber_burden_dominated
+plain_control_incremental_status
+selected_fiber_stability_summary
+delta_hfscore_allowed_role
+```
+
+If the original branch is `predictive_valid`, it remains the locked primary HF source for downstream ULF. The post-hoc threshold scan may still be run as exploratory robustness, but it cannot replace the original branch.
+
+If the original branch is `stable_nonpredictive`, export its finite map/support metadata for audit and ULF sensitivity only. It must not be used as a validated `DeltaHFScore` source. In this state, the ULF no-DeltaHF branch is the interpretive primary branch.
+
+If the original branch is `failed_unstable`, do not run heavy formal resampling unless explicitly required for a minimal fragility report. ULF may still proceed through no-DeltaHF if ULF inputs are valid.
+
+Optional threshold scan:
+
+```text
+run dTOR full tau x Coverage scan
+run PPMI/MGH observed robustness for selected and neighboring dTOR cells
+assign Level 0-4 candidate status
+```
+
+Proceed to max-stat permutation or nested/adaptive validation only if the selected dTOR cell is Level 3 or better and the result is not burden-dominated.
+
 ### Round 7: dTOR Primary Formal Permutation And Bootstrap
 
 目的：生成当前文档的核心统计证据。
@@ -1319,7 +1692,7 @@ dTOR and PPMI/MGH have directionally or anatomically interpretable consistency
 
 ```text
 connectome = dTOR
-branch = peak_efield_tau800_primary
+branch = peak_efield_tau800_cov5_primary
 scales = scales that passed smoke and sensitivity hard gates
 ```
 
@@ -1467,7 +1840,7 @@ OSS plain activation control does not fully replace NetFiberScore_OSS
 
 ```text
 connectome = dTOR
-branch = peak_efield_tau800_primary
+branch = peak_efield_tau800_cov5_primary
 scale = scales with completed formal primary result
 ```
 
@@ -1576,7 +1949,7 @@ OSS manifest records smoke-only status
 unrun branches record explicit not-run reason
 ```
 
-### Recommended Minimal Execution Path
+### Recommended Minimal Execution Path / 推荐最小执行路径
 
 最节省资源但仍覆盖主线和计划敏感性层级的路径是：
 
@@ -1614,4 +1987,4 @@ unrun branches record explicit not-run reason
    display / FDR / labels / cross-connectome summaries
 ```
 
-核心原则是先证明 `peak_efield_tau800_primary` 在 total 和 axial scales 上技术有效，再用 plain control 区分 outcome-filtered fibers 与 stimulation burden，然后运行 dTOR formal inference，最后才投入 OSS、jitter 和 display-layer outputs。
+The core principle is to prove `peak_efield_tau800_cov5_primary` is technically valid on total and axial scales, use plain control to separate outcome-filtered fibers from stimulation burden, run dTOR formal inference, and only then invest in OSS, jitter, and display-layer outputs.

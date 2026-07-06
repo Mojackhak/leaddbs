@@ -190,7 +190,7 @@ if HF model is stable_nonpredictive:
   delta_hfscore_role = sensitivity / compatibility adjustment
   no_delta_hf_role   = primary
 
-if HF model is unstable_or_failed:
+if HF model is failed_unstable:
   ulf_primary_branch = no_delta_hf when ULF inputs remain valid
   delta_hfscore_role = exploratory only, or not run if HF support is unavailable
   no_delta_hf_role   = primary exploratory branch
