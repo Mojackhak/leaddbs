@@ -1,4 +1,4 @@
-# HF-Adjusted ULF-Only Add-On Gain Direct Voxel-Level Model
+# HF-Status-Resolved ULF-Only Add-On Gain Direct Voxel-Level Model
 
 ## Research Question
 
@@ -178,7 +178,39 @@ map source   = training-fold map for LOOCV
 full-sample map = descriptive and full-sample score output only
 ```
 
-If the locked HF branch fails QC, produces near-constant `HFScore_mean_main`, has empty fold scoring masks, or does not provide interpretable HF map support, the ULF primary model is not treated as confirmatory. It may still be run as exploratory, but `DeltaHFScore` must be labeled as an unstable generated covariate.
+The ULF direct voxel implementation does not hard-code a single primary branch before HF results are reviewed. It runs the DeltaHF-adjusted and no-DeltaHF branches as an equal-status core branch pair when their inputs are available. The model report then records which branch is the interpretive primary branch using the locked HF result:
+
+```text
+if HF model is predictive_valid:
+  ulf_primary_branch = delta_hf_adjusted
+  delta_hfscore_role = primary nuisance adjustment
+  no_delta_hf_role   = sensitivity
+
+if HF model is stable_nonpredictive:
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = sensitivity / compatibility adjustment
+  no_delta_hf_role   = primary
+
+if HF model is unstable_or_failed:
+  ulf_primary_branch = no_delta_hf when ULF inputs remain valid
+  delta_hfscore_role = exploratory only, or not run if HF support is unavailable
+  no_delta_hf_role   = primary exploratory branch
+```
+
+The branch-role decision must be written to the model manifest:
+
+```text
+hf_prediction_validity_status
+hf_prediction_validity_source
+ulf_primary_branch
+ulf_core_branches_run
+ulf_sensitivity_branches
+delta_hfscore_role
+branch_role_decision_reason
+hf_model_support_status
+```
+
+If the locked HF branch fails QC, produces near-constant `HFScore_mean_main`, has empty fold scoring masks, or does not provide interpretable HF map support, `DeltaHFScore` must be labeled as an unstable generated covariate and cannot define the primary ULF interpretation.
 
 ## Feature Construction
 
@@ -398,7 +430,7 @@ Do not expand the primary HF support after seeing ULF results. A predeclared sen
 
 ## Statistical Model
 
-### Primary Estimator: Covariate-Adjusted Partial Spearman
+### Core Branch A: DeltaHF-Adjusted Partial Spearman
 
 For each endpoint, phase, tau, and voxel `v`, use rank-residual partial Spearman with average ranks for ties:
 
@@ -421,9 +453,9 @@ M_ULF(v) =  rho_ULF(v)   for higher-is-better scales
 
 Positive `M_ULF(v)` consistently means ULF-only sweet or benefit-associated. Negative `M_ULF(v)` means ULF-only sour or worse-outcome-associated.
 
-### DeltaHFScore Sensitivity Estimator
+### Core Branch B: No-DeltaHF Partial Spearman
 
-The main sensitivity estimator removes `DeltaHFScore` but keeps the same-day or pre-ULF HF clinical state:
+The no-DeltaHF estimator removes `DeltaHFScore` but keeps the same-day or pre-ULF HF clinical state:
 
 ```text
 rho_ULF_noDeltaHF(v) =
@@ -433,7 +465,7 @@ rho_ULF_noDeltaHF(v) =
   )
 ```
 
-This branch reports how much the ULF map depends on the model-derived HF adjustment. It is not the primary branch.
+This branch is not intrinsically secondary. It is the interpretive primary branch when the matched HF model is stable but not predictive enough to justify using `DeltaHFScore` as the main nuisance adjustment. Otherwise, it reports how much the ULF map depends on the model-derived HF adjustment.
 
 ### Gain Endpoint Sensitivity Estimator
 
@@ -494,7 +526,7 @@ ULFScore_mean_main_i =
 
 This is the primary ULF-only prediction score. It is a voxel-count-normalized, voxel-correlation-weighted mean ULF-only exposure over the fixed scoring voxel set for the corresponding full-sample map or LOOCV training fold. It is not divided by `sum(X)` and is not multiplied by voxel volume. If `V_score` is empty, the branch/fold fails QC instead of producing a score. If a subject/fold has no ULF-only exposure in a non-empty valid scoring voxel set, `ULFScore_mean_main_i` is recorded as `0`.
 
-Final prediction model:
+DeltaHF-adjusted prediction model:
 
 ```text
 Y_post_i = alpha
@@ -504,7 +536,7 @@ Y_post_i = alpha
          + error_i
 ```
 
-Covariate-only baseline:
+DeltaHF-adjusted covariate-only baseline:
 
 ```text
 Y_post_i = alpha
@@ -513,7 +545,16 @@ Y_post_i = alpha
          + error_i
 ```
 
-No-DeltaHF sensitivity baseline:
+No-DeltaHF prediction model:
+
+```text
+Y_post_i = alpha
+         + delta * ULFScore_mean_main_i
+         + beta  * Y_HF_ref_i
+         + error_i
+```
+
+No-DeltaHF covariate-only baseline:
 
 ```text
 Y_post_i = alpha
@@ -521,17 +562,18 @@ Y_post_i = alpha
          + error_i
 ```
 
-The prediction model is fit on the raw post-score scale. The primary validation statistic remains rank-based LOOCV Spearman rho.
+Both core branch prediction models are fit on the raw post-score scale. The primary validation statistic remains rank-based LOOCV Spearman rho. The branch-role resolver determines which branch's LOOCV statistic is reported as the primary statistic.
 
-Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, missing `DeltaHFScore`, or failed e-field availability fails the endpoint/run after QC. For configurable future endpoints, the endpoint is skipped if the valid sample size falls below 12.
+Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, or failed e-field availability fails the endpoint/run after QC. Missing or invalid `DeltaHFScore` fails only the DeltaHF-adjusted branch; the no-DeltaHF branch may still run and must record why the adjusted branch was unavailable. For configurable future endpoints, the endpoint is skipped if the valid sample size falls below 12.
 
 ## Validation
 
 - Model chronic T3 and same-day immediate T2 endpoints separately.
 - Use leave-one-patient-out cross-validation with no inner hyperparameter tuning.
-- In each outer fold, rebuild the HF direct voxel map needed for `DeltaHFScore`, compute fold-specific `DeltaHFScore`, compute fold-specific HF out-of-support burden, rebuild `Omega_ULF_tau`, fit the ULF-only voxel map, compute training and held-out `ULFScore_mean_main`, and fit the final prediction model using only training patients.
-- Compare against the covariate-only baseline `Y_post ~ Y_HF_ref + DeltaHFScore`.
-- Report the no-DeltaHF sensitivity model `Y_post ~ ULFScore_mean_main + Y_HF_ref`.
+- In each outer fold, rebuild the branch-specific nuisance inputs, rebuild `Omega_ULF_tau`, fit the ULF-only voxel map, compute training and held-out `ULFScore_mean_main`, and fit the final prediction model using only training patients.
+- For the DeltaHF-adjusted branch, rebuild the HF direct voxel map needed for `DeltaHFScore`, compute fold-specific `DeltaHFScore`, compute fold-specific HF out-of-support burden, and compare against `Y_post ~ Y_HF_ref + DeltaHFScore`.
+- For the no-DeltaHF branch, omit `DeltaHFScore` from map estimation, scoring, prediction, permutation nuisance models, and baseline comparison; compare against `Y_post ~ Y_HF_ref`.
+- Run both core branches at the observed LOOCV stage when inputs permit. The branch-role resolver records which one is interpreted as primary after the HF result is classified.
 - Report the gain endpoint sensitivity when endpoint data are complete.
 - Primary validation statistic: LOOCV Spearman rho between held-out predictions and held-out raw outcomes.
 - Secondary metrics: LOOCV Pearson `r`, MAE, RMSE, and `Q2` on the original raw outcome scale.
@@ -541,17 +583,17 @@ Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, missing `DeltaHFScore`,
   Q2 = 1 - SSE_ULFScore_model / SSE_covariate_only
   ```
 
-- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the formal primary ULF branch. Smoke/exploratory runs use `B=1000`. Formal permutation is run only for the primary `tau200/partial_spearman` chronic endpoint branch unless the immediate endpoint is explicitly promoted to co-primary.
-- For each permutation, fit the nuisance model `Y_post ~ Y_HF_ref + DeltaHFScore`, permute nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including HF adjustment, out-of-support support QC, ULF coverage, ULF map, `ULFScore_mean_main`, and prediction. The primary permutation statistic is LOOCV Spearman rho.
+- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the branch recorded as primary by the branch-role resolver. Smoke/exploratory runs use `B=1000`. Formal permutation is run only for the selected primary `tau200/partial_spearman` chronic endpoint branch unless the immediate endpoint is explicitly promoted to co-primary.
+- For each permutation, fit the branch-specific nuisance model, permute nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including branch-specific nuisance inputs, ULF coverage, ULF map, `ULFScore_mean_main`, and prediction. The primary permutation statistic is LOOCV Spearman rho.
 - Permutation p value is plus-one two-sided:
 
   ```text
   p = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
   ```
 
-- Subject-level bootstrap uses `B=10000` and seed `42` for the formal primary branch. Smoke/exploratory runs use `B=1000`. Each bootstrap resample reruns the full map-building process, including `DeltaHFScore`, HF support QC, `Omega_ULF_tau`, and `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores voxel-wise standard deviation of the estimator map.
+- Subject-level bootstrap uses `B=10000` and seed `42` for the branch recorded as primary by the branch-role resolver. Smoke/exploratory runs use `B=1000`. Each bootstrap resample reruns the full branch-specific map-building process, including `DeltaHFScore` and HF support QC only for the DeltaHF-adjusted branch, `Omega_ULF_tau`, and `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores voxel-wise standard deviation of the estimator map.
 
-For non-primary executed branches (`tau180/partial_spearman`, `tau220/partial_spearman`, no-DeltaHF sensitivity, gain endpoint sensitivity, total-ULF sensitivity, and immediate endpoints unless co-primary), LOOCV is still run, but formal permutation/bootstrap outputs are not generated. Their manifests and QC JSON files must record:
+For non-primary executed branches (`tau180/partial_spearman`, `tau220/partial_spearman`, the non-selected core branch, gain endpoint sensitivity, total-ULF sensitivity, and immediate endpoints unless co-primary), LOOCV is still run, but formal permutation/bootstrap outputs are not generated. Their manifests and QC JSON files must record:
 
 ```text
 resampling_status = not_run_nonprimary
@@ -611,21 +653,23 @@ seed: 42
 Output root:
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<tau_slug>/partial_spearman/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<tau_slug>/<branch_slug>/
 ```
 
-Primary branch:
+Core branches:
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_delta_hf_adjusted/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_no_delta_hf/
 ```
 
 Sensitivity branches:
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau180/partial_spearman/
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau220/partial_spearman/
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_no_delta_hf/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau180/partial_spearman_delta_hf_adjusted/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau180/partial_spearman_no_delta_hf/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau220/partial_spearman_delta_hf_adjusted/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau220/partial_spearman_no_delta_hf/
 /Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_gain_endpoint/
 /Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_total_ulf_exposure/
 ```
@@ -660,8 +704,8 @@ Output semantics:
 - `direct_voxel_ULF_only_sweet_sour.nii.gz` stores benefit-oriented `M_ULF(v)`. Positive values indicate ULF-only benefit-associated voxels.
 - `direct_voxel_ULF_only_stability.nii.gz` stores LOOCV training-fold direction stability of `M_ULF(v)>0` or `M_ULF(v)<0`, depending on display class. It is not a p value.
 - `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the primary branch only.
-- `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `ULFScore_mean_main`, `DeltaHFScore`, `Y_HF_ref`, `HF_out_support_fraction`, `score_map_source`, `n_valid_score_voxels`, and `is_primary_score`.
-- `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed raw outcome, covariate-only prediction, `ULFScore_mean_main`, `DeltaHFScore`, HF support burden fields, and residuals.
+- `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `delta_hfscore_role`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_out_support_fraction`, `score_map_source`, `n_valid_score_voxels`, and `is_primary_score`.
+- `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed raw outcome, branch-specific nuisance-only prediction, `ULFScore_mean_main`, `DeltaHFScore` when applicable, HF support burden fields, and residuals.
 - `direct_voxel_ULF_only_permutation_summary.csv` stores Freedman-Lane permutation summary for the primary branch only.
 - HF-overlap files store subject-level and cohort-level voxels excluded from the ULF-only predictor because both HF and ULF are active at the branch tau.
 - DeltaHFScore support files store the in-support and out-of-support HF component exposure used to determine whether `DeltaHFScore` is within the learned HF model support.
@@ -706,7 +750,7 @@ Empty images, all-NaN images, non-finite values, missing paths, and obvious path
 
 ## Spatial Jitter QC Sensitivity
 
-Spatial jitter is a robustness stress test applied to accepted e-field inputs. It is not an automatic localization/normalization QC procedure and is not an input-validity gate. It is run only for the primary ULF branch unless an endpoint is explicitly promoted to co-primary.
+Spatial jitter is a robustness stress test applied to accepted e-field inputs. It is not an automatic localization/normalization QC procedure and is not an input-validity gate. It is run only for the selected primary ULF branch unless an endpoint is explicitly promoted to co-primary.
 
 ```text
 formal jitter resamples: B = 1000
@@ -830,14 +874,14 @@ Omega_ULF_tau_fold_h(phase) = {v : Coverage_tau_fold_h(v, phase) >= 5}
 
 For every training fold, ranks are computed within the training set only. Full-sample ranks are prohibited for LOOCV map fitting, permutation map fitting, bootstrap maps, and jitter resamples.
 
-The ULF primary estimator residualizes both outcome and exposure against:
+The DeltaHF-adjusted core branch residualizes both outcome and exposure against:
 
 ```text
 rank(Y_HF_ref_train)
 rank(DeltaHFScore_train)
 ```
 
-The no-DeltaHF sensitivity residualizes against:
+The no-DeltaHF core branch residualizes against:
 
 ```text
 rank(Y_HF_ref_train)
@@ -995,6 +1039,7 @@ locked HF model audit:
   hf_3m_direct_voxel_model tau200/partial_spearman source exists
   HFScore_mean_main and M_HF support are valid
   fold-specific map generation is available for LOOCV DeltaHFScore
+  hf_prediction_validity_status is recorded
 ```
 
 Enter Round 1 only if all primary endpoint subjects have complete clinical and e-field inputs, same-day immediate reference is confirmed when immediate endpoint is run, and valid sample size is at least 12.
@@ -1016,21 +1061,33 @@ HF_out_support_fraction is not extreme enough to invalidate HF adjustment
 
 If ULF-only exposure is empty for most subjects, stop and report that the primary ULF-only predictor is not modelable. If HF out-of-support burden is large, continue only as exploratory or add the predeclared HF-out-of-support sensitivity.
 
-### Round 2: Primary Chronic Observed LOOCV
+### Round 2: Core Chronic Observed LOOCV
 
 Run first unless immediate endpoint has been explicitly promoted:
 
 ```text
 endpoint = MDS-UPDRS III total chronic HF+ULF 3-month score
-branch = tau200 / partial_spearman
+core branches =
+  tau200 / partial_spearman / delta_hf_adjusted
+  tau200 / partial_spearman / no_delta_hf
 score = ULFScore_mean_main
-covariates = Y_HF_ref + DeltaHFScore
+covariates =
+  delta_hf_adjusted: Y_HF_ref + DeltaHFScore
+  no_delta_hf:       Y_HF_ref
 validation = LOOCV
 ```
 
-Enter Round 3 only if all folds complete, `ULFScore_mean_main` is not constant, held-out predictions are finite, LOOCV rho is positive, `Q2 > 0`, and the ULFScore model improves over `Y_HF_ref + DeltaHFScore`.
+After both core branches finish, use the locked HF result to record:
 
-Stop if the primary chronic branch is negative, near-constant, unsupported by the HF map, or dominated by one high-leverage subject. Do not run `tau180/tau220` to search for a better threshold after primary failure.
+```text
+ulf_primary_branch
+delta_hfscore_role
+branch_role_decision_reason
+```
+
+Enter Round 3 only if the branch selected as primary has all folds complete, `ULFScore_mean_main` is not constant, held-out predictions are finite, LOOCV rho is positive, `Q2 > 0`, and the ULFScore model improves over its branch-specific nuisance-only baseline.
+
+Stop if both core chronic branches are negative, near-constant, unsupported by required inputs, or dominated by one high-leverage subject. Do not run `tau180/tau220` to search for a better threshold after core-branch failure.
 
 ### Round 2b: Same-Day Immediate Observed LOOCV
 
@@ -1038,9 +1095,13 @@ Run as key secondary, or as co-primary only if explicitly declared:
 
 ```text
 endpoint = MDS-UPDRS III total same-day immediate HF+ULF score
-branch = tau200 / partial_spearman
+core branches =
+  tau200 / partial_spearman / delta_hf_adjusted
+  tau200 / partial_spearman / no_delta_hf
 score = ULFScore_mean_main
-covariates = Y_HF_ref + DeltaHFScore_immediate
+covariates =
+  delta_hf_adjusted: Y_HF_ref + DeltaHFScore_immediate
+  no_delta_hf:       Y_HF_ref
 validation = LOOCV
 ```
 
@@ -1068,10 +1129,11 @@ Enter Round 4 only if optimized and brute-force paths match, smoke resampling ru
 
 ### Round 4: Formal Permutation
 
-Run only for the primary branch:
+Run only for the branch recorded as primary by the branch-role resolver:
 
 ```text
 tau200 / partial_spearman
+branch_role = ulf_primary_branch
 B = 10000
 seed = 42
 statistic = LOOCV Spearman rho
@@ -1085,6 +1147,7 @@ Run:
 
 ```text
 tau200 / partial_spearman
+branch_role = ulf_primary_branch
 B = 10000
 seed = 42
 ```
@@ -1097,6 +1160,7 @@ Run:
 
 ```text
 tau200 / partial_spearman
+branch_role = ulf_primary_branch
 B = 1000
 FWHM = 2 mm
 ```
@@ -1110,6 +1174,7 @@ Run observed LOOCV only:
 ```text
 tau180 / partial_spearman
 tau220 / partial_spearman
+run for both delta_hf_adjusted and no_delta_hf core roles when inputs allow
 ```
 
 Do not run formal permutation/bootstrap for tau sensitivity. Interpret tau180/tau220 as exposure-definition robustness checks, not threshold search.
@@ -1119,7 +1184,7 @@ Do not run formal permutation/bootstrap for tau sensitivity. Interpret tau180/ta
 Run only after the primary branch is interpretable:
 
 ```text
-no-DeltaHF sensitivity
+non-selected core branch comparison
 gain endpoint sensitivity
 total ULF exposure sensitivity
 HF-out-of-support covariate sensitivity when support burden is nontrivial
@@ -1129,7 +1194,11 @@ Y_base-added collinearity sensitivity if baseline data are complete
 The `Y_base`-added sensitivity is:
 
 ```text
-Y_post ~ ULFScore_mean_main + Y_HF_ref + DeltaHFScore + Y_base
+delta_hf_adjusted:
+  Y_post ~ ULFScore_mean_main + Y_HF_ref + DeltaHFScore + Y_base
+
+no_delta_hf:
+  Y_post ~ ULFScore_mean_main + Y_HF_ref + Y_base
 ```
 
 It is a collinearity/stability check, not a replacement primary model.

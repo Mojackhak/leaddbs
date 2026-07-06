@@ -1,4 +1,4 @@
-# HF-adjusted ULF-only Add-On Gain 直接 Voxel-Level 模型
+# HF-status-resolved ULF-only Add-On Gain 直接 Voxel-Level 模型
 
 ## Research Question / 研究问题
 
@@ -177,6 +177,40 @@ hf_mapping_qc
 
 HF map 必须 endpoint/domain-matched。Chronic ULF endpoint 使用 3-month HF model；immediate motor endpoint 使用 motor-domain HF model。Held-out ULF predictions 必须使用 training-fold HF map 计算 `DeltaHFScore`，不得用 full-sample HF map 给 held-out patient 打分。
 
+ULF direct voxel 实现层面不在运行前固定唯一主分支。只要输入可用，DeltaHF-adjusted 和 no-DeltaHF 两个核心分支以同等地位运行；随后根据已锁定 HF 结果在文档和 manifest 中记录哪个分支是解释上的 primary branch：
+
+```text
+if HF model is predictive_valid:
+  ulf_primary_branch = delta_hf_adjusted
+  delta_hfscore_role = primary nuisance adjustment
+  no_delta_hf_role   = sensitivity
+
+if HF model is stable_nonpredictive:
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = sensitivity / compatibility adjustment
+  no_delta_hf_role   = primary
+
+if HF model is unstable_or_failed:
+  ulf_primary_branch = no_delta_hf when ULF inputs remain valid
+  delta_hfscore_role = exploratory only, or not run if HF support is unavailable
+  no_delta_hf_role   = primary exploratory branch
+```
+
+Branch-role decision 必须写入 manifest：
+
+```text
+hf_prediction_validity_status
+hf_prediction_validity_source
+ulf_primary_branch
+ulf_core_branches_run
+ulf_sensitivity_branches
+delta_hfscore_role
+branch_role_decision_reason
+hf_model_support_status
+```
+
+如果 locked HF branch 未通过 QC、`HFScore_mean_main` 近似常数、fold scoring mask 为空，或无法提供可解释的 HF map support，则 `DeltaHFScore` 必须标记为不稳定 generated covariate，不能定义 ULF 的 primary interpretation。
+
 ## Feature Construction / 特征构建
 
 使用 right-hemisphere MNI brainmask grid 作为 canonical statistical grid。左侧 HF 和 ULF component fields 使用 `ea_flip_lr_nonlinear` 翻转到右侧空间。右侧 fields 采样到同一 right canonical grid。
@@ -320,7 +354,7 @@ Y_post_i = alpha
 
 ## Statistical Model / 统计模型
 
-### Primary Estimator: Covariate-Adjusted Partial Spearman
+### Core Branch A: DeltaHF-Adjusted Partial Spearman
 
 对每个 endpoint 和 voxel `v`，使用 rank-residual partial Spearman，并对 ties 使用 average ranks：
 
@@ -343,9 +377,9 @@ M_ULF(v) =  rho_ULF(v)   for higher-is-better scales
 
 正值 `M_ULF(v)` 一律表示 ULF-only sweet 或 benefit-associated。负值 `M_ULF(v)` 表示 ULF-only sour 或 worse-outcome-associated。
 
-### DeltaHFScore Sensitivity Estimator
+### Core Branch B: No-DeltaHF Partial Spearman
 
-主要 sensitivity estimator 移除 `DeltaHFScore`，但保留当前 HF clinical state：
+No-DeltaHF estimator 移除 `DeltaHFScore`，但保留当前 HF clinical state：
 
 ```text
 rho_ULF_noDeltaHF(v) =
@@ -355,7 +389,7 @@ rho_ULF_noDeltaHF(v) =
   )
 ```
 
-该分支用于报告 ULF map 对 model-derived HF adjustment 的依赖程度。它不是 primary branch。
+该 branch 不天然是次要分支。当匹配的 HF model 稳定但预测力不足以支持把 `DeltaHFScore` 作为主 nuisance adjustment 时，它就是解释上的 primary branch。否则，它用于报告 ULF map 对 model-derived HF adjustment 的依赖程度。
 
 ### Gain Endpoint Sensitivity Estimator
 
@@ -410,7 +444,7 @@ ULFScore_mean_main_i =
 
 这是主 ULF-only prediction score。它是在对应 full-sample map 或 LOOCV training fold 的固定 scoring voxel set 上，按 voxel 数归一化的 voxel 相关性加权平均 ULF-only exposure。它不除以 `sum(X)`，也不乘 voxel volume。若 `V_score` 为空，则该 branch/fold 以 QC failure 停止，不生成 score。若某 subject/fold 在非空有效 scoring voxel set 内没有 ULF-only exposure，则 `ULFScore_mean_main_i` 记为 `0`。
 
-Final prediction model：
+DeltaHF-adjusted prediction model：
 
 ```text
 Y_post_i = alpha
@@ -420,7 +454,7 @@ Y_post_i = alpha
          + error_i
 ```
 
-Covariate-only baseline：
+DeltaHF-adjusted covariate-only baseline：
 
 ```text
 Y_post_i = alpha
@@ -429,7 +463,16 @@ Y_post_i = alpha
          + error_i
 ```
 
-No-DeltaHF sensitivity baseline：
+No-DeltaHF prediction model：
+
+```text
+Y_post_i = alpha
+         + delta * ULFScore_mean_main_i
+         + beta  * Y_HF_ref_i
+         + error_i
+```
+
+No-DeltaHF covariate-only baseline：
 
 ```text
 Y_post_i = alpha
@@ -437,17 +480,18 @@ Y_post_i = alpha
          + error_i
 ```
 
-Prediction model 在 raw post-score 尺度上拟合。主验证统计量仍为 rank-based LOOCV Spearman rho。
+两个核心 branch 的 prediction model 均在 raw post-score 尺度上拟合。主验证统计量仍为 rank-based LOOCV Spearman rho。Branch-role resolver 决定哪个分支的 LOOCV statistic 被报告为 primary statistic。
 
-Missing-data rule：missing `Y_post`、missing `Y_HF_ref`、missing `DeltaHFScore` 或 e-field availability failure 会在 QC 后使 endpoint/run 失败。未来 configurable endpoints 若有效样本量低于 12，则跳过该 endpoint。
+Missing-data rule：missing `Y_post`、missing `Y_HF_ref` 或 e-field availability failure 会在 QC 后使 endpoint/run 失败。Missing 或 invalid `DeltaHFScore` 只使 DeltaHF-adjusted branch 失败；no-DeltaHF branch 仍可运行，并必须记录 adjusted branch 不可用的原因。未来 configurable endpoints 若有效样本量低于 12，则跳过该 endpoint。
 
 ## Validation / 验证
 
 - Chronic 和 immediate endpoints 分开建模。
 - 主 validation 使用 fully nested LOOCV。
-- 每个 outer fold 内，先重建计算 `DeltaHFScore` 所需的 HF direct voxel map，计算 fold-specific `DeltaHFScore`，再重建 `Omega_ULF_tau`、拟合 ULF-only voxel map、计算 training 和 held-out `ULFScore_mean_main`，并且只用 training patients 拟合 final prediction model。
-- 与 covariate-only baseline `Y_post ~ Y_HF_ref + DeltaHFScore` 比较。
-- 报告 no-DeltaHF sensitivity model `Y_post ~ ULFScore_mean_main + Y_HF_ref`。
+- 每个 outer fold 内，重建 branch-specific nuisance inputs，重建 `Omega_ULF_tau`、拟合 ULF-only voxel map、计算 training 和 held-out `ULFScore_mean_main`，并且只用 training patients 拟合 final prediction model。
+- 对 DeltaHF-adjusted branch，重建计算 `DeltaHFScore` 所需的 HF direct voxel map，计算 fold-specific `DeltaHFScore` 和 HF out-of-support burden，并与 `Y_post ~ Y_HF_ref + DeltaHFScore` 比较。
+- 对 no-DeltaHF branch，在 map estimation、scoring、prediction、permutation nuisance model 和 baseline comparison 中均不纳入 `DeltaHFScore`；与 `Y_post ~ Y_HF_ref` 比较。
+- 只要输入允许，observed LOOCV 阶段同时运行两个核心 branch。HF 结果分类后，由 branch-role resolver 记录哪一个被解释为 primary。
 - 主验证统计量：held-out predictions 与 held-out raw outcomes 的 LOOCV Spearman rho。
 - Secondary metrics：LOOCV Pearson `r`、MAE、RMSE 和 original raw outcome scale 上的 `Q2`。
 
@@ -455,17 +499,17 @@ Missing-data rule：missing `Y_post`、missing `Y_HF_ref`、missing `DeltaHFScor
 Q2 = 1 - SSE_ULFScore_model / SSE_covariate_only
 ```
 
-- Patient-level Freedman-Lane permutation 在正式主 ULF branch 中使用 `B=10000` 和随机种子 `42`。Smoke/exploratory 运行使用 `B=1000`。Formal permutation 只对 primary `tau200/partial_spearman` chronic endpoint branch 运行，除非 immediate endpoint 被明确提升为 co-primary。
-- 每次 permutation 先拟合 nuisance model `Y_post ~ Y_HF_ref + DeltaHFScore`，置换 nuisance residuals，重构 `Y*`，然后完整重跑 LOOCV pipeline，包括 HF adjustment、ULF coverage、ULF map、`ULFScore_mean_main` 和 prediction。主 permutation statistic 为 LOOCV Spearman rho。
+- Patient-level Freedman-Lane permutation 对 branch-role resolver 记录为 primary 的分支使用 `B=10000` 和随机种子 `42`。Smoke/exploratory 运行使用 `B=1000`。Formal permutation 只对 selected primary `tau200/partial_spearman` chronic endpoint branch 运行，除非 immediate endpoint 被明确提升为 co-primary。
+- 每次 permutation 使用 branch-specific nuisance model，置换 nuisance residuals，重构 `Y*`，然后完整重跑 LOOCV pipeline，包括 branch-specific nuisance inputs、ULF coverage、ULF map、`ULFScore_mean_main` 和 prediction。主 permutation statistic 为 LOOCV Spearman rho。
 - p value 使用 plus-one two-sided：
 
 ```text
 p = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
 ```
 
-- Subject-level bootstrap 对 formal primary branch 使用 `B=10000` 和 seed `42`。Smoke/exploratory 运行使用 `B=1000`。每次 bootstrap resample 都重跑完整 map-building process，包括 `DeltaHFScore`、HF support QC 和 `Omega_ULF_tau`；`direct_voxel_ULF_only_bootstrap_se.nii.gz` 存储 estimator map 的 voxel-wise standard deviation。
+- Subject-level bootstrap 对 branch-role resolver 记录为 primary 的分支使用 `B=10000` 和 seed `42`。Smoke/exploratory 运行使用 `B=1000`。每次 bootstrap resample 都重跑完整 branch-specific map-building process；只有 DeltaHF-adjusted branch 需要重建 `DeltaHFScore` 和 HF support QC；所有 branch 都重建 `Omega_ULF_tau`。`direct_voxel_ULF_only_bootstrap_se.nii.gz` 存储 estimator map 的 voxel-wise standard deviation。
 
-对非主已执行分支（`tau180/partial_spearman`、`tau220/partial_spearman`、no-DeltaHF sensitivity、gain endpoint sensitivity、total ULF exposure sensitivity，以及未设为 co-primary 的 immediate endpoints），仍运行 LOOCV，但不生成 formal permutation/bootstrap outputs。对应 manifests 和 QC JSON 必须记录：
+对非主已执行分支（`tau180/partial_spearman`、`tau220/partial_spearman`、未被选为 primary 的核心 branch、gain endpoint sensitivity、total ULF exposure sensitivity，以及未设为 co-primary 的 immediate endpoints），仍运行 LOOCV，但不生成 formal permutation/bootstrap outputs。对应 manifests 和 QC JSON 必须记录：
 
 ```text
 resampling_status = not_run_nonprimary
@@ -501,18 +545,28 @@ Python postprocessing 负责：
 - write CSV/JSON/NIfTI outputs and figures；
 - record Conda `leaddbs` environment state。
 
-Output structure：
+Output root：
 
 ```text
-/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<scale_slug>/
-  preprocess/
-  tau180/partial_spearman/
-  tau200/partial_spearman/   # primary
-  tau220/partial_spearman/
-  tau200/no_delta_hf/
-  tau200/gain_endpoint/
-  tau200/total_ulf_exposure/
-  tau200/ols_ancova/         # optional future only
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/<tau_slug>/<branch_slug>/
+```
+
+Core branches：
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_delta_hf_adjusted/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_no_delta_hf/
+```
+
+Sensitivity branches：
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau180/partial_spearman_delta_hf_adjusted/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau180/partial_spearman_no_delta_hf/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau220/partial_spearman_delta_hf_adjusted/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau220/partial_spearman_no_delta_hf/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_gain_endpoint/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_total_ulf_exposure/
 ```
 
 `<endpoint_slug>` examples：
@@ -539,26 +593,32 @@ direct_voxel_ULF_only_bootstrap_se.nii.gz
 direct_voxel_ULF_only_scores.csv
 direct_voxel_ULF_only_loocv_predictions.csv
 direct_voxel_ULF_only_permutation_summary.csv
+direct_voxel_ULF_only_HF_overlap_coverage.nii.gz
+direct_voxel_ULF_only_HF_overlap_fraction.nii.gz
+direct_voxel_ULF_only_HF_overlap_subject_summary.csv
+direct_voxel_ULF_only_HF_overlap_exclusion_mask_display.nii.gz
+direct_voxel_ULF_only_delta_hf_support_summary.csv
+direct_voxel_ULF_only_delta_hf_support_qc.json
 direct_voxel_ULF_only_mapping_qc.json
 direct_voxel_ULF_only_generation_manifest.json
-direct_voxel_ULF_only_HF_overlap_exclusion_mask.nii.gz
-direct_voxel_ULF_only_HF_overlap_exclusion_summary.csv
-direct_voxel_ULF_only_HF_support_summary.csv
 ```
+
+`direct_voxel_ULF_only_bootstrap_se.nii.gz` 和 `direct_voxel_ULF_only_permutation_summary.csv` 只在 branch-role resolver 选中的 primary branch 中生成。非 primary branch 不写占位文件，而是在 manifest 和 QC JSON 中记录 `not_run_nonprimary`。
 
 Output semantics：
 
-- `direct_voxel_ULF_only_coverage.nii.gz` stores `Coverage_ULF_tau(v)=sum_i I[X_ULF_only_i(v)>tau]`. Use `int16`.
-- `direct_voxel_ULF_only_coef.nii.gz` stores `rho_ULF(v)` for `partial_spearman`; future `ols_ancova` would store `theta_ULF(v)`.
-- `direct_voxel_ULF_only_sweet_sour.nii.gz` stores benefit-oriented `M_ULF(v)`.
-- `direct_voxel_ULF_only_stability.nii.gz` stores direction stability across LOOCV training folds; it is not a p-value.
-- `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap voxel-wise standard deviation for the formal primary branch.
-- `direct_voxel_ULF_only_scores.csv` stores full-sample and fold-specific `ULFScore_mean_main`, `DeltaHFScore`, `Y_HF_ref`, exposure sums, valid voxel counts, HF-overlap counts, and score-map source.
-- `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed outcomes, nuisance-only predictions, residuals, endpoint labels, and fold QC.
-- `direct_voxel_ULF_only_permutation_summary.csv` stores observed statistic, null distribution summary, plus-one p value, and permutation metadata.
-- `direct_voxel_ULF_only_mapping_qc.json` stores scale/endpoint/tau-level QC.
-- `direct_voxel_ULF_only_generation_manifest.json` stores provenance, parameters, random seed, code version, Conda environment, and runtime profile.
-- `direct_voxel_ULF_only_HF_support_summary.csv` stores subject-level and endpoint-level HF in-support and out-of-support exposure summaries.
+- `direct_voxel_ULF_only_coverage.nii.gz` stores `Coverage_ULF_tau(v)=sum_i I[X_ULF_only_i(v, phase,tau)>tau]`. Use `int16`.
+- `direct_voxel_ULF_only_coef.nii.gz` stores `rho_ULF(v)` for the executed `partial_spearman/` estimator. Optional future OLS outputs would store `theta_ULF(v)`.
+- `direct_voxel_ULF_only_sweet_sour.nii.gz` stores benefit-oriented `M_ULF(v)`. Positive values indicate ULF-only benefit-associated voxels.
+- `direct_voxel_ULF_only_stability.nii.gz` stores LOOCV training-fold direction stability of `M_ULF(v)>0` or `M_ULF(v)<0`, depending on display class. It is not a p value.
+- `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the primary branch only.
+- `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `delta_hfscore_role`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_out_support_fraction`, `score_map_source`, `n_valid_score_voxels`, and `is_primary_score`.
+- `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed raw outcome, branch-specific nuisance-only prediction, `ULFScore_mean_main`, `DeltaHFScore` when applicable, HF support burden fields, and residuals.
+- `direct_voxel_ULF_only_permutation_summary.csv` stores Freedman-Lane permutation summary for the primary branch only.
+- HF-overlap files store subject-level and cohort-level voxels excluded from the ULF-only predictor because both HF and ULF are active at the branch tau.
+- DeltaHFScore support files store the in-support and out-of-support HF component exposure used to determine whether `DeltaHFScore` is within the learned HF model support.
+- `direct_voxel_ULF_only_mapping_qc.json` stores endpoint/tau/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_ULF_tau` voxel count, HF-overlap exclusion volume, HF out-of-support burden, degenerate voxels, NaN handling, zero-exposure score counts, `corr(ULFScore_mean_main, Y_HF_ref)`, `corr(ULFScore_mean_main, DeltaHFScore)`, `corr(Y_HF_ref, DeltaHFScore)`, coefficient signs, VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
+- `direct_voxel_ULF_only_generation_manifest.json` stores provenance, parameters, code version, conda environment, package state, random seeds, visit labels, same-day immediate reference confirmation, component-proxy labels, and runtime profile.
 
 Display outputs：
 
@@ -619,7 +679,7 @@ Empty images、all-NaN images、non-finite values、missing paths 和 obvious pa
 
 ## Spatial Jitter QC Sensitivity
 
-Spatial jitter 是对 accepted e-field inputs 的 robustness stress test。它不是 automatic localization/normalization QC，也不是 input-validity gate。除非某 endpoint 被显式提升为 co-primary，否则只对 primary ULF branch 运行。
+Spatial jitter 是对 accepted e-field inputs 的 robustness stress test。它不是 automatic localization/normalization QC，也不是 input-validity gate。除非某 endpoint 被显式提升为 co-primary，否则只对 selected primary ULF branch 运行。
 
 ```text
 formal jitter resamples: B = 1000
@@ -740,14 +800,14 @@ Omega_ULF_tau_fold_h(phase) = {v : Coverage_tau_fold_h(v, phase) >= 5}
 
 每个 training fold 内，ranks 只能在 training set 内计算。LOOCV map fitting、permutation map fitting、bootstrap maps 和 jitter resamples 中禁止使用 full-sample ranks。
 
-ULF primary estimator 同时 residualize outcome 和 exposure against：
+DeltaHF-adjusted core branch 同时 residualize outcome 和 exposure against：
 
 ```text
 rank(Y_HF_ref_train)
 rank(DeltaHFScore_train)
 ```
 
-No-DeltaHF sensitivity 只 residualize against：
+No-DeltaHF core branch 只 residualize against：
 
 ```text
 rank(Y_HF_ref_train)
@@ -897,6 +957,7 @@ locked HF model audit:
   hf_3m_direct_voxel_model tau200/partial_spearman source exists
   HFScore_mean_main and M_HF support are valid
   fold-specific map generation is available for LOOCV DeltaHFScore
+  hf_prediction_validity_status is recorded
 ```
 
 只有当所有 primary endpoint subjects 具有完整 clinical 和 e-field inputs，运行 immediate endpoint 时已确认 same-day immediate reference，并且 valid sample size 至少为 12，才进入 Round 1。
@@ -918,21 +979,33 @@ HF_out_support_fraction is not extreme enough to invalidate HF adjustment
 
 如果大多数 subjects 的 ULF-only exposure 为空，停止并报告 primary ULF-only predictor 不可建模。如果 HF out-of-support burden 较大，则仅作为 exploratory 继续，或加入预先声明的 HF-out-of-support sensitivity。
 
-### Round 2: Primary Chronic Observed LOOCV
+### Round 2: Core Chronic Observed LOOCV
 
 除非 immediate endpoint 被显式提升为 co-primary，否则先运行：
 
 ```text
 endpoint = MDS-UPDRS III total chronic HF+ULF 3-month score
-branch = tau200 / partial_spearman
+core branches =
+  tau200 / partial_spearman / delta_hf_adjusted
+  tau200 / partial_spearman / no_delta_hf
 score = ULFScore_mean_main
-covariates = Y_HF_ref + DeltaHFScore
+covariates =
+  delta_hf_adjusted: Y_HF_ref + DeltaHFScore
+  no_delta_hf:       Y_HF_ref
 validation = LOOCV
 ```
 
-只有当所有 folds 完成、`ULFScore_mean_main` 非常数、held-out predictions 有限、LOOCV rho 为正、`Q2 > 0`，并且 ULFScore model 优于 `Y_HF_ref + DeltaHFScore` 时，才进入 Round 3。
+两个 core branches 完成后，根据 locked HF result 记录：
 
-如果 primary chronic branch 为负、近似常数、不受 HF map support 支持，或被单个 high-leverage subject 主导，则停止。不要在 primary failure 后运行 `tau180/tau220` 来寻找更好 threshold。
+```text
+ulf_primary_branch
+delta_hfscore_role
+branch_role_decision_reason
+```
+
+只有被 branch-role resolver 选为 primary 的分支满足所有 folds 完成、`ULFScore_mean_main` 非常数、held-out predictions 有限、LOOCV rho 为正、`Q2 > 0`，并且 ULFScore model 优于其 branch-specific nuisance-only baseline 时，才进入 Round 3。
+
+如果两个 core chronic branches 都为负、近似常数、缺少必要输入支持，或被单个 high-leverage subject 主导，则停止。不要在 core-branch failure 后运行 `tau180/tau220` 来寻找更好 threshold。
 
 ### Round 2b: Same-Day Immediate Observed LOOCV
 
@@ -940,9 +1013,13 @@ validation = LOOCV
 
 ```text
 endpoint = MDS-UPDRS III total same-day immediate HF+ULF score
-branch = tau200 / partial_spearman
+core branches =
+  tau200 / partial_spearman / delta_hf_adjusted
+  tau200 / partial_spearman / no_delta_hf
 score = ULFScore_mean_main
-covariates = Y_HF_ref + DeltaHFScore_immediate
+covariates =
+  delta_hf_adjusted: Y_HF_ref + DeltaHFScore_immediate
+  no_delta_hf:       Y_HF_ref
 validation = LOOCV
 ```
 
@@ -970,10 +1047,11 @@ smoke jitter B=100
 
 ### Round 4: Formal Permutation
 
-只对 primary branch 运行：
+只对 branch-role resolver 记录为 primary 的分支运行：
 
 ```text
 tau200 / partial_spearman
+branch_role = ulf_primary_branch
 B = 10000
 seed = 42
 statistic = LOOCV Spearman rho
@@ -987,6 +1065,7 @@ statistic = LOOCV Spearman rho
 
 ```text
 tau200 / partial_spearman
+branch_role = ulf_primary_branch
 B = 10000
 seed = 42
 ```
@@ -999,6 +1078,7 @@ seed = 42
 
 ```text
 tau200 / partial_spearman
+branch_role = ulf_primary_branch
 B = 1000
 FWHM = 2 mm
 ```
@@ -1012,6 +1092,7 @@ FWHM = 2 mm
 ```text
 tau180 / partial_spearman
 tau220 / partial_spearman
+run for both delta_hf_adjusted and no_delta_hf core roles when inputs allow
 ```
 
 不对 tau sensitivity 运行 formal permutation/bootstrap。将 tau180/tau220 解释为 exposure-definition robustness checks，而不是 threshold search。
@@ -1021,7 +1102,7 @@ tau220 / partial_spearman
 只在 primary branch 可解释后运行：
 
 ```text
-no-DeltaHF sensitivity
+non-selected core branch comparison
 gain endpoint sensitivity
 total ULF exposure sensitivity
 HF-out-of-support covariate sensitivity when support burden is nontrivial
@@ -1031,7 +1112,11 @@ Y_base-added collinearity sensitivity if baseline data are complete
 `Y_base`-added sensitivity：
 
 ```text
-Y_post ~ ULFScore_mean_main + Y_HF_ref + DeltaHFScore + Y_base
+delta_hf_adjusted:
+  Y_post ~ ULFScore_mean_main + Y_HF_ref + DeltaHFScore + Y_base
+
+no_delta_hf:
+  Y_post ~ ULFScore_mean_main + Y_HF_ref + Y_base
 ```
 
 它是 collinearity/stability check，不替代 primary model。

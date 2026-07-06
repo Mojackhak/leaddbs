@@ -1,4 +1,4 @@
-# HF-Adjusted ULF-Only Add-On Gain Normative Connectome Fiber Model — Revised
+# HF-Status-Resolved ULF-Only Add-On Gain Normative Connectome Fiber Model — Revised
 
 Version: 2026-07-05 revised specification
 Scope: ULF add-on normative connectome fiber-level model, aligned to `hf_3m_normative_connectome_fiber_model.md`.
@@ -233,7 +233,7 @@ A shared dTOR-HF adjustment across all ULF connectomes may be reported only as a
 shared_dTOR_HF_adjustment_sensitivity
 ```
 
-Do not run the ULF formal branch unless the matched HF normative branch has:
+Do not assign the DeltaHF-adjusted ULF branch as the interpretive primary branch unless the matched HF normative branch has:
 
 ```text
 observed LOOCV completed
@@ -245,7 +245,39 @@ no severe selected-fiber instability
 no severe plain-control replacement
 ```
 
-If the matched HF branch fails or is technically degenerate, the ULF branch is exploratory only and cannot be presented as a formally adjusted ULF add-on model.
+The ULF normative fiber implementation runs the DeltaHF-adjusted and no-DeltaHF branches as an equal-status core branch pair when inputs are available. The model report then records which branch is the interpretive primary branch using the locked HF result:
+
+```text
+if HF model is predictive_valid:
+  ulf_primary_branch = delta_hf_adjusted
+  delta_hfscore_role = primary nuisance adjustment
+  no_delta_hf_role   = sensitivity
+
+if HF model is stable_nonpredictive:
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = sensitivity / compatibility adjustment
+  no_delta_hf_role   = primary
+
+if HF model is unstable_or_failed:
+  ulf_primary_branch = no_delta_hf when ULF inputs remain valid
+  delta_hfscore_role = exploratory only, or not run if HF support is unavailable
+  no_delta_hf_role   = primary exploratory branch
+```
+
+The branch-role decision must be written to the model manifest:
+
+```text
+hf_prediction_validity_status
+hf_prediction_validity_source
+ulf_primary_branch
+ulf_core_branches_run
+ulf_sensitivity_branches
+delta_hfscore_role
+branch_role_decision_reason
+hf_model_support_status
+```
+
+If the matched HF branch fails or is technically degenerate, `DeltaHFScore` must be labeled as an unstable generated covariate and cannot define the primary ULF interpretation.
 
 ---
 
@@ -569,9 +601,11 @@ No imputation is allowed.
 
 ---
 
-## 9. Primary Statistical Model
+## 9. Core Statistical Models
 
-The primary fiber-level estimator is nuisance-adjusted partial Spearman.
+### 9.0 Core Branch A: DeltaHF-Adjusted Partial Spearman
+
+The DeltaHF-adjusted fiber-level estimator is nuisance-adjusted partial Spearman.
 
 For each endpoint and candidate fiber `l`:
 
@@ -643,7 +677,7 @@ if a selected set is non-empty but a patient has zero exposure to all selected f
 
 ### 9.2 Final prediction model
 
-Primary prediction model:
+DeltaHF-adjusted prediction model:
 
 ```text
 Y_post_i = alpha
@@ -653,7 +687,7 @@ Y_post_i = alpha
          + error_i
 ```
 
-Nuisance-only baseline:
+DeltaHF-adjusted nuisance-only baseline:
 
 ```text
 Y_post_i = alpha
@@ -662,7 +696,24 @@ Y_post_i = alpha
          + error_i
 ```
 
-Primary validation statistic:
+No-DeltaHF prediction model:
+
+```text
+Y_post_i = alpha
+         + delta * NetULFFiberScore_noDeltaHF_i
+         + beta  * Y_HF_ref_i
+         + error_i
+```
+
+No-DeltaHF nuisance-only baseline:
+
+```text
+Y_post_i = alpha
+         + beta * Y_HF_ref_i
+         + error_i
+```
+
+Primary validation statistic for the branch selected by the branch-role resolver:
 
 ```text
 LOOCV Spearman rho between held-out predicted Y_post and held-out observed Y_post
@@ -674,20 +725,20 @@ Secondary metrics:
 LOOCV Pearson r
 MAE
 RMSE
-Q2 relative to nuisance-only baseline
+Q2 relative to branch-specific nuisance-only baseline
 ```
 
 ```text
-Q2 = 1 - SSE_ULFScore_model / SSE_nuisance_only_baseline
+Q2 = 1 - SSE_ULFScore_model / SSE_branch_specific_nuisance_only_baseline
 ```
 
 ---
 
 ## 10. Sensitivity Models
 
-### 10.1 No-DeltaHF sensitivity
+### 10.1 Non-selected core branch comparison
 
-Purpose: determine how much the ULF map depends on the model-derived HF adjustment.
+Purpose: compare the core branch not selected as primary against the selected primary branch. When the matched HF model is `stable_nonpredictive`, the no-DeltaHF branch is primary and the DeltaHF-adjusted branch becomes the comparison branch. When the matched HF model is `predictive_valid`, the DeltaHF-adjusted branch is primary and the no-DeltaHF branch becomes the comparison branch.
 
 Fiber estimator:
 
@@ -708,13 +759,13 @@ Y_post_i = alpha
          + error_i
 ```
 
-Branch name:
+No-DeltaHF branch name:
 
 ```text
-ulf_peak_efield_tau800_no_delta_hf_sensitivity
+ulf_peak_efield_tau800_no_delta_hf
 ```
 
-This branch is not primary and does not receive formal `B=10000` resampling unless explicitly promoted.
+This branch is not automatically secondary. Its role is assigned by the branch-role resolver. The non-selected core branch receives observed LOOCV outputs but does not receive formal `B=10000` resampling unless explicitly promoted.
 
 ### 10.2 Total ULF exposure sensitivity
 
@@ -802,7 +853,7 @@ Within each training fold:
 5. Estimate rho_ULF(l) and M_ULF(l) using training patients only.
 6. Select fold-specific F+_ULF and F-_ULF.
 7. Compute NetULFFiberScore for training patients and the held-out patient.
-8. Fit Y_post ~ NetULFFiberScore + Y_HF_ref + DeltaHFScore on training patients.
+8. Fit the branch-specific prediction model on training patients.
 9. Predict held-out Y_post.
 ```
 
@@ -826,11 +877,11 @@ no full-sample HF model for held-out DeltaHFScore
 
 ### 12.1 Freedman-Lane permutation
 
-Formal permutation is restricted to the dTOR primary branch unless another endpoint is explicitly promoted.
+Formal permutation is restricted to the dTOR branch recorded as primary by the branch-role resolver unless another endpoint is explicitly promoted.
 
 ```text
 connectome = dTOR
-branch = ulf_peak_efield_tau800_primary
+branch = ulf_peak_efield_tau800_primary_by_hf_status
 formal B = 10000
 smoke B = 1000
 seed = 42
@@ -838,10 +889,11 @@ primary statistic = LOOCV Spearman rho
 p_plus_one = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
 ```
 
-Nuisance model:
+Branch-specific nuisance model:
 
 ```text
-Y_post ~ Y_HF_ref + DeltaHFScore
+delta_hf_adjusted: Y_post ~ Y_HF_ref + DeltaHFScore
+no_delta_hf:       Y_post ~ Y_HF_ref
 ```
 
 Permutation workflow:
@@ -871,7 +923,7 @@ Therefore, within a fixed outer fold and fixed HF model cache, `DeltaHFScore` ma
 
 ### 12.2 Subject-level bootstrap
 
-Formal bootstrap is restricted to the dTOR primary branch unless another endpoint is explicitly promoted.
+Formal bootstrap is restricted to the dTOR branch recorded as primary by the branch-role resolver unless another endpoint is explicitly promoted.
 
 ```text
 formal B = 10000
@@ -989,6 +1041,8 @@ connectome
 endpoint_slug
 scale_slug
 branch
+branch_role
+delta_hfscore_role
 fiber_id
 tau_v_per_m
 coverage_ULF_only
@@ -1014,6 +1068,8 @@ connectome
 endpoint_slug
 scale_slug
 branch
+branch_role
+delta_hfscore_role
 score_map_source
 Y_post
 Y_HF_ref
@@ -1207,12 +1263,13 @@ Executable branches:
 
 ```text
 primary:
-  ulf_peak_efield_tau800_primary
+  ulf_peak_efield_tau800_delta_hf_adjusted
+  ulf_peak_efield_tau800_no_delta_hf
 
 sensitivity:
   ulf_peak_efield_tau1500_sensitivity
   ulf_top1500_top500_sensitivity
-  ulf_peak_efield_tau800_no_delta_hf_sensitivity
+  non-selected core branch comparison
   ulf_total_exposure_tau800_sensitivity
   ulf_gain_endpoint_sensitivity
 
@@ -1249,6 +1306,7 @@ check clinical ID join
 check same-day T2 immediate/HF reference pairing
 check scale direction
 check locked HF normative model source
+check hf_prediction_validity_status
 check HF support output availability
 check PPMI / MGH / dTOR readability
 check output root writability
@@ -1286,14 +1344,16 @@ bootstrap summaries
 
 Enter Round 2 only if optimized and brute-force outputs match within tolerance and dTOR chunked IO has no memory error.
 
-### Round 2: Primary observed chronic endpoint
+### Round 2: Core observed chronic endpoint
 
 Run:
 
 ```text
 endpoint = chronic 3-month HF+ULF add-on
 scale = MDS-UPDRS III total
-branch = ulf_peak_efield_tau800_primary
+core branches =
+  ulf_peak_efield_tau800_delta_hf_adjusted
+  ulf_peak_efield_tau800_no_delta_hf
 connectome order = PPMI observed -> MGH observed -> dTOR observed
 ```
 
@@ -1303,10 +1363,11 @@ Enter Round 3 only if:
 dTOR observed LOOCV completes
 fold-specific ULF candidates are non-empty
 NetULFFiberScore has nonzero variance
-DeltaHFScore has nonzero variance or is explicitly recorded as near-constant
+the branch selected as primary has finite branch-specific nuisance inputs
 HF_out_candidate_fraction gates are not extreme
 validation metrics are finite
-Q2 is interpretable against nuisance-only baseline
+Q2 is interpretable against branch-specific nuisance-only baseline
+ulf_primary_branch is recorded in the manifest
 ```
 
 ### Round 3: Same-day immediate endpoint
@@ -1316,7 +1377,9 @@ Run:
 ```text
 endpoint = same-day HF+ULF immediate add-on
 scale = MDS-UPDRS III total or motor domain as configured
-branch = ulf_peak_efield_tau800_primary
+core branches =
+  ulf_peak_efield_tau800_delta_hf_adjusted
+  ulf_peak_efield_tau800_no_delta_hf
 connectome order = PPMI observed -> MGH observed -> dTOR observed
 ```
 
@@ -1352,7 +1415,7 @@ Run observed-only sensitivity:
 ```text
 ulf_peak_efield_tau1500_sensitivity
 ulf_top1500_top500_sensitivity
-ulf_peak_efield_tau800_no_delta_hf_sensitivity
+non-selected core branch comparison
 ulf_total_exposure_tau800_sensitivity
 ulf_gain_endpoint_sensitivity
 PPMI -> MGH -> dTOR

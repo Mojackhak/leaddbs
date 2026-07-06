@@ -4,13 +4,13 @@ Date: 2026-06-25
 
 ## Summary
 
-This document records the planned analysis for symptom-specific HF-only efficacy and HF-adjusted ULF-only add-on gain mapping in the STN/SNr DBS cohort. The plan combines the endpoint-specific ANCOVA-style model in `/Users/mojackhu/Downloads/STN_SNr_endpoint_specific_sweetspot_pseudocode.md` with the previous decisions for public connectomes, individualized DWI tractography, ROI definition, streamline interpretation, stimulation exposure, and sensitivity analyses.
+This document records the planned analysis for symptom-specific HF-only efficacy and HF-status-resolved ULF-only add-on gain mapping in the STN/SNr DBS cohort. The plan combines the endpoint-specific ANCOVA-style model in `/Users/mojackhu/Downloads/STN_SNr_endpoint_specific_sweetspot_pseudocode.md` with the previous decisions for public connectomes, individualized DWI tractography, ROI definition, streamline interpretation, stimulation exposure, and sensitivity analyses.
 
 The primary scientific framing is frequency-component based rather than nucleus-assignment based. The former STN-only phase is treated as HF-only stimulation. The former combined STN+SNr phase is treated as HF+ULF stimulation. The two main estimands are:
 
 ```text
 HF-only efficacy heatmap
-HF-adjusted ULF-only add-on gain heatmap
+HF-status-resolved ULF-only add-on gain heatmap
 ```
 
 Frequency definitions are fixed as:
@@ -41,9 +41,9 @@ The six model-specific summaries are:
 | HF-only 3m efficacy | Direct voxel-level | [`hf_3m_direct_voxel_model.md`](model_summaries/hf_3m_direct_voxel_model.md) |
 | HF-only 3m efficacy | Normative connectome DBS Fiber Filtering / fiber-level | [`hf_3m_normative_connectome_fiber_model.md`](model_summaries/hf_3m_normative_connectome_fiber_model.md) |
 | HF-only 3m efficacy | Individualized DWI seed-target / fiber-derived target-level | [`hf_3m_individualized_dwi_seed_target_model.md`](model_summaries/hf_3m_individualized_dwi_seed_target_model.md) |
-| HF-adjusted ULF-only add-on gain | Direct voxel-level | [`ulf_addon_gain_direct_voxel_model.md`](model_summaries/ulf_addon_gain_direct_voxel_model.md) |
-| HF-adjusted ULF-only add-on gain | Normative connectome DBS Fiber Filtering / fiber-level | [`ulf_addon_gain_normative_connectome_fiber_model.md`](model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md) |
-| HF-adjusted ULF-only add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`ulf_addon_gain_individualized_dwi_seed_target_model.md`](model_summaries/ulf_addon_gain_individualized_dwi_seed_target_model.md) |
+| HF-status-resolved ULF-only add-on gain | Direct voxel-level | [`ulf_addon_gain_direct_voxel_model.md`](model_summaries/ulf_addon_gain_direct_voxel_model.md) |
+| HF-status-resolved ULF-only add-on gain | Normative connectome DBS Fiber Filtering / fiber-level | [`ulf_addon_gain_normative_connectome_fiber_model.md`](model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md) |
+| HF-status-resolved ULF-only add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`ulf_addon_gain_individualized_dwi_seed_target_model.md`](model_summaries/ulf_addon_gain_individualized_dwi_seed_target_model.md) |
 
 For the currently executable non-individualized model families, the model-specific
 summaries are the authoritative specifications. This master plan records the
@@ -883,13 +883,13 @@ Definitions:
 Question:
 
 ```text
-Among patients with comparable HF-only 3-month clinical state and comparable HF-component changes,
+Among patients with comparable HF-only 3-month clinical state, and with branch-specific handling of HF-component changes,
 does final ULF-only exposure or connectivity predict better HF+ULF outcome?
 ```
 
 Interpretation:
 
-The ULF coefficient or score association is conditional on pre-ULF clinical state and concurrent HF reprogramming. In the normative connectome ULF model, the association is estimated at fiber level using `NetULFFiberScore`; target-level notation is retained only for individualized DWI seed-target sensitivity models. Benefit-oriented maps are sign-oriented inside each model-specific document so positive values consistently indicate better predicted clinical outcome.
+The ULF coefficient or score association is conditional on pre-ULF clinical state in both core branches. It is additionally conditional on concurrent HF reprogramming only in the DeltaHF-adjusted branch. In the normative connectome ULF model, the association is estimated at fiber level using `NetULFFiberScore`; target-level notation is retained only for individualized DWI seed-target sensitivity models. Benefit-oriented maps are sign-oriented inside each model-specific document so positive values consistently indicate better predicted clinical outcome.
 
 #### Chronic ULF Add-On Gain Model
 
@@ -904,7 +904,7 @@ DeltaHFScore   = DeltaHFScore_chronic
 Question:
 
 ```text
-In patients with the same HF-only 3-month clinical state and the same HF component change,
+In patients with the same HF-only 3-month clinical state, with the primary branch resolved from the matched HF result,
 does final ULF-only exposure or connectivity predict better HF+ULF 3-month outcome?
 ```
 
@@ -921,24 +921,24 @@ DeltaHFScore     = DeltaHFScore_immediate
 Question:
 
 ```text
-In patients with the same HF-only 3-month clinical state and the same immediate-phase HF component change,
+In patients with the same HF-only 3-month clinical state, with the primary branch resolved from the matched HF result,
 does final ULF-only exposure or connectivity predict better same-day HF+ULF immediate outcome?
 ```
 
-The `Y_HF_ref` covariate controls the pre-ULF clinical state. For the immediate endpoint, `Y_HF_ref` and `Y_post_immediate` are same-day T2 measurements before and after ULF addition. `DeltaHFScore_immediate` controls concurrent HF component reprogramming in the immediate HF+ULF setting using a motor-domain and model-family-matched HF efficacy model.
+The `Y_HF_ref` covariate controls the pre-ULF clinical state in both core branches. For the immediate endpoint, `Y_HF_ref` and `Y_post_immediate` are same-day T2 measurements before and after ULF addition. `DeltaHFScore_immediate` controls concurrent HF component reprogramming only in the DeltaHF-adjusted branch using a motor-domain and model-family-matched HF efficacy model.
 
 #### Rank-Based ULF Implementation
 
 Use a rank-based partial Spearman estimator as the main implementation for `n = 16`:
 
-1. Rank-transform `Y_post`, the ULF predictor, `Y_HF_ref`, and `DeltaHFScore`.
-2. Regress ranked `Y_post` on ranked `Y_HF_ref` and ranked `DeltaHFScore`; keep residuals.
-3. Regress the ranked ULF predictor on ranked `Y_HF_ref` and ranked `DeltaHFScore`; keep residuals. For direct voxel ULF, the predictor is voxel-level `X_ULF_only(v,tau)`. For normative connectome ULF, the predictor is fiber-level `X_ULF_only(l,tau)`. For individualized DWI seed-target sensitivity, the predictor remains target-level `C_ULF_only_bilat(k)`.
+1. Rank-transform `Y_post`, the ULF predictor, `Y_HF_ref`, and, for the DeltaHF-adjusted branch only, `DeltaHFScore`.
+2. Regress ranked `Y_post` on the branch-specific nuisance set; keep residuals.
+3. Regress the ranked ULF predictor on the same branch-specific nuisance set; keep residuals. For direct voxel ULF, the predictor is voxel-level `X_ULF_only(v,tau)`. For normative connectome ULF, the predictor is fiber-level `X_ULF_only(l,tau)`. For individualized DWI seed-target sensitivity, the predictor remains target-level `C_ULF_only_bilat(k)`.
 4. Correlate the two residual vectors.
 5. Flip sign when higher clinical score means worse outcome, so positive scores always indicate benefit.
 
 ```text
-M_ULF > 0 means stronger ULF-only exposure predicts better HF+ULF outcome after HF-state and DeltaHFScore adjustment.
+M_ULF > 0 means stronger ULF-only exposure predicts better HF+ULF outcome after the branch-specific nuisance adjustment.
 ```
 
 ### ULF Add-On Gain Estimand Boundaries
@@ -1035,7 +1035,7 @@ evidence that every patient should be stimulated at this location
 
 Do not interpret `STN+SNr - STN-alone` as pure SNr benefit if STN parameters changed between phases.
 
-The primary ULF add-on gain model controls this by including:
+The DeltaHF-adjusted ULF add-on gain branch controls this by including:
 
 ```text
 DeltaHFScore =
@@ -1063,7 +1063,7 @@ DeltaHFScore_immediate =
   - S_HF_family,motor(E_HF_component,HF-only3m)
 ```
 
-Report this as a same-cohort, pre-ULF-derived nuisance adjustment unless the model-matched HF efficacy model comes from an external dataset.
+Report this as a same-cohort, pre-ULF-derived nuisance adjustment unless the model-matched HF efficacy model comes from an external dataset. The no-DeltaHF branch is run in parallel and becomes the interpretive primary branch when the matched HF model is stable but not predictively useful, or when `DeltaHFScore` is technically unstable.
 
 ### Residualized SNr Sensitivity Model
 
@@ -1699,9 +1699,9 @@ For normative fiber-level outputs, report selected/high-ranked streamlines direc
 
 - HF primary direct voxel model: baseline-adjusted partial Spearman between right-canonical voxel-level HF-only 3-month exposure and HF-only 3-month raw score, adjusting for preoperative raw score; OLS ANCOVA is documented only as optional future supplemental analysis.
 - HF primary normative connectome model: baseline-adjusted partial Spearman between right-canonical fiber-level HF-only 3-month exposure and HF-only 3-month raw score, adjusting for preoperative raw score.
-- ULF chronic add-on gain direct voxel model: endpoint-specific voxel-level partial Spearman with `Y_HF_ref` and `DeltaHFScore_chronic` as nuisance covariates, estimating adjusted chronic `M_ULF(v)` and `ULFScore_mean_main`.
-- ULF chronic add-on gain normative connectome model: endpoint-specific fiber-level partial Spearman with `Y_HF_ref` and `DeltaHFScore_chronic` as nuisance covariates, estimating adjusted chronic `M_ULF(l)` and `NetULFFiberScore`.
-- ULF immediate add-on gain direct voxel and normative connectome models: endpoint-specific partial Spearman with same-day `Y_HF_ref` and `DeltaHFScore_immediate` as nuisance covariates, run according to the model-specific direct voxel and normative fiber summaries.
+- ULF chronic add-on gain direct voxel model: endpoint-specific voxel-level partial Spearman core branch pair. Both branches include `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_chronic`. The branch interpreted as primary is resolved from the matched HF result.
+- ULF chronic add-on gain normative connectome model: endpoint-specific fiber-level partial Spearman core branch pair. Both branches include `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_chronic`. The branch interpreted as primary is resolved from the matched HF result.
+- ULF immediate add-on gain direct voxel and normative connectome models: endpoint-specific partial Spearman core branch pair with same-day `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_immediate`, run according to the model-specific direct voxel and normative fiber summaries.
 - HF early or acute response models are future or historical sketches, not current non-individualized executable model-summary files.
 - Primary inference is scale-specific; do not combine heterogeneous scales into one primary model.
 - For HF and ULF normative fiber-level models, output fiber-wise FDR q-values for QC/display only. For individualized-DWI target-level models, correct multiple comparisons across tested targets within each scale, DWI source, and model class using FDR.
@@ -1714,8 +1714,8 @@ Recommended reporting hierarchy:
 - primary HF endpoint: chronic HF-only efficacy model using `Preop -> STN-3m`;
 - future secondary HF endpoint, not part of the current non-individualized executable summaries: early / acute HF-only response model using `Preop -> STN-immediate`, or `STN-OFF same-day -> STN-immediate` when same-day baseline exists;
 - optional HF endpoint: chronic adaptation model using `STN-immediate -> STN-3m`;
-- primary ULF chronic add-on gain endpoint: adjusted raw HF+ULF 3-month outcome model using `Y_HF_ref` and `DeltaHFScore_chronic`;
-- key secondary or explicitly promoted co-primary ULF immediate endpoint: adjusted same-day raw HF+ULF immediate outcome model using same-day `Y_HF_ref` and `DeltaHFScore_immediate`;
+- primary ULF chronic add-on gain endpoint: raw HF+ULF 3-month outcome model using the branch selected by the matched HF result (`Y_HF_ref` only or `Y_HF_ref + DeltaHFScore_chronic`);
+- key secondary or explicitly promoted co-primary ULF immediate endpoint: same-day raw HF+ULF immediate outcome model using the branch selected by the matched HF result (`Y_HF_ref` only or `Y_HF_ref + DeltaHFScore_immediate`);
 - key secondary ULF endpoint: UPDRS-III chronic ULF-addition model to evaluate longer-term motor relevance;
 - symptom-specific secondary ULF endpoints: axial UPDRS-III, FOG-Q, KPPS, PDQ-39, MADRS, ADL, SE-ADL, and other available scales using their selected endpoints;
 - exploratory cross-scale summaries: map overlap, meta-map, or pooled/global model.
@@ -1897,8 +1897,8 @@ Expected output groups:
 - Direct voxel models are compared against covariate-only models and evaluated with patient-level permutation tests.
 - The primary HF model uses raw STN-3m score adjusted for raw preoperative score, not percent improvement as the main outcome.
 - HF-immediate models are marked secondary and use same-day STN-OFF baseline when available.
-- ULF chronic add-on gain models include both `Y_HF_ref` and `DeltaHFScore_chronic`.
-- ULF immediate add-on gain models include same-day `Y_HF_ref` and `DeltaHFScore_immediate`.
+- ULF chronic add-on gain models run both core branches when inputs allow: `Y_HF_ref` only and `Y_HF_ref + DeltaHFScore_chronic`. The matched HF result determines which branch is primary.
+- ULF immediate add-on gain models run both core branches when inputs allow: same-day `Y_HF_ref` only and `Y_HF_ref + DeltaHFScore_immediate`. The matched HF result determines which branch is primary.
 - ULF results include model-specific coverage summaries, HF-overlap exclusion summaries, and DeltaHFScore support QC; low-coverage targets, voxels, regions, or streamlines are not strongly interpreted.
 - PPMI, MGH, and dTOR all produce figure-grade observed HF normative fiber outputs; dTOR additionally carries formal permutation/bootstrap and jitter QC.
 - PPMI, MGH, and dTOR all produce figure-grade observed ULF normative fiber outputs; dTOR additionally carries formal permutation/bootstrap for the primary branch and model-specific stability outputs.
@@ -1913,7 +1913,7 @@ Expected output groups:
 - HF fiber and density maps should be described as normative streamline association maps based on fiber-level HF efficacy weights.
 - HF-immediate results should be described as early HF-only target connectivity response models, or acute STN stimulation response models only when same-day STN-OFF baseline is used.
 - HF adaptation results should be described as secondary programming/adaptation analyses, not as the main HF efficacy model.
-- ULF add-on gain results should be described by model family: direct voxel local stimulation association, normative connectome fiber-level DBS Fiber Filtering association, or individualized DWI target-level sensitivity, all adjusted for `Y_HF_ref` and model-family-matched `DeltaHFScore`.
+- ULF add-on gain results should be described by model family: direct voxel local stimulation association, normative connectome fiber-level DBS Fiber Filtering association, or individualized DWI target-level sensitivity. All branches adjust for `Y_HF_ref`; only the DeltaHF-adjusted branch additionally adjusts for model-family-matched `DeltaHFScore`.
 - ULF chronic add-on gain normative connectome results should be described as adjusted fiber-level associations with `STN+SNr 3m` outcome.
 - ULF immediate add-on gain results should be described as adjusted same-day HF-state associations with `STN+SNr immediate` outcome.
 - Residualized ULF results should be described as HF-model-adjusted ULF-associated residual benefit, not as definitive pure SNr causal effect.

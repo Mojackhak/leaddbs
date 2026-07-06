@@ -4,12 +4,12 @@ Date: 2026-07-01
 
 ## Purpose
 
-This document fixes the technical design for symptom-specific HF-only efficacy and HF-adjusted ULF-only add-on analyses based on the current clinical programming data, public normative structural connectomes, and individualized DWI tractography.
+This document fixes the technical design for symptom-specific HF-only efficacy and HF-status-resolved ULF-only add-on analyses based on the current clinical programming data, public normative structural connectomes, and individualized DWI tractography.
 
 The analysis has two main goals:
 
 1. Identify HF-only normative connectome fiber-level profiles associated with stable HF therapeutic benefit.
-2. Identify ULF-only normative connectome fiber-level profiles associated with additional benefit after ULF is added to HF stimulation, while adjusting for predicted HF efficacy change.
+2. Identify ULF-only normative connectome fiber-level profiles associated with additional benefit after ULF is added to HF stimulation, while running both DeltaHF-adjusted and no-DeltaHF core branches and assigning the interpretive primary branch from the locked HF result.
 3. Use voxel and target-label outputs as localization, QC, and visualization products without overriding each model-specific primary unit.
 
 The main model assignment is frequency-component based rather than nucleus-assignment based. STN/SNr anatomy is retained for cohort description, stimulation territory, target registry, and visualization overlays.
@@ -32,9 +32,9 @@ The six model-specific summaries are:
 | HF-only 3m efficacy | Direct voxel-level | [`hf_3m_direct_voxel_model.md`](model_summaries/hf_3m_direct_voxel_model.md) |
 | HF-only 3m efficacy | Normative connectome DBS Fiber Filtering / fiber-level | [`hf_3m_normative_connectome_fiber_model.md`](model_summaries/hf_3m_normative_connectome_fiber_model.md) |
 | HF-only 3m efficacy | Individualized DWI seed-target / fiber-derived target-level | [`hf_3m_individualized_dwi_seed_target_model.md`](model_summaries/hf_3m_individualized_dwi_seed_target_model.md) |
-| HF-adjusted ULF-only add-on gain | Direct voxel-level | [`ulf_addon_gain_direct_voxel_model.md`](model_summaries/ulf_addon_gain_direct_voxel_model.md) |
-| HF-adjusted ULF-only add-on gain | Normative connectome DBS Fiber Filtering / fiber-level | [`ulf_addon_gain_normative_connectome_fiber_model.md`](model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md) |
-| HF-adjusted ULF-only add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`ulf_addon_gain_individualized_dwi_seed_target_model.md`](model_summaries/ulf_addon_gain_individualized_dwi_seed_target_model.md) |
+| HF-status-resolved ULF-only add-on gain | Direct voxel-level | [`ulf_addon_gain_direct_voxel_model.md`](model_summaries/ulf_addon_gain_direct_voxel_model.md) |
+| HF-status-resolved ULF-only add-on gain | Normative connectome DBS Fiber Filtering / fiber-level | [`ulf_addon_gain_normative_connectome_fiber_model.md`](model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md) |
+| HF-status-resolved ULF-only add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`ulf_addon_gain_individualized_dwi_seed_target_model.md`](model_summaries/ulf_addon_gain_individualized_dwi_seed_target_model.md) |
 
 ## Data Sources
 
@@ -828,13 +828,28 @@ The same-day baseline version can be called an acute STN stimulation response mo
 
 ## ULF Add-On Gain Models
 
-The ULF add-on model family has one primary estimand:
+The ULF add-on model family has one primary estimand, but the primary branch is resolved from the matched HF result rather than hard-coded:
 
 ```text
-clinical optimization-informed HF-adjusted ULF-only add-on model
+clinical optimization-informed HF-status-resolved ULF-only add-on model
 ```
 
-It asks whether the final clinician-optimized ULF component predicts better HF+ULF outcome after controlling the pre-ULF HF clinical state and the concurrent HF component efficacy-map score change.
+It asks whether the final clinician-optimized ULF component predicts better HF+ULF outcome after controlling the pre-ULF HF clinical state, with or without the concurrent HF component efficacy-map score change depending on the predictive validity of the matched HF model.
+
+Engineering rule:
+
+```text
+Always run the two core ULF branches when inputs are available:
+  delta_hf_adjusted: Y_post ~ ULFPredictor + Y_HF_ref + DeltaHFScore
+  no_delta_hf:       Y_post ~ ULFPredictor + Y_HF_ref
+
+Then assign the interpretive primary branch from the locked HF result:
+  predictive_valid      -> delta_hf_adjusted is primary
+  stable_nonpredictive  -> no_delta_hf is primary
+  unstable_or_failed    -> no_delta_hf is primary exploratory if ULF inputs remain valid
+```
+
+The manifest must record `hf_prediction_validity_status`, `ulf_primary_branch`, `delta_hfscore_role`, and `branch_role_decision_reason`.
 
 The model has two endpoints:
 
@@ -850,7 +865,7 @@ same-day immediate ULF add-on endpoint:
 
 ### DeltaHFScore Construction
 
-`DeltaHFScore` is the nuisance covariate used to control HF component reprogramming in ULF add-on gain models. The preferred definition is an endpoint/domain-matched change in predicted HF efficacy-model alignment, not a raw contact, amplitude, pulse-width, or frequency-change summary.
+`DeltaHFScore` is the candidate nuisance covariate used to control HF component reprogramming in the DeltaHF-adjusted ULF add-on branch. The preferred definition is an endpoint/domain-matched change in predicted HF efficacy-model alignment, not a raw contact, amplitude, pulse-width, or frequency-change summary.
 
 The HF adjustment must be model-family matched:
 
@@ -865,7 +880,7 @@ ULF individualized DWI seed-target model
   -> HF individualized DWI seed-target efficacy model
 ```
 
-Do not use cross-family HF adjustment as the primary `DeltaHFScore`.
+Do not use cross-family HF adjustment as the `DeltaHFScore` for the DeltaHF-adjusted branch.
 
 For the direct voxel-level family, train an HF-only efficacy map using only pre-ULF HF-only data. The formula below is schematic; the current executable HF direct voxel model uses baseline-adjusted partial Spearman and `HFScore_mean_main`, with OLS ANCOVA documented only as optional future supplemental analysis:
 
@@ -905,7 +920,7 @@ S_HF_ind(E) =
   / sum_{k in S_HF_ind} abs(w_HF,k_ind)
 ```
 
-For ULF add-on gain models, use the matching score family:
+For the DeltaHF-adjusted ULF add-on branch, use the matching score family:
 
 ```text
 DeltaHFScore_family,i =
@@ -924,7 +939,7 @@ This definition is acceptable because the HF efficacy model is trained on HF-onl
 
 Endpoint/domain matching and model-family matching are required. For chronic ULF 3-month models, use the HF-only 3-month model for the matching scale or symptom domain. For immediate ULF motor models, use a motor-domain HF model, preferably trained from HF-only 3-month motor outcome. Do not use a total-score HF model as the main `DeltaHFScore` for a motor-only immediate endpoint.
 
-For strict ULF LOOCV prediction, train the model-matched HF efficacy model inside each outer training fold and use that fold-specific model to compute `DeltaHFScore` for both training and held-out patients. For final descriptive visualization, a full-sample HF-only model can be used and should be reported as a same-cohort, pre-ULF-derived nuisance adjustment rather than an external independent model.
+For strict ULF LOOCV prediction in the DeltaHF-adjusted branch, train the model-matched HF efficacy model inside each outer training fold and use that fold-specific model to compute `DeltaHFScore` for both training and held-out patients. The no-DeltaHF branch omits `DeltaHFScore` from map fitting, scoring, prediction, permutation nuisance models, and baseline comparison. For final descriptive visualization, a full-sample HF-only model can be used and should be reported as a same-cohort, pre-ULF-derived nuisance adjustment rather than an external independent model.
 
 Run the following diagnostics:
 
@@ -937,7 +952,7 @@ Also run a physical HF-change sensitivity covariate that is not outcome-derived,
 
 ### ULF Direct Voxel Add-On Model
 
-The direct voxel model is specified in `model_summaries/ulf_addon_gain_direct_voxel_model.md`. It uses:
+The direct voxel model is specified in `model_summaries/ulf_addon_gain_direct_voxel_model.md`. It runs both core branches when inputs are available. The DeltaHF-adjusted branch uses:
 
 ```text
 rho_ULF(v) =
@@ -954,18 +969,25 @@ M_ULF(v) = -rho_ULF(v)   for lower-is-better scales
 M_ULF(v) =  rho_ULF(v)   for higher-is-better scales
 ```
 
-Primary score and prediction model:
+Score and branch-specific prediction models:
 
 ```text
 ULFScore_mean_main_i =
   sum_{v in V_score} X_ULF_only_i(v, phase,tau) * M_ULF(v)
   / n_valid_score_voxels
 
-Y_post_i = alpha
-         + delta * ULFScore_mean_main_i
-         + beta  * Y_HF_ref_i
-         + gamma * DeltaHFScore_i
-         + error_i
+delta_hf_adjusted:
+  Y_post_i = alpha
+           + delta * ULFScore_mean_main_i
+           + beta  * Y_HF_ref_i
+           + gamma * DeltaHFScore_i
+           + error_i
+
+no_delta_hf:
+  Y_post_i = alpha
+           + delta * ULFScore_mean_main_i
+           + beta  * Y_HF_ref_i
+           + error_i
 ```
 
 Key direct voxel implementation details:
@@ -975,14 +997,15 @@ tau_primary = 200 V/m
 tau_sensitivity = 180 / 220 V/m
 Coverage_ULF_tau(v) >= 5
 X_ULF_only is tau-specific and excludes HF-overlap voxels
-DeltaHFScore source = locked HF direct voxel model
-primary score = ULFScore_mean_main
+DeltaHFScore source = locked HF direct voxel model for the delta_hf_adjusted branch
+primary score = ULFScore_mean_main in both core branches
+primary branch = resolved from hf_prediction_validity_status
 optional OLS ANCOVA = documented only, not run
 ```
 
 ### ULF Normative Connectome Fiber-Level Add-On Model
 
-The normative connectome fiber model is specified in `model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md`. It uses right-canonical full-connectome fibers as primary fitted units:
+The normative connectome fiber model is specified in `model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md`. It uses right-canonical full-connectome fibers as primary fitted units and runs both core branches when inputs are available. The DeltaHF-adjusted branch uses:
 
 ```text
 rho_ULF(l) =
@@ -1013,17 +1036,24 @@ F-_ULF = top 0.5% fibers with most negative M_ULF(l)
 NetULFFiberScore_i = SweetPeak5_ULF_i - SourPeak5_ULF_i
 ```
 
-Final prediction model:
+Branch-specific prediction models:
 
 ```text
-Y_post_i = alpha
-         + delta * NetULFFiberScore_i
-         + beta  * Y_HF_ref_i
-         + gamma * DeltaHFScore_i
-         + error_i
+delta_hf_adjusted:
+  Y_post_i = alpha
+           + delta * NetULFFiberScore_i
+           + beta  * Y_HF_ref_i
+           + gamma * DeltaHFScore_i
+           + error_i
+
+no_delta_hf:
+  Y_post_i = alpha
+           + delta * NetULFFiberScore_i
+           + beta  * Y_HF_ref_i
+           + error_i
 ```
 
-The ULF normative model also writes HF-overlap exclusion summaries, `DeltaHFScore` support/out-of-support QC, plain connected-streamline controls, display density maps, endpoint/anatomical enrichment, and cross-connectome observed robustness summaries. Formal `B=10000` permutation/bootstrap is restricted to the dTOR primary branch unless another endpoint is explicitly promoted.
+The ULF normative model also writes HF-overlap exclusion summaries, `DeltaHFScore` support/out-of-support QC for the DeltaHF-adjusted branch, plain connected-streamline controls, display density maps, endpoint/anatomical enrichment, and cross-connectome observed robustness summaries. Formal `B=10000` permutation/bootstrap is restricted to the dTOR branch recorded as primary by the branch-role resolver unless another endpoint is explicitly promoted.
 
 ### Individualized DWI Target-Level Rank-Based Implementation
 
