@@ -9,6 +9,7 @@ parser.addParameter('SourceBvec', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('OutputDir', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('OutputBase', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('Transform', 'identity', @(x) ischar(x) || isstring(x));
+parser.addParameter('AllowIncrementalCorrection', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
 parser.parse(varargin{:});
 opts = parser.Results;
@@ -20,6 +21,7 @@ sourceBvec = char(string(opts.SourceBvec));
 outputDir = char(string(opts.OutputDir));
 outputBase = char(string(opts.OutputBase));
 transformName = validate_transform_name(opts.Transform);
+allowIncrementalCorrection = logical(opts.AllowIncrementalCorrection);
 force = logical(opts.Force);
 
 mh_util_must_be_file(sourceNifti, 'source DWI NIfTI', ...
@@ -36,6 +38,12 @@ if isempty(outputDir) || isempty(outputBase)
     error('mh_fiber_reorient_dwi_image_content:MissingOutput', ...
         'OutputDir and OutputBase must not be empty.');
 end
+sourceMetadata = read_source_metadata(sourceJson);
+if is_already_corrected(sourceMetadata) && ~allowIncrementalCorrection
+    error('mh_fiber_reorient_dwi_image_content:AlreadyCorrected', ...
+        'Source JSON already records an image-content orientation correction. Use AllowIncrementalCorrection=true to append another correction.');
+end
+correctionContext = mh_fiber_orientation_correction_context(sourceMetadata, transformName);
 
 mh_util_make_dir(outputDir);
 paths = output_paths(outputDir, outputBase, sourceNifti, sourceJson);
@@ -50,7 +58,7 @@ niftiResult = mh_fiber_reorient_nifti_content( ...
 copyfile(sourceBval, paths.Bval, 'f');
 write_corrected_bvec(sourceBvec, paths.Bvec, transformName);
 if ~isempty(sourceJson)
-    write_corrected_json(sourceJson, paths.Json, opts, paths, transformName);
+    write_corrected_json(sourceJson, paths.Json, opts, paths, correctionContext);
 end
 
 validate_counts(paths.Nifti, paths.Bval, paths.Bvec);
@@ -61,7 +69,9 @@ result.Json = paths.Json;
 result.Bval = paths.Bval;
 result.Bvec = paths.Bvec;
 result.Transform = transformName;
-result.BvecMatrix = bvec_transform_matrix(transformName);
+result.NetTransform = correctionContext.NetTransform;
+result.BvecMatrix = correctionContext.IncrementalMatrix;
+result.NetBvecMatrix = correctionContext.NetMatrix;
 result.SourceSha256 = niftiResult.SourceSha256;
 result.OutputSha256 = niftiResult.OutputSha256;
 end
@@ -117,34 +127,45 @@ if size(bvec, 1) ~= 3
         'bvec file must be 3 x N or N x 3: %s', sourceBvec);
 end
 
-corrected = bvec_transform_matrix(transformName) * bvec;
+corrected = mh_fiber_orientation_transform_matrix(transformName) * bvec;
 if transposed
     corrected = corrected';
 end
 writematrix(corrected, targetBvec, 'FileType', 'text', 'Delimiter', ' ');
 end
 
-function matrix = bvec_transform_matrix(transformName)
-switch transformName
-    case 'identity'
-        matrix = eye(3);
-    case 'flipY'
-        matrix = diag([1 -1 1]);
-    case 'flipZ'
-        matrix = diag([1 1 -1]);
-    case 'rotX180'
-        matrix = diag([1 -1 -1]);
-    otherwise
-        error('mh_fiber_reorient_dwi_image_content:UnsupportedTransform', ...
-            'Unsupported transform: %s', transformName);
+function metadata = read_source_metadata(sourceJson)
+metadata = struct();
+if isempty(sourceJson)
+    return;
 end
+metadata = jsondecode(fileread(sourceJson));
 end
 
-function write_corrected_json(sourceJson, targetJson, opts, paths, transformName)
+function corrected = is_already_corrected(metadata)
+corrected = isfield(metadata, 'ImageContentOrientationCorrection') && ...
+    logical(metadata.ImageContentOrientationCorrection);
+end
+
+function write_corrected_json(sourceJson, targetJson, opts, paths, correctionContext)
 metadata = jsondecode(fileread(sourceJson));
 metadata.ImageContentOrientationCorrection = true;
-metadata.OrientationCorrectionTransform = transformName;
-metadata.OrientationCorrectionBvecMatrix = bvec_transform_matrix(transformName);
+metadata.OrientationCorrectionTransform = correctionContext.NetTransform;
+metadata.OrientationCorrectionBvecMatrix = correctionContext.NetMatrix;
+metadata.OrientationCorrectionLatestTransform = correctionContext.IncrementalTransform;
+metadata.OrientationCorrectionLatestBvecMatrix = correctionContext.IncrementalMatrix;
+metadata.OrientationCorrectionChainText = chain_text(correctionContext);
+if correctionContext.HasPrevious
+    metadata.OrientationCorrectionPreviousTransform = correctionContext.PreviousTransform;
+    metadata.OrientationCorrectionPreviousBvecMatrix = correctionContext.PreviousMatrix;
+    metadata.OrientationCorrectionIncrementalTransform = correctionContext.IncrementalTransform;
+    metadata.OrientationCorrectionIncrementalBvecMatrix = correctionContext.IncrementalMatrix;
+    metadata.OrientationCorrectionNetTransform = correctionContext.NetTransform;
+    metadata.OrientationCorrectionNetBvecMatrix = correctionContext.NetMatrix;
+else
+    metadata.OrientationCorrectionNetTransform = correctionContext.NetTransform;
+    metadata.OrientationCorrectionNetBvecMatrix = correctionContext.NetMatrix;
+end
 metadata.OrientationCorrectionSourceNifti = char(string(opts.SourceNifti));
 metadata.OrientationCorrectionSourceJson = char(string(opts.SourceJson));
 metadata.OrientationCorrectionSourceBval = char(string(opts.SourceBval));
@@ -166,6 +187,15 @@ if fid < 0
 end
 cleanupObj = onCleanup(@() fclose(fid));
 fprintf(fid, '%s\n', jsonencode(metadata, 'PrettyPrint', true));
+end
+
+function text = chain_text(correctionContext)
+if correctionContext.HasPrevious
+    text = sprintf('%s -> %s => %s', correctionContext.PreviousTransform, ...
+        correctionContext.IncrementalTransform, correctionContext.NetTransform);
+else
+    text = correctionContext.NetTransform;
+end
 end
 
 function validate_counts(niftiPath, bvalPath, bvecPath)

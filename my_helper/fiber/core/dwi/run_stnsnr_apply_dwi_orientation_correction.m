@@ -6,8 +6,9 @@ p.FunctionName = 'run_stnsnr_apply_dwi_orientation_correction';
 p.addParameter('RepoDir', '', @(x) ischar(x) || isstring(x));
 p.addParameter('SourceRoot', '/Volumes/VAL/STNSNrdwi', @(x) ischar(x) || isstring(x));
 p.addParameter('StudyRoot', '/Volumes/VAL/STNSNr', @(x) ischar(x) || isstring(x));
-p.addParameter('SubjectIds', {'GengHui', 'ZhaoPeiGen'}, @(x) iscell(x) || isstring(x) || ischar(x));
+p.addParameter('SubjectIds', {}, @(x) iscell(x) || isstring(x) || ischar(x));
 p.addParameter('Transform', 'rotX180', @(x) ischar(x) || isstring(x));
+p.addParameter('AllowIncrementalCorrection', false, @(x) islogical(x) || isnumeric(x));
 p.addParameter('LogRoot', '', @(x) ischar(x) || isstring(x));
 p.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
 p.parse(varargin{:});
@@ -32,7 +33,8 @@ rows = repmat(empty_log_row(), 0, 1);
 
 fprintf('Staging %d orientation-correction targets.\n', numel(items));
 for i = 1:numel(items)
-    [items(i), newRows] = stage_item(items(i), stagingRoot, opts.Transform, opts.Force);
+    [items(i), newRows] = stage_item(items(i), stagingRoot, opts.Transform, ...
+        opts.AllowIncrementalCorrection, opts.Force);
     rows = [rows, newRows]; %#ok<AGROW>
 end
 
@@ -61,9 +63,14 @@ opts.SourceRoot = char(string(opts.SourceRoot));
 opts.StudyRoot = char(string(opts.StudyRoot));
 opts.LogRoot = char(string(opts.LogRoot));
 opts.SubjectIds = to_cellstr(opts.SubjectIds);
+if isempty(opts.SubjectIds)
+    error('run_stnsnr_apply_dwi_orientation_correction:MissingSubjectIds', ...
+        'SubjectIds must be provided by the project caller.');
+end
 opts.Transform = validatestring(char(string(opts.Transform)), ...
     {'identity', 'flipY', 'flipZ', 'rotX180'}, ...
     'run_stnsnr_apply_dwi_orientation_correction', 'Transform');
+opts.AllowIncrementalCorrection = logical(opts.AllowIncrementalCorrection);
 opts.Force = logical(opts.Force);
 if strcmp(opts.Transform, 'identity')
     error('run_stnsnr_apply_dwi_orientation_correction:IdentityTransform', ...
@@ -109,7 +116,8 @@ for subjectIndex = 1:numel(opts.SubjectIds)
     subjectId = opts.SubjectIds{subjectIndex};
     source = locate_source_dwi(opts.SourceRoot, subjectId);
     items(end + 1) = dwi_item(subjectId, 'stnsnrdwi', 'source_dwi', ...
-        source.Nifti, source.Json, source.Bval, source.Bvec); %#ok<AGROW>
+        source.Nifti, source.Json, source.Bval, source.Bvec, ...
+        opts.AllowIncrementalCorrection); %#ok<AGROW>
 
     rawDir = fullfile(opts.StudyRoot, 'rawdata', ['sub-', subjectId], 'ses-preop', 'dwi');
     rawBase = ['sub-', subjectId, '_ses-preop_dwi'];
@@ -117,7 +125,8 @@ for subjectIndex = 1:numel(opts.SubjectIds)
         fullfile(rawDir, [rawBase, '.nii.gz']), ...
         fullfile(rawDir, [rawBase, '.json']), ...
         fullfile(rawDir, [rawBase, '.bval']), ...
-        fullfile(rawDir, [rawBase, '.bvec'])); %#ok<AGROW>
+        fullfile(rawDir, [rawBase, '.bvec']), ...
+        opts.AllowIncrementalCorrection); %#ok<AGROW>
 
     preprocDir = fullfile(opts.StudyRoot, 'derivatives', 'leaddbs', ...
         ['sub-', subjectId], 'preprocessing', 'dwi');
@@ -126,13 +135,15 @@ for subjectIndex = 1:numel(opts.SubjectIds)
         fullfile(preprocDir, [preBase, '.nii']), ...
         fullfile(preprocDir, [preBase, '.json']), ...
         fullfile(preprocDir, [preBase, '.bval']), ...
-        fullfile(preprocDir, [preBase, '.bvec'])); %#ok<AGROW>
+        fullfile(preprocDir, [preBase, '.bvec']), ...
+        opts.AllowIncrementalCorrection); %#ok<AGROW>
 
     correctedBase = ['sub-', subjectId, '_ses-preop_desc-preproc_dwi'];
     items(end + 1) = dwi_item(subjectId, 'preprocessing', 'corrected_dwi', ...
         fullfile(preprocDir, [correctedBase, '.nii']), '', ...
         fullfile(preprocDir, [correctedBase, '.bval']), ...
-        fullfile(preprocDir, [correctedBase, '.bvec'])); %#ok<AGROW>
+        fullfile(preprocDir, [correctedBase, '.bvec']), ...
+        opts.AllowIncrementalCorrection); %#ok<AGROW>
 
     scalarItems = scalar_preproc_items(subjectId, preprocDir);
     items = [items, scalarItems]; %#ok<AGROW>
@@ -155,7 +166,7 @@ source.Bval = fullfile(subjectDir, [source.Base, '.bval']);
 source.Bvec = fullfile(subjectDir, [source.Base, '.bvec']);
 end
 
-function item = dwi_item(subjectId, layer, role, niftiPath, jsonPath, bvalPath, bvecPath)
+function item = dwi_item(subjectId, layer, role, niftiPath, jsonPath, bvalPath, bvecPath, allowIncrementalCorrection)
 item = empty_item();
 item.subject = subjectId;
 item.layer = layer;
@@ -174,7 +185,8 @@ for i = 1:numel(required)
     mh_util_must_be_file(required{i}, ['DWI ', role], ...
         'run_stnsnr_apply_dwi_orientation_correction:MissingDwiFile');
 end
-assert_json_not_already_corrected(jsonPath, [subjectId, ' ', layer, ' ', role]);
+assert_json_not_already_corrected(jsonPath, [subjectId, ' ', layer, ' ', role], ...
+    allowIncrementalCorrection);
 end
 
 function items = scalar_preproc_items(subjectId, preprocDir)
@@ -204,7 +216,7 @@ for i = 1:size(patterns, 1)
 end
 end
 
-function [item, rows] = stage_item(item, stagingRoot, transformName, force)
+function [item, rows] = stage_item(item, stagingRoot, transformName, allowIncrementalCorrection, force)
 rows = repmat(empty_log_row(), 0, 1);
 stageDir = fullfile(stagingRoot, ['sub-', item.subject], item.layer, item.role);
 mh_util_make_dir(stageDir);
@@ -220,6 +232,7 @@ try
                 'OutputDir', stageDir, ...
                 'OutputBase', item.outputBase, ...
                 'Transform', transformName, ...
+                'AllowIncrementalCorrection', allowIncrementalCorrection, ...
                 'Force', force);
             item.stageNifti = result.Nifti;
             item.stageJson = result.Json;
@@ -235,7 +248,7 @@ try
             if ~isempty(item.json) && isfile(item.json)
                 item.stageJson = fullfile(stageDir, file_name(item.json));
                 copyfile(item.json, item.stageJson, 'f');
-                augment_scalar_json(item.stageJson, item, transformName);
+                augment_scalar_json(item.stageJson, item, transformName, allowIncrementalCorrection);
             end
         otherwise
             error('run_stnsnr_apply_dwi_orientation_correction:UnknownItemKind', ...
@@ -369,11 +382,27 @@ end
 trashPath = candidate;
 end
 
-function augment_scalar_json(jsonPath, item, transformName)
+function augment_scalar_json(jsonPath, item, transformName, allowIncrementalCorrection)
 metadata = jsondecode(fileread(jsonPath));
+if is_already_corrected(metadata) && ~allowIncrementalCorrection
+    error('run_stnsnr_apply_dwi_orientation_correction:AlreadyCorrected', ...
+        'Source JSON already records an image-content orientation correction: %s', jsonPath);
+end
+correctionContext = mh_fiber_orientation_correction_context(metadata, transformName);
 metadata.ImageContentOrientationCorrection = true;
-metadata.OrientationCorrectionTransform = transformName;
-metadata.OrientationCorrectionBvecMatrix = bvec_transform_matrix(transformName);
+metadata.OrientationCorrectionTransform = correctionContext.NetTransform;
+metadata.OrientationCorrectionBvecMatrix = correctionContext.NetMatrix;
+metadata.OrientationCorrectionLatestTransform = correctionContext.IncrementalTransform;
+metadata.OrientationCorrectionLatestBvecMatrix = correctionContext.IncrementalMatrix;
+metadata.OrientationCorrectionChainText = chain_text(correctionContext);
+if correctionContext.HasPrevious
+    metadata.OrientationCorrectionPreviousTransform = correctionContext.PreviousTransform;
+    metadata.OrientationCorrectionPreviousBvecMatrix = correctionContext.PreviousMatrix;
+    metadata.OrientationCorrectionIncrementalTransform = correctionContext.IncrementalTransform;
+    metadata.OrientationCorrectionIncrementalBvecMatrix = correctionContext.IncrementalMatrix;
+end
+metadata.OrientationCorrectionNetTransform = correctionContext.NetTransform;
+metadata.OrientationCorrectionNetBvecMatrix = correctionContext.NetMatrix;
 metadata.OrientationCorrectionSourceNifti = item.nifti;
 metadata.OrientationCorrectionSourceJson = item.json;
 metadata.OrientationCorrectionSourceSha256 = struct( ...
@@ -390,17 +419,18 @@ fprintf(fid, '%s\n', jsonencode(metadata, 'PrettyPrint', true));
 clear cleanupObj;
 end
 
-function matrix = bvec_transform_matrix(transformName)
-switch transformName
-    case 'flipY'
-        matrix = diag([1 -1 1]);
-    case 'flipZ'
-        matrix = diag([1 1 -1]);
-    case 'rotX180'
-        matrix = diag([1 -1 -1]);
-    otherwise
-        matrix = eye(3);
+function text = chain_text(correctionContext)
+if correctionContext.HasPrevious
+    text = sprintf('%s -> %s => %s', correctionContext.PreviousTransform, ...
+        correctionContext.IncrementalTransform, correctionContext.NetTransform);
+else
+    text = correctionContext.NetTransform;
 end
+end
+
+function corrected = is_already_corrected(metadata)
+corrected = isfield(metadata, 'ImageContentOrientationCorrection') && ...
+    logical(metadata.ImageContentOrientationCorrection);
 end
 
 function jsonPath = matching_json_path(niftiPath)
@@ -410,7 +440,7 @@ if ~isfile(jsonPath)
 end
 end
 
-function assert_json_not_already_corrected(jsonPath, label)
+function assert_json_not_already_corrected(jsonPath, label, allowIncrementalCorrection)
 if isempty(jsonPath) || ~isfile(jsonPath)
     return;
 end
@@ -419,8 +449,7 @@ try
 catch
     return;
 end
-if isfield(metadata, 'ImageContentOrientationCorrection') && ...
-        logical(metadata.ImageContentOrientationCorrection)
+if is_already_corrected(metadata) && ~allowIncrementalCorrection
     error('run_stnsnr_apply_dwi_orientation_correction:AlreadyCorrected', ...
         'Refusing to apply a second orientation correction to %s: %s', label, jsonPath);
 end
@@ -430,6 +459,7 @@ function write_run_manifest(opts, logPath, trashRoot, stagingRoot)
 manifest = struct();
 manifest.SubjectIds = opts.SubjectIds;
 manifest.Transform = opts.Transform;
+manifest.AllowIncrementalCorrection = opts.AllowIncrementalCorrection;
 manifest.SourceRoot = opts.SourceRoot;
 manifest.StudyRoot = opts.StudyRoot;
 manifest.LogPath = logPath;

@@ -5,10 +5,11 @@ p = inputParser;
 p.FunctionName = 'run_stnsnr_dwi_orientation_qc';
 p.addParameter('RepoDir', '', @(x) ischar(x) || isstring(x));
 p.addParameter('SourceRoot', '/Volumes/VAL/STNSNrdwi', @(x) ischar(x) || isstring(x));
-p.addParameter('SubjectIds', {'GengHui', 'ZhaoPeiGen'}, @(x) iscell(x) || isstring(x) || ischar(x));
+p.addParameter('SubjectIds', {}, @(x) iscell(x) || isstring(x) || ischar(x));
 p.addParameter('TransformCandidates', {'identity', 'flipY', 'flipZ', 'rotX180'}, @(x) iscell(x) || isstring(x) || ischar(x));
 p.addParameter('OutputRoot', '', @(x) ischar(x) || isstring(x));
 p.addParameter('GenerateColorFa', true, @(x) islogical(x) || isnumeric(x));
+p.addParameter('AllowIncrementalCorrection', false, @(x) islogical(x) || isnumeric(x));
 p.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
 p.parse(varargin{:});
 opts = normalize_options(p.Results);
@@ -44,6 +45,7 @@ for subjectIndex = 1:numel(opts.SubjectIds)
                 'OutputDir', candidateDir, ...
                 'OutputBase', source.Base, ...
                 'Transform', transformName, ...
+                'AllowIncrementalCorrection', opts.AllowIncrementalCorrection, ...
                 'Force', opts.Force);
             row.output_nifti = result.Nifti;
             row.output_bval = result.Bval;
@@ -78,8 +80,13 @@ opts.RepoDir = char(string(opts.RepoDir));
 opts.SourceRoot = char(string(opts.SourceRoot));
 opts.OutputRoot = char(string(opts.OutputRoot));
 opts.SubjectIds = to_cellstr(opts.SubjectIds);
+if isempty(opts.SubjectIds)
+    error('run_stnsnr_dwi_orientation_qc:MissingSubjectIds', ...
+        'SubjectIds must be provided by the project caller.');
+end
 opts.TransformCandidates = to_cellstr(opts.TransformCandidates);
 opts.GenerateColorFa = logical(opts.GenerateColorFa);
+opts.AllowIncrementalCorrection = logical(opts.AllowIncrementalCorrection);
 opts.Force = logical(opts.Force);
 for i = 1:numel(opts.TransformCandidates)
     opts.TransformCandidates{i} = validatestring(opts.TransformCandidates{i}, ...

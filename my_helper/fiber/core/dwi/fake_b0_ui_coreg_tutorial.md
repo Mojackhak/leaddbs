@@ -163,25 +163,15 @@ corrected pseudo `B0` is ready for Lead-DBS UI coregistration.
 matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_reimport_preprocess_fakeb0.m')"
 ```
 
-The runner imports the 16 `subj_effect.xlsx` subjects in cohort order:
+The project runner imports the cohort subjects listed in the project sheet. The
+subject list is intentionally supplied by the project layer and is not encoded
+in reusable DWI modules.
 
 ```text
-LinJia
-HuFengXian
-YuDongJian
-WuYueFen
-LiPing
-MaoXiaoMing
-ShengGuoLiang
-ZhangXiaoHong
-ZhengXiangQuan
-ZhaoPeiGen
-ChenLingHua
-FanDongDong
-HuangDan
-ZhangMing
-GengHui
-ChenMeiJu
+sub-<ID-01>
+sub-<ID-02>
+...
+sub-<ID-N>
 ```
 
 Before copying, existing target DWI files are moved to macOS Trash under a
@@ -360,10 +350,10 @@ Output size=108 x 105 x 78 x 66
 
 The default tile readout order is `row_major_right_to_left`. This reads each
 row from the right side of the mosaic image to the left side, then advances from
-the top row to the bottom row. Earlier left-to-right reconstructions of the
-STNSNr `GengHui` and `ZhaoPeiGen` SaveBySlc files are rejected and must not be
-used as preprocessing inputs. Use the restored original single-slice four-file
-sets as the source when rerunning repair.
+the top row to the bottom row. Earlier left-to-right reconstructions of
+subject-specific SaveBySlc files are rejected and must not be used as
+preprocessing inputs. Use the restored original single-slice four-file sets as
+the source when rerunning repair.
 
 The reconstructed NIfTI affine is rebuilt from DICOM orientation and spacing
 rather than copied from the single-slice mosaic header. The backend reads
@@ -407,8 +397,8 @@ status = mh_fiber_reconstruct_mosaic_dwi_batch(inputs, ...
     'Force', false);
 ```
 
-The STNSNr wrapper uses the same backend and only supplies project-specific
-paths for `GengHui` and `ZhaoPeiGen`:
+The project wrapper uses the same backend and only supplies project-specific
+paths and subject IDs provided by the caller:
 
 ```matlab
 repoDir = '/Users/mojackhu/Github/leaddbs';
@@ -416,6 +406,7 @@ addpath(genpath(repoDir));
 
 status = run_stnsnr_reconstruct_savebyslc_dwi( ...
     'RepoDir', repoDir, ...
+    'Subjects', {'<SubjectA>', '<SubjectB>'}, ...
     'RepairRoot', fullfile('/Volumes/VAL/STNSNr', 'derivatives', ...
         'leaddbs', 'import_logs', 'savebyslc_repair'), ...
     'ReplaceRawdata', false, ...
@@ -436,8 +427,8 @@ relative to the cohort convention used for visual QC. In this case, correct the
 image content and the diffusion gradient table together. Do not rotate the
 NIfTI image alone.
 
-For the current STNSNr `GengHui` and `ZhaoPeiGen` repaired DWI data, the
-candidate correction set is:
+For repaired DWI data that require image-content orientation QC, the candidate
+correction set is:
 
 ```text
 identity
@@ -446,19 +437,20 @@ flipZ
 rotX180
 ```
 
-The recommended formal correction is `rotX180`, equivalent to flipping the
-second and third voxel axes while leaving the left-right axis unchanged. The
-corresponding bvec update is:
+The accepted formal correction must be chosen from QC. For example, `flipZ`
+flips the third voxel axis while leaving left-right and anterior-posterior axes
+unchanged. The corresponding bvec update is:
 
 ```text
-bvec_corrected = diag([1 -1 -1]) * bvec_original
+bvec_corrected = diag([1 1 -1]) * bvec_original
 ```
 
 The correction is a post-hoc image-content correction. It preserves the current
 NIfTI affine/header transform and changes the voxel array and FSL bvec sidecar
 in lockstep. The bval sidecar is copied unchanged. JSON sidecars must record
-`ImageContentOrientationCorrection=true`, the transform name, source paths, and
-source SHA256 values.
+`ImageContentOrientationCorrection=true`, the transform name, source paths,
+source SHA256 values, and the correction chain when an incremental correction
+is applied after a previous orientation correction.
 
 Use candidate QC before applying the formal correction:
 
@@ -466,6 +458,7 @@ Use candidate QC before applying the formal correction:
 status = run_stnsnr_dwi_orientation_qc( ...
     'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
     'SourceRoot', '/Volumes/VAL/STNSNrdwi', ...
+    'SubjectIds', {'<SubjectA>', '<SubjectB>'}, ...
     'TransformCandidates', {'identity', 'flipY', 'flipZ', 'rotX180'}, ...
     'GenerateColorFa', true, ...
     'Force', false);
@@ -491,7 +484,24 @@ status = run_stnsnr_apply_dwi_orientation_correction( ...
     'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
     'SourceRoot', '/Volumes/VAL/STNSNrdwi', ...
     'StudyRoot', '/Volumes/VAL/STNSNr', ...
-    'Transform', 'rotX180', ...
+    'SubjectIds', {'<SubjectA>', '<SubjectB>'}, ...
+    'Transform', 'flipZ', ...
+    'Force', true);
+```
+
+If a previous formal correction was applied but QC later shows that an
+additional transform is required, apply only the incremental transform and set
+`AllowIncrementalCorrection=true`. For example, adding `flipY` after an earlier
+`rotX180` makes the net correction equivalent to `flipZ`:
+
+```matlab
+status = run_stnsnr_apply_dwi_orientation_correction( ...
+    'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
+    'SourceRoot', '/Volumes/VAL/STNSNrdwi', ...
+    'StudyRoot', '/Volumes/VAL/STNSNr', ...
+    'SubjectIds', {'<SubjectA>', '<SubjectB>'}, ...
+    'Transform', 'flipY', ...
+    'AllowIncrementalCorrection', true, ...
     'Force', true);
 ```
 
