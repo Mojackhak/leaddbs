@@ -1,208 +1,466 @@
 # Four-Model Execution Plan (Codex + Subagent Orchestration)
 
-> **Purpose.** This file is the `/goal` plan document — the north-star and engineering roadmap for the codex main orchestrator and its subagents to execute the four modeling tasks below.
-> **Authoritative specs.** The four English `.md` files under `model_summaries/` are the single executable specification (`_zh` are mirrors; English wins on conflict). This plan only covers **cross-model orchestration, environment grounding, guardrails, and scheduling** — it does not restate each spec's internal detail.
-> **Created:** 2026-07-04. **Workspace:** codex worktree `a409` (`/Users/mojackhu/.codex/worktrees/a409/leaddbs`). Chinese mirror: `four_model_execution_plan_zh.md`.
+> **Purpose.** This is the `/goal` plan document for executing the four STN/SNr HF/ULF modeling tracks.
+> **Authoritative model specs.** The English files under `my_helper/stnsnr/model_summaries/` define model-level executable behavior. This document defines cross-model orchestration, current implementation state, current gate/status results, and the next engineering priorities.
+> **Workspace.** `/Users/mojackhu/.codex/worktrees/a409/leaddbs`
+> **Last updated.** 2026-07-06
 
 ---
 
-## 0. One-line goal (paste into `/goal`)
+## 1. Goal
 
-> On the n=16 STN/SNr DBS cohort, use MATLAB/Lead-DBS for image-domain preprocessing of E-field and fiber modeling and Python (conda `leaddbs`) for statistical post-processing, and deliver four stimulation–outcome association models (HF direct voxel, HF normative-connectome fiber, and the HF-adjusted ULF-only add-on gain voxel and fiber models) per the Round gating in each `model_summaries` spec. Every model follows the principle **"prove incremental LOOCV signal on the primary branch before investing in sensitivity/display layers,"** with seed fixed at 42, fully reproducible, manifest-backed, and obeying each spec's exact-equivalence (no-shortcut) contract. Because **n=16, results are hypothesis-generating.**
+Run a reproducible, manifest-backed four-model program on the `n=16` STN/SNr DBS cohort:
 
----
+1. **A: HF direct voxel model**
+2. **B: HF normative connectome fiber model**
+3. **C: ULF add-on direct voxel model**
+4. **D: ULF add-on normative connectome fiber model**
 
-## 1. Scope: the four models
+The scientific goal is to separate:
 
-| ID | Spec file | Type | Primary tau | Primary predictor / score | Depends on |
-|---|---|---|---|---|---|
-| **A** | `hf_3m_direct_voxel_model.md` | Direct voxel sweet-spot | 200 V/m (180/220 sensitivity) | `HFScore_mean_main` (partial Spearman) | none (foundational) |
-| **B** | `hf_3m_normative_connectome_fiber_model.md` | Normative connectome fiber filtering | 800 V/m (1500 sensitivity) | `NetFiberScore`; PPMI/MGH/dTOR; OSS-DBS sensitivity | none (foundational) |
-| **C** | `ulf_addon_gain_direct_voxel_model.md` | ULF-only add-on gain, voxel | 200 V/m (180/220 = exposure-definition sensitivity) | `ULFScore_mean_main`, covariates include `DeltaHFScore` | **locked A** (voxel DeltaHFScore) |
-| **D** | `ulf_addon_gain_normative_connectome_fiber_model.md` | ULF-only add-on gain, fiber | 800 V/m (1500 = exposure-definition sensitivity) | `NetULFFiberScore`, covariates include `DeltaHFScore` | **locked B** (fiber DeltaHFScore) |
-
-**Out of scope (this round):** the two individualized-DWI seed-target models (`*_individualized_dwi_seed_target_model.md`); the `OLS ANCOVA` supplemental estimator (every spec marks it "documented only, not run"); 5/7/10-fold CV and other documented-only items. `Coverage>=6/8` remains out of the primary HF direct-voxel mainline, but the A-model post-hoc tau/coverage scan may evaluate it as an exploratory threshold-optimization branch.
-
----
-
-## 2. Dependencies & execution order
-
-```
-        ┌──────────────┐        ┌──────────────┐
-        │ A: HF voxel  │        │ B: HF fiber  │     ← run in parallel
-        └──────┬───────┘        └──────┬───────┘
-               │ lock (tau200/          │ lock (dTOR peak_efield_
-               │ partial_spearman)      │ tau800_primary)
-               ▼                        ▼
-        ┌──────────────┐        ┌──────────────┐
-        │ C: ULF voxel │        │ D: ULF fiber │     ← parallel once A/B locked
-        │ uses A's     │        │ uses B's     │
-        │ DeltaHFScore │        │ DeltaHFScore │
-        └──────────────┘        └──────────────┘
+```text
+HF-only efficacy / association maps
+HF-conditioned or HF-aware ULF-only add-on gain maps
 ```
 
-- **A ∥ B** proceed in parallel (different preprocessing, different tau, shared statistical kernel).
-- **C only after A is locked**; **D only after B is locked.** If the depended-upon HF model fails QC / is degenerate, the corresponding ULF model is exploratory only, and its `DeltaHFScore` is labeled an *unstable generated covariate* (see each ULF spec's "Locked HF Prerequisite").
-- **Connectome-matched (D):** `ULF/PPMI` uses `HF/PPMI` DeltaHFScore, `ULF/MGH` uses `HF/MGH`, `ULF/dTOR` uses `HF/dTOR`. A shared dTOR-HF adjustment across connectomes may be reported only as `shared_dTOR_HF_adjustment_sensitivity`.
-- **Status reporting for B:** gate/status summaries must report the HF normative fiber observed branches for `PPMI`, `MGH`, and `dTOR` separately; a PPMI-only status row is not sufficient evidence that Model B has completed its observed connectome sequence.
+Because `n=16`, all model outputs remain hypothesis-generating unless validated by the declared permutation, bootstrap, jitter, threshold-selection, or external-replication steps.
 
 ---
 
-## 3. Confirmed decisions
+## 2. Authoritative Model Documents
 
-1. **Goal horizon = full program with a first-batch gate.** The `/goal` covers all Rounds of all four models, but the *first practical run* is limited to the first batch **M0–M3 (smoke)** per each spec's "Recommended First Batch." Only after the first batch passes do we release the expensive **B=10000** formal permutation/bootstrap and the display layer. "Done" = A/B locked with their primary branches fully completed, C/D primary branches completed after their dependencies lock, and four traceable manifests.
-2. **ULF `immediate` endpoint = key secondary.** For C/D, the **chronic 3-month** endpoint is the sole formal primary endpoint. The same-day `immediate` endpoint gets observed LOOCV plus optional smoke resampling only — **no default B=10000.** Formal resampling is restricted to the chronic `tau200/partial_spearman` branch (C) and the dTOR `ulf_peak_efield_tau800_primary` chronic branch (D). `immediate` is not promoted to co-primary unless an explicit pre-registered decision is made later.
-
----
-
-## 4. Environment & data (verified)
-
-**Compute environment**
-- conda base: `/opt/anaconda3` (note: `conda` is **not** on the PATH of non-interactive shells). Before running specs, `source /opt/anaconda3/etc/profile.d/conda.sh`, or use the absolute path `/opt/anaconda3/bin/conda run -n leaddbs ...`.
-- `leaddbs` env ✓: Python statistical post-processing (LOOCV / permutation / bootstrap / jitter / NIfTI output).
-- `ossdbsv2` env ✓: used only by the OSS-DBS activation sensitivity branch of B and D.
-- MATLAB + Lead-DBS: image-domain preprocessing (**Round 0 must verify version and that `ea_flip_lr_nonlinear` is callable**).
-- Pin BLAS threads: on the Python side export `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1` *before* importing numpy/scipy; use worker-level parallelism.
-- Default resources: MATLAB workers 8; Python jobs 14; random seed 42. The MATLAB phase and Python phase run **serially, in separate phases** to avoid CPU oversubscription.
-
-**Data (verified to exist)**
-- Raw clinical scores: `/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx` ✓ (joined by `ID`, e.g. `SNr003`). This workbook is the raw endpoint table rebuilt from `/Users/mojackhu/Research/STNSNr/summary/stats/clinic/effect/3m/scale_subject.xlsx`: `Scale` stores the 28 clinical feature names, `Protocol`/`Phase` store the stimulation condition, and `Value` is the raw score. It must not contain `Δ...` derived rows; add-on gain/delta endpoints are reconstructed from raw `STN` and raw `STN+SNr` rows.
-- Stimulation parameter audit: same dir, `followup_stimulation.xlsx` (sheet `Contact Parameters`) ✓.
-- `/Volumes/VAL` mounted ✓, contains `reference/` (methodology PDFs) and `summary/` (existing `cohort/ stats/ table/ vta/`).
-- Output roots `/Volumes/VAL/STNSNr/summary/direct_voxel/` and `.../normative_connectome_fiber/` **not yet created** (greenfield).
-- **No existing `.py`/`.m` implementation under stnsnr:** the executable pipeline is greenfield; the `.md` files are specs only.
-
-**External-volume risk:** `/Volumes/VAL` and the clinical dir are an unmountable/permission-restricted volume; re-verify mount and read/write at every Round 0.
-
----
-
-## 5. Two-phase architecture (shared by all models)
-
-**Phase 1 — MATLAB/Lead-DBS preprocessing (image domain)**
-- Discover and availability-check required E-fields (raw `sim-efield`, **not** `sim-efieldgauss`, units V/m; unique match on subject × side × condition/phase/component).
-- Combine same-side alternating subprograms by voxel-wise maximum; do all left/right flips with `ea_flip_lr_nonlinear`; sample onto the right-hemisphere canonical grid (voxel) or right-canonical streamline features (fiber).
-- Write a MAT v7 design matrix plus memmap-friendly sidecars (voxel-major / fiber-major `.npy`, `S{tau}_bool`, candidate ijk/xyz, metadata, flip audit). dTOR **must** be chunked; **never** load the whole fibers matrix.
-
-**Phase 2 — Python statistical post-processing (conda `leaddbs`)**
-- Read sidecars → rebuild coverage/candidate within each fold → build the partial-Spearman map → scores → LOOCV → permutation/bootstrap/jitter → CSV/JSON/NIfTI/PDF.
-- Orchestrate from a single long-running Python entry point; avoid repeated `conda run` inside tau/fold/perm/boot/jitter loops.
-
-**Phase OSS — (conda `ossdbsv2`, B/D only)**
-- Compute activation **after** the peak-E-field candidate set is locked; must not redefine/add/remove candidate fibers; write the parameter set as `primary_locked` in the manifest first.
-
----
-
-## 6. Shared statistical kernel: build once, reuse ×4
-
-All four models share one statistical skeleton — **build it once, parameterize, and reuse.** This is the project's biggest effort-saver and consistency guarantee:
-
-- Sidecar schema and memmap loader (voxel-major / fiber-major; dTOR chunk manifest).
-- Fold coverage by **subtraction**: `Coverage_fold_h = Coverage_all - S_tau(·,h)`, so the held-out subject never enters the fold's candidate set.
-- Vectorized rank-residual **partial Spearman kernel** (ranks within the training fold; full-sample ranks prohibited).
-- **Fold-level score operator** (permutation reuses the outcome-independent parts: `A_h`, `Z_h`).
-- **Freedman-Lane permutation** harness (permute nuisance residuals, plus-one two-sided p, statistic = LOOCV Spearman rho).
-- **Streaming Welford bootstrap** (never store 10000 maps; accumulate mean/M2/finite_count).
-- **Spatial jitter** (FWHM 2 mm, sigma 0.849; translation-only linear resampling; rebuild the full chain).
-- **Exact-equivalence regression-test** framework (brute-force vs optimized, small subset + B_perm/B_boot=20, seed 42).
-- Manifest/QC writer (provenance, env snapshot `conda list --explicit` + `pip freeze`, hashes, `runtime_profile`).
-- Display layer: display smoothing FWHM 1/2 mm, bilateral homologous display maps, top-x + stability display masks, PDF QC — **display only, never fed back into statistics.**
-
-**Per-model differences to parameterize:** prediction unit (voxel grid ↔ streamline, dTOR chunking); tau (200 ↔ 800, and for ULF tau is part of the exposure definition); score definition (`HFScore_mean_main` / `NetFiberScore` / `ULFScore_mean_main` / `NetULFFiberScore`, incl. F+/F- top-k fiber selection); nuisance covariates (A/B: `Y_base`; C/D: `Y_HF_ref` + `DeltaHFScore`); ULF's HF-overlap exclusion and in-support `DeltaHFScore` projection; B/D's OSS branch and FDR/label/density display.
-
----
-
-## 7. Codex + subagent orchestration
-
-**Main orchestrator (codex main):** holds the dependency graph, gating, and schedule; releases C/D after A/B lock; enforces cross-model consistency (seed, sidecar schema, manifest conventions).
-
-**Suggested subagent decomposition (bounded, parallelizable, dependency-aware):**
-
-| Subagent | Responsibility | Depends on | Parallel with |
-|---|---|---|---|
-| **S0** env/data readiness + scaffolding | verify conda/MATLAB/VAL/clinical, create output roots, repo skeleton + scale-direction table | — | start |
-| **S1** shared statistical kernel (Python/leaddbs) | implement §6 kernel + equivalence-test framework | S0 | S2a, S2b |
-| **S2a** MATLAB voxel preprocessing | E-field sampling + sidecars serving A, C | S0 | S1, S2b |
-| **S2b** MATLAB fiber preprocessing | serve B, D; dTOR chunking; OSS sidecar scaffolding | S0 | S1, S2a |
-| **S3** Model A driver | assemble A's Round 0→lock, run primary branch | S1, S2a | S4 |
-| **S4** Model B driver | assemble B's Round 0→lock (PPMI/MGH/dTOR, OSS) | S1, S2b | S3 |
-| **S5** Model C driver | ULF voxel, consumes **locked A** DeltaHFScore | S3(lock), S2a | S6 |
-| **S6** Model D driver | ULF fiber, consumes **locked B** DeltaHFScore | S4(lock), S2b | S5 |
-
-**Subagent discipline (bake into each subagent task):**
-1. Single model / single phase boundary; return structured results to the main process, which atomically writes the final CSV/JSON.
-2. **Never** run MATLAB and Python concurrently (CPU oversubscription); **always** pass the equivalence test before any formal resampling.
-3. Strictly obey §9 guardrails; write a manifest and QC for every branch; record `not_run_nonprimary` + reason for any branch not run.
-4. Reuse the shared kernel — do not reinvent it; pass tau/score/covariate differences via configuration.
-
-**Parallelism:** S1 ∥ S2a ∥ S2b; A ∥ B; C ∥ D (each after its HF lock). OSS (ossdbsv2) and the main statistics (leaddbs) are separate phases and never overlap the MATLAB phase.
-
----
-
-## 8. Milestone roadmap (compressed from each spec's Round 0–10)
-
-Each model walks the milestones below independently. **Gating philosophy:** the primary branch must first show interpretable incremental LOOCV signal beyond the covariate-only baseline before investing in sensitivity / formal resampling / display; when the primary branch fails, do **not** go to tau180/tau220 to "search for signal."
-
-| Milestone | Content | A | B | C | D |
-|---|---|---|---|---|---|
-| **M0** readiness & freeze | clinical join, E-field uniqueness, scale direction, flip callable, env manifest, seed 42 | R0 | R0 | R0 (+lock A) | R0 (+lock B) |
-| **M1** sidecars + equivalence | preprocessing sidecars, coverage cache, brute-force vs optimized equivalence | R1 | R1 | R1 | R1 |
-| **M2** primary observed LOOCV | primary tau/scale, write numeric core outputs, defer display | R2 | R2–3 | R2 (+2b immediate) | R2–3 |
-| **M3** smoke resampling | equivalence + smoke perm/boot B=1000 + jitter B=100 | R3 | R5 | R3 | R5 |
-| **M4** formal permutation | Freedman-Lane B=10000 (primary branch / dTOR only) | R4 | R7 | R4 | R7 |
-| **M5** formal bootstrap | subject-level B=10000, streaming SE | R5 | R7 | R5 | R7 |
-| **M6** formal jitter | FWHM 2 mm B=1000 | R6 | R9 | R6 | R8 |
-| **M7** sensitivity/controls | tau sensitivity, plain control, no-DeltaHF, total-ULF, OSS, etc. | R7 | R4/6/8 | R7–8 | R4/6 |
-| **M8** secondary scale/endpoint | axial; C/D immediate endpoint (key secondary) | R8 | R3 | R2b | R3 |
-| **M9** display & final manifests | smoothing, display masks, FDR/label/density, PDF QC, cross-connectome summaries | R9 | R10 | R9 | R9 |
-
-**First batch (strongly do only this segment first, then reassess):** each model's **M0 + M1 + M2 + M3 (smoke)**. Concrete scope per each spec's "Recommended First Batch": primary scale (MDS-UPDRS III total), primary tau, `Coverage>=5`, primary score, LOOCV, covariate-only comparison, equivalence test, smoke perm/boot (B=1000), smoke jitter (B=100), basic QC/manifest. **Only after the first batch passes** do we enter B=10000 formal permutation/bootstrap.
-
----
-
-## 9. Guardrails (exact-equivalence / no-shortcut contract)
-
-**General (all four models)**
-- Prohibited: shrinking formal B, adaptive permutation early stopping, full-sample ranks inside LOOCV/perm/boot, approximate ranks, full-sample candidate/F+/F- replacing fold-specific ones, using anatomical overlay masks as the analysis mask, dropping requested jitter QC, using compressed NPZ as the random-access formal-loop input.
-- Within folds: each fold builds its own coverage/candidate (held-out subtraction), each fold/perm/boot re-selects F+/F-, ranks are computed within the fold.
-- Reproducibility: seed 42 derives deterministic child seeds; every branch's manifest records env (`conda list --explicit` + `pip freeze`), code version, input hashes, `runtime_profile`; completion markers + force-rerun.
-- Formal loops do not write per-perm/per-boot intermediate maps (unless debug is explicitly enabled); workers do not concurrently append to shared CSV/JSON.
-
-**Fiber (B/D)**
-- dTOR **must** be chunked/memmap; never load whole fibers or all exposure into memory; two-pass streaming top-k; deterministic top-k tie-break `(-M, fiber_id)`.
-- OSS: lock candidate first, then compute activation; activation must not redefine candidates.
-
-**ULF (C/D)**
-- tau is **part of the exposure definition** (defines ULF-active, HF-active, overlap exclusion, ULF-only zeroing, coverage); a tau-independent `X_ULF_only` is prohibited.
-- The primary predictor **hard-excludes HF-overlap** voxels/fibers; total-ULF is sensitivity only.
-- `DeltaHFScore` uses only the **in-support projection** of the locked HF model; no extrapolation/smoothing/nearest-neighbor of HF weights outside support; no expanding HF support after seeing ULF results; in LOOCV the held-out DeltaHFScore must use the **training-fold** HF map (not full-sample).
-- Out-of-support burden must be quantified and interpretation downgraded per the gating rules.
-
----
-
-## 10. Definition of Done
-
-**Per model:** the primary branch completes M0–M6 producing all required outputs listed in the spec; every branch has a complete manifest/QC (incl. `corr(score, covariate)`, coefficient signs, collinearity diagnostics, flip audit, env provenance, `runtime_profile`); the equivalence test passes and is recorded; negative results are honestly labeled exploratory/negative with a minimal report per spec.
-
-**Overall:** A and B locked with their primary branches complete; C and D complete their primary branches after their dependencies lock; the four manifests trace back to the same seed and a consistent sidecar schema; the interpretation boundary states **n=16 → hypothesis-generating**; cross-connectome / cross-scale summaries (B/D) are produced.
-
----
-
-## 11. Risk register
-
-| Risk | Impact | Mitigation |
+| Model | Authoritative spec | Current role |
 |---|---|---|
-| n=16 small sample | LOOCV may be non-significant; single high-leverage subject can dominate | influence diagnostics (Cook/DFBETA), honestly label hypothesis-generating, interpret permutation p jointly with rho/Q2 |
-| conda not on PATH | scripts calling `conda` directly fail | standardize on `/opt/anaconda3/bin/conda run -n leaddbs` or source the profile first |
-| `/Volumes/VAL` external volume | mid-run unmount/permission → IO failure | verify mount + read/write at every Round 0; use local NVMe scratch for formal loops, atomically promote after validation |
-| scale-direction table | undefined scale polarity → wrong M-map sign | Round 0 forces higher/lower-is-better definition, written to the internal direction table |
-| dTOR scale | memory/compute blow-up | chunk-size autotune (peak mem < budget × 0.7), two-pass streaming, resumable-block checkpoints |
-| OSS params unlocked | sensitivity not reproducible | write full params as `oss_model_set=primary_locked` in the manifest before running |
-| ULF same-day T2 pairing | immediate endpoint validity depends on same-day measurement | Round 0 audits that T2 HF-only and HF+ULF immediate are same-day/same-session |
-| C/D depend on A/B quality | degenerate HF → unstable DeltaHFScore | dependency lock gating; if HF fails, ULF is exploratory only and labeled unstable covariate |
+| A | `model_summaries/hf_3m_direct_voxel_model.md` | Foundational HF direct local sweet-spot model |
+| B | `model_summaries/hf_3m_normative_connectome_fiber_model.md` | Foundational HF full-connectome fiber-filtering model |
+| C | `model_summaries/ulf_addon_gain_direct_voxel_model.md` | ULF-only add-on voxel model with two core branch roles |
+| D | `model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md` | ULF-only add-on fiber model with two core branch roles |
+
+Chinese `_zh.md` files are synchronized mirrors. If a conflict remains, the English model summary is the executable source of truth.
+
+Out of scope for this four-model execution pass:
+
+```text
+hf_3m_individualized_dwi_seed_target_model.md
+ulf_addon_gain_individualized_dwi_seed_target_model.md
+OLS ANCOVA optional estimator
+```
 
 ---
 
-### Appendix: authoritative document index
-- Specs (executable): `model_summaries/{hf_3m_direct_voxel_model, hf_3m_normative_connectome_fiber_model, ulf_addon_gain_direct_voxel_model, ulf_addon_gain_normative_connectome_fiber_model}.md` (+ `_zh` mirrors)
-- Master plan: `endpoint_specific_sweetspot_plan.md` (Implementation Outline / Statistical Plan / Acceptance Checks)
-- Technical details: `normative_connectome_sweet_sour_technical_details.md`, `dwi_registration_technical_details.md`, `stnsnr_seed_target_atlas_registry.md`
+## 3. Four-Model Dependency Policy
+
+### A/B Foundational HF Models
+
+A and B are foundational HF models. They can run independently and in parallel:
+
+```text
+A = HF direct voxel, tau200/Coverage>=5 primary
+B = HF normative fiber, tau800/Coverage>=5 primary
+```
+
+Their outputs are classified by fitted results:
+
+```text
+predictive_valid
+stable_nonpredictive
+failed_unstable
+```
+
+The strict target definition is:
+
+```text
+predictive_valid:
+  LOOCV rho > 0
+  Q2 > 0
+  MAE_model < MAE_baseline
+  RMSE_model < RMSE_baseline
+  score is not near-constant
+  result is not dominated by one high-leverage subject
+
+stable_nonpredictive:
+  map/rank direction appears stable or biologically interpretable
+  but Q2 <= 0 or MAE/RMSE do not improve over baseline
+
+failed_unstable:
+  negative or degenerate prediction
+  unstable direction
+  insufficient support
+  non-finite predictions
+  or obvious high-leverage/threshold-fragile behavior
+```
+
+### C/D ULF Branch Role Resolution
+
+C and D must not be treated as blocked simply because matched HF is not `predictive_valid`. Their engineering implementation should run both core branches whenever inputs allow:
+
+```text
+delta_hf_adjusted:
+  ULF predictor + Y_HF_ref + DeltaHFScore
+
+no_delta_hf:
+  ULF predictor + Y_HF_ref
+```
+
+The interpretation role is resolved after reading the matched HF result:
+
+```text
+if matched HF is predictive_valid:
+  ulf_primary_branch = delta_hf_adjusted
+  delta_hfscore_role = primary_nuisance_adjustment
+  no_delta_hf_role   = sensitivity
+
+if matched HF is stable_nonpredictive:
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = unstable_generated_covariate_sensitivity
+  no_delta_hf_role   = primary
+
+if matched HF is failed_unstable:
+  ulf_primary_branch = no_delta_hf when ULF inputs remain valid
+  delta_hfscore_role = exploratory_only_or_not_run
+  no_delta_hf_role   = primary exploratory branch
+```
+
+Manifests for C/D must record:
+
+```text
+hf_prediction_validity_status
+ulf_primary_branch
+ulf_core_branches_run
+delta_hfscore_role
+branch_role_decision_reason
+hf_model_support_status
+```
+
+---
+
+## 4. Current Implementation State
+
+The current codebase is no longer greenfield. The following layers already exist.
+
+### Implemented
+
+| Layer | Pipeline entrypoint | Core implementation | Status |
+|---|---|---|---|
+| M0 readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_m0_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_readiness.py` | implemented |
+| M1 stats selftest | `my_helper/fiber/stnsnr/run_stnsnr_four_model_m1_selftest.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_stats.py` | implemented |
+| A observed primary | `my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_smoke.py` | `my_helper/fiber/core/analysis/stnsnr_hf_direct_voxel_smoke.py` | implemented |
+| A post-hoc scan | `my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py` | `my_helper/fiber/core/analysis/stnsnr_hf_direct_voxel_posthoc_threshold_scan.py` | implemented |
+| B observed primary | `my_helper/fiber/stnsnr/run_stnsnr_hf_normative_fiber_smoke.py` | `my_helper/fiber/core/analysis/stnsnr_hf_normative_fiber_smoke.py` | implemented |
+| A/B gate status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_gate_status.py` | implemented |
+| Four-model status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py` | implemented |
+| ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
+| ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
+| Raw clinical rebuild | direct core script | `my_helper/fiber/core/analysis/stnsnr_rebuild_subject_effect_origin.py` | implemented |
+
+### Not Yet Implemented
+
+```text
+C formal ULF direct voxel model driver
+D formal ULF normative fiber model driver
+formal B=10000 permutation/bootstrap loops
+formal spatial jitter loops
+OSS-DBS activation branch
+nested/adaptive post-hoc threshold validation
+max-stat permutation for post-hoc threshold selection
+OLS ANCOVA optional estimator
+figure-grade display/FDR/enrichment layers beyond existing post-hoc heatmaps
+```
+
+`my_helper/stnsnr/four_model_execution_implementation_notes.md` records implementation-layer details and should be updated whenever a new executable layer is added.
+
+---
+
+## 5. Current Run State
+
+Current status is based on existing outputs under:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/
+```
+
+### A/B Primary Observed Branches
+
+Current `four_model_gate_status.csv` reports:
+
+| Model | Branch | rho | Q2 | Gate |
+|---|---:|---:|---:|---|
+| A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
+| B PPMI | `peak_efield_tau800_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
+| B MGH | `peak_efield_tau800_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
+| B dTOR | `peak_efield_tau800_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
+
+These observed branches exist and have finite predictions, but they do not justify formal primary-branch permutation/bootstrap. They should be reported as exploratory/negative unless a new pre-declared branch passes a valid gate.
+
+### C/D ULF Readiness
+
+Current execution status reports:
+
+```text
+ULF component e-fields: 64/64 existing
+C dependency: A is exploratory/unstable
+D dependency: B_dTOR is exploratory/unstable
+```
+
+Therefore C/D are executable only under the ULF branch-role policy:
+
+```text
+no_delta_hf = primary / primary exploratory
+delta_hf_adjusted = sensitivity or unstable-generated-covariate branch
+```
+
+### A All-Scale Post-Hoc Scan
+
+The A-model all-scale post-hoc scan exists at:
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/posthoc_threshold_scan_all_scales/
+  all_scales_posthoc_threshold_scan_long.csv
+  all_scales_posthoc_threshold_scan_summary.csv
+  all_scales_posthoc_threshold_scan_manifest.json
+```
+
+It contains:
+
+```text
+30 endpoints x 60 tau/Coverage grid cells = 1800 rows
+```
+
+This scan is **exploratory threshold optimization**. It does not replace the original primary `tau200/Coverage>=5` branch. A selected high-core threshold becomes a candidate branch only; to claim post-selection significance it still requires nested/adaptive LOOCV, max-stat permutation, independent endpoint replication, or prospective validation.
+
+---
+
+## 6. Gate Definitions
+
+### Currently Implemented Gate
+
+The current `run_stnsnr_four_model_gate_status.py` code uses a coarse observed-signal gate:
+
+```text
+PASS_TO_NEXT_ROUND:
+  output exists
+  predictions are finite
+  LOOCV Spearman rho > 0
+  Q2 >= 0
+
+STOP_FORMAL_REMAIN_EXPLORATORY:
+  output exists
+  predictions are finite
+  but rho <= 0 or Q2 < 0
+```
+
+This is sufficient to prevent expensive formal loops from running on clearly negative observed branches.
+
+### Target Gate To Align With Model Specs
+
+The code should later be upgraded to emit the stricter HF state:
+
+```text
+predictive_valid
+stable_nonpredictive
+failed_unstable
+```
+
+The stricter target gate must include:
+
+```text
+Q2 > 0
+MAE_model < MAE_baseline
+RMSE_model < RMSE_baseline
+score non-constant
+all held-out predictions finite
+no single high-leverage subject explains the result
+threshold-neighborhood or resampling stability when available
+```
+
+Until that code alignment is implemented, the existing gate-status CSV should be interpreted as an engineering stop/go gate, not a complete scientific prediction-validity classifier.
+
+---
+
+## 7. Execution Order From Current State
+
+### Immediate Next Steps
+
+1. Keep A/B default primary branches labeled exploratory/negative; do not run formal B=10000 resampling on those failed branches.
+2. If using A post-hoc high-core candidates, run post-selection validation before upgrading any branch:
+
+   ```text
+   nested/adaptive LOOCV
+   max-stat permutation over the full tau/Coverage grid
+   endpoint replication or external validation when possible
+   ```
+
+3. Implement C ULF direct voxel driver with both branches:
+
+   ```text
+   tau200/partial_spearman_delta_hf_adjusted
+   tau200/partial_spearman_no_delta_hf
+   ```
+
+   Given the current A gate, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF model is later upgraded to `predictive_valid`.
+
+4. Implement D ULF normative fiber driver with both branches:
+
+   ```text
+   ulf_peak_efield_tau800_delta_hf_adjusted
+   ulf_peak_efield_tau800_no_delta_hf
+   ```
+
+   Given the current B_dTOR gate, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF fiber model is later upgraded to `predictive_valid`.
+
+### Deferred Expensive Work
+
+Do not run these until a branch passes the relevant gate:
+
+```text
+formal B=10000 permutation
+formal B=10000 bootstrap
+formal FWHM 2 mm jitter
+OSS-DBS activation sensitivity
+figure-grade FDR/enrichment/display outputs
+```
+
+---
+
+## 8. Shared Implementation Contract
+
+All implemented and future drivers must preserve:
+
+```text
+Conda environment: leaddbs
+random seed: 42
+left/right flip: ea_flip_lr_nonlinear
+raw E-field input: sim-efield, not sim-efieldgauss
+HF frequency: >=100 Hz
+ULF frequency: <=50 Hz
+no full-sample ranks inside LOOCV
+no full-sample map/F+/F- for held-out scoring
+no anatomical overlay mask as statistical ROI
+manifest and QC for every branch
+```
+
+For C/D:
+
+```text
+ULF-only predictor must exclude HF-overlap exposure
+DeltaHFScore is model-derived and branch-role-dependent
+HF out-of-support burden must be audited
+```
+
+For B/D:
+
+```text
+candidate universe is full public connectome
+right-canonical streamline feature space
+dTOR must be chunked/memmaped
+NetFiberScore = SweetPeak5 - SourPeak5
+```
+
+---
+
+## 9. Command Index
+
+Run from the worktree:
+
+```bash
+cd /Users/mojackhu/.codex/worktrees/a409/leaddbs
+```
+
+M0 readiness:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_m0_readiness.py \
+  --run-matlab-check
+```
+
+M1 shared stats selftest:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_m1_selftest.py
+```
+
+A HF direct voxel observed primary:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_smoke.py
+```
+
+A HF direct voxel post-hoc scan, one scale:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py \
+  --scale "MDS-UPDRS III score (STN, 3 m)"
+```
+
+A HF direct voxel post-hoc scan, all scales:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py \
+  --all-scales
+```
+
+A post-hoc plot-only refresh:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py \
+  --all-scales \
+  --plot-only
+```
+
+B HF normative fiber observed branch:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_normative_fiber_smoke.py \
+  --connectome ppmi
+```
+
+A/B gate status:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py
+```
+
+ULF component readiness:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py
+```
+
+ULF component e-field worklist:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py
+```
+
+Consolidated execution status:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py
+```
+
+---
+
+## 10. Definition Of Done
+
+This four-model program is complete only when:
+
+```text
+A and B have current observed branch summaries and explicit HF validity status.
+C and D have both delta_hf_adjusted and no_delta_hf outputs when inputs allow.
+Each model records which branch is interpretation-primary and why.
+Every branch has QC JSON, manifest JSON, predictions CSV, and score CSV.
+Formal resampling is run only for branches that pass the declared gate.
+Post-hoc selected thresholds are never relabeled as original primary analysis.
+The final report states n=16 and hypothesis-generating interpretation.
+```

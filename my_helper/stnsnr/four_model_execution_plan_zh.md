@@ -1,201 +1,466 @@
-# 四模型执行方案（Codex + 子代理编排）
+# Four-Model 执行方案（Codex + Subagent Orchestration）
 
-> 用途：本文件是 `/goal` 的方案文档，作为 codex 主编排器与子代理执行以下四个 model 任务的“北极星”与工程路线图。
-> 权威规范：以 `model_summaries/` 下四份英文 `.md` 为唯一可执行规范（`_zh` 为镜像，冲突时以英文为准）。本方案只负责**跨模型编排、环境落地、护栏与排期**，不重复各规范内部细节。
-> 建立日期：2026-07-04。工作区：codex worktree `a409`（`/Users/mojackhu/.codex/worktrees/a409/leaddbs`）。
-
----
-
-## 0. 一句话目标（可直接粘贴进 /goal）
-
-> 在 n=16 的 STN/SNr DBS 队列上，用 MATLAB/Lead-DBS 做电场与纤维建模的影像域预处理、用 Python（conda `leaddbs`）做统计后处理，按各自 `model_summaries` 规范中的 Round 门控，交付四个刺激-疗效关联模型（HF 直接体素、HF 归一化连接组纤维、HF 校正后的 ULF-only 加载增益的体素与纤维模型），每个模型都以**先验证主分支 LOOCV 增量信号、再投入敏感性/展示层**为原则，全流程种子固定 42、可复现、带 manifest，并遵守各规范的精确等价（no-shortcut）契约。
+> **用途。** 这是执行 STN/SNr HF/ULF 四模型程序的 `/goal` 总方案文档。
+> **权威模型规格。** `my_helper/stnsnr/model_summaries/` 下的英文文档定义各模型的 executable behavior。本文件定义跨模型编排、当前实现状态、当前 gate/status 结果和下一步工程优先级。
+> **Workspace。** `/Users/mojackhu/.codex/worktrees/a409/leaddbs`
+> **Last updated。** 2026-07-06
 
 ---
 
-## 1. 范围：四个模型
+## 1. Goal
 
-| 代号 | 规范文件 | 类型 | 主 tau | 主预测量 / 分数 | 依赖 |
-|---|---|---|---|---|---|
-| **A** | `hf_3m_direct_voxel_model.md` | 直接体素 sweet-spot | 200 V/m（180/220 敏感性） | `HFScore_mean_main`（partial Spearman） | 无（基础） |
-| **B** | `hf_3m_normative_connectome_fiber_model.md` | 归一化连接组纤维过滤 | 800 V/m（1500 敏感性） | `NetFiberScore`；PPMI/MGH/dTOR；OSS-DBS 敏感性 | 无（基础） |
-| **C** | `ulf_addon_gain_direct_voxel_model.md` | ULF-only 加载增益·体素 | 200 V/m（180/220 = 曝光定义敏感性） | `ULFScore_mean_main`，协变量含 `DeltaHFScore` | **锁定的 A**（体素 DeltaHFScore） |
-| **D** | `ulf_addon_gain_normative_connectome_fiber_model.md` | ULF-only 加载增益·纤维 | 800 V/m（1500 = 曝光定义敏感性） | `NetULFFiberScore`，协变量含 `DeltaHFScore` | **锁定的 B**（纤维 DeltaHFScore） |
+在 `n=16` STN/SNr DBS 队列上运行可复现、带 manifest 的四模型程序：
 
-**范围外（本次不做）**：`*_individualized_dwi_seed_target_model.md` 两个个体化 DWI 种子-靶点模型；`OLS ANCOVA` 补充估计量（各规范均标注“documented only, not run”）；5/7/10-fold CV 等仅文档化项。`Coverage>=6/8` 仍不属于 HF direct-voxel primary mainline，但 A-model post-hoc tau/coverage scan 可以把它作为 exploratory threshold-optimization branch 评估。
+1. **A: HF direct voxel model**
+2. **B: HF normative connectome fiber model**
+3. **C: ULF add-on direct voxel model**
+4. **D: ULF add-on normative connectome fiber model**
 
----
+科学目标是区分：
 
-## 2. 依赖关系与执行顺序
-
-```
-        ┌─────────────┐        ┌─────────────┐
-        │  A: HF 体素  │        │  B: HF 纤维  │     ← 两者可并行
-        └──────┬──────┘        └──────┬──────┘
-               │ lock (tau200/         │ lock (dTOR peak_efield_
-               │ partial_spearman)     │ tau800_primary)
-               ▼                       ▼
-        ┌─────────────┐        ┌─────────────┐
-        │ C: ULF 体素  │        │ D: ULF 纤维  │     ← A/B 锁定后可并行
-        │ 用 A 的      │        │ 用 B 的      │
-        │ DeltaHFScore │        │ DeltaHFScore │
-        └─────────────┘        └─────────────┘
+```text
+HF-only efficacy / association maps
+HF-conditioned or HF-aware ULF-only add-on gain maps
 ```
 
-- **A ∥ B** 并行推进（不同预处理、不同 tau、共享统计内核）。
-- **C 仅在 A 锁定后**才进入正式分析；**D 仅在 B 锁定后**。若被依赖的 HF 模型 QC 失败/退化，则对应 ULF 模型只能作为 exploratory，且 `DeltaHFScore` 标注为 unstable generated covariate（见各 ULF 规范 “Locked HF Prerequisite”）。
-- 连接组匹配（D）：`ULF/PPMI` 用 `HF/PPMI` 的 DeltaHFScore，`ULF/MGH` 用 `HF/MGH`，`ULF/dTOR` 用 `HF/dTOR`；跨连接组共享只能作为 `shared_dTOR_HF_adjustment_sensitivity`。
-- **B 的状态汇总：** gate/status 汇总必须分别报告 HF normative fiber 的 `PPMI`、`MGH`、`dTOR` observed 分支；只有 PPMI 一行不足以证明模型 B 已完成 observed connectome 序列。
+由于样本量为 `n=16`，除非经过已声明的 permutation、bootstrap、jitter、threshold-selection 或外部复现验证，所有结果均应解释为 hypothesis-generating。
 
 ---
 
-## 3. 环境与数据（已核验）
+## 2. 权威模型文档
 
-**计算环境**
-- conda base：`/opt/anaconda3`（注意：非交互 shell 里 `conda` 不在 PATH）。规范执行前先 `source /opt/anaconda3/etc/profile.d/conda.sh`，或统一用绝对路径 `/opt/anaconda3/bin/conda run -n leaddbs ...`。
-- `leaddbs` env ✓：Python 统计后处理（LOOCV / permutation / bootstrap / jitter / NIfTI 输出）。
-- `ossdbsv2` env ✓：仅 B、D 的 OSS-DBS activation 敏感性分支使用。
-- MATLAB + Lead-DBS：影像域预处理（**Round 0 需核验版本与 `ea_flip_lr_nonlinear` 可调用**）。
-- BLAS 线程钉死：Python 侧 import numpy/scipy 前导出 `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1`，用 worker 级并行。
-- 默认资源：MATLAB workers 8；Python jobs 14；随机种子 42。MATLAB 相与 Python 相**分阶段串行**，避免 CPU 超订。
-
-**数据（已核验存在）**
-- 临床原始分：`/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx` ✓（按 `ID` 如 `SNr003` join）。该工作簿是从 `/Users/mojackhu/Research/STNSNr/summary/stats/clinic/effect/3m/scale_subject.xlsx` 重建的 raw endpoint 表：`Scale` 存放 28 个临床 feature 名，`Protocol`/`Phase` 存放刺激条件，`Value` 是 raw score。该表不得包含 `Δ...` 派生行；add-on gain/delta endpoint 后续从 raw `STN` 与 raw `STN+SNr` 行现场重建。
-- 刺激参数审计：同目录 `followup_stimulation.xlsx`（sheet `Contact Parameters`）✓。
-- `/Volumes/VAL` 已挂载 ✓，含 `reference/`（方法学 PDF）、`summary/`（现有 `cohort/ stats/ table/ vta/`）。
-- 输出根 `/Volumes/VAL/STNSNr/summary/direct_voxel/` 与 `.../normative_connectome_fiber/` **尚未创建**（全新）。
-- stnsnr 下**无既有 `.py`/`.m` 实现**：可执行流水线为绿地开发；`.md` 仅规范。
-
-**外部卷风险**：`/Volumes/VAL` 与 clinical 目录为可卸载卷/受限权限；每个 Round 0 都应重新校验挂载与可读写。
-
----
-
-## 4. 两相分离架构（所有模型共用）
-
-**Phase 1 — MATLAB/Lead-DBS 预处理（影像域）**
-- 发现并可用性校验所需 e-field（raw `sim-efield`，**非** `sim-efieldgauss`，单位 V/m；唯一匹配 subject×side×condition/phase/component）。
-- 同侧交替子程序按体素-wise 最大合并；所有左右翻转用 `ea_flip_lr_nonlinear`；采样到右半球 canonical grid（体素）或右-canonical 流线特征（纤维）。
-- 写 MAT v7 设计矩阵 + memmap 友好 sidecar（体素-major / fiber-major `.npy`、S{tau}_bool、candidate ijk/xyz、metadata、flip audit）。dTOR 必须 chunked，**禁止**整载 fibers 矩阵。
-
-**Phase 2 — Python 统计后处理（conda `leaddbs`）**
-- 读 sidecar → 折内重建 coverage/candidate → partial Spearman 建图 → 分数 → LOOCV → permutation/bootstrap/jitter → CSV/JSON/NIfTI/PDF。
-- 单一长驻 Python 入口编排，避免在 tau/fold/perm/boot/jitter 循环里反复 `conda run`。
-
-**Phase OSS —（conda `ossdbsv2`，仅 B/D 纤维）**
-- 在 peak-E-field candidate 锁定**之后**计算 activation，不得重定义/增删 candidate 纤维；参数集先 `primary_locked` 写入 manifest。
-
----
-
-## 5. 共享统计内核：build once, reuse ×4
-
-四个模型共用同一套统计骨架，**先建一次、参数化复用**，是本项目最大的省力点与一致性保证：
-
-- sidecar schema 与 memmap loader（体素-major / fiber-major；dTOR chunk manifest）。
-- fold coverage 由**减法**得到：`Coverage_fold_h = Coverage_all - S_tau(·,h)`，held-out 不进入折内 candidate。
-- 向量化 rank-residual **partial Spearman kernel**（折内 rank，禁止全样本 rank）。
-- **fold-level score operator**（permutation 复用 outcome-independent 部分：`A_h`、`Z_h`）。
-- **Freedman-Lane permutation** harness（nuisance 残差置换、plus-one 双侧 p、统计量=LOOCV Spearman rho）。
-- **streaming Welford bootstrap**（不落 10000 张图，累计 mean/M2/finite_count）。
-- **spatial jitter**（FWHM 2mm，sigma 0.849；平移-only 线性重采样；重建全链）。
-- **精确等价回归测试** 框架（brute-force vs optimized，小子集 + B_perm/B_boot=20，seed 42）。
-- manifest/QC 写入器（provenance、env 快照 `conda list --explicit` + `pip freeze`、hash、runtime_profile）。
-- 展示层：display smoothing FWHM 1/2mm、bilateral homologous 展示图、top-x + stability 展示 mask、PDF QC —— 均仅展示，不回灌统计。
-
-**需按模型参数化的差异点**：预测单元（voxel grid ↔ streamline，dTOR chunk）；tau（200 ↔ 800，及 ULF 中 tau 属曝光定义）；分数定义（`HFScore_mean_main` / `NetFiberScore` / `ULFScore_mean_main` / `NetULFFiberScore`，含 F+/F- top-k 选纤维）；nuisance 协变量（A/B：`Y_base`；C/D：`Y_HF_ref` + `DeltaHFScore`）；ULF 的 HF-overlap 排除与 in-support `DeltaHFScore` 投影；B/D 的 OSS 分支与 FDR/label/density 展示。
-
----
-
-## 6. Codex + 子代理编排策略
-
-**主编排器（codex main）**：持有依赖图、门控与排期，负责在 A/B 锁定后放行 C/D，负责跨模型一致性（seed、sidecar schema、manifest 规范）。
-
-**建议的子代理分解（bounded、可并行、依赖感知）：**
-
-| 子代理 | 职责 | 依赖 | 可与谁并行 |
-|---|---|---|---|
-| **S0** 环境/数据就绪 + 骨架 | 核验 conda/MATLAB/VAL/clinical、建输出根、搭仓库骨架与 scale 方向表 | — | 起点 |
-| **S1** 共享统计内核 (Python/leaddbs) | 实现 §5 内核 + 等价测试框架 | S0 | S2a, S2b |
-| **S2a** MATLAB 体素预处理 | 服务 A、C 的 e-field 采样与 sidecar | S0 | S1, S2b |
-| **S2b** MATLAB 纤维预处理 | 服务 B、D；dTOR chunk；OSS sidecar 脚手架 | S0 | S1, S2a |
-| **S3** 模型 A 驱动 | 装配 A 的 Round 0→lock，跑主分支 | S1, S2a | S4 |
-| **S4** 模型 B 驱动 | 装配 B 的 Round 0→lock（含 PPMI/MGH/dTOR、OSS） | S1, S2b | S3 |
-| **S5** 模型 C 驱动 | ULF 体素，消费**锁定的 A** DeltaHFScore | S3(lock), S2a | S6 |
-| **S6** 模型 D 驱动 | ULF 纤维，消费**锁定的 B** DeltaHFScore | S4(lock), S2b | S5 |
-
-**子代理纪律（写进每个子代理任务）**：
-1. 单一模型/单一阶段边界，返回结构化结果给主进程，由主进程原子写最终 CSV/JSON。
-2. **绝不**并发跑 MATLAB 与 Python（CPU 超订）；正式重采样前**必须**先过等价测试。
-3. 严格遵守 §8 护栏；每个分支写 manifest 与 QC，未跑分支显式记 `not_run_nonprimary` + reason。
-4. 复用共享内核，不各自造轮子；tau/分数/协变量差异通过配置传入。
-
-**并行度**：S1 ∥ S2a ∥ S2b；A ∥ B；C ∥ D（各自 HF lock 后）。OSS（ossdbsv2）与主统计（leaddbs）分阶段，不与 MATLAB 相重叠。
-
----
-
-## 7. 里程碑路线图（压缩自各规范 Round 0–10）
-
-每个模型独立走下列里程碑；括号内为对应规范 Round。**门控哲学**：主分支必须先证明相对协变量-only 基线有可解释的 LOOCV 增量信号，才投入敏感性/正式重采样/展示；主分支失败时**不**去 tau180/tau220 “调阈值找信号”。
-
-| 里程碑 | 内容 | A | B | C | D |
-|---|---|---|---|---|---|
-| **M0** 就绪与冻结 | 临床 join、e-field 唯一性、scale 方向、翻转可调用、env manifest、种子 42 | R0 | R0 | R0（+锁定 A） | R0（+锁定 B） |
-| **M1** sidecar + 等价测试 | 预处理 sidecar、coverage 缓存、brute-force vs optimized 等价 | R1 | R1 | R1 | R1 |
-| **M2** 主分支 observed LOOCV | 主 tau/主 scale，写数值核心输出，延后展示 | R2 | R2–3 | R2(+2b immediate) | R2–3 |
-| **M3** smoke 重采样 | 等价 + smoke perm/boot B=1000 + jitter B=100 | R3 | R5 | R3 | R5 |
-| **M4** 正式 permutation | Freedman-Lane B=10000（仅主分支/主连接组 dTOR） | R4 | R7 | R4 | R7 |
-| **M5** 正式 bootstrap | subject-level B=10000，streaming SE | R5 | R7 | R5 | R7 |
-| **M6** 正式 jitter | FWHM 2mm B=1000 | R6 | R9 | R6 | R8 |
-| **M7** 敏感性/控制 | tau 敏感性、plain control、no-DeltaHF、total-ULF、OSS 等 | R7 | R4/6/8 | R7–8 | R4/6 |
-| **M8** 次要 scale/端点 | axial；C/D 的 immediate 端点 | R8 | R3 | R2b | R3 |
-| **M9** 展示与终稿 manifest | smoothing、展示 mask、FDR/label/density、PDF QC、跨连接组汇总 | R9 | R10 | R9 | R9 |
-
-**首批（first batch，强烈建议先只做这一段再评估）**：每个模型的 **M0 + M1 + M2 + M3(smoke)**。具体 scope 见各规范 “Recommended First Batch”，核心是：主 scale（MDS-UPDRS III total）、主 tau、`Coverage>=5`、主分数、LOOCV、协变量-only 对比、等价测试、smoke perm/boot（B=1000）、smoke jitter（B=100）、基础 QC/manifest。**首批过关后**才进 B=10000 正式 permutation/bootstrap。
-
----
-
-## 8. 不可违反的护栏（精确等价 / no-shortcut 契约）
-
-**通用（四模型）**
-- 禁：正式 B 缩水、adaptive permutation 早停、LOOCV/perm/boot 内用全样本 rank、近似 rank、用全样本 candidate 替代折内 candidate、用固定全样本 F+/F- 打分、把解剖 overlay mask 当分析 mask、丢弃要求的 jitter QC、用压缩 NPZ 做正式循环随机访问输入。
-- 折内：每折自建 coverage/candidate（held-out 减法）、每折/每 perm/每 boot 重选 F+/F-、rank 折内计算。
-- 复现：种子 42 派生确定性子种子；每分支 manifest 记 env（`conda list --explicit` + `pip freeze`）、code version、输入 hash、runtime_profile；完成标记 + force-rerun。
-- 正式循环不写每-perm/每-boot 中间图（除非显式 debug）；worker 不并发追加共享 CSV/JSON。
-
-**纤维（B/D）**
-- dTOR **必须** chunked/memmap，禁止整载 fibers 或全曝光入内存；two-pass streaming top-k；top-k tie 用 `(-M, fiber_id)` 确定性打破。
-- OSS：先锁 candidate 再算 activation；activation 不重定义 candidate。
-
-**ULF（C/D）**
-- tau 是**曝光定义**的一部分（决定 ULF 活跃、HF 活跃、overlap 排除、ULF-only 置零、coverage）；禁用 tau-independent 的 `X_ULF_only`。
-- 主预测量**硬排除 HF-overlap** 体素/纤维；total-ULF 只作敏感性。
-- `DeltaHFScore` 只用**锁定 HF 模型的 in-support 投影**；禁止外推/平滑/最近邻把 HF 权重塞到 support 外；禁止看到 ULF 结果后扩张 HF support；LOOCV 中 held-out 的 DeltaHFScore 必须用**训练折** HF 图（非全样本）。
-- out-of-support 负担必须量化并按门控降级解释。
-
----
-
-## 9. 完成定义（Definition of Done）
-
-**单模型**：主分支 M0–M6 全部产出规范列出的必需输出；每分支 manifest/QC 完整（含 `corr(score, 协变量)`、系数符号、共线性诊断、flip audit、env provenance、runtime_profile）；等价测试通过并记录；负结果按规范如实标注为 exploratory/negative 并给出 minimal report。
-
-**整体**：A、B 锁定并各自主分支完成；C、D 在其依赖锁定后完成主分支；四份 manifest 可追溯到同一 seed 与一致的 sidecar schema；解释边界写明 **n=16 → hypothesis-generating**；跨连接组/跨 scale 汇总（B/D）产出。
-
----
-
-## 10. 风险登记
-
-| 风险 | 影响 | 缓解 |
+| Model | Authoritative spec | Current role |
 |---|---|---|
-| n=16 小样本 | LOOCV 可能不显著；单个高杠杆被试主导 | 影响诊断（Cook/DFBETA）、如实标 hypothesis-generating、permutation p 与 rho/Q2 联合解释 |
-| conda 不在 PATH | 脚本直接 `conda` 会失败 | 统一 `/opt/anaconda3/bin/conda run -n leaddbs` 或先 source profile |
-| `/Volumes/VAL` 外部卷 | 中途卸载/权限致 IO 失败 | 每 Round 0 校验挂载与读写；正式循环用本地 NVMe scratch，验证后原子提升 |
-| scale 方向表 | 未知 scale 极性错 → M 图符号反 | Round 0 强制定义 higher/lower-is-better，写入内部方向表 |
-| dTOR 体量 | 内存/算力爆 | chunk 自调优（peak mem < budget×0.7）、two-pass streaming、可续块 checkpoint |
-| OSS 参数未锁 | 敏感性不可复现 | 跑前 `oss_model_set=primary_locked` 全参数写 manifest |
-| ULF 同日 T2 配对 | immediate 端点有效性依赖同日测量 | Round 0 审计 T2 HF-only 与 HF+ULF immediate 同日/同 session |
-| C/D 依赖 A/B 质量 | HF 退化 → DeltaHFScore 不稳 | 依赖锁定门控；HF 失败则 ULF 仅 exploratory 并标注 unstable covariate |
+| A | `model_summaries/hf_3m_direct_voxel_model.md` | Foundational HF direct local sweet-spot model |
+| B | `model_summaries/hf_3m_normative_connectome_fiber_model.md` | Foundational HF full-connectome fiber-filtering model |
+| C | `model_summaries/ulf_addon_gain_direct_voxel_model.md` | ULF-only add-on voxel model with two core branch roles |
+| D | `model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md` | ULF-only add-on fiber model with two core branch roles |
+
+中文 `_zh.md` 文件是同步镜像。如仍存在冲突，以英文 model summary 作为 executable source of truth。
+
+本轮 four-model execution 不包括：
+
+```text
+hf_3m_individualized_dwi_seed_target_model.md
+ulf_addon_gain_individualized_dwi_seed_target_model.md
+OLS ANCOVA optional estimator
+```
 
 ---
 
-### 附：权威文档索引
-- 规范（可执行）：`model_summaries/{hf_3m_direct_voxel_model, hf_3m_normative_connectome_fiber_model, ulf_addon_gain_direct_voxel_model, ulf_addon_gain_normative_connectome_fiber_model}.md`（+ `_zh` 镜像）
-- 上位总纲：`endpoint_specific_sweetspot_plan.md`（Implementation Outline / Statistical Plan / Acceptance Checks）
-- 技术细节：`normative_connectome_sweet_sour_technical_details.md`、`dwi_registration_technical_details.md`、`stnsnr_seed_target_atlas_registry.md`
+## 3. 四模型依赖策略
+
+### A/B Foundational HF Models
+
+A 和 B 是 foundational HF 模型，可独立并行运行：
+
+```text
+A = HF direct voxel, tau200/Coverage>=5 primary
+B = HF normative fiber, tau800/Coverage>=5 primary
+```
+
+其输出按拟合结果分类：
+
+```text
+predictive_valid
+stable_nonpredictive
+failed_unstable
+```
+
+严格目标定义为：
+
+```text
+predictive_valid:
+  LOOCV rho > 0
+  Q2 > 0
+  MAE_model < MAE_baseline
+  RMSE_model < RMSE_baseline
+  score is not near-constant
+  result is not dominated by one high-leverage subject
+
+stable_nonpredictive:
+  map/rank direction appears stable or biologically interpretable
+  but Q2 <= 0 or MAE/RMSE do not improve over baseline
+
+failed_unstable:
+  negative or degenerate prediction
+  unstable direction
+  insufficient support
+  non-finite predictions
+  or obvious high-leverage/threshold-fragile behavior
+```
+
+### C/D ULF Branch Role Resolution
+
+C 和 D 不应因为 matched HF 不是 `predictive_valid` 就完全阻断。只要输入允许，工程实现应同时运行两个核心分支：
+
+```text
+delta_hf_adjusted:
+  ULF predictor + Y_HF_ref + DeltaHFScore
+
+no_delta_hf:
+  ULF predictor + Y_HF_ref
+```
+
+解释角色由 matched HF 结果决定：
+
+```text
+if matched HF is predictive_valid:
+  ulf_primary_branch = delta_hf_adjusted
+  delta_hfscore_role = primary_nuisance_adjustment
+  no_delta_hf_role   = sensitivity
+
+if matched HF is stable_nonpredictive:
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = unstable_generated_covariate_sensitivity
+  no_delta_hf_role   = primary
+
+if matched HF is failed_unstable:
+  ulf_primary_branch = no_delta_hf when ULF inputs remain valid
+  delta_hfscore_role = exploratory_only_or_not_run
+  no_delta_hf_role   = primary exploratory branch
+```
+
+C/D manifest 必须记录：
+
+```text
+hf_prediction_validity_status
+ulf_primary_branch
+ulf_core_branches_run
+delta_hfscore_role
+branch_role_decision_reason
+hf_model_support_status
+```
+
+---
+
+## 4. 当前实现状态
+
+当前代码已经不是 greenfield。以下层级已经存在。
+
+### 已实现
+
+| Layer | Pipeline entrypoint | Core implementation | Status |
+|---|---|---|---|
+| M0 readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_m0_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_readiness.py` | implemented |
+| M1 stats selftest | `my_helper/fiber/stnsnr/run_stnsnr_four_model_m1_selftest.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_stats.py` | implemented |
+| A observed primary | `my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_smoke.py` | `my_helper/fiber/core/analysis/stnsnr_hf_direct_voxel_smoke.py` | implemented |
+| A post-hoc scan | `my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py` | `my_helper/fiber/core/analysis/stnsnr_hf_direct_voxel_posthoc_threshold_scan.py` | implemented |
+| B observed primary | `my_helper/fiber/stnsnr/run_stnsnr_hf_normative_fiber_smoke.py` | `my_helper/fiber/core/analysis/stnsnr_hf_normative_fiber_smoke.py` | implemented |
+| A/B gate status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_gate_status.py` | implemented |
+| Four-model status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py` | implemented |
+| ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
+| ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
+| Raw clinical rebuild | direct core script | `my_helper/fiber/core/analysis/stnsnr_rebuild_subject_effect_origin.py` | implemented |
+
+### 尚未实现
+
+```text
+C formal ULF direct voxel model driver
+D formal ULF normative fiber model driver
+formal B=10000 permutation/bootstrap loops
+formal spatial jitter loops
+OSS-DBS activation branch
+nested/adaptive post-hoc threshold validation
+max-stat permutation for post-hoc threshold selection
+OLS ANCOVA optional estimator
+figure-grade display/FDR/enrichment layers beyond existing post-hoc heatmaps
+```
+
+`my_helper/stnsnr/four_model_execution_implementation_notes.md` 记录 implementation-layer 细节。每新增一个 executable layer 后都应同步更新该文件。
+
+---
+
+## 5. 当前运行状态
+
+当前状态基于以下目录中的既有输出：
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/
+```
+
+### A/B Primary Observed Branches
+
+当前 `four_model_gate_status.csv` 报告：
+
+| Model | Branch | rho | Q2 | Gate |
+|---|---:|---:|---:|---|
+| A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
+| B PPMI | `peak_efield_tau800_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
+| B MGH | `peak_efield_tau800_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
+| B dTOR | `peak_efield_tau800_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` |
+
+这些 observed branches 已存在且 predictions finite，但不足以支持 formal primary-branch permutation/bootstrap。除非新的预声明分支通过有效 gate，否则应报告为 exploratory/negative。
+
+### C/D ULF Readiness
+
+当前 execution status 报告：
+
+```text
+ULF component e-fields: 64/64 existing
+C dependency: A is exploratory/unstable
+D dependency: B_dTOR is exploratory/unstable
+```
+
+因此 C/D 只能按 ULF branch-role policy 执行和解释：
+
+```text
+no_delta_hf = primary / primary exploratory
+delta_hf_adjusted = sensitivity or unstable-generated-covariate branch
+```
+
+### A All-Scale Post-Hoc Scan
+
+A-model all-scale post-hoc scan 已存在于：
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/hf/posthoc_threshold_scan_all_scales/
+  all_scales_posthoc_threshold_scan_long.csv
+  all_scales_posthoc_threshold_scan_summary.csv
+  all_scales_posthoc_threshold_scan_manifest.json
+```
+
+其中包含：
+
+```text
+30 endpoints x 60 tau/Coverage grid cells = 1800 rows
+```
+
+该 scan 属于 **exploratory threshold optimization**，不能替代原始 primary `tau200/Coverage>=5` branch。被选中的 high-core threshold 只能作为 candidate branch；若要声称 post-selection significance，仍需 nested/adaptive LOOCV、max-stat permutation、独立 endpoint 复现或前瞻性验证。
+
+---
+
+## 6. Gate Definitions
+
+### 当前已实现 Gate
+
+当前 `run_stnsnr_four_model_gate_status.py` 使用较粗的 observed-signal gate：
+
+```text
+PASS_TO_NEXT_ROUND:
+  output exists
+  predictions are finite
+  LOOCV Spearman rho > 0
+  Q2 >= 0
+
+STOP_FORMAL_REMAIN_EXPLORATORY:
+  output exists
+  predictions are finite
+  but rho <= 0 or Q2 < 0
+```
+
+这个 gate 足以阻止在明显 negative observed branch 上运行昂贵 formal loops。
+
+### 后续应对齐的目标 Gate
+
+后续代码应升级为输出更严格的 HF state：
+
+```text
+predictive_valid
+stable_nonpredictive
+failed_unstable
+```
+
+更严格的目标 gate 需要纳入：
+
+```text
+Q2 > 0
+MAE_model < MAE_baseline
+RMSE_model < RMSE_baseline
+score non-constant
+all held-out predictions finite
+no single high-leverage subject explains the result
+threshold-neighborhood or resampling stability when available
+```
+
+在该代码对齐完成前，现有 gate-status CSV 应解释为工程 stop/go gate，而不是完整科学 prediction-validity classifier。
+
+---
+
+## 7. 从当前状态出发的执行顺序
+
+### Immediate Next Steps
+
+1. 将 A/B 默认 primary branches 保持标记为 exploratory/negative；不要在这些 failed branches 上运行 formal B=10000 resampling。
+2. 若使用 A post-hoc high-core candidates，先运行 post-selection validation：
+
+   ```text
+   nested/adaptive LOOCV
+   max-stat permutation over the full tau/Coverage grid
+   endpoint replication or external validation when possible
+   ```
+
+3. 实现 C ULF direct voxel driver，并同时运行：
+
+   ```text
+   tau200/partial_spearman_delta_hf_adjusted
+   tau200/partial_spearman_no_delta_hf
+   ```
+
+   在当前 A gate 下，除非 matched HF model 后续升级为 `predictive_valid`，否则 no-DeltaHF branch 是解释上的 primary branch。
+
+4. 实现 D ULF normative fiber driver，并同时运行：
+
+   ```text
+   ulf_peak_efield_tau800_delta_hf_adjusted
+   ulf_peak_efield_tau800_no_delta_hf
+   ```
+
+   在当前 B_dTOR gate 下，除非 matched HF fiber model 后续升级为 `predictive_valid`，否则 no-DeltaHF branch 是解释上的 primary branch。
+
+### Deferred Expensive Work
+
+除非分支通过相应 gate，否则不要运行：
+
+```text
+formal B=10000 permutation
+formal B=10000 bootstrap
+formal FWHM 2 mm jitter
+OSS-DBS activation sensitivity
+figure-grade FDR/enrichment/display outputs
+```
+
+---
+
+## 8. Shared Implementation Contract
+
+所有现有和未来 drivers 必须保持：
+
+```text
+Conda environment: leaddbs
+random seed: 42
+left/right flip: ea_flip_lr_nonlinear
+raw E-field input: sim-efield, not sim-efieldgauss
+HF frequency: >=100 Hz
+ULF frequency: <=50 Hz
+no full-sample ranks inside LOOCV
+no full-sample map/F+/F- for held-out scoring
+no anatomical overlay mask as statistical ROI
+manifest and QC for every branch
+```
+
+对于 C/D：
+
+```text
+ULF-only predictor must exclude HF-overlap exposure
+DeltaHFScore is model-derived and branch-role-dependent
+HF out-of-support burden must be audited
+```
+
+对于 B/D：
+
+```text
+candidate universe is full public connectome
+right-canonical streamline feature space
+dTOR must be chunked/memmaped
+NetFiberScore = SweetPeak5 - SourPeak5
+```
+
+---
+
+## 9. Command Index
+
+从 worktree 运行：
+
+```bash
+cd /Users/mojackhu/.codex/worktrees/a409/leaddbs
+```
+
+M0 readiness：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_m0_readiness.py \
+  --run-matlab-check
+```
+
+M1 shared stats selftest：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_m1_selftest.py
+```
+
+A HF direct voxel observed primary：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_smoke.py
+```
+
+A HF direct voxel post-hoc scan，单一 scale：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py \
+  --scale "MDS-UPDRS III score (STN, 3 m)"
+```
+
+A HF direct voxel post-hoc scan，全部 scales：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py \
+  --all-scales
+```
+
+A post-hoc plot-only refresh：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py \
+  --all-scales \
+  --plot-only
+```
+
+B HF normative fiber observed branch：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_hf_normative_fiber_smoke.py \
+  --connectome ppmi
+```
+
+A/B gate status：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py
+```
+
+ULF component readiness：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py
+```
+
+ULF component e-field worklist：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py
+```
+
+Consolidated execution status：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py
+```
+
+---
+
+## 10. Definition Of Done
+
+Four-model program 完成的最低条件为：
+
+```text
+A and B have current observed branch summaries and explicit HF validity status.
+C and D have both delta_hf_adjusted and no_delta_hf outputs when inputs allow.
+Each model records which branch is interpretation-primary and why.
+Every branch has QC JSON, manifest JSON, predictions CSV, and score CSV.
+Formal resampling is run only for branches that pass the declared gate.
+Post-hoc selected thresholds are never relabeled as original primary analysis.
+The final report states n=16 and hypothesis-generating interpretation.
+```
