@@ -2,6 +2,18 @@
 
 Date: 2026-07-06
 
+Branch: `stnvop`
+
+Implementation status:
+
+- Goal definition: complete.
+- Raw DWI basename discovery for Meige-style `*_acq-ax_dwi` files:
+  implemented and covered by a focused MATLAB test.
+- Meige read-only jobSpec validation: 22 subjects resolved to existing raw DWI
+  four-file sets.
+- Not yet complete: Synb0/eddy pilot runs, full-cohort preprocessing,
+  Lead-DBS UI coregistration QC, and final subject-level processing record.
+
 ## Goal
 
 Process the Meige cohort DWI images under `/Volumes/VAL/meige` with the same

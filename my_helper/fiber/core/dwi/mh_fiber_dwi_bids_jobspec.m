@@ -25,11 +25,13 @@ coregistrationTag = char(string(opts.CoregistrationTag));
 anchorModality = normalize_anchor_modality(opts.AnchorModality);
 allowT1Fallback = logical(opts.AllowT1Fallback);
 requireT1 = logical(opts.RequireT1);
+sourceBase = char(string(opts.SourceBase));
 
-paths = resolve_subject_paths(studyRoot, subjectId, derivativesRoot, coregistrationTag);
+paths = resolve_subject_paths(studyRoot, subjectId, derivativesRoot, ...
+    coregistrationTag, sourceBase);
 jobSpec = struct();
 jobSpec.subjectId = subjectId;
-jobSpec.sourceBase = char(string(opts.SourceBase));
+jobSpec.sourceBase = paths.rawBase;
 jobSpec.studyRoot = studyRoot;
 jobSpec.derivativesRoot = derivativesRoot;
 jobSpec.anchorModality = anchorModality;
@@ -40,7 +42,7 @@ jobSpec.t1Anat = resolve_optional_t1(paths.subjectDir, requireT1);
 jobSpec.normalizationForward = resolve_anchor_to_mni_transform(paths.subjectDir, paths.patientName);
 end
 
-function paths = resolve_subject_paths(studyRoot, subjectId, derivativesRoot, coregistrationTag)
+function paths = resolve_subject_paths(studyRoot, subjectId, derivativesRoot, coregistrationTag, sourceBase)
 patientName = ['sub-', subjectId];
 subjectDir = fullfile(derivativesRoot, patientName);
 rawDwiDir = fullfile(studyRoot, 'rawdata', patientName, 'ses-preop', 'dwi');
@@ -48,10 +50,13 @@ dwiDir = fullfile(subjectDir, 'preprocessing', 'dwi');
 coregDir = fullfile(subjectDir, 'coregistration', coregistrationTag);
 qcDir = fullfile(subjectDir, 'qc', qc_tag_from_coreg_tag(coregistrationTag));
 
-rawBase = [patientName, '_ses-preop_dwi'];
+rawBase = resolve_raw_dwi_base(rawDwiDir, patientName, sourceBase);
+outputBase = [patientName, '_ses-preop_dwi'];
 paths = struct();
 paths.subjectId = subjectId;
 paths.patientName = patientName;
+paths.rawBase = rawBase;
+paths.outputBase = outputBase;
 paths.subjectDir = subjectDir;
 paths.rawDwiDir = rawDwiDir;
 paths.rawDwiGz = fullfile(rawDwiDir, [rawBase, '.nii.gz']);
@@ -64,17 +69,67 @@ paths.coregDir = coregDir;
 paths.coregAnatDir = fullfile(subjectDir, 'coregistration', 'anat');
 paths.coregTag = coregistrationTag;
 paths.qcDir = qcDir;
-paths.dwi = fullfile(dwiDir, [rawBase, '.nii']);
-paths.json = fullfile(dwiDir, [rawBase, '.json']);
-paths.bval = fullfile(dwiDir, [rawBase, '.bval']);
-paths.bvec = fullfile(dwiDir, [rawBase, '.bvec']);
-paths.b0 = fullfile(dwiDir, [rawBase, '_b0.nii']);
+paths.dwi = fullfile(dwiDir, [outputBase, '.nii']);
+paths.json = fullfile(dwiDir, [outputBase, '.json']);
+paths.bval = fullfile(dwiDir, [outputBase, '.bval']);
+paths.bvec = fullfile(dwiDir, [outputBase, '.bvec']);
+paths.b0 = fullfile(dwiDir, [outputBase, '_b0.nii']);
 paths.fakeB0Coreg = fullfile(paths.coregAnatDir, ...
     [patientName, '_ses-preop_space-anchorNative_desc-preproc_B0.nii']);
-paths.fa = fullfile(dwiDir, [rawBase, '_fa.nii']);
+paths.fa = fullfile(dwiDir, [outputBase, '_fa.nii']);
 paths.faOnAnchor = '';
 paths.brainMask = fullfile(dwiDir, 'brainmask.nii');
 paths.trackingMask = fullfile(dwiDir, 'trackingmask.nii');
+end
+
+function rawBase = resolve_raw_dwi_base(rawDwiDir, patientName, sourceBase)
+sourceBase = char(string(sourceBase));
+if ~isempty(sourceBase)
+    rawBase = sourceBase;
+    return;
+end
+
+defaultBase = [patientName, '_ses-preop_dwi'];
+if isfile(fullfile(rawDwiDir, [defaultBase, '.nii.gz'])) || ...
+        isfile(fullfile(rawDwiDir, [defaultBase, '.nii']))
+    rawBase = defaultBase;
+    return;
+end
+
+gzFiles = dir(fullfile(rawDwiDir, '*_dwi.nii.gz'));
+niiFiles = dir(fullfile(rawDwiDir, '*_dwi.nii'));
+gzFiles = gzFiles(~startsWith({gzFiles.name}, '._'));
+niiFiles = niiFiles(~startsWith({niiFiles.name}, '._'));
+
+candidateNames = [{gzFiles.name}, {niiFiles.name}];
+candidateBases = cell(size(candidateNames));
+for i = 1:numel(candidateNames)
+    candidateBases{i} = strip_dwi_nii_extension(candidateNames{i});
+end
+candidateBases = unique(candidateBases, 'stable');
+
+if numel(candidateBases) == 1
+    rawBase = candidateBases{1};
+    return;
+end
+if isempty(candidateBases)
+    rawBase = defaultBase;
+    return;
+end
+
+error('mh_fiber_dwi_bids_jobspec:AmbiguousRawDwi', ...
+    'Expected one raw DWI file in %s, found %d candidates.', ...
+    rawDwiDir, numel(candidateBases));
+end
+
+function base = strip_dwi_nii_extension(fileName)
+base = char(string(fileName));
+if endsWith(base, '.nii.gz')
+    base = extractBefore(base, strlength(base) - strlength('.nii.gz') + 1);
+elseif endsWith(base, '.nii')
+    base = extractBefore(base, strlength(base) - strlength('.nii') + 1);
+end
+base = char(base);
 end
 
 function anchorAnat = resolve_anchor_anat(subjectDir, anchorModality, allowT1Fallback)
