@@ -18,6 +18,17 @@ Implementation status:
 - Pilot preflight: passed. Dry-run parameters match this document; raw DWI
   four-file sets, anchorNative T1w/T2w images, Docker, local Synb0 image, and
   FreeSurfer license are present for the pilot run.
+- Pilot attempt 1: failed before Synb0. The raw `*_acq-ax_dwi.nii.gz` files
+  were discovered correctly, but gzip staging wrote `*_acq-ax_dwi.nii` while
+  downstream code expected the formal staged basename `sub-<ID>_ses-preop_dwi`.
+  Gzip staging has been fixed so raw DWI inputs are decompressed to a temporary
+  path and then copied to the formal staged output path.
+- Regression tests after the staging fix: raw basename discovery passed,
+  acquisition-labeled gzipped DWI staging passed, and the Meige wrapper dry-run
+  test passed.
+- Failed pilot staging artifacts for `Meige001`, `Meige008`, and `Meige021`,
+  plus the attempt-1 status CSV, were moved to Trash before rerun:
+  `/Volumes/VAL/.Trashes/501/meige_dwi_synb0_pilot_failed_stage_20260706_123734`.
 - Not yet complete: Synb0/eddy pilot runs, full-cohort preprocessing,
   Lead-DBS UI coregistration QC, and final subject-level processing record.
 

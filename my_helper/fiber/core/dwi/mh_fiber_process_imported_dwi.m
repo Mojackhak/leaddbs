@@ -254,7 +254,14 @@ mh_util_make_dir(paths.qcDir);
 
 if force || ~isfile(paths.dwi)
     if isfile(paths.rawDwiGz)
-        gunzip(paths.rawDwiGz, paths.dwiDir);
+        tempDir = tempname;
+        mkdir(tempDir);
+        cleanupObj = onCleanup(@() mh_fiber_cleanup_temp_dir(tempDir));
+        extracted = gunzip(paths.rawDwiGz, tempDir);
+        if isempty(extracted) || ~isfile(extracted{1})
+            error('Could not decompress raw DWI: %s', paths.rawDwiGz);
+        end
+        copyfile(extracted{1}, paths.dwi, 'f');
     else
         copyfile(paths.rawDwiNii, paths.dwi);
     end
