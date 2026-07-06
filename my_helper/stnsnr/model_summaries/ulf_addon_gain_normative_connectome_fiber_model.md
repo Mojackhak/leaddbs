@@ -1148,6 +1148,8 @@ connectome_density_correlation_summary.csv
 connectome_selected_label_summary.csv
 ```
 
+For continuous/statistical NIfTI outputs, non-covered or non-modeled voxels are written as `NaN`, not `0`. This applies to weighted density, positive/negative weighted density, `-log(p)` density, FDR-thresholded density, stability density, jitter density, plain touched density, and display-smoothed density maps outside the density support or model candidate support. `0` is reserved for a true zero contribution inside support. Count/binary masks, if emitted, remain `0` outside support because their semantics are count/false.
+
 FDR q-values, q-thresholded maps, endpoint labels, and display fibers are QC/display outputs only. They do not define `F+`, `F-`, `NetULFFiberScore`, or the primary model.
 
 ---

@@ -421,6 +421,8 @@ fdr_thresholded_positive_density_q10.nii.gz
 fdr_thresholded_negative_density_q10.nii.gz
 ```
 
+For continuous/statistical NIfTI outputs, non-covered or non-modeled voxels are written as `NaN`, not `0`. This applies to weighted density, positive/negative weighted density, `-log(p)` density, FDR-thresholded density, stability density, jitter density, plain touched density, and display-smoothed density maps outside the density support or model candidate support. `0` is reserved for a true zero contribution inside support. Count/binary masks, if emitted, remain `0` outside support because their semantics are count/false.
+
 dTOR primary branch additionally writes:
 
 ```text

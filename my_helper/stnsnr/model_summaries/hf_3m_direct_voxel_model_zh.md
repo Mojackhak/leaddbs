@@ -311,6 +311,8 @@ direct_voxel_HF_generation_manifest.json
 
 `direct_voxel_HF_bootstrap_se.nii.gz` 和 `direct_voxel_HF_permutation_summary.csv` 只在主分支 `tau200/partial_spearman` 下生成。非主分支不生成这些文件，并在 manifest 和 QC JSON 中记录 `not_run_nonprimary`。
 
+对于连续型/统计型 NIfTI 输出，model support 外的 voxel 写为 `NaN`，不是 `0`。这包括 `Omega_HF_tau` 或 right-canonical candidate grid 外的 coefficient、sweet/sour、stability、bootstrap SE、smoothed-display 和 homologous-display statistical maps。`0` 只表示 support 内真实的零效应或零数值。整数型 coverage/count maps 和 binary display masks 由于语义和数据类型是计数/false，在 support 外仍写为 `0`。
+
 输出语义：
 
 - `direct_voxel_HF_coverage.nii.gz` 存储 `Coverage_tau(v) = sum_i I(X_HF_i(v) > tau)`。使用 `int16`。

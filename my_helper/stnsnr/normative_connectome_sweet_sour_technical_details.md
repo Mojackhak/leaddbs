@@ -630,6 +630,8 @@ direct_voxel_HF_generation_manifest.json
 
 `direct_voxel_HF_scores.csv` must identify `HFScore_mean_main` as the primary score. `HFScore_sum_descriptive` is documented only and is not a required output field. Report-only sweet/sour display masks use the top 10% same-sign `M_HF` voxels plus direction-specific stability `>=0.75`; they are not significance maps.
 
+For exported continuous/statistical NIfTI maps, non-covered or non-modeled voxels must be written as `NaN`, not `0`. This applies to coefficient, sweet/sour, stability, bootstrap SE, density, weighted-density, and display-smoothed statistical maps. Integer coverage/count maps and binary masks are the exception and may use `0` outside support because their semantics are count/false. This rule prevents non-covered regions from being interpreted as neutral true-zero model effects.
+
 Display smoothing is output only under:
 
 ```text
@@ -1204,6 +1206,8 @@ direct_voxel_<seed>_homologous_mapping_qc.json
 ```
 
 This generic output list does not apply to the executable HF or ULF direct voxel models. HF uses the `direct_voxel_HF_*` output family under `<scale_slug>/tau*/partial_spearman/`. ULF uses the `direct_voxel_ULF_only_*` output family under `<endpoint_slug>/tau*/partial_spearman/`. Both omit `paired_mask`; optional future OLS outputs would use sibling `ols_ancova/` directories only if explicitly enabled.
+
+For continuous/statistical NIfTI maps in any direct-voxel or target-derived visualization family, non-covered or non-modeled voxels must be `NaN`, not `0`. Coverage/count maps and binary masks are the only exceptions.
 
 ## Execution Plan
 

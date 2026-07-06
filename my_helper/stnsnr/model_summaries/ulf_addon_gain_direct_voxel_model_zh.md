@@ -607,6 +607,8 @@ direct_voxel_ULF_only_generation_manifest.json
 
 `direct_voxel_ULF_only_bootstrap_se.nii.gz` 和 `direct_voxel_ULF_only_permutation_summary.csv` 只在 branch-role resolver 选中的 primary branch 中生成。非 primary branch 不写占位文件，而是在 manifest 和 QC JSON 中记录 `not_run_nonprimary`。
 
+对于连续型/统计型 NIfTI 输出，model support 外的 voxel 写为 `NaN`，不是 `0`。这包括 `Omega_ULF_tau` 或 right-canonical candidate grid 外的 coefficient、sweet/sour、stability、bootstrap SE、HF-overlap fraction、smoothed-display 和 homologous-display statistical maps。`0` 只表示 support 内真实的零效应或零数值。整数型 coverage/count maps 和 binary/exclusion display masks 由于语义和数据类型是计数/false，在 support 外仍写为 `0`。
+
 Output semantics：
 
 - `direct_voxel_ULF_only_coverage.nii.gz` stores `Coverage_ULF_tau(v)=sum_i I[X_ULF_only_i(v, phase,tau)>tau]`. Use `int16`.

@@ -5,7 +5,12 @@ from __future__ import annotations
 
 import json
 
-from stnsnr_four_model_execution_status import classify_c_observed_state, classify_hf_model_state, classify_ulf_model_state
+from stnsnr_four_model_execution_status import (
+    classify_c_observed_state,
+    classify_d_observed_state,
+    classify_hf_model_state,
+    classify_ulf_model_state,
+)
 
 
 def assert_equal(actual, expected, message: str) -> None:
@@ -64,11 +69,24 @@ def test_c_observed_exploratory_state() -> None:
     assert_equal(state["formal_resampling_status"], "NOT_APPLICABLE_DEPENDENCY_UNSTABLE", "C formal status")
 
 
+def test_d_observed_exploratory_state() -> None:
+    state = classify_d_observed_state(
+        hf_dependency_decision="STOP_FORMAL_REMAIN_EXPLORATORY",
+        readiness_status="EXPLORATORY_ONLY_UNSTABLE_HF_DEPENDENCY",
+        efield_summary={"n_efields_existing": 64, "n_rows": 64},
+        d_outputs={"both_branches_exist": True},
+    )
+    assert_equal(state["execution_status"], "OBSERVED_COMPLETE_EXPLORATORY", "D observed exploratory status")
+    assert_equal(state["dependency_status"], "EXPLORATORY_UNSTABLE", "D dependency status")
+    assert_equal(state["formal_resampling_status"], "NOT_APPLICABLE_DEPENDENCY_UNSTABLE", "D formal status")
+
+
 def main() -> int:
     test_hf_stop_gate_state()
     test_hf_pass_gate_state()
     test_ulf_input_failure_state()
     test_c_observed_exploratory_state()
+    test_d_observed_exploratory_state()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 

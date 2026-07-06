@@ -152,13 +152,14 @@ hf_model_support_status
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
 | C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
+| D observed ULF normative fiber PPMI | `my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_observed.py` | implemented |
 | Raw clinical rebuild | direct core script | `my_helper/fiber/core/analysis/stnsnr_rebuild_subject_effect_origin.py` | implemented |
 
 ### 尚未实现
 
 ```text
 C formal ULF direct voxel resampling, gain endpoints, total-ULF sensitivity, and all-scale driver
-D formal ULF normative fiber model driver
+D formal ULF normative fiber resampling, dTOR main branch, OSS, and figure-grade outputs
 formal B=10000 permutation/bootstrap loops
 formal spatial jitter loops
 OSS-DBS activation branch
@@ -200,7 +201,7 @@ figure-grade display/FDR/enrichment layers beyond existing post-hoc heatmaps
 ```text
 ULF component e-fields: 64/64 existing
 C dependency: A is exploratory/unstable
-D dependency: B_dTOR is exploratory/unstable
+D PPMI dependency: B_PPMI is exploratory/unstable
 ```
 
 因此 C/D 只能按 ULF branch-role policy 执行和解释：
@@ -228,6 +229,26 @@ output root = /Volumes/VAL/STNSNr/summary/direct_voxel/ulf/mds_updrs_iii_score_s
 | `partial_spearman_delta_hf_adjusted` | `0.9543` | `0.1238` | 因 matched A primary HF 为 `failed_unstable`，只能作为 unstable-generated-covariate sensitivity |
 
 两个 branch 均写出 scores、LOOCV predictions、NIfTI maps、QC JSON 和 manifests。Formal resampling 仍受 gate 控制，尚未运行。
+
+### D ULF Normative Fiber Observed Branch
+
+D observed-only driver 已实现，并已运行默认 chronic endpoint 和 PPMI connectome：
+
+```text
+post scale = MDS-UPDRS III score (STN+SNr, 3 m)
+HF reference = MDS-UPDRS III score (STN, 3 m)
+connectome = PPMI 85 (Ewert 2017)
+output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed/
+```
+
+当前 observed 输出：
+
+| Branch | rho | Q2 | Interpretation role |
+|---|---:|---:|---|
+| `ulf_peak_efield_tau800_no_delta_hf` | `0.9293` | `0.0922` | 在当前 failed B_PPMI dependency 下为解释主线 |
+| `ulf_peak_efield_tau800_delta_hf_adjusted` | `0.9411` | `0.1170` | 因 matched B_PPMI primary HF 为 `failed_unstable`，只能作为 unstable-generated-covariate sensitivity |
+
+两个 branch 均写出 scores、LOOCV predictions、fiber weights、QC JSON 和 manifests。Formal resampling、OSS-DBS activation、density maps、endpoint enrichment 和 dTOR-scale figure-grade outputs 仍受 gate 控制，尚未运行。
 
 ### A All-Scale Post-Hoc Scan
 
@@ -338,7 +359,7 @@ threshold-neighborhood or resampling stability when available
    endpoint replication or external validation when possible
    ```
 
-3. 实现 C ULF direct voxel driver，并同时运行：
+3. C ULF direct voxel observed 已实现，并同时运行：
 
    ```text
    tau200/partial_spearman_delta_hf_adjusted
@@ -347,14 +368,14 @@ threshold-neighborhood or resampling stability when available
 
    在当前 A gate 下，除非 matched HF model 后续升级为 `predictive_valid`，否则 no-DeltaHF branch 是解释上的 primary branch。
 
-4. 实现 D ULF normative fiber driver，并同时运行：
+4. D ULF normative fiber PPMI observed 已实现，并同时运行：
 
    ```text
    ulf_peak_efield_tau800_delta_hf_adjusted
    ulf_peak_efield_tau800_no_delta_hf
    ```
 
-   在当前 B_dTOR gate 下，除非 matched HF fiber model 后续升级为 `predictive_valid`，否则 no-DeltaHF branch 是解释上的 primary branch。
+   在当前 B_PPMI gate 下，除非 matched HF fiber model 后续升级为 `predictive_valid`，否则 no-DeltaHF branch 是解释上的 primary branch。dTOR main execution 仍 deferred，除非某个 justified fiber branch 通过相关 gate，或被明确作为 exploratory 运行。
 
 ### Deferred Expensive Work
 
@@ -403,6 +424,60 @@ right-canonical streamline feature space
 dTOR must be chunked/memmaped
 NetFiberScore = SweetPeak5 - SourPeak5
 ```
+
+### Backend / Workflow Separation
+
+所有新增代码必须严格区分可复用后端逻辑和 STN/SNr 项目 workflow。
+
+Backend code 放在：
+
+```text
+my_helper/fiber/core/
+```
+
+Backend responsibilities：
+
+```text
+statistical estimators
+LOOCV / permutation / bootstrap kernels
+voxel and streamline feature-matrix operations
+NIfTI / connectome / sidecar readers and writers
+generic score construction
+generic QC table and manifest helpers
+```
+
+通用 NIfTI writer 必须接受显式 support mask。连续型/统计型 map 在 support 外写为 `NaN`；只有 coverage/count maps 和 binary masks 在 support 外使用 `0`。
+
+Backend code 必须参数化，不得硬编码：
+
+```text
+/Users/mojackhu/... project paths
+/Volumes/VAL/STNSNr/... output roots
+STN/SNr-specific endpoint names as algorithm defaults
+specific atlas folders or label choices
+specific connectome choices as scientific defaults
+specific subject IDs
+```
+
+STN/SNr workflow code 放在：
+
+```text
+my_helper/fiber/stnsnr/
+```
+
+Workflow responsibilities：
+
+```text
+project path resolution
+default endpoint selection
+default connectome selection
+atlas and ROI registry selection
+STN/SNr-specific branch naming
+calling backend functions with explicit config
+recording project-specific manifests
+```
+
+Thin workflow scripts 可以调用 backend modules，但 backend modules 必须能通过 workflow 显式传入路径和参数来运行。如果 backend 为本地便利保留 defaults，这些 defaults 必须可覆盖，并且不得定义 scientific model。
 
 ---
 
@@ -495,6 +570,13 @@ C ULF direct voxel observed branch：
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py
+```
+
+D ULF normative fiber PPMI observed branch：
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py --connectome ppmi
 ```
 
 Consolidated execution status：

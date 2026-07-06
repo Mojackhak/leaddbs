@@ -152,13 +152,14 @@ The current codebase is no longer greenfield. The following layers already exist
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
 | C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
+| D observed ULF normative fiber PPMI | `my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_observed.py` | implemented |
 | Raw clinical rebuild | direct core script | `my_helper/fiber/core/analysis/stnsnr_rebuild_subject_effect_origin.py` | implemented |
 
 ### Not Yet Implemented
 
 ```text
 C formal ULF direct voxel resampling, gain endpoints, total-ULF sensitivity, and all-scale driver
-D formal ULF normative fiber model driver
+D formal ULF normative fiber resampling, dTOR main branch, OSS, and figure-grade outputs
 formal B=10000 permutation/bootstrap loops
 formal spatial jitter loops
 OSS-DBS activation branch
@@ -200,7 +201,7 @@ Current execution status reports:
 ```text
 ULF component e-fields: 64/64 existing
 C dependency: A is exploratory/unstable
-D dependency: B_dTOR is exploratory/unstable
+D PPMI dependency: B_PPMI is exploratory/unstable
 ```
 
 Therefore C/D are executable only under the ULF branch-role policy:
@@ -228,6 +229,26 @@ Current observed outputs:
 | `partial_spearman_delta_hf_adjusted` | `0.9543` | `0.1238` | unstable-generated-covariate sensitivity because matched A primary HF is `failed_unstable` |
 
 Both branches write scores, LOOCV predictions, NIfTI maps, QC JSON, and manifests. Formal resampling remains gated and has not been run.
+
+### D ULF Normative Fiber Observed Branch
+
+The D observed-only driver has been implemented and run for the default chronic endpoint and PPMI connectome:
+
+```text
+post scale = MDS-UPDRS III score (STN+SNr, 3 m)
+HF reference = MDS-UPDRS III score (STN, 3 m)
+connectome = PPMI 85 (Ewert 2017)
+output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed/
+```
+
+Current observed outputs:
+
+| Branch | rho | Q2 | Interpretation role |
+|---|---:|---:|---|
+| `ulf_peak_efield_tau800_no_delta_hf` | `0.9293` | `0.0922` | interpretation-primary under current failed B_PPMI dependency |
+| `ulf_peak_efield_tau800_delta_hf_adjusted` | `0.9411` | `0.1170` | unstable-generated-covariate sensitivity because matched B_PPMI primary HF is `failed_unstable` |
+
+Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. Formal resampling, OSS-DBS activation, density maps, endpoint enrichment, and dTOR-scale figure-grade outputs remain gated and have not been run.
 
 ### A All-Scale Post-Hoc Scan
 
@@ -338,7 +359,7 @@ Until that code alignment is implemented, the existing gate-status CSV should be
    endpoint replication or external validation when possible
    ```
 
-3. Implement C ULF direct voxel driver with both branches:
+3. C ULF direct voxel observed has been implemented with both branches:
 
    ```text
    tau200/partial_spearman_delta_hf_adjusted
@@ -347,14 +368,14 @@ Until that code alignment is implemented, the existing gate-status CSV should be
 
    Given the current A gate, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF model is later upgraded to `predictive_valid`.
 
-4. Implement D ULF normative fiber driver with both branches:
+4. D ULF normative fiber PPMI observed has been implemented with both branches:
 
    ```text
    ulf_peak_efield_tau800_delta_hf_adjusted
    ulf_peak_efield_tau800_no_delta_hf
    ```
 
-   Given the current B_dTOR gate, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF fiber model is later upgraded to `predictive_valid`.
+   Given the current B_PPMI gate, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF fiber model is later upgraded to `predictive_valid`. dTOR main execution remains deferred until a justified fiber branch passes the relevant gate or is explicitly run as exploratory.
 
 ### Deferred Expensive Work
 
@@ -403,6 +424,64 @@ right-canonical streamline feature space
 dTOR must be chunked/memmaped
 NetFiberScore = SweetPeak5 - SourPeak5
 ```
+
+### Backend / Workflow Separation
+
+All new code must preserve a strict separation between reusable backend logic and
+the STN/SNr project workflow.
+
+Backend code belongs under:
+
+```text
+my_helper/fiber/core/
+```
+
+Backend responsibilities:
+
+```text
+statistical estimators
+LOOCV / permutation / bootstrap kernels
+voxel and streamline feature-matrix operations
+NIfTI / connectome / sidecar readers and writers
+generic score construction
+generic QC table and manifest helpers
+```
+
+Generic NIfTI writers must accept an explicit support mask. For continuous/statistical maps, voxels outside that support are written as `NaN`; coverage/count maps and binary masks are the only outputs that use `0` outside support.
+
+Backend code must be parameterized. It must not hard-code:
+
+```text
+/Users/mojackhu/... project paths
+/Volumes/VAL/STNSNr/... output roots
+STN/SNr-specific endpoint names as algorithm defaults
+specific atlas folders or label choices
+specific connectome choices as scientific defaults
+specific subject IDs
+```
+
+STN/SNr workflow code belongs under:
+
+```text
+my_helper/fiber/stnsnr/
+```
+
+Workflow responsibilities:
+
+```text
+project path resolution
+default endpoint selection
+default connectome selection
+atlas and ROI registry selection
+STN/SNr-specific branch naming
+calling backend functions with explicit config
+recording project-specific manifests
+```
+
+Thin workflow scripts may call backend modules, but backend modules must remain
+usable with explicit paths and parameters supplied by the workflow. If a backend
+needs defaults for local convenience, those defaults must be overridable and
+must not define the scientific model.
 
 ---
 
@@ -495,6 +574,13 @@ C ULF direct voxel observed branch:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py
+```
+
+D ULF normative fiber PPMI observed branch:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py --connectome ppmi
 ```
 
 Consolidated execution status:

@@ -1148,6 +1148,8 @@ connectome_density_correlation_summary.csv
 connectome_selected_label_summary.csv
 ```
 
+对于连续型/统计型 NIfTI 输出，未覆盖或未建模的 voxel 写为 `NaN`，不是 `0`。这包括 density support 或 model candidate support 外的 weighted density、positive/negative weighted density、`-log(p)` density、FDR-thresholded density、stability density、jitter density、plain touched density 和 display-smoothed density maps。`0` 只表示 support 内真实的零贡献。如果输出 count/binary masks，它们由于语义是计数/false，在 support 外仍写为 `0`。
+
 FDR q-values、q-thresholded maps、endpoint labels 和 display fibers 只用于 QC/display。它们不定义 `F+`、`F-`、`NetULFFiberScore` 或 primary model。
 
 ---

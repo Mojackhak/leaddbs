@@ -4,6 +4,38 @@ This note records the first executable implementation layer for `four_model_exec
 
 The full four-model program is intentionally gated. The first code layer only implements M0 readiness checks and manifest generation. It does not run voxel or fiber statistics, does not compute E-field sidecars, and does not start formal permutation, bootstrap, jitter, OSS-DBS, or display stages.
 
+## Backend / Workflow Separation
+
+Implementation must distinguish reusable backend code from STN/SNr project
+workflow code.
+
+Reusable backend code belongs under:
+
+```text
+my_helper/fiber/core/
+```
+
+It should expose parameterized functions for statistics, feature matrices,
+NIfTI/connectome IO, scoring, QC, and manifest writing. Backend code must not
+make project paths, atlas selections, endpoint defaults, subject IDs, or
+connectome choices part of the algorithm. Any convenience defaults must be
+overridable by the caller.
+
+Generic NIfTI writers must accept an explicit support mask. Continuous or
+statistical maps write `NaN` outside support, not `0`; coverage/count maps and
+binary masks are the only exception.
+
+Project workflow code belongs under:
+
+```text
+my_helper/fiber/stnsnr/
+```
+
+Workflow scripts resolve STN/SNr-specific paths, endpoints, connectomes, atlas
+registries, and branch names, then pass an explicit config into backend
+functions. The `stnsnr/` directory remains an orchestration layer rather than a
+helper-function directory.
+
 ## Implemented Layer
 
 The M0 readiness entry point is:
@@ -512,3 +544,92 @@ The consolidated execution status reporter should treat C as observed-complete
 when both C branch manifests exist. This does not make C formal-resampling
 eligible; the formal status remains gate-restricted because matched A is not
 currently `predictive_valid`.
+
+## ULF Normative Fiber Observed Driver
+
+The next D-model executable layer runs the observed-only ULF normative
+connectome fiber branch. It is intentionally limited to LOOCV observed modeling
+and does not run formal permutation, bootstrap, jitter, OSS-DBS, endpoint
+enrichment, or figure-grade density outputs.
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_observed.py
+```
+
+Lightweight implementation self-test:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_observed_selftest.py
+```
+
+Default observed endpoint and connectome:
+
+```text
+post scale = MDS-UPDRS III score (STN+SNr, 3 m)
+HF reference scale = same base scale under STN, 3 m
+connectome = PPMI 85
+tau = 800 V/m
+Coverage>=5
+estimator = baseline-adjusted partial Spearman
+```
+
+The driver reads the latest `ulf_component_efield_availability.csv`, samples
+component-specific HF and ULF raw `sim-efield` files along the right-canonical
+public connectome streamlines, and creates:
+
+```text
+X_HF_component_i(l)  = bilateral average peak HF component exposure
+X_ULF_component_i(l) = bilateral average peak ULF component exposure
+X_ULF_only_i(l)      = X_ULF_component_i(l) when ULF is active and HF is not active
+```
+
+The matched HF reference exposure is reused from the existing HF normative fiber
+sidecar for the same connectome and scale whenever available. This keeps the
+`DeltaHFFiberScore` support aligned to the already observed B branch.
+
+Both D core branches are executed when inputs allow:
+
+```text
+ulf_peak_efield_tau800_no_delta_hf
+ulf_peak_efield_tau800_delta_hf_adjusted
+```
+
+Given the current B_PPMI primary gate failure for the observed PPMI branch, the no-DeltaHF branch is the
+interpretation-primary branch in the manifest unless a matched HF normative
+fiber model is later upgraded to `predictive_valid`. The DeltaHF-adjusted branch
+is recorded as an unstable-generated-covariate sensitivity branch.
+
+Default outputs:
+
+```text
+/Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/<connectome_slug>/<scale_slug>/peak_efield_tau800_observed/
+  preprocess/
+  ulf_peak_efield_tau800_no_delta_hf/
+  ulf_peak_efield_tau800_delta_hf_adjusted/
+```
+
+Each branch writes observed scores, LOOCV predictions, fiber weights, QC JSON,
+and a generation manifest. The branch manifests record `ulf_primary_branch`,
+`delta_hfscore_role`, `hf_prediction_validity_status`, and
+`resampling_status=not_run_observed_only`.
+
+Current PPMI observed run:
+
+```text
+output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed
+no_delta_hf:        LOOCV Spearman rho = 0.929309, Q2 = 0.0921884
+delta_hf_adjusted:  LOOCV Spearman rho = 0.941091, Q2 = 0.116969
+```
+
+The D PPMI observed output is now included in the consolidated status report as
+`OBSERVED_COMPLETE_EXPLORATORY`. Formal resampling, OSS-DBS activation,
+density maps, endpoint enrichment, and dTOR-scale figure-grade outputs remain
+deferred.
