@@ -847,14 +847,21 @@ Also run a physical HF-change sensitivity covariate that does not depend on clin
 
 The ULF add-on family is model-specific. Direct voxel, normative connectome fiber, and individualized DWI target-level models share the same clinical covariates but use different primary predictors.
 
-For direct voxel ULF:
+For direct voxel ULF, use branch-specific models:
 
 ```text
-Y_post_i = alpha
-         + delta * ULFScore_mean_main_i
-         + beta  * Y_HF_ref_i
-         + gamma * DeltaHFScore_i
-         + error_i
+no_delta_hf:
+  Y_post_i = alpha
+           + delta * ULFScore_mean_main_i
+           + beta  * Y_HF_ref_i
+           + error_i
+
+delta_hf_adjusted:
+  Y_post_i = alpha
+           + delta * ULFScore_mean_main_i
+           + beta  * Y_HF_ref_i
+           + gamma * DeltaHFScore_i
+           + error_i
 ```
 
 For normative connectome ULF fiber-level analysis:
@@ -1069,7 +1076,7 @@ DeltaHFScore_immediate =
   - S_HF_family,motor(E_HF_component,HF-only3m)
 ```
 
-Report this as a same-cohort, pre-ULF-derived nuisance adjustment unless the model-matched HF efficacy model comes from an external dataset. For direct voxel dependencies, the no-DeltaHF branch is run in parallel whenever an HF voxel source exists; `delta_hf_adjusted` is primary only when `hf_voxel_prediction_status = error_predictive`. If the direct voxel resolver returns `absent_no_stable_grid`, the DeltaHF-adjusted branch is not run. Normative fiber dependencies follow their model-specific branch-role resolver.
+Report this as a same-cohort, pre-ULF-derived nuisance adjustment unless the model-matched HF efficacy model comes from an external dataset. For direct voxel dependencies, the no-DeltaHF branch is run in parallel whenever an HF voxel source exists; `delta_hf_adjusted` is primary only when `hf_voxel_prediction_status = error_predictive`. If the direct voxel resolver returns `absent_no_stable_grid`, the DeltaHF-adjusted branch is not run. Each executed ULF direct voxel branch then receives its own `ulf_voxel_source_status` and `ulf_voxel_prediction_status`; those fields qualify the ULF branch's stability and error-predictiveness but do not change the HF-derived primary-branch assignment. Normative fiber dependencies follow their model-specific branch-role resolver.
 
 ### Residualized SNr Sensitivity Model
 
@@ -1161,11 +1168,19 @@ Resolved HF direct voxel settings (these fix, for the HF direct voxel model only
 The executable ULF direct voxel model is fully specified in `model_summaries/ulf_addon_gain_direct_voxel_model.md`. It is not an anatomic SNr-only model. It treats the STN/SNr and peri-STN/SNr region as a stimulation territory and separates HF and ULF effects by frequency component and HF-overlap exclusion.
 
 ```text
-rho_ULF(v) =
-  corr(
-    resid(rank(Y_post_i)                   ~ rank(Y_HF_ref_i) + rank(DeltaHFScore_i)),
-    resid(rank(X_ULF_only_i(v, phase,tau)) ~ rank(Y_HF_ref_i) + rank(DeltaHFScore_i))
-  )
+no_delta_hf:
+  rho_ULF(v) =
+    corr(
+      resid(rank(Y_post_i)                   ~ rank(Y_HF_ref_i)),
+      resid(rank(X_ULF_only_i(v, phase,tau)) ~ rank(Y_HF_ref_i))
+    )
+
+delta_hf_adjusted:
+  rho_ULF(v) =
+    corr(
+      resid(rank(Y_post_i)                   ~ rank(Y_HF_ref_i) + rank(DeltaHFScore_i)),
+      resid(rank(X_ULF_only_i(v, phase,tau)) ~ rank(Y_HF_ref_i) + rank(DeltaHFScore_i))
+    )
 ```
 
 Definitions:
@@ -1198,14 +1213,21 @@ ULFScore_mean_main_i =
   / n_valid_score_voxels
 ```
 
-Final prediction:
+Final prediction is branch-specific:
 
 ```text
-Y_post_i = alpha
-         + delta * ULFScore_mean_main_i
-         + beta  * Y_HF_ref_i
-         + gamma * DeltaHFScore_i
-         + error_i
+no_delta_hf:
+  Y_post_i = alpha
+           + delta * ULFScore_mean_main_i
+           + beta  * Y_HF_ref_i
+           + error_i
+
+delta_hf_adjusted:
+  Y_post_i = alpha
+           + delta * ULFScore_mean_main_i
+           + beta  * Y_HF_ref_i
+           + gamma * DeltaHFScore_i
+           + error_i
 ```
 
 Primary ULF direct voxel settings:
@@ -1711,7 +1733,7 @@ For normative fiber-level outputs, report selected/high-ranked streamlines direc
 
 - HF primary direct voxel model: baseline-adjusted partial Spearman between right-canonical voxel-level HF-only 3-month exposure and HF-only 3-month raw score, adjusting for preoperative raw score; OLS ANCOVA is documented only as optional future supplemental analysis.
 - HF primary normative connectome model: baseline-adjusted partial Spearman between right-canonical fiber-level HF-only 3-month exposure and HF-only 3-month raw score, adjusting for preoperative raw score.
-- ULF chronic add-on gain direct voxel model: endpoint-specific voxel-level partial Spearman core branch pair. Both branches include `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_chronic` when a stable HF voxel source exists. The branch interpreted as primary is resolved from `hf_voxel_prediction_status`.
+- ULF chronic add-on gain direct voxel model: endpoint-specific voxel-level partial Spearman core branch pair. Both branches include `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_chronic` when a stable HF voxel source exists. The branch interpreted as primary is resolved from `hf_voxel_prediction_status`; ULF branch stability and error-predictiveness are separately recorded as `ulf_voxel_source_status` and `ulf_voxel_prediction_status`.
 - ULF chronic add-on gain normative connectome model: endpoint-specific fiber-level partial Spearman core branch pair. Both branches include `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_chronic`. The branch interpreted as primary is resolved from the matched HF result.
 - ULF immediate add-on gain direct voxel and normative connectome models: endpoint-specific partial Spearman core branch pair with same-day `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_immediate` when the matched HF source exists, run according to the model-specific direct voxel and normative fiber summaries.
 - HF early or acute response models are future or historical sketches, not current non-individualized executable model-summary files.

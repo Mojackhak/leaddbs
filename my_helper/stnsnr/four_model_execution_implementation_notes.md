@@ -24,7 +24,8 @@ Current refreshed outputs:
 Current state:
 
 ```text
-A/B primary observed HF branches: failed_unstable
+A direct voxel: intended resolver fields still need refresh
+B normative fiber: observed validity fields available from the normative-fiber status path
 C/D observed ULF branches: OBSERVED_COMPLETE_EXPLORATORY
 ULF component e-fields: 64/64 available
 formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
@@ -169,15 +170,15 @@ This layer is intentionally model-agnostic. It does not define HF/ULF paths, doe
 
 ## ULF Dependency Identifiers
 
-ULF readiness and status code use explicit HF dependency IDs from
-`four_model_gate_status.csv`:
+ULF readiness and status code use explicit HF dependency IDs from the current
+status CSV:
 
 ```text
 C direct voxel depends on A
 D PPMI normative fiber depends on B_PPMI
 ```
 
-There is no generic `B` gate-status row. Additional D connectome variants must
+There is no generic `B` status row. Additional D connectome variants must
 bind to their matching `B_<connectome>` dependency explicitly.
 
 ## HF Direct Voxel Smoke Driver
@@ -259,9 +260,9 @@ and then runs the partial-Spearman `NetFiberScore` observed LOOCV branch. Existi
 
 The driver supports `--max-fibers` only for development self-tests and debugging. Production PPMI smoke runs should leave it unset so the candidate universe remains the full PPMI connectome.
 
-## Four-Model Gate Status Summary
+## Four-Model Status Summary
 
-After foundational smoke branches run, the gate status tool reads current manifests/QC files and writes a compact decision table:
+The current status tool reads manifests/QC files and writes a compact execution table:
 
 ```text
 my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py
@@ -273,16 +274,7 @@ Reusable implementation:
 my_helper/fiber/core/analysis/stnsnr_four_model_gate_status.py
 ```
 
-The tool does not run any model. It classifies each available primary smoke branch as:
-
-```text
-PASS_TO_NEXT_ROUND
-STOP_FORMAL_REMAIN_EXPLORATORY
-MISSING_OUTPUT
-ERROR
-```
-
-For the current gate, a branch enters the next expensive round only if all executable QC files exist, LOOCV predictions are finite, the primary LOOCV Spearman rho is positive, and Q2 is not negative. This intentionally prevents formal permutation/bootstrap from starting when the primary observed branch does not show incremental signal beyond baseline.
+The tool does not run any model. Any older stop/go fields emitted by this code are historical execution metadata. Intended A direct-voxel dependency decisions must come from `hf_voxel_source_status` and `hf_voxel_prediction_status`; intended B normative-fiber decisions must come from the normative-fiber validity and burden fields.
 
 ## ULF Component Readiness Gate
 
@@ -303,7 +295,7 @@ Reusable implementation:
 my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py
 ```
 
-The gate checks:
+The readiness check verifies:
 
 - chronic ULF endpoint reconstruction from `subject_effect_origin.xlsx` for the
   default total motor scale;
@@ -313,10 +305,11 @@ The gate checks:
   `HF >= 100 Hz` and `ULF <= 50 Hz`;
 - component-specific `3m/STN+SNr` raw `sim-efield` availability for every
   subject, side, and frequency-classified component row;
-- A/B dependency status from `four_model_gate_status.csv`, so C and D are
-  labeled exploratory when their matched HF model failed the primary gate.
+- A/B dependency status from the current status CSV, while intended direct-voxel
+  branch roles are refreshed from `hf_voxel_source_status` and
+  `hf_voxel_prediction_status`.
 
-The gate follows the same e-field path logic as the target-component VTA
+The readiness check follows the same e-field path logic as the target-component VTA
 distribution code:
 
 - observed alternating components use observed subprogram e-fields under
@@ -326,7 +319,7 @@ distribution code:
 - mixed continuous STN+SNr components use the counterfactual target-component
   e-field under `stnsnr_target_component_<ID>_<phase>_STNplusSNr_<side>_<target>`.
 
-The gate must not substitute the mixed `STN+SNr` condition-level e-field for
+The readiness check must not substitute the mixed `STN+SNr` condition-level e-field for
 frequency-component HF or ULF e-fields. If the required observed subprogram or
 target-component e-fields are missing, C/D remain not executable even when mixed
 condition VTA outputs, thresholded VTA masks, or component stimulation-parameter
@@ -381,14 +374,14 @@ Run the HF normative fiber observed smoke driver:
   python my_helper/fiber/stnsnr/run_stnsnr_hf_normative_fiber_smoke.py
 ```
 
-Summarize gate status:
+Summarize legacy A/B status:
 
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py
 ```
 
-Run the ULF component readiness gate:
+Run the ULF component readiness check:
 
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
@@ -398,9 +391,9 @@ Run the ULF component readiness gate:
 ## Four-Model Execution Status Report
 
 The current execution state is distributed across M0 readiness, A/B primary
-gate status, and ULF component readiness outputs. The status report layer
+status, and ULF component readiness outputs. The status report layer
 collects those artifacts into one machine-readable and human-readable snapshot.
-It does not run any model and does not change gates.
+It does not run any model and does not change resolver/status fields.
 
 Entry point:
 
@@ -417,10 +410,10 @@ my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py
 The report records, for each model:
 
 - whether required primary observed outputs exist;
-- current gate decision and observed LOOCV metrics;
+- current resolver/status decision and observed LOOCV metrics;
 - whether downstream dependencies are locked or exploratory;
 - whether missing inputs prevent execution;
-- whether formal resampling is allowed, skipped by gate, or not yet applicable.
+- whether formal resampling is allowed, deferred by status, or not yet applicable.
 
 Default outputs:
 
@@ -440,7 +433,7 @@ Run the consolidated status report:
 
 ## ULF Component E-field Worklist
 
-When the ULF readiness gate reports missing component-specific e-fields, the
+When the ULF readiness check reports missing component-specific e-fields, the
 worklist layer converts the latest readiness CSV into an explicit queue. It
 does not run MATLAB and does not generate e-fields; it only records which
 components must be generated before any ULF voxel or fiber model can execute
@@ -497,12 +490,11 @@ and exposed through the existing pipeline entry point:
 my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py
 ```
 
-The current code still exposes a legacy/current classification refresh command
-under the same entry point. Until code is updated, treat the candidate-level CSVs
-as historical outputs and do not use them as the intended direct-voxel branch-role
-contract.
+The current code still exposes historical candidate-level refresh outputs under
+the same entry point. Until code is updated, use the scan tables only as input
+evidence for the intended resolver.
 
-Run the current refresh without recomputing the 60-cell scans:
+Historical refresh command without recomputing the 60-cell scans:
 
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
@@ -510,7 +502,7 @@ Run the current refresh without recomputing the 60-cell scans:
   --classify-levels
 ```
 
-Legacy/current outputs:
+Historical outputs:
 
 ```text
 /Volumes/VAL/STNSNr/summary/direct_voxel/hf/posthoc_threshold_scan_all_scales/
@@ -520,13 +512,13 @@ Legacy/current outputs:
 ```
 
 The intended resolver uses scan-table evidence only for computability and local
-support: `n_voxels_full >= 20`, `fold_n_voxels_min >= 10`, nonconstant
-`HFScore`, finite predictions, and adjacent passing grid cells on the declared
-tau/Coverage grid. It first tests `tau200/Coverage>=5`; only if that source is
-not accepted does it choose a fallback by distance to the pre-specified grid,
-adjacent support count, `fold_n_voxels_min`, stricter Coverage, and higher tau.
-MAE/RMSE define `hf_voxel_prediction_status`; `Q2` and LOOCV Spearman rho are
-report metrics.
+support: `n_subjects >= 12`, `n_voxels_full >= 20`, `fold_n_voxels_min >= 10`,
+nonconstant `HFScore`, finite predictions, and adjacent passing grid cells on
+the declared tau/Coverage grid. It first tests `tau200/Coverage>=5`; only if
+that source is not accepted does it choose a fallback by distance to the
+pre-specified grid, adjacent support count, `fold_n_voxels_min`, stricter
+Coverage, and higher tau. MAE/RMSE define `hf_voxel_prediction_status`; `Q2`
+and LOOCV Spearman rho are report metrics.
 
 ## ULF Direct Voxel Observed Driver
 
@@ -610,12 +602,25 @@ Default outputs:
 Each branch writes observed scores, LOOCV predictions, NIfTI maps, QC JSON, and
 a generation manifest. The branch manifests record `ulf_primary_branch`,
 `delta_hfscore_role`, `hf_voxel_source_status`, `hf_voxel_prediction_status`,
-and `resampling_status=not_run_observed_only`.
+`ulf_voxel_source_status`, `ulf_voxel_prediction_status`,
+`ulf_endpoint_model_status`, `ulf_branch_input_status`,
+`branch_nuisance_design_status`, and `resampling_status=not_run_observed_only`.
+
+The ULF branch resolver mirrors the HF direct-voxel split between source
+stability and prediction error. Its hard computability filter is
+`n_subjects >= 12`, `n_voxels_full >= 20`, `fold_n_voxels_min >= 10`,
+nonconstant `ULFScore_mean_main`, valid branch-specific nuisance design, and
+finite held-out predictions. The nuisance design is branch-specific:
+`intercept + Y_HF_ref` for no-DeltaHF and
+`intercept + Y_HF_ref + DeltaHFScore` for DeltaHF-adjusted. MAE/RMSE are
+compared against that branch's nuisance-only baseline to assign
+`ulf_voxel_prediction_status`. ULF statuses qualify the selected branch as
+stable/error-predictive or not; they do not change the branch role assigned from
+the matched HF resolver.
 
 The consolidated execution status reporter should treat C as observed-complete
-when both C branch manifests exist. This does not make C formal-resampling
-eligible; the formal status remains gate-restricted because matched A is not
-currently `error_predictive` under the revised direct-voxel resolver.
+when both C branch manifests exist. Formal reporting branch selection should be
+refreshed from the matched A resolver fields.
 
 ## ULF Normative Fiber Observed Driver
 
@@ -677,7 +682,7 @@ legacy/current output: ulf_peak_efield_tau800_delta_hf_adjusted
 revised spec:          ulf_peak_efield_tau800_cov5_delta_hf_adjusted
 ```
 
-Given the current B_PPMI primary gate failure for the observed PPMI branch, the no-DeltaHF branch is the
+Given the current B_PPMI normative-fiber status for the observed PPMI branch, the no-DeltaHF branch is the
 interpretation-primary branch in the manifest unless a matched HF normative
 fiber model is later upgraded to `predictive_valid` and not burden-dominated,
 or a selected normative-fiber HF source reaches post-hoc Level 4. The DeltaHF-adjusted branch

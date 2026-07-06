@@ -245,6 +245,7 @@ Source stability and patient-level prediction error are treated as separate evid
 The hard computability filter for each tau/Coverage grid cell is:
 
 ```text
+n_subjects >= 12
 n_voxels_full >= 20
 fold_n_voxels_min >= 10
 HFScore_mean_main is non-constant in every LOOCV fold
@@ -1017,21 +1018,15 @@ same plus-one p value for the deterministic small test
 
 The final run manifest should record whether the optimized equivalence test passed.
 
-## Execution Priority And Gatekeeping
+## Execution Priority And Reporting Workflow
 
-The HF direct voxel analysis must be executed as a gated sequence. The goal is not to run every documented sensitivity analysis at once. The first goal is to determine whether the primary branch:
+The HF direct voxel analysis is executed in stages so the intended source resolver is available before expensive reporting analyses run. The pre-specified branch is:
 
 ```text
 tau200 / partial_spearman / Coverage>=5 / HFScore_mean_main
 ```
 
-provides interpretable incremental LOOCV signal beyond the covariate-only baseline:
-
-```text
-Y_post ~ Y_base
-```
-
-Non-primary branches and display outputs are delayed until the primary branch passes the relevant gates.
+Non-primary branches and display outputs are delayed until the resolver fields are written. They do not redefine the HF voxel source or prediction status.
 
 ### Round 0: Input Readiness And Environment Lock
 
@@ -1063,15 +1058,14 @@ environment manifest:
   seed = 42
 ```
 
-Enter Round 1 only if:
+Continue only if:
 
 ```text
-all primary-scale subjects have Y_post and Y_base
+the endpoint has n_subjects >= 12 with Y_post and Y_base
 all subject-side e-field paths are uniquely matched
 no missing or duplicated raw e-field
 no empty, all-NaN, or non-finite e-field
 left/right flip helper is callable
-MDS-UPDRS III total has n >= 12, ideally n = 16
 ```
 
 Stop and fix inputs if any required e-field is missing or duplicated, clinical merge is incomplete, or scale direction is undefined. Do not silently exclude subjects.
@@ -1107,7 +1101,7 @@ flip audit summary:
   L-to-R output overlap with right canonical brainmask
 ```
 
-Enter Round 2 only if:
+Continue to observed modeling only if:
 
 ```text
 X matrix shape = n_subjects x n_candidate_voxels
@@ -1127,9 +1121,9 @@ left-to-right flipped exposure centroid outside plausible brain bounds
 exposure_sum_valid_voxels dominated by one or two subjects
 ```
 
-If `Omega_tau200` is empty, stop before modeling and report that `tau200/Coverage>=5` is not modelable for this dataset.
+If `Omega_tau200` is empty, the pre-specified grid cannot be accepted; the scan resolver determines whether a fallback source exists.
 
-### Round 2: Primary Observed LOOCV
+### Round 2: Observed LOOCV And Source Resolver
 
 Run only the primary branch:
 
@@ -1170,20 +1164,19 @@ display smoothing
 top 10% display masks
 ```
 
-Enter the source resolver only if:
+The hard computability filter for each endpoint and tau/Coverage grid cell is:
 
 ```text
-all LOOCV folds finish
-each fold has non-empty Omega_tau200
-each fold has non-empty valid M_HF voxels
-degenerate voxel fraction does not make scoring meaningless
-HFScore_mean_main is not constant across subjects
+n_subjects >= 12
+n_voxels_full >= 20
+fold_n_voxels_min >= 10
+HFScore_mean_main is non-constant in every LOOCV fold
 all held-out predictions are finite
-final prediction model is not numerically singular
-corr(HFScore_mean_main, Y_base) is not near +/-1
 ```
 
-Resolve the branch state as:
+Numerical singularity, near-collinearity with `Y_base`, high-leverage dominance, or extreme support imbalance are QC limitations. They must be recorded in the manifest, but they do not replace the source resolver unless they make the hard computability filter fail.
+
+Resolve HF voxel status as:
 
 ```text
 pre_specified_accepted if tau200/Coverage>=5 and at least 2 adjacent cells pass the hard computability filter
@@ -1194,9 +1187,9 @@ error_predictive if MAE_model < MAE_baseline and RMSE_model < RMSE_baseline
 error_nonpredictive if an accepted source does not improve both MAE and RMSE
 ```
 
-`Q2` and LOOCV Spearman rho are reported for interpretation and permutation summaries, but they are not source-existence filters. If `absent_no_stable_grid` is assigned, do not compute a DeltaHFScore-adjusted ULF branch for that endpoint.
+`Q2`, LOOCV Spearman rho, permutation p values, bootstrap stability, and jitter stability are reporting fields. They do not change `hf_voxel_source_status` or `hf_voxel_prediction_status`. If `absent_no_stable_grid` is assigned, do not compute a DeltaHFScore-adjusted ULF branch for that endpoint.
 
-### Round 3: Equivalence Test And Smoke Resampling
+### Round 3: Equivalence Test And Smoke Reporting
 
 Run:
 
@@ -1226,7 +1219,7 @@ smoke jitter:
   FWHM = 2 mm
 ```
 
-Enter Round 4 only if:
+Formal reporting analyses require:
 
 ```text
 fold-specific Omega_HF_tau exactly matches brute-force reference
@@ -1239,13 +1232,13 @@ same NaN / degenerate voxel locations
 small-test plus-one p value matches
 permutation null is generated without crash
 bootstrap finite-count distribution is acceptable
-jitter map correlation is not near zero
-jitter LOOCV rho does not systematically reverse direction
+jitter map correlation is recorded
+jitter LOOCV direction is recorded
 ```
 
-Stop and fix implementation if optimized and brute-force paths are not equivalent. If smoke permutation is ordinary and Round 2 already had `Q2 <= 0`, stop and report an exploratory negative result. If smoke jitter is highly unstable, do not run formal jitter unless explicitly needed for a fragility report.
+Stop and fix implementation only if optimized and brute-force paths are not equivalent or smoke resampling cannot run. Ordinary `Q2`, rho, p-value, or jitter results are reported as inference-strength and robustness information.
 
-### Round 4: Formal Permutation
+### Round 4: Formal Permutation Reporting
 
 Run:
 
@@ -1271,29 +1264,29 @@ rerun LOOCV prediction
 compute LOOCV Spearman
 ```
 
-Enter Round 5 if:
+Permutation output is reportable if:
 
 ```text
 formal permutation completes
 plus-one p value is finite
-observed rho is consistent with the smoke run
+observed rho is recorded consistently with the smoke run
 permutation null distribution has no implementation artifact
 ```
 
-Interpretation gate:
+Interpretation:
 
 ```text
-p_perm <= 0.10:
-  proceed to full bootstrap and sensitivity as a signal-bearing accepted source
+accepted source with error_predictive status:
+  report predictive and inferential summaries
 
-p_perm > 0.10 and hf_voxel_prediction_status == error_predictive:
-  proceed only to limited stability/sensitivity; label conclusions exploratory
+accepted source with error_nonpredictive status:
+  report source/support summaries and avoid claiming patient-level prediction
 
-p_perm > 0.10 and hf_voxel_prediction_status == error_nonpredictive:
-  stop heavy predictive analyses and produce a source/support report
+absent_no_stable_grid:
+  report no stable HF voxel source for that endpoint
 ```
 
-For this `n=16` cohort, do not use `p < 0.05` as the only gate. Interpret permutation p value together with LOOCV rho, Q2, MAE/RMSE baseline comparison, threshold-source status, and influence diagnostics.
+For this cohort, do not use a permutation p value, `Q2`, or LOOCV rho sign to redefine source existence or prediction status. Interpret them together with threshold-source status, MAE/RMSE status, and influence diagnostics.
 
 ### Round 5: Formal Bootstrap
 
@@ -1321,7 +1314,7 @@ bootstrap SE
 
 Do not save 10000 bootstrap maps. Use streaming Welford accumulation.
 
-Enter Round 6 only if:
+Bootstrap reports:
 
 ```text
 bootstrap finite-count distribution is not too low
@@ -1333,7 +1326,7 @@ core positive-region sign stability >= 0.70
 LOOCV positive-direction stability >= 0.75 regions remain anatomically interpretable
 ```
 
-If map direction flips frequently or is supported by only a small subset of bootstrap resamples, do not make strong spatial sweet spot claims.
+If map direction flips frequently or is supported by only a small subset of bootstrap resamples, report the spatial claim as fragile.
 
 ### Round 6: Formal Spatial Jitter
 
@@ -1359,16 +1352,16 @@ HF scores
 LOOCV validation metrics
 ```
 
-Enter Round 7 if:
+Jitter reports:
 
 ```text
 median jitter map correlation > 0.5
-median jitter LOOCV rho remains positive
+median jitter LOOCV direction
 core sweet/sour direction does not systematically reverse
 core-region spatial drift stays within an anatomically interpretable range
 ```
 
-If jitter map correlation is near zero, LOOCV rho crosses zero with unstable direction, or the core region disappears with 1 to 2 mm translation, downgrade conclusions to:
+If jitter map correlation is near zero, LOOCV direction is unstable, or the core region disappears with 1 to 2 mm translation, describe the spatial report as:
 
 ```text
 spatially fragile exploratory association
@@ -1392,12 +1385,11 @@ resampling_status = not_run_nonprimary
 resampling_reason = formal resampling restricted to tau200/partial_spearman
 ```
 
-Enter Round 8 if:
+Tau sensitivity reports:
 
 ```text
-tau180, tau200, and tau220 LOOCV rho directions agree
-Q2 is broadly consistent in direction
-tau200 is not the only threshold with a non-reversed effect
+tau180, tau200, and tau220 LOOCV directions
+Q2 across thresholds
 sweet/sour map spatial correlation or core overlap is acceptable
 Omega size changes monotonically with tau
 ```
@@ -1417,7 +1409,7 @@ tau180 or tau220 reverses direction:
 
 ### Round 8: Secondary Axial Scale
 
-Run only after the MDS-UPDRS III total mainline is interpretable:
+Run as a secondary endpoint report:
 
 ```text
 scale = MDS-UPDRS III axial score
@@ -1429,21 +1421,19 @@ smoke permutation = optional
 
 Do not immediately run formal `B=10000` permutation, formal bootstrap, or formal jitter for axial unless axial is promoted to a co-primary endpoint or both total and axial show consistent primary signal.
 
-Enter optional axial smoke resampling or secondary reporting if:
+Optional axial reporting records:
 
 ```text
 axial tau200 LOOCV folds all finish
 HFScore is not constant
-rho_obs has the same direction as total score
-Q2 is not worse than baseline
+rho_obs direction
+Q2
 map has plausible spatial overlap with the total-score map
 ```
 
-Report axial as negative or exploratory if:
+Report axial limitations if:
 
 ```text
-axial tau200 rho <= 0
-Q2 <= 0
 map is completely inconsistent with total score
 one subject determines the result
 ```
@@ -1507,7 +1497,7 @@ OLS ANCOVA is an optional future supplemental estimator and does not generate ou
 
 ### Post-hoc Tau/Coverage Threshold Scan
 
-The A-model post-hoc threshold scan is an exploratory branch for selecting a core HF sweet spot threshold after observing that the original primary branch did not pass the gate. It may generate a biologically plausible high-dose/high-coverage core-territory hypothesis, but it must not replace or relabel the original primary analysis:
+The A-model post-hoc threshold scan is an exploratory branch for selecting a core HF sweet spot threshold when the pre-specified tau200/Coverage>=5 grid is not accepted by the source resolver. It may generate a biologically plausible high-dose/high-coverage core-territory hypothesis, but it must not replace or relabel the original primary analysis:
 
 ```text
 primary branch:
@@ -1581,6 +1571,7 @@ delta_max
 The hard computability filter is:
 
 ```text
+n_subjects >= 12
 n_voxels_full >= 20
 fold_n_voxels_min >= 10
 HFScore non-constant in every fold

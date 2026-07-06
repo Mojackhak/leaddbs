@@ -861,7 +861,7 @@ Then assign the interpretive primary branch from the locked HF result:
   normative fiber stable/failed/burden-dominated dependency -> no_delta_hf is primary
 ```
 
-The manifest must record direct-voxel resolver fields (`hf_voxel_source_status`, `hf_voxel_prediction_status`, `hf_voxel_threshold_source`, selected tau/coverage, and adjacent support) when the matched HF dependency is direct voxel. For normative fiber dependencies, it must record `hf_norm_fiber_prediction_validity_status`, `hf_norm_fiber_burden_dominated`, `hf_norm_fiber_threshold_source`, selected tau/coverage fields, and `hf_norm_fiber_posthoc_candidate_level`. All ULF manifests must record `ulf_primary_branch`, `delta_hfscore_allowed_role`, `delta_hfscore_role`, and `branch_role_decision_reason`.
+The manifest must record direct-voxel HF resolver fields (`hf_voxel_source_status`, `hf_voxel_prediction_status`, `hf_voxel_threshold_source`, selected tau/coverage, and adjacent support) when the matched HF dependency is direct voxel. ULF direct voxel manifests must also record the ULF branch's own resolver fields: `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, `ulf_branch_input_status`, `branch_nuisance_design_status`, selected ULF tau/coverage, and adjacent support. These ULF fields describe whether the executed ULF branch is stable and error-predictive; they do not override the HF-derived `ulf_primary_branch`. For normative fiber dependencies, the manifest must record `hf_norm_fiber_prediction_validity_status`, `hf_norm_fiber_burden_dominated`, `hf_norm_fiber_threshold_source`, selected tau/coverage fields, and `hf_norm_fiber_posthoc_candidate_level`. All ULF manifests must record `ulf_primary_branch`, `delta_hfscore_allowed_role`, `delta_hfscore_role`, and `branch_role_decision_reason`.
 
 The model has two endpoints:
 
@@ -1014,6 +1014,8 @@ X_ULF_only is tau-specific and excludes HF-overlap voxels
 DeltaHFScore source = locked HF direct voxel model for the delta_hf_adjusted branch
 primary score = ULFScore_mean_main in both core branches
 primary branch = resolved from hf_voxel_prediction_status
+ULF branch stability = resolved from ulf_voxel_source_status
+ULF branch prediction status = resolved from MAE/RMSE versus branch-specific nuisance baseline
 optional OLS ANCOVA = documented only, not run
 ```
 
