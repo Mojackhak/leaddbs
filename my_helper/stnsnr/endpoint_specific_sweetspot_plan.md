@@ -1069,7 +1069,7 @@ DeltaHFScore_immediate =
   - S_HF_family,motor(E_HF_component,HF-only3m)
 ```
 
-Report this as a same-cohort, pre-ULF-derived nuisance adjustment unless the model-matched HF efficacy model comes from an external dataset. The no-DeltaHF branch is run in parallel and becomes the interpretive primary branch when the matched HF model is stable but not predictively useful, or when `DeltaHFScore` is technically unstable.
+Report this as a same-cohort, pre-ULF-derived nuisance adjustment unless the model-matched HF efficacy model comes from an external dataset. For direct voxel dependencies, the no-DeltaHF branch is run in parallel whenever an HF voxel source exists; `delta_hf_adjusted` is primary only when `hf_voxel_prediction_status = error_predictive`. If the direct voxel resolver returns `absent_no_stable_grid`, the DeltaHF-adjusted branch is not run. Normative fiber dependencies follow their model-specific branch-role resolver.
 
 ### Residualized SNr Sensitivity Model
 
@@ -1711,9 +1711,9 @@ For normative fiber-level outputs, report selected/high-ranked streamlines direc
 
 - HF primary direct voxel model: baseline-adjusted partial Spearman between right-canonical voxel-level HF-only 3-month exposure and HF-only 3-month raw score, adjusting for preoperative raw score; OLS ANCOVA is documented only as optional future supplemental analysis.
 - HF primary normative connectome model: baseline-adjusted partial Spearman between right-canonical fiber-level HF-only 3-month exposure and HF-only 3-month raw score, adjusting for preoperative raw score.
-- ULF chronic add-on gain direct voxel model: endpoint-specific voxel-level partial Spearman core branch pair. Both branches include `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_chronic`. The branch interpreted as primary is resolved from the matched HF result.
+- ULF chronic add-on gain direct voxel model: endpoint-specific voxel-level partial Spearman core branch pair. Both branches include `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_chronic` when a stable HF voxel source exists. The branch interpreted as primary is resolved from `hf_voxel_prediction_status`.
 - ULF chronic add-on gain normative connectome model: endpoint-specific fiber-level partial Spearman core branch pair. Both branches include `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_chronic`. The branch interpreted as primary is resolved from the matched HF result.
-- ULF immediate add-on gain direct voxel and normative connectome models: endpoint-specific partial Spearman core branch pair with same-day `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_immediate`, run according to the model-specific direct voxel and normative fiber summaries.
+- ULF immediate add-on gain direct voxel and normative connectome models: endpoint-specific partial Spearman core branch pair with same-day `Y_HF_ref`; the DeltaHF-adjusted branch additionally includes `DeltaHFScore_immediate` when the matched HF source exists, run according to the model-specific direct voxel and normative fiber summaries.
 - HF early or acute response models are future or historical sketches, not current non-individualized executable model-summary files.
 - Primary inference is scale-specific; do not combine heterogeneous scales into one primary model.
 - For HF and ULF normative fiber-level models, output fiber-wise FDR q-values for QC/display only. For individualized-DWI target-level models, correct multiple comparisons across tested targets within each scale, DWI source, and model class using FDR.
@@ -1726,8 +1726,8 @@ Recommended reporting hierarchy:
 - primary HF endpoint: chronic HF-only efficacy model using `Preop -> STN-3m`;
 - future secondary HF endpoint, not part of the current non-individualized executable summaries: early / acute HF-only response model using `Preop -> STN-immediate`, or `STN-OFF same-day -> STN-immediate` when same-day baseline exists;
 - optional HF endpoint: chronic adaptation model using `STN-immediate -> STN-3m`;
-- primary ULF chronic add-on gain endpoint: raw HF+ULF 3-month outcome model using the branch selected by the matched HF result (`Y_HF_ref` only or `Y_HF_ref + DeltaHFScore_chronic`);
-- key secondary or explicitly promoted co-primary ULF immediate endpoint: same-day raw HF+ULF immediate outcome model using the branch selected by the matched HF result (`Y_HF_ref` only or `Y_HF_ref + DeltaHFScore_immediate`);
+- primary ULF chronic add-on gain endpoint: raw HF+ULF 3-month outcome model using the branch selected by the matched HF resolver (`Y_HF_ref` only or `Y_HF_ref + DeltaHFScore_chronic`);
+- key secondary or explicitly promoted co-primary ULF immediate endpoint: same-day raw HF+ULF immediate outcome model using the branch selected by the matched HF resolver (`Y_HF_ref` only or `Y_HF_ref + DeltaHFScore_immediate`);
 - key secondary ULF endpoint: UPDRS-III chronic ULF-addition model to evaluate longer-term motor relevance;
 - symptom-specific secondary ULF endpoints: axial UPDRS-III, FOG-Q, KPPS, PDQ-39, MADRS, ADL, SE-ADL, and other available scales using their selected endpoints;
 - exploratory cross-scale summaries: map overlap, meta-map, or pooled/global model.
@@ -1840,8 +1840,8 @@ Reusable functions should be grouped by responsibility:
 9. Fit the primary chronic HF-only direct voxel and normative fiber models.
 10. Fit secondary HF-only early / acute target models where valid immediate data exist.
 11. Fit optional HF chronic adaptation target models when justified by programming changes.
-12. Fit endpoint-specific ULF chronic add-on gain direct voxel and normative fiber models with `Y_HF_ref` and `DeltaHFScore_chronic`.
-13. Fit endpoint-specific ULF immediate add-on gain direct voxel and normative fiber models with same-day `Y_HF_ref` and `DeltaHFScore_immediate`.
+12. Fit endpoint-specific ULF chronic add-on gain direct voxel and normative fiber models; direct voxel runs both no-DeltaHF and DeltaHF-adjusted branches when a stable HF voxel source exists, and normative fiber follows its model-specific resolver.
+13. Fit endpoint-specific ULF immediate add-on gain direct voxel and normative fiber models with same-day `Y_HF_ref`; include `DeltaHFScore_immediate` when the matched HF source exists and the model-specific resolver allows it.
 14. Fit sensitivity models, including normative-only and DWI-only variants.
 15. Label selected/high-ranked fibers by connected-region STN/SNr masks, endpoint masks, HCPex labels, and enrichment summaries.
 16. Generate target-derived seed voxel maps only for target-level individualized DWI models and target-level sensitivities.

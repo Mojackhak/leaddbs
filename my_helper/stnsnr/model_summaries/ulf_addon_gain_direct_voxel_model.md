@@ -178,30 +178,38 @@ map source   = training-fold map for LOOCV
 full-sample map = descriptive and full-sample score output only
 ```
 
-The ULF direct voxel implementation does not hard-code a single primary branch before HF results are reviewed. It runs the DeltaHF-adjusted and no-DeltaHF branches as an equal-status core branch pair when their inputs are available. The model report then records which branch is the interpretive primary branch using the locked HF result:
+The ULF direct voxel implementation does not hard-code a single primary branch before HF results are reviewed. It first reads the matched HF direct-voxel source resolver fields. If an HF voxel source exists and `DeltaHFScore` can be computed, it runs the DeltaHF-adjusted and no-DeltaHF branches as an equal-status core branch pair. The model report then records which branch is the interpretive primary branch using the matched HF prediction status:
 
 ```text
-if HF model is predictive_valid:
+if hf_voxel_source_status = pre_specified_accepted or scan_fallback_accepted:
+  run delta_hf_adjusted
+  run no_delta_hf
+
+if hf_voxel_prediction_status = error_predictive:
   ulf_primary_branch = delta_hf_adjusted
-  delta_hfscore_role = primary nuisance adjustment
+  delta_hfscore_role = primary_error_predictive_hf_adjustment
   no_delta_hf_role   = sensitivity
 
-if HF model is stable_nonpredictive:
+if hf_voxel_prediction_status = error_nonpredictive:
   ulf_primary_branch = no_delta_hf
-  delta_hfscore_role = sensitivity / compatibility adjustment
+  delta_hfscore_role = stable_error_nonpredictive_hf_adjustment_sensitivity
   no_delta_hf_role   = primary
 
-if HF model is failed_unstable:
-  ulf_primary_branch = no_delta_hf when ULF inputs remain valid
-  delta_hfscore_role = exploratory only, or not run if HF support is unavailable
-  no_delta_hf_role   = primary exploratory branch
+if hf_voxel_source_status = absent_no_stable_grid:
+  run no_delta_hf only
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = not_run_no_stable_hf_voxel_source
 ```
 
 The branch-role decision must be written to the model manifest:
 
 ```text
-hf_prediction_validity_status
-hf_prediction_validity_source
+hf_voxel_source_status
+hf_voxel_prediction_status
+hf_voxel_threshold_source
+hf_voxel_selected_tau_v_per_m
+hf_voxel_selected_coverage
+hf_voxel_selected_adjacent_passing_grid_cells
 ulf_primary_branch
 ulf_core_branches_run
 ulf_sensitivity_branches
@@ -210,9 +218,7 @@ branch_role_decision_reason
 hf_model_support_status
 ```
 
-If the locked HF branch fails QC, produces near-constant `HFScore_mean_main`, has empty fold scoring masks, or does not provide interpretable HF map support, `DeltaHFScore` must be labeled as an unstable generated covariate and cannot define the primary ULF interpretation.
-
-Post-hoc HF threshold candidates follow the level system defined in `hf_3m_direct_voxel_model.md`. Level 0 and Level 1 candidates must not be propagated to ULF. Level 2 and Level 3 candidates may generate separate exploratory `DeltaHFScore` sensitivity branches only. Level 4 candidates, or the original `tau200/Coverage>=5` primary HF branch when it is `predictive_valid`, may define the primary DeltaHF-adjusted ULF interpretation. At most one selected post-hoc candidate per endpoint may generate a ULF branch; neighboring support cells are robustness evidence, not separate covariates.
+If the matched HF resolver returns `absent_no_stable_grid`, or if the accepted HF source cannot provide valid fold-specific support for held-out `DeltaHFScore`, the DeltaHF-adjusted branch is not run for that endpoint. A `scan_fallback_accepted` source may define the primary ULF branch when its `hf_voxel_prediction_status` is `error_predictive`, but the manifest must still record `hf_voxel_threshold_source = scan_fallback`.
 
 ## Feature Construction
 
@@ -1040,10 +1046,10 @@ component audit:
   mixed or proxy component fields are labeled
 
 locked HF model audit:
-  hf_3m_direct_voxel_model tau200/partial_spearman source exists
+  hf_3m_direct_voxel_model source resolver fields exist
   HFScore_mean_main and M_HF support are valid
   fold-specific map generation is available for LOOCV DeltaHFScore
-  hf_prediction_validity_status is recorded
+  hf_voxel_source_status and hf_voxel_prediction_status are recorded
 ```
 
 Enter Round 1 only if all primary endpoint subjects have complete clinical and e-field inputs, same-day immediate reference is confirmed when immediate endpoint is run, and valid sample size is at least 12.
@@ -1084,12 +1090,14 @@ validation = LOOCV
 After both core branches finish, use the locked HF result to record:
 
 ```text
+hf_voxel_source_status
+hf_voxel_prediction_status
 ulf_primary_branch
 delta_hfscore_role
 branch_role_decision_reason
 ```
 
-Enter Round 3 only if the branch selected as primary has all folds complete, `ULFScore_mean_main` is not constant, held-out predictions are finite, LOOCV rho is positive, `Q2 > 0`, and the ULFScore model improves over its branch-specific nuisance-only baseline.
+Enter Round 3 only if the branch selected as primary has all folds complete, `ULFScore_mean_main` is not constant, held-out predictions are finite, and the result is not dominated by one high-leverage subject. LOOCV rho, `Q2`, MAE, RMSE, and nuisance-baseline comparisons remain required report fields for interpretation, but they are not hard filters for whether the branch is computable.
 
 Stop if both core chronic branches are negative, near-constant, unsupported by required inputs, or dominated by one high-leverage subject. Do not run `tau180/tau220` to search for a better threshold after core-branch failure.
 

@@ -844,7 +844,7 @@ The ULF add-on model family has one primary estimand, but the primary branch is 
 clinical optimization-informed HF-status-resolved ULF-only add-on model
 ```
 
-It asks whether the final clinician-optimized ULF component predicts better HF+ULF outcome after controlling the pre-ULF HF clinical state, with or without the concurrent HF component efficacy-map score change depending on the predictive validity of the matched HF model.
+It asks whether the final clinician-optimized ULF component predicts better HF+ULF outcome after controlling the pre-ULF HF clinical state, with or without the concurrent HF component efficacy-map score change depending on the matched HF source and prediction status.
 
 Engineering rule:
 
@@ -854,15 +854,14 @@ Always run the two core ULF branches when inputs are available:
   no_delta_hf:       Y_post ~ ULFPredictor + Y_HF_ref
 
 Then assign the interpretive primary branch from the locked HF result:
-  predictive_valid and not burden_dominated -> delta_hf_adjusted is primary
-  stable_nonpredictive                      -> no_delta_hf is primary
-  failed_unstable                           -> no_delta_hf is primary exploratory if ULF inputs remain valid
-  burden_dominated                          -> no_delta_hf is primary; DeltaHFScore is burden/placement sensitivity only
-  posthoc Level 2/3 HF source               -> no_delta_hf is primary; DeltaHFScore is exploratory selected-threshold sensitivity only
-  posthoc Level 4 HF source                 -> delta_hf_adjusted may be primary
+  direct voxel error_predictive HF source     -> delta_hf_adjusted is primary
+  direct voxel error_nonpredictive HF source  -> no_delta_hf is primary
+  direct voxel absent_no_stable_grid          -> no_delta_hf only
+  normative fiber predictive_valid and not burden_dominated -> delta_hf_adjusted is primary
+  normative fiber stable/failed/burden-dominated dependency -> no_delta_hf is primary
 ```
 
-The manifest must record `hf_norm_fiber_prediction_validity_status`, `hf_norm_fiber_burden_dominated`, `hf_norm_fiber_threshold_source`, selected tau/coverage fields, `hf_norm_fiber_posthoc_candidate_level`, `ulf_primary_branch`, `delta_hfscore_allowed_role`, `delta_hfscore_role`, and `branch_role_decision_reason`.
+The manifest must record direct-voxel resolver fields (`hf_voxel_source_status`, `hf_voxel_prediction_status`, `hf_voxel_threshold_source`, selected tau/coverage, and adjacent support) when the matched HF dependency is direct voxel. For normative fiber dependencies, it must record `hf_norm_fiber_prediction_validity_status`, `hf_norm_fiber_burden_dominated`, `hf_norm_fiber_threshold_source`, selected tau/coverage fields, and `hf_norm_fiber_posthoc_candidate_level`. All ULF manifests must record `ulf_primary_branch`, `delta_hfscore_allowed_role`, `delta_hfscore_role`, and `branch_role_decision_reason`.
 
 The model has two endpoints:
 
@@ -925,7 +924,7 @@ For normative connectome models, use the model-matched HF fiber-level score:
 S_HF_norm_fiber(E) = NetFiberScore(E)
 ```
 
-For ULF normative fiber models, `DeltaHFScore` is interpreted as a primary HF adjustment only when the matched HF normative fiber source is `predictive_valid` and not burden-dominated, or when a post-hoc selected HF source has reached Level 4 post-selection validation. Stable nonpredictive, failed unstable, burden-dominated, and Level 2/3 post-hoc sources may be computed only as sensitivity or fragility covariates.
+For ULF normative fiber models, `DeltaHFScore` is interpreted as a primary HF adjustment only when the matched HF normative fiber source is `predictive_valid` and not burden-dominated, or when a post-hoc selected normative-fiber HF source has reached Level 4 post-selection validation. Stable nonpredictive, failed unstable, burden-dominated, and Level 2/3 normative-fiber post-hoc sources may be computed only as sensitivity or fragility covariates.
 
 For individualized DWI seed-target models, use the model-matched HF target-level score:
 
@@ -1014,7 +1013,7 @@ Coverage_ULF_tau(v) >= 5
 X_ULF_only is tau-specific and excludes HF-overlap voxels
 DeltaHFScore source = locked HF direct voxel model for the delta_hf_adjusted branch
 primary score = ULFScore_mean_main in both core branches
-primary branch = resolved from hf_prediction_validity_status
+primary branch = resolved from hf_voxel_prediction_status
 optional OLS ANCOVA = documented only, not run
 ```
 

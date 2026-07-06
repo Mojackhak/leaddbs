@@ -238,66 +238,99 @@ resampling_reason = formal resampling restricted to tau200/partial_spearman
 ```
 
 
-### Prediction-Validity Gate And Downstream Role
+### HF Voxel Source Resolver And Downstream Role
 
-Spatial/rank-direction stability and patient-level predictive validity are treated as separate evidence axes.
-A voxel map may show stable `rho`, stable sign, or a low nominal permutation `p`, while still failing to predict individual outcome beyond the clinical baseline model.
+Source stability and patient-level prediction error are treated as separate evidence axes. The source resolver first decides whether an HF direct-voxel map is stable enough to define `DeltaHFScore`; prediction-error status then decides how downstream ULF branches are interpreted.
 
-Define the HF prediction-validity status for every primary-scale run:
+The hard computability filter for each tau/Coverage grid cell is:
 
 ```text
-hf_prediction_validity_status = predictive_valid
-  if LOOCV rho_obs > 0
-  and Q2 > 0
-  and MAE_model < MAE_YBase_only
-  and RMSE_model < RMSE_YBase_only
-  and HFScore_mean_main is not near-constant
-  and no single high-leverage subject explains the result
-
-hf_prediction_validity_status = stable_nonpredictive
-  if map direction, rho, or permutation behavior appears stable
-  but Q2 <= 0
-  or MAE/RMSE are not better than Y_base-only
-
-hf_prediction_validity_status = failed_unstable
-  if rho_obs <= 0
-  or fold score masks are empty/near-empty
-  or scores are near-constant
-  or predictions are non-finite
-  or the result is dominated by a single subject
+n_voxels_full >= 20
+fold_n_voxels_min >= 10
+HFScore_mean_main is non-constant in every LOOCV fold
+all held-out predictions are finite
 ```
 
-A `stable_nonpredictive` HF model may still be exported as an exploratory HF-only association map, with its coverage, stability, scores, and support masks preserved for audit and downstream sensitivity analyses. It must not be interpreted as a validated individual HF efficacy predictor.
+`Q2`, LOOCV Spearman rho, MAE, and RMSE remain required report fields, but `Q2` and rho are not hard filters. MAE/RMSE define prediction-error status after a source is accepted.
+
+Define the HF voxel source status for every endpoint:
+
+```text
+hf_voxel_source_status = pre_specified_accepted
+  if the pre-specified tau200/Coverage>=5 grid cell passes the hard computability filter
+  and at least 2 adjacent tau/Coverage grid cells also pass the hard computability filter
+
+hf_voxel_source_status = scan_fallback_accepted
+  if tau200/Coverage>=5 does not pass the source-stability rule
+  and another grid cell passes the same source-stability rule
+
+hf_voxel_source_status = absent_no_stable_grid
+  if no tau/Coverage grid cell passes the source-stability rule
+```
+
+For `scan_fallback_accepted`, choose the fallback grid without using outcome-performance metrics:
+
+```text
+1. minimize grid distance from tau200/Coverage>=5
+2. maximize adjacent passing grid cells
+3. maximize fold_n_voxels_min
+4. prefer stricter Coverage
+5. prefer higher tau
+```
+
+Adjacent grid cells are defined on the declared tau/Coverage grid; horizontal, vertical, and diagonal one-step neighbors all count.
+
+Define the HF voxel prediction status only after a source exists:
+
+```text
+hf_voxel_prediction_status = error_predictive
+  if MAE_model < MAE_baseline
+  and RMSE_model < RMSE_baseline
+
+hf_voxel_prediction_status = error_nonpredictive
+  if an HF voxel source exists
+  but MAE_model >= MAE_baseline
+  or RMSE_model >= RMSE_baseline
+
+hf_voxel_prediction_status = not_applicable
+  if hf_voxel_source_status = absent_no_stable_grid
+```
 
 Downstream ULF rule:
 
 ```text
-if hf_prediction_validity_status == predictive_valid:
-  DeltaHFScore may be treated as a model-supported HF efficacy-change covariate.
+if hf_voxel_source_status is pre_specified_accepted or scan_fallback_accepted:
+  compute DeltaHFScore when HF support is available
+  run both no_delta_hf and delta_hf_adjusted ULF branches
 
-if hf_prediction_validity_status == stable_nonpredictive:
-  DeltaHFScore may be computed for engineering compatibility and sensitivity analysis,
-  but it must be labeled unstable_generated_covariate.
-  ULF interpretation should use the no-DeltaHF branch as the main model.
+if hf_voxel_prediction_status == error_predictive:
+  ulf_primary_branch = delta_hf_adjusted
 
-if hf_prediction_validity_status == failed_unstable:
-  DeltaHFScore should not be used for primary adjustment.
-  Compute it only if finite map support exists and an explicit fragility/sensitivity report is requested.
+if hf_voxel_prediction_status == error_nonpredictive:
+  ulf_primary_branch = no_delta_hf
+
+if hf_voxel_source_status == absent_no_stable_grid:
+  do not compute a DeltaHFScore-adjusted ULF branch
+  run no_delta_hf only
 ```
 
 Required manifest/QC fields:
 
 ```text
-hf_prediction_validity_status
-hf_prediction_failure_reasons
+hf_voxel_source_status
+hf_voxel_prediction_status
+hf_voxel_threshold_source
+selected_tau_v_per_m
+selected_coverage
+selected_grid_distance_from_pre_specified
+selected_adjacent_passing_grid_cells
 rho_obs
 p_perm if available
 Q2
 MAE_model
-MAE_YBase_only
+MAE_baseline
 RMSE_model
-RMSE_YBase_only
-high_leverage_subjects
+RMSE_baseline
 hf_downstream_delta_hfscore_role
 ```
 
@@ -508,7 +541,7 @@ This model estimates local HF-only stimulation association with 3-month raw post
 
 Because the cohort has `n=16`, the result is hypothesis-generating. LOOCV may be non-significant; a non-significant LOOCV result should not be interpreted as proof that no biological HF sweet spot exists. `Y_base` is used in the voxel map through partial Spearman residualization and is also retained in the final prediction model to test the incremental predictive value of `HFScore_mean_main`. The QC report must therefore include the association between `HFScore_mean_main` and `Y_base` and a basic collinearity diagnostic for the final prediction model.
 
-If the map appears spatially or directionally stable but has `Q2 <= 0` or does not improve MAE/RMSE over the `Y_base`-only baseline, the correct interpretation is `stable_nonpredictive`: the map may represent a reproducible exposure-outcome association pattern in this small cohort, but it is not a validated patient-level HF efficacy predictor. In that case, the map can be retained for hypothesis generation and for downstream ULF sensitivity calculations, but any generated `DeltaHFScore` must be labeled as an unstable generated covariate rather than a reliable HF efficacy-change adjustment.
+If the source resolver accepts a map but MAE or RMSE does not improve over the `Y_base`-only baseline, the correct interpretation is `error_nonpredictive`: the source is stable enough to generate `DeltaHFScore`, but it is not the predictive primary HF adjustment for ULF. In that case, downstream ULF should still run both core branches when inputs allow, with no-DeltaHF recorded as the primary branch.
 
 ## Execution Efficiency
 
@@ -1137,7 +1170,7 @@ display smoothing
 top 10% display masks
 ```
 
-Enter Round 3 only if:
+Enter the source resolver only if:
 
 ```text
 all LOOCV folds finish
@@ -1147,25 +1180,21 @@ degenerate voxel fraction does not make scoring meaningless
 HFScore_mean_main is not constant across subjects
 all held-out predictions are finite
 final prediction model is not numerically singular
-LOOCV Spearman rho_obs > 0
-Q2 > 0
-HFScore model improves MAE or RMSE over Y_base-only baseline
-delta coefficient direction matches benefit-oriented M_HF interpretation
 corr(HFScore_mean_main, Y_base) is not near +/-1
 ```
 
-Stop or report a negative/exploratory primary result if:
+Resolve the branch state as:
 
 ```text
-LOOCV rho_obs <= 0
-Q2 <= 0
-HFScore model does not improve on Y_base-only baseline
-multiple folds have empty or near-empty V_score
-HFScore_mean_main is nearly constant
-prediction is driven by one high-leverage subject
+pre_specified_accepted if tau200/Coverage>=5 and at least 2 adjacent cells pass the hard computability filter
+scan_fallback_accepted if a non-primary grid cell passes the same source-stability rule
+absent_no_stable_grid if no stable grid cell exists
+
+error_predictive if MAE_model < MAE_baseline and RMSE_model < RMSE_baseline
+error_nonpredictive if an accepted source does not improve both MAE and RMSE
 ```
 
-Do not run `tau180/tau220` to search for a better threshold when the primary branch fails. If downstream ULF code requires a paired `DeltaHFScore` sensitivity branch, export the finite HF map/support metadata as `stable_nonpredictive` or `failed_unstable` rather than blocking the ULF no-DeltaHF main analysis. The exported HF support is then used only to compute an explicitly labeled unstable generated covariate, not to claim validated HF prediction.
+`Q2` and LOOCV Spearman rho are reported for interpretation and permutation summaries, but they are not source-existence filters. If `absent_no_stable_grid` is assigned, do not compute a DeltaHFScore-adjusted ULF branch for that endpoint.
 
 ### Round 3: Equivalence Test And Smoke Resampling
 
@@ -1255,16 +1284,16 @@ Interpretation gate:
 
 ```text
 p_perm <= 0.10:
-  proceed to full bootstrap and sensitivity as a signal-bearing primary branch
+  proceed to full bootstrap and sensitivity as a signal-bearing accepted source
 
-p_perm > 0.10 and rho_obs > 0 and Q2 > 0:
+p_perm > 0.10 and hf_voxel_prediction_status == error_predictive:
   proceed only to limited stability/sensitivity; label conclusions exploratory
 
-p_perm > 0.10 and Q2 <= 0:
-  stop heavy analyses and produce a minimal report
+p_perm > 0.10 and hf_voxel_prediction_status == error_nonpredictive:
+  stop heavy predictive analyses and produce a source/support report
 ```
 
-For this `n=16` cohort, do not use `p < 0.05` as the only gate. Interpret permutation p value together with LOOCV rho, Q2, baseline comparison, and influence diagnostics.
+For this `n=16` cohort, do not use `p < 0.05` as the only gate. Interpret permutation p value together with LOOCV rho, Q2, MAE/RMSE baseline comparison, threshold-source status, and influence diagnostics.
 
 ### Round 5: Formal Bootstrap
 
@@ -1549,27 +1578,23 @@ delta_min
 delta_max
 ```
 
-The hard stability filter is:
+The hard computability filter is:
 
 ```text
 n_voxels_full >= 20
 fold_n_voxels_min >= 10
 HFScore non-constant in every fold
 all held-out predictions finite
-Q2 > 0
-LOOCV Spearman rho > 0
-MAE_model < MAE_baseline
-RMSE_model < RMSE_baseline
 ```
 
-The selected exploratory grid cell is chosen only among cells passing all hard filters, using this priority order:
+The resolver first tests the pre-specified `tau200/Coverage>=5` grid cell. It is accepted when that cell passes the hard computability filter and at least 2 adjacent grid cells also pass. If it is not accepted, choose a fallback only among grid cells passing the same source-stability rule, using this priority order:
 
 ```text
-1. highest Q2
-2. higher LOOCV Spearman rho if Q2 is tied or practically equivalent
+1. closer to tau200/Coverage>=5
+2. more adjacent passing grid cells
 3. higher fold_n_voxels_min
-4. closer to the original primary branch tau=200 / Coverage>=5
-5. if still tied, stricter Coverage and then higher tau as the more core/conservative branch
+4. stricter Coverage
+5. higher tau
 ```
 
 Required outputs are:
@@ -1603,7 +1628,7 @@ cell color = LOOCV Spearman rho, centered at rho = 0
 cell label = rho rounded to 2 decimals plus nominal-p stars on the next line
 primary branch tau=200 / Coverage>=5 = thin black outline
 post-hoc selected branch = thick black outline
-hard-filter-passing cells = light gray auxiliary marker or outline
+hard-computability-passing cells = light gray auxiliary marker or outline
 ```
 
 Nominal-p stars are:
@@ -1614,7 +1639,7 @@ Nominal-p stars are:
 *** p < 0.001
 ```
 
-Grid-cell p values are nominal only and are not corrected by FDR or max-stat permutation. If the post-hoc selected branch is later described as significant after threshold scanning, a max-stat permutation is required:
+Grid-cell p values are nominal only and are not corrected by FDR or max-stat permutation. The fallback resolver does not use `Q2`, rho, or nominal p for source selection; these values are reported for interpretation. If a fallback branch is later described as significant after threshold scanning, a max-stat permutation is required:
 
 ```text
 for each permutation:
@@ -1630,75 +1655,38 @@ formal max-stat permutation:
 seed = 42
 ```
 
-The max-stat permutation is not part of the initial post-hoc scan output unless explicitly requested. If a high-tau/high-coverage branch is later advanced, it should be described as a candidate model for post-selection validation, nested/adaptive validation, independent endpoint replication, or prospective testing, not as a rescued version of the original `tau200/Coverage>=5` primary branch.
+The max-stat permutation is not part of the initial post-hoc scan output unless explicitly requested.
 
-### Post-Hoc Candidate Levels And ULF Propagation
+### HF Voxel Source Resolver And ULF Propagation
 
-Each post-hoc endpoint/grid result must be assigned one of the following levels before any `DeltaHFScore` is propagated to ULF modeling.
-
-```text
-Level 0 = failed_grid_cell
-  any hard-filter criterion fails
-  ULF propagation = not allowed
-
-Level 1 = fragile_exploratory_candidate
-  hard filters pass
-  but n_passing_grid_cells < 3
-  or no adjacent passing grid cell supports the selected cell
-  or the finding is an isolated tau/Coverage result
-  or selected Q2 is 0 < Q2 < 0.05
-  or neighboring rho directions are inconsistent
-  or spatial map is not anatomically/network interpretable
-  ULF propagation = not recommended; record only as fragility/negative context
-
-Level 2 = usable_exploratory_candidate
-  hard filters pass
-  n_passing_grid_cells >= 3
-  selected cell has at least 1 adjacent passing grid cell
-  selected and adjacent passing cells have positive rho direction
-  selected Q2 > 0.05
-  MAE and RMSE both improve over baseline
-  fold_n_voxels_min >= 10
-  spatial map is concentrated and anatomically/network interpretable
-  ULF propagation = allowed only as exploratory DeltaHFScore sensitivity
-
-Level 3 = robust_exploratory_candidate
-  all Level 2 criteria pass
-  n_passing_grid_cells >= 5
-  selected cell has at least 2 adjacent passing grid cells
-  selected Q2 >= 0.10
-  selected LOOCV Spearman nominal p < 0.05
-  adjacent passing cells have positive rho and most have Q2 > 0
-  no obvious single-subject leverage dominates
-  ULF propagation = priority exploratory DeltaHFScore sensitivity
-
-Level 4 = post_selection_validated_hf_model
-  Level 3 candidate passes nested/adaptive LOOCV or equivalent post-selection validation
-  outer LOOCV rho > 0
-  Q2 > 0
-  MAE/RMSE improve over baseline
-  and preferably max-stat permutation p <= 0.05, or p <= 0.10 for exploratory reporting
-  ULF propagation = may be treated as a locked post-selection HF predictive model
-```
-
-Adjacent grid cells are defined on the declared tau/Coverage grid. A cell is adjacent if it is one tau step and/or one Coverage step away, including horizontal, vertical, and diagonal neighbors.
-
-For each endpoint, at most one `selected_posthoc_candidate` may generate a ULF `DeltaHFScore` branch. Neighboring cells are used only to support threshold robustness; they are not separate ULF covariates. Multiple exploratory endpoints may each generate separate ULF sensitivity branches, but they must not be combined into the same `n=16` ULF model as multiple `DeltaHFScore` covariates.
-
-ULF propagation rule:
+Each endpoint is assigned exactly one source status before any `DeltaHFScore` is propagated to ULF modeling:
 
 ```text
-primary ULF DeltaHFScore:
-  allowed only for original tau200/Coverage>=5 predictive_valid HF model
-  or Level 4 post_selection_validated_hf_model
+pre_specified_accepted:
+  tau200/Coverage>=5 passes the hard computability filter
+  and at least 2 adjacent grid cells pass the hard computability filter
 
-exploratory ULF DeltaHFScore sensitivity:
-  allowed for Level 2 or Level 3 selected_posthoc_candidate
+scan_fallback_accepted:
+  tau200/Coverage>=5 is not accepted
+  and a fallback grid cell passes the same source-stability rule
 
-not propagated to ULF:
-  Level 0
-  Level 1
+absent_no_stable_grid:
+  no grid cell passes the source-stability rule
 ```
+
+For accepted sources, prediction status is assigned from error improvement only:
+
+```text
+error_predictive:
+  MAE_model < MAE_baseline
+  and RMSE_model < RMSE_baseline
+
+error_nonpredictive:
+  accepted source exists
+  but either MAE or RMSE does not improve over baseline
+```
+
+If an HF voxel source exists, ULF should run both `delta_hf_adjusted` and `no_delta_hf` branches when inputs allow. `delta_hf_adjusted` is primary when `hf_voxel_prediction_status = error_predictive`; otherwise `no_delta_hf` is primary. If no stable HF voxel source exists, do not run a DeltaHFScore-adjusted ULF branch for that endpoint.
 
 All-scale mode additionally writes:
 
@@ -1709,7 +1697,7 @@ All-scale mode additionally writes:
   all_scales_posthoc_threshold_scan_manifest.json
 ```
 
-`all_scales_posthoc_threshold_scan_long.csv` contains `30 x 60 = 1800` rows when all 30 HF-only endpoints are available. `all_scales_posthoc_threshold_scan_summary.csv` contains one row per endpoint, including selected `tau`, selected `Coverage`, selected rho, nominal p, Q2, voxel count, endpoint family, and number of hard-filter-passing grid cells. If an endpoint has no passing grid cell, selected threshold fields remain empty and `n_passing_grid_cells = 0`.
+`all_scales_posthoc_threshold_scan_long.csv` contains `30 x 60 = 1800` rows when all 30 HF-only endpoints are available. `all_scales_posthoc_threshold_scan_summary.csv` contains one row per endpoint, including selected `tau`, selected `Coverage`, selected rho, nominal p, Q2, voxel count, endpoint family, and number of hard-computability-passing grid cells. If an endpoint has no passing grid cell, selected threshold fields remain empty and `n_passing_grid_cells = 0`.
 
 All-scale mode uses condition-specific shared HF exposure caches to avoid recomputing the same e-field sampling for every endpoint:
 

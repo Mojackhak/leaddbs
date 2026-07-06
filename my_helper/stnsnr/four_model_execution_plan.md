@@ -87,35 +87,23 @@ A = HF direct voxel, tau200/Coverage>=5 primary
 B = HF normative fiber, peak_efield_tau800_cov5_primary
 ```
 
-Their outputs are classified by fitted results:
+A and B now use different HF dependency vocabularies. A direct voxel uses the source resolver below; B normative fiber keeps the revised normative-fiber validity and burden rules.
 
 ```text
-predictive_valid
-stable_nonpredictive
-failed_unstable
-```
+A direct voxel source status:
+  pre_specified_accepted
+  scan_fallback_accepted
+  absent_no_stable_grid
 
-The strict target definition is:
+A direct voxel prediction status:
+  error_predictive
+  error_nonpredictive
+  not_applicable
 
-```text
-predictive_valid:
-  LOOCV rho > 0
-  Q2 > 0
-  MAE_model < MAE_baseline
-  RMSE_model < RMSE_baseline
-  score is not near-constant
-  result is not dominated by one high-leverage subject
-
-stable_nonpredictive:
-  map/rank direction appears stable or biologically interpretable
-  but Q2 <= 0 or MAE/RMSE do not improve over baseline
-
-failed_unstable:
-  negative or degenerate prediction
-  unstable direction
-  insufficient support
-  non-finite predictions
-  or obvious high-leverage/threshold-fragile behavior
+B normative fiber validity status:
+  predictive_valid
+  stable_nonpredictive
+  failed_unstable
 ```
 
 ### C/D ULF Branch Role Resolution
@@ -133,38 +121,43 @@ no_delta_hf:
 The interpretation role is resolved after reading the matched HF result:
 
 ```text
-if matched HF is predictive_valid and not burden_dominated:
+if matched A direct voxel source exists:
+  run delta_hf_adjusted
+  run no_delta_hf
+
+if matched A direct voxel hf_voxel_prediction_status is error_predictive:
   ulf_primary_branch = delta_hf_adjusted
-  delta_hfscore_role = primary_nuisance_adjustment
+  delta_hfscore_role = primary_error_predictive_hf_adjustment
   no_delta_hf_role   = sensitivity
 
-if matched HF is stable_nonpredictive:
+if matched A direct voxel hf_voxel_prediction_status is error_nonpredictive:
   ulf_primary_branch = no_delta_hf
-  delta_hfscore_role = unstable_generated_covariate_sensitivity
+  delta_hfscore_role = stable_error_nonpredictive_hf_adjustment_sensitivity
   no_delta_hf_role   = primary
 
-if matched HF is failed_unstable:
-  ulf_primary_branch = no_delta_hf when ULF inputs remain valid
-  delta_hfscore_role = exploratory_only_or_not_run
-  no_delta_hf_role   = primary exploratory branch
-
-if matched HF is burden_dominated:
+if matched A direct voxel source is absent_no_stable_grid:
+  run no_delta_hf only
   ulf_primary_branch = no_delta_hf
-  delta_hfscore_role = burden_or_placement_sensitivity_only
+  delta_hfscore_role = not_run_no_stable_hf_voxel_source
 
-if matched HF source is posthoc Level 2 or Level 3:
+if matched B normative fiber is predictive_valid and not burden_dominated:
+  ulf_primary_branch = delta_hf_adjusted
+  delta_hfscore_role = primary_nuisance_adjustment
+
+if matched B normative fiber is stable_nonpredictive, failed_unstable, or burden_dominated:
   ulf_primary_branch = no_delta_hf
-  delta_hfscore_role = exploratory_selected_threshold_sensitivity_only
-
-if matched HF source is posthoc Level 4:
-  ulf_primary_branch may be delta_hf_adjusted
-  delta_hfscore_role = post_selection_validated_hf_adjustment
+  delta_hfscore_role = sensitivity_or_not_run_by_normative_fiber_status
 ```
 
 Manifests for C/D must record:
 
 ```text
-hf_prediction_validity_status
+hf_voxel_source_status, for C/A direct-voxel dependencies
+hf_voxel_prediction_status, for C/A direct-voxel dependencies
+hf_voxel_threshold_source, for C/A direct-voxel dependencies
+hf_voxel_selected_tau_v_per_m, for C/A direct-voxel dependencies
+hf_voxel_selected_coverage, for C/A direct-voxel dependencies
+hf_voxel_selected_adjacent_passing_grid_cells, for C/A direct-voxel dependencies
 hf_norm_fiber_prediction_validity_status, for D/B normative fiber dependencies
 hf_norm_fiber_burden_dominated, for D/B normative fiber dependencies
 hf_norm_fiber_threshold_source, for D/B normative fiber dependencies
@@ -230,31 +223,32 @@ Current status is based on existing outputs under:
 
 ### A/B Primary Observed Branches
 
-Current `four_model_gate_status.csv` reports:
+Current `four_model_gate_status.csv` reports legacy/current gate fields. The A direct-voxel resolver fields have not been generated in this documentation-only update:
 
-| Model | Branch | rho | Q2 | Gate | HF validity |
+| Model | Branch | rho | Q2 | Legacy/current gate | Legacy/current HF validity |
 |---|---|---:|---:|---|---|
 | A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
 | B PPMI | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1652` | `-0.4476` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
 | B MGH | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.0855` | `-0.2916` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
 | B dTOR | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1829` | `-0.4976` | `STOP_FORMAL_REMAIN_EXPLORATORY` | `failed_unstable` |
 
-These observed branches exist and have finite predictions, but their explicit
-HF validity state is `failed_unstable`; they do not justify formal
-primary-branch permutation/bootstrap. They should be reported as
-exploratory/negative unless a new pre-declared branch passes a valid gate.
+These observed branches exist and have finite predictions under the legacy/current
+gate snapshot. For A direct voxel, downstream branch roles should be refreshed
+from `hf_voxel_source_status` and `hf_voxel_prediction_status` once the resolver
+is implemented. For B normative fiber, the legacy/current validity fields remain
+the active dependency record.
 
 ### C/D ULF Readiness
 
-Current execution status reports:
+Current execution status reports legacy/current dependencies:
 
 ```text
 ULF component e-fields: 64/64 existing
-C dependency: A is exploratory/unstable
+C dependency: A is exploratory/unstable under legacy/current gate fields
 D PPMI dependency: B_PPMI is exploratory/unstable
 ```
 
-Therefore C/D are executable only under the ULF branch-role policy:
+Under the revised direct-voxel resolver, C is executable with both branches when a stable HF voxel source exists; the primary branch is `delta_hf_adjusted` only if `hf_voxel_prediction_status = error_predictive`. D continues to follow the normative-fiber branch-role policy:
 
 ```text
 no_delta_hf = primary / primary exploratory
@@ -275,8 +269,8 @@ Current observed outputs:
 
 | Branch | rho | Q2 | Interpretation role |
 |---|---:|---:|---|
-| `partial_spearman_no_delta_hf` | `0.9190` | `-0.1442` | interpretation-primary under current failed HF dependency, but not predictive by Q2 |
-| `partial_spearman_delta_hf_adjusted` | `0.9543` | `0.1238` | unstable-generated-covariate sensitivity because matched A primary HF is `failed_unstable` |
+| `partial_spearman_no_delta_hf` | `0.9190` | `-0.1442` | legacy/current interpretation-primary under failed HF dependency; revised role awaits direct-voxel resolver refresh |
+| `partial_spearman_delta_hf_adjusted` | `0.9543` | `0.1238` | legacy/current sensitivity under failed HF dependency; revised role awaits `hf_voxel_prediction_status` |
 
 Both branches write scores, LOOCV predictions, NIfTI maps, QC JSON, and manifests. Formal resampling remains gated and has not been run.
 
@@ -317,35 +311,18 @@ It contains:
 30 endpoints x 60 tau/Coverage grid cells = 1800 rows
 ```
 
-This scan is **exploratory threshold optimization**. It does not replace the original primary `tau200/Coverage>=5` branch. A selected high-core threshold becomes a candidate branch only; to claim post-selection significance it still requires nested/adaptive LOOCV, max-stat permutation, independent endpoint replication, or prospective validation.
-
-Post-hoc candidates are level-gated before ULF propagation:
+The scan is used by the A-model source resolver only if the pre-specified `tau200/Coverage>=5` branch is not accepted. The hard computability filter is:
 
 ```text
-Level 0 failed_grid_cell:
-  fails any hard filter
-  ULF propagation = not allowed
-
-Level 1 fragile_exploratory_candidate:
-  hard filters pass, but support is isolated/fragile or Q2 < 0.05
-  ULF propagation = not recommended
-
-Level 2 usable_exploratory_candidate:
-  hard filters pass, n_passing_grid_cells >= 3, at least 1 adjacent support cell,
-  positive neighboring rho direction, selected Q2 > 0.05, and interpretable map
-  ULF propagation = exploratory DeltaHFScore sensitivity only
-
-Level 3 robust_exploratory_candidate:
-  Level 2 plus n_passing_grid_cells >= 5, at least 2 adjacent support cells,
-  selected Q2 >= 0.10, nominal p < 0.05, and no obvious single-subject leverage
-  ULF propagation = priority exploratory DeltaHFScore sensitivity
-
-Level 4 post_selection_validated_hf_model:
-  post-selection validation passes by nested/adaptive LOOCV or equivalent validation
-  ULF propagation = may define a primary DeltaHF-adjusted ULF candidate
+n_voxels_full >= 20
+fold_n_voxels_min >= 10
+HFScore nonconstant in all folds
+all predictions finite
 ```
 
-For ULF, Level 2/3 candidates are sensitivity-only. Only an original primary `predictive_valid` HF model or a Level 4 post-selection validated HF model can define primary `DeltaHFScore`. Per endpoint, only one selected post-hoc candidate may be propagated; neighboring cells are robustness evidence and must not be added as separate covariates.
+If the pre-specified grid and at least 2 adjacent grid cells pass the filter, `hf_voxel_source_status = pre_specified_accepted`. Otherwise, the fallback grid is selected by distance to `tau200/Coverage>=5`, adjacent support count, `fold_n_voxels_min`, stricter Coverage, and then higher tau. If no stable grid exists, `hf_voxel_source_status = absent_no_stable_grid`.
+
+`MAE_model < MAE_baseline` and `RMSE_model < RMSE_baseline` define `hf_voxel_prediction_status = error_predictive`; otherwise an accepted source is `error_nonpredictive`. `Q2` and LOOCV Spearman rho are report metrics, not direct-voxel source filters.
 
 ### B Normative Fiber Post-Hoc Threshold Scan Status
 
@@ -363,10 +340,12 @@ No B-model normative fiber threshold-scan output is assumed to exist in the curr
 
 ## 6. Gate Definitions
 
-### Currently Implemented Gate
+### Legacy/Current Implemented Gate
 
-The current `run_stnsnr_four_model_gate_status.py` code emits two related
-fields:
+The current `run_stnsnr_four_model_gate_status.py` code still emits the older
+coarse engineering gate fields. This is legacy/current-output behavior and is
+superseded for intended A direct-voxel documentation by `hf_voxel_source_status`
+and `hf_voxel_prediction_status`.
 
 ```text
 decision = coarse engineering stop/go gate
@@ -449,7 +428,7 @@ than redefine post-hoc selected branches as original primary analyses.
    tau200/partial_spearman_no_delta_hf
    ```
 
-   Given the current A gate, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF model is later upgraded to `predictive_valid`.
+   Under the revised A resolver, the DeltaHF-adjusted branch is primary only when the matched HF direct-voxel source exists and `hf_voxel_prediction_status = error_predictive`; otherwise no-DeltaHF is primary or the only branch.
 
 4. D ULF normative fiber PPMI observed has been implemented with both branches:
 
@@ -461,7 +440,7 @@ than redefine post-hoc selected branches as original primary analyses.
    revised spec:          ulf_peak_efield_tau800_cov5_no_delta_hf
    ```
 
-   Given the current B_PPMI gate, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF fiber model is later upgraded to `predictive_valid` and not burden-dominated, or a selected HF source reaches post-hoc Level 4. dTOR main execution remains deferred until a justified fiber branch passes the relevant gate or is explicitly run as exploratory.
+   Given the current B_PPMI gate, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF fiber model is later upgraded to `predictive_valid` and not burden-dominated, or a selected normative-fiber HF source reaches post-hoc Level 4. dTOR main execution remains deferred until a justified fiber branch passes the relevant gate or is explicitly run as exploratory.
 
 ### Deferred Expensive Work
 

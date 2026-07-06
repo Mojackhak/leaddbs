@@ -477,13 +477,13 @@ Run the worklist generator:
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py
 ```
 
-## HF Post-hoc Candidate Level Classification
+## HF Direct Voxel Source Resolver
 
-The next executable layer operationalizes the Level 0-4 post-hoc candidate
-rules from `hf_3m_direct_voxel_model.md`. It reads the existing all-scale
-post-hoc tau/Coverage scan outputs and writes an automatic evidence summary for
-which HF endpoints are eligible to generate exploratory ULF `DeltaHFScore`
-sensitivity branches.
+The intended next executable layer replaces the older post-hoc candidate-level
+classification with the direct-voxel source resolver from
+`hf_3m_direct_voxel_model.md`. It reads the existing all-scale post-hoc
+tau/Coverage scan outputs and writes an automatic summary of which HF endpoints
+have a stable source for downstream ULF `DeltaHFScore` construction.
 
 The classifier is implemented inside the existing post-hoc scan module:
 
@@ -497,7 +497,12 @@ and exposed through the existing pipeline entry point:
 my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py
 ```
 
-Run it without recomputing the 60-cell scans:
+The current code still exposes a legacy/current classification refresh command
+under the same entry point. Until code is updated, treat the candidate-level CSVs
+as historical outputs and do not use them as the intended direct-voxel branch-role
+contract.
+
+Run the current refresh without recomputing the 60-cell scans:
 
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
@@ -505,7 +510,7 @@ Run it without recomputing the 60-cell scans:
   --classify-levels
 ```
 
-Default outputs:
+Legacy/current outputs:
 
 ```text
 /Volumes/VAL/STNSNr/summary/direct_voxel/hf/posthoc_threshold_scan_all_scales/
@@ -514,12 +519,14 @@ Default outputs:
   all_scales_posthoc_candidate_levels_manifest.json
 ```
 
-The classifier uses scan-table evidence only: hard-filter pass/fail,
-`n_passing_grid_cells`, selected Q2, nominal p, and adjacent passing grid cells
-on the declared tau/Coverage grid. Spatial interpretability and single-subject
-leverage remain manual/QC-dependent checks, so Level 2/3 rows are labeled
-`requires_spatial_qc=true` and Level 3 rows are also labeled
-`requires_influence_qc=true` before any final ULF interpretation.
+The intended resolver uses scan-table evidence only for computability and local
+support: `n_voxels_full >= 20`, `fold_n_voxels_min >= 10`, nonconstant
+`HFScore`, finite predictions, and adjacent passing grid cells on the declared
+tau/Coverage grid. It first tests `tau200/Coverage>=5`; only if that source is
+not accepted does it choose a fallback by distance to the pre-specified grid,
+adjacent support count, `fold_n_voxels_min`, stricter Coverage, and higher tau.
+MAE/RMSE define `hf_voxel_prediction_status`; `Q2` and LOOCV Spearman rho are
+report metrics.
 
 ## ULF Direct Voxel Observed Driver
 
@@ -578,10 +585,11 @@ tau200/partial_spearman_no_delta_hf
 tau200/partial_spearman_delta_hf_adjusted
 ```
 
-Given the current A primary gate failure, the no-DeltaHF branch is the
-interpretation-primary branch in the manifest unless a matched HF model is later
-upgraded to `predictive_valid` or Level 4. The DeltaHF-adjusted branch is
-therefore recorded as an unstable-generated-covariate sensitivity branch.
+Under the revised A resolver, both branches are run when a stable HF voxel source
+exists. The DeltaHF-adjusted branch is primary only when
+`hf_voxel_prediction_status = error_predictive`; otherwise no-DeltaHF is primary.
+If the HF resolver returns `absent_no_stable_grid`, only no-DeltaHF should run for
+that endpoint.
 
 For the DeltaHF-adjusted branch, `DeltaHFScore` is computed fold-locally. In
 each ULF LOOCV fold, the driver refits the matched HF direct voxel map from
@@ -601,13 +609,13 @@ Default outputs:
 
 Each branch writes observed scores, LOOCV predictions, NIfTI maps, QC JSON, and
 a generation manifest. The branch manifests record `ulf_primary_branch`,
-`delta_hfscore_role`, `hf_prediction_validity_status`, and
-`resampling_status=not_run_observed_only`.
+`delta_hfscore_role`, `hf_voxel_source_status`, `hf_voxel_prediction_status`,
+and `resampling_status=not_run_observed_only`.
 
 The consolidated execution status reporter should treat C as observed-complete
 when both C branch manifests exist. This does not make C formal-resampling
 eligible; the formal status remains gate-restricted because matched A is not
-currently `predictive_valid`.
+currently `error_predictive` under the revised direct-voxel resolver.
 
 ## ULF Normative Fiber Observed Driver
 
@@ -672,7 +680,7 @@ revised spec:          ulf_peak_efield_tau800_cov5_delta_hf_adjusted
 Given the current B_PPMI primary gate failure for the observed PPMI branch, the no-DeltaHF branch is the
 interpretation-primary branch in the manifest unless a matched HF normative
 fiber model is later upgraded to `predictive_valid` and not burden-dominated,
-or a selected HF source reaches post-hoc Level 4. The DeltaHF-adjusted branch
+or a selected normative-fiber HF source reaches post-hoc Level 4. The DeltaHF-adjusted branch
 is recorded as an unstable-generated-covariate sensitivity branch under the
 current failed B_PPMI dependency.
 
@@ -689,8 +697,7 @@ These are legacy/current output directory names. They map to revised spec branch
 
 Each branch writes observed scores, LOOCV predictions, fiber weights, QC JSON,
 and a generation manifest. The branch manifests record `ulf_primary_branch`,
-`delta_hfscore_role`, `hf_prediction_validity_status`, the relevant
-`hf_norm_fiber_*` source-status fields when available, and
+`delta_hfscore_role`, the relevant `hf_norm_fiber_*` source-status fields when available, and
 `resampling_status=not_run_observed_only`.
 
 Current PPMI observed run:
