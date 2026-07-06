@@ -27,7 +27,7 @@ Current status snapshot:
 
 ```text
 A direct voxel = observed output exists; intended resolver fields require refresh
-B_PPMI, B_MGH, B_DTOR = normative-fiber status fields available
+B_PPMI, B_MGH, B_DTOR = observed normative-fiber outputs exist; intended resolver fields require refresh
 C, D = OBSERVED_COMPLETE_EXPLORATORY
 formal permutation/bootstrap/jitter/OSS = not run
 ```
@@ -65,7 +65,7 @@ Because `n=16`, all model outputs remain hypothesis-generating unless validated 
 | C | `model_summaries/ulf_addon_gain_direct_voxel_model.md` | ULF-only add-on voxel model with two core branch roles |
 | D | `model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md` | ULF-only add-on fiber model with two core branch roles |
 
-Chinese `_zh.md` files are synchronized mirrors. If a conflict remains, the English model summary is the executable source of truth.
+Chinese `_zh.md` mirrors were removed from `my_helper/stnsnr`; the English model summaries are the executable source of truth.
 
 Out of scope for this four-model execution pass:
 
@@ -88,7 +88,7 @@ A = HF direct voxel, tau200/Coverage>=5 primary
 B = HF normative fiber, peak_efield_tau800_cov5_primary
 ```
 
-A and B now use different HF dependency vocabularies. A direct voxel uses the source resolver below; B normative fiber keeps the revised normative-fiber validity and burden rules.
+A and B use parallel HF dependency vocabularies. Each first resolves whether an HF source exists and is stable enough to define model-family-matched `DeltaHFScore`; prediction-error status then determines the ULF branch role.
 
 ```text
 A direct voxel source status:
@@ -101,10 +101,15 @@ A direct voxel prediction status:
   error_nonpredictive
   not_applicable
 
-B normative fiber validity status:
-  predictive_valid
-  stable_nonpredictive
-  failed_unstable
+B normative fiber source status:
+  pre_specified_accepted
+  scan_fallback_accepted
+  absent_no_stable_grid
+
+B normative fiber prediction status:
+  error_predictive
+  error_nonpredictive
+  not_applicable
 ```
 
 ### C/D ULF Branch Role Resolution
@@ -141,13 +146,26 @@ if matched A direct voxel source is absent_no_stable_grid:
   ulf_primary_branch = no_delta_hf
   delta_hfscore_role = not_run_no_stable_hf_voxel_source
 
-if matched B normative fiber is predictive_valid and not burden_dominated:
-  ulf_primary_branch = delta_hf_adjusted
-  delta_hfscore_role = primary_nuisance_adjustment
+if matched B normative fiber source exists:
+  run delta_hf_adjusted when fold-specific DeltaHFScore inputs are valid
+  run no_delta_hf
 
-if matched B normative fiber is stable_nonpredictive, failed_unstable, or burden_dominated:
+if matched B normative fiber hf_norm_fiber_prediction_status is error_predictive:
+  ulf_primary_branch = delta_hf_adjusted
+  delta_hfscore_role = primary_error_predictive_hf_adjustment
+
+if matched B normative fiber hf_norm_fiber_prediction_status is error_nonpredictive:
   ulf_primary_branch = no_delta_hf
-  delta_hfscore_role = sensitivity_or_not_run_by_normative_fiber_status
+  delta_hfscore_role = stable_error_nonpredictive_hf_adjustment_sensitivity
+
+if matched B normative fiber source is absent_no_stable_grid:
+  run no_delta_hf only
+  ulf_primary_branch = no_delta_hf
+  delta_hfscore_role = not_run_no_stable_hf_norm_fiber_source
+
+if the HF-derived intended primary branch is delta_hf_adjusted but DeltaHFScore inputs fail:
+  endpoint status = primary_branch_input_failure
+  no_delta_hf may be reported only as fallback sensitivity
 ```
 
 Manifests for C/D must record:
@@ -159,17 +177,22 @@ hf_voxel_threshold_source, for C/A direct-voxel dependencies
 hf_voxel_selected_tau_v_per_m, for C/A direct-voxel dependencies
 hf_voxel_selected_coverage, for C/A direct-voxel dependencies
 hf_voxel_selected_adjacent_passing_grid_cells, for C/A direct-voxel dependencies
-hf_norm_fiber_prediction_validity_status, for D/B normative fiber dependencies
-hf_norm_fiber_burden_dominated, for D/B normative fiber dependencies
+hf_norm_fiber_source_status, for D/B normative fiber dependencies
+hf_norm_fiber_prediction_status, for D/B normative fiber dependencies
 hf_norm_fiber_threshold_source, for D/B normative fiber dependencies
 hf_norm_fiber_selected_tau_v_per_m, for D/B normative fiber dependencies
 hf_norm_fiber_selected_coverage, for D/B normative fiber dependencies
-hf_norm_fiber_posthoc_candidate_level, for D/B normative fiber dependencies
+hf_norm_fiber_selected_adjacent_passing_grid_cells, for D/B normative fiber dependencies
+hf_norm_fiber_source_failure_reasons, for D/B normative fiber dependencies
 ulf_voxel_source_status, for C direct-voxel branch status
 ulf_voxel_prediction_status, for C direct-voxel branch status
 ulf_endpoint_model_status, for C direct-voxel endpoint status
+ulf_norm_fiber_source_status, for D normative-fiber branch status
+ulf_norm_fiber_prediction_status, for D normative-fiber branch status
+ulf_norm_fiber_endpoint_model_status, for D normative-fiber endpoint status
 ulf_branch_input_status, for C direct-voxel branch status
 branch_nuisance_design_status, for C direct-voxel branches
+intended_primary_branch
 ulf_primary_branch
 ulf_core_branches_run
 delta_hfscore_role
@@ -209,10 +232,10 @@ D formal ULF normative fiber resampling, dTOR main branch, OSS, and figure-grade
 formal B=10000 permutation/bootstrap loops
 formal spatial jitter loops
 OSS-DBS activation branch
-nested/adaptive post-hoc threshold validation
-max-stat permutation for post-hoc threshold selection
+nested/adaptive threshold-source validation
+max-stat permutation for threshold-source selection
 OLS ANCOVA optional estimator
-figure-grade display/FDR/enrichment layers beyond existing post-hoc heatmaps
+figure-grade display/FDR/enrichment layers beyond existing source-resolver heatmaps
 ```
 
 `my_helper/stnsnr/four_model_execution_implementation_notes.md` records implementation-layer details and should be updated whenever a new executable layer is added.
@@ -234,11 +257,11 @@ Current `four_model_gate_status.csv` was generated by older status code. For A d
 | Model | Branch | rho | Q2 | Intended dependency field |
 |---|---|---:|---:|---|
 | A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | refresh from `hf_voxel_source_status` and `hf_voxel_prediction_status` |
-| B PPMI | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1652` | `-0.4476` | `hf_norm_fiber_prediction_validity_status` |
-| B MGH | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.0855` | `-0.2916` | `hf_norm_fiber_prediction_validity_status` |
-| B dTOR | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1829` | `-0.4976` | `hf_norm_fiber_prediction_validity_status` |
+| B PPMI | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1652` | `-0.4476` | refresh from `hf_norm_fiber_source_status` and `hf_norm_fiber_prediction_status` |
+| B MGH | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.0855` | `-0.2916` | refresh from `hf_norm_fiber_source_status` and `hf_norm_fiber_prediction_status` |
+| B dTOR | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1829` | `-0.4976` | refresh from `hf_norm_fiber_source_status` and `hf_norm_fiber_prediction_status` |
 
-These observed branches exist and have finite predictions in the current snapshot. For B normative fiber, the revised normative-fiber validity fields remain the active dependency record.
+These observed branches exist and have finite predictions in the current snapshot. For B normative fiber, refresh the intended source/prediction resolver before using B as a D-model dependency.
 
 ### C/D ULF Readiness
 
@@ -248,16 +271,24 @@ Current execution status reports available ULF component inputs:
 ULF component e-fields: 64/64 existing
 ```
 
-Under the revised direct-voxel resolver, C is executable with both branches when a stable HF voxel source exists; the primary branch is `delta_hf_adjusted` only if `hf_voxel_prediction_status = error_predictive`. D continues to follow the normative-fiber branch-role policy:
+Under the revised resolvers, C and D are executable with both branches when the matched HF source exists and branch-specific inputs are valid. The primary branch is `delta_hf_adjusted` only if the matched HF source is `error_predictive`; otherwise `no_delta_hf` is primary or the only branch.
 
 ```text
-no_delta_hf = primary / primary exploratory
-delta_hf_adjusted = sensitivity or unstable-generated-covariate branch
+matched HF source absent:
+  no_delta_hf only
+
+matched HF source exists + error_predictive:
+  delta_hf_adjusted intended primary
+  no_delta_hf fallback/sensitivity
+
+matched HF source exists + error_nonpredictive:
+  no_delta_hf intended primary
+  delta_hf_adjusted sensitivity, if inputs are valid
 ```
 
 ### C ULF Direct Voxel Observed Branch
 
-The C observed-only driver has been implemented and run for the default chronic endpoint:
+The C observed-only driver has been implemented and run for the current-output chronic endpoint row:
 
 ```text
 post scale = MDS-UPDRS III score (STN+SNr, 3 m)
@@ -276,7 +307,7 @@ Both branches write scores, LOOCV predictions, NIfTI maps, QC JSON, and manifest
 
 ### D ULF Normative Fiber Observed Branch
 
-The D observed-only driver has been implemented and run for the default chronic endpoint and PPMI connectome:
+The D observed-only driver has been implemented and run for the current-output chronic endpoint row and PPMI connectome:
 
 ```text
 post scale = MDS-UPDRS III score (STN+SNr, 3 m)
@@ -289,14 +320,14 @@ Current observed outputs:
 
 | Branch | rho | Q2 | Interpretation role |
 |---|---:|---:|---|
-| legacy/current output `ulf_peak_efield_tau800_no_delta_hf`; revised spec `ulf_peak_efield_tau800_cov5_no_delta_hf` | `0.9293` | `0.0922` | interpretation-primary under current failed B_PPMI dependency |
-| legacy/current output `ulf_peak_efield_tau800_delta_hf_adjusted`; revised spec `ulf_peak_efield_tau800_cov5_delta_hf_adjusted` | `0.9411` | `0.1170` | unstable-generated-covariate sensitivity because matched B_PPMI primary HF is `failed_unstable` |
+| legacy/current output `ulf_peak_efield_tau800_no_delta_hf`; revised spec `ulf_peak_efield_tau800_cov5_no_delta_hf` | `0.9293` | `0.0922` | legacy/current interpretation-primary; revised role awaits B normative-fiber resolver refresh |
+| legacy/current output `ulf_peak_efield_tau800_delta_hf_adjusted`; revised spec `ulf_peak_efield_tau800_cov5_delta_hf_adjusted` | `0.9411` | `0.1170` | legacy/current sensitivity; revised role awaits `hf_norm_fiber_prediction_status` and DeltaHFScore input readiness |
 
 Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. Formal resampling, OSS-DBS activation, density maps, endpoint enrichment, and dTOR-scale figure-grade outputs have not been run.
 
 ### A Round 2 All-Endpoint Tau/Coverage Resolver Scan
 
-The A-model all-endpoint tau/Coverage resolver scan exists at:
+The A-model all-endpoint tau/Coverage resolver scan exists at the legacy/current output path:
 
 ```text
 /Volumes/VAL/STNSNr/summary/direct_voxel/hf/posthoc_threshold_scan_all_scales/
@@ -325,17 +356,17 @@ If the pre-specified grid and at least 2 adjacent grid cells pass the filter, `h
 
 `MAE_model < MAE_baseline` and `RMSE_model < RMSE_baseline` define `hf_voxel_prediction_status = error_predictive`; otherwise an accepted source is `error_nonpredictive`. `Q2` and LOOCV Spearman rho are report metrics, not direct-voxel source filters.
 
-### B Normative Fiber Post-Hoc Threshold Scan Status
+### B Normative Fiber Tau/Coverage Source Resolver Status
 
-The revised B-model specification adds an executable exploratory scan:
+The revised B-model specification adds an executable source resolver scan:
 
 ```text
-branch = posthoc_tau_coverage_threshold_scan
+branch = tau_coverage_source_resolver_scan
 tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
 coverage_grid = [5, 6, 7, 8, 10, 12]
 ```
 
-No B-model normative fiber threshold-scan output is assumed to exist in the current status snapshot. If it is run later, the original tau800/Coverage>=5 branch remains `peak_efield_tau800_cov5_primary`; a selected post-hoc B candidate may feed D only as a separately named `DeltaHFScore` sensitivity unless it reaches Level 4 post-selection validation.
+No B-model normative fiber source-resolver output is assumed to exist in the current status snapshot. When it is refreshed, tau800/Coverage>=5 is evaluated first. If it is not accepted, a locally stable scan fallback may define `hf_norm_fiber_source_status = scan_fallback_accepted` and may provide the B-family `DeltaHFScore` source for D. If no stable grid exists, record `hf_norm_fiber_source_status = absent_no_stable_grid` and D runs no-DeltaHF only for that matched dependency.
 
 ---
 
@@ -343,7 +374,7 @@ No B-model normative fiber threshold-scan output is assumed to exist in the curr
 
 A direct voxel uses `hf_voxel_source_status` and `hf_voxel_prediction_status`. `Q2`, LOOCV rho, permutation p values, bootstrap stability, and jitter stability are reporting fields and do not define A source existence or prediction status.
 
-B normative fiber uses its model-specific validity, burden, and post-hoc Level rules. Those normative-fiber fields do not apply to direct voxel models.
+B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_prediction_status`. `Q2`, LOOCV rho, permutation p values, bootstrap stability, jitter stability, burden-control behavior, and cross-connectome support are reporting or robustness fields unless they expose input/design failure.
 
 
 ---
@@ -372,7 +403,7 @@ B normative fiber uses its model-specific validity, burden, and post-hoc Level r
    revised spec:          ulf_peak_efield_tau800_cov5_no_delta_hf
    ```
 
-   Given the current B_PPMI normative-fiber status, the no-DeltaHF branch is the interpretation-primary branch unless a matched HF fiber model is later upgraded to `predictive_valid` and not burden-dominated, or a selected normative-fiber HF source reaches post-hoc Level 4. dTOR main execution remains deferred until a justified fiber branch satisfies the relevant normative-fiber status criteria or is explicitly run as exploratory.
+   The revised D role awaits the matched B normative-fiber resolver refresh. If B returns an accepted source with `hf_norm_fiber_prediction_status = error_predictive`, D interprets the DeltaHF-adjusted branch as intended primary. If B returns an accepted but `error_nonpredictive` source, D interprets no-DeltaHF as intended primary and keeps DeltaHF-adjusted as sensitivity when inputs are valid. If B returns `absent_no_stable_grid`, D runs no-DeltaHF only for that dependency. dTOR main execution remains deferred until the relevant B and D resolver fields identify a realized branch to report.
 
 ### Deferred Expensive Work
 
@@ -467,7 +498,7 @@ Workflow responsibilities:
 
 ```text
 project path resolution
-default endpoint selection
+workflow endpoint selection for requested runs
 default connectome selection
 atlas and ROI registry selection
 STN/SNr-specific branch naming
@@ -528,7 +559,7 @@ A HF direct voxel Round 2 tau/Coverage resolver scan, all endpoints:
   --all-scales
 ```
 
-A post-hoc plot-only refresh:
+A source-resolver plot-only refresh using the legacy/current script name:
 
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
@@ -594,11 +625,11 @@ Consolidated execution status:
 This four-model program is complete only when:
 
 ```text
-A has current direct-voxel source/prediction status; B has current normative-fiber validity status.
+A has current direct-voxel source/prediction status; B has current normative-fiber source/prediction status.
 C and D have both delta_hf_adjusted and no_delta_hf outputs when inputs allow.
 Each model records which branch is interpretation-primary and why.
 Every branch has QC JSON, manifest JSON, predictions CSV, and score CSV.
 Formal resampling is tied to the resolver-selected reporting branch.
-Post-hoc selected thresholds are never relabeled as original primary analysis.
+Fallback-selected thresholds are explicitly labeled as scan-fallback sources and are never relabeled as pre-specified sources.
 The final report states n=16 and hypothesis-generating interpretation.
 ```

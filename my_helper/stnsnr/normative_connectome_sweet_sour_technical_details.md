@@ -504,7 +504,7 @@ That model supersedes older generic direct-voxel notes for HF. In particular, th
 - uses a right-hemisphere MNI brainmask candidate grid (`brainmask > 0`, voxel-center `x > 0`);
 - uses sparse candidate construction based on any valid subject with `X_HF_only > 180 V/m`;
 - uses `Coverage(v) >= 5` for the primary HF mainline;
-- documents `Coverage>=6` and `Coverage>=8` as optional sensitivities for the primary mainline; the A-model post-hoc threshold scan is the explicit exploratory exception and generates only scan-level threshold-optimization outputs;
+- documents `Coverage>=6` and `Coverage>=8` as optional sensitivities for the primary mainline; the A-model tau/Coverage source resolver scan evaluates the pre-specified source first and uses fallback cells only when the pre-specified source is not accepted;
 - uses baseline-adjusted partial Spearman as the primary estimator and keeps OLS ANCOVA as optional future supplemental analysis not run in the current executable analysis;
 - uses voxel-count-normalized `HFScore_mean_main = sum_v X_HF_only(v) * M_HF(v) / n_valid_score_voxels` as the primary patient-level score;
 - uses `ea_flip_lr_nonlinear` for left-to-right E-field mapping;
@@ -732,7 +732,7 @@ F_candidate_tau = {l: Coverage_tau(l) >= coverage_min}
 
 The executable model uses a right-canonical streamline feature space and the same patient-level coverage rule as the HF direct voxel model. Left-sided stimulation is flipped into the right canonical space and sampled along the same right-sided streamline features. Bilateral E-field information is averaged into `X_HF_i(l)`, but the feature set itself remains one-sided/canonical.
 
-The original interpretive primary branch remains `peak_efield_tau800_cov5_primary`. The predeclared high-threshold sensitivity is `peak_efield_tau1500_cov5_sensitivity`. The full tau x Coverage grid is a post-hoc exploratory threshold scan named `posthoc_tau_coverage_threshold_scan`; it may nominate a high-dose/high-coverage candidate, but it does not replace the original tau800/Coverage>=5 primary branch unless explicit post-selection validation records a Level 4 HF source.
+The pre-specified HF normative fiber source is `peak_efield_tau800_cov5_primary`. The predeclared high-threshold sensitivity is `peak_efield_tau1500_cov5_sensitivity`. The full tau x Coverage grid is the HF normative fiber source resolver scan; it is used only when tau800/Coverage>=5 is not accepted, and may define a `scan_fallback_accepted` HF source with recorded selected tau/Coverage and adjacent support.
 
 Benefit-oriented implementation:
 
@@ -797,7 +797,7 @@ Reference sensitivity coverage:
 peak_efield_tau1500_cov5_sensitivity
 top1500 positive / top500 negative fiber-score sensitivity
 OSS-DBS all-candidate sensitivity
-posthoc_tau_coverage_threshold_scan
+tau_coverage_source_resolver_scan
 plain_connected_streamline_control
 jitter_level_1_selected_display
 jitter_level_2_model_density
@@ -857,11 +857,12 @@ Then assign the interpretive primary branch from the locked HF result:
   direct voxel error_predictive HF source     -> delta_hf_adjusted is primary
   direct voxel error_nonpredictive HF source  -> no_delta_hf is primary
   direct voxel absent_no_stable_grid          -> no_delta_hf only
-  normative fiber predictive_valid and not burden_dominated -> delta_hf_adjusted is primary
-  normative fiber stable/failed/burden-dominated dependency -> no_delta_hf is primary
+  normative fiber source exists + error_predictive -> delta_hf_adjusted is primary
+  normative fiber source exists + error_nonpredictive -> no_delta_hf is primary
+  normative fiber absent_no_stable_grid -> no_delta_hf only
 ```
 
-The manifest must record direct-voxel HF resolver fields (`hf_voxel_source_status`, `hf_voxel_prediction_status`, `hf_voxel_threshold_source`, selected tau/coverage, and adjacent support) when the matched HF dependency is direct voxel. ULF direct voxel manifests must also record the ULF branch's own resolver fields: `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, `ulf_branch_input_status`, `branch_nuisance_design_status`, selected ULF tau/coverage, and adjacent support. These ULF fields describe whether the executed ULF branch is stable and error-predictive; they do not override the HF-derived `ulf_primary_branch`. For normative fiber dependencies, the manifest must record `hf_norm_fiber_prediction_validity_status`, `hf_norm_fiber_burden_dominated`, `hf_norm_fiber_threshold_source`, selected tau/coverage fields, and `hf_norm_fiber_posthoc_candidate_level`. All ULF manifests must record `ulf_primary_branch`, `delta_hfscore_allowed_role`, `delta_hfscore_role`, and `branch_role_decision_reason`.
+The manifest must record direct-voxel HF resolver fields (`hf_voxel_source_status`, `hf_voxel_prediction_status`, `hf_voxel_threshold_source`, selected tau/coverage, and adjacent support) when the matched HF dependency is direct voxel. ULF direct voxel manifests must also record the ULF branch's own resolver fields: `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, `ulf_branch_input_status`, `branch_nuisance_design_status`, selected ULF tau/coverage, and adjacent support. For normative fiber dependencies, the manifest must record `hf_norm_fiber_source_status`, `hf_norm_fiber_prediction_status`, `hf_norm_fiber_threshold_source`, selected tau/coverage fields, adjacent support, and source failure reasons. ULF normative fiber manifests must also record `ulf_norm_fiber_source_status`, `ulf_norm_fiber_prediction_status`, `ulf_norm_fiber_endpoint_model_status`, branch-specific input readiness, selected ULF tau/coverage, and adjacent support. All ULF manifests must record `intended_primary_branch`, `ulf_primary_branch`, `delta_hfscore_role`, and `branch_role_decision_reason`.
 
 The model has two endpoints:
 
@@ -924,7 +925,7 @@ For normative connectome models, use the model-matched HF fiber-level score:
 S_HF_norm_fiber(E) = NetFiberScore(E)
 ```
 
-For ULF normative fiber models, `DeltaHFScore` is interpreted as a primary HF adjustment only when the matched HF normative fiber source is `predictive_valid` and not burden-dominated, or when a post-hoc selected normative-fiber HF source has reached Level 4 post-selection validation. Stable nonpredictive, failed unstable, burden-dominated, and Level 2/3 normative-fiber post-hoc sources may be computed only as sensitivity or fragility covariates.
+For ULF normative fiber models, `DeltaHFScore` is interpreted as the primary HF adjustment only when the matched HF normative fiber source exists (`pre_specified_accepted` or `scan_fallback_accepted`) and `hf_norm_fiber_prediction_status = error_predictive`. If the HF normative fiber source exists but is `error_nonpredictive`, `DeltaHFScore` may be computed only as a sensitivity covariate. If `hf_norm_fiber_source_status = absent_no_stable_grid`, the DeltaHF-adjusted ULF branch is not run.
 
 For individualized DWI seed-target models, use the model-matched HF target-level score:
 
@@ -1044,7 +1045,7 @@ Coverage_ULF_tau(l) = sum_i I[X_ULF_only_i(l,tau) > tau]
 F_candidate_ULF_tau_cov = {l: Coverage_ULF_tau(l) >= coverage_min}
 ```
 
-The core tau800/Coverage>=5 branch pair is named `ulf_peak_efield_tau800_cov5_delta_hf_adjusted` and `ulf_peak_efield_tau800_cov5_no_delta_hf`; `ulf_peak_efield_tau800_cov5_primary_by_hf_status` denotes the branch selected by the matched HF-source resolver. `ulf_tau_coverage_exposure_definition_threshold_scan` is an optional post-hoc ULF-only exposure-definition scan and must not rescue or relabel the original tau800/Coverage>=5 primary result.
+The core tau800/Coverage>=5 branch pair is named `ulf_peak_efield_tau800_cov5_delta_hf_adjusted` and `ulf_peak_efield_tau800_cov5_no_delta_hf`. The matched HF-source resolver first defines the intended primary branch. Each executable ULF branch then runs its own tau/Coverage source resolver: tau800/Coverage>=5 is accepted when stable, otherwise a source-stable scan fallback may define that branch's selected ULF source. Endpoint status is realized from the intended primary branch after branch-specific input readiness and the ULF source resolver are evaluated.
 
 Benefit-oriented fiber weights and patient score:
 
@@ -1280,7 +1281,7 @@ For continuous/statistical NIfTI maps in any direct-voxel or target-derived visu
 
 ### Stage 6: Model Fitting
 
-Fit each model separately by scale:
+Fit each model separately by endpoint/scale row:
 
 ```text
 HF direct voxel 3-month model
@@ -1292,7 +1293,9 @@ ULF normative connectome fiber immediate add-on gain model when promoted by the 
 individualized DWI target-level models only in their separate model-summary scope
 ```
 
-Use patient-level permutation tests with random seed `42` according to the model-specific gatekeeping rules. For HF and ULF normative fiber-level models, fiber-wise FDR q-values are QC/display outputs rather than primary filters. For individualized-DWI target-level models, correct multiple comparisons across tested targets within each scale, DWI source, endpoint, and model class using FDR.
+For HF and ULF normative connectome fiber models, engineering execution and resolver classification treat all available endpoint/scale rows equivalently within the applicable endpoint family. Clinical reporting hierarchy can still select primary or secondary rows for formal reporting, but it does not change the model definition, source resolver, prediction-status assignment, or output generation rules.
+
+Use patient-level permutation tests with random seed `42` according to the model-specific resolver and resampling checkpoints. For HF and ULF normative fiber-level models, fiber-wise FDR q-values are QC/display outputs rather than primary filters. For individualized-DWI target-level models, correct multiple comparisons across tested targets within each scale, DWI source, endpoint, and model class using FDR.
 
 ### Stage 7: Stability And Sensitivity
 

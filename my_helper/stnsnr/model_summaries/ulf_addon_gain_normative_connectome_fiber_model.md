@@ -7,7 +7,7 @@ Scope: ULF add-on normative connectome fiber-level model, aligned to `hf_3m_norm
 
 ## 1. Research Question
 
-Which ULF-only normative connectome streamlines are associated with additional clinical benefit after ULF stimulation is added to HF stimulation, after adjusting for the patient's pre-ULF HF clinical state, with the role of model-derived `DeltaHFScore` resolved by the matched HF normative fiber model's prediction-validity status.
+Which ULF-only normative connectome streamlines are associated with additional clinical benefit after ULF stimulation is added to HF stimulation, after adjusting for the patient's pre-ULF HF clinical state, with the role of model-derived `DeltaHFScore` resolved by the matched HF normative fiber source and prediction statuses.
 
 This is a right-canonical, full-connectome, fiber-level model. Individual streamlines from public structural connectomes are the primary modeling units. Target atlases are used only after modeling for endpoint labels, anatomical enrichment, QC, display grouping, and interpretation. They do not define the primary candidate universe or primary predictors.
 
@@ -18,7 +18,7 @@ HF  = high-frequency stimulation component, frequency_Hz >= 100
 ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
 ```
 
-The primary predictor represents streamlines uniquely recruited by the ULF component. HF-overlap streamlines are excluded from the ULF-only exposure definition. `DeltaHFScore` is run when available, but it is interpreted as primary adjustment only when the matched HF normative fiber source model is predictive-valid or post-selection validated.
+The primary predictor represents streamlines uniquely recruited by the ULF component. HF-overlap streamlines are excluded from the ULF-only exposure definition. `DeltaHFScore` is run when available, but it is interpreted as the primary adjustment only when the matched HF normative fiber source exists and `hf_norm_fiber_prediction_status = error_predictive`.
 
 ---
 
@@ -89,19 +89,18 @@ Interpretation:
 same-day HF-state-adjusted ULF acute add-on association
 ```
 
-### 2.3 Endpoint hierarchy
+### 2.3 Executable endpoint rows and reporting hierarchy
 
-Default first-pass endpoints:
+Executable endpoint rows:
 
 ```text
-Primary formal endpoint:
-  MDS-UPDRS III total chronic HF+ULF 3-month score
-
-Key secondary endpoint:
-  MDS-UPDRS III total same-day HF+ULF immediate score, if available
+all available HF+ULF post-add-on clinical scales joined by ID
+within the chronic and same-day immediate endpoint families
 ```
 
-The immediate endpoint may be promoted to co-primary only by an explicit pre-run decision. If it is not promoted, it receives observed LOOCV and optional smoke resampling, but not default formal `B=10000` resampling.
+Engineering implementation treats every available endpoint/scale row equivalently within its endpoint family. No scale receives special execution status in the ULF source resolver, prediction-status assignment, endpoint realization, or output generation.
+
+Reporting hierarchy may still name one chronic clinical row as primary and may still treat same-day immediate rows as secondary or explicitly promoted co-primary. This hierarchy is a reporting/resource decision and does not change the model definition for other available endpoint rows.
 
 ### 2.4 Add-on gain sensitivity endpoints
 
@@ -200,11 +199,19 @@ direct ULF biophysical field association
 ---
 
 
-## 4. Locked HF Adjustment Source
+## 4. Locked HF Adjustment Source And Intended Branch Role
 
-The ULF model reads a matched HF normative fiber source before assigning branch roles. The source may be the original tau800/Coverage>=5 HF branch or one selected post-hoc threshold-scan candidate.
+The ULF normative fiber implementation is a three-layer resolver:
 
-Default locked HF source:
+```text
+1. HF-derived intended branch role
+2. branch-specific ULF source resolver with tau/Coverage scan
+3. endpoint primary realization
+```
+
+The first layer does not use ULF tau or Coverage. It reads the matched HF normative fiber resolver fields to decide the intended primary branch, and then checks branch-specific `DeltaHFScore` input readiness to decide whether the DeltaHF-adjusted branch can be attempted. The complete ULF normative fiber model is not defined until the intended branch has completed its own ULF tau/Coverage source resolver.
+
+Pre-specified locked HF source:
 
 ```text
 model_family = hf_3m_normative_connectome_fiber_model
@@ -221,17 +228,17 @@ map source in LOOCV = training-fold HF model
 full-sample HF model = descriptive scores only
 ```
 
-Allowed post-hoc HF source:
+Allowed scan-fallback HF source:
 
 ```text
 model_family = hf_3m_normative_connectome_fiber_model
-branch = posthoc_tau_coverage_threshold_scan_selected_candidate
+branch = tau_coverage_source_resolver_selected_candidate
 tau = selected_tau_v_per_m
 coverage = selected_coverage
-candidate_level = Level 2 / Level 3 / Level 4
+hf_norm_fiber_source_status = scan_fallback_accepted
 ```
 
-A post-hoc HF source must not overwrite the original tau800/Coverage>=5 source. It produces a separately named ULF sensitivity branch unless it is Level 4.
+A scan-fallback HF source may define the model-family-matched `DeltaHFScore` source when tau800/Coverage>=5 is not accepted. The manifest must record `hf_norm_fiber_threshold_source = scan_fallback`, selected tau/Coverage, and adjacent support.
 
 Connectome-matched rule:
 
@@ -250,50 +257,49 @@ shared_dTOR_HF_adjustment_sensitivity
 Required HF source fields:
 
 ```text
-hf_norm_fiber_prediction_validity_status
-hf_norm_fiber_prediction_failure_reasons
+hf_norm_fiber_source_status
+hf_norm_fiber_prediction_status
+hf_norm_fiber_source_failure_reasons
 hf_norm_fiber_burden_dominated
 hf_norm_fiber_threshold_source
 hf_norm_fiber_selected_tau_v_per_m
 hf_norm_fiber_selected_coverage
-hf_norm_fiber_posthoc_candidate_level
-hf_norm_fiber_post_selection_validation_status
+hf_norm_fiber_selected_adjacent_passing_grid_cells
+hf_norm_fiber_selected_grid_distance_from_pre_specified
 delta_hfscore_allowed_role
 ```
 
-Branch-role resolver:
+HF-derived intended branch role:
 
 ```text
-if matched HF source is predictive_valid and not burden_dominated:
+if hf_norm_fiber_source_status = pre_specified_accepted or scan_fallback_accepted:
+  run no_delta_hf
+  run delta_hf_adjusted only if fold-specific DeltaHFScore inputs are valid
+
+if hf_norm_fiber_prediction_status = error_predictive:
+  intended_primary_branch = delta_hf_adjusted
   ulf_primary_branch = delta_hf_adjusted
-  delta_hfscore_role = primary nuisance adjustment
+  delta_hfscore_role = primary_error_predictive_hf_adjustment
   no_delta_hf_role   = sensitivity
 
-if matched HF source is stable_nonpredictive:
+if hf_norm_fiber_prediction_status = error_nonpredictive:
+  intended_primary_branch = no_delta_hf
   ulf_primary_branch = no_delta_hf
-  delta_hfscore_role = sensitivity / compatibility adjustment
+  delta_hfscore_role = stable_error_nonpredictive_hf_adjustment_sensitivity
   no_delta_hf_role   = primary
 
-if matched HF source is failed_unstable:
-  ulf_primary_branch = no_delta_hf when ULF inputs remain valid
-  delta_hfscore_role = exploratory only, or not run if HF support is unavailable
-  no_delta_hf_role   = primary exploratory branch
-
-if matched HF source is burden_dominated:
+if hf_norm_fiber_source_status = absent_no_stable_grid:
+  run no_delta_hf only
+  intended_primary_branch = no_delta_hf
   ulf_primary_branch = no_delta_hf
-  delta_hfscore_role = burden / placement sensitivity only
+  delta_hfscore_role = not_run_no_stable_hf_norm_fiber_source
 
-if matched HF source is posthoc Level 2:
-  ulf_primary_branch = no_delta_hf
-  delta_hfscore_role = exploratory selected-threshold sensitivity only
-
-if matched HF source is posthoc Level 3:
-  ulf_primary_branch = no_delta_hf
-  delta_hfscore_role = priority exploratory selected-threshold sensitivity only
-
-if matched HF source is posthoc Level 4:
-  ulf_primary_branch may be delta_hf_adjusted
-  delta_hfscore_role = post-selection validated HF adjustment
+if hf_norm_fiber_prediction_status = error_predictive
+and fold-specific DeltaHFScore inputs are invalid:
+  intended_primary_branch = delta_hf_adjusted
+  ulf_primary_branch = delta_hf_adjusted
+  delta_hfscore_role = primary_input_failure
+  no_delta_hf_role   = fallback_sensitivity
 ```
 
 The ULF implementation runs both core branches when inputs permit:
@@ -303,27 +309,31 @@ ulf_peak_efield_tau800_cov5_delta_hf_adjusted
 ulf_peak_efield_tau800_cov5_no_delta_hf
 ```
 
-The manifest records which branch is interpreted as primary after the HF source is classified.
+When `intended_primary_branch = delta_hf_adjusted` but `DeltaHFScore` inputs are invalid, the primary branch is not executable. The endpoint primary status remains `primary_branch_input_failure`; `no_delta_hf` may still be evaluated and reported only as `fallback_sensitivity_no_delta_hf`.
 
 Required branch-role manifest fields:
 
 ```text
-hf_norm_fiber_prediction_validity_status
-hf_norm_fiber_prediction_validity_source
+hf_norm_fiber_source_status
+hf_norm_fiber_prediction_status
 hf_norm_fiber_burden_dominated
 hf_norm_fiber_threshold_source
 hf_norm_fiber_selected_tau_v_per_m
 hf_norm_fiber_selected_coverage
-hf_norm_fiber_posthoc_candidate_level
+hf_norm_fiber_selected_adjacent_passing_grid_cells
+intended_primary_branch
 ulf_primary_branch
+ulf_primary_branch_run_status
 ulf_core_branches_run
 ulf_sensitivity_branches
+fallback_sensitivity_branch
+ulf_fallback_sensitivity_status
 delta_hfscore_role
 branch_role_decision_reason
 hf_model_support_status
 ```
 
-If the matched HF branch fails or is technically degenerate, `DeltaHFScore` must be labeled as an unstable generated covariate and cannot define the primary ULF interpretation.
+If the matched HF resolver returns `absent_no_stable_grid`, the DeltaHF-adjusted branch is not run for that endpoint and `no_delta_hf` is the intended primary branch. If the HF-derived intended primary branch is `delta_hf_adjusted` but accepted HF support cannot provide valid fold-specific `DeltaHFScore`, do not silently promote `no_delta_hf` to primary; record `ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure` and report `no_delta_hf` only as fallback sensitivity if it is executable.
 
 ## 5. Feature Construction
 
@@ -370,9 +380,9 @@ Exposure is not scaled by frequency or pulse width in the peak E-field branch. F
 
 ## 6. ULF-Only Exposure And Candidate Fibers
 
-ULF-only exposure is tau-specific because tau defines component activity and HF-overlap exclusion.
+ULF-only exposure is tau-specific because tau defines ULF component activity, ULF-only zeroing, ULF coverage, and ULF QC. HF component activity for HF-overlap exclusion is not defined by the ULF source tau.
 
-Primary ULF branch:
+Pre-specified ULF source:
 
 ```text
 tau_primary = 800 V/m
@@ -386,25 +396,37 @@ tau_sensitivity = 1500 V/m
 coverage_sensitivity = Coverage>=5
 ```
 
-Optional ULF-only exposure-definition threshold scan:
+ULF source resolver scan:
 
 ```text
 ulf_threshold_scan_tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
 ulf_threshold_scan_coverage_grid    = [5, 6, 7, 8, 10, 12]
 ```
 
-For each tau:
+For each ULF source tau:
 
 ```text
-ULF_touched_i(l,tau) = X_ULF_component_i(l) > tau
-HF_touched_i(l,tau)  = X_HF_component_i(l)  > tau
+tau_ULF_source =
+  current ULF source-grid tau
 
-X_ULF_only_i(l,tau) =
-  X_ULF_component_i(l), if ULF_touched_i(l,tau) and not HF_touched_i(l,tau)
+tau_HF_overlap =
+  hf_norm_fiber_selected_tau_v_per_m,
+    if hf_norm_fiber_source_status is pre_specified_accepted or scan_fallback_accepted
+  +Inf,
+    if hf_norm_fiber_source_status is absent_no_stable_grid
+
+ULF_touched_i(l,tau_ULF_source) =
+  X_ULF_component_i(l) > tau_ULF_source
+
+HF_touched_i(l) =
+  X_HF_component_i(l) > tau_HF_overlap
+
+X_ULF_only_i(l,tau_ULF_source) =
+  X_ULF_component_i(l), if ULF_touched_i(l,tau_ULF_source) and not HF_touched_i(l)
   0,                   otherwise
 ```
 
-If a streamline is touched by both HF and ULF components at the branch tau, it is assigned to HF-overlap/HF-adjustment outputs and excluded from the primary ULF-only predictor.
+If an HF source exists, HF-overlap exclusion uses the locked HF selected tau so every HF-component decision in the ULF model is aligned with the HF normative fiber source used to compute `DeltaHFScore`. If no HF source exists, `tau_HF_overlap = +Inf`, no HF-overlap streamlines are excluded, and ULF-only exposure equals ULF exposure after ULF thresholding.
 
 Candidate rule:
 
@@ -422,19 +444,19 @@ For ULF, tau is part of the biological exposure definition.
 It is not merely a candidate coverage threshold.
 ```
 
-Therefore a higher tau / higher coverage ULF result is interpreted as:
+Therefore a scan-fallback ULF source is interpreted as:
 
 ```text
-exploratory high-threshold ULF-only core-fiber candidate
+branch-specific selected ULF source
 ```
 
 not as:
 
 ```text
-rescued original tau800/Coverage>=5 ULF primary result
+HF-derived branch-role replacement
 ```
 
-The ULF threshold scan should be run on the branch resolved as interpretive primary by the HF-source status. If resources permit, the non-selected core branch may also be scanned, but it remains secondary.
+The ULF source resolver scan is run independently for every executable branch. `delta_hf_adjusted` and `no_delta_hf` may select different tau/Coverage sources because their nuisance designs differ.
 
 ## 7. DeltaHFScore: Matched HF Normative Fiber Score Projection
 
@@ -524,8 +546,9 @@ Source threshold metadata are explicit:
 ```text
 hf_source_tau_v_per_m
 hf_source_coverage
-hf_source_threshold_source = original_primary | posthoc_selected
-hf_source_candidate_level
+hf_source_threshold_source = pre_specified | scan_fallback
+hf_source_status
+hf_source_prediction_status
 ```
 
 `DeltaHFScore` is calculated only through the locked HF scoring operator:
@@ -603,29 +626,45 @@ normative_ULF_fiber_delta_hf_support_summary.csv
 normative_ULF_fiber_delta_hf_support_qc.json
 ```
 
-For backward compatibility, tau800-specific aliases may be emitted when the HF source is the original primary branch:
+For backward compatibility, tau800-specific aliases may be emitted when the selected HF source is tau800/Coverage>=5:
 
 ```text
 HF_out_candidate_fraction_tau800
 HF_out_selected_fraction_tau800
 ```
 
-### 8.4 Gatekeeping rules for out-of-support exposure
+### 8.4 DeltaHFScore support status for out-of-support exposure
 
-Default gates:
+Default support-status thresholds:
 
 ```text
-Proceed without downgrading:
-  cohort median HF_out_candidate_fraction_source_tau <= 0.20
+delta_hfscore_support_status = adequate
+  if cohort median HF_out_candidate_fraction_source_tau <= 0.20
   and no more than 25% of subjects have HF_out_candidate_fraction_source_tau > 0.50
 
-Proceed but downgrade interpretation:
-  cohort median HF_out_candidate_fraction_source_tau > 0.20
-  or more than 25% of subjects have HF_out_candidate_fraction_source_tau > 0.50
+delta_hfscore_support_status = limited
+  if support is worse than adequate
+  but does not meet invalid_extreme_out_of_support
 
-Do not present the ULF branch as formally HF-adjusted:
-  HF_out_candidate_fraction_source_tau is extreme enough that DeltaHFScore no longer represents the HF-component change for many subjects
-  or HF component programming moved mainly into territory never covered by the locked HF model
+delta_hfscore_support_status = invalid_extreme_out_of_support
+  if cohort median HF_out_candidate_fraction_source_tau > 0.50
+  or more than 25% of subjects have HF_out_candidate_fraction_source_tau > 0.80
+  or a required subject/fold is nearly completely outside the HF score support
+```
+
+Interpretation:
+
+```text
+adequate:
+  DeltaHFScore inputs are valid without support downgrade.
+
+limited:
+  DeltaHFScore inputs remain valid, but the branch must report the support limitation.
+
+invalid_extreme_out_of_support:
+  DeltaHFScore inputs are invalid for the DeltaHF-adjusted branch.
+  If the DeltaHF-adjusted branch is the intended primary branch,
+  record ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure.
 ```
 
 If out-of-support exposure is substantial, add a QC-only or secondary sensitivity model:
@@ -666,7 +705,7 @@ No imputation is allowed.
 
 ## 9. Core Statistical Models
 
-The ULF normative fiber implementation runs two core branches when inputs permit. Their roles are assigned by the HF-source branch-role resolver.
+The ULF normative fiber implementation runs executable core branches when inputs permit. Their intended roles are assigned by the HF-derived intended branch-role resolver, and their realized source status is assigned by the branch-specific ULF tau/Coverage source resolver.
 
 ### 9.0 Core Branch A: DeltaHF-Adjusted Partial Spearman
 
@@ -716,7 +755,7 @@ M_ULF_noDeltaHF(l) = -rho_ULF_noDeltaHF(l)   for lower-is-better scales
 M_ULF_noDeltaHF(l) =  rho_ULF_noDeltaHF(l)   for higher-is-better scales
 ```
 
-This branch is the interpretive primary branch when the matched HF normative fiber source is `stable_nonpredictive`, `failed_unstable`, `burden_dominated`, or a post-hoc Level 2/3 candidate.
+This branch is the intended primary branch when the matched HF normative fiber source is absent or `error_nonpredictive`. It may also be reported as fallback sensitivity when the intended DeltaHF-adjusted primary branch has input/design failure.
 
 ### 9.2 Patient-level NetULFFiberScore
 
@@ -796,7 +835,7 @@ Y_post_i = alpha
          + error_i
 ```
 
-Primary validation statistic for the branch selected by the branch-role resolver:
+Primary validation statistic for the realized primary model:
 
 ```text
 LOOCV Spearman rho between held-out predicted Y_post and held-out observed Y_post
@@ -817,21 +856,160 @@ Q2 = 1 - SSE_ULFScore_model / SSE_branch_specific_nuisance_only_baseline
 
 Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, or failed e-field availability fails the endpoint/run after QC. Missing or invalid `DeltaHFScore` fails only the DeltaHF-adjusted branch; the no-DeltaHF branch may still run and must record why the adjusted branch was unavailable. For configurable future endpoints, the endpoint is skipped if the valid sample size falls below 12.
 
+### 9.4 ULF Normative Fiber Source And Endpoint Resolver
+
+The HF-derived intended branch role decides which branches are attempted and which branch is intended primary. The branch-specific ULF source resolver then evaluates each executable branch independently. Each branch may select a different tau/Coverage source because `delta_hf_adjusted` and `no_delta_hf` have different nuisance designs and may produce different valid ULF scoring supports. ULF source or prediction status must not change the HF-derived intended primary branch; it determines whether that intended branch is realized as a stable ULF model or whether the endpoint is reported as input-failed, absent, predictive, or nonpredictive.
+
+The hard computability filter for each executable endpoint, phase, branch, and tau/Coverage grid cell is:
+
+```text
+n_subjects >= 12
+fold_n_candidate_fibers_min >= 1000 for dTOR
+fold_n_candidate_fibers_min >= 100 for PPMI/MGH observed robustness
+selected fiber pools are computable
+NetULFFiberScore is non-constant in every LOOCV fold
+branch nuisance design is valid
+all held-out predictions are finite
+```
+
+Branch input/design failure has priority over `absent_no_stable_grid`. If a branch cannot evaluate the declared grid because branch-specific clinical inputs, e-field inputs, `DeltaHFScore` inputs, or the branch nuisance design are invalid, record `ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure` when that branch is primary. Do not reclassify this condition as `absent_no_stable_grid`.
+
+This priority rule applies before assigning `ulf_norm_fiber_source_status`: `absent_no_stable_grid` means the declared grid was evaluable but no stable source was found.
+
+The pre-specified ULF source is:
+
+```text
+tau = 800 V/m
+Coverage >= 5
+estimator = branch-specific partial Spearman
+score = NetULFFiberScore
+validation = LOOCV
+```
+
+If the pre-specified source is not accepted, the fallback source must be selected only from the declared ULF tau/Coverage scan grid:
+
+```text
+tau, V/m:
+  400, 600, 800, 1000, 1200, 1500, 2000
+
+Coverage:
+  5, 6, 7, 8, 10, 12
+```
+
+Define ULF normative fiber source status for every executable endpoint, phase, and branch:
+
+```text
+ulf_norm_fiber_source_status = pre_specified_accepted
+  if the pre-specified tau800/Coverage>=5 grid cell passes the hard computability filter
+  and at least 2 adjacent tau/Coverage grid cells also pass the hard computability filter
+
+ulf_norm_fiber_source_status = scan_fallback_accepted
+  if tau800/Coverage>=5 does not pass the source-stability rule
+  and a predeclared ULF source scan contains another grid cell passing the same rule
+
+ulf_norm_fiber_source_status = absent_no_stable_grid
+  if no evaluated tau/Coverage grid cell passes the source-stability rule
+```
+
+For `scan_fallback_accepted`, choose the fallback grid without using `Q2`, rho, nominal p value, MAE, or RMSE:
+
+```text
+1. minimize grid distance from tau800/Coverage>=5
+2. maximize adjacent passing grid cells
+3. maximize fold_n_candidate_fibers_min
+4. prefer stricter Coverage
+5. prefer higher tau
+```
+
+Define ULF normative fiber prediction status only after a branch-specific source exists:
+
+```text
+ulf_norm_fiber_prediction_status = error_predictive
+  if MAE_model < MAE_branch_specific_nuisance_only_baseline
+  and RMSE_model < RMSE_branch_specific_nuisance_only_baseline
+
+ulf_norm_fiber_prediction_status = error_nonpredictive
+  if a ULF normative fiber source exists
+  but MAE_model >= MAE_branch_specific_nuisance_only_baseline
+  or RMSE_model >= RMSE_branch_specific_nuisance_only_baseline
+
+ulf_norm_fiber_prediction_status = not_applicable
+  if ulf_norm_fiber_source_status = absent_no_stable_grid
+```
+
+Endpoint primary realization combines the HF-derived intended primary branch with that branch's own ULF source resolver result:
+
+```text
+ulf_norm_fiber_endpoint_model_status = primary_branch_error_predictive
+  if the intended primary branch has ulf_norm_fiber_source_status in
+  {pre_specified_accepted, scan_fallback_accepted}
+  and the intended primary branch has ulf_norm_fiber_prediction_status = error_predictive
+
+ulf_norm_fiber_endpoint_model_status = primary_branch_error_nonpredictive
+  if the intended primary branch has an accepted ULF source
+  but the intended primary branch has ulf_norm_fiber_prediction_status = error_nonpredictive
+
+ulf_norm_fiber_endpoint_model_status = absent_no_stable_ulf_grid
+  if the intended primary branch is executable
+  but has ulf_norm_fiber_source_status = absent_no_stable_grid
+
+ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
+  if the intended primary branch cannot be evaluated because required clinical,
+  e-field, DeltaHFScore, or nuisance-design inputs are invalid
+```
+
+Fallback sensitivity status is used only when the intended primary branch has input/design failure. Ordinary non-primary branch comparisons remain sensitivity analyses but are not fallback. Fallback sensitivity must not replace the endpoint primary status:
+
+```text
+ulf_fallback_sensitivity_status = not_needed
+  if ulf_norm_fiber_endpoint_model_status is not primary_branch_input_failure
+
+ulf_fallback_sensitivity_status = no_delta_hf_error_predictive
+  if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
+  and no_delta_hf has an accepted ULF source
+  and no_delta_hf has ulf_norm_fiber_prediction_status = error_predictive
+
+ulf_fallback_sensitivity_status = no_delta_hf_error_nonpredictive
+  if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
+  and no_delta_hf has an accepted ULF source
+  but no_delta_hf has ulf_norm_fiber_prediction_status = error_nonpredictive
+
+ulf_fallback_sensitivity_status = no_delta_hf_absent_no_stable_grid
+  if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
+  and no_delta_hf has ulf_norm_fiber_source_status = absent_no_stable_grid
+
+ulf_fallback_sensitivity_status = no_delta_hf_input_failure
+  if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
+  and no_delta_hf cannot be evaluated because its branch-specific inputs
+  or nuisance design are invalid
+```
+
+The realized primary ULF normative fiber model is fully defined only when the intended primary branch has an accepted ULF source:
+
+```text
+realized_primary_model =
+  endpoint + phase + intended_primary_branch
+  + selected_tau + selected_coverage + estimator
+```
+
 
 ## 10. Sensitivity Models
 
 ### 10.1 Non-selected core branch comparison
 
-Purpose: compare the core branch not selected as primary against the selected primary branch.
+Purpose: compare executable non-primary core branches against the realized primary model without changing endpoint primary status.
 
 ```text
-if matched HF source is predictive_valid or Level 4:
-  selected primary = delta_hf_adjusted
+if intended_primary_branch = delta_hf_adjusted
+and delta_hf_adjusted has an accepted ULF source:
   comparison branch = no_delta_hf
 
-if matched HF source is stable_nonpredictive, failed_unstable, burden_dominated, Level 2, or Level 3:
-  selected primary = no_delta_hf
-  comparison branch = delta_hf_adjusted, if computable
+if intended_primary_branch = no_delta_hf
+and no_delta_hf has an accepted ULF source:
+  comparison branch = delta_hf_adjusted, if DeltaHFScore inputs are valid
+
+if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure:
+  no_delta_hf may be reported only as fallback sensitivity
 ```
 
 No-DeltaHF branch name:
@@ -846,29 +1024,28 @@ DeltaHF-adjusted branch name:
 ulf_peak_efield_tau800_cov5_delta_hf_adjusted
 ```
 
-The non-selected core branch receives observed LOOCV outputs but does not receive formal `B=10000` resampling unless explicitly promoted.
+The non-primary core branch receives observed LOOCV outputs but does not receive formal `B=10000` resampling unless explicitly promoted.
 
-### 10.2 HF post-hoc selected DeltaHFScore sensitivity
+### 10.2 HF Source-Neighborhood DeltaHFScore Sensitivity
 
-If the HF normative threshold scan identifies a Level 2 or Level 3 candidate, it may generate one separate ULF sensitivity branch:
+If the HF source resolver records neighboring stable tau/Coverage cells around the selected HF source, one explicitly labeled source-neighborhood DeltaHFScore sensitivity may be reported:
 
 ```text
-ulf_peak_efield_tau800_cov5_delta_hf_from_hf_posthoc_tau{tau}_cov{coverage}_sensitivity
+ulf_peak_efield_tau800_cov5_delta_hf_from_hf_neighbor_tau{tau}_cov{coverage}_sensitivity
 ```
 
 Rules:
 
 ```text
-at most one selected HF post-hoc candidate per endpoint/scale
+at most one neighboring HF source sensitivity per endpoint/scale
 neighboring threshold cells are robustness evidence only
 no multiple DeltaHFScore_tau*_cov* covariates in the same n=16 ULF model
-Level 2/3 candidates cannot define the primary DeltaHF-adjusted ULF branch
-Level 4 candidates may define primary DeltaHF-adjusted ULF branch
+the locked HF source remains the one selected by the HF source resolver
 ```
 
-### 10.3 ULF-only tau/Coverage exposure-definition threshold scan
+### 10.3 ULF Tau/Coverage Source Resolver Scan
 
-Purpose: evaluate whether ULF add-on signal is concentrated in a high-threshold/high-coverage ULF-only core-fiber definition.
+Purpose: first evaluate the pre-specified tau800/Coverage>=5 ULF source for each executable branch; if it is not accepted, select a predeclared fallback tau/Coverage source using outcome-independent stability criteria.
 
 Executable grid:
 
@@ -877,7 +1054,7 @@ ulf_threshold_scan_tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
 ulf_threshold_scan_coverage_grid    = [5, 6, 7, 8, 10, 12]
 ```
 
-Run the scan on the branch resolved as interpretive primary by the HF-source status. If resources permit, also scan the non-selected core branch as secondary.
+Run the scan independently for every executable branch. `delta_hf_adjusted` and `no_delta_hf` may select different tau/Coverage sources because their nuisance designs differ.
 
 Each grid cell reruns:
 
@@ -896,15 +1073,32 @@ branch-specific nuisance-only baseline
 LOOCV metrics
 ```
 
-Interpretation:
+Source resolver:
 
 ```text
-higher tau / higher Coverage positive result
-  = exploratory high-threshold ULF-only core-fiber candidate
-  != rescued tau800/Coverage>=5 primary result
+pre_specified_accepted:
+  tau800/Coverage>=5 passes the hard computability filter
+  and at least 2 adjacent tau/Coverage cells also pass
+
+scan_fallback_accepted:
+  tau800/Coverage>=5 is not accepted
+  and at least one scan cell passes the same source-stability rule
+
+absent_no_stable_grid:
+  no evaluated tau/Coverage cell passes the source-stability rule
 ```
 
-If the selected ULF scan branch is described as significant, use max-stat permutation over the full ULF tau/Coverage grid. If threshold selection itself is part of the predictive algorithm, use nested/adaptive LOOCV or independent validation.
+For `scan_fallback_accepted`, choose the fallback cell without using `Q2`, rho, nominal p value, MAE, or RMSE:
+
+```text
+1. minimize grid distance from tau800/Coverage>=5
+2. maximize adjacent passing grid cells
+3. maximize fold_n_candidate_fibers_min
+4. prefer stricter Coverage
+5. prefer higher tau
+```
+
+If the selected ULF source is described as threshold-scan significant, use max-stat permutation over the full ULF tau/Coverage grid. If threshold selection itself is part of a predictive algorithm claim, use nested/adaptive LOOCV or independent validation. These analyses do not replace the source resolver.
 
 ### 10.4 Total ULF exposure sensitivity
 
@@ -1047,18 +1241,18 @@ always run when inputs permit:
   ulf_peak_efield_tau800_cov5_no_delta_hf
 ```
 
-Branch-role resolver then records which observed branch is interpreted as primary. Formal resampling follows the resolved primary branch unless a secondary endpoint or sensitivity is explicitly promoted before running formal inference.
+The branch-role resolver records the intended primary branch before ULF source resolution. Formal resampling follows the accepted selected source of the realized primary model unless a secondary endpoint or sensitivity is explicitly promoted before running formal inference.
 
 
 ## 12. Permutation, Bootstrap, And Threshold-Scan Inference
 
 ### 12.1 Freedman-Lane permutation
 
-Formal permutation is restricted to the dTOR branch recorded as primary by the branch-role resolver unless another endpoint is explicitly promoted.
+Formal permutation is restricted to the dTOR accepted selected source of the realized primary model unless another endpoint is explicitly promoted.
 
 ```text
 connectome = dTOR
-branch = ulf_peak_efield_tau800_cov5_primary_by_hf_status
+branch = realized_primary_model_id
 formal B = 10000
 smoke B = 1000
 seed = 42
@@ -1101,7 +1295,7 @@ Therefore, within a fixed outer fold and fixed HF model cache, `DeltaHFScore` ma
 
 ### 12.2 Subject-level bootstrap
 
-Formal bootstrap is restricted to the dTOR branch recorded as primary by the branch-role resolver unless another endpoint is explicitly promoted.
+Formal bootstrap is restricted to the dTOR accepted selected source of the realized primary model unless another endpoint is explicitly promoted.
 
 ```text
 formal B = 10000
@@ -1169,7 +1363,7 @@ Only nested/adaptive validation or an independent dataset can support the predic
 ## 13. Plain Controls And Burden QC
 
 
-Plain control models are branch-specific. When the resolved primary branch is no-DeltaHF, omit `DeltaHFScore` from the plain-control nuisance set. When the DeltaHF-adjusted branch is tested, include the same `DeltaHFScore` source and role label used by that branch.
+Plain control models are branch-specific. When the realized primary model is no-DeltaHF, omit `DeltaHFScore` from the plain-control nuisance set. When the DeltaHF-adjusted branch is tested, include the same `DeltaHFScore` source and role label used by that branch.
 
 ### 13.1 ULF-only plain connected-streamline control
 
@@ -1284,12 +1478,21 @@ endpoint_slug
 scale_slug
 branch
 branch_role
+intended_primary_branch
+realized_primary_model_id
 delta_hfscore_role
+fallback_sensitivity_branch
+ulf_fallback_sensitivity_status
 hf_source_status
+hf_source_prediction_status
 hf_source_threshold_source
 hf_source_tau_v_per_m
 hf_source_coverage
-hf_source_candidate_level
+hf_source_adjacent_passing_grid_cells
+ulf_norm_fiber_source_status
+ulf_norm_fiber_prediction_status
+ulf_norm_fiber_endpoint_model_status
+ulf_norm_fiber_selected_adjacent_passing_grid_cells
 fiber_id
 tau_v_per_m
 coverage_ULF_only
@@ -1316,16 +1519,24 @@ endpoint_slug
 scale_slug
 branch
 branch_role
+intended_primary_branch
+realized_primary_model_id
 delta_hfscore_role
+fallback_sensitivity_branch
+ulf_fallback_sensitivity_status
 score_map_source
 Y_post
 Y_HF_ref
 DeltaHFScore
 DeltaHFScore_in_support
 hf_source_status
+hf_source_prediction_status
 hf_source_tau_v_per_m
 hf_source_coverage
-hf_source_candidate_level
+hf_source_adjacent_passing_grid_cells
+ulf_norm_fiber_source_status
+ulf_norm_fiber_prediction_status
+ulf_norm_fiber_endpoint_model_status
 NetULFFiberScore
 SweetPeak5_ULF
 SourPeak5_ULF
@@ -1417,11 +1628,11 @@ PPMI/MGH may use single sidecars. dTOR must use chunked sidecars.
 X_ULF_component_float32_fiber_major.npy
 X_HF_component_float32_fiber_major.npy
 X_HFonly_ref_float32_fiber_major.npy
-X_ULF_only_tau{tau}_float32_fiber_major.npy for tau in [400,600,800,1000,1200,1500,2000] when threshold scan is enabled
+X_ULF_only_tau{tau}_hf_overlap_rule_float32_fiber_major.npy for tau in [400,600,800,1000,1200,1500,2000]
 S{tau}_ULF_only_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
-S{tau}_HF_component_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
+S_HF_component_hf_overlap_rule_bool.npy
 S{tau}_ULF_total_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
-HF_overlap_tau{tau}_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
+HF_overlap_ulf_tau{tau}_hf_overlap_rule_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
 fiber_id.npy
 candidate_fiber_metadata.json
 ```
@@ -1433,10 +1644,10 @@ chunks/
   X_ULF_component_float32_fiber_major_chunk-*.npy
   X_HF_component_float32_fiber_major_chunk-*.npy
   X_HFonly_ref_float32_fiber_major_chunk-*.npy
-  X_ULF_only_tau{tau}_float32_fiber_major_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
+  X_ULF_only_tau{tau}_hf_overlap_rule_float32_fiber_major_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
   S{tau}_ULF_only_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
-  S{tau}_HF_component_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
-  HF_overlap_tau{tau}_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
+  S_HF_component_hf_overlap_rule_bool_chunk-*.npy
+  HF_overlap_ulf_tau{tau}_hf_overlap_rule_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
   fiber_id_chunk-*.npy
 fiber_chunk_manifest.json
 candidate_fiber_metadata.json
@@ -1500,9 +1711,9 @@ Every optimized implementation must pass exact-equivalence regression testing ag
 ---
 
 
-## 16. Execution Priority And Gatekeeping
+## 16. Execution Priority And Resolver Checkpoints
 
-Run the model as a gated sequence.
+Run the model through ordered engineering checkpoints. These checkpoints verify computability and branch-specific input readiness; they do not add outcome-performance gates beyond the HF-derived branch-role resolver and the ULF source/prediction resolver.
 
 Executable branches:
 
@@ -1517,10 +1728,10 @@ sensitivity:
   ulf_top1500_top500_sensitivity
   ulf_total_exposure_tau800_cov5_sensitivity
   ulf_gain_endpoint_sensitivity
-  ulf_delta_hf_from_hf_posthoc_selected_sensitivity
+  ulf_delta_hf_from_hf_neighbor_source_sensitivity
 
-posthoc_candidate_search:
-  ulf_tau_coverage_exposure_definition_threshold_scan
+source_resolver_scan:
+  ulf_tau_coverage_source_resolver_scan
 
 control:
   ulf_plain_connected_streamline_control
@@ -1548,7 +1759,7 @@ lock connectome list
 lock core branch pair
 lock tau800/Coverage>=5 primary ULF parameters
 lock tau1500/Coverage>=5 sensitivity parameters
-lock optional ULF tau/Coverage threshold-scan grid
+lock ULF tau/Coverage source-resolver scan grid
 lock seed = 42
 check HF and ULF e-field manifests
 check HF-only reference e-field manifest
@@ -1557,18 +1768,19 @@ check clinical ID join
 check same-day T2 immediate/HF reference pairing
 check scale direction
 check matched HF normative model source
-read hf_norm_fiber_prediction_validity_status
+read hf_norm_fiber_source_status
+read hf_norm_fiber_prediction_status
 read hf_norm_fiber_burden_dominated
 read hf_norm_fiber_threshold_source
 read hf_norm_fiber_selected_tau_v_per_m
 read hf_norm_fiber_selected_coverage
-read hf_norm_fiber_posthoc_candidate_level
+read hf_norm_fiber_selected_adjacent_passing_grid_cells
 check HF support output availability when DeltaHFScore is to be computed
 check PPMI / MGH / dTOR readability
 check output root writability
 ```
 
-Enter Round 1 only if all inputs are uniquely resolved and the manifest records the locked parameter set.
+Proceed to Round 1 only if all inputs are uniquely resolved and the manifest records the locked parameter set.
 
 ### Round 1: Sidecar cache, HF support cache, and equivalence test
 
@@ -1598,60 +1810,70 @@ smoke permutation
 bootstrap summaries
 ```
 
-Enter Round 2 only if optimized and brute-force outputs match within tolerance and dTOR chunked IO has no memory error.
+Proceed to Round 2 only if optimized and brute-force outputs match within tolerance and dTOR chunked IO has no memory error.
 
-### Round 2: Core observed chronic endpoint
+### Round 2: Observed LOOCV For All Available ULF Add-On Endpoint Rows, Source Resolver, And Endpoint Realization
 
 Run:
 
 ```text
-endpoint = chronic 3-month HF+ULF add-on
-scale = MDS-UPDRS III total
-core branches =
-  ulf_peak_efield_tau800_cov5_delta_hf_adjusted
-  ulf_peak_efield_tau800_cov5_no_delta_hf
-connectome order = PPMI observed -> MGH observed -> dTOR observed
+for each available endpoint/scale row in the chronic and same-day immediate endpoint families:
+  core branches =
+    ulf_peak_efield_tau800_cov5_delta_hf_adjusted
+    ulf_peak_efield_tau800_cov5_no_delta_hf
+  connectome order = PPMI observed -> MGH observed -> dTOR observed
+  engineering status = endpoint rows are processed equivalently within endpoint family
 ```
 
-After observed LOOCV, run the branch-role resolver using the matched HF source:
+For each endpoint row, after the locked HF resolver is read, define the HF-derived intended branch role. This step does not use ULF tau or Coverage; it only defines branch identity before branch-specific ULF source resolution:
 
 ```text
-predictive_valid / Level 4 and not burden_dominated:
-  primary = delta_hf_adjusted
+hf_norm_fiber_source_status in {pre_specified_accepted, scan_fallback_accepted}
+and hf_norm_fiber_prediction_status = error_predictive:
+  intended_primary_branch = delta_hf_adjusted
 
-stable_nonpredictive / failed_unstable / burden_dominated / Level 2 / Level 3:
-  primary = no_delta_hf
+hf_norm_fiber_source_status in {pre_specified_accepted, scan_fallback_accepted}
+and hf_norm_fiber_prediction_status = error_nonpredictive:
+  intended_primary_branch = no_delta_hf
+
+hf_norm_fiber_source_status = absent_no_stable_grid:
+  intended_primary_branch = no_delta_hf
+
+hf_norm_fiber_prediction_status = error_predictive
+and DeltaHFScore inputs are invalid:
+  intended_primary_branch = delta_hf_adjusted
+  ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
+  fallback_sensitivity_branch = no_delta_hf
 ```
 
-Enter Round 3 only if:
+For each executable endpoint row and branch, run the tau/Coverage source resolver:
 
 ```text
-dTOR observed LOOCV completes
-fold-specific ULF candidates are non-empty
-NetULFFiberScore has nonzero variance
-the branch selected as primary has finite branch-specific nuisance inputs
-HF_out_candidate_fraction_source_tau gates are not extreme, or downgrade is recorded
-validation metrics are finite
-Q2 is interpretable against branch-specific nuisance-only baseline
+first evaluate tau800/Coverage>=5
+if not accepted, scan tau [400,600,800,1000,1200,1500,2000]
+and Coverage [5,6,7,8,10,12]
+assign ulf_norm_fiber_source_status
+assign ulf_norm_fiber_prediction_status after a source exists
+realize ulf_norm_fiber_endpoint_model_status from the intended primary branch
+```
+
+Round 2 records the following for each requested endpoint row before any downstream formal reporting:
+
+```text
+endpoint row is joined by ID, or records missing clinical data
+dTOR observed LOOCV completes for accepted endpoint rows
+fold-specific ULF candidates are non-empty for accepted endpoint rows
+NetULFFiberScore has nonzero variance for accepted endpoint rows
+the intended primary branch has finite branch-specific nuisance inputs or records primary_branch_input_failure
+DeltaHFScore support QC is recorded as adequate, limited, or invalid for branches that use DeltaHFScore
+prediction metrics are finite when a source exists
 ulf_primary_branch is recorded in the manifest
+ulf_norm_fiber_endpoint_model_status is recorded in the manifest
 ```
 
-### Round 3: Same-day immediate endpoint
+Proceed to Round 3 after every requested endpoint row either completes observed outputs or records an endpoint-level technical/input failure.
 
-Run:
-
-```text
-endpoint = same-day HF+ULF immediate add-on
-scale = MDS-UPDRS III total or motor domain as configured
-core branches =
-  ulf_peak_efield_tau800_cov5_delta_hf_adjusted
-  ulf_peak_efield_tau800_cov5_no_delta_hf
-connectome order = PPMI observed -> MGH observed -> dTOR observed
-```
-
-Enter Round 4 only if the same-day endpoint joins correctly, candidate masks are non-empty, `NetULFFiberScore` is non-constant, the selected primary branch is computable, and LOOCV prediction is fit.
-
-### Round 4: Plain controls and burden diagnostics
+### Round 3: Plain controls and burden diagnostics
 
 Run:
 
@@ -1662,11 +1884,11 @@ ulf_hf_out_support_burden_control
 
 Controls must use the same nuisance set as the branch being interpreted.
 
-Enter Round 5 only if `PlainULFOnlyExposureTop5` is computable, joint QC models are not singular, and `NetULFFiberScore` is not perfectly collinear with the plain exposure or out-of-support burden metrics.
+Proceed to Round 4 only if `PlainULFOnlyExposureTop5` is computable for accepted endpoint rows, joint QC models are not singular, and `NetULFFiberScore` is not perfectly collinear with the plain exposure or out-of-support burden metrics.
 
-### Round 5: dTOR primary smoke resampling
+### Round 4: dTOR Realized-Primary Smoke Resampling
 
-Run for the dTOR branch resolved as primary:
+Run for dTOR accepted selected sources of realized primary models selected for smoke/formal reporting:
 
 ```text
 Freedman-Lane smoke permutation B=1000
@@ -1674,9 +1896,9 @@ subject-level smoke bootstrap B=1000
 seed = 42
 ```
 
-Enter Round 6 only if smoke permutation/bootstrap complete, plus-one p values are computable, bootstrap finite counts are interpretable, and runtime profile suggests formal `B=10000` is feasible.
+Proceed to Round 5 only if smoke permutation/bootstrap complete for selected endpoint rows, plus-one p values are computable, bootstrap finite counts are interpretable, and runtime profile suggests formal `B=10000` is feasible.
 
-### Round 6: Cheap observed sensitivity
+### Round 5: Cheap observed sensitivity
 
 Run observed-only sensitivity:
 
@@ -1686,53 +1908,53 @@ ulf_peak_efield_tau1500_cov5_sensitivity
 ulf_top1500_top500_sensitivity
 ulf_total_exposure_tau800_cov5_sensitivity
 ulf_gain_endpoint_sensitivity
-ulf_delta_hf_from_hf_posthoc_selected_sensitivity, if an eligible HF Level 2/3/4 source exists
+ulf_delta_hf_from_hf_neighbor_source_sensitivity, if a locked HF source-neighborhood sensitivity is declared
 PPMI -> MGH -> dTOR
 ```
 
-Do not run formal permutation/bootstrap for these branches unless explicitly promoted.
+Do not run formal permutation/bootstrap for these branches unless the endpoint row or sensitivity branch is explicitly promoted for formal reporting.
 
-### Round 7: Optional ULF tau/Coverage exposure-definition threshold scan
+### Round 6: Selected-Source Exposure-Definition Neighborhood Sensitivity
 
-Run only after the resolved primary tau800/Coverage>=5 branch has been reported.
-
-```text
-tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
-coverage_grid = [5, 6, 7, 8, 10, 12]
-```
-
-Default scan target:
+Run observed LOOCV sensitivity around each ULF source selected in Round 2:
 
 ```text
-branch = branch resolved as primary by HF-source status
-connectome = dTOR for selection
-PPMI/MGH = observed robustness only
+pre_specified_accepted:
+  report 0.9 * selected_tau and 1.1 * selected_tau,
+  at selected_coverage, for executable branches when inputs allow
+
+scan_fallback_accepted:
+  report 0.9 * selected_tau and 1.1 * selected_tau,
+  at selected_coverage, for executable branches when inputs allow
+
+absent_no_stable_grid:
+  skip Round 6; report no stable source in Round 9 summary
 ```
 
-If the selected ULF scan cell is to be claimed as significant, run max-stat permutation across the full scan grid. If the threshold-selection procedure is to be carried forward as a predictive model, run nested/adaptive LOOCV or external validation.
+Tau-neighborhood sensitivity cannot replace the selected source.
 
-### Round 8: dTOR primary formal resampling
+### Round 7: dTOR Realized-Primary Formal Resampling
 
 Run only:
 
 ```text
 connectome = dTOR
-branch = resolved primary tau800/Coverage>=5 branch
-endpoint = chronic 3-month HF+ULF add-on unless immediate endpoint is promoted
+branch = accepted selected source of realized primary model
+endpoint rows = realized primary endpoint rows selected for formal reporting
 formal permutation B=10000
 formal bootstrap B=10000
 seed = 42
 ```
 
-Enter Round 9 only if formal resampling completes and manifests record:
+Proceed to Round 8 only if formal resampling completes and manifests record:
 
 ```text
 resampling_status = formal_complete
 ```
 
-### Round 9: ULF jitter QC
+### Round 8: ULF jitter QC
 
-Run only for dTOR branches with completed formal primary results.
+Run only for dTOR branches with completed formal realized-primary results.
 
 Jitter changes HF and ULF component geometry, so each jitter iteration must rebuild:
 
@@ -1751,25 +1973,31 @@ LOOCV prediction
 
 If jitter is unstable, report the result as spatially fragile.
 
-### Round 10: Display, FDR, labels, density, and cross-connectome summaries
+### Round 9: Display, FDR, labels, density, and cross-connectome summaries
 
 Generate display outputs only after numeric branches are locked. Display, FDR, labels, density, and cross-connectome outputs must derive from finalized numeric outputs and must not alter the primary model.
 
 
 ## 17. Interpretation Boundary
 
-Interpret the resolved primary branch according to the matched HF source status.
+Interpret the realized primary model according to `ulf_norm_fiber_endpoint_model_status`.
 
-If the HF source is `predictive_valid` or post-hoc Level 4:
+If `ulf_norm_fiber_endpoint_model_status = primary_branch_error_predictive` and the realized primary model is DeltaHF-adjusted:
 
 ```text
 After accounting for the patient's same-day/pre-ULF HF clinical state and a model-supported HF-component change score, ULF-only engagement of this outcome-filtered normative streamline profile is associated with post-HF+ULF clinical outcome.
 ```
 
-If the HF source is `stable_nonpredictive`, `failed_unstable`, `burden_dominated`, or post-hoc Level 2/3:
+If `ulf_norm_fiber_endpoint_model_status = primary_branch_error_predictive` or `primary_branch_error_nonpredictive` and the realized primary model is no-DeltaHF:
 
 ```text
-After accounting for the patient's same-day/pre-ULF HF clinical state, ULF-only engagement of this normative streamline profile is associated with post-HF+ULF clinical outcome. DeltaHFScore-adjusted results are sensitivity analyses testing dependence on an unstable or exploratory generated HF covariate.
+After accounting for the patient's same-day/pre-ULF HF clinical state, ULF-only engagement of this normative streamline profile is associated with post-HF+ULF clinical outcome. DeltaHFScore-adjusted results, when computable, are sensitivity analyses.
+```
+
+If `ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure`:
+
+```text
+The intended primary model could not be evaluated because required inputs failed. Any no-DeltaHF result is fallback sensitivity and must not be labeled primary.
 ```
 
 Do not interpret as:
@@ -1781,8 +2009,8 @@ HF-overlap streamlines have no ULF biological role.
 HF out-of-support exposure has no effect.
 Every selected streamline is patient-specific.
 The result proves an anatomical SNr gain mechanism.
-A Level 2/3 HF post-hoc candidate validates DeltaHFScore as a primary HF adjustment.
-A ULF high-tau/high-Coverage scan cell rescues the original tau800/Coverage>=5 primary branch.
+A fallback sensitivity result replaces the failed intended primary model.
+A ULF tau/Coverage neighborhood sensitivity replaces the selected source.
 ```
 
 Because `n=16`, all ULF fiber-level results are hypothesis-generating. Negative or unstable LOOCV results should not be interpreted as proof that ULF has no biological effect; they may reflect limited sample size, endpoint noise, stimulation-field uncertainty, HF adjustment instability, out-of-support HF-component exposure, threshold-definition sensitivity, or connectome limitations.

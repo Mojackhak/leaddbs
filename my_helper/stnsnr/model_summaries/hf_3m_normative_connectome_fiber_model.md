@@ -30,12 +30,13 @@ Primary covariate:
 Y_base = raw preoperative clinical score
 ```
 
-Default first-pass scales:
+Executable endpoint rows:
 
 ```text
-MDS-UPDRS III score (STN, 3 m)
-MDS-UPDRS III axial score (STN, 3 m)
+all available HF-only 3-month clinical scales joined by ID
 ```
+
+Engineering implementation treats every available endpoint/scale equivalently. No scale receives special execution status in the model resolver. Reporting hierarchy may still name a clinical primary endpoint, but this hierarchy does not change engineering execution, source resolver, prediction-status assignment, or output generation.
 
 Raw scores come from:
 
@@ -118,7 +119,7 @@ Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
 F_candidate_tau = {l: Coverage_tau(l) >= coverage_min}
 ```
 
-The original interpretive primary branch remains:
+The pre-specified HF normative fiber source is:
 
 ```text
 peak_efield_tau800_cov5_primary
@@ -130,7 +131,7 @@ The high-threshold single sensitivity remains:
 peak_efield_tau1500_cov5_sensitivity
 ```
 
-A dedicated post-hoc tau/Coverage threshold scan is now part of the executable exploratory family:
+A dedicated tau/Coverage threshold scan is part of the executable source resolver:
 
 ```text
 hf_norm_fiber_threshold_scan_tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
@@ -141,19 +142,19 @@ Interpretation of threshold families:
 
 ```text
 tau800/Coverage>=5:
-  original primary branch
+  pre-specified source
 
 tau1500/Coverage>=5:
   predeclared high-threshold sensitivity
 
 full tau x Coverage scan:
-  post-hoc high-dose / high-coverage candidate search
-  not a replacement for the original primary branch
+  fallback source search if tau800/Coverage>=5 is not accepted
+  otherwise reported as source-neighborhood robustness
 ```
 
 `X_HF_i(l)` is used for candidate definition, fiber-wise association, scoring, LOOCV, and prediction. dTOR exposure and candidate calculations must be chunked; loading the complete dTOR `fibers` matrix or all exposure values into memory is invalid.
 
-For the post-hoc threshold scan, only `tau` and `Coverage` vary. The selected-fiber rule is fixed:
+For the source resolver scan, only `tau` and `Coverage` vary. The selected-fiber rule is fixed:
 
 ```text
 F+ = top 1% positive fibers
@@ -247,48 +248,91 @@ Define `Q2` against the covariate-only clinical baseline:
 Q2 = 1 - SSE_NetFiberScore_model / SSE_YBase_only
 ```
 
-- Formal Freedman-Lane permutation: `B=10000`, seed `42`, dTOR primary peak-E-field branch only.
-- Subject-level bootstrap: `B=10000`, seed `42`, dTOR primary peak-E-field branch only.
+- Formal Freedman-Lane permutation: `B=10000`, seed `42`, dTOR selected-source branch for endpoint rows selected for formal reporting.
+- Subject-level bootstrap: `B=10000`, seed `42`, dTOR selected-source branch for endpoint rows selected for formal reporting.
 - Smoke permutation/bootstrap: `B=1000`, seed `42`.
 - Optional OLS ANCOVA is documented for future sensitivity analysis but is not run in the current execution.
 
 PPMI, MGH, and dTOR all produce observed figure-grade outputs. dTOR additionally carries formal permutation, bootstrap, and jitter QC. The Nature paper 5-fold/10-fold CV settings are documented in the reference checklist only; LOOCV is the executable validation design for this `n=16` cohort.
 
 
-### Prediction-Validity Status And ULF Propagation
+### HF Normative Fiber Source And Prediction Resolver
 
-Spatial, selected-fiber, bootstrap, fold-sign, cross-connectome, or nominal permutation stability and patient-level predictive validity are separate evidence axes. A normative HF fiber profile may be anatomically or directionally stable while failing to improve out-of-sample individual prediction beyond the clinical baseline model.
+Source stability and patient-level prediction error are separate evidence axes. The source resolver first decides whether a normative HF fiber map is stable enough to define `DeltaHFScore`; prediction-error status then decides how downstream ULF branches are interpreted. `Q2`, LOOCV rho, nominal p values, bootstrap stability, selected-fiber stability, cross-connectome support, and burden-control behavior are report or robustness fields. They do not define the source resolver unless they expose an input/design failure.
 
-Define the HF normative fiber source-model status for every scale, connectome, and branch that may feed ULF `DeltaHFScore`:
+The hard computability filter for each scale, connectome, and tau/Coverage grid cell is:
 
 ```text
-hf_norm_fiber_prediction_validity_status = predictive_valid
-  if LOOCV rho_obs > 0
-  and Q2 > 0
-  and MAE_model < MAE_YBase_only
+n_subjects >= 12
+fold_n_candidate_fibers_min >= 1000 for dTOR
+fold_n_candidate_fibers_min >= 100 for PPMI/MGH observed robustness
+selected fiber pools are computable
+NetFiberScore is non-constant in every LOOCV fold
+Y_base nuisance design is valid in the full sample and every LOOCV fold
+all held-out predictions are finite
+```
+
+The pre-specified source is:
+
+```text
+tau = 800 V/m
+Coverage >= 5
+estimator = baseline-adjusted partial Spearman
+score = NetFiberScore
+validation = LOOCV
+```
+
+If the pre-specified source is not accepted, the fallback source must be selected only from the declared HF tau/Coverage scan grid:
+
+```text
+tau, V/m:
+  400, 600, 800, 1000, 1200, 1500, 2000
+
+Coverage:
+  5, 6, 7, 8, 10, 12
+```
+
+Define HF normative fiber source status:
+
+```text
+hf_norm_fiber_source_status = pre_specified_accepted
+  if the pre-specified tau800/Coverage>=5 grid cell passes the hard computability filter
+  and at least 2 adjacent tau/Coverage grid cells also pass the hard computability filter
+
+hf_norm_fiber_source_status = scan_fallback_accepted
+  if tau800/Coverage>=5 does not pass the source-stability rule
+  and a predeclared HF source scan contains another grid cell passing the same rule
+
+hf_norm_fiber_source_status = absent_no_stable_grid
+  if no evaluated tau/Coverage grid cell passes the source-stability rule
+```
+
+For `scan_fallback_accepted`, choose the fallback grid without using outcome-performance metrics:
+
+```text
+1. minimize grid distance from tau800/Coverage>=5
+2. maximize adjacent passing grid cells
+3. maximize fold_n_candidate_fibers_min
+4. prefer stricter Coverage
+5. prefer higher tau
+```
+
+Adjacent grid cells are defined on the declared HF source scan grid; horizontal, vertical, and diagonal one-step neighbors all count. The scan table must contain all declared grid cells needed to assign `pre_specified_accepted`, `scan_fallback_accepted`, or `absent_no_stable_grid`.
+
+Define HF normative fiber prediction status only after a source exists:
+
+```text
+hf_norm_fiber_prediction_status = error_predictive
+  if MAE_model < MAE_YBase_only
   and RMSE_model < RMSE_YBase_only
-  and NetFiberScore is not near-constant
-  and all held-out predictions are finite
-  and no single high-leverage subject explains the result
-  and selected F+/F- stability is acceptable
-  and the result is not fully replaced by PlainExposureTop5
 
-hf_norm_fiber_prediction_validity_status = stable_nonpredictive
-  if fiber direction, selected-fiber density, bootstrap/fold stability,
-  nominal rho/p behavior, or cross-connectome anatomical support appears stable,
-  but Q2 <= 0
-  or MAE/RMSE do not improve over Y_base-only
-  or NetFiberScore does not add prediction beyond plain stimulation burden
+hf_norm_fiber_prediction_status = error_nonpredictive
+  if a HF normative fiber source exists
+  but MAE_model >= MAE_YBase_only
+  or RMSE_model >= RMSE_YBase_only
 
-hf_norm_fiber_prediction_validity_status = failed_unstable
-  if LOOCV rho_obs <= 0
-  or candidate fibers are empty/near-empty in multiple folds
-  or rho_HF is all/mostly NaN
-  or NetFiberScore is near-constant
-  or predictions are non-finite
-  or F+/F- selection is highly unstable
-  or one high-leverage subject dominates
-  or connectome-specific contradiction is severe and unexplained
+hf_norm_fiber_prediction_status = not_applicable
+  if hf_norm_fiber_source_status = absent_no_stable_grid
 ```
 
 Burden-dominated flag:
@@ -301,36 +345,37 @@ hf_norm_fiber_burden_dominated = true
   or |corr(NetFiberScore, PlainExposureTop5)| >= 0.95
 ```
 
-A burden-dominated HF fiber model may still be reported as a stimulation-burden / placement-associated finding, but it must not be treated as a mechanistic patient-level HF efficacy-change predictor.
+A burden-dominated HF fiber model may still be reported as a stimulation-burden / placement-associated finding. This flag is a QC and interpretation field; it does not change `hf_norm_fiber_source_status`, `hf_norm_fiber_prediction_status`, or downstream ULF branch-role assignment.
 
 Downstream ULF rule:
 
 ```text
-predictive_valid:
-  DeltaHFScore may be treated as a model-supported HF efficacy-change covariate.
-  ULF delta_hf_adjusted may be the interpretive primary branch.
+hf_norm_fiber_source_status = absent_no_stable_grid:
+  DeltaHFScore is not computed for the DeltaHF-adjusted ULF branch.
+  ULF no_delta_hf is the intended primary branch.
 
-stable_nonpredictive:
-  DeltaHFScore may be computed for engineering compatibility and sensitivity only.
-  It must be labeled unstable_generated_covariate.
-  ULF no_delta_hf is the interpretive primary branch.
+hf_norm_fiber_source_status in {pre_specified_accepted, scan_fallback_accepted}
+and hf_norm_fiber_prediction_status = error_predictive:
+  DeltaHFScore may define the intended DeltaHF-adjusted ULF primary branch.
 
-failed_unstable:
-  DeltaHFScore must not define primary ULF interpretation.
-  It may be omitted, or computed only for explicit fragility reporting if finite support exists.
-  ULF no_delta_hf is the exploratory primary branch when ULF inputs are otherwise valid.
-
-burden_dominated:
-  DeltaHFScore may be used only as a burden/placement sensitivity covariate.
-  It cannot be interpreted as a clean HF efficacy-change adjustment.
+hf_norm_fiber_source_status in {pre_specified_accepted, scan_fallback_accepted}
+and hf_norm_fiber_prediction_status = error_nonpredictive:
+  DeltaHFScore may be computed for sensitivity only.
+  ULF no_delta_hf is the intended primary branch.
 ```
 
 Required manifest/QC fields:
 
 ```text
-hf_norm_fiber_prediction_validity_status
-hf_norm_fiber_prediction_failure_reasons
+hf_norm_fiber_source_status
+hf_norm_fiber_prediction_status
+hf_norm_fiber_source_failure_reasons
 hf_norm_fiber_burden_dominated
+hf_norm_fiber_threshold_source
+hf_norm_fiber_selected_tau_v_per_m
+hf_norm_fiber_selected_coverage
+hf_norm_fiber_selected_adjacent_passing_grid_cells
+hf_norm_fiber_selected_grid_distance_from_pre_specified
 rho_obs
 p_perm if available
 Q2
@@ -367,23 +412,23 @@ sensitivity:
   top1500_top500_sensitivity
   ossdbs_activation_sensitivity
 
-posthoc_candidate_search:
-  posthoc_tau_coverage_threshold_scan
+source_resolver_scan:
+  tau_coverage_source_resolver_scan
 
 control:
   plain_connected_streamline_control
 ```
 
 
-### Post-Hoc Tau/Coverage Threshold Scan
+### Tau/Coverage Source Resolver Scan
 
-Purpose: identify whether a high-dose / high-coverage normative streamline core shows stronger patient-level predictive signal than the original broad primary branch.
+Purpose: determine whether the pre-specified tau800/Coverage>=5 HF source is computable and locally stable; if it is not, select a predeclared fallback tau/Coverage source using outcome-independent stability criteria.
 
-This branch is exploratory model selection. It does not relabel or rescue the original primary branch:
+This scan is part of the HF source resolver:
 
 ```text
-primary result = tau800/Coverage>=5 result
-posthoc result = selected high-core candidate, if any
+pre-specified source = tau800/Coverage>=5
+fallback source = selected scan grid cell, if the pre-specified source is not accepted
 ```
 
 Executable grid:
@@ -415,35 +460,47 @@ LOOCV prediction
 covariate-only baseline comparison
 ```
 
-Hard filters for a usable grid cell:
+Hard computability filter for a source grid cell:
 
 ```text
+n_subjects >= 12
 fold_n_candidate_fibers_min >= 1000 for dTOR
 fold_n_candidate_fibers_min >= 100 for PPMI/MGH observed robustness
-n_positive_pool_min >= 20
-n_negative_pool_min >= 10
+selected fiber pools are computable
 NetFiberScore non-constant in every fold
+Y_base nuisance design is valid in every fold
 all held-out predictions finite
-LOOCV rho_obs > 0
-Q2 > 0
-MAE_model < MAE_YBase_only
-RMSE_model < RMSE_YBase_only
-no single high-leverage subject explains the result
-not burden-dominated by PlainExposureTop5
 ```
 
-Selection rule for post-hoc candidate reporting:
+Source selection rule:
 
 ```text
 selection_connectome = dTOR
-selection_statistic = Q2 first, then LOOCV rho as tie-breaker
-eligible_cells = cells passing hard filters
-neighbor_support = adjacent tau/Coverage cells with positive rho and Q2 > 0
+pre_specified_accepted:
+  tau800/Coverage>=5 passes the hard computability filter
+  and at least 2 adjacent tau/Coverage cells also pass
+
+scan_fallback_accepted:
+  tau800/Coverage>=5 is not accepted
+  and at least one scan cell passes the same source-stability rule
+
+absent_no_stable_grid:
+  no evaluated tau/Coverage cell passes the source-stability rule
 ```
 
-PPMI and MGH are not used to select the threshold. They provide observed cross-connectome robustness for the dTOR-selected and neighboring cells.
+For `scan_fallback_accepted`, choose the fallback cell without using `Q2`, rho, nominal p value, MAE, or RMSE:
 
-If a selected branch is to be described as threshold-scan significant, run max-stat permutation over the full tau x Coverage family:
+```text
+1. minimize grid distance from tau800/Coverage>=5
+2. maximize adjacent passing grid cells
+3. maximize fold_n_candidate_fibers_min
+4. prefer stricter Coverage
+5. prefer higher tau
+```
+
+PPMI and MGH are not used to select the source. They provide observed cross-connectome robustness for the dTOR-selected and neighboring cells.
+
+If a selected source is to be described as threshold-scan significant, run max-stat permutation over the full tau x Coverage family:
 
 ```text
 for each permutation:
@@ -453,7 +510,7 @@ for each permutation:
 p_max = plus-one probability of permuted max >= observed max
 ```
 
-A stronger predictive claim requires nested/adaptive validation or independent validation:
+A stronger predictive claim may still be supported by nested/adaptive validation or independent validation, but that validation does not replace the source resolver:
 
 ```text
 outer fold:
@@ -464,36 +521,7 @@ outer held-out patient:
   score and predict using the selected inner-fold threshold and map
 ```
 
-Candidate levels:
-
-```text
-Level 0 = failed_grid_cell
-  any hard-filter criterion fails
-  ULF propagation = not allowed
-
-Level 1 = fragile_exploratory_candidate
-  hard filters pass but signal is isolated, Q2 is weak, neighboring cells disagree,
-  selected fibers are unstable, or burden-dominated behavior is present
-  ULF propagation = not recommended
-
-Level 2 = usable_exploratory_candidate
-  hard filters pass, at least 3 grid cells pass, at least 1 adjacent cell supports,
-  Q2 > 0.05, MAE/RMSE both improve, and no severe plain-control replacement
-  ULF propagation = exploratory DeltaHFScore sensitivity only
-
-Level 3 = robust_exploratory_candidate
-  Level 2 plus at least 5 passing grid cells, at least 2 adjacent supporting cells,
-  Q2 >= 0.10, selected nominal p < 0.05, stable selected-fiber density,
-  no high-leverage domination, and at least one non-dTOR connectome has compatible support
-  ULF propagation = priority exploratory DeltaHFScore sensitivity only
-
-Level 4 = post_selection_validated_hf_norm_fiber_model
-  Level 3 plus nested/adaptive validation or equivalent post-selection validation with
-  outer LOOCV rho > 0, Q2 > 0, MAE/RMSE improvement, and preferably max-stat p <= 0.05
-  ULF propagation = may define DeltaHF-adjusted ULF primary branch
-```
-
-Only one selected post-hoc HF candidate per endpoint/scale may generate a downstream ULF `DeltaHFScore` branch. Neighboring threshold cells provide robustness evidence; they are not separate nuisance covariates in the same `n=16` ULF model.
+Only one selected HF source per endpoint/scale may generate a downstream ULF `DeltaHFScore` branch. Neighboring threshold cells provide robustness evidence; they are not separate nuisance covariates in the same `n=16` ULF model.
 
 ### OSS-DBS Activation Sensitivity
 
@@ -752,13 +780,13 @@ connectome_density_correlation_summary.csv
 connectome_selected_label_summary.csv
 ```
 
-Post-hoc threshold scan outputs are written under:
+Source resolver scan outputs are written under:
 
 ```text
-/Volumes/VAL/STNSNr/summary/normative_connectome_fiber/hf/<connectome_slug>/<scale_slug>/posthoc_threshold_scan/
+/Volumes/VAL/STNSNr/summary/normative_connectome_fiber/hf/<connectome_slug>/<scale_slug>/source_resolver_scan/
 ```
 
-Required post-hoc threshold scan outputs:
+Required source resolver scan outputs:
 
 ```text
 normative_HF_fiber_threshold_scan_results.csv
@@ -779,8 +807,8 @@ Minimum table semantics:
 - `normative_HF_fiber_scores.csv` in the OSS branch additionally stores `SweetPeak5_OSS`, `SourPeak5_OSS`, and `NetFiberScore_OSS`.
 - `fdr_summary_by_scale.csv`: q-threshold counts and overlap between percentile-selected fibers and q-ranked fibers.
 - `normative_HF_fiber_label_enrichment.csv`: enrichment of selected sweet/sour fibers relative to the plain touched-streamline background.
-- `normative_HF_fiber_mapping_qc.json`: candidate counts, coverage distribution, degenerate fiber counts, empty-fold failures, FDR method, label summaries, chunking parameters, memory use summaries, OSS-DBS status, OSS activation-output type, prediction-validity status, burden-dominated flag, and DeltaHFScore downstream eligibility.
-- `normative_HF_fiber_threshold_scan_results.csv`: one row per connectome, scale, tau, and coverage cell; includes candidate counts, selected-fiber counts, LOOCV metrics, baseline comparisons, plain-control status, high-leverage diagnostics, post-hoc candidate level, and ULF propagation role.
+- `normative_HF_fiber_mapping_qc.json`: candidate counts, coverage distribution, degenerate fiber counts, empty-fold failures, FDR method, label summaries, chunking parameters, memory use summaries, OSS-DBS status, OSS activation-output type, `hf_norm_fiber_source_status`, `hf_norm_fiber_prediction_status`, burden flag, and DeltaHFScore downstream role.
+- `normative_HF_fiber_threshold_scan_results.csv`: one row per connectome, scale, tau, and coverage cell; includes candidate counts, selected-fiber counts, LOOCV metrics, baseline comparisons, plain-control status, high-leverage diagnostics, source-stability fields, adjacent support, and branch-role fields for downstream ULF.
 
 PPMI and MGH observed branches do not require formal permutation/bootstrap files. Their manifests record:
 
@@ -883,15 +911,15 @@ The primary claim requires dTOR primary performance, PPMI/MGH cross-connectome c
 
 
 
-If the map appears stable but has `Q2 <= 0` or does not improve MAE/RMSE over the `Y_base`-only baseline, interpret the result as:
+If the selected source is locally stable but does not improve MAE/RMSE over the `Y_base`-only baseline, interpret the result as:
 
 ```text
-stable_nonpredictive normative HF fiber profile
+error_nonpredictive normative HF fiber source
 ```
 
-This status can support a hypothesis about a reproducible fiber-level stimulation pattern, but it does not validate `NetFiberScore` as a patient-level counterfactual HF efficacy model. In downstream ULF analysis, a `DeltaHFScore` derived from this source must be labeled as an unstable generated covariate and used only as sensitivity, with no-DeltaHF as the interpretive primary branch.
+This status can support a hypothesis about a reproducible fiber-level stimulation pattern, but it does not validate `NetFiberScore` as a patient-level counterfactual HF efficacy model. In downstream ULF analysis, a `DeltaHFScore` derived from this source is used only as sensitivity, with no-DeltaHF as the intended primary branch.
 
-High-tau/high-Coverage post-hoc scan results may define candidate high-dose core streamline profiles, but they do not replace the original tau800/Coverage>=5 primary branch unless they pass explicit post-selection validation and are recorded as Level 4.
+If tau800/Coverage>=5 is not accepted by the source resolver, a locally stable scan fallback may define the HF source for downstream `DeltaHFScore`. The manifest must record `hf_norm_fiber_threshold_source = scan_fallback`, selected tau/Coverage, and adjacent support.
 
 ## Additional Exact-Equivalence Optimization Rules
 
@@ -1181,11 +1209,11 @@ Stage 1: sidecar cache and coverage cache
 Stage 2: deterministic equivalence test
 Stage 3: observed LOOCV numeric outputs
 Stage 4: smoke permutation/bootstrap
-Stage 5: prediction-validity classification and plain-control role assignment
-Stage 6: optional post-hoc tau/Coverage threshold scan
-Stage 7: optional max-stat or nested/adaptive validation for selected post-hoc candidate
-Stage 8: formal dTOR permutation for the resolved primary branch
-Stage 9: formal dTOR bootstrap for the resolved primary branch
+Stage 5: source/prediction resolver and plain-control role assignment
+Stage 6: tau/Coverage source resolver scan if tau800/Coverage>=5 is not accepted
+Stage 7: optional max-stat or nested/adaptive validation for selected source robustness
+Stage 8: formal dTOR permutation for the resolved selected source
+Stage 9: formal dTOR bootstrap for the resolved selected source
 Stage 10: OSS smoke branch
 Stage 11: endpoint labels and density maps
 Stage 12: FDR/display-only maps
@@ -1214,9 +1242,9 @@ OSS activation only for observed selected fibers instead of the fold candidate u
 
 Any optimized implementation must pass an exact-equivalence regression test against a brute-force reference on a small deterministic subset before formal runs.
 
-## Execution Priority And Gatekeeping
+## Execution Priority And Resolver Checkpoints
 
-The normative connectome fiber analysis must be executed as a gated sequence. This section applies only to the HF-only 3m normative connectome fiber-level model and does not apply to direct voxel models.
+The normative connectome fiber analysis is executed through ordered engineering checkpoints. These checkpoints ensure inputs and outputs are computable; they do not add outcome-performance gates beyond the source and prediction resolver defined above.
 
 Current executable branch families:
 
@@ -1229,8 +1257,8 @@ sensitivity:
   top1500_top500_sensitivity
   ossdbs_activation_sensitivity
 
-posthoc_candidate_search:
-  posthoc_tau_coverage_threshold_scan
+source_resolver_scan:
+  tau_coverage_source_resolver_scan
 
 control:
   plain_connected_streamline_control
@@ -1271,7 +1299,7 @@ lock connectome list
 lock branch list
 lock tau800/Coverage>=5 primary parameters
 lock tau1500/Coverage>=5 sensitivity parameters
-lock post-hoc tau/Coverage threshold-scan grid
+lock tau/Coverage source-resolver scan grid
 lock score / validation parameters
 lock random seed = 42
 check output root writability
@@ -1295,7 +1323,7 @@ clinical_join_manifest.csv
 environment_manifest.json
 ```
 
-Enter Round 1 only if:
+Proceed to Round 1 only if:
 
 ```text
 document version is unique
@@ -1310,7 +1338,7 @@ output root is writable
 seed = 42 is recorded
 ```
 
-Failure means stop before sidecar generation or LOOCV.
+Failure means stop before sidecar generation or LOOCV because inputs are not uniquely defined.
 
 ### Round 1: Sidecar Cache And Exact-Equivalence Regression Test
 
@@ -1366,7 +1394,7 @@ small bootstrap finite-count summaries
 NaN / degenerate fiber locations
 ```
 
-Enter Round 2 only if:
+Proceed to Round 2 only if:
 
 ```text
 subject order exactly matches
@@ -1381,21 +1409,22 @@ dTOR chunked IO has no memory error
 optimized_equivalence_test_passed = true
 ```
 
-Failure means stop and fix sidecar, coverage, rank, top-k tie policy, or dTOR chunking.
+Failure means stop and fix sidecar, coverage, rank, top-k tie policy, or dTOR chunking because the optimized implementation is not validated.
 
-### Round 2: Primary Observed Run, Total Scale
+### Round 2: Observed LOOCV For All Available HF-only 3m Endpoint Rows
 
-Purpose: run the lowest-cost observed primary branch and check for non-degenerate behavior.
+Purpose: run the pre-specified observed primary branch for every available HF-only 3-month endpoint/scale row and record endpoint-level computability.
 
 Run:
 
 ```text
-scale = MDS-UPDRS III score
-branch = peak_efield_tau800_cov5_primary
-connectome order = PPMI observed -> MGH observed -> dTOR observed
+for each available endpoint/scale:
+  branch = peak_efield_tau800_cov5_primary
+  connectome order = PPMI observed -> MGH observed -> dTOR observed
+  engineering status = endpoint rows are processed equivalently
 ```
 
-For each connectome compute:
+For each endpoint/scale and connectome compute:
 
 ```text
 full-sample rho_HF / M_HF
@@ -1407,9 +1436,10 @@ NetFiberScore
 LOOCV prediction
 covariate-only baseline comparison
 basic mapping QC
+endpoint-level computability status
 ```
 
-Write numeric core outputs first:
+Write numeric core outputs first for each endpoint/scale and connectome:
 
 ```text
 normative_HF_fiber_weights.csv
@@ -1421,60 +1451,35 @@ normative_HF_fiber_generation_manifest.json
 
 Delay `.tck` display, density maps, endpoint labels, FDR maps, q-thresholded maps, and label enrichment until numeric QC passes.
 
-Enter Round 3 only if:
+Proceed to Round 3 after every requested endpoint row either completes observed outputs or records an endpoint-level technical failure:
 
 ```text
-at least dTOR primary observed LOOCV completes
-each LOOCV fold has non-empty F_candidate_tau800
-rho_HF is not all NaN
-NetFiberScore has nonzero variance
-held-out prediction is not constant
-final model is fit
-LOOCV Spearman / Pearson / MAE / RMSE / Q2 are finite
-mapping_qc.json has no fatal error
+endpoint/scale row is joined by ID, or records missing clinical data
+at least one dTOR endpoint row completes observed LOOCV for downstream reporting
+each accepted endpoint row has non-empty F_candidate_tau800 in every LOOCV fold
+rho_HF is not all NaN for accepted endpoint rows
+NetFiberScore has nonzero variance for accepted endpoint rows
+held-out prediction is not constant for accepted endpoint rows
+final model is fit for accepted endpoint rows
+LOOCV Spearman / Pearson / MAE / RMSE / Q2 are finite for accepted endpoint rows
+mapping_qc.json records endpoint-level status
 ```
 
-Soft warnings:
+QC warnings:
 
 ```text
-dTOR observed looks technically unstable
-PPMI/MGH and dTOR have completely unexplained direction conflict
-Q2 is extremely worse than baseline-only
+dTOR observed looks technically unstable for an endpoint row
+PPMI/MGH and dTOR have completely unexplained direction conflict for an endpoint row
+Q2 is extremely worse than baseline-only for an endpoint row
 ```
 
-Failure means fix tau800/Coverage>=5/e-field sampling, exposure variance, rank ties, top-k reducer, dTOR chunking, fiber ids, or sidecar alignment before running sensitivity or formal branches.
+Technical failure means fix tau800/Coverage>=5/e-field sampling, exposure variance, rank ties, top-k reducer, dTOR chunking, fiber ids, or sidecar alignment before running sensitivity or formal branches for that endpoint row. Poor Q2 or rho values remain report metrics and do not by themselves change `hf_norm_fiber_source_status` or `hf_norm_fiber_prediction_status`.
 
-### Round 3: Primary Observed Run, Axial Scale
-
-Purpose: cover the second default first-pass scale while reusing exposure sidecars.
-
-Run:
-
-```text
-scale = MDS-UPDRS III axial score
-branch = peak_efield_tau800_cov5_primary
-connectome order = PPMI observed -> MGH observed -> dTOR observed
-```
-
-Run the same observed outputs as Round 2.
-
-Enter Round 4 if:
-
-```text
-axial Y_post / Y_base join succeeds
-valid subjects match sidecar subject order, or a legal subject-subset view exists
-candidate masks are non-empty
-NetFiberScore is not constant
-LOOCV prediction is fit
-```
-
-If axial is missing, low variance, or technically degenerate, mark it as scale-specific failed/not interpretable. Total score may continue. If both total and axial fail, stop the mainline.
-
-### Round 4: Plain Connected-Streamline Control
+### Round 3: Plain Connected-Streamline Control
 
 Purpose: test whether the outcome-filtered fiber model is merely stimulation burden, lead placement, or connectome density.
 
-Run for scales/connectomes that passed observed gates:
+Run for endpoint rows and connectomes with computable observed outputs:
 
 ```text
 branch = plain_connected_streamline_control
@@ -1507,10 +1512,10 @@ normative_HF_plain_touched_fibers.tck
 normative_HF_plain_touched_density_map.nii.gz
 ```
 
-Enter Round 5 only if:
+Proceed to Round 4 only if:
 
 ```text
-PlainExposureTop5 is computable
+PlainExposureTop5 is computable for accepted endpoint rows
 plain model is fit
 joint model is not singular
 NetFiberScore and PlainExposureTop5 are not perfectly collinear
@@ -1524,9 +1529,9 @@ Recommended collinearity flags:
 >= 0.95 = severe collinearity warning
 ```
 
-If plain control fully explains the primary branch, the main branch may continue as a minimal formal report, but interpretation is downgraded to stimulation burden / placement-associated and OSS/jitter are not recommended.
+If plain control fully explains an endpoint row, that row may continue as a minimal formal report, but interpretation is downgraded to stimulation burden / placement-associated and OSS/jitter are not recommended for that endpoint row.
 
-### Round 5: dTOR Primary Smoke Permutation And Bootstrap
+### Round 4: dTOR Selected-Endpoint Smoke Permutation And Bootstrap
 
 Purpose: test full-process resampling before formal `B=10000`.
 
@@ -1535,7 +1540,7 @@ Run only:
 ```text
 connectome = dTOR
 branch = peak_efield_tau800_cov5_primary
-scales = scales that passed Round 2/3
+endpoint rows = accepted endpoint rows selected for smoke/formal reporting
 Freedman-Lane smoke permutation B=1000
 subject-level smoke bootstrap B=1000
 seed = 42
@@ -1565,7 +1570,7 @@ degenerate_fiber_summary
 bootstrap_finite_count_summary
 ```
 
-Enter Round 6 only if:
+Proceed to Round 5 only if:
 
 ```text
 B=1000 permutation completes
@@ -1577,9 +1582,9 @@ there are not many all-NaN / degenerate maps
 runtime profile indicates B=10000 is feasible
 ```
 
-Do not use smoke `p < 0.05` as a hard gate. If smoke technically fails, stop and fix resampling, chunking, top-k, or rank cache. If smoke technically passes but results are fully degenerate, either stop formal as pre-specified futility or run formal only for total scale.
+Do not use smoke `p < 0.05` as a hard gate. If smoke technically fails, stop and fix resampling, chunking, top-k, or rank cache for that endpoint row. If smoke technically passes but results are fully degenerate, either stop formal for that endpoint row as pre-specified futility or run formal only for explicitly selected reporting endpoint rows.
 
-### Round 6: Cheap Observed Sensitivity
+### Round 5: Cheap Observed Sensitivity
 
 Purpose: test whether the primary result depends entirely on tau800 or selected-fiber rule before formal heavy computation.
 
@@ -1625,7 +1630,7 @@ normative_HF_fiber_mapping_qc.json
 normative_HF_fiber_top_percentile_sweep_summary.csv
 ```
 
-Enter Round 7 only if:
+Proceed to Round 5.5 only if:
 
 ```text
 tau1500 branch completes, or records candidate-empty / threshold-too-strict
@@ -1634,7 +1639,7 @@ LOOCV outputs are finite
 mapping QC is interpretable
 ```
 
-Soft gate:
+QC warning:
 
 ```text
 tau800 and tau1500 are directionally consistent, or differences are explained by sparse coverage
@@ -1645,44 +1650,54 @@ dTOR and PPMI/MGH have directionally or anatomically interpretable consistency
 If tau1500 is empty, record high-threshold sensitivity empty; this is not a technical failure. If top1500/top500 fully reverses the mainline, mark the result top-k dependent and downgrade interpretation.
 
 
-### Round 6.5: Prediction-Validity Classification And Optional Post-Hoc Threshold Scan
+### Round 5.5: Source/Predictive Status Resolver And Tau/Coverage Scan
 
-Purpose: separate stable-map behavior from patient-level predictive validity, and optionally search for a high-dose/high-coverage core-fiber candidate.
+Purpose: first decide whether tau800/Coverage>=5 is a computable, locally stable HF normative fiber source; if not, scan the predeclared tau/Coverage grid for a fallback source. Prediction-error status is assigned only after a source exists.
 
-First classify the original tau800/Coverage>=5 branch:
+Assign:
 
 ```text
-predictive_valid
-stable_nonpredictive
-failed_unstable
+hf_norm_fiber_source_status =
+  pre_specified_accepted
+  scan_fallback_accepted
+  absent_no_stable_grid
+
+hf_norm_fiber_prediction_status =
+  error_predictive
+  error_nonpredictive
+  not_applicable
 ```
 
 Also assign:
 
 ```text
+hf_norm_fiber_threshold_source
+hf_norm_fiber_selected_tau_v_per_m
+hf_norm_fiber_selected_coverage
+hf_norm_fiber_selected_adjacent_passing_grid_cells
 hf_norm_fiber_burden_dominated
 plain_control_incremental_status
 selected_fiber_stability_summary
 delta_hfscore_allowed_role
 ```
 
-If the original branch is `predictive_valid`, it remains the locked primary HF source for downstream ULF. The post-hoc threshold scan may still be run as exploratory robustness, but it cannot replace the original branch.
+If tau800/Coverage>=5 is `pre_specified_accepted`, it remains the locked HF source for downstream ULF. The scan grid may still be summarized as source-neighborhood robustness, but it does not change the selected source.
 
-If the original branch is `stable_nonpredictive`, export its finite map/support metadata for audit and ULF sensitivity only. It must not be used as a validated `DeltaHFScore` source. In this state, the ULF no-DeltaHF branch is the interpretive primary branch.
+If tau800/Coverage>=5 is not accepted and the scan finds a stable fallback, record `hf_norm_fiber_source_status = scan_fallback_accepted` and use the selected tau/Coverage source for downstream `DeltaHFScore`. If its prediction status is `error_predictive`, ULF may treat the DeltaHF-adjusted branch as intended primary; if it is `error_nonpredictive`, ULF uses no-DeltaHF as intended primary and keeps DeltaHFScore only as sensitivity.
 
-If the original branch is `failed_unstable`, do not run heavy formal resampling unless explicitly required for a minimal fragility report. ULF may still proceed through no-DeltaHF if ULF inputs are valid.
+If no stable source exists, record `hf_norm_fiber_source_status = absent_no_stable_grid`; do not compute a DeltaHFScore-adjusted ULF branch from this HF family. ULF may still proceed through no-DeltaHF if ULF inputs are valid.
 
-Optional threshold scan:
+Source scan:
 
 ```text
 run dTOR full tau x Coverage scan
 run PPMI/MGH observed robustness for selected and neighboring dTOR cells
-assign Level 0-4 candidate status
+assign source status, prediction status, selected tau/Coverage, and adjacent support
 ```
 
-Proceed to max-stat permutation or nested/adaptive validation only if the selected dTOR cell is Level 3 or better and the result is not burden-dominated.
+Proceed to max-stat permutation or nested/adaptive validation only for the selected source when a stronger source-robustness claim is needed. These analyses do not override the resolver status.
 
-### Round 7: dTOR Primary Formal Permutation And Bootstrap
+### Round 6: dTOR Selected-Source Formal Permutation And Bootstrap
 
 Purpose: generate the core statistical evidence for the current document.
 
@@ -1691,7 +1706,8 @@ Run only:
 ```text
 connectome = dTOR
 branch = peak_efield_tau800_cov5_primary
-scales = scales that passed smoke and sensitivity hard gates
+or branch = tau_coverage_source_resolver_scan selected source when scan_fallback_accepted
+endpoint rows = accepted source endpoint rows selected for formal reporting
 ```
 
 Recommended order:
@@ -1730,7 +1746,7 @@ normative_HF_fiber_fold_sign_stability.csv
 normative_HF_fiber_stability_density_map.nii.gz
 ```
 
-Enter Round 8 only if:
+Proceed to Round 7 only if:
 
 ```text
 B=10000 permutation completes
@@ -1745,7 +1761,7 @@ manifest records resampling_status = formal_complete
 
 If formal technically fails, do not run OSS, jitter, or final display. If formal completes but is negative, proceed only to minimal display/report and do not use OSS/jitter as mechanism strengthening.
 
-### Round 8: OSS-DBS Activation Sensitivity
+### Round 7: OSS-DBS Activation Sensitivity
 
 Purpose: test whether the peak E-field fiber profile remains interpretable under pathway/axon activation variables. OSS is sensitivity, not primary.
 
@@ -1805,7 +1821,7 @@ normative_HF_plain_oss_activation_summary.csv
 normative_HF_plain_oss_activation_model_comparison.csv
 ```
 
-Enter Round 9 only if:
+Proceed to Round 8 only if:
 
 ```text
 OSS parameter manifest is locked
@@ -1819,7 +1835,7 @@ PlainOSSActivationTop5 is computable
 OSS joint control model is fit
 ```
 
-Soft support:
+QC support:
 
 ```text
 corr(NetFiberScore_OSS, NetFiberScore_peak) > 0
@@ -1830,7 +1846,7 @@ OSS plain activation control does not fully replace NetFiberScore_OSS
 
 If OSS activation is all zero or mostly tied, mark OSS as failed sensitivity. If OSS and peak branch fully disagree, interpret the result as activation-model dependent. If OSS plain activation fully explains the result, downgrade mechanism interpretation to activation burden.
 
-### Round 9: dTOR Jitter QC
+### Round 8: dTOR Jitter QC
 
 Purpose: test dTOR primary spatial robustness.
 
@@ -1839,10 +1855,10 @@ Run only:
 ```text
 connectome = dTOR
 branch = peak_efield_tau800_cov5_primary
-scale = scales with completed formal primary result
+endpoint rows = endpoint rows with completed formal primary result
 ```
 
-Level 1:
+Jitter tier 1:
 
 ```text
 jitter_level_1_selected_display
@@ -1851,7 +1867,7 @@ display fiber robustness
 selected density correlation
 ```
 
-Level 2, only if Level 1 is technically valid:
+Jitter tier 2, only if jitter tier 1 is technically valid:
 
 ```text
 jitter_level_2_model_density
@@ -1870,7 +1886,7 @@ normative_HF_fiber_jitter_density_correlation.csv
 normative_HF_fiber_jitter_example_density_maps/
 ```
 
-Enter Round 10 only if:
+Proceed to Round 9 only if:
 
 ```text
 jitter outputs are writable
@@ -1880,9 +1896,9 @@ model similarity is computable
 there are no all-empty jitter runs
 ```
 
-If Level 1 technically fails, do not run Level 2. If Level 1 passes but is unstable, skip Level 2 and label the final result spatially sensitive. If both levels are stable, use them as spatial robustness support.
+If jitter tier 1 technically fails, do not run jitter tier 2. If jitter tier 1 passes but is unstable, skip jitter tier 2 and label the final result spatially sensitive. If both tiers are stable, use them as spatial robustness support.
 
-### Round 10: Display, FDR, Labels, Density, And Cross-Connectome Summaries
+### Round 9: Display, FDR, Labels, Density, And Cross-Connectome Summaries
 
 Purpose: generate display and interpretation outputs after numeric branches are locked. Display, FDR q-values, q-thresholded density maps, and label outputs never define the primary model and never enter `NetFiberScore`.
 
@@ -1956,33 +1972,32 @@ The most resource-conscious path that still covers the mainline and planned sens
    freeze document/inputs, build sidecars, run equivalence tests
 
 2. Round 2:
-   total scale tau800 primary observed
+   all available HF-only 3-month endpoint rows, tau800 primary observed
    PPMI -> MGH -> dTOR
 
 3. Round 3:
-   axial scale tau800 primary observed
-   PPMI -> MGH -> dTOR
-
-4. Round 4:
    plain connected-streamline control
 
-5. Round 5:
-   dTOR tau800 primary smoke permutation/bootstrap B=1000
+4. Round 4:
+   dTOR selected endpoint rows, tau800 primary smoke permutation/bootstrap B=1000
 
-6. Round 6:
+5. Round 5:
    tau1500 sensitivity + top1500/top500 sensitivity observed
 
-7. Round 7:
-   dTOR tau800 primary formal permutation/bootstrap B=10000
+6. Round 5.5:
+   endpoint-wise source/prediction resolver and tau/Coverage scan
 
-8. Round 8:
+7. Round 6:
+   dTOR selected-source formal permutation/bootstrap B=10000
+
+8. Round 7:
    OSS-DBS sensitivity, PPMI/MGH first, then dTOR, B=1000 only
 
-9. Round 9:
+9. Round 8:
    dTOR jitter QC
 
-10. Round 10:
+10. Round 9:
    display / FDR / labels / cross-connectome summaries
 ```
 
-The core principle is to prove `peak_efield_tau800_cov5_primary` is technically valid on total and axial scales, use plain control to separate outcome-filtered fibers from stimulation burden, run dTOR formal inference, and only then invest in OSS, jitter, and display-layer outputs.
+The core principle is to process all available endpoint rows equivalently through `peak_efield_tau800_cov5_primary`, use plain control to separate outcome-filtered fibers from stimulation burden, select endpoint rows for formal dTOR reporting as a reporting/resource decision, and only then invest in OSS, jitter, and display-layer outputs.
