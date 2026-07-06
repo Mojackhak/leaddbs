@@ -211,6 +211,8 @@ hf_model_support_status
 
 如果 locked HF branch 未通过 QC、`HFScore_mean_main` 近似常数、fold scoring mask 为空，或无法提供可解释的 HF map support，则 `DeltaHFScore` 必须标记为不稳定 generated covariate，不能定义 ULF 的 primary interpretation。
 
+Post-hoc HF threshold candidates 遵循 `hf_3m_direct_voxel_model.md` 中定义的 level system。Level 0 和 Level 1 candidates 不得传播进入 ULF。Level 2 和 Level 3 candidates 只能生成独立的 exploratory `DeltaHFScore` sensitivity branches。Level 4 candidates，或原始 `tau200/Coverage>=5` primary HF branch 在 `predictive_valid` 时，才可以定义 primary DeltaHF-adjusted ULF interpretation。每个 endpoint 最多只能有一个 selected post-hoc candidate 生成 ULF branch；neighboring support cells 是 robustness evidence，不是单独 covariates。
+
 ## Feature Construction / 特征构建
 
 使用 right-hemisphere MNI brainmask grid 作为 canonical statistical grid。左侧 HF 和 ULF component fields 使用 `ea_flip_lr_nonlinear` 翻转到右侧空间。右侧 fields 采样到同一 right canonical grid。

@@ -212,6 +212,8 @@ hf_model_support_status
 
 If the locked HF branch fails QC, produces near-constant `HFScore_mean_main`, has empty fold scoring masks, or does not provide interpretable HF map support, `DeltaHFScore` must be labeled as an unstable generated covariate and cannot define the primary ULF interpretation.
 
+Post-hoc HF threshold candidates follow the level system defined in `hf_3m_direct_voxel_model.md`. Level 0 and Level 1 candidates must not be propagated to ULF. Level 2 and Level 3 candidates may generate separate exploratory `DeltaHFScore` sensitivity branches only. Level 4 candidates, or the original `tau200/Coverage>=5` primary HF branch when it is `predictive_valid`, may define the primary DeltaHF-adjusted ULF interpretation. At most one selected post-hoc candidate per endpoint may generate a ULF branch; neighboring support cells are robustness evidence, not separate covariates.
+
 ## Feature Construction
 
 Use the right-hemisphere MNI brainmask grid as the canonical statistical grid. Left-sided HF and ULF component fields are flipped into right space with `ea_flip_lr_nonlinear`. Right-sided fields are sampled on the same right canonical grid.

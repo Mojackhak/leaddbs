@@ -228,6 +228,34 @@ It contains:
 
 This scan is **exploratory threshold optimization**. It does not replace the original primary `tau200/Coverage>=5` branch. A selected high-core threshold becomes a candidate branch only; to claim post-selection significance it still requires nested/adaptive LOOCV, max-stat permutation, independent endpoint replication, or prospective validation.
 
+Post-hoc candidates are level-gated before ULF propagation:
+
+```text
+Level 0 failed_grid_cell:
+  fails any hard filter
+  ULF propagation = not allowed
+
+Level 1 fragile_exploratory_candidate:
+  hard filters pass, but support is isolated/fragile or Q2 < 0.05
+  ULF propagation = not recommended
+
+Level 2 usable_exploratory_candidate:
+  hard filters pass, n_passing_grid_cells >= 3, at least 1 adjacent support cell,
+  positive neighboring rho direction, selected Q2 > 0.05, and interpretable map
+  ULF propagation = exploratory DeltaHFScore sensitivity only
+
+Level 3 robust_exploratory_candidate:
+  Level 2 plus n_passing_grid_cells >= 5, at least 2 adjacent support cells,
+  selected Q2 >= 0.10, nominal p < 0.05, and no obvious single-subject leverage
+  ULF propagation = priority exploratory DeltaHFScore sensitivity
+
+Level 4 post_selection_validated_hf_model:
+  post-selection validation passes by nested/adaptive LOOCV or equivalent validation
+  ULF propagation = may define a primary DeltaHF-adjusted ULF candidate
+```
+
+For ULF, Level 2/3 candidates are sensitivity-only. Only an original primary `predictive_valid` HF model or a Level 4 post-selection validated HF model can define primary `DeltaHFScore`. Per endpoint, only one selected post-hoc candidate may be propagated; neighboring cells are robustness evidence and must not be added as separate covariates.
+
 ---
 
 ## 6. Gate Definitions

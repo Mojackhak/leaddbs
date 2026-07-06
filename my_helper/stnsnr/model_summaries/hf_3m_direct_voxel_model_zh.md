@@ -1557,6 +1557,74 @@ seed = 42
 
 除非明确要求，max-stat permutation 不属于本轮 initial post-hoc scan 输出。
 
+### Post-Hoc Candidate Levels And ULF Propagation / Post-hoc 候选分级与 ULF 传播规则
+
+每个 post-hoc endpoint/grid result 在生成任何 ULF `DeltaHFScore` 前，必须先分配以下 level。
+
+```text
+Level 0 = failed_grid_cell
+  any hard-filter criterion fails
+  ULF propagation = not allowed
+
+Level 1 = fragile_exploratory_candidate
+  hard filters pass
+  but n_passing_grid_cells < 3
+  or no adjacent passing grid cell supports the selected cell
+  or the finding is an isolated tau/Coverage result
+  or selected Q2 is 0 < Q2 < 0.05
+  or neighboring rho directions are inconsistent
+  or spatial map is not anatomically/network interpretable
+  ULF propagation = not recommended; record only as fragility/negative context
+
+Level 2 = usable_exploratory_candidate
+  hard filters pass
+  n_passing_grid_cells >= 3
+  selected cell has at least 1 adjacent passing grid cell
+  selected and adjacent passing cells have positive rho direction
+  selected Q2 > 0.05
+  MAE and RMSE both improve over baseline
+  fold_n_voxels_min >= 10
+  spatial map is concentrated and anatomically/network interpretable
+  ULF propagation = allowed only as exploratory DeltaHFScore sensitivity
+
+Level 3 = robust_exploratory_candidate
+  all Level 2 criteria pass
+  n_passing_grid_cells >= 5
+  selected cell has at least 2 adjacent passing grid cells
+  selected Q2 >= 0.10
+  selected LOOCV Spearman nominal p < 0.05
+  adjacent passing cells have positive rho and most have Q2 > 0
+  no obvious single-subject leverage dominates
+  ULF propagation = priority exploratory DeltaHFScore sensitivity
+
+Level 4 = post_selection_validated_hf_model
+  Level 3 candidate passes nested/adaptive LOOCV or equivalent post-selection validation
+  outer LOOCV rho > 0
+  Q2 > 0
+  MAE/RMSE improve over baseline
+  and preferably max-stat permutation p <= 0.05, or p <= 0.10 for exploratory reporting
+  ULF propagation = may be treated as a locked post-selection HF predictive model
+```
+
+Adjacent grid cells 在已声明的 tau/Coverage grid 上定义。如果某个格点与 selected cell 相差一个 tau step 和/或一个 Coverage step，包括横向、纵向和斜向相邻，则认为相邻。
+
+每个 endpoint 最多只能有一个 `selected_posthoc_candidate` 生成 ULF `DeltaHFScore` branch。Neighboring cells 只用于支持 threshold robustness，不作为单独 ULF covariates。多个 exploratory endpoints 可以各自生成独立的 ULF sensitivity branches，但在 `n=16` ULF 模型中不得把多个 `DeltaHFScore` covariates 放进同一个模型。
+
+ULF propagation rule:
+
+```text
+primary ULF DeltaHFScore:
+  allowed only for original tau200/Coverage>=5 predictive_valid HF model
+  or Level 4 post_selection_validated_hf_model
+
+exploratory ULF DeltaHFScore sensitivity:
+  allowed for Level 2 or Level 3 selected_posthoc_candidate
+
+not propagated to ULF:
+  Level 0
+  Level 1
+```
+
 All-scale mode 额外输出：
 
 ```text

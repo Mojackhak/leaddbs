@@ -228,6 +228,34 @@ A-model all-scale post-hoc scan 已存在于：
 
 该 scan 属于 **exploratory threshold optimization**，不能替代原始 primary `tau200/Coverage>=5` branch。被选中的 high-core threshold 只能作为 candidate branch；若要声称 post-selection significance，仍需 nested/adaptive LOOCV、max-stat permutation、独立 endpoint 复现或前瞻性验证。
 
+Post-hoc candidates 在传播进入 ULF 前必须经过 level-gating：
+
+```text
+Level 0 failed_grid_cell:
+  fails any hard filter
+  ULF propagation = not allowed
+
+Level 1 fragile_exploratory_candidate:
+  hard filters pass, but support is isolated/fragile or Q2 < 0.05
+  ULF propagation = not recommended
+
+Level 2 usable_exploratory_candidate:
+  hard filters pass, n_passing_grid_cells >= 3, at least 1 adjacent support cell,
+  positive neighboring rho direction, selected Q2 > 0.05, and interpretable map
+  ULF propagation = exploratory DeltaHFScore sensitivity only
+
+Level 3 robust_exploratory_candidate:
+  Level 2 plus n_passing_grid_cells >= 5, at least 2 adjacent support cells,
+  selected Q2 >= 0.10, nominal p < 0.05, and no obvious single-subject leverage
+  ULF propagation = priority exploratory DeltaHFScore sensitivity
+
+Level 4 post_selection_validated_hf_model:
+  post-selection validation passes by nested/adaptive LOOCV or equivalent validation
+  ULF propagation = may define a primary DeltaHF-adjusted ULF candidate
+```
+
+对于 ULF，Level 2/3 candidates 只能作为 sensitivity。只有原始 primary `predictive_valid` HF model 或 Level 4 post-selection validated HF model 才能定义 primary `DeltaHFScore`。每个 endpoint 只能传播一个 selected post-hoc candidate；neighboring cells 是 robustness evidence，不能作为单独 covariates 加入模型。
+
 ---
 
 ## 6. Gate Definitions
