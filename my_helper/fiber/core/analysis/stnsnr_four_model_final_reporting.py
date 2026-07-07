@@ -28,11 +28,13 @@ DIRECT_DISPLAY_FILES_BY_MANIFEST = {
         "direct_voxel_ULF_only_jitter_se.nii.gz",
     ],
 }
-FIBER_DENSITY_CACHE_PATTERNS = [
+FIBER_BASIC_DENSITY_CACHE_PATTERNS = [
     "*density*lookup*",
+    "*streamline*voxel*density*",
+]
+FIBER_LABEL_CACHE_PATTERNS = [
     "*endpoint*label*cache*",
     "*fiber*label*cache*",
-    "*streamline*voxel*density*",
 ]
 
 
@@ -136,12 +138,12 @@ def candidate_density_cache_roots(manifest_path: str, extra_roots: list[Path]) -
     return unique
 
 
-def find_density_label_caches(manifest_path: str, density_cache_roots: list[Path]) -> list[Path]:
+def find_cache_paths(manifest_path: str, density_cache_roots: list[Path], patterns: list[str]) -> list[Path]:
     paths: list[Path] = []
     for root in candidate_density_cache_roots(manifest_path, density_cache_roots):
         if not root.exists():
             continue
-        for pattern in FIBER_DENSITY_CACHE_PATTERNS:
+        for pattern in patterns:
             for path in root.rglob(pattern):
                 if path.is_file() and not path.name.startswith("._"):
                     paths.append(path)
@@ -155,15 +157,22 @@ def fiber_density_readiness(manifest_path: str, density_cache_roots: list[Path])
             "fiber_density_label_cache_status": "not_applicable_not_normative_fiber",
             "fiber_density_label_cache_paths": "",
         }
-    caches = find_density_label_caches(manifest_path, density_cache_roots)
-    if not caches:
+    density_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_BASIC_DENSITY_CACHE_PATTERNS)
+    label_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_LABEL_CACHE_PATTERNS)
+    all_caches = sorted(set(density_caches + label_caches))
+    if not all_caches:
         return {
             "fiber_density_label_cache_status": "not_run_missing_density_label_cache",
             "fiber_density_label_cache_paths": "",
         }
+    if density_caches and not label_caches:
+        return {
+            "fiber_density_label_cache_status": "ready_from_existing_basic_density_cache",
+            "fiber_density_label_cache_paths": ";".join(str(path) for path in density_caches),
+        }
     return {
         "fiber_density_label_cache_status": "ready_from_existing_density_label_cache",
-        "fiber_density_label_cache_paths": ";".join(str(path) for path in caches),
+        "fiber_density_label_cache_paths": ";".join(str(path) for path in all_caches),
     }
 
 
@@ -181,6 +190,8 @@ def figure_output_status(
             return "ready_from_existing_direct_voxel_maps"
         return direct_status
     if family == "normative_fiber":
+        if fiber_status == "ready_from_existing_basic_density_cache":
+            return "ready_for_basic_fiber_density_outputs"
         if fiber_status == "ready_from_existing_density_label_cache":
             return "ready_for_full_fiber_figure_outputs"
         return "not_run_missing_density_label_cache"
@@ -288,10 +299,7 @@ def write_markdown(path: Path, rows: list[dict[str, str]], cohort_n: int) -> Non
 
 
 def default_density_cache_roots() -> list[Path]:
-    return [
-        FORMAL_ROOT,
-        DEFAULT_VAL_ROOT / "summary/normative_connectome_fiber",
-    ]
+    return []
 
 
 def build_final_reporting(

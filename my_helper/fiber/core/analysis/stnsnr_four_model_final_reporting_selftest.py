@@ -60,7 +60,13 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
                 "direct_voxel_HF_jitter_se.nii.gz",
             ],
         )
-        touch_many(b_dir, ["normative_HF_fiber_generation_manifest.json"])
+        touch_many(
+            b_dir,
+            [
+                "normative_HF_fiber_generation_manifest.json",
+                "normative_HF_streamline_voxel_density_cache.npz",
+            ],
+        )
         touch_many(
             c_dir,
             [
@@ -309,8 +315,13 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
         assert_equal(readiness_by_id["C"]["direct_voxel_display_status"], "ready_from_existing_maps", "C display status")
         assert_equal(
             readiness_by_id["B_DTOR"]["fiber_density_label_cache_status"],
-            "not_run_missing_density_label_cache",
+            "ready_from_existing_basic_density_cache",
             "B fiber cache status",
+        )
+        assert_equal(
+            report_by_id["B_DTOR"]["figure_output_status"],
+            "ready_for_basic_fiber_density_outputs",
+            "B figure output status",
         )
         assert_equal(
             report_by_id["B_DTOR"]["oss_missing_inputs"],
@@ -331,6 +342,11 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
             readiness_by_id["D_DTOR"]["fiber_density_label_cache_status"],
             "not_run_missing_density_label_cache",
             "D fiber cache status",
+        )
+        assert_equal(
+            report_by_id["D_DTOR"]["figure_output_status"],
+            "not_run_missing_density_label_cache",
+            "D figure output status must not reuse another branch cache",
         )
         markdown = Path(result["final_report_md"]).read_text(encoding="utf-8")
         assert_true("n=16" in markdown, "markdown records cohort size")

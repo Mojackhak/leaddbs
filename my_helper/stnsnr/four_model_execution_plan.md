@@ -94,10 +94,11 @@ dTOR normative-fiber smoke permutation = B_DTOR and D_DTOR complete at B=1000, s
 dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR fiber jitter/OSS = not_run_missing_inputs
-final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; fiber density/label caches missing
+dTOR normative-fiber basic density cache = B_DTOR and D_DTOR complete; atlas labels, FDR, enrichment, OSS, and fiber jitter remain not run
+final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; B_DTOR/D_DTOR basic fiber density outputs ready; PPMI/MGH/D_PPMI fiber density/label caches missing
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target; 2 blocked_missing_fiber_inputs
+completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with density_label_cache blocker; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -503,6 +504,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | dTOR normative-fiber smoke/formal permutation | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_smoke_permutation.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_smoke_permutation.py` | implemented |
 | dTOR normative-fiber formal bootstrap | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_bootstrap.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_bootstrap.py` | implemented |
 | dTOR normative-fiber sensitivity readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_sensitivity_readiness.py` | implemented |
+| dTOR normative-fiber basic density cache | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_density_cache.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_density_cache.py` | implemented |
 | Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
 | All-endpoint reporting and missing-work audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_all_endpoint_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_all_endpoint_reporting.py` | implemented |
 | Manifest schema audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_manifest_schema_audit.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_manifest_schema_audit.py` | implemented |
@@ -1313,6 +1315,13 @@ dTOR normative-fiber sensitivity readiness:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py
+```
+
+dTOR normative-fiber basic density cache:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_density_cache.py
 ```
 
 Final reporting and figure-output readiness:

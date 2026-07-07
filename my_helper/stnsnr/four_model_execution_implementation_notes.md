@@ -55,7 +55,8 @@ dTOR normative-fiber smoke permutation: B_DTOR and D_DTOR complete at B=1000, se
 dTOR normative-fiber formal permutation: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber OSS/jitter sensitivity readiness: not_run_missing_inputs
-final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; fiber density/label caches missing
+dTOR normative-fiber basic density cache: B_DTOR and D_DTOR complete; atlas labels, FDR, enrichment, OSS, and fiber jitter remain not run
+final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; B_DTOR/D_DTOR basic fiber density outputs ready; PPMI/MGH/D_PPMI fiber density/label caches missing
 C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
 C same-day immediate endpoint-family observed outputs: complete for 2 endpoint rows; resampling_status = not_run_observed_only
 D same-day immediate endpoint-family observed outputs: complete for 4 endpoint/connectome rows; resampling_status = not_run_observed_only
@@ -64,7 +65,7 @@ all-endpoint reporting: 79 rows; A all-endpoint source-resolver rows = 30; disco
 all-endpoint manifest audit: 73 rows missing_git_or_patch_provenance / missing_code_provenance; 6 rows have provenance from a different commit
 all-endpoint reporting manifest records manifest_provenance_counts and manifest_stale_counts
 manifest schema audit: 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target; 2 blocked_missing_fiber_inputs
+completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with density_label_cache blocker; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
 full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
@@ -208,6 +209,19 @@ This layer is reporting-only. It does not fit models, rerun formal resampling,
 select branches, or generate missing OSS/jitter/density inputs. Its purpose is
 to summarize what is complete, what is blocked by absent inputs, and what is
 observed-only or provenance-incomplete at the current execution checkpoint.
+
+The dTOR normative-fiber basic density-cache layer consumes the final-model
+formal target worklist, selected B_DTOR/D_DTOR branch manifests, connectome
+`data.mat` streamline coordinates, and the existing final-model fiber weights.
+It writes branch-local streamline voxel density and weighted-density NIfTI maps
+plus a compact cache `.npz` and a manifest. This layer does not run OSS-DBS,
+does not perform spatial jitter, and does not compute atlas labels, FDR maps, or
+endpoint enrichment. It is a display-cache construction step only; enrichment
+and OSS/jitter sensitivity remain separate requirements.
+The final reporting layer therefore records this output as
+`ready_from_existing_basic_density_cache` and
+`ready_for_basic_fiber_density_outputs`, not as full label/FDR/enrichment
+readiness.
 
 The manifest schema audit layer consumes consolidated status, final reporting,
 and all-endpoint reporting tables. It deduplicates referenced manifest paths,
