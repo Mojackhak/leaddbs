@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
-from stnsnr_io import iso_now, write_csv, write_json
+from stnsnr_io import iso_now, manifest_stale_status, write_csv, write_json
 
 HF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
 ULF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
@@ -81,9 +81,11 @@ def manifest_provenance_status(path_text: str) -> str:
     return "missing_git_or_patch_provenance"
 
 
-def annotate_latest_manifest_provenance(rows: list[dict[str, Any]]) -> None:
+def annotate_latest_manifest_provenance(rows: list[dict[str, Any]], current_commit: str = "") -> None:
     for row in rows:
-        row["latest_manifest_provenance_status"] = manifest_provenance_status(str(row.get("latest_manifest", "")))
+        manifest_path = str(row.get("latest_manifest", ""))
+        row["latest_manifest_provenance_status"] = manifest_provenance_status(manifest_path)
+        row["latest_manifest_stale_status"] = manifest_stale_status(manifest_path, current_commit)
 
 
 def hf_source_status_from_row(row: dict[str, Any]) -> str:
@@ -1277,8 +1279,8 @@ def run_status(args: argparse.Namespace) -> int:
     val_root = Path(args.val_root).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
     rows, manifest_inputs = build_status_rows(val_root)
-    annotate_latest_manifest_provenance(rows)
     repo_root = Path(args.repo_root).expanduser().resolve()
+    annotate_latest_manifest_provenance(rows, current_commit=run_git(repo_root, ["rev-parse", "HEAD"]))
     csv_path = output_dir / "four_model_execution_status.csv"
     md_path = output_dir / "four_model_execution_status.md"
     manifest_path = output_dir / "four_model_execution_status_manifest.json"
@@ -1316,6 +1318,7 @@ def run_status(args: argparse.Namespace) -> int:
         "input_summary",
         "latest_manifest",
         "latest_manifest_provenance_status",
+        "latest_manifest_stale_status",
         "next_action",
     ]
     write_csv(csv_path, rows, fieldnames)

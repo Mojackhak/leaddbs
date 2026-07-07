@@ -1013,6 +1013,21 @@ reporting, C same-day immediate driver, and C/D gain/total-ULF sensitivity
 drivers use this helper; broader migration remains part of the remaining shared
 score/stale-output/manifest-schema work.
 
+The first stale-output detection layer is manifest-level. Consolidated execution
+status rows must record both:
+
+```text
+latest_manifest_provenance_status
+latest_manifest_stale_status
+```
+
+`latest_manifest_provenance_status` records whether the referenced branch
+manifest contains any git or local-patch provenance. `latest_manifest_stale_status`
+compares manifest code provenance with the current worktree HEAD when a commit is
+available. Missing or older branch-manifest provenance is a reporting/audit
+limitation and does not by itself change source status, prediction status,
+branch-role assignment, or final-model selection.
+
 ---
 
 ## 9. Command Index

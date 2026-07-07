@@ -256,6 +256,9 @@ def test_run_status_manifest_records_code_provenance() -> None:
             raise AssertionError("execution status manifest records git commit")
         if not manifest.get("git_provenance", {}).get("head_commit"):
             raise AssertionError("execution status manifest preserves legacy git_provenance")
+        csv_header = (output_dir / "four_model_execution_status.csv").read_text(encoding="utf-8").splitlines()[0]
+        if "latest_manifest_stale_status" not in csv_header.split(","):
+            raise AssertionError("execution status CSV records latest manifest stale status")
 
 
 def test_direct_voxel_formal_permutation_status() -> None:

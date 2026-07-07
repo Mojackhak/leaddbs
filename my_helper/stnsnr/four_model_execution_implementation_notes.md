@@ -105,6 +105,13 @@ before this policy may be marked `missing_git_or_patch_provenance`; that marker
 means provenance is incomplete and does not by itself rerun or invalidate the
 observed outputs.
 
+The consolidated status CSV also records `latest_manifest_stale_status`. This is
+a manifest-level audit field derived from the referenced branch manifest's code
+provenance and the current worktree HEAD. It is intended to identify branch
+manifests that are missing provenance or were generated from a different commit.
+It must not change source status, prediction status, branch-role assignment, or
+final-model selection by itself.
+
 The consolidated status report also resolves final-model fields from the current
 source/endpoint classifiers. HF rows record `hf_final_model_source`,
 `hf_final_model_role`, and `hf_final_model_status`. ULF rows record

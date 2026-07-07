@@ -7,7 +7,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from stnsnr_io import read_csv, write_csv, write_json
+from stnsnr_io import manifest_stale_status, read_csv, write_csv, write_json
 
 
 def assert_equal(actual, expected, message: str) -> None:
@@ -49,9 +49,44 @@ def test_reporting_modules_use_shared_json_writer() -> None:
         assert_true("def write_json(" not in source, f"{module_name} does not define local write_json")
 
 
+def test_manifest_stale_status() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        root = Path(tmp_dir)
+        current = "abc123"
+        missing_provenance = root / "missing_provenance.json"
+        missing_provenance.write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
+        current_manifest = root / "current.json"
+        current_manifest.write_text(
+            json.dumps({"code_provenance": {"git_commit": current}}),
+            encoding="utf-8",
+        )
+        legacy_manifest = root / "legacy.json"
+        legacy_manifest.write_text(
+            json.dumps({"git_provenance": {"head_commit": current}}),
+            encoding="utf-8",
+        )
+        stale_manifest = root / "stale.json"
+        stale_manifest.write_text(
+            json.dumps({"code_provenance": {"git_commit": "def456"}}),
+            encoding="utf-8",
+        )
+
+        assert_equal(manifest_stale_status("", current), "not_applicable_no_manifest", "empty manifest path")
+        assert_equal(manifest_stale_status(str(root / "missing.json"), current), "missing_manifest", "missing manifest")
+        assert_equal(
+            manifest_stale_status(str(missing_provenance), current),
+            "missing_code_provenance",
+            "missing code provenance",
+        )
+        assert_equal(manifest_stale_status(str(current_manifest), current), "current_head", "current manifest")
+        assert_equal(manifest_stale_status(str(legacy_manifest), current), "current_head", "legacy current manifest")
+        assert_equal(manifest_stale_status(str(stale_manifest), current), "different_commit", "stale manifest")
+
+
 def main() -> int:
     test_csv_and_json_helpers()
     test_reporting_modules_use_shared_json_writer()
+    test_manifest_stale_status()
     print("STN/SNr IO self-test passed.")
     return 0
 
