@@ -440,6 +440,7 @@ direct_voxel_HF_coef.nii.gz
 direct_voxel_HF_sweet_sour.nii.gz
 direct_voxel_HF_stability.nii.gz
 direct_voxel_HF_bootstrap_se.nii.gz
+direct_voxel_HF_bootstrap_summary.csv
 direct_voxel_HF_scores.csv
 direct_voxel_HF_loocv_predictions.csv
 direct_voxel_HF_permutation_summary.csv
@@ -447,7 +448,7 @@ direct_voxel_HF_mapping_qc.json
 direct_voxel_HF_generation_manifest.json
 ```
 
-`direct_voxel_HF_bootstrap_se.nii.gz` and `direct_voxel_HF_permutation_summary.csv` are generated only for endpoints with an accepted final source branch. Non-selected branches omit these files and record `not_run_nonfinal` in their manifest and QC JSON; endpoints with `absent_no_stable_grid` record `not_run_no_stable_source`.
+`direct_voxel_HF_bootstrap_se.nii.gz`, `direct_voxel_HF_bootstrap_summary.csv`, and `direct_voxel_HF_permutation_summary.csv` are generated only for endpoints with an accepted final source branch. Non-selected branches omit these files and record `not_run_nonfinal` in their manifest and QC JSON; endpoints with `absent_no_stable_grid` record `not_run_no_stable_source`.
 
 For continuous/statistical NIfTI outputs, voxels outside the model support are written as `NaN`, not `0`. This applies to coefficient, sweet/sour, stability, bootstrap SE, smoothed-display, and homologous-display statistical maps outside `Omega_HF_tau` or outside the right-canonical candidate grid. `0` is reserved for true zero-valued estimates inside support. Integer coverage/count maps and binary display masks remain `0` outside support because their data type and semantics are count/false rather than continuous effect.
 
@@ -458,6 +459,7 @@ Output semantics:
 - `direct_voxel_HF_sweet_sour.nii.gz` stores benefit-oriented `M_HF(v)`.
 - `direct_voxel_HF_stability.nii.gz` stores the fraction of LOOCV training folds with positive benefit-oriented map value. It is a direction-stability map, not a p-value or thresholded significance map.
 - `direct_voxel_HF_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the final source branch only. It is not generated when `hf_voxel_source_status = absent_no_stable_grid`.
+- `direct_voxel_HF_bootstrap_summary.csv` stores bootstrap status, `B`, finite bootstrap count, candidate voxel count distribution, and finite-count distribution for the final source branch only.
 - `direct_voxel_HF_scores.csv` stores patient-level map matching scores. Required fields include `HFScore_mean_main`, `exposure_sum_valid_voxels`, `n_valid_score_voxels`, `score_map_source`, and `is_primary_score`. `HFScore_mean_main` is the only primary prediction score. `HFScore_sum_descriptive` is documented only and is not a required output field.
 - `direct_voxel_HF_loocv_predictions.csv` stores held-out LOOCV predictions, including `HFScore_LOOCV`, true outcome, HFScore-model prediction, covariate-only baseline prediction, and residuals.
 - `direct_voxel_HF_permutation_summary.csv` stores the Freedman-Lane permutation summary for the final source branch only, including observed LOOCV Spearman rho, plus-one two-sided p value, secondary metrics, and `B`. It is not generated when `hf_voxel_source_status = absent_no_stable_grid`.

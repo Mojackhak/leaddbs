@@ -29,6 +29,7 @@ Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execu
 Final-model formal target worklist refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/
 Final-model formal readiness audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/
 A/C direct-voxel formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_permutation/
+A/C direct-voxel formal bootstrap refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_bootstrap/
 B_DTOR/D_DTOR dTOR normative-fiber smoke permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_smoke_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber formal bootstrap refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_bootstrap/
@@ -61,6 +62,7 @@ D dTOR normative fiber final model = no_delta_hf at scan-fallback tau400/Coverag
 formal target worklist = 4/7 READY_FOR_FORMAL_RESAMPLING; 3/7 OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING
 formal readiness audit = 4/4 formal targets READY_FOR_FORMAL_DRIVER
 direct-voxel formal permutation = A and C complete at B=10000, seed=42
+direct-voxel formal bootstrap = A and C complete at B=10000, seed=42
 dTOR normative-fiber smoke permutation = B_DTOR and D_DTOR complete at B=1000, seed=42
 dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
@@ -72,6 +74,13 @@ Current direct-voxel formal permutation snapshot:
 ```text
 A direct voxel: observed rho = -0.0265487881; p_plus_one_two_sided = 0.9455054495; B = 10000
 C ULF direct voxel no_delta_hf final model: observed rho = 0.9189995239; p_plus_one_two_sided = 0.2324767523; B = 10000
+```
+
+Current direct-voxel formal bootstrap snapshot:
+
+```text
+A direct voxel: bootstrap_status = complete; B = 10000; finite_bootstrap_count = 10000; bootstrap_candidate_voxels_min = 230; bootstrap_candidate_voxels_median = 650.0; voxel_finite_count_median = 405.0
+C ULF direct voxel no_delta_hf final model: bootstrap_status = complete; B = 10000; finite_bootstrap_count = 10000; bootstrap_candidate_voxels_min = 88; bootstrap_candidate_voxels_median = 616.0; voxel_finite_count_median = 0.0
 ```
 
 Current dTOR normative-fiber smoke permutation snapshot:
@@ -1013,6 +1022,14 @@ Direct-voxel final-model formal permutation:
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_permutation.py \
   --n-permutations 10000
+```
+
+Direct-voxel final-model formal bootstrap:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_bootstrap.py \
+  --n-bootstraps 10000
 ```
 
 dTOR normative-fiber smoke permutation:

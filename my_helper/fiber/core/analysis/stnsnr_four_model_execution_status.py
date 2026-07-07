@@ -611,8 +611,19 @@ def prediction_baseline_comparison(predictions_csv: Path) -> dict[str, Any]:
     }
 
 
-def direct_voxel_formal_resampling_status(permutation_summary_csv: Path) -> str:
-    """Return direct-voxel formal status from a branch-level permutation summary."""
+def direct_voxel_formal_resampling_status(permutation_summary_csv: Path, bootstrap_summary_csv: Path | None = None) -> str:
+    """Return direct-voxel formal status from branch-level resampling summaries."""
+    if bootstrap_summary_csv is not None and bootstrap_summary_csv.is_file():
+        rows = read_csv_rows(bootstrap_summary_csv)
+        if rows:
+            row = rows[0]
+            status = str(row.get("bootstrap_status", "")).strip().lower()
+            try:
+                n_bootstraps = int(float(row.get("B", 0) or 0))
+            except (TypeError, ValueError):
+                n_bootstraps = 0
+            if status == "complete" and n_bootstraps >= 10000:
+                return "FORMAL_PERMUTATION_BOOTSTRAP_COMPLETE_JITTER_NOT_STARTED"
     if not permutation_summary_csv.is_file():
         return "NOT_STARTED_FORMAL_RESAMPLING"
     rows = read_csv_rows(permutation_summary_csv)
@@ -1022,8 +1033,10 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
         state = classify_hf_model_state(resolver_row)
         latest_manifest = str(gate_row.get("manifest_path", ""))
         if model_id == "A" and latest_manifest:
+            branch_dir = Path(latest_manifest).parent
             formal_status = direct_voxel_formal_resampling_status(
-                Path(latest_manifest).parent / "direct_voxel_HF_permutation_summary.csv"
+                branch_dir / "direct_voxel_HF_permutation_summary.csv",
+                branch_dir / "direct_voxel_HF_bootstrap_summary.csv",
             )
             if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
                 state["formal_resampling_status"] = formal_status
@@ -1121,8 +1134,10 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             final_branch_row = c_outputs.get("branches", {}).get(final_branch, no_delta)
             latest_manifest = str(final_branch_row.get("manifest_path", ""))
             if latest_manifest:
+                branch_dir = Path(latest_manifest).parent
                 formal_status = direct_voxel_formal_resampling_status(
-                    Path(latest_manifest).parent / "direct_voxel_ULF_only_permutation_summary.csv"
+                    branch_dir / "direct_voxel_ULF_only_permutation_summary.csv",
+                    branch_dir / "direct_voxel_ULF_only_bootstrap_summary.csv",
                 )
                 if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
                     state["formal_resampling_status"] = formal_status

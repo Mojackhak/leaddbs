@@ -957,6 +957,7 @@ direct_voxel_ULF_only_coef.nii.gz
 direct_voxel_ULF_only_sweet_sour.nii.gz
 direct_voxel_ULF_only_stability.nii.gz
 direct_voxel_ULF_only_bootstrap_se.nii.gz
+direct_voxel_ULF_only_bootstrap_summary.csv
 direct_voxel_ULF_only_scores.csv
 direct_voxel_ULF_only_loocv_predictions.csv
 direct_voxel_ULF_only_permutation_summary.csv
@@ -972,7 +973,7 @@ direct_voxel_ULF_only_generation_manifest.json
 
 Selected-source NIfTI, score, and LOOCV prediction outputs are generated only for branches with `ulf_voxel_source_status` equal to `pre_specified_accepted` or `scan_fallback_accepted`. Endpoints or branches with `absent_no_stable_grid` generate only resolver scan tables plus QC/manifest rows.
 
-`direct_voxel_ULF_only_bootstrap_se.nii.gz` and `direct_voxel_ULF_only_permutation_summary.csv` are generated only for the final model's accepted source. Non-final branches omit these files and record `not_run_nonfinal` in their manifest and QC JSON. Branches with no stable source record `not_run_no_stable_source`.
+`direct_voxel_ULF_only_bootstrap_se.nii.gz`, `direct_voxel_ULF_only_bootstrap_summary.csv`, and `direct_voxel_ULF_only_permutation_summary.csv` are generated only for the final model's accepted source. Non-final branches omit these files and record `not_run_nonfinal` in their manifest and QC JSON. Branches with no stable source record `not_run_no_stable_source`.
 
 For continuous/statistical NIfTI outputs, voxels outside the model support are written as `NaN`, not `0`. This applies to coefficient, sweet/sour, stability, bootstrap SE, HF-overlap fraction, smoothed-display, and homologous-display statistical maps outside `Omega_ULF_tau_coverage` or outside the right-canonical candidate grid. `0` is reserved for true zero-valued estimates inside support. Integer coverage/count maps and binary/exclusion display masks remain `0` outside support because their data type and semantics are count/false rather than continuous effect.
 
@@ -983,6 +984,7 @@ Output semantics:
 - `direct_voxel_ULF_only_sweet_sour.nii.gz` stores benefit-oriented `M_ULF(v)`. Positive values indicate ULF-only benefit-associated voxels.
 - `direct_voxel_ULF_only_stability.nii.gz` stores LOOCV training-fold direction stability of `M_ULF(v)>0` or `M_ULF(v)<0`, depending on display class. It is not a p value.
 - `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the final model's accepted source only.
+- `direct_voxel_ULF_only_bootstrap_summary.csv` stores bootstrap status, `B`, finite bootstrap count, candidate voxel count distribution, and finite-count distribution for the final source branch only.
 - `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `intended_primary_branch`, `ulf_final_model_id`, `delta_hfscore_role`, `fallback_final_branch`, `ulf_fallback_final_status`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_component_coverage_out_support_fraction`, `delta_hfscore_support_status`, `score_map_source`, `n_valid_score_voxels`, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, and `is_primary_score`.
 - `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed raw outcome, branch-specific nuisance-only prediction, `ULFScore_mean_main`, `DeltaHFScore` when applicable, DeltaHFScore support fields, `MAE_nuisance_baseline`, `RMSE_nuisance_baseline`, and residuals.
 - `direct_voxel_ULF_only_permutation_summary.csv` stores Freedman-Lane permutation summary for the final model's accepted source only.
