@@ -28,6 +28,10 @@ def test_missing_oss_and_jitter_inputs_are_explicit_not_run() -> None:
         preprocess_dir.mkdir()
         manifest_path = branch_dir / "normative_HF_fiber_generation_manifest.json"
         manifest_path.write_text(json.dumps({"outputs": {"preprocess_dir": str(preprocess_dir)}}), encoding="utf-8")
+        (branch_dir / "normative_HF_fiber_jitter_summary.csv").write_text(
+            "model_id,jitter_qc_status\nB_DTOR,not_run_missing_jitter_inputs\n",
+            encoding="utf-8",
+        )
         target = NormativeFiberTarget(
             model_id="B_DTOR",
             manifest_path=manifest_path,

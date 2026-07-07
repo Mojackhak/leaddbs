@@ -41,7 +41,13 @@ def _jitter_candidate_paths(target: NormativeFiberTarget, preprocess_dir: Path) 
     paths: list[Path] = []
     for root in (target.branch_dir, preprocess_dir):
         if root.exists():
-            paths.extend(path for path in root.glob("*jitter*") if path.is_file())
+            for path in root.glob("*jitter*"):
+                name = path.name
+                if not path.is_file() or name.startswith("._"):
+                    continue
+                if any(token in name for token in ("summary", "status", "manifest")):
+                    continue
+                paths.append(path)
     return paths
 
 
