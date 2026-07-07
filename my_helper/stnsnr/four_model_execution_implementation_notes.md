@@ -28,7 +28,7 @@ A direct voxel: SOURCE_ACCEPTED_ERROR_NONPREDICTIVE
 B PPMI/MGH/dTOR normative fiber: SOURCE_ACCEPTED_ERROR_NONPREDICTIVE
 C direct voxel: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 D PPMI normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
-D dTOR normative fiber: OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER
+D dTOR normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 ULF component e-fields: 64/64 available
 formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
 ```
@@ -785,20 +785,22 @@ The D PPMI observed output is now included in the consolidated status report as
 OSS-DBS activation, density maps, endpoint enrichment, and dTOR-scale
 figure-grade outputs remain deferred.
 
-Current dTOR observed run:
+Current dTOR source resolver and selected-source observed run:
 
 ```text
-output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/dtor_985_full_elias_2024/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed
-no_delta_hf:        pending_source_resolver + error_nonpredictive; LOOCV Spearman rho = 0.889544, Q2 = 0.0238448
-delta_hf_adjusted:  pending_source_resolver + error_nonpredictive; LOOCV Spearman rho = 0.919000, Q2 = 0.0672397
-endpoint status:    pending_source_resolver
+source resolver root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/dtor_985_full_elias_2024/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed/tau_coverage_source_resolver_scan/
+selected output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/dtor_985_full_elias_2024/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau400_observed
+no_delta_hf:        scan_fallback_accepted + error_nonpredictive; LOOCV Spearman rho = 0.941091, Q2 = -0.0849500
+delta_hf_adjusted:  scan_fallback_accepted + error_predictive; LOOCV Spearman rho = 0.946982, Q2 = 0.216921
+endpoint status:    primary_branch_error_nonpredictive
 ```
 
 The D dTOR observed output is included in the consolidated status report as
-`OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER`. The matched B_DTOR source is
+`OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE`. The matched B_DTOR source is
 accepted but `error_nonpredictive`, so the HF-derived intended primary branch is
-no-DeltaHF. The D_DTOR ULF tau/Coverage source resolver scan still must run
-before endpoint realization or formal interpretation.
+no-DeltaHF. The D_DTOR ULF tau/Coverage source resolver scan selects
+tau400/Coverage>=5 as scan fallback; endpoint realization remains
+primary-branch error-nonpredictive because no-DeltaHF is the HF-derived primary.
 
 Run the D PPMI source resolver:
 
@@ -834,4 +836,14 @@ Run the D dTOR source resolver:
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
   --connectome dtor \
   --source-resolver-scan
+```
+
+Run the current D dTOR selected-source observed branch:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
+  --connectome dtor \
+  --tau 400 \
+  --min-coverage 5
 ```

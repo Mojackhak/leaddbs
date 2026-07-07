@@ -18,11 +18,12 @@ A HF direct voxel observed branch rerun from /Users/mojackhu/Github/leaddbs
 B PPMI/MGH/dTOR HF normative fiber observed branches rerun from /Users/mojackhu/Github/leaddbs using the legacy/current output branch name that maps to revised `peak_efield_tau800_cov5_primary`
 C ULF direct voxel observed branches rerun from /Users/mojackhu/Github/leaddbs
 D ULF normative fiber PPMI observed branches rerun from /Users/mojackhu/Github/leaddbs using selected-source tau600 scan-fallback output branches
-D ULF normative fiber dTOR observed branches rerun from /Users/mojackhu/Github/leaddbs using default tau800/Coverage>=5 output branches
+D ULF normative fiber dTOR observed branches rerun from /Users/mojackhu/Github/leaddbs using selected-source tau400 scan-fallback output branches
 legacy/current A/B status CSV refreshed
 ULF readiness refreshed with C -> A, D PPMI -> B_PPMI, and D dTOR -> B_DTOR dependency mapping
 C direct voxel source resolver refreshed
 D PPMI normative fiber source resolver refreshed
+D dTOR normative fiber source resolver refreshed
 Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/status/
 ```
 
@@ -36,7 +37,7 @@ B_MGH = pre_specified_accepted + error_nonpredictive
 B_DTOR = pre_specified_accepted + error_nonpredictive
 C direct voxel = observed primary realized as no_delta_hf; primary_branch_error_nonpredictive
 D PPMI normative fiber = observed primary realized as no_delta_hf at scan-fallback tau600/Coverage>=5; primary_branch_error_nonpredictive
-D dTOR normative fiber = observed branches exist at tau800/Coverage>=5; ULF source resolver still required before endpoint realization
+D dTOR normative fiber = observed primary realized as no_delta_hf at scan-fallback tau400/Coverage>=5; primary_branch_error_nonpredictive
 formal permutation/bootstrap/jitter/OSS = not run
 ```
 
@@ -383,23 +384,24 @@ Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manif
 
 ### D ULF Normative Fiber dTOR Observed Branch
 
-The D dTOR observed-only driver has been run for the current-output chronic endpoint row:
+The D dTOR observed-only driver has been run for the current-output chronic endpoint row and selected-source scan-fallback threshold:
 
 ```text
 post scale = MDS-UPDRS III score (STN+SNr, 3 m)
 HF reference = MDS-UPDRS III score (STN, 3 m)
 connectome = dTOR-985 Full (Elias 2024)
-output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/dtor_985_full_elias_2024/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed/
+default scan root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/dtor_985_full_elias_2024/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed/
+selected-source output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/dtor_985_full_elias_2024/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau400_observed/
 ```
 
 Current observed outputs:
 
 | Branch | rho | Q2 | Interpretation role |
 |---|---:|---:|---|
-| default output `ulf_peak_efield_tau800_no_delta_hf`; revised default spec `ulf_peak_efield_tau800_cov5_no_delta_hf` | `0.8895` | `0.0238` | HF-derived intended primary because matched B_DTOR source is accepted but `error_nonpredictive`; D_DTOR source resolver still required before endpoint realization |
-| default output `ulf_peak_efield_tau800_delta_hf_adjusted`; revised default spec `ulf_peak_efield_tau800_cov5_delta_hf_adjusted` | `0.9190` | `0.0672` | sensitivity because matched B_DTOR source is accepted but `error_nonpredictive`; D_DTOR source resolver still required before endpoint realization |
+| selected-source output `ulf_peak_efield_tau400_no_delta_hf`; revised scan-fallback spec `ulf_peak_efield_tau400_cov5_no_delta_hf` | `0.9411` | `-0.0849` | realized HF-derived intended primary; D_DTOR source resolver = `scan_fallback_accepted` + `error_nonpredictive`; endpoint status = `primary_branch_error_nonpredictive` |
+| selected-source output `ulf_peak_efield_tau400_delta_hf_adjusted`; revised scan-fallback spec `ulf_peak_efield_tau400_cov5_delta_hf_adjusted` | `0.9470` | `0.2169` | sensitivity because matched B_DTOR source is accepted but `error_nonpredictive`; D_DTOR source resolver = `scan_fallback_accepted` + `error_predictive` |
 
-Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. The consolidated status records this as `D_DTOR = OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER` until the dTOR ULF tau/Coverage source resolver scan is run.
+Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. The consolidated status records this as `D_DTOR = OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE`.
 
 ### A Round 2 All-Endpoint Tau/Coverage Resolver Scan
 
@@ -499,14 +501,30 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    tau600/Coverage>=5. The endpoint-level primary realization is
    `primary_branch_error_nonpredictive`.
 
+3. D ULF normative fiber dTOR observed has been implemented with both branches
+   at the selected-source scan-fallback threshold:
+
+   ```text
+   selected-source output: ulf_peak_efield_tau400_delta_hf_adjusted
+   revised scan-fallback spec: ulf_peak_efield_tau400_cov5_delta_hf_adjusted
+
+   selected-source output: ulf_peak_efield_tau400_no_delta_hf
+   revised scan-fallback spec: ulf_peak_efield_tau400_cov5_no_delta_hf
+   ```
+
+   Under the revised B_DTOR resolver, no-DeltaHF is the current HF-derived
+   intended primary because the matched B_DTOR source is accepted but
+   `error_nonpredictive`. The refreshed D dTOR resolver records no-DeltaHF as
+   `scan_fallback_accepted + error_nonpredictive` and DeltaHF-adjusted as
+   `scan_fallback_accepted + error_predictive` at tau400/Coverage>=5. The
+   endpoint-level primary realization is `primary_branch_error_nonpredictive`.
+
 ### Immediate Next Steps
 
-1. Run the D dTOR ULF tau/Coverage source resolver scan before endpoint
-   realization or formal interpretation of the dTOR observed branches.
-2. Keep C/D formal resampling, gain endpoints, total-ULF sensitivity, all-endpoint
+1. Keep C/D formal resampling, gain endpoints, total-ULF sensitivity, all-endpoint
    reporting, OSS, jitter, and figure-grade outputs deferred until the selected
    reporting branches are explicitly chosen.
-3. Any additional executable patch to resolver, branch-role, DeltaHFScore,
+2. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
 
@@ -821,6 +839,16 @@ D ULF normative fiber dTOR tau/Coverage source resolver scan:
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
   --connectome dtor \
   --source-resolver-scan
+```
+
+D ULF normative fiber dTOR selected-source observed branch after current scan fallback:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
+  --connectome dtor \
+  --tau 400 \
+  --min-coverage 5
 ```
 
 Consolidated execution status:
