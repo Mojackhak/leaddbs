@@ -9,9 +9,9 @@
 
 ## Pause Checkpoint
 
-Execution is paused after the 2026-07-07 status refresh. The current checkpoint
-has completed only observed/non-formal branches and lightweight readiness/status
-generation:
+Execution is paused after the 2026-07-07 status and formal-target refresh. The
+current checkpoint has completed observed/non-formal branches, lightweight
+readiness/status generation, and the final-model formal target worklist:
 
 ```text
 A HF direct voxel observed branch rerun from /Users/mojackhu/Github/leaddbs
@@ -25,19 +25,21 @@ C direct voxel source resolver refreshed
 D PPMI normative fiber source resolver refreshed
 D dTOR normative fiber source resolver refreshed
 Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/status/
+Final-model formal target worklist refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/
 ```
 
 Current status snapshot after the source-resolver refresh already performed in
 this branch:
 
 ```text
-A direct voxel = pre_specified_accepted + error_nonpredictive
-B_PPMI = pre_specified_accepted + error_nonpredictive
-B_MGH = pre_specified_accepted + error_nonpredictive
-B_DTOR = pre_specified_accepted + error_nonpredictive
-C direct voxel = observed primary realized as no_delta_hf; primary_branch_error_nonpredictive
-D PPMI normative fiber = observed primary realized as no_delta_hf at scan-fallback tau600/Coverage>=5; primary_branch_error_nonpredictive
-D dTOR normative fiber = observed primary realized as no_delta_hf at scan-fallback tau400/Coverage>=5; primary_branch_error_nonpredictive
+A direct voxel final source = pre_specified; final_model_error_nonpredictive
+B_PPMI final source = pre_specified; final_model_error_nonpredictive
+B_MGH final source = pre_specified; final_model_error_nonpredictive
+B_DTOR final source = pre_specified; final_model_error_nonpredictive
+C direct voxel final model = no_delta_hf; final_model_error_nonpredictive
+D PPMI normative fiber final model = no_delta_hf at scan-fallback tau600/Coverage>=5; final_model_error_nonpredictive
+D dTOR normative fiber final model = no_delta_hf at scan-fallback tau400/Coverage>=5; final_model_error_nonpredictive
+formal target worklist = 7/7 READY_FOR_FORMAL_RESAMPLING
 formal permutation/bootstrap/jitter/OSS = not run
 ```
 
@@ -319,6 +321,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | B observed primary | `my_helper/fiber/stnsnr/run_stnsnr_hf_normative_fiber_smoke.py` | `my_helper/fiber/core/analysis/stnsnr_hf_normative_fiber_smoke.py` | implemented |
 | Legacy A/B status CSV | `my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_gate_status.py` | implemented |
 | Four-model status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py` | implemented |
+| Final-model formal target worklist | `my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_formal_worklist.py` | implemented |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
 | C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
@@ -574,9 +577,9 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
 
 1. Use the endpoint classification to select the final unique reporting model
    automatically. Formal resampling, OSS, jitter, and figure-grade outputs
-   attach to `ulf_final_model_branch`; if the intended primary branch has
-   input/design failure, the executable fallback no-DeltaHF branch becomes the
-   final model.
+   attach to the generated final-model formal target worklist; if the intended
+   primary branch has input/design failure, the executable fallback no-DeltaHF
+   branch becomes the final model.
 2. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
@@ -910,6 +913,13 @@ Consolidated execution status:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py
+```
+
+Final-model formal target worklist:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_worklist.py
 ```
 
 ---

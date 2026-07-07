@@ -19,6 +19,8 @@ Current refreshed outputs:
 /Volumes/VAL/STNSNr/summary/four_model_execution/gate_status/four_model_gate_status.csv
 /Volumes/VAL/STNSNr/summary/four_model_execution/status/four_model_execution_status.csv
 /Volumes/VAL/STNSNr/summary/four_model_execution/status/four_model_execution_status.md
+/Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/four_model_formal_target_worklist.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/four_model_formal_target_worklist.md
 ```
 
 Current state:
@@ -29,6 +31,7 @@ B PPMI/MGH/dTOR normative fiber: SOURCE_ACCEPTED_ERROR_NONPREDICTIVE
 C direct voxel: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 D PPMI normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 D dTOR normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
+formal target worklist: 7/7 READY_FOR_FORMAL_RESAMPLING
 ULF component e-fields: 64/64 available
 formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
 ```
@@ -477,6 +480,47 @@ Run the consolidated status report:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py
+```
+
+## Final-Model Formal Target Worklist
+
+The formal target worklist is the first executable layer after final-model
+classification. It does not run permutation, bootstrap, jitter, OSS-DBS, or
+display generation. It reads the consolidated execution status and writes a
+machine-readable list of final model branches/sources that should be consumed by
+future formal resampling drivers.
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_worklist.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_four_model_formal_worklist.py
+```
+
+Default outputs:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/
+  four_model_formal_target_worklist.csv
+  four_model_formal_target_worklist.md
+  four_model_formal_target_worklist_manifest.json
+```
+
+Rows with `final_model_error_predictive` or `final_model_error_nonpredictive`
+are marked `READY_FOR_FORMAL_RESAMPLING`. Rows with no final model are marked
+`NO_FINAL_MODEL`. This worklist is intentionally independent of manual
+reporting-branch selection.
+
+Run the worklist:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_worklist.py
 ```
 
 ## ULF Component E-field Worklist
