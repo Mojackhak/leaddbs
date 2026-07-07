@@ -35,8 +35,20 @@ def test_csv_and_json_helpers() -> None:
         assert_true(bool(data["code_provenance"].get("git_commit")), "code provenance added")
 
 
+def test_reporting_modules_use_shared_json_writer() -> None:
+    analysis_dir = Path(__file__).resolve().parent
+    for module_name in [
+        "stnsnr_four_model_final_reporting.py",
+        "stnsnr_four_model_all_endpoint_reporting.py",
+    ]:
+        source = (analysis_dir / module_name).read_text(encoding="utf-8")
+        assert_true("from stnsnr_io import" in source and "write_json" in source, f"{module_name} imports shared IO")
+        assert_true("def write_json(" not in source, f"{module_name} does not define local write_json")
+
+
 def main() -> int:
     test_csv_and_json_helpers()
+    test_reporting_modules_use_shared_json_writer()
     print("STN/SNr IO self-test passed.")
     return 0
 

@@ -4,14 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
-from stnsnr_run_provenance import git_provenance
+from stnsnr_io import iso_now, read_csv, write_csv, write_json
 
 
 FORMAL_ROOT = DEFAULT_VAL_ROOT / "summary/four_model_execution"
@@ -76,31 +73,6 @@ MISSING_WORK_ITEMS = [
         "search_tokens": ("total_ulf", "total-ulf", "totalulf"),
     },
 ]
-
-
-def iso_now() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def read_csv(path: Path) -> list[dict[str, str]]:
-    if not path.is_file():
-        return []
-    with path.open(newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
-
-
-def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: row.get(key, "") for key in fieldnames})
-
-
-def write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def branch_companion_status(manifest_path: Path, prefix: str) -> tuple[str, str, dict[str, str]]:
@@ -425,7 +397,6 @@ def build_all_endpoint_reporting(
             "n_missing_work_rows": len(missing_rows),
             "source_table_counts": count_by(report_rows, "source_table"),
             "missing_work_counts": count_by(missing_rows, "work_status"),
-            "code_provenance": git_provenance(),
             "outputs": {
                 "all_endpoint_report_csv": str(report_csv),
                 "all_endpoint_report_md": str(report_md),
@@ -433,6 +404,7 @@ def build_all_endpoint_reporting(
                 "manifest_json": str(manifest_json),
             },
         },
+        add_code_provenance=True,
     )
     return {
         "all_endpoint_report_csv": str(report_csv),
