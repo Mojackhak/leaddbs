@@ -49,6 +49,21 @@ def test_hf_error_predictive_source_state() -> None:
     assert_equal(state["formal_resampling_status"], "ELIGIBLE_AFTER_SOURCE_RESOLUTION", "HF pass formal status")
 
 
+def test_legacy_hf_row_waits_for_resolver_refresh() -> None:
+    state = classify_hf_model_state(
+        {
+            "decision": "STOP_FORMAL_REMAIN_EXPLORATORY",
+            "output_exists": True,
+            "predictions_finite": True,
+            "hf_prediction_validity_status": "failed_unstable",
+            "spearman_rho": -0.3,
+            "q2": -0.4,
+        }
+    )
+    assert_equal(state["execution_status"], "WAITING_FOR_HF_SOURCE_RESOLVER", "legacy HF waits for resolver")
+    assert_equal(state["formal_resampling_status"], "NOT_APPLICABLE_WAITING_FOR_HF", "legacy HF formal status")
+
+
 def test_ulf_input_failure_state() -> None:
     state = classify_ulf_model_state(
         hf_dependency_source_status="pre_specified_accepted",
@@ -90,6 +105,7 @@ def test_d_observed_source_absent_state() -> None:
 def main() -> int:
     test_hf_error_nonpredictive_source_state()
     test_hf_error_predictive_source_state()
+    test_legacy_hf_row_waits_for_resolver_refresh()
     test_ulf_input_failure_state()
     test_c_observed_source_exists_state()
     test_d_observed_source_absent_state()

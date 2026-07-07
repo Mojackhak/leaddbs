@@ -70,21 +70,17 @@ def classify_hf_model_state(gate_row: dict[str, Any]) -> dict[str, str]:
             "hf_prediction_validity_status": prediction_status or "not_applicable",
         }
 
-    # Backward-compatible fallback for legacy/current status rows that have not
-    # yet been refreshed by the intended resolver.
+    # Legacy/current status rows without intended source fields must be refreshed
+    # before they can drive downstream branch-role decisions.
     decision = str(gate_row.get("decision", "MISSING_OUTPUT"))
-    validity_status = str(gate_row.get("hf_prediction_validity_status", "") or "")
     output_exists = as_bool(gate_row.get("output_exists"))
     predictions_finite = as_bool(gate_row.get("predictions_finite"))
-    if validity_status == "predictive_valid":
-        execution_status = "READY_FOR_NEXT_ROUND"
-        formal_status = "ELIGIBLE_AFTER_SMOKE_RESAMPLING"
-    elif output_exists and predictions_finite and validity_status in {"stable_nonpredictive", "failed_unstable"}:
-        execution_status = "OBSERVED_COMPLETE_STOPPED_BY_GATE"
-        formal_status = "SKIP_GATE_FAILED"
-    elif decision == "MISSING_OUTPUT" or not output_exists:
+    if decision == "MISSING_OUTPUT" or not output_exists:
         execution_status = "MISSING_PRIMARY_OBSERVED_OUTPUT"
         formal_status = "NOT_APPLICABLE_MISSING_OUTPUT"
+    elif output_exists and predictions_finite:
+        execution_status = "WAITING_FOR_HF_SOURCE_RESOLVER"
+        formal_status = "NOT_APPLICABLE_WAITING_FOR_HF"
     else:
         execution_status = "ERROR_OR_INCOMPLETE"
         formal_status = "NOT_APPLICABLE_ERROR"
@@ -92,7 +88,7 @@ def classify_hf_model_state(gate_row: dict[str, Any]) -> dict[str, str]:
         "execution_status": execution_status,
         "dependency_status": "NONE",
         "formal_resampling_status": formal_status,
-        "hf_prediction_validity_status": validity_status or "not_evaluable",
+        "hf_prediction_validity_status": prediction_status or "not_evaluable",
     }
 
 

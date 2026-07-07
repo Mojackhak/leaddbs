@@ -12,9 +12,12 @@ def main() -> int:
     core_analysis_dir = repo_root / "my_helper" / "fiber" / "core" / "analysis"
     sys.path.insert(0, str(core_analysis_dir))
 
-    from stnsnr_four_model_stats_selftest import main as selftest_main
+    from stnsnr_four_model_resolver_selftest import main as resolver_selftest_main
+    from stnsnr_four_model_stats_selftest import main as stats_selftest_main
 
-    return selftest_main()
+    stats_status = stats_selftest_main()
+    resolver_status = resolver_selftest_main()
+    return 0 if stats_status == 0 and resolver_status == 0 else 1
 
 
 if __name__ == "__main__":
