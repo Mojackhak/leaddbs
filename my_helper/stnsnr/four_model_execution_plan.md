@@ -36,6 +36,7 @@ B_DTOR/D_DTOR dTOR normative-fiber formal permutation refreshed under /Volumes/V
 B_DTOR/D_DTOR dTOR normative-fiber formal bootstrap refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_bootstrap/
 B_DTOR/D_DTOR dTOR normative-fiber sensitivity readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_sensitivity_readiness/
 Final reporting and figure-output readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/
+All-endpoint reporting and missing-work audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/
 ```
 
 The formal rerun manifests for direct-voxel permutation/bootstrap/jitter,
@@ -89,6 +90,7 @@ dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000,
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR fiber jitter/OSS = not_run_missing_inputs
 final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; fiber density/label caches missing
+all-endpoint reporting = 61 rows; A all-endpoint scan rows = 30; missing-work rows = 6 not_run_missing_observed_outputs
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -151,6 +153,21 @@ A direct voxel: figure_output_status = ready_from_existing_direct_voxel_maps
 C ULF direct voxel no_delta_hf: figure_output_status = ready_from_existing_direct_voxel_maps
 B/D normative fiber rows: figure_output_status = not_run_missing_density_label_cache
 manifest cohort_n = 16; interpretation = hypothesis_generating
+```
+
+Current all-endpoint reporting and missing-work audit snapshot:
+
+```text
+output root = /Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/
+four_model_all_endpoint_report.csv rows = 61
+four_model_all_endpoint_missing_work.csv rows = 6
+source_table_counts = 30 A all-endpoint scan rows, 17 discovered branch manifests, 7 observed summary rows, 7 final-report rows
+C chronic gain endpoint sensitivity = not_run_missing_observed_outputs
+C same-day immediate endpoint family = not_run_missing_observed_outputs
+C total-ULF exposure sensitivity = not_run_missing_observed_outputs
+D chronic gain endpoint sensitivity = not_run_missing_observed_outputs
+D same-day immediate endpoint family = not_run_missing_observed_outputs
+D total-ULF exposure sensitivity = not_run_missing_observed_outputs
 ```
 
 When execution is resumed from this checkpoint, expensive dTOR fiber formal
@@ -443,6 +460,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | dTOR normative-fiber formal bootstrap | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_bootstrap.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_bootstrap.py` | implemented |
 | dTOR normative-fiber sensitivity readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_sensitivity_readiness.py` | implemented |
 | Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
+| All-endpoint reporting and missing-work audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_all_endpoint_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_all_endpoint_reporting.py` | implemented |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
 | C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
@@ -452,7 +470,7 @@ The current codebase is no longer greenfield. The following layers already exist
 ### Not Yet Implemented
 
 ```text
-C gain endpoints, total-ULF sensitivity, and all-endpoint reporting driver
+C gain endpoints and total-ULF sensitivity model drivers
 D OSS and full fiber figure-grade density/FDR/enrichment outputs, pending required caches
 shared reusable resolver/manifest/score architecture across voxel, fiber, HF, and ULF models
 fiber OSS-DBS activation branch execution, pending required inputs
@@ -711,7 +729,16 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    current output state: it summarizes final models, formal inference,
    direct-voxel display-source availability, and missing fiber density/label
    caches without fabricating unavailable figure-grade fiber maps.
-4. Any additional executable patch to resolver, branch-role, DeltaHFScore,
+4. Regenerate the all-endpoint reporting and missing-work audit package after
+   any upstream endpoint, branch-manifest, final-report, or sensitivity output
+   changes. This package consumes the
+   existing A all-scale source-resolver scan, observed branch manifests,
+   consolidated final-model outputs, and ULF sensitivity-output searches. This
+   reporting package must explicitly label C/D gain endpoints, same-day
+   immediate endpoints, and total-ULF sensitivities as not run when their
+   observed-model outputs are absent; it must not mark those model drivers as
+   implemented.
+5. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
 
@@ -1129,6 +1156,13 @@ Final reporting and figure-output readiness:
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py
 ```
 
+All-endpoint reporting and missing-work audit:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_all_endpoint_reporting.py
+```
+
 ---
 
 ## 10. Definition Of Done
@@ -1148,6 +1182,9 @@ Fallback-selected thresholds are explicitly labeled as scan-fallback sources and
 The final reporting package records the unique final model for each formal target,
 formal resampling status, direct-voxel display-source availability, and explicit
 not-run statuses for unavailable fiber OSS/jitter/density/FDR/enrichment inputs.
+The all-endpoint reporting package records A all-endpoint source-resolver rows,
+observed branch manifests, final-report rows, and explicit not-run statuses for
+C/D gain endpoints, same-day immediate endpoints, and total-ULF sensitivities.
 The final report states n=16 and hypothesis-generating interpretation.
 All affected outputs and consolidated status files have been rerun after the latest executable patch.
 Reusable backend components cover shared resolver, branch-role, score, DeltaHFScore, manifest, and stale-output logic.

@@ -33,6 +33,8 @@ Current refreshed outputs:
 /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_sensitivity_readiness/normative_fiber_sensitivity_readiness_summary.csv
 /Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/four_model_final_report.csv
 /Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/four_model_figure_output_readiness.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/four_model_all_endpoint_report.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/four_model_all_endpoint_missing_work.csv
 ```
 
 Current state:
@@ -54,6 +56,7 @@ dTOR normative-fiber formal permutation: B_DTOR and D_DTOR complete at B=10000, 
 dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber OSS/jitter sensitivity readiness: not_run_missing_inputs
 final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; fiber density/label caches missing
+all-endpoint reporting: 61 rows; A all-endpoint source-resolver rows = 30; missing-work rows = 6 not_run_missing_observed_outputs
 full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
@@ -120,6 +123,22 @@ This layer does not fit models, rerun resampling, or fabricate unavailable
 fiber density/FDR/enrichment outputs. It records `ready_from_existing_maps` for
 A/C direct-voxel display sources and `not_run_missing_density_label_cache` for
 fiber figure-output readiness when the required caches are absent.
+
+The all-endpoint reporting layer consumes the existing A all-scale
+source-resolver scan, observed branch summary, final report, and discovered
+branch manifests. It writes:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/four_model_all_endpoint_report.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/four_model_all_endpoint_report.md
+/Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/four_model_all_endpoint_missing_work.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/four_model_all_endpoint_reporting_manifest.json
+```
+
+This layer does not fit gain, same-day immediate, or total-ULF sensitivity
+models. It records those absent C/D outputs as
+`not_run_missing_observed_outputs` so downstream reporting can distinguish
+"not run" from "failed model".
 
 ## Execution Root Availability
 
