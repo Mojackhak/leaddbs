@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
 
-from stnsnr_four_model_formal_worklist import formal_target_row
+from stnsnr_four_model_formal_worklist import formal_target_row, run_worklist
 
 
 def assert_equal(actual, expected, message: str) -> None:
@@ -76,11 +79,37 @@ def test_no_final_model_target() -> None:
     assert_equal(row["formal_target_reason"], "no_final_model_absent_no_stable_grid", "no-final reason")
 
 
+def test_run_worklist_manifest_records_code_provenance() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        root = Path(tmp_dir)
+        status_csv = root / "status.csv"
+        output_dir = root / "formal_worklist"
+        status_csv.write_text(
+            "\n".join(
+                [
+                    "model_id,model,hf_final_model_source,hf_final_model_role,hf_final_model_status,branch,latest_manifest",
+                    "A,HF direct voxel,pre_specified,primary,final_model_error_nonpredictive,tau200/partial_spearman,/tmp/direct_voxel_HF_generation_manifest.json",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        run_worklist(SimpleNamespace(status_csv=str(status_csv), output_dir=str(output_dir)))
+
+        manifest = json.loads(
+            (output_dir / "four_model_formal_target_worklist_manifest.json").read_text(encoding="utf-8")
+        )
+        if not manifest.get("code_provenance", {}).get("git_commit"):
+            raise AssertionError("formal target worklist manifest records git commit")
+
+
 def main() -> int:
     test_hf_ready_target()
     test_observed_robustness_connectome_not_formal_target()
     test_ulf_ready_target()
     test_no_final_model_target()
+    test_run_worklist_manifest_records_code_provenance()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 

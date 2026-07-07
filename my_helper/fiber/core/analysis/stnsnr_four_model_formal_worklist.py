@@ -4,42 +4,15 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
+from stnsnr_io import iso_now, read_csv, write_csv, write_json
 
 READY_FINAL_STATUSES = {"final_model_error_predictive", "final_model_error_nonpredictive"}
 FORMAL_TARGET_MODEL_IDS = {"A", "B_DTOR", "C", "D_DTOR"}
 OBSERVED_ROBUSTNESS_MODEL_IDS = {"B_PPMI", "B_MGH", "D_PPMI"}
-
-
-def iso_now() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def read_csv(path: Path) -> list[dict[str, str]]:
-    if not path.is_file():
-        return []
-    with path.open(newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
-
-
-def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: row.get(key, "") for key in fieldnames})
-
-
-def write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def final_model_kind(row: dict[str, str]) -> str:
@@ -150,6 +123,7 @@ def run_worklist(args: argparse.Namespace) -> int:
             "target_counts": count_by(rows, "formal_target_status"),
             "outputs": {"csv": str(csv_path), "markdown": str(md_path), "manifest": str(manifest_path)},
         },
+        add_code_provenance=True,
     )
     print(f"Formal target worklist output: {csv_path}")
     for row in rows:
