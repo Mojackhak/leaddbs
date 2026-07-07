@@ -6,11 +6,13 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from stnsnr_four_model_formal_readiness import (
     REQUIRED_FILES_BY_MANIFEST,
     formal_readiness_row,
     manifest_required_files,
+    run_readiness,
 )
 
 
@@ -22,6 +24,19 @@ def assert_equal(actual, expected, message: str) -> None:
 def touch(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("ok\n", encoding="utf-8")
+
+
+def write_worklist(path: Path, manifest: Path) -> None:
+    path.write_text(
+        "\n".join(
+            [
+                "model_id,model,model_family,observed_branch,final_branch_or_source,final_model_role,final_model_status,formal_target_status,latest_manifest",
+                f"A,HF direct voxel,hf,tau200/partial_spearman,pre_specified,primary,final_model_error_nonpredictive,READY_FOR_FORMAL_RESAMPLING,{manifest}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_ready_hf_direct_voxel_branch() -> None:
@@ -115,12 +130,34 @@ def test_manifest_required_files_known_types() -> None:
     )
 
 
+def test_run_readiness_manifest_records_code_provenance() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        root = Path(tmp_dir)
+        branch_dir = root / "branch"
+        manifest = branch_dir / "direct_voxel_HF_generation_manifest.json"
+        touch(manifest)
+        for name in REQUIRED_FILES_BY_MANIFEST[manifest.name]:
+            touch(branch_dir / name)
+        worklist = root / "worklist.csv"
+        output_dir = root / "formal_readiness"
+        write_worklist(worklist, manifest)
+
+        run_readiness(SimpleNamespace(worklist_csv=str(worklist), output_dir=str(output_dir)))
+
+        output_manifest = json.loads(
+            (output_dir / "four_model_formal_readiness_manifest.json").read_text(encoding="utf-8")
+        )
+        if not output_manifest.get("code_provenance", {}).get("git_commit"):
+            raise AssertionError("formal readiness manifest records git commit")
+
+
 def main() -> int:
     test_ready_hf_direct_voxel_branch()
     test_missing_required_branch_file()
     test_no_formal_target_is_not_ready_without_file_checks()
     test_unknown_manifest_type_is_explicit()
     test_manifest_required_files_known_types()
+    test_run_readiness_manifest_records_code_provenance()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 

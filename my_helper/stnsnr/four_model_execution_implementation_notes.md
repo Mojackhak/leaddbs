@@ -122,10 +122,11 @@ my_helper/fiber/core/analysis/stnsnr_io.py
 ```
 
 The helper owns timestamp generation, CSV read/write, JSON write, and optional
-`code_provenance` injection for manifest-like JSON outputs. The C same-day
-immediate and C gain/total-ULF sensitivity drivers use this helper. Migration
-should remain incremental and behavior-preserving. It must not change model
-formulas, source resolver rules, branch-role assignment, or output paths.
+`code_provenance` injection for manifest-like JSON outputs. The formal
+readiness audit, C same-day immediate driver, and C/D gain/total-ULF sensitivity
+drivers use this helper. Migration should remain incremental and
+behavior-preserving. It must not change model formulas, source resolver rules,
+branch-role assignment, or output paths.
 
 The final reporting layer consumes the consolidated status, formal worklist,
 formal readiness audit, formal summary CSVs, and fiber sensitivity-readiness

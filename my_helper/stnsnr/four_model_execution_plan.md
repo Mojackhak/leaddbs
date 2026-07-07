@@ -503,7 +503,7 @@ The current codebase is no longer greenfield. The following layers already exist
 
 ```text
 D OSS and full fiber figure-grade density/FDR/enrichment outputs, pending required caches
-remaining shared score, stale-output, and cross-family manifest-schema architecture across voxel, fiber, HF, and ULF models
+remaining shared score, stale-output, and broader cross-family manifest-schema architecture across voxel, fiber, HF, and ULF models
 fiber OSS-DBS activation branch execution, pending required inputs
 fiber density/label/FDR/enrichment cache construction
 nested/adaptive threshold-source validation
@@ -1007,9 +1007,9 @@ timestamp creation, CSV/JSON read/write behavior, and optional
 `code_provenance` insertion for manifest-like JSON outputs. It must be
 behavior-preserving and must not change model formulas, resolver rules, or
 output schemas except for consistently adding provenance when a caller requests
-it. The C same-day immediate and C gain/total-ULF sensitivity drivers now use
-this helper; broader migration remains part of the remaining shared
-score/stale-output/manifest-schema work.
+it. The formal-readiness audit, C same-day immediate driver, and C/D
+gain/total-ULF sensitivity drivers now use this helper; broader migration
+remains part of the remaining shared score/stale-output/manifest-schema work.
 
 ---
 
