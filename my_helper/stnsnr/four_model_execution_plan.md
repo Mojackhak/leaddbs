@@ -29,6 +29,7 @@ Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execu
 Final-model formal target worklist refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/
 Final-model formal readiness audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/
 A/C direct-voxel formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_permutation/
+B_DTOR/D_DTOR dTOR normative-fiber smoke permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_smoke_permutation/
 ```
 
 The formal readiness audit does not run formal permutation, bootstrap, jitter,
@@ -50,6 +51,7 @@ D dTOR normative fiber final model = no_delta_hf at scan-fallback tau400/Coverag
 formal target worklist = 4/7 READY_FOR_FORMAL_RESAMPLING; 3/7 OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING
 formal readiness audit = 4/4 formal targets READY_FOR_FORMAL_DRIVER
 direct-voxel formal permutation = A and C complete at B=10000, seed=42
+dTOR normative-fiber smoke permutation = B_DTOR and D_DTOR complete at B=1000, seed=42
 fiber formal permutation/bootstrap/jitter/OSS = not run
 ```
 
@@ -58,6 +60,13 @@ Current direct-voxel formal permutation snapshot:
 ```text
 A direct voxel: observed rho = -0.0265487881; p_plus_one_two_sided = 0.9455054495; B = 10000
 C ULF direct voxel no_delta_hf final model: observed rho = 0.9189995239; p_plus_one_two_sided = 0.2324767523; B = 10000
+```
+
+Current dTOR normative-fiber smoke permutation snapshot:
+
+```text
+B_DTOR HF normative fiber: observed rho = -0.1828916512; p_plus_one_two_sided = 0.6343656344; B = 1000
+D_DTOR ULF normative fiber no_delta_hf final model: observed rho = 0.9410908586; p_plus_one_two_sided = 0.0879120879; B = 1000
 ```
 
 Do not start expensive formal permutation/bootstrap/jitter/OSS drivers from this
@@ -960,6 +969,14 @@ Direct-voxel final-model formal permutation:
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_permutation.py \
   --n-permutations 10000
+```
+
+dTOR normative-fiber smoke permutation:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_smoke_permutation.py \
+  --n-permutations 1000
 ```
 
 ---

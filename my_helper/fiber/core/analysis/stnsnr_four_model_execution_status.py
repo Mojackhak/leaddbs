@@ -638,6 +638,36 @@ def model_formal_resampling_scope_status(model_id: str, current_status: str) -> 
     return current_status
 
 
+def normative_fiber_formal_resampling_status(smoke_summary_csv: Path, formal_summary_csv: Path) -> str:
+    """Return normative-fiber status from smoke/formal permutation summaries."""
+    if formal_summary_csv.is_file():
+        rows = read_csv_rows(formal_summary_csv)
+        if rows:
+            row = rows[0]
+            status = str(row.get("permutation_status", "")).strip().lower()
+            try:
+                n_permutations = int(float(row.get("B", 0) or 0))
+            except (TypeError, ValueError):
+                n_permutations = 0
+            if status == "complete" and n_permutations >= 10000:
+                return "FORMAL_PERMUTATION_COMPLETE_BOOTSTRAP_NOT_STARTED"
+    if smoke_summary_csv.is_file():
+        rows = read_csv_rows(smoke_summary_csv)
+        if rows:
+            row = rows[0]
+            status = str(row.get("permutation_status", "")).strip().lower()
+            tier = str(row.get("resampling_tier", "")).strip().lower()
+            try:
+                n_permutations = int(float(row.get("B", 0) or 0))
+            except (TypeError, ValueError):
+                n_permutations = 0
+            if status == "complete" and tier == "smoke" and n_permutations >= 1000:
+                return "SMOKE_PERMUTATION_COMPLETE_FORMAL_NOT_STARTED"
+            if status == "complete" and n_permutations > 0:
+                return "SMOKE_PERMUTATION_PARTIAL_FORMAL_NOT_STARTED"
+    return "NOT_STARTED_FORMAL_RESAMPLING"
+
+
 def read_csv_rows(path: Path) -> list[dict[str, str]]:
     if not path.is_file():
         return []
@@ -970,6 +1000,14 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             )
             if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
                 state["formal_resampling_status"] = formal_status
+        if model_id == "B_DTOR" and latest_manifest:
+            branch_dir = Path(latest_manifest).parent
+            formal_status = normative_fiber_formal_resampling_status(
+                branch_dir / "normative_HF_fiber_smoke_permutation_summary.csv",
+                branch_dir / "normative_HF_fiber_permutation_summary.csv",
+            )
+            if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
+                state["formal_resampling_status"] = formal_status
         state["formal_resampling_status"] = model_formal_resampling_scope_status(
             model_id, state.get("formal_resampling_status", "")
         )
@@ -1095,6 +1133,14 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             latest_manifest = str(no_delta.get("manifest_path", ""))
             spearman_rho = metrics.get("spearman_rho", "")
             q2 = metrics.get("q2", "")
+            if model_id == "D_DTOR" and latest_manifest:
+                branch_dir = Path(latest_manifest).parent
+                formal_status = normative_fiber_formal_resampling_status(
+                    branch_dir / "normative_ULF_fiber_smoke_permutation_summary.csv",
+                    branch_dir / "normative_ULF_fiber_permutation_summary.csv",
+                )
+                if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
+                    state["formal_resampling_status"] = formal_status
         else:
             state = classify_ulf_model_state(
                 hf_dependency_source_status=dependency_source_status,

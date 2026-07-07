@@ -25,6 +25,7 @@ Current refreshed outputs:
 /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/four_model_formal_readiness.csv
 /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/four_model_formal_readiness.md
 /Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_permutation/direct_voxel_formal_permutation_summary.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_smoke_permutation/normative_fiber_smoke_permutation_summary.csv
 ```
 
 Current state:
@@ -39,6 +40,7 @@ formal target worklist: 4/7 READY_FOR_FORMAL_RESAMPLING; 3/7 OBSERVED_ROBUSTNESS
 formal readiness audit: 4/4 formal targets READY_FOR_FORMAL_DRIVER
 ULF component e-fields: 64/64 available
 direct-voxel formal permutation: A and C complete at B=10000, seed=42
+dTOR normative-fiber smoke permutation: B_DTOR and D_DTOR complete at B=1000, seed=42
 fiber formal permutation/bootstrap, spatial jitter, OSS-DBS, and figure-grade outputs: not run
 ```
 
@@ -54,6 +56,20 @@ C ULF direct voxel no_delta_hf final model:
   observed rho = 0.9189995239
   p_plus_one_two_sided = 0.2324767523
   B = 10000
+```
+
+Current dTOR normative-fiber smoke permutation results:
+
+```text
+B_DTOR HF normative fiber:
+  observed rho = -0.1828916512
+  p_plus_one_two_sided = 0.6343656344
+  B = 1000
+
+D_DTOR ULF normative fiber no_delta_hf final model:
+  observed rho = 0.9410908586
+  p_plus_one_two_sided = 0.0879120879
+  B = 1000
 ```
 
 No expensive formal permutation/bootstrap/jitter/OSS drivers should be started
@@ -657,6 +673,50 @@ Run the formal A/C permutation:
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_permutation.py \
   --n-permutations 10000
+```
+
+## dTOR Normative-Fiber Smoke Permutation
+
+The dTOR normative-fiber smoke permutation layer covers B_DTOR and D_DTOR final
+branches. It is exact for the selected dTOR peak-E-field model semantics: each
+permuted outcome reruns fold-specific candidate selection, `rho`, `M`,
+`F+`/`F-`, `NetFiberScore`, nuisance-only baseline, held-out prediction, and
+LOOCV Spearman rho over the selected tau/Coverage candidate universe. It is not
+formal `B=10000` inference and does not implement bootstrap, jitter, or OSS.
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_smoke_permutation.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_normative_fiber_smoke_permutation.py
+```
+
+Default outputs:
+
+```text
+B_DTOR branch:
+  normative_HF_fiber_smoke_permutation_summary.csv
+  normative_HF_fiber_smoke_permutation_null_stats.npy
+
+D_DTOR final branch:
+  normative_ULF_fiber_smoke_permutation_summary.csv
+  normative_ULF_fiber_smoke_permutation_null_stats.npy
+
+Cross-target summary:
+  /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_smoke_permutation/normative_fiber_smoke_permutation_summary.csv
+```
+
+Run the dTOR smoke permutation:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_smoke_permutation.py \
+  --n-permutations 1000
 ```
 
 ## ULF Component E-field Worklist

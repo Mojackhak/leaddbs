@@ -14,6 +14,7 @@ from stnsnr_four_model_execution_status import (
     classify_ulf_model_state,
     direct_voxel_formal_resampling_status,
     model_formal_resampling_scope_status,
+    normative_fiber_formal_resampling_status,
     manifest_provenance_status,
 )
 
@@ -248,6 +249,22 @@ def test_observed_robustness_scope_status() -> None:
     )
 
 
+def test_normative_fiber_smoke_permutation_status() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        branch_dir = Path(tmp_dir)
+        summary = branch_dir / "normative_HF_fiber_smoke_permutation_summary.csv"
+        summary.write_text(
+            "B,permutation_status,resampling_tier,p_plus_one_two_sided\n"
+            "1000,complete,smoke,0.5\n",
+            encoding="utf-8",
+        )
+        assert_equal(
+            normative_fiber_formal_resampling_status(summary, branch_dir / "missing_formal.csv"),
+            "SMOKE_PERMUTATION_COMPLETE_FORMAL_NOT_STARTED",
+            "normative smoke status",
+        )
+
+
 def main() -> int:
     test_hf_error_nonpredictive_source_state()
     test_hf_error_predictive_source_state()
@@ -259,6 +276,7 @@ def main() -> int:
     test_manifest_provenance_status()
     test_direct_voxel_formal_permutation_status()
     test_observed_robustness_scope_status()
+    test_normative_fiber_smoke_permutation_status()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 
