@@ -191,20 +191,6 @@ def _ceil_count(percent: float, n_items: int) -> int:
     return max(1, int(np.ceil(float(percent) * n_items)))
 
 
-def _top_ids_desc(values: np.ndarray, ids: np.ndarray, count: int) -> np.ndarray:
-    if count <= 0:
-        return np.array([], dtype=np.int64)
-    order = np.lexsort((ids, -values))
-    return ids[order[:count]].astype(np.int64)
-
-
-def _top_ids_asc(values: np.ndarray, ids: np.ndarray, count: int) -> np.ndarray:
-    if count <= 0:
-        return np.array([], dtype=np.int64)
-    order = np.lexsort((ids, values))
-    return ids[order[:count]].astype(np.int64)
-
-
 def _top_mean_per_row(values: np.ndarray, percent: float) -> tuple[np.ndarray, int]:
     if values.shape[1] == 0:
         return np.zeros(values.shape[0], dtype=float), 0
@@ -234,23 +220,25 @@ def fiber_net_score(
     if candidate.shape[0] != w.shape[0]:
         raise ValueError("candidate_mask and weights length differ")
 
-    ids = np.arange(w.shape[0], dtype=np.int64) if fiber_ids is None else np.asarray(list(fiber_ids), dtype=np.int64)
+    ids = np.arange(w.shape[0], dtype=np.int64) if fiber_ids is None else np.asarray(fiber_ids, dtype=np.int64)
     if ids.shape[0] != w.shape[0]:
         raise ValueError("fiber_ids length differs from weights length")
 
     positive = candidate & (w > 0)
     negative = candidate & (w < 0)
-    positive_ids = ids[positive]
-    negative_ids = ids[negative]
+    positive_cols = np.flatnonzero(positive)
+    negative_cols = np.flatnonzero(negative)
+    positive_ids = ids[positive_cols]
+    negative_ids = ids[negative_cols]
 
     n_sweet = _ceil_count(sweet_percent, positive_ids.size)
     n_sour = _ceil_count(sour_percent, negative_ids.size)
-    sweet_ids = _top_ids_desc(w[positive], positive_ids, n_sweet)
-    sour_ids = _top_ids_asc(w[negative], negative_ids, n_sour)
-
-    id_to_col = {int(fid): idx for idx, fid in enumerate(ids)}
-    sweet_cols = np.array([id_to_col[int(fid)] for fid in sweet_ids], dtype=np.int64)
-    sour_cols = np.array([id_to_col[int(fid)] for fid in sour_ids], dtype=np.int64)
+    sweet_order = np.lexsort((positive_ids, -w[positive_cols]))
+    sour_order = np.lexsort((negative_ids, w[negative_cols]))
+    sweet_cols = positive_cols[sweet_order[:n_sweet]].astype(np.int64)
+    sour_cols = negative_cols[sour_order[:n_sour]].astype(np.int64)
+    sweet_ids = ids[sweet_cols].astype(np.int64)
+    sour_ids = ids[sour_cols].astype(np.int64)
 
     sweet_weighted = x[:, sweet_cols] * w[sweet_cols] if sweet_cols.size else np.empty((x.shape[0], 0), dtype=float)
     sour_weighted = x[:, sour_cols] * (-w[sour_cols]) if sour_cols.size else np.empty((x.shape[0], 0), dtype=float)
