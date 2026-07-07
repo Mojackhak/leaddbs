@@ -46,8 +46,8 @@ B_DTOR final source = pre_specified; final_model_error_nonpredictive
 C direct voxel final model = no_delta_hf; final_model_error_nonpredictive
 D PPMI normative fiber final model = no_delta_hf at scan-fallback tau600/Coverage>=5; final_model_error_nonpredictive
 D dTOR normative fiber final model = no_delta_hf at scan-fallback tau400/Coverage>=5; final_model_error_nonpredictive
-formal target worklist = 7/7 READY_FOR_FORMAL_RESAMPLING
-formal readiness audit = 7/7 READY_FOR_FORMAL_DRIVER
+formal target worklist = 4/7 READY_FOR_FORMAL_RESAMPLING; 3/7 OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING
+formal readiness audit = 4/4 formal targets READY_FOR_FORMAL_DRIVER
 formal permutation/bootstrap/jitter/OSS = not run
 ```
 
@@ -586,9 +586,13 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
 ### Immediate Next Steps
 
 1. Formal resampling, OSS, jitter, and figure-grade outputs attach to the
-   generated final-model formal target worklist. If the intended primary branch
-   has input/design failure, the executable fallback no-DeltaHF branch becomes
-   the final model.
+   generated final-model formal target worklist for model families that define
+   formal inference. The current formal targets are A, B_DTOR, C, and D_DTOR.
+   B_PPMI, B_MGH, and D_PPMI remain observed robustness outputs and must not be
+   promoted into formal resampling unless the model documents are explicitly
+   revised. If a ULF intended primary branch has input/design failure, the
+   executable fallback no-DeltaHF branch becomes the final model for that
+   endpoint.
 2. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.

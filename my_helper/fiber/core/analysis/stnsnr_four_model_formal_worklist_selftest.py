@@ -28,6 +28,25 @@ def test_hf_ready_target() -> None:
     assert_equal(row["final_branch_or_source"], "pre_specified", "HF final source")
 
 
+def test_observed_robustness_connectome_not_formal_target() -> None:
+    row = formal_target_row(
+        {
+            "model_id": "B_PPMI",
+            "model": "HF normative fiber PPMI",
+            "hf_final_model_source": "pre_specified",
+            "hf_final_model_role": "primary",
+            "hf_final_model_status": "final_model_error_nonpredictive",
+        }
+    )
+    assert_equal(row["model_family"], "hf", "B_PPMI family")
+    assert_equal(
+        row["formal_target_status"],
+        "OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING",
+        "B_PPMI target status",
+    )
+    assert_equal(row["formal_target_reason"], "connectome_observed_robustness_only", "B_PPMI target reason")
+
+
 def test_ulf_ready_target() -> None:
     row = formal_target_row(
         {
@@ -59,6 +78,7 @@ def test_no_final_model_target() -> None:
 
 def main() -> int:
     test_hf_ready_target()
+    test_observed_robustness_connectome_not_formal_target()
     test_ulf_ready_target()
     test_no_final_model_target()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))

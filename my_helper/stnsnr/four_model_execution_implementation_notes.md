@@ -34,8 +34,8 @@ B PPMI/MGH/dTOR normative fiber: SOURCE_ACCEPTED_ERROR_NONPREDICTIVE
 C direct voxel: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 D PPMI normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 D dTOR normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
-formal target worklist: 7/7 READY_FOR_FORMAL_RESAMPLING
-formal readiness audit: 7/7 READY_FOR_FORMAL_DRIVER
+formal target worklist: 4/7 READY_FOR_FORMAL_RESAMPLING; 3/7 OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING
+formal readiness audit: 4/4 formal targets READY_FOR_FORMAL_DRIVER
 ULF component e-fields: 64/64 available
 formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
 ```
@@ -517,8 +517,11 @@ Default outputs:
 ```
 
 Rows with `final_model_error_predictive` or `final_model_error_nonpredictive`
-are marked `READY_FOR_FORMAL_RESAMPLING`. Rows with no final model are marked
-`NO_FINAL_MODEL`. This worklist is intentionally independent of manual
+are marked `READY_FOR_FORMAL_RESAMPLING` only if their model family defines a
+formal inference target. Current formal targets are A, B_DTOR, C, and D_DTOR.
+B_PPMI, B_MGH, and D_PPMI are retained as observed robustness outputs and are
+marked `OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING`. Rows with no final model are
+marked `NO_FINAL_MODEL`. This worklist is intentionally independent of manual
 reporting-branch selection.
 
 Run the worklist:

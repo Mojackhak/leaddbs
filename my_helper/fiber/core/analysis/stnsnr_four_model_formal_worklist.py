@@ -13,6 +13,8 @@ from typing import Any
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
 
 READY_FINAL_STATUSES = {"final_model_error_predictive", "final_model_error_nonpredictive"}
+FORMAL_TARGET_MODEL_IDS = {"A", "B_DTOR", "C", "D_DTOR"}
+OBSERVED_ROBUSTNESS_MODEL_IDS = {"B_PPMI", "B_MGH", "D_PPMI"}
 
 
 def iso_now() -> str:
@@ -67,9 +69,12 @@ def formal_target_row(row: dict[str, str]) -> dict[str, str]:
         final_role = ""
         selection_reason = "unknown_model_id"
 
-    if final_status in READY_FINAL_STATUSES:
+    if final_status in READY_FINAL_STATUSES and row.get("model_id", "") in FORMAL_TARGET_MODEL_IDS:
         target_status = "READY_FOR_FORMAL_RESAMPLING"
         reason = "accepted_final_model"
+    elif final_status in READY_FINAL_STATUSES and row.get("model_id", "") in OBSERVED_ROBUSTNESS_MODEL_IDS:
+        target_status = "OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING"
+        reason = "connectome_observed_robustness_only"
     elif final_status:
         target_status = "NO_FINAL_MODEL"
         reason = final_status
