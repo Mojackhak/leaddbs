@@ -40,6 +40,11 @@ from stnsnr_four_model_stats import (
     partial_spearman_matrix,
     suprathreshold_matrix,
 )
+from stnsnr_four_model_resolver import (
+    classify_prediction_status,
+    hard_computability_passes,
+    resolve_hf_source,
+)
 from stnsnr_hf_direct_voxel_smoke import (
     build_exposure_matrix,
     collect_side_field_paths,
@@ -111,17 +116,8 @@ def safe_spearman(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
 
 
 def row_passes_hard_filters(row: dict[str, Any]) -> bool:
-    """Return whether one grid cell passes the locked post-hoc stability filter."""
-    return (
-        _finite_float(row.get("n_voxels_full")) >= 20
-        and _finite_float(row.get("fold_n_voxels_min")) >= 10
-        and _as_bool(row.get("hfscore_nonconstant_all_folds"))
-        and _as_bool(row.get("all_predictions_finite"))
-        and _finite_float(row.get("q2")) > 0
-        and _finite_float(row.get("loocv_spearman_rho")) > 0
-        and _finite_float(row.get("mae_model")) < _finite_float(row.get("mae_baseline"))
-        and _finite_float(row.get("rmse_model")) < _finite_float(row.get("rmse_baseline"))
-    )
+    """Return whether one grid cell passes the intended hard computability filter."""
+    return hard_computability_passes(row)
 
 
 def _primary_distance(row: dict[str, Any]) -> tuple[float, float]:
@@ -129,24 +125,16 @@ def _primary_distance(row: dict[str, Any]) -> tuple[float, float]:
 
 
 def select_best_grid_cell(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Select the best exploratory grid cell among rows passing all hard filters."""
-    eligible = [row for row in rows if row_passes_hard_filters(row)]
-    if not eligible:
+    """Select the resolver-selected grid cell, if any."""
+    resolved = resolve_hf_source(rows, primary_tau=PRIMARY_TAU, primary_coverage=PRIMARY_COVERAGE)
+    selected_tau = resolved.get("selected_tau")
+    selected_coverage = resolved.get("selected_coverage")
+    if selected_tau == "" or selected_coverage == "":
         return None
-
-    def sort_key(row: dict[str, Any]) -> tuple[float, float, float, float, float, float, float]:
-        tau_distance, coverage_distance = _primary_distance(row)
-        return (
-            -_finite_float(row.get("q2")),
-            -_finite_float(row.get("loocv_spearman_rho")),
-            -_finite_float(row.get("fold_n_voxels_min")),
-            tau_distance,
-            coverage_distance,
-            -_finite_float(row.get("coverage")),
-            -_finite_float(row.get("tau")),
-        )
-
-    return sorted(eligible, key=sort_key)[0]
+    for row in rows:
+        if int(row["tau"]) == int(selected_tau) and int(row["coverage"]) == int(selected_coverage):
+            return row
+    return None
 
 
 def build_heatmap(rows: list[dict[str, Any]], value_column: str) -> pd.DataFrame:
@@ -229,6 +217,7 @@ def build_all_scale_long_table(per_scale_results: list[dict[str, Any]]) -> pd.Da
     rows: list[dict[str, Any]] = []
     for result in per_scale_results:
         selected = result.get("selected") or {}
+        source_resolution = result.get("source_resolution") or {}
         selected_tau = selected.get("tau")
         selected_coverage = selected.get("coverage")
         result_manifest = result.get("manifest", {})
@@ -246,6 +235,15 @@ def build_all_scale_long_table(per_scale_results: list[dict[str, Any]]) -> pd.Da
                     "exposure_phase": exposure_phase,
                     "n_subjects": result["n_subjects"],
                     "n_candidate_voxels": result["n_candidate_voxels"],
+                    "hf_voxel_source_status": source_resolution.get("source_status", ""),
+                    "hf_voxel_prediction_status": source_resolution.get("prediction_status", ""),
+                    "hf_voxel_threshold_source": source_resolution.get("threshold_source", ""),
+                    "hf_voxel_selected_tau_v_per_m": source_resolution.get("selected_tau", ""),
+                    "hf_voxel_selected_coverage": source_resolution.get("selected_coverage", ""),
+                    "hf_voxel_selected_adjacent_passing_grid_cells": source_resolution.get(
+                        "selected_adjacent_passing_grid_cells", ""
+                    ),
+                    "hf_voxel_source_failure_reasons": source_resolution.get("source_failure_reasons", ""),
                     "is_selected_grid_cell": bool(
                         selected_tau is not None
                         and selected_coverage is not None
@@ -264,6 +262,7 @@ def build_all_scale_summary_table(per_scale_results: list[dict[str, Any]]) -> pd
     for result in per_scale_results:
         grid_rows = result["rows"]
         selected = result.get("selected")
+        source_resolution = result.get("source_resolution") or {}
         n_passing = int(sum(_as_bool(row.get("passes_all_hard_filters")) for row in grid_rows))
         result_manifest = result.get("manifest", {})
         exposure_protocol = result_manifest.get("exposure_protocol", "")
@@ -280,6 +279,15 @@ def build_all_scale_summary_table(per_scale_results: list[dict[str, Any]]) -> pd
             "n_grid_cells": len(grid_rows),
             "n_passing_grid_cells": n_passing,
             "has_selected_grid_cell": selected is not None,
+            "hf_voxel_source_status": source_resolution.get("source_status", ""),
+            "hf_voxel_prediction_status": source_resolution.get("prediction_status", ""),
+            "hf_voxel_threshold_source": source_resolution.get("threshold_source", ""),
+            "hf_voxel_selected_tau_v_per_m": source_resolution.get("selected_tau", ""),
+            "hf_voxel_selected_coverage": source_resolution.get("selected_coverage", ""),
+            "hf_voxel_selected_adjacent_passing_grid_cells": source_resolution.get(
+                "selected_adjacent_passing_grid_cells", ""
+            ),
+            "hf_voxel_source_failure_reasons": source_resolution.get("source_failure_reasons", ""),
             "selected_tau": np.nan,
             "selected_coverage": np.nan,
             "selected_loocv_spearman_rho": np.nan,
@@ -531,9 +539,17 @@ def write_annotated_rho_heatmap(scan_dir: Path) -> dict[str, Any]:
 
     with manifest_path.open(encoding="utf-8") as handle:
         manifest = json.load(handle)
-    selected = manifest.get("selected_grid_cell") or {}
+    results_frame = pd.read_csv(results_path)
+    n_subjects = int(manifest.get("n_subjects", 0))
+    if "n_subjects" not in results_frame.columns:
+        results_frame["n_subjects"] = n_subjects
+    results_frame["passes_all_hard_filters"] = results_frame.apply(
+        lambda row: row_passes_hard_filters(row.to_dict()), axis=1
+    )
+    rows_for_resolution = results_frame.to_dict(orient="records")
+    selected = select_best_grid_cell(rows_for_resolution) or {}
     source = build_annotated_rho_source(
-        pd.read_csv(results_path),
+        results_frame,
         selected_tau=selected.get("tau"),
         selected_coverage=selected.get("coverage"),
     )
@@ -911,10 +927,11 @@ def load_or_build_shared_posthoc_preprocess(args: argparse.Namespace, output_roo
     }
 
 
-def _empty_grid_result(tau: int, coverage_min: int, reason: str) -> dict[str, Any]:
+def _empty_grid_result(tau: int, coverage_min: int, reason: str, *, n_subjects: int = 0) -> dict[str, Any]:
     return {
         "tau": tau,
         "coverage": coverage_min,
+        "n_subjects": n_subjects,
         "n_voxels_full": 0,
         "fold_n_voxels_min": 0,
         "fold_n_voxels_median": 0,
@@ -935,7 +952,17 @@ def _empty_grid_result(tau: int, coverage_min: int, reason: str) -> dict[str, An
         "delta_max": math.nan,
         "hfscore_nonconstant_all_folds": False,
         "all_predictions_finite": False,
+        "passes_n_subjects": n_subjects >= 12,
+        "passes_n_voxels_full": False,
+        "passes_fold_n_voxels_min": False,
+        "passes_hfscore_nonconstant": False,
+        "passes_predictions_finite": False,
+        "passes_q2_positive": False,
+        "passes_spearman_positive": False,
+        "passes_mae_improvement": False,
+        "passes_rmse_improvement": False,
         "passes_all_hard_filters": False,
+        "hf_voxel_prediction_status": "not_applicable",
         "failure_reason": reason,
     }
 
@@ -948,12 +975,13 @@ def evaluate_grid_cell(
     tau: int,
     coverage_min: int,
 ) -> dict[str, Any]:
+    n_subjects = int(y_post.shape[0])
     s_tau = suprathreshold_matrix(x, tau)
     coverage = coverage_from_suprathreshold(s_tau)
     omega = candidate_mask_from_coverage(coverage, coverage_min)
     n_voxels_full = int(np.count_nonzero(omega))
     if n_voxels_full == 0:
-        return _empty_grid_result(tau, coverage_min, "empty_full_sample_omega")
+        return _empty_grid_result(tau, coverage_min, "empty_full_sample_omega", n_subjects=n_subjects)
 
     rho = np.full(x.shape[1], np.nan, dtype=np.float32)
     rho_omega = partial_spearman_matrix(y_post, x[:, omega], y_base)
@@ -961,10 +989,9 @@ def evaluate_grid_cell(
     weights = benefit_oriented_weights(rho, scale_direction).astype(np.float32)
     valid_full = omega & np.isfinite(weights)
     if not np.any(valid_full):
-        return _empty_grid_result(tau, coverage_min, "no_valid_full_sample_weights")
+        return _empty_grid_result(tau, coverage_min, "no_valid_full_sample_weights", n_subjects=n_subjects)
     full_scores, n_valid_full = mean_map_score(x, weights, valid_full)
 
-    n_subjects = y_post.shape[0]
     loocv_pred = np.full(n_subjects, np.nan, dtype=float)
     loocv_base_pred = np.full(n_subjects, np.nan, dtype=float)
     loocv_score = np.full(n_subjects, np.nan, dtype=float)
@@ -1041,6 +1068,7 @@ def evaluate_grid_cell(
     row = {
         "tau": tau,
         "coverage": coverage_min,
+        "n_subjects": n_subjects,
         "n_voxels_full": n_voxels_full,
         "n_valid_full_score_voxels": int(n_valid_full),
         "fold_n_voxels_min": int(np.nanmin(fold_array)) if fold_array.size else 0,
@@ -1067,6 +1095,7 @@ def evaluate_grid_cell(
     row.update(
         {
             "passes_n_voxels_full": _finite_float(row["n_voxels_full"]) >= 20,
+            "passes_n_subjects": _finite_float(row["n_subjects"]) >= 12,
             "passes_fold_n_voxels_min": _finite_float(row["fold_n_voxels_min"]) >= 10,
             "passes_hfscore_nonconstant": nonconstant_all_folds,
             "passes_predictions_finite": all_predictions_finite,
@@ -1077,6 +1106,7 @@ def evaluate_grid_cell(
         }
     )
     row["passes_all_hard_filters"] = row_passes_hard_filters(row)
+    row["hf_voxel_prediction_status"] = classify_prediction_status(row) if row["passes_all_hard_filters"] else "not_applicable"
     return row
 
 
@@ -1085,6 +1115,7 @@ def write_scan_outputs(scan_dir: Path, rows: list[dict[str, Any]], selected: dic
     fieldnames = [
         "tau",
         "coverage",
+        "n_subjects",
         "n_voxels_full",
         "n_valid_full_score_voxels",
         "fold_n_voxels_min",
@@ -1106,6 +1137,7 @@ def write_scan_outputs(scan_dir: Path, rows: list[dict[str, Any]], selected: dic
         "delta_max",
         "hfscore_nonconstant_all_folds",
         "all_predictions_finite",
+        "passes_n_subjects",
         "passes_n_voxels_full",
         "passes_fold_n_voxels_min",
         "passes_hfscore_nonconstant",
@@ -1115,6 +1147,7 @@ def write_scan_outputs(scan_dir: Path, rows: list[dict[str, Any]], selected: dic
         "passes_mae_improvement",
         "passes_rmse_improvement",
         "passes_all_hard_filters",
+        "hf_voxel_prediction_status",
         "failure_reason",
     ]
     write_csv(results_path, rows, fieldnames)
@@ -1193,6 +1226,13 @@ def run_scale_posthoc_threshold_scan(
             print(f"[{scale_slug}] Evaluating tau={tau} V/m, Coverage>={coverage_min}", flush=True)
             rows.append(evaluate_grid_cell(x, y_post, y_base, scale_direction, tau, coverage_min))
 
+    source_resolution = resolve_hf_source(
+        rows,
+        primary_tau=PRIMARY_TAU,
+        primary_coverage=PRIMARY_COVERAGE,
+        tau_grid=TAU_GRID,
+        coverage_grid=COVERAGE_GRID,
+    )
     selected = select_best_grid_cell(rows)
     manifest = {
         "generated_at": iso_now(),
@@ -1222,12 +1262,21 @@ def run_scale_posthoc_threshold_scan(
         "n_subjects": len(records),
         "n_candidate_voxels": int(x.shape[1]),
         "n_passing_grid_cells": int(sum(row_passes_hard_filters(row) for row in rows)),
+        "hf_voxel_source_status": source_resolution["source_status"],
+        "hf_voxel_prediction_status": source_resolution["prediction_status"],
+        "hf_voxel_threshold_source": source_resolution["threshold_source"],
+        "hf_voxel_selected_tau_v_per_m": source_resolution["selected_tau"],
+        "hf_voxel_selected_coverage": source_resolution["selected_coverage"],
+        "hf_voxel_selected_adjacent_passing_grid_cells": source_resolution[
+            "selected_adjacent_passing_grid_cells"
+        ],
+        "hf_voxel_source_failure_reasons": source_resolution["source_failure_reasons"],
         "selection_rule": [
-            "passes all hard stability filters",
-            "highest Q2",
-            "higher LOOCV Spearman rho",
+            "evaluate tau200/Coverage>=5 first",
+            "accept pre-specified source when it passes hard computability and has at least 2 adjacent passing grid cells",
+            "otherwise select scan fallback by distance to tau200/Coverage>=5",
+            "more adjacent passing grid cells",
             "higher fold_n_voxels_min",
-            "closer to tau200/Coverage>=5",
             "stricter Coverage then higher tau if still tied",
         ],
         "max_stat_permutation": {
@@ -1264,6 +1313,7 @@ def run_scale_posthoc_threshold_scan(
         "n_candidate_voxels": int(x.shape[1]),
         "rows": rows,
         "selected": selected,
+        "source_resolution": source_resolution,
         "scan_dir": str(scan_dir),
         "manifest": manifest,
     }
@@ -1312,6 +1362,7 @@ def write_all_scale_outputs(
                     "scan_dir": result["scan_dir"],
                     "n_passing_grid_cells": int(sum(_as_bool(row.get("passes_all_hard_filters")) for row in result["rows"])),
                     "selected": result.get("selected"),
+                    "source_resolution": result.get("source_resolution", {}),
                 }
                 for result in per_scale_results
             ],
@@ -1393,15 +1444,30 @@ def collect_scale_result_from_outputs(args: argparse.Namespace, scale: str) -> d
     rows = pd.read_csv(results_path).to_dict(orient="records")
     with manifest_path.open(encoding="utf-8") as handle:
         manifest = json.load(handle)
+    n_subjects = int(manifest.get("n_subjects", 0))
+    for row in rows:
+        row["n_subjects"] = row.get("n_subjects", n_subjects)
+        row["passes_all_hard_filters"] = row_passes_hard_filters(row)
+        row["hf_voxel_prediction_status"] = (
+            classify_prediction_status(row) if row["passes_all_hard_filters"] else "not_applicable"
+        )
+    source_resolution = resolve_hf_source(
+        rows,
+        primary_tau=PRIMARY_TAU,
+        primary_coverage=PRIMARY_COVERAGE,
+        tau_grid=TAU_GRID,
+        coverage_grid=COVERAGE_GRID,
+    )
     return {
         "scale": scale,
         "scale_slug": scale_slug,
         "scale_direction": manifest.get("scale_direction", ""),
         "scale_direction_source": manifest.get("scale_direction_source", ""),
-        "n_subjects": int(manifest.get("n_subjects", 0)),
+        "n_subjects": n_subjects,
         "n_candidate_voxels": int(manifest.get("n_candidate_voxels", 0)),
         "rows": rows,
-        "selected": manifest.get("selected_grid_cell"),
+        "selected": select_best_grid_cell(rows),
+        "source_resolution": source_resolution,
         "scan_dir": str(scan_dir),
         "manifest": manifest,
     }
