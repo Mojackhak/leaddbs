@@ -1028,10 +1028,11 @@ available. Missing or older branch-manifest provenance is a reporting/audit
 limitation and does not by itself change source status, prediction status,
 branch-role assignment, or final-model selection.
 
-Downstream reporting layers that consume consolidated execution status must
-preserve this stale-output audit. Final reporting and figure-readiness rows carry
-`latest_manifest_stale_status` from the status row; all-endpoint final-report
-rows carry the same field from the final report. Rows that are not derived from
+Downstream layers that consume consolidated execution status must preserve this
+stale-output audit. Formal target worklist rows, formal-readiness rows, final
+reporting rows, and figure-readiness rows carry `latest_manifest_stale_status`
+from the status-derived row they consume; all-endpoint final-report rows carry
+the same field from the final report. Rows that are not derived from
 consolidated execution status leave the field blank unless their own
 manifest-stale audit is explicitly implemented.
 

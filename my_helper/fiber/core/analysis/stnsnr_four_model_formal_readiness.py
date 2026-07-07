@@ -52,6 +52,7 @@ def formal_readiness_row(worklist_row: dict[str, str]) -> dict[str, Any]:
         "final_model_status": worklist_row.get("final_model_status", ""),
         "formal_target_status": formal_target_status,
         "latest_manifest": worklist_row.get("latest_manifest", ""),
+        "latest_manifest_stale_status": worklist_row.get("latest_manifest_stale_status", ""),
     }
 
     if formal_target_status != READY_FORMAL_TARGET:
@@ -163,6 +164,7 @@ def run_readiness(args: argparse.Namespace) -> int:
         "existing_required_file_count",
         "missing_required_files",
         "latest_manifest",
+        "latest_manifest_stale_status",
     ]
     write_csv(csv_path, rows, fieldnames)
     write_markdown(md_path, rows)

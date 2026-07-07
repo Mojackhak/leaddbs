@@ -30,8 +30,8 @@ def write_worklist(path: Path, manifest: Path) -> None:
     path.write_text(
         "\n".join(
             [
-                "model_id,model,model_family,observed_branch,final_branch_or_source,final_model_role,final_model_status,formal_target_status,latest_manifest",
-                f"A,HF direct voxel,hf,tau200/partial_spearman,pre_specified,primary,final_model_error_nonpredictive,READY_FOR_FORMAL_RESAMPLING,{manifest}",
+                "model_id,model,model_family,observed_branch,final_branch_or_source,final_model_role,final_model_status,formal_target_status,latest_manifest,latest_manifest_stale_status",
+                f"A,HF direct voxel,hf,tau200/partial_spearman,pre_specified,primary,final_model_error_nonpredictive,READY_FOR_FORMAL_RESAMPLING,{manifest},missing_code_provenance",
             ]
         )
         + "\n",
@@ -53,10 +53,12 @@ def test_ready_hf_direct_voxel_branch() -> None:
                 "model": "HF direct voxel",
                 "formal_target_status": "READY_FOR_FORMAL_RESAMPLING",
                 "latest_manifest": str(manifest),
+                "latest_manifest_stale_status": "missing_code_provenance",
             }
         )
 
         assert_equal(row["formal_readiness_status"], "READY_FOR_FORMAL_DRIVER", "ready branch")
+        assert_equal(row["latest_manifest_stale_status"], "missing_code_provenance", "ready branch stale status")
         assert_equal(row["required_file_count"], 4, "required files include manifest")
         assert_equal(row["existing_required_file_count"], 4, "all required files exist")
         assert_equal(row["missing_required_files"], "", "no missing files")
@@ -149,6 +151,11 @@ def test_run_readiness_manifest_records_code_provenance() -> None:
         )
         if not output_manifest.get("code_provenance", {}).get("git_commit"):
             raise AssertionError("formal readiness manifest records git commit")
+        csv_text = (output_dir / "four_model_formal_readiness.csv").read_text(encoding="utf-8")
+        if "latest_manifest_stale_status" not in csv_text:
+            raise AssertionError("formal readiness CSV records stale status field")
+        if "missing_code_provenance" not in csv_text:
+            raise AssertionError("formal readiness CSV preserves stale status value")
 
 
 def main() -> int:

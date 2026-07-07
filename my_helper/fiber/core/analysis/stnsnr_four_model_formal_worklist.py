@@ -68,6 +68,7 @@ def formal_target_row(row: dict[str, str]) -> dict[str, str]:
         "formal_target_reason": reason,
         "formal_resampling_status": row.get("formal_resampling_status", ""),
         "latest_manifest": row.get("latest_manifest", ""),
+        "latest_manifest_stale_status": row.get("latest_manifest_stale_status", ""),
     }
 
 
@@ -111,6 +112,7 @@ def run_worklist(args: argparse.Namespace) -> int:
         "formal_target_reason",
         "formal_resampling_status",
         "latest_manifest",
+        "latest_manifest_stale_status",
     ]
     write_csv(csv_path, rows, fieldnames)
     write_markdown(md_path, rows)

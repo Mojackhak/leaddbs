@@ -112,11 +112,12 @@ manifests that are missing provenance or were generated from a different commit.
 It must not change source status, prediction status, branch-role assignment, or
 final-model selection by itself.
 
-Downstream reports preserve the same audit where their rows are derived from
-consolidated execution status. Final report and figure-readiness rows carry
-`latest_manifest_stale_status`; all-endpoint final-report rows carry it through
-from the final report. Non-status-derived all-endpoint rows leave the field blank
-until a separate manifest-stale audit is implemented for those sources.
+Downstream layers preserve the same audit where their rows are derived from
+consolidated execution status. Formal target worklist, formal readiness, final
+report, and figure-readiness rows carry `latest_manifest_stale_status`;
+all-endpoint final-report rows carry it through from the final report.
+Non-status-derived all-endpoint rows leave the field blank until a separate
+manifest-stale audit is implemented for those sources.
 
 The consolidated status report also resolves final-model fields from the current
 source/endpoint classifiers. HF rows record `hf_final_model_source`,
