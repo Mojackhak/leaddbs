@@ -104,6 +104,9 @@ Implementation status:
   corrected DWI/bval/bvec/b0 outputs, UI pseudo-B0 NIfTI/JSON targets, and
   JSON flags `FakeCoregisterVolume=true`, `ExcludeFromNormalization=true`, and
   `IntendedUse=coregistration_qc_only`.
+- Final audit passed: the five focused MATLAB regression tests passed, and a
+  normalization tree search found zero DWI/B0 files under
+  `/Volumes/VAL/meige/derivatives/leaddbs/sub-*/normalization`.
 
 ## Goal
 
@@ -332,6 +335,7 @@ phase_encoding_vector = 0 1 0: 22
 total_readout_time_source = json: 18, default: 4
 low_resolution_warning = false: 12, true: 10
 all_required_outputs_ok = true
+normalization_dwi_or_b0_files = 0
 ```
 
 Subjects using the default readout fallback are the Philips group:
