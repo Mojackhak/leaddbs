@@ -30,12 +30,21 @@ Final-model formal target worklist refreshed under /Volumes/VAL/STNSNr/summary/f
 Final-model formal readiness audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/
 A/C direct-voxel formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber smoke permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_smoke_permutation/
+B_DTOR/D_DTOR dTOR normative-fiber formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_permutation/
+B_DTOR/D_DTOR dTOR normative-fiber formal bootstrap refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_bootstrap/
 ```
 
 The formal readiness audit does not run formal permutation, bootstrap, jitter,
 OSS-DBS, or display generation. It consumes the final-model formal target
 worklist and checks that each final branch/source has the manifest, QC, score,
 and LOOCV prediction files required by future formal drivers.
+
+Final-model selection is automatic at the orchestration layer. The formal
+target worklist consumes the model-specific resolver fields, HF-derived ULF
+branch-role rules, branch-specific input/design status, and formal-analysis
+connectome policy, then emits the unique final branch for each formal target.
+No separate manual reporting-branch selection is required once a target is
+`READY_FOR_FORMAL_DRIVER`.
 
 Current status snapshot after the source-resolver refresh already performed in
 this branch:
@@ -52,7 +61,9 @@ formal target worklist = 4/7 READY_FOR_FORMAL_RESAMPLING; 3/7 OBSERVED_ROBUSTNES
 formal readiness audit = 4/4 formal targets READY_FOR_FORMAL_DRIVER
 direct-voxel formal permutation = A and C complete at B=10000, seed=42
 dTOR normative-fiber smoke permutation = B_DTOR and D_DTOR complete at B=1000, seed=42
-fiber formal permutation/bootstrap/jitter/OSS = not run
+dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000, seed=42
+dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
+dTOR fiber jitter/OSS = not run
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -69,8 +80,24 @@ B_DTOR HF normative fiber: observed rho = -0.1828916512; p_plus_one_two_sided = 
 D_DTOR ULF normative fiber no_delta_hf final model: observed rho = 0.9410908586; p_plus_one_two_sided = 0.0879120879; B = 1000
 ```
 
-Do not start expensive formal permutation/bootstrap/jitter/OSS drivers from this
-checkpoint unless explicitly resumed for that layer.
+Current dTOR normative-fiber formal permutation snapshot:
+
+```text
+B_DTOR HF normative fiber: observed rho = -0.1828916512; p_plus_one_two_sided = 0.6331366863; B = 10000
+D_DTOR ULF normative fiber no_delta_hf final model: observed rho = 0.9410908586; p_plus_one_two_sided = 0.0889911009; B = 10000
+```
+
+Current dTOR normative-fiber formal bootstrap snapshot:
+
+```text
+B_DTOR HF normative fiber: bootstrap_status = complete; B = 10000; finite_bootstrap_count = 10000; bootstrap_candidate_fibers_min = 485; bootstrap_candidate_fibers_median = 2971.5
+D_DTOR ULF normative fiber no_delta_hf final model: bootstrap_status = complete; B = 10000; finite_bootstrap_count = 10000; bootstrap_candidate_fibers_min = 95; bootstrap_candidate_fibers_median = 1940.0
+```
+
+When execution is resumed from this checkpoint, expensive dTOR fiber formal
+drivers must use the automatically selected final-model formal target worklist.
+They must not ask for a new branch choice and must not promote observed
+robustness branches into formal resampling.
 
 ---
 
@@ -618,6 +645,10 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
 
+The next formal layers after the completed dTOR normative-fiber formal
+bootstrap are dTOR final-model jitter QC and OSS-DBS activation sensitivity for
+the automatic final targets `B_DTOR` and `D_DTOR`.
+
 ### Deferred Expensive Work
 
 Run these only after the relevant resolver/status fields identify the final
@@ -979,6 +1010,23 @@ dTOR normative-fiber smoke permutation:
   --n-permutations 1000
 ```
 
+dTOR normative-fiber formal permutation:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_smoke_permutation.py \
+  --tier formal \
+  --n-permutations 10000
+```
+
+dTOR normative-fiber formal bootstrap:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_bootstrap.py \
+  --n-bootstraps 10000
+```
+
 ---
 
 ## 10. Definition Of Done
@@ -990,7 +1038,8 @@ A has current direct-voxel source/prediction status; B has current normative-fib
 C and D have both delta_hf_adjusted and no_delta_hf outputs when inputs allow.
 Each model records which branch is interpretation-primary and why.
 Every branch has QC JSON, manifest JSON, predictions CSV, and score CSV.
-Formal resampling is tied to the resolver-selected final unique model branch.
+Formal resampling is tied to the automatically selected resolver-derived final
+unique model branch.
 Every final-model formal target passes the readiness audit before expensive
 formal drivers are started.
 Fallback-selected thresholds are explicitly labeled as scan-fallback sources and are never relabeled as pre-specified sources.

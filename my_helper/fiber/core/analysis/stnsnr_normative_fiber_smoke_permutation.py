@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact smoke Freedman-Lane permutation for dTOR normative-fiber final models."""
+"""Exact Freedman-Lane permutation for dTOR normative-fiber final models."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from stnsnr_four_model_stats import (
 )
 
 DTOR_NORMATIVE_TARGET_IDS = {"B_DTOR", "D_DTOR"}
+PERMUTATION_TIERS = {"smoke", "formal"}
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,26 @@ def file_prefix_for_manifest(manifest_path: Path) -> str:
     if name == "normative_ULF_fiber_generation_manifest.json":
         return "normative_ULF_fiber"
     raise ValueError(f"unsupported normative-fiber manifest: {manifest_path}")
+
+
+def permutation_suffix_for_tier(tier: str) -> str:
+    if tier == "smoke":
+        return "smoke_permutation"
+    if tier == "formal":
+        return "permutation"
+    raise ValueError(f"unsupported permutation tier: {tier}")
+
+
+def cross_target_output_stem_for_tier(tier: str) -> str:
+    if tier == "smoke":
+        return "normative_fiber_smoke_permutation"
+    if tier == "formal":
+        return "normative_fiber_formal_permutation"
+    raise ValueError(f"unsupported permutation tier: {tier}")
+
+
+def default_cross_target_output_dir(tier: str) -> Path:
+    return DEFAULT_VAL_ROOT / "summary/four_model_execution" / cross_target_output_stem_for_tier(tier)
 
 
 def prepare_candidate_union(*, x: np.ndarray, fiber_ids: np.ndarray, tau: float, min_coverage: int) -> CandidateUnion:
@@ -253,7 +274,14 @@ def _float_column(table: dict[str, np.ndarray], column: str) -> np.ndarray:
     return np.asarray(table[column], dtype=float)
 
 
-def run_target_smoke_permutation(target: NormativeFiberTarget, *, n_permutations: int, seed: int = 42) -> dict[str, Any]:
+def run_target_smoke_permutation(
+    target: NormativeFiberTarget,
+    *,
+    n_permutations: int,
+    seed: int = 42,
+    tier: str = "smoke",
+) -> dict[str, Any]:
+    suffix = permutation_suffix_for_tier(tier)
     x = np.load(target.x_path, mmap_mode="r")
     fiber_ids = np.load(target.fiber_ids_path, mmap_mode="r")
     reduced = prepare_candidate_union(x=x, fiber_ids=fiber_ids, tau=target.tau, min_coverage=target.min_coverage)
@@ -280,12 +308,12 @@ def run_target_smoke_permutation(target: NormativeFiberTarget, *, n_permutations
         )
         null_stats[idx] = permuted["spearman_rho"]
         if (idx + 1) % 100 == 0 or idx + 1 == int(n_permutations):
-            print(f"  {target.model_id}: completed {idx + 1}/{int(n_permutations)} smoke permutations", flush=True)
+            print(f"  {target.model_id}: completed {idx + 1}/{int(n_permutations)} {tier} permutations", flush=True)
 
     prefix = file_prefix_for_manifest(target.manifest_path)
-    null_path = target.branch_dir / f"{prefix}_smoke_permutation_null_stats.npy"
-    summary_path = target.branch_dir / f"{prefix}_smoke_permutation_summary.csv"
-    manifest_path = target.branch_dir / f"{prefix}_smoke_permutation_manifest.json"
+    null_path = target.branch_dir / f"{prefix}_{suffix}_null_stats.npy"
+    summary_path = target.branch_dir / f"{prefix}_{suffix}_summary.csv"
+    manifest_path = target.branch_dir / f"{prefix}_{suffix}_manifest.json"
     np.save(null_path, null_stats)
     summary = {
         "model_id": target.model_id,
@@ -307,7 +335,7 @@ def run_target_smoke_permutation(target: NormativeFiberTarget, *, n_permutations
         "fold_n_candidate_fibers_median": observed["fold_n_candidate_fibers_median"],
         "fold_n_candidate_fibers_max": observed["fold_n_candidate_fibers_max"],
         "permutation_status": "complete",
-        "resampling_tier": "smoke",
+        "resampling_tier": tier,
         "generated_at": iso_now(),
     }
     write_csv(summary_path, [summary], list(summary.keys()))
@@ -319,7 +347,8 @@ def run_target_smoke_permutation(target: NormativeFiberTarget, *, n_permutations
             "target_manifest": str(target.manifest_path),
             "n_permutations": int(n_permutations),
             "seed": int(seed),
-            "method": "Exact dTOR normative-fiber smoke Freedman-Lane permutation over selected candidate union",
+            "resampling_tier": tier,
+            "method": f"Exact dTOR normative-fiber {tier} Freedman-Lane permutation over selected candidate union",
             "outputs": {"summary_csv": str(summary_path), "null_stats_npy": str(null_path), "manifest_json": str(manifest_path)},
         },
     )
@@ -393,30 +422,35 @@ def discover_targets(readiness_csv: Path, requested_model_ids: set[str] | None =
 
 def run_smoke_permutation(args: argparse.Namespace) -> int:
     readiness_csv = Path(args.readiness_csv).expanduser().resolve()
+    tier = str(args.tier)
+    if tier not in PERMUTATION_TIERS:
+        raise ValueError(f"unsupported permutation tier: {tier}")
     requested = set(args.model_id) if args.model_id else None
     targets = discover_targets(readiness_csv, requested)
     if not targets:
-        raise RuntimeError("no dTOR normative-fiber smoke permutation targets found")
+        raise RuntimeError(f"no dTOR normative-fiber {tier} permutation targets found")
     rows = []
     for target in targets:
-        print(f"Running dTOR normative-fiber smoke permutation for {target.model_id} ({args.n_permutations} permutations)")
-        rows.append(run_target_smoke_permutation(target, n_permutations=args.n_permutations, seed=args.seed))
-    output_dir = Path(args.output_dir).expanduser().resolve()
+        print(f"Running dTOR normative-fiber {tier} permutation for {target.model_id} ({args.n_permutations} permutations)")
+        rows.append(run_target_smoke_permutation(target, n_permutations=args.n_permutations, seed=args.seed, tier=tier))
+    output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else default_cross_target_output_dir(tier)
     output_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = output_dir / "normative_fiber_smoke_permutation_summary.csv"
+    output_stem = cross_target_output_stem_for_tier(tier)
+    summary_path = output_dir / f"{output_stem}_summary.csv"
     write_csv(summary_path, rows, list(rows[0].keys()))
     write_json(
-        output_dir / "normative_fiber_smoke_permutation_manifest.json",
+        output_dir / f"{output_stem}_manifest.json",
         {
             "generated_at": iso_now(),
             "readiness_csv": str(readiness_csv),
+            "resampling_tier": tier,
             "n_targets": len(rows),
             "n_permutations": int(args.n_permutations),
             "seed": int(args.seed),
             "outputs": {"summary_csv": str(summary_path)},
         },
     )
-    print(f"dTOR normative-fiber smoke permutation summary: {summary_path}")
+    print(f"dTOR normative-fiber {tier} permutation summary: {summary_path}")
     return 0
 
 
@@ -429,11 +463,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output-dir",
-        default=str(DEFAULT_VAL_ROOT / "summary/four_model_execution/normative_fiber_smoke_permutation"),
-        help="Cross-target smoke permutation summary directory.",
+        default=None,
+        help="Cross-target permutation summary directory. Defaults depend on --tier.",
     )
     parser.add_argument("--model-id", action="append", choices=sorted(DTOR_NORMATIVE_TARGET_IDS), help="Optional model ID filter.")
-    parser.add_argument("--n-permutations", type=int, default=1000, help="Number of smoke Freedman-Lane permutations.")
+    parser.add_argument("--tier", choices=sorted(PERMUTATION_TIERS), default="smoke", help="Permutation tier.")
+    parser.add_argument("--n-permutations", type=int, default=1000, help="Number of Freedman-Lane permutations.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     return parser
 

@@ -124,11 +124,56 @@ def test_run_target_smoke_permutation_writes_outputs() -> None:
         assert_equal(null_stats.shape, (7,), "null-stat shape")
 
 
+def test_run_target_formal_permutation_writes_formal_outputs() -> None:
+    x, y, nuisance, fiber_ids = synthetic_inputs()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        branch_dir = Path(tmp_dir)
+        x_path = branch_dir / "X.npy"
+        fiber_ids_path = branch_dir / "fiber_ids.npy"
+        scores_path = branch_dir / "scores.csv"
+        manifest_path = branch_dir / "normative_HF_fiber_generation_manifest.json"
+        np.save(x_path, x)
+        np.save(fiber_ids_path, fiber_ids)
+        scores_path.write_text(
+            "subject_id,Y_post,Y_base\n"
+            "s1,10,0.0\n"
+            "s2,9,0.1\n"
+            "s3,8,0.0\n"
+            "s4,6,0.2\n"
+            "s5,5,0.1\n"
+            "s6,4,0.2\n",
+            encoding="utf-8",
+        )
+        manifest_path.write_text(json.dumps({"outputs": {"generation_manifest_json": str(manifest_path)}}), encoding="utf-8")
+        target = NormativeFiberTarget(
+            model_id="B_DTOR",
+            manifest_path=manifest_path,
+            branch_dir=branch_dir,
+            x_path=x_path,
+            fiber_ids_path=fiber_ids_path,
+            scores_csv=scores_path,
+            outcome_column="Y_post",
+            nuisance_columns=("Y_base",),
+            scale_direction="lower",
+            tau=0.5,
+            min_coverage=2,
+        )
+
+        row = run_target_smoke_permutation(target, n_permutations=7, seed=42, tier="formal")
+
+        assert_equal(row["resampling_tier"], "formal", "tier")
+        assert_true((branch_dir / "normative_HF_fiber_permutation_summary.csv").is_file(), "formal summary exists")
+        assert_true(not (branch_dir / "normative_HF_fiber_smoke_permutation_summary.csv").exists(), "smoke summary not written")
+        null_stats = np.load(branch_dir / "normative_HF_fiber_permutation_null_stats.npy")
+        assert_equal(null_stats.shape, (7,), "formal null-stat shape")
+
+
 def main() -> int:
     test_candidate_union_keeps_fold_candidates()
     test_loocv_statistic_is_finite()
     test_file_prefix_for_manifest()
     test_run_target_smoke_permutation_writes_outputs()
+    test_run_target_formal_permutation_writes_formal_outputs()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 

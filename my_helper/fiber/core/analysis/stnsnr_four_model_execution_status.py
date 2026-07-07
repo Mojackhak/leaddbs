@@ -638,8 +638,23 @@ def model_formal_resampling_scope_status(model_id: str, current_status: str) -> 
     return current_status
 
 
-def normative_fiber_formal_resampling_status(smoke_summary_csv: Path, formal_summary_csv: Path) -> str:
-    """Return normative-fiber status from smoke/formal permutation summaries."""
+def normative_fiber_formal_resampling_status(
+    smoke_summary_csv: Path,
+    formal_summary_csv: Path,
+    bootstrap_summary_csv: Path | None = None,
+) -> str:
+    """Return normative-fiber status from smoke/formal permutation/bootstrap summaries."""
+    if bootstrap_summary_csv is not None and bootstrap_summary_csv.is_file():
+        rows = read_csv_rows(bootstrap_summary_csv)
+        if rows:
+            row = rows[0]
+            status = str(row.get("bootstrap_status", "")).strip().lower()
+            try:
+                n_bootstraps = int(float(row.get("B", 0) or 0))
+            except (TypeError, ValueError):
+                n_bootstraps = 0
+            if status == "complete" and n_bootstraps >= 10000:
+                return "FORMAL_PERMUTATION_BOOTSTRAP_COMPLETE_JITTER_NOT_STARTED"
     if formal_summary_csv.is_file():
         rows = read_csv_rows(formal_summary_csv)
         if rows:
@@ -1005,6 +1020,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             formal_status = normative_fiber_formal_resampling_status(
                 branch_dir / "normative_HF_fiber_smoke_permutation_summary.csv",
                 branch_dir / "normative_HF_fiber_permutation_summary.csv",
+                branch_dir / "normative_HF_fiber_bootstrap_summary.csv",
             )
             if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
                 state["formal_resampling_status"] = formal_status
@@ -1138,6 +1154,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
                 formal_status = normative_fiber_formal_resampling_status(
                     branch_dir / "normative_ULF_fiber_smoke_permutation_summary.csv",
                     branch_dir / "normative_ULF_fiber_permutation_summary.csv",
+                    branch_dir / "normative_ULF_fiber_bootstrap_summary.csv",
                 )
                 if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
                     state["formal_resampling_status"] = formal_status
