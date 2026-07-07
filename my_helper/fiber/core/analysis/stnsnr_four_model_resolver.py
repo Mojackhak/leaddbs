@@ -6,6 +6,9 @@ from __future__ import annotations
 import math
 from typing import Any, Callable
 
+import numpy as np
+from scipy.stats import pearsonr, spearmanr
+
 
 HF_SOURCE_PRE_SPECIFIED = "pre_specified_accepted"
 HF_SOURCE_SCAN_FALLBACK = "scan_fallback_accepted"
@@ -36,6 +39,64 @@ def finite_float(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return math.nan
+
+
+def safe_pearson(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    """Return Pearson r/p or NaN values when the vectors are not estimable."""
+    finite = np.isfinite(x) & np.isfinite(y)
+    if finite.sum() < 3:
+        return math.nan, math.nan
+    if np.nanstd(x[finite]) == 0 or np.nanstd(y[finite]) == 0:
+        return math.nan, math.nan
+    stat = pearsonr(x[finite], y[finite])
+    return float(stat.statistic), float(stat.pvalue)
+
+
+def safe_spearman(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    """Return Spearman rho/p or NaN values when the vectors are not estimable."""
+    finite = np.isfinite(x) & np.isfinite(y)
+    if finite.sum() < 3:
+        return math.nan, math.nan
+    if np.nanstd(x[finite]) == 0 or np.nanstd(y[finite]) == 0:
+        return math.nan, math.nan
+    stat = spearmanr(x[finite], y[finite])
+    return float(stat.statistic), float(stat.pvalue)
+
+
+def design_full_rank(matrix: np.ndarray) -> bool:
+    """Return whether a nuisance/design matrix is finite and full rank."""
+    design = np.asarray(matrix, dtype=float)
+    if design.ndim == 1:
+        design = design[:, None]
+    if not np.all(np.isfinite(design)):
+        return False
+    return bool(np.linalg.matrix_rank(design) == design.shape[1])
+
+
+def branch_nuisance_design_status(
+    *,
+    y_hf_ref: np.ndarray,
+    delta_hfscore: np.ndarray | None,
+) -> str:
+    """Return whether branch-specific nuisance design is valid in full sample and LOOCV folds."""
+    covariates = np.asarray(y_hf_ref, dtype=float)[:, None] if delta_hfscore is None else np.column_stack(
+        [np.asarray(y_hf_ref, dtype=float), np.asarray(delta_hfscore, dtype=float)]
+    )
+    if not np.all(np.isfinite(covariates)):
+        return "invalid_nuisance_design"
+    if np.nanstd(covariates[:, 0]) == 0:
+        return "invalid_nuisance_design"
+    if delta_hfscore is not None and np.nanstd(covariates[:, 1]) == 0:
+        return "invalid_nuisance_design"
+    full_design = np.column_stack([np.ones(covariates.shape[0]), covariates])
+    if not design_full_rank(full_design):
+        return "invalid_nuisance_design"
+    for heldout in range(covariates.shape[0]):
+        train = np.array([idx for idx in range(covariates.shape[0]) if idx != heldout], dtype=int)
+        fold_design = np.column_stack([np.ones(train.size), covariates[train]])
+        if train.size <= fold_design.shape[1] or not design_full_rank(fold_design):
+            return "invalid_nuisance_design"
+    return "valid"
 
 
 def hard_computability_passes(row: dict[str, Any]) -> bool:

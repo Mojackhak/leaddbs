@@ -426,11 +426,25 @@ def default_d_output_root(val_root: Path) -> Path:
 
 def read_c_observed_outputs(val_root: Path) -> dict[str, Any]:
     root = default_c_output_root(val_root)
+    source_manifest = (
+        root.parent
+        / "tau_coverage_source_resolver_scan"
+        / "direct_voxel_ULF_only_tau_coverage_source_resolver_manifest.json"
+    )
+    source_data = read_json(source_manifest)
+    branch_resolutions = source_data.get("branch_resolutions", {})
     branches = {
         "no_delta_hf": root / "partial_spearman_no_delta_hf",
         "delta_hf_adjusted": root / "partial_spearman_delta_hf_adjusted",
     }
-    out: dict[str, Any] = {"root": str(root), "branches": {}, "both_branches_exist": False}
+    out: dict[str, Any] = {
+        "root": str(root),
+        "source_resolver_manifest": str(source_manifest),
+        "source_resolver_exists": source_manifest.is_file(),
+        "ulf_endpoint_model_status": source_data.get("ulf_endpoint_model_status", ""),
+        "branches": {},
+        "both_branches_exist": False,
+    }
     for key, branch_dir in branches.items():
         manifest = branch_dir / "direct_voxel_ULF_only_generation_manifest.json"
         qc = branch_dir / "direct_voxel_ULF_only_mapping_qc.json"
@@ -439,7 +453,8 @@ def read_c_observed_outputs(val_root: Path) -> dict[str, Any]:
         manifest_data = read_json(manifest)
         qc_data = read_json(qc)
         baseline_comparison = prediction_baseline_comparison(predictions)
-        source_status = manifest_data.get("ulf_voxel_source_status", "")
+        resolved = branch_resolutions.get(key, {})
+        source_status = manifest_data.get("ulf_voxel_source_status", "") or resolved.get("ulf_voxel_source_status", "")
         if not source_status and predictions.is_file():
             source_status = PENDING_ULF_SOURCE_RESOLVER
         out["branches"][key] = {
@@ -455,7 +470,14 @@ def read_c_observed_outputs(val_root: Path) -> dict[str, Any]:
             "baseline_comparison": baseline_comparison,
             "ulf_voxel_source_status": source_status,
             "ulf_prediction_status": manifest_data.get(
-                "ulf_voxel_prediction_status", baseline_comparison.get("prediction_status", "")
+                "ulf_voxel_prediction_status",
+                resolved.get("ulf_voxel_prediction_status", baseline_comparison.get("prediction_status", "")),
+            ),
+            "ulf_voxel_threshold_source": resolved.get("ulf_voxel_threshold_source", ""),
+            "ulf_voxel_selected_tau_v_per_m": resolved.get("ulf_voxel_selected_tau_v_per_m", ""),
+            "ulf_voxel_selected_coverage": resolved.get("ulf_voxel_selected_coverage", ""),
+            "ulf_voxel_selected_adjacent_passing_grid_cells": resolved.get(
+                "ulf_voxel_selected_adjacent_passing_grid_cells", ""
             ),
             "ulf_primary_branch": manifest_data.get("ulf_primary_branch", ""),
             "delta_hfscore_role": manifest_data.get("delta_hfscore_role", ""),
@@ -469,12 +491,39 @@ def read_c_observed_outputs(val_root: Path) -> dict[str, Any]:
 
 
 def read_d_observed_outputs(val_root: Path) -> dict[str, Any]:
-    root = default_d_output_root(val_root)
+    default_root = default_d_output_root(val_root)
+    source_manifest = default_root / "tau_coverage_source_resolver_scan" / "normative_ULF_fiber_tau_coverage_source_resolver_manifest.json"
+    source_data = read_json(source_manifest)
+    branch_resolutions = source_data.get("branch_resolutions", {})
+    intended_primary = source_data.get("intended_primary_branch", source_data.get("ulf_primary_branch", "no_delta_hf"))
+    selected_tau = (
+        branch_resolutions.get(intended_primary, {}).get("ulf_norm_fiber_selected_tau_v_per_m")
+        or branch_resolutions.get("no_delta_hf", {}).get("ulf_norm_fiber_selected_tau_v_per_m")
+        or 800
+    )
+    try:
+        selected_tau_int = int(float(selected_tau))
+    except (TypeError, ValueError):
+        selected_tau_int = 800
+    root = (
+        val_root
+        / "summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/"
+        f"mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau{selected_tau_int}_observed"
+    )
     branches = {
-        "no_delta_hf": root / "ulf_peak_efield_tau800_no_delta_hf",
-        "delta_hf_adjusted": root / "ulf_peak_efield_tau800_delta_hf_adjusted",
+        "no_delta_hf": root / f"ulf_peak_efield_tau{selected_tau_int}_no_delta_hf",
+        "delta_hf_adjusted": root / f"ulf_peak_efield_tau{selected_tau_int}_delta_hf_adjusted",
     }
-    out: dict[str, Any] = {"root": str(root), "connectome": "PPMI 85", "branches": {}, "both_branches_exist": False}
+    out: dict[str, Any] = {
+        "root": str(root),
+        "connectome": "PPMI 85",
+        "source_resolver_manifest": str(source_manifest),
+        "source_resolver_exists": source_manifest.is_file(),
+        "ulf_norm_fiber_endpoint_model_status": source_data.get("ulf_norm_fiber_endpoint_model_status", ""),
+        "selected_tau": selected_tau_int,
+        "branches": {},
+        "both_branches_exist": False,
+    }
     for key, branch_dir in branches.items():
         manifest = branch_dir / "normative_ULF_fiber_generation_manifest.json"
         qc = branch_dir / "normative_ULF_fiber_mapping_qc.json"
@@ -483,7 +532,10 @@ def read_d_observed_outputs(val_root: Path) -> dict[str, Any]:
         manifest_data = read_json(manifest)
         qc_data = read_json(qc)
         baseline_comparison = prediction_baseline_comparison(predictions)
-        source_status = manifest_data.get("ulf_norm_fiber_source_status", "")
+        resolved = branch_resolutions.get(key, {})
+        source_status = manifest_data.get("ulf_norm_fiber_source_status", "") or resolved.get(
+            "ulf_norm_fiber_source_status", ""
+        )
         if not source_status and predictions.is_file():
             source_status = PENDING_ULF_SOURCE_RESOLVER
         out["branches"][key] = {
@@ -499,7 +551,14 @@ def read_d_observed_outputs(val_root: Path) -> dict[str, Any]:
             "baseline_comparison": baseline_comparison,
             "ulf_norm_fiber_source_status": source_status,
             "ulf_prediction_status": manifest_data.get(
-                "ulf_norm_fiber_prediction_status", baseline_comparison.get("prediction_status", "")
+                "ulf_norm_fiber_prediction_status",
+                resolved.get("ulf_norm_fiber_prediction_status", baseline_comparison.get("prediction_status", "")),
+            ),
+            "ulf_norm_fiber_threshold_source": resolved.get("ulf_norm_fiber_threshold_source", ""),
+            "ulf_norm_fiber_selected_tau_v_per_m": resolved.get("ulf_norm_fiber_selected_tau_v_per_m", ""),
+            "ulf_norm_fiber_selected_coverage": resolved.get("ulf_norm_fiber_selected_coverage", ""),
+            "ulf_norm_fiber_selected_adjacent_passing_grid_cells": resolved.get(
+                "ulf_norm_fiber_selected_adjacent_passing_grid_cells", ""
             ),
             "ulf_primary_branch": manifest_data.get("ulf_primary_branch", ""),
             "delta_hfscore_role": manifest_data.get("delta_hfscore_role", ""),

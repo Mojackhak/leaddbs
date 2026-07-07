@@ -3,13 +3,13 @@
 > **Purpose.** This is the `/goal` plan document for executing the four STN/SNr HF/ULF modeling tracks.
 > **Authoritative model specs.** The English files under `my_helper/stnsnr/model_summaries/` define model-level executable behavior. This document defines cross-model orchestration, current implementation state, current status results, and the next engineering priorities.
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
-> **Last updated.** 2026-07-06
+> **Last updated.** 2026-07-07
 
 ---
 
 ## Pause Checkpoint
 
-Execution is paused after the 2026-07-06 status refresh. The current checkpoint
+Execution is paused after the 2026-07-07 status refresh. The current checkpoint
 has completed only observed/non-formal branches and lightweight readiness/status
 generation:
 
@@ -17,9 +17,11 @@ generation:
 A HF direct voxel observed branch rerun from /Users/mojackhu/Github/leaddbs
 B PPMI/MGH/dTOR HF normative fiber observed branches rerun from /Users/mojackhu/Github/leaddbs using the legacy/current output branch name that maps to revised `peak_efield_tau800_cov5_primary`
 C ULF direct voxel observed branches rerun from /Users/mojackhu/Github/leaddbs
-D ULF normative fiber PPMI observed branches rerun from /Users/mojackhu/Github/leaddbs using legacy/current output branch names that map to revised cov5 branch names
+D ULF normative fiber PPMI observed branches rerun from /Users/mojackhu/Github/leaddbs using selected-source tau600 scan-fallback output branches
 legacy/current A/B status CSV refreshed
 ULF readiness refreshed with C -> A and D PPMI -> B_PPMI dependency mapping
+C direct voxel source resolver refreshed
+D PPMI normative fiber source resolver refreshed
 Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/status/
 ```
 
@@ -30,9 +32,9 @@ this branch:
 A direct voxel = pre_specified_accepted + error_nonpredictive
 B_PPMI = pre_specified_accepted + error_nonpredictive
 B_MGH = pre_specified_accepted + error_nonpredictive
-B_DTOR = observed output exists; intended resolver fields still require refresh
-C direct voxel = HF-derived intended primary branch is no_delta_hf; ULF source resolver still required before endpoint realization
-D PPMI normative fiber = HF-derived intended primary branch is no_delta_hf; ULF source resolver still required before endpoint realization
+B_DTOR = pre_specified_accepted + error_nonpredictive
+C direct voxel = observed primary realized as no_delta_hf; primary_branch_error_nonpredictive
+D PPMI normative fiber = observed primary realized as no_delta_hf at scan-fallback tau600/Coverage>=5; primary_branch_error_nonpredictive
 formal permutation/bootstrap/jitter/OSS = not run
 ```
 
@@ -307,11 +309,12 @@ must use the intended resolver fields where available.
 | A HF direct voxel | `tau200/partial_spearman` | `-0.0265` | `-0.2230` | current resolver row = `pre_specified_accepted` + `error_nonpredictive` |
 | B PPMI | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1652` | `-0.4476` | current resolver manifest = `pre_specified_accepted` + `error_nonpredictive` |
 | B MGH | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.0855` | `-0.2916` | current resolver manifest = `pre_specified_accepted` + `error_nonpredictive` |
-| B dTOR | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1829` | `-0.4976` | refresh from `hf_norm_fiber_source_status` and `hf_norm_fiber_prediction_status` |
+| B dTOR | legacy/current output `peak_efield_tau800_primary`; revised spec `peak_efield_tau800_cov5_primary` | `-0.1829` | `-0.4976` | current resolver manifest = `pre_specified_accepted` + `error_nonpredictive` |
 
 These observed branches exist and have finite predictions in the current
-snapshot. B dTOR still requires the intended source/prediction resolver before
-using it as a D-dTOR dependency.
+snapshot. The current B-family dependency status points D toward no-DeltaHF as
+the intended primary branch for matched dependencies, because the matched B
+sources are accepted but `error_nonpredictive`.
 
 ### C/D ULF Readiness
 
@@ -350,8 +353,8 @@ Current observed outputs:
 
 | Branch | rho | Q2 | Interpretation role |
 |---|---:|---:|---|
-| `partial_spearman_no_delta_hf` | `0.9190` | `-0.1442` | HF-derived intended primary because matched A source is accepted but `error_nonpredictive`; ULF source resolver still required before endpoint realization |
-| `partial_spearman_delta_hf_adjusted` | `0.9543` | `0.1238` | sensitivity because matched A source is accepted but `error_nonpredictive`; branch-specific ULF status still requires resolver refresh |
+| `partial_spearman_no_delta_hf` | `0.9190` | `-0.1442` | realized HF-derived intended primary; C source resolver = `pre_specified_accepted` + `error_nonpredictive`; endpoint status = `primary_branch_error_nonpredictive` |
+| `partial_spearman_delta_hf_adjusted` | `0.9543` | `0.1238` | sensitivity because matched A source is accepted but `error_nonpredictive`; C source resolver = `pre_specified_accepted` + `error_predictive` |
 
 Both branches write scores, LOOCV predictions, NIfTI maps, QC JSON, and manifests. Formal resampling has not been run.
 
@@ -363,15 +366,16 @@ The D observed-only driver has been implemented and run for the current-output c
 post scale = MDS-UPDRS III score (STN+SNr, 3 m)
 HF reference = MDS-UPDRS III score (STN, 3 m)
 connectome = PPMI 85 (Ewert 2017)
-output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed/
+default scan root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed/
+selected-source output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau600_observed/
 ```
 
 Current observed outputs:
 
 | Branch | rho | Q2 | Interpretation role |
 |---|---:|---:|---|
-| legacy/current output `ulf_peak_efield_tau800_no_delta_hf`; revised spec `ulf_peak_efield_tau800_cov5_no_delta_hf` | `0.9293` | `0.0922` | HF-derived intended primary because matched B_PPMI source is accepted but `error_nonpredictive`; ULF source resolver still required before endpoint realization |
-| legacy/current output `ulf_peak_efield_tau800_delta_hf_adjusted`; revised spec `ulf_peak_efield_tau800_cov5_delta_hf_adjusted` | `0.9411` | `0.1170` | sensitivity because matched B_PPMI source is accepted but `error_nonpredictive`; branch-specific ULF status still requires resolver refresh |
+| selected-source output `ulf_peak_efield_tau600_no_delta_hf`; revised scan-fallback spec `ulf_peak_efield_tau600_cov5_no_delta_hf` | `0.9161` | `0.0719` | realized HF-derived intended primary; D source resolver = `scan_fallback_accepted` + `error_nonpredictive`; endpoint status = `primary_branch_error_nonpredictive` |
+| selected-source output `ulf_peak_efield_tau600_delta_hf_adjusted`; revised scan-fallback spec `ulf_peak_efield_tau600_cov5_delta_hf_adjusted` | `0.9087` | `-0.0598` | sensitivity because matched B_PPMI source is accepted but `error_nonpredictive`; D source resolver = `scan_fallback_accepted` + `error_nonpredictive` |
 
 Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. Formal resampling, OSS-DBS activation, density maps, endpoint enrichment, and dTOR-scale figure-grade outputs have not been run.
 
@@ -416,10 +420,10 @@ tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
 coverage_grid = [5, 6, 7, 8, 10, 12]
 ```
 
-B-model normative fiber source-resolver output currently exists for PPMI and
-MGH and records `pre_specified_accepted + error_nonpredictive`. B dTOR remains
-waiting for source-resolver refresh. When a B source resolver is refreshed,
-tau800/Coverage>=5 is evaluated first. If it is not accepted, a locally stable
+B-model normative fiber source-resolver output currently exists for PPMI, MGH,
+and dTOR and records `pre_specified_accepted + error_nonpredictive`. When a B
+source resolver is refreshed, tau800/Coverage>=5 is evaluated first. If it is not
+accepted, a locally stable
 scan fallback may define `hf_norm_fiber_source_status = scan_fallback_accepted`
 and may provide the B-family `DeltaHFScore` source for D. If no stable grid
 exists, record `hf_norm_fiber_source_status = absent_no_stable_grid` and D runs
@@ -438,13 +442,9 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
 
 ## 7. Execution Order From Current State
 
-### Immediate Next Steps
+### Current Completed Observed/Resolver Steps
 
-1. Implement or refresh the C and D branch-specific ULF source resolvers so
-   the HF-derived intended primary branches can be realized as endpoint models.
-2. Complete the B dTOR normative-fiber source resolver refresh before any
-   D-dTOR dependency is interpreted.
-3. C ULF direct voxel observed has been implemented with both branches:
+1. C ULF direct voxel observed has been implemented with both branches:
 
    ```text
    tau200/partial_spearman_delta_hf_adjusted
@@ -453,31 +453,42 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
 
    Under the revised A resolver, no-DeltaHF is the current HF-derived intended
    primary because the matched A source is accepted but `error_nonpredictive`.
-   Each executed C branch must also record its own `ulf_voxel_source_status`
-   and `ulf_voxel_prediction_status`; these ULF statuses qualify whether the
-   HF-selected primary branch is stable and error-predictive, but they do not
-   change the HF-derived branch role.
+   The refreshed C resolver records no-DeltaHF as
+   `pre_specified_accepted + error_nonpredictive` and DeltaHF-adjusted as
+   `pre_specified_accepted + error_predictive`. The endpoint-level primary
+   realization remains `primary_branch_error_nonpredictive` because the
+   HF-derived intended primary branch is no-DeltaHF.
 
-4. D ULF normative fiber PPMI observed has been implemented with both branches:
+2. D ULF normative fiber PPMI observed has been implemented with both branches
+   at the selected-source scan-fallback threshold:
 
    ```text
-   legacy/current output: ulf_peak_efield_tau800_delta_hf_adjusted
-   revised spec:          ulf_peak_efield_tau800_cov5_delta_hf_adjusted
+   selected-source output: ulf_peak_efield_tau600_delta_hf_adjusted
+   revised scan-fallback spec: ulf_peak_efield_tau600_cov5_delta_hf_adjusted
 
-   legacy/current output: ulf_peak_efield_tau800_no_delta_hf
-   revised spec:          ulf_peak_efield_tau800_cov5_no_delta_hf
+   selected-source output: ulf_peak_efield_tau600_no_delta_hf
+   revised scan-fallback spec: ulf_peak_efield_tau600_cov5_no_delta_hf
    ```
 
    Under the revised B_PPMI resolver, no-DeltaHF is the current HF-derived
    intended primary because the matched B_PPMI source is accepted but
-   `error_nonpredictive`. If a matched B source returns an accepted source with
-   `hf_norm_fiber_prediction_status = error_predictive`, D interprets the
-   DeltaHF-adjusted branch as intended primary. If B returns an accepted but
-   `error_nonpredictive` source, D interprets no-DeltaHF as intended primary
-   and keeps DeltaHF-adjusted as sensitivity when inputs are valid. If B
-   returns `absent_no_stable_grid`, D runs no-DeltaHF only for that dependency.
-   dTOR main execution remains deferred until the relevant B and D resolver
-   fields identify a realized branch to report.
+   `error_nonpredictive`. The refreshed D PPMI resolver records both ULF
+   branches as `scan_fallback_accepted + error_nonpredictive` at
+   tau600/Coverage>=5. The endpoint-level primary realization is
+   `primary_branch_error_nonpredictive`.
+
+### Immediate Next Steps
+
+1. Decide whether to extend the D observed/resolver execution beyond PPMI to
+   dTOR now, or keep dTOR as deferred formal/reporting work. The B dTOR
+   dependency now resolves as `pre_specified_accepted + error_nonpredictive`,
+   so a matched D-dTOR no-DeltaHF primary branch is interpretable once run.
+2. Keep C/D formal resampling, gain endpoints, total-ULF sensitivity, all-endpoint
+   reporting, OSS, jitter, and figure-grade outputs deferred until the selected
+   reporting branches are explicitly chosen.
+3. Any additional executable patch to resolver, branch-role, DeltaHFScore,
+   HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
+   observed/status branches before their outputs are described as current.
 
 ### Deferred Expensive Work
 
@@ -741,11 +752,38 @@ C ULF direct voxel observed branch:
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py
 ```
 
+C ULF direct voxel tau/Coverage source resolver scan:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py \
+  --source-resolver-scan
+```
+
 D ULF normative fiber PPMI observed branch:
 
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py --connectome ppmi
+```
+
+D ULF normative fiber PPMI tau/Coverage source resolver scan:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
+  --connectome ppmi \
+  --source-resolver-scan
+```
+
+D ULF normative fiber PPMI selected-source observed branch after current scan fallback:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
+  --connectome ppmi \
+  --tau 600 \
+  --min-coverage 5
 ```
 
 Consolidated execution status:

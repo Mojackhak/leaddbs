@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import json
+import math
+
+import numpy as np
 
 from stnsnr_four_model_resolver import (
     HF_SOURCE_ABSENT,
@@ -12,9 +15,12 @@ from stnsnr_four_model_resolver import (
     PREDICTION_ERROR_NONPREDICTIVE,
     PREDICTION_ERROR_PREDICTIVE,
     adjacent_passing_count,
+    branch_nuisance_design_status,
     classify_prediction_status,
     hard_computability_passes,
     resolve_hf_source,
+    safe_pearson,
+    safe_spearman,
 )
 
 
@@ -104,6 +110,28 @@ def test_adjacent_count_uses_grid_coordinates() -> None:
     assert_equal(adjacent_passing_count(rows, selected), 2, "adjacent passing cells")
 
 
+def test_safe_correlations_reject_constant_vectors() -> None:
+    r, p = safe_pearson(np.array([1.0, 1.0, 1.0]), np.array([1.0, 2.0, 3.0]))
+    assert_equal(math.isnan(r) and math.isnan(p), True, "constant Pearson vector")
+    rho, rho_p = safe_spearman(np.array([1.0, 2.0, 3.0]), np.array([3.0, 3.0, 3.0]))
+    assert_equal(math.isnan(rho) and math.isnan(rho_p), True, "constant Spearman vector")
+
+
+def test_branch_nuisance_design_status() -> None:
+    y_hf_ref = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    delta = np.array([1.0, 1.5, 2.5, 3.5, 5.0])
+    assert_equal(
+        branch_nuisance_design_status(y_hf_ref=y_hf_ref, delta_hfscore=delta),
+        "valid",
+        "two-covariate nuisance design",
+    )
+    assert_equal(
+        branch_nuisance_design_status(y_hf_ref=y_hf_ref, delta_hfscore=np.ones_like(y_hf_ref)),
+        "invalid_nuisance_design",
+        "constant DeltaHFScore",
+    )
+
+
 def run_selftest() -> dict[str, object]:
     test_hard_computability_excludes_predictive_metrics()
     test_prediction_status_uses_mae_and_rmse_only()
@@ -111,7 +139,9 @@ def run_selftest() -> dict[str, object]:
     test_scan_fallback_priority_after_unstable_primary()
     test_absent_source_when_no_stable_grid()
     test_adjacent_count_uses_grid_coordinates()
-    return {"status": "PASS", "tests": 6}
+    test_safe_correlations_reject_constant_vectors()
+    test_branch_nuisance_design_status()
+    return {"status": "PASS", "tests": 8}
 
 
 def main() -> int:

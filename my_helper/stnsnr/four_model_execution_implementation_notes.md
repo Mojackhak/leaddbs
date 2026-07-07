@@ -1,12 +1,12 @@
 # Four-Model Execution Implementation Notes
 
-This note records the first executable implementation layer for `four_model_execution_plan.md`.
+This note records executable implementation layers for `four_model_execution_plan.md`.
 
-The full four-model program is intentionally gated. The first code layer only implements M0 readiness checks and manifest generation. It does not run voxel or fiber statistics, does not compute E-field sidecars, and does not start formal permutation, bootstrap, jitter, OSS-DBS, or display stages.
+The full four-model program is intentionally gated. The current codebase now includes readiness, observed A/B/C/D branches, C/D source resolvers, consolidated status reporting, and shared resolver utilities. Formal permutation, bootstrap, jitter, OSS-DBS, all-endpoint reporting, and figure-grade display stages remain deferred.
 
 ## Pause Checkpoint
 
-Execution is paused after the 2026-07-06 status refresh. The latest observed
+Execution is paused after the 2026-07-07 status refresh. The latest observed
 branches and status files were regenerated from the single retained worktree:
 
 ```text
@@ -24,9 +24,10 @@ Current refreshed outputs:
 Current state:
 
 ```text
-A direct voxel: intended resolver fields still need refresh
-B normative fiber: observed validity fields available from the normative-fiber status path
-C/D observed ULF branches: OBSERVED_COMPLETE_EXPLORATORY
+A direct voxel: SOURCE_ACCEPTED_ERROR_NONPREDICTIVE
+B PPMI/MGH/dTOR normative fiber: SOURCE_ACCEPTED_ERROR_NONPREDICTIVE
+C direct voxel: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
+D PPMI normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 ULF component e-fields: 64/64 available
 formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
 ```
@@ -167,6 +168,36 @@ The self-test verifies:
 - plus-one two-sided permutation p values use the documented formula.
 
 This layer is intentionally model-agnostic. It does not define HF/ULF paths, does not create sidecars, does not perform image/fiber sampling, and does not run formal `B=10000` loops.
+
+## Shared Resolver Utilities
+
+The shared resolver layer is:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_four_model_resolver.py
+```
+
+It now contains reusable helpers for:
+
+```text
+pre-specified versus scan-fallback source resolution
+adjacent-grid support counting
+MAE/RMSE prediction-status classification
+safe Pearson/Spearman reporting metrics
+branch-specific nuisance design validation
+```
+
+Direct voxel and normative fiber ULF observed drivers import these helpers
+instead of maintaining separate copies. Model-specific hard computability
+predicates remain in the model drivers because voxel and fiber support
+quantities differ.
+
+Self-test:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/core/analysis/stnsnr_four_model_resolver_selftest.py
+```
 
 ## ULF Dependency Identifiers
 
@@ -472,7 +503,7 @@ Run the worklist generator:
 
 ## HF Direct Voxel Source Resolver
 
-The intended next executable layer replaces the older candidate-level
+The executable resolver layer replaces the older candidate-level
 classification with the direct-voxel source resolver from
 `hf_3m_direct_voxel_model.md`. It reads the existing all-endpoint Round 2
 tau/Coverage scan outputs and writes an automatic summary of which HF endpoints
@@ -490,25 +521,22 @@ and exposed through the existing pipeline entry point:
 my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py
 ```
 
-The current code still exposes historical candidate-level refresh outputs under
-the same entry point. Until code is updated, use the scan tables only as input
-evidence for the intended Round 2 resolver.
-
-Historical refresh command without recomputing the 60-cell scans:
+Source-resolver refresh command without recomputing the 60-cell scans:
 
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_hf_direct_voxel_posthoc_threshold_scan.py \
-  --classify-levels
+  --all-scales \
+  --plot-only
 ```
 
-Historical outputs:
+Current resolver outputs:
 
 ```text
 /Volumes/VAL/STNSNr/summary/direct_voxel/hf/posthoc_threshold_scan_all_scales/
-  all_scales_posthoc_candidate_levels.csv
-  all_scales_posthoc_ulf_propagation_candidates.csv
-  all_scales_posthoc_candidate_levels_manifest.json
+  all_scales_posthoc_threshold_scan_long.csv
+  all_scales_posthoc_threshold_scan_summary.csv
+  all_scales_posthoc_threshold_scan_manifest.json
 ```
 
 The intended resolver uses scan-table evidence only for computability and local
@@ -618,9 +646,30 @@ compared against that branch's nuisance-only baseline to assign
 stable/error-predictive or not; they do not change the branch role assigned from
 the matched HF resolver.
 
-The consolidated execution status reporter should treat C as observed-complete
-when both C branch manifests exist. Formal reporting branch selection should be
-refreshed from the matched A resolver fields.
+Current C source-resolver output:
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/mds_updrs_iii_score_stn_snr_3_m/tau_coverage_source_resolver_scan/
+  direct_voxel_ULF_only_tau_coverage_source_resolver_scan.csv
+  direct_voxel_ULF_only_tau_coverage_source_resolver_manifest.json
+
+no_delta_hf:        pre_specified_accepted + error_nonpredictive at tau200/Coverage>=5
+delta_hf_adjusted:  pre_specified_accepted + error_predictive at tau200/Coverage>=5
+endpoint status:    primary_branch_error_nonpredictive
+```
+
+The consolidated execution status reporter treats C as
+`OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE` because the matched A source is
+accepted but `error_nonpredictive`, so the HF-derived intended primary branch is
+no-DeltaHF.
+
+Run the C source resolver:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py \
+  --source-resolver-scan
+```
 
 ## ULF Normative Fiber Observed Driver
 
@@ -675,14 +724,23 @@ sidecar for the same connectome and scale whenever available. This keeps the
 Both D core branches are executed when inputs allow:
 
 ```text
-legacy/current output: ulf_peak_efield_tau800_no_delta_hf
-revised spec:          ulf_peak_efield_tau800_cov5_no_delta_hf
+default observed output: ulf_peak_efield_tau800_no_delta_hf
+revised default spec:    ulf_peak_efield_tau800_cov5_no_delta_hf
 
-legacy/current output: ulf_peak_efield_tau800_delta_hf_adjusted
-revised spec:          ulf_peak_efield_tau800_cov5_delta_hf_adjusted
+default observed output: ulf_peak_efield_tau800_delta_hf_adjusted
+revised default spec:    ulf_peak_efield_tau800_cov5_delta_hf_adjusted
+
+selected-source output after current PPMI scan fallback:
+  ulf_peak_efield_tau600_no_delta_hf
+  ulf_peak_efield_tau600_delta_hf_adjusted
 ```
 
-The existing observed PPMI manifest uses the legacy/current branch-role fields. Under the revised normative-fiber resolver, D must refresh the matched B dependency before assigning the interpretive primary branch: accepted B source plus `hf_norm_fiber_prediction_status = error_predictive` makes `delta_hf_adjusted` intended primary; accepted B source plus `error_nonpredictive` makes `no_delta_hf` intended primary; `absent_no_stable_grid` runs no-DeltaHF only.
+The revised normative-fiber resolver reads the matched B dependency before
+assigning the interpretive primary branch: accepted B source plus
+`hf_norm_fiber_prediction_status = error_predictive` makes
+`delta_hf_adjusted` intended primary; accepted B source plus
+`error_nonpredictive` makes `no_delta_hf` intended primary;
+`absent_no_stable_grid` runs no-DeltaHF only.
 
 Default outputs:
 
@@ -691,24 +749,55 @@ Default outputs:
   preprocess/
   ulf_peak_efield_tau800_no_delta_hf/
   ulf_peak_efield_tau800_delta_hf_adjusted/
+  tau_coverage_source_resolver_scan/
 ```
 
-These are legacy/current output directory names. They map to revised spec branches `ulf_peak_efield_tau800_cov5_no_delta_hf` and `ulf_peak_efield_tau800_cov5_delta_hf_adjusted`; the implementation has not renamed existing output folders in this documentation-only update.
+Selected-source fallback outputs use the selected tau in the observed output
+root and branch names. The current PPMI fallback is:
+
+```text
+/Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau600_observed/
+  ulf_peak_efield_tau600_no_delta_hf/
+  ulf_peak_efield_tau600_delta_hf_adjusted/
+```
 
 Each branch writes observed scores, LOOCV predictions, fiber weights, QC JSON,
 and a generation manifest. The branch manifests record `ulf_primary_branch`,
-`delta_hfscore_role`, the relevant `hf_norm_fiber_*` source-status fields when available, and
+`delta_hfscore_role`, the relevant `hf_norm_fiber_*` source-status fields,
+`ulf_norm_fiber_source_status`, `ulf_norm_fiber_prediction_status`,
+`ulf_norm_fiber_endpoint_model_status`, selected tau/Coverage fields, and
 `resampling_status=not_run_observed_only`.
 
-Current PPMI observed run:
+Current PPMI source resolver and selected-source observed run:
 
 ```text
-output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed
-no_delta_hf:        LOOCV Spearman rho = 0.929309, Q2 = 0.0921884
-delta_hf_adjusted:  LOOCV Spearman rho = 0.941091, Q2 = 0.116969
+source resolver root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed/tau_coverage_source_resolver_scan/
+selected output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau600_observed
+no_delta_hf:        scan_fallback_accepted + error_nonpredictive; LOOCV Spearman rho = 0.916054, Q2 = 0.0718562
+delta_hf_adjusted:  scan_fallback_accepted + error_nonpredictive; LOOCV Spearman rho = 0.908690, Q2 = -0.0597838
+endpoint status:    primary_branch_error_nonpredictive
 ```
 
 The D PPMI observed output is now included in the consolidated status report as
-`OBSERVED_COMPLETE_EXPLORATORY`. Formal resampling, OSS-DBS activation,
-density maps, endpoint enrichment, and dTOR-scale figure-grade outputs remain
-deferred.
+`OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE`. Formal resampling,
+OSS-DBS activation, density maps, endpoint enrichment, and dTOR-scale
+figure-grade outputs remain deferred.
+
+Run the D PPMI source resolver:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
+  --connectome ppmi \
+  --source-resolver-scan
+```
+
+Run the current D PPMI selected-source observed branch:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
+  --connectome ppmi \
+  --tau 600 \
+  --min-coverage 5
+```

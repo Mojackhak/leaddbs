@@ -20,6 +20,13 @@ import nibabel as nib
 import numpy as np
 import pandas as pd
 
+from stnsnr_four_model_resolver import (
+    branch_nuisance_design_status,
+    classify_prediction_status,
+    resolve_hf_source,
+    safe_pearson,
+    safe_spearman,
+)
 from stnsnr_four_model_execution_status import latest_run_dir
 from stnsnr_four_model_readiness import (
     DEFAULT_CANONICAL_ASSET_ROOT,
@@ -60,6 +67,11 @@ DEFAULT_OUTPUT_ROOT = DEFAULT_VAL_ROOT / "summary/direct_voxel/ulf"
 DEFAULT_READINESS_ROOT = DEFAULT_VAL_ROOT / "summary/four_model_execution/ulf_component_readiness"
 DEFAULT_GATE_STATUS = DEFAULT_VAL_ROOT / "summary/four_model_execution/gate_status/four_model_gate_status.csv"
 DEFAULT_POST_SCALE = "MDS-UPDRS III score (STN+SNr, 3 m)"
+ULF_DIRECT_TAU_GRID = [100, 150, 180, 200, 220, 250, 300, 350, 400, 500]
+ULF_DIRECT_COVERAGE_GRID = [5, 6, 7, 8, 10, 12]
+ULF_DIRECT_PRIMARY_TAU = 200
+ULF_DIRECT_PRIMARY_COVERAGE = 5
+ULF_DIRECT_CANDIDATE_THRESHOLD = 100.0
 
 
 @dataclass(frozen=True)
@@ -325,6 +337,67 @@ def read_a_gate_status(gate_status_path: Path) -> dict[str, Any]:
     }
 
 
+def read_a_direct_voxel_dependency(output_root: Path, hf_ref_scale: str, gate_status_path: Path) -> dict[str, Any]:
+    """Read the locked A-model direct voxel resolver for the matched HF reference endpoint."""
+    scale_slug = slugify(hf_ref_scale)
+    summary_path = (
+        output_root.parent
+        / "hf"
+        / "posthoc_threshold_scan_all_scales"
+        / "all_scales_posthoc_threshold_scan_summary.csv"
+    )
+    if summary_path.is_file():
+        table = pd.read_csv(summary_path)
+        if "scale_slug" in table.columns:
+            matched = table[table["scale_slug"].astype(str).eq(scale_slug)]
+        else:
+            matched = table.iloc[0:1]
+        if not matched.empty:
+            row = matched.iloc[0]
+            source_status = _sanitize(row.get("hf_voxel_source_status", ""))
+            prediction_status = _sanitize(row.get("hf_voxel_prediction_status", ""))
+            selected_tau = row.get("hf_voxel_selected_tau_v_per_m", row.get("selected_tau", ULF_DIRECT_PRIMARY_TAU))
+            selected_coverage = row.get("hf_voxel_selected_coverage", row.get("selected_coverage", ULF_DIRECT_PRIMARY_COVERAGE))
+            if source_status in {"pre_specified_accepted", "scan_fallback_accepted"}:
+                if prediction_status == "error_predictive":
+                    primary = "delta_hf_adjusted"
+                    delta_role = "primary_error_predictive_hf_adjustment"
+                else:
+                    primary = "no_delta_hf"
+                    delta_role = "stable_error_nonpredictive_hf_adjustment_sensitivity"
+            else:
+                primary = "no_delta_hf"
+                delta_role = "not_run_no_stable_hf_voxel_source"
+            return {
+                "hf_voxel_source_status": source_status,
+                "hf_voxel_prediction_status": prediction_status or "not_applicable",
+                "hf_voxel_threshold_source": _sanitize(row.get("hf_voxel_threshold_source", "")),
+                "hf_voxel_selected_tau_v_per_m": float(selected_tau) if str(selected_tau).strip() else ULF_DIRECT_PRIMARY_TAU,
+                "hf_voxel_selected_coverage": int(float(selected_coverage)) if str(selected_coverage).strip() else ULF_DIRECT_PRIMARY_COVERAGE,
+                "hf_prediction_validity_status": prediction_status or "not_applicable",
+                "gate_decision": "RESOLVED_FROM_HF_VOXEL_SOURCE_SCAN",
+                "ulf_primary_branch": primary,
+                "delta_hfscore_role": delta_role,
+            }
+    legacy = read_a_gate_status(gate_status_path)
+    legacy.setdefault("hf_voxel_source_status", "")
+    legacy.setdefault("hf_voxel_prediction_status", legacy.get("hf_prediction_validity_status", ""))
+    legacy.setdefault("hf_voxel_threshold_source", "legacy_gate_status")
+    legacy.setdefault("hf_voxel_selected_tau_v_per_m", ULF_DIRECT_PRIMARY_TAU)
+    legacy.setdefault("hf_voxel_selected_coverage", ULF_DIRECT_PRIMARY_COVERAGE)
+    return legacy
+
+
+def hf_overlap_tau_from_dependency(dependency: dict[str, Any], fallback_tau: float) -> float:
+    """Return the locked HF-overlap threshold; +Inf means no HF overlap exclusion."""
+    if dependency.get("hf_voxel_source_status") in {"pre_specified_accepted", "scan_fallback_accepted"}:
+        try:
+            return float(dependency.get("hf_voxel_selected_tau_v_per_m", fallback_tau))
+        except (TypeError, ValueError):
+            return float(fallback_tau)
+    return math.inf
+
+
 def fit_baseline_with_covariates(train_y: np.ndarray, train_covariates: np.ndarray, test_covariates: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     train_cov = np.asarray(train_covariates, dtype=float)
     test_cov = np.asarray(test_covariates, dtype=float)
@@ -519,6 +592,8 @@ def compute_branch(
     loocv_base_pred = np.full(n_subjects, np.nan, dtype=float)
     fold_rows: list[dict[str, Any]] = []
     support_rows: list[dict[str, Any]] = []
+    fold_valid_score_voxels: list[int] = []
+    ulfscore_nonconstant_all_folds = True
 
     for heldout in range(n_subjects):
         train = np.array([idx for idx in range(n_subjects) if idx != heldout], dtype=int)
@@ -544,6 +619,9 @@ def compute_branch(
         stability_valid[valid_fold] += 1
         stability_positive[valid_fold & (weights_fold > 0)] += 1
         fold_scores, n_valid_fold = mean_map_score(x_ulf_only, weights_fold, valid_fold)
+        fold_valid_score_voxels.append(int(n_valid_fold))
+        if np.nanstd(fold_scores[train]) == 0:
+            ulfscore_nonconstant_all_folds = False
         pred, beta = fit_linear_prediction(
             y_post[train],
             fold_scores[train],
@@ -590,6 +668,7 @@ def compute_branch(
     stability = np.full(x_ulf_only.shape[1], np.nan, dtype=np.float32)
     nonzero_valid = stability_valid > 0
     stability[nonzero_valid] = stability_positive[nonzero_valid] / n_subjects
+    fold_valid_array = np.asarray(fold_valid_score_voxels, dtype=float)
     return {
         "branch_name": branch_name,
         "omega": omega,
@@ -602,8 +681,234 @@ def compute_branch(
         "support_rows": support_rows,
         "metrics": metrics,
         "n_valid_full_score_voxels": int(n_valid_full),
+        "fold_n_valid_score_voxels_min": int(np.nanmin(fold_valid_array)) if fold_valid_array.size else 0,
+        "fold_n_valid_score_voxels_median": float(np.nanmedian(fold_valid_array)) if fold_valid_array.size else 0.0,
+        "fold_n_valid_score_voxels_max": int(np.nanmax(fold_valid_array)) if fold_valid_array.size else 0,
+        "ulfscore_nonconstant_all_folds": bool(ulfscore_nonconstant_all_folds),
+        "all_predictions_finite": bool(np.all(np.isfinite(loocv_pred)) and np.all(np.isfinite(loocv_base_pred))),
         "n_omega_voxels": int(np.count_nonzero(omega)),
     }
+
+
+def ulf_direct_hard_computability_passes(row: dict[str, Any]) -> bool:
+    return (
+        float(row.get("n_subjects", 0) or 0) >= 12
+        and float(row.get("n_voxels_full", 0) or 0) >= 20
+        and float(row.get("fold_n_voxels_min", 0) or 0) >= 10
+        and _as_bool(row.get("ulfscore_nonconstant_all_folds"))
+        and str(row.get("branch_nuisance_design_status", "")) == "valid"
+        and _as_bool(row.get("all_predictions_finite"))
+    )
+
+
+def ulf_direct_scan_empty_row(
+    *,
+    branch: str,
+    tau: int,
+    coverage: int,
+    n_subjects: int,
+    branch_role: str,
+    branch_nuisance_design_status: str,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "branch": branch,
+        "branch_role": branch_role,
+        "tau": tau,
+        "coverage": coverage,
+        "n_subjects": n_subjects,
+        "n_voxels_full": 0,
+        "fold_n_voxels_min": 0,
+        "fold_n_voxels_median": 0,
+        "fold_n_voxels_max": 0,
+        "branch_nuisance_design_status": branch_nuisance_design_status,
+        "ulfscore_nonconstant_all_folds": False,
+        "all_predictions_finite": False,
+        "loocv_spearman_rho": math.nan,
+        "loocv_spearman_nominal_p": math.nan,
+        "loocv_pearson_r": math.nan,
+        "loocv_pearson_nominal_p": math.nan,
+        "q2": math.nan,
+        "mae_model": math.nan,
+        "mae_baseline": math.nan,
+        "rmse_model": math.nan,
+        "rmse_baseline": math.nan,
+        "passes_all_hard_filters": False,
+        "ulf_voxel_prediction_status": "not_applicable",
+        "failure_reason": reason,
+    }
+
+
+def evaluate_ulf_direct_grid_cell(
+    *,
+    branch: str,
+    branch_role: str,
+    x_ulf_only: np.ndarray,
+    coverage_array: np.ndarray,
+    s_tau_ulf_only: np.ndarray,
+    y_post: np.ndarray,
+    y_hf_ref: np.ndarray,
+    nuisance_full: np.ndarray | None,
+    nuisance_fold_provider: Any,
+    scale_direction: str,
+    subject_ids: list[str],
+    tau: int,
+    coverage: int,
+) -> dict[str, Any]:
+    design_status = branch_nuisance_design_status(y_hf_ref=y_hf_ref, delta_hfscore=nuisance_full)
+    if design_status != "valid":
+        return ulf_direct_scan_empty_row(
+            branch=branch,
+            tau=tau,
+            coverage=coverage,
+            n_subjects=int(y_post.shape[0]),
+            branch_role=branch_role,
+            branch_nuisance_design_status=design_status,
+            reason=design_status,
+        )
+    try:
+        result = compute_branch(
+            branch_name=f"tau{tau}/partial_spearman_{branch}",
+            x_ulf_only=x_ulf_only,
+            coverage=coverage_array,
+            s_tau_ulf_only=s_tau_ulf_only,
+            y_post=y_post,
+            y_hf_ref=y_hf_ref,
+            nuisance_full=nuisance_full,
+            nuisance_fold_provider=nuisance_fold_provider,
+            scale_direction=scale_direction,
+            min_coverage=coverage,
+            subject_ids=subject_ids,
+        )
+    except Exception as exc:
+        return ulf_direct_scan_empty_row(
+            branch=branch,
+            tau=tau,
+            coverage=coverage,
+            n_subjects=int(y_post.shape[0]),
+            branch_role=branch_role,
+            branch_nuisance_design_status=design_status,
+            reason=str(exc),
+        )
+    metrics = result["metrics"]
+    y_true = np.array([row["Y_post"] for row in result["fold_rows"]], dtype=float)
+    pred = np.array([row["prediction_ULFScore_model"] for row in result["fold_rows"]], dtype=float)
+    pred_base = np.array([row["prediction_baseline_only"] for row in result["fold_rows"]], dtype=float)
+    rho, rho_p = safe_spearman(y_true, pred)
+    pearson, pearson_p = safe_pearson(y_true, pred)
+    residual_model = y_true - pred
+    residual_base = y_true - pred_base
+    row = {
+        "branch": branch,
+        "branch_role": branch_role,
+        "tau": tau,
+        "coverage": coverage,
+        "n_subjects": int(y_post.shape[0]),
+        "n_voxels_full": int(result["n_valid_full_score_voxels"]),
+        "fold_n_voxels_min": int(result["fold_n_valid_score_voxels_min"]),
+        "fold_n_voxels_median": float(result["fold_n_valid_score_voxels_median"]),
+        "fold_n_voxels_max": int(result["fold_n_valid_score_voxels_max"]),
+        "branch_nuisance_design_status": design_status,
+        "ulfscore_nonconstant_all_folds": bool(result["ulfscore_nonconstant_all_folds"]),
+        "all_predictions_finite": bool(result["all_predictions_finite"]),
+        "loocv_spearman_rho": rho,
+        "loocv_spearman_nominal_p": rho_p,
+        "loocv_pearson_r": pearson,
+        "loocv_pearson_nominal_p": pearson_p,
+        "q2": metrics.get("q2", math.nan),
+        "mae_model": float(np.mean(np.abs(residual_model))),
+        "mae_baseline": float(np.mean(np.abs(residual_base))),
+        "rmse_model": float(np.sqrt(np.mean(residual_model * residual_model))),
+        "rmse_baseline": float(np.sqrt(np.mean(residual_base * residual_base))),
+        "failure_reason": "",
+    }
+    row["passes_all_hard_filters"] = ulf_direct_hard_computability_passes(row)
+    row["ulf_voxel_prediction_status"] = (
+        classify_prediction_status(row) if row["passes_all_hard_filters"] else "not_applicable"
+    )
+    return row
+
+
+def resolve_ulf_direct_branch(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    resolved = resolve_hf_source(
+        rows,
+        primary_tau=ULF_DIRECT_PRIMARY_TAU,
+        primary_coverage=ULF_DIRECT_PRIMARY_COVERAGE,
+        tau_grid=ULF_DIRECT_TAU_GRID,
+        coverage_grid=ULF_DIRECT_COVERAGE_GRID,
+        pass_predicate=ulf_direct_hard_computability_passes,
+    )
+    return {
+        "ulf_voxel_source_status": resolved["source_status"],
+        "ulf_voxel_prediction_status": resolved["prediction_status"],
+        "ulf_voxel_threshold_source": resolved["threshold_source"],
+        "ulf_voxel_selected_tau_v_per_m": resolved["selected_tau"],
+        "ulf_voxel_selected_coverage": resolved["selected_coverage"],
+        "ulf_voxel_selected_adjacent_passing_grid_cells": resolved["selected_adjacent_passing_grid_cells"],
+        "ulf_voxel_source_failure_reasons": resolved["source_failure_reasons"],
+    }
+
+
+def ulf_endpoint_status_for_primary(primary_resolution: dict[str, Any]) -> str:
+    source_status = primary_resolution.get("ulf_voxel_source_status", "")
+    prediction_status = primary_resolution.get("ulf_voxel_prediction_status", "")
+    if source_status in {"pre_specified_accepted", "scan_fallback_accepted"} and prediction_status == "error_predictive":
+        return "primary_branch_error_predictive"
+    if source_status in {"pre_specified_accepted", "scan_fallback_accepted"} and prediction_status == "error_nonpredictive":
+        return "primary_branch_error_nonpredictive"
+    if source_status == "absent_no_stable_grid":
+        return "absent_no_stable_ulf_grid"
+    return "primary_branch_input_failure"
+
+
+def write_ulf_direct_source_scan_outputs(
+    output_dir: Path,
+    *,
+    rows: list[dict[str, Any]],
+    branch_resolutions: dict[str, dict[str, Any]],
+    manifest: dict[str, Any],
+) -> dict[str, str]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    scan_csv = output_dir / "direct_voxel_ULF_only_tau_coverage_source_resolver_scan.csv"
+    manifest_json = output_dir / "direct_voxel_ULF_only_tau_coverage_source_resolver_manifest.json"
+    fieldnames = [
+        "branch",
+        "branch_role",
+        "tau",
+        "coverage",
+        "n_subjects",
+        "n_voxels_full",
+        "fold_n_voxels_min",
+        "fold_n_voxels_median",
+        "fold_n_voxels_max",
+        "branch_nuisance_design_status",
+        "ulfscore_nonconstant_all_folds",
+        "all_predictions_finite",
+        "loocv_spearman_rho",
+        "loocv_spearman_nominal_p",
+        "loocv_pearson_r",
+        "loocv_pearson_nominal_p",
+        "q2",
+        "mae_model",
+        "mae_baseline",
+        "rmse_model",
+        "rmse_baseline",
+        "passes_all_hard_filters",
+        "ulf_voxel_prediction_status",
+        "failure_reason",
+    ]
+    write_csv(scan_csv, rows, fieldnames)
+    write_json(
+        manifest_json,
+        {
+            **manifest,
+            "branch_resolutions": branch_resolutions,
+            "n_grid_rows": len(rows),
+            "n_passing_grid_rows": int(sum(ulf_direct_hard_computability_passes(row) for row in rows)),
+            "outputs": {"scan_csv": str(scan_csv), "manifest_json": str(manifest_json)},
+        },
+    )
+    return {"scan_csv": str(scan_csv), "manifest_json": str(manifest_json)}
 
 
 def write_branch_outputs(
@@ -710,7 +1015,7 @@ def run_ulf_direct_voxel_observed(args: argparse.Namespace) -> int:
     matlab_bin = Path(args.matlab_bin).expanduser().resolve()
     output_root = Path(args.output_root).expanduser().resolve()
     readiness_csv = resolve_readiness_csv(Path(args.readiness_root).expanduser().resolve(), args.readiness_csv)
-    gate_status = read_a_gate_status(Path(args.gate_status).expanduser().resolve())
+    gate_status_path = Path(args.gate_status).expanduser().resolve()
 
     post_scale = args.post_scale
     scale_slug = slugify(post_scale)
@@ -719,6 +1024,8 @@ def run_ulf_direct_voxel_observed(args: argparse.Namespace) -> int:
     preprocess_dir.mkdir(parents=True, exist_ok=True)
 
     records, hf_ref_scale = load_ulf_records(clinical_root, post_scale)
+    gate_status = read_a_direct_voxel_dependency(output_root, hf_ref_scale, gate_status_path)
+    locked_hf_overlap_tau = hf_overlap_tau_from_dependency(gate_status, args.hf_tau)
     subject_ids = [record.subject_id for record in records]
     y_post = np.array([record.y_post for record in records], dtype=float)
     y_hf_ref = np.array([record.y_hf_ref for record in records], dtype=float)
@@ -764,7 +1071,7 @@ def run_ulf_direct_voxel_observed(args: argparse.Namespace) -> int:
     hf_component_x = hf_component_all[:, ulf_candidate_sparse].astype(np.float32)
     ulf_component_x = ulf_component_all[:, ulf_candidate_sparse].astype(np.float32)
     ulf_active = ulf_component_x > args.tau
-    hf_active_for_overlap = hf_component_x > args.tau
+    hf_active_for_overlap = np.zeros_like(hf_component_x, dtype=bool) if math.isinf(locked_hf_overlap_tau) else hf_component_x > locked_hf_overlap_tau
     x_ulf_only = np.where(ulf_active & ~hf_active_for_overlap, ulf_component_x, 0.0).astype(np.float32)
     s_tau_ulf_only = suprathreshold_matrix(x_ulf_only, args.tau)
     ulf_coverage = coverage_from_suprathreshold(s_tau_ulf_only)
@@ -812,6 +1119,110 @@ def run_ulf_direct_voxel_observed(args: argparse.Namespace) -> int:
         )
         return {"delta": np.asarray(fold["delta"], dtype=float), "support_row": support_row}
 
+    np.save(preprocess_dir / "E_HF_component_float32_subject_major.npy", hf_component_x)
+    np.save(preprocess_dir / "E_ULF_component_float32_subject_major.npy", ulf_component_x)
+    np.save(preprocess_dir / "candidate_flat_indices.npy", ulf_candidate_flat)
+    np.save(preprocess_dir / "candidate_ijk.npy", ulf_candidate_ijk)
+    np.save(preprocess_dir / "candidate_xyz.npy", ulf_candidate_xyz)
+    write_csv(preprocess_dir / "subjects.csv", [asdict(record) for record in records], ["subject_id", "y_post", "y_hf_ref", "y_base"])
+
+    if args.source_resolver_scan:
+        rows: list[dict[str, Any]] = []
+        branch_resolutions: dict[str, dict[str, Any]] = {}
+        branch_specs: list[tuple[str, str, np.ndarray | None, Any]] = [
+            (
+                "no_delta_hf",
+                "primary" if gate_status["ulf_primary_branch"] == "no_delta_hf" else "sensitivity",
+                None,
+                None,
+            )
+        ]
+        if gate_status.get("hf_voxel_source_status") in {"pre_specified_accepted", "scan_fallback_accepted"}:
+            branch_specs.append(
+                (
+                    "delta_hf_adjusted",
+                    "primary" if gate_status["ulf_primary_branch"] == "delta_hf_adjusted" else "sensitivity",
+                    np.asarray(hf_delta_full["delta"], dtype=float),
+                    fold_delta_provider,
+                )
+            )
+        for tau in ULF_DIRECT_TAU_GRID:
+            ulf_active_tau = ulf_component_x > float(tau)
+            hf_active_tau = (
+                np.zeros_like(hf_component_x, dtype=bool)
+                if math.isinf(locked_hf_overlap_tau)
+                else hf_component_x > locked_hf_overlap_tau
+            )
+            x_ulf_only_tau = np.where(ulf_active_tau & ~hf_active_tau, ulf_component_x, 0.0).astype(np.float32)
+            s_tau = suprathreshold_matrix(x_ulf_only_tau, tau)
+            coverage_tau = coverage_from_suprathreshold(s_tau)
+            for branch_name, branch_role, nuisance_full, nuisance_provider in branch_specs:
+                for coverage_min in ULF_DIRECT_COVERAGE_GRID:
+                    print(
+                        f"[{scale_slug}/{branch_name}] Evaluating tau={tau} V/m, Coverage>={coverage_min}",
+                        flush=True,
+                    )
+                    rows.append(
+                        evaluate_ulf_direct_grid_cell(
+                            branch=branch_name,
+                            branch_role=branch_role,
+                            x_ulf_only=x_ulf_only_tau,
+                            coverage_array=coverage_tau,
+                            s_tau_ulf_only=s_tau,
+                            y_post=y_post,
+                            y_hf_ref=y_hf_ref,
+                            nuisance_full=nuisance_full,
+                            nuisance_fold_provider=nuisance_provider,
+                            scale_direction=scale_direction,
+                            subject_ids=subject_ids,
+                            tau=tau,
+                            coverage=coverage_min,
+                        )
+                    )
+        for branch_name, _, _, _ in branch_specs:
+            branch_rows = [row for row in rows if row["branch"] == branch_name]
+            branch_resolutions[branch_name] = resolve_ulf_direct_branch(branch_rows)
+        intended_primary_branch = gate_status["ulf_primary_branch"]
+        primary_resolution = branch_resolutions.get(intended_primary_branch, {})
+        endpoint_status = ulf_endpoint_status_for_primary(primary_resolution) if primary_resolution else "primary_branch_input_failure"
+        scan_dir = output_scale_root / "tau_coverage_source_resolver_scan"
+        outputs = write_ulf_direct_source_scan_outputs(
+            scan_dir,
+            rows=rows,
+            branch_resolutions=branch_resolutions,
+            manifest={
+                "generated_at": iso_now(),
+                "analysis": "ulf_direct_voxel_tau_coverage_source_resolver_scan",
+                "model": "ULF direct voxel",
+                "post_scale": post_scale,
+                "hf_reference_scale": hf_ref_scale,
+                "scale_slug": scale_slug,
+                "scale_direction": scale_direction,
+                "scale_direction_source": scale_direction_source,
+                "candidate_sparse_threshold_v_per_m": args.candidate_threshold,
+                "tau_grid_v_per_m": ULF_DIRECT_TAU_GRID,
+                "coverage_grid": ULF_DIRECT_COVERAGE_GRID,
+                "pre_specified_tau_v_per_m": ULF_DIRECT_PRIMARY_TAU,
+                "pre_specified_coverage": ULF_DIRECT_PRIMARY_COVERAGE,
+                "hf_overlap_tau_v_per_m": locked_hf_overlap_tau if math.isfinite(locked_hf_overlap_tau) else "+Inf",
+                "hf_overlap_rule": "locked_hf_selected_tau" if math.isfinite(locked_hf_overlap_tau) else "no_hf_source_no_overlap_exclusion",
+                "hf_voxel_source_status": gate_status.get("hf_voxel_source_status", ""),
+                "hf_voxel_prediction_status": gate_status.get("hf_voxel_prediction_status", ""),
+                "hf_voxel_threshold_source": gate_status.get("hf_voxel_threshold_source", ""),
+                "hf_voxel_selected_tau_v_per_m": gate_status.get("hf_voxel_selected_tau_v_per_m", ""),
+                "hf_voxel_selected_coverage": gate_status.get("hf_voxel_selected_coverage", ""),
+                "intended_primary_branch": intended_primary_branch,
+                "ulf_primary_branch": intended_primary_branch,
+                "delta_hfscore_role": gate_status["delta_hfscore_role"],
+                "ulf_endpoint_model_status": endpoint_status,
+                "runtime_s": time.time() - started,
+            },
+        )
+        print(f"ULF direct voxel source resolver output: {scan_dir}")
+        print(json.dumps({"branch_resolutions": branch_resolutions, "ulf_endpoint_model_status": endpoint_status}, indent=2, sort_keys=True))
+        print(f"Scan CSV: {outputs['scan_csv']}")
+        return 0
+
     no_delta_branch = compute_branch(
         branch_name="tau200/partial_spearman_no_delta_hf",
         x_ulf_only=x_ulf_only,
@@ -840,12 +1251,6 @@ def run_ulf_direct_voxel_observed(args: argparse.Namespace) -> int:
     )
 
     np.save(preprocess_dir / "X_ULF_only_float32_subject_major.npy", x_ulf_only)
-    np.save(preprocess_dir / "E_HF_component_float32_subject_major.npy", hf_component_x)
-    np.save(preprocess_dir / "E_ULF_component_float32_subject_major.npy", ulf_component_x)
-    np.save(preprocess_dir / "candidate_flat_indices.npy", ulf_candidate_flat)
-    np.save(preprocess_dir / "candidate_ijk.npy", ulf_candidate_ijk)
-    np.save(preprocess_dir / "candidate_xyz.npy", ulf_candidate_xyz)
-    write_csv(preprocess_dir / "subjects.csv", [asdict(record) for record in records], ["subject_id", "y_post", "y_hf_ref", "y_base"])
     write_json(
         preprocess_dir / "direct_voxel_ULF_only_preprocess_qc.json",
         {
@@ -857,6 +1262,8 @@ def run_ulf_direct_voxel_observed(args: argparse.Namespace) -> int:
             "n_subjects": len(records),
             "right_brainmask_voxels": int(right_flat.size),
             "candidate_threshold_v_per_m": args.candidate_threshold,
+            "hf_overlap_tau_v_per_m": locked_hf_overlap_tau if math.isfinite(locked_hf_overlap_tau) else "+Inf",
+            "hf_overlap_rule": "locked_hf_selected_tau" if math.isfinite(locked_hf_overlap_tau) else "no_hf_source_no_overlap_exclusion",
             "n_ulf_candidate_voxels": int(ulf_candidate_flat.size),
             "n_hf_delta_candidate_voxels": int(np.count_nonzero(hf_candidate_sparse)),
             "n_ulf_only_nonzero_subjects": int(np.count_nonzero(np.sum(x_ulf_only, axis=1) > 0)),
@@ -882,6 +1289,8 @@ def run_ulf_direct_voxel_observed(args: argparse.Namespace) -> int:
         "n_subjects": len(records),
         "tau_v_per_m": args.tau,
         "candidate_threshold_v_per_m": args.candidate_threshold,
+        "hf_overlap_tau_v_per_m": locked_hf_overlap_tau if math.isfinite(locked_hf_overlap_tau) else "+Inf",
+        "hf_overlap_rule": "locked_hf_selected_tau" if math.isfinite(locked_hf_overlap_tau) else "no_hf_source_no_overlap_exclusion",
         "min_coverage": args.min_coverage,
         "n_candidate_voxels": int(ulf_candidate_flat.size),
         "n_ulf_only_nonzero_subjects": int(np.count_nonzero(np.sum(x_ulf_only, axis=1) > 0)),
@@ -909,10 +1318,16 @@ def run_ulf_direct_voxel_observed(args: argparse.Namespace) -> int:
             "candidate_threshold_v_per_m": args.candidate_threshold,
             "min_coverage": args.min_coverage,
             "hf_tau_v_per_m": args.hf_tau,
+            "hf_overlap_tau_v_per_m": locked_hf_overlap_tau if math.isfinite(locked_hf_overlap_tau) else "+Inf",
             "hf_min_coverage": args.hf_min_coverage,
             "random_seed": 42,
         },
         "hf_prediction_validity_status": gate_status["hf_prediction_validity_status"],
+        "hf_voxel_source_status": gate_status.get("hf_voxel_source_status", ""),
+        "hf_voxel_prediction_status": gate_status.get("hf_voxel_prediction_status", ""),
+        "hf_voxel_threshold_source": gate_status.get("hf_voxel_threshold_source", ""),
+        "hf_voxel_selected_tau_v_per_m": gate_status.get("hf_voxel_selected_tau_v_per_m", ""),
+        "hf_voxel_selected_coverage": gate_status.get("hf_voxel_selected_coverage", ""),
         "hf_gate_decision": gate_status["gate_decision"],
         "ulf_primary_branch": gate_status["ulf_primary_branch"],
         "ulf_core_branches_run": [
@@ -974,11 +1389,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--matlab-bin", default=str(DEFAULT_MATLAB), help="MATLAB executable.")
     parser.add_argument("--post-scale", default=DEFAULT_POST_SCALE, help="Raw STN+SNr post endpoint.")
     parser.add_argument("--tau", type=float, default=200.0, help="ULF activity and coverage threshold in V/m.")
-    parser.add_argument("--candidate-threshold", type=float, default=180.0, help="Sparse ULF candidate threshold in V/m.")
+    parser.add_argument("--candidate-threshold", type=float, default=ULF_DIRECT_CANDIDATE_THRESHOLD, help="Sparse ULF candidate threshold in V/m.")
     parser.add_argument("--min-coverage", type=int, default=5, help="Minimum ULF-only subject coverage.")
     parser.add_argument("--hf-tau", type=float, default=200.0, help="Matched HF map threshold in V/m for DeltaHFScore.")
     parser.add_argument("--hf-min-coverage", type=int, default=5, help="Matched HF map minimum coverage for DeltaHFScore.")
     parser.add_argument("--force-flip", action="store_true", help="Regenerate left-to-right flipped fields.")
+    parser.add_argument("--source-resolver-scan", action="store_true", help="Run the ULF direct voxel tau/Coverage source resolver scan.")
     return parser
 
 

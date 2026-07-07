@@ -19,6 +19,13 @@ import h5py
 import numpy as np
 import pandas as pd
 
+from stnsnr_four_model_resolver import (
+    branch_nuisance_design_status,
+    classify_prediction_status,
+    resolve_hf_source,
+    safe_pearson,
+    safe_spearman,
+)
 from stnsnr_four_model_readiness import (
     detect_asset_root,
     infer_scale_direction,
@@ -55,6 +62,12 @@ from stnsnr_ulf_direct_voxel_observed import (
 )
 
 
+ULF_NORM_FIBER_TAU_GRID = [400, 600, 800, 1000, 1200, 1500, 2000]
+ULF_NORM_FIBER_COVERAGE_GRID = [5, 6, 7, 8, 10, 12]
+ULF_NORM_FIBER_PRIMARY_TAU = 800
+ULF_NORM_FIBER_PRIMARY_COVERAGE = 5
+
+
 def iso_now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -88,13 +101,85 @@ def tau_slug(tau: float) -> str:
     return "tau" + str(value).replace(".", "p")
 
 
-def apply_ulf_only_fiber_rule(hf_component: np.ndarray, ulf_component: np.ndarray, tau: float) -> np.ndarray:
+def read_b_normative_fiber_dependency(
+    hf_output_root: Path,
+    connectome_slug: str,
+    hf_ref_scale: str,
+    gate_status_path: Path,
+    connectome_key: str,
+) -> dict[str, Any]:
+    """Read the locked B-model normative fiber resolver for the matched HF reference endpoint."""
+    hf_slug = slugify(hf_ref_scale)
+    manifest_path = (
+        hf_output_root
+        / connectome_slug
+        / hf_slug
+        / "tau_coverage_source_resolver_scan"
+        / "normative_HF_fiber_tau_coverage_source_resolver_manifest.json"
+    )
+    if manifest_path.is_file():
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        source_status = str(data.get("hf_norm_fiber_source_status", "") or "")
+        prediction_status = str(data.get("hf_norm_fiber_prediction_status", "") or "")
+        if source_status in {"pre_specified_accepted", "scan_fallback_accepted"} and prediction_status == "error_predictive":
+            primary = "delta_hf_adjusted"
+            delta_role = "primary_error_predictive_hf_adjustment"
+        elif source_status in {"pre_specified_accepted", "scan_fallback_accepted"}:
+            primary = "no_delta_hf"
+            delta_role = "stable_error_nonpredictive_hf_adjustment_sensitivity"
+        else:
+            primary = "no_delta_hf"
+            delta_role = "not_run_no_stable_hf_norm_fiber_source"
+        return {
+            "model_id": gate_model_id_for_connectome(connectome_key),
+            "gate_decision": "RESOLVED_FROM_HF_NORM_FIBER_SOURCE_SCAN",
+            "hf_prediction_validity_status": prediction_status or "not_applicable",
+            "hf_norm_fiber_source_status": source_status,
+            "hf_norm_fiber_prediction_status": prediction_status or "not_applicable",
+            "hf_norm_fiber_threshold_source": data.get("hf_norm_fiber_threshold_source", ""),
+            "hf_norm_fiber_selected_tau_v_per_m": data.get(
+                "hf_norm_fiber_selected_tau_v_per_m", ULF_NORM_FIBER_PRIMARY_TAU
+            ),
+            "hf_norm_fiber_selected_coverage": data.get(
+                "hf_norm_fiber_selected_coverage", ULF_NORM_FIBER_PRIMARY_COVERAGE
+            ),
+            "ulf_primary_branch": primary,
+            "delta_hfscore_role": delta_role,
+            "source_resolver_manifest": str(manifest_path),
+        }
+    legacy = read_b_gate_status(gate_status_path, connectome_key)
+    legacy.setdefault("hf_norm_fiber_source_status", "")
+    legacy.setdefault("hf_norm_fiber_prediction_status", legacy.get("hf_prediction_validity_status", ""))
+    legacy.setdefault("hf_norm_fiber_threshold_source", "legacy_gate_status")
+    legacy.setdefault("hf_norm_fiber_selected_tau_v_per_m", ULF_NORM_FIBER_PRIMARY_TAU)
+    legacy.setdefault("hf_norm_fiber_selected_coverage", ULF_NORM_FIBER_PRIMARY_COVERAGE)
+    return legacy
+
+
+def hf_overlap_tau_from_norm_dependency(dependency: dict[str, Any], fallback_tau: float) -> float:
+    if dependency.get("hf_norm_fiber_source_status") in {"pre_specified_accepted", "scan_fallback_accepted"}:
+        try:
+            return float(dependency.get("hf_norm_fiber_selected_tau_v_per_m", fallback_tau))
+        except (TypeError, ValueError):
+            return float(fallback_tau)
+    return math.inf
+
+
+def apply_ulf_only_fiber_rule(
+    hf_component: np.ndarray,
+    ulf_component: np.ndarray,
+    tau: float,
+    *,
+    hf_overlap_tau: float | None = None,
+) -> np.ndarray:
     """Keep ULF exposure only where ULF is active and HF is not active."""
     hf = np.asarray(hf_component, dtype=np.float32)
     ulf = np.asarray(ulf_component, dtype=np.float32)
     if hf.shape != ulf.shape:
         raise ValueError("HF and ULF component matrices must have the same shape")
-    return np.where((ulf > float(tau)) & ~(hf > float(tau)), ulf, 0.0).astype(np.float32)
+    locked_hf_tau = float(tau) if hf_overlap_tau is None else float(hf_overlap_tau)
+    hf_active = np.zeros_like(hf, dtype=bool) if math.isinf(locked_hf_tau) else hf > locked_hf_tau
+    return np.where((ulf > float(tau)) & ~hf_active, ulf, 0.0).astype(np.float32)
 
 
 def classify_b_dependency(decision: str) -> dict[str, str]:
@@ -446,12 +531,15 @@ def run_ulf_fiber_branch(
     pred_base = np.full(y_post.shape[0], np.nan, dtype=float)
     fold_rows: list[dict[str, Any]] = []
     support_rows: list[dict[str, Any]] = []
+    fold_candidate_counts: list[int] = []
+    net_score_nonconstant_all_folds = True
     for heldout in range(y_post.shape[0]):
         train = np.array([idx for idx in range(y_post.shape[0]) if idx != heldout], dtype=int)
         coverage_fold = coverage - s_tau[heldout].astype(np.int32)
         candidate_fold = candidate_mask_from_coverage(coverage_fold, min_coverage)
         if not np.any(candidate_fold):
             raise RuntimeError(f"empty ULF fold candidate set for heldout {subject_ids[heldout]}")
+        fold_candidate_counts.append(int(np.count_nonzero(candidate_fold)))
         nuisance_fold_result = nuisance_fold_provider(heldout) if nuisance_fold_provider is not None else None
         nuisance_fold = nuisance_fold_result
         support_row = None
@@ -464,6 +552,8 @@ def run_ulf_fiber_branch(
         weights_fold = np.full(x_ulf_only.shape[1], np.nan, dtype=np.float32)
         weights_fold[candidate_fold] = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
         fold_net = fiber_net_score(np.asarray(x_ulf_only), weights_fold, candidate_fold, fiber_ids=fiber_ids)
+        if np.nanstd(fold_net.net_score[train]) == 0:
+            net_score_nonconstant_all_folds = False
         fold_pred, beta = fit_linear_prediction(
             y_post[train],
             fold_net.net_score[train],
@@ -502,6 +592,7 @@ def run_ulf_fiber_branch(
                 support_rows.append(support_row)
         fold_rows.append(row)
 
+    fold_count_array = np.asarray(fold_candidate_counts, dtype=float)
     return {
         "branch_name": branch_name,
         "score_rows": score_rows,
@@ -513,9 +604,246 @@ def run_ulf_fiber_branch(
         "weights": weights,
         "candidate": candidate,
         "n_candidate_fibers": int(np.count_nonzero(candidate)),
+        "fold_n_candidate_fibers_min": int(np.nanmin(fold_count_array)) if fold_count_array.size else 0,
+        "fold_n_candidate_fibers_median": float(np.nanmedian(fold_count_array)) if fold_count_array.size else 0.0,
+        "fold_n_candidate_fibers_max": int(np.nanmax(fold_count_array)) if fold_count_array.size else 0,
         "n_sweet_selected_fibers": int(full_net.sweet_fiber_ids.size),
         "n_sour_selected_fibers": int(full_net.sour_fiber_ids.size),
+        "netulfscore_nonconstant_all_folds": bool(net_score_nonconstant_all_folds),
+        "all_predictions_finite": bool(np.all(np.isfinite(pred)) and np.all(np.isfinite(pred_base))),
     }
+
+
+def ulf_norm_fiber_hard_computability_passes(row: dict[str, Any]) -> bool:
+    min_fibers = 1000 if str(row.get("connectome_key", "")) == "dtor" else 100
+    return (
+        float(row.get("n_subjects", 0) or 0) >= 12
+        and float(row.get("fold_n_candidate_fibers_min", 0) or 0) >= min_fibers
+        and bool(row.get("selected_fiber_pools_computable", False))
+        and bool(row.get("netulfscore_nonconstant_all_folds", False))
+        and str(row.get("branch_nuisance_design_status", "")) == "valid"
+        and bool(row.get("all_predictions_finite", False))
+    )
+
+
+def ulf_norm_fiber_empty_scan_row(
+    *,
+    branch: str,
+    branch_role: str,
+    connectome_key: str,
+    tau: int,
+    coverage: int,
+    n_subjects: int,
+    branch_nuisance_design_status: str,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "branch": branch,
+        "branch_role": branch_role,
+        "connectome_key": connectome_key,
+        "tau": tau,
+        "coverage": coverage,
+        "n_subjects": n_subjects,
+        "n_candidate_fibers": 0,
+        "fold_n_candidate_fibers_min": 0,
+        "fold_n_candidate_fibers_median": 0,
+        "fold_n_candidate_fibers_max": 0,
+        "selected_fiber_pools_computable": False,
+        "netulfscore_nonconstant_all_folds": False,
+        "branch_nuisance_design_status": branch_nuisance_design_status,
+        "all_predictions_finite": False,
+        "loocv_spearman_rho": math.nan,
+        "loocv_spearman_nominal_p": math.nan,
+        "loocv_pearson_r": math.nan,
+        "loocv_pearson_nominal_p": math.nan,
+        "q2": math.nan,
+        "mae_model": math.nan,
+        "mae_baseline": math.nan,
+        "rmse_model": math.nan,
+        "rmse_baseline": math.nan,
+        "passes_all_hard_filters": False,
+        "ulf_norm_fiber_prediction_status": "not_applicable",
+        "failure_reason": reason,
+    }
+
+
+def evaluate_ulf_norm_fiber_grid_cell(
+    *,
+    branch: str,
+    branch_role: str,
+    connectome_key: str,
+    x_ulf_only: np.ndarray,
+    y_post: np.ndarray,
+    y_hf_ref: np.ndarray,
+    nuisance_full: np.ndarray | None,
+    nuisance_fold_provider: Any,
+    subject_ids: list[str],
+    scale_direction: str,
+    tau: int,
+    coverage: int,
+    fiber_ids: np.ndarray,
+) -> dict[str, Any]:
+    design_status = branch_nuisance_design_status(y_hf_ref=y_hf_ref, delta_hfscore=nuisance_full)
+    if design_status != "valid":
+        return ulf_norm_fiber_empty_scan_row(
+            branch=branch,
+            branch_role=branch_role,
+            connectome_key=connectome_key,
+            tau=tau,
+            coverage=coverage,
+            n_subjects=int(y_post.shape[0]),
+            branch_nuisance_design_status=design_status,
+            reason=design_status,
+        )
+    try:
+        result = run_ulf_fiber_branch(
+            branch_name=f"ulf_peak_efield_tau{tau}_{branch}",
+            x_ulf_only=x_ulf_only,
+            y_post=y_post,
+            y_hf_ref=y_hf_ref,
+            nuisance_full=nuisance_full,
+            nuisance_fold_provider=nuisance_fold_provider,
+            subject_ids=subject_ids,
+            scale_direction=scale_direction,
+            tau=float(tau),
+            min_coverage=int(coverage),
+            fiber_ids=fiber_ids,
+        )
+    except Exception as exc:
+        return ulf_norm_fiber_empty_scan_row(
+            branch=branch,
+            branch_role=branch_role,
+            connectome_key=connectome_key,
+            tau=tau,
+            coverage=coverage,
+            n_subjects=int(y_post.shape[0]),
+            branch_nuisance_design_status=design_status,
+            reason=str(exc),
+        )
+    y_true = np.array([row["Y_post"] for row in result["fold_rows"]], dtype=float)
+    pred = np.array([row["prediction_NetFiberScore_model"] for row in result["fold_rows"]], dtype=float)
+    pred_base = np.array([row["prediction_baseline_only"] for row in result["fold_rows"]], dtype=float)
+    residual_model = y_true - pred
+    residual_base = y_true - pred_base
+    rho, rho_p = safe_spearman(y_true, pred)
+    pearson, pearson_p = safe_pearson(y_true, pred)
+    row = {
+        "branch": branch,
+        "branch_role": branch_role,
+        "connectome_key": connectome_key,
+        "tau": tau,
+        "coverage": coverage,
+        "n_subjects": int(y_post.shape[0]),
+        "n_candidate_fibers": int(result["n_candidate_fibers"]),
+        "fold_n_candidate_fibers_min": int(result["fold_n_candidate_fibers_min"]),
+        "fold_n_candidate_fibers_median": float(result["fold_n_candidate_fibers_median"]),
+        "fold_n_candidate_fibers_max": int(result["fold_n_candidate_fibers_max"]),
+        "selected_fiber_pools_computable": bool(
+            result["n_sweet_selected_fibers"] > 0 and result["n_sour_selected_fibers"] > 0
+        ),
+        "netulfscore_nonconstant_all_folds": bool(result["netulfscore_nonconstant_all_folds"]),
+        "branch_nuisance_design_status": design_status,
+        "all_predictions_finite": bool(result["all_predictions_finite"]),
+        "loocv_spearman_rho": rho,
+        "loocv_spearman_nominal_p": rho_p,
+        "loocv_pearson_r": pearson,
+        "loocv_pearson_nominal_p": pearson_p,
+        "q2": result["metrics"].get("q2", math.nan),
+        "mae_model": float(np.mean(np.abs(residual_model))),
+        "mae_baseline": float(np.mean(np.abs(residual_base))),
+        "rmse_model": float(np.sqrt(np.mean(residual_model * residual_model))),
+        "rmse_baseline": float(np.sqrt(np.mean(residual_base * residual_base))),
+        "failure_reason": "",
+    }
+    row["passes_all_hard_filters"] = ulf_norm_fiber_hard_computability_passes(row)
+    row["ulf_norm_fiber_prediction_status"] = (
+        classify_prediction_status(row) if row["passes_all_hard_filters"] else "not_applicable"
+    )
+    return row
+
+
+def resolve_ulf_norm_fiber_branch(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    resolved = resolve_hf_source(
+        rows,
+        primary_tau=ULF_NORM_FIBER_PRIMARY_TAU,
+        primary_coverage=ULF_NORM_FIBER_PRIMARY_COVERAGE,
+        tau_grid=ULF_NORM_FIBER_TAU_GRID,
+        coverage_grid=ULF_NORM_FIBER_COVERAGE_GRID,
+        pass_predicate=ulf_norm_fiber_hard_computability_passes,
+    )
+    return {
+        "ulf_norm_fiber_source_status": resolved["source_status"],
+        "ulf_norm_fiber_prediction_status": resolved["prediction_status"],
+        "ulf_norm_fiber_threshold_source": resolved["threshold_source"],
+        "ulf_norm_fiber_selected_tau_v_per_m": resolved["selected_tau"],
+        "ulf_norm_fiber_selected_coverage": resolved["selected_coverage"],
+        "ulf_norm_fiber_selected_adjacent_passing_grid_cells": resolved["selected_adjacent_passing_grid_cells"],
+        "ulf_norm_fiber_source_failure_reasons": resolved["source_failure_reasons"],
+    }
+
+
+def ulf_norm_fiber_endpoint_status_for_primary(primary_resolution: dict[str, Any]) -> str:
+    source_status = primary_resolution.get("ulf_norm_fiber_source_status", "")
+    prediction_status = primary_resolution.get("ulf_norm_fiber_prediction_status", "")
+    if source_status in {"pre_specified_accepted", "scan_fallback_accepted"} and prediction_status == "error_predictive":
+        return "primary_branch_error_predictive"
+    if source_status in {"pre_specified_accepted", "scan_fallback_accepted"} and prediction_status == "error_nonpredictive":
+        return "primary_branch_error_nonpredictive"
+    if source_status == "absent_no_stable_grid":
+        return "absent_no_stable_ulf_grid"
+    return "primary_branch_input_failure"
+
+
+def write_ulf_norm_fiber_source_scan_outputs(
+    output_dir: Path,
+    *,
+    rows: list[dict[str, Any]],
+    branch_resolutions: dict[str, dict[str, Any]],
+    manifest: dict[str, Any],
+) -> dict[str, str]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    scan_csv = output_dir / "normative_ULF_fiber_tau_coverage_source_resolver_scan.csv"
+    manifest_json = output_dir / "normative_ULF_fiber_tau_coverage_source_resolver_manifest.json"
+    fieldnames = [
+        "branch",
+        "branch_role",
+        "connectome_key",
+        "tau",
+        "coverage",
+        "n_subjects",
+        "n_candidate_fibers",
+        "fold_n_candidate_fibers_min",
+        "fold_n_candidate_fibers_median",
+        "fold_n_candidate_fibers_max",
+        "selected_fiber_pools_computable",
+        "netulfscore_nonconstant_all_folds",
+        "branch_nuisance_design_status",
+        "all_predictions_finite",
+        "loocv_spearman_rho",
+        "loocv_spearman_nominal_p",
+        "loocv_pearson_r",
+        "loocv_pearson_nominal_p",
+        "q2",
+        "mae_model",
+        "mae_baseline",
+        "rmse_model",
+        "rmse_baseline",
+        "passes_all_hard_filters",
+        "ulf_norm_fiber_prediction_status",
+        "failure_reason",
+    ]
+    write_csv(scan_csv, rows, fieldnames)
+    write_json(
+        manifest_json,
+        {
+            **manifest,
+            "branch_resolutions": branch_resolutions,
+            "n_grid_rows": len(rows),
+            "n_passing_grid_rows": int(sum(ulf_norm_fiber_hard_computability_passes(row) for row in rows)),
+            "outputs": {"scan_csv": str(scan_csv), "manifest_json": str(manifest_json)},
+        },
+    )
+    return {"scan_csv": str(scan_csv), "manifest_json": str(manifest_json)}
 
 
 def write_branch_outputs(branch_dir: Path, branch: dict[str, Any], fiber_ids: np.ndarray, qc_common: dict[str, Any], manifest_common: dict[str, Any]) -> None:
@@ -664,6 +992,14 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
     output_root = Path(args.output_root).expanduser().resolve() / connectome_slug / slugify(args.post_scale) / f"peak_efield_{tau_name}_observed"
     preprocess_dir = output_root / "preprocess"
     preprocess_dir.mkdir(parents=True, exist_ok=True)
+    default_component_cache = (
+        Path(args.output_root).expanduser().resolve()
+        / connectome_slug
+        / slugify(args.post_scale)
+        / f"peak_efield_{tau_slug(ULF_NORM_FIBER_PRIMARY_TAU)}_observed"
+        / "preprocess"
+    )
+    component_preprocess_dir = default_component_cache if default_component_cache.is_dir() and not args.force_rebuild else preprocess_dir
 
     hf_samplers, hf_sampler_qc = prepare_component_fiber_samplers(
         availability,
@@ -671,7 +1007,7 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
         "HF",
         asset_root,
         matlab_bin,
-        preprocess_dir,
+        component_preprocess_dir,
         args.force_flip,
     )
     ulf_samplers, ulf_sampler_qc = prepare_component_fiber_samplers(
@@ -680,14 +1016,14 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
         "ULF",
         asset_root,
         matlab_bin,
-        preprocess_dir,
+        component_preprocess_dir,
         args.force_flip,
     )
     x_hf_component, fiber_ids, hf_component_qc = load_or_build_component_exposure(
         data_mat,
         records,
         hf_samplers,
-        preprocess_dir,
+        component_preprocess_dir,
         "HF_component",
         max_fibers=args.max_fibers,
         fiber_chunk_size=args.fiber_chunk_size,
@@ -697,7 +1033,7 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
         data_mat,
         records,
         ulf_samplers,
-        preprocess_dir,
+        component_preprocess_dir,
         "ULF_component",
         max_fibers=args.max_fibers,
         fiber_chunk_size=args.fiber_chunk_size,
@@ -714,18 +1050,33 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
     if not np.array_equal(fiber_ids, hf_reference_ids):
         raise RuntimeError("ULF component fiber IDs do not match matched HF reference fiber IDs")
 
-    x_ulf_only = apply_ulf_only_fiber_rule(x_hf_component, x_ulf_component, args.tau)
+    gate = read_b_normative_fiber_dependency(
+        Path(args.hf_output_root).expanduser().resolve(),
+        connectome_slug,
+        hf_ref_scale,
+        Path(args.gate_status).expanduser().resolve(),
+        args.connectome,
+    )
+    locked_hf_overlap_tau = hf_overlap_tau_from_norm_dependency(gate, args.tau)
+    locked_hf_coverage = int(float(gate.get("hf_norm_fiber_selected_coverage", args.min_coverage)))
+
+    x_ulf_only = apply_ulf_only_fiber_rule(x_hf_component, x_ulf_component, args.tau, hf_overlap_tau=locked_hf_overlap_tau)
     np.save(preprocess_dir / "X_ULF_only_fiber_float32_subject_major.npy", np.asarray(x_ulf_only, dtype=np.float32))
 
-    hf_delta_full = fit_hf_delta_full(
-        np.asarray(hf_reference_x),
-        np.asarray(x_hf_component),
-        y_hf_ref,
-        y_base,
-        scale_direction,
-        args.tau,
-        args.min_coverage,
-        fiber_ids,
+    hf_source_exists = gate.get("hf_norm_fiber_source_status") in {"pre_specified_accepted", "scan_fallback_accepted"}
+    hf_delta_full = (
+        fit_hf_delta_full(
+            np.asarray(hf_reference_x),
+            np.asarray(x_hf_component),
+            y_hf_ref,
+            y_base,
+            scale_direction,
+            locked_hf_overlap_tau,
+            locked_hf_coverage,
+            fiber_ids,
+        )
+        if hf_source_exists
+        else None
     )
 
     def fold_delta_provider(heldout: int) -> dict[str, Any]:
@@ -737,7 +1088,7 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
             scale_direction,
             hf_delta_full["s_tau"],
             heldout,
-            args.min_coverage,
+            locked_hf_coverage,
             fiber_ids,
         )
         support = np.asarray(fold["candidate"], dtype=bool) & np.isfinite(fold["weights"])
@@ -747,7 +1098,7 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
                 subject_id=subject_ids[heldout],
                 endpoint=args.post_scale,
                 connectome=connectome_info["label"],
-                tau=args.tau,
+                tau=locked_hf_overlap_tau,
                 fold_id=heldout + 1,
                 hf_component=np.asarray(x_hf_component[heldout], dtype=float),
                 support=support,
@@ -756,6 +1107,111 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
                 n_sour_selected=int(fold["n_sour_selected_fibers"]),
             ),
         }
+
+    if args.source_resolver_scan:
+        rows: list[dict[str, Any]] = []
+        branch_resolutions: dict[str, dict[str, Any]] = {}
+        branch_specs: list[tuple[str, str, np.ndarray | None, Any]] = [
+            (
+                "no_delta_hf",
+                "primary" if gate["ulf_primary_branch"] == "no_delta_hf" else "sensitivity",
+                None,
+                None,
+            )
+        ]
+        if hf_source_exists and hf_delta_full is not None:
+            branch_specs.append(
+                (
+                    "delta_hf_adjusted",
+                    "primary" if gate["ulf_primary_branch"] == "delta_hf_adjusted" else "sensitivity",
+                    np.asarray(hf_delta_full["delta"], dtype=float),
+                    fold_delta_provider,
+                )
+            )
+        for tau in ULF_NORM_FIBER_TAU_GRID:
+            x_ulf_only_tau = apply_ulf_only_fiber_rule(
+                x_hf_component,
+                x_ulf_component,
+                tau,
+                hf_overlap_tau=locked_hf_overlap_tau,
+            )
+            for branch_name, branch_role, nuisance_full, nuisance_provider in branch_specs:
+                for coverage_min in ULF_NORM_FIBER_COVERAGE_GRID:
+                    print(
+                        f"[{connectome_slug}/{slugify(args.post_scale)}/{branch_name}] "
+                        f"Evaluating tau={tau} V/m, Coverage>={coverage_min}",
+                        flush=True,
+                    )
+                    rows.append(
+                        evaluate_ulf_norm_fiber_grid_cell(
+                            branch=branch_name,
+                            branch_role=branch_role,
+                            connectome_key=args.connectome,
+                            x_ulf_only=np.asarray(x_ulf_only_tau),
+                            y_post=y_post,
+                            y_hf_ref=y_hf_ref,
+                            nuisance_full=nuisance_full,
+                            nuisance_fold_provider=nuisance_provider,
+                            subject_ids=subject_ids,
+                            scale_direction=scale_direction,
+                            tau=tau,
+                            coverage=coverage_min,
+                            fiber_ids=fiber_ids,
+                        )
+                    )
+        for branch_name, _, _, _ in branch_specs:
+            branch_rows = [row for row in rows if row["branch"] == branch_name]
+            branch_resolutions[branch_name] = resolve_ulf_norm_fiber_branch(branch_rows)
+        intended_primary_branch = gate["ulf_primary_branch"]
+        primary_resolution = branch_resolutions.get(intended_primary_branch, {})
+        endpoint_status = (
+            ulf_norm_fiber_endpoint_status_for_primary(primary_resolution)
+            if primary_resolution
+            else "primary_branch_input_failure"
+        )
+        scan_dir = output_root / "tau_coverage_source_resolver_scan"
+        outputs = write_ulf_norm_fiber_source_scan_outputs(
+            scan_dir,
+            rows=rows,
+            branch_resolutions=branch_resolutions,
+            manifest={
+                "generated_at": iso_now(),
+                "analysis": "ulf_normative_fiber_tau_coverage_source_resolver_scan",
+                "model": "ULF normative connectome fiber",
+                "post_scale": args.post_scale,
+                "hf_reference_scale": hf_ref_scale,
+                "connectome": connectome_info["label"],
+                "connectome_slug": connectome_slug,
+                "scale_direction": scale_direction,
+                "scale_direction_source": scale_direction_source,
+                "tau_grid_v_per_m": ULF_NORM_FIBER_TAU_GRID,
+                "coverage_grid": ULF_NORM_FIBER_COVERAGE_GRID,
+                "pre_specified_tau_v_per_m": ULF_NORM_FIBER_PRIMARY_TAU,
+                "pre_specified_coverage": ULF_NORM_FIBER_PRIMARY_COVERAGE,
+                "hf_overlap_tau_v_per_m": locked_hf_overlap_tau if math.isfinite(locked_hf_overlap_tau) else "+Inf",
+                "hf_overlap_rule": "locked_hf_selected_tau" if math.isfinite(locked_hf_overlap_tau) else "no_hf_source_no_overlap_exclusion",
+                "hf_norm_fiber_source_status": gate.get("hf_norm_fiber_source_status", ""),
+                "hf_norm_fiber_prediction_status": gate.get("hf_norm_fiber_prediction_status", ""),
+                "hf_norm_fiber_threshold_source": gate.get("hf_norm_fiber_threshold_source", ""),
+                "hf_norm_fiber_selected_tau_v_per_m": gate.get("hf_norm_fiber_selected_tau_v_per_m", ""),
+                "hf_norm_fiber_selected_coverage": gate.get("hf_norm_fiber_selected_coverage", ""),
+                "intended_primary_branch": intended_primary_branch,
+                "ulf_primary_branch": intended_primary_branch,
+                "delta_hfscore_role": gate["delta_hfscore_role"],
+                "ulf_norm_fiber_endpoint_model_status": endpoint_status,
+                "runtime_s": time.time() - started,
+            },
+        )
+        print(f"ULF normative fiber source resolver output: {scan_dir}")
+        print(
+            json.dumps(
+                {"branch_resolutions": branch_resolutions, "ulf_norm_fiber_endpoint_model_status": endpoint_status},
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        print(f"Scan CSV: {outputs['scan_csv']}")
+        return 0
 
     no_delta = run_ulf_fiber_branch(
         branch_name=f"ulf_peak_efield_{tau_name}_no_delta_hf",
@@ -775,8 +1231,8 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
         x_ulf_only=np.asarray(x_ulf_only),
         y_post=y_post,
         y_hf_ref=y_hf_ref,
-        nuisance_full=np.asarray(hf_delta_full["delta"], dtype=float),
-        nuisance_fold_provider=fold_delta_provider,
+        nuisance_full=np.asarray(hf_delta_full["delta"], dtype=float) if hf_delta_full is not None else None,
+        nuisance_fold_provider=fold_delta_provider if hf_delta_full is not None else None,
         subject_ids=subject_ids,
         scale_direction=scale_direction,
         tau=args.tau,
@@ -784,7 +1240,6 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
         fiber_ids=fiber_ids,
     )
 
-    gate = read_b_gate_status(Path(args.gate_status).expanduser().resolve(), args.connectome)
     qc_common = {
         "model": "ULF normative connectome fiber",
         "post_scale": args.post_scale,
@@ -795,6 +1250,8 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
         "connectome_slug": connectome_slug,
         "n_subjects": len(records),
         "tau_v_per_m": args.tau,
+        "hf_overlap_tau_v_per_m": locked_hf_overlap_tau if math.isfinite(locked_hf_overlap_tau) else "+Inf",
+        "hf_overlap_rule": "locked_hf_selected_tau" if math.isfinite(locked_hf_overlap_tau) else "no_hf_source_no_overlap_exclusion",
         "min_coverage": args.min_coverage,
         "n_fibers": int(x_ulf_only.shape[1]),
         "n_ulf_only_nonzero_subjects": int(np.count_nonzero(np.sum(x_ulf_only, axis=1) > 0)),
@@ -812,6 +1269,7 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
         "connectome_slug": connectome_slug,
         "data_mat": str(data_mat),
         "matched_hf_reference_preprocess": str(hf_reference_preprocess),
+        "component_preprocess_dir": str(component_preprocess_dir),
         "output_root": str(output_root),
         "python": {
             "executable": sys.executable,
@@ -823,6 +1281,8 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
             "post_scale": args.post_scale,
             "hf_reference_scale": hf_ref_scale,
             "tau_v_per_m": args.tau,
+            "hf_overlap_tau_v_per_m": locked_hf_overlap_tau if math.isfinite(locked_hf_overlap_tau) else "+Inf",
+            "hf_overlap_rule": "locked_hf_selected_tau" if math.isfinite(locked_hf_overlap_tau) else "no_hf_source_no_overlap_exclusion",
             "min_coverage": args.min_coverage,
             "connectome": args.connectome,
             "max_fibers": int(args.max_fibers),
@@ -830,6 +1290,11 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
             "random_seed": 42,
         },
         "hf_prediction_validity_status": gate["hf_prediction_validity_status"],
+        "hf_norm_fiber_source_status": gate.get("hf_norm_fiber_source_status", ""),
+        "hf_norm_fiber_prediction_status": gate.get("hf_norm_fiber_prediction_status", ""),
+        "hf_norm_fiber_threshold_source": gate.get("hf_norm_fiber_threshold_source", ""),
+        "hf_norm_fiber_selected_tau_v_per_m": gate.get("hf_norm_fiber_selected_tau_v_per_m", ""),
+        "hf_norm_fiber_selected_coverage": gate.get("hf_norm_fiber_selected_coverage", ""),
         "hf_gate_decision": gate["gate_decision"],
         "hf_gate_model_id": gate["model_id"],
         "ulf_primary_branch": gate["ulf_primary_branch"],
@@ -871,6 +1336,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-fibers", type=int, default=0, help="Development-only cap; 0 means full connectome.")
     parser.add_argument("--force-flip", action="store_true", help="Regenerate left-to-right flipped fields.")
     parser.add_argument("--force-rebuild", action="store_true", help="Regenerate component exposure sidecars.")
+    parser.add_argument("--source-resolver-scan", action="store_true", help="Run the ULF normative fiber tau/Coverage source resolver scan.")
     return parser
 
 
