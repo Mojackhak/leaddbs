@@ -35,6 +35,7 @@ B_DTOR/D_DTOR dTOR normative-fiber smoke permutation refreshed under /Volumes/VA
 B_DTOR/D_DTOR dTOR normative-fiber formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber formal bootstrap refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_bootstrap/
 B_DTOR/D_DTOR dTOR normative-fiber sensitivity readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_sensitivity_readiness/
+Final reporting and figure-output readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/
 ```
 
 The formal rerun manifests for direct-voxel permutation/bootstrap/jitter,
@@ -87,6 +88,7 @@ dTOR normative-fiber smoke permutation = B_DTOR and D_DTOR complete at B=1000, s
 dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR fiber jitter/OSS = not_run_missing_inputs
+final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; fiber density/label caches missing
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -137,6 +139,18 @@ Current dTOR normative-fiber sensitivity readiness snapshot:
 B_DTOR HF normative fiber: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = not_run_missing_jitter_inputs
 D_DTOR ULF normative fiber no_delta_hf final model: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = not_run_missing_jitter_inputs
 consolidated formal_resampling_status = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING for B_DTOR and D_DTOR
+```
+
+Current final reporting and figure-output readiness snapshot:
+
+```text
+output root = /Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/
+four_model_final_report.csv rows = 7
+four_model_figure_output_readiness.csv rows = 7
+A direct voxel: figure_output_status = ready_from_existing_direct_voxel_maps
+C ULF direct voxel no_delta_hf: figure_output_status = ready_from_existing_direct_voxel_maps
+B/D normative fiber rows: figure_output_status = not_run_missing_density_label_cache
+manifest cohort_n = 16; interpretation = hypothesis_generating
 ```
 
 When execution is resumed from this checkpoint, expensive dTOR fiber formal
@@ -428,6 +442,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | dTOR normative-fiber smoke/formal permutation | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_smoke_permutation.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_smoke_permutation.py` | implemented |
 | dTOR normative-fiber formal bootstrap | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_bootstrap.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_bootstrap.py` | implemented |
 | dTOR normative-fiber sensitivity readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_sensitivity_readiness.py` | implemented |
+| Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
 | C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
@@ -438,14 +453,14 @@ The current codebase is no longer greenfield. The following layers already exist
 
 ```text
 C gain endpoints, total-ULF sensitivity, and all-endpoint reporting driver
-D OSS and figure-grade outputs
+D OSS and full fiber figure-grade density/FDR/enrichment outputs, pending required caches
 shared reusable resolver/manifest/score architecture across voxel, fiber, HF, and ULF models
-direct-voxel formal spatial jitter loop completion
 fiber OSS-DBS activation branch execution, pending required inputs
+fiber density/label/FDR/enrichment cache construction
 nested/adaptive threshold-source validation
 max-stat permutation for threshold-source selection
 OLS ANCOVA optional estimator
-figure-grade display/FDR/enrichment layers beyond existing source-resolver heatmaps
+full figure-grade display/FDR/enrichment layers beyond final reporting/readiness summaries
 ```
 
 `my_helper/stnsnr/four_model_execution_implementation_notes.md` records implementation-layer details and should be updated whenever a new executable layer is added.
@@ -690,9 +705,12 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    revised. If a ULF intended primary branch has input/design failure, the
    executable fallback no-DeltaHF branch becomes the unique final model for that
    endpoint.
-3. Generate figure-grade FDR/enrichment/display outputs only from the
-   automatically selected final-model outputs and the explicit missing-input
-   sensitivity statuses.
+3. Regenerate the final reporting and figure-output readiness package after any
+   upstream resolver, status, formal summary, or sensitivity-readiness output
+   changes. This package is the executable Round 8/9/10 boundary for the
+   current output state: it summarizes final models, formal inference,
+   direct-voxel display-source availability, and missing fiber density/label
+   caches without fabricating unavailable figure-grade fiber maps.
 4. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
@@ -712,7 +730,7 @@ final model branch:
 
 ```text
 HF/ULF normative fiber OSS-DBS activation sensitivity when inputs exist
-figure-grade FDR/enrichment/display outputs
+full fiber density/FDR/enrichment/display outputs when density and label caches exist
 ```
 
 If any upstream model or resolver patch lands before this work starts, rerun the
@@ -1104,6 +1122,13 @@ dTOR normative-fiber sensitivity readiness:
   python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py
 ```
 
+Final reporting and figure-output readiness:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py
+```
+
 ---
 
 ## 10. Definition Of Done
@@ -1120,6 +1145,9 @@ unique model branch.
 Every final-model formal target passes the readiness audit before expensive
 formal drivers are started.
 Fallback-selected thresholds are explicitly labeled as scan-fallback sources and are never relabeled as pre-specified sources.
+The final reporting package records the unique final model for each formal target,
+formal resampling status, direct-voxel display-source availability, and explicit
+not-run statuses for unavailable fiber OSS/jitter/density/FDR/enrichment inputs.
 The final report states n=16 and hypothesis-generating interpretation.
 All affected outputs and consolidated status files have been rerun after the latest executable patch.
 Reusable backend components cover shared resolver, branch-role, score, DeltaHFScore, manifest, and stale-output logic.

@@ -2,7 +2,7 @@
 
 This note records executable implementation layers for `four_model_execution_plan.md`.
 
-The full four-model program is intentionally gated. The current codebase now includes readiness, observed A/B/C/D branches, C/D source resolvers, consolidated status reporting, final-model worklist/readiness auditing, and shared resolver utilities. Formal permutation, bootstrap, jitter, OSS-DBS, all-endpoint reporting, and figure-grade display stages remain deferred.
+The full four-model program is intentionally gated. The current codebase now includes readiness, observed A/B/C/D branches, C/D source resolvers, consolidated status reporting, final-model worklist/readiness auditing, formal permutation/bootstrap/jitter layers for available final targets, final reporting/readiness summaries, and shared resolver utilities. Full fiber density/FDR/enrichment display outputs remain deferred until the required density and label caches exist.
 
 ## Pause Checkpoint
 
@@ -25,7 +25,14 @@ Current refreshed outputs:
 /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/four_model_formal_readiness.csv
 /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/four_model_formal_readiness.md
 /Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_permutation/direct_voxel_formal_permutation_summary.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_bootstrap/direct_voxel_formal_bootstrap_summary.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_jitter/direct_voxel_formal_jitter_summary.csv
 /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_smoke_permutation/normative_fiber_smoke_permutation_summary.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_permutation/normative_fiber_formal_permutation_summary.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_bootstrap/normative_fiber_formal_bootstrap_summary.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_sensitivity_readiness/normative_fiber_sensitivity_readiness_summary.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/four_model_final_report.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/four_model_figure_output_readiness.csv
 ```
 
 Current state:
@@ -40,8 +47,14 @@ formal target worklist: 4/7 READY_FOR_FORMAL_RESAMPLING; 3/7 OBSERVED_ROBUSTNESS
 formal readiness audit: 4/4 formal targets READY_FOR_FORMAL_DRIVER
 ULF component e-fields: 64/64 available
 direct-voxel formal permutation: A and C complete at B=10000, seed=42
+direct-voxel formal bootstrap: A and C complete at B=10000, seed=42
+direct-voxel formal jitter: A and C complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber smoke permutation: B_DTOR and D_DTOR complete at B=1000, seed=42
-fiber formal permutation/bootstrap, spatial jitter, OSS-DBS, and figure-grade outputs: not run
+dTOR normative-fiber formal permutation: B_DTOR and D_DTOR complete at B=10000, seed=42
+dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, seed=42
+dTOR normative-fiber OSS/jitter sensitivity readiness: not_run_missing_inputs
+final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; fiber density/label caches missing
+full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
 Current direct-voxel formal permutation results:
@@ -72,8 +85,10 @@ D_DTOR ULF normative fiber no_delta_hf final model:
   B = 1000
 ```
 
-No expensive formal permutation/bootstrap/jitter/OSS drivers should be started
-until the workflow is explicitly resumed for that layer.
+No additional full fiber density/FDR/enrichment drivers should be started until
+the required density and label caches are created or supplied. OSS-DBS
+activation and fiber jitter sensitivity should remain explicit missing-input
+statuses until their required sidecars exist.
 
 The consolidated status manifest records git provenance for the worktree that
 generated the status refresh, including branch, HEAD commit, and dirty files.
@@ -89,6 +104,22 @@ source/endpoint classifiers. HF rows record `hf_final_model_source`,
 `ulf_final_model_branch`, `ulf_final_model_role`, and
 `ulf_final_model_status`; formal, jitter, OSS, and display-layer work attach to
 that final model rather than to a manually selected reporting branch.
+
+The final reporting layer consumes the consolidated status, formal worklist,
+formal readiness audit, formal summary CSVs, and fiber sensitivity-readiness
+CSV. It writes:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/four_model_final_report.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/four_model_final_report.md
+/Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/four_model_figure_output_readiness.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/four_model_final_reporting_manifest.json
+```
+
+This layer does not fit models, rerun resampling, or fabricate unavailable
+fiber density/FDR/enrichment outputs. It records `ready_from_existing_maps` for
+A/C direct-voxel display sources and `not_run_missing_density_label_cache` for
+fiber figure-output readiness when the required caches are absent.
 
 ## Execution Root Availability
 
