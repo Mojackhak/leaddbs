@@ -96,6 +96,8 @@ def test_run_target_jitter_writes_summary_tables_and_se_nifti() -> None:
         assert_true((branch_dir / "direct_voxel_HF_jitter_model_similarity.csv").is_file(), "similarity exists")
         assert_true((branch_dir / "direct_voxel_HF_jitter_selected_overlap.csv").is_file(), "overlap exists")
         assert_true((branch_dir / "direct_voxel_HF_jitter_se.nii.gz").is_file(), "SE NIfTI exists")
+        manifest = json.loads((branch_dir / "direct_voxel_HF_formal_jitter_manifest.json").read_text(encoding="utf-8"))
+        assert_true(bool(manifest.get("code_provenance", {}).get("git_commit")), "manifest records git commit")
 
 
 def main() -> int:

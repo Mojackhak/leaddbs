@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,35 @@ from stnsnr_four_model_stats import (
     suprathreshold_matrix,
 )
 from stnsnr_hf_direct_voxel_smoke import sample_image_at_xyz
+
+
+def default_repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def _run_git(repo_root: Path, args: list[str]) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def git_provenance(repo_root: Path | None = None) -> dict[str, Any]:
+    root = repo_root or default_repo_root()
+    dirty_files = _run_git(root, ["status", "--short"]).splitlines()
+    return {
+        "repo_root": str(root),
+        "git_branch": _run_git(root, ["branch", "--show-current"]),
+        "git_commit": _run_git(root, ["rev-parse", "HEAD"]),
+        "git_short_commit": _run_git(root, ["rev-parse", "--short", "HEAD"]),
+        "git_dirty": bool(dirty_files),
+        "git_dirty_files": dirty_files,
+    }
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -204,6 +234,7 @@ def run_target_jitter(
     jitter_fwhm_mm: float = 2.0,
     seed: int = 42,
 ) -> dict[str, Any]:
+    provenance = git_provenance()
     prefix = file_prefix_for_manifest(target.manifest_path)
     subject_ids = _subject_ids(target.subjects_csv)
     xyz = np.asarray(np.load(target.x_path.parent / "candidate_xyz.npy"), dtype=np.float32)
@@ -321,6 +352,7 @@ def run_target_jitter(
             "jitter_fwhm_mm": float(jitter_fwhm_mm),
             "jitter_sigma_mm": sigma_mm,
             "seed": int(seed),
+            "code_provenance": provenance,
             "method": "Subject-side spatial jitter with raw/flipped e-field resampling on the final candidate grid",
             "outputs": {
                 "summary_csv": str(summary_path),
@@ -336,6 +368,7 @@ def run_target_jitter(
 
 def run_formal_jitter(args: argparse.Namespace) -> int:
     readiness_csv = Path(args.readiness_csv).expanduser().resolve()
+    provenance = git_provenance()
     requested = set(args.model_id) if args.model_id else None
     targets = discover_targets(readiness_csv, requested)
     if not targets:
@@ -364,6 +397,7 @@ def run_formal_jitter(args: argparse.Namespace) -> int:
             "n_jitters": int(args.n_jitters),
             "jitter_fwhm_mm": float(args.jitter_fwhm_mm),
             "seed": int(args.seed),
+            "code_provenance": provenance,
             "outputs": {"summary_csv": str(summary_path)},
         },
     )
