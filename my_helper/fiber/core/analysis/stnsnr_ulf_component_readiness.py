@@ -225,7 +225,11 @@ def build_endpoint_reconstruction(raw_df: pd.DataFrame, hf_scale: str, post_scal
 
 
 def build_component_availability(stim_df: pd.DataFrame, derivatives_root: Path) -> list[dict[str, Any]]:
-    required = stim_df[(stim_df["Phase"].astype(str) == "3m") & (stim_df["Protocol"].astype(str) == "STN+SNr")].copy()
+    required_phases = {"3m", "immediate"}
+    required = stim_df[
+        stim_df["Phase"].astype(str).isin(required_phases)
+        & (stim_df["Protocol"].astype(str) == "STN+SNr")
+    ].copy()
     rows: list[dict[str, Any]] = []
     condition_keys = ["ID", "Phase", "Protocol"]
     for _, condition_rows in required.groupby(condition_keys, sort=False):

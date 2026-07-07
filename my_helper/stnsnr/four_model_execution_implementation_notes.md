@@ -57,7 +57,8 @@ dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, se
 dTOR normative-fiber OSS/jitter sensitivity readiness: not_run_missing_inputs
 final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; fiber density/label caches missing
 C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
-all-endpoint reporting: 61 rows; A all-endpoint source-resolver rows = 30; missing-work audit rows = 6, with 2 C observed sensitivity rows detected and 4 rows still not run
+C same-day immediate endpoint-family observed outputs: complete for 2 endpoint rows; resampling_status = not_run_observed_only
+all-endpoint reporting: 67 rows; A all-endpoint source-resolver rows = 30; discovered branch manifests = 23; missing-work audit rows = 6, with 3 C observed sensitivity/immediate rows detected and 3 D rows still not run
 full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
@@ -137,9 +138,9 @@ branch manifests. It writes:
 ```
 
 This layer does not fit gain, same-day immediate, or total-ULF sensitivity
-models. It records those absent C/D outputs as
-`not_run_missing_observed_outputs` so downstream reporting can distinguish
-"not run" from "failed model".
+models. It records those C/D outputs as `observed_outputs_detected` when output
+files exist and `not_run_missing_observed_outputs` when they are absent, so
+downstream reporting can distinguish "not run" from "failed model".
 
 ## Execution Root Availability
 
@@ -442,8 +443,8 @@ The readiness check verifies:
   table has no immediate rows;
 - frequency-component classification from `followup_stimulation.xlsx` with
   `HF >= 100 Hz` and `ULF <= 50 Hz`;
-- component-specific `3m/STN+SNr` raw `sim-efield` availability for every
-  subject, side, and frequency-classified component row;
+- component-specific `3m/STN+SNr` and `immediate/STN+SNr` raw `sim-efield`
+  availability for every subject, side, and frequency-classified component row;
 - A/B dependency status from the current status CSV, while intended direct-voxel
   branch roles are refreshed from `hf_voxel_source_status` and
   `hf_voxel_prediction_status`.
@@ -862,7 +863,8 @@ The C-model observed executable layer runs the core ULF direct voxel branches.
 It is intentionally limited to LOOCV observed modeling; formal permutation,
 bootstrap, and jitter are separate final-model drivers. Gain and total-ULF
 sensitivity outputs are handled by the separate observed-only sensitivity
-driver below. The same-day immediate endpoint family remains not implemented.
+driver below. Same-day immediate endpoint rows are handled by the separate
+observed-only endpoint-family driver below.
 
 Entry point:
 
@@ -1020,6 +1022,54 @@ Reusable implementation:
 
 ```text
 my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_sensitivity_observed.py
+```
+
+## ULF Direct Voxel Same-Day Immediate Endpoint-Family Driver
+
+The C same-day immediate endpoint-family layer is observed-only. It discovers
+all raw clinical `STN+SNr immediate` endpoint rows with paired `STN 3m`
+reference scores and `n_subjects >= 12`, then runs the existing C observed
+LOOCV driver and source-resolver scan for each endpoint row.
+
+Current raw clinical availability:
+
+```text
+MDS-UPDRS III score (STN+SNr, immediate): n = 16 paired subjects
+MDS-UPDRS III axial score (STN+SNr, immediate): n = 16 paired subjects
+```
+
+The driver depends on ULF component readiness rows for `STN+SNr immediate`.
+It writes standard ULF direct-voxel branch outputs under each immediate endpoint
+slug and does not run formal permutation, bootstrap, jitter, or same-day gain
+sensitivity outputs.
+
+Current observed-only immediate summary:
+
+```text
+MDS-UPDRS III axial score (STN+SNr, immediate):
+  no_delta_hf rho = -0.1663032166; Q2 = -0.0688212270
+  delta_hf_adjusted rho = -0.0816667582; Q2 = -0.0444042831
+  resolver = pre_specified_accepted + error_nonpredictive for both branches
+
+MDS-UPDRS III score (STN+SNr, immediate):
+  no_delta_hf rho = 0.8754627142; Q2 = 0.0224944733
+  delta_hf_adjusted rho = 0.8209305249; Q2 = 0.1583522560
+  resolver = pre_specified_accepted + error_nonpredictive for both branches
+
+endpoint_model_status = primary_branch_error_nonpredictive for both endpoint rows
+summary CSV = /Volumes/VAL/STNSNr/summary/direct_voxel/ulf/immediate_endpoint_family/direct_voxel_ULF_only_immediate_endpoint_summary.csv
+```
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_immediate_observed.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_immediate_observed.py
 ```
 
 ## ULF Normative Fiber Observed Driver

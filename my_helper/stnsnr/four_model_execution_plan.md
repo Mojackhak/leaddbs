@@ -38,6 +38,8 @@ B_DTOR/D_DTOR dTOR normative-fiber formal bootstrap refreshed under /Volumes/VAL
 B_DTOR/D_DTOR dTOR normative-fiber sensitivity readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_sensitivity_readiness/
 Final reporting and figure-output readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/
 All-endpoint reporting and missing-work audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/
+ULF component readiness refreshed with STN+SNr 3m and immediate component rows under /Volumes/VAL/STNSNr/summary/four_model_execution/ulf_component_readiness/
+C ULF direct voxel same-day immediate observed endpoint-family outputs refreshed from /Users/mojackhu/Github/leaddbs
 ```
 
 The formal rerun manifests for direct-voxel permutation/bootstrap/jitter,
@@ -91,7 +93,7 @@ dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000,
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR fiber jitter/OSS = not_run_missing_inputs
 final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; fiber density/label caches missing
-all-endpoint reporting = 61 rows; A all-endpoint scan rows = 30; missing-work audit rows = 6, with 2 C observed sensitivity rows detected and 4 rows still not run
+all-endpoint reporting = 67 rows; A all-endpoint scan rows = 30; discovered branch manifests = 23; missing-work audit rows = 6, with 3 C observed sensitivity/immediate rows detected and 3 D rows still not run
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -160,11 +162,11 @@ Current all-endpoint reporting and missing-work audit snapshot:
 
 ```text
 output root = /Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/
-four_model_all_endpoint_report.csv rows = 61
+four_model_all_endpoint_report.csv rows = 67
 four_model_all_endpoint_missing_work.csv rows = 6
-source_table_counts = 30 A all-endpoint scan rows, 17 discovered branch manifests, 7 observed summary rows, 7 final-report rows
+source_table_counts = 30 A all-endpoint scan rows, 23 discovered branch manifests, 7 observed summary rows, 7 final-report rows
 C chronic gain endpoint sensitivity = observed_outputs_detected
-C same-day immediate endpoint family = not_run_missing_observed_outputs
+C same-day immediate endpoint family = observed_outputs_detected
 C total-ULF exposure sensitivity = observed_outputs_detected
 D chronic gain endpoint sensitivity = not_run_missing_observed_outputs
 D same-day immediate endpoint family = not_run_missing_observed_outputs
@@ -466,13 +468,13 @@ The current codebase is no longer greenfield. The following layers already exist
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
 | C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
 | C observed gain/total-ULF direct-voxel sensitivities | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_sensitivity_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_sensitivity_observed.py` | implemented |
+| C same-day immediate endpoint-family observed driver | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_immediate_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_immediate_observed.py` | implemented |
 | D observed ULF normative fiber PPMI | `my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_observed.py` | implemented |
 | Raw clinical rebuild | direct core script | `my_helper/fiber/core/analysis/stnsnr_rebuild_subject_effect_origin.py` | implemented |
 
 ### Not Yet Implemented
 
 ```text
-C same-day immediate endpoint-family model driver
 D OSS and full fiber figure-grade density/FDR/enrichment outputs, pending required caches
 shared reusable resolver/manifest/score architecture across voxel, fiber, HF, and ULF models
 fiber OSS-DBS activation branch execution, pending required inputs
@@ -577,6 +579,37 @@ keeps the chronic raw post-score endpoint and branch-specific nuisance design,
 but uses total ULF component exposure rather than HF-overlap-excluded ULF-only
 exposure. These are sensitivity outputs only and cannot replace the unique C
 final model selected by the source resolver.
+
+The C same-day immediate endpoint-family layer is a separate observed-only
+driver:
+
+```text
+driver = run_stnsnr_ulf_direct_voxel_immediate_observed.py
+endpoint rows = all available STN+SNr immediate clinical scales with paired STN 3m reference and n_subjects >= 12
+currently available rows = MDS-UPDRS III score and MDS-UPDRS III axial score
+per endpoint row = observed LOOCV plus tau/Coverage source-resolver scan
+formal permutation/bootstrap/jitter = not run unless an immediate endpoint is explicitly promoted before formal resampling
+same-day gain sensitivity = not included in this driver
+```
+
+This layer requires ULF component readiness to include `STN+SNr immediate`
+HF/ULF component e-field rows. Immediate outputs are endpoint-family outputs,
+not replacements for the chronic C final model unless the model documents are
+explicitly revised before formal resampling.
+
+Current same-day immediate observed outputs:
+
+| Endpoint row | Branch | rho | Q2 | Resolver status |
+|---|---|---:|---:|---|
+| MDS-UPDRS III axial score (STN+SNr, immediate) | `no_delta_hf` | `-0.1663` | `-0.0688` | `pre_specified_accepted` + `error_nonpredictive` |
+| MDS-UPDRS III axial score (STN+SNr, immediate) | `delta_hf_adjusted` | `-0.0817` | `-0.0444` | `pre_specified_accepted` + `error_nonpredictive` |
+| MDS-UPDRS III score (STN+SNr, immediate) | `no_delta_hf` | `0.8755` | `0.0225` | `pre_specified_accepted` + `error_nonpredictive` |
+| MDS-UPDRS III score (STN+SNr, immediate) | `delta_hf_adjusted` | `0.8209` | `0.1584` | `pre_specified_accepted` + `error_nonpredictive` |
+
+Both endpoint rows record `ulf_endpoint_model_status =
+primary_branch_error_nonpredictive`. These observed immediate outputs remain
+non-formal unless an immediate endpoint is explicitly promoted before formal
+resampling.
 
 ### D ULF Normative Fiber Observed Branch
 
@@ -761,8 +794,8 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    consolidated final-model outputs, and ULF sensitivity-output searches. This
    reporting package must explicitly label C/D gain endpoints, same-day
    immediate endpoints, and total-ULF sensitivities as detected or not run from
-   observed output files. The current C gain and C total-ULF sensitivity
-   outputs are detected; C same-day immediate and all D sensitivity work items
+   observed output files. The current C gain, C same-day immediate, and C
+   total-ULF sensitivity outputs are detected; all D sensitivity work items
    remain not run.
 5. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
@@ -1049,6 +1082,13 @@ C ULF direct voxel gain/total-ULF observed sensitivities:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_sensitivity_observed.py
+```
+
+C ULF direct voxel same-day immediate observed endpoint family:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_immediate_observed.py
 ```
 
 D ULF normative fiber PPMI observed branch:

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from stnsnr_ulf_component_readiness import (
     alternating_component_efield_paths,
+    build_component_availability,
     classify_frequency_component,
     component_efield_paths,
     dependency_rows,
@@ -85,6 +86,42 @@ def test_availability_summary() -> None:
     assert_equal(summary["frequency_class_counts"], {"HF": 1, "ULF": 2}, "frequency class counts")
 
 
+def test_component_availability_includes_immediate_phase() -> None:
+    import pandas as pd
+
+    rows = []
+    for phase in ["3m", "immediate"]:
+        rows.append(
+            {
+                "ID": "SNr001",
+                "NameEn": "Example",
+                "Phase": phase,
+                "Protocol": "STN+SNr",
+                "Side": "L",
+                "Target": "STN",
+                "Contact": 1,
+                "Frequency": 125,
+                "StimulationPattern": "alternating",
+            }
+        )
+        rows.append(
+            {
+                "ID": "SNr001",
+                "NameEn": "Example",
+                "Phase": phase,
+                "Protocol": "STN+SNr",
+                "Side": "L",
+                "Target": "SNr",
+                "Contact": 0,
+                "Frequency": 30,
+                "StimulationPattern": "alternating",
+            }
+        )
+    availability = build_component_availability(pd.DataFrame(rows), Path("/tmp/leaddbs"))
+    phases = sorted({row["phase"] for row in availability})
+    assert_equal(phases, ["3m", "immediate"], "component availability phases")
+
+
 def test_dependency_rows_use_explicit_connectome_id() -> None:
     rows = dependency_rows(
         {
@@ -114,6 +151,7 @@ def main() -> int:
     test_component_path_construction()
     test_alternating_observed_path_construction()
     test_availability_summary()
+    test_component_availability_includes_immediate_phase()
     test_dependency_rows_use_explicit_connectome_id()
     print("ULF component readiness self-test passed.")
     return 0
