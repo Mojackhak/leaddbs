@@ -19,6 +19,7 @@ from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
 HF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
 ULF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
 PENDING_ULF_SOURCE_RESOLVER = "pending_source_resolver"
+OBSERVED_ROBUSTNESS_MODEL_IDS = {"B_PPMI", "B_MGH", "D_PPMI"}
 PROVENANCE_KEYS = {
     "git_commit",
     "git_head",
@@ -610,6 +611,40 @@ def prediction_baseline_comparison(predictions_csv: Path) -> dict[str, Any]:
     }
 
 
+def direct_voxel_formal_resampling_status(permutation_summary_csv: Path) -> str:
+    """Return direct-voxel formal status from a branch-level permutation summary."""
+    if not permutation_summary_csv.is_file():
+        return "NOT_STARTED_FORMAL_RESAMPLING"
+    rows = read_csv_rows(permutation_summary_csv)
+    if not rows:
+        return "PERMUTATION_SUMMARY_EMPTY"
+    row = rows[0]
+    status = str(row.get("permutation_status", "")).strip().lower()
+    try:
+        n_permutations = int(float(row.get("B", 0) or 0))
+    except (TypeError, ValueError):
+        n_permutations = 0
+    if status == "complete" and n_permutations >= 10000:
+        return "FORMAL_PERMUTATION_COMPLETE_BOOTSTRAP_NOT_STARTED"
+    if status == "complete" and n_permutations > 0:
+        return "SMOKE_PERMUTATION_COMPLETE_FORMAL_NOT_STARTED"
+    return "PERMUTATION_INCOMPLETE"
+
+
+def model_formal_resampling_scope_status(model_id: str, current_status: str) -> str:
+    """Apply model-family formal scope to a formal resampling status value."""
+    if model_id in OBSERVED_ROBUSTNESS_MODEL_IDS:
+        return "OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING"
+    return current_status
+
+
+def read_csv_rows(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        return []
+    with path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
 def default_c_output_root(val_root: Path) -> Path:
     return val_root / "summary/direct_voxel/ulf/mds_updrs_iii_score_stn_snr_3_m/tau200"
 
@@ -928,6 +963,16 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
         if model_id in b_resolver_rows and b_resolver_rows[model_id]:
             resolver_row.update(b_resolver_rows[model_id])
         state = classify_hf_model_state(resolver_row)
+        latest_manifest = str(gate_row.get("manifest_path", ""))
+        if model_id == "A" and latest_manifest:
+            formal_status = direct_voxel_formal_resampling_status(
+                Path(latest_manifest).parent / "direct_voxel_HF_permutation_summary.csv"
+            )
+            if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
+                state["formal_resampling_status"] = formal_status
+        state["formal_resampling_status"] = model_formal_resampling_scope_status(
+            model_id, state.get("formal_resampling_status", "")
+        )
         hf_dependency_rows[model_id] = resolver_row
         rows.append(
             {
@@ -941,7 +986,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
                 "q2": gate_row.get("q2", ""),
                 "readiness_status": "",
                 "input_summary": "",
-                "latest_manifest": str(gate_row.get("manifest_path", "")),
+                "latest_manifest": latest_manifest,
                 "ulf_primary_branch": "",
                 "ulf_source_status": "",
                 "ulf_prediction_status": "",
@@ -1005,7 +1050,15 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
                     f"baseline={primary_comparison.get('mae_baseline', '')}/"
                     f"{primary_comparison.get('rmse_baseline', '')}"
                 )
-            latest_manifest = str(no_delta.get("manifest_path", ""))
+            final_branch = str(state.get("ulf_final_model_branch") or state.get("ulf_primary_branch") or "no_delta_hf")
+            final_branch_row = c_outputs.get("branches", {}).get(final_branch, no_delta)
+            latest_manifest = str(final_branch_row.get("manifest_path", ""))
+            if latest_manifest:
+                formal_status = direct_voxel_formal_resampling_status(
+                    Path(latest_manifest).parent / "direct_voxel_ULF_only_permutation_summary.csv"
+                )
+                if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
+                    state["formal_resampling_status"] = formal_status
             spearman_rho = metrics.get("spearman_rho", "")
             q2 = metrics.get("q2", "")
         elif model_id in d_outputs_by_model:
@@ -1054,6 +1107,9 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             latest_manifest = str(ulf_manifest_path) if ulf_manifest_path else ""
             spearman_rho = ""
             q2 = ""
+        state["formal_resampling_status"] = model_formal_resampling_scope_status(
+            model_id, state.get("formal_resampling_status", "")
+        )
         rows.append(
             {
                 "model_id": model_id,

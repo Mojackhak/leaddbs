@@ -12,6 +12,8 @@ from stnsnr_four_model_execution_status import (
     classify_d_observed_state,
     classify_hf_model_state,
     classify_ulf_model_state,
+    direct_voxel_formal_resampling_status,
+    model_formal_resampling_scope_status,
     manifest_provenance_status,
 )
 
@@ -201,6 +203,51 @@ def test_manifest_provenance_status() -> None:
         )
 
 
+def test_direct_voxel_formal_permutation_status() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        branch_dir = Path(tmp_dir)
+        summary = branch_dir / "direct_voxel_HF_permutation_summary.csv"
+        summary.write_text(
+            "B,permutation_status,p_plus_one_two_sided\n"
+            "10000,complete,0.5\n",
+            encoding="utf-8",
+        )
+        assert_equal(
+            direct_voxel_formal_resampling_status(summary),
+            "FORMAL_PERMUTATION_COMPLETE_BOOTSTRAP_NOT_STARTED",
+            "formal direct permutation status",
+        )
+
+        summary.write_text(
+            "B,permutation_status,p_plus_one_two_sided\n"
+            "25,complete,0.5\n",
+            encoding="utf-8",
+        )
+        assert_equal(
+            direct_voxel_formal_resampling_status(summary),
+            "SMOKE_PERMUTATION_COMPLETE_FORMAL_NOT_STARTED",
+            "smoke direct permutation status",
+        )
+
+
+def test_observed_robustness_scope_status() -> None:
+    assert_equal(
+        model_formal_resampling_scope_status("B_PPMI", "NOT_STARTED_FORMAL_RESAMPLING"),
+        "OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING",
+        "B_PPMI formal scope",
+    )
+    assert_equal(
+        model_formal_resampling_scope_status("D_PPMI", "NOT_STARTED_FORMAL_RESAMPLING"),
+        "OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING",
+        "D_PPMI formal scope",
+    )
+    assert_equal(
+        model_formal_resampling_scope_status("B_DTOR", "NOT_STARTED_FORMAL_RESAMPLING"),
+        "NOT_STARTED_FORMAL_RESAMPLING",
+        "B_DTOR formal scope",
+    )
+
+
 def main() -> int:
     test_hf_error_nonpredictive_source_state()
     test_hf_error_predictive_source_state()
@@ -210,6 +257,8 @@ def main() -> int:
     test_d_observed_source_absent_state()
     test_c_observed_final_primary_state()
     test_manifest_provenance_status()
+    test_direct_voxel_formal_permutation_status()
+    test_observed_robustness_scope_status()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 

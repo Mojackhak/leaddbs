@@ -24,6 +24,7 @@ Current refreshed outputs:
 /Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/four_model_formal_target_worklist.md
 /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/four_model_formal_readiness.csv
 /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/four_model_formal_readiness.md
+/Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_permutation/direct_voxel_formal_permutation_summary.csv
 ```
 
 Current state:
@@ -37,7 +38,22 @@ D dTOR normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 formal target worklist: 4/7 READY_FOR_FORMAL_RESAMPLING; 3/7 OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING
 formal readiness audit: 4/4 formal targets READY_FOR_FORMAL_DRIVER
 ULF component e-fields: 64/64 available
-formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
+direct-voxel formal permutation: A and C complete at B=10000, seed=42
+fiber formal permutation/bootstrap, spatial jitter, OSS-DBS, and figure-grade outputs: not run
+```
+
+Current direct-voxel formal permutation results:
+
+```text
+A direct voxel:
+  observed rho = -0.0265487881
+  p_plus_one_two_sided = 0.9455054495
+  B = 10000
+
+C ULF direct voxel no_delta_hf final model:
+  observed rho = 0.9189995239
+  p_plus_one_two_sided = 0.2324767523
+  B = 10000
 ```
 
 No expensive formal permutation/bootstrap/jitter/OSS drivers should be started
@@ -449,7 +465,12 @@ Run the ULF component readiness check:
 The current execution state is distributed across M0 readiness, A/B primary
 status, and ULF component readiness outputs. The status report layer
 collects those artifacts into one machine-readable and human-readable snapshot.
-It does not run any model and does not change resolver/status fields.
+It does not run any model and does not change resolver/status fields. It should
+also detect completed direct-voxel formal permutation summaries and mark A/C as
+`FORMAL_PERMUTATION_COMPLETE_BOOTSTRAP_NOT_STARTED` when the final branch has a
+complete `B=10000` permutation summary. Observed-robustness-only normative
+connectome rows are marked `OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING` rather
+than `NOT_STARTED_FORMAL_RESAMPLING`.
 
 Entry point:
 
@@ -590,6 +611,52 @@ Run the audit:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_readiness.py
+```
+
+## Direct-Voxel Final-Model Formal Permutation
+
+The direct-voxel formal permutation layer is the first expensive formal layer.
+It covers the A and C final models only. B_DTOR and D_DTOR are normative-fiber
+formal targets and require a separate chunked fiber implementation; B_PPMI,
+B_MGH, and D_PPMI remain observed robustness outputs.
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_permutation.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_direct_voxel_formal_permutation.py
+```
+
+Default outputs are written into the final branch directories:
+
+```text
+A:
+  direct_voxel_HF_permutation_summary.csv
+  direct_voxel_HF_permutation_null_stats.npy
+
+C:
+  direct_voxel_ULF_only_permutation_summary.csv
+  direct_voxel_ULF_only_permutation_null_stats.npy
+```
+
+The driver consumes the formal readiness CSV and processes only rows with
+`formal_readiness_status = READY_FOR_FORMAL_DRIVER` and model IDs `A` or `C`.
+Each permutation uses Freedman-Lane residual permutation with seed `42` and
+reruns the direct-voxel LOOCV map, score, nuisance-only baseline, and held-out
+prediction steps. It does not implement bootstrap, jitter, or fiber formal
+permutation.
+
+Run the formal A/C permutation:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_permutation.py \
+  --n-permutations 10000
 ```
 
 ## ULF Component E-field Worklist

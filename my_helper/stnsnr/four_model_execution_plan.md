@@ -28,6 +28,7 @@ D dTOR normative fiber source resolver refreshed
 Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/status/
 Final-model formal target worklist refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/
 Final-model formal readiness audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/
+A/C direct-voxel formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_permutation/
 ```
 
 The formal readiness audit does not run formal permutation, bootstrap, jitter,
@@ -48,7 +49,15 @@ D PPMI normative fiber final model = no_delta_hf at scan-fallback tau600/Coverag
 D dTOR normative fiber final model = no_delta_hf at scan-fallback tau400/Coverage>=5; final_model_error_nonpredictive
 formal target worklist = 4/7 READY_FOR_FORMAL_RESAMPLING; 3/7 OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING
 formal readiness audit = 4/4 formal targets READY_FOR_FORMAL_DRIVER
-formal permutation/bootstrap/jitter/OSS = not run
+direct-voxel formal permutation = A and C complete at B=10000, seed=42
+fiber formal permutation/bootstrap/jitter/OSS = not run
+```
+
+Current direct-voxel formal permutation snapshot:
+
+```text
+A direct voxel: observed rho = -0.0265487881; p_plus_one_two_sided = 0.9455054495; B = 10000
+C ULF direct voxel no_delta_hf final model: observed rho = 0.9189995239; p_plus_one_two_sided = 0.2324767523; B = 10000
 ```
 
 Do not start expensive formal permutation/bootstrap/jitter/OSS drivers from this
@@ -332,6 +341,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | Four-model status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py` | implemented |
 | Final-model formal target worklist | `my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_formal_worklist.py` | implemented |
 | Final-model formal readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_formal_readiness.py` | implemented |
+| Direct-voxel final-model formal permutation | `my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_permutation.py` | `my_helper/fiber/core/analysis/stnsnr_direct_voxel_formal_permutation.py` | next layer |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
 | C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
@@ -585,7 +595,9 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
 
 ### Immediate Next Steps
 
-1. Formal resampling, OSS, jitter, and figure-grade outputs attach to the
+1. Implement and run the remaining B_DTOR and D_DTOR normative-fiber formal
+   permutation/bootstrap, dTOR jitter QC, and OSS-DBS activation sensitivity.
+2. Formal resampling, OSS, jitter, and figure-grade outputs attach to the
    generated final-model formal target worklist for model families that define
    formal inference. The current formal targets are A, B_DTOR, C, and D_DTOR.
    B_PPMI, B_MGH, and D_PPMI remain observed robustness outputs and must not be
@@ -593,7 +605,7 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    revised. If a ULF intended primary branch has input/design failure, the
    executable fallback no-DeltaHF branch becomes the final model for that
    endpoint.
-2. Any additional executable patch to resolver, branch-role, DeltaHFScore,
+3. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
 
@@ -940,6 +952,14 @@ Final-model formal readiness audit:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_readiness.py
+```
+
+Direct-voxel final-model formal permutation:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_permutation.py \
+  --n-permutations 10000
 ```
 
 ---
