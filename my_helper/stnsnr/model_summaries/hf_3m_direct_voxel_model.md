@@ -441,6 +441,10 @@ direct_voxel_HF_sweet_sour.nii.gz
 direct_voxel_HF_stability.nii.gz
 direct_voxel_HF_bootstrap_se.nii.gz
 direct_voxel_HF_bootstrap_summary.csv
+direct_voxel_HF_jitter_summary.csv
+direct_voxel_HF_jitter_model_similarity.csv
+direct_voxel_HF_jitter_selected_overlap.csv
+direct_voxel_HF_jitter_se.nii.gz
 direct_voxel_HF_scores.csv
 direct_voxel_HF_loocv_predictions.csv
 direct_voxel_HF_permutation_summary.csv
@@ -460,6 +464,10 @@ Output semantics:
 - `direct_voxel_HF_stability.nii.gz` stores the fraction of LOOCV training folds with positive benefit-oriented map value. It is a direction-stability map, not a p-value or thresholded significance map.
 - `direct_voxel_HF_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the final source branch only. It is not generated when `hf_voxel_source_status = absent_no_stable_grid`.
 - `direct_voxel_HF_bootstrap_summary.csv` stores bootstrap status, `B`, finite bootstrap count, candidate voxel count distribution, and finite-count distribution for the final source branch only.
+- `direct_voxel_HF_jitter_summary.csv` stores formal jitter status, `B`, FWHM/sigma settings, finite jitter count, LOOCV direction summaries, map-correlation summaries, and support-overlap summaries for the final source branch only.
+- `direct_voxel_HF_jitter_model_similarity.csv` stores one row per jitter resample with LOOCV metrics and full-map correlation against the non-jittered final-source map.
+- `direct_voxel_HF_jitter_selected_overlap.csv` stores one row per jitter resample with valid-support overlap and sign-consistency summaries against the non-jittered final-source map.
+- `direct_voxel_HF_jitter_se.nii.gz` stores voxel-wise standard deviation of finite jittered benefit-oriented map values for the final source branch only.
 - `direct_voxel_HF_scores.csv` stores patient-level map matching scores. Required fields include `HFScore_mean_main`, `exposure_sum_valid_voxels`, `n_valid_score_voxels`, `score_map_source`, and `is_primary_score`. `HFScore_mean_main` is the only primary prediction score. `HFScore_sum_descriptive` is documented only and is not a required output field.
 - `direct_voxel_HF_loocv_predictions.csv` stores held-out LOOCV predictions, including `HFScore_LOOCV`, true outcome, HFScore-model prediction, covariate-only baseline prediction, and residuals.
 - `direct_voxel_HF_permutation_summary.csv` stores the Freedman-Lane permutation summary for the final source branch only, including observed LOOCV Spearman rho, plus-one two-sided p value, secondary metrics, and `B`. It is not generated when `hf_voxel_source_status = absent_no_stable_grid`.

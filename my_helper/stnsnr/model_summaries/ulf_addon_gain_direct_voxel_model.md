@@ -958,6 +958,10 @@ direct_voxel_ULF_only_sweet_sour.nii.gz
 direct_voxel_ULF_only_stability.nii.gz
 direct_voxel_ULF_only_bootstrap_se.nii.gz
 direct_voxel_ULF_only_bootstrap_summary.csv
+direct_voxel_ULF_only_jitter_summary.csv
+direct_voxel_ULF_only_jitter_model_similarity.csv
+direct_voxel_ULF_only_jitter_selected_overlap.csv
+direct_voxel_ULF_only_jitter_se.nii.gz
 direct_voxel_ULF_only_scores.csv
 direct_voxel_ULF_only_loocv_predictions.csv
 direct_voxel_ULF_only_permutation_summary.csv
@@ -985,6 +989,10 @@ Output semantics:
 - `direct_voxel_ULF_only_stability.nii.gz` stores LOOCV training-fold direction stability of `M_ULF(v)>0` or `M_ULF(v)<0`, depending on display class. It is not a p value.
 - `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the final model's accepted source only.
 - `direct_voxel_ULF_only_bootstrap_summary.csv` stores bootstrap status, `B`, finite bootstrap count, candidate voxel count distribution, and finite-count distribution for the final source branch only.
+- `direct_voxel_ULF_only_jitter_summary.csv` stores formal jitter status, `B`, FWHM/sigma settings, finite jitter count, LOOCV direction summaries, map-correlation summaries, and support-overlap summaries for the final source branch only.
+- `direct_voxel_ULF_only_jitter_model_similarity.csv` stores one row per jitter resample with LOOCV metrics and full-map correlation against the non-jittered final-source map.
+- `direct_voxel_ULF_only_jitter_selected_overlap.csv` stores one row per jitter resample with valid-support overlap and sign-consistency summaries against the non-jittered final-source map.
+- `direct_voxel_ULF_only_jitter_se.nii.gz` stores voxel-wise standard deviation of finite jittered benefit-oriented map values for the final source branch only.
 - `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `intended_primary_branch`, `ulf_final_model_id`, `delta_hfscore_role`, `fallback_final_branch`, `ulf_fallback_final_status`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_component_coverage_out_support_fraction`, `delta_hfscore_support_status`, `score_map_source`, `n_valid_score_voxels`, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, and `is_primary_score`.
 - `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed raw outcome, branch-specific nuisance-only prediction, `ULFScore_mean_main`, `DeltaHFScore` when applicable, DeltaHFScore support fields, `MAE_nuisance_baseline`, `RMSE_nuisance_baseline`, and residuals.
 - `direct_voxel_ULF_only_permutation_summary.csv` stores Freedman-Lane permutation summary for the final model's accepted source only.

@@ -253,6 +253,34 @@ def test_direct_voxel_formal_bootstrap_status() -> None:
         )
 
 
+def test_direct_voxel_formal_jitter_status() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        branch_dir = Path(tmp_dir)
+        permutation_summary = branch_dir / "direct_voxel_HF_permutation_summary.csv"
+        bootstrap_summary = branch_dir / "direct_voxel_HF_bootstrap_summary.csv"
+        jitter_summary = branch_dir / "direct_voxel_HF_jitter_summary.csv"
+        permutation_summary.write_text(
+            "B,permutation_status,p_plus_one_two_sided\n"
+            "10000,complete,0.5\n",
+            encoding="utf-8",
+        )
+        bootstrap_summary.write_text(
+            "B,bootstrap_status,finite_bootstrap_count\n"
+            "10000,complete,10000\n",
+            encoding="utf-8",
+        )
+        jitter_summary.write_text(
+            "B,jitter_status,finite_jitter_count\n"
+            "1000,complete,1000\n",
+            encoding="utf-8",
+        )
+        assert_equal(
+            direct_voxel_formal_resampling_status(permutation_summary, bootstrap_summary, jitter_summary),
+            "FORMAL_RESAMPLING_JITTER_COMPLETE",
+            "formal direct jitter status",
+        )
+
+
 def test_observed_robustness_scope_status() -> None:
     assert_equal(
         model_formal_resampling_scope_status("B_PPMI", "NOT_STARTED_FORMAL_RESAMPLING"),
@@ -361,6 +389,7 @@ def main() -> int:
     test_manifest_provenance_status()
     test_direct_voxel_formal_permutation_status()
     test_direct_voxel_formal_bootstrap_status()
+    test_direct_voxel_formal_jitter_status()
     test_observed_robustness_scope_status()
     test_normative_fiber_smoke_permutation_status()
     test_normative_fiber_formal_bootstrap_status()

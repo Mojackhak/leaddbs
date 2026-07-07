@@ -30,6 +30,7 @@ Final-model formal target worklist refreshed under /Volumes/VAL/STNSNr/summary/f
 Final-model formal readiness audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/
 A/C direct-voxel formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_permutation/
 A/C direct-voxel formal bootstrap refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_bootstrap/
+A/C direct-voxel formal jitter QC refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/direct_voxel_formal_jitter/
 B_DTOR/D_DTOR dTOR normative-fiber smoke permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_smoke_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber formal bootstrap refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_bootstrap/
@@ -48,6 +49,18 @@ connectome policy, then emits the unique final branch for each formal target.
 No separate manual reporting-branch selection is required once a target is
 `READY_FOR_FORMAL_DRIVER`.
 
+Automatic final-model selection is also the tie-breaker for resumed execution.
+If an HF model has an accepted source, that accepted source is the unique HF
+final model for downstream formal work, regardless of whether it is
+`error_predictive` or `error_nonpredictive`. If a ULF HF-derived primary branch
+is executable, that branch is the unique ULF final model. If the intended ULF
+primary branch has input/design failure and an executable no-DeltaHF branch has
+an accepted source, that no-DeltaHF branch is the unique fallback final model.
+If neither condition holds, the endpoint has no final model and downstream
+formal drivers must skip it with an explicit status row. Formal permutation,
+bootstrap, jitter, OSS, display, and enrichment drivers must consume these
+worklist-selected final targets and must not request another branch choice.
+
 Current status snapshot after the source-resolver refresh already performed in
 this branch:
 
@@ -63,6 +76,7 @@ formal target worklist = 4/7 READY_FOR_FORMAL_RESAMPLING; 3/7 OBSERVED_ROBUSTNES
 formal readiness audit = 4/4 formal targets READY_FOR_FORMAL_DRIVER
 direct-voxel formal permutation = A and C complete at B=10000, seed=42
 direct-voxel formal bootstrap = A and C complete at B=10000, seed=42
+direct-voxel formal jitter = A and C complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber smoke permutation = B_DTOR and D_DTOR complete at B=1000, seed=42
 dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
@@ -81,6 +95,13 @@ Current direct-voxel formal bootstrap snapshot:
 ```text
 A direct voxel: bootstrap_status = complete; B = 10000; finite_bootstrap_count = 10000; bootstrap_candidate_voxels_min = 230; bootstrap_candidate_voxels_median = 650.0; voxel_finite_count_median = 405.0
 C ULF direct voxel no_delta_hf final model: bootstrap_status = complete; B = 10000; finite_bootstrap_count = 10000; bootstrap_candidate_voxels_min = 88; bootstrap_candidate_voxels_median = 616.0; voxel_finite_count_median = 0.0
+```
+
+Current direct-voxel formal jitter snapshot:
+
+```text
+A direct voxel: jitter_status = complete; B = 1000; finite_jitter_count = 1000; map_pearson_r_median = 0.6292842164; loocv_spearman_rho_median = 0.0530975762; support_jaccard_median = 0.5909748473
+C ULF direct voxel no_delta_hf final model: jitter_status = complete; B = 1000; finite_jitter_count = 1000; map_pearson_r_median = 0.5419336816; loocv_spearman_rho_median = 0.9278360578; support_jaccard_median = 0.6550356201
 ```
 
 Current dTOR normative-fiber smoke permutation snapshot:
@@ -395,7 +416,12 @@ The current codebase is no longer greenfield. The following layers already exist
 | Four-model status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py` | implemented |
 | Final-model formal target worklist | `my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_formal_worklist.py` | implemented |
 | Final-model formal readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_formal_readiness.py` | implemented |
-| Direct-voxel final-model formal permutation | `my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_permutation.py` | `my_helper/fiber/core/analysis/stnsnr_direct_voxel_formal_permutation.py` | next layer |
+| Direct-voxel final-model formal permutation | `my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_permutation.py` | `my_helper/fiber/core/analysis/stnsnr_direct_voxel_formal_permutation.py` | implemented |
+| Direct-voxel final-model formal bootstrap | `my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_bootstrap.py` | `my_helper/fiber/core/analysis/stnsnr_direct_voxel_formal_bootstrap.py` | implemented |
+| Direct-voxel final-model formal jitter QC | `my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_jitter.py` | `my_helper/fiber/core/analysis/stnsnr_direct_voxel_formal_jitter.py` | implemented |
+| dTOR normative-fiber smoke/formal permutation | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_smoke_permutation.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_smoke_permutation.py` | implemented |
+| dTOR normative-fiber formal bootstrap | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_bootstrap.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_bootstrap.py` | implemented |
+| dTOR normative-fiber sensitivity readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_sensitivity_readiness.py` | implemented |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
 | C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
@@ -405,12 +431,11 @@ The current codebase is no longer greenfield. The following layers already exist
 ### Not Yet Implemented
 
 ```text
-C formal ULF direct voxel resampling, gain endpoints, total-ULF sensitivity, and all-endpoint reporting driver
-D formal ULF normative fiber resampling, dTOR source resolver, OSS, and figure-grade outputs
+C gain endpoints, total-ULF sensitivity, and all-endpoint reporting driver
+D OSS and figure-grade outputs
 shared reusable resolver/manifest/score architecture across voxel, fiber, HF, and ULF models
-formal B=10000 permutation/bootstrap loops
-formal spatial jitter loops
-OSS-DBS activation branch
+direct-voxel formal spatial jitter loop completion
+fiber OSS-DBS activation branch execution, pending required inputs
 nested/adaptive threshold-source validation
 max-stat permutation for threshold-source selection
 OLS ANCOVA optional estimator
@@ -487,7 +512,7 @@ Current observed outputs:
 | `partial_spearman_no_delta_hf` | `0.9190` | `-0.1442` | realized HF-derived intended primary; C source resolver = `pre_specified_accepted` + `error_nonpredictive`; endpoint status = `primary_branch_error_nonpredictive` |
 | `partial_spearman_delta_hf_adjusted` | `0.9543` | `0.1238` | sensitivity because matched A source is accepted but `error_nonpredictive`; C source resolver = `pre_specified_accepted` + `error_predictive` |
 
-Both branches write scores, LOOCV predictions, NIfTI maps, QC JSON, and manifests. Formal resampling has not been run.
+Both branches write scores, LOOCV predictions, NIfTI maps, QC JSON, and manifests. The automatically selected no-DeltaHF final model has completed formal permutation, bootstrap, and jitter QC. The DeltaHF-adjusted branch remains a sensitivity branch and does not receive final-model formal resampling.
 
 ### D ULF Normative Fiber Observed Branch
 
@@ -508,7 +533,7 @@ Current observed outputs:
 | selected-source output `ulf_peak_efield_tau600_no_delta_hf`; revised scan-fallback spec `ulf_peak_efield_tau600_cov5_no_delta_hf` | `0.9161` | `0.0719` | realized HF-derived intended primary; D source resolver = `scan_fallback_accepted` + `error_nonpredictive`; endpoint status = `primary_branch_error_nonpredictive` |
 | selected-source output `ulf_peak_efield_tau600_delta_hf_adjusted`; revised scan-fallback spec `ulf_peak_efield_tau600_cov5_delta_hf_adjusted` | `0.9087` | `-0.0598` | sensitivity because matched B_PPMI source is accepted but `error_nonpredictive`; D source resolver = `scan_fallback_accepted` + `error_nonpredictive` |
 
-Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. Formal resampling, OSS-DBS activation, density maps, endpoint enrichment, and figure-grade outputs have not been run.
+Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. PPMI is an observed robustness connectome in the current worklist, so it does not receive formal resampling unless the model documents are revised. OSS-DBS activation, density maps, endpoint enrichment, and figure-grade outputs have not been run.
 
 ### D ULF Normative Fiber dTOR Observed Branch
 
@@ -529,7 +554,7 @@ Current observed outputs:
 | selected-source output `ulf_peak_efield_tau400_no_delta_hf`; revised scan-fallback spec `ulf_peak_efield_tau400_cov5_no_delta_hf` | `0.9411` | `-0.0849` | realized HF-derived intended primary; D_DTOR source resolver = `scan_fallback_accepted` + `error_nonpredictive`; endpoint status = `primary_branch_error_nonpredictive` |
 | selected-source output `ulf_peak_efield_tau400_delta_hf_adjusted`; revised scan-fallback spec `ulf_peak_efield_tau400_cov5_delta_hf_adjusted` | `0.9470` | `0.2169` | sensitivity because matched B_DTOR source is accepted but `error_nonpredictive`; D_DTOR source resolver = `scan_fallback_accepted` + `error_predictive` |
 
-Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. The consolidated status records this as `D_DTOR = OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE`.
+Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. The automatically selected no-DeltaHF dTOR final model has completed formal permutation and bootstrap. OSS-DBS activation and jitter QC are recorded as missing-input sensitivity-readiness statuses, so the consolidated status records `D_DTOR = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING`.
 
 ### A Round 2 All-Endpoint Tau/Coverage Resolver Scan
 
@@ -649,17 +674,20 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
 
 ### Immediate Next Steps
 
-1. Implement and run the remaining B_DTOR and D_DTOR normative-fiber formal
-   permutation/bootstrap, dTOR jitter QC, and OSS-DBS activation sensitivity.
+1. Keep B_DTOR and D_DTOR fiber OSS/jitter as explicit missing-input
+   sensitivity-readiness statuses until the required sensitivity sidecars exist.
 2. Formal resampling, OSS, jitter, and figure-grade outputs attach to the
    generated final-model formal target worklist for model families that define
    formal inference. The current formal targets are A, B_DTOR, C, and D_DTOR.
    B_PPMI, B_MGH, and D_PPMI remain observed robustness outputs and must not be
    promoted into formal resampling unless the model documents are explicitly
    revised. If a ULF intended primary branch has input/design failure, the
-   executable fallback no-DeltaHF branch becomes the final model for that
+   executable fallback no-DeltaHF branch becomes the unique final model for that
    endpoint.
-3. Any additional executable patch to resolver, branch-role, DeltaHFScore,
+3. Generate figure-grade FDR/enrichment/display outputs only from the
+   automatically selected final-model outputs and the explicit missing-input
+   sensitivity statuses.
+4. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
 
@@ -673,14 +701,11 @@ The consolidated status should then report
 
 ### Deferred Expensive Work
 
-Run these only after the relevant resolver/status fields identify the final
-unique model branch:
+Run these only after the relevant resolver/status fields identify the unique
+final model branch:
 
 ```text
-formal B=10000 permutation
-formal B=10000 bootstrap
-formal FWHM 2 mm jitter
-HF/ULF normative fiber OSS-DBS activation sensitivity
+HF/ULF normative fiber OSS-DBS activation sensitivity when inputs exist
 figure-grade FDR/enrichment/display outputs
 ```
 
@@ -1030,6 +1055,15 @@ Direct-voxel final-model formal bootstrap:
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_bootstrap.py \
   --n-bootstraps 10000
+```
+
+Direct-voxel final-model formal jitter QC:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_jitter.py \
+  --n-jitters 1000 \
+  --jitter-fwhm-mm 2.0
 ```
 
 dTOR normative-fiber smoke permutation:
