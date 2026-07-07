@@ -38,6 +38,7 @@ B_DTOR/D_DTOR dTOR normative-fiber formal bootstrap refreshed under /Volumes/VAL
 B_DTOR/D_DTOR dTOR normative-fiber sensitivity readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_sensitivity_readiness/
 Final reporting and figure-output readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/
 All-endpoint reporting and missing-work audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/
+Manifest schema audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/manifest_schema_audit/
 ULF component readiness refreshed with STN+SNr 3m and immediate component rows under /Volumes/VAL/STNSNr/summary/four_model_execution/ulf_component_readiness/
 C ULF direct voxel same-day immediate observed endpoint-family outputs refreshed from /Users/mojackhu/Github/leaddbs
 D ULF normative fiber same-day immediate observed endpoint-family outputs refreshed from /Users/mojackhu/Github/leaddbs
@@ -95,6 +96,7 @@ dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, s
 dTOR fiber jitter/OSS = not_run_missing_inputs
 final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; fiber density/label caches missing
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
+manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -175,6 +177,16 @@ C total-ULF exposure sensitivity = observed_outputs_detected
 D chronic gain endpoint sensitivity = observed_outputs_detected
 D same-day immediate endpoint family = observed_outputs_detected
 D total-ULF exposure sensitivity = observed_outputs_detected
+```
+
+Current manifest schema audit snapshot:
+
+```text
+output root = /Volumes/VAL/STNSNr/summary/four_model_execution/manifest_schema_audit/
+four_model_manifest_schema_audit.csv rows = 36
+schema_status_counts = 6 schema_complete, 30 schema_missing_recommended_fields
+manifest_audit_counts = 6 has_git_or_patch_provenance, 30 missing_git_or_patch_provenance
+manifest_stale_counts = 6 different_commit, 30 missing_code_provenance
 ```
 
 The observed-only D chronic gain and total-ULF exposure sensitivity branches
@@ -491,6 +503,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | dTOR normative-fiber sensitivity readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_sensitivity_readiness.py` | implemented |
 | Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
 | All-endpoint reporting and missing-work audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_all_endpoint_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_all_endpoint_reporting.py` | implemented |
+| Manifest schema audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_manifest_schema_audit.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_manifest_schema_audit.py` | implemented |
 | Shared IO/provenance helpers | direct core module | `my_helper/fiber/core/analysis/stnsnr_io.py` | implemented |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
@@ -506,7 +519,7 @@ The current codebase is no longer greenfield. The following layers already exist
 
 ```text
 D OSS and full fiber figure-grade density/FDR/enrichment outputs, pending required caches
-remaining shared score, stale-output, and broader cross-family manifest-schema architecture across voxel, fiber, HF, and ULF models
+remaining shared score, deeper stale-output, and broader cross-family manifest-schema architecture across voxel, fiber, HF, and ULF models
 fiber OSS-DBS activation branch execution, pending required inputs
 fiber density/label/FDR/enrichment cache construction
 nested/adaptive threshold-source validation
@@ -1040,6 +1053,13 @@ fields from the final report. Rows that are not derived from consolidated
 execution status compute the same fields directly from their `manifest_path`
 when that path exists; rows without a manifest path leave the fields blank.
 
+The manifest schema audit layer scans manifests referenced by consolidated
+status, final reporting, and all-endpoint reporting. It records manifest
+existence, JSON parse status, provenance/stale status, presence of `outputs`,
+presence of `code_provenance`, and missing recommended schema fields. This audit
+is reporting-only and must not change model source status, prediction status,
+formal-target selection, or output interpretation.
+
 ---
 
 ## 9. Command Index
@@ -1300,6 +1320,13 @@ All-endpoint reporting and missing-work audit:
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_all_endpoint_reporting.py
 ```
 
+Manifest schema audit:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_manifest_schema_audit.py
+```
+
 ---
 
 ## 10. Definition Of Done
@@ -1324,6 +1351,9 @@ The all-endpoint reporting package records A all-endpoint source-resolver rows,
 observed branch manifests, final-report rows, and detected/not-run statuses for
 C/D gain endpoints, same-day immediate endpoints, and total-ULF sensitivities,
 including final-report manifest audit fields when available.
+The manifest schema audit package records manifest existence, provenance/stale
+status, and recommended-field completeness for current status/final/all-endpoint
+manifest references.
 The final report states n=16 and hypothesis-generating interpretation.
 All affected outputs and consolidated status files have been rerun after the latest executable patch.
 Reusable backend components cover shared resolver, branch-role, score, DeltaHFScore, manifest, and stale-output logic.

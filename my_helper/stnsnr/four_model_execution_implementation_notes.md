@@ -63,6 +63,7 @@ D gain/total-ULF observed sensitivity outputs: complete for 4 endpoint/connectom
 all-endpoint reporting: 79 rows; A all-endpoint source-resolver rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 all-endpoint manifest audit: 73 rows missing_git_or_patch_provenance / missing_code_provenance; 6 rows have provenance from a different commit
 all-endpoint reporting manifest records manifest_provenance_counts and manifest_stale_counts
+manifest schema audit: 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
 full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
@@ -185,6 +186,14 @@ compute the pair from their own `manifest_path` when one exists. The
 all-endpoint reporting manifest stores `manifest_provenance_counts` and
 `manifest_stale_counts` so downstream checks can audit the report without
 rescanning the CSV.
+
+The manifest schema audit layer consumes consolidated status, final reporting,
+and all-endpoint reporting tables. It deduplicates referenced manifest paths,
+checks whether each manifest exists and parses as JSON, records the shared
+manifest provenance/stale audit pair, and marks missing recommended schema
+fields such as `outputs`, `code_provenance`, and `generated_at`. It is
+reporting-only and must not change model classification or final-target
+selection.
 
 The D same-day immediate endpoint-family layer should mirror the C immediate
 wrapper, but call the ULF normative-fiber observed driver for each available
