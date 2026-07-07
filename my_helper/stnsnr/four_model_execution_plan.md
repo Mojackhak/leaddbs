@@ -1007,10 +1007,10 @@ timestamp creation, CSV/JSON read/write behavior, and optional
 `code_provenance` insertion for manifest-like JSON outputs. It must be
 behavior-preserving and must not change model formulas, resolver rules, or
 output schemas except for consistently adding provenance when a caller requests
-it. The consolidated execution status, formal-target worklist,
-formal-readiness audit, final reporting, all-endpoint reporting, C same-day
-immediate driver, and C/D gain/total-ULF sensitivity drivers use this helper;
-broader migration remains part of the remaining shared
+it. The legacy gate-status summary, consolidated execution status,
+formal-target worklist, formal-readiness audit, final reporting, all-endpoint
+reporting, C same-day immediate driver, and C/D gain/total-ULF sensitivity
+drivers use this helper; broader migration remains part of the remaining shared
 score/stale-output/manifest-schema work.
 
 ---

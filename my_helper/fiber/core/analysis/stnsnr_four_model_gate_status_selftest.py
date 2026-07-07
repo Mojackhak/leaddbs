@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from stnsnr_four_model_gate_status import classify_gate, classify_hf_prediction_validity
+from stnsnr_four_model_gate_status import classify_gate, classify_hf_prediction_validity, run_gate_status
 
 
 def run_selftest() -> dict[str, object]:
@@ -67,7 +71,20 @@ def run_selftest() -> dict[str, object]:
     }
 
 
+def test_run_gate_status_manifest_records_code_provenance() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        root = Path(tmp_dir)
+        output_dir = root / "gate_status"
+        with patch("stnsnr_four_model_gate_status.branch_specs", return_value=[]):
+            run_gate_status(SimpleNamespace(val_root=str(root), output_dir=str(output_dir)))
+
+        manifest = json.loads((output_dir / "four_model_gate_status_manifest.json").read_text(encoding="utf-8"))
+        if not manifest.get("code_provenance", {}).get("git_commit"):
+            raise AssertionError("gate status manifest records git commit")
+
+
 def main() -> int:
+    test_run_gate_status_manifest_records_code_provenance()
     print(json.dumps(run_selftest(), indent=2, sort_keys=True))
     return 0
 

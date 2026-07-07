@@ -38,6 +38,7 @@ def test_csv_and_json_helpers() -> None:
 def test_reporting_modules_use_shared_json_writer() -> None:
     analysis_dir = Path(__file__).resolve().parent
     for module_name in [
+        "stnsnr_four_model_gate_status.py",
         "stnsnr_four_model_execution_status.py",
         "stnsnr_four_model_formal_worklist.py",
         "stnsnr_four_model_final_reporting.py",

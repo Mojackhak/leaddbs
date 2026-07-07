@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +12,7 @@ import numpy as np
 import pandas as pd
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
-
-
-def iso_now() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+from stnsnr_io import iso_now, write_csv, write_json
 
 
 def classify_gate(metrics: dict[str, Any], *, predictions_finite: bool, output_exists: bool) -> str:
@@ -161,20 +156,6 @@ def classify_hf_prediction_validity(
     if not residual_proxy_pass:
         reasons.append("residual_dominance_proxy_failed")
     return "stable_nonpredictive", ";".join(reasons) if reasons else "predictive_checks_incomplete"
-
-
-def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: row.get(key, "") for key in fieldnames})
-
-
-def write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -346,6 +327,7 @@ def run_gate_status(args: argparse.Namespace) -> int:
             "rows": rows,
             "outputs": {"csv": str(csv_path), "manifest": str(manifest_path)},
         },
+        add_code_provenance=True,
     )
     print(f"Gate status output: {csv_path}")
     for row in rows:
