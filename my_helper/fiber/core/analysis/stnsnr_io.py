@@ -16,6 +16,16 @@ MANIFEST_AUDIT_FIELDS = [
     "latest_manifest_provenance_status",
     "latest_manifest_stale_status",
 ]
+PROVENANCE_KEYS = {
+    "git_commit",
+    "git_head",
+    "git_revision",
+    "git_sha",
+    "local_patch_identifier",
+    "patch_identifier",
+    "code_provenance",
+    "git_provenance",
+}
 
 
 def iso_now() -> str:
@@ -57,6 +67,28 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def manifest_audit_fields(row: dict[str, Any]) -> dict[str, str]:
     return {field: str(row.get(field, "") or "") for field in MANIFEST_AUDIT_FIELDS}
+
+
+def contains_git_or_patch_provenance(value: Any) -> bool:
+    if isinstance(value, dict):
+        if any(str(key) in PROVENANCE_KEYS for key in value):
+            return True
+        return any(contains_git_or_patch_provenance(item) for item in value.values())
+    if isinstance(value, list):
+        return any(contains_git_or_patch_provenance(item) for item in value)
+    return False
+
+
+def manifest_provenance_status(path_text: str) -> str:
+    if not path_text:
+        return "not_applicable_no_manifest"
+    path = Path(path_text)
+    if not path.is_file():
+        return "missing_manifest"
+    data = read_json(path)
+    if contains_git_or_patch_provenance(data):
+        return "has_git_or_patch_provenance"
+    return "missing_git_or_patch_provenance"
 
 
 def manifest_stale_status(path_text: str, current_commit: str) -> str:

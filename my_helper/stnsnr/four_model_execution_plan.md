@@ -166,6 +166,8 @@ output root = /Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_repo
 four_model_all_endpoint_report.csv rows = 79
 four_model_all_endpoint_missing_work.csv rows = 6
 source_table_counts = 30 A all-endpoint scan rows, 35 discovered branch manifests, 7 observed summary rows, 7 final-report rows
+manifest_audit_counts = 73 missing_git_or_patch_provenance, 6 has_git_or_patch_provenance
+manifest_stale_counts = 73 missing_code_provenance, 6 different_commit
 C chronic gain endpoint sensitivity = observed_outputs_detected
 C same-day immediate endpoint family = observed_outputs_detected
 C total-ULF exposure sensitivity = observed_outputs_detected
@@ -1034,8 +1036,8 @@ reporting rows, and figure-readiness rows carry both
 `latest_manifest_provenance_status` and `latest_manifest_stale_status` from the
 status-derived row they consume; all-endpoint final-report rows carry the same
 fields from the final report. Rows that are not derived from consolidated
-execution status leave the fields blank unless their own manifest audit is
-explicitly implemented.
+execution status compute the same fields directly from their `manifest_path`
+when that path exists; rows without a manifest path leave the fields blank.
 
 ---
 

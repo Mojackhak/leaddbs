@@ -155,6 +155,19 @@ def test_all_endpoint_reporting_summarizes_existing_outputs_and_missing_sensitiv
             any(row["source_table"] == "discovered_branch_manifest" and row["model_id"] == "C" for row in report_rows),
             "C branch discovered",
         )
+        discovered_c_rows = [
+            row for row in report_rows if row["source_table"] == "discovered_branch_manifest" and row["model_id"] == "C"
+        ]
+        assert_equal(
+            discovered_c_rows[0]["latest_manifest_provenance_status"],
+            "missing_git_or_patch_provenance",
+            "C discovered manifest provenance audit",
+        )
+        assert_equal(
+            discovered_c_rows[0]["latest_manifest_stale_status"],
+            "missing_code_provenance",
+            "C discovered manifest stale audit",
+        )
         assert_true(
             any(row["source_table"] == "discovered_branch_manifest" and row["model_id"] == "D_DTOR" for row in report_rows),
             "D branch discovered",

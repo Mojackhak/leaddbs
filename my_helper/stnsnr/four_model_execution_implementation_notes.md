@@ -61,6 +61,7 @@ C same-day immediate endpoint-family observed outputs: complete for 2 endpoint r
 D same-day immediate endpoint-family observed outputs: complete for 4 endpoint/connectome rows; resampling_status = not_run_observed_only
 D gain/total-ULF observed sensitivity outputs: complete for 4 endpoint/connectome rows; resampling_status = not_run_observed_only
 all-endpoint reporting: 79 rows; A all-endpoint source-resolver rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
+all-endpoint manifest audit: 73 rows missing_git_or_patch_provenance / missing_code_provenance; 6 rows have provenance from a different commit
 full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
@@ -117,8 +118,9 @@ derived from consolidated execution status. Formal target worklist, formal
 readiness, final report, and figure-readiness rows carry both
 `latest_manifest_provenance_status` and `latest_manifest_stale_status`;
 all-endpoint final-report rows carry them through from the final report.
-Non-status-derived all-endpoint rows leave these fields blank until a separate
-manifest audit is implemented for those sources.
+Non-status-derived all-endpoint rows compute these fields from their own
+`manifest_path` when one exists; rows without a manifest path leave the fields
+blank.
 
 The consolidated status report also resolves final-model fields from the current
 source/endpoint classifiers. HF rows record `hf_final_model_source`,
@@ -177,8 +179,8 @@ This layer does not fit gain, same-day immediate, or total-ULF sensitivity
 models. It records those C/D outputs as `observed_outputs_detected` when output
 files exist and `not_run_missing_observed_outputs` when they are absent, so
 downstream reporting can distinguish "not run" from "failed model". Rows sourced
-from the final report preserve the manifest audit pair; other row sources leave
-the fields blank unless they implement their own manifest audit.
+from the final report preserve the manifest audit pair; other row sources
+compute the pair from their own `manifest_path` when one exists.
 
 The D same-day immediate endpoint-family layer should mirror the C immediate
 wrapper, but call the ULF normative-fiber observed driver for each available

@@ -7,7 +7,14 @@ import json
 import tempfile
 from pathlib import Path
 
-from stnsnr_io import manifest_audit_fields, manifest_stale_status, read_csv, write_csv, write_json
+from stnsnr_io import (
+    manifest_audit_fields,
+    manifest_provenance_status,
+    manifest_stale_status,
+    read_csv,
+    write_csv,
+    write_json,
+)
 
 
 def assert_equal(actual, expected, message: str) -> None:
@@ -83,6 +90,49 @@ def test_manifest_stale_status() -> None:
         assert_equal(manifest_stale_status(str(stale_manifest), current), "different_commit", "stale manifest")
 
 
+def test_manifest_provenance_status() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        root = Path(tmp_dir)
+        missing_provenance = root / "missing_provenance.json"
+        missing_provenance.write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
+        with_code_provenance = root / "with_code_provenance.json"
+        with_code_provenance.write_text(
+            json.dumps({"code_provenance": {"git_commit": "abc123"}}),
+            encoding="utf-8",
+        )
+        with_legacy_provenance = root / "with_legacy_provenance.json"
+        with_legacy_provenance.write_text(
+            json.dumps({"git_provenance": {"head_commit": "abc123"}}),
+            encoding="utf-8",
+        )
+
+        assert_equal(
+            manifest_provenance_status(""),
+            "not_applicable_no_manifest",
+            "empty manifest path",
+        )
+        assert_equal(
+            manifest_provenance_status(str(root / "missing.json")),
+            "missing_manifest",
+            "missing manifest",
+        )
+        assert_equal(
+            manifest_provenance_status(str(missing_provenance)),
+            "missing_git_or_patch_provenance",
+            "missing provenance",
+        )
+        assert_equal(
+            manifest_provenance_status(str(with_code_provenance)),
+            "has_git_or_patch_provenance",
+            "code provenance",
+        )
+        assert_equal(
+            manifest_provenance_status(str(with_legacy_provenance)),
+            "has_git_or_patch_provenance",
+            "legacy provenance",
+        )
+
+
 def test_manifest_audit_fields() -> None:
     row = {
         "latest_manifest_provenance_status": "missing_git_or_patch_provenance",
@@ -103,6 +153,7 @@ def main() -> int:
     test_csv_and_json_helpers()
     test_reporting_modules_use_shared_json_writer()
     test_manifest_stale_status()
+    test_manifest_provenance_status()
     test_manifest_audit_fields()
     print("STN/SNr IO self-test passed.")
     return 0

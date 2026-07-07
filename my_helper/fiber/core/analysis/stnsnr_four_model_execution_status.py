@@ -14,23 +14,12 @@ from typing import Any
 import pandas as pd
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
-from stnsnr_io import iso_now, manifest_stale_status, write_csv, write_json
+from stnsnr_io import iso_now, manifest_provenance_status, manifest_stale_status, write_csv, write_json
 
 HF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
 ULF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
 PENDING_ULF_SOURCE_RESOLVER = "pending_source_resolver"
 OBSERVED_ROBUSTNESS_MODEL_IDS = {"B_PPMI", "B_MGH", "D_PPMI"}
-PROVENANCE_KEYS = {
-    "git_commit",
-    "git_head",
-    "git_revision",
-    "git_sha",
-    "local_patch_identifier",
-    "patch_identifier",
-    "code_provenance",
-}
-
-
 def default_repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
@@ -57,28 +46,6 @@ def git_provenance(repo_root: Path) -> dict[str, Any]:
         "dirty": bool(dirty_files),
         "dirty_files": dirty_files,
     }
-
-
-def contains_git_or_patch_provenance(value: Any) -> bool:
-    if isinstance(value, dict):
-        if any(str(key) in PROVENANCE_KEYS for key in value):
-            return True
-        return any(contains_git_or_patch_provenance(item) for item in value.values())
-    if isinstance(value, list):
-        return any(contains_git_or_patch_provenance(item) for item in value)
-    return False
-
-
-def manifest_provenance_status(path_text: str) -> str:
-    if not path_text:
-        return "not_applicable_no_manifest"
-    path = Path(path_text)
-    if not path.is_file():
-        return "missing_manifest"
-    data = read_json(path)
-    if contains_git_or_patch_provenance(data):
-        return "has_git_or_patch_provenance"
-    return "missing_git_or_patch_provenance"
 
 
 def annotate_latest_manifest_provenance(rows: list[dict[str, Any]], current_commit: str = "") -> None:

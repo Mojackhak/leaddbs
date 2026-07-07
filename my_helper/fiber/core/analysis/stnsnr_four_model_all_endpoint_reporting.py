@@ -8,7 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
-from stnsnr_io import MANIFEST_AUDIT_FIELDS, iso_now, manifest_audit_fields, read_csv, write_csv, write_json
+from stnsnr_io import (
+    MANIFEST_AUDIT_FIELDS,
+    iso_now,
+    manifest_audit_fields,
+    manifest_provenance_status,
+    manifest_stale_status,
+    read_csv,
+    write_csv,
+    write_json,
+)
+from stnsnr_run_provenance import git_provenance
 
 
 FORMAL_ROOT = DEFAULT_VAL_ROOT / "summary/four_model_execution"
@@ -330,6 +340,17 @@ def count_by(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
     return counts
 
 
+def fill_missing_manifest_audit_fields(rows: list[dict[str, str]], current_commit: str) -> None:
+    for row in rows:
+        manifest_path = row.get("manifest_path", "")
+        if not manifest_path:
+            continue
+        if not row.get("latest_manifest_provenance_status"):
+            row["latest_manifest_provenance_status"] = manifest_provenance_status(manifest_path)
+        if not row.get("latest_manifest_stale_status"):
+            row["latest_manifest_stale_status"] = manifest_stale_status(manifest_path, current_commit)
+
+
 def default_manifest_roots() -> list[Path]:
     return [SUMMARY_ROOT / "direct_voxel", SUMMARY_ROOT / "normative_connectome_fiber"]
 
@@ -348,6 +369,8 @@ def build_all_endpoint_reporting(
     report_rows.extend(rows_from_observed_summary(Path(observed_branch_summary_csv)))
     report_rows.extend(rows_from_final_report(Path(final_report_csv)))
     report_rows.extend(rows_from_discovered_manifests(manifest_roots))
+    current_commit = str(git_provenance().get("git_commit", "") or "")
+    fill_missing_manifest_audit_fields(report_rows, current_commit)
     missing_rows = build_missing_work_rows(missing_work_search_roots)
 
     output_dir = Path(output_dir)
