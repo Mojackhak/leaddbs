@@ -66,6 +66,7 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
                 "normative_HF_fiber_generation_manifest.json",
                 "normative_HF_streamline_voxel_density_cache.npz",
                 "normative_HF_fiber_label_cache.csv",
+                "fdr_summary_by_scale.csv",
             ],
         )
         touch_many(

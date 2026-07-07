@@ -9,6 +9,14 @@
 
 ## Pause Checkpoint
 
+2026-07-07 pause before next execution: final-reporting readiness now requires
+separate FDR and enrichment caches before a normative-fiber row can be reported
+as full fiber figure-output ready. Density plus connected-region labels remains
+`ready_for_density_label_outputs` only. The reporting/audit outputs have not yet
+been regenerated from this pause checkpoint commit; after resuming, rerun final
+reporting, all-endpoint reporting, manifest schema audit, and completion audit
+so their manifests record the clean checkpoint commit.
+
 Execution has resumed through the 2026-07-07 status, formal-target, and
 formal-readiness refresh. The current checkpoint has completed
 observed/non-formal branches, lightweight readiness/status generation, the
@@ -882,7 +890,7 @@ basic density cache only:
 basic density + connected-region label cache:
   ready_for_density_label_outputs
 
-basic density + labels + FDR/enrichment caches:
+basic density + labels + both FDR and enrichment caches:
   ready_for_full_fiber_figure_outputs
 ```
 

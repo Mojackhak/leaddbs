@@ -6,6 +6,14 @@ The full four-model program is intentionally gated. The current codebase now inc
 
 ## Pause Checkpoint
 
+2026-07-07 pause before next execution: final-reporting readiness now requires
+separate FDR and enrichment caches before a normative-fiber row can be reported
+as full fiber figure-output ready. Density plus connected-region labels remains
+`ready_for_density_label_outputs` only. The reporting/audit outputs have not yet
+been regenerated from this pause checkpoint commit; after resuming, rerun final
+reporting, all-endpoint reporting, manifest schema audit, and completion audit
+so their manifests record the clean checkpoint commit.
+
 2026-07-07 density/label-cache update: the normative-fiber density and
 connected-region label caches now default to all `analysis_family =
 normative_fiber` rows in the final report. The density/label-cache, final
@@ -234,8 +242,8 @@ The connected-region label cache summarizes overlap between each normative-fiber
 density cache and the registered `STN-connected regions`, `SNr-connected
 regions`, and `STNSNr-connected regions` ROI manifests. This is a QC/display
 summary only. It upgrades figure readiness to `ready_for_density_label_outputs`,
-but it must not be reported as full FDR/enrichment readiness until separate FDR
-and enrichment caches exist.
+but it must not be reported as full FDR/enrichment readiness until both
+separate FDR and enrichment caches exist.
 
 The manifest schema audit layer consumes consolidated status, final reporting,
 and all-endpoint reporting tables. It deduplicates referenced manifest paths,

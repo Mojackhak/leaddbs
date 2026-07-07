@@ -36,10 +36,12 @@ FIBER_LABEL_CACHE_PATTERNS = [
     "*endpoint*label*cache*",
     "*fiber*label*cache*",
 ]
-FIBER_FDR_ENRICHMENT_CACHE_PATTERNS = [
+FIBER_FDR_CACHE_PATTERNS = [
     "*fdr*",
     "*q_value*",
     "*q-value*",
+]
+FIBER_ENRICHMENT_CACHE_PATTERNS = [
     "*enrichment*",
 ]
 
@@ -165,8 +167,9 @@ def fiber_density_readiness(manifest_path: str, density_cache_roots: list[Path])
         }
     density_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_BASIC_DENSITY_CACHE_PATTERNS)
     label_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_LABEL_CACHE_PATTERNS)
-    fdr_enrichment_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_FDR_ENRICHMENT_CACHE_PATTERNS)
-    all_caches = sorted(set(density_caches + label_caches + fdr_enrichment_caches))
+    fdr_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_FDR_CACHE_PATTERNS)
+    enrichment_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_ENRICHMENT_CACHE_PATTERNS)
+    all_caches = sorted(set(density_caches + label_caches + fdr_caches + enrichment_caches))
     if not all_caches:
         return {
             "fiber_density_label_cache_status": "not_run_missing_density_label_cache",
@@ -177,10 +180,12 @@ def fiber_density_readiness(manifest_path: str, density_cache_roots: list[Path])
             "fiber_density_label_cache_status": "ready_from_existing_basic_density_cache",
             "fiber_density_label_cache_paths": ";".join(str(path) for path in density_caches),
         }
-    if density_caches and label_caches and not fdr_enrichment_caches:
+    if density_caches and label_caches and (not fdr_caches or not enrichment_caches):
         return {
             "fiber_density_label_cache_status": "ready_from_existing_density_label_cache_missing_fdr_enrichment",
-            "fiber_density_label_cache_paths": ";".join(str(path) for path in sorted(set(density_caches + label_caches))),
+            "fiber_density_label_cache_paths": ";".join(
+                str(path) for path in sorted(set(density_caches + label_caches + fdr_caches + enrichment_caches))
+            ),
         }
     return {
         "fiber_density_label_cache_status": "ready_from_existing_density_label_fdr_enrichment_cache",
