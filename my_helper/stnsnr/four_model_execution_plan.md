@@ -168,6 +168,7 @@ four_model_all_endpoint_missing_work.csv rows = 6
 source_table_counts = 30 A all-endpoint scan rows, 35 discovered branch manifests, 7 observed summary rows, 7 final-report rows
 manifest_audit_counts = 73 missing_git_or_patch_provenance, 6 has_git_or_patch_provenance
 manifest_stale_counts = 73 missing_code_provenance, 6 different_commit
+all-endpoint reporting manifest records these manifest audit count summaries
 C chronic gain endpoint sensitivity = observed_outputs_detected
 C same-day immediate endpoint family = observed_outputs_detected
 C total-ULF exposure sensitivity = observed_outputs_detected

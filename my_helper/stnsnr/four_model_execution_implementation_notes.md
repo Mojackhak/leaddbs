@@ -62,6 +62,7 @@ D same-day immediate endpoint-family observed outputs: complete for 4 endpoint/c
 D gain/total-ULF observed sensitivity outputs: complete for 4 endpoint/connectome rows; resampling_status = not_run_observed_only
 all-endpoint reporting: 79 rows; A all-endpoint source-resolver rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 all-endpoint manifest audit: 73 rows missing_git_or_patch_provenance / missing_code_provenance; 6 rows have provenance from a different commit
+all-endpoint reporting manifest records manifest_provenance_counts and manifest_stale_counts
 full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
@@ -180,7 +181,10 @@ models. It records those C/D outputs as `observed_outputs_detected` when output
 files exist and `not_run_missing_observed_outputs` when they are absent, so
 downstream reporting can distinguish "not run" from "failed model". Rows sourced
 from the final report preserve the manifest audit pair; other row sources
-compute the pair from their own `manifest_path` when one exists.
+compute the pair from their own `manifest_path` when one exists. The
+all-endpoint reporting manifest stores `manifest_provenance_counts` and
+`manifest_stale_counts` so downstream checks can audit the report without
+rescanning the CSV.
 
 The D same-day immediate endpoint-family layer should mirror the C immediate
 wrapper, but call the ULF normative-fiber observed driver for each available

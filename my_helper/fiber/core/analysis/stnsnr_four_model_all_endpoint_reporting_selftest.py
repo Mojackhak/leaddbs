@@ -195,6 +195,26 @@ def test_all_endpoint_reporting_summarizes_existing_outputs_and_missing_sensitiv
         )
         manifest = json.loads(Path(result["manifest_json"]).read_text(encoding="utf-8"))
         assert_true(bool(manifest.get("code_provenance", {}).get("git_commit")), "manifest records git commit")
+        assert_equal(
+            manifest.get("manifest_provenance_counts", {}).get("missing_git_or_patch_provenance"),
+            3,
+            "manifest records missing-provenance counts",
+        )
+        assert_equal(
+            manifest.get("manifest_provenance_counts", {}).get("missing_manifest"),
+            3,
+            "manifest records missing-manifest provenance counts",
+        )
+        assert_equal(
+            manifest.get("manifest_stale_counts", {}).get("missing_code_provenance"),
+            2,
+            "manifest records missing-code-provenance stale counts",
+        )
+        assert_equal(
+            manifest.get("manifest_stale_counts", {}).get("missing_manifest"),
+            3,
+            "manifest records missing-manifest stale counts",
+        )
 
 
 def main() -> int:

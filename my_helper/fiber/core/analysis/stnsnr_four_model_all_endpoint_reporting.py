@@ -422,6 +422,8 @@ def build_all_endpoint_reporting(
             "n_report_rows": len(report_rows),
             "n_missing_work_rows": len(missing_rows),
             "source_table_counts": count_by(report_rows, "source_table"),
+            "manifest_provenance_counts": count_by(report_rows, "latest_manifest_provenance_status"),
+            "manifest_stale_counts": count_by(report_rows, "latest_manifest_stale_status"),
             "missing_work_counts": count_by(missing_rows, "work_status"),
             "outputs": {
                 "all_endpoint_report_csv": str(report_csv),
