@@ -132,6 +132,13 @@ def classify_ulf_model_state(
         "hf_prediction_validity_status": hf_dependency_prediction_status or "not_evaluable",
         "ulf_primary_branch": "",
         "delta_hfscore_role": "",
+        "ulf_source_status": "",
+        "ulf_prediction_status": "",
+        "ulf_endpoint_model_status": "",
+        "mae_model": "",
+        "mae_baseline": "",
+        "rmse_model": "",
+        "rmse_baseline": "",
     }
 
 

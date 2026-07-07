@@ -82,12 +82,30 @@ def test_c_observed_source_exists_state() -> None:
         hf_dependency_prediction_status="error_nonpredictive",
         readiness_status="PASS_READY_FOR_ULF_PRIMARY",
         efield_summary={"n_efields_existing": 64, "n_rows": 64},
-        c_outputs={"both_branches_exist": True},
+        c_outputs={
+            "both_branches_exist": True,
+            "branches": {
+                "no_delta_hf": {
+                    "ulf_voxel_source_status": "pending_source_resolver",
+                    "ulf_prediction_status": "error_nonpredictive",
+                    "baseline_comparison": {
+                        "mae_model": 3.0,
+                        "mae_baseline": 2.5,
+                        "rmse_model": 4.0,
+                        "rmse_baseline": 3.5,
+                    },
+                }
+            },
+        },
     )
-    assert_equal(state["execution_status"], "OBSERVED_COMPLETE_NO_DELTA_PRIMARY", "C observed status")
+    assert_equal(state["execution_status"], "OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER", "C observed status")
     assert_equal(state["dependency_status"], "SOURCE_EXISTS_ERROR_NONPREDICTIVE", "C dependency status")
-    assert_equal(state["formal_resampling_status"], "NOT_STARTED_FORMAL_RESAMPLING", "C formal status")
+    assert_equal(
+        state["formal_resampling_status"], "NOT_APPLICABLE_WAITING_FOR_ULF_SOURCE_RESOLVER", "C formal status"
+    )
     assert_equal(state["ulf_primary_branch"], "no_delta_hf", "C primary branch")
+    assert_equal(state["ulf_prediction_status"], "error_nonpredictive", "C ULF prediction status")
+    assert_equal(state["ulf_endpoint_model_status"], "pending_source_resolver", "C endpoint status")
 
 
 def test_d_observed_source_absent_state() -> None:
@@ -96,11 +114,29 @@ def test_d_observed_source_absent_state() -> None:
         hf_dependency_prediction_status="not_applicable",
         readiness_status="PASS_READY_FOR_ULF_PRIMARY",
         efield_summary={"n_efields_existing": 64, "n_rows": 64},
-        d_outputs={"both_branches_exist": True},
+        d_outputs={
+            "both_branches_exist": True,
+            "branches": {
+                "no_delta_hf": {
+                    "ulf_norm_fiber_source_status": "pending_source_resolver",
+                    "ulf_prediction_status": "error_nonpredictive",
+                    "baseline_comparison": {
+                        "mae_model": 3.0,
+                        "mae_baseline": 2.5,
+                        "rmse_model": 4.0,
+                        "rmse_baseline": 3.5,
+                    },
+                }
+            },
+        },
     )
-    assert_equal(state["execution_status"], "OBSERVED_COMPLETE_NO_DELTA_PRIMARY", "D observed source-absent status")
+    assert_equal(
+        state["execution_status"], "OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER", "D observed source-absent status"
+    )
     assert_equal(state["dependency_status"], "SOURCE_ABSENT", "D dependency status")
-    assert_equal(state["formal_resampling_status"], "NOT_STARTED_FORMAL_RESAMPLING", "D formal status")
+    assert_equal(
+        state["formal_resampling_status"], "NOT_APPLICABLE_WAITING_FOR_ULF_SOURCE_RESOLVER", "D formal status"
+    )
 
 
 def main() -> int:
