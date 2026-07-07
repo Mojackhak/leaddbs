@@ -285,11 +285,9 @@ end
 
 function metadataPath = write_fake_b0_metadata(paths, dcResult)
 metadata = struct();
-metadata.FakeCoregisterVolume = true;
 metadata.SourceImage = dcResult.b0;
 metadata.GeneratedFrom = 'Synb0/topup/eddy corrected mean b0';
-metadata.IntendedUse = 'coregistration_qc_only';
-metadata.ExcludeFromNormalization = true;
+metadata.IntendedUse = 'coregistration_and_normalization';
 metadata.CorrectedDwi = dcResult.dwi;
 metadata.RotatedBvec = dcResult.rotatedBvec;
 metadata.TopupField = dcResult.topupFieldcoef;

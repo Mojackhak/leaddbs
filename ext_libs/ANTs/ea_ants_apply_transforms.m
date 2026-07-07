@@ -9,8 +9,13 @@ options = varargin{1};
 useinverse = 0;
 
 if nargin == 1
-    input{1} = options.subj.coreg.anat.preop.(options.subj.AnchorModality);
-    output{1} = options.subj.norm.anat.preop.(options.subj.AnchorModality);
+    preopFields = fieldnames(options.subj.coreg.anat.preop);
+    input = cell(numel(preopFields), 1);
+    output = cell(numel(preopFields), 1);
+    for preopFile = 1:numel(preopFields)
+        input{preopFile} = options.subj.coreg.anat.preop.(preopFields{preopFile});
+        output{preopFile} = options.subj.norm.anat.preop.(preopFields{preopFile});
+    end
 
     if strcmp(options.subj.postopModality, 'MRI')
         if exist(options.subj.brainshift.transform.scrf,'file') % apply brainshift correction to postop files on the fly.

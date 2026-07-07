@@ -47,10 +47,9 @@ Implementation status:
   `status=pending_ui_coregistration`, `synb0_status=ok`, `eddy_status=ok`, and
   `coregistration_status=pending_ui` in
   `/Volumes/VAL/meige/derivatives/leaddbs/import_logs/dwi_registration_synb0_fakeb0_status.csv`.
-  Corrected DWI, corrected b0, bval, bvec, and fake-B0 metadata files exist for
-  all three pilot subjects. Fake-B0 metadata record
-  `FakeCoregisterVolume=true`, `ExcludeFromNormalization=true`, and
-  `PhaseEncodingVector=0 1 0`. `Meige001` used JSON readout `0.046215`;
+  Corrected DWI, corrected b0, bval, bvec, and B0 metadata files exist for all
+  three pilot subjects. B0 metadata records `PhaseEncodingVector=0 1 0`.
+  `Meige001` used JSON readout `0.046215`;
   `Meige008` and `Meige021` used default readout `0.05`. `Meige008` has
   `low_resolution_warning=true` because its DWI voxel z-size is about 5 mm and
   should receive especially careful UI QC.
@@ -71,7 +70,7 @@ Implementation status:
   Lead-DBS UI B0-to-anchorNative coregistration and manual QC are
   user-performed follow-up steps, not Codex automation requirements.
 - UI staging issue found during manual normalization approval for `Meige008`:
-  Lead-DBS expects the pseudo-B0 image at
+  Lead-DBS expects the B0 image at
   `coregistration/anat/sub-<ID>_ses-preop_space-anchorNative_desc-preproc_B0.nii`.
   The automated preprocessing must stage this image and its JSON sidecar from
   the corrected mean b0 so the user can perform manual UI coreg/QC later.
@@ -89,8 +88,8 @@ Implementation status:
   has the target. Copy-only backfill must not overwrite existing targets.
 - Copy-only backfill completed for `Meige001`, `Meige002`, `Meige003`, and
   `Meige008`; all pilot/completed subjects checked so far have the UI target
-  NIfTI plus JSON sidecar with `FakeCoregisterVolume=true`,
-  `ExcludeFromNormalization=true`, and `IntendedUse=coregistration_qc_only`.
+  NIfTI plus JSON sidecar. This was later revised so B0 is no longer marked as
+  fake/QC-only or excluded from normalization.
 - `Meige004` finished from a MATLAB process that had started before the staging
   fix, so it also requires copy-only backfill of the UI target NIfTI.
 - Copy-only backfill completed for `Meige004`; it now has the UI target NIfTI
@@ -101,9 +100,7 @@ Implementation status:
   `/Volumes/VAL/meige/derivatives/leaddbs/import_logs/dwi_registration_synb0_fakeb0_verification_final_20260706_213641.json`.
   It verifies 22/22 subjects with `status=pending_ui_coregistration`,
   `synb0_status=ok`, `eddy_status=ok`, `PhaseEncodingVector=0 1 0`, required
-  corrected DWI/bval/bvec/b0 outputs, UI pseudo-B0 NIfTI/JSON targets, and
-  JSON flags `FakeCoregisterVolume=true`, `ExcludeFromNormalization=true`, and
-  `IntendedUse=coregistration_qc_only`.
+  corrected DWI/bval/bvec/b0 outputs and UI B0 NIfTI/JSON targets.
 - Final audit passed: the five focused MATLAB regression tests passed, and a
   normalization tree search found zero DWI/B0 files under
   `/Volumes/VAL/meige/derivatives/leaddbs/sub-*/normalization`.
@@ -111,7 +108,7 @@ Implementation status:
   failed while converting EasyReg's FreeSurfer-format backward field to ITK h5:
   `load_nii` rejected the generated `*_fs_inv_field.nii` because its affine
   matrix contains non-orthogonal rotation/shearing. This is a transform-field
-  conversion issue, not a pseudo-B0 inclusion issue; the converter should read
+  conversion issue, not a B0 inclusion issue; the converter should read
   EasyReg warp fields with an untouch NIfTI loader and keep geometry handling
   through `ea_get_affine`/`ea_fslhd`.
 - EasyReg converter fix verification passed with
@@ -130,6 +127,19 @@ Implementation status:
 - Checkreg percentile fix verification passed with
   `test_gencheckregpair_percentile_index_static.m` and a temporary
   `Meige008` normalized-T1 checkreg PNG generation test.
+- Policy revision: B0 should no longer be treated as a fake/QC-only modality or
+  excluded from normalization. Once B0 is present in the Lead-DBS
+  coregistration tree, it is a formal preoperative modality equivalent to
+  T1w/T2w/SWI for coregistration approval and downstream normalization. This
+  requires B0 to be properly coregistered/resliced before normalization; if it
+  remains on the DWI grid, the coregistration UI should fail rather than
+  silently bypass it.
+- Formal B0 policy verification passed with
+  `test_b0_formal_normalization_static.m`,
+  `test_fake_b0_coreg_target_staging_static.m`, and a `Meige020`
+  `ea_getptopts` check showing `B0` present in both
+  `options.subj.coreg.anat.preop` and `options.subj.norm.anat.preop` alongside
+  the other preoperative modalities.
 
 ## Goal
 
@@ -139,9 +149,9 @@ project-agnostic DWI workflow used for STN/SNr:
 1. stage raw BIDS DWI files into the Lead-DBS derivative tree;
 2. run Synb0-DISCO, topup, and eddy distortion correction;
 3. write corrected DWI and corrected mean b0 derivatives;
-4. expose the corrected mean b0 as the Lead-DBS pseudo `B0` image;
-5. prepare the pseudo `B0` image and metadata for later user-performed
-   Lead-DBS Coregister Volumes UI alignment and manual QC.
+4. expose the corrected mean b0 as the Lead-DBS `B0` preoperative modality;
+5. prepare the `B0` image and metadata for Lead-DBS Coregister Volumes UI
+   alignment, manual QC, and downstream normalization after coregistration.
 
 The workflow must preserve rawdata provenance and must not write DWI-derived
 images into the normalization input set.
@@ -227,7 +237,7 @@ resolve the raw DWI four-file set by discovering the unique
 bvec paths from that source basename.
 
 The formal corrected outputs should remain acq-label-free and compatible with
-the existing Lead-DBS pseudo-B0 workflow:
+the existing Lead-DBS B0 workflow:
 
 ```text
 derivatives/leaddbs/sub-<ID>/preprocessing/dwi/sub-<ID>_ses-preop_desc-preproc_dwi.nii
@@ -306,9 +316,7 @@ For each pilot subject, inspect:
 3. corrected b0 agreement with anchorNative T1w/T2w at the brain outline,
    ventricles, basal ganglia, midbrain, and brainstem;
 4. DWI volume count, bval count, and rotated bvec count;
-5. pseudo-B0 metadata fields:
-   - `FakeCoregisterVolume = true`
-   - `ExcludeFromNormalization = true`
+5. B0 metadata fields, including `IntendedUse = coregistration_and_normalization`
 
 The corrected b0 must not look more distorted than the source b0. If a Philips
 pilot shows a clear polarity failure, rerun that pilot with `[0 -1 0]` before
@@ -325,7 +333,7 @@ synb0_status = ok
 eddy_status = ok
 ```
 
-The expected pseudo-B0 target prepared for later manual UI coregistration is:
+The expected B0 target prepared for Lead-DBS UI coregistration is:
 
 ```text
 derivatives/leaddbs/sub-<ID>/coregistration/anat/sub-<ID>_ses-preop_space-anchorNative_desc-preproc_B0.nii
@@ -358,15 +366,16 @@ phase_encoding_vector = 0 1 0: 22
 total_readout_time_source = json: 18, default: 4
 low_resolution_warning = false: 12, true: 10
 all_required_outputs_ok = true
-normalization_dwi_or_b0_files = 0
+normalization_dwi_or_b0_files = historical audit only; current policy allows B0 after coregistration
 ```
 
 Subjects using the default readout fallback are the Philips group:
 `Dys022`, `Meige008`, `Meige009`, and `Meige021`.
 
 Lead-DBS UI B0-to-anchorNative coregistration and approve/reject QC remain
-manual user follow-up steps. The automated goal only prepares the UI target
-files and metadata.
+manual user follow-up steps. After approval/reslicing, B0 is a formal
+preoperative modality and may be normalized with the other preoperative
+modalities.
 
 ## Risks
 
@@ -391,8 +400,8 @@ The goal is complete when:
 2. pilot subjects pass QC under the accepted parameter policy;
 3. all included subjects have corrected DWI, corrected b0, b0 metadata, and
    status rows;
-4. pseudo-B0 targets are prepared for later user-performed Lead-DBS UI
-   coregistration;
-5. no pseudo-B0 image is included in normalization inputs or outputs;
+4. B0 targets are prepared for Lead-DBS UI coregistration;
+5. B0 is treated as a formal preoperative modality and may enter normalization
+   after successful coregistration/reslicing;
 6. a final Meige processing record documents subject-level preprocessing
    status and reruns.

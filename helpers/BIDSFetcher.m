@@ -745,10 +745,6 @@ classdef BIDSFetcher
             % Get coregistered anat images
             coregAnat = obj.getCoregAnat(subjId, preferMRCT);
 
-            % Remove pre-op anat images except for anchor image
-            fields = fieldnames(coregAnat.preop);
-            coregAnat.preop = rmfield(coregAnat.preop, fields(2:end));
-
             % Get LeadDBS dirs
             LeadDBSDirs = obj.getLeadDBSDirs(subjId);
 

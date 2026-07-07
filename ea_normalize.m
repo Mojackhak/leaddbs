@@ -9,7 +9,7 @@ if ~ea_reglocked(options, options.subj.preopAnat.(options.subj.AnchorModality).n
     end
 
     isReApply = ismember(lower(options.normalize.method), lower({'(Re-)apply (priorly) estimated normalization', 'Apply', 'ReApply'}));
-    runOptions = ea_exclude_b0_from_normalization(options);
+    runOptions = options;
     refineContext = [];
 
     if ~isReApply
@@ -71,22 +71,5 @@ if ~ea_reglocked(options, options.subj.preopAnat.(options.subj.AnchorModality).n
         ea_segmask_cleanup(options);
         ea_cprintf('CmdWinWarnings', 'Normalization has been rerun. Please also rerun brain shift correction!\n');
     end
-end
-end
-
-function options = ea_exclude_b0_from_normalization(options)
-% Keep pseudo B0 volumes available for coregistration while excluding them
-% from all normalization backends reached through ea_normalize.
-if isfield(options, 'subj') && isfield(options.subj, 'coreg') && ...
-        isfield(options.subj.coreg, 'anat') && isfield(options.subj.coreg.anat, 'preop') && ...
-        isfield(options.subj.coreg.anat.preop, 'B0')
-    options.subj.coreg.anat.preop = rmfield(options.subj.coreg.anat.preop, 'B0');
-    fprintf('Excluding pseudo B0 volume from normalization inputs.\n');
-end
-
-if isfield(options, 'subj') && isfield(options.subj, 'norm') && ...
-        isfield(options.subj.norm, 'anat') && isfield(options.subj.norm.anat, 'preop') && ...
-        isfield(options.subj.norm.anat.preop, 'B0')
-    options.subj.norm.anat.preop = rmfield(options.subj.norm.anat.preop, 'B0');
 end
 end
