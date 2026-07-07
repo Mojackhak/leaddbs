@@ -2300,7 +2300,7 @@ HF-overlap streamlines have no ULF biological role.
 HF out-of-support exposure has no effect.
 Every selected streamline is patient-specific.
 The result proves an anatomical SNr gain mechanism.
-A fallback sensitivity result replaces the failed intended primary model.
+A fallback sensitivity result can be relabeled as primary or replace the failed intended primary model.
 A ULF tau/Coverage neighborhood sensitivity replaces the selected source.
 ```
 

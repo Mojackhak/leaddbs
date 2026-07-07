@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,8 @@ import pandas as pd
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
 
 HF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
+ULF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
+PENDING_ULF_SOURCE_RESOLVER = "pending_source_resolver"
 
 
 def iso_now() -> str:
@@ -157,26 +160,39 @@ def classify_c_observed_state(
     )
     formal_status = "NOT_STARTED_FORMAL_RESAMPLING"
     if dependency_status == "SOURCE_ABSENT":
-        next_status = "OBSERVED_COMPLETE_NO_DELTA_PRIMARY"
         primary_branch = "no_delta_hf"
         delta_role = "not_run_no_stable_hf_source"
     elif dependency_status == "SOURCE_EXISTS_ERROR_NONPREDICTIVE":
-        next_status = "OBSERVED_COMPLETE_NO_DELTA_PRIMARY"
         primary_branch = "no_delta_hf"
         delta_role = "stable_error_nonpredictive_hf_adjustment_sensitivity"
     elif dependency_status == "SOURCE_EXISTS_ERROR_PREDICTIVE":
-        next_status = "OBSERVED_COMPLETE_DELTA_HF_PRIMARY"
         primary_branch = "delta_hf_adjusted"
         delta_role = "primary_error_predictive_hf_adjustment"
-    elif dependency_status in {"SOURCE_EXISTS_ERROR_PREDICTIVE", "SOURCE_EXISTS_ERROR_NONPREDICTIVE"}:
-        next_status = "OBSERVED_COMPLETE_READY_FOR_ENDPOINT_RESOLVER"
-        primary_branch = ""
-        delta_role = ""
     else:
         formal_status = "NOT_APPLICABLE_WAITING_FOR_HF"
         next_status = "WAITING_FOR_HF_SOURCE_RESOLVER"
         primary_branch = ""
         delta_role = ""
+        endpoint_state = {
+            "ulf_source_status": "",
+            "ulf_prediction_status": "",
+            "ulf_endpoint_model_status": "",
+            "mae_model": "",
+            "mae_baseline": "",
+            "rmse_model": "",
+            "rmse_baseline": "",
+        }
+        return {
+            "execution_status": next_status,
+            "dependency_status": dependency_status,
+            "formal_resampling_status": formal_status,
+            "hf_prediction_validity_status": hf_dependency_prediction_status or "not_evaluable",
+            "ulf_primary_branch": primary_branch,
+            "delta_hfscore_role": delta_role,
+            **endpoint_state,
+        }
+    endpoint_state = endpoint_state_from_branch(c_outputs, primary_branch, source_key="ulf_voxel_source_status")
+    next_status, formal_status = execution_status_from_endpoint_state(endpoint_state)
     return {
         "execution_status": next_status,
         "dependency_status": dependency_status,
@@ -184,6 +200,7 @@ def classify_c_observed_state(
         "hf_prediction_validity_status": hf_dependency_prediction_status or "not_evaluable",
         "ulf_primary_branch": primary_branch,
         "delta_hfscore_role": delta_role,
+        **endpoint_state,
     }
 
 
@@ -212,26 +229,39 @@ def classify_d_observed_state(
     )
     formal_status = "NOT_STARTED_FORMAL_RESAMPLING"
     if dependency_status == "SOURCE_ABSENT":
-        next_status = "OBSERVED_COMPLETE_NO_DELTA_PRIMARY"
         primary_branch = "no_delta_hf"
         delta_role = "not_run_no_stable_hf_source"
     elif dependency_status == "SOURCE_EXISTS_ERROR_NONPREDICTIVE":
-        next_status = "OBSERVED_COMPLETE_NO_DELTA_PRIMARY"
         primary_branch = "no_delta_hf"
         delta_role = "stable_error_nonpredictive_hf_adjustment_sensitivity"
     elif dependency_status == "SOURCE_EXISTS_ERROR_PREDICTIVE":
-        next_status = "OBSERVED_COMPLETE_DELTA_HF_PRIMARY"
         primary_branch = "delta_hf_adjusted"
         delta_role = "primary_error_predictive_hf_adjustment"
-    elif dependency_status in {"SOURCE_EXISTS_ERROR_PREDICTIVE", "SOURCE_EXISTS_ERROR_NONPREDICTIVE"}:
-        next_status = "OBSERVED_COMPLETE_READY_FOR_ENDPOINT_RESOLVER"
-        primary_branch = ""
-        delta_role = ""
     else:
         formal_status = "NOT_APPLICABLE_WAITING_FOR_HF"
         next_status = "WAITING_FOR_HF_SOURCE_RESOLVER"
         primary_branch = ""
         delta_role = ""
+        endpoint_state = {
+            "ulf_source_status": "",
+            "ulf_prediction_status": "",
+            "ulf_endpoint_model_status": "",
+            "mae_model": "",
+            "mae_baseline": "",
+            "rmse_model": "",
+            "rmse_baseline": "",
+        }
+        return {
+            "execution_status": next_status,
+            "dependency_status": dependency_status,
+            "formal_resampling_status": formal_status,
+            "hf_prediction_validity_status": hf_dependency_prediction_status or "not_evaluable",
+            "ulf_primary_branch": primary_branch,
+            "delta_hfscore_role": delta_role,
+            **endpoint_state,
+        }
+    endpoint_state = endpoint_state_from_branch(d_outputs, primary_branch, source_key="ulf_norm_fiber_source_status")
+    next_status, formal_status = execution_status_from_endpoint_state(endpoint_state)
     return {
         "execution_status": next_status,
         "dependency_status": dependency_status,
@@ -239,7 +269,54 @@ def classify_d_observed_state(
         "hf_prediction_validity_status": hf_dependency_prediction_status or "not_evaluable",
         "ulf_primary_branch": primary_branch,
         "delta_hfscore_role": delta_role,
+        **endpoint_state,
     }
+
+
+def endpoint_state_from_branch(outputs: dict[str, Any], primary_branch: str, *, source_key: str) -> dict[str, Any]:
+    """Return endpoint-level status fields from the HF-derived intended primary branch."""
+    branch = outputs.get("branches", {}).get(primary_branch, {})
+    source_status = str(branch.get(source_key, "") or "")
+    prediction_status = str(branch.get("ulf_prediction_status", "") or "")
+    endpoint_status = ulf_endpoint_status(source_status, prediction_status)
+    metrics = branch.get("baseline_comparison", {})
+    return {
+        "ulf_source_status": source_status,
+        "ulf_prediction_status": prediction_status,
+        "ulf_endpoint_model_status": endpoint_status,
+        "mae_model": metrics.get("mae_model", ""),
+        "mae_baseline": metrics.get("mae_baseline", ""),
+        "rmse_model": metrics.get("rmse_model", ""),
+        "rmse_baseline": metrics.get("rmse_baseline", ""),
+    }
+
+
+def ulf_endpoint_status(source_status: str, prediction_status: str) -> str:
+    """Classify the realized ULF endpoint after branch role and branch source status are known."""
+    if source_status in ULF_SOURCE_ACCEPTED and prediction_status == "error_predictive":
+        return "primary_branch_error_predictive"
+    if source_status in ULF_SOURCE_ACCEPTED and prediction_status == "error_nonpredictive":
+        return "primary_branch_error_nonpredictive"
+    if source_status == "absent_no_stable_grid":
+        return "absent_no_stable_ulf_grid"
+    if source_status == PENDING_ULF_SOURCE_RESOLVER:
+        return PENDING_ULF_SOURCE_RESOLVER
+    if prediction_status:
+        return "pending_source_resolver"
+    return ""
+
+
+def execution_status_from_endpoint_state(endpoint_state: dict[str, Any]) -> tuple[str, str]:
+    endpoint_status = str(endpoint_state.get("ulf_endpoint_model_status", "") or "")
+    if endpoint_status == "primary_branch_error_predictive":
+        return "OBSERVED_COMPLETE_PRIMARY_ERROR_PREDICTIVE", "NOT_STARTED_FORMAL_RESAMPLING"
+    if endpoint_status == "primary_branch_error_nonpredictive":
+        return "OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE", "NOT_STARTED_FORMAL_RESAMPLING"
+    if endpoint_status == "absent_no_stable_ulf_grid":
+        return "OBSERVED_COMPLETE_ABSENT_NO_STABLE_ULF_GRID", "NOT_APPLICABLE_NO_STABLE_ULF_SOURCE"
+    if endpoint_status == PENDING_ULF_SOURCE_RESOLVER:
+        return "OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER", "NOT_APPLICABLE_WAITING_FOR_ULF_SOURCE_RESOLVER"
+    return "OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER", "NOT_APPLICABLE_WAITING_FOR_ULF_SOURCE_RESOLVER"
 
 
 def classify_dependency(*, source_status: str = "", prediction_status: str = "", decision: str = "") -> str:
@@ -276,6 +353,58 @@ def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _finite_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def prediction_baseline_comparison(predictions_csv: Path) -> dict[str, Any]:
+    """Compare observed-branch LOOCV predictions against the nuisance-only baseline."""
+    if not predictions_csv.is_file():
+        return {"prediction_status": "not_evaluable"}
+    with predictions_csv.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        return {"prediction_status": "not_evaluable"}
+    model_prediction_column = ""
+    for candidate in ("prediction_ULFScore_model", "prediction_NetFiberScore_model"):
+        if candidate in rows[0]:
+            model_prediction_column = candidate
+            break
+    if not model_prediction_column or "prediction_baseline_only" not in rows[0] or "Y_post" not in rows[0]:
+        return {"prediction_status": "not_evaluable"}
+
+    model_errors: list[float] = []
+    baseline_errors: list[float] = []
+    for row in rows:
+        y_post = _finite_float(row.get("Y_post"))
+        model_prediction = _finite_float(row.get(model_prediction_column))
+        baseline_prediction = _finite_float(row.get("prediction_baseline_only"))
+        if y_post is None or model_prediction is None or baseline_prediction is None:
+            return {"prediction_status": "not_evaluable"}
+        model_errors.append(y_post - model_prediction)
+        baseline_errors.append(y_post - baseline_prediction)
+    if not model_errors:
+        return {"prediction_status": "not_evaluable"}
+    mae_model = sum(abs(error) for error in model_errors) / len(model_errors)
+    mae_baseline = sum(abs(error) for error in baseline_errors) / len(baseline_errors)
+    rmse_model = math.sqrt(sum(error * error for error in model_errors) / len(model_errors))
+    rmse_baseline = math.sqrt(sum(error * error for error in baseline_errors) / len(baseline_errors))
+    prediction_status = (
+        "error_predictive" if mae_model < mae_baseline and rmse_model < rmse_baseline else "error_nonpredictive"
+    )
+    return {
+        "prediction_status": prediction_status,
+        "mae_model": mae_model,
+        "mae_baseline": mae_baseline,
+        "rmse_model": rmse_model,
+        "rmse_baseline": rmse_baseline,
+    }
+
+
 def default_c_output_root(val_root: Path) -> Path:
     return val_root / "summary/direct_voxel/ulf/mds_updrs_iii_score_stn_snr_3_m/tau200"
 
@@ -302,15 +431,25 @@ def read_c_observed_outputs(val_root: Path) -> dict[str, Any]:
         predictions = branch_dir / "direct_voxel_ULF_only_loocv_predictions.csv"
         manifest_data = read_json(manifest)
         qc_data = read_json(qc)
+        baseline_comparison = prediction_baseline_comparison(predictions)
+        source_status = manifest_data.get("ulf_voxel_source_status", "")
+        if not source_status and predictions.is_file():
+            source_status = PENDING_ULF_SOURCE_RESOLVER
         out["branches"][key] = {
             "branch_dir": str(branch_dir),
             "manifest_path": str(manifest),
             "qc_path": str(qc),
+            "predictions_path": str(predictions),
             "manifest_exists": manifest.is_file(),
             "qc_exists": qc.is_file(),
             "scores_exists": scores.is_file(),
             "predictions_exists": predictions.is_file(),
             "metrics": qc_data.get("loocv_metrics", {}),
+            "baseline_comparison": baseline_comparison,
+            "ulf_voxel_source_status": source_status,
+            "ulf_prediction_status": manifest_data.get(
+                "ulf_voxel_prediction_status", baseline_comparison.get("prediction_status", "")
+            ),
             "ulf_primary_branch": manifest_data.get("ulf_primary_branch", ""),
             "delta_hfscore_role": manifest_data.get("delta_hfscore_role", ""),
             "hf_prediction_validity_status": manifest_data.get("hf_prediction_validity_status", ""),
@@ -336,15 +475,25 @@ def read_d_observed_outputs(val_root: Path) -> dict[str, Any]:
         predictions = branch_dir / "normative_ULF_fiber_loocv_predictions.csv"
         manifest_data = read_json(manifest)
         qc_data = read_json(qc)
+        baseline_comparison = prediction_baseline_comparison(predictions)
+        source_status = manifest_data.get("ulf_norm_fiber_source_status", "")
+        if not source_status and predictions.is_file():
+            source_status = PENDING_ULF_SOURCE_RESOLVER
         out["branches"][key] = {
             "branch_dir": str(branch_dir),
             "manifest_path": str(manifest),
             "qc_path": str(qc),
+            "predictions_path": str(predictions),
             "manifest_exists": manifest.is_file(),
             "qc_exists": qc.is_file(),
             "scores_exists": scores.is_file(),
             "predictions_exists": predictions.is_file(),
             "metrics": qc_data.get("loocv_metrics", {}),
+            "baseline_comparison": baseline_comparison,
+            "ulf_norm_fiber_source_status": source_status,
+            "ulf_prediction_status": manifest_data.get(
+                "ulf_norm_fiber_prediction_status", baseline_comparison.get("prediction_status", "")
+            ),
             "ulf_primary_branch": manifest_data.get("ulf_primary_branch", ""),
             "delta_hfscore_role": manifest_data.get("delta_hfscore_role", ""),
             "hf_prediction_validity_status": manifest_data.get("hf_prediction_validity_status", ""),
@@ -442,8 +591,8 @@ def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
         "",
         "Current cohort size is `n=16`. These outputs remain hypothesis-generating unless a branch passes the declared gate and the corresponding formal validation is run.",
         "",
-        "| Model | Status | Dependency | HF source | HF prediction | ULF primary | Formal resampling | Next action |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Model | Status | Dependency | HF source | HF prediction | ULF primary | ULF source | ULF prediction | ULF endpoint | Formal resampling | Next action |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
@@ -451,6 +600,9 @@ def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
             "{hf_source_status} | "
             "{hf_prediction_validity_status} | "
             "{ulf_primary_branch} | "
+            "{ulf_source_status} | "
+            "{ulf_prediction_status} | "
+            "{ulf_endpoint_model_status} | "
             "{formal_resampling_status} | {next_action} |".format(**row)
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -504,7 +656,14 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
                 "input_summary": "",
                 "latest_manifest": str(gate_row.get("manifest_path", "")),
                 "ulf_primary_branch": "",
+                "ulf_source_status": "",
+                "ulf_prediction_status": "",
+                "ulf_endpoint_model_status": "",
                 "delta_hfscore_role": "",
+                "mae_model": "",
+                "mae_baseline": "",
+                "rmse_model": "",
+                "rmse_baseline": "",
                 "next_action": next_action_for_state(state),
                 **state,
             }
@@ -532,11 +691,20 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             metrics = no_delta.get("metrics", {})
             input_summary = component_summary_text(efield_summary)
             if c_outputs.get("both_branches_exist"):
+                primary_branch = state.get("ulf_primary_branch", "")
+                primary = c_outputs.get("branches", {}).get(primary_branch, {})
+                primary_comparison = primary.get("baseline_comparison", {})
                 input_summary = (
                     f"{input_summary}; C observed branches exist; "
                     f"no_delta rho={metrics.get('spearman_rho', '')}, Q2={metrics.get('q2', '')}; "
                     f"delta rho={delta.get('metrics', {}).get('spearman_rho', '')}, "
-                    f"Q2={delta.get('metrics', {}).get('q2', '')}"
+                    f"Q2={delta.get('metrics', {}).get('q2', '')}; "
+                    f"primary {primary_branch} source={state.get('ulf_source_status', '')}; "
+                    f"prediction={state.get('ulf_prediction_status', '')}; "
+                    f"MAE/RMSE model={primary_comparison.get('mae_model', '')}/"
+                    f"{primary_comparison.get('rmse_model', '')}; "
+                    f"baseline={primary_comparison.get('mae_baseline', '')}/"
+                    f"{primary_comparison.get('rmse_baseline', '')}"
                 )
             latest_manifest = str(no_delta.get("manifest_path", ""))
             spearman_rho = metrics.get("spearman_rho", "")
@@ -555,11 +723,20 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             metrics = no_delta.get("metrics", {})
             input_summary = component_summary_text(efield_summary)
             if d_outputs.get("both_branches_exist"):
+                primary_branch = state.get("ulf_primary_branch", "")
+                primary = d_outputs.get("branches", {}).get(primary_branch, {})
+                primary_comparison = primary.get("baseline_comparison", {})
                 input_summary = (
                     f"{input_summary}; D PPMI observed branches exist; "
                     f"no_delta rho={metrics.get('spearman_rho', '')}, Q2={metrics.get('q2', '')}; "
                     f"delta rho={delta.get('metrics', {}).get('spearman_rho', '')}, "
-                    f"Q2={delta.get('metrics', {}).get('q2', '')}"
+                    f"Q2={delta.get('metrics', {}).get('q2', '')}; "
+                    f"primary {primary_branch} source={state.get('ulf_source_status', '')}; "
+                    f"prediction={state.get('ulf_prediction_status', '')}; "
+                    f"MAE/RMSE model={primary_comparison.get('mae_model', '')}/"
+                    f"{primary_comparison.get('rmse_model', '')}; "
+                    f"baseline={primary_comparison.get('mae_baseline', '')}/"
+                    f"{primary_comparison.get('rmse_baseline', '')}"
                 )
             latest_manifest = str(no_delta.get("manifest_path", ""))
             spearman_rho = metrics.get("spearman_rho", "")
@@ -619,6 +796,14 @@ def next_action_for_state(state: dict[str, str]) -> str:
         return "record no stable HF source; downstream ULF should run no_delta_hf only"
     if execution_status == "OBSERVED_COMPLETE_READY_FOR_ENDPOINT_RESOLVER":
         return "resolve endpoint primary branch and then decide formal resampling"
+    if execution_status == "OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER":
+        return "run branch-specific ULF source resolver before endpoint realization or formal resampling"
+    if execution_status == "OBSERVED_COMPLETE_PRIMARY_ERROR_PREDICTIVE":
+        return "run formal resampling for the realized primary branch if selected for formal reporting"
+    if execution_status == "OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE":
+        return "record realized primary branch as error-nonpredictive; formal reporting is resource/reporting dependent"
+    if execution_status == "OBSERVED_COMPLETE_ABSENT_NO_STABLE_ULF_GRID":
+        return "record no stable ULF source; do not run formal resampling for this endpoint branch"
     if execution_status == "OBSERVED_COMPLETE_NO_DELTA_PRIMARY":
         return "report no_delta_hf as primary because matched HF source is absent or error-nonpredictive"
     if execution_status == "OBSERVED_COMPLETE_DELTA_HF_PRIMARY":
@@ -658,6 +843,13 @@ def run_status(args: argparse.Namespace) -> int:
         "hf_prediction_validity_status",
         "ulf_primary_branch",
         "delta_hfscore_role",
+        "ulf_source_status",
+        "ulf_prediction_status",
+        "ulf_endpoint_model_status",
+        "mae_model",
+        "mae_baseline",
+        "rmse_model",
+        "rmse_baseline",
         "formal_resampling_status",
         "gate_decision",
         "spearman_rho",
