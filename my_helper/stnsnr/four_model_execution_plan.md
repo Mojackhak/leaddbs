@@ -94,11 +94,11 @@ dTOR normative-fiber smoke permutation = B_DTOR and D_DTOR complete at B=1000, s
 dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR fiber jitter/OSS = not_run_missing_inputs
-normative-fiber basic density cache = B_DTOR and D_DTOR complete; B_PPMI, B_MGH, and D_PPMI pending; atlas labels, FDR, enrichment, OSS, and fiber jitter remain not run
-final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; B_DTOR/D_DTOR basic fiber density outputs ready; B_PPMI/B_MGH/D_PPMI fiber density/label caches missing
+normative-fiber basic density cache = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete; atlas labels, FDR, enrichment, OSS, and fiber jitter remain not run
+final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; all normative-fiber rows have basic fiber density outputs ready
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with density_label_cache blocker; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
+completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
 ```
 
 Current direct-voxel formal permutation snapshot:

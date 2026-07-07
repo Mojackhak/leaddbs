@@ -6,14 +6,10 @@ The full four-model program is intentionally gated. The current codebase now inc
 
 ## Pause Checkpoint
 
-2026-07-07 pause update: the current paused change records the plan to expand
-the basic normative-fiber density cache from dTOR-only final targets to all
-normative-fiber rows in the final report. The TDD red test has been added in
-`stnsnr_normative_fiber_density_cache_selftest.py`; implementation has not yet
-been advanced to green. On resume, update
-`stnsnr_normative_fiber_density_cache.py` so `model_ids=None` processes every
-`analysis_family = normative_fiber` row, then regenerate density-cache, final
-reporting, schema audit, and completion audit outputs.
+2026-07-07 density-cache update: the basic normative-fiber density cache now
+defaults to all `analysis_family = normative_fiber` rows in the final report.
+The density-cache, final reporting, schema audit, and completion audit outputs
+have been regenerated from this all-row behavior.
 
 Execution has resumed through the 2026-07-07 status, formal-target, and
 formal-readiness refresh. The latest observed branches and status files were
@@ -64,8 +60,8 @@ dTOR normative-fiber smoke permutation: B_DTOR and D_DTOR complete at B=1000, se
 dTOR normative-fiber formal permutation: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber OSS/jitter sensitivity readiness: not_run_missing_inputs
-normative-fiber basic density cache: B_DTOR and D_DTOR complete; B_PPMI, B_MGH, and D_PPMI pending; atlas labels, FDR, enrichment, OSS, and fiber jitter remain not run
-final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; B_DTOR/D_DTOR basic fiber density outputs ready; B_PPMI/B_MGH/D_PPMI fiber density/label caches missing
+normative-fiber basic density cache: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete; atlas labels, FDR, enrichment, OSS, and fiber jitter remain not run
+final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; all normative-fiber rows have basic fiber density outputs ready
 C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
 C same-day immediate endpoint-family observed outputs: complete for 2 endpoint rows; resampling_status = not_run_observed_only
 D same-day immediate endpoint-family observed outputs: complete for 4 endpoint/connectome rows; resampling_status = not_run_observed_only
@@ -74,7 +70,7 @@ all-endpoint reporting: 79 rows; A all-endpoint source-resolver rows = 30; disco
 all-endpoint manifest audit: 73 rows missing_git_or_patch_provenance / missing_code_provenance; 6 rows have provenance from a different commit
 all-endpoint reporting manifest records manifest_provenance_counts and manifest_stale_counts
 manifest schema audit: 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with density_label_cache blocker; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
+completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
 full fiber label/FDR/enrichment figure-grade outputs: not run
 ```
 

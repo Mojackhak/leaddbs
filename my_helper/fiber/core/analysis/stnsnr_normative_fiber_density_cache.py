@@ -216,12 +216,13 @@ def build_density_cache_from_final_report(
     final_rows = read_csv(Path(final_report_csv))
     if not final_rows:
         raise RuntimeError(f"no final report rows found in {final_report_csv}")
-    target_ids = model_ids or {"B_DTOR", "D_DTOR"}
     template_path = Path(asset_root) / "templates/space/MNI152NLin2009bAsym/brainmask.nii.gz"
     summary_rows: list[dict[str, Any]] = []
     for row in final_rows:
         model_id = row.get("model_id", "")
-        if model_id not in target_ids or row.get("analysis_family") != "normative_fiber":
+        if row.get("analysis_family") != "normative_fiber":
+            continue
+        if model_ids is not None and model_id not in model_ids:
             continue
         manifest_path = row.get("latest_manifest", "")
         branch_dir = Path(manifest_path).parent
@@ -272,7 +273,7 @@ def run_density_cache(args: argparse.Namespace) -> int:
         final_report_csv=Path(args.final_report_csv).expanduser().resolve(),
         asset_root=Path(args.asset_root).expanduser().resolve(),
         output_dir=Path(args.output_dir).expanduser().resolve(),
-        model_ids=set(args.model_id),
+        model_ids=set(args.model_id) if args.model_id else None,
     )
     print(f"Normative-fiber density cache summary: {outputs['summary_csv']}")
     return 0
@@ -298,8 +299,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model-id",
         action="append",
-        default=["B_DTOR", "D_DTOR"],
-        help="Normative-fiber model ID to process. May be passed multiple times.",
+        default=[],
+        help="Optional normative-fiber model ID to process. May be passed multiple times. Defaults to all normative-fiber rows.",
     )
     return parser
 
