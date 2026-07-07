@@ -2,12 +2,13 @@
 
 This note records executable implementation layers for `four_model_execution_plan.md`.
 
-The full four-model program is intentionally gated. The current codebase now includes readiness, observed A/B/C/D branches, C/D source resolvers, consolidated status reporting, and shared resolver utilities. Formal permutation, bootstrap, jitter, OSS-DBS, all-endpoint reporting, and figure-grade display stages remain deferred.
+The full four-model program is intentionally gated. The current codebase now includes readiness, observed A/B/C/D branches, C/D source resolvers, consolidated status reporting, final-model worklist/readiness auditing, and shared resolver utilities. Formal permutation, bootstrap, jitter, OSS-DBS, all-endpoint reporting, and figure-grade display stages remain deferred.
 
 ## Pause Checkpoint
 
-Execution is paused after the 2026-07-07 status refresh. The latest observed
-branches and status files were regenerated from the single retained worktree:
+Execution has resumed through the 2026-07-07 status, formal-target, and
+formal-readiness refresh. The latest observed branches and status files were
+regenerated from the single retained worktree:
 
 ```text
 /Users/mojackhu/Github/leaddbs
@@ -21,6 +22,8 @@ Current refreshed outputs:
 /Volumes/VAL/STNSNr/summary/four_model_execution/status/four_model_execution_status.md
 /Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/four_model_formal_target_worklist.csv
 /Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/four_model_formal_target_worklist.md
+/Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/four_model_formal_readiness.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/four_model_formal_readiness.md
 ```
 
 Current state:
@@ -32,11 +35,13 @@ C direct voxel: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 D PPMI normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 D dTOR normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 formal target worklist: 7/7 READY_FOR_FORMAL_RESAMPLING
+formal readiness audit: 7/7 READY_FOR_FORMAL_DRIVER
 ULF component e-fields: 64/64 available
 formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
 ```
 
-No further execution should be started until the workflow is explicitly resumed.
+No expensive formal permutation/bootstrap/jitter/OSS drivers should be started
+until the workflow is explicitly resumed for that layer.
 
 The consolidated status manifest records git provenance for the worktree that
 generated the status refresh, including branch, HEAD commit, and dirty files.
@@ -521,6 +526,67 @@ Run the worklist:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_worklist.py
+```
+
+## Final-Model Formal Readiness Audit
+
+The formal readiness audit is the next lightweight layer after the final-model
+formal target worklist. It does not run formal permutation, bootstrap, spatial
+jitter, OSS-DBS, or display generation. It reads the worklist and verifies that
+each `READY_FOR_FORMAL_RESAMPLING` row points to an existing branch manifest and
+to the branch-level QC, score, and LOOCV prediction files required by future
+formal drivers.
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_readiness.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_four_model_formal_readiness.py
+```
+
+Required branch files are inferred from the manifest filename:
+
+```text
+direct_voxel_HF_generation_manifest.json:
+  direct_voxel_HF_mapping_qc.json
+  direct_voxel_HF_scores.csv
+  direct_voxel_HF_loocv_predictions.csv
+
+normative_HF_fiber_generation_manifest.json:
+  normative_HF_fiber_mapping_qc.json
+  normative_HF_fiber_scores.csv
+  normative_HF_fiber_loocv_predictions.csv
+
+direct_voxel_ULF_only_generation_manifest.json:
+  direct_voxel_ULF_only_mapping_qc.json
+  direct_voxel_ULF_only_scores.csv
+  direct_voxel_ULF_only_loocv_predictions.csv
+
+normative_ULF_fiber_generation_manifest.json:
+  normative_ULF_fiber_mapping_qc.json
+  normative_ULF_fiber_scores.csv
+  normative_ULF_fiber_loocv_predictions.csv
+```
+
+Default outputs:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/
+  four_model_formal_readiness.csv
+  four_model_formal_readiness.md
+  four_model_formal_readiness_manifest.json
+```
+
+Run the audit:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_readiness.py
 ```
 
 ## ULF Component E-field Worklist

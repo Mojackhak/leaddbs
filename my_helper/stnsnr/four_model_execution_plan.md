@@ -9,9 +9,10 @@
 
 ## Pause Checkpoint
 
-Execution is paused after the 2026-07-07 status and formal-target refresh. The
-current checkpoint has completed observed/non-formal branches, lightweight
-readiness/status generation, and the final-model formal target worklist:
+Execution has resumed through the 2026-07-07 status, formal-target, and
+formal-readiness refresh. The current checkpoint has completed
+observed/non-formal branches, lightweight readiness/status generation, the
+final-model formal target worklist, and the final-model formal readiness audit:
 
 ```text
 A HF direct voxel observed branch rerun from /Users/mojackhu/Github/leaddbs
@@ -26,7 +27,13 @@ D PPMI normative fiber source resolver refreshed
 D dTOR normative fiber source resolver refreshed
 Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/status/
 Final-model formal target worklist refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_worklist/
+Final-model formal readiness audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/formal_readiness/
 ```
+
+The formal readiness audit does not run formal permutation, bootstrap, jitter,
+OSS-DBS, or display generation. It consumes the final-model formal target
+worklist and checks that each final branch/source has the manifest, QC, score,
+and LOOCV prediction files required by future formal drivers.
 
 Current status snapshot after the source-resolver refresh already performed in
 this branch:
@@ -40,10 +47,12 @@ C direct voxel final model = no_delta_hf; final_model_error_nonpredictive
 D PPMI normative fiber final model = no_delta_hf at scan-fallback tau600/Coverage>=5; final_model_error_nonpredictive
 D dTOR normative fiber final model = no_delta_hf at scan-fallback tau400/Coverage>=5; final_model_error_nonpredictive
 formal target worklist = 7/7 READY_FOR_FORMAL_RESAMPLING
+formal readiness audit = 7/7 READY_FOR_FORMAL_DRIVER
 formal permutation/bootstrap/jitter/OSS = not run
 ```
 
-Do not continue execution from this checkpoint unless explicitly resumed.
+Do not start expensive formal permutation/bootstrap/jitter/OSS drivers from this
+checkpoint unless explicitly resumed for that layer.
 
 ---
 
@@ -322,6 +331,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | Legacy A/B status CSV | `my_helper/fiber/stnsnr/run_stnsnr_four_model_gate_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_gate_status.py` | implemented |
 | Four-model status | `my_helper/fiber/stnsnr/run_stnsnr_four_model_execution_status.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_execution_status.py` | implemented |
 | Final-model formal target worklist | `my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_formal_worklist.py` | implemented |
+| Final-model formal readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_formal_readiness.py` | implemented |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
 | C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
@@ -575,11 +585,10 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
 
 ### Immediate Next Steps
 
-1. Use the endpoint classification to select the final unique reporting model
-   automatically. Formal resampling, OSS, jitter, and figure-grade outputs
-   attach to the generated final-model formal target worklist; if the intended
-   primary branch has input/design failure, the executable fallback no-DeltaHF
-   branch becomes the final model.
+1. Formal resampling, OSS, jitter, and figure-grade outputs attach to the
+   generated final-model formal target worklist. If the intended primary branch
+   has input/design failure, the executable fallback no-DeltaHF branch becomes
+   the final model.
 2. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
@@ -922,6 +931,13 @@ Final-model formal target worklist:
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_worklist.py
 ```
 
+Final-model formal readiness audit:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_formal_readiness.py
+```
+
 ---
 
 ## 10. Definition Of Done
@@ -934,6 +950,8 @@ C and D have both delta_hf_adjusted and no_delta_hf outputs when inputs allow.
 Each model records which branch is interpretation-primary and why.
 Every branch has QC JSON, manifest JSON, predictions CSV, and score CSV.
 Formal resampling is tied to the resolver-selected final unique model branch.
+Every final-model formal target passes the readiness audit before expensive
+formal drivers are started.
 Fallback-selected thresholds are explicitly labeled as scan-fallback sources and are never relabeled as pre-specified sources.
 The final report states n=16 and hypothesis-generating interpretation.
 All affected outputs and consolidated status files have been rerun after the latest executable patch.
