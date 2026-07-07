@@ -821,9 +821,8 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    consolidated final-model outputs, and ULF sensitivity-output searches. This
    reporting package must explicitly label C/D gain endpoints, same-day
    immediate endpoints, and total-ULF sensitivities as detected or not run from
-   observed output files. The current C gain, C same-day immediate, and C
-   total-ULF sensitivity outputs are detected; all D sensitivity work items
-   remain not run.
+   observed output files. The current C and D gain, same-day immediate, and
+   total-ULF sensitivity outputs are detected.
 5. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
@@ -1292,7 +1291,7 @@ The final reporting package records the unique final model for each formal targe
 formal resampling status, direct-voxel display-source availability, and explicit
 not-run statuses for unavailable fiber OSS/jitter/density/FDR/enrichment inputs.
 The all-endpoint reporting package records A all-endpoint source-resolver rows,
-observed branch manifests, final-report rows, and explicit not-run statuses for
+observed branch manifests, final-report rows, and detected/not-run statuses for
 C/D gain endpoints, same-day immediate endpoints, and total-ULF sensitivities.
 The final report states n=16 and hypothesis-generating interpretation.
 All affected outputs and consolidated status files have been rerun after the latest executable patch.
