@@ -73,7 +73,7 @@ index = 1:prod(s);
 [v1,v2,v3] = ind2sub(s,index);
 mm = ea_vox2mm([v1',v2',v3'], ea_get_affine(warp_file_in)); % Need to do vox2mm since EasyReg uses disp_crs format)
 mm = reshape(mm, [s,3]);
-out = n.img - mm;
+out = double(n.img) - mm;
 
 % reshape output
 out_rows = [-reshape(out(:,:,:,1),1,[]); -reshape(out(:,:,:,2),1,[]); reshape(out(:,:,:,3),1,[])];

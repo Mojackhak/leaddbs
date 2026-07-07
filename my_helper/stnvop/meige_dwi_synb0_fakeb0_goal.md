@@ -118,6 +118,9 @@ Implementation status:
   `test_easyreg_warp_field_untouch_loader_static.m`, and the existing
   `Meige008` EasyReg inverse field loaded successfully with `load_untouch_nii`
   as a `218 x 262 x 165 x 3` transform field.
+- Follow-up normalization attempt showed that `load_untouch_nii` preserves the
+  integer storage class of EasyReg fields. The converter must cast field values
+  to `double` before subtracting double-precision voxel mm coordinates.
 
 ## Goal
 
