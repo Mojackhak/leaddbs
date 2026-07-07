@@ -64,6 +64,7 @@ all-endpoint reporting: 79 rows; A all-endpoint source-resolver rows = 30; disco
 all-endpoint manifest audit: 73 rows missing_git_or_patch_provenance / missing_code_provenance; 6 rows have provenance from a different commit
 all-endpoint reporting manifest records manifest_provenance_counts and manifest_stale_counts
 manifest schema audit: 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
+completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target; 2 blocked_missing_fiber_inputs
 full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
@@ -192,6 +193,21 @@ compute the pair from their own `manifest_path` when one exists. The
 all-endpoint reporting manifest stores `manifest_provenance_counts` and
 `manifest_stale_counts` so downstream checks can audit the report without
 rescanning the CSV.
+
+The completion/blocker audit layer consumes the final report, figure-output
+readiness table, all-endpoint missing-work audit, and manifest schema audit. It
+writes:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/completion_audit/four_model_completion_audit.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/completion_audit/four_model_completion_audit.md
+/Volumes/VAL/STNSNr/summary/four_model_execution/completion_audit/four_model_completion_audit_manifest.json
+```
+
+This layer is reporting-only. It does not fit models, rerun formal resampling,
+select branches, or generate missing OSS/jitter/density inputs. Its purpose is
+to summarize what is complete, what is blocked by absent inputs, and what is
+observed-only or provenance-incomplete at the current execution checkpoint.
 
 The manifest schema audit layer consumes consolidated status, final reporting,
 and all-endpoint reporting tables. It deduplicates referenced manifest paths,

@@ -97,6 +97,7 @@ dTOR fiber jitter/OSS = not_run_missing_inputs
 final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; fiber density/label caches missing
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
+completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target; 2 blocked_missing_fiber_inputs
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -505,6 +506,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
 | All-endpoint reporting and missing-work audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_all_endpoint_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_all_endpoint_reporting.py` | implemented |
 | Manifest schema audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_manifest_schema_audit.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_manifest_schema_audit.py` | implemented |
+| Completion/blocker audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_completion_audit.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_completion_audit.py` | implemented |
 | Shared IO/provenance helpers | direct core module | `my_helper/fiber/core/analysis/stnsnr_io.py` | implemented |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
@@ -1318,6 +1320,13 @@ Final reporting and figure-output readiness:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py
+```
+
+Completion/blocker audit:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_four_model_completion_audit.py
 ```
 
 All-endpoint reporting and missing-work audit:
