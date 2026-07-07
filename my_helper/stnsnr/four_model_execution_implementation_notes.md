@@ -59,7 +59,8 @@ final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps r
 C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
 C same-day immediate endpoint-family observed outputs: complete for 2 endpoint rows; resampling_status = not_run_observed_only
 D same-day immediate endpoint-family observed outputs: complete for 4 endpoint/connectome rows; resampling_status = not_run_observed_only
-all-endpoint reporting: 75 rows; A all-endpoint source-resolver rows = 30; discovered branch manifests = 31; missing-work audit rows = 6, with 3 C observed sensitivity/immediate rows detected, D same-day immediate detected, and D chronic gain/total-ULF sensitivity still not run
+D gain/total-ULF observed sensitivity outputs: complete for 4 endpoint/connectome rows; resampling_status = not_run_observed_only
+all-endpoint reporting: 79 rows; A all-endpoint source-resolver rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
@@ -1292,6 +1293,57 @@ Reusable implementation:
 
 ```text
 my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_immediate_observed.py
+```
+
+## ULF Normative Fiber Gain / Total-ULF Sensitivity Driver
+
+The D-model gain/total-ULF sensitivity layer is observed-only and
+chronic-endpoint-only. It runs for the existing D chronic endpoint and for the
+current observed D connectomes. Each connectome uses its source selected by the
+D source resolver:
+
+```text
+PPMI selected source = tau600/Coverage>=5
+dTOR selected source = tau400/Coverage>=5
+```
+
+The gain endpoint replaces `Y_post` with direction-normalized chronic gain and
+uses the selected-source HF-overlap-excluded ULF-only fiber exposure. Its
+nuisance covariate is `DeltaHFFiberScore` from the selected-source
+delta-HF-adjusted branch.
+
+The total-ULF sensitivity keeps the chronic raw post-score endpoint but uses
+the total ULF component fiber exposure from the matched component cache instead
+of HF-overlap-excluded ULF-only exposure. Its nuisance covariate is `Y_HF_ref`.
+
+Both outputs are sensitivity branches only:
+
+```text
+resampling_status = not_run_observed_only
+formal permutation/bootstrap/jitter = not run
+same-day immediate endpoint family = not included
+```
+
+Current observed-only sensitivity summary:
+
+```text
+PPMI normative_fiber_gain_endpoint: rho = 0.5015035512; Q2 = 0.4651291267
+PPMI normative_fiber_total_ulf_exposure: rho = 0.9558184151; Q2 = -0.0275760918
+dTOR normative_fiber_gain_endpoint: rho = 0.5549181307; Q2 = 0.4987756614
+dTOR normative_fiber_total_ulf_exposure: rho = 0.9646549490; Q2 = -0.0813080734
+summary CSV = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/sensitivity_observed/normative_ULF_fiber_sensitivity_summary.csv
+```
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_sensitivity_observed.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_sensitivity_observed.py
 ```
 
 Run the D PPMI source resolver:
