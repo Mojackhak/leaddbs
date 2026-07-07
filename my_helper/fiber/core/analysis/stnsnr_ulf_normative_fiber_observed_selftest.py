@@ -4,13 +4,17 @@
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 
 import numpy as np
 
 from stnsnr_ulf_normative_fiber_observed import (
     apply_ulf_only_fiber_rule,
     classify_b_dependency,
+    component_phase_from_post_scale,
     delta_hf_fiber_scores_from_weights,
+    find_reusable_component_preprocess_dir,
 )
 
 
@@ -45,10 +49,63 @@ def test_classify_b_dependency() -> None:
     assert failed["delta_hfscore_role"] == "unstable_generated_covariate_sensitivity"
 
 
+def test_component_phase_from_post_scale() -> None:
+    assert component_phase_from_post_scale("MDS-UPDRS III score (STN+SNr, 3 m)") == "3m"
+    assert component_phase_from_post_scale("MDS-UPDRS III score (STN+SNr, immediate)") == "immediate"
+
+
+def _write_scores(path: Path, subject_ids: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = ["subject_id,Y_post,Y_HF_ref,NetULFFiberScore"]
+    rows.extend(f"{subject_id},1,1,0" for subject_id in subject_ids)
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def test_find_reusable_component_preprocess_dir() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = (
+            root
+            / "ppmi_85_ewert_2017"
+            / "mds_updrs_iii_axial_score_stn_snr_immediate"
+            / "peak_efield_tau800_observed"
+            / "preprocess"
+        )
+        cache.mkdir(parents=True)
+        for name in [
+            "X_HF_component_fiber_float32_subject_major.npy",
+            "X_ULF_component_fiber_float32_subject_major.npy",
+            "fiber_ids.npy",
+        ]:
+            (cache / name).write_bytes(b"placeholder")
+        _write_scores(
+            cache.parent / "ulf_peak_efield_tau800_no_delta_hf" / "normative_ULF_fiber_scores.csv",
+            ["S1", "S2"],
+        )
+        found = find_reusable_component_preprocess_dir(
+            root,
+            connectome_slug="ppmi_85_ewert_2017",
+            component_phase="immediate",
+            subject_ids=["S1", "S2"],
+            tau_name="tau800",
+        )
+        assert found == cache
+        not_found = find_reusable_component_preprocess_dir(
+            root,
+            connectome_slug="ppmi_85_ewert_2017",
+            component_phase="3m",
+            subject_ids=["S1", "S2"],
+            tau_name="tau800",
+        )
+        assert not_found is None
+
+
 def main() -> int:
     test_apply_ulf_only_fiber_rule()
     test_delta_hf_fiber_scores_from_weights()
     test_classify_b_dependency()
+    test_component_phase_from_post_scale()
+    test_find_reusable_component_preprocess_dir()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 

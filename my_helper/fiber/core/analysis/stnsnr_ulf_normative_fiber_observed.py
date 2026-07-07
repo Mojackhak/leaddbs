@@ -29,6 +29,7 @@ from stnsnr_four_model_resolver import (
 from stnsnr_four_model_readiness import (
     detect_asset_root,
     infer_scale_direction,
+    parse_endpoint_scale,
     repo_root_from_file,
 )
 from stnsnr_four_model_stats import (
@@ -99,6 +100,63 @@ def tau_slug(tau: float) -> str:
     if value.is_integer():
         return f"tau{int(value)}"
     return "tau" + str(value).replace(".", "p")
+
+
+def component_phase_from_post_scale(post_scale: str) -> str:
+    """Return the STN+SNr component phase required by a ULF endpoint row."""
+    _, post_protocol, post_phase = parse_endpoint_scale(post_scale)
+    if post_protocol != "STN+SNr":
+        raise ValueError(f"ULF normative fiber post scale must use STN+SNr protocol, got {post_scale!r}")
+    return post_phase
+
+
+def component_phase_slug_token(component_phase: str) -> str:
+    """Return the scale-slug suffix that identifies an STN+SNr component phase."""
+    return slugify(f"placeholder (STN+SNr, {component_phase})").removeprefix("placeholder_")
+
+
+def component_cache_complete(preprocess_dir: Path) -> bool:
+    required = [
+        "X_HF_component_fiber_float32_subject_major.npy",
+        "X_ULF_component_fiber_float32_subject_major.npy",
+        "fiber_ids.npy",
+    ]
+    return all((preprocess_dir / name).is_file() for name in required)
+
+
+def score_subject_ids_for_component_cache(preprocess_dir: Path, tau_name: str) -> list[str] | None:
+    scores_csv = preprocess_dir.parent / f"ulf_peak_efield_{tau_name}_no_delta_hf" / "normative_ULF_fiber_scores.csv"
+    if not scores_csv.is_file():
+        return None
+    table = pd.read_csv(scores_csv)
+    if "subject_id" not in table.columns:
+        return None
+    return table["subject_id"].astype(str).tolist()
+
+
+def find_reusable_component_preprocess_dir(
+    output_root: Path,
+    *,
+    connectome_slug: str,
+    component_phase: str,
+    subject_ids: list[str],
+    tau_name: str,
+) -> Path | None:
+    """Find a complete same-phase component cache with the same subject order."""
+    connectome_root = Path(output_root) / connectome_slug
+    if not connectome_root.is_dir():
+        return None
+    phase_token = component_phase_slug_token(component_phase)
+    for scale_dir in sorted(path for path in connectome_root.iterdir() if path.is_dir()):
+        if not scale_dir.name.endswith(phase_token):
+            continue
+        preprocess_dir = scale_dir / f"peak_efield_{tau_name}_observed" / "preprocess"
+        if not component_cache_complete(preprocess_dir):
+            continue
+        cached_subject_ids = score_subject_ids_for_component_cache(preprocess_dir, tau_name)
+        if cached_subject_ids == subject_ids:
+            return preprocess_dir
+    return None
 
 
 def read_b_normative_fiber_dependency(
@@ -983,23 +1041,41 @@ def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
     if scale_direction not in {"lower", "higher"}:
         raise RuntimeError(f"unknown scale direction for {args.post_scale!r}")
 
+    component_phase = component_phase_from_post_scale(args.post_scale)
     availability = load_component_availability(readiness_csv)
     availability = availability[
         availability["protocol"].astype(str).eq("STN+SNr")
-        & availability["phase"].astype(str).eq("3m")
+        & availability["phase"].astype(str).eq(component_phase)
     ].copy()
     tau_name = tau_slug(args.tau)
     output_root = Path(args.output_root).expanduser().resolve() / connectome_slug / slugify(args.post_scale) / f"peak_efield_{tau_name}_observed"
     preprocess_dir = output_root / "preprocess"
     preprocess_dir.mkdir(parents=True, exist_ok=True)
+    base_output_root = Path(args.output_root).expanduser().resolve()
     default_component_cache = (
-        Path(args.output_root).expanduser().resolve()
+        base_output_root
         / connectome_slug
         / slugify(args.post_scale)
         / f"peak_efield_{tau_slug(ULF_NORM_FIBER_PRIMARY_TAU)}_observed"
         / "preprocess"
     )
-    component_preprocess_dir = default_component_cache if default_component_cache.is_dir() and not args.force_rebuild else preprocess_dir
+    reusable_component_cache = (
+        find_reusable_component_preprocess_dir(
+            base_output_root,
+            connectome_slug=connectome_slug,
+            component_phase=component_phase,
+            subject_ids=subject_ids,
+            tau_name=tau_slug(ULF_NORM_FIBER_PRIMARY_TAU),
+        )
+        if not args.force_rebuild
+        else None
+    )
+    if default_component_cache.is_dir() and component_cache_complete(default_component_cache) and not args.force_rebuild:
+        component_preprocess_dir = default_component_cache
+    elif reusable_component_cache is not None:
+        component_preprocess_dir = reusable_component_cache
+    else:
+        component_preprocess_dir = preprocess_dir
 
     hf_samplers, hf_sampler_qc = prepare_component_fiber_samplers(
         availability,

@@ -58,7 +58,8 @@ dTOR normative-fiber OSS/jitter sensitivity readiness: not_run_missing_inputs
 final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; fiber density/label caches missing
 C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
 C same-day immediate endpoint-family observed outputs: complete for 2 endpoint rows; resampling_status = not_run_observed_only
-all-endpoint reporting: 67 rows; A all-endpoint source-resolver rows = 30; discovered branch manifests = 23; missing-work audit rows = 6, with 3 C observed sensitivity/immediate rows detected and 3 D rows still not run
+D same-day immediate endpoint-family observed outputs: complete for 4 endpoint/connectome rows; resampling_status = not_run_observed_only
+all-endpoint reporting: 75 rows; A all-endpoint source-resolver rows = 30; discovered branch manifests = 31; missing-work audit rows = 6, with 3 C observed sensitivity/immediate rows detected, D same-day immediate detected, and D chronic gain/total-ULF sensitivity still not run
 full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
@@ -156,6 +157,28 @@ This layer does not fit gain, same-day immediate, or total-ULF sensitivity
 models. It records those C/D outputs as `observed_outputs_detected` when output
 files exist and `not_run_missing_observed_outputs` when they are absent, so
 downstream reporting can distinguish "not run" from "failed model".
+
+The D same-day immediate endpoint-family layer should mirror the C immediate
+wrapper, but call the ULF normative-fiber observed driver for each available
+STN+SNr immediate endpoint row and connectome. The underlying D observed driver
+must select ULF component e-field readiness rows from the endpoint phase parsed
+from `post_scale`; it must not hard-code chronic `3m` rows for immediate
+endpoints. These outputs are observed-only family outputs and do not replace the
+unique chronic D final model unless the model specification is revised before
+formal resampling.
+
+Because D endpoint rows that share a connectome and phase also share the same
+HF/ULF component e-fields, the observed driver may reuse a complete component
+preprocess cache from another endpoint row only when the phase token and ordered
+subject IDs match. This avoids rebuilding identical left-to-right flipped
+component fields and fiber exposure sidecars across total and axial immediate
+endpoint rows. It must not reuse chronic `3m` caches for immediate endpoints or
+reuse a cache with a different subject order.
+
+The D same-day immediate wrapper should be idempotent. When both branch
+generation manifests and the source-resolver manifest already exist for an
+endpoint/connectome row, it should add that row to the family summary without
+rerunning the observed branch or source-resolver scan unless explicitly forced.
 
 ## Execution Root Availability
 
@@ -1219,6 +1242,57 @@ For D rows, the consolidated status `branch` field must be generated from the
 selected-source tau recorded by the source resolver, not from the default
 tau800 scan root. Current selected-source rows therefore report
 `peak_efield_tau600` for PPMI and `peak_efield_tau400` for dTOR.
+
+## ULF Normative Fiber Same-Day Immediate Endpoint-Family Driver
+
+The D same-day immediate endpoint-family layer is observed-only. It discovers
+the same raw clinical `STN+SNr immediate` endpoint rows used by the C immediate
+driver, then runs the existing D normative-fiber observed driver and
+source-resolver scan for each endpoint/connectome row. Current default
+connectomes are PPMI and dTOR. Existing complete endpoint/connectome outputs
+are detected and summarized without rerunning unless explicitly forced.
+
+Current observed-only immediate summary:
+
+```text
+PPMI / MDS-UPDRS III axial score (STN+SNr, immediate):
+  default tau800 no_delta_hf rho = -0.472182; Q2 = -0.115919
+  default tau800 delta_hf_adjusted rho = -0.472182; Q2 = -0.115919
+  resolver = no_delta_hf scan_fallback tau600/Coverage>=5 + error_nonpredictive
+  endpoint status = primary_branch_error_nonpredictive
+
+dTOR / MDS-UPDRS III axial score (STN+SNr, immediate):
+  default tau800 no_delta_hf rho = -0.432091; Q2 = -0.513404
+  default tau800 delta_hf_adjusted rho = -0.432091; Q2 = -0.513404
+  resolver = no_delta_hf scan_fallback tau400/Coverage>=5 + error_nonpredictive
+  endpoint status = primary_branch_error_nonpredictive
+
+PPMI / MDS-UPDRS III score (STN+SNr, immediate):
+  default tau800 no_delta_hf rho = 0.844512; Q2 = 0.143565
+  default tau800 delta_hf_adjusted rho = 0.853355; Q2 = 0.129717
+  resolver = both branches scan_fallback tau600/Coverage>=5 + error_nonpredictive
+  endpoint status = primary_branch_error_nonpredictive
+
+dTOR / MDS-UPDRS III score (STN+SNr, immediate):
+  default tau800 no_delta_hf rho = 0.847460; Q2 = 0.111157
+  default tau800 delta_hf_adjusted rho = 0.853355; Q2 = -0.216171
+  resolver = both branches scan_fallback tau400/Coverage>=5 + error_predictive
+  endpoint status = primary_branch_error_predictive
+
+summary CSV = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/immediate_endpoint_family/normative_ULF_fiber_immediate_endpoint_summary.csv
+```
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_immediate_observed.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_immediate_observed.py
+```
 
 Run the D PPMI source resolver:
 

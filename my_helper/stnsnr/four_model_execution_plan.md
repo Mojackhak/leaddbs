@@ -40,6 +40,7 @@ Final reporting and figure-output readiness refreshed under /Volumes/VAL/STNSNr/
 All-endpoint reporting and missing-work audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/
 ULF component readiness refreshed with STN+SNr 3m and immediate component rows under /Volumes/VAL/STNSNr/summary/four_model_execution/ulf_component_readiness/
 C ULF direct voxel same-day immediate observed endpoint-family outputs refreshed from /Users/mojackhu/Github/leaddbs
+D ULF normative fiber same-day immediate observed endpoint-family outputs refreshed from /Users/mojackhu/Github/leaddbs
 ```
 
 The formal rerun manifests for direct-voxel permutation/bootstrap/jitter,
@@ -93,7 +94,7 @@ dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000,
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR fiber jitter/OSS = not_run_missing_inputs
 final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; fiber density/label caches missing
-all-endpoint reporting = 67 rows; A all-endpoint scan rows = 30; discovered branch manifests = 23; missing-work audit rows = 6, with 3 C observed sensitivity/immediate rows detected and 3 D rows still not run
+all-endpoint reporting = 75 rows; A all-endpoint scan rows = 30; discovered branch manifests = 31; missing-work audit rows = 6, with 3 C observed sensitivity/immediate rows detected, D same-day immediate detected, and D chronic gain/total-ULF sensitivity still not run
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -162,14 +163,14 @@ Current all-endpoint reporting and missing-work audit snapshot:
 
 ```text
 output root = /Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/
-four_model_all_endpoint_report.csv rows = 67
+four_model_all_endpoint_report.csv rows = 75
 four_model_all_endpoint_missing_work.csv rows = 6
-source_table_counts = 30 A all-endpoint scan rows, 23 discovered branch manifests, 7 observed summary rows, 7 final-report rows
+source_table_counts = 30 A all-endpoint scan rows, 31 discovered branch manifests, 7 observed summary rows, 7 final-report rows
 C chronic gain endpoint sensitivity = observed_outputs_detected
 C same-day immediate endpoint family = observed_outputs_detected
 C total-ULF exposure sensitivity = observed_outputs_detected
 D chronic gain endpoint sensitivity = not_run_missing_observed_outputs
-D same-day immediate endpoint family = not_run_missing_observed_outputs
+D same-day immediate endpoint family = observed_outputs_detected
 D total-ULF exposure sensitivity = not_run_missing_observed_outputs
 ```
 
@@ -471,6 +472,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | C observed gain/total-ULF direct-voxel sensitivities | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_sensitivity_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_sensitivity_observed.py` | implemented |
 | C same-day immediate endpoint-family observed driver | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_immediate_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_immediate_observed.py` | implemented |
 | D observed ULF normative fiber PPMI | `my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_observed.py` | implemented |
+| D same-day immediate endpoint-family observed driver | `my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_immediate_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_immediate_observed.py` | implemented |
 | Raw clinical rebuild | direct core script | `my_helper/fiber/core/analysis/stnsnr_rebuild_subject_effect_origin.py` | implemented |
 
 ### Not Yet Implemented
