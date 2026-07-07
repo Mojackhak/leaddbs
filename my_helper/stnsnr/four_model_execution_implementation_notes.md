@@ -252,10 +252,11 @@ but it must not be reported as full FDR/enrichment readiness until both
 separate FDR and enrichment caches exist.
 
 Final reporting keeps the historical combined
-`fiber_density_label_cache_status` field for downstream compatibility, but it
-also records separate component statuses for basic density, connected-region
-labels, FDR, and enrichment. Completion audit uses those component statuses to
-record distinct `fdr_cache` and `enrichment_cache` blockers.
+`fiber_density_label_cache_status` field for downstream compatibility, but the
+final report CSV and the figure-readiness CSV also record separate component
+statuses for basic density, connected-region labels, FDR, and enrichment.
+Completion audit uses those component statuses to record distinct `fdr_cache`
+and `enrichment_cache` blockers.
 
 The manifest schema audit layer consumes consolidated status, final reporting,
 and all-endpoint reporting tables. It deduplicates referenced manifest paths,

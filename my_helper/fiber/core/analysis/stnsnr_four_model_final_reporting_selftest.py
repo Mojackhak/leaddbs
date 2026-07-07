@@ -341,6 +341,16 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
             "B enrichment component status",
         )
         assert_equal(
+            report_by_id["B_DTOR"]["fiber_fdr_cache_status"],
+            "ready_from_existing_fdr_cache",
+            "B final report FDR component status",
+        )
+        assert_equal(
+            report_by_id["B_DTOR"]["fiber_enrichment_cache_status"],
+            "not_run_missing_enrichment_cache",
+            "B final report enrichment component status",
+        )
+        assert_equal(
             report_by_id["B_DTOR"]["figure_output_status"],
             "ready_for_density_label_outputs",
             "B figure output status",

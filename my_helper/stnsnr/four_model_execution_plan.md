@@ -912,7 +912,8 @@ not equivalent to FDR correction or enrichment against the plain
 touched-streamline background; those remain separate figure-grade layers.
 
 Final reporting must preserve both the legacy combined fiber display-readiness
-field and separate component fields:
+field and separate component fields in both the final report CSV and the
+figure-readiness CSV:
 
 ```text
 fiber_basic_density_cache_status
