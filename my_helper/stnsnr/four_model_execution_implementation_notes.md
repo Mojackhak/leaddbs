@@ -56,7 +56,8 @@ dTOR normative-fiber formal permutation: B_DTOR and D_DTOR complete at B=10000, 
 dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber OSS/jitter sensitivity readiness: not_run_missing_inputs
 final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; fiber density/label caches missing
-all-endpoint reporting: 61 rows; A all-endpoint source-resolver rows = 30; missing-work rows = 6 not_run_missing_observed_outputs
+C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
+all-endpoint reporting: 61 rows; A all-endpoint source-resolver rows = 30; missing-work audit rows = 6, with 2 C observed sensitivity rows detected and 4 rows still not run
 full fiber density/FDR/enrichment figure-grade outputs: not run
 ```
 
@@ -321,7 +322,7 @@ bind to their matching `B_<connectome>` dependency explicitly.
 
 ## HF Direct Voxel Smoke Driver
 
-The next executable layer implements the primary HF direct voxel observed branch only:
+This executable layer implements the primary HF direct voxel observed branch:
 
 ```text
 model = HF direct voxel
@@ -359,7 +360,7 @@ The smoke driver intentionally omits `direct_voxel_HF_permutation_summary.csv` a
 
 ## HF Normative Connectome Fiber Smoke Driver
 
-The next B-model executable layer targets the cheapest real public connectome first:
+This B-model executable layer targets the cheapest real public connectome first:
 
 ```text
 model = HF normative connectome fiber
@@ -416,7 +417,7 @@ The tool does not run any model. Any older stop/go fields emitted by this code a
 
 ## ULF Component Readiness Gate
 
-The next executable layer audits whether the C and D ULF add-on models can start
+This executable layer audits whether the C and D ULF add-on models can start
 without violating their component-separation requirements. It does not run ULF
 voxel maps, ULF fiber maps, DeltaHFScore scoring, permutation, bootstrap, OSS,
 or display outputs.
@@ -857,10 +858,11 @@ and LOOCV Spearman rho are report metrics.
 
 ## ULF Direct Voxel Observed Driver
 
-The next C-model executable layer runs the observed-only ULF direct voxel
-branch. It is intentionally limited to LOOCV observed modeling and does not run
-formal permutation, bootstrap, jitter, gain endpoints, total-ULF sensitivity, or
-immediate endpoints unless explicitly requested by later arguments.
+The C-model observed executable layer runs the core ULF direct voxel branches.
+It is intentionally limited to LOOCV observed modeling; formal permutation,
+bootstrap, and jitter are separate final-model drivers. Gain and total-ULF
+sensitivity outputs are handled by the separate observed-only sensitivity
+driver below. The same-day immediate endpoint family remains not implemented.
 
 Entry point:
 
@@ -978,12 +980,54 @@ Run the C source resolver:
   --source-resolver-scan
 ```
 
+## ULF Direct Voxel Gain / Total-ULF Sensitivity Driver
+
+The C-model gain/total-ULF sensitivity layer is observed-only and
+chronic-endpoint-only. It reuses the existing C observed output and
+preprocessing products when available, and writes:
+
+```text
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_gain_endpoint/
+/Volumes/VAL/STNSNr/summary/direct_voxel/ulf/<endpoint_slug>/tau200/partial_spearman_total_ulf_exposure/
+```
+
+The gain endpoint replaces `Y_post` with direction-normalized `Gain_chronic`.
+The total-ULF sensitivity keeps the chronic raw post-score endpoint but uses
+total ULF component exposure instead of HF-overlap-excluded ULF-only exposure.
+Both outputs are sensitivity branches only:
+
+```text
+resampling_status = not_run_observed_only
+formal permutation/bootstrap/jitter = not run
+same-day immediate endpoint family = not included
+```
+
+Current observed-only sensitivity summary:
+
+```text
+partial_spearman_gain_endpoint: rho = 0.4762799998; Q2 = 0.1980823112
+partial_spearman_total_ulf_exposure: rho = 0.9278360578; Q2 = -0.0371760912
+summary CSV = /Volumes/VAL/STNSNr/summary/direct_voxel/ulf/mds_updrs_iii_score_stn_snr_3_m/tau200/direct_voxel_ULF_only_sensitivity_summary.csv
+```
+
+Entry point:
+
+```text
+my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_sensitivity_observed.py
+```
+
+Reusable implementation:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_sensitivity_observed.py
+```
+
 ## ULF Normative Fiber Observed Driver
 
-The next D-model executable layer runs the observed-only ULF normative
-connectome fiber branch. It is intentionally limited to LOOCV observed modeling
-and does not run formal permutation, bootstrap, jitter, OSS-DBS, endpoint
-enrichment, or figure-grade density outputs.
+The D-model observed executable layer runs the observed-only ULF normative
+connectome fiber branches. It is intentionally limited to LOOCV observed
+modeling; formal permutation, bootstrap, jitter, OSS-DBS, endpoint enrichment,
+and figure-grade density outputs are separate downstream layers.
 
 Entry point:
 
