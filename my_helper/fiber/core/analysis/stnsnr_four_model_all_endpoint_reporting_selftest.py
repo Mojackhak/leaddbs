@@ -106,6 +106,7 @@ def test_all_endpoint_reporting_summarizes_existing_outputs_and_missing_sensitiv
                     "final_model_status": "final_model_error_nonpredictive",
                     "formal_resampling_status": "FORMAL_RESAMPLING_JITTER_COMPLETE",
                     "figure_output_status": "ready_from_existing_direct_voxel_maps",
+                    "latest_manifest_stale_status": "manifest_missing_code_provenance",
                 }
             ],
         )
@@ -129,6 +130,17 @@ def test_all_endpoint_reporting_summarizes_existing_outputs_and_missing_sensitiv
         report_rows = read_csv(Path(result["all_endpoint_report_csv"]))
         missing_rows = read_csv(Path(result["missing_work_csv"]))
         assert_equal(len([row for row in report_rows if row["source_table"] == "hf_direct_voxel_all_endpoint_scan"]), 2, "HF scan rows")
+        final_rows = [row for row in report_rows if row["source_table"] == "four_model_final_report"]
+        assert_equal(len(final_rows), 1, "final report rows")
+        assert_true(
+            "latest_manifest_stale_status" in final_rows[0],
+            "all-endpoint report carries stale status field",
+        )
+        assert_equal(
+            final_rows[0]["latest_manifest_stale_status"],
+            "manifest_missing_code_provenance",
+            "all-endpoint final-report stale status",
+        )
         assert_true(
             any(row["source_table"] == "discovered_branch_manifest" and row["model_id"] == "C" for row in report_rows),
             "C branch discovered",

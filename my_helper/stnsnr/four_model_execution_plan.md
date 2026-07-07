@@ -1028,6 +1028,13 @@ available. Missing or older branch-manifest provenance is a reporting/audit
 limitation and does not by itself change source status, prediction status,
 branch-role assignment, or final-model selection.
 
+Downstream reporting layers that consume consolidated execution status must
+preserve this stale-output audit. Final reporting and figure-readiness rows carry
+`latest_manifest_stale_status` from the status row; all-endpoint final-report
+rows carry the same field from the final report. Rows that are not derived from
+consolidated execution status leave the field blank unless their own
+manifest-stale audit is explicitly implemented.
+
 ---
 
 ## 9. Command Index
@@ -1305,11 +1312,13 @@ Every final-model formal target passes the readiness audit before expensive
 formal drivers are started.
 Fallback-selected thresholds are explicitly labeled as scan-fallback sources and are never relabeled as pre-specified sources.
 The final reporting package records the unique final model for each formal target,
-formal resampling status, direct-voxel display-source availability, and explicit
-not-run statuses for unavailable fiber OSS/jitter/density/FDR/enrichment inputs.
+formal resampling status, direct-voxel display-source availability, explicit
+not-run statuses for unavailable fiber OSS/jitter/density/FDR/enrichment inputs,
+and the `latest_manifest_stale_status` audit for each final model.
 The all-endpoint reporting package records A all-endpoint source-resolver rows,
 observed branch manifests, final-report rows, and detected/not-run statuses for
-C/D gain endpoints, same-day immediate endpoints, and total-ULF sensitivities.
+C/D gain endpoints, same-day immediate endpoints, and total-ULF sensitivities,
+including final-report stale-output audit fields when available.
 The final report states n=16 and hypothesis-generating interpretation.
 All affected outputs and consolidated status files have been rerun after the latest executable patch.
 Reusable backend components cover shared resolver, branch-role, score, DeltaHFScore, manifest, and stale-output logic.

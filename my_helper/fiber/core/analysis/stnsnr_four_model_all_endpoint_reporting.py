@@ -143,6 +143,7 @@ def rows_from_hf_direct_scan(scan_summary_csv: Path) -> list[dict[str, str]]:
                 "scores_path": "",
                 "predictions_path": "",
                 "missing_outputs": "",
+                "latest_manifest_stale_status": row.get("latest_manifest_stale_status", ""),
             }
         )
     return rows
@@ -209,6 +210,7 @@ def rows_from_final_report(final_report_csv: Path) -> list[dict[str, str]]:
                 "scores_path": "",
                 "predictions_path": "",
                 "missing_outputs": "",
+                "latest_manifest_stale_status": row.get("latest_manifest_stale_status", ""),
             }
         )
     return rows
@@ -377,6 +379,7 @@ def build_all_endpoint_reporting(
         "scores_path",
         "predictions_path",
         "missing_outputs",
+        "latest_manifest_stale_status",
     ]
     missing_fields = ["work_item_id", "model_id", "work_type", "work_status", "matched_paths", "note"]
     write_csv(report_csv, report_rows, report_fields)

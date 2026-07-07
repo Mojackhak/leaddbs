@@ -90,6 +90,7 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
                     "ulf_final_model_status": "",
                     "formal_resampling_status": "FORMAL_RESAMPLING_JITTER_COMPLETE",
                     "latest_manifest": str(a_dir / "direct_voxel_HF_generation_manifest.json"),
+                    "latest_manifest_stale_status": "manifest_missing_code_provenance",
                 },
                 {
                     "model_id": "B_DTOR",
@@ -103,6 +104,7 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
                     "ulf_final_model_status": "",
                     "formal_resampling_status": "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING",
                     "latest_manifest": str(b_dir / "normative_HF_fiber_generation_manifest.json"),
+                    "latest_manifest_stale_status": "manifest_from_current_head",
                 },
                 {
                     "model_id": "C",
@@ -116,6 +118,7 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
                     "ulf_final_model_status": "final_model_error_nonpredictive",
                     "formal_resampling_status": "FORMAL_RESAMPLING_JITTER_COMPLETE",
                     "latest_manifest": str(c_dir / "direct_voxel_ULF_only_generation_manifest.json"),
+                    "latest_manifest_stale_status": "manifest_from_different_commit",
                 },
                 {
                     "model_id": "D_DTOR",
@@ -129,6 +132,7 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
                     "ulf_final_model_status": "final_model_error_nonpredictive",
                     "formal_resampling_status": "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING",
                     "latest_manifest": str(d_dir / "normative_ULF_fiber_generation_manifest.json"),
+                    "latest_manifest_stale_status": "manifest_missing_code_provenance",
                 },
             ],
         )
@@ -245,7 +249,30 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
         assert_equal(report_by_id["C"]["final_branch_or_source"], "no_delta_hf", "C final branch")
         assert_equal(report_by_id["D_DTOR"]["formal_p_plus_one_two_sided"], "0.0890", "D formal p")
         assert_equal(report_by_id["B_DTOR"]["hypothesis_generating"], "true", "B interpretation flag")
+        assert_true(
+            "latest_manifest_stale_status" in report_by_id["A"],
+            "final report carries stale status field",
+        )
+        assert_equal(
+            report_by_id["A"]["latest_manifest_stale_status"],
+            "manifest_missing_code_provenance",
+            "A stale status",
+        )
+        assert_equal(
+            report_by_id["C"]["latest_manifest_stale_status"],
+            "manifest_from_different_commit",
+            "C stale status",
+        )
         assert_equal(readiness_by_id["A"]["direct_voxel_display_status"], "ready_from_existing_maps", "A display status")
+        assert_true(
+            "latest_manifest_stale_status" in readiness_by_id["A"],
+            "figure readiness carries stale status field",
+        )
+        assert_equal(
+            readiness_by_id["B_DTOR"]["latest_manifest_stale_status"],
+            "manifest_from_current_head",
+            "B readiness stale status",
+        )
         assert_equal(
             readiness_by_id["A"]["formal_resampling_status"],
             "FORMAL_RESAMPLING_JITTER_COMPLETE",

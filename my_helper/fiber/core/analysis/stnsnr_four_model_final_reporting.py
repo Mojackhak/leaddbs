@@ -243,6 +243,7 @@ def build_report_row(
         "hypothesis_generating": "true",
         "interpretation": f"hypothesis_generating_n{cohort_n}",
         "latest_manifest": manifest_path,
+        "latest_manifest_stale_status": status_row.get("latest_manifest_stale_status", ""),
     }
     readiness = {
         "model_id": model_id,
@@ -256,6 +257,7 @@ def build_report_row(
         "formal_resampling_status": row["formal_resampling_status"],
         "figure_output_status": output_status,
         "latest_manifest": manifest_path,
+        "latest_manifest_stale_status": row["latest_manifest_stale_status"],
     }
     return row, readiness
 
@@ -364,6 +366,7 @@ def build_final_reporting(
         "hypothesis_generating",
         "interpretation",
         "latest_manifest",
+        "latest_manifest_stale_status",
     ]
     readiness_fields = [
         "model_id",
@@ -379,6 +382,7 @@ def build_final_reporting(
         "formal_resampling_status",
         "figure_output_status",
         "latest_manifest",
+        "latest_manifest_stale_status",
     ]
     write_csv(final_report_csv, report_rows, report_fields)
     write_csv(figure_readiness_csv, readiness_rows, readiness_fields)
