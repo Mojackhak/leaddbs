@@ -2,9 +2,18 @@
 
 This note records executable implementation layers for `four_model_execution_plan.md`.
 
-The full four-model program is intentionally gated. The current codebase now includes readiness, observed A/B/C/D branches, C/D source resolvers, consolidated status reporting, final-model worklist/readiness auditing, formal permutation/bootstrap/jitter layers for available final targets, final reporting/readiness summaries, and shared resolver utilities. Full fiber density/FDR/enrichment display outputs remain deferred until the required density and label caches exist.
+The full four-model program is intentionally gated. The current codebase now includes readiness, observed A/B/C/D branches, C/D source resolvers, consolidated status reporting, final-model worklist/readiness auditing, formal permutation/bootstrap/jitter layers for available final targets, final reporting/readiness summaries, and shared resolver utilities. Full fiber label/FDR/enrichment display outputs remain deferred until the required label and enrichment caches exist.
 
 ## Pause Checkpoint
+
+2026-07-07 pause update: the current paused change records the plan to expand
+the basic normative-fiber density cache from dTOR-only final targets to all
+normative-fiber rows in the final report. The TDD red test has been added in
+`stnsnr_normative_fiber_density_cache_selftest.py`; implementation has not yet
+been advanced to green. On resume, update
+`stnsnr_normative_fiber_density_cache.py` so `model_ids=None` processes every
+`analysis_family = normative_fiber` row, then regenerate density-cache, final
+reporting, schema audit, and completion audit outputs.
 
 Execution has resumed through the 2026-07-07 status, formal-target, and
 formal-readiness refresh. The latest observed branches and status files were
@@ -55,8 +64,8 @@ dTOR normative-fiber smoke permutation: B_DTOR and D_DTOR complete at B=1000, se
 dTOR normative-fiber formal permutation: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber OSS/jitter sensitivity readiness: not_run_missing_inputs
-dTOR normative-fiber basic density cache: B_DTOR and D_DTOR complete; atlas labels, FDR, enrichment, OSS, and fiber jitter remain not run
-final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; B_DTOR/D_DTOR basic fiber density outputs ready; PPMI/MGH/D_PPMI fiber density/label caches missing
+normative-fiber basic density cache: B_DTOR and D_DTOR complete; B_PPMI, B_MGH, and D_PPMI pending; atlas labels, FDR, enrichment, OSS, and fiber jitter remain not run
+final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; B_DTOR/D_DTOR basic fiber density outputs ready; B_PPMI/B_MGH/D_PPMI fiber density/label caches missing
 C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
 C same-day immediate endpoint-family observed outputs: complete for 2 endpoint rows; resampling_status = not_run_observed_only
 D same-day immediate endpoint-family observed outputs: complete for 4 endpoint/connectome rows; resampling_status = not_run_observed_only
@@ -66,7 +75,7 @@ all-endpoint manifest audit: 73 rows missing_git_or_patch_provenance / missing_c
 all-endpoint reporting manifest records manifest_provenance_counts and manifest_stale_counts
 manifest schema audit: 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
 completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with density_label_cache blocker; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
-full fiber density/FDR/enrichment figure-grade outputs: not run
+full fiber label/FDR/enrichment figure-grade outputs: not run
 ```
 
 Current direct-voxel formal permutation results:
@@ -210,8 +219,8 @@ select branches, or generate missing OSS/jitter/density inputs. Its purpose is
 to summarize what is complete, what is blocked by absent inputs, and what is
 observed-only or provenance-incomplete at the current execution checkpoint.
 
-The dTOR normative-fiber basic density-cache layer consumes the final-model
-formal target worklist, selected B_DTOR/D_DTOR branch manifests, connectome
+The normative-fiber basic density-cache layer consumes the final report,
+normative-fiber branch manifests, connectome
 `data.mat` streamline coordinates, and the existing final-model fiber weights.
 It writes branch-local streamline voxel density and weighted-density NIfTI maps
 plus a compact cache `.npz` and a manifest. This layer does not run OSS-DBS,
