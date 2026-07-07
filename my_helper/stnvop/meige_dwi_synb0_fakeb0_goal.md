@@ -121,6 +121,15 @@ Implementation status:
 - Follow-up normalization attempt showed that `load_untouch_nii` preserves the
   integer storage class of EasyReg fields. The converter must cast field values
   to `double` before subtracting double-precision voxel mm coordinates.
+- After the EasyReg transform conversion fixes, `Meige008` normalization
+  reached `ea_apply_normalization`, wrote normalized T1/CT outputs and
+  transform fields, then failed while exporting normalization checkreg PNGs.
+  `ea_gencheckregpair` computed a percentile index of `0` for sparse/nonzero
+  image data; percentile indices must be clamped to MATLAB's valid
+  one-based array range.
+- Checkreg percentile fix verification passed with
+  `test_gencheckregpair_percentile_index_static.m` and a temporary
+  `Meige008` normalized-T1 checkreg PNG generation test.
 
 ## Goal
 

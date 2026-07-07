@@ -15,11 +15,16 @@ if options.preproc
     mov.img = double(mov.img);
     mov.img(isnan(mov.img)) = 0;
     SIX = sort(mov.img(mov.img(:)~=0),'descend');
-    Ubound = SIX(round(length(SIX)*options.lbound/100));
-    mov.img(mov.img>Ubound) = Ubound;
-    Lbound = SIX(round(length(SIX)*options.ubound/100));
-    mov.img(mov.img<Lbound) = Lbound;
-    %mov.img(mov.img(:)~=0) = ea_contrast(mov.img(mov.img(:)~=0),2,0);
+    if isempty(SIX)
+        Lbound = 0;
+        Ubound = 0;
+    else
+        Ubound = SIX(ea_checkreg_percentile_index(numel(SIX), options.lbound));
+        mov.img(mov.img>Ubound) = Ubound;
+        Lbound = SIX(ea_checkreg_percentile_index(numel(SIX), options.ubound));
+        mov.img(mov.img<Lbound) = Lbound;
+        %mov.img(mov.img(:)~=0) = ea_contrast(mov.img(mov.img(:)~=0),2,0);
+    end
 
     mov.filetype = 16;
     mov.hdr.dime.scl_slope = 1;
@@ -50,3 +55,7 @@ ea_runcmd(cmd, env='FSLOUTPUTTYPE=NIFTI');
 if options.preproc
     ea_delete([tempdir,'lead_temp',uuid,'.nii']);
 end
+
+function idx = ea_checkreg_percentile_index(nValues, percent)
+idx = round(nValues * percent / 100);
+idx = max(1, min(nValues, idx));
