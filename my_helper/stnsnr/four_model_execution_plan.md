@@ -38,9 +38,10 @@ B_DTOR/D_DTOR dTOR normative-fiber sensitivity readiness refreshed under /Volume
 ```
 
 The formal rerun manifests for direct-voxel permutation/bootstrap/jitter,
-dTOR normative-fiber smoke/formal permutation, dTOR normative-fiber formal
-bootstrap, and dTOR normative-fiber sensitivity-readiness now record
-`code_provenance.git_short_commit = c6e0bb328`.
+dTOR normative-fiber smoke/formal permutation, and dTOR normative-fiber formal
+bootstrap record `code_provenance.git_short_commit = c6e0bb328`. The refreshed
+dTOR normative-fiber sensitivity-readiness manifests/status files record
+`code_provenance.git_short_commit = 2f30e8cfb`.
 
 The formal readiness audit does not run formal permutation, bootstrap, jitter,
 OSS-DBS, or display generation. It consumes the final-model formal target
