@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from stnsnr_four_model_execution_status import (
     classify_c_observed_state,
@@ -16,6 +18,7 @@ from stnsnr_four_model_execution_status import (
     model_formal_resampling_scope_status,
     normative_fiber_formal_resampling_status,
     manifest_provenance_status,
+    run_status,
 )
 
 
@@ -204,6 +207,57 @@ def test_manifest_provenance_status() -> None:
         )
 
 
+def test_run_status_manifest_records_code_provenance() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        root = Path(tmp_dir)
+        output_dir = root / "status"
+        fake_rows = [
+            {
+                "model_id": "A",
+                "model": "HF direct voxel",
+                "branch": "tau200/partial_spearman",
+                "execution_status": "SOURCE_ACCEPTED_ERROR_NONPREDICTIVE",
+                "dependency_model": "none",
+                "dependency_status": "none",
+                "hf_source_status": "pre_specified_accepted",
+                "hf_prediction_validity_status": "error_nonpredictive",
+                "hf_final_model_source": "pre_specified",
+                "hf_final_model_role": "primary",
+                "hf_final_model_status": "final_model_error_nonpredictive",
+                "hf_final_model_selection_reason": "pre_specified_source_accepted",
+                "ulf_primary_branch": "",
+                "ulf_final_model_branch": "",
+                "ulf_final_model_role": "",
+                "ulf_final_model_status": "",
+                "ulf_final_model_selection_reason": "",
+                "delta_hfscore_role": "",
+                "ulf_source_status": "",
+                "ulf_prediction_status": "",
+                "ulf_endpoint_model_status": "",
+                "mae_model": "",
+                "mae_baseline": "",
+                "rmse_model": "",
+                "rmse_baseline": "",
+                "formal_resampling_status": "NOT_STARTED_FORMAL_RESAMPLING",
+                "gate_decision": "",
+                "spearman_rho": "",
+                "q2": "",
+                "readiness_status": "",
+                "input_summary": "",
+                "latest_manifest": "",
+                "next_action": "record final source as error-nonpredictive",
+            }
+        ]
+        with patch("stnsnr_four_model_execution_status.build_status_rows", return_value=(fake_rows, {})):
+            run_status(SimpleNamespace(val_root=str(root), output_dir=str(output_dir), repo_root=str(Path.cwd())))
+
+        manifest = json.loads((output_dir / "four_model_execution_status_manifest.json").read_text(encoding="utf-8"))
+        if not manifest.get("code_provenance", {}).get("git_commit"):
+            raise AssertionError("execution status manifest records git commit")
+        if not manifest.get("git_provenance", {}).get("head_commit"):
+            raise AssertionError("execution status manifest preserves legacy git_provenance")
+
+
 def test_direct_voxel_formal_permutation_status() -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
         branch_dir = Path(tmp_dir)
@@ -387,6 +441,7 @@ def main() -> int:
     test_d_observed_source_absent_state()
     test_c_observed_final_primary_state()
     test_manifest_provenance_status()
+    test_run_status_manifest_records_code_provenance()
     test_direct_voxel_formal_permutation_status()
     test_direct_voxel_formal_bootstrap_status()
     test_direct_voxel_formal_jitter_status()

@@ -8,13 +8,13 @@ import csv
 import json
 import math
 import subprocess
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
+from stnsnr_io import iso_now, write_csv, write_json
 
 HF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
 ULF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
@@ -29,10 +29,6 @@ PROVENANCE_KEYS = {
     "patch_identifier",
     "code_provenance",
 }
-
-
-def iso_now() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def default_repo_root() -> Path:
@@ -962,20 +958,6 @@ def read_b_hf_norm_fiber_resolver_row(val_root: Path, connectome_slug: str) -> d
     }
 
 
-def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: row.get(key, "") for key in fieldnames})
-
-
-def write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
-
-
 def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -1348,6 +1330,7 @@ def run_status(args: argparse.Namespace) -> int:
             "rows": rows,
             "outputs": {"csv": str(csv_path), "markdown": str(md_path), "manifest": str(manifest_path)},
         },
+        add_code_provenance=True,
     )
     print(f"Execution status output: {csv_path}")
     for row in rows:
