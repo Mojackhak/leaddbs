@@ -497,6 +497,7 @@ def read_d_observed_outputs(
     *,
     connectome_slug: str = "ppmi_85_ewert_2017",
     connectome_label: str = "PPMI 85",
+    status_connectome_key: str = "ppmi",
 ) -> dict[str, Any]:
     default_root = default_d_output_root(val_root, connectome_slug=connectome_slug, tau=800)
     source_manifest = (
@@ -528,6 +529,8 @@ def read_d_observed_outputs(
         "source_resolver_exists": source_manifest.is_file(),
         "ulf_norm_fiber_endpoint_model_status": source_data.get("ulf_norm_fiber_endpoint_model_status", ""),
         "selected_tau": selected_tau_int,
+        "status_branch": f"chronic/{status_connectome_key}/"
+        f"peak_efield_tau{selected_tau_int}_no_delta_hf+delta_hf_adjusted",
         "branches": {},
         "both_branches_exist": False,
     }
@@ -702,11 +705,13 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             val_root,
             connectome_slug="ppmi_85_ewert_2017",
             connectome_label="PPMI 85",
+            status_connectome_key="ppmi",
         ),
         "D_DTOR": read_d_observed_outputs(
             val_root,
             connectome_slug="dtor_985_full_elias_2024",
             connectome_label="dTOR-985 Full (Elias 2024)",
+            status_connectome_key="dtor",
         ),
     }
 
@@ -753,21 +758,22 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             }
         )
 
-    for model_id, model_name, dependency_id, branch in [
+    for model_id, model_name, dependency_id, fallback_branch in [
         ("C", "ULF add-on direct voxel", "A", "chronic/tau200/partial_spearman_no_delta_hf+delta_hf_adjusted"),
         (
             "D_PPMI",
             "ULF add-on normative fiber PPMI",
             "B_PPMI",
-            "chronic/ppmi/peak_efield_tau600_no_delta_hf+delta_hf_adjusted",
+            "",
         ),
         (
             "D_DTOR",
             "ULF add-on normative fiber dTOR",
             "B_DTOR",
-            "chronic/dtor/peak_efield_tau800_no_delta_hf+delta_hf_adjusted",
+            "",
         ),
     ]:
+        branch = fallback_branch
         dependency_row = hf_dependency_rows.get(dependency_id, gate_rows.get(dependency_id, {}))
         dependency_gate = str(dependency_row.get("decision", "MISSING_OUTPUT"))
         dependency_source_status = hf_source_status_from_row(dependency_row)
@@ -806,6 +812,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             q2 = metrics.get("q2", "")
         elif model_id in d_outputs_by_model:
             d_outputs = d_outputs_by_model[model_id]
+            branch = str(d_outputs.get("status_branch") or fallback_branch)
             state = classify_d_observed_state(
                 hf_dependency_source_status=dependency_source_status,
                 hf_dependency_prediction_status=dependency_prediction_status,

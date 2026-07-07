@@ -801,6 +801,10 @@ accepted but `error_nonpredictive`, so the HF-derived intended primary branch is
 no-DeltaHF. The D_DTOR ULF tau/Coverage source resolver scan selects
 tau400/Coverage>=5 as scan fallback; endpoint realization remains
 primary-branch error-nonpredictive because no-DeltaHF is the HF-derived primary.
+For D rows, the consolidated status `branch` field must be generated from the
+selected-source tau recorded by the source resolver, not from the default
+tau800 scan root. Current selected-source rows therefore report
+`peak_efield_tau600` for PPMI and `peak_efield_tau400` for dTOR.
 
 Run the D PPMI source resolver:
 
