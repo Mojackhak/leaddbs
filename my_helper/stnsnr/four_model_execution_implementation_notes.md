@@ -112,12 +112,13 @@ manifests that are missing provenance or were generated from a different commit.
 It must not change source status, prediction status, branch-role assignment, or
 final-model selection by itself.
 
-Downstream layers preserve the same audit where their rows are derived from
-consolidated execution status. Formal target worklist, formal readiness, final
-report, and figure-readiness rows carry `latest_manifest_stale_status`;
-all-endpoint final-report rows carry it through from the final report.
-Non-status-derived all-endpoint rows leave the field blank until a separate
-manifest-stale audit is implemented for those sources.
+Downstream layers preserve the same manifest audit pair where their rows are
+derived from consolidated execution status. Formal target worklist, formal
+readiness, final report, and figure-readiness rows carry both
+`latest_manifest_provenance_status` and `latest_manifest_stale_status`;
+all-endpoint final-report rows carry them through from the final report.
+Non-status-derived all-endpoint rows leave these fields blank until a separate
+manifest audit is implemented for those sources.
 
 The consolidated status report also resolves final-model fields from the current
 source/endpoint classifiers. HF rows record `hf_final_model_source`,
@@ -159,7 +160,7 @@ This layer does not fit models, rerun resampling, or fabricate unavailable
 fiber density/FDR/enrichment outputs. It records `ready_from_existing_maps` for
 A/C direct-voxel display sources and `not_run_missing_density_label_cache` for
 fiber figure-output readiness when the required caches are absent. It also
-preserves `latest_manifest_stale_status` from the consolidated status input.
+preserves the manifest audit pair from the consolidated status input.
 
 The all-endpoint reporting layer consumes the existing A all-scale
 source-resolver scan, observed branch summary, final report, and discovered
@@ -176,8 +177,8 @@ This layer does not fit gain, same-day immediate, or total-ULF sensitivity
 models. It records those C/D outputs as `observed_outputs_detected` when output
 files exist and `not_run_missing_observed_outputs` when they are absent, so
 downstream reporting can distinguish "not run" from "failed model". Rows sourced
-from the final report preserve `latest_manifest_stale_status`; other row sources
-leave the field blank unless they implement their own stale-manifest audit.
+from the final report preserve the manifest audit pair; other row sources leave
+the fields blank unless they implement their own manifest audit.
 
 The D same-day immediate endpoint-family layer should mirror the C immediate
 wrapper, but call the ULF normative-fiber observed driver for each available

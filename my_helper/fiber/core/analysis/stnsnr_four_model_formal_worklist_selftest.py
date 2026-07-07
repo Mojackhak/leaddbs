@@ -24,12 +24,18 @@ def test_hf_ready_target() -> None:
             "hf_final_model_source": "pre_specified",
             "hf_final_model_role": "primary",
             "hf_final_model_status": "final_model_error_nonpredictive",
+            "latest_manifest_provenance_status": "missing_git_or_patch_provenance",
             "latest_manifest_stale_status": "missing_code_provenance",
         }
     )
     assert_equal(row["model_family"], "hf", "HF family")
     assert_equal(row["formal_target_status"], "READY_FOR_FORMAL_RESAMPLING", "HF target")
     assert_equal(row["final_branch_or_source"], "pre_specified", "HF final source")
+    assert_equal(
+        row["latest_manifest_provenance_status"],
+        "missing_git_or_patch_provenance",
+        "HF provenance status",
+    )
     assert_equal(row["latest_manifest_stale_status"], "missing_code_provenance", "HF stale status")
 
 
@@ -89,8 +95,8 @@ def test_run_worklist_manifest_records_code_provenance() -> None:
         status_csv.write_text(
             "\n".join(
                 [
-                    "model_id,model,hf_final_model_source,hf_final_model_role,hf_final_model_status,branch,latest_manifest,latest_manifest_stale_status",
-                    "A,HF direct voxel,pre_specified,primary,final_model_error_nonpredictive,tau200/partial_spearman,/tmp/direct_voxel_HF_generation_manifest.json,missing_code_provenance",
+                    "model_id,model,hf_final_model_source,hf_final_model_role,hf_final_model_status,branch,latest_manifest,latest_manifest_provenance_status,latest_manifest_stale_status",
+                    "A,HF direct voxel,pre_specified,primary,final_model_error_nonpredictive,tau200/partial_spearman,/tmp/direct_voxel_HF_generation_manifest.json,missing_git_or_patch_provenance,missing_code_provenance",
                 ]
             )
             + "\n",
@@ -105,6 +111,10 @@ def test_run_worklist_manifest_records_code_provenance() -> None:
         if not manifest.get("code_provenance", {}).get("git_commit"):
             raise AssertionError("formal target worklist manifest records git commit")
         csv_text = (output_dir / "four_model_formal_target_worklist.csv").read_text(encoding="utf-8")
+        if "latest_manifest_provenance_status" not in csv_text:
+            raise AssertionError("formal target worklist CSV records provenance status field")
+        if "missing_git_or_patch_provenance" not in csv_text:
+            raise AssertionError("formal target worklist CSV preserves provenance status value")
         if "latest_manifest_stale_status" not in csv_text:
             raise AssertionError("formal target worklist CSV records stale status field")
         if "missing_code_provenance" not in csv_text:

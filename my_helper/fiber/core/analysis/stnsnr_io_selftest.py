@@ -7,7 +7,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from stnsnr_io import manifest_stale_status, read_csv, write_csv, write_json
+from stnsnr_io import manifest_audit_fields, manifest_stale_status, read_csv, write_csv, write_json
 
 
 def assert_equal(actual, expected, message: str) -> None:
@@ -83,10 +83,27 @@ def test_manifest_stale_status() -> None:
         assert_equal(manifest_stale_status(str(stale_manifest), current), "different_commit", "stale manifest")
 
 
+def test_manifest_audit_fields() -> None:
+    row = {
+        "latest_manifest_provenance_status": "missing_git_or_patch_provenance",
+        "latest_manifest_stale_status": "missing_code_provenance",
+        "other": "ignored",
+    }
+    assert_equal(
+        manifest_audit_fields(row),
+        {
+            "latest_manifest_provenance_status": "missing_git_or_patch_provenance",
+            "latest_manifest_stale_status": "missing_code_provenance",
+        },
+        "manifest audit field copy",
+    )
+
+
 def main() -> int:
     test_csv_and_json_helpers()
     test_reporting_modules_use_shared_json_writer()
     test_manifest_stale_status()
+    test_manifest_audit_fields()
     print("STN/SNr IO self-test passed.")
     return 0
 

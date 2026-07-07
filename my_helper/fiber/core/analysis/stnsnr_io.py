@@ -12,6 +12,12 @@ from typing import Any
 from stnsnr_run_provenance import git_provenance
 
 
+MANIFEST_AUDIT_FIELDS = [
+    "latest_manifest_provenance_status",
+    "latest_manifest_stale_status",
+]
+
+
 def iso_now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -47,6 +53,10 @@ def read_json(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def manifest_audit_fields(row: dict[str, Any]) -> dict[str, str]:
+    return {field: str(row.get(field, "") or "") for field in MANIFEST_AUDIT_FIELDS}
 
 
 def manifest_stale_status(path_text: str, current_commit: str) -> str:

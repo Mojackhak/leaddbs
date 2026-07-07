@@ -106,6 +106,7 @@ def test_all_endpoint_reporting_summarizes_existing_outputs_and_missing_sensitiv
                     "final_model_status": "final_model_error_nonpredictive",
                     "formal_resampling_status": "FORMAL_RESAMPLING_JITTER_COMPLETE",
                     "figure_output_status": "ready_from_existing_direct_voxel_maps",
+                    "latest_manifest_provenance_status": "missing_git_or_patch_provenance",
                     "latest_manifest_stale_status": "manifest_missing_code_provenance",
                 }
             ],
@@ -132,6 +133,15 @@ def test_all_endpoint_reporting_summarizes_existing_outputs_and_missing_sensitiv
         assert_equal(len([row for row in report_rows if row["source_table"] == "hf_direct_voxel_all_endpoint_scan"]), 2, "HF scan rows")
         final_rows = [row for row in report_rows if row["source_table"] == "four_model_final_report"]
         assert_equal(len(final_rows), 1, "final report rows")
+        assert_true(
+            "latest_manifest_provenance_status" in final_rows[0],
+            "all-endpoint report carries provenance status field",
+        )
+        assert_equal(
+            final_rows[0]["latest_manifest_provenance_status"],
+            "missing_git_or_patch_provenance",
+            "all-endpoint final-report provenance status",
+        )
         assert_true(
             "latest_manifest_stale_status" in final_rows[0],
             "all-endpoint report carries stale status field",

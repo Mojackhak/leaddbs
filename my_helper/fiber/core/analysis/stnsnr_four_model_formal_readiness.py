@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
-from stnsnr_io import iso_now, read_csv, write_csv, write_json
+from stnsnr_io import MANIFEST_AUDIT_FIELDS, iso_now, manifest_audit_fields, read_csv, write_csv, write_json
 
 READY_FORMAL_TARGET = "READY_FOR_FORMAL_RESAMPLING"
 
@@ -52,7 +52,7 @@ def formal_readiness_row(worklist_row: dict[str, str]) -> dict[str, Any]:
         "final_model_status": worklist_row.get("final_model_status", ""),
         "formal_target_status": formal_target_status,
         "latest_manifest": worklist_row.get("latest_manifest", ""),
-        "latest_manifest_stale_status": worklist_row.get("latest_manifest_stale_status", ""),
+        **manifest_audit_fields(worklist_row),
     }
 
     if formal_target_status != READY_FORMAL_TARGET:
@@ -164,7 +164,7 @@ def run_readiness(args: argparse.Namespace) -> int:
         "existing_required_file_count",
         "missing_required_files",
         "latest_manifest",
-        "latest_manifest_stale_status",
+        *MANIFEST_AUDIT_FIELDS,
     ]
     write_csv(csv_path, rows, fieldnames)
     write_markdown(md_path, rows)

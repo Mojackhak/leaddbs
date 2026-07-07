@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
-from stnsnr_io import iso_now, read_csv, write_csv, write_json
+from stnsnr_io import MANIFEST_AUDIT_FIELDS, iso_now, manifest_audit_fields, read_csv, write_csv, write_json
 
 READY_FINAL_STATUSES = {"final_model_error_predictive", "final_model_error_nonpredictive"}
 FORMAL_TARGET_MODEL_IDS = {"A", "B_DTOR", "C", "D_DTOR"}
@@ -68,7 +68,7 @@ def formal_target_row(row: dict[str, str]) -> dict[str, str]:
         "formal_target_reason": reason,
         "formal_resampling_status": row.get("formal_resampling_status", ""),
         "latest_manifest": row.get("latest_manifest", ""),
-        "latest_manifest_stale_status": row.get("latest_manifest_stale_status", ""),
+        **manifest_audit_fields(row),
     }
 
 
@@ -112,7 +112,7 @@ def run_worklist(args: argparse.Namespace) -> int:
         "formal_target_reason",
         "formal_resampling_status",
         "latest_manifest",
-        "latest_manifest_stale_status",
+        *MANIFEST_AUDIT_FIELDS,
     ]
     write_csv(csv_path, rows, fieldnames)
     write_markdown(md_path, rows)

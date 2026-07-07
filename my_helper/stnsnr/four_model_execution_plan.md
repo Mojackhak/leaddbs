@@ -1029,12 +1029,13 @@ limitation and does not by itself change source status, prediction status,
 branch-role assignment, or final-model selection.
 
 Downstream layers that consume consolidated execution status must preserve this
-stale-output audit. Formal target worklist rows, formal-readiness rows, final
-reporting rows, and figure-readiness rows carry `latest_manifest_stale_status`
-from the status-derived row they consume; all-endpoint final-report rows carry
-the same field from the final report. Rows that are not derived from
-consolidated execution status leave the field blank unless their own
-manifest-stale audit is explicitly implemented.
+manifest audit pair. Formal target worklist rows, formal-readiness rows, final
+reporting rows, and figure-readiness rows carry both
+`latest_manifest_provenance_status` and `latest_manifest_stale_status` from the
+status-derived row they consume; all-endpoint final-report rows carry the same
+fields from the final report. Rows that are not derived from consolidated
+execution status leave the fields blank unless their own manifest audit is
+explicitly implemented.
 
 ---
 
@@ -1315,11 +1316,11 @@ Fallback-selected thresholds are explicitly labeled as scan-fallback sources and
 The final reporting package records the unique final model for each formal target,
 formal resampling status, direct-voxel display-source availability, explicit
 not-run statuses for unavailable fiber OSS/jitter/density/FDR/enrichment inputs,
-and the `latest_manifest_stale_status` audit for each final model.
+and the manifest audit pair for each final model.
 The all-endpoint reporting package records A all-endpoint source-resolver rows,
 observed branch manifests, final-report rows, and detected/not-run statuses for
 C/D gain endpoints, same-day immediate endpoints, and total-ULF sensitivities,
-including final-report stale-output audit fields when available.
+including final-report manifest audit fields when available.
 The final report states n=16 and hypothesis-generating interpretation.
 All affected outputs and consolidated status files have been rerun after the latest executable patch.
 Reusable backend components cover shared resolver, branch-role, score, DeltaHFScore, manifest, and stale-output logic.

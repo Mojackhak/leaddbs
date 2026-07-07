@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
-from stnsnr_io import iso_now, read_csv, write_csv, write_json
+from stnsnr_io import MANIFEST_AUDIT_FIELDS, iso_now, manifest_audit_fields, read_csv, write_csv, write_json
 
 
 FORMAL_ROOT = DEFAULT_VAL_ROOT / "summary/four_model_execution"
@@ -243,7 +243,7 @@ def build_report_row(
         "hypothesis_generating": "true",
         "interpretation": f"hypothesis_generating_n{cohort_n}",
         "latest_manifest": manifest_path,
-        "latest_manifest_stale_status": status_row.get("latest_manifest_stale_status", ""),
+        **manifest_audit_fields(status_row),
     }
     readiness = {
         "model_id": model_id,
@@ -257,7 +257,7 @@ def build_report_row(
         "formal_resampling_status": row["formal_resampling_status"],
         "figure_output_status": output_status,
         "latest_manifest": manifest_path,
-        "latest_manifest_stale_status": row["latest_manifest_stale_status"],
+        **manifest_audit_fields(row),
     }
     return row, readiness
 
@@ -366,7 +366,7 @@ def build_final_reporting(
         "hypothesis_generating",
         "interpretation",
         "latest_manifest",
-        "latest_manifest_stale_status",
+        *MANIFEST_AUDIT_FIELDS,
     ]
     readiness_fields = [
         "model_id",
@@ -382,7 +382,7 @@ def build_final_reporting(
         "formal_resampling_status",
         "figure_output_status",
         "latest_manifest",
-        "latest_manifest_stale_status",
+        *MANIFEST_AUDIT_FIELDS,
     ]
     write_csv(final_report_csv, report_rows, report_fields)
     write_csv(figure_readiness_csv, readiness_rows, readiness_fields)
