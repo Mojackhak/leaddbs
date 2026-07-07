@@ -127,6 +127,8 @@ def classify_ulf_model_state(
         "dependency_status": dependency_status,
         "formal_resampling_status": formal_status,
         "hf_prediction_validity_status": hf_dependency_prediction_status or "not_evaluable",
+        "ulf_primary_branch": "",
+        "delta_hfscore_role": "",
     }
 
 
@@ -156,16 +158,32 @@ def classify_c_observed_state(
     formal_status = "NOT_STARTED_FORMAL_RESAMPLING"
     if dependency_status == "SOURCE_ABSENT":
         next_status = "OBSERVED_COMPLETE_NO_DELTA_PRIMARY"
+        primary_branch = "no_delta_hf"
+        delta_role = "not_run_no_stable_hf_source"
+    elif dependency_status == "SOURCE_EXISTS_ERROR_NONPREDICTIVE":
+        next_status = "OBSERVED_COMPLETE_NO_DELTA_PRIMARY"
+        primary_branch = "no_delta_hf"
+        delta_role = "stable_error_nonpredictive_hf_adjustment_sensitivity"
+    elif dependency_status == "SOURCE_EXISTS_ERROR_PREDICTIVE":
+        next_status = "OBSERVED_COMPLETE_DELTA_HF_PRIMARY"
+        primary_branch = "delta_hf_adjusted"
+        delta_role = "primary_error_predictive_hf_adjustment"
     elif dependency_status in {"SOURCE_EXISTS_ERROR_PREDICTIVE", "SOURCE_EXISTS_ERROR_NONPREDICTIVE"}:
         next_status = "OBSERVED_COMPLETE_READY_FOR_ENDPOINT_RESOLVER"
+        primary_branch = ""
+        delta_role = ""
     else:
         formal_status = "NOT_APPLICABLE_WAITING_FOR_HF"
         next_status = "WAITING_FOR_HF_SOURCE_RESOLVER"
+        primary_branch = ""
+        delta_role = ""
     return {
         "execution_status": next_status,
         "dependency_status": dependency_status,
         "formal_resampling_status": formal_status,
         "hf_prediction_validity_status": hf_dependency_prediction_status or "not_evaluable",
+        "ulf_primary_branch": primary_branch,
+        "delta_hfscore_role": delta_role,
     }
 
 
@@ -195,16 +213,32 @@ def classify_d_observed_state(
     formal_status = "NOT_STARTED_FORMAL_RESAMPLING"
     if dependency_status == "SOURCE_ABSENT":
         next_status = "OBSERVED_COMPLETE_NO_DELTA_PRIMARY"
+        primary_branch = "no_delta_hf"
+        delta_role = "not_run_no_stable_hf_source"
+    elif dependency_status == "SOURCE_EXISTS_ERROR_NONPREDICTIVE":
+        next_status = "OBSERVED_COMPLETE_NO_DELTA_PRIMARY"
+        primary_branch = "no_delta_hf"
+        delta_role = "stable_error_nonpredictive_hf_adjustment_sensitivity"
+    elif dependency_status == "SOURCE_EXISTS_ERROR_PREDICTIVE":
+        next_status = "OBSERVED_COMPLETE_DELTA_HF_PRIMARY"
+        primary_branch = "delta_hf_adjusted"
+        delta_role = "primary_error_predictive_hf_adjustment"
     elif dependency_status in {"SOURCE_EXISTS_ERROR_PREDICTIVE", "SOURCE_EXISTS_ERROR_NONPREDICTIVE"}:
         next_status = "OBSERVED_COMPLETE_READY_FOR_ENDPOINT_RESOLVER"
+        primary_branch = ""
+        delta_role = ""
     else:
         formal_status = "NOT_APPLICABLE_WAITING_FOR_HF"
         next_status = "WAITING_FOR_HF_SOURCE_RESOLVER"
+        primary_branch = ""
+        delta_role = ""
     return {
         "execution_status": next_status,
         "dependency_status": dependency_status,
         "formal_resampling_status": formal_status,
         "hf_prediction_validity_status": hf_dependency_prediction_status or "not_evaluable",
+        "ulf_primary_branch": primary_branch,
+        "delta_hfscore_role": delta_role,
     }
 
 
@@ -408,14 +442,15 @@ def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
         "",
         "Current cohort size is `n=16`. These outputs remain hypothesis-generating unless a branch passes the declared gate and the corresponding formal validation is run.",
         "",
-        "| Model | Status | Dependency | HF source | HF prediction | Formal resampling | Next action |",
-        "|---|---|---|---|---|---|---|",
+        "| Model | Status | Dependency | HF source | HF prediction | ULF primary | Formal resampling | Next action |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
             "| {model_id}: {model} | {execution_status} | {dependency_status} | "
             "{hf_source_status} | "
             "{hf_prediction_validity_status} | "
+            "{ulf_primary_branch} | "
             "{formal_resampling_status} | {next_action} |".format(**row)
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -468,6 +503,8 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
                 "readiness_status": "",
                 "input_summary": "",
                 "latest_manifest": str(gate_row.get("manifest_path", "")),
+                "ulf_primary_branch": "",
+                "delta_hfscore_role": "",
                 "next_action": next_action_for_state(state),
                 **state,
             }
@@ -583,7 +620,9 @@ def next_action_for_state(state: dict[str, str]) -> str:
     if execution_status == "OBSERVED_COMPLETE_READY_FOR_ENDPOINT_RESOLVER":
         return "resolve endpoint primary branch and then decide formal resampling"
     if execution_status == "OBSERVED_COMPLETE_NO_DELTA_PRIMARY":
-        return "report no_delta_hf as primary because matched HF source is absent"
+        return "report no_delta_hf as primary because matched HF source is absent or error-nonpredictive"
+    if execution_status == "OBSERVED_COMPLETE_DELTA_HF_PRIMARY":
+        return "report delta_hf_adjusted as primary after verifying DeltaHFScore inputs"
     if execution_status == "WAITING_FOR_HF_SOURCE_RESOLVER":
         return "refresh matched HF source/prediction resolver before interpreting ULF branches"
     if execution_status == "OBSERVED_COMPLETE_STOPPED_BY_GATE":
@@ -617,6 +656,8 @@ def run_status(args: argparse.Namespace) -> int:
         "dependency_status",
         "hf_source_status",
         "hf_prediction_validity_status",
+        "ulf_primary_branch",
+        "delta_hfscore_role",
         "formal_resampling_status",
         "gate_decision",
         "spearman_rho",

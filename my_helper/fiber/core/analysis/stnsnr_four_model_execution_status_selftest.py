@@ -84,9 +84,10 @@ def test_c_observed_source_exists_state() -> None:
         efield_summary={"n_efields_existing": 64, "n_rows": 64},
         c_outputs={"both_branches_exist": True},
     )
-    assert_equal(state["execution_status"], "OBSERVED_COMPLETE_READY_FOR_ENDPOINT_RESOLVER", "C observed status")
+    assert_equal(state["execution_status"], "OBSERVED_COMPLETE_NO_DELTA_PRIMARY", "C observed status")
     assert_equal(state["dependency_status"], "SOURCE_EXISTS_ERROR_NONPREDICTIVE", "C dependency status")
     assert_equal(state["formal_resampling_status"], "NOT_STARTED_FORMAL_RESAMPLING", "C formal status")
+    assert_equal(state["ulf_primary_branch"], "no_delta_hf", "C primary branch")
 
 
 def test_d_observed_source_absent_state() -> None:
