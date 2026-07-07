@@ -65,8 +65,9 @@ end
 
 function [] = freesurfer_nii_to_itk_h5(warp_file_in, warp_file_out)
 
-% substract mm coordinates for each voxel
-n = load_nii(warp_file_in);
+% Subtract mm coordinates for each voxel. EasyReg writes transform fields that
+% can carry non-orthogonal affines, so read raw field values without xforming.
+n = load_untouch_nii(warp_file_in);
 s = n.hdr.dime.dim(2:4);
 index = 1:prod(s);
 [v1,v2,v3] = ind2sub(s,index);

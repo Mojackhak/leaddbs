@@ -107,6 +107,17 @@ Implementation status:
 - Final audit passed: the five focused MATLAB regression tests passed, and a
   normalization tree search found zero DWI/B0 files under
   `/Volumes/VAL/meige/derivatives/leaddbs/sub-*/normalization`.
+- Manual normalization attempt for `Meige008` reached EasyReg completion but
+  failed while converting EasyReg's FreeSurfer-format backward field to ITK h5:
+  `load_nii` rejected the generated `*_fs_inv_field.nii` because its affine
+  matrix contains non-orthogonal rotation/shearing. This is a transform-field
+  conversion issue, not a pseudo-B0 inclusion issue; the converter should read
+  EasyReg warp fields with an untouch NIfTI loader and keep geometry handling
+  through `ea_get_affine`/`ea_fslhd`.
+- EasyReg converter fix verification passed with
+  `test_easyreg_warp_field_untouch_loader_static.m`, and the existing
+  `Meige008` EasyReg inverse field loaded successfully with `load_untouch_nii`
+  as a `218 x 262 x 165 x 3` transform field.
 
 ## Goal
 
