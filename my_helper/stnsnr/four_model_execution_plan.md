@@ -32,6 +32,7 @@ A/C direct-voxel formal permutation refreshed under /Volumes/VAL/STNSNr/summary/
 B_DTOR/D_DTOR dTOR normative-fiber smoke permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_smoke_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber formal bootstrap refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_bootstrap/
+B_DTOR/D_DTOR dTOR normative-fiber sensitivity readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_sensitivity_readiness/
 ```
 
 The formal readiness audit does not run formal permutation, bootstrap, jitter,
@@ -63,7 +64,7 @@ direct-voxel formal permutation = A and C complete at B=10000, seed=42
 dTOR normative-fiber smoke permutation = B_DTOR and D_DTOR complete at B=1000, seed=42
 dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
-dTOR fiber jitter/OSS = not run
+dTOR fiber jitter/OSS = not_run_missing_inputs
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -92,6 +93,14 @@ Current dTOR normative-fiber formal bootstrap snapshot:
 ```text
 B_DTOR HF normative fiber: bootstrap_status = complete; B = 10000; finite_bootstrap_count = 10000; bootstrap_candidate_fibers_min = 485; bootstrap_candidate_fibers_median = 2971.5
 D_DTOR ULF normative fiber no_delta_hf final model: bootstrap_status = complete; B = 10000; finite_bootstrap_count = 10000; bootstrap_candidate_fibers_min = 95; bootstrap_candidate_fibers_median = 1940.0
+```
+
+Current dTOR normative-fiber sensitivity readiness snapshot:
+
+```text
+B_DTOR HF normative fiber: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = not_run_missing_jitter_inputs
+D_DTOR ULF normative fiber no_delta_hf final model: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = not_run_missing_jitter_inputs
+consolidated formal_resampling_status = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING for B_DTOR and D_DTOR
 ```
 
 When execution is resumed from this checkpoint, expensive dTOR fiber formal
@@ -645,9 +654,13 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
 
-The next formal layers after the completed dTOR normative-fiber formal
-bootstrap are dTOR final-model jitter QC and OSS-DBS activation sensitivity for
-the automatic final targets `B_DTOR` and `D_DTOR`.
+If required OSS activation sidecars or jittered exposure sidecars are absent,
+write explicit branch-level and cross-target sensitivity-readiness status
+instead of marking the sensitivity layer complete. Missing sensitivity inputs do
+not change the selected final model or the completed permutation/bootstrap
+status; they only prevent OSS/jitter robustness support from being claimed.
+The consolidated status should then report
+`FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING`.
 
 ### Deferred Expensive Work
 
@@ -1025,6 +1038,13 @@ dTOR normative-fiber formal bootstrap:
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_bootstrap.py \
   --n-bootstraps 10000
+```
+
+dTOR normative-fiber sensitivity readiness:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py
 ```
 
 ---

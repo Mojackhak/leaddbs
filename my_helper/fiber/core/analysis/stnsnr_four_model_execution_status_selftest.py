@@ -291,6 +291,43 @@ def test_normative_fiber_formal_bootstrap_status() -> None:
         )
 
 
+def test_normative_fiber_sensitivity_missing_status() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        branch_dir = Path(tmp_dir)
+        formal_summary = branch_dir / "normative_HF_fiber_permutation_summary.csv"
+        bootstrap_summary = branch_dir / "normative_HF_fiber_bootstrap_summary.csv"
+        sensitivity_status = branch_dir / "normative_HF_fiber_sensitivity_readiness_status.json"
+        formal_summary.write_text(
+            "B,permutation_status,resampling_tier,p_plus_one_two_sided\n"
+            "10000,complete,formal,0.5\n",
+            encoding="utf-8",
+        )
+        bootstrap_summary.write_text(
+            "B,bootstrap_status,finite_bootstrap_count\n"
+            "10000,complete,10000\n",
+            encoding="utf-8",
+        )
+        sensitivity_status.write_text(
+            json.dumps(
+                {
+                    "oss_sensitivity_status": "not_run_missing_oss_inputs",
+                    "jitter_qc_status": "not_run_missing_jitter_inputs",
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert_equal(
+            normative_fiber_formal_resampling_status(
+                branch_dir / "missing_smoke.csv",
+                formal_summary,
+                bootstrap_summary,
+                sensitivity_status,
+            ),
+            "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING",
+            "normative missing sensitivity status",
+        )
+
+
 def main() -> int:
     test_hf_error_nonpredictive_source_state()
     test_hf_error_predictive_source_state()
@@ -304,6 +341,7 @@ def main() -> int:
     test_observed_robustness_scope_status()
     test_normative_fiber_smoke_permutation_status()
     test_normative_fiber_formal_bootstrap_status()
+    test_normative_fiber_sensitivity_missing_status()
     print(json.dumps({"status": "PASS"}, indent=2, sort_keys=True))
     return 0
 

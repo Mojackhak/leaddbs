@@ -636,6 +636,7 @@ Write:
 ```text
 normative_ULF_fiber_delta_hf_support_summary.csv
 normative_ULF_fiber_delta_hf_support_qc.json
+normative_ULF_fiber_sensitivity_readiness_status.json
 ```
 
 For backward compatibility, tau800-specific aliases may be emitted when the selected HF source is tau800/Coverage>=5:

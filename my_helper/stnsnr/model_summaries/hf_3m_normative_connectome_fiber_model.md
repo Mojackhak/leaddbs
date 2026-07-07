@@ -779,6 +779,7 @@ normative_HF_fiber_jitter_model_similarity.csv
 normative_HF_fiber_jitter_selected_overlap.csv
 normative_HF_fiber_jitter_density_correlation.csv
 normative_HF_fiber_jitter_example_density_maps/
+normative_HF_fiber_sensitivity_readiness_status.json
 ```
 
 Plain connected-streamline control writes:

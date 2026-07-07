@@ -642,6 +642,7 @@ def normative_fiber_formal_resampling_status(
     smoke_summary_csv: Path,
     formal_summary_csv: Path,
     bootstrap_summary_csv: Path | None = None,
+    sensitivity_status_json: Path | None = None,
 ) -> str:
     """Return normative-fiber status from smoke/formal permutation/bootstrap summaries."""
     if bootstrap_summary_csv is not None and bootstrap_summary_csv.is_file():
@@ -654,6 +655,17 @@ def normative_fiber_formal_resampling_status(
             except (TypeError, ValueError):
                 n_bootstraps = 0
             if status == "complete" and n_bootstraps >= 10000:
+                if sensitivity_status_json is not None and sensitivity_status_json.is_file():
+                    sensitivity = read_json(sensitivity_status_json)
+                    oss_status = str(sensitivity.get("oss_sensitivity_status", "")).strip()
+                    jitter_status = str(sensitivity.get("jitter_qc_status", "")).strip()
+                    missing_statuses = {"not_run_missing_oss_inputs", "not_run_missing_jitter_inputs"}
+                    if oss_status in missing_statuses and jitter_status in missing_statuses:
+                        return "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING"
+                    if oss_status.startswith("ready_for_") and jitter_status.startswith("ready_for_"):
+                        return "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_READY"
+                    if oss_status or jitter_status:
+                        return "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_PARTIAL"
                 return "FORMAL_PERMUTATION_BOOTSTRAP_COMPLETE_JITTER_NOT_STARTED"
     if formal_summary_csv.is_file():
         rows = read_csv_rows(formal_summary_csv)
@@ -1021,6 +1033,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
                 branch_dir / "normative_HF_fiber_smoke_permutation_summary.csv",
                 branch_dir / "normative_HF_fiber_permutation_summary.csv",
                 branch_dir / "normative_HF_fiber_bootstrap_summary.csv",
+                branch_dir / "normative_HF_fiber_sensitivity_readiness_status.json",
             )
             if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
                 state["formal_resampling_status"] = formal_status
@@ -1155,6 +1168,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
                     branch_dir / "normative_ULF_fiber_smoke_permutation_summary.csv",
                     branch_dir / "normative_ULF_fiber_permutation_summary.csv",
                     branch_dir / "normative_ULF_fiber_bootstrap_summary.csv",
+                    branch_dir / "normative_ULF_fiber_sensitivity_readiness_status.json",
                 )
                 if formal_status != "NOT_STARTED_FORMAL_RESAMPLING":
                     state["formal_resampling_status"] = formal_status
