@@ -28,6 +28,7 @@ A direct voxel: SOURCE_ACCEPTED_ERROR_NONPREDICTIVE
 B PPMI/MGH/dTOR normative fiber: SOURCE_ACCEPTED_ERROR_NONPREDICTIVE
 C direct voxel: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
 D PPMI normative fiber: OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE
+D dTOR normative fiber: OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER
 ULF component e-fields: 64/64 available
 formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
 ```
@@ -207,6 +208,7 @@ status CSV:
 ```text
 C direct voxel depends on A
 D PPMI normative fiber depends on B_PPMI
+D dTOR normative fiber depends on B_DTOR
 ```
 
 There is no generic `B` status row. Additional D connectome variants must
@@ -783,6 +785,21 @@ The D PPMI observed output is now included in the consolidated status report as
 OSS-DBS activation, density maps, endpoint enrichment, and dTOR-scale
 figure-grade outputs remain deferred.
 
+Current dTOR observed run:
+
+```text
+output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/dtor_985_full_elias_2024/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed
+no_delta_hf:        pending_source_resolver + error_nonpredictive; LOOCV Spearman rho = 0.889544, Q2 = 0.0238448
+delta_hf_adjusted:  pending_source_resolver + error_nonpredictive; LOOCV Spearman rho = 0.919000, Q2 = 0.0672397
+endpoint status:    pending_source_resolver
+```
+
+The D dTOR observed output is included in the consolidated status report as
+`OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER`. The matched B_DTOR source is
+accepted but `error_nonpredictive`, so the HF-derived intended primary branch is
+no-DeltaHF. The D_DTOR ULF tau/Coverage source resolver scan still must run
+before endpoint realization or formal interpretation.
+
 Run the D PPMI source resolver:
 
 ```bash
@@ -800,4 +817,21 @@ Run the current D PPMI selected-source observed branch:
   --connectome ppmi \
   --tau 600 \
   --min-coverage 5
+```
+
+Run the D dTOR observed branch:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
+  --connectome dtor
+```
+
+Run the D dTOR source resolver:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
+  --connectome dtor \
+  --source-resolver-scan
 ```

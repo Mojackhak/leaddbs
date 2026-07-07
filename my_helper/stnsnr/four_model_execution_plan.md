@@ -18,8 +18,9 @@ A HF direct voxel observed branch rerun from /Users/mojackhu/Github/leaddbs
 B PPMI/MGH/dTOR HF normative fiber observed branches rerun from /Users/mojackhu/Github/leaddbs using the legacy/current output branch name that maps to revised `peak_efield_tau800_cov5_primary`
 C ULF direct voxel observed branches rerun from /Users/mojackhu/Github/leaddbs
 D ULF normative fiber PPMI observed branches rerun from /Users/mojackhu/Github/leaddbs using selected-source tau600 scan-fallback output branches
+D ULF normative fiber dTOR observed branches rerun from /Users/mojackhu/Github/leaddbs using default tau800/Coverage>=5 output branches
 legacy/current A/B status CSV refreshed
-ULF readiness refreshed with C -> A and D PPMI -> B_PPMI dependency mapping
+ULF readiness refreshed with C -> A, D PPMI -> B_PPMI, and D dTOR -> B_DTOR dependency mapping
 C direct voxel source resolver refreshed
 D PPMI normative fiber source resolver refreshed
 Consolidated status refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/status/
@@ -35,6 +36,7 @@ B_MGH = pre_specified_accepted + error_nonpredictive
 B_DTOR = pre_specified_accepted + error_nonpredictive
 C direct voxel = observed primary realized as no_delta_hf; primary_branch_error_nonpredictive
 D PPMI normative fiber = observed primary realized as no_delta_hf at scan-fallback tau600/Coverage>=5; primary_branch_error_nonpredictive
+D dTOR normative fiber = observed branches exist at tau800/Coverage>=5; ULF source resolver still required before endpoint realization
 formal permutation/bootstrap/jitter/OSS = not run
 ```
 
@@ -275,7 +277,7 @@ The current codebase is no longer greenfield. The following layers already exist
 
 ```text
 C formal ULF direct voxel resampling, gain endpoints, total-ULF sensitivity, and all-endpoint reporting driver
-D formal ULF normative fiber resampling, dTOR main branch, OSS, and figure-grade outputs
+D formal ULF normative fiber resampling, dTOR source resolver, OSS, and figure-grade outputs
 shared reusable resolver/manifest/score architecture across voxel, fiber, HF, and ULF models
 formal B=10000 permutation/bootstrap loops
 formal spatial jitter loops
@@ -377,7 +379,27 @@ Current observed outputs:
 | selected-source output `ulf_peak_efield_tau600_no_delta_hf`; revised scan-fallback spec `ulf_peak_efield_tau600_cov5_no_delta_hf` | `0.9161` | `0.0719` | realized HF-derived intended primary; D source resolver = `scan_fallback_accepted` + `error_nonpredictive`; endpoint status = `primary_branch_error_nonpredictive` |
 | selected-source output `ulf_peak_efield_tau600_delta_hf_adjusted`; revised scan-fallback spec `ulf_peak_efield_tau600_cov5_delta_hf_adjusted` | `0.9087` | `-0.0598` | sensitivity because matched B_PPMI source is accepted but `error_nonpredictive`; D source resolver = `scan_fallback_accepted` + `error_nonpredictive` |
 
-Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. Formal resampling, OSS-DBS activation, density maps, endpoint enrichment, and dTOR-scale figure-grade outputs have not been run.
+Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. Formal resampling, OSS-DBS activation, density maps, endpoint enrichment, and figure-grade outputs have not been run.
+
+### D ULF Normative Fiber dTOR Observed Branch
+
+The D dTOR observed-only driver has been run for the current-output chronic endpoint row:
+
+```text
+post scale = MDS-UPDRS III score (STN+SNr, 3 m)
+HF reference = MDS-UPDRS III score (STN, 3 m)
+connectome = dTOR-985 Full (Elias 2024)
+output root = /Volumes/VAL/STNSNr/summary/normative_connectome_fiber/ulf/dtor_985_full_elias_2024/mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed/
+```
+
+Current observed outputs:
+
+| Branch | rho | Q2 | Interpretation role |
+|---|---:|---:|---|
+| default output `ulf_peak_efield_tau800_no_delta_hf`; revised default spec `ulf_peak_efield_tau800_cov5_no_delta_hf` | `0.8895` | `0.0238` | HF-derived intended primary because matched B_DTOR source is accepted but `error_nonpredictive`; D_DTOR source resolver still required before endpoint realization |
+| default output `ulf_peak_efield_tau800_delta_hf_adjusted`; revised default spec `ulf_peak_efield_tau800_cov5_delta_hf_adjusted` | `0.9190` | `0.0672` | sensitivity because matched B_DTOR source is accepted but `error_nonpredictive`; D_DTOR source resolver still required before endpoint realization |
+
+Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. The consolidated status records this as `D_DTOR = OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER` until the dTOR ULF tau/Coverage source resolver scan is run.
 
 ### A Round 2 All-Endpoint Tau/Coverage Resolver Scan
 
@@ -479,10 +501,8 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
 
 ### Immediate Next Steps
 
-1. Decide whether to extend the D observed/resolver execution beyond PPMI to
-   dTOR now, or keep dTOR as deferred formal/reporting work. The B dTOR
-   dependency now resolves as `pre_specified_accepted + error_nonpredictive`,
-   so a matched D-dTOR no-DeltaHF primary branch is interpretable once run.
+1. Run the D dTOR ULF tau/Coverage source resolver scan before endpoint
+   realization or formal interpretation of the dTOR observed branches.
 2. Keep C/D formal resampling, gain endpoints, total-ULF sensitivity, all-endpoint
    reporting, OSS, jitter, and figure-grade outputs deferred until the selected
    reporting branches are explicitly chosen.
@@ -784,6 +804,23 @@ D ULF normative fiber PPMI selected-source observed branch after current scan fa
   --connectome ppmi \
   --tau 600 \
   --min-coverage 5
+```
+
+D ULF normative fiber dTOR observed branch:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
+  --connectome dtor
+```
+
+D ULF normative fiber dTOR tau/Coverage source resolver scan:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_ulf_normative_fiber_observed.py \
+  --connectome dtor \
+  --source-resolver-scan
 ```
 
 Consolidated execution status:

@@ -416,11 +416,13 @@ def default_c_output_root(val_root: Path) -> Path:
     return val_root / "summary/direct_voxel/ulf/mds_updrs_iii_score_stn_snr_3_m/tau200"
 
 
-def default_d_output_root(val_root: Path) -> Path:
+def default_d_output_root(val_root: Path, connectome_slug: str = "ppmi_85_ewert_2017", tau: int = 800) -> Path:
     return (
         val_root
-        / "summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/"
-        "mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau800_observed"
+        / "summary/normative_connectome_fiber/ulf"
+        / connectome_slug
+        / "mds_updrs_iii_score_stn_snr_3_m"
+        / f"peak_efield_tau{tau}_observed"
     )
 
 
@@ -490,9 +492,18 @@ def read_c_observed_outputs(val_root: Path) -> dict[str, Any]:
     return out
 
 
-def read_d_observed_outputs(val_root: Path) -> dict[str, Any]:
-    default_root = default_d_output_root(val_root)
-    source_manifest = default_root / "tau_coverage_source_resolver_scan" / "normative_ULF_fiber_tau_coverage_source_resolver_manifest.json"
+def read_d_observed_outputs(
+    val_root: Path,
+    *,
+    connectome_slug: str = "ppmi_85_ewert_2017",
+    connectome_label: str = "PPMI 85",
+) -> dict[str, Any]:
+    default_root = default_d_output_root(val_root, connectome_slug=connectome_slug, tau=800)
+    source_manifest = (
+        default_root
+        / "tau_coverage_source_resolver_scan"
+        / "normative_ULF_fiber_tau_coverage_source_resolver_manifest.json"
+    )
     source_data = read_json(source_manifest)
     branch_resolutions = source_data.get("branch_resolutions", {})
     intended_primary = source_data.get("intended_primary_branch", source_data.get("ulf_primary_branch", "no_delta_hf"))
@@ -505,18 +516,14 @@ def read_d_observed_outputs(val_root: Path) -> dict[str, Any]:
         selected_tau_int = int(float(selected_tau))
     except (TypeError, ValueError):
         selected_tau_int = 800
-    root = (
-        val_root
-        / "summary/normative_connectome_fiber/ulf/ppmi_85_ewert_2017/"
-        f"mds_updrs_iii_score_stn_snr_3_m/peak_efield_tau{selected_tau_int}_observed"
-    )
+    root = default_d_output_root(val_root, connectome_slug=connectome_slug, tau=selected_tau_int)
     branches = {
         "no_delta_hf": root / f"ulf_peak_efield_tau{selected_tau_int}_no_delta_hf",
         "delta_hf_adjusted": root / f"ulf_peak_efield_tau{selected_tau_int}_delta_hf_adjusted",
     }
     out: dict[str, Any] = {
         "root": str(root),
-        "connectome": "PPMI 85",
+        "connectome": connectome_label,
         "source_resolver_manifest": str(source_manifest),
         "source_resolver_exists": source_manifest.is_file(),
         "ulf_norm_fiber_endpoint_model_status": source_data.get("ulf_norm_fiber_endpoint_model_status", ""),
@@ -690,7 +697,18 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
     ulf_readiness_status = str(ulf_manifest.get("status", "MISSING_ULF_READINESS"))
     efield_summary = ulf_manifest.get("component_efield_summary", {})
     c_outputs = read_c_observed_outputs(val_root)
-    d_outputs = read_d_observed_outputs(val_root)
+    d_outputs_by_model = {
+        "D_PPMI": read_d_observed_outputs(
+            val_root,
+            connectome_slug="ppmi_85_ewert_2017",
+            connectome_label="PPMI 85",
+        ),
+        "D_DTOR": read_d_observed_outputs(
+            val_root,
+            connectome_slug="dtor_985_full_elias_2024",
+            connectome_label="dTOR-985 Full (Elias 2024)",
+        ),
+    }
 
     rows: list[dict[str, Any]] = []
     hf_dependency_rows: dict[str, dict[str, Any]] = {}
@@ -737,7 +755,18 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
 
     for model_id, model_name, dependency_id, branch in [
         ("C", "ULF add-on direct voxel", "A", "chronic/tau200/partial_spearman_no_delta_hf+delta_hf_adjusted"),
-        ("D", "ULF add-on normative fiber PPMI", "B_PPMI", "chronic/ppmi/peak_efield_tau800_no_delta_hf+delta_hf_adjusted"),
+        (
+            "D_PPMI",
+            "ULF add-on normative fiber PPMI",
+            "B_PPMI",
+            "chronic/ppmi/peak_efield_tau600_no_delta_hf+delta_hf_adjusted",
+        ),
+        (
+            "D_DTOR",
+            "ULF add-on normative fiber dTOR",
+            "B_DTOR",
+            "chronic/dtor/peak_efield_tau800_no_delta_hf+delta_hf_adjusted",
+        ),
     ]:
         dependency_row = hf_dependency_rows.get(dependency_id, gate_rows.get(dependency_id, {}))
         dependency_gate = str(dependency_row.get("decision", "MISSING_OUTPUT"))
@@ -775,7 +804,8 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
             latest_manifest = str(no_delta.get("manifest_path", ""))
             spearman_rho = metrics.get("spearman_rho", "")
             q2 = metrics.get("q2", "")
-        elif model_id == "D":
+        elif model_id in d_outputs_by_model:
+            d_outputs = d_outputs_by_model[model_id]
             state = classify_d_observed_state(
                 hf_dependency_source_status=dependency_source_status,
                 hf_dependency_prediction_status=dependency_prediction_status,
@@ -793,7 +823,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
                 primary = d_outputs.get("branches", {}).get(primary_branch, {})
                 primary_comparison = primary.get("baseline_comparison", {})
                 input_summary = (
-                    f"{input_summary}; D PPMI observed branches exist; "
+                    f"{input_summary}; {model_id} observed branches exist; "
                     f"no_delta rho={metrics.get('spearman_rho', '')}, Q2={metrics.get('q2', '')}; "
                     f"delta rho={delta.get('metrics', {}).get('spearman_rho', '')}, "
                     f"Q2={delta.get('metrics', {}).get('q2', '')}; "
@@ -841,7 +871,7 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
         "gate_status_csv": str(gate_csv),
         "ulf_readiness_manifest": str(ulf_manifest_path) if ulf_manifest_path else "",
         "c_observed_outputs": c_outputs,
-        "d_observed_outputs": d_outputs,
+        "d_observed_outputs": d_outputs_by_model,
     }
     return rows, manifest_inputs
 
