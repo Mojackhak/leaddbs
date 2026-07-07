@@ -67,9 +67,9 @@ Implementation status:
   `MaxConcurrentSynb0=1`, and the same parameter policy. After the remaining
   run, combine pilot and remaining status rows into a 22-subject processing
   record.
-- Not yet complete: remaining-cohort preprocessing and final subject-level
-  processing record. Lead-DBS UI B0-to-anchorNative coregistration and manual
-  QC are user-performed follow-up steps, not Codex automation requirements.
+- Remaining-cohort preprocessing completed for the 19 non-pilot subjects.
+  Lead-DBS UI B0-to-anchorNative coregistration and manual QC are
+  user-performed follow-up steps, not Codex automation requirements.
 - UI staging issue found during manual normalization approval for `Meige008`:
   Lead-DBS expects the pseudo-B0 image at
   `coregistration/anat/sub-<ID>_ses-preop_space-anchorNative_desc-preproc_B0.nii`.
@@ -95,6 +95,15 @@ Implementation status:
   fix, so it also requires copy-only backfill of the UI target NIfTI.
 - Copy-only backfill completed for `Meige004`; it now has the UI target NIfTI
   and JSON sidecar.
+- Final 22-subject processing record written to
+  `/Volumes/VAL/meige/derivatives/leaddbs/import_logs/dwi_registration_synb0_fakeb0_status_final_20260706_213641.csv`.
+- Final verification record written to
+  `/Volumes/VAL/meige/derivatives/leaddbs/import_logs/dwi_registration_synb0_fakeb0_verification_final_20260706_213641.json`.
+  It verifies 22/22 subjects with `status=pending_ui_coregistration`,
+  `synb0_status=ok`, `eddy_status=ok`, `PhaseEncodingVector=0 1 0`, required
+  corrected DWI/bval/bvec/b0 outputs, UI pseudo-B0 NIfTI/JSON targets, and
+  JSON flags `FakeCoregisterVolume=true`, `ExcludeFromNormalization=true`, and
+  `IntendedUse=coregistration_qc_only`.
 
 ## Goal
 
@@ -295,6 +304,42 @@ The expected pseudo-B0 target prepared for later manual UI coregistration is:
 ```text
 derivatives/leaddbs/sub-<ID>/coregistration/anat/sub-<ID>_ses-preop_space-anchorNative_desc-preproc_B0.nii
 ```
+
+## Final Processing Record
+
+Status sources:
+
+```text
+/Volumes/VAL/meige/derivatives/leaddbs/import_logs/dwi_registration_synb0_fakeb0_status_pilot_20260706_142338.csv
+/Volumes/VAL/meige/derivatives/leaddbs/import_logs/dwi_synb0_fakeb0_subject_status_20260706_142338/
+```
+
+Final merged records:
+
+```text
+/Volumes/VAL/meige/derivatives/leaddbs/import_logs/dwi_registration_synb0_fakeb0_status_final_20260706_213641.csv
+/Volumes/VAL/meige/derivatives/leaddbs/import_logs/dwi_registration_synb0_fakeb0_verification_final_20260706_213641.json
+```
+
+Verified final counts:
+
+```text
+subjects = 22
+status = pending_ui_coregistration: 22
+synb0_status = ok: 22
+eddy_status = ok: 22
+phase_encoding_vector = 0 1 0: 22
+total_readout_time_source = json: 18, default: 4
+low_resolution_warning = false: 12, true: 10
+all_required_outputs_ok = true
+```
+
+Subjects using the default readout fallback are the Philips group:
+`Dys022`, `Meige008`, `Meige009`, and `Meige021`.
+
+Lead-DBS UI B0-to-anchorNative coregistration and approve/reject QC remain
+manual user follow-up steps. The automated goal only prepares the UI target
+files and metadata.
 
 ## Risks
 
