@@ -116,7 +116,7 @@ normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH,
 final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; all normative-fiber rows have density+label outputs ready
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs+fdr_enrichment_cache blockers
+completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs+fdr_cache+enrichment_cache blockers
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -910,6 +910,20 @@ registered `STN-connected regions`, `SNr-connected regions`, and
 resolver, final branch, permutation/bootstrap status, or NetFiberScore. It is
 not equivalent to FDR correction or enrichment against the plain
 touched-streamline background; those remain separate figure-grade layers.
+
+Final reporting must preserve both the legacy combined fiber display-readiness
+field and separate component fields:
+
+```text
+fiber_basic_density_cache_status
+fiber_label_cache_status
+fiber_fdr_cache_status
+fiber_enrichment_cache_status
+```
+
+Completion audit must keep FDR and enrichment blockers separate. A branch with
+density and labels but no FDR or enrichment cache is blocked by both
+`fdr_cache` and `enrichment_cache`, not by an ambiguous branch-selection status.
 
 If any upstream model or resolver patch lands before this work starts, rerun the
 affected observed/status branches first and treat previous downstream-ready flags

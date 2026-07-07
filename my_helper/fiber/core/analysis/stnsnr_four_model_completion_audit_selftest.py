@@ -23,7 +23,11 @@ def assert_true(value: bool, message: str) -> None:
 
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = list(rows[0].keys())
+    fieldnames = []
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -126,6 +130,10 @@ def test_completion_audit_classifies_finished_observed_and_blocked_rows() -> Non
                 {
                     "model_id": "D_DTOR",
                     "fiber_density_label_cache_status": "ready_from_existing_density_label_cache_missing_fdr_enrichment",
+                    "fiber_basic_density_cache_status": "ready_from_existing_basic_density_cache",
+                    "fiber_label_cache_status": "ready_from_existing_label_cache",
+                    "fiber_fdr_cache_status": "not_run_missing_fdr_cache",
+                    "fiber_enrichment_cache_status": "not_run_missing_enrichment_cache",
                 },
             ],
         )
@@ -163,9 +171,11 @@ def test_completion_audit_classifies_finished_observed_and_blocked_rows() -> Non
         assert_true("jitter_inputs" in by_id["B_DTOR"]["blocker_categories"], "jitter blocker should be recorded")
         assert_true("density_label_cache" in by_id["B_DTOR"]["blocker_categories"], "density blocker should be recorded")
         assert_equal(by_id["D_DTOR"]["completion_status"], "blocked_missing_fiber_inputs", "label-only fiber target status")
+        assert_true("fdr_cache" in by_id["D_DTOR"]["blocker_categories"], "FDR blocker should be recorded")
+        assert_true("enrichment_cache" in by_id["D_DTOR"]["blocker_categories"], "enrichment blocker should be recorded")
         assert_true(
-            "fdr_enrichment_cache" in by_id["D_DTOR"]["blocker_categories"],
-            "FDR/enrichment blocker should be recorded",
+            "fdr_enrichment_cache" not in by_id["D_DTOR"]["blocker_categories"],
+            "combined FDR/enrichment blocker should not hide component status",
         )
         assert_equal(by_id["B_DTOR"]["schema_status"], "schema_missing_recommended_fields", "schema audit join")
 

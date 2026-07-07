@@ -85,7 +85,7 @@ all-endpoint reporting: 79 rows; A all-endpoint source-resolver rows = 30; disco
 all-endpoint manifest audit: 73 rows missing_git_or_patch_provenance / missing_code_provenance; 6 rows have provenance from a different commit
 all-endpoint reporting manifest records manifest_provenance_counts and manifest_stale_counts
 manifest schema audit: 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs+fdr_enrichment_cache blockers
+completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs+fdr_cache+enrichment_cache blockers
 fiber connected-region label caches: complete for B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR
 full fiber FDR/enrichment figure-grade outputs: not run
 ```
@@ -192,7 +192,7 @@ This layer does not fit models, rerun resampling, or fabricate unavailable
 fiber density/FDR/enrichment outputs. It records `ready_from_existing_maps` for
 A/C direct-voxel display sources and `ready_for_density_label_outputs` for
 normative-fiber rows with density plus connected-region label caches. It also
-preserves missing FDR/enrichment status, fiber OSS/jitter missing-input details,
+preserves missing FDR and enrichment component status, fiber OSS/jitter missing-input details,
 and the manifest audit pair from the consolidated status input.
 
 The all-endpoint reporting layer consumes the existing A all-scale
@@ -250,6 +250,12 @@ regions`, and `STNSNr-connected regions` ROI manifests. This is a QC/display
 summary only. It upgrades figure readiness to `ready_for_density_label_outputs`,
 but it must not be reported as full FDR/enrichment readiness until both
 separate FDR and enrichment caches exist.
+
+Final reporting keeps the historical combined
+`fiber_density_label_cache_status` field for downstream compatibility, but it
+also records separate component statuses for basic density, connected-region
+labels, FDR, and enrichment. Completion audit uses those component statuses to
+record distinct `fdr_cache` and `enrichment_cache` blockers.
 
 The manifest schema audit layer consumes consolidated status, final reporting,
 and all-endpoint reporting tables. It deduplicates referenced manifest paths,

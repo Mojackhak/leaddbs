@@ -321,6 +321,26 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
             "B fiber cache status",
         )
         assert_equal(
+            readiness_by_id["B_DTOR"]["fiber_basic_density_cache_status"],
+            "ready_from_existing_basic_density_cache",
+            "B density component status",
+        )
+        assert_equal(
+            readiness_by_id["B_DTOR"]["fiber_label_cache_status"],
+            "ready_from_existing_label_cache",
+            "B label component status",
+        )
+        assert_equal(
+            readiness_by_id["B_DTOR"]["fiber_fdr_cache_status"],
+            "ready_from_existing_fdr_cache",
+            "B FDR component status",
+        )
+        assert_equal(
+            readiness_by_id["B_DTOR"]["fiber_enrichment_cache_status"],
+            "not_run_missing_enrichment_cache",
+            "B enrichment component status",
+        )
+        assert_equal(
             report_by_id["B_DTOR"]["figure_output_status"],
             "ready_for_density_label_outputs",
             "B figure output status",
@@ -344,6 +364,16 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
             readiness_by_id["D_DTOR"]["fiber_density_label_cache_status"],
             "not_run_missing_density_label_cache",
             "D fiber cache status",
+        )
+        assert_equal(
+            readiness_by_id["D_DTOR"]["fiber_basic_density_cache_status"],
+            "not_run_missing_basic_density_cache",
+            "D density component status",
+        )
+        assert_equal(
+            readiness_by_id["D_DTOR"]["fiber_fdr_cache_status"],
+            "not_run_missing_fdr_cache",
+            "D FDR component status",
         )
         assert_equal(
             report_by_id["D_DTOR"]["figure_output_status"],

@@ -164,21 +164,45 @@ def fiber_density_readiness(manifest_path: str, density_cache_roots: list[Path])
         return {
             "fiber_density_label_cache_status": "not_applicable_not_normative_fiber",
             "fiber_density_label_cache_paths": "",
+            "fiber_basic_density_cache_status": "not_applicable_not_normative_fiber",
+            "fiber_basic_density_cache_paths": "",
+            "fiber_label_cache_status": "not_applicable_not_normative_fiber",
+            "fiber_label_cache_paths": "",
+            "fiber_fdr_cache_status": "not_applicable_not_normative_fiber",
+            "fiber_fdr_cache_paths": "",
+            "fiber_enrichment_cache_status": "not_applicable_not_normative_fiber",
+            "fiber_enrichment_cache_paths": "",
         }
     density_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_BASIC_DENSITY_CACHE_PATTERNS)
     label_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_LABEL_CACHE_PATTERNS)
     fdr_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_FDR_CACHE_PATTERNS)
     enrichment_caches = find_cache_paths(manifest_path, density_cache_roots, FIBER_ENRICHMENT_CACHE_PATTERNS)
     all_caches = sorted(set(density_caches + label_caches + fdr_caches + enrichment_caches))
+    component_status = {
+        "fiber_basic_density_cache_status": (
+            "ready_from_existing_basic_density_cache" if density_caches else "not_run_missing_basic_density_cache"
+        ),
+        "fiber_basic_density_cache_paths": ";".join(str(path) for path in density_caches),
+        "fiber_label_cache_status": "ready_from_existing_label_cache" if label_caches else "not_run_missing_label_cache",
+        "fiber_label_cache_paths": ";".join(str(path) for path in label_caches),
+        "fiber_fdr_cache_status": "ready_from_existing_fdr_cache" if fdr_caches else "not_run_missing_fdr_cache",
+        "fiber_fdr_cache_paths": ";".join(str(path) for path in fdr_caches),
+        "fiber_enrichment_cache_status": (
+            "ready_from_existing_enrichment_cache" if enrichment_caches else "not_run_missing_enrichment_cache"
+        ),
+        "fiber_enrichment_cache_paths": ";".join(str(path) for path in enrichment_caches),
+    }
     if not all_caches:
         return {
             "fiber_density_label_cache_status": "not_run_missing_density_label_cache",
             "fiber_density_label_cache_paths": "",
+            **component_status,
         }
     if density_caches and not label_caches:
         return {
             "fiber_density_label_cache_status": "ready_from_existing_basic_density_cache",
             "fiber_density_label_cache_paths": ";".join(str(path) for path in density_caches),
+            **component_status,
         }
     if density_caches and label_caches and (not fdr_caches or not enrichment_caches):
         return {
@@ -186,10 +210,12 @@ def fiber_density_readiness(manifest_path: str, density_cache_roots: list[Path])
             "fiber_density_label_cache_paths": ";".join(
                 str(path) for path in sorted(set(density_caches + label_caches + fdr_caches + enrichment_caches))
             ),
+            **component_status,
         }
     return {
         "fiber_density_label_cache_status": "ready_from_existing_density_label_fdr_enrichment_cache",
         "fiber_density_label_cache_paths": ";".join(str(path) for path in all_caches),
+        **component_status,
     }
 
 
@@ -413,6 +439,14 @@ def build_final_reporting(
         "direct_voxel_missing_display_maps",
         "fiber_density_label_cache_status",
         "fiber_density_label_cache_paths",
+        "fiber_basic_density_cache_status",
+        "fiber_basic_density_cache_paths",
+        "fiber_label_cache_status",
+        "fiber_label_cache_paths",
+        "fiber_fdr_cache_status",
+        "fiber_fdr_cache_paths",
+        "fiber_enrichment_cache_status",
+        "fiber_enrichment_cache_paths",
         "oss_sensitivity_status",
         "oss_missing_inputs",
         "fiber_jitter_qc_status",
