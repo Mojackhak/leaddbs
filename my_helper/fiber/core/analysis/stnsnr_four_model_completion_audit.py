@@ -73,6 +73,14 @@ def classify_completion(
     figure_density_status = figure_row.get("fiber_density_label_cache_status", "") if figure_row else ""
     if figure_status == "not_run_missing_density_label_cache" or figure_density_status == "not_run_missing_density_label_cache":
         add_blocker(blockers, details, "density_label_cache", figure_density_status or figure_status)
+    if (
+        formal_target == "READY_FOR_FORMAL_RESAMPLING"
+        and (
+            figure_status == "ready_for_density_label_outputs"
+            or figure_density_status == "ready_from_existing_density_label_cache_missing_fdr_enrichment"
+        )
+    ):
+        add_blocker(blockers, details, "fdr_enrichment_cache", figure_density_status or figure_status)
 
     if formal_target == "OBSERVED_ROBUSTNESS_NO_FORMAL_RESAMPLING":
         return {
@@ -83,7 +91,7 @@ def classify_completion(
         }
 
     if blockers:
-        if any(category in blockers for category in ["oss_inputs", "jitter_inputs", "density_label_cache"]):
+        if any(category in blockers for category in ["oss_inputs", "jitter_inputs", "density_label_cache", "fdr_enrichment_cache"]):
             completion_status = "blocked_missing_fiber_inputs"
         else:
             completion_status = "blocked_missing_required_inputs"

@@ -65,6 +65,7 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
             [
                 "normative_HF_fiber_generation_manifest.json",
                 "normative_HF_streamline_voxel_density_cache.npz",
+                "normative_HF_fiber_label_cache.csv",
             ],
         )
         touch_many(
@@ -315,12 +316,12 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
         assert_equal(readiness_by_id["C"]["direct_voxel_display_status"], "ready_from_existing_maps", "C display status")
         assert_equal(
             readiness_by_id["B_DTOR"]["fiber_density_label_cache_status"],
-            "ready_from_existing_basic_density_cache",
+            "ready_from_existing_density_label_cache_missing_fdr_enrichment",
             "B fiber cache status",
         )
         assert_equal(
             report_by_id["B_DTOR"]["figure_output_status"],
-            "ready_for_basic_fiber_density_outputs",
+            "ready_for_density_label_outputs",
             "B figure output status",
         )
         assert_equal(

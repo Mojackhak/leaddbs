@@ -2,14 +2,15 @@
 
 This note records executable implementation layers for `four_model_execution_plan.md`.
 
-The full four-model program is intentionally gated. The current codebase now includes readiness, observed A/B/C/D branches, C/D source resolvers, consolidated status reporting, final-model worklist/readiness auditing, formal permutation/bootstrap/jitter layers for available final targets, final reporting/readiness summaries, and shared resolver utilities. Full fiber label/FDR/enrichment display outputs remain deferred until the required label and enrichment caches exist.
+The full four-model program is intentionally gated. The current codebase now includes readiness, observed A/B/C/D branches, C/D source resolvers, consolidated status reporting, final-model worklist/readiness auditing, formal permutation/bootstrap/jitter layers for available final targets, final reporting/readiness summaries, and shared resolver utilities. Full fiber FDR/enrichment display outputs remain deferred until the required FDR and enrichment caches exist.
 
 ## Pause Checkpoint
 
-2026-07-07 density-cache update: the basic normative-fiber density cache now
-defaults to all `analysis_family = normative_fiber` rows in the final report.
-The density-cache, final reporting, schema audit, and completion audit outputs
-have been regenerated from this all-row behavior.
+2026-07-07 density/label-cache update: the normative-fiber density and
+connected-region label caches now default to all `analysis_family =
+normative_fiber` rows in the final report. The density/label-cache, final
+reporting, schema audit, and completion audit outputs have been regenerated
+from this all-row behavior.
 
 Execution has resumed through the 2026-07-07 status, formal-target, and
 formal-readiness refresh. The latest observed branches and status files were
@@ -60,8 +61,8 @@ dTOR normative-fiber smoke permutation: B_DTOR and D_DTOR complete at B=1000, se
 dTOR normative-fiber formal permutation: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber OSS/jitter sensitivity readiness: not_run_missing_inputs
-normative-fiber basic density cache: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete; atlas labels, FDR, enrichment, OSS, and fiber jitter remain not run
-final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; all normative-fiber rows have basic fiber density outputs ready
+normative-fiber basic density and connected-region label caches: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete; FDR, enrichment, OSS, and fiber jitter remain not run
+final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; all normative-fiber rows have density+label outputs ready
 C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
 C same-day immediate endpoint-family observed outputs: complete for 2 endpoint rows; resampling_status = not_run_observed_only
 D same-day immediate endpoint-family observed outputs: complete for 4 endpoint/connectome rows; resampling_status = not_run_observed_only
@@ -70,8 +71,9 @@ all-endpoint reporting: 79 rows; A all-endpoint source-resolver rows = 30; disco
 all-endpoint manifest audit: 73 rows missing_git_or_patch_provenance / missing_code_provenance; 6 rows have provenance from a different commit
 all-endpoint reporting manifest records manifest_provenance_counts and manifest_stale_counts
 manifest schema audit: 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
-full fiber label/FDR/enrichment figure-grade outputs: not run
+completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs+fdr_enrichment_cache blockers
+fiber connected-region label caches: complete for B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR
+full fiber FDR/enrichment figure-grade outputs: not run
 ```
 
 Current direct-voxel formal permutation results:
@@ -102,10 +104,10 @@ D_DTOR ULF normative fiber no_delta_hf final model:
   B = 1000
 ```
 
-No additional full fiber density/FDR/enrichment drivers should be started until
-the required density and label caches are created or supplied. OSS-DBS
-activation and fiber jitter sensitivity should remain explicit missing-input
-statuses until their required sidecars exist.
+No additional full fiber FDR/enrichment drivers should be interpreted as
+complete until the required FDR and enrichment caches are created or supplied.
+OSS-DBS activation and fiber jitter sensitivity should remain explicit
+missing-input statuses until their required sidecars exist.
 
 The dTOR normative-fiber sensitivity-readiness summary records `oss_missing_inputs`,
 `jitter_missing_inputs`, and `jitter_input_search_roots`. Final reporting and
@@ -174,10 +176,10 @@ CSV. It writes:
 
 This layer does not fit models, rerun resampling, or fabricate unavailable
 fiber density/FDR/enrichment outputs. It records `ready_from_existing_maps` for
-A/C direct-voxel display sources and `not_run_missing_density_label_cache` for
-fiber figure-output readiness when the required caches are absent. It also
-preserves fiber OSS/jitter missing-input details and the manifest audit pair
-from the consolidated status input.
+A/C direct-voxel display sources and `ready_for_density_label_outputs` for
+normative-fiber rows with density plus connected-region label caches. It also
+preserves missing FDR/enrichment status, fiber OSS/jitter missing-input details,
+and the manifest audit pair from the consolidated status input.
 
 The all-endpoint reporting layer consumes the existing A all-scale
 source-resolver scan, observed branch summary, final report, and discovered
@@ -215,18 +217,25 @@ select branches, or generate missing OSS/jitter/density inputs. Its purpose is
 to summarize what is complete, what is blocked by absent inputs, and what is
 observed-only or provenance-incomplete at the current execution checkpoint.
 
-The normative-fiber basic density-cache layer consumes the final report,
+The normative-fiber density/label cache layer consumes the final report,
 normative-fiber branch manifests, connectome
 `data.mat` streamline coordinates, and the existing final-model fiber weights.
 It writes branch-local streamline voxel density and weighted-density NIfTI maps
-plus a compact cache `.npz` and a manifest. This layer does not run OSS-DBS,
-does not perform spatial jitter, and does not compute atlas labels, FDR maps, or
-endpoint enrichment. It is a display-cache construction step only; enrichment
-and OSS/jitter sensitivity remain separate requirements.
+plus a compact cache `.npz`, connected-region label-overlap CSV/manifest, and
+a density-cache manifest. This layer does not run OSS-DBS, does not perform
+spatial jitter, and does not compute FDR maps or endpoint enrichment. It is a
+display-cache construction step only; enrichment and OSS/jitter sensitivity
+remain separate requirements.
 The final reporting layer therefore records this output as
-`ready_from_existing_basic_density_cache` and
-`ready_for_basic_fiber_density_outputs`, not as full label/FDR/enrichment
-readiness.
+`ready_from_existing_density_label_cache_missing_fdr_enrichment` and
+`ready_for_density_label_outputs`, not as full FDR/enrichment readiness.
+
+The connected-region label cache summarizes overlap between each normative-fiber
+density cache and the registered `STN-connected regions`, `SNr-connected
+regions`, and `STNSNr-connected regions` ROI manifests. This is a QC/display
+summary only. It upgrades figure readiness to `ready_for_density_label_outputs`,
+but it must not be reported as full FDR/enrichment readiness until separate FDR
+and enrichment caches exist.
 
 The manifest schema audit layer consumes consolidated status, final reporting,
 and all-endpoint reporting tables. It deduplicates referenced manifest paths,

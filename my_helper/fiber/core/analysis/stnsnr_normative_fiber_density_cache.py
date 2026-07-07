@@ -22,6 +22,7 @@ SUMMARY_FIELDS = [
     "model_id",
     "branch_dir",
     "density_cache_status",
+    "label_cache_status",
     "n_selected_fibers",
     "n_density_voxels_nonzero",
     "density_map",
@@ -29,7 +30,30 @@ SUMMARY_FIELDS = [
     "positive_weighted_density_map",
     "negative_weighted_density_map",
     "density_cache_npz",
+    "label_cache_csv",
+    "label_cache_manifest_json",
     "manifest_json",
+]
+LABEL_CACHE_FIELDS = [
+    "atlas_name",
+    "roi_name",
+    "side",
+    "role",
+    "category",
+    "mask_path",
+    "n_label_voxels",
+    "n_overlap_voxels",
+    "support_voxel_fraction",
+    "label_coverage_fraction",
+    "density_sum_in_label",
+    "weighted_density_sum_in_label",
+    "positive_weighted_density_sum_in_label",
+    "negative_weighted_density_sum_in_label",
+]
+CONNECTED_REGION_ATLAS_NAMES = [
+    "STN-connected regions",
+    "SNr-connected regions",
+    "STNSNr-connected regions",
 ]
 
 
@@ -90,6 +114,113 @@ def save_float_image(path: Path, flat: np.ndarray, template: nib.Nifti1Image) ->
     nib.save(image, str(path))
 
 
+def default_connected_region_label_atlas_dirs(asset_root: Path) -> list[Path]:
+    atlas_root = Path(asset_root) / "templates/space/MNI152NLin2009bAsym/atlases"
+    return [atlas_root / name for name in CONNECTED_REGION_ATLAS_NAMES]
+
+
+def _resolve_roi_mask_path(atlas_dir: Path, row: dict[str, str]) -> Path:
+    output_file = str(row.get("output_file", "") or "")
+    if output_file:
+        path = Path(output_file)
+        if path.is_file():
+            return path
+        fallback = atlas_dir / path.name
+        if fallback.is_file():
+            return fallback
+    side = str(row.get("side", "") or "").lower()
+    roi_name = str(row.get("roi_name", "") or "")
+    side_dir = {"l": "lh", "left": "lh", "r": "rh", "right": "rh"}.get(side, side)
+    for suffix in (".nii.gz", ".nii"):
+        fallback = atlas_dir / side_dir / f"{roi_name}{suffix}"
+        if fallback.is_file():
+            return fallback
+    return Path(output_file)
+
+
+def build_connected_region_label_cache(
+    *,
+    branch_dir: Path,
+    output_prefix: str,
+    template: nib.Nifti1Image,
+    nonzero_flat: np.ndarray,
+    density: np.ndarray,
+    weighted: np.ndarray,
+    positive: np.ndarray,
+    negative: np.ndarray,
+    label_atlas_dirs: list[Path],
+) -> dict[str, str]:
+    label_rows: list[dict[str, Any]] = []
+    n_support = int(nonzero_flat.size)
+    shape = tuple(int(item) for item in template.shape[:3])
+    for atlas_dir in [Path(item) for item in label_atlas_dirs]:
+        manifest_csv = atlas_dir / "roi_manifest.csv"
+        if not manifest_csv.is_file():
+            continue
+        for roi_row in read_csv(manifest_csv):
+            mask_path = _resolve_roi_mask_path(atlas_dir, roi_row)
+            if not mask_path.is_file():
+                continue
+            mask_img = nib.load(str(mask_path))
+            if tuple(int(item) for item in mask_img.shape[:3]) != shape:
+                continue
+            mask_flat = np.asarray(mask_img.dataobj).reshape(-1) > 0
+            n_label_voxels = int(np.count_nonzero(mask_flat))
+            if n_label_voxels == 0:
+                overlap = np.zeros(nonzero_flat.shape, dtype=bool)
+            else:
+                overlap = mask_flat[nonzero_flat]
+            n_overlap = int(np.count_nonzero(overlap))
+            overlap_indices = nonzero_flat[overlap]
+            density_sum = float(np.sum(density[overlap_indices])) if n_overlap else 0.0
+            weighted_sum = float(np.sum(weighted[overlap_indices])) if n_overlap else 0.0
+            positive_sum = float(np.sum(positive[overlap_indices])) if n_overlap else 0.0
+            negative_sum = float(np.sum(negative[overlap_indices])) if n_overlap else 0.0
+            label_rows.append(
+                {
+                    "atlas_name": roi_row.get("atlas_name", atlas_dir.name),
+                    "roi_name": roi_row.get("roi_name", ""),
+                    "side": roi_row.get("side", ""),
+                    "role": roi_row.get("role", ""),
+                    "category": roi_row.get("category", ""),
+                    "mask_path": str(mask_path),
+                    "n_label_voxels": n_label_voxels,
+                    "n_overlap_voxels": n_overlap,
+                    "support_voxel_fraction": float(n_overlap / n_support) if n_support else 0.0,
+                    "label_coverage_fraction": float(n_overlap / n_label_voxels) if n_label_voxels else 0.0,
+                    "density_sum_in_label": density_sum,
+                    "weighted_density_sum_in_label": weighted_sum,
+                    "positive_weighted_density_sum_in_label": positive_sum,
+                    "negative_weighted_density_sum_in_label": negative_sum,
+                }
+            )
+
+    label_cache_csv = Path(branch_dir) / f"{output_prefix}_fiber_label_cache.csv"
+    label_manifest_json = Path(branch_dir) / f"{output_prefix}_fiber_label_cache_manifest.json"
+    write_csv(label_cache_csv, label_rows, LABEL_CACHE_FIELDS)
+    write_json(
+        label_manifest_json,
+        {
+            "generated_at": iso_now(),
+            "label_cache_status": "complete_connected_region_label_cache",
+            "scope": "connected_region_density_overlap_labels_only",
+            "does_not_compute": ["fdr", "endpoint_enrichment", "plain_touched_streamline_background"],
+            "label_atlas_dirs": [str(Path(item)) for item in label_atlas_dirs],
+            "n_rows": len(label_rows),
+            "outputs": {
+                "label_cache_csv": str(label_cache_csv),
+                "label_cache_manifest_json": str(label_manifest_json),
+            },
+        },
+        add_code_provenance=True,
+    )
+    return {
+        "label_cache_status": "complete_connected_region_label_cache",
+        "label_cache_csv": str(label_cache_csv),
+        "label_cache_manifest_json": str(label_manifest_json),
+    }
+
+
 def build_density_cache_for_branch(
     *,
     model_id: str,
@@ -98,6 +229,7 @@ def build_density_cache_for_branch(
     data_mat: Path,
     template_path: Path,
     output_prefix: str,
+    label_atlas_dirs: list[Path] | None = None,
 ) -> dict[str, str]:
     branch_dir = Path(branch_dir)
     weights = load_fiber_weights(Path(weights_csv))
@@ -152,18 +284,38 @@ def build_density_cache_for_branch(
         negative_weighted_density=negative[nonzero_flat].astype(np.float32),
         selected_fiber_ids=np.asarray(selected_fiber_ids, dtype=np.int64),
     )
+    label_outputs = {
+        "label_cache_status": "not_run_no_label_atlas_dirs",
+        "label_cache_csv": "",
+        "label_cache_manifest_json": "",
+    }
+    existing_label_dirs = [Path(item) for item in (label_atlas_dirs or []) if Path(item).is_dir()]
+    if existing_label_dirs:
+        label_outputs = build_connected_region_label_cache(
+            branch_dir=branch_dir,
+            output_prefix=output_prefix,
+            template=template,
+            nonzero_flat=nonzero_flat,
+            density=density,
+            weighted=weighted,
+            positive=positive,
+            negative=negative,
+            label_atlas_dirs=existing_label_dirs,
+        )
     write_json(
         manifest_json,
         {
             "generated_at": iso_now(),
             "model_id": model_id,
             "density_cache_status": "complete_basic_density_cache",
-            "scope": "basic_streamline_voxel_density_only",
-            "does_not_compute": ["oss_dbs", "spatial_jitter", "atlas_labels", "fdr", "endpoint_enrichment"],
+            "label_cache_status": label_outputs["label_cache_status"],
+            "scope": "basic_streamline_voxel_density_with_optional_connected_region_label_cache",
+            "does_not_compute": ["oss_dbs", "spatial_jitter", "fdr", "endpoint_enrichment"],
             "inputs": {
                 "weights_csv": str(weights_csv),
                 "data_mat": str(data_mat),
                 "template_path": str(template_path),
+                "label_atlas_dirs": [str(item) for item in existing_label_dirs],
             },
             "n_selected_fibers": len(selected_fiber_ids),
             "n_density_voxels_nonzero": int(nonzero_flat.size),
@@ -173,6 +325,8 @@ def build_density_cache_for_branch(
                 "positive_weighted_density_map": str(positive_weighted_density_map),
                 "negative_weighted_density_map": str(negative_weighted_density_map),
                 "density_cache_npz": str(density_cache_npz),
+                "label_cache_csv": label_outputs["label_cache_csv"],
+                "label_cache_manifest_json": label_outputs["label_cache_manifest_json"],
                 "manifest_json": str(manifest_json),
             },
         },
@@ -187,6 +341,7 @@ def build_density_cache_for_branch(
         "manifest_json": str(manifest_json),
         "n_selected_fibers": str(len(selected_fiber_ids)),
         "n_density_voxels_nonzero": str(int(nonzero_flat.size)),
+        **label_outputs,
     }
 
 
@@ -212,11 +367,15 @@ def build_density_cache_from_final_report(
     asset_root: Path,
     output_dir: Path,
     model_ids: set[str] | None = None,
+    label_atlas_dirs: list[Path] | None = None,
 ) -> dict[str, str]:
     final_rows = read_csv(Path(final_report_csv))
     if not final_rows:
         raise RuntimeError(f"no final report rows found in {final_report_csv}")
     template_path = Path(asset_root) / "templates/space/MNI152NLin2009bAsym/brainmask.nii.gz"
+    atlas_dirs = label_atlas_dirs
+    if atlas_dirs is None:
+        atlas_dirs = default_connected_region_label_atlas_dirs(Path(asset_root))
     summary_rows: list[dict[str, Any]] = []
     for row in final_rows:
         model_id = row.get("model_id", "")
@@ -235,12 +394,14 @@ def build_density_cache_from_final_report(
             data_mat=data_mat,
             template_path=template_path,
             output_prefix=output_prefix,
+            label_atlas_dirs=atlas_dirs,
         )
         summary_rows.append(
             {
                 "model_id": model_id,
                 "branch_dir": str(branch_dir),
                 "density_cache_status": "complete_basic_density_cache",
+                "label_cache_status": outputs["label_cache_status"],
                 **outputs,
             }
         )
@@ -255,9 +416,11 @@ def build_density_cache_from_final_report(
             "inputs": {
                 "final_report_csv": str(final_report_csv),
                 "asset_root": str(asset_root),
+                "label_atlas_dirs": [str(Path(item)) for item in atlas_dirs],
             },
             "n_rows": len(summary_rows),
             "density_cache_status_counts": count_by(summary_rows, "density_cache_status"),
+            "label_cache_status_counts": count_by(summary_rows, "label_cache_status"),
             "outputs": {
                 "summary_csv": str(summary_csv),
                 "manifest_json": str(manifest_json),
@@ -269,11 +432,13 @@ def build_density_cache_from_final_report(
 
 
 def run_density_cache(args: argparse.Namespace) -> int:
+    label_atlas_dirs = [Path(item).expanduser().resolve() for item in args.label_atlas_dir] if args.label_atlas_dir else None
     outputs = build_density_cache_from_final_report(
         final_report_csv=Path(args.final_report_csv).expanduser().resolve(),
         asset_root=Path(args.asset_root).expanduser().resolve(),
         output_dir=Path(args.output_dir).expanduser().resolve(),
         model_ids=set(args.model_id) if args.model_id else None,
+        label_atlas_dirs=label_atlas_dirs,
     )
     print(f"Normative-fiber density cache summary: {outputs['summary_csv']}")
     return 0
@@ -301,6 +466,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="Optional normative-fiber model ID to process. May be passed multiple times. Defaults to all normative-fiber rows.",
+    )
+    parser.add_argument(
+        "--label-atlas-dir",
+        action="append",
+        default=[],
+        help="Optional connected-region atlas directory for density-label overlap caches. May be passed multiple times.",
     )
     return parser
 

@@ -94,11 +94,11 @@ dTOR normative-fiber smoke permutation = B_DTOR and D_DTOR complete at B=1000, s
 dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR fiber jitter/OSS = not_run_missing_inputs
-normative-fiber basic density cache = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete; atlas labels, FDR, enrichment, OSS, and fiber jitter remain not run
-final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; all normative-fiber rows have basic fiber density outputs ready
+normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete; FDR, enrichment, OSS, and fiber jitter remain not run
+final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; all normative-fiber rows have density+label outputs ready
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
+completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs+fdr_enrichment_cache blockers
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -160,7 +160,7 @@ four_model_final_report.csv rows = 7
 four_model_figure_output_readiness.csv rows = 7
 A direct voxel: figure_output_status = ready_from_existing_direct_voxel_maps
 C ULF direct voxel no_delta_hf: figure_output_status = ready_from_existing_direct_voxel_maps
-B/D normative fiber rows: figure_output_status = not_run_missing_density_label_cache
+B/D normative fiber rows: figure_output_status = ready_for_density_label_outputs
 manifest cohort_n = 16; interpretation = hypothesis_generating
 ```
 
@@ -523,10 +523,10 @@ The current codebase is no longer greenfield. The following layers already exist
 ### Not Yet Implemented
 
 ```text
-D OSS and full fiber figure-grade label/FDR/enrichment outputs, pending required caches
+D OSS and full fiber figure-grade FDR/enrichment outputs, pending required caches
 remaining shared score, deeper stale-output, and broader cross-family manifest-schema architecture across voxel, fiber, HF, and ULF models
 fiber OSS-DBS activation branch execution, pending required inputs
-fiber label/FDR/enrichment cache construction
+fiber FDR/enrichment cache construction
 nested/adaptive threshold-source validation
 max-stat permutation for threshold-source selection
 OLS ANCOVA optional estimator
@@ -833,8 +833,9 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    upstream resolver, status, formal summary, or sensitivity-readiness output
    changes. This package is the executable Round 8/9/10 boundary for the
    current output state: it summarizes final models, formal inference,
-   direct-voxel display-source availability, and missing fiber density/label
-   caches without fabricating unavailable figure-grade fiber maps.
+   direct-voxel display-source availability, fiber density/label cache
+   availability, and unavailable FDR/enrichment caches without fabricating
+   figure-grade FDR/enrichment outputs.
 4. Regenerate the all-endpoint reporting and missing-work audit package after
    any upstream endpoint, branch-manifest, final-report, or sensitivity output
    changes. This package consumes the
@@ -869,8 +870,28 @@ final model branch:
 
 ```text
 HF/ULF normative fiber OSS-DBS activation sensitivity when inputs exist
-full fiber label/FDR/enrichment/display outputs when label caches exist
+full fiber FDR/enrichment/display outputs when FDR/enrichment caches exist
 ```
+
+Fiber display readiness is staged:
+
+```text
+basic density cache only:
+  ready_for_basic_fiber_density_outputs
+
+basic density + connected-region label cache:
+  ready_for_density_label_outputs
+
+basic density + labels + FDR/enrichment caches:
+  ready_for_full_fiber_figure_outputs
+```
+
+The connected-region label cache is a QC/display overlap summary over the
+registered `STN-connected regions`, `SNr-connected regions`, and
+`STNSNr-connected regions` ROI manifests. It does not change the source
+resolver, final branch, permutation/bootstrap status, or NetFiberScore. It is
+not equivalent to FDR correction or enrichment against the plain
+touched-streamline background; those remain separate figure-grade layers.
 
 If any upstream model or resolver patch lands before this work starts, rerun the
 affected observed/status branches first and treat previous downstream-ready flags

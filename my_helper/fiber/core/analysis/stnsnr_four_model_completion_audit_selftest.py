@@ -98,6 +98,23 @@ def test_completion_audit_classifies_finished_observed_and_blocked_rows() -> Non
                     "latest_manifest_provenance_status": "has_git_or_patch_provenance",
                     "latest_manifest_stale_status": "different_commit",
                 },
+                {
+                    "model_id": "D_DTOR",
+                    "model": "ULF normative fiber dTOR",
+                    "analysis_family": "normative_fiber",
+                    "final_model_status": "final_model_error_nonpredictive",
+                    "formal_target_status": "READY_FOR_FORMAL_RESAMPLING",
+                    "formal_readiness_status": "READY_FOR_FORMAL_DRIVER",
+                    "formal_resampling_status": "FORMAL_BOOTSTRAP_COMPLETE",
+                    "figure_output_status": "ready_for_density_label_outputs",
+                    "oss_sensitivity_status": "complete",
+                    "oss_missing_inputs": "",
+                    "fiber_jitter_qc_status": "complete",
+                    "jitter_missing_inputs": "",
+                    "latest_manifest": "/tmp/D_DTOR_manifest.json",
+                    "latest_manifest_provenance_status": "has_git_or_patch_provenance",
+                    "latest_manifest_stale_status": "current_head",
+                },
             ],
         )
         write_csv(
@@ -106,6 +123,10 @@ def test_completion_audit_classifies_finished_observed_and_blocked_rows() -> Non
                 {"model_id": "A", "fiber_density_label_cache_status": "not_applicable_not_normative_fiber"},
                 {"model_id": "B_PPMI", "fiber_density_label_cache_status": "not_run_missing_density_label_cache"},
                 {"model_id": "B_DTOR", "fiber_density_label_cache_status": "not_run_missing_density_label_cache"},
+                {
+                    "model_id": "D_DTOR",
+                    "fiber_density_label_cache_status": "ready_from_existing_density_label_cache_missing_fdr_enrichment",
+                },
             ],
         )
         write_csv(
@@ -120,6 +141,7 @@ def test_completion_audit_classifies_finished_observed_and_blocked_rows() -> Non
             [
                 {"manifest_path": "/tmp/A_manifest.json", "schema_status": "schema_complete"},
                 {"manifest_path": "/tmp/B_DTOR_manifest.json", "schema_status": "schema_missing_recommended_fields"},
+                {"manifest_path": "/tmp/D_DTOR_manifest.json", "schema_status": "schema_complete"},
             ],
         )
 
@@ -140,10 +162,15 @@ def test_completion_audit_classifies_finished_observed_and_blocked_rows() -> Non
         assert_true("oss_inputs" in by_id["B_DTOR"]["blocker_categories"], "OSS blocker should be recorded")
         assert_true("jitter_inputs" in by_id["B_DTOR"]["blocker_categories"], "jitter blocker should be recorded")
         assert_true("density_label_cache" in by_id["B_DTOR"]["blocker_categories"], "density blocker should be recorded")
+        assert_equal(by_id["D_DTOR"]["completion_status"], "blocked_missing_fiber_inputs", "label-only fiber target status")
+        assert_true(
+            "fdr_enrichment_cache" in by_id["D_DTOR"]["blocker_categories"],
+            "FDR/enrichment blocker should be recorded",
+        )
         assert_equal(by_id["B_DTOR"]["schema_status"], "schema_missing_recommended_fields", "schema audit join")
 
         manifest = json.loads(Path(outputs["manifest_json"]).read_text(encoding="utf-8"))
-        assert_equal(manifest["n_rows"], 3, "manifest row count")
+        assert_equal(manifest["n_rows"], 4, "manifest row count")
         assert_equal(manifest["completion_status_counts"]["complete_to_current_spec"], 1, "complete count")
         assert_equal(manifest["all_endpoint_missing_work_counts"]["not_run_missing_observed_outputs"], 1, "missing work count")
 

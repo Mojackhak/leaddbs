@@ -54,6 +54,37 @@ def write_tiny_connectome(path: Path) -> None:
         handle.create_dataset("idx", data=np.array([[2, 1, 2]], dtype=np.float64))
 
 
+def write_tiny_connected_region_atlas(root: Path) -> Path:
+    atlas_dir = root / "atlas" / "STN-connected regions"
+    mask_dir = atlas_dir / "lh"
+    mask_dir.mkdir(parents=True, exist_ok=True)
+    mask = np.zeros((5, 5, 5), dtype=np.uint8)
+    mask[1, 1, 1] = 1
+    mask[1, 2, 1] = 1
+    mask[4, 4, 4] = 1
+    mask_path = mask_dir / "STN.nii.gz"
+    nib.save(nib.Nifti1Image(mask, np.eye(4)), str(mask_path))
+    write_csv(
+        atlas_dir / "roi_manifest.csv",
+        [
+            {
+                "atlas_name": "STN-connected regions",
+                "roi_name": "STN",
+                "side": "L",
+                "role": "seed",
+                "category": "primary",
+                "operation": "threshold",
+                "threshold": "> 0",
+                "source_files": "",
+                "source_labels": "",
+                "output_file": str(mask_path),
+                "notes": "tiny test label",
+            }
+        ],
+    )
+    return atlas_dir
+
+
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = list(rows[0].keys())
@@ -75,6 +106,7 @@ def test_density_cache_writes_voxel_and_weighted_maps() -> None:
         weights_csv = branch_dir / "normative_HF_fiber_weights.csv"
         data_mat = root / "data.mat"
         template_path = root / "brainmask.nii.gz"
+        label_atlas_dir = write_tiny_connected_region_atlas(root)
         write_weights(weights_csv)
         write_tiny_connectome(data_mat)
         template_img = nib.Nifti1Image(np.ones((5, 5, 5), dtype=np.uint8), np.eye(4))
@@ -87,6 +119,7 @@ def test_density_cache_writes_voxel_and_weighted_maps() -> None:
             data_mat=data_mat,
             template_path=template_path,
             output_prefix="normative_HF",
+            label_atlas_dirs=[label_atlas_dir],
         )
 
         density = np.asarray(nib.load(outputs["density_map"]).dataobj)
@@ -105,6 +138,13 @@ def test_density_cache_writes_voxel_and_weighted_maps() -> None:
         manifest = json.loads(Path(outputs["manifest_json"]).read_text(encoding="utf-8"))
         assert_equal(manifest["n_selected_fibers"], 2, "manifest selected fiber count")
         assert_equal(manifest["n_density_voxels_nonzero"], 4, "manifest density voxel count")
+        assert_true(Path(outputs["label_cache_csv"]).is_file(), "label cache csv should exist")
+        label_rows = read_csv(Path(outputs["label_cache_csv"]))
+        assert_equal(len(label_rows), 1, "label cache row count")
+        assert_equal(label_rows[0]["atlas_name"], "STN-connected regions", "label atlas name")
+        assert_equal(label_rows[0]["roi_name"], "STN", "label ROI name")
+        assert_equal(label_rows[0]["n_overlap_voxels"], "2", "label overlap voxel count")
+        assert_equal(label_rows[0]["density_sum_in_label"], "2.0", "label density sum")
 
 
 def test_final_report_default_processes_all_normative_fiber_rows() -> None:
