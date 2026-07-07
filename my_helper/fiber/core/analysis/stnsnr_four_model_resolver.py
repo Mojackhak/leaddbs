@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Callable
 
 
 HF_SOURCE_PRE_SPECIFIED = "pre_specified_accepted"
@@ -97,12 +97,13 @@ def adjacent_passing_count(
     *,
     tau_grid: list[int] | None = None,
     coverage_grid: list[int] | None = None,
+    pass_predicate: Callable[[dict[str, Any]], bool] = hard_computability_passes,
 ) -> int:
     """Count adjacent grid cells that pass hard computability."""
     return sum(
         1
         for row in rows
-        if hard_computability_passes(row)
+        if pass_predicate(row)
         and is_adjacent_cell(row, selected, tau_grid=tau_grid, coverage_grid=coverage_grid)
     )
 
@@ -123,13 +124,14 @@ def _fallback_sort_key(
     primary_coverage: int,
     tau_grid: list[int],
     coverage_grid: list[int],
+    pass_predicate: Callable[[dict[str, Any]], bool],
 ) -> tuple[float, float, float, float, float, float]:
     tau_distance, coverage_distance = _distance_to_primary(row, primary_tau, primary_coverage)
     return (
         tau_distance + coverage_distance,
         tau_distance,
         coverage_distance,
-        -adjacent_passing_count(rows, row, tau_grid=tau_grid, coverage_grid=coverage_grid),
+        -adjacent_passing_count(rows, row, tau_grid=tau_grid, coverage_grid=coverage_grid, pass_predicate=pass_predicate),
         -finite_float(row.get("fold_n_voxels_min")),
         -finite_float(row.get("coverage")),
         -finite_float(row.get("tau")),
@@ -144,6 +146,7 @@ def _source_payload(
     threshold_source: str,
     tau_grid: list[int],
     coverage_grid: list[int],
+    pass_predicate: Callable[[dict[str, Any]], bool],
 ) -> dict[str, Any]:
     if selected is None:
         return {
@@ -162,7 +165,7 @@ def _source_payload(
         "selected_tau": int(finite_float(selected.get("tau"))),
         "selected_coverage": int(finite_float(selected.get("coverage"))),
         "selected_adjacent_passing_grid_cells": adjacent_passing_count(
-            rows, selected, tau_grid=tau_grid, coverage_grid=coverage_grid
+            rows, selected, tau_grid=tau_grid, coverage_grid=coverage_grid, pass_predicate=pass_predicate
         ),
         "source_failure_reasons": "",
     }
@@ -175,14 +178,17 @@ def resolve_hf_source(
     primary_coverage: int,
     tau_grid: list[int] | None = None,
     coverage_grid: list[int] | None = None,
+    pass_predicate: Callable[[dict[str, Any]], bool] = hard_computability_passes,
 ) -> dict[str, Any]:
     """Resolve a foundational HF source from pre-specified and scan grid rows."""
     tau_values = DEFAULT_TAU_GRID if tau_grid is None else tau_grid
     coverage_values = DEFAULT_COVERAGE_GRID if coverage_grid is None else coverage_grid
     primary_rows = [row for row in rows if _row_matches(row, primary_tau, primary_coverage)]
     primary = primary_rows[0] if primary_rows else None
-    if primary is not None and hard_computability_passes(primary):
-        primary_adjacent = adjacent_passing_count(rows, primary, tau_grid=tau_values, coverage_grid=coverage_values)
+    if primary is not None and pass_predicate(primary):
+        primary_adjacent = adjacent_passing_count(
+            rows, primary, tau_grid=tau_values, coverage_grid=coverage_values, pass_predicate=pass_predicate
+        )
         if primary_adjacent >= 2:
             return _source_payload(
                 source_status=HF_SOURCE_PRE_SPECIFIED,
@@ -191,9 +197,10 @@ def resolve_hf_source(
                 threshold_source="pre_specified",
                 tau_grid=tau_values,
                 coverage_grid=coverage_values,
+                pass_predicate=pass_predicate,
             )
 
-    eligible = [row for row in rows if hard_computability_passes(row)]
+    eligible = [row for row in rows if pass_predicate(row)]
     if not eligible:
         return _source_payload(
             source_status=HF_SOURCE_ABSENT,
@@ -202,6 +209,7 @@ def resolve_hf_source(
             threshold_source="none",
             tau_grid=tau_values,
             coverage_grid=coverage_values,
+            pass_predicate=pass_predicate,
         )
     selected = sorted(
         eligible,
@@ -212,6 +220,7 @@ def resolve_hf_source(
             primary_coverage=primary_coverage,
             tau_grid=tau_values,
             coverage_grid=coverage_values,
+            pass_predicate=pass_predicate,
         ),
     )[0]
     return _source_payload(
@@ -221,4 +230,5 @@ def resolve_hf_source(
         threshold_source="scan_fallback",
         tau_grid=tau_values,
         coverage_grid=coverage_values,
+        pass_predicate=pass_predicate,
     )

@@ -360,6 +360,33 @@ def read_a_hf_voxel_resolver_row(val_root: Path) -> dict[str, Any]:
     return {column: table.iloc[0].get(column) for column in table.columns}
 
 
+def read_b_hf_norm_fiber_resolver_row(val_root: Path, connectome_slug: str) -> dict[str, Any]:
+    """Read a B normative-fiber resolver manifest for the chronic total endpoint if available."""
+    manifest_path = (
+        val_root
+        / "summary/normative_connectome_fiber/hf"
+        / connectome_slug
+        / "mds_updrs_iii_score_stn_3_m"
+        / "tau_coverage_source_resolver_scan"
+        / "normative_HF_fiber_tau_coverage_source_resolver_manifest.json"
+    )
+    if not manifest_path.is_file():
+        return {}
+    data = read_json(manifest_path)
+    return {
+        "hf_norm_fiber_source_status": data.get("hf_norm_fiber_source_status", ""),
+        "hf_norm_fiber_prediction_status": data.get("hf_norm_fiber_prediction_status", ""),
+        "hf_norm_fiber_threshold_source": data.get("hf_norm_fiber_threshold_source", ""),
+        "hf_norm_fiber_selected_tau_v_per_m": data.get("hf_norm_fiber_selected_tau_v_per_m", ""),
+        "hf_norm_fiber_selected_coverage": data.get("hf_norm_fiber_selected_coverage", ""),
+        "hf_norm_fiber_selected_adjacent_passing_grid_cells": data.get(
+            "hf_norm_fiber_selected_adjacent_passing_grid_cells", ""
+        ),
+        "hf_norm_fiber_source_failure_reasons": data.get("hf_norm_fiber_source_failure_reasons", ""),
+        "manifest_path": str(manifest_path),
+    }
+
+
 def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
@@ -398,6 +425,11 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
     gate_csv = val_root / "summary/four_model_execution/gate_status/four_model_gate_status.csv"
     gate_rows = read_gate_rows(gate_csv)
     a_resolver_row = read_a_hf_voxel_resolver_row(val_root)
+    b_resolver_rows = {
+        "B_PPMI": read_b_hf_norm_fiber_resolver_row(val_root, "ppmi_85_ewert_2017"),
+        "B_MGH": read_b_hf_norm_fiber_resolver_row(val_root, "mgh_usc_hcp_32_horn_2017"),
+        "B_DTOR": read_b_hf_norm_fiber_resolver_row(val_root, "dtor_985_full_elias_2024"),
+    }
     ulf_root = val_root / "summary/four_model_execution/ulf_component_readiness"
     ulf_run = latest_run_dir(ulf_root)
     ulf_manifest_path = ulf_run / "ulf_component_readiness_manifest.json" if ulf_run else Path("")
@@ -419,6 +451,8 @@ def build_status_rows(val_root: Path) -> tuple[list[dict[str, Any]], dict[str, A
         resolver_row = dict(gate_row)
         if model_id == "A" and a_resolver_row:
             resolver_row.update(a_resolver_row)
+        if model_id in b_resolver_rows and b_resolver_rows[model_id]:
+            resolver_row.update(b_resolver_rows[model_id])
         state = classify_hf_model_state(resolver_row)
         hf_dependency_rows[model_id] = resolver_row
         rows.append(

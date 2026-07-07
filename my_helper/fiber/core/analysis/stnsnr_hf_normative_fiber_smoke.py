@@ -41,6 +41,11 @@ from stnsnr_four_model_stats import (
     regression_metrics,
     suprathreshold_matrix,
 )
+from stnsnr_four_model_resolver import (
+    classify_prediction_status,
+    finite_float,
+    resolve_hf_source,
+)
 from stnsnr_hf_direct_voxel_smoke import (
     collect_side_field_paths,
     filter_hf_stn_rows,
@@ -69,6 +74,11 @@ CONNECTOMES = {
         "path": Path("connectomes/dMRI/dTOR-985 Full (Elias 2024)/data.mat"),
     },
 }
+
+NORM_FIBER_TAU_GRID = [400, 600, 800, 1000, 1200, 1500, 2000]
+NORM_FIBER_COVERAGE_GRID = [5, 6, 7, 8, 10, 12]
+NORM_FIBER_PRIMARY_TAU = 800
+NORM_FIBER_PRIMARY_COVERAGE = 5
 
 
 @dataclass(frozen=True)
@@ -309,6 +319,55 @@ def load_or_build_exposure(
     return np.load(output_npy, mmap_mode="r"), np.load(fiber_ids_npy), sidecar_qc
 
 
+def normative_fiber_min_fold_candidate_threshold(connectome: str) -> int:
+    """Return the model-specified minimum fold candidate fiber count."""
+    return 1000 if connectome == "dtor" else 100
+
+
+def normative_fiber_hard_computability_passes(row: dict[str, Any]) -> bool:
+    """Return whether one normative fiber grid cell passes source computability."""
+    min_fold = normative_fiber_min_fold_candidate_threshold(str(row.get("connectome", "")))
+    return (
+        finite_float(row.get("n_subjects")) >= 12
+        and finite_float(row.get("fold_n_candidate_fibers_min")) >= min_fold
+        and bool(row.get("selected_fiber_pools_computable"))
+        and bool(row.get("netfiberscore_nonconstant_all_folds"))
+        and bool(row.get("y_base_nuisance_design_valid"))
+        and bool(row.get("all_predictions_finite"))
+    )
+
+
+def resolve_normative_fiber_source(rows: list[dict[str, Any]], *, connectome: str) -> dict[str, Any]:
+    """Resolve HF normative fiber source and prediction status from scan rows."""
+    prepared_rows: list[dict[str, Any]] = []
+    for row in rows:
+        out = dict(row)
+        out.setdefault("connectome", connectome)
+        out["n_voxels_full"] = out.get("n_candidate_fibers", 0)
+        out["fold_n_voxels_min"] = out.get("fold_n_candidate_fibers_min", 0)
+        out["hfscore_nonconstant_all_folds"] = out.get("netfiberscore_nonconstant_all_folds", False)
+        prepared_rows.append(out)
+    resolved = resolve_hf_source(
+        prepared_rows,
+        primary_tau=NORM_FIBER_PRIMARY_TAU,
+        primary_coverage=NORM_FIBER_PRIMARY_COVERAGE,
+        tau_grid=NORM_FIBER_TAU_GRID,
+        coverage_grid=NORM_FIBER_COVERAGE_GRID,
+        pass_predicate=normative_fiber_hard_computability_passes,
+    )
+    return {
+        "hf_norm_fiber_source_status": resolved["source_status"],
+        "hf_norm_fiber_prediction_status": resolved["prediction_status"],
+        "hf_norm_fiber_threshold_source": resolved["threshold_source"],
+        "hf_norm_fiber_selected_tau_v_per_m": resolved["selected_tau"],
+        "hf_norm_fiber_selected_coverage": resolved["selected_coverage"],
+        "hf_norm_fiber_selected_adjacent_passing_grid_cells": resolved[
+            "selected_adjacent_passing_grid_cells"
+        ],
+        "hf_norm_fiber_source_failure_reasons": resolved["source_failure_reasons"],
+    }
+
+
 def run_observed_loocv(
     x: np.ndarray,
     fiber_ids: np.ndarray,
@@ -353,16 +412,21 @@ def run_observed_loocv(
     pred = np.full(y_post.shape[0], np.nan, dtype=float)
     pred_base = np.full(y_post.shape[0], np.nan, dtype=float)
     fold_rows: list[dict[str, Any]] = []
+    fold_candidate_counts: list[int] = []
+    net_score_nonconstant_all_folds = True
     for heldout in range(y_post.shape[0]):
         train = np.array([idx for idx in range(y_post.shape[0]) if idx != heldout], dtype=int)
         coverage_fold = coverage - s_tau[heldout].astype(np.int32)
         candidate_fold = candidate_mask_from_coverage(coverage_fold, min_coverage)
         if not np.any(candidate_fold):
             raise RuntimeError(f"empty candidate set for held-out {subject_ids[heldout]}")
+        fold_candidate_counts.append(int(np.count_nonzero(candidate_fold)))
         rho_fold = partial_spearman_matrix(y_post[train], np.asarray(x[train][:, candidate_fold]), y_base[train])
         weights_fold = np.full(x.shape[1], np.nan, dtype=np.float32)
         weights_fold[candidate_fold] = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
         fold_net = fiber_net_score(np.asarray(x), weights_fold, candidate_fold, fiber_ids=fiber_ids)
+        if np.nanstd(fold_net.net_score[train]) == 0:
+            net_score_nonconstant_all_folds = False
         fold_pred, beta = fit_linear_prediction(
             y_post[train],
             fold_net.net_score[train],
@@ -397,11 +461,22 @@ def run_observed_loocv(
         )
 
     metrics = regression_metrics(y_post, pred, pred_base)
+    finite_predictions = bool(np.all(np.isfinite(pred)) and np.all(np.isfinite(pred_base)))
+    y_base_nuisance_valid = bool(np.isfinite(y_base).all() and np.nanstd(y_base) > 0)
+    fold_count_array = np.asarray(fold_candidate_counts, dtype=float)
     qc = {
         "tau_v_per_m": tau,
         "min_coverage": min_coverage,
+        "n_subjects": int(y_post.shape[0]),
         "n_fibers": int(x.shape[1]),
         "n_candidate_fibers": int(np.count_nonzero(candidate)),
+        "fold_n_candidate_fibers_min": int(np.nanmin(fold_count_array)) if fold_count_array.size else 0,
+        "fold_n_candidate_fibers_median": float(np.nanmedian(fold_count_array)) if fold_count_array.size else 0.0,
+        "fold_n_candidate_fibers_max": int(np.nanmax(fold_count_array)) if fold_count_array.size else 0,
+        "selected_fiber_pools_computable": bool(full_net.sweet_fiber_ids.size > 0 and full_net.sour_fiber_ids.size > 0),
+        "netfiberscore_nonconstant_all_folds": net_score_nonconstant_all_folds,
+        "y_base_nuisance_design_valid": y_base_nuisance_valid,
+        "all_predictions_finite": finite_predictions,
         "coverage_min": int(np.min(coverage)) if coverage.size else 0,
         "coverage_max": int(np.max(coverage)) if coverage.size else 0,
         "coverage_mean": float(np.mean(coverage)) if coverage.size else 0.0,
@@ -411,6 +486,252 @@ def run_observed_loocv(
         "resampling_status": "not_run_smoke_observed_only",
     }
     return score_rows, fold_rows, qc, coverage, rho, weights
+
+
+def _normative_scan_empty_row(
+    *,
+    connectome: str,
+    tau: int,
+    coverage: int,
+    n_subjects: int,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "connectome": connectome,
+        "tau": tau,
+        "coverage": coverage,
+        "n_subjects": n_subjects,
+        "n_candidate_fibers": 0,
+        "fold_n_candidate_fibers_min": 0,
+        "fold_n_candidate_fibers_median": 0,
+        "fold_n_candidate_fibers_max": 0,
+        "selected_fiber_pools_computable": False,
+        "netfiberscore_nonconstant_all_folds": False,
+        "y_base_nuisance_design_valid": False,
+        "all_predictions_finite": False,
+        "loocv_spearman_rho": np.nan,
+        "loocv_pearson_r": np.nan,
+        "q2": np.nan,
+        "mae_model": np.nan,
+        "mae_baseline": np.nan,
+        "rmse_model": np.nan,
+        "rmse_baseline": np.nan,
+        "passes_all_hard_filters": False,
+        "hf_norm_fiber_prediction_status": "not_applicable",
+        "failure_reason": reason,
+    }
+
+
+def _baseline_error_metrics(fold_rows: list[dict[str, Any]]) -> dict[str, float]:
+    y = np.array([row["Y_post"] for row in fold_rows], dtype=float)
+    pred = np.array([row["prediction_NetFiberScore_model"] for row in fold_rows], dtype=float)
+    pred_base = np.array([row["prediction_baseline_only"] for row in fold_rows], dtype=float)
+    finite_model = np.isfinite(y) & np.isfinite(pred)
+    finite_base = np.isfinite(y) & np.isfinite(pred_base)
+    residual_model = y[finite_model] - pred[finite_model]
+    residual_base = y[finite_base] - pred_base[finite_base]
+    return {
+        "mae_model": float(np.mean(np.abs(residual_model))) if residual_model.size else np.nan,
+        "rmse_model": float(np.sqrt(np.mean(residual_model * residual_model))) if residual_model.size else np.nan,
+        "mae_baseline": float(np.mean(np.abs(residual_base))) if residual_base.size else np.nan,
+        "rmse_baseline": float(np.sqrt(np.mean(residual_base * residual_base))) if residual_base.size else np.nan,
+    }
+
+
+def evaluate_normative_fiber_grid_cell(
+    *,
+    x: np.ndarray,
+    fiber_ids: np.ndarray,
+    y_post: np.ndarray,
+    y_base: np.ndarray,
+    subject_ids: list[str],
+    scale_direction: str,
+    connectome: str,
+    tau: int,
+    coverage: int,
+) -> dict[str, Any]:
+    """Evaluate one HF normative fiber tau/Coverage resolver grid cell."""
+    try:
+        _, fold_rows, qc, _, _, _ = run_observed_loocv(
+            x=x,
+            fiber_ids=fiber_ids,
+            y_post=y_post,
+            y_base=y_base,
+            subject_ids=subject_ids,
+            scale_direction=scale_direction,
+            tau=float(tau),
+            min_coverage=int(coverage),
+        )
+    except Exception as exc:
+        return _normative_scan_empty_row(
+            connectome=connectome,
+            tau=tau,
+            coverage=coverage,
+            n_subjects=int(y_post.shape[0]),
+            reason=str(exc),
+        )
+
+    baseline_errors = _baseline_error_metrics(fold_rows)
+    metrics = qc.get("loocv_metrics", {})
+    row = {
+        "connectome": connectome,
+        "tau": tau,
+        "coverage": coverage,
+        "n_subjects": int(y_post.shape[0]),
+        "n_candidate_fibers": int(qc.get("n_candidate_fibers", 0)),
+        "fold_n_candidate_fibers_min": int(qc.get("fold_n_candidate_fibers_min", 0)),
+        "fold_n_candidate_fibers_median": float(qc.get("fold_n_candidate_fibers_median", 0.0)),
+        "fold_n_candidate_fibers_max": int(qc.get("fold_n_candidate_fibers_max", 0)),
+        "selected_fiber_pools_computable": bool(qc.get("selected_fiber_pools_computable", False)),
+        "netfiberscore_nonconstant_all_folds": bool(qc.get("netfiberscore_nonconstant_all_folds", False)),
+        "y_base_nuisance_design_valid": bool(qc.get("y_base_nuisance_design_valid", False)),
+        "all_predictions_finite": bool(qc.get("all_predictions_finite", False)),
+        "loocv_spearman_rho": metrics.get("spearman_rho", np.nan),
+        "loocv_pearson_r": metrics.get("pearson_r", np.nan),
+        "q2": metrics.get("q2", np.nan),
+        "mae_model": baseline_errors["mae_model"],
+        "mae_baseline": baseline_errors["mae_baseline"],
+        "rmse_model": baseline_errors["rmse_model"],
+        "rmse_baseline": baseline_errors["rmse_baseline"],
+        "failure_reason": "",
+    }
+    row["passes_all_hard_filters"] = normative_fiber_hard_computability_passes(row)
+    row["hf_norm_fiber_prediction_status"] = (
+        classify_prediction_status(
+            {
+                "mae_model": row["mae_model"],
+                "mae_baseline": row["mae_baseline"],
+                "rmse_model": row["rmse_model"],
+                "rmse_baseline": row["rmse_baseline"],
+            }
+        )
+        if row["passes_all_hard_filters"]
+        else "not_applicable"
+    )
+    return row
+
+
+def write_normative_fiber_source_scan_outputs(
+    output_dir: Path,
+    *,
+    rows: list[dict[str, Any]],
+    resolved: dict[str, Any],
+    manifest: dict[str, Any],
+) -> dict[str, str]:
+    """Write source resolver scan outputs for one HF normative fiber branch."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    scan_csv = output_dir / "normative_HF_fiber_tau_coverage_source_resolver_scan.csv"
+    summary_json = output_dir / "normative_HF_fiber_tau_coverage_source_resolver_manifest.json"
+    fieldnames = [
+        "connectome",
+        "tau",
+        "coverage",
+        "n_subjects",
+        "n_candidate_fibers",
+        "fold_n_candidate_fibers_min",
+        "fold_n_candidate_fibers_median",
+        "fold_n_candidate_fibers_max",
+        "selected_fiber_pools_computable",
+        "netfiberscore_nonconstant_all_folds",
+        "y_base_nuisance_design_valid",
+        "all_predictions_finite",
+        "loocv_spearman_rho",
+        "loocv_pearson_r",
+        "q2",
+        "mae_model",
+        "mae_baseline",
+        "rmse_model",
+        "rmse_baseline",
+        "passes_all_hard_filters",
+        "hf_norm_fiber_prediction_status",
+        "failure_reason",
+    ]
+    write_csv(scan_csv, rows, fieldnames)
+    write_json(
+        summary_json,
+        {
+            **manifest,
+            **resolved,
+            "n_grid_cells": len(rows),
+            "n_passing_grid_cells": int(sum(bool(row.get("passes_all_hard_filters")) for row in rows)),
+            "outputs": {"scan_csv": str(scan_csv), "manifest_json": str(summary_json)},
+        },
+    )
+    return {"scan_csv": str(scan_csv), "manifest_json": str(summary_json)}
+
+
+def run_normative_fiber_source_resolver_scan(args: argparse.Namespace) -> int:
+    """Run the declared HF normative fiber tau/Coverage source resolver scan."""
+    started = time.time()
+    output_root = Path(args.output_root).expanduser().resolve()
+    clinical_root = Path(args.clinical_root).expanduser().resolve()
+    connectome_info = CONNECTOMES[args.connectome]
+    connectome_slug = connectome_info["slug"]
+    scale = args.scale
+    scale_slug = slugify(scale)
+    primary_dir = output_root / connectome_slug / scale_slug / "peak_efield_tau800_primary"
+    preprocess_dir = primary_dir / "preprocess"
+    x_path = preprocess_dir / "X_HF_fiber_float32_subject_major.npy"
+    fiber_ids_path = preprocess_dir / "fiber_ids.npy"
+    if not x_path.is_file() or not fiber_ids_path.is_file():
+        raise RuntimeError(f"missing HF normative fiber primary preprocess sidecar: {preprocess_dir}")
+
+    records = load_subject_records(clinical_root, scale)
+    subject_ids = [record.subject_id for record in records]
+    scale_direction, scale_direction_source = infer_scale_direction(scale)
+    if scale_direction not in {"lower", "higher"}:
+        raise RuntimeError(f"unknown scale direction for {scale!r}")
+
+    x = np.load(x_path, mmap_mode="r")
+    fiber_ids = np.load(fiber_ids_path)
+    y_post = np.array([record.y_post for record in records], dtype=float)
+    y_base = np.array([record.y_base for record in records], dtype=float)
+    rows: list[dict[str, Any]] = []
+    for tau in NORM_FIBER_TAU_GRID:
+        for coverage in NORM_FIBER_COVERAGE_GRID:
+            print(f"[{connectome_slug}/{scale_slug}] Evaluating tau={tau} V/m, Coverage>={coverage}", flush=True)
+            rows.append(
+                evaluate_normative_fiber_grid_cell(
+                    x=x,
+                    fiber_ids=fiber_ids,
+                    y_post=y_post,
+                    y_base=y_base,
+                    subject_ids=subject_ids,
+                    scale_direction=scale_direction,
+                    connectome=args.connectome,
+                    tau=tau,
+                    coverage=coverage,
+                )
+            )
+
+    resolved = resolve_normative_fiber_source(rows, connectome=args.connectome)
+    scan_dir = output_root / connectome_slug / scale_slug / "tau_coverage_source_resolver_scan"
+    outputs = write_normative_fiber_source_scan_outputs(
+        scan_dir,
+        rows=rows,
+        resolved=resolved,
+        manifest={
+            "generated_at": iso_now(),
+            "analysis": "hf_normative_fiber_tau_coverage_source_resolver_scan",
+            "model": "HF normative connectome fiber",
+            "connectome": connectome_info["label"],
+            "connectome_slug": connectome_slug,
+            "scale": scale,
+            "scale_slug": scale_slug,
+            "scale_direction": scale_direction,
+            "scale_direction_source": scale_direction_source,
+            "pre_specified_tau_v_per_m": NORM_FIBER_PRIMARY_TAU,
+            "pre_specified_coverage": NORM_FIBER_PRIMARY_COVERAGE,
+            "tau_grid_v_per_m": NORM_FIBER_TAU_GRID,
+            "coverage_grid": NORM_FIBER_COVERAGE_GRID,
+            "primary_preprocess_dir": str(preprocess_dir),
+            "runtime_s": time.time() - started,
+        },
+    )
+    print(f"HF normative fiber source resolver output: {scan_dir}")
+    print(json.dumps(resolved, indent=2, sort_keys=True))
+    print(f"Scan CSV: {outputs['scan_csv']}")
+    return 0
 
 
 def run_hf_normative_fiber_smoke(args: argparse.Namespace) -> int:
@@ -609,6 +930,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--connectome", choices=sorted(CONNECTOMES), default="ppmi", help="Public connectome to process.")
     parser.add_argument("--tau", type=float, default=800.0, help="Primary fiber inclusion threshold in V/m.")
     parser.add_argument("--min-coverage", type=int, default=5, help="Minimum subject coverage.")
+    parser.add_argument("--source-resolver-scan", action="store_true", help="Run the tau/Coverage source resolver scan using the existing primary sidecar.")
     parser.add_argument("--fiber-chunk-size", type=int, default=10000, help="Number of fibers per sampling chunk.")
     parser.add_argument("--max-fibers", type=int, default=0, help="Development-only cap; 0 means full connectome.")
     parser.add_argument("--force-flip", action="store_true", help="Regenerate left-to-right flipped fields.")
@@ -619,6 +941,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+    if args.source_resolver_scan:
+        return run_normative_fiber_source_resolver_scan(args)
     return run_hf_normative_fiber_smoke(args)
 
 
