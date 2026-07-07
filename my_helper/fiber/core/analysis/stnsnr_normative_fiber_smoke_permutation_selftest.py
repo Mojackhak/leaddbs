@@ -122,6 +122,8 @@ def test_run_target_smoke_permutation_writes_outputs() -> None:
         assert_true((branch_dir / "normative_HF_fiber_smoke_permutation_summary.csv").is_file(), "summary exists")
         null_stats = np.load(branch_dir / "normative_HF_fiber_smoke_permutation_null_stats.npy")
         assert_equal(null_stats.shape, (7,), "null-stat shape")
+        manifest = json.loads((branch_dir / "normative_HF_fiber_smoke_permutation_manifest.json").read_text(encoding="utf-8"))
+        assert_true(bool(manifest.get("code_provenance", {}).get("git_commit")), "manifest records git commit")
 
 
 def test_run_target_formal_permutation_writes_formal_outputs() -> None:
@@ -166,6 +168,8 @@ def test_run_target_formal_permutation_writes_formal_outputs() -> None:
         assert_true(not (branch_dir / "normative_HF_fiber_smoke_permutation_summary.csv").exists(), "smoke summary not written")
         null_stats = np.load(branch_dir / "normative_HF_fiber_permutation_null_stats.npy")
         assert_equal(null_stats.shape, (7,), "formal null-stat shape")
+        manifest = json.loads((branch_dir / "normative_HF_fiber_permutation_manifest.json").read_text(encoding="utf-8"))
+        assert_true(bool(manifest.get("code_provenance", {}).get("git_commit")), "manifest records git commit")
 
 
 def main() -> int:

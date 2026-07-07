@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -34,35 +33,7 @@ from stnsnr_four_model_stats import (
     suprathreshold_matrix,
 )
 from stnsnr_hf_direct_voxel_smoke import sample_image_at_xyz
-
-
-def default_repo_root() -> Path:
-    return Path(__file__).resolve().parents[4]
-
-
-def _run_git(repo_root: Path, args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), *args],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return ""
-    return result.stdout.strip()
-
-
-def git_provenance(repo_root: Path | None = None) -> dict[str, Any]:
-    root = repo_root or default_repo_root()
-    dirty_files = _run_git(root, ["status", "--short"]).splitlines()
-    return {
-        "repo_root": str(root),
-        "git_branch": _run_git(root, ["branch", "--show-current"]),
-        "git_commit": _run_git(root, ["rev-parse", "HEAD"]),
-        "git_short_commit": _run_git(root, ["rev-parse", "--short", "HEAD"]),
-        "git_dirty": bool(dirty_files),
-        "git_dirty_files": dirty_files,
-    }
+from stnsnr_run_provenance import git_provenance
 
 
 def _load_json(path: Path) -> dict[str, Any]:

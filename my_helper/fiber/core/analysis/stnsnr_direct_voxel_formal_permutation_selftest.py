@@ -112,6 +112,8 @@ def test_run_target_permutation_writes_summary_and_null_stats() -> None:
         assert_true((branch_dir / "direct_voxel_HF_permutation_summary.csv").is_file(), "summary exists")
         null_stats = np.load(branch_dir / "direct_voxel_HF_permutation_null_stats.npy")
         assert_equal(null_stats.shape, (7,), "null-stat shape")
+        manifest = json.loads((branch_dir / "direct_voxel_HF_formal_permutation_manifest.json").read_text(encoding="utf-8"))
+        assert_true(bool(manifest.get("code_provenance", {}).get("git_commit")), "manifest records git commit")
 
 
 def main() -> int:

@@ -74,6 +74,8 @@ def test_run_target_bootstrap_writes_summary_and_se_nifti() -> None:
         assert_true((branch_dir / "direct_voxel_HF_bootstrap_summary.csv").is_file(), "summary exists")
         assert_true((branch_dir / "direct_voxel_HF_bootstrap_se.nii.gz").is_file(), "SE NIfTI exists")
         assert_true(np.isfinite(nib.load(branch_dir / "direct_voxel_HF_bootstrap_se.nii.gz").get_fdata()).any(), "finite SE")
+        manifest = json.loads((branch_dir / "direct_voxel_HF_formal_bootstrap_manifest.json").read_text(encoding="utf-8"))
+        assert_true(bool(manifest.get("code_provenance", {}).get("git_commit")), "manifest records git commit")
 
 
 def main() -> int:

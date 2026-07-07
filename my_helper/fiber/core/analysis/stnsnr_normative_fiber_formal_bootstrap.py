@@ -26,6 +26,7 @@ from stnsnr_normative_fiber_smoke_permutation import (
     write_csv,
     write_json,
 )
+from stnsnr_run_provenance import git_provenance
 
 try:
     from scipy.stats import rankdata as scipy_rankdata
@@ -116,6 +117,7 @@ def _table_value(value: float | int | str) -> float | int | str:
 
 
 def run_target_bootstrap(target: NormativeFiberTarget, *, n_bootstraps: int, seed: int = 42) -> dict[str, Any]:
+    provenance = git_provenance()
     x = np.load(target.x_path, mmap_mode="r")
     fiber_ids = np.load(target.fiber_ids_path, mmap_mode="r")
     reduced = prepare_candidate_union(x=x, fiber_ids=fiber_ids, tau=target.tau, min_coverage=target.min_coverage)
@@ -282,6 +284,7 @@ def run_target_bootstrap(target: NormativeFiberTarget, *, n_bootstraps: int, see
             "target_manifest": str(target.manifest_path),
             "n_bootstraps": int(n_bootstraps),
             "seed": int(seed),
+            "code_provenance": provenance,
             "method": "Subject-level dTOR normative-fiber bootstrap over selected candidate union",
             "outputs": {
                 "summary_csv": str(summary_path),
@@ -297,6 +300,7 @@ def run_target_bootstrap(target: NormativeFiberTarget, *, n_bootstraps: int, see
 
 def run_formal_bootstrap(args: argparse.Namespace) -> int:
     readiness_csv = Path(args.readiness_csv).expanduser().resolve()
+    provenance = git_provenance()
     requested = set(args.model_id) if args.model_id else None
     targets = discover_targets(readiness_csv, requested)
     if not targets:
@@ -317,6 +321,7 @@ def run_formal_bootstrap(args: argparse.Namespace) -> int:
             "n_targets": len(rows),
             "n_bootstraps": int(args.n_bootstraps),
             "seed": int(args.seed),
+            "code_provenance": provenance,
             "outputs": {"summary_csv": str(summary_path)},
         },
     )

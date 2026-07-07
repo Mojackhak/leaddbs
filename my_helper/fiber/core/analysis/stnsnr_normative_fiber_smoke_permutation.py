@@ -25,6 +25,7 @@ from stnsnr_four_model_stats import (
     regression_metrics,
     residualize,
 )
+from stnsnr_run_provenance import git_provenance
 
 DTOR_NORMATIVE_TARGET_IDS = {"B_DTOR", "D_DTOR"}
 PERMUTATION_TIERS = {"smoke", "formal"}
@@ -281,6 +282,7 @@ def run_target_smoke_permutation(
     seed: int = 42,
     tier: str = "smoke",
 ) -> dict[str, Any]:
+    provenance = git_provenance()
     suffix = permutation_suffix_for_tier(tier)
     x = np.load(target.x_path, mmap_mode="r")
     fiber_ids = np.load(target.fiber_ids_path, mmap_mode="r")
@@ -348,6 +350,7 @@ def run_target_smoke_permutation(
             "n_permutations": int(n_permutations),
             "seed": int(seed),
             "resampling_tier": tier,
+            "code_provenance": provenance,
             "method": f"Exact dTOR normative-fiber {tier} Freedman-Lane permutation over selected candidate union",
             "outputs": {"summary_csv": str(summary_path), "null_stats_npy": str(null_path), "manifest_json": str(manifest_path)},
         },
@@ -422,6 +425,7 @@ def discover_targets(readiness_csv: Path, requested_model_ids: set[str] | None =
 
 def run_smoke_permutation(args: argparse.Namespace) -> int:
     readiness_csv = Path(args.readiness_csv).expanduser().resolve()
+    provenance = git_provenance()
     tier = str(args.tier)
     if tier not in PERMUTATION_TIERS:
         raise ValueError(f"unsupported permutation tier: {tier}")
@@ -447,6 +451,7 @@ def run_smoke_permutation(args: argparse.Namespace) -> int:
             "n_targets": len(rows),
             "n_permutations": int(args.n_permutations),
             "seed": int(args.seed),
+            "code_provenance": provenance,
             "outputs": {"summary_csv": str(summary_path)},
         },
     )

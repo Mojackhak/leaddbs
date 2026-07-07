@@ -22,6 +22,7 @@ from stnsnr_four_model_stats import (
     regression_metrics,
     residualize,
 )
+from stnsnr_run_provenance import git_provenance
 
 FORMAL_DIRECT_MODEL_IDS = {"A", "C"}
 
@@ -259,6 +260,7 @@ def _float_column(table: dict[str, np.ndarray], column: str) -> np.ndarray:
 
 
 def run_target_permutation(target: DirectVoxelTarget, *, n_permutations: int, seed: int = 42) -> dict[str, Any]:
+    provenance = git_provenance()
     x = np.load(target.x_path)
     table = load_subject_table(target.subjects_csv)
     y_post = _float_column(table, target.outcome_column)
@@ -327,6 +329,7 @@ def run_target_permutation(target: DirectVoxelTarget, *, n_permutations: int, se
             "target_manifest": str(target.manifest_path),
             "n_permutations": int(n_permutations),
             "seed": int(seed),
+            "code_provenance": provenance,
             "method": "Freedman-Lane direct-voxel fold-level score operator",
             "outputs": {"summary_csv": str(summary_path), "null_stats_npy": str(null_path), "manifest_json": str(manifest_path)},
         },
@@ -396,6 +399,7 @@ def discover_targets(readiness_csv: Path, requested_model_ids: set[str] | None =
 
 def run_formal_permutation(args: argparse.Namespace) -> int:
     readiness_csv = Path(args.readiness_csv).expanduser().resolve()
+    provenance = git_provenance()
     requested = set(args.model_id) if args.model_id else None
     targets = discover_targets(readiness_csv, requested)
     if not targets:
@@ -417,6 +421,7 @@ def run_formal_permutation(args: argparse.Namespace) -> int:
             "n_targets": len(rows),
             "n_permutations": int(args.n_permutations),
             "seed": int(args.seed),
+            "code_provenance": provenance,
             "outputs": {"summary_csv": str(summary_path)},
         },
     )

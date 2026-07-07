@@ -25,6 +25,7 @@ from stnsnr_direct_voxel_formal_permutation import (
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
 from stnsnr_four_model_stats import average_rank_1d, benefit_oriented_weights
 from stnsnr_normative_fiber_formal_bootstrap import rank_columns_fast, residualize_complete
+from stnsnr_run_provenance import git_provenance
 
 
 def bootstrap_weights_for_sample(
@@ -92,6 +93,7 @@ def _write_se_nifti(target: DirectVoxelTarget, prefix: str, se_values: np.ndarra
 
 
 def run_target_bootstrap(target: DirectVoxelTarget, *, n_bootstraps: int, seed: int = 42) -> dict[str, Any]:
+    provenance = git_provenance()
     x = np.asarray(np.load(target.x_path, mmap_mode="r"), dtype=np.float32)
     table = load_subject_table(target.subjects_csv)
     y_post = _float_column(table, target.outcome_column)
@@ -165,6 +167,7 @@ def run_target_bootstrap(target: DirectVoxelTarget, *, n_bootstraps: int, seed: 
             "target_manifest": str(target.manifest_path),
             "n_bootstraps": int(n_bootstraps),
             "seed": int(seed),
+            "code_provenance": provenance,
             "method": "Subject-level direct-voxel bootstrap with streaming SE accumulation",
             "outputs": {"summary_csv": str(summary_path), "bootstrap_se_nifti": str(se_path), "manifest_json": str(manifest_path)},
         },
@@ -174,6 +177,7 @@ def run_target_bootstrap(target: DirectVoxelTarget, *, n_bootstraps: int, seed: 
 
 def run_formal_bootstrap(args: argparse.Namespace) -> int:
     readiness_csv = Path(args.readiness_csv).expanduser().resolve()
+    provenance = git_provenance()
     requested = set(args.model_id) if args.model_id else None
     targets = discover_targets(readiness_csv, requested)
     if not targets:
@@ -194,6 +198,7 @@ def run_formal_bootstrap(args: argparse.Namespace) -> int:
             "n_targets": len(rows),
             "n_bootstraps": int(args.n_bootstraps),
             "seed": int(args.seed),
+            "code_provenance": provenance,
             "outputs": {"summary_csv": str(summary_path)},
         },
     )

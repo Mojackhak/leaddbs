@@ -88,6 +88,8 @@ def test_run_target_bootstrap_writes_stability_outputs() -> None:
             (branch_dir / "normative_HF_fiber_bootstrap_sign_stability.csv").is_file(),
             "sign stability exists",
         )
+        manifest = json.loads((branch_dir / "normative_HF_fiber_bootstrap_manifest.json").read_text(encoding="utf-8"))
+        assert_true(bool(manifest.get("code_provenance", {}).get("git_commit")), "manifest records git commit")
 
 
 def main() -> int:

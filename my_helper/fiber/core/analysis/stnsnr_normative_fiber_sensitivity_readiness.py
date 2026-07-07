@@ -18,6 +18,7 @@ from stnsnr_normative_fiber_smoke_permutation import (
     write_csv,
     write_json,
 )
+from stnsnr_run_provenance import git_provenance
 
 
 def _preprocess_dir_from_manifest(target: NormativeFiberTarget) -> Path:
@@ -45,6 +46,7 @@ def _jitter_candidate_paths(target: NormativeFiberTarget, preprocess_dir: Path) 
 
 
 def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[str, Any]:
+    provenance = git_provenance()
     prefix = file_prefix_for_manifest(target.manifest_path)
     preprocess_dir = _preprocess_dir_from_manifest(target)
     oss_required = [
@@ -69,6 +71,7 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
         "jitter_qc_status": jitter_status,
         "jitter_existing_inputs": ";".join(str(path) for path in jitter_candidates),
         "generated_at": iso_now(),
+        "code_provenance": provenance,
     }
 
     status_path = target.branch_dir / f"{prefix}_sensitivity_readiness_status.json"
@@ -89,15 +92,17 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
                 "jitter_qc_status": jitter_status,
                 "jitter_existing_inputs": row["jitter_existing_inputs"],
                 "generated_at": row["generated_at"],
+                "code_provenance": provenance,
             }
         ],
-        ["model_id", "jitter_qc_status", "jitter_existing_inputs", "generated_at"],
+        ["model_id", "jitter_qc_status", "jitter_existing_inputs", "generated_at", "code_provenance"],
     )
     return row
 
 
 def run_sensitivity_readiness(args: argparse.Namespace) -> int:
     readiness_csv = Path(args.readiness_csv).expanduser().resolve()
+    provenance = git_provenance()
     requested = set(args.model_id) if args.model_id else None
     targets = discover_targets(readiness_csv, requested)
     if not targets:
@@ -116,6 +121,7 @@ def run_sensitivity_readiness(args: argparse.Namespace) -> int:
             "generated_at": iso_now(),
             "readiness_csv": str(readiness_csv),
             "n_targets": len(rows),
+            "code_provenance": provenance,
             "outputs": {"summary_csv": str(summary_path)},
         },
     )
