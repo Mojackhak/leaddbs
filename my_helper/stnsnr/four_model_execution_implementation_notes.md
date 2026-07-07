@@ -6,13 +6,19 @@ The full four-model program is intentionally gated. The current codebase now inc
 
 ## Pause Checkpoint
 
-2026-07-07 pause before next execution: final-reporting readiness now requires
-separate FDR and enrichment caches before a normative-fiber row can be reported
-as full fiber figure-output ready. Density plus connected-region labels remains
-`ready_for_density_label_outputs` only. The reporting/audit outputs have not yet
-been regenerated from this pause checkpoint commit; after resuming, rerun final
-reporting, all-endpoint reporting, manifest schema audit, and completion audit
-so their manifests record the clean checkpoint commit.
+2026-07-07 post-pause refresh: final-reporting readiness now requires separate
+FDR and enrichment caches before a normative-fiber row can be reported as full
+fiber figure-output ready. Density plus connected-region labels remains
+`ready_for_density_label_outputs` only. Final reporting, all-endpoint reporting,
+manifest schema audit, and completion audit were regenerated from clean commit
+`1d34cb9f3`.
+
+Exact input/cache searches after that refresh found no `X_oss_float32_fiber_major.npy`,
+`oss_parameter_manifest.json`, `oss_activation_sidecar_metadata.json`, fiber
+jitter sidecar/cache files, FDR cache files, or enrichment cache files under the
+current `/Volumes/VAL/STNSNr` summary tree. The current B_DTOR and D_DTOR
+normative-fiber completion blockers therefore remain explicit missing-input or
+missing-cache blockers, not branch-selection ambiguity.
 
 2026-07-07 density/label-cache update: the normative-fiber density and
 connected-region label caches now default to all `analysis_family =

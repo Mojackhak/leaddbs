@@ -9,13 +9,19 @@
 
 ## Pause Checkpoint
 
-2026-07-07 pause before next execution: final-reporting readiness now requires
-separate FDR and enrichment caches before a normative-fiber row can be reported
-as full fiber figure-output ready. Density plus connected-region labels remains
-`ready_for_density_label_outputs` only. The reporting/audit outputs have not yet
-been regenerated from this pause checkpoint commit; after resuming, rerun final
-reporting, all-endpoint reporting, manifest schema audit, and completion audit
-so their manifests record the clean checkpoint commit.
+2026-07-07 post-pause refresh: final-reporting readiness now requires separate
+FDR and enrichment caches before a normative-fiber row can be reported as full
+fiber figure-output ready. Density plus connected-region labels remains
+`ready_for_density_label_outputs` only. Final reporting, all-endpoint reporting,
+manifest schema audit, and completion audit were regenerated from clean commit
+`1d34cb9f3`.
+
+Exact input/cache searches after that refresh found no `X_oss_float32_fiber_major.npy`,
+`oss_parameter_manifest.json`, `oss_activation_sidecar_metadata.json`, fiber
+jitter sidecar/cache files, FDR cache files, or enrichment cache files under the
+current `/Volumes/VAL/STNSNr` summary tree. The current B_DTOR and D_DTOR
+normative-fiber completion blockers therefore remain explicit missing-input or
+missing-cache blockers, not branch-selection ambiguity.
 
 Execution has resumed through the 2026-07-07 status, formal-target, and
 formal-readiness refresh. The current checkpoint has completed
@@ -57,6 +63,10 @@ dTOR normative-fiber smoke/formal permutation, and dTOR normative-fiber formal
 bootstrap record `code_provenance.git_short_commit = c6e0bb328`. The refreshed
 dTOR normative-fiber sensitivity-readiness manifests/status files record
 `code_provenance.git_short_commit = 2f30e8cfb`.
+
+The post-pause final reporting, all-endpoint reporting, manifest schema audit,
+and completion audit manifests record `code_provenance.git_short_commit =
+1d34cb9f3` and `git_dirty = false`.
 
 The formal readiness audit does not run formal permutation, bootstrap, jitter,
 OSS-DBS, or display generation. It consumes the final-model formal target
