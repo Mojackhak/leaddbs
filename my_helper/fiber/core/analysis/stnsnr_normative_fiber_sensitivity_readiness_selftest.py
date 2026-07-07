@@ -50,6 +50,9 @@ def test_missing_oss_and_jitter_inputs_are_explicit_not_run() -> None:
 
         assert_equal(row["oss_sensitivity_status"], "not_run_missing_oss_inputs", "OSS status")
         assert_equal(row["jitter_qc_status"], "not_run_missing_jitter_inputs", "jitter status")
+        assert_equal(row["jitter_missing_inputs"], "no_jitter_inputs_found_in_search_roots", "jitter missing reason")
+        assert_true(str(branch_dir) in row["jitter_input_search_roots"], "branch dir searched for jitter inputs")
+        assert_true(str(preprocess_dir) in row["jitter_input_search_roots"], "preprocess dir searched for jitter inputs")
         assert_true((branch_dir / "normative_HF_fiber_sensitivity_readiness_status.json").is_file(), "status JSON exists")
         status = json.loads((branch_dir / "normative_HF_fiber_sensitivity_readiness_status.json").read_text(encoding="utf-8"))
         assert_true(bool(status.get("code_provenance", {}).get("git_commit")), "status records git commit")

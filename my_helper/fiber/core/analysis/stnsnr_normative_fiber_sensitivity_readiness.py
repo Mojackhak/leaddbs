@@ -65,6 +65,7 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
 
     jitter_candidates = _jitter_candidate_paths(target, preprocess_dir)
     jitter_status = "ready_for_jitter_qc" if jitter_candidates else "not_run_missing_jitter_inputs"
+    jitter_search_roots = [str(target.branch_dir), str(preprocess_dir)]
 
     row = {
         "model_id": target.model_id,
@@ -75,7 +76,9 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
         "oss_missing_inputs": ";".join(missing_oss),
         "oss_existing_inputs": ";".join(_existing_paths(oss_required)),
         "jitter_qc_status": jitter_status,
+        "jitter_missing_inputs": "" if jitter_candidates else "no_jitter_inputs_found_in_search_roots",
         "jitter_existing_inputs": ";".join(str(path) for path in jitter_candidates),
+        "jitter_input_search_roots": ";".join(jitter_search_roots),
         "generated_at": iso_now(),
         "code_provenance": provenance,
     }
@@ -87,7 +90,7 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
         {
             **row,
             "required_oss_inputs": [str(path) for path in oss_required],
-            "jitter_input_search_roots": [str(target.branch_dir), str(preprocess_dir)],
+            "jitter_input_search_roots": jitter_search_roots,
         },
     )
     write_csv(

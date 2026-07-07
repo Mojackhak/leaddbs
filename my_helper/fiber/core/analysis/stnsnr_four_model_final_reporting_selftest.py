@@ -220,11 +220,17 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
                     "model_id": "B_DTOR",
                     "oss_sensitivity_status": "not_run_missing_oss_inputs",
                     "jitter_qc_status": "not_run_missing_jitter_inputs",
+                    "oss_missing_inputs": "/tmp/missing_oss.npy",
+                    "jitter_missing_inputs": "no_jitter_inputs_found_in_search_roots",
+                    "jitter_input_search_roots": "/tmp/branch;/tmp/preprocess",
                 },
                 {
                     "model_id": "D_DTOR",
                     "oss_sensitivity_status": "not_run_missing_oss_inputs",
                     "jitter_qc_status": "not_run_missing_jitter_inputs",
+                    "oss_missing_inputs": "/tmp/missing_d_oss.npy",
+                    "jitter_missing_inputs": "no_jitter_inputs_found_in_search_roots",
+                    "jitter_input_search_roots": "/tmp/d_branch;/tmp/d_preprocess",
                 },
             ],
         )
@@ -305,6 +311,21 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
             readiness_by_id["B_DTOR"]["fiber_density_label_cache_status"],
             "not_run_missing_density_label_cache",
             "B fiber cache status",
+        )
+        assert_equal(
+            report_by_id["B_DTOR"]["oss_missing_inputs"],
+            "/tmp/missing_oss.npy",
+            "B final report OSS missing inputs",
+        )
+        assert_equal(
+            report_by_id["B_DTOR"]["jitter_missing_inputs"],
+            "no_jitter_inputs_found_in_search_roots",
+            "B final report jitter missing inputs",
+        )
+        assert_equal(
+            readiness_by_id["D_DTOR"]["jitter_input_search_roots"],
+            "/tmp/d_branch;/tmp/d_preprocess",
+            "D readiness jitter search roots",
         )
         assert_equal(
             readiness_by_id["D_DTOR"]["fiber_density_label_cache_status"],

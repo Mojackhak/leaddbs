@@ -147,6 +147,7 @@ Current dTOR normative-fiber sensitivity readiness snapshot:
 B_DTOR HF normative fiber: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = not_run_missing_jitter_inputs
 D_DTOR ULF normative fiber no_delta_hf final model: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = not_run_missing_jitter_inputs
 consolidated formal_resampling_status = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING for B_DTOR and D_DTOR
+readiness summaries and final reports record OSS missing input paths plus jitter search roots / missing-input reasons
 ```
 
 Current final reporting and figure-output readiness snapshot:
@@ -851,6 +852,12 @@ status; they only prevent OSS/jitter robustness support from being claimed.
 The consolidated status should then report
 `FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING`.
 
+The sensitivity-readiness summary and final reporting layer must preserve the
+missing-input details. OSS readiness records the required missing sidecar paths.
+Jitter readiness records the searched branch/preprocess roots and an explicit
+`no_jitter_inputs_found_in_search_roots` reason when no jitter sidecars are
+detected.
+
 ### Deferred Expensive Work
 
 Run these only after the relevant resolver/status fields identify the unique
@@ -1346,7 +1353,7 @@ Fallback-selected thresholds are explicitly labeled as scan-fallback sources and
 The final reporting package records the unique final model for each formal target,
 formal resampling status, direct-voxel display-source availability, explicit
 not-run statuses for unavailable fiber OSS/jitter/density/FDR/enrichment inputs,
-and the manifest audit pair for each final model.
+OSS/jitter missing-input details, and the manifest audit pair for each final model.
 The all-endpoint reporting package records A all-endpoint source-resolver rows,
 observed branch manifests, final-report rows, and detected/not-run statuses for
 C/D gain endpoints, same-day immediate endpoints, and total-ULF sensitivities,

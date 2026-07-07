@@ -100,6 +100,11 @@ the required density and label caches are created or supplied. OSS-DBS
 activation and fiber jitter sensitivity should remain explicit missing-input
 statuses until their required sidecars exist.
 
+The dTOR normative-fiber sensitivity-readiness summary records `oss_missing_inputs`,
+`jitter_missing_inputs`, and `jitter_input_search_roots`. Final reporting and
+figure-output readiness preserve these fields so downstream reports can inspect
+which sensitivity inputs are absent without reopening branch-level JSON files.
+
 The consolidated status manifest records git provenance for the worktree that
 generated the status refresh, including branch, HEAD commit, and dirty files.
 Each status CSV row also records whether its referenced `latest_manifest`
@@ -164,7 +169,8 @@ This layer does not fit models, rerun resampling, or fabricate unavailable
 fiber density/FDR/enrichment outputs. It records `ready_from_existing_maps` for
 A/C direct-voxel display sources and `not_run_missing_density_label_cache` for
 fiber figure-output readiness when the required caches are absent. It also
-preserves the manifest audit pair from the consolidated status input.
+preserves fiber OSS/jitter missing-input details and the manifest audit pair
+from the consolidated status input.
 
 The all-endpoint reporting layer consumes the existing A all-scale
 source-resolver scan, observed branch summary, final report, and discovered
