@@ -110,6 +110,21 @@ source/endpoint classifiers. HF rows record `hf_final_model_source`,
 `ulf_final_model_status`; formal, jitter, OSS, and display-layer work attach to
 that final model rather than to a manually selected reporting branch.
 
+## Shared IO / Provenance Helper
+
+The first reusable architecture layer centralizes lightweight file IO and
+manifest provenance behavior in:
+
+```text
+my_helper/fiber/core/analysis/stnsnr_io.py
+```
+
+The helper owns timestamp generation, CSV read/write, JSON write, and optional
+`code_provenance` injection for manifest-like JSON outputs. The C same-day
+immediate and C gain/total-ULF sensitivity drivers use this helper. Migration
+should remain incremental and behavior-preserving. It must not change model
+formulas, source resolver rules, branch-role assignment, or output paths.
+
 The final reporting layer consumes the consolidated status, formal worklist,
 formal readiness audit, formal summary CSVs, and fiber sensitivity-readiness
 CSV. It writes:

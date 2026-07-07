@@ -5,9 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +24,7 @@ from stnsnr_four_model_stats import (
     suprathreshold_matrix,
 )
 from stnsnr_hf_direct_voxel_smoke import slugify, write_nifti_from_flat
-from stnsnr_run_provenance import git_provenance
+from stnsnr_io import iso_now, write_csv, write_json
 from stnsnr_ulf_direct_voxel_observed import DEFAULT_POST_SCALE
 
 
@@ -50,24 +48,6 @@ class SensitivityInputs:
     output_root: Path
     post_scale: str
     hf_reference_scale: str
-
-
-def iso_now() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: row.get(key, "") for key in fieldnames})
-
-
-def write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def as_2d_covariates(covariates: np.ndarray | None, n_rows: int) -> np.ndarray:
@@ -289,7 +269,6 @@ def write_sensitivity_branch(
         "parameters": {"tau_v_per_m": inputs.tau, "min_coverage": inputs.min_coverage},
         "resampling_status": "not_run_observed_only",
         "resampling_reason": "observed sensitivity branch; formal resampling restricted to selected final model",
-        "code_provenance": git_provenance(),
         "outputs": {
             "branch_dir": str(branch_dir),
             "scores_csv": str(branch_dir / "direct_voxel_ULF_only_scores.csv"),
@@ -299,7 +278,7 @@ def write_sensitivity_branch(
         },
     }
     write_json(branch_dir / "direct_voxel_ULF_only_mapping_qc.json", qc)
-    write_json(branch_dir / "direct_voxel_ULF_only_generation_manifest.json", manifest)
+    write_json(branch_dir / "direct_voxel_ULF_only_generation_manifest.json", manifest, add_code_provenance=True)
     return {
         "branch": branch["branch_name"],
         "branch_dir": str(branch_dir),

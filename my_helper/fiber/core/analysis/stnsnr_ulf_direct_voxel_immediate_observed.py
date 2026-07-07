@@ -4,18 +4,14 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import json
 from dataclasses import asdict, dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
 from stnsnr_four_model_readiness import DEFAULT_CLINICAL_ROOT, RAW_CLINICAL_FILE
 from stnsnr_hf_direct_voxel_smoke import slugify
-from stnsnr_run_provenance import git_provenance
+from stnsnr_io import iso_now, write_csv, write_json
 from stnsnr_ulf_direct_voxel_observed import (
     DEFAULT_GATE_STATUS,
     DEFAULT_OUTPUT_ROOT,
@@ -32,24 +28,6 @@ class ImmediateEndpointRow:
     post_scale: str
     hf_reference_scale: str
     n_subjects: int
-
-
-def iso_now() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: row.get(key, "") for key in fieldnames})
-
-
-def write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def discover_immediate_endpoint_rows(clinical_root: Path, min_subjects: int) -> list[ImmediateEndpointRow]:
@@ -175,9 +153,9 @@ def run_immediate_observed(args: argparse.Namespace) -> int:
             "n_endpoint_rows": len(summary_rows),
             "min_subjects": int(args.min_subjects),
             "resampling_status": "not_run_observed_only",
-            "code_provenance": git_provenance(),
             "outputs": {"summary_csv": str(summary_csv), "manifest_json": str(manifest_json)},
         },
+        add_code_provenance=True,
     )
     print(f"ULF direct voxel immediate endpoint summary: {summary_csv}")
     return 0

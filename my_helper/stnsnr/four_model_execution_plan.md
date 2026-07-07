@@ -464,6 +464,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | dTOR normative-fiber sensitivity readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_sensitivity_readiness.py` | implemented |
 | Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
 | All-endpoint reporting and missing-work audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_all_endpoint_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_all_endpoint_reporting.py` | implemented |
+| Shared IO/provenance helpers | direct core module | `my_helper/fiber/core/analysis/stnsnr_io.py` | implemented |
 | ULF component readiness | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_readiness.py` | implemented |
 | ULF e-field worklist | `my_helper/fiber/stnsnr/run_stnsnr_ulf_component_efield_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_component_efield_worklist.py` | implemented |
 | C observed ULF direct voxel | `my_helper/fiber/stnsnr/run_stnsnr_ulf_direct_voxel_observed.py` | `my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_observed.py` | implemented |
@@ -476,7 +477,7 @@ The current codebase is no longer greenfield. The following layers already exist
 
 ```text
 D OSS and full fiber figure-grade density/FDR/enrichment outputs, pending required caches
-shared reusable resolver/manifest/score architecture across voxel, fiber, HF, and ULF models
+remaining shared score, stale-output, and cross-family manifest-schema architecture across voxel, fiber, HF, and ULF models
 fiber OSS-DBS activation branch execution, pending required inputs
 fiber density/label/FDR/enrichment cache construction
 nested/adaptive threshold-source validation
@@ -975,6 +976,15 @@ ulf_norm_fiber_endpoint_model_status
 Any new code that implements one of these shared concepts for only one model
 must either place the reusable logic in `my_helper/fiber/core/` immediately or
 document why temporary duplication is required and add a follow-up refactor task.
+
+The first reusable architecture layer is a small shared IO/provenance helper. It centralizes
+timestamp creation, CSV/JSON read/write behavior, and optional
+`code_provenance` insertion for manifest-like JSON outputs. It must be
+behavior-preserving and must not change model formulas, resolver rules, or
+output schemas except for consistently adding provenance when a caller requests
+it. The C same-day immediate and C gain/total-ULF sensitivity drivers now use
+this helper; broader migration remains part of the remaining shared
+score/stale-output/manifest-schema work.
 
 ---
 
