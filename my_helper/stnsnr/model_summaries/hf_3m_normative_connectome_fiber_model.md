@@ -248,8 +248,8 @@ Define `Q2` against the covariate-only clinical baseline:
 Q2 = 1 - SSE_NetFiberScore_model / SSE_YBase_only
 ```
 
-- Formal Freedman-Lane permutation: `B=10000`, seed `42`, dTOR selected-source branch for endpoint rows selected for formal reporting.
-- Subject-level bootstrap: `B=10000`, seed `42`, dTOR selected-source branch for endpoint rows selected for formal reporting.
+- Formal Freedman-Lane permutation: `B=10000`, seed `42`, dTOR final-source branch for endpoint rows with an accepted HF final source.
+- Subject-level bootstrap: `B=10000`, seed `42`, dTOR final-source branch for endpoint rows with an accepted HF final source.
 - Smoke permutation/bootstrap: `B=1000`, seed `42`.
 - Optional OLS ANCOVA is documented for future sensitivity analysis but is not run in the current execution.
 
@@ -335,6 +335,31 @@ hf_norm_fiber_prediction_status = not_applicable
   if hf_norm_fiber_source_status = absent_no_stable_grid
 ```
 
+HF final-model source is selected automatically from the source resolver:
+
+```text
+if hf_norm_fiber_source_status = pre_specified_accepted:
+  hf_final_model_source = pre_specified
+  hf_final_model_role = primary
+
+if hf_norm_fiber_source_status = scan_fallback_accepted:
+  hf_final_model_source = scan_fallback
+  hf_final_model_role = fallback_final
+
+if hf_norm_fiber_source_status = absent_no_stable_grid:
+  hf_final_model_source = none
+  hf_final_model_role = no_final_model
+
+hf_final_model_status = final_model_error_predictive
+  if an HF final source exists and hf_norm_fiber_prediction_status = error_predictive
+
+hf_final_model_status = final_model_error_nonpredictive
+  if an HF final source exists and hf_norm_fiber_prediction_status = error_nonpredictive
+
+hf_final_model_status = no_final_model_absent_no_stable_grid
+  if hf_norm_fiber_source_status = absent_no_stable_grid
+```
+
 Burden-dominated flag:
 
 ```text
@@ -369,6 +394,10 @@ Required manifest/QC fields:
 ```text
 hf_norm_fiber_source_status
 hf_norm_fiber_prediction_status
+hf_final_model_source
+hf_final_model_role
+hf_final_model_status
+hf_final_model_selection_reason
 hf_norm_fiber_source_failure_reasons
 hf_norm_fiber_burden_dominated
 hf_norm_fiber_threshold_source
@@ -1540,7 +1569,7 @@ Run only:
 ```text
 connectome = dTOR
 branch = peak_efield_tau800_cov5_primary
-endpoint rows = accepted endpoint rows selected for smoke/formal reporting
+endpoint rows = accepted endpoint rows with accepted final models
 Freedman-Lane smoke permutation B=1000
 subject-level smoke bootstrap B=1000
 seed = 42
@@ -1582,7 +1611,7 @@ there are not many all-NaN / degenerate maps
 runtime profile indicates B=10000 is feasible
 ```
 
-Do not use smoke `p < 0.05` as a hard gate. If smoke technically fails, stop and fix resampling, chunking, top-k, or rank cache for that endpoint row. If smoke technically passes but results are fully degenerate, either stop formal for that endpoint row as pre-specified futility or run formal only for explicitly selected reporting endpoint rows.
+Do not use smoke `p < 0.05` as a hard gate. If smoke technically fails, stop and fix resampling, chunking, top-k, or rank cache for that endpoint row. If smoke technically passes but results are fully degenerate, either stop formal for that endpoint row as pre-specified futility or run formal for endpoint rows with an accepted final source.
 
 ### Round 5: Cheap Observed Sensitivity
 
@@ -1705,9 +1734,9 @@ Run only:
 
 ```text
 connectome = dTOR
-branch = peak_efield_tau800_cov5_primary
+branch = peak_efield_tau800_cov5_primary when pre_specified_accepted
 or branch = tau_coverage_source_resolver_scan selected source when scan_fallback_accepted
-endpoint rows = accepted source endpoint rows selected for formal reporting
+endpoint rows = accepted HF final-source endpoint rows
 ```
 
 Recommended order:

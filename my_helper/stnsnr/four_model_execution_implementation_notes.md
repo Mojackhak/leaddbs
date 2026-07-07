@@ -35,6 +35,21 @@ formal resampling, spatial jitter, OSS-DBS, and figure-grade outputs: not run
 
 No further execution should be started until the workflow is explicitly resumed.
 
+The consolidated status manifest records git provenance for the worktree that
+generated the status refresh, including branch, HEAD commit, and dirty files.
+Each status CSV row also records whether its referenced `latest_manifest`
+contains git or local-patch provenance. Existing branch manifests generated
+before this policy may be marked `missing_git_or_patch_provenance`; that marker
+means provenance is incomplete and does not by itself rerun or invalidate the
+observed outputs.
+
+The consolidated status report also resolves final-model fields from the current
+source/endpoint classifiers. HF rows record `hf_final_model_source`,
+`hf_final_model_role`, and `hf_final_model_status`. ULF rows record
+`ulf_final_model_branch`, `ulf_final_model_role`, and
+`ulf_final_model_status`; formal, jitter, OSS, and display-layer work attach to
+that final model rather than to a manually selected reporting branch.
+
 ## Execution Root Availability
 
 The canonical execution documents use `/Volumes/VAL/STNSNr` as the STNSNr VAL

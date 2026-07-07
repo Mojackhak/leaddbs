@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import math
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,10 +19,74 @@ from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
 HF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
 ULF_SOURCE_ACCEPTED = {"pre_specified_accepted", "scan_fallback_accepted"}
 PENDING_ULF_SOURCE_RESOLVER = "pending_source_resolver"
+PROVENANCE_KEYS = {
+    "git_commit",
+    "git_head",
+    "git_revision",
+    "git_sha",
+    "local_patch_identifier",
+    "patch_identifier",
+    "code_provenance",
+}
 
 
 def iso_now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def default_repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def run_git(repo_root: Path, args: list[str]) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def git_provenance(repo_root: Path) -> dict[str, Any]:
+    dirty_files = run_git(repo_root, ["status", "--short"]).splitlines()
+    return {
+        "repo_root": str(repo_root),
+        "branch": run_git(repo_root, ["branch", "--show-current"]),
+        "head_commit": run_git(repo_root, ["rev-parse", "HEAD"]),
+        "head_short": run_git(repo_root, ["rev-parse", "--short", "HEAD"]),
+        "dirty": bool(dirty_files),
+        "dirty_files": dirty_files,
+    }
+
+
+def contains_git_or_patch_provenance(value: Any) -> bool:
+    if isinstance(value, dict):
+        if any(str(key) in PROVENANCE_KEYS for key in value):
+            return True
+        return any(contains_git_or_patch_provenance(item) for item in value.values())
+    if isinstance(value, list):
+        return any(contains_git_or_patch_provenance(item) for item in value)
+    return False
+
+
+def manifest_provenance_status(path_text: str) -> str:
+    if not path_text:
+        return "not_applicable_no_manifest"
+    path = Path(path_text)
+    if not path.is_file():
+        return "missing_manifest"
+    data = read_json(path)
+    if contains_git_or_patch_provenance(data):
+        return "has_git_or_patch_provenance"
+    return "missing_git_or_patch_provenance"
+
+
+def annotate_latest_manifest_provenance(rows: list[dict[str, Any]]) -> None:
+    for row in rows:
+        row["latest_manifest_provenance_status"] = manifest_provenance_status(str(row.get("latest_manifest", "")))
 
 
 def hf_source_status_from_row(row: dict[str, Any]) -> str:
@@ -47,23 +112,65 @@ def hf_prediction_status_from_row(row: dict[str, Any]) -> str:
     return ""
 
 
+def hf_final_model_fields(source_status: str, prediction_status: str) -> dict[str, str]:
+    """Return final-source fields for a foundational HF model."""
+    if source_status == "pre_specified_accepted":
+        role = "primary"
+        source = "pre_specified"
+        reason = "pre_specified_source_accepted"
+    elif source_status == "scan_fallback_accepted":
+        role = "fallback_final"
+        source = "scan_fallback"
+        reason = "pre_specified_not_accepted_scan_fallback_accepted"
+    elif source_status == "absent_no_stable_grid":
+        return {
+            "hf_final_model_source": "none",
+            "hf_final_model_role": "no_final_model",
+            "hf_final_model_status": "no_final_model_absent_no_stable_grid",
+            "hf_final_model_selection_reason": "no_stable_hf_source",
+        }
+    else:
+        return {
+            "hf_final_model_source": "",
+            "hf_final_model_role": "",
+            "hf_final_model_status": "",
+            "hf_final_model_selection_reason": "waiting_for_hf_source_resolver",
+        }
+
+    if prediction_status == "error_predictive":
+        status = "final_model_error_predictive"
+    elif prediction_status == "error_nonpredictive":
+        status = "final_model_error_nonpredictive"
+    else:
+        status = "final_model_prediction_not_evaluable"
+    return {
+        "hf_final_model_source": source,
+        "hf_final_model_role": role,
+        "hf_final_model_status": status,
+        "hf_final_model_selection_reason": reason,
+    }
+
+
 def classify_hf_model_state(gate_row: dict[str, Any]) -> dict[str, str]:
     """Classify a foundational HF model from source and prediction status fields."""
     source_status = hf_source_status_from_row(gate_row)
     prediction_status = hf_prediction_status_from_row(gate_row)
+    final_fields = hf_final_model_fields(source_status, prediction_status)
     if source_status in HF_SOURCE_ACCEPTED and prediction_status == "error_predictive":
         return {
             "execution_status": "READY_FOR_NEXT_ROUND",
             "dependency_status": "NONE",
             "formal_resampling_status": "ELIGIBLE_AFTER_SOURCE_RESOLUTION",
             "hf_prediction_validity_status": prediction_status,
+            **final_fields,
         }
     if source_status in HF_SOURCE_ACCEPTED and prediction_status == "error_nonpredictive":
         return {
             "execution_status": "SOURCE_ACCEPTED_ERROR_NONPREDICTIVE",
             "dependency_status": "NONE",
-            "formal_resampling_status": "NOT_SELECTED_FOR_PREDICTIVE_FORMAL",
+            "formal_resampling_status": "NOT_STARTED_FORMAL_RESAMPLING",
             "hf_prediction_validity_status": prediction_status,
+            **final_fields,
         }
     if source_status == "absent_no_stable_grid":
         return {
@@ -71,6 +178,7 @@ def classify_hf_model_state(gate_row: dict[str, Any]) -> dict[str, str]:
             "dependency_status": "NONE",
             "formal_resampling_status": "NOT_APPLICABLE_NO_STABLE_SOURCE",
             "hf_prediction_validity_status": prediction_status or "not_applicable",
+            **final_fields,
         }
 
     # Legacy/current status rows without intended source fields must be refreshed
@@ -92,6 +200,7 @@ def classify_hf_model_state(gate_row: dict[str, Any]) -> dict[str, str]:
         "dependency_status": "NONE",
         "formal_resampling_status": formal_status,
         "hf_prediction_validity_status": prediction_status or "not_evaluable",
+        **final_fields,
     }
 
 
@@ -135,6 +244,10 @@ def classify_ulf_model_state(
         "ulf_source_status": "",
         "ulf_prediction_status": "",
         "ulf_endpoint_model_status": "",
+        "ulf_final_model_branch": "",
+        "ulf_final_model_role": "",
+        "ulf_final_model_status": "",
+        "ulf_final_model_selection_reason": "",
         "mae_model": "",
         "mae_baseline": "",
         "rmse_model": "",
@@ -184,6 +297,10 @@ def classify_c_observed_state(
             "ulf_source_status": "",
             "ulf_prediction_status": "",
             "ulf_endpoint_model_status": "",
+            "ulf_final_model_branch": "",
+            "ulf_final_model_role": "",
+            "ulf_final_model_status": "",
+            "ulf_final_model_selection_reason": "",
             "mae_model": "",
             "mae_baseline": "",
             "rmse_model": "",
@@ -199,6 +316,12 @@ def classify_c_observed_state(
             **endpoint_state,
         }
     endpoint_state = endpoint_state_from_branch(c_outputs, primary_branch, source_key="ulf_voxel_source_status")
+    final_fields = ulf_final_model_fields(
+        c_outputs,
+        primary_branch,
+        endpoint_state,
+        source_key="ulf_voxel_source_status",
+    )
     next_status, formal_status = execution_status_from_endpoint_state(endpoint_state)
     return {
         "execution_status": next_status,
@@ -207,6 +330,7 @@ def classify_c_observed_state(
         "hf_prediction_validity_status": hf_dependency_prediction_status or "not_evaluable",
         "ulf_primary_branch": primary_branch,
         "delta_hfscore_role": delta_role,
+        **final_fields,
         **endpoint_state,
     }
 
@@ -253,6 +377,10 @@ def classify_d_observed_state(
             "ulf_source_status": "",
             "ulf_prediction_status": "",
             "ulf_endpoint_model_status": "",
+            "ulf_final_model_branch": "",
+            "ulf_final_model_role": "",
+            "ulf_final_model_status": "",
+            "ulf_final_model_selection_reason": "",
             "mae_model": "",
             "mae_baseline": "",
             "rmse_model": "",
@@ -268,6 +396,12 @@ def classify_d_observed_state(
             **endpoint_state,
         }
     endpoint_state = endpoint_state_from_branch(d_outputs, primary_branch, source_key="ulf_norm_fiber_source_status")
+    final_fields = ulf_final_model_fields(
+        d_outputs,
+        primary_branch,
+        endpoint_state,
+        source_key="ulf_norm_fiber_source_status",
+    )
     next_status, formal_status = execution_status_from_endpoint_state(endpoint_state)
     return {
         "execution_status": next_status,
@@ -276,6 +410,7 @@ def classify_d_observed_state(
         "hf_prediction_validity_status": hf_dependency_prediction_status or "not_evaluable",
         "ulf_primary_branch": primary_branch,
         "delta_hfscore_role": delta_role,
+        **final_fields,
         **endpoint_state,
     }
 
@@ -296,6 +431,69 @@ def endpoint_state_from_branch(outputs: dict[str, Any], primary_branch: str, *, 
         "rmse_model": metrics.get("rmse_model", ""),
         "rmse_baseline": metrics.get("rmse_baseline", ""),
     }
+
+
+def ulf_final_model_fields(
+    outputs: dict[str, Any],
+    intended_primary_branch: str,
+    endpoint_state: dict[str, Any],
+    *,
+    source_key: str,
+) -> dict[str, str]:
+    """Return the unique final-model branch for a ULF endpoint."""
+    endpoint_status = str(endpoint_state.get("ulf_endpoint_model_status", "") or "")
+    if endpoint_status in {"primary_branch_error_predictive", "primary_branch_error_nonpredictive"}:
+        prediction_status = str(endpoint_state.get("ulf_prediction_status", "") or "")
+        return {
+            "ulf_final_model_branch": intended_primary_branch,
+            "ulf_final_model_role": "primary",
+            "ulf_final_model_status": final_model_status_from_prediction(prediction_status),
+            "ulf_final_model_selection_reason": "hf_derived_intended_primary_executable",
+        }
+    if endpoint_status == "primary_branch_input_failure":
+        fallback = outputs.get("branches", {}).get("no_delta_hf", {})
+        fallback_source = str(fallback.get(source_key, "") or "")
+        fallback_prediction = str(fallback.get("ulf_prediction_status", "") or "")
+        if fallback_source in ULF_SOURCE_ACCEPTED:
+            return {
+                "ulf_final_model_branch": "no_delta_hf",
+                "ulf_final_model_role": "fallback_final",
+                "ulf_final_model_status": final_model_status_from_prediction(fallback_prediction),
+                "ulf_final_model_selection_reason": "intended_primary_input_failure_no_delta_hf_executable",
+            }
+        if fallback_source == "absent_no_stable_grid":
+            status = "no_final_model_absent_no_stable_grid"
+            reason = "intended_primary_input_failure_no_delta_hf_absent_no_stable_grid"
+        else:
+            status = "no_final_model_input_failure"
+            reason = "intended_primary_input_failure_no_executable_fallback"
+        return {
+            "ulf_final_model_branch": "none",
+            "ulf_final_model_role": "no_final_model",
+            "ulf_final_model_status": status,
+            "ulf_final_model_selection_reason": reason,
+        }
+    if endpoint_status == "absent_no_stable_ulf_grid":
+        return {
+            "ulf_final_model_branch": "none",
+            "ulf_final_model_role": "no_final_model",
+            "ulf_final_model_status": "no_final_model_absent_no_stable_grid",
+            "ulf_final_model_selection_reason": "intended_primary_absent_no_stable_ulf_grid",
+        }
+    return {
+        "ulf_final_model_branch": "",
+        "ulf_final_model_role": "",
+        "ulf_final_model_status": "",
+        "ulf_final_model_selection_reason": "waiting_for_endpoint_source_resolution",
+    }
+
+
+def final_model_status_from_prediction(prediction_status: str) -> str:
+    if prediction_status == "error_predictive":
+        return "final_model_error_predictive"
+    if prediction_status == "error_nonpredictive":
+        return "final_model_error_nonpredictive"
+    return "final_model_prediction_not_evaluable"
 
 
 def ulf_endpoint_status(source_status: str, prediction_status: str) -> str:
@@ -894,7 +1092,7 @@ def next_action_for_state(state: dict[str, str]) -> str:
     if execution_status == "READY_FOR_NEXT_ROUND":
         return "run downstream branch-role resolution or smoke resampling before formal loops"
     if execution_status == "SOURCE_ACCEPTED_ERROR_NONPREDICTIVE":
-        return "record source as error-nonpredictive; downstream ULF should use no_delta_hf as primary"
+        return "record final source as error-nonpredictive; downstream ULF should use no_delta_hf as primary"
     if execution_status == "ABSENT_NO_STABLE_GRID":
         return "record no stable HF source; downstream ULF should run no_delta_hf only"
     if execution_status == "OBSERVED_COMPLETE_READY_FOR_ENDPOINT_RESOLVER":
@@ -902,9 +1100,9 @@ def next_action_for_state(state: dict[str, str]) -> str:
     if execution_status == "OBSERVED_COMPLETE_WAITING_FOR_ULF_SOURCE_RESOLVER":
         return "run branch-specific ULF source resolver before endpoint realization or formal resampling"
     if execution_status == "OBSERVED_COMPLETE_PRIMARY_ERROR_PREDICTIVE":
-        return "run formal resampling for the realized primary branch if selected for formal reporting"
+        return "run formal resampling for the final model branch"
     if execution_status == "OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE":
-        return "record realized primary branch as error-nonpredictive; formal reporting is resource/reporting dependent"
+        return "record final model branch as error-nonpredictive; formal resampling attaches to this final model"
     if execution_status == "OBSERVED_COMPLETE_ABSENT_NO_STABLE_ULF_GRID":
         return "record no stable ULF source; do not run formal resampling for this endpoint branch"
     if execution_status == "OBSERVED_COMPLETE_NO_DELTA_PRIMARY":
@@ -932,6 +1130,8 @@ def run_status(args: argparse.Namespace) -> int:
     val_root = Path(args.val_root).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
     rows, manifest_inputs = build_status_rows(val_root)
+    annotate_latest_manifest_provenance(rows)
+    repo_root = Path(args.repo_root).expanduser().resolve()
     csv_path = output_dir / "four_model_execution_status.csv"
     md_path = output_dir / "four_model_execution_status.md"
     manifest_path = output_dir / "four_model_execution_status_manifest.json"
@@ -944,7 +1144,15 @@ def run_status(args: argparse.Namespace) -> int:
         "dependency_status",
         "hf_source_status",
         "hf_prediction_validity_status",
+        "hf_final_model_source",
+        "hf_final_model_role",
+        "hf_final_model_status",
+        "hf_final_model_selection_reason",
         "ulf_primary_branch",
+        "ulf_final_model_branch",
+        "ulf_final_model_role",
+        "ulf_final_model_status",
+        "ulf_final_model_selection_reason",
         "delta_hfscore_role",
         "ulf_source_status",
         "ulf_prediction_status",
@@ -960,6 +1168,7 @@ def run_status(args: argparse.Namespace) -> int:
         "readiness_status",
         "input_summary",
         "latest_manifest",
+        "latest_manifest_provenance_status",
         "next_action",
     ]
     write_csv(csv_path, rows, fieldnames)
@@ -969,6 +1178,7 @@ def run_status(args: argparse.Namespace) -> int:
         {
             "generated_at": iso_now(),
             "val_root": str(val_root),
+            "git_provenance": git_provenance(repo_root),
             "inputs": manifest_inputs,
             "rows": rows,
             "outputs": {"csv": str(csv_path), "markdown": str(md_path), "manifest": str(manifest_path)},
@@ -988,6 +1198,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_VAL_ROOT / "summary/four_model_execution/status"),
         help="Execution status output directory.",
     )
+    parser.add_argument("--repo-root", default=str(default_repo_root()), help="Git worktree root for status provenance.")
     return parser
 
 

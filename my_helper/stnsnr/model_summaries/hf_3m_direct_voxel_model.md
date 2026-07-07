@@ -134,7 +134,7 @@ Coverage_tau(v) = sum_i I[X_HF_only_i(v) > tau]
 Omega_HF_tau = {v in Candidate : Coverage_tau(v) >= 5}
 ```
 
-Continuous `X_HF_only_i(v)` values are used for modeling inside `Omega_HF_tau`; `tau` is only used to define coverage and QC. The Round 2 tau/Coverage resolver first evaluates the pre-specified `tau=200 V/m, Coverage>=5` source and then evaluates the declared scan grid if the pre-specified source is not accepted. Round 7 tau sensitivity is centered on the selected source, using `0.9 * selected_tau` and `1.1 * selected_tau` at `selected_coverage` when those thresholds are valid and supported; it does not assume the selected tau is 200 V/m. `Coverage>=8` / 50% E-field coverage from the reference literature is retained in the reference-coverage checklist, but it is not used as the main rule for this `n=16` cohort.
+Continuous `X_HF_only_i(v)` values are used for modeling inside `Omega_HF_tau`; `tau` is only used to define coverage and QC. The Round 2 tau/Coverage resolver first evaluates the pre-specified `tau=200 V/m, Coverage>=5` source and then evaluates the declared scan grid if the pre-specified source is not accepted. Round 7 tau sensitivity is centered on the final source, using `0.9 * selected_tau` and `1.1 * selected_tau` at `selected_coverage` when those thresholds are valid and supported; it does not assume the selected tau is 200 V/m. `Coverage>=8` / 50% E-field coverage from the reference literature is retained in the reference-coverage checklist, but it is not used as the main rule for this `n=16` cohort.
 
 Coverage masks, voxel maps, HF scores, and validation predictions are computed inside each LOOCV training fold. The held-out patient never contributes to that fold's `Omega_HF_tau` or voxel map.
 
@@ -226,20 +226,20 @@ Missing-data rule: missing `Y_post`, missing `Y_base`, or failed e-field availab
   Q2 = 1 - SSE_HFScore_model / SSE_YBase_only
   ```
 
-- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the formal selected-source analysis. Smoke/exploratory runs use `B=1000`. Formal permutation is run only when the endpoint has an accepted selected source branch. For each permutation, fit the nuisance model `Y_post ~ Y_base`, permute the nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including coverage, map, `HFScore_mean_main`, and prediction. The primary permutation statistic is LOOCV Spearman rho.
+- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the formal final-source analysis. Smoke/exploratory runs use `B=1000`. Formal permutation is run only when the endpoint has an accepted final source branch. For each permutation, fit the nuisance model `Y_post ~ Y_base`, permute the nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including coverage, map, `HFScore_mean_main`, and prediction. The primary permutation statistic is LOOCV Spearman rho.
 - Permutation p value is plus-one two-sided:
 
   ```text
   p = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
   ```
 
-- Subject-level bootstrap uses `B=10000` and seed `42` for the formal selected-source analysis. Smoke/exploratory runs use `B=1000`. Formal bootstrap is run only when the endpoint has an accepted selected source branch. Each bootstrap resample reruns the full map-building process, including `Omega_HF_tau`, and `direct_voxel_HF_bootstrap_se.nii.gz` stores voxel-wise standard deviation of the estimator map.
+- Subject-level bootstrap uses `B=10000` and seed `42` for the formal final-source analysis. Smoke/exploratory runs use `B=1000`. Formal bootstrap is run only when the endpoint has an accepted final source branch. Each bootstrap resample reruns the full map-building process, including `Omega_HF_tau`, and `direct_voxel_HF_bootstrap_se.nii.gz` stores voxel-wise standard deviation of the estimator map.
 
 For non-selected neighborhood branches, LOOCV may be run for reporting, but formal permutation/bootstrap outputs are not generated. Their manifests and QC JSON files must record:
 
 ```text
-resampling_status = not_run_nonprimary
-resampling_reason = formal resampling restricted to the selected source branch
+resampling_status = not_run_nonfinal
+resampling_reason = formal resampling restricted to the final source branch
 ```
 
 
@@ -302,6 +302,31 @@ hf_voxel_prediction_status = not_applicable
   if hf_voxel_source_status = absent_no_stable_grid
 ```
 
+HF final-model source is selected automatically from the source resolver:
+
+```text
+if hf_voxel_source_status = pre_specified_accepted:
+  hf_final_model_source = pre_specified
+  hf_final_model_role = primary
+
+if hf_voxel_source_status = scan_fallback_accepted:
+  hf_final_model_source = scan_fallback
+  hf_final_model_role = fallback_final
+
+if hf_voxel_source_status = absent_no_stable_grid:
+  hf_final_model_source = none
+  hf_final_model_role = no_final_model
+
+hf_final_model_status = final_model_error_predictive
+  if an HF final source exists and hf_voxel_prediction_status = error_predictive
+
+hf_final_model_status = final_model_error_nonpredictive
+  if an HF final source exists and hf_voxel_prediction_status = error_nonpredictive
+
+hf_final_model_status = no_final_model_absent_no_stable_grid
+  if hf_voxel_source_status = absent_no_stable_grid
+```
+
 Downstream ULF rule:
 
 ```text
@@ -325,6 +350,10 @@ Required manifest/QC fields:
 ```text
 hf_voxel_source_status
 hf_voxel_prediction_status
+hf_final_model_source
+hf_final_model_role
+hf_final_model_status
+hf_final_model_selection_reason
 hf_voxel_threshold_source
 selected_tau_v_per_m
 selected_coverage
@@ -369,8 +398,8 @@ The later code implementation should keep image preprocessing and statistical po
 - Python postprocessing in the `leaddbs` Conda environment:
   - read the MAT v7 design matrix or optional NPZ mirror;
   - run LOOCV for all generated tau/estimator branches;
-  - run formal Freedman-Lane permutation and full bootstrap only for endpoints with an accepted selected source branch;
-  - run jitter QC sensitivity only for endpoints with an accepted selected source branch;
+  - run formal Freedman-Lane permutation and full bootstrap only for endpoints with an accepted final source branch;
+  - run jitter QC sensitivity only for endpoints with an accepted final source branch;
   - record optional OLS ANCOVA as not run in the current execution;
   - write CSV/JSON outputs, PDF QC figures, and NIfTI maps with `nibabel`;
   - fill candidate vectors back into the right-hemisphere MNI reference grid.
@@ -385,13 +414,13 @@ Python statistical jobs: 14
 random seed: 42
 ```
 
-Parallel jobs derive deterministic child seeds from seed `42`. MATLAB preprocessing and Python postprocessing run as separate phases to avoid CPU oversubscription. A smoke mode should use `B=1000` permutation/bootstrap resamples and `B=100` jitter resamples for endpoints with an accepted selected source branch.
+Parallel jobs derive deterministic child seeds from seed `42`. MATLAB preprocessing and Python postprocessing run as separate phases to avoid CPU oversubscription. A smoke mode should use `B=1000` permutation/bootstrap resamples and `B=100` jitter resamples for endpoints with an accepted final source branch.
 
 Intermediate audit outputs are retained, including right/flipped exposure products, candidate masks, ROI design matrices, manifests, lock files, and completion markers. Completed outputs are skipped by default; force-rerun options should be available.
 
 ## Downstream Visualization And Outputs
 
-Output root, one folder per scale, selected source or neighborhood cell, and estimator:
+Output root, one folder per scale, final source or neighborhood cell, and estimator:
 
 ```text
 /Volumes/VAL/STNSNr/summary/direct_voxel/hf/<scale_slug>/preprocess/
@@ -418,7 +447,7 @@ direct_voxel_HF_mapping_qc.json
 direct_voxel_HF_generation_manifest.json
 ```
 
-`direct_voxel_HF_bootstrap_se.nii.gz` and `direct_voxel_HF_permutation_summary.csv` are generated only for endpoints with an accepted selected source branch. Non-selected branches omit these files and record `not_run_nonprimary` in their manifest and QC JSON; endpoints with `absent_no_stable_grid` record `not_run_no_stable_source`.
+`direct_voxel_HF_bootstrap_se.nii.gz` and `direct_voxel_HF_permutation_summary.csv` are generated only for endpoints with an accepted final source branch. Non-selected branches omit these files and record `not_run_nonfinal` in their manifest and QC JSON; endpoints with `absent_no_stable_grid` record `not_run_no_stable_source`.
 
 For continuous/statistical NIfTI outputs, voxels outside the model support are written as `NaN`, not `0`. This applies to coefficient, sweet/sour, stability, bootstrap SE, smoothed-display, and homologous-display statistical maps outside `Omega_HF_tau` or outside the right-canonical candidate grid. `0` is reserved for true zero-valued estimates inside support. Integer coverage/count maps and binary display masks remain `0` outside support because their data type and semantics are count/false rather than continuous effect.
 
@@ -428,10 +457,10 @@ Output semantics:
 - `direct_voxel_HF_coef.nii.gz` stores `rho_HF(v)` for the executed `partial_spearman/` estimator. If optional OLS ANCOVA is enabled in a future run, the corresponding `ols_ancova/` file stores `theta_HF(v)`. Use `float32`. No per-voxel FDR is applied.
 - `direct_voxel_HF_sweet_sour.nii.gz` stores benefit-oriented `M_HF(v)`.
 - `direct_voxel_HF_stability.nii.gz` stores the fraction of LOOCV training folds with positive benefit-oriented map value. It is a direction-stability map, not a p-value or thresholded significance map.
-- `direct_voxel_HF_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the selected source branch only. It is not generated when `hf_voxel_source_status = absent_no_stable_grid`.
+- `direct_voxel_HF_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the final source branch only. It is not generated when `hf_voxel_source_status = absent_no_stable_grid`.
 - `direct_voxel_HF_scores.csv` stores patient-level map matching scores. Required fields include `HFScore_mean_main`, `exposure_sum_valid_voxels`, `n_valid_score_voxels`, `score_map_source`, and `is_primary_score`. `HFScore_mean_main` is the only primary prediction score. `HFScore_sum_descriptive` is documented only and is not a required output field.
 - `direct_voxel_HF_loocv_predictions.csv` stores held-out LOOCV predictions, including `HFScore_LOOCV`, true outcome, HFScore-model prediction, covariate-only baseline prediction, and residuals.
-- `direct_voxel_HF_permutation_summary.csv` stores the Freedman-Lane permutation summary for the selected source branch only, including observed LOOCV Spearman rho, plus-one two-sided p value, secondary metrics, and `B`. It is not generated when `hf_voxel_source_status = absent_no_stable_grid`.
+- `direct_voxel_HF_permutation_summary.csv` stores the Freedman-Lane permutation summary for the final source branch only, including observed LOOCV Spearman rho, plus-one two-sided p value, secondary metrics, and `B`. It is not generated when `hf_voxel_source_status = absent_no_stable_grid`.
 - `direct_voxel_HF_mapping_qc.json` stores scale/tau/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_HF_tau` voxel count, low-coverage warning, degenerate voxels, NaN handling, zero-exposure score counts, `corr(HFScore_mean_main, Y_base)`, prediction coefficient signs, optional VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
 - `direct_voxel_HF_generation_manifest.json` stores provenance, including inputs, outputs, parameters, random seed, code version, Conda `leaddbs` environment, Python package state, reference-coverage checklist, and estimator identity.
 
@@ -444,7 +473,7 @@ display_smooth_fwhm2mm/
 
 Generate bilateral homologous display NIfTI files for visualization only by flipping the right canonical map to the left side with `ea_flip_lr_nonlinear` and combining the right statistical map with the flipped left display copy. The bilateral display map is not a separate side-specific statistical model.
 
-Generate report-only display masks for accepted selected source branches. These masks are not significance maps and must not be used for scoring, LOOCV, permutation, or bootstrap:
+Generate report-only display masks for accepted final source branches. These masks are not significance maps and must not be used for scoring, LOOCV, permutation, or bootstrap:
 
 ```text
 sweet_display_mask:
@@ -492,7 +521,7 @@ Empty maps, all-NaN maps, non-finite maps, or obvious path mismatches are input 
 
 ## Spatial Jitter QC Sensitivity
 
-Spatial jitter is an optional robustness stress test applied to the already accepted e-field inputs. It is not an automatic localization/normalization QC procedure and is not an input-validity gate. It is run only for endpoints with an accepted selected source branch.
+Spatial jitter is an optional robustness stress test applied to the already accepted e-field inputs. It is not an automatic localization/normalization QC procedure and is not an input-validity gate. It is run only for endpoints with an accepted final source branch.
 
 ```text
 formal jitter resamples: B = 1000
@@ -519,11 +548,11 @@ Covered and generated:
 raw E-field magnitude model
 Round 2 tau/Coverage resolver scan
 pre-specified source = tau200/Coverage>=5
-accepted selected-source formal reporting when a stable source exists
+accepted final-source formal reporting when a stable source exists
 LOOCV validation
-Freedman-Lane permutation for accepted selected source branches
+Freedman-Lane permutation for accepted final source branches
 partial Spearman voxel association
-subject-level bootstrap for accepted selected source branches
+subject-level bootstrap for accepted final source branches
 left/right flip deformation audit
 report-only top 10% + stability display masks
 2 mm FWHM spatial jitter QC
@@ -533,8 +562,8 @@ report-only top 10% + stability display masks
 Covered but not generated as separate HF direct voxel results:
 
 ```text
-Coverage>=6 standalone sensitivity mainline: not generated separately; Coverage>=6 can still become the selected source if the Round 2 resolver selects that grid cell
-Coverage>=8 / 50% E-field standalone rule: not generated separately; Coverage>=8 can still become the selected source if the Round 2 resolver selects that grid cell
+Coverage>=6 standalone sensitivity mainline: not generated separately; Coverage>=6 can still become the final source if the Round 2 resolver selects that grid cell
+Coverage>=8 / 50% E-field standalone rule: not generated separately; Coverage>=8 can still become the final source if the Round 2 resolver selects that grid cell
 5/7/10-fold CV: documented only; LOOCV is the sole validation design for n=16
 OSS-DBS: not included in the HF direct voxel model
 optional OLS supplemental estimator: documented only; not run in the current execution
@@ -554,7 +583,7 @@ If the source resolver accepts a map but MAE or RMSE does not improve over the `
 
 This section defines implementation-level rules to increase project-level computational efficiency for the HF direct voxel analysis. These rules change only how computations are scheduled, cached, vectorized, and written to disk. They do not change the statistical estimands, validation design, output semantics, file naming, or interpretation of any `direct_voxel_HF_*` output.
 
-The optimized implementation must preserve the logical full-process semantics described above. In particular, LOOCV training folds still define their own `Omega_HF_tau`, voxel maps, HF scores, and held-out predictions. Formal Freedman-Lane permutation and subject-level bootstrap still use `B=10000` and seed `42` for accepted selected source branches. Smoke runs still use `B=1000` for permutation/bootstrap and `B=100` for jitter. The optimized implementation may reuse mathematically invariant cached subcomputations, but it must not use full-sample ranks, full-sample training masks, approximate ranks, adaptive early stopping, changed declared tau/Coverage settings, changed estimators, or reduced formal resampling counts to gain speed.
+The optimized implementation must preserve the logical full-process semantics described above. In particular, LOOCV training folds still define their own `Omega_HF_tau`, voxel maps, HF scores, and held-out predictions. Formal Freedman-Lane permutation and subject-level bootstrap still use `B=10000` and seed `42` for accepted final source branches. Smoke runs still use `B=1000` for permutation/bootstrap and `B=100` for jitter. The optimized implementation may reuse mathematically invariant cached subcomputations, but it must not use full-sample ranks, full-sample training masks, approximate ranks, adaptive early stopping, changed declared tau/Coverage settings, changed estimators, or reduced formal resampling counts to gain speed.
 
 ### Equivalence Contract
 
@@ -564,7 +593,7 @@ The following quantities are part of the executable statistical definition and m
 declared tau scan grid = 100, 150, 180, 200, 220, 250, 300, 350, 400, 500 V/m
 declared Coverage scan grid = 5, 6, 7, 8, 10, 12
 pre-specified source = tau200/Coverage>=5
-selected source = resolver-selected tau/Coverage grid cell
+final source = resolver-selected tau/Coverage grid cell
 LOOCV patient split
 primary estimator = baseline-adjusted partial Spearman
 optional supplemental estimator = OLS ANCOVA, not run in the current execution
@@ -695,7 +724,7 @@ M_HF_h(v) =  rho_HF_h(v)   for higher-is-better scales
 
 ### Fold-Level Score Operator For Permutation
 
-Formal Freedman-Lane permutation for an accepted selected source branch should use a fold-level score operator.
+Formal Freedman-Lane permutation for an accepted final source branch should use a fold-level score operator.
 
 Within a fixed LOOCV fold, the following quantities are independent of the permuted outcome:
 
@@ -803,7 +832,7 @@ No subject-loop by voxel-loop implementation is allowed for formal runs.
 
 ### Bootstrap Efficiency
 
-Subject-level bootstrap remains a full-process map stability analysis for accepted selected source branches. It still uses `B=10000` and seed `42`.
+Subject-level bootstrap remains a full-process map stability analysis for accepted final source branches. It still uses `B=10000` and seed `42`.
 
 However, bootstrap must reuse exposure-derived caches whenever possible.
 
@@ -845,7 +874,7 @@ The final `direct_voxel_HF_bootstrap_se.nii.gz` stores the voxel-wise standard d
 
 ### Spatial Jitter Efficiency
 
-Spatial jitter is run only for accepted selected source branches and keeps the existing formal and smoke settings:
+Spatial jitter is run only for accepted final source branches and keeps the existing formal and smoke settings:
 
 ```text
 formal jitter resamples = 1000
@@ -914,21 +943,21 @@ Recommended scheduling order:
 ```text
 1. MATLAB/Lead-DBS preprocessing and sidecar cache generation
 2. all-endpoint observed LOOCV and tau/Coverage resolver scan
-3. accepted selected-source smoke permutation/bootstrap/jitter; absent endpoints skip this step
-4. accepted selected-source formal permutation; absent endpoints skip this step
-5. accepted selected-source formal bootstrap; absent endpoints skip this step
-6. accepted selected-source neighborhood observed LOOCV; absent endpoints skip this step
+3. accepted final-source smoke permutation/bootstrap/jitter; absent endpoints skip this step
+4. accepted final-source formal permutation; absent endpoints skip this step
+5. accepted final-source formal bootstrap; absent endpoints skip this step
+6. accepted final-source neighborhood observed LOOCV; absent endpoints skip this step
 7. optional OLS ANCOVA supplemental branches only if explicitly enabled in a future run
 8. display smoothing, bilateral display maps, PDF QC, and final manifests
 ```
 
-Resolver-input failures should be fixed before selected-source reporting and neighborhood sensitivity branches are launched.
+Resolver-input failures should be fixed before final-source reporting and neighborhood sensitivity branches are launched.
 
 ### Intermediate File Policy
 
 Formal loops must not write fold, permutation, bootstrap, or jitter intermediate maps unless a debug flag is explicitly enabled.
 
-For endpoints with an accepted selected source, default formal outputs remain the existing documented outputs:
+For endpoints with an accepted final source, default formal outputs remain the existing documented outputs:
 
 ```text
 direct_voxel_HF_coverage.nii.gz
@@ -1199,7 +1228,7 @@ delta_min
 delta_max
 ```
 
-Generate per endpoint with an accepted selected source:
+Generate per endpoint with an accepted final source:
 
 ```text
 direct_voxel_HF_coverage.nii.gz
@@ -1275,19 +1304,19 @@ deterministic equivalence / regression test:
   compare brute-force vs optimized
 
 smoke permutation:
-  accepted selected endpoint/source branch
+  accepted final endpoint/source branch
   B = 1000
   Freedman-Lane
   full LOOCV recomputation semantics
   statistic = LOOCV Spearman rho
 
 smoke bootstrap:
-  accepted selected endpoint/source branch
+  accepted final endpoint/source branch
   B = 1000
   streaming SE summary
 
 smoke jitter:
-  accepted selected endpoint/source branch
+  accepted final endpoint/source branch
   B = 100
   FWHM = 2 mm
 ```
@@ -1313,7 +1342,7 @@ Stop and fix implementation only if optimized and brute-force paths are not equi
 
 ### Round 4: Formal Permutation Reporting
 
-Run only for endpoints with an accepted selected source.
+Run only for endpoints with an accepted final source.
 
 Run:
 
@@ -1362,7 +1391,7 @@ For this cohort, do not use a permutation p value, `Q2`, or LOOCV rho sign to re
 
 ### Round 5: Formal Bootstrap
 
-Run only for endpoints with an accepted selected source.
+Run only for endpoints with an accepted final source.
 
 Run:
 
@@ -1404,7 +1433,7 @@ If map direction flips frequently or is supported by only a small subset of boot
 
 ### Round 6: Formal Spatial Jitter
 
-Run only for endpoints with an accepted selected source.
+Run only for endpoints with an accepted final source.
 
 Run:
 
@@ -1460,13 +1489,13 @@ absent_no_stable_grid:
   skip Round 7; report no stable source in Round 8
 ```
 
-If `0.9 * selected_tau` or `1.1 * selected_tau` is outside the available exposure sidecar support or has no computable coverage, record that sensitivity branch as not computable. These tau-sensitivity branches are not fallback candidates and cannot replace the selected source. Coverage-neighborhood summaries may be reported separately using adjacent Coverage cells at `selected_tau`, but they are secondary support diagnostics.
+If `0.9 * selected_tau` or `1.1 * selected_tau` is outside the available exposure sidecar support or has no computable coverage, record that sensitivity branch as not computable. These tau-sensitivity branches are not fallback candidates and cannot replace the final source. Coverage-neighborhood summaries may be reported separately using adjacent Coverage cells at `selected_tau`, but they are secondary support diagnostics.
 
 Do not run formal permutation or formal bootstrap for tau-sensitivity or coverage-neighborhood cells. Non-selected manifests must record:
 
 ```text
-resampling_status = not_run_nonprimary
-resampling_reason = formal resampling restricted to the selected source branch
+resampling_status = not_run_nonfinal
+resampling_reason = formal resampling restricted to the final source branch
 ```
 
 Selected-source sensitivity reports:
@@ -1484,10 +1513,10 @@ Omega size changes across tau-sensitivity branches
 Interpretation:
 
 ```text
-tau-sensitivity branches agree with the selected source:
+tau-sensitivity branches agree with the final source:
   supports local threshold robustness
 
-only the selected source has usable support:
+only the final source has usable support:
   report the source as threshold-sensitive
 
 tau-sensitivity maps reverse direction or lose support:
@@ -1496,7 +1525,7 @@ tau-sensitivity maps reverse direction or lose support:
 
 ### Round 8: All-Endpoint Summary, Display, PDF QC, And Final Manifests
 
-Run after endpoint resolver fields are complete. For accepted endpoints, also wait for selected-source reporting fields; for `absent_no_stable_grid` endpoints, use the absent QC/manifest row.
+Run after endpoint resolver fields are complete. For accepted endpoints, also wait for final-source reporting fields; for `absent_no_stable_grid` endpoints, use the absent QC/manifest row.
 
 ```text
 accepted endpoint display outputs:
@@ -1563,7 +1592,7 @@ The first practical run should cover only:
 Round 0
 Round 1
 Round 2
-Round 3 smoke only if an accepted selected source exists
+Round 3 smoke only if an accepted final source exists
 ```
 
 Concrete first-batch scope:
@@ -1577,10 +1606,10 @@ HFScore_mean_main
 LOOCV
 Y_base-only comparison
 equivalence test
-smoke permutation B=1000 if an accepted selected source exists
-smoke bootstrap B=1000 if an accepted selected source exists
-smoke jitter B=100 if an accepted selected source exists
+smoke permutation B=1000 if an accepted final source exists
+smoke bootstrap B=1000 if an accepted final source exists
+smoke jitter B=100 if an accepted final source exists
 basic QC JSON + manifest
 ```
 
-Only after this batch passes and an accepted selected source exists should that endpoint proceed to `B=10000` formal permutation and bootstrap.
+Only after this batch passes and an accepted final source exists should that endpoint proceed to `B=10000` formal permutation and bootstrap.

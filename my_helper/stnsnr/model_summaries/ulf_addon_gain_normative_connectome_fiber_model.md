@@ -299,7 +299,7 @@ and fold-specific DeltaHFScore inputs are invalid:
   intended_primary_branch = delta_hf_adjusted
   ulf_primary_branch = delta_hf_adjusted
   delta_hfscore_role = primary_input_failure
-  no_delta_hf_role   = fallback_sensitivity
+  no_delta_hf_role   = fallback_final_if_executable
 ```
 
 The ULF implementation runs both core branches when inputs permit:
@@ -309,7 +309,7 @@ ulf_peak_efield_tau800_cov5_delta_hf_adjusted
 ulf_peak_efield_tau800_cov5_no_delta_hf
 ```
 
-When `intended_primary_branch = delta_hf_adjusted` but `DeltaHFScore` inputs are invalid, the primary branch is not executable. The endpoint primary status remains `primary_branch_input_failure`; `no_delta_hf` may still be evaluated and reported only as `fallback_sensitivity_no_delta_hf`.
+When `intended_primary_branch = delta_hf_adjusted` but `DeltaHFScore` inputs are invalid, the HF-derived primary branch is not executable. The endpoint primary status remains `primary_branch_input_failure`; if `no_delta_hf` is executable, it becomes the endpoint's fallback final model.
 
 Required branch-role manifest fields:
 
@@ -324,16 +324,20 @@ hf_norm_fiber_selected_adjacent_passing_grid_cells
 intended_primary_branch
 ulf_primary_branch
 ulf_primary_branch_run_status
+ulf_final_model_branch
+ulf_final_model_role
+ulf_final_model_status
+ulf_final_model_selection_reason
 ulf_core_branches_run
 ulf_sensitivity_branches
-fallback_sensitivity_branch
-ulf_fallback_sensitivity_status
+fallback_final_branch
+ulf_fallback_final_status
 delta_hfscore_role
 branch_role_decision_reason
 hf_model_support_status
 ```
 
-If the matched HF resolver returns `absent_no_stable_grid`, the DeltaHF-adjusted branch is not run for that endpoint and `no_delta_hf` is the intended primary branch. If the HF-derived intended primary branch is `delta_hf_adjusted` but accepted HF support cannot provide valid fold-specific `DeltaHFScore`, do not silently promote `no_delta_hf` to primary; record `ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure` and report `no_delta_hf` only as fallback sensitivity if it is executable.
+If the matched HF resolver returns `absent_no_stable_grid`, the DeltaHF-adjusted branch is not run for that endpoint and `no_delta_hf` is the intended primary branch. If the HF-derived intended primary branch is `delta_hf_adjusted` but accepted HF support cannot provide valid fold-specific `DeltaHFScore`, do not relabel `no_delta_hf` as the HF-derived primary branch; record `ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure` and, if `no_delta_hf` is executable, set `ulf_final_model_branch = no_delta_hf` and `ulf_final_model_role = fallback_final`.
 
 ## 5. Feature Construction
 
@@ -773,7 +777,7 @@ M_ULF_noDeltaHF(l) = -rho_ULF_noDeltaHF(l)   for lower-is-better scales
 M_ULF_noDeltaHF(l) =  rho_ULF_noDeltaHF(l)   for higher-is-better scales
 ```
 
-This branch is the intended primary branch when the matched HF normative fiber source is absent or `error_nonpredictive`. It may also be reported as fallback sensitivity when the intended DeltaHF-adjusted primary branch has input/design failure.
+This branch is the intended primary branch when the matched HF normative fiber source is absent or `error_nonpredictive`. It also becomes the fallback final model when the intended DeltaHF-adjusted primary branch has input/design failure and `no_delta_hf` is executable.
 
 ### 9.2 Patient-level NetULFFiberScore
 
@@ -853,7 +857,7 @@ Y_post_i = alpha
          + error_i
 ```
 
-Primary validation statistic for the realized primary model:
+Primary validation statistic for the final model:
 
 ```text
 LOOCV Spearman rho between held-out predicted Y_post and held-out observed Y_post
@@ -976,37 +980,46 @@ ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
   e-field, DeltaHFScore, or nuisance-design inputs are invalid
 ```
 
-Fallback sensitivity status is used only when the intended primary branch has input/design failure. Ordinary non-primary branch comparisons remain sensitivity analyses but are not fallback. Fallback sensitivity must not replace the endpoint primary status:
+Final-model status is assigned after endpoint primary realization. Ordinary non-final branch comparisons remain sensitivity analyses and are not fallback. If the intended primary branch has input/design failure, executable `no_delta_hf` becomes the fallback final model:
 
 ```text
-ulf_fallback_sensitivity_status = not_needed
-  if ulf_norm_fiber_endpoint_model_status is not primary_branch_input_failure
+if ulf_norm_fiber_endpoint_model_status in
+  {primary_branch_error_predictive, primary_branch_error_nonpredictive}:
+    ulf_final_model_branch = intended_primary_branch
+    ulf_final_model_role = primary
 
-ulf_fallback_sensitivity_status = no_delta_hf_error_predictive
+ulf_final_model_branch = no_delta_hf
+ulf_final_model_role = fallback_final
   if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
   and no_delta_hf has an accepted ULF source
-  and no_delta_hf has ulf_norm_fiber_prediction_status = error_predictive
 
-ulf_fallback_sensitivity_status = no_delta_hf_error_nonpredictive
+ulf_final_model_branch = none
+ulf_final_model_role = no_final_model
   if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
-  and no_delta_hf has an accepted ULF source
-  but no_delta_hf has ulf_norm_fiber_prediction_status = error_nonpredictive
-
-ulf_fallback_sensitivity_status = no_delta_hf_absent_no_stable_grid
-  if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
-  and no_delta_hf has ulf_norm_fiber_source_status = absent_no_stable_grid
-
-ulf_fallback_sensitivity_status = no_delta_hf_input_failure
-  if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
-  and no_delta_hf cannot be evaluated because its branch-specific inputs
-  or nuisance design are invalid
+  and no_delta_hf is not executable
 ```
 
-The realized primary ULF normative fiber model is fully defined only when the intended primary branch has an accepted ULF source:
+The final model status is assigned from the final branch:
 
 ```text
-realized_primary_model =
-  endpoint + phase + intended_primary_branch
+ulf_final_model_status = final_model_error_predictive
+  if the final branch has an accepted ULF source and error_predictive status
+
+ulf_final_model_status = final_model_error_nonpredictive
+  if the final branch has an accepted ULF source and error_nonpredictive status
+
+ulf_final_model_status = no_final_model_absent_no_stable_grid
+  if no final branch has a stable ULF source
+
+ulf_final_model_status = no_final_model_input_failure
+  if no final branch is executable because required inputs or nuisance design fail
+```
+
+The final ULF normative fiber model is unique for each endpoint. Non-final branch outputs can be retained as sensitivity/comparison outputs, but formal permutation, bootstrap, jitter, and OSS attach to `ulf_final_model_branch`:
+
+```text
+ulf_final_model =
+  endpoint + phase + ulf_final_model_branch
   + selected_tau + selected_coverage + estimator
 ```
 
@@ -1015,7 +1028,7 @@ realized_primary_model =
 
 ### 10.1 Non-selected core branch comparison
 
-Purpose: compare executable non-primary core branches against the realized primary model without changing endpoint primary status.
+Purpose: compare executable non-final core branches against the final model without changing endpoint primary status.
 
 ```text
 if intended_primary_branch = delta_hf_adjusted
@@ -1026,8 +1039,9 @@ if intended_primary_branch = no_delta_hf
 and no_delta_hf has an accepted ULF source:
   comparison branch = delta_hf_adjusted, if DeltaHFScore inputs are valid
 
-if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure:
-  no_delta_hf may be reported only as fallback sensitivity
+if ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
+and no_delta_hf is executable:
+  no_delta_hf is the fallback final model
 ```
 
 No-DeltaHF branch name:
@@ -1042,7 +1056,7 @@ DeltaHF-adjusted branch name:
 ulf_peak_efield_tau800_cov5_delta_hf_adjusted
 ```
 
-The non-primary core branch receives observed LOOCV outputs but does not receive formal `B=10000` resampling unless explicitly promoted.
+The non-final core branch receives observed LOOCV outputs but does not receive formal `B=10000` resampling unless explicitly promoted.
 
 ### 10.2 HF Source-Neighborhood DeltaHFScore Sensitivity
 
@@ -1221,7 +1235,7 @@ DeltaHFScore source definition
 Candidate inheritance:
 
 ```text
-oss_candidate_source_branch = realized_primary_model_id
+oss_candidate_source_branch = ulf_final_model_id
 oss_inherited_tau_v_per_m = realized_primary_selected_tau_v_per_m
 oss_inherited_coverage = realized_primary_selected_coverage
 F_candidate_ULF_OSS = F_candidate_ULF_selected_tau_selected_coverage
@@ -1388,18 +1402,18 @@ always run when inputs permit:
   ulf_peak_efield_tau800_cov5_no_delta_hf
 ```
 
-The branch-role resolver records the intended primary branch before ULF source resolution. Formal resampling follows the accepted selected source of the realized primary model unless a secondary endpoint or sensitivity is explicitly promoted before running formal inference.
+The branch-role resolver records the intended primary branch before ULF source resolution. Formal resampling follows the final model's accepted source. A separately declared co-primary endpoint may receive its own automatically selected final model, but a sensitivity branch does not replace the final model.
 
 
 ## 12. Permutation, Bootstrap, And Threshold-Scan Inference
 
 ### 12.1 Freedman-Lane permutation
 
-Formal permutation is restricted to the dTOR accepted selected source of the realized primary model unless another endpoint is explicitly promoted.
+Formal permutation is restricted to the dTOR final model's accepted source for each endpoint included in formal reporting.
 
 ```text
 connectome = dTOR
-branch = realized_primary_model_id
+branch = ulf_final_model_branch at its accepted final source
 formal B = 10000
 smoke B = 1000
 seed = 42
@@ -1442,7 +1456,7 @@ Therefore, within a fixed outer fold and fixed HF model cache, `DeltaHFScore` ma
 
 ### 12.2 Subject-level bootstrap
 
-Formal bootstrap is restricted to the dTOR accepted selected source of the realized primary model unless another endpoint is explicitly promoted.
+Formal bootstrap is restricted to the dTOR final model's accepted source for each endpoint included in formal reporting.
 
 ```text
 formal B = 10000
@@ -1512,7 +1526,7 @@ Only nested/adaptive validation or an independent dataset can support the predic
 ## 13. Plain Controls And Burden QC
 
 
-Plain control models are branch-specific. When the realized primary model is no-DeltaHF, omit `DeltaHFScore` from the plain-control nuisance set. When the DeltaHF-adjusted branch is tested, include the same `DeltaHFScore` source and role label used by that branch.
+Plain control models are branch-specific. When the final model is no-DeltaHF, omit `DeltaHFScore` from the plain-control nuisance set. When the DeltaHF-adjusted branch is tested, include the same `DeltaHFScore` source and role label used by that branch.
 
 ### 13.1 ULF-only plain connected-streamline control
 
@@ -1670,10 +1684,10 @@ scale_slug
 branch
 branch_role
 intended_primary_branch
-realized_primary_model_id
+ulf_final_model_id
 delta_hfscore_role
-fallback_sensitivity_branch
-ulf_fallback_sensitivity_status
+fallback_final_branch
+ulf_fallback_final_status
 hf_source_status
 hf_source_prediction_status
 hf_source_threshold_source
@@ -1716,10 +1730,10 @@ scale_slug
 branch
 branch_role
 intended_primary_branch
-realized_primary_model_id
+ulf_final_model_id
 delta_hfscore_role
-fallback_sensitivity_branch
-ulf_fallback_sensitivity_status
+fallback_final_branch
+ulf_fallback_final_status
 score_map_source
 Y_post
 Y_HF_ref
@@ -2065,7 +2079,8 @@ hf_norm_fiber_prediction_status = error_predictive
 and DeltaHFScore inputs are invalid:
   intended_primary_branch = delta_hf_adjusted
   ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure
-  fallback_sensitivity_branch = no_delta_hf
+  ulf_final_model_branch = no_delta_hf, if executable
+  ulf_final_model_role = fallback_final, if executable
 ```
 
 For each executable endpoint row and branch, run the tau/Coverage source resolver:
@@ -2129,7 +2144,7 @@ Proceed to Round 4 only if `PlainULFOnlyExposureTop5` is computable for accepted
 
 ### Round 4: dTOR Realized-Primary Smoke Resampling
 
-Run for dTOR accepted selected sources of realized primary models selected for smoke/formal reporting:
+Run for dTOR accepted final models:
 
 ```text
 Freedman-Lane smoke permutation B=1000
@@ -2153,7 +2168,7 @@ ulf_delta_hf_from_hf_neighbor_source_sensitivity, if a locked HF source-neighbor
 PPMI -> MGH -> dTOR
 ```
 
-Do not run formal permutation/bootstrap for these branches unless the endpoint row or sensitivity branch is explicitly promoted for formal reporting.
+Do not run formal permutation/bootstrap for these branches. Formal inference is reserved for the endpoint's automatically selected final model.
 
 ### Round 6: Selected-Source Exposure-Definition Neighborhood Sensitivity
 
@@ -2174,20 +2189,20 @@ absent_no_stable_grid:
 
 Tau-neighborhood sensitivity cannot replace the selected source.
 
-### Round 7: dTOR Realized-Primary Formal Resampling
+### Round 7: dTOR Final-Model Formal Resampling
 
 Run only:
 
 ```text
 connectome = dTOR
-branch = accepted selected source of realized primary model
-endpoint rows = realized primary endpoint rows selected for formal reporting
+branch = ulf_final_model_branch at its accepted final source
+endpoint rows = endpoint rows with an accepted final model
 formal permutation B=10000
 formal bootstrap B=10000
 seed = 42
 ```
 
-Proceed to Round 8 after Round 7 either completes formal resampling or records that no formal realized-primary model is available for the endpoint row.
+Proceed to Round 8 after Round 7 either completes formal resampling or records that no final model is available for the endpoint row.
 
 If formal resampling completes, manifests record:
 
@@ -2199,7 +2214,7 @@ resampling_status = formal_complete
 
 Run after the dTOR realized-primary model has completed formal resampling for the endpoint row. If the endpoint row has no completed formal realized-primary model, record `ulf_oss_sensitivity_status = not_run_no_formal_realized_primary`.
 
-OSS is activation-model robustness evidence and does not alter the realized primary model, ULF source status, prediction status, endpoint status, or DeltaHFScore source.
+OSS is activation-model robustness evidence and does not alter the final model, ULF source status, prediction status, endpoint status, or DeltaHFScore source.
 
 Run:
 
@@ -2271,15 +2286,15 @@ Generate display outputs only after numeric branches are locked. Display, FDR, l
 
 ## 17. Interpretation Boundary
 
-Interpret the realized primary model according to `ulf_norm_fiber_endpoint_model_status`.
+Interpret the final model according to `ulf_norm_fiber_endpoint_model_status`.
 
-If `ulf_norm_fiber_endpoint_model_status = primary_branch_error_predictive` and the realized primary model is DeltaHF-adjusted:
+If `ulf_norm_fiber_endpoint_model_status = primary_branch_error_predictive` and the final model is DeltaHF-adjusted:
 
 ```text
 After accounting for the patient's same-day/pre-ULF HF clinical state and a model-supported HF-component change score, ULF-only engagement of this outcome-filtered normative streamline profile is associated with post-HF+ULF clinical outcome.
 ```
 
-If `ulf_norm_fiber_endpoint_model_status = primary_branch_error_predictive` or `primary_branch_error_nonpredictive` and the realized primary model is no-DeltaHF:
+If `ulf_norm_fiber_endpoint_model_status = primary_branch_error_predictive` or `primary_branch_error_nonpredictive` and the final model is no-DeltaHF:
 
 ```text
 After accounting for the patient's same-day/pre-ULF HF clinical state, ULF-only engagement of this normative streamline profile is associated with post-HF+ULF clinical outcome. DeltaHFScore-adjusted results, when computable, are sensitivity analyses.
@@ -2288,7 +2303,7 @@ After accounting for the patient's same-day/pre-ULF HF clinical state, ULF-only 
 If `ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure`:
 
 ```text
-The intended primary model could not be evaluated because required inputs failed. Any no-DeltaHF result is fallback sensitivity and must not be labeled primary.
+The HF-derived intended primary model could not be evaluated because required inputs failed. If no-DeltaHF is executable, it is the endpoint's fallback final model and must be labeled `ulf_final_model_role = fallback_final`, not HF-derived primary.
 ```
 
 Do not interpret as:
@@ -2300,7 +2315,7 @@ HF-overlap streamlines have no ULF biological role.
 HF out-of-support exposure has no effect.
 Every selected streamline is patient-specific.
 The result proves an anatomical SNr gain mechanism.
-A fallback sensitivity result can be relabeled as primary or replace the failed intended primary model.
+A non-final sensitivity result can replace the automatically selected final model.
 A ULF tau/Coverage neighborhood sensitivity replaces the selected source.
 ```
 

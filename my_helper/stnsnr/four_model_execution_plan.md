@@ -162,6 +162,27 @@ B normative fiber prediction status:
   not_applicable
 ```
 
+A and B also resolve one final HF source per endpoint:
+
+```text
+if source status is pre_specified_accepted:
+  hf_final_model_source = pre_specified
+  hf_final_model_role = primary
+
+if source status is scan_fallback_accepted:
+  hf_final_model_source = scan_fallback
+  hf_final_model_role = fallback_final
+
+if source status is absent_no_stable_grid:
+  hf_final_model_source = none
+  hf_final_model_role = no_final_model
+
+hf_final_model_status =
+  final_model_error_predictive
+  final_model_error_nonpredictive
+  no_final_model_absent_no_stable_grid
+```
+
 ### C/D ULF Branch Role Resolution
 
 C and D must not be treated as blocked simply because the matched HF model is not predictive under its model-specific vocabulary. Their engineering implementation should run both core branches whenever inputs allow:
@@ -215,8 +236,31 @@ if matched B normative fiber source is absent_no_stable_grid:
 
 if the HF-derived intended primary branch is delta_hf_adjusted but DeltaHFScore inputs fail:
   endpoint status = primary_branch_input_failure
-  no_delta_hf may be reported only as fallback sensitivity
+  no_delta_hf becomes the fallback final model if it is executable
+  if no_delta_hf is also not executable, record no final ULF model for that endpoint
 ```
+
+Each C/D endpoint has exactly one final reporting model after endpoint
+classification:
+
+```text
+if the HF-derived intended primary branch is executable:
+  ulf_final_model_branch = ulf_primary_branch
+  ulf_final_model_role = primary
+
+if the HF-derived intended primary branch has input/design failure
+and no_delta_hf is executable:
+  ulf_final_model_branch = no_delta_hf
+  ulf_final_model_role = fallback_final
+
+if neither the intended primary branch nor fallback no_delta_hf is executable:
+  ulf_final_model_branch = none
+  ulf_final_model_role = no_final_model
+```
+
+The final model is unique for reporting and downstream formal resampling.
+Non-final branches may still be retained as sensitivity outputs, but they are
+not co-primary and do not define the endpoint's final model.
 
 Manifests for C/D must record:
 
@@ -234,6 +278,10 @@ hf_norm_fiber_selected_tau_v_per_m, for D/B normative fiber dependencies
 hf_norm_fiber_selected_coverage, for D/B normative fiber dependencies
 hf_norm_fiber_selected_adjacent_passing_grid_cells, for D/B normative fiber dependencies
 hf_norm_fiber_source_failure_reasons, for D/B normative fiber dependencies
+hf_final_model_source, for A/B foundational HF models
+hf_final_model_role, for A/B foundational HF models
+hf_final_model_status, for A/B foundational HF models
+hf_final_model_selection_reason, for A/B foundational HF models
 ulf_voxel_source_status, for C direct-voxel branch status
 ulf_voxel_prediction_status, for C direct-voxel branch status
 ulf_endpoint_model_status, for C direct-voxel endpoint status
@@ -244,6 +292,9 @@ ulf_branch_input_status, for C direct-voxel branch status
 branch_nuisance_design_status, for C direct-voxel branches
 intended_primary_branch
 ulf_primary_branch
+ulf_final_model_branch
+ulf_final_model_role
+ulf_final_model_status
 ulf_core_branches_run
 delta_hfscore_role
 delta_hfscore_allowed_role
@@ -521,16 +572,19 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
 
 ### Immediate Next Steps
 
-1. Keep C/D formal resampling, gain endpoints, total-ULF sensitivity, all-endpoint
-   reporting, OSS, jitter, and figure-grade outputs deferred until the selected
-   reporting branches are explicitly chosen.
+1. Use the endpoint classification to select the final unique reporting model
+   automatically. Formal resampling, OSS, jitter, and figure-grade outputs
+   attach to `ulf_final_model_branch`; if the intended primary branch has
+   input/design failure, the executable fallback no-DeltaHF branch becomes the
+   final model.
 2. Any additional executable patch to resolver, branch-role, DeltaHFScore,
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
 
 ### Deferred Expensive Work
 
-Run these only after the relevant resolver/status fields identify the branch to report:
+Run these only after the relevant resolver/status fields identify the final
+unique model branch:
 
 ```text
 formal B=10000 permutation
@@ -869,7 +923,7 @@ A has current direct-voxel source/prediction status; B has current normative-fib
 C and D have both delta_hf_adjusted and no_delta_hf outputs when inputs allow.
 Each model records which branch is interpretation-primary and why.
 Every branch has QC JSON, manifest JSON, predictions CSV, and score CSV.
-Formal resampling is tied to the resolver-selected reporting branch.
+Formal resampling is tied to the resolver-selected final unique model branch.
 Fallback-selected thresholds are explicitly labeled as scan-fallback sources and are never relabeled as pre-specified sources.
 The final report states n=16 and hypothesis-generating interpretation.
 All affected outputs and consolidated status files have been rerun after the latest executable patch.

@@ -216,10 +216,10 @@ if hf_voxel_prediction_status = error_predictive
 and fold-specific DeltaHFScore inputs are invalid:
   ulf_primary_branch = delta_hf_adjusted
   delta_hfscore_role = primary_input_failure
-  no_delta_hf_role   = fallback_sensitivity
+  no_delta_hf_role   = fallback_final
 ```
 
-When `ulf_primary_branch = delta_hf_adjusted` but `DeltaHFScore` inputs are invalid, the primary branch is not executable. The endpoint primary status remains `primary_branch_input_failure`; `no_delta_hf` may still be evaluated and reported only as `fallback_sensitivity_no_delta_hf`.
+When `ulf_primary_branch = delta_hf_adjusted` but `DeltaHFScore` inputs are invalid, the HF-derived primary branch is not executable. The endpoint primary status remains `primary_branch_input_failure`; if `no_delta_hf` is executable, it becomes the endpoint's fallback final model rather than a non-final sensitivity result.
 
 The branch-role decision must be written to the model manifest:
 
@@ -232,16 +232,20 @@ hf_voxel_selected_coverage
 hf_voxel_selected_adjacent_passing_grid_cells
 ulf_primary_branch
 ulf_primary_branch_run_status
+ulf_final_model_branch
+ulf_final_model_role
+ulf_final_model_status
+ulf_final_model_selection_reason
 ulf_core_branches_run
 ulf_sensitivity_branches
-fallback_sensitivity_branch
-ulf_fallback_sensitivity_status
+fallback_final_branch
+ulf_fallback_final_status
 delta_hfscore_role
 branch_role_decision_reason
 hf_model_support_status
 ```
 
-If the matched HF resolver returns `absent_no_stable_grid`, the DeltaHF-adjusted branch is not run for that endpoint and `no_delta_hf` is the primary branch. If the HF-derived primary branch is `delta_hf_adjusted` but accepted HF support cannot provide valid fold-specific `DeltaHFScore`, do not silently promote `no_delta_hf` to primary; record `ulf_endpoint_model_status = primary_branch_input_failure` and report `no_delta_hf` only as fallback sensitivity if it is executable. A `scan_fallback_accepted` HF source may define the intended primary ULF branch when its `hf_voxel_prediction_status` is `error_predictive`, but the manifest must still record `hf_voxel_threshold_source = scan_fallback`.
+If the matched HF resolver returns `absent_no_stable_grid`, the DeltaHF-adjusted branch is not run for that endpoint and `no_delta_hf` is the primary branch. If the HF-derived primary branch is `delta_hf_adjusted` but accepted HF support cannot provide valid fold-specific `DeltaHFScore`, do not relabel `no_delta_hf` as the HF-derived primary branch; record `ulf_endpoint_model_status = primary_branch_input_failure` and, if `no_delta_hf` is executable, set `ulf_final_model_branch = no_delta_hf` and `ulf_final_model_role = fallback_final`. A `scan_fallback_accepted` HF source may define the intended primary ULF branch when its `hf_voxel_prediction_status` is `error_predictive`, but the manifest must still record `hf_voxel_threshold_source = scan_fallback`.
 
 ## ULF Voxel Source And Prediction Resolver
 
@@ -381,37 +385,30 @@ ulf_endpoint_model_status = primary_branch_input_failure
   HF-source, DeltaHFScore, or nuisance-design inputs are invalid
 ```
 
-Fallback sensitivity status is used only when the intended primary branch has input/design failure. Ordinary non-primary branch comparisons remain sensitivity analyses but are not fallback. Fallback sensitivity must not replace the endpoint primary status:
+Final-model status is assigned after endpoint primary realization. Ordinary non-final branch comparisons remain sensitivity analyses and are not fallback. If the intended primary branch has input/design failure, executable `no_delta_hf` becomes the fallback final model:
 
 ```text
-ulf_fallback_sensitivity_status = not_needed
-  if ulf_endpoint_model_status is not primary_branch_input_failure
+if ulf_endpoint_model_status in
+  {primary_branch_error_predictive, primary_branch_error_nonpredictive}:
+    ulf_final_model_branch = intended_primary_branch
+    ulf_final_model_role = primary
 
-ulf_fallback_sensitivity_status = no_delta_hf_error_predictive
+ulf_final_model_branch = no_delta_hf
+ulf_final_model_role = fallback_final
   if ulf_endpoint_model_status = primary_branch_input_failure
   and no_delta_hf has an accepted ULF source
-  and no_delta_hf has ulf_voxel_prediction_status = error_predictive
 
-ulf_fallback_sensitivity_status = no_delta_hf_error_nonpredictive
+ulf_final_model_branch = none
+ulf_final_model_role = no_final_model
   if ulf_endpoint_model_status = primary_branch_input_failure
-  and no_delta_hf has an accepted ULF source
-  but no_delta_hf has ulf_voxel_prediction_status = error_nonpredictive
-
-ulf_fallback_sensitivity_status = no_delta_hf_absent_no_stable_grid
-  if ulf_endpoint_model_status = primary_branch_input_failure
-  and no_delta_hf has ulf_voxel_source_status = absent_no_stable_grid
-
-ulf_fallback_sensitivity_status = no_delta_hf_input_failure
-  if ulf_endpoint_model_status = primary_branch_input_failure
-  and no_delta_hf cannot be evaluated because its branch-specific inputs
-  or nuisance design are invalid
+  and no_delta_hf is not executable
 ```
 
-The realized primary ULF model is fully defined only when the intended primary branch has an accepted ULF source:
+The final ULF model is unique for each endpoint:
 
 ```text
-realized_primary_model =
-  endpoint + phase + intended_primary_branch
+ulf_final_model =
+  endpoint + phase + ulf_final_model_branch
   + selected_tau + selected_coverage + estimator
 ```
 
@@ -423,7 +420,7 @@ Required ULF resolver manifest/QC fields:
 ulf_voxel_source_status
 ulf_voxel_prediction_status
 ulf_endpoint_model_status
-ulf_fallback_sensitivity_status
+ulf_fallback_final_status
 ulf_branch_input_status
 ulf_voxel_threshold_source
 ulf_voxel_selected_tau_v_per_m
@@ -431,10 +428,10 @@ ulf_voxel_selected_coverage
 ulf_voxel_selected_adjacent_passing_grid_cells
 ulf_voxel_selected_grid_distance_from_pre_specified
 intended_primary_branch
-realized_primary_model_id
-fallback_sensitivity_branch
-fallback_sensitivity_source_status
-fallback_sensitivity_prediction_status
+ulf_final_model_id
+fallback_final_branch
+fallback_final_source_status
+fallback_final_prediction_status
 branch_nuisance_design_status
 branch_nuisance_design_rank_full
 branch_nuisance_design_rank_min_fold
@@ -736,7 +733,7 @@ rho_ULF_noDeltaHF(v) =
   )
 ```
 
-This branch is not intrinsically secondary. It is the intended primary branch when the matched HF voxel source exists but `hf_voxel_prediction_status = error_nonpredictive`, and it is the only primary branch when the matched HF voxel source is absent. When HF is `error_predictive` but `DeltaHFScore` inputs are invalid, it may be reported as `fallback_sensitivity_no_delta_hf`. Otherwise, it reports how much the ULF map depends on the model-derived HF adjustment.
+This branch is not intrinsically secondary. It is the intended primary branch when the matched HF voxel source exists but `hf_voxel_prediction_status = error_nonpredictive`, and it is the only primary branch when the matched HF voxel source is absent. When HF is `error_predictive` but `DeltaHFScore` inputs are invalid, it may be reported as `fallback_final_no_delta_hf`. Otherwise, it reports how much the ULF map depends on the model-derived HF adjustment.
 
 ### Gain Endpoint Sensitivity Estimator
 
@@ -863,7 +860,7 @@ Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, or failed e-field avail
   Q2 = 1 - SSE_ULFScore_model / SSE_covariate_only
   ```
 
-- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the accepted selected source of the realized primary model. Smoke/exploratory runs use `B=1000`. Formal permutation is run only when that realized primary model has `ulf_voxel_source_status` equal to `pre_specified_accepted` or `scan_fallback_accepted`, unless the immediate endpoint is explicitly promoted to co-primary.
+- Patient-level Freedman-Lane permutation uses `B=10000` and random seed `42` for the final model's accepted source. Smoke/exploratory runs use `B=1000`. Formal permutation is run only when that final model has `ulf_voxel_source_status` equal to `pre_specified_accepted` or `scan_fallback_accepted`, unless the immediate endpoint is explicitly promoted to co-primary.
 - For each permutation, fit the branch-specific nuisance model, permute nuisance residuals, reconstruct `Y*`, and rerun the full LOOCV pipeline including branch-specific nuisance inputs, ULF coverage, ULF map, `ULFScore_mean_main`, and prediction. The primary permutation statistic is LOOCV Spearman rho.
 - Permutation p value is plus-one two-sided:
 
@@ -871,13 +868,13 @@ Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, or failed e-field avail
   p = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
   ```
 
-- Subject-level bootstrap uses `B=10000` and seed `42` for the accepted selected source of the realized primary model. Smoke/exploratory runs use `B=1000`. Each bootstrap resample reruns the full branch-specific map-building process, including `DeltaHFScore` and HF support QC only for the DeltaHF-adjusted branch, `Omega_ULF_tau_coverage`, and `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores voxel-wise standard deviation of the estimator map.
+- Subject-level bootstrap uses `B=10000` and seed `42` for the final model's accepted source. Smoke/exploratory runs use `B=1000`. Each bootstrap resample reruns the full branch-specific map-building process, including `DeltaHFScore` and HF support QC only for the DeltaHF-adjusted branch, `Omega_ULF_tau_coverage`, and `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores voxel-wise standard deviation of the estimator map.
 
-For non-primary executable branches, non-selected tau/Coverage cells, gain endpoint sensitivity, total-ULF sensitivity, fallback sensitivity, and immediate endpoints unless co-primary, LOOCV may be run for reporting, but formal permutation/bootstrap outputs are not generated. Branches with no stable ULF source also omit formal resampling. Their manifests and QC JSON files must record:
+For non-final executable branches, non-selected tau/Coverage cells, gain endpoint sensitivity, total-ULF sensitivity, and immediate endpoints unless co-primary, LOOCV may be run for reporting, but formal permutation/bootstrap outputs are not generated. Branches with no stable ULF source also omit formal resampling. Their manifests and QC JSON files must record:
 
 ```text
-resampling_status = not_run_nonprimary | not_run_no_stable_source
-resampling_reason = formal resampling restricted to accepted selected-source realized primary model unless endpoint promoted to co-primary
+resampling_status = not_run_nonfinal | not_run_no_stable_source
+resampling_reason = formal resampling restricted to accepted final model unless endpoint promoted to co-primary
 ```
 
 ## Execution Structure
@@ -975,7 +972,7 @@ direct_voxel_ULF_only_generation_manifest.json
 
 Selected-source NIfTI, score, and LOOCV prediction outputs are generated only for branches with `ulf_voxel_source_status` equal to `pre_specified_accepted` or `scan_fallback_accepted`. Endpoints or branches with `absent_no_stable_grid` generate only resolver scan tables plus QC/manifest rows.
 
-`direct_voxel_ULF_only_bootstrap_se.nii.gz` and `direct_voxel_ULF_only_permutation_summary.csv` are generated only for the accepted selected source of the realized primary model. Non-primary branches omit these files and record `not_run_nonprimary` in their manifest and QC JSON. Branches with no stable source record `not_run_no_stable_source`.
+`direct_voxel_ULF_only_bootstrap_se.nii.gz` and `direct_voxel_ULF_only_permutation_summary.csv` are generated only for the final model's accepted source. Non-final branches omit these files and record `not_run_nonfinal` in their manifest and QC JSON. Branches with no stable source record `not_run_no_stable_source`.
 
 For continuous/statistical NIfTI outputs, voxels outside the model support are written as `NaN`, not `0`. This applies to coefficient, sweet/sour, stability, bootstrap SE, HF-overlap fraction, smoothed-display, and homologous-display statistical maps outside `Omega_ULF_tau_coverage` or outside the right-canonical candidate grid. `0` is reserved for true zero-valued estimates inside support. Integer coverage/count maps and binary/exclusion display masks remain `0` outside support because their data type and semantics are count/false rather than continuous effect.
 
@@ -985,13 +982,13 @@ Output semantics:
 - `direct_voxel_ULF_only_coef.nii.gz` stores `rho_ULF(v)` for the executed `partial_spearman/` estimator. Optional future OLS outputs would store `theta_ULF(v)`.
 - `direct_voxel_ULF_only_sweet_sour.nii.gz` stores benefit-oriented `M_ULF(v)`. Positive values indicate ULF-only benefit-associated voxels.
 - `direct_voxel_ULF_only_stability.nii.gz` stores LOOCV training-fold direction stability of `M_ULF(v)>0` or `M_ULF(v)<0`, depending on display class. It is not a p value.
-- `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the accepted selected source of the realized primary model only.
-- `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `intended_primary_branch`, `realized_primary_model_id`, `delta_hfscore_role`, `fallback_sensitivity_branch`, `ulf_fallback_sensitivity_status`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_component_coverage_out_support_fraction`, `delta_hfscore_support_status`, `score_map_source`, `n_valid_score_voxels`, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, and `is_primary_score`.
+- `direct_voxel_ULF_only_bootstrap_se.nii.gz` stores full-process bootstrap standard deviation of the estimator map for the final model's accepted source only.
+- `direct_voxel_ULF_only_scores.csv` stores patient-level scores, including `branch`, `branch_role`, `intended_primary_branch`, `ulf_final_model_id`, `delta_hfscore_role`, `fallback_final_branch`, `ulf_fallback_final_status`, `ULFScore_mean_main`, `DeltaHFScore` when applicable, `Y_HF_ref`, `HF_component_coverage_out_support_fraction`, `delta_hfscore_support_status`, `score_map_source`, `n_valid_score_voxels`, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, and `is_primary_score`.
 - `direct_voxel_ULF_only_loocv_predictions.csv` stores held-out predictions, observed raw outcome, branch-specific nuisance-only prediction, `ULFScore_mean_main`, `DeltaHFScore` when applicable, DeltaHFScore support fields, `MAE_nuisance_baseline`, `RMSE_nuisance_baseline`, and residuals.
-- `direct_voxel_ULF_only_permutation_summary.csv` stores Freedman-Lane permutation summary for the accepted selected source of the realized primary model only.
+- `direct_voxel_ULF_only_permutation_summary.csv` stores Freedman-Lane permutation summary for the final model's accepted source only.
 - HF-overlap files store subject-level and cohort-level voxels excluded from the ULF-only predictor because ULF is active at the ULF source tau and HF is active under the locked HF-overlap rule. If no HF source exists, `tau_HF_overlap = +Inf` and the overlap mask is all false.
 - DeltaHFScore support files store the in-support and out-of-support HF+ULF HF-component suprathreshold coverage used to determine whether `DeltaHFScore` is within the learned HF model support.
-- `direct_voxel_ULF_only_mapping_qc.json` stores endpoint/tau/Coverage/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_ULF_tau_coverage` voxel count, HF-overlap exclusion volume, DeltaHFScore delta-support adequacy, degenerate voxels, NaN handling, zero-exposure score counts, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, `ulf_fallback_sensitivity_status`, `ulf_branch_input_status`, `branch_nuisance_design_status`, `corr(ULFScore_mean_main, Y_HF_ref)`, `corr(ULFScore_mean_main, DeltaHFScore)`, `corr(Y_HF_ref, DeltaHFScore)`, coefficient signs, VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
+- `direct_voxel_ULF_only_mapping_qc.json` stores endpoint/tau/Coverage/estimator QC, including patient inclusion, candidate mask size, coverage distribution, `Omega_ULF_tau_coverage` voxel count, HF-overlap exclusion volume, DeltaHFScore delta-support adequacy, degenerate voxels, NaN handling, zero-exposure score counts, `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, `ulf_fallback_final_status`, `ulf_branch_input_status`, `branch_nuisance_design_status`, `corr(ULFScore_mean_main, Y_HF_ref)`, `corr(ULFScore_mean_main, DeltaHFScore)`, `corr(Y_HF_ref, DeltaHFScore)`, coefficient signs, VIF or equivalent collinearity diagnostics, flip deformation audit metrics, and design-matrix dimensions.
 - `direct_voxel_ULF_only_generation_manifest.json` stores provenance, parameters, code version, conda environment, package state, random seeds, visit labels, same-day immediate reference confirmation, component-proxy labels, HF-derived branch role fields, ULF resolver fields, and runtime profile.
 
 Primary statistical maps are unsmoothed. Display smoothing is generated only after coefficient estimation and must not be used for ULFScore, LOOCV, permutation, bootstrap, or jitter:
@@ -1032,7 +1029,7 @@ Empty images, all-NaN images, non-finite values, missing paths, and obvious path
 
 ## Spatial Jitter QC Sensitivity
 
-Spatial jitter is a robustness stress test applied to accepted e-field inputs. It is not an automatic localization/normalization QC procedure and is not an input-validity gate. It is run only for the selected realized primary model unless an endpoint is explicitly promoted to co-primary.
+Spatial jitter is a robustness stress test applied to accepted e-field inputs. It is not an automatic localization/normalization QC procedure and is not an input-validity gate. It is run only for the selected final model unless an endpoint is explicitly promoted to co-primary.
 
 ```text
 formal jitter resamples: B = 1000
@@ -1059,9 +1056,9 @@ declared tau scan grid = 100, 150, 180, 200, 220, 250, 300, 350, 400, 500 V/m
 declared Coverage scan grid = 5, 6, 7, 8, 10, 12
 branch-specific partial Spearman
 LOOCV
-Freedman-Lane permutation for accepted selected-source realized primary model
-subject-level bootstrap for accepted selected-source realized primary model
-2 mm FWHM spatial jitter QC for accepted selected-source realized primary model
+Freedman-Lane permutation for accepted final model
+subject-level bootstrap for accepted final model
+2 mm FWHM spatial jitter QC for accepted final model
 display smoothing FWHM 1 mm and 2 mm, display only
 ```
 
@@ -1104,7 +1101,7 @@ DeltaHFScore fully removes all HF contribution when HF component reprogramming c
 
 ## Execution Efficiency
 
-The optimized implementation must preserve the logical full-process semantics described above. In particular, LOOCV training folds still define their own HF adjustment map, `DeltaHFScore`, HF support QC, `Omega_ULF_tau_coverage`, ULF voxel map, ULF scores, and held-out predictions. Formal Freedman-Lane permutation and subject-level bootstrap still use `B=10000` and seed `42` for accepted selected-source realized primary models. Smoke runs use `B=1000` for permutation/bootstrap and `B=100` for jitter.
+The optimized implementation must preserve the logical full-process semantics described above. In particular, LOOCV training folds still define their own HF adjustment map, `DeltaHFScore`, HF support QC, `Omega_ULF_tau_coverage`, ULF voxel map, ULF scores, and held-out predictions. Formal Freedman-Lane permutation and subject-level bootstrap still use `B=10000` and seed `42` for accepted final models. Smoke runs use `B=1000` for permutation/bootstrap and `B=100` for jitter.
 
 ### Equivalence Contract
 
@@ -1194,7 +1191,7 @@ rank(Y_HF_ref_train)
 
 ### Fold-Level Score Operator For Permutation
 
-Formal Freedman-Lane permutation for the accepted selected-source realized primary model may use a fold-level score operator, but it must remain logically equivalent to recomputing the full ULF map and `ULFScore_mean_main` for every permuted outcome.
+Formal Freedman-Lane permutation for the accepted final model may use a fold-level score operator, but it must remain logically equivalent to recomputing the full ULF map and `ULFScore_mean_main` for every permuted outcome.
 
 Each permutation must have its own:
 
@@ -1210,7 +1207,7 @@ LOOCV statistic
 
 ### Bootstrap Efficiency
 
-Subject-level bootstrap remains a full-process map stability analysis for the accepted selected-source realized primary model. It must rebuild bootstrap `DeltaHFScore`, HF support QC, `Omega_ULF_tau_coverage`, `rho_ULF`, and `M_ULF`. Bootstrap SE is accumulated by streaming Welford updates. The implementation must not store 10000 bootstrap maps.
+Subject-level bootstrap remains a full-process map stability analysis for the accepted final model. It must rebuild bootstrap `DeltaHFScore`, HF support QC, `Omega_ULF_tau_coverage`, `rho_ULF`, and `M_ULF`. Bootstrap SE is accumulated by streaming Welford updates. The implementation must not store 10000 bootstrap maps.
 
 ### Spatial Jitter Efficiency
 
@@ -1364,7 +1361,7 @@ if hf_voxel_prediction_status == error_predictive:
   ulf_primary_branch = delta_hf_adjusted
   if DeltaHFScore inputs are invalid:
     ulf_endpoint_model_status = primary_branch_input_failure
-    fallback_sensitivity_branch = no_delta_hf
+    fallback_final_branch = no_delta_hf
 
 if hf_voxel_prediction_status == error_nonpredictive:
   intended_primary_branch = no_delta_hf
@@ -1474,7 +1471,7 @@ For `scan_fallback_accepted`, choose the fallback grid without using `Q2`, rho, 
 5. prefer higher tau
 ```
 
-Generate per endpoint/phase/branch with an accepted selected source:
+Generate per endpoint/phase/branch with an accepted final source:
 
 ```text
 direct_voxel_ULF_only_coverage.nii.gz
@@ -1489,7 +1486,7 @@ direct_voxel_ULF_only_generation_manifest.json
 
 For branches with `absent_no_stable_grid`, do not generate selected-source NIfTI maps, score files, LOOCV prediction files, permutation summaries, bootstrap maps, or jitter outputs. Generate only resolver scan tables plus a branch-level QC/manifest row recording `ulf_voxel_source_status = absent_no_stable_grid` and `ulf_voxel_prediction_status = not_applicable`.
 
-Endpoint primary realization then combines `intended_primary_branch` with that branch's own scan result. A non-primary branch may have an accepted source even when the intended primary branch fails; it remains sensitivity or fallback sensitivity and does not replace primary:
+Endpoint final-model realization first evaluates the HF-derived `intended_primary_branch`. If that branch is executable, it is the endpoint's final model. If the intended primary branch has input/design failure, `no_delta_hf` becomes the fallback final model when executable. A non-final branch may still be retained as sensitivity/comparison output, but it does not define the endpoint's final model:
 
 ```text
 ulf_endpoint_model_status = primary_branch_error_predictive
@@ -1508,25 +1505,44 @@ ulf_endpoint_model_status = primary_branch_input_failure
   if the intended primary branch cannot be evaluated because required inputs are invalid
 ```
 
-When `ulf_endpoint_model_status = primary_branch_input_failure`, assign fallback sensitivity from the `no_delta_hf` branch if it is executable:
+Final model fields are then assigned as:
 
 ```text
-ulf_fallback_sensitivity_status =
-  no_delta_hf_error_predictive
-  no_delta_hf_error_nonpredictive
-  no_delta_hf_absent_no_stable_grid
-  no_delta_hf_input_failure
+if ulf_endpoint_model_status in
+  {primary_branch_error_predictive, primary_branch_error_nonpredictive}:
+    ulf_final_model_branch = intended_primary_branch
+    ulf_final_model_role = primary
+
+if ulf_endpoint_model_status = primary_branch_input_failure
+and no_delta_hf has an accepted ULF source:
+    ulf_final_model_branch = no_delta_hf
+    ulf_final_model_role = fallback_final
+
+if ulf_endpoint_model_status = absent_no_stable_ulf_grid
+or no_delta_hf fallback is also not executable:
+    ulf_final_model_branch = none
+    ulf_final_model_role = no_final_model
 ```
 
-When `ulf_endpoint_model_status` is not `primary_branch_input_failure`, set:
+The final model status is assigned from the final branch:
 
 ```text
-ulf_fallback_sensitivity_status = not_needed
+ulf_final_model_status = final_model_error_predictive
+  if the final branch has an accepted ULF source and error_predictive status
+
+ulf_final_model_status = final_model_error_nonpredictive
+  if the final branch has an accepted ULF source and error_nonpredictive status
+
+ulf_final_model_status = no_final_model_absent_no_stable_grid
+  if no final branch has a stable ULF source
+
+ulf_final_model_status = no_final_model_input_failure
+  if no final branch is executable because required inputs or nuisance design fail
 ```
 
-Permutation p values, LOOCV rho, `Q2`, bootstrap stability, and jitter stability are inference-strength or robustness fields. They do not change `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, `ulf_fallback_sensitivity_status`, or the HF-derived `ulf_primary_branch`.
+Permutation p values, LOOCV rho, `Q2`, bootstrap stability, and jitter stability are inference-strength or robustness fields. They do not change `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, `ulf_final_model_branch`, `ulf_final_model_role`, `ulf_final_model_status`, or the HF-derived `ulf_primary_branch`.
 
-If Round 2 assigns `absent_no_stable_grid` to the intended primary branch, skip Round 3 through Round 7 for that endpoint/branch and proceed directly to Round 8 summary/manifest reporting. If the intended primary branch has `primary_branch_input_failure`, still report any executable `no_delta_hf` fallback sensitivity from Round 2, but do not label it as primary.
+If Round 2 assigns `absent_no_stable_grid` to the intended primary branch and no fallback final model exists, skip Round 3 through Round 7 for that endpoint/branch and proceed directly to Round 8 summary/manifest reporting. If the intended primary branch has `primary_branch_input_failure`, use any executable `no_delta_hf` fallback as the final unique model for downstream formal reporting.
 
 ### Round 2b: Same-Day Immediate Observed LOOCV
 
@@ -1548,7 +1564,7 @@ branch = partial_spearman_gain_endpoint
 
 ### Round 3: Equivalence And Smoke Reporting
 
-Run only for accepted selected-source realized primary models:
+Run only for accepted final models:
 
 ```text
 deterministic equivalence test
@@ -1561,7 +1577,7 @@ Formal reporting analyses require optimized and brute-force paths to match, smok
 
 ### Round 4: Formal Permutation Reporting
 
-Run only for the accepted selected source of the realized primary model:
+Run only for the final model's accepted source:
 
 ```text
 source = ulf_voxel_selected_tau_v_per_m / ulf_voxel_selected_coverage
@@ -1575,7 +1591,7 @@ Permutation, p value, LOOCV rho, and `Q2` are inference-strength fields. They do
 
 ### Round 5: Formal Bootstrap
 
-Run only for the accepted selected source of the realized primary model:
+Run only for the final model's accepted source:
 
 ```text
 source = ulf_voxel_selected_tau_v_per_m / ulf_voxel_selected_coverage
@@ -1588,7 +1604,7 @@ Bootstrap finite counts, core sign stability, and empty-map frequency are robust
 
 ### Round 6: Formal Spatial Jitter
 
-Run only for the accepted selected source of the realized primary model:
+Run only for the final model's accepted source:
 
 ```text
 source = ulf_voxel_selected_tau_v_per_m / ulf_voxel_selected_coverage
@@ -1621,15 +1637,15 @@ If `0.9 * selected_tau` or `1.1 * selected_tau` is outside the available exposur
 Do not run formal permutation or formal bootstrap for tau-sensitivity or coverage-neighborhood cells. Non-selected manifests must record:
 
 ```text
-resampling_status = not_run_nonprimary
+resampling_status = not_run_nonfinal
 resampling_reason = selected-source neighborhood sensitivity only
 ```
 
 ### Round 8: Additional Sensitivities And Endpoint Summary
 
-Run after endpoint resolver fields are complete. For accepted realized primary models, also wait for selected-source reporting fields; for `absent_no_stable_grid` intended primary branches, use the absent QC/manifest row. For `primary_branch_input_failure`, include the primary failure reason plus any available `no_delta_hf` fallback sensitivity summary without relabeling it as primary.
+Run after endpoint resolver fields are complete. For accepted final models, also wait for final-source reporting fields; for `absent_no_stable_grid` with no fallback final model, use the absent QC/manifest row. For `primary_branch_input_failure`, include the primary failure reason and promote any executable `no_delta_hf` fallback to `ulf_final_model_role = fallback_final`.
 
-Accepted realized primary model sensitivities:
+Accepted final model sensitivities:
 
 ```text
 non-selected core branch comparison
@@ -1639,13 +1655,13 @@ DeltaHFScore delta-support sensitivity when support limitation is nontrivial
 Y_base-added collinearity sensitivity if baseline data are complete
 ```
 
-Primary input-failure fallback reporting:
+Primary input-failure fallback final reporting:
 
 ```text
-no_delta_hf fallback sensitivity source/prediction status
+no_delta_hf fallback final source/prediction status
 no_delta_hf fallback selected tau/Coverage when accepted
 fallback observed LOOCV predictions and scores when available
-fallback formal resampling status = not_run_nonprimary
+fallback formal resampling status follows ulf_final_model_branch
 ```
 
 The `Y_base`-added sensitivity is:
@@ -1667,14 +1683,14 @@ hf_voxel_source_status
 hf_voxel_prediction_status
 intended_primary_branch
 ulf_primary_branch
-realized_primary_model_id
+ulf_final_model_id
 ulf_voxel_source_status
 ulf_voxel_prediction_status
 ulf_endpoint_model_status
-ulf_fallback_sensitivity_status
-fallback_sensitivity_branch
-fallback_sensitivity_source_status
-fallback_sensitivity_prediction_status
+ulf_fallback_final_status
+fallback_final_branch
+fallback_final_source_status
+fallback_final_prediction_status
 selected_tau_v_per_m
 selected_coverage
 selected_adjacent_passing_grid_cells
@@ -1713,7 +1729,7 @@ Round 0
 Round 1
 Round 2 chronic observed LOOCV and source resolver
 Round 2b immediate observed LOOCV and source resolver, if same-day immediate data are complete
-Round 3 smoke only for accepted selected-source realized primary models
+Round 3 smoke only for accepted final models
 ```
 
 Concrete first-batch scope:
@@ -1727,17 +1743,17 @@ ULF-only exposure
 HF-overlap exclusion
 DeltaHFScore-adjusted branch when HF source exists and DeltaHFScore inputs are valid
 no-DeltaHF branch
-no-DeltaHF fallback sensitivity when the intended DeltaHF-adjusted primary branch has input failure
+no-DeltaHF fallback final model when the intended DeltaHF-adjusted primary branch has input failure
 DeltaHFScore delta-support QC when DeltaHFScore is used
 ULFScore_mean_main
 LOOCV
 branch-specific nuisance-baseline comparison
 equivalence test
-smoke permutation B=1000 for accepted selected-source realized primary models
-smoke bootstrap B=1000 for accepted selected-source realized primary models
-smoke jitter B=100 for accepted selected-source realized primary models
+smoke permutation B=1000 for accepted final models
+smoke bootstrap B=1000 for accepted final models
+smoke jitter B=100 for accepted final models
 resolver scan tables
 basic QC JSON + manifest
 ```
 
-Only after this batch passes and an accepted selected source exists should that endpoint proceed to `B=10000` formal permutation and bootstrap.
+Only after this batch passes and an accepted final source exists should that endpoint proceed to `B=10000` formal permutation and bootstrap.

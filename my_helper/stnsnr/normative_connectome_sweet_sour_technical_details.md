@@ -626,7 +626,7 @@ direct_voxel_HF_mapping_qc.json
 direct_voxel_HF_generation_manifest.json
 ```
 
-`direct_voxel_HF_bootstrap_se.nii.gz` and `direct_voxel_HF_permutation_summary.csv` are generated only for `tau200/partial_spearman`. Non-primary branches record `resampling_status = not_run_nonprimary` in the manifest/QC JSON instead of writing placeholder resampling files.
+`direct_voxel_HF_bootstrap_se.nii.gz` and `direct_voxel_HF_permutation_summary.csv` are generated only for `tau200/partial_spearman`. Non-final branches record `resampling_status = not_run_nonfinal` in the manifest/QC JSON instead of writing placeholder resampling files.
 
 `direct_voxel_HF_scores.csv` must identify `HFScore_mean_main` as the primary score. `HFScore_sum_descriptive` is documented only and is not a required output field. Report-only sweet/sour display masks use the top 10% same-sign `M_HF` voxels plus direction-specific stability `>=0.75`; they are not significance maps.
 
