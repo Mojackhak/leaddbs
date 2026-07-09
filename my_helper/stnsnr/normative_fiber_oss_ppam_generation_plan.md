@@ -4,7 +4,7 @@
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Parent goal.** `my_helper/stnsnr/four_model_execution_plan.md`
 > **Authoritative model specs.** `my_helper/stnsnr/model_summaries/`
-> **Status.** Input audit/worklist, parameter preflight, and row-level activation harness implemented; full B_DTOR/D_DTOR parameter preflight passes 64/64 rows; first B_DTOR/D_DTOR row-level activation smoke rows reach `pathway_activation_complete`; no final branch OSS sidecars generated yet.
+> **Status.** Input audit/worklist, parameter preflight, and row-level activation harness implemented; full B_DTOR/D_DTOR parameter preflight passes 64/64 rows; full B_DTOR/D_DTOR row-level activation reaches `pathway_activation_complete` for 64/64 rows; no final branch OSS sidecars have been merged yet.
 
 ---
 
@@ -223,6 +223,17 @@ Recommended command:
   --max-rows 2
 ```
 
+The command above is a smoke/probe form. The current full row-level execution
+uses:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_activation_rows.py \
+  --max-rows 0 \
+  --stop-after-step all \
+  --pathway-timeout-s 120
+```
+
 This runner still does not write final branch readiness files:
 
 ```text
@@ -234,7 +245,10 @@ oss_activation_sidecar_metadata.json
 Those final branch files are written only after all required subject-side-source
 rows for a branch have completed pPAM activation and have been projected onto
 the selected-source candidate fiber id order with the declared
-`max_probability_union` merge rule.
+`max_probability_union` merge rule. Row-level `pathway_activation_complete`
+therefore proves that the OSS/pPAM row calculation finished; it does not by
+itself prove that the branch-level `X_oss_float32_fiber_major.npy` sidecar is
+ready.
 
 Required row-level outputs:
 
@@ -249,6 +263,33 @@ row*/run_pathway_activation_stdout.log
 row*/run_pathway_activation_stderr.log
 row*/oss_activation_row_status.json
 ```
+
+Required merge-bookkeeping output for each completed row:
+
+```text
+row*/oss_local_to_candidate_fiber_mapping.csv
+```
+
+This file must map the OSS filtered local axon/status index back to the
+selected-source candidate fiber id order. Required fields:
+
+```text
+row_index
+model_id
+subject_id
+side
+filtered_stimulation_folder
+local_axon_index
+filtered_local_fiber_id
+source_local_fiber_id
+selected_candidate_fiber_id
+candidate_column_index
+oss_fiber_ids_path
+```
+
+The branch merge layer must not infer candidate-fiber alignment from the
+filtered connectome `idx` vector alone. That vector stores filtered local fiber
+point counts, not the selected-source candidate fiber ids.
 
 Row status vocabulary:
 
@@ -266,6 +307,20 @@ timeout_or_interrupted
 If a long-running command is interrupted, record the partial status and keep
 the output directory for resume/debugging. Do not mark the row complete unless
 the expected success marker or activation output exists.
+
+Current execution checkpoint:
+
+```text
+normative_fiber_oss_activation_row_summary.csv rows = 64
+B_DTOR rows = 32
+D_DTOR rows = 32
+row_status = pathway_activation_complete for 64/64 rows
+code provenance = clean stnvop commit 6e5c4aa3d
+```
+
+The remaining branch-level blocker is not row execution. It is the merge layer:
+complete local-to-candidate mapping files and a locked interpretation of the
+OSS `Status`/p(A) output are required before writing canonical branch sidecars.
 
 Preflight outputs live outside the final branch preprocess directory until they
 pass validation. They do not create:
@@ -930,7 +985,11 @@ No Python tests or model runs are required for the documentation-only pass.
 
 ## Assumptions
 
-- This pass documents the plan only; it does not generate OSS sidecars.
+- This document is the OSS/pPAM sidecar contract. Row-level OSS outputs may
+  exist under the workflow summary directory, but final branch sidecar readiness
+  requires `X_oss_float32_fiber_major.npy`, `oss_parameter_manifest.json`, and
+  `oss_activation_sidecar_metadata.json` under the final branch preprocess
+  directory.
 - OSS sidecar generation is limited to final dTOR normative fiber branches.
 - Canonical OSS exposure uses right-canonical fiber columns with left activation mapped to right-canonical ids.
 - Canonical hemisphere/source merge rule is `max_probability_union`.

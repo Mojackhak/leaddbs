@@ -102,6 +102,7 @@ dTOR normative-fiber formal jitter: B_DTOR and D_DTOR complete at B=1000, seed=4
 dTOR normative-fiber OSS sensitivity readiness: not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit: B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; D_DTOR has 6 recovered derivatives ULF source-path rows for SNr003/SNr006/SNr007
 dTOR normative-fiber OSS parameter preflight: 64/64 rows parameter_preflight_passed; B_DTOR 32 rows and D_DTOR 32 rows; MATLAB parameter dictionaries and leaddbs2ossdbs converter smoke return code 0; converter JSON frequency patched from source S frequency where needed
+dTOR normative-fiber OSS row-level activation: 64/64 B_DTOR/D_DTOR rows pathway_activation_complete; branch-level X_oss sidecar merge still pending
 normative-fiber basic density and connected-region label caches: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches: B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS sensitivity results remain not run because final branch OSS sidecar inputs are still absent
@@ -249,22 +250,20 @@ right-canonical selected-source candidates, and `prepareaxonmodel` completed in
 about one second after the filtered folder included `OSS_sim_files_lh`.
 
 The row-level activation runner now implements that filtered-folder behavior by
-default. A bounded B_DTOR/D_DTOR `--stop-after-step prepareaxonmodel` run
-completed `prepareaxonmodel` for the first B_DTOR and D_DTOR rows: B_DTOR
-filtered 298,142 local fibers down to 17 local candidate fibers, and D_DTOR
-filtered 345,628 local fibers down to 5 local candidate fibers. This still does
-not create branch-level `X_oss_float32_fiber_major.npy`; it only proves the
-row-level axon-allocation step can consume the selected-source candidate
-universe without processing the full dTOR local connectome.
+default. Early bounded probes showed that B_DTOR could filter 298,142 local
+fibers down to 17 local candidate fibers, and D_DTOR could filter 345,628 local
+fibers down to 5 local candidate fibers for the first probe rows. A later full
+run completed `pathway_activation_complete` for all 64 B_DTOR/D_DTOR rows. This
+still does not create branch-level `X_oss_float32_fiber_major.npy`; it proves
+row-level OSS/pPAM execution is complete, while the branch merge layer remains
+pending.
 
-A subsequent bounded `ossdbs` run returned code 0 and wrote
-`oss_time_result_PAM.h5` plus `success_lh.txt`, but OSS-DBSv2 placed the success
-marker in the row directory because it resets `StimulationFolder` to the input
-JSON parent. The runner now treats the row-directory marker as a valid OSS
-success marker when the filtered-folder `oss_time_result_PAM.h5` is present.
-With that fix, the first B_DTOR and D_DTOR smoke rows reach
-`pathway_activation_complete`. Full row-level activation and branch-level
-`X_oss_float32_fiber_major.npy` merge remain next execution layers.
+The merge layer must project each row's OSS output back onto the selected-source
+candidate fiber id order. The filtered connectome `idx` vector is insufficient
+for that projection because it stores filtered local fiber point counts rather
+than selected-source candidate fiber ids. The row runner must therefore persist
+a complete local-axon/status-index to selected-candidate-fiber mapping before
+the branch-level `X_oss_float32_fiber_major.npy` can be written.
 
 The OSS worklist and sensitivity-readiness layers must resolve ULF
 selected-source output locations from the actual shared exposure preprocess
@@ -273,14 +272,16 @@ directory. D_DTOR selected-source manifests do not always include
 parent directory of the selected `X_ULF_only_fiber...` matrix, not
 `<branch_dir>/preprocess`.
 
-The resumable OSS row-level activation runner is the next layer after
+The resumable OSS row-level activation runner is the row-execution layer after
 parameter preflight. It consumes successful preflight rows and runs
 `prepareaxonmodel`, `ossdbs`, and `run_pathway_activation` with per-step stdout,
 stderr, return code, start/end timestamps, and expected-output checks. A row
-may be resumed from the first incomplete step. This runner still does not write
-branch-level `X_oss_float32_fiber_major.npy`, `oss_parameter_manifest.json`, or
-`oss_activation_sidecar_metadata.json`; those are reserved for the later
-branch-merge layer after all required rows complete.
+may be resumed from the first incomplete step. The current full run completed
+all required B_DTOR/D_DTOR rows. This runner still does not write branch-level
+`X_oss_float32_fiber_major.npy`, `oss_parameter_manifest.json`, or
+`oss_activation_sidecar_metadata.json`; those are reserved for the branch-merge
+layer after row-level outputs have complete local-to-candidate mapping and p(A)
+semantics are locked.
 
 A bounded B_DTOR runner test with `--stop-after-step prepareaxonmodel` and a
 5-second `prepareaxonmodel` timeout produced
@@ -401,7 +402,7 @@ normative-fiber branch manifests, connectome
 It writes branch-local streamline voxel density and weighted-density NIfTI maps
 plus a compact cache `.npz`, connected-region label-overlap CSV/manifest, and
 a density-cache manifest. This layer does not run OSS-DBS, does not perform
-spatial jitter, and does not compute FDR maps or endpoint enrichment. It is a
+spatial jitter, and does not compute FDR maps or anatomical/pathway enrichment. It is a
 display-cache construction step only; enrichment, OSS sensitivity, and jitter QC
 remain separate layers.
 The final reporting layer therefore records this output as
@@ -1386,7 +1387,7 @@ my_helper/fiber/core/analysis/stnsnr_ulf_direct_voxel_immediate_observed.py
 
 The D-model observed executable layer runs the observed-only ULF normative
 connectome fiber branches. It is intentionally limited to LOOCV observed
-modeling; formal permutation, bootstrap, jitter, OSS-DBS, endpoint enrichment,
+modeling; formal permutation, bootstrap, jitter, OSS-DBS, anatomical/pathway enrichment,
 and figure-grade density outputs are separate downstream layers.
 
 Entry point:

@@ -983,7 +983,11 @@ Do not interpret as:
 Every displayed streamline is a proven causal tract in every patient.
 ```
 
-The primary claim requires dTOR primary performance, PPMI/MGH cross-connectome consistency, transparent label enrichment, and clear separation from the plain connected-streamline control.
+The primary model claim is defined by the dTOR selected-source model and its
+resolver/prediction status, with PPMI/MGH cross-connectome consistency and the
+plain connected-streamline control reported as robustness evidence. Label
+enrichment is required only for interpretation transparency in full
+figure-grade reporting; it does not define the primary model claim.
 
 
 

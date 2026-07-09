@@ -35,14 +35,15 @@ exposure id universe. The refreshed worklist writes workflow-local
 `candidate_fiber_ids/<MODEL>_oss_fiber_ids.npy` files and records
 `oss_n_fibers = 3990` for B_DTOR and `oss_n_fibers = 2321` for D_DTOR, while
 the parent exposure id universe remains `parent_n_fibers = 11820000`.
-Parameter preflight and bounded row-level activation summaries now carry these
+Parameter preflight and row-level activation summaries now carry these
 candidate-id fields. Full parameter preflight has passed for all 64 B_DTOR and
 D_DTOR worklist rows. A row-local filtered stimulation-folder implementation now
-lets the bounded activation harness complete full pathway activation for the
-first B_DTOR and D_DTOR smoke rows without processing the full dTOR local
-connectome.
-Branch-level OSS sidecars are still absent, so the remaining blocker is still
-missing final OSS activation inputs.
+lets the activation harness complete pathway activation for all 64 B_DTOR and
+D_DTOR rows without processing the full dTOR local connectome.
+Branch-level OSS sidecars are still absent. The remaining blocker is the
+branch-merge layer: row-level activation must be projected back onto the
+selected-source candidate fiber id order with complete local-to-candidate
+mapping and locked p(A) output semantics.
 
 The normative-fiber OSS / pPAM sidecar generation contract is defined in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that
@@ -150,7 +151,7 @@ dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=
 dTOR normative-fiber OSS = not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; B_DTOR oss_n_fibers=3990; D_DTOR oss_n_fibers=2321; parent_n_fibers=11820000
 dTOR normative-fiber OSS parameter preflight = 64/64 rows parameter_preflight_passed; B_DTOR 32 rows, D_DTOR 32 rows; propagated oss_fiber_ids_path; 45 rows frequency_patched_from_source_S and 19 rows frequency_validated
-dTOR normative-fiber OSS row-level activation harness = first B_DTOR/D_DTOR smoke rows pathway_activation_complete with row-local filtered stimulation folders; full row-level activation and branch-level X_oss sidecar merge not yet complete
+dTOR normative-fiber OSS row-level activation harness = 64/64 B_DTOR/D_DTOR rows pathway_activation_complete with row-local filtered stimulation folders; branch-level X_oss sidecar merge not yet complete
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS sensitivity results remain not run because final branch OSS sidecar inputs are still absent
@@ -1517,8 +1518,9 @@ Normative-fiber OSS row-level activation runner:
 ```bash
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_activation_rows.py \
-  --one-row-per-model \
-  --max-rows 2
+  --max-rows 0 \
+  --stop-after-step all \
+  --pathway-timeout-s 120
 ```
 
 This runner consumes successful parameter-preflight rows and executes
@@ -1526,7 +1528,9 @@ This runner consumes successful parameter-preflight rows and executes
 status/log outputs. It is resumable and may be long-running for dTOR. It does
 not write branch-level `X_oss_float32_fiber_major.npy` or final OSS manifests
 until all required rows for a branch have completed and have been merged into
-the selected-source candidate fiber id universe.
+the selected-source candidate fiber id universe. The current full run completed
+64/64 B_DTOR/D_DTOR rows at `pathway_activation_complete`; the pending work is
+the branch-level merge and validation layer, not more row-level activation.
 
 Final reporting and figure-output readiness:
 

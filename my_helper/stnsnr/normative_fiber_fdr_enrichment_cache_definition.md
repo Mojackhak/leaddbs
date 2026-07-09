@@ -33,8 +33,8 @@ and multiple-comparison correction?
 The enrichment cache answers:
 
 ```text
-Are selected associated fibers over-represented in specific anatomical,
-endpoint, or pathway labels?
+Are selected associated fibers over-represented in specific anatomical or
+pathway labels?
 ```
 
 ---
