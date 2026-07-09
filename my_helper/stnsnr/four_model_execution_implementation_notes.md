@@ -95,7 +95,7 @@ dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, se
 dTOR normative-fiber formal jitter: B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS sensitivity readiness: not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit: B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; D_DTOR has 6 recovered derivatives ULF source-path rows for SNr003/SNr006/SNr007
-dTOR normative-fiber OSS parameter preflight: B_DTOR and D_DTOR first ready rows parameter_preflight_passed; MATLAB parameter dictionary and leaddbs2ossdbs converter smoke returncode 0
+dTOR normative-fiber OSS parameter preflight: B_DTOR and D_DTOR first ready rows parameter_preflight_passed; MATLAB parameter dictionary and leaddbs2ossdbs converter smoke returncode 0; converter JSON frequency patched from source S frequency
 normative-fiber basic density and connected-region label caches: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches: B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS remains not run due missing inputs
@@ -190,7 +190,11 @@ must not change `oss_sensitivity_status`.
 The bounded preflight now passes for the first ready B_DTOR and D_DTOR rows
 when the wrapper locks OSS to `dTOR-985 Full (Elias 2024)`, initializes
 `settings.reuse_warped_connectome = 0`, and checks the generated converter JSON
-under the requested converter output directory.
+under the requested converter output directory. The OSS-DBSv2 converter writes
+130 Hz by default, so the preflight patches the generated JSON from source `S`
+frequency and records the original/final frequency fields. The current B_DTOR
+smoke row patches 130 -> 110 Hz; the current D_DTOR smoke row patches
+130 -> 125 Hz.
 
 The consolidated status manifest records git provenance for the worktree that
 generated the status refresh, including branch, HEAD commit, and dirty files.

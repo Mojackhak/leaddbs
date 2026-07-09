@@ -102,6 +102,7 @@ write an HDF5/v7.3 oss-dbs_parameters.mat with top-level settings
 populate stimulation protocol fields including Phi_vector and current_control
 lock the OSS connectome to dTOR-985 Full (Elias 2024)
 run leaddbs2ossdbs converter smoke on the generated parameter file
+validate and, if needed, patch the converter JSON stimulation frequency from the source S frequency
 write row-level status and manifest outputs
 ```
 
@@ -133,6 +134,19 @@ generated `settings` lacks required converter fields such as `Phi_vector`,
 `current_control`, implantation coordinates, or `pathwayParameterFile`, the row
 must be marked as a parameter-preflight failure. The runner must not fall back
 to the original `sub-*_desc-stimparameters.mat` file as converter input.
+
+The current OSS-DBSv2 `leaddbs2ossdbs` converter hard-codes
+`StimulationSignal.Frequency[Hz] = 130.0` in its generated JSON. The STNSNr
+sidecar layer must therefore read the active source frequency from the Lead-DBS
+`S` structure, compare it with the converter JSON, and patch the JSON frequency
+when they differ. A row is valid only when the final JSON satisfies:
+
+```text
+oss_json_frequency_hz = source_stimulation_frequency_hz
+```
+
+This is required for both HF and ULF branches. It prevents a silent 130 Hz
+fallback and must be recorded in the row manifest.
 
 Preflight outputs live outside the final branch preprocess directory until they
 pass validation. They do not create:

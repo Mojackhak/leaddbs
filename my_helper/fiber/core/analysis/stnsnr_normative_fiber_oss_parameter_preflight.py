@@ -11,6 +11,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from scipy.io import loadmat
+
 from stnsnr_four_model_readiness import DEFAULT_MATLAB, DEFAULT_VAL_ROOT
 from stnsnr_hf_direct_voxel_smoke import matlab_string
 from stnsnr_normative_fiber_smoke_permutation import iso_now, write_csv, write_json
@@ -77,6 +79,82 @@ def _matlab_side_index(side: str) -> int:
     if side == "L":
         return 2
     raise RuntimeError(f"unsupported side: {side!r}")
+
+
+def _read_source_frequency_hz(source_mat: Path, side: str) -> tuple[float | None, str]:
+    mat = loadmat(source_mat, squeeze_me=True, struct_as_record=False)
+    stim = mat.get("S")
+    if stim is None:
+        return None, "missing_S"
+    side_prefix = "L" if side == "L" else "R"
+    for source_index in range(1, 5):
+        field = f"{side_prefix}s{source_index}"
+        if not hasattr(stim, field):
+            continue
+        item = getattr(stim, field)
+        amp = getattr(item, "amp", 0)
+        try:
+            amp_value = float(amp)
+        except (TypeError, ValueError):
+            amp_value = 0.0
+        if amp_value == 0.0:
+            continue
+        freq = getattr(item, "frequency", None)
+        if freq is None:
+            continue
+        try:
+            return float(freq), field
+        except (TypeError, ValueError):
+            return None, f"{field}_invalid_frequency"
+    freq = getattr(stim, "frequency", None)
+    if freq is not None:
+        try:
+            return float(freq), "S.frequency"
+        except (TypeError, ValueError):
+            return None, "S.frequency_invalid"
+    return None, "no_active_source_frequency"
+
+
+def _validate_or_patch_converter_frequency(converter_json: Path, source_frequency_hz: float | None) -> dict[str, Any]:
+    if source_frequency_hz is None:
+        return {
+            "frequency_validation_status": "failed_missing_source_frequency",
+            "source_frequency_hz": "",
+            "converter_frequency_hz_original": "",
+            "converter_frequency_hz_final": "",
+            "frequency_patch_applied": "false",
+        }
+    if not converter_json.is_file():
+        return {
+            "frequency_validation_status": "failed_missing_converter_json",
+            "source_frequency_hz": source_frequency_hz,
+            "converter_frequency_hz_original": "",
+            "converter_frequency_hz_final": "",
+            "frequency_patch_applied": "false",
+        }
+    data = json.loads(converter_json.read_text(encoding="utf-8"))
+    signal = data.setdefault("StimulationSignal", {})
+    original = signal.get("Frequency[Hz]")
+    try:
+        original_float = float(original)
+    except (TypeError, ValueError):
+        original_float = None
+    patch_applied = False
+    if original_float is None or abs(original_float - source_frequency_hz) > 1e-9:
+        signal["Frequency[Hz]"] = float(source_frequency_hz)
+        converter_json.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+        patch_applied = True
+    final = float(signal["Frequency[Hz]"])
+    status = "frequency_validated"
+    if patch_applied:
+        status = "frequency_patched_from_source_S"
+    return {
+        "frequency_validation_status": status,
+        "source_frequency_hz": source_frequency_hz,
+        "converter_frequency_hz_original": "" if original_float is None else original_float,
+        "converter_frequency_hz_final": final,
+        "frequency_patch_applied": str(patch_applied).lower(),
+    }
 
 
 def _run_command(cmd: list[str], timeout_s: int | None = None) -> dict[str, Any]:
@@ -199,6 +277,7 @@ def _run_row_preflight(
     source_path = source_paths[0]
     patient_dir = _patient_dir_from_source(source_path)
     source_mat = _stimparameter_from_source(source_path)
+    source_frequency_hz, source_frequency_field = _read_source_frequency_hz(source_mat, row.get("side", ""))
     row_slug = "_".join(
         _safe_slug(str(part))
         for part in [f"row{row_index:04d}", row.get("model_id", ""), row.get("subject_id", ""), row.get("side", "")]
@@ -243,6 +322,13 @@ def _run_row_preflight(
             if candidate_json.is_file():
                 converter_json = str(candidate_json)
                 break
+    frequency_validation = _validate_or_patch_converter_frequency(Path(converter_json), source_frequency_hz) if converter_json else {
+        "frequency_validation_status": "not_run_no_converter_json",
+        "source_frequency_hz": "" if source_frequency_hz is None else source_frequency_hz,
+        "converter_frequency_hz_original": "",
+        "converter_frequency_hz_final": "",
+        "frequency_patch_applied": "false",
+    }
     if matlab_result["returncode"] != 0:
         status = "failed_matlab_parameter_dictionary"
     elif not parameter_file:
@@ -251,6 +337,8 @@ def _run_row_preflight(
         status = "failed_leaddbs2ossdbs_converter"
     elif run_converter and not converter_json:
         status = "failed_converter_json_missing"
+    elif run_converter and str(frequency_validation["frequency_validation_status"]).startswith("failed"):
+        status = "failed_frequency_validation"
     else:
         status = "parameter_preflight_passed"
 
@@ -263,10 +351,13 @@ def _run_row_preflight(
             "worklist_row": row,
             "source_path_used": str(source_path),
             "source_mat": str(source_mat),
+            "source_frequency_hz": source_frequency_hz,
+            "source_frequency_field": source_frequency_field,
             "patient_dir": str(patient_dir),
             "matlab_script": str(script_path),
             "parameter_file": parameter_file,
             "converter_json": converter_json,
+            "frequency_validation": frequency_validation,
             "preflight_status": status,
             "matlab_result": matlab_result,
             "converter_result": converter_result,
@@ -281,6 +372,8 @@ def _run_row_preflight(
         "source_component": row.get("source_component", ""),
         "source_path_used": str(source_path),
         "source_mat": str(source_mat),
+        "source_frequency_hz": "" if source_frequency_hz is None else source_frequency_hz,
+        "source_frequency_field": source_frequency_field,
         "patient_dir": str(patient_dir),
         "row_output_dir": str(row_dir),
         "matlab_returncode": matlab_result["returncode"],
@@ -288,6 +381,7 @@ def _run_row_preflight(
         "run_converter": str(bool(run_converter)).lower(),
         "converter_returncode": "" if converter_result is None else converter_result["returncode"],
         "converter_json": converter_json,
+        **frequency_validation,
         "preflight_status": status,
         "row_manifest": str(row_manifest_path),
     }

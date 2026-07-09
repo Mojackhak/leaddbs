@@ -127,7 +127,7 @@ dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, s
 dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS = not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation
-dTOR normative-fiber OSS parameter preflight = B_DTOR and D_DTOR first ready rows parameter_preflight_passed
+dTOR normative-fiber OSS parameter preflight = B_DTOR and D_DTOR first ready rows parameter_preflight_passed; converter JSON frequency patched from source S frequency
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS remains not run due missing inputs
