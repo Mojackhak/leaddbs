@@ -190,11 +190,23 @@ must not change `oss_sensitivity_status`.
 The bounded preflight now passes for the first ready B_DTOR and D_DTOR rows
 when the wrapper locks OSS to `dTOR-985 Full (Elias 2024)`, initializes
 `settings.reuse_warped_connectome = 0`, and checks the generated converter JSON
-under the requested converter output directory. The OSS-DBSv2 converter writes
+under the generated Lead-DBS OSS output directory. The OSS-DBSv2 converter writes
 130 Hz by default, so the preflight patches the generated JSON from source `S`
 frequency and records the original/final frequency fields. The current B_DTOR
 smoke row patches 130 -> 110 Hz; the current D_DTOR smoke row patches
 130 -> 125 Hz.
+
+The converter output path must stay in the same Lead-DBS OSS output directory
+as `oss-dbs_parameters.mat` and the filtered dTOR `data*.mat` files. A separate
+converter-output folder makes downstream `prepareaxonmodel` look for
+`data*.mat` in the wrong location.
+
+A manual B_DTOR `prepareaxonmodel` activation smoke using the corrected
+parameter directory found no path or frequency error, but remained CPU-bound in
+OSS-DBSv2 fiber-to-streamline conversion for more than 17 minutes and was
+interrupted before completion. This confirms that full OSS sidecar generation
+should be implemented as a resumable long-running runner with row-level status
+and logs, not as an interactive smoke command.
 
 The consolidated status manifest records git provenance for the worktree that
 generated the status refresh, including branch, HEAD commit, and dirty files.

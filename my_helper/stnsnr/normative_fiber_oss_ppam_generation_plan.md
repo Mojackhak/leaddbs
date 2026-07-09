@@ -148,6 +148,12 @@ oss_json_frequency_hz = source_stimulation_frequency_hz
 This is required for both HF and ULF branches. It prevents a silent 130 Hz
 fallback and must be recorded in the row manifest.
 
+The converter `--output_path` must be the same Lead-DBS OSS output directory
+that contains `oss-dbs_parameters.mat` and the filtered connectome files
+(`data1.mat`, `data2.mat`, ...). Do not redirect converter JSON to a separate
+folder, because downstream `prepareaxonmodel` resolves pathway files relative
+to the converter output path.
+
 Preflight outputs live outside the final branch preprocess directory until they
 pass validation. They do not create:
 

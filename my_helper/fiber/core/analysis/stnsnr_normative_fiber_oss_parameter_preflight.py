@@ -301,8 +301,7 @@ def _run_row_preflight(
     converter_result: dict[str, Any] | None = None
     converter_json = ""
     if matlab_result["returncode"] == 0 and parameter_file and run_converter:
-        converter_output = row_dir / "converter_output"
-        converter_output.mkdir(parents=True, exist_ok=True)
+        converter_output = Path(parameter_file).parent
         converter_result = _run_command(
             [
                 str(oss_converter),
@@ -316,7 +315,6 @@ def _run_row_preflight(
         )
         candidate_jsons = [
             Path(parameter_file).with_suffix(".json"),
-            converter_output / "oss-dbs_parameters.json",
         ]
         for candidate_json in candidate_jsons:
             if candidate_json.is_file():
