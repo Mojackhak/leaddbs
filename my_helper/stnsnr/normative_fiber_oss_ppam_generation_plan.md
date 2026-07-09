@@ -4,7 +4,7 @@
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Parent goal.** `my_helper/stnsnr/four_model_execution_plan.md`
 > **Authoritative model specs.** `my_helper/stnsnr/model_summaries/`
-> **Status.** Documentation plan; no OSS sidecars generated yet.
+> **Status.** Input audit/worklist implemented; no OSS sidecars generated yet.
 
 ---
 
@@ -45,6 +45,31 @@ ready_for_oss_sensitivity
 for the HF and ULF dTOR normative fiber final branches.
 
 This plan does not complete the downstream OSS sensitivity model itself. A later execution step must consume `X_oss_float32_fiber_major.npy` and compute OSS weights, scores, LOOCV predictions, smoke permutation, and plain OSS activation controls.
+
+## Executable Input Audit / Worklist
+
+Before running expensive OSS-DBS / pPAM jobs, run a read-only worklist audit:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_sidecar_worklist.py
+```
+
+The audit writes:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_sidecar_worklist/normative_fiber_oss_sidecar_input_audit.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_sidecar_worklist/normative_fiber_oss_sidecar_worklist.csv
+/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_sidecar_worklist/normative_fiber_oss_sidecar_worklist_manifest.json
+```
+
+This layer does not create `X_oss_float32_fiber_major.npy`, does not mark
+`ready_for_oss_sensitivity`, and does not run downstream OSS fitting. It checks
+the final dTOR target manifests, branch score subject order, inherited
+`fiber_ids.npy`, required sidecar paths, and source stimulation paths that must
+be passed to the true OSS/pPAM execution layer. A branch can proceed to actual
+OSS sidecar generation only when this audit reports complete subject coverage,
+existing source stimulation inputs, and no pre-existing invalid sidecar files.
 
 ## Model Role
 

@@ -94,6 +94,7 @@ dTOR normative-fiber formal permutation: B_DTOR and D_DTOR complete at B=10000, 
 dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal jitter: B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS sensitivity readiness: not_run_missing_oss_inputs
+dTOR normative-fiber OSS sidecar input audit: B_DTOR ready_for_true_oss_sidecar_generation; D_DTOR blocked_missing_source_paths_or_files because SNr003/SNr006/SNr007 have no ULF source paths for either side
 normative-fiber basic density and connected-region label caches: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches: B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS remains not run due missing inputs
@@ -149,6 +150,16 @@ The dTOR normative-fiber sensitivity-readiness summary records `oss_missing_inpu
 `jitter_qc_status`, and `jitter_existing_inputs`. Final reporting and
 figure-output readiness preserve these fields so downstream reports can inspect
 which OSS inputs remain absent without reopening branch-level JSON files.
+
+The dTOR normative-fiber OSS sidecar input audit/worklist layer is a read-only
+preflight for the remaining OSS blocker. It consumes the final-model formal
+target worklist, generation manifests, mapping QC, branch score subject order,
+and inherited `fiber_ids.npy` files. It writes branch-level input-audit rows and
+subject/side/source-path worklist rows under
+`/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_sidecar_worklist/`.
+It must not create `X_oss_float32_fiber_major.npy`, alter
+`oss_sensitivity_status`, or substitute for the true OSS/pPAM activation
+runner.
 
 The consolidated status manifest records git provenance for the worktree that
 generated the status refresh, including branch, HEAD commit, and dirty files.

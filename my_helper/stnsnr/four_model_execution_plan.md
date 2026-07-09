@@ -125,6 +125,7 @@ dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000,
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS = not_run_missing_oss_inputs
+dTOR normative-fiber OSS sidecar input audit = B_DTOR ready_for_true_oss_sidecar_generation; D_DTOR blocked_missing_source_paths_or_files
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS remains not run due missing inputs
@@ -190,6 +191,15 @@ B_DTOR HF normative fiber: oss_sensitivity_status = not_run_missing_oss_inputs; 
 D_DTOR ULF normative fiber no_delta_hf final model: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = complete
 consolidated formal_resampling_status = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING for B_DTOR and D_DTOR
 readiness summaries and final reports record OSS missing input paths; jitter QC and FDR/enrichment caches are complete for these formal dTOR targets
+```
+
+Current dTOR normative-fiber OSS sidecar input audit snapshot:
+
+```text
+output root = /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_sidecar_worklist/
+B_DTOR: ready_for_true_oss_sidecar_generation; 32/32 side rows have source files
+D_DTOR: blocked_missing_source_paths_or_files; 26/32 side rows have source files; missing ULF source paths for SNr003 L/R, SNr006 L/R, and SNr007 L/R
+sidecar files remain absent, so oss_sensitivity_status remains not_run_missing_oss_inputs
 ```
 
 Current final reporting and figure-output readiness snapshot:
@@ -546,6 +556,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | dTOR normative-fiber formal bootstrap | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_bootstrap.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_bootstrap.py` | implemented |
 | dTOR normative-fiber formal jitter QC | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_jitter.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_jitter.py` | implemented for formal dTOR normative-fiber targets |
 | dTOR normative-fiber sensitivity readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_sensitivity_readiness.py` | implemented |
+| dTOR normative-fiber OSS sidecar input audit/worklist | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_sidecar_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_oss_sidecar_worklist.py` | implemented |
 | Normative-fiber basic density cache | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_density_cache.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_density_cache.py` | implemented |
 | Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
 | Normative-fiber FDR/enrichment cache | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_fdr_enrichment_cache.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_fdr_enrichment_cache.py` | implemented for formal dTOR normative-fiber targets |
@@ -1434,6 +1445,18 @@ Normative-fiber FDR/enrichment cache, default formal targets only:
   python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_fdr_enrichment_cache.py \
   --n-permutations 10000
 ```
+
+Normative-fiber OSS sidecar input audit/worklist:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_sidecar_worklist.py
+```
+
+This audit is read-only with respect to OSS outputs. It does not create
+`X_oss_float32_fiber_major.npy` and does not change
+`oss_sensitivity_status`; it records whether the true OSS sidecar generation
+inputs are discoverable for the final dTOR branches.
 
 Final reporting and figure-output readiness:
 
