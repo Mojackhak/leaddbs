@@ -201,7 +201,7 @@ M_HF(l) = -rho_HF(l)   for lower-is-better scales
 M_HF(l) =  rho_HF(l)   for higher-is-better scales
 ```
 
-Positive `M_HF(l)` means sweet or benefit-associated. Negative `M_HF(l)` means sour or worse-outcome-associated. FDR q-values are computed for QC/display only and do not filter the primary model or scoring fiber set.
+Positive `M_HF(l)` means sweet or benefit-associated. Negative `M_HF(l)` means sour or worse-outcome-associated. FDR q-values and enrichment caches are computed for QC/display/interpretation only and stay outside resolver decisions and score-defining fiber sets.
 
 ### Optional Supplemental Estimator
 
@@ -890,7 +890,7 @@ Display outputs include:
 - plain touched-streamline density maps;
 - STN/SNr and STNSNrplus anatomical overlays.
 
-No display subset is the primary statistical significance map. FDR q-values and q-thresholded density maps are generated for QC/display transparency, but they do not filter the primary model, define `F+`/`F-`, or enter `NetFiberScore`.
+No display subset is the primary statistical significance map. FDR q-values, q-thresholded density maps, and enrichment caches are generated for QC/display/interpretation transparency, but they do not define resolver outputs or `F+`/`F-`, and they do not enter `NetFiberScore`.
 
 ## Execution Efficiency
 
@@ -1867,15 +1867,14 @@ oss_activation_sidecar_metadata.json
 Run order:
 
 ```text
-PPMI / ossdbs_activation_sensitivity / observed LOOCV
-MGH / ossdbs_activation_sensitivity / observed LOOCV
+dTOR final selected-source branch only
+dTOR / ossdbs_activation_sensitivity / observed LOOCV
+dTOR / OSS smoke permutation B=1000
 OSS plain activation control
-
-then, only if PPMI/MGH are technically normal:
-  dTOR / ossdbs_activation_sensitivity / observed LOOCV
-  dTOR / OSS smoke permutation B=1000
-  OSS plain activation control
 ```
+
+PPMI and MGH remain peak-E-field observed cross-connectome robustness branches.
+Required OSS sidecars are limited to the final dTOR branch unless a future model document explicitly promotes cross-connectome OSS sensitivity.
 
 Write:
 
@@ -2065,7 +2064,7 @@ The most resource-conscious path that still covers the mainline and planned sens
    dTOR selected-source formal permutation/bootstrap B=10000
 
 8. Round 7:
-   OSS-DBS sensitivity, PPMI/MGH first, then dTOR, B=1000 only
+   dTOR final-branch OSS-DBS sensitivity, B=1000 smoke only
 
 9. Round 8:
    dTOR jitter QC

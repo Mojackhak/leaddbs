@@ -1354,7 +1354,6 @@ Allowed `ulf_oss_sensitivity_status` values:
 ```text
 not_run_no_formal_realized_primary
 not_run_missing_oss_inputs
-not_run_cross_connectome_technical_failure
 passed_activation_consistent
 passed_activation_model_dependent
 failed_activation_degenerate
@@ -2243,11 +2242,12 @@ candidate source = realized primary selected-source candidate universe
 exposure replacement = continuous pPAM X_ULF_only_OSS derived from X_oss_float32_fiber_major.npy
 nuisance design = realized primary branch nuisance design
 frequency validation = requested_frequency_hz equals oss_parameter_frequency_hz
-PPMI observed LOOCV cross-connectome check
-MGH observed LOOCV cross-connectome check
-dTOR observed LOOCV, only if PPMI/MGH OSS checks are technically valid or explicitly waived
+dTOR realized-primary final branch observed LOOCV
 dTOR smoke Freedman-Lane permutation B=1000
 ```
+
+PPMI and MGH remain peak-E-field observed cross-connectome robustness branches.
+Required OSS sidecars are limited to the final dTOR branch unless a future model document explicitly promotes cross-connectome OSS sensitivity.
 
 Write:
 
@@ -2277,7 +2277,7 @@ PlainOSSActivationTop5 is computable
 OSS joint control model is fit
 ```
 
-Proceed to Round 9 after OSS either satisfies the technical-pass criteria or records an explicit not-run/failure status. If OSS activation is all zero or mostly tied, mark `ulf_oss_sensitivity_status = failed_activation_degenerate` and continue to Round 9 without using OSS as robustness support. If PPMI/MGH OSS checks fail and are not explicitly waived, mark `ulf_oss_sensitivity_status = not_run_cross_connectome_technical_failure`. If OSS is technically valid and directionally consistent with the peak-E-field result, mark `ulf_oss_sensitivity_status = passed_activation_consistent`. If OSS and peak-E-field results disagree while remaining technically valid, mark `ulf_oss_sensitivity_status = passed_activation_model_dependent`.
+Proceed to Round 9 after OSS either satisfies the technical-pass criteria or records an explicit not-run/failure status. If OSS activation is all zero or mostly tied, mark `ulf_oss_sensitivity_status = failed_activation_degenerate` and continue to Round 9 without using OSS as robustness support. If OSS is technically valid and directionally consistent with the peak-E-field result, mark `ulf_oss_sensitivity_status = passed_activation_consistent`. If OSS and peak-E-field results disagree while remaining technically valid, mark `ulf_oss_sensitivity_status = passed_activation_model_dependent`.
 
 If required OSS activation files, component labels, or locked OSS parameter metadata are missing, mark `ulf_oss_sensitivity_status = not_run_missing_oss_inputs`. If OSS inputs exist but the OSS branch nuisance design, LOOCV prediction model, or plain activation control is singular or otherwise not estimable, mark `ulf_oss_sensitivity_status = failed_oss_design_or_prediction`.
 

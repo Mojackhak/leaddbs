@@ -85,7 +85,8 @@ dTOR normative-fiber smoke permutation: B_DTOR and D_DTOR complete at B=1000, se
 dTOR normative-fiber formal permutation: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber OSS/jitter sensitivity readiness: not_run_missing_inputs
-normative-fiber basic density and connected-region label caches: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete; FDR, enrichment, OSS, and fiber jitter remain not run
+normative-fiber basic density and connected-region label caches: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
+normative-fiber FDR, enrichment, OSS, and fiber jitter remain not run
 final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; all normative-fiber rows have density+label outputs ready
 C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
 C same-day immediate endpoint-family observed outputs: complete for 2 endpoint rows; resampling_status = not_run_observed_only
@@ -552,7 +553,7 @@ Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
 F_candidate_tau = Coverage_tau(l) >= 5
 ```
 
-and then runs the partial-Spearman `NetFiberScore` observed LOOCV branch. Existing outputs use the legacy folder/branch name `peak_efield_tau800_primary`; documentation now maps that branch to revised `peak_efield_tau800_cov5_primary` until a future code/output migration renames directories. Formal `B=10000`, OSS-DBS, FDR/density/display, dTOR processing, and the revised `tau_coverage_source_resolver_scan` remain later gated stages.
+and then runs the partial-Spearman `NetFiberScore` observed LOOCV branch. Existing outputs use the legacy folder/branch name `peak_efield_tau800_primary`; documentation now maps that branch to revised `peak_efield_tau800_cov5_primary` until a future code/output migration renames directories. Formal `B=10000`, dTOR processing, and the revised `tau_coverage_source_resolver_scan` remain later gated stages. OSS-DBS, jitter, FDR cache, and enrichment cache layers remain separate downstream blockers.
 
 The driver supports `--max-fibers` only for development self-tests and debugging. Production PPMI smoke runs should leave it unset so the candidate universe remains the full PPMI connectome.
 

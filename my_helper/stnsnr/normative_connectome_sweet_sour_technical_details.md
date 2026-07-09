@@ -748,7 +748,7 @@ M_HF(l) > 0 = stronger HF modulation of this fiber predicts better baseline-adju
 M_HF(l) < 0 = stronger HF modulation of this fiber predicts worse baseline-adjusted HF-only 3-month outcome
 ```
 
-FDR q-values are computed for QC/display only and are not used to filter the primary model.
+Fiber-wise FDR q-values and anatomical/pathway enrichment caches are QC/display/interpretation outputs only. They stay outside resolver decisions, primary scoring, and score-defining fiber sets. The canonical cache definitions are maintained in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
 
 ### HF Fiber Score And Fiber Display
 
@@ -1295,7 +1295,7 @@ individualized DWI target-level models only in their separate model-summary scop
 
 For HF and ULF normative connectome fiber models, engineering execution and resolver classification treat all available endpoint/scale rows equivalently within the applicable endpoint family. Clinical reporting hierarchy can still select primary or secondary rows for formal reporting, but it does not change the model definition, source resolver, prediction-status assignment, or output generation rules.
 
-Use patient-level permutation tests with random seed `42` according to the model-specific resolver and resampling checkpoints. For HF and ULF normative fiber-level models, fiber-wise FDR q-values and anatomical/pathway enrichment caches are QC/display/interpretation outputs rather than primary filters; their canonical definitions are maintained in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`. For individualized-DWI target-level models, correct multiple comparisons across tested targets within each scale, DWI source, endpoint, and model class using FDR.
+Use patient-level permutation tests with random seed `42` according to the model-specific resolver and resampling checkpoints. For HF and ULF normative fiber-level models, fiber-wise FDR q-values and anatomical/pathway enrichment caches are QC/display/interpretation outputs and stay outside resolver/scoring decisions; their canonical definitions are maintained in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`. For individualized-DWI target-level models, correct multiple comparisons across tested targets within each scale, DWI source, endpoint, and model class using FDR.
 
 ### Stage 7: Stability And Sensitivity
 
@@ -1309,7 +1309,7 @@ mean and top-5% streamline exposure sensitivity
 interleaving overlap sensitivity
 charge-rate proxy sensitivity
 OSS-DBS / pPAM activation sensitivity when valid final-branch sidecars exist
-repeated analyses across PPMI, MGH, and dTOR
+cross-connectome robustness analyses across PPMI, MGH, and dTOR for peak-E-field normative branches
 normative-only, normative-guided individualized DWI, and individualized-DWI-only target-level model comparison
 ```
 
