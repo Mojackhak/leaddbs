@@ -148,7 +148,7 @@ dTOR normative-fiber OSS parameter preflight = B_DTOR and D_DTOR first ready row
 dTOR normative-fiber OSS row-level activation harness = first B_DTOR/D_DTOR rows prepareaxonmodel_complete with row-local filtered stimulation folders; no branch-level X_oss sidecar written
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
-normative-fiber OSS remains not run due missing inputs
+normative-fiber OSS sensitivity results remain not run because final branch OSS sidecar inputs are still absent
 final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; B_DTOR/D_DTOR have full fiber FDR/enrichment figure-cache outputs ready while OSS sensitivity inputs remain missing; observed robustness normative-fiber rows have density+label outputs ready
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields

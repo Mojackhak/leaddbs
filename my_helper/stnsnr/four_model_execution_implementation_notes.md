@@ -101,7 +101,7 @@ dTOR normative-fiber OSS sidecar input audit: B_DTOR and D_DTOR ready_for_true_o
 dTOR normative-fiber OSS parameter preflight: B_DTOR and D_DTOR first ready rows parameter_preflight_passed; MATLAB parameter dictionary and leaddbs2ossdbs converter smoke returncode 0; converter JSON frequency patched from source S frequency
 normative-fiber basic density and connected-region label caches: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches: B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
-normative-fiber OSS remains not run due missing inputs
+normative-fiber OSS sensitivity results remain not run because final branch OSS sidecar inputs are still absent
 final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; all normative-fiber rows have density+label outputs ready
 C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
 C same-day immediate endpoint-family observed outputs: complete for 2 endpoint rows; resampling_status = not_run_observed_only
@@ -223,11 +223,13 @@ The 2026-07-09 candidate-universe audit found that B_DTOR has 3,990
 selected-source candidate fibers and D_DTOR has 2,321, while the parent dTOR
 exposure `fiber_ids.npy` has 11,820,000 IDs. The OSS worklist must therefore
 propagate `oss_fiber_ids` from the selected-source weights table, not from the
-parent exposure id universe. Directly filtering left-hemisphere `data2.mat` by
-right-canonical candidate IDs is not safe: the left OSS connectome's stored
-fiber IDs are not a direct one-to-one match to the right-canonical IDs. A future
-filtered-pathway implementation must use an explicit left-to-right homologous
-fiber-id mapping before replacing full dTOR `data*.mat` files.
+parent exposure id universe. Row-level filtered OSS inputs must be generated in
+a copied stimulation folder and must not overwrite the parent dTOR connectome
+files. The row-level filter may reduce the active local OSS connectome to rows
+whose stored fiber IDs intersect the selected-source `oss_fiber_ids`, but the
+branch-level merge remains responsible for writing the final right-canonical
+selected-source column order and for recording the homologous left-to-right
+mapping status.
 
 A row-local filtered-pathway probe then confirmed the safe implementation
 boundary: do not overwrite the preflight stimulation folder. Instead, create a

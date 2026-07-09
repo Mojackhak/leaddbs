@@ -2319,6 +2319,23 @@ If jitter is unstable, report the result as spatially fragile.
 
 Generate display outputs only after numeric branches are locked. Display, FDR, enrichment, labels, density, and cross-connectome outputs must derive from finalized numeric outputs and stay outside resolver decisions. FDR and enrichment caches follow `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
 
+Generate according to branch reporting role:
+
+```text
+all completed numeric branches:
+  selected-fiber displays, density maps, endpoint labels, connected-region labels,
+  plain touched-streamline density maps, and cross-connectome summaries when requested
+
+formal or explicitly promoted figure-grade selected final branches:
+  FDR cache, q-value summaries, FDR-thresholded display density maps,
+  enrichment cache, and derived label-enrichment summaries
+```
+
+Observed-robustness rows without promoted figure-grade status may stop at density
+and label outputs. Missing FDR/enrichment caches for those rows are recorded as
+`definition_documented_cache_not_generated` and do not change the ULF source
+status, prediction status, endpoint status, or final model branch.
+
 
 ## 17. Interpretation Boundary
 

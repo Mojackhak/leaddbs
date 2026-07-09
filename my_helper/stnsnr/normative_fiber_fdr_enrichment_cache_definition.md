@@ -354,14 +354,17 @@ fiber_fdr_cache_status = complete
 fiber_enrichment_cache_status = complete
 ```
 
-A branch with valid density and label caches but missing FDR/enrichment caches
-is still blocked from full figure-grade fiber outputs by:
+A branch that is expected to produce full figure-grade fiber outputs and has
+valid density and label caches but missing FDR/enrichment caches is still
+blocked from full figure-grade fiber outputs by:
 
 ```text
 fdr_cache
 enrichment_cache
 ```
 
-These blockers are display/interpretation blockers only. They do not invalidate
-completed source resolution, LOOCV, formal permutation/bootstrap, or the
-independently recorded OSS and jitter readiness statuses.
+These blockers are display/interpretation blockers only. They do not apply to
+observed-robustness rows that are intentionally left at density/label readiness,
+and they do not invalidate completed source resolution, LOOCV, formal
+permutation/bootstrap, or the independently recorded OSS and jitter readiness
+statuses.

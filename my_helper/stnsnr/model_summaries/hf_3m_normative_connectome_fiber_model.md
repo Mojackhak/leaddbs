@@ -594,12 +594,15 @@ X_HF_OSS_i(l) = max(A_R_i(l), A_L_to_R_i(l))
 
 `A_L_to_R_i(l)` is computed by running the left-sided stimulation in the real left hemisphere, mapping the resulting left fiber activation to the homologous right-canonical fiber id, and then representing that value in the right-canonical feature space. The canonical OSS exposure uses `max_probability_union` because pPAM is an activation-probability metric. Bilateral mean p(A) may be reported as a descriptive activation-burden sensitivity but must not replace `X_oss_float32_fiber_major.npy` in `M_HF_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation.
 
-The OSS branch uses the same candidate rule as the peak E-field branch:
+The OSS branch uses the selected-source candidate rule from the locked peak
+E-field branch. It must use the endpoint row's resolved selected tau and
+Coverage, not a hard-coded tau800/Coverage>=5 rule:
 
 ```text
-Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
-F_candidate_tau = {l: Coverage_tau(l) >= 5}
-tau_primary = 800 V/m
+Coverage_selected_tau(l) = sum_i I[X_HF_i(l) > selected_tau]
+F_candidate_selected = {l: Coverage_selected_tau(l) >= selected_Coverage}
+selected_tau = endpoint-specific selected source tau
+selected_Coverage = endpoint-specific selected source Coverage
 ```
 
 Candidate fibers are not selected by OSS activation. This prevents the sensitivity branch from adding an extra modeling degree of freedom.
@@ -660,8 +663,8 @@ test  = patient h
 
 The fold workflow is:
 
-1. Use training patients only to compute peak E-field `Coverage_tau800_fold_h`.
-2. Define `F_candidate_tau800_fold_h = {l: Coverage_tau800_fold_h(l) >= 5}`.
+1. Use training patients only to compute peak E-field `Coverage_selected_tau_fold_h`.
+2. Define `F_candidate_selected_fold_h = {l: Coverage_selected_tau_fold_h(l) >= selected_Coverage}`.
 3. Read training and held-out `X_HF_OSS` values from the OSS sidecar for those candidate fibers.
 4. Estimate `rho_HF_OSS(l)` on training patients only.
 5. Convert to `M_HF_OSS(l)`.
@@ -949,13 +952,13 @@ ids. For alternating HF subprograms, subprogram-level activation matrices may
 be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and
 `max_probability_union` `X_HF_OSS_i(l)` variables documented above.
 
-For LOOCV fold `h`, derive training-fold coverage by subtraction:
+For LOOCV fold `h`, derive training-fold selected-source coverage by subtraction:
 
 ```text
-S_tau(l, i) = I[X_HF_i(l) > tau]
-Coverage_tau_all(l) = sum_i S_tau(l, i)
-Coverage_tau_fold_h(l) = Coverage_tau_all(l) - S_tau(l, h)
-F_candidate_tau_fold_h = {l : Coverage_tau_fold_h(l) >= 5}
+S_selected_tau(l, i) = I[X_HF_i(l) > selected_tau]
+Coverage_selected_tau_all(l) = sum_i S_selected_tau(l, i)
+Coverage_selected_tau_fold_h(l) = Coverage_selected_tau_all(l) - S_selected_tau(l, h)
+F_candidate_selected_fold_h = {l : Coverage_selected_tau_fold_h(l) >= selected_Coverage}
 ```
 
 Optimization must not change the estimand: ranks are computed within training folds, full-sample ranks are prohibited, `F+`/`F-` are reselected in each fold/permutation/bootstrap, and formal resampling counts are not reduced for speed. Streaming top-k reducers should be used for dTOR `SweetPeak5` and `SourPeak5`; formal loops must not write full per-permutation or per-bootstrap fiber-weight tables unless debug output is explicitly enabled.
@@ -1167,10 +1170,10 @@ S_tau_subjectside_u32.npy
 Bitmask coverage is permitted only if it passes exact equivalence against bool-array coverage. Fold-specific candidate masks are still defined by held-out subtraction. A `union_of_folds` mask may be cached to reduce IO:
 
 ```text
-candidate_tau800_fold_01_bool ... candidate_tau800_fold_16_bool
-candidate_tau1500_fold_01_bool ... candidate_tau1500_fold_16_bool
-candidate_tau800_union_of_folds_bool
-candidate_tau1500_union_of_folds_bool
+candidate_tau{selected_tau}_cov{selected_coverage}_fold_01_bool ... candidate_tau{selected_tau}_cov{selected_coverage}_fold_16_bool
+candidate_tau{scan_tau}_cov{scan_coverage}_fold_01_bool ... candidate_tau{scan_tau}_cov{scan_coverage}_fold_16_bool
+candidate_tau{selected_tau}_cov{selected_coverage}_union_of_folds_bool
+candidate_tau{scan_tau}_cov{scan_coverage}_union_of_folds_bool
 ```
 
 `union_of_folds` may restrict IO, OSS activation, labeling, and density precomputation. Each fold must still use its own fold-specific candidate mask.
@@ -1527,14 +1530,18 @@ Proceed to Round 3 after every requested endpoint row either completes observed 
 ```text
 endpoint/scale row is joined by ID, or records missing clinical data
 at least one dTOR endpoint row completes observed LOOCV for downstream reporting
-each accepted endpoint row has non-empty F_candidate_tau800 in every LOOCV fold
-rho_HF is not all NaN for accepted endpoint rows
-NetFiberScore has nonzero variance for accepted endpoint rows
-held-out prediction is not constant for accepted endpoint rows
-final model is fit for accepted endpoint rows
-LOOCV Spearman / Pearson / MAE / RMSE / Q2 are finite for accepted endpoint rows
+each completed endpoint row records pre-specified tau800/Coverage>=5 candidate support
+rho_HF is computed or an endpoint-level technical reason is recorded
+NetFiberScore variance is computed or an endpoint-level technical reason is recorded
+held-out prediction status is computed or an endpoint-level technical reason is recorded
+pre-specified observed model is fit or an endpoint-level technical reason is recorded
+LOOCV Spearman / Pearson / MAE / RMSE / Q2 are computed or marked not applicable
 mapping_qc.json records endpoint-level status
 ```
+
+Round 2 does not decide whether the endpoint's final source is
+`pre_specified_accepted`, `scan_fallback_accepted`, or `absent_no_stable_grid`.
+That decision is made by the source resolver after the tau/Coverage scan.
 
 QC warnings:
 
@@ -2020,7 +2027,19 @@ If jitter tier 1 technically fails, do not run jitter tier 2. If jitter tier 1 p
 
 Purpose: generate display and interpretation outputs after numeric branches are locked. Display, FDR q-values, q-thresholded density maps, enrichment caches, and label outputs stay outside the resolver and never enter `NetFiberScore`. Canonical FDR and enrichment cache definitions are maintained in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
 
-Generate for completed branches:
+Generate according to the branch reporting role:
+
+```text
+all completed numeric branches:
+  selected-fiber displays, density maps, endpoint labels, connected-region labels,
+  plain touched-streamline density maps, and cross-connectome summaries when requested
+
+formal or explicitly promoted figure-grade selected final branches:
+  FDR cache, q-value summaries, FDR-thresholded display density maps,
+  enrichment cache, and derived label-enrichment summaries
+```
+
+Output families:
 
 ```text
 top 1% positive fibers
@@ -2082,6 +2101,7 @@ display files derive only from finalized numeric outputs
 FDR / enrichment / label / display outputs stay outside resolver decisions
 FDR and enrichment caches follow the canonical cache definition document
 enrichment background is the selected-source tau/Coverage candidate fiber universe
+observed-robustness rows without promoted figure-grade status may stop at density and label outputs
 PPMI/MGH manifests record observed_only_connectome_robustness
 dTOR primary manifest records formal permutation/bootstrap status
 OSS manifest records smoke-only status

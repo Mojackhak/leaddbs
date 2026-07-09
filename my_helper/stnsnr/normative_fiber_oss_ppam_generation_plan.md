@@ -4,7 +4,7 @@
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Parent goal.** `my_helper/stnsnr/four_model_execution_plan.md`
 > **Authoritative model specs.** `my_helper/stnsnr/model_summaries/`
-> **Status.** Input audit/worklist implemented; no OSS sidecars generated yet.
+> **Status.** Input audit/worklist, parameter preflight, and row-level activation harness implemented; no final branch OSS sidecars generated yet.
 
 ---
 
