@@ -1397,6 +1397,14 @@ Normative-fiber basic density cache:
   python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_density_cache.py
 ```
 
+Normative-fiber FDR/enrichment cache, default formal targets only:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_fdr_enrichment_cache.py \
+  --n-permutations 10000
+```
+
 Final reporting and figure-output readiness:
 
 ```bash
