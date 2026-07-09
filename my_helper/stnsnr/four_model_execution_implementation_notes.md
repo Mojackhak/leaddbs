@@ -150,6 +150,8 @@ The dTOR normative-fiber sensitivity-readiness summary records `oss_missing_inpu
 `jitter_qc_status`, and `jitter_existing_inputs`. Final reporting and
 figure-output readiness preserve these fields so downstream reports can inspect
 which OSS inputs remain absent without reopening branch-level JSON files.
+Sensitivity-readiness branch-local helper outputs must use readiness-specific
+filenames and must not overwrite canonical formal jitter summaries or manifests.
 
 The dTOR normative-fiber OSS sidecar input audit/worklist layer is a read-only
 preflight for the remaining OSS blocker. It consumes the final-model formal

@@ -112,7 +112,7 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
     }
 
     status_path = target.branch_dir / f"{prefix}_sensitivity_readiness_status.json"
-    jitter_summary_path = target.branch_dir / f"{prefix}_jitter_summary.csv"
+    readiness_jitter_status_path = target.branch_dir / f"{prefix}_sensitivity_readiness_jitter_status.csv"
     write_json(
         status_path,
         {
@@ -123,7 +123,7 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
         },
     )
     write_csv(
-        jitter_summary_path,
+        readiness_jitter_status_path,
         [
             {
                 "model_id": target.model_id,
