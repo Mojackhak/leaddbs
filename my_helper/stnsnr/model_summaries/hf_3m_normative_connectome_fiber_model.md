@@ -1597,7 +1597,11 @@ Recommended collinearity flags:
 >= 0.95 = severe collinearity warning
 ```
 
-If plain control fully explains an endpoint row, that row may continue as a minimal formal report, but interpretation is downgraded to stimulation burden / placement-associated and OSS/jitter are not recommended for that endpoint row.
+If plain control fully explains an endpoint row, that row may continue as a
+minimal formal report, but interpretation is downgraded to stimulation burden /
+placement-associated. Planned OSS and jitter layers may still record their
+technical status, but they must not be used to strengthen mechanism
+interpretation for that endpoint row.
 
 ### Round 4: dTOR Candidate-Source Smoke Permutation And Bootstrap
 

@@ -3,7 +3,7 @@
 > **Purpose.** This is the `/goal` plan document for executing the four STN/SNr HF/ULF modeling tracks.
 > **Authoritative model specs.** The English files under `my_helper/stnsnr/model_summaries/` define model-level executable behavior. This document defines cross-model orchestration, current implementation state, current status results, and the next engineering priorities.
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
-> **Last updated.** 2026-07-07
+> **Last updated.** 2026-07-08
 
 ---
 
@@ -16,14 +16,13 @@ fiber figure-output ready. Density plus connected-region labels remains
 manifest schema audit, and completion audit were regenerated from clean commit
 `1d34cb9f3`.
 
-2026-07-08 continuation from clean commit `9c72a0085` generated formal-target
-dTOR normative-fiber FDR and enrichment caches for B_DTOR and D_DTOR. Current
-input searches still find no required `X_oss_float32_fiber_major.npy`,
-`oss_parameter_manifest.json`, `oss_activation_sidecar_metadata.json`, or
-normative-fiber jitter input sidecars for B_DTOR/D_DTOR. The remaining
-normative-fiber completion blockers are therefore explicit OSS/jitter
-missing-input blockers, not branch-selection ambiguity and not FDR/enrichment
-cache blockers.
+2026-07-08 continuation generated formal-target dTOR normative-fiber
+FDR/enrichment caches and formal jitter QC for B_DTOR and D_DTOR. Current input
+searches still find no required `X_oss_float32_fiber_major.npy`,
+`oss_parameter_manifest.json`, or `oss_activation_sidecar_metadata.json` for
+B_DTOR/D_DTOR. The remaining normative-fiber completion blockers are therefore
+explicit OSS missing-input blockers, not branch-selection ambiguity, not
+FDR/enrichment cache blockers, and not jitter blockers.
 
 The normative-fiber OSS / pPAM sidecar generation contract is defined in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that
@@ -59,6 +58,7 @@ A/C direct-voxel formal jitter QC refreshed under /Volumes/VAL/STNSNr/summary/fo
 B_DTOR/D_DTOR dTOR normative-fiber smoke permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_smoke_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber formal bootstrap refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_bootstrap/
+B_DTOR/D_DTOR dTOR normative-fiber formal jitter QC refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_jitter/
 B_DTOR/D_DTOR dTOR normative-fiber sensitivity readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_sensitivity_readiness/
 B_DTOR/D_DTOR dTOR normative-fiber FDR/enrichment caches refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_fdr_enrichment_cache/
 Final reporting and figure-output readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/
@@ -75,9 +75,10 @@ bootstrap record `code_provenance.git_short_commit = c6e0bb328`. The refreshed
 dTOR normative-fiber sensitivity-readiness manifests/status files record
 `code_provenance.git_short_commit = 2f30e8cfb`.
 
-The current FDR/enrichment, final reporting, all-endpoint reporting, manifest
-schema audit, and completion audit manifests record
-`code_provenance.git_short_commit = 9c72a0085` and `git_dirty = false`.
+The current normative-fiber formal jitter, sensitivity-readiness, final
+reporting, all-endpoint reporting, manifest schema audit, and completion audit
+manifests record `code_provenance.git_short_commit = da34d12a3` and
+`git_dirty = false`.
 
 The formal readiness audit does not run formal permutation, bootstrap, jitter,
 OSS-DBS, or display generation. It consumes the final-model formal target
@@ -122,14 +123,15 @@ direct-voxel formal jitter = A and C complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber smoke permutation = B_DTOR and D_DTOR complete at B=1000, seed=42
 dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
-dTOR fiber jitter/OSS = not_run_missing_inputs
+dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
+dTOR normative-fiber OSS = not_run_missing_oss_inputs
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
-normative-fiber OSS and fiber jitter remain not run due missing inputs
+normative-fiber OSS remains not run due missing inputs
 final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; B_DTOR/D_DTOR have full fiber figure outputs ready; observed robustness normative-fiber rows have density+label outputs ready
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
+completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs blockers
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -174,13 +176,20 @@ B_DTOR HF normative fiber: bootstrap_status = complete; B = 10000; finite_bootst
 D_DTOR ULF normative fiber no_delta_hf final model: bootstrap_status = complete; B = 10000; finite_bootstrap_count = 10000; bootstrap_candidate_fibers_min = 95; bootstrap_candidate_fibers_median = 1940.0
 ```
 
+Current dTOR normative-fiber formal jitter snapshot:
+
+```text
+B_DTOR HF normative fiber: jitter_status = complete; B = 1000; finite_jitter_count = 1000; map_pearson_r_median = 0.374245; loocv_spearman_rho_median = -0.032449; support_jaccard_median = 0.114160
+D_DTOR ULF normative fiber no_delta_hf final model: jitter_status = complete; B = 1000; finite_jitter_count = 1000; map_pearson_r_median = 0.375390; loocv_spearman_rho_median = 0.916054; support_jaccard_median = 0.383886
+```
+
 Current dTOR normative-fiber sensitivity readiness snapshot:
 
 ```text
-B_DTOR HF normative fiber: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = not_run_missing_jitter_inputs
-D_DTOR ULF normative fiber no_delta_hf final model: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = not_run_missing_jitter_inputs
+B_DTOR HF normative fiber: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = complete
+D_DTOR ULF normative fiber no_delta_hf final model: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = complete
 consolidated formal_resampling_status = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING for B_DTOR and D_DTOR
-readiness summaries and final reports record OSS missing input paths plus jitter search roots / missing-input reasons; FDR/enrichment caches are complete for these formal dTOR targets
+readiness summaries and final reports record OSS missing input paths; jitter QC and FDR/enrichment caches are complete for these formal dTOR targets
 ```
 
 Current final reporting and figure-output readiness snapshot:
@@ -562,7 +571,7 @@ fiber OSS-DBS activation branch execution, pending required inputs
 nested/adaptive threshold-source validation
 max-stat permutation for threshold-source selection
 OLS ANCOVA optional estimator
-full OSS/jitter sensitivity execution for dTOR normative-fiber final targets, pending required inputs
+additional optional jitter parameter sweeps beyond the completed formal dTOR normative-fiber jitter QC
 optional observed-robustness-row FDR/enrichment caches for PPMI/MGH/D_PPMI if those rows are later promoted to figure-grade outputs
 ```
 
@@ -732,7 +741,7 @@ Current observed outputs:
 | selected-source output `ulf_peak_efield_tau400_no_delta_hf`; revised scan-fallback spec `ulf_peak_efield_tau400_cov5_no_delta_hf` | `0.9411` | `-0.0849` | realized HF-derived intended primary; D_DTOR source resolver = `scan_fallback_accepted` + `error_nonpredictive`; endpoint status = `primary_branch_error_nonpredictive` |
 | selected-source output `ulf_peak_efield_tau400_delta_hf_adjusted`; revised scan-fallback spec `ulf_peak_efield_tau400_cov5_delta_hf_adjusted` | `0.9470` | `0.2169` | sensitivity because matched B_DTOR source is accepted but `error_nonpredictive`; D_DTOR source resolver = `scan_fallback_accepted` + `error_predictive` |
 
-Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. The automatically selected no-DeltaHF dTOR final model has completed formal permutation and bootstrap. OSS-DBS activation and jitter QC are recorded as missing-input sensitivity-readiness statuses, so the consolidated status records `D_DTOR = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING`.
+Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. The automatically selected no-DeltaHF dTOR final model has completed formal permutation, bootstrap, and jitter QC. OSS-DBS activation is recorded as a missing-input sensitivity-readiness status, so the consolidated status records `D_DTOR = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING` until OSS inputs exist.
 
 ### A Round 2 All-Endpoint Tau/Coverage Resolver Scan
 
@@ -852,8 +861,8 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
 
 ### Immediate Next Steps
 
-1. Keep B_DTOR and D_DTOR fiber OSS/jitter as explicit missing-input
-   sensitivity-readiness statuses until the required sensitivity sidecars exist.
+1. Keep B_DTOR and D_DTOR fiber OSS as explicit missing-input
+   sensitivity-readiness statuses until the required activation sidecars exist.
 2. Formal resampling, OSS, jitter, and figure-grade outputs attach to the
    generated final-model formal target worklist for model families that define
    formal inference. The current formal targets are A, B_DTOR, C, and D_DTOR.
@@ -887,7 +896,7 @@ jitter QC outputs are absent, write explicit branch-level and cross-target
 sensitivity-readiness status instead of marking the sensitivity layer complete.
 Missing sensitivity inputs or missing jitter QC outputs do not change the
 selected final model or the completed permutation/bootstrap status; they only
-prevent OSS/jitter robustness support from being claimed.
+prevent the corresponding OSS or jitter robustness support from being claimed.
 The consolidated status should then report
 `FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING`.
 
@@ -1472,8 +1481,8 @@ formal drivers are started.
 Fallback-selected thresholds are explicitly labeled as scan-fallback sources and are never relabeled as pre-specified sources.
 The final reporting package records the unique final model for each formal target,
 formal resampling status, direct-voxel display-source availability, explicit
-not-run statuses for unavailable fiber OSS/jitter/density/FDR/enrichment inputs,
-OSS/jitter missing-input details, and the manifest audit pair for each final model.
+not-run statuses for unavailable fiber OSS, density, FDR, or enrichment inputs,
+OSS missing-input details, jitter QC status, and the manifest audit pair for each final model.
 The all-endpoint reporting package records A all-endpoint source-resolver rows,
 observed branch manifests, final-report rows, and detected/not-run statuses for
 C/D gain endpoints, same-day immediate endpoints, and total-ULF sensitivities,

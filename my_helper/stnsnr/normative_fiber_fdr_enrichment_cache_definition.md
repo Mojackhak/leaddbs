@@ -356,5 +356,5 @@ enrichment_cache
 ```
 
 These blockers are display/interpretation blockers only. They do not invalidate
-completed source resolution, LOOCV, formal permutation/bootstrap, OSS readiness,
-or jitter readiness.
+completed source resolution, LOOCV, formal permutation/bootstrap, or the
+independently recorded OSS and jitter readiness statuses.
