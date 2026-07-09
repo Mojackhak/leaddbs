@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,31 @@ def _jitter_candidate_paths(target: NormativeFiberTarget, preprocess_dir: Path) 
     return paths
 
 
+def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _complete_jitter_outputs(target: NormativeFiberTarget) -> tuple[str, str, list[str], list[str]]:
+    prefix = file_prefix_for_manifest(target.manifest_path)
+    summary_path = target.branch_dir / f"{prefix}_jitter_summary.csv"
+    manifest_path = target.branch_dir / f"{prefix}_formal_jitter_manifest.json"
+    expected = [summary_path, manifest_path]
+    missing = [str(path) for path in expected if not path.is_file()]
+    if missing:
+        return "not_run_missing_jitter_inputs", "no_complete_jitter_qc_outputs_found", [], [str(path) for path in expected]
+    rows = _read_csv_rows(summary_path)
+    if not rows or str(rows[0].get("jitter_status", "")).strip().lower() != "complete":
+        return "not_run_missing_jitter_inputs", "no_complete_jitter_qc_outputs_found", [], [str(path) for path in expected]
+    try:
+        n_jitters = int(float(rows[0].get("B", "0")))
+    except (TypeError, ValueError):
+        n_jitters = 0
+    if n_jitters < 1000:
+        return "not_run_missing_jitter_inputs", "no_formal_jitter_qc_outputs_found", [], [str(path) for path in expected]
+    return "complete", "", [str(path) for path in expected], [str(path) for path in expected]
+
+
 def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[str, Any]:
     provenance = git_provenance()
     prefix = file_prefix_for_manifest(target.manifest_path)
@@ -63,8 +89,8 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
     missing_oss = _missing_paths(oss_required)
     oss_status = "ready_for_oss_sensitivity" if not missing_oss else "not_run_missing_oss_inputs"
 
-    jitter_candidates = _jitter_candidate_paths(target, preprocess_dir)
-    jitter_status = "ready_for_jitter_qc" if jitter_candidates else "not_run_missing_jitter_inputs"
+    legacy_jitter_candidates = _jitter_candidate_paths(target, preprocess_dir)
+    jitter_status, jitter_missing_reason, jitter_existing_outputs, jitter_expected_outputs = _complete_jitter_outputs(target)
     jitter_search_roots = [str(target.branch_dir), str(preprocess_dir)]
 
     row = {
@@ -76,8 +102,10 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
         "oss_missing_inputs": ";".join(missing_oss),
         "oss_existing_inputs": ";".join(_existing_paths(oss_required)),
         "jitter_qc_status": jitter_status,
-        "jitter_missing_inputs": "" if jitter_candidates else "no_jitter_inputs_found_in_search_roots",
-        "jitter_existing_inputs": ";".join(str(path) for path in jitter_candidates),
+        "jitter_missing_inputs": jitter_missing_reason,
+        "jitter_existing_inputs": ";".join(jitter_existing_outputs),
+        "jitter_expected_outputs": ";".join(jitter_expected_outputs),
+        "legacy_jitter_candidate_inputs": ";".join(str(path) for path in legacy_jitter_candidates),
         "jitter_input_search_roots": ";".join(jitter_search_roots),
         "generated_at": iso_now(),
         "code_provenance": provenance,
@@ -90,6 +118,7 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
         {
             **row,
             "required_oss_inputs": [str(path) for path in oss_required],
+            "expected_jitter_outputs": jitter_expected_outputs,
             "jitter_input_search_roots": jitter_search_roots,
         },
     )
@@ -100,11 +129,12 @@ def assess_target_sensitivity_readiness(target: NormativeFiberTarget) -> dict[st
                 "model_id": target.model_id,
                 "jitter_qc_status": jitter_status,
                 "jitter_existing_inputs": row["jitter_existing_inputs"],
+                "jitter_expected_outputs": row["jitter_expected_outputs"],
                 "generated_at": row["generated_at"],
                 "code_provenance": provenance,
             }
         ],
-        ["model_id", "jitter_qc_status", "jitter_existing_inputs", "generated_at", "code_provenance"],
+        ["model_id", "jitter_qc_status", "jitter_existing_inputs", "jitter_expected_outputs", "generated_at", "code_provenance"],
     )
     return row
 

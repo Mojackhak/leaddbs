@@ -535,6 +535,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | Direct-voxel final-model formal jitter QC | `my_helper/fiber/stnsnr/run_stnsnr_direct_voxel_formal_jitter.py` | `my_helper/fiber/core/analysis/stnsnr_direct_voxel_formal_jitter.py` | implemented |
 | dTOR normative-fiber smoke/formal permutation | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_smoke_permutation.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_smoke_permutation.py` | implemented |
 | dTOR normative-fiber formal bootstrap | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_bootstrap.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_bootstrap.py` | implemented |
+| dTOR normative-fiber formal jitter QC | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_jitter.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_jitter.py` | implemented for formal dTOR normative-fiber targets |
 | dTOR normative-fiber sensitivity readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_sensitivity_readiness.py` | implemented |
 | Normative-fiber basic density cache | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_density_cache.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_density_cache.py` | implemented |
 | Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
@@ -881,19 +882,20 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    HF-overlap, tau/Coverage, or manifest logic requires rerunning the affected
    observed/status branches before their outputs are described as current.
 
-If required OSS activation sidecars or jittered exposure sidecars are absent,
-write explicit branch-level and cross-target sensitivity-readiness status
-instead of marking the sensitivity layer complete. Missing sensitivity inputs do
-not change the selected final model or the completed permutation/bootstrap
-status; they only prevent OSS/jitter robustness support from being claimed.
+If required OSS activation sidecars are absent, or if formal normative-fiber
+jitter QC outputs are absent, write explicit branch-level and cross-target
+sensitivity-readiness status instead of marking the sensitivity layer complete.
+Missing sensitivity inputs or missing jitter QC outputs do not change the
+selected final model or the completed permutation/bootstrap status; they only
+prevent OSS/jitter robustness support from being claimed.
 The consolidated status should then report
 `FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING`.
 
 The sensitivity-readiness summary and final reporting layer must preserve the
 missing-input details. OSS readiness records the required missing sidecar paths.
-Jitter readiness records the searched branch/preprocess roots and an explicit
-`no_jitter_inputs_found_in_search_roots` reason when no jitter sidecars are
-detected.
+Jitter readiness records the expected formal jitter QC summary and manifest
+paths and an explicit `no_complete_jitter_qc_outputs_found` reason when complete
+jitter QC outputs are not detected.
 
 `ready_for_oss_sensitivity` means only that the canonical OSS input sidecars
 exist and pass the readiness file-presence contract. It does not mean that OSS
@@ -1386,6 +1388,15 @@ dTOR normative-fiber formal bootstrap:
 /opt/anaconda3/bin/conda run -n leaddbs \
   python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_bootstrap.py \
   --n-bootstraps 10000
+```
+
+dTOR normative-fiber formal jitter QC:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_jitter.py \
+  --n-jitters 1000 \
+  --jitter-fwhm-mm 2.0
 ```
 
 dTOR normative-fiber sensitivity readiness:
