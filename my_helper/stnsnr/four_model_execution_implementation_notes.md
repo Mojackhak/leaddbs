@@ -218,11 +218,12 @@ confirms that full OSS sidecar generation should remain resumable and
 row-status driven, with explicit long-running/interrupted states, rather than
 being treated as an interactive smoke command.
 
-The OSS worklist must resolve ULF selected-source output locations from the
-actual shared exposure preprocess directory. D_DTOR selected-source manifests do
-not always include `outputs.preprocess_dir`; in that case the correct sidecar
-directory is the parent directory of the selected `X_ULF_only_fiber...` matrix,
-not `<branch_dir>/preprocess`.
+The OSS worklist and sensitivity-readiness layers must resolve ULF
+selected-source output locations from the actual shared exposure preprocess
+directory. D_DTOR selected-source manifests do not always include
+`outputs.preprocess_dir`; in that case the correct sidecar directory is the
+parent directory of the selected `X_ULF_only_fiber...` matrix, not
+`<branch_dir>/preprocess`.
 
 The resumable OSS row-level activation runner is the next layer after
 parameter preflight. It consumes successful preflight rows and runs

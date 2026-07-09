@@ -641,8 +641,8 @@ ULF normative fiber selected-source branch manifests may store branch outputs
 under `branch_dir` while the shared component and ULF-only exposure sidecars live
 one level higher in the selected-source exposure `preprocess` directory. For
 those D_DTOR targets, if `outputs.preprocess_dir` is absent, the OSS worklist
-must use the directory that contains the selected `X_ULF_only_fiber...` exposure
-matrix (`target.x_path.parent`) rather than fabricating
+and sensitivity-readiness code must use the directory that contains the selected
+`X_ULF_only_fiber...` exposure matrix (`target.x_path.parent`) rather than fabricating
 `<branch_dir>/preprocess/`.
 
 ## Required Manifest Fields

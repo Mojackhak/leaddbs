@@ -27,6 +27,8 @@ def _preprocess_dir_from_manifest(target: NormativeFiberTarget) -> Path:
     outputs = manifest.get("outputs", {})
     if outputs.get("preprocess_dir"):
         return Path(outputs["preprocess_dir"]).expanduser().resolve()
+    if target.model_id == "D_DTOR":
+        return target.x_path.parent
     return target.branch_dir / "preprocess"
 
 
