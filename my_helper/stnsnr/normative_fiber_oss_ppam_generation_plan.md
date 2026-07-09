@@ -154,6 +154,84 @@ that contains `oss-dbs_parameters.mat` and the filtered connectome files
 folder, because downstream `prepareaxonmodel` resolves pathway files relative
 to the converter output path.
 
+The converter JSON `StimulationFolder` must also point to that same Lead-DBS
+OSS output directory. If the converter writes the repository root or another
+incorrect folder, the STNSNr sidecar layer must patch it before any `ossdbs`
+call, otherwise OSS-DBS success/failure marker files would be written outside
+the row sandbox.
+
+## Resumable Row-Level Activation Runner
+
+After parameter-dictionary preflight passes, full sidecar generation must run
+as a resumable row-level activation workflow. It must not be run as a
+single interactive shell command because `prepareaxonmodel` can spend many
+minutes converting dTOR fibers to streamlines for one subject-side-source row.
+
+The row-level runner executes:
+
+```text
+prepareaxonmodel
+ossdbs
+run_pathway_activation
+```
+
+for selected preflight rows. It writes row-local logs and a row-local status
+manifest after each step. A row can resume from the first incomplete step when
+the previous step's expected outputs and return code are already present.
+
+Recommended command:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_activation_rows.py \
+  --one-row-per-model \
+  --max-rows 2
+```
+
+This runner still does not write final branch readiness files:
+
+```text
+X_oss_float32_fiber_major.npy
+oss_parameter_manifest.json
+oss_activation_sidecar_metadata.json
+```
+
+Those final branch files are written only after all required subject-side-source
+rows for a branch have completed pPAM activation and have been projected onto
+the final branch `fiber_ids.npy` with the declared `max_probability_union`
+merge rule.
+
+Required row-level outputs:
+
+```text
+normative_fiber_oss_activation_row_summary.csv
+normative_fiber_oss_activation_row_manifest.json
+row*/prepareaxonmodel_stdout.log
+row*/prepareaxonmodel_stderr.log
+row*/ossdbs_stdout.log
+row*/ossdbs_stderr.log
+row*/run_pathway_activation_stdout.log
+row*/run_pathway_activation_stderr.log
+row*/oss_activation_row_status.json
+```
+
+Row status vocabulary:
+
+```text
+pending
+prepareaxonmodel_complete
+prepareaxonmodel_failed
+ossdbs_complete
+ossdbs_failed
+pathway_activation_complete
+pathway_activation_failed
+timeout_or_interrupted
+```
+
+If a long-running command is interrupted, record the partial status and keep
+the output directory for resume/debugging. Do not mark the row complete unless
+the expected success marker or activation output exists.
+
 Preflight outputs live outside the final branch preprocess directory until they
 pass validation. They do not create:
 

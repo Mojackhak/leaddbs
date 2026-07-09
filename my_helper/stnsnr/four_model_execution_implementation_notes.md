@@ -201,12 +201,26 @@ as `oss-dbs_parameters.mat` and the filtered dTOR `data*.mat` files. A separate
 converter-output folder makes downstream `prepareaxonmodel` look for
 `data*.mat` in the wrong location.
 
+The generated converter JSON must also use that same directory as
+`StimulationFolder`. Earlier converter output used the repository root, which
+would make `ossdbs` write success/failure marker files outside the row sandbox;
+the preflight now patches and records this field.
+
 A manual B_DTOR `prepareaxonmodel` activation smoke using the corrected
 parameter directory found no path or frequency error, but remained CPU-bound in
 OSS-DBSv2 fiber-to-streamline conversion for more than 17 minutes and was
 interrupted before completion. This confirms that full OSS sidecar generation
 should be implemented as a resumable long-running runner with row-level status
 and logs, not as an interactive smoke command.
+
+The resumable OSS row-level activation runner is the next layer after
+parameter preflight. It consumes successful preflight rows and runs
+`prepareaxonmodel`, `ossdbs`, and `run_pathway_activation` with per-step stdout,
+stderr, return code, start/end timestamps, and expected-output checks. A row
+may be resumed from the first incomplete step. This runner still does not write
+branch-level `X_oss_float32_fiber_major.npy`, `oss_parameter_manifest.json`, or
+`oss_activation_sidecar_metadata.json`; those are reserved for the later
+branch-merge layer after all required rows complete.
 
 The consolidated status manifest records git provenance for the worktree that
 generated the status refresh, including branch, HEAD commit, and dirty files.

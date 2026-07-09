@@ -1482,6 +1482,22 @@ OSS-DBSv2 parameter dictionaries with top-level `settings`, and runs a bounded
 `X_oss_float32_fiber_major.npy`, does not write final branch OSS manifests, and
 does not change `oss_sensitivity_status` or `ready_for_oss_sensitivity`.
 
+Normative-fiber OSS row-level activation runner:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_activation_rows.py \
+  --one-row-per-model \
+  --max-rows 2
+```
+
+This runner consumes successful parameter-preflight rows and executes
+`prepareaxonmodel`, `ossdbs`, and `run_pathway_activation` with row-level
+status/log outputs. It is resumable and may be long-running for dTOR. It does
+not write branch-level `X_oss_float32_fiber_major.npy` or final OSS manifests
+until all required rows for a branch have completed and have been merged into
+the final branch `fiber_ids.npy` universe.
+
 Final reporting and figure-output readiness:
 
 ```bash

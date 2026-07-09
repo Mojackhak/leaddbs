@@ -157,6 +157,29 @@ def _validate_or_patch_converter_frequency(converter_json: Path, source_frequenc
     }
 
 
+def _validate_or_patch_stimulation_folder(converter_json: Path, expected_folder: Path) -> dict[str, Any]:
+    if not converter_json.is_file():
+        return {
+            "stimulation_folder_validation_status": "failed_missing_converter_json",
+            "stimulation_folder_original": "",
+            "stimulation_folder_final": "",
+            "stimulation_folder_patch_applied": "false",
+        }
+    data = json.loads(converter_json.read_text(encoding="utf-8"))
+    expected = str(expected_folder)
+    original = str(data.get("StimulationFolder", ""))
+    patch_applied = original != expected
+    if patch_applied:
+        data["StimulationFolder"] = expected
+        converter_json.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    return {
+        "stimulation_folder_validation_status": "stimulation_folder_patched" if patch_applied else "stimulation_folder_validated",
+        "stimulation_folder_original": original,
+        "stimulation_folder_final": expected,
+        "stimulation_folder_patch_applied": str(patch_applied).lower(),
+    }
+
+
 def _run_command(cmd: list[str], timeout_s: int | None = None) -> dict[str, Any]:
     started = iso_now()
     proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_s)
@@ -327,6 +350,12 @@ def _run_row_preflight(
         "converter_frequency_hz_final": "",
         "frequency_patch_applied": "false",
     }
+    stimulation_folder_validation = _validate_or_patch_stimulation_folder(Path(converter_json), Path(parameter_file).parent) if converter_json and parameter_file else {
+        "stimulation_folder_validation_status": "not_run_no_converter_json",
+        "stimulation_folder_original": "",
+        "stimulation_folder_final": "",
+        "stimulation_folder_patch_applied": "false",
+    }
     if matlab_result["returncode"] != 0:
         status = "failed_matlab_parameter_dictionary"
     elif not parameter_file:
@@ -337,6 +366,8 @@ def _run_row_preflight(
         status = "failed_converter_json_missing"
     elif run_converter and str(frequency_validation["frequency_validation_status"]).startswith("failed"):
         status = "failed_frequency_validation"
+    elif run_converter and str(stimulation_folder_validation["stimulation_folder_validation_status"]).startswith("failed"):
+        status = "failed_stimulation_folder_validation"
     else:
         status = "parameter_preflight_passed"
 
@@ -356,6 +387,7 @@ def _run_row_preflight(
             "parameter_file": parameter_file,
             "converter_json": converter_json,
             "frequency_validation": frequency_validation,
+            "stimulation_folder_validation": stimulation_folder_validation,
             "preflight_status": status,
             "matlab_result": matlab_result,
             "converter_result": converter_result,
@@ -380,6 +412,7 @@ def _run_row_preflight(
         "converter_returncode": "" if converter_result is None else converter_result["returncode"],
         "converter_json": converter_json,
         **frequency_validation,
+        **stimulation_folder_validation,
         "preflight_status": status,
         "row_manifest": str(row_manifest_path),
     }
