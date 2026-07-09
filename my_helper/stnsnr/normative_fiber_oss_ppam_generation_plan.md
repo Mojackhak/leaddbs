@@ -85,6 +85,87 @@ true sidecar generator must first run the Lead-DBS MATLAB OSS preparation path
 to create the OSS parameter dictionary before calling `leaddbs2ossdbs`, `ossdbs`,
 and `run_pathway_activation`.
 
+## OSS Parameter-Dictionary Preflight
+
+Before running full pPAM activation sidecars, run a bounded parameter-dictionary
+preflight on worklist rows. This layer verifies the MATLAB-to-OSS-DBSv2 bridge
+without claiming OSS sensitivity readiness.
+
+The preflight must:
+
+```text
+read normative_fiber_oss_sidecar_worklist.csv
+choose final dTOR worklist rows
+load the source Lead-DBS stimulation S structure
+run the Lead-DBS MATLAB OSS preparation path
+write an HDF5/v7.3 oss-dbs_parameters.mat with top-level settings
+populate stimulation protocol fields including Phi_vector and current_control
+lock the OSS connectome to dTOR-985 Full (Elias 2024)
+run leaddbs2ossdbs converter smoke on the generated parameter file
+write row-level status and manifest outputs
+```
+
+The MATLAB preparation path must include the stimulation-source and protocol
+steps that are required before `ea_save_ossdbs_settings`:
+
+```text
+ea_prepare_ossdbs
+ea_get_oss_outputPaths
+ea_segment_MRI
+ea_prepare_DTI
+ea_get_oss_reco
+ea_check_stimSources
+ea_get_stimProtocol
+ea_prepare_fibers
+ea_save_ossdbs_settings
+```
+
+Because required OSS sidecars are limited to the final dTOR normative fiber
+branches, this preflight must not rely on a GUI/default OSS connectome. It must
+set the OSS connectome explicitly to:
+
+```text
+dTOR-985 Full (Elias 2024)
+```
+
+If the generated MAT file lacks a top-level `settings` object, or if the
+generated `settings` lacks required converter fields such as `Phi_vector`,
+`current_control`, implantation coordinates, or `pathwayParameterFile`, the row
+must be marked as a parameter-preflight failure. The runner must not fall back
+to the original `sub-*_desc-stimparameters.mat` file as converter input.
+
+Preflight outputs live outside the final branch preprocess directory until they
+pass validation. They do not create:
+
+```text
+X_oss_float32_fiber_major.npy
+oss_parameter_manifest.json
+oss_activation_sidecar_metadata.json
+```
+
+and they do not change:
+
+```text
+oss_sensitivity_status
+ready_for_oss_sensitivity
+source status
+prediction status
+final branch selection
+```
+
+Recommended output root:
+
+```text
+/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_parameter_preflight/
+```
+
+Required preflight summary files:
+
+```text
+normative_fiber_oss_parameter_preflight_summary.csv
+normative_fiber_oss_parameter_preflight_manifest.json
+```
+
 ## Model Role
 
 OSS/pPAM does not alter:

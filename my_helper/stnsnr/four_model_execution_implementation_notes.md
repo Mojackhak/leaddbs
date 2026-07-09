@@ -95,6 +95,7 @@ dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, se
 dTOR normative-fiber formal jitter: B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS sensitivity readiness: not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit: B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; D_DTOR has 6 recovered derivatives ULF source-path rows for SNr003/SNr006/SNr007
+dTOR normative-fiber OSS parameter preflight: B_DTOR and D_DTOR first ready rows parameter_preflight_passed; MATLAB parameter dictionary and leaddbs2ossdbs converter smoke returncode 0
 normative-fiber basic density and connected-region label caches: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches: B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS remains not run due missing inputs
@@ -174,6 +175,22 @@ OSS-DBSv2 expects an HDF5/v7.3 dictionary with top-level `settings`. The next
 implementation layer therefore needs a MATLAB-side Lead-DBS OSS preparation
 wrapper that writes the expected parameter dictionary before the OSS-DBSv2
 command-line tools can run.
+
+The next OSS implementation layer is a parameter-dictionary preflight, not the
+full sidecar generator. It consumes the sidecar worklist, runs the Lead-DBS
+MATLAB preparation chain through `ea_check_stimSources`,
+`ea_get_stimProtocol`, `ea_prepare_fibers`, and `ea_save_ossdbs_settings`, and
+then runs a bounded `leaddbs2ossdbs` converter smoke on the generated parameter
+file. Its outputs live under
+`/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_parameter_preflight/`.
+It must not write final branch `X_oss_float32_fiber_major.npy`, must not write
+`oss_parameter_manifest.json` or `oss_activation_sidecar_metadata.json`, and
+must not change `oss_sensitivity_status`.
+
+The bounded preflight now passes for the first ready B_DTOR and D_DTOR rows
+when the wrapper locks OSS to `dTOR-985 Full (Elias 2024)`, initializes
+`settings.reuse_warped_connectome = 0`, and checks the generated converter JSON
+under the requested converter output directory.
 
 The consolidated status manifest records git provenance for the worktree that
 generated the status refresh, including branch, HEAD commit, and dirty files.

@@ -127,6 +127,7 @@ dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, s
 dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS = not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation
+dTOR normative-fiber OSS parameter preflight = B_DTOR and D_DTOR first ready rows parameter_preflight_passed
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS remains not run due missing inputs
@@ -558,6 +559,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | dTOR normative-fiber formal jitter QC | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_formal_jitter.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_jitter.py` | implemented for formal dTOR normative-fiber targets |
 | dTOR normative-fiber sensitivity readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_sensitivity_readiness.py` | implemented |
 | dTOR normative-fiber OSS sidecar input audit/worklist | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_sidecar_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_oss_sidecar_worklist.py` | implemented |
+| dTOR normative-fiber OSS parameter-dictionary preflight | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_parameter_preflight.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_oss_parameter_preflight.py` | implemented for bounded converter smoke |
 | Normative-fiber basic density cache | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_density_cache.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_density_cache.py` | implemented |
 | Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
 | Normative-fiber FDR/enrichment cache | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_fdr_enrichment_cache.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_fdr_enrichment_cache.py` | implemented for formal dTOR normative-fiber targets |
@@ -1465,6 +1467,20 @@ This audit is read-only with respect to OSS outputs. It does not create
 `X_oss_float32_fiber_major.npy` and does not change
 `oss_sensitivity_status`; it records whether the true OSS sidecar generation
 inputs are discoverable for the final dTOR branches.
+
+Normative-fiber OSS parameter-dictionary preflight:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_parameter_preflight.py \
+  --one-row-per-model
+```
+
+This preflight consumes the OSS sidecar worklist, asks Lead-DBS MATLAB to write
+OSS-DBSv2 parameter dictionaries with top-level `settings`, and runs a bounded
+`leaddbs2ossdbs` converter smoke. It does not create
+`X_oss_float32_fiber_major.npy`, does not write final branch OSS manifests, and
+does not change `oss_sensitivity_status` or `ready_for_oss_sensitivity`.
 
 Final reporting and figure-output readiness:
 
