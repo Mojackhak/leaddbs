@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,17 @@ from stnsnr_run_provenance import git_provenance
 
 DEFAULT_READINESS_CSV = DEFAULT_VAL_ROOT / "summary/four_model_execution/formal_readiness/four_model_formal_readiness.csv"
 DEFAULT_OUTPUT_DIR = DEFAULT_VAL_ROOT / "summary/four_model_execution/normative_fiber_oss_sensitivity"
+
+
+@dataclass(frozen=True)
+class OssFoldCache:
+    heldout: int
+    train: np.ndarray
+    valid_candidate_mask: np.ndarray
+    nuisance_train: np.ndarray
+    nuisance_test: np.ndarray
+    nuisance_rank_train: np.ndarray
+    z_exposure_rank_resid: np.ndarray
 
 
 def _as_2d(values: np.ndarray) -> np.ndarray:
@@ -90,25 +102,15 @@ def _valid_oss_candidate_mask(x: np.ndarray) -> np.ndarray:
     return finite & nonconstant & activated
 
 
-def _loocv_oss(
-    *,
-    x: np.ndarray,
-    fiber_ids: np.ndarray,
-    y_post: np.ndarray,
-    nuisance: np.ndarray,
-    scale_direction: str,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    y = np.asarray(y_post, dtype=float)
+def _build_oss_fold_caches(x: np.ndarray, nuisance: np.ndarray) -> tuple[OssFoldCache, ...]:
     cov = _as_2d(nuisance)
-    pred = np.full(y.shape[0], np.nan, dtype=float)
-    base_pred = np.full(y.shape[0], np.nan, dtype=float)
-    fold_rows: list[dict[str, Any]] = []
-    for heldout in range(y.shape[0]):
-        train = np.array([idx for idx in range(y.shape[0]) if idx != heldout], dtype=int)
+    caches: list[OssFoldCache] = []
+    for heldout in range(x.shape[0]):
+        train = np.array([idx for idx in range(x.shape[0]) if idx != heldout], dtype=int)
         x_train = x[train]
         candidate = _valid_oss_candidate_mask(x_train)
         if not np.any(candidate):
-            continue
+            raise RuntimeError(f"no valid OSS candidate fibers for heldout index {heldout}")
         nuisance_train = cov[train]
         nuisance_rank = rank_columns(nuisance_train)
         x_rank = rank_columns(np.asarray(x_train[:, candidate], dtype=float))
@@ -119,30 +121,61 @@ def _loocv_oss(
         valid_candidate = np.zeros(candidate.shape, dtype=bool)
         valid_candidate[candidate_indices[valid_local]] = True
         if not np.any(valid_candidate):
-            continue
+            raise RuntimeError(f"no valid residualized OSS fibers for heldout index {heldout}")
+        caches.append(
+            OssFoldCache(
+                heldout=heldout,
+                train=train,
+                valid_candidate_mask=valid_candidate,
+                nuisance_train=nuisance_train,
+                nuisance_test=cov[[heldout]],
+                nuisance_rank_train=nuisance_rank,
+                z_exposure_rank_resid=x_resid[:, valid_local] / denom[valid_local],
+            )
+        )
+    return tuple(caches)
+
+
+def _loocv_oss(
+    *,
+    x: np.ndarray,
+    fiber_ids: np.ndarray,
+    y_post: np.ndarray,
+    nuisance: np.ndarray,
+    scale_direction: str,
+    fold_caches: tuple[OssFoldCache, ...] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    y = np.asarray(y_post, dtype=float)
+    cov = _as_2d(nuisance)
+    caches = fold_caches or _build_oss_fold_caches(x, cov)
+    pred = np.full(y.shape[0], np.nan, dtype=float)
+    base_pred = np.full(y.shape[0], np.nan, dtype=float)
+    fold_rows: list[dict[str, Any]] = []
+    for cache in caches:
+        heldout = cache.heldout
+        train = cache.train
         y_rank = average_rank_1d(y[train])
-        y_resid = residualize(y_rank, nuisance_rank)
+        y_resid = residualize(y_rank, cache.nuisance_rank_train)
         y_denom = float(np.sqrt(np.sum(y_resid * y_resid)))
         if not np.isfinite(y_denom) or y_denom <= 0.0:
             continue
-        z = x_resid[:, valid_local] / denom[valid_local]
-        rho_fold = z.T @ (y_resid / y_denom)
+        rho_fold = cache.z_exposure_rank_resid.T @ (y_resid / y_denom)
         weights = np.full(x.shape[1], np.nan, dtype=np.float32)
-        weights[valid_candidate] = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
-        fold_net = fiber_net_score(x, weights, valid_candidate, fiber_ids=fiber_ids)
+        weights[cache.valid_candidate_mask] = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
+        fold_net = fiber_net_score(x, weights, cache.valid_candidate_mask, fiber_ids=fiber_ids)
         fold_pred, _ = fit_linear_prediction(
             y[train],
             fold_net.net_score[train],
-            nuisance_train,
+            cache.nuisance_train,
             fold_net.net_score[[heldout]],
-            cov[[heldout]],
+            cache.nuisance_test,
         )
         pred[heldout] = fold_pred[0]
-        base_pred[heldout] = _fit_baseline_with_covariates(y[train], nuisance_train, cov[[heldout]])
+        base_pred[heldout] = _fit_baseline_with_covariates(y[train], cache.nuisance_train, cache.nuisance_test)
         fold_rows.append(
             {
                 "heldout_index": heldout,
-                "n_candidate_fibers": int(np.count_nonzero(valid_candidate)),
+                "n_candidate_fibers": int(np.count_nonzero(cache.valid_candidate_mask)),
                 "n_sweet_selected_fibers": int(fold_net.sweet_fiber_ids.size),
                 "n_sour_selected_fibers": int(fold_net.sour_fiber_ids.size),
                 "heldout_prediction": float(pred[heldout]),
@@ -248,12 +281,14 @@ def run_target_oss_sensitivity(target: NormativeFiberTarget, *, n_permutations: 
     subjects = [str(subject) for subject in score_columns["subject_id"]]
     y_post = _float_column(score_columns, target.outcome_column)
     nuisance = np.column_stack([_float_column(score_columns, column) for column in target.nuisance_columns])
+    fold_caches = _build_oss_fold_caches(x, nuisance)
     observed, fold_rows = _loocv_oss(
         x=x,
         fiber_ids=fiber_ids,
         y_post=y_post,
         nuisance=nuisance,
         scale_direction=target.scale_direction,
+        fold_caches=fold_caches,
     )
     weights, scores = _full_sample_weights_scores(
         x=x,
@@ -282,6 +317,7 @@ def run_target_oss_sensitivity(target: NormativeFiberTarget, *, n_permutations: 
             y_post=y_star,
             nuisance=nuisance,
             scale_direction=target.scale_direction,
+            fold_caches=fold_caches,
         )
         null_stats[idx] = permuted["spearman_rho"]
         if (idx + 1) % 100 == 0 or idx + 1 == int(n_permutations):
