@@ -433,6 +433,25 @@ def test_normative_fiber_sensitivity_missing_status() -> None:
             "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING",
             "normative missing sensitivity status",
         )
+        sensitivity_status.write_text(
+            json.dumps(
+                {
+                    "oss_sensitivity_status": "ready_for_oss_sensitivity",
+                    "jitter_qc_status": "complete",
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert_equal(
+            normative_fiber_formal_resampling_status(
+                branch_dir / "missing_smoke.csv",
+                formal_summary,
+                bootstrap_summary,
+                sensitivity_status,
+            ),
+            "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_READY",
+            "normative ready sensitivity input status",
+        )
 
 
 def main() -> int:

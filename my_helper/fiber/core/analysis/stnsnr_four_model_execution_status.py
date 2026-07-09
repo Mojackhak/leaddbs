@@ -650,10 +650,13 @@ def normative_fiber_formal_resampling_status(
                     sensitivity = read_json(sensitivity_status_json)
                     oss_status = str(sensitivity.get("oss_sensitivity_status", "")).strip()
                     jitter_status = str(sensitivity.get("jitter_qc_status", "")).strip()
-                    missing_statuses = {"not_run_missing_oss_inputs", "not_run_missing_jitter_inputs"}
-                    if oss_status in missing_statuses and jitter_status in missing_statuses:
+                    missing_oss_statuses = {"not_run_missing_oss_inputs"}
+                    missing_jitter_statuses = {"not_run_missing_jitter_inputs"}
+                    oss_ready = oss_status == "ready_for_oss_sensitivity" or oss_status.startswith("passed_")
+                    jitter_ready = jitter_status == "complete" or jitter_status.startswith("ready_for_")
+                    if oss_status in missing_oss_statuses and jitter_status in missing_jitter_statuses:
                         return "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING"
-                    if oss_status.startswith("ready_for_") and jitter_status.startswith("ready_for_"):
+                    if oss_ready and jitter_ready:
                         return "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_READY"
                     if oss_status or jitter_status:
                         return "FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_PARTIAL"

@@ -319,9 +319,12 @@ code provenance = clean stnvop commit 7d9b312eb after mapping persistence
 mapping files = 64/64 rows
 mapping_total_rows = 101247
 invalid candidate-column mappings = 0
+branch-level merge = complete for B_DTOR and D_DTOR from clean stnvop commit da38d35c1
+B_DTOR X_oss shape = 16x3990; nonzero entries = 34450
+D_DTOR X_oss shape = 16x2321; nonzero entries = 23816
 ```
 
-The remaining branch-level blocker is not row execution. It is the merge layer:
+The branch-level sidecar files are:
 complete local-to-candidate mapping files now exist; a locked interpretation of
 the OSS `Status`/p(A) output and the branch merge runner are still required
 before writing canonical branch sidecars.
