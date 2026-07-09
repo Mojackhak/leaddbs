@@ -11,18 +11,20 @@
 
 2026-07-07 post-pause refresh: final-reporting readiness now requires separate
 FDR and enrichment caches before a normative-fiber row can be reported as full
-fiber figure-output ready. Density plus connected-region labels remains
-`ready_for_density_label_outputs` only. Final reporting, all-endpoint reporting,
-manifest schema audit, and completion audit were regenerated from clean commit
-`1d34cb9f3`.
+fiber figure-output ready. This is a figure-output/display requirement, not a
+source-resolver, prediction-status, final-model, OSS, or jitter gate. Density
+plus connected-region labels remains `ready_for_density_label_outputs` only.
+Final reporting, all-endpoint reporting, manifest schema audit, and completion
+audit were regenerated from clean commit `1d34cb9f3`.
 
 2026-07-08 continuation generated formal-target dTOR normative-fiber
 FDR/enrichment caches and formal jitter QC for B_DTOR and D_DTOR. Current input
 searches still find no required `X_oss_float32_fiber_major.npy`,
 `oss_parameter_manifest.json`, or `oss_activation_sidecar_metadata.json` for
-B_DTOR/D_DTOR. The remaining normative-fiber completion blockers are therefore
-explicit OSS missing-input blockers, not branch-selection ambiguity, not
-FDR/enrichment cache blockers, and not jitter blockers.
+B_DTOR/D_DTOR. The remaining normative-fiber execution-completion blockers are
+therefore explicit OSS missing-input blockers for the activation-sensitivity
+layer, not branch-selection ambiguity, not FDR/enrichment figure-cache blockers,
+and not jitter blockers.
 
 The normative-fiber OSS / pPAM sidecar generation contract is defined in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that
@@ -131,10 +133,10 @@ dTOR normative-fiber OSS parameter preflight = B_DTOR and D_DTOR first ready row
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS remains not run due missing inputs
-final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; B_DTOR/D_DTOR have full fiber figure outputs ready; observed robustness normative-fiber rows have density+label outputs ready
+final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; B_DTOR/D_DTOR have full fiber FDR/enrichment figure-cache outputs ready while OSS sensitivity inputs remain missing; observed robustness normative-fiber rows have density+label outputs ready
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs blockers
+completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs sensitivity-completion blockers
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -212,7 +214,7 @@ four_model_final_report.csv rows = 7
 four_model_figure_output_readiness.csv rows = 7
 A direct voxel: figure_output_status = ready_from_existing_direct_voxel_maps
 C ULF direct voxel no_delta_hf: figure_output_status = ready_from_existing_direct_voxel_maps
-B_DTOR and D_DTOR normative fiber rows: figure_output_status = ready_for_full_fiber_figure_outputs
+B_DTOR and D_DTOR normative fiber rows: figure_output_status = ready_for_full_fiber_figure_outputs for density/label/FDR/enrichment display caches; OSS sensitivity remains separately blocked by missing sidecar inputs
 PPMI/MGH/D_PPMI observed robustness normative fiber rows: figure_output_status = ready_for_density_label_outputs
 manifest cohort_n = 16; interpretation = hypothesis_generating
 ```

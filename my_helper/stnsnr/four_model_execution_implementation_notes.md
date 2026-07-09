@@ -15,18 +15,20 @@ those rows are explicitly promoted and their required caches exist.
 
 2026-07-07 post-pause refresh: final-reporting readiness now requires separate
 FDR and enrichment caches before a normative-fiber row can be reported as full
-fiber figure-output ready. Density plus connected-region labels remains
-`ready_for_density_label_outputs` only. Final reporting, all-endpoint reporting,
-manifest schema audit, and completion audit were regenerated from clean commit
-`1d34cb9f3`.
+fiber figure-output ready. This is a figure-output/display requirement, not a
+source-resolver, prediction-status, final-model, OSS, or jitter gate. Density
+plus connected-region labels remains `ready_for_density_label_outputs` only.
+Final reporting, all-endpoint reporting, manifest schema audit, and completion
+audit were regenerated from clean commit `1d34cb9f3`.
 
 Exact input/cache searches after that refresh found no `X_oss_float32_fiber_major.npy`,
 `oss_parameter_manifest.json`, `oss_activation_sidecar_metadata.json`, fiber
 jitter sidecar/cache files, FDR cache files, or enrichment cache files under the
 then-current `/Volumes/VAL/STNSNr` summary tree. Later 2026-07-08 runs generated
 formal jitter QC and FDR/enrichment caches for B_DTOR and D_DTOR. Their current
-normative-fiber completion blocker is OSS missing input only, not
-branch-selection ambiguity.
+normative-fiber execution-completion blocker is OSS missing input only, not
+branch-selection ambiguity, not FDR/enrichment cache availability, and not
+jitter QC.
 
 The OSS / pPAM sidecar generation contract is now documented in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. It defines the
@@ -108,7 +110,7 @@ all-endpoint reporting: 79 rows; A all-endpoint source-resolver rows = 30; disco
 all-endpoint manifest audit: 73 rows missing_git_or_patch_provenance / missing_code_provenance; 6 rows have provenance from a different commit
 all-endpoint reporting manifest records manifest_provenance_counts and manifest_stale_counts
 manifest schema audit: 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs blockers
+completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs sensitivity-completion blockers
 fiber connected-region label caches: complete for B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR
 full fiber FDR/enrichment figure-grade outputs: complete for B_DTOR and D_DTOR
 ```

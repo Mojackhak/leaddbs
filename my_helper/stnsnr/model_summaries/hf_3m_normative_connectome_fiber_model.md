@@ -52,8 +52,8 @@ Rows are joined by `ID` (`SNr003`, `SNr006`, etc.). The improvement-rate table i
 - Public Lead-DBS structural connectomes:
 
   ```text
-  PPMI 85 (Ewert 2017)          observed figure-grade robustness
-  MGH-USC HCP 32 (Horn 2017)    observed figure-grade robustness
+  PPMI 85 (Ewert 2017)          observed robustness
+  MGH-USC HCP 32 (Horn 2017)    observed robustness
   dTOR-985 Full (Elias 2024)    primary analysis
   ```
 
@@ -265,7 +265,7 @@ Q2 = 1 - SSE_NetFiberScore_model / SSE_YBase_only
 - Smoke permutation/bootstrap: `B=1000`, seed `42`.
 - Optional OLS ANCOVA is documented for future sensitivity analysis but is not run in the current execution.
 
-PPMI, MGH, and dTOR all produce observed figure-grade outputs. dTOR additionally carries formal permutation, bootstrap, and jitter QC. The Nature paper 5-fold/10-fold CV settings are documented in the reference checklist only; LOOCV is the executable validation design for this `n=16` cohort.
+PPMI, MGH, and dTOR all produce observed robustness outputs. dTOR additionally carries formal permutation, bootstrap, jitter QC, and the default full figure-cache path when FDR/enrichment caches are generated for selected final branches. The Nature paper 5-fold/10-fold CV settings are documented in the reference checklist only; LOOCV is the executable validation design for this `n=16` cohort.
 
 
 ### HF Normative Fiber Source And Prediction Resolver
@@ -1327,8 +1327,8 @@ control:
 Current connectome roles:
 
 ```text
-PPMI 85 (Ewert 2017)          observed figure-grade robustness
-MGH-USC HCP 32 (Horn 2017)    observed figure-grade robustness
+PPMI 85 (Ewert 2017)          observed robustness
+MGH-USC HCP 32 (Horn 2017)    observed robustness
 dTOR-985 Full (Elias 2024)    primary analysis
 ```
 

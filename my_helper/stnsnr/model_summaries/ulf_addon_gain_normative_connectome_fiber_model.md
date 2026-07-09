@@ -1993,8 +1993,8 @@ control:
 Connectome roles:
 
 ```text
-PPMI 85                 observed figure-grade robustness
-MGH-USC HCP 32          observed figure-grade robustness
+PPMI 85                 observed robustness
+MGH-USC HCP 32          observed robustness
 dTOR-985 Full           primary formal analysis
 ```
 

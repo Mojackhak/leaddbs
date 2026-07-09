@@ -1262,7 +1262,7 @@ For continuous/statistical NIfTI maps in any direct-voxel or target-derived visu
 ### Stage 4: Fiber And Target Connectivity Extraction
 
 1. Load connectome streamlines in chunks.
-2. For HF normative fiber modeling, generate figure-grade observed outputs for PPMI, MGH, and dTOR.
+2. For HF normative fiber modeling, generate observed robustness outputs for PPMI, MGH, and dTOR.
 3. For ULF normative fiber modeling, generate ULF-only fiber-level sidecars after excluding HF-overlap streamlines and use `Coverage_ULF_tau(l) >= 5` with `tau800` primary and `tau1500` sensitivity.
 4. For individualized-DWI target-level models, compute side-specific target connectivity `C(i,h,k)` using same-side targets.
 5. Average left and right target-level individualized-DWI features into patient-level `C_bilat(i,k)`.
@@ -1476,8 +1476,8 @@ direct voxel models use bilateral homologous voxel exposure and keep one row per
 nonlinear homologous voxel mapping uses model-specific transform rules; the executable HF model uses `ea_flip_lr_nonlinear`, while inverse-sampling/trilinear descriptions are generic non-HF context only
 direct voxel coverage masks are defined inside each training fold during LOOCV
 direct voxel models are compared against covariate-only models with patient-level permutation tests
-PPMI, MGH, and dTOR all produce figure-grade observed HF normative fiber summaries
-dTOR primary HF normative fiber branch additionally produces formal permutation/bootstrap and jitter QC
+PPMI, MGH, and dTOR all produce observed HF normative fiber robustness summaries
+dTOR primary HF normative fiber branch additionally produces formal permutation/bootstrap, jitter QC, and full figure-cache outputs when FDR/enrichment caches exist
 STN chronic, ULF chronic add-on gain, and ULF immediate add-on gain outputs are created
 low-coverage targets, voxels, and streamlines are flagged
 all outputs include provenance
