@@ -74,20 +74,32 @@ Rows are joined by `ID` (`SNr003`, `SNr006`, etc.). The improvement-rate table i
   conda env: ossdbsv2
   ```
 
-Before any formal OSS-DBS sensitivity run, the primary OSS parameter set must be locked and written to the branch manifest:
+Before any OSS-DBS sensitivity run, the primary pPAM parameter set must be locked and written to the branch manifest:
 
 ```text
 oss_model_set = primary_locked
-axon_model = OSS-DBS default mammalian myelinated axon model
-axon_diameter_um = locked_default_from_ossdbs_or_leaddbs_config
-n_nodes = locked_default_from_ossdbs_or_leaddbs_config
+oss_model = OSS-DBSv2
+activation_model = pPAM
+deterministic_PAM = fallback/debugging only
+cond_model = ColeCole4
+conductivity = isotropic
+patient_DTI_anisotropic_conductivity = not_used
+probabilistic_parameter = Fiber Diameter
+fiber_diameter_range_um = [1, 4]
+sampling_distribution = Equidistant
+N_samples = 10
 waveform = clinical rectangular pulse unless otherwise specified
 frequency_Hz = clinical HF frequency
 pulse_width_us = clinical pulse width
 amplitude = clinical amplitude
-tissue_model = same as accepted Lead-DBS / OSS-DBS project default
-conductivity_model = locked and recorded
-activation_output = fractional activation if available, else binary activation
+activation_output = continuous_pPAM_activation_probability
+hemisphere_source_merge_rule = max_probability_union
+```
+
+The OSS JSON frequency must be verified before the sidecar is valid:
+
+```text
+requested_frequency_hz == oss_parameter_frequency_hz
 ```
 
 Minimum e-field checks: required path exists, subject/side/condition match is unique, file is raw `sim-efield`, and units are recorded as `V/m`. Missing or multiply matched e-fields fail the scale/run. E-fields are not automatically recomputed.
@@ -557,21 +569,25 @@ Only one selected HF source per endpoint/scale may generate a downstream ULF `De
 OSS-DBS replaces peak E-field exposure with pathway/axon activation after the peak E-field candidate set has been defined:
 
 ```text
-X_HF_OSS_i(l) = OSS-DBS activation value for fiber l under subject i HF stimulation
+X_HF_OSS_i(l) = continuous pPAM activation probability for fiber l under subject i HF stimulation
 ```
+
+The sidecar column universe is the final selected-source branch `fiber_ids.npy`, not the whole dTOR connectome atlas and not the top sweet/sour display fibers. OSS activation must not redefine, shrink, expand, or rescan the candidate fiber universe.
 
 For alternating same-side HF subprograms, OSS activation is computed per subprogram and then max-reduced:
 
 ```text
-A_side_i,p(l) = OSS activation under HF subprogram p
+A_side_i,p(l) = pPAM activation probability under HF subprogram p
 A_side_i(l)   = max_p A_side_i,p(l)
 ```
 
-The bilateral right-canonical OSS activation exposure is:
+The right-canonical OSS activation exposure uses activation union:
 
 ```text
-X_HF_OSS_i(l) = (A_R_i(l) + A_L_to_R_i(l)) / 2
+X_HF_OSS_i(l) = max(A_R_i(l), A_L_to_R_i(l))
 ```
+
+`A_L_to_R_i(l)` is computed by running the left-sided stimulation in the real left hemisphere, mapping the resulting left fiber activation to the homologous right-canonical fiber id, and then representing that value in the right-canonical feature space. The canonical OSS exposure uses `max_probability_union` because pPAM is an activation-probability metric. Bilateral mean p(A) may be reported as a descriptive activation-burden sensitivity but must not replace `X_oss_float32_fiber_major.npy` in `M_HF_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation.
 
 The OSS branch uses the same candidate rule as the peak E-field branch:
 
@@ -582,6 +598,14 @@ tau_primary = 800 V/m
 ```
 
 Candidate fibers are not selected by OSS activation. This prevents the sensitivity branch from adding an extra modeling degree of freedom.
+
+The stored pPAM probability is:
+
+```text
+p(A_i,l) = number of activated pPAM samples for subject i and fiber l / N_samples
+```
+
+Use `p(A) >= 0.05` and `p(A) >= 0.5` only for QC/display/plain activation controls. Thresholded p(A) variables do not replace the continuous canonical OSS fitting matrix.
 
 OSS fiber-wise estimator:
 
@@ -748,11 +772,15 @@ normative_HF_fiber_endpoint_labels.csv
 normative_HF_fiber_cortical_endpoint_summary.csv
 normative_HF_fiber_subcortical_crossing_summary.csv
 normative_HF_fiber_label_enrichment.csv
+normative_HF_fiber_enrichment_cache.csv
+normative_HF_fiber_enrichment_cache_manifest.json
 normative_HF_fiber_unthresholded_weighted_density.nii.gz
 normative_HF_fiber_positive_weighted_density.nii.gz
 normative_HF_fiber_negative_weighted_density.nii.gz
 normative_HF_fiber_neglogp_density.nii.gz
 normative_HF_fiber_qvalue_summary.csv
+normative_HF_fiber_fdr_cache.csv
+normative_HF_fiber_fdr_cache_manifest.json
 normative_HF_fiber_top_percentile_sweep_summary.csv
 fdr_summary_by_scale.csv
 fdr_thresholded_positive_density_q05.nii.gz
@@ -836,8 +864,10 @@ Minimum table semantics:
 - `normative_HF_fiber_weights.csv`: `connectome`, `fiber_id`, `tau_v_per_m`, `coverage`, `rho_HF`, `p_uncorrected`, `q_fdr`, `M_HF`, `direction_class`, display/sensitivity flags, and target labels for QC.
 - `normative_HF_fiber_scores.csv`: `subject_id`, `score_map_source`, `connectome`, `branch`, `SweetPeak5`, `SourPeak5`, `NetFiberScore`, candidate/selected/peak fiber counts, and `is_primary_score`.
 - `normative_HF_fiber_scores.csv` in the OSS branch additionally stores `SweetPeak5_OSS`, `SourPeak5_OSS`, and `NetFiberScore_OSS`.
-- `fdr_summary_by_scale.csv`: q-threshold counts and overlap between percentile-selected fibers and q-ranked fibers.
-- `normative_HF_fiber_label_enrichment.csv`: enrichment of selected sweet/sour fibers relative to the plain touched-streamline background.
+- `normative_HF_fiber_fdr_cache.csv`: canonical fiber-wise FDR cache defined in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`; it is a QC/display output and is not a source or prediction gate.
+- `normative_HF_fiber_enrichment_cache.csv`: canonical fiber-level anatomical/pathway enrichment cache defined in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`; its background is the selected final branch tested candidate fiber universe.
+- `fdr_summary_by_scale.csv`: derived q-threshold counts and overlap between percentile-selected fibers and q-ranked fibers.
+- `normative_HF_fiber_label_enrichment.csv`: derived display summary from the enrichment cache for selected sweet/sour fibers.
 - `normative_HF_fiber_mapping_qc.json`: candidate counts, coverage distribution, degenerate fiber counts, empty-fold failures, FDR method, label summaries, chunking parameters, memory use summaries, OSS-DBS status, OSS activation-output type, `hf_norm_fiber_source_status`, `hf_norm_fiber_prediction_status`, burden flag, and DeltaHFScore downstream role.
 - `normative_HF_fiber_threshold_scan_results.csv`: one row per connectome, scale, tau, and coverage cell; includes candidate counts, selected-fiber counts, LOOCV metrics, baseline comparisons, plain-control status, high-leverage diagnostics, source-stability fields, adjacent support, and branch-role fields for downstream ULF.
 
@@ -907,7 +937,7 @@ oss_parameter_manifest.json
 oss_activation_sidecar_metadata.json
 ```
 
-For alternating HF subprograms, subprogram-level activation matrices may be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and averaged `X_HF_OSS_i(l)` variables documented above.
+`X_oss_float32_fiber_major.npy` stores continuous pPAM activation probability with rows = final branch subjects and columns = final branch `fiber_ids.npy`. For alternating HF subprograms, subprogram-level activation matrices may be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and `max_probability_union` `X_HF_OSS_i(l)` variables documented above.
 
 For LOOCV fold `h`, derive training-fold coverage by subtraction:
 
@@ -995,7 +1025,7 @@ permutation statistic
 bootstrap map and stability summaries
 ```
 
-Exposure sidecars are connectome- and branch-specific, not scale-specific, unless scale-specific subject inclusion differs. When two scales use the same valid subjects, they reuse the same exposure sidecars, candidate masks, plain touched-streamline background, endpoint labels, density lookup tables, and OSS activation sidecars. If a scale has missing subjects, create a subject-subset view rather than resampling fibers.
+Exposure sidecars are connectome- and branch-specific, not scale-specific, unless scale-specific subject inclusion differs. When two scales use the same valid subjects, they reuse the same exposure sidecars, candidate masks, plain touched-streamline control sidecars, endpoint labels, density lookup tables, and OSS activation sidecars. If a scale has missing subjects, create a subject-subset view rather than resampling fibers.
 
 ### Cache Keys And Invalidation
 
@@ -1137,11 +1167,10 @@ candidate_tau1500_union_of_folds_bool
 
 ### OSS Candidate-First Activation
 
-OSS-DBS activation is computed only for the union of peak E-field candidate fibers required by the executable OSS branch:
+OSS-DBS activation is computed only for the final selected-source branch fiber ids required by the executable OSS branch:
 
 ```text
-F_candidate_tau800_union_of_folds
-F_candidate_tau1500_union_of_folds, if sensitivity is requested
+final selected-source branch fiber_ids.npy
 ```
 
 Non-candidate fibers are not used by `rho_HF_OSS`, `F+_OSS`, `F-_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation. Omitting their OSS activation does not change the OSS branch result.
@@ -1800,15 +1829,20 @@ Run:
 
 ```text
 oss_model_set = primary_locked
-axon_model
-axon_diameter_um
-n_nodes
+oss_model = OSS-DBSv2
+activation_model = pPAM
+probabilistic_parameter = Fiber Diameter
+fiber_diameter_range_um = [1, 4]
+sampling_distribution = Equidistant
+N_samples = 10
 waveform
-frequency_Hz
+requested_frequency_hz
+oss_parameter_frequency_hz
+frequency_validation_status
 pulse_width_us
 amplitude
-tissue_model
-conductivity_model
+cond_model = ColeCole4
+conductivity = isotropic
 activation_output
 oss_parameter_manifest.json
 ```
@@ -1816,7 +1850,7 @@ oss_parameter_manifest.json
 OSS candidate rule:
 
 ```text
-inherit F_candidate_tau800 from peak E-field branch
+inherit final selected-source branch fiber_ids.npy from peak E-field branch
 do not redefine candidates by OSS activation
 ```
 
@@ -1827,6 +1861,8 @@ X_oss_float32_fiber_major.npy
 PlainOSSActivated_bool.npy
 oss_activation_sidecar_metadata.json
 ```
+
+`X_oss_float32_fiber_major.npy` stores continuous pPAM activation probability. Canonical fitting uses continuous p(A), not `p(A) >= 0.5` thresholded binary activation. The hemisphere/source merge rule is `max_probability_union`.
 
 Run order:
 
@@ -1931,7 +1967,7 @@ If jitter tier 1 technically fails, do not run jitter tier 2. If jitter tier 1 p
 
 ### Round 9: Display, FDR, Labels, Density, And Cross-Connectome Summaries
 
-Purpose: generate display and interpretation outputs after numeric branches are locked. Display, FDR q-values, q-thresholded density maps, and label outputs never define the primary model and never enter `NetFiberScore`.
+Purpose: generate display and interpretation outputs after numeric branches are locked. Display, FDR q-values, q-thresholded density maps, enrichment caches, and label outputs stay outside the resolver and never enter `NetFiberScore`. Canonical FDR and enrichment cache definitions are maintained in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
 
 Generate for completed branches:
 
@@ -1949,6 +1985,8 @@ endpoint labels
 cortical endpoint summary
 subcortical crossing summary
 label enrichment
+FDR cache
+enrichment cache
 plain touched-streamline density maps
 STN/SNr overlays
 cross-connectome summaries
@@ -1966,11 +2004,15 @@ normative_HF_fiber_endpoint_labels.csv
 normative_HF_fiber_cortical_endpoint_summary.csv
 normative_HF_fiber_subcortical_crossing_summary.csv
 normative_HF_fiber_label_enrichment.csv
+normative_HF_fiber_enrichment_cache.csv
+normative_HF_fiber_enrichment_cache_manifest.json
 normative_HF_fiber_unthresholded_weighted_density.nii.gz
 normative_HF_fiber_positive_weighted_density.nii.gz
 normative_HF_fiber_negative_weighted_density.nii.gz
 normative_HF_fiber_neglogp_density.nii.gz
 normative_HF_fiber_qvalue_summary.csv
+normative_HF_fiber_fdr_cache.csv
+normative_HF_fiber_fdr_cache_manifest.json
 fdr_summary_by_scale.csv
 fdr_thresholded_positive_density_q05.nii.gz
 fdr_thresholded_negative_density_q05.nii.gz
@@ -1987,7 +2029,8 @@ Completion conditions:
 ```text
 display files derive only from finalized numeric outputs
 FDR / label / display outputs are not used to select the primary model
-label enrichment uses the plain touched-streamline background
+FDR and enrichment caches follow the canonical cache definition document
+enrichment background is the selected final branch tested candidate fiber universe
 PPMI/MGH manifests record observed_only_connectome_robustness
 dTOR primary manifest records formal permutation/bootstrap status
 OSS manifest records smoke-only status

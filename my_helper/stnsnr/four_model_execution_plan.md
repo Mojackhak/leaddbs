@@ -23,6 +23,14 @@ current `/Volumes/VAL/STNSNr` summary tree. The current B_DTOR and D_DTOR
 normative-fiber completion blockers therefore remain explicit missing-input or
 missing-cache blockers, not branch-selection ambiguity.
 
+The normative-fiber OSS / pPAM sidecar generation contract is defined in
+`my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that
+contract, OSS sidecars are final-branch dTOR activation-sensitivity inputs:
+`X_oss_float32_fiber_major.npy` stores continuous pPAM activation probability
+over the final branch `fiber_ids.npy`, uses right-canonical columns with
+left-sided activation mapped to homologous right-canonical ids, and merges
+hemisphere/source activation by `max_probability_union`.
+
 Execution has resumed through the 2026-07-07 status, formal-target, and
 formal-readiness refresh. The current checkpoint has completed
 observed/non-formal branches, lightweight readiness/status generation, the
@@ -544,7 +552,7 @@ The current codebase is no longer greenfield. The following layers already exist
 D OSS and full fiber figure-grade FDR/enrichment outputs, pending required caches
 remaining shared score, deeper stale-output, and broader cross-family manifest-schema architecture across voxel, fiber, HF, and ULF models
 fiber OSS-DBS activation branch execution, pending required inputs
-fiber FDR/enrichment cache construction
+fiber FDR/enrichment cache construction; definitions are documented in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`, but cache generation remains pending
 nested/adaptive threshold-source validation
 max-stat permutation for threshold-source selection
 OLS ANCOVA optional estimator
@@ -881,6 +889,11 @@ Jitter readiness records the searched branch/preprocess roots and an explicit
 `no_jitter_inputs_found_in_search_roots` reason when no jitter sidecars are
 detected.
 
+`ready_for_oss_sensitivity` means only that the canonical OSS input sidecars
+exist and pass the readiness file-presence contract. It does not mean that OSS
+weights, scores, LOOCV predictions, smoke permutation, or plain OSS activation
+controls have been computed.
+
 ### Deferred Expensive Work
 
 Run these only after the relevant resolver/status fields identify the unique
@@ -908,8 +921,10 @@ The connected-region label cache is a QC/display overlap summary over the
 registered `STN-connected regions`, `SNr-connected regions`, and
 `STNSNr-connected regions` ROI manifests. It does not change the source
 resolver, final branch, permutation/bootstrap status, or NetFiberScore. It is
-not equivalent to FDR correction or enrichment against the plain
-touched-streamline background; those remain separate figure-grade layers.
+not equivalent to FDR correction or fiber-level enrichment over the selected
+final branch tested candidate fiber universe; those remain separate
+figure-grade layers defined in
+`my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
 
 Final reporting must preserve both the legacy combined fiber display-readiness
 field and separate component fields in both the final report CSV and the
@@ -925,6 +940,9 @@ fiber_enrichment_cache_status
 Completion audit must keep FDR and enrichment blockers separate. A branch with
 density and labels but no FDR or enrichment cache is blocked by both
 `fdr_cache` and `enrichment_cache`, not by an ambiguous branch-selection status.
+If the definitions are documented but the caches have not been generated, record
+`fiber_fdr_cache_status = definition_documented_cache_not_generated` and
+`fiber_enrichment_cache_status = definition_documented_cache_not_generated`.
 
 If any upstream model or resolver patch lands before this work starts, rerun the
 affected observed/status branches first and treat previous downstream-ready flags

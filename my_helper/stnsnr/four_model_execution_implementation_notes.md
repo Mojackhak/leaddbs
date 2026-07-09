@@ -20,6 +20,16 @@ current `/Volumes/VAL/STNSNr` summary tree. The current B_DTOR and D_DTOR
 normative-fiber completion blockers therefore remain explicit missing-input or
 missing-cache blockers, not branch-selection ambiguity.
 
+The OSS / pPAM sidecar generation contract is now documented in
+`my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. It defines the
+canonical sidecar as continuous pPAM `X_oss_float32_fiber_major.npy` over the
+final dTOR branch `fiber_ids.npy`, with right-canonical columns,
+left-to-right activation mapping, `max_probability_union`, verified modeled
+frequency, and separate manifest/metadata JSON files. This is an input
+readiness contract only; the downstream OSS sensitivity runner still has to
+compute OSS weights, scores, LOOCV predictions, smoke permutation, and plain
+activation controls.
+
 2026-07-07 density/label-cache update: the normative-fiber density and
 connected-region label caches now default to all `analysis_family =
 normative_fiber` rows in the final report. The density/label-cache, final

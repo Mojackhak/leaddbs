@@ -1247,8 +1247,20 @@ OSS activation must not redefine candidate fibers and must not participate in ta
 For each subject and fiber:
 
 ```text
-A_ULF_OSS_i(l) = OSS-DBS modeled ULF-component activation along fiber l
+A_ULF_OSS_i(l) = continuous pPAM activation probability for the ULF component along fiber l
 ```
+
+The canonical OSS sidecar is `X_oss_float32_fiber_major.npy`. Its columns are the realized final ULF branch `fiber_ids.npy`; OSS does not use the whole connectome atlas as the final matrix column set and does not redefine, shrink, expand, or rescan candidate fibers.
+
+OSS activation uses the right-canonical feature space. Right-sided activation is expressed directly on right-canonical fiber ids. Left-sided activation is computed in the real left hemisphere, mapped to homologous right-canonical fiber ids, and then merged with right-sided activation by `max_probability_union`:
+
+```text
+X_ULF_OSS_i(l) = max(A_ULF_OSS_R_i(l), A_ULF_OSS_L_to_R_i(l))
+```
+
+Canonical OSS fitting uses continuous p(A). Thresholded `p(A) >= 0.05` or `p(A) >= 0.5` variables are QC/display/plain-burden controls only and do not replace `X_oss_float32_fiber_major.npy` in `M_ULF_OSS`, `NetULFFiberScore_OSS`, LOOCV, or smoke permutation.
+
+If the ULF component cannot be separated from the stimulation protocol, the output may only be labeled `HF+ULF total OSS pPAM sensitivity`; it must not be called ULF-only OSS exposure.
 
 HF-overlap exclusion remains the same peak-E-field rule used by the realized primary ULF model:
 
@@ -1264,7 +1276,7 @@ The OSS ULF-only exposure is:
 
 ```text
 X_ULF_only_OSS_i(l) =
-  A_ULF_OSS_i(l), if l in F_candidate_ULF_OSS and not HF_touched_i(l)
+  X_ULF_OSS_i(l), if l in F_candidate_ULF_OSS and not HF_touched_i(l)
   0,              otherwise
 ```
 
@@ -1814,11 +1826,15 @@ normative_ULF_fiber_endpoint_labels.csv
 normative_ULF_fiber_cortical_endpoint_summary.csv
 normative_ULF_fiber_subcortical_crossing_summary.csv
 normative_ULF_fiber_label_enrichment.csv
+normative_ULF_fiber_enrichment_cache.csv
+normative_ULF_fiber_enrichment_cache_manifest.json
 normative_ULF_fiber_unthresholded_weighted_density.nii.gz
 normative_ULF_fiber_positive_weighted_density.nii.gz
 normative_ULF_fiber_negative_weighted_density.nii.gz
 normative_ULF_fiber_neglogp_density.nii.gz
 normative_ULF_fiber_qvalue_summary.csv
+normative_ULF_fiber_fdr_cache.csv
+normative_ULF_fiber_fdr_cache_manifest.json
 fdr_summary_by_scale.csv
 fdr_thresholded_positive_density_q05.nii.gz
 fdr_thresholded_negative_density_q05.nii.gz
@@ -1832,7 +1848,7 @@ connectome_selected_label_summary.csv
 
 For continuous/statistical NIfTI outputs, non-covered or non-modeled voxels are written as `NaN`, not `0`. This applies to weighted density, positive/negative weighted density, `-log(p)` density, FDR-thresholded density, stability density, jitter density, plain touched density, and display-smoothed density maps outside the density support or model candidate support. `0` is reserved for a true zero contribution inside support. Count/binary masks, if emitted, remain `0` outside support because their semantics are count/false.
 
-FDR q-values, q-thresholded maps, endpoint labels, and display fibers are QC/display outputs only. They do not define `F+`, `F-`, `NetULFFiberScore`, or the primary model.
+FDR q-values, q-thresholded maps, endpoint labels, enrichment caches, and display fibers are QC/display/interpretation outputs only. They do not define `F+`, `F-`, `NetULFFiberScore`, or final branch selection. Canonical FDR and enrichment cache definitions are maintained in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
 
 ---
 
@@ -1855,8 +1871,9 @@ S{tau}_ULF_total_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
 HF_overlap_ulf_tau{tau}_hf_overlap_rule_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
 fiber_id.npy
 candidate_fiber_metadata.json
-X_ULF_OSS_activation_float32_fiber_major.npy, for inherited selected-source candidates if OSS is run
+X_oss_float32_fiber_major.npy, continuous pPAM activation probability for inherited selected-source candidates if OSS is run
 OSS_ULFActivated_bool.npy, for inherited selected-source candidates if OSS is run
+oss_parameter_manifest.json, if OSS is run
 oss_activation_sidecar_metadata.json, if OSS is run
 ```
 
@@ -1871,11 +1888,12 @@ chunks/
   S{tau}_ULF_only_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
   S_HF_component_hf_overlap_rule_bool_chunk-*.npy
   HF_overlap_ulf_tau{tau}_hf_overlap_rule_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
-  X_ULF_OSS_activation_float32_fiber_major_chunk-*.npy, for inherited selected-source candidates if OSS is run
+  X_oss_float32_fiber_major_chunk-*.npy, continuous pPAM activation probability for inherited selected-source candidates if OSS is run
   OSS_ULFActivated_bool_chunk-*.npy, for inherited selected-source candidates if OSS is run
   fiber_id_chunk-*.npy
 fiber_chunk_manifest.json
 candidate_fiber_metadata.json
+oss_parameter_manifest.json, if OSS is run
 oss_activation_sidecar_metadata.json, if OSS is run
 ```
 
@@ -2222,8 +2240,9 @@ Run:
 ```text
 oss_model_set = primary_locked
 candidate source = realized primary selected-source candidate universe
-exposure replacement = X_ULF_only_OSS
+exposure replacement = continuous pPAM X_ULF_only_OSS derived from X_oss_float32_fiber_major.npy
 nuisance design = realized primary branch nuisance design
+frequency validation = requested_frequency_hz equals oss_parameter_frequency_hz
 PPMI observed LOOCV cross-connectome check
 MGH observed LOOCV cross-connectome check
 dTOR observed LOOCV, only if PPMI/MGH OSS checks are technically valid or explicitly waived
@@ -2246,6 +2265,9 @@ OSS technical-pass criteria:
 ```text
 OSS parameter manifest is locked
 OSS activation sidecars align with inherited selected-source candidate fiber ids
+OSS activation sidecars use continuous pPAM p(A), not thresholded binary activation, for fitting
+OSS frequency is modeled and verified
+OSS hemisphere/source merge rule is max_probability_union
 OSS activation matrix is not all NaN
 OSS activation matrix is not all zero
 NetULFFiberScore_OSS has nonzero variance
@@ -2282,7 +2304,7 @@ If jitter is unstable, report the result as spatially fragile.
 
 ### Round 10: Display, FDR, labels, density, and cross-connectome summaries
 
-Generate display outputs only after numeric branches are locked. Display, FDR, labels, density, and cross-connectome outputs must derive from finalized numeric outputs and must not alter the primary model.
+Generate display outputs only after numeric branches are locked. Display, FDR, enrichment, labels, density, and cross-connectome outputs must derive from finalized numeric outputs and must not alter final branch selection. FDR and enrichment caches follow `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
 
 
 ## 17. Interpretation Boundary

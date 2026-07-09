@@ -283,7 +283,7 @@ Sensitivity summaries:
 mean exposure along the full streamline
 top-5% exposure along the full streamline
 binary VTA intersection
-OSS-DBS / pathway activation value when available
+OSS-DBS / pPAM activation probability when valid final-branch sidecars exist
 ```
 
 ### Target-Level Connectivity Features
@@ -796,7 +796,7 @@ Reference sensitivity coverage:
 ```text
 peak_efield_tau1500_cov5_sensitivity
 top1500 positive / top500 negative fiber-score sensitivity
-OSS-DBS all-candidate sensitivity
+OSS-DBS / pPAM final-branch activation sensitivity
 tau_coverage_source_resolver_scan
 plain_connected_streamline_control
 jitter_level_1_selected_display
@@ -1076,7 +1076,7 @@ no_delta_hf:
            + error_i
 ```
 
-The ULF normative model also writes HF-overlap exclusion summaries, `DeltaHFScore` support/out-of-support QC for the DeltaHF-adjusted branch, plain connected-streamline controls, ULF OSS-DBS activation sensitivity outputs, display density maps, endpoint/anatomical enrichment, and cross-connectome observed robustness summaries. Formal `B=10000` permutation/bootstrap is restricted to the dTOR branch recorded as primary by the branch-role resolver unless another endpoint is explicitly promoted; the default ULF OSS-DBS branch is smoke sensitivity and does not redefine the ULF source resolver or endpoint status.
+The ULF normative model also writes HF-overlap exclusion summaries, `DeltaHFScore` support/out-of-support QC for the DeltaHF-adjusted branch, plain connected-streamline controls, ULF OSS-DBS activation sensitivity outputs, display density maps, endpoint/anatomical enrichment, and cross-connectome observed robustness summaries. Formal `B=10000` permutation/bootstrap is restricted to the dTOR branch recorded as primary by the branch-role resolver unless another endpoint is explicitly promoted. The default ULF OSS-DBS branch is smoke sensitivity and does not redefine the ULF resolver or endpoint status.
 
 ### Individualized DWI Target-Level Rank-Based Implementation
 
@@ -1295,7 +1295,7 @@ individualized DWI target-level models only in their separate model-summary scop
 
 For HF and ULF normative connectome fiber models, engineering execution and resolver classification treat all available endpoint/scale rows equivalently within the applicable endpoint family. Clinical reporting hierarchy can still select primary or secondary rows for formal reporting, but it does not change the model definition, source resolver, prediction-status assignment, or output generation rules.
 
-Use patient-level permutation tests with random seed `42` according to the model-specific resolver and resampling checkpoints. For HF and ULF normative fiber-level models, fiber-wise FDR q-values are QC/display outputs rather than primary filters. For individualized-DWI target-level models, correct multiple comparisons across tested targets within each scale, DWI source, endpoint, and model class using FDR.
+Use patient-level permutation tests with random seed `42` according to the model-specific resolver and resampling checkpoints. For HF and ULF normative fiber-level models, fiber-wise FDR q-values and anatomical/pathway enrichment caches are QC/display/interpretation outputs rather than primary filters; their canonical definitions are maintained in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`. For individualized-DWI target-level models, correct multiple comparisons across tested targets within each scale, DWI source, endpoint, and model class using FDR.
 
 ### Stage 7: Stability And Sensitivity
 
@@ -1308,7 +1308,7 @@ binary VTA intersection sensitivity
 mean and top-5% streamline exposure sensitivity
 interleaving overlap sensitivity
 charge-rate proxy sensitivity
-OSS-DBS / pathway activation sensitivity when valid outputs exist
+OSS-DBS / pPAM activation sensitivity when valid final-branch sidecars exist
 repeated analyses across PPMI, MGH, and dTOR
 normative-only, normative-guided individualized DWI, and individualized-DWI-only target-level model comparison
 ```
