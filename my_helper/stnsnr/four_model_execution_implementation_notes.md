@@ -237,11 +237,13 @@ CSV. It writes:
 
 This layer does not fit models, rerun resampling, or fabricate unavailable
 fiber density/FDR/enrichment outputs. It records `ready_from_existing_maps` for
-A/C direct-voxel display sources and `ready_for_density_label_outputs` for
-normative-fiber rows with density plus connected-region label caches. It also
-preserves missing FDR and enrichment component status, fiber OSS missing-input
-details, formal jitter QC status,
-and the manifest audit pair from the consolidated status input.
+A/C direct-voxel display sources, `ready_for_full_fiber_figure_outputs` for
+formal dTOR normative-fiber rows with density, labels, FDR, and enrichment
+caches, and `ready_for_density_label_outputs` for observed-robustness
+normative-fiber rows with density plus connected-region label caches but no
+generated FDR/enrichment caches. It also preserves per-row FDR and enrichment
+component status, fiber OSS missing-input details, formal jitter QC status, and
+the manifest audit pair from the consolidated status input.
 
 The all-endpoint reporting layer consumes the existing A all-scale
 source-resolver scan, observed branch summary, final report, and discovered

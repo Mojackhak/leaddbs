@@ -888,8 +888,9 @@ B normative fiber uses `hf_norm_fiber_source_status` and `hf_norm_fiber_predicti
    changes. This package is the executable Round 8/9/10 boundary for the
    current output state: it summarizes final models, formal inference,
    direct-voxel display-source availability, fiber density/label cache
-   availability, and unavailable FDR/enrichment caches without fabricating
-   figure-grade FDR/enrichment outputs.
+   availability, formal-target FDR/enrichment cache availability, and
+   observed-robustness rows whose FDR/enrichment caches remain unavailable
+   without fabricating figure-grade FDR/enrichment outputs.
 4. Regenerate the all-endpoint reporting and missing-work audit package after
    any upstream endpoint, branch-manifest, final-report, or sensitivity output
    changes. This package consumes the
@@ -930,7 +931,8 @@ final model branch:
 
 ```text
 HF/ULF normative fiber OSS-DBS activation sensitivity when inputs exist
-full fiber FDR/enrichment/display outputs when FDR/enrichment caches exist
+optional observed-robustness-row FDR/enrichment/display outputs if those rows
+are later promoted to figure-grade reporting and their caches are generated
 ```
 
 Fiber display readiness is staged:
@@ -966,12 +968,17 @@ fiber_fdr_cache_status
 fiber_enrichment_cache_status
 ```
 
-Completion audit must keep FDR and enrichment blockers separate. A branch with
-density and labels but no FDR or enrichment cache is blocked by both
-`fdr_cache` and `enrichment_cache`, not by an ambiguous branch-selection status.
-If the definitions are documented but the caches have not been generated, record
+Completion audit must keep FDR and enrichment blockers separate for any
+normative-fiber row expected to produce full figure-grade fiber outputs. A row
+with density and labels but no required FDR or enrichment cache is blocked by
+both `fdr_cache` and `enrichment_cache`, not by an ambiguous branch-selection
+status. If the definitions are documented but the caches have not been
+generated for that row, record
 `fiber_fdr_cache_status = definition_documented_cache_not_generated` and
 `fiber_enrichment_cache_status = definition_documented_cache_not_generated`.
+For the current checkpoint, B_DTOR and D_DTOR have complete FDR/enrichment
+caches; observed-robustness normative-fiber rows are not full figure-grade
+targets and keep the documented-not-generated status unless they are promoted.
 
 If any upstream model or resolver patch lands before this work starts, rerun the
 affected observed/status branches first and treat previous downstream-ready flags
