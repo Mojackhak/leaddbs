@@ -265,7 +265,7 @@ Q2 = 1 - SSE_NetFiberScore_model / SSE_YBase_only
 - Smoke permutation/bootstrap: `B=1000`, seed `42`.
 - Optional OLS ANCOVA is documented for future sensitivity analysis but is not run in the current execution.
 
-PPMI, MGH, and dTOR all produce observed robustness outputs. dTOR additionally carries formal permutation, bootstrap, jitter QC, and the default full figure-cache path when FDR/enrichment caches are generated for selected final branches. The Nature paper 5-fold/10-fold CV settings are documented in the reference checklist only; LOOCV is the executable validation design for this `n=16` cohort.
+PPMI, MGH, and dTOR all produce observed robustness outputs. dTOR additionally carries formal permutation, bootstrap, jitter QC, and the default FDR/enrichment figure-cache path when those caches are generated for selected final branches. OSS activation sensitivity is tracked separately. The Nature paper 5-fold/10-fold CV settings are documented in the reference checklist only; LOOCV is the executable validation design for this `n=16` cohort.
 
 
 ### HF Normative Fiber Source And Prediction Resolver
@@ -941,7 +941,6 @@ and use the same selected-source candidate fiber id order:
 
 ```text
 X_oss_float32_fiber_major.npy
-PlainOSSActivated_bool.npy
 oss_parameter_manifest.json
 oss_activation_sidecar_metadata.json
 ```
@@ -951,6 +950,9 @@ with rows = final branch subjects and columns = selected-source candidate fiber
 ids. For alternating HF subprograms, subprogram-level activation matrices may
 be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and
 `max_probability_union` `X_HF_OSS_i(l)` variables documented above.
+Thresholded `p(A) >= 0.05` or `p(A) >= 0.5` plain-activation files may be
+written as QC/display/plain-burden controls only. They are not required
+sidecars and must not replace `X_oss_float32_fiber_major.npy` in OSS fitting.
 
 For LOOCV fold `h`, derive training-fold selected-source coverage by subtraction:
 
@@ -1909,11 +1911,11 @@ Generate:
 
 ```text
 X_oss_float32_fiber_major.npy
-PlainOSSActivated_bool.npy
 oss_activation_sidecar_metadata.json
 ```
 
 `X_oss_float32_fiber_major.npy` stores continuous pPAM activation probability. Canonical fitting uses continuous p(A), not `p(A) >= 0.5` thresholded binary activation. The hemisphere/source merge rule is `max_probability_union`.
+Thresholded plain-activation files may be written only as QC/display/plain-burden controls.
 
 Run order:
 

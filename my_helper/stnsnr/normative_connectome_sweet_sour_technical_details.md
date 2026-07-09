@@ -1477,7 +1477,7 @@ nonlinear homologous voxel mapping uses model-specific transform rules; the exec
 direct voxel coverage masks are defined inside each training fold during LOOCV
 direct voxel models are compared against covariate-only models with patient-level permutation tests
 PPMI, MGH, and dTOR all produce observed HF normative fiber robustness summaries
-dTOR primary HF normative fiber branch additionally produces formal permutation/bootstrap, jitter QC, and full figure-cache outputs when FDR/enrichment caches exist
+dTOR primary HF normative fiber branch additionally produces formal permutation/bootstrap, jitter QC, and FDR/enrichment figure-cache outputs when those caches exist; OSS activation sensitivity remains a separate readiness/status layer
 STN chronic, ULF chronic add-on gain, and ULF immediate add-on gain outputs are created
 low-coverage targets, voxels, and streamlines are flagged
 all outputs include provenance

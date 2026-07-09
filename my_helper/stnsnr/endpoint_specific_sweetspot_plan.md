@@ -1946,8 +1946,8 @@ Expected output groups:
 - ULF chronic add-on gain models run both core branches when inputs allow: `Y_HF_ref` only and `Y_HF_ref + DeltaHFScore_chronic`. The matched HF result determines which branch is primary.
 - ULF immediate add-on gain models run both core branches when inputs allow: same-day `Y_HF_ref` only and `Y_HF_ref + DeltaHFScore_immediate`. The matched HF result determines which branch is primary.
 - ULF results include model-specific coverage summaries, HF-overlap exclusion summaries, and DeltaHFScore support QC; low-coverage targets, voxels, regions, or streamlines are not strongly interpreted.
-- PPMI, MGH, and dTOR all produce observed HF normative fiber robustness outputs; dTOR additionally carries formal permutation/bootstrap, jitter QC, and full figure-cache outputs when FDR/enrichment caches exist.
-- PPMI, MGH, and dTOR all produce observed ULF normative fiber robustness outputs; dTOR additionally carries formal permutation/bootstrap for the primary branch, model-specific stability outputs, and full figure-cache outputs when FDR/enrichment caches exist.
+- PPMI, MGH, and dTOR all produce observed HF normative fiber robustness outputs; dTOR additionally carries formal permutation/bootstrap, jitter QC, and FDR/enrichment figure-cache outputs when those caches exist. OSS activation sensitivity is tracked separately.
+- PPMI, MGH, and dTOR all produce observed ULF normative fiber robustness outputs; dTOR additionally carries formal permutation/bootstrap for the primary branch, model-specific stability outputs, and FDR/enrichment figure-cache outputs when those caches exist. OSS activation sensitivity is tracked separately.
 - dTOR and MGH access is chunked and memory-safe.
 - `my_helper/fiber/stnsnr` contains only pipeline scripts, not core helper functions.
 - scale-specific maps are generated before any cross-scale summary map.

@@ -15,7 +15,10 @@ fiber figure-output ready. This is a figure-output/display requirement, not a
 source-resolver, prediction-status, final-model, OSS, or jitter gate. Density
 plus connected-region labels remains `ready_for_density_label_outputs` only.
 Final reporting, all-endpoint reporting, manifest schema audit, and completion
-audit were regenerated from clean commit `1d34cb9f3`.
+audit were regenerated from clean commit `1d34cb9f3`. In this document,
+`ready_for_full_fiber_figure_outputs` means the density/label/FDR/enrichment
+figure-cache layer is ready; it does not mean OSS activation sensitivity has
+completed.
 
 2026-07-08 continuation generated formal-target dTOR normative-fiber
 FDR/enrichment caches and formal jitter QC for B_DTOR and D_DTOR. Current input
@@ -33,9 +36,11 @@ exposure id universe. The refreshed worklist writes workflow-local
 `oss_n_fibers = 3990` for B_DTOR and `oss_n_fibers = 2321` for D_DTOR, while
 the parent exposure id universe remains `parent_n_fibers = 11820000`.
 Parameter preflight and bounded row-level activation summaries now carry these
-candidate-id fields. A row-local filtered stimulation-folder implementation now
-lets the bounded activation harness complete `prepareaxonmodel` for the first
-B_DTOR and D_DTOR rows without processing the full dTOR local connectome.
+candidate-id fields. Full parameter preflight has passed for all 64 B_DTOR and
+D_DTOR worklist rows. A row-local filtered stimulation-folder implementation now
+lets the bounded activation harness complete full pathway activation for the
+first B_DTOR and D_DTOR smoke rows without processing the full dTOR local
+connectome.
 Branch-level OSS sidecars are still absent, so the remaining blocker is still
 missing final OSS activation inputs.
 
@@ -144,12 +149,12 @@ dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, s
 dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS = not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; B_DTOR oss_n_fibers=3990; D_DTOR oss_n_fibers=2321; parent_n_fibers=11820000
-dTOR normative-fiber OSS parameter preflight = B_DTOR and D_DTOR first ready rows parameter_preflight_passed with propagated oss_fiber_ids_path and frequency patched from source S frequency
-dTOR normative-fiber OSS row-level activation harness = first B_DTOR/D_DTOR rows ossdbs_complete with row-local filtered stimulation folders; pathway activation and branch-level X_oss sidecar merge not yet complete
+dTOR normative-fiber OSS parameter preflight = 64/64 rows parameter_preflight_passed; B_DTOR 32 rows, D_DTOR 32 rows; propagated oss_fiber_ids_path; 45 rows frequency_patched_from_source_S and 19 rows frequency_validated
+dTOR normative-fiber OSS row-level activation harness = first B_DTOR/D_DTOR smoke rows pathway_activation_complete with row-local filtered stimulation folders; full row-level activation and branch-level X_oss sidecar merge not yet complete
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS sensitivity results remain not run because final branch OSS sidecar inputs are still absent
-final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; B_DTOR/D_DTOR have full fiber FDR/enrichment figure-cache outputs ready while OSS sensitivity inputs remain missing; observed robustness normative-fiber rows have density+label outputs ready
+final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; B_DTOR/D_DTOR have density/label/FDR/enrichment figure-cache outputs ready while OSS sensitivity inputs remain missing; observed robustness normative-fiber rows have density+label outputs ready
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
 completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs sensitivity-completion blockers
@@ -230,7 +235,7 @@ four_model_final_report.csv rows = 7
 four_model_figure_output_readiness.csv rows = 7
 A direct voxel: figure_output_status = ready_from_existing_direct_voxel_maps
 C ULF direct voxel no_delta_hf: figure_output_status = ready_from_existing_direct_voxel_maps
-B_DTOR and D_DTOR normative fiber rows: figure_output_status = ready_for_full_fiber_figure_outputs for density/label/FDR/enrichment display caches; OSS sensitivity remains separately blocked by missing sidecar inputs
+B_DTOR and D_DTOR normative fiber rows: figure_output_status = ready_for_full_fiber_figure_outputs for density/label/FDR/enrichment display caches only; OSS sensitivity remains separately blocked by missing sidecar inputs
 PPMI/MGH/D_PPMI observed robustness normative fiber rows: figure_output_status = ready_for_density_label_outputs
 manifest cohort_n = 16; interpretation = hypothesis_generating
 ```
@@ -753,7 +758,7 @@ Current observed outputs:
 | selected-source output `ulf_peak_efield_tau600_no_delta_hf`; revised scan-fallback spec `ulf_peak_efield_tau600_cov5_no_delta_hf` | `0.9161` | `0.0719` | realized HF-derived intended primary; D source resolver = `scan_fallback_accepted` + `error_nonpredictive`; endpoint status = `primary_branch_error_nonpredictive` |
 | selected-source output `ulf_peak_efield_tau600_delta_hf_adjusted`; revised scan-fallback spec `ulf_peak_efield_tau600_cov5_delta_hf_adjusted` | `0.9087` | `-0.0598` | sensitivity because matched B_PPMI source is accepted but `error_nonpredictive`; D source resolver = `scan_fallback_accepted` + `error_nonpredictive` |
 
-Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. PPMI is an observed robustness connectome in the current worklist, so it does not receive formal resampling unless the model documents are revised. OSS-DBS activation, density maps, endpoint enrichment, and figure-grade outputs have not been run.
+Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. PPMI is an observed robustness connectome in the current worklist, so it does not receive formal resampling unless the model documents are revised. The current downstream display-cache layer has generated density/label outputs for D_PPMI, but OSS-DBS activation and FDR/enrichment figure-cache outputs remain deferred unless the row is promoted.
 
 ### D ULF Normative Fiber dTOR Observed Branch
 
@@ -968,6 +973,12 @@ basic density + connected-region label cache:
 basic density + labels + both FDR and enrichment caches:
   ready_for_full_fiber_figure_outputs
 ```
+
+This staged figure-output status intentionally excludes OSS activation
+sensitivity. OSS has its own input-readiness and sensitivity-status fields.
+Rows can be `ready_for_full_fiber_figure_outputs` for density/label/FDR/
+enrichment outputs while still recording `oss_sensitivity_status =
+not_run_missing_oss_inputs`.
 
 The connected-region label cache is a QC/display overlap summary over the
 registered `STN-connected regions`, `SNr-connected regions`, and

@@ -4,7 +4,7 @@
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Parent goal.** `my_helper/stnsnr/four_model_execution_plan.md`
 > **Authoritative model specs.** `my_helper/stnsnr/model_summaries/`
-> **Status.** Input audit/worklist, parameter preflight, and row-level activation harness implemented; first B_DTOR/D_DTOR rows reach `ossdbs_complete`; no final branch OSS sidecars generated yet.
+> **Status.** Input audit/worklist, parameter preflight, and row-level activation harness implemented; full B_DTOR/D_DTOR parameter preflight passes 64/64 rows; first B_DTOR/D_DTOR row-level activation smoke rows reach `pathway_activation_complete`; no final branch OSS sidecars generated yet.
 
 ---
 

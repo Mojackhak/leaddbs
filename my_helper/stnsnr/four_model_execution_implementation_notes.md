@@ -20,6 +20,9 @@ source-resolver, prediction-status, final-model, OSS, or jitter gate. Density
 plus connected-region labels remains `ready_for_density_label_outputs` only.
 Final reporting, all-endpoint reporting, manifest schema audit, and completion
 audit were regenerated from clean commit `1d34cb9f3`.
+Here, `ready_for_full_fiber_figure_outputs` is limited to the
+density/label/FDR/enrichment figure-cache layer. OSS activation sensitivity is
+tracked separately and can remain `not_run_missing_oss_inputs` for the same row.
 
 Exact input/cache searches after that refresh found no `X_oss_float32_fiber_major.npy`,
 `oss_parameter_manifest.json`, `oss_activation_sidecar_metadata.json`, fiber
@@ -98,7 +101,7 @@ dTOR normative-fiber formal bootstrap: B_DTOR and D_DTOR complete at B=10000, se
 dTOR normative-fiber formal jitter: B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS sensitivity readiness: not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit: B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; D_DTOR has 6 recovered derivatives ULF source-path rows for SNr003/SNr006/SNr007
-dTOR normative-fiber OSS parameter preflight: B_DTOR and D_DTOR first ready rows parameter_preflight_passed; MATLAB parameter dictionary and leaddbs2ossdbs converter smoke returncode 0; converter JSON frequency patched from source S frequency
+dTOR normative-fiber OSS parameter preflight: 64/64 rows parameter_preflight_passed; B_DTOR 32 rows and D_DTOR 32 rows; MATLAB parameter dictionaries and leaddbs2ossdbs converter smoke return code 0; converter JSON frequency patched from source S frequency where needed
 normative-fiber basic density and connected-region label caches: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches: B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS sensitivity results remain not run because final branch OSS sidecar inputs are still absent
@@ -113,7 +116,7 @@ all-endpoint reporting manifest records manifest_provenance_counts and manifest_
 manifest schema audit: 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
 completion/blocker audit: 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs sensitivity-completion blockers
 fiber connected-region label caches: complete for B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR
-full fiber FDR/enrichment figure-grade outputs: complete for B_DTOR and D_DTOR
+density/label/FDR/enrichment figure-cache outputs: complete for B_DTOR and D_DTOR
 ```
 
 Current direct-voxel formal permutation results:
@@ -190,14 +193,14 @@ It must not write final branch `X_oss_float32_fiber_major.npy`, must not write
 `oss_parameter_manifest.json` or `oss_activation_sidecar_metadata.json`, and
 must not change `oss_sensitivity_status`.
 
-The bounded preflight now passes for the first ready B_DTOR and D_DTOR rows
-when the wrapper locks OSS to `dTOR-985 Full (Elias 2024)`, initializes
+The full preflight now passes for all 64 B_DTOR/D_DTOR worklist rows when the
+wrapper locks OSS to `dTOR-985 Full (Elias 2024)`, initializes
 `settings.reuse_warped_connectome = 0`, and checks the generated converter JSON
 under the generated Lead-DBS OSS output directory. The OSS-DBSv2 converter writes
 130 Hz by default, so the preflight patches the generated JSON from source `S`
-frequency and records the original/final frequency fields. The current B_DTOR
-smoke row patches 130 -> 110 Hz; the current D_DTOR smoke row patches
-130 -> 125 Hz.
+frequency when needed and records the original/final frequency fields. The
+current full summary records 45 rows as `frequency_patched_from_source_S` and 19
+rows as `frequency_validated`.
 
 The converter output path must stay in the same Lead-DBS OSS output directory
 as `oss-dbs_parameters.mat` and the filtered dTOR `data*.mat` files. A separate
@@ -259,9 +262,9 @@ A subsequent bounded `ossdbs` run returned code 0 and wrote
 marker in the row directory because it resets `StimulationFolder` to the input
 JSON parent. The runner now treats the row-directory marker as a valid OSS
 success marker when the filtered-folder `oss_time_result_PAM.h5` is present.
-With that fix, the first B_DTOR and D_DTOR rows reach `ossdbs_complete`.
-Pathway activation and branch-level `X_oss_float32_fiber_major.npy` merge remain
-next execution layers.
+With that fix, the first B_DTOR and D_DTOR smoke rows reach
+`pathway_activation_complete`. Full row-level activation and branch-level
+`X_oss_float32_fiber_major.npy` merge remain next execution layers.
 
 The OSS worklist and sensitivity-readiness layers must resolve ULF
 selected-source output locations from the actual shared exposure preprocess
@@ -1487,9 +1490,10 @@ endpoint status:    primary_branch_error_nonpredictive
 ```
 
 The D PPMI observed output is now included in the consolidated status report as
-`OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE`. Formal resampling,
-OSS-DBS activation, density maps, endpoint enrichment, and dTOR-scale
-figure-grade outputs remain deferred.
+`OBSERVED_COMPLETE_PRIMARY_ERROR_NONPREDICTIVE`. The downstream display-cache
+layer has generated density/label outputs for D_PPMI. Formal resampling,
+OSS-DBS activation, and FDR/enrichment figure-cache outputs remain deferred
+unless the row is promoted.
 
 Current dTOR source resolver and selected-source observed run:
 
