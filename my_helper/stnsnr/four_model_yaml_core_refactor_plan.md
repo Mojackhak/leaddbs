@@ -64,6 +64,98 @@ Success explicitly excludes adding a preferred scale list, first-pass scale,
 primary engineering scale, total-scale shortcut, axial-only round, or any
 scale-name-dependent dispatch rule.
 
+## Named End-To-End Implementation Acceptance
+
+Final code acceptance must include a real-data integration profile containing
+both of these base scales:
+
+```text
+scale_id: mds_updrs_iii
+current clinical row label: MDS-UPDRS III score
+direction: lower
+minimum_subjects: 12
+frequency_1_reference binding: STN, 3m
+frequency_2_addon_chronic binding: STN+SNr, 3m
+frequency_2_addon_immediate binding: STN+SNr, immediate
+
+scale_id: mds_updrs_iv
+current clinical row label: MDS-UPDRS IV
+direction: lower
+minimum_subjects: 12
+frequency_1_reference binding: STN, 3m
+frequency_2_addon_chronic binding: STN+SNr, 3m
+frequency_2_addon_immediate binding: omitted
+```
+
+In this acceptance profile, “MDS-UPDRS III” means the total-score row
+`MDS-UPDRS III score`; it does not include `MDS-UPDRS III axial score`. The
+axial row and every other configured scale remain ordinary extensible scales
+and may be added through the same interface without production-code changes.
+
+These are named acceptance fixtures, not production defaults, preferred scales,
+or scale-specific dispatch keys. The production endpoint catalog, task factory,
+resolver, and model services must receive them only through ordinary
+`scale_profile` entries. Removing either scale from a study profile must not
+require a code change, and adding another valid scale must use the same path.
+
+The 2026-07-09 read-only audit of
+`/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx`
+found:
+
+| Scale row | STN 3m | STN immediate | STN+SNr 3m | STN+SNr immediate |
+|---|---:|---:|---:|---:|
+| `MDS-UPDRS III score` | 16 | 16 | 16 | 16 |
+| `MDS-UPDRS IV` | 16 | 0 | 16 | 0 |
+
+Each nonzero cell contains 16 unique subjects and all 16 rows have nonmissing
+`Value` and `Baseline`. These counts are input-audit evidence, not model
+results. Final acceptance must record a fresh input hash and endpoint catalog
+rather than assuming the counts remain unchanged.
+
+The acceptance workflow must validate, plan, and run both scale IDs together:
+
+```text
+models = all
+scales = [mds_updrs_iii, mds_updrs_iv]
+phases = [chronic, immediate]
+through = report
+```
+
+The acceptance oracle is:
+
+1. Both scales pass the same schema, endpoint-catalog, task-factory, resolver,
+   final-model, provenance, and reporting code paths; no production source file
+   contains a scale-name branch for either scale.
+2. Chronic A/B/C/D tasks are planned independently for both scales, with all
+   configured normative-fiber connectome roles represented.
+3. MDS-UPDRS III immediate C/D tasks and their matched HF dependencies are
+   planned through the same Round 2b rules used by any available immediate
+   endpoint.
+4. Because the audited MDS-UPDRS IV source has no immediate rows, its immediate
+   endpoint terminates explicitly as `not_requested_or_not_configured`; it is
+   not treated as a code failure and is never substituted with MDS-UPDRS III or
+   another scale.
+5. Every requested executable endpoint independently reaches an accepted final
+   model or `no_final_model`. An observed nonpredictive or no-stable-source
+   result is a scientific terminal result, not evidence that generic scale
+   dispatch failed.
+6. Formal and sensitivity tasks attach only to each endpoint's realized final
+   model. Endpoints with `no_final_model` emit the specified skip/status
+   artifacts and do not fabricate formal results.
+7. The process exit code, task terminal states, artifact index, and manifest
+   must agree. A scientifically valid `no_final_model` may make the workflow
+   exit nonzero under the declared failure policy while the code acceptance
+   assertion still passes by verifying that expected state explicitly.
+8. At least one deterministic integration fixture using these two scale IDs
+   must realize an accepted final source so formal and sensitivity execution is
+   exercised independently of the real data's scientific outcome. Additional
+   deterministic fixtures must cover `no_final_model` and adjusted-primary
+   input failure with an accepted `no_delta_hf` fallback.
+
+Code refactor acceptance therefore requires both the real-data two-scale run
+and deterministic state-machine coverage. Passing only a hard-coded
+MDS-UPDRS III or MDS-UPDRS IV driver is insufficient.
+
 ## Current Implementation Gap
 
 The current implementation predates this design and remains the active
@@ -648,6 +740,8 @@ This section is future work and is not executed by documenting this plan.
 6. Add resumable execution and artifact/provenance indexing.
 7. Convert old entry points to explicit-parameter compatibility wrappers.
 8. Run numerical-equivalence tests before any all-scale model rerun.
+9. Run the named MDS-UPDRS III plus MDS-UPDRS IV real-data acceptance workflow
+   and deterministic terminal-state fixtures defined above.
 
 ## Deferred Work
 
@@ -708,6 +802,13 @@ commit:
    labeled `implementation_not_started`; current outputs remain read-only
    legacy/current outputs, and existing `implemented` statements refer only to
    explicitly documented current layers or historical execution results.
+
+The named-acceptance addendum was reviewed separately on 2026-07-09. The two
+scale IDs are confined to test configuration, their current endpoint
+availability was checked directly against the clinical source, missing
+MDS-UPDRS IV immediate rows have an explicit terminal state, and code acceptance
+is independent of whether the real-data models are predictive or realize a
+stable final source.
 
 No unresolved state, implicit default scale, unmatched dependency, or claim of
 completed YAML implementation remains in this plan.

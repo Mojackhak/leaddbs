@@ -41,6 +41,15 @@ workflow compiler, DAG executor, compatibility-wrapper replacement, output
 migration, or model rerun has been performed. ROI/VTA postprocessing and GUI are
 also outside this planned core refactor.
 
+Final implementation acceptance is now required to run the ordinary generic
+pipeline with both `mds_updrs_iii` (`MDS-UPDRS III score`) and
+`mds_updrs_iv` (`MDS-UPDRS IV`) in one profile. This pair is an acceptance
+fixture, not a default or privileged scale list. The current clinical source has
+chronic rows for both scales and immediate rows for MDS-UPDRS III only; the
+future endpoint catalog must represent the missing MDS-UPDRS IV immediate family
+explicitly without cross-scale substitution. The acceptance harness and the
+generic YAML pipeline remain unimplemented.
+
 The full four-model program is intentionally gated. The current codebase now
 includes readiness, observed A/B/C/D branches, C/D source resolvers,
 consolidated status reporting, final-model worklist/readiness auditing, formal
