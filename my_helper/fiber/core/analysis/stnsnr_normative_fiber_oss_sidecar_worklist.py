@@ -99,6 +99,33 @@ def _source_status(source_paths: list[str]) -> str:
     return "ready_source_files"
 
 
+def _derivatives_root(manifest: dict[str, Any]) -> Path:
+    value = manifest.get("derivatives_root")
+    if value:
+        return Path(str(value)).expanduser().resolve()
+    return DEFAULT_VAL_ROOT / "derivatives/leaddbs"
+
+
+def _recover_ulf_source_paths(row: dict[str, Any], derivatives_root: Path) -> tuple[list[str], str]:
+    subject = str(row.get("subject_id", "")).strip()
+    side = str(row.get("side", "")).strip()
+    if not subject or side not in {"L", "R"}:
+        return [], ""
+    patterns = [
+        f"sub-*/stimulations/MNI152NLin2009bAsym/stnsnr_vta_{subject}_3m_STNplusSNr_alt_{side}_SNr_*/*_sim-efield_model-simbio_hemi-{side}.nii",
+        f"sub-*/stimulations/MNI152NLin2009bAsym/stnsnr_target_component_{subject}_3m_STNplusSNr_{side}_SNr/*_sim-efield_model-simbio_hemi-{side}.nii",
+    ]
+    for mode, pattern in zip(
+        ["recovered_derivatives_ulf_alt_snr", "recovered_derivatives_ulf_target_component_snr"],
+        patterns,
+        strict=True,
+    ):
+        matches = sorted(str(path) for path in derivatives_root.glob(pattern) if path.is_file() and not path.name.startswith("._"))
+        if matches:
+            return matches, mode
+    return [], ""
+
+
 def _row_subjects(rows: list[dict[str, Any]]) -> set[str]:
     return {str(row.get("subject_id", "")).strip() for row in rows if str(row.get("subject_id", "")).strip()}
 
@@ -137,16 +164,22 @@ def audit_target(target: NormativeFiberTarget) -> tuple[dict[str, Any], list[dic
     n_fibers, fiber_id_status = _read_fiber_id_count(target.fiber_ids_path)
 
     worklist_rows: list[dict[str, Any]] = []
+    derivatives_root = _derivatives_root(manifest)
     for row in source_rows:
         subject = str(row.get("subject_id", "")).strip()
         side = str(row.get("side", "")).strip()
         source_paths = [str(path) for path in row.get("source_paths", [])]
+        recovered_mode = ""
+        if target.model_id == "D_DTOR" and not source_paths:
+            source_paths, recovered_mode = _recover_ulf_source_paths(row, derivatives_root)
         missing_source_files = [path for path in source_paths if not Path(path).is_file()]
         path_mode = row.get("path_mode", [])
         if isinstance(path_mode, str):
             path_mode_text = path_mode
         else:
             path_mode_text = ";".join(str(item) for item in path_mode)
+        if recovered_mode:
+            path_mode_text = recovered_mode if not path_mode_text else f"{path_mode_text};{recovered_mode}"
         worklist_rows.append(
             {
                 "model_id": target.model_id,
@@ -188,6 +221,7 @@ def audit_target(target: NormativeFiberTarget) -> tuple[dict[str, Any], list[dic
         "n_ready_side_rows": n_ready_sides,
         "n_missing_source_path_side_rows": sum(1 for row in worklist_rows if row["side_input_status"] == "missing_source_paths"),
         "n_missing_source_file_side_rows": sum(1 for row in worklist_rows if row["side_input_status"] == "missing_source_files"),
+        "n_recovered_source_path_side_rows": sum(1 for row in worklist_rows if "recovered_derivatives_" in row["path_mode"]),
         "candidate_x_path": str(target.x_path),
         "candidate_fiber_ids_path": str(target.fiber_ids_path),
         "candidate_n_fibers": n_fibers,

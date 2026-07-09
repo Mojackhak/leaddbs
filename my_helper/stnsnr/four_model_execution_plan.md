@@ -126,7 +126,7 @@ dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000,
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS = not_run_missing_oss_inputs
-dTOR normative-fiber OSS sidecar input audit = B_DTOR ready_for_true_oss_sidecar_generation; D_DTOR blocked_missing_source_paths_or_files
+dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS remains not run due missing inputs
@@ -199,7 +199,7 @@ Current dTOR normative-fiber OSS sidecar input audit snapshot:
 ```text
 output root = /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_sidecar_worklist/
 B_DTOR: ready_for_true_oss_sidecar_generation; 32/32 side rows have source files
-D_DTOR: blocked_missing_source_paths_or_files; 26/32 side rows have source files; missing ULF source paths for SNr003 L/R, SNr006 L/R, and SNr007 L/R
+D_DTOR: ready_for_true_oss_sidecar_generation; 32/32 side rows have source files; 6 rows recovered from derivatives for SNr003 L/R, SNr006 L/R, and SNr007 L/R
 sidecar files remain absent, so oss_sensitivity_status remains not_run_missing_oss_inputs
 ```
 

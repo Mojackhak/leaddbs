@@ -70,6 +70,11 @@ the final dTOR target manifests, branch score subject order, inherited
 be passed to the true OSS/pPAM execution layer. A branch can proceed to actual
 OSS sidecar generation only when this audit reports complete subject coverage,
 existing source stimulation inputs, and no pre-existing invalid sidecar files.
+For ULF alternating-program rows, if the generation manifest has an empty ULF
+`source_paths` entry but the corresponding
+`stnsnr_vta_<subject>_3m_STNplusSNr_alt_<side>_SNr_*` e-field folder exists in
+the derivatives tree, the audit may recover that source path and must label the
+row `recovered_derivatives_ulf_alt_snr`.
 
 ## Model Role
 
