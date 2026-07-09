@@ -341,8 +341,6 @@ def run_target_jitter(
             tau=target.tau,
             min_coverage=target.min_coverage,
         )
-        if np.any(np.isfinite(jitter_weights)):
-            finite_jitter_count += 1
         try:
             reduced = prepare_candidate_union(
                 x=jitter_x,
