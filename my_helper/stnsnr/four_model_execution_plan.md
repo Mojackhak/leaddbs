@@ -39,14 +39,12 @@ Parameter preflight and row-level activation summaries now carry these
 candidate-id fields. Full parameter preflight has passed for all 64 B_DTOR and
 D_DTOR worklist rows. A row-local filtered stimulation-folder implementation now
 lets the activation harness complete pathway activation for all 64 B_DTOR and
-D_DTOR rows without processing the full dTOR local connectome.
-Branch-level OSS sidecars are still absent. The remaining blocker is the
-branch-merge layer: row-level activation must be projected back onto the
-selected-source candidate fiber id order with complete local-to-candidate
-mapping and locked p(A) output semantics. The row runner now writes
-`oss_local_to_candidate_fiber_mapping.csv` for new row-level outputs; the
-official 64-row activation outputs have been rerun from clean commit
-`7d9b312eb` and now include complete mapping files for branch merge.
+D_DTOR rows without processing the full dTOR local connectome. The row runner
+now writes `oss_local_to_candidate_fiber_mapping.csv` for new row-level outputs;
+the official 64-row activation outputs were rerun from clean commit `7d9b312eb`
+and include complete mapping files. Branch-level OSS sidecars were then merged
+from clean commit `da38d35c1`, and downstream OSS sensitivity fitting completed
+from clean commit `219bba028`.
 
 The normative-fiber OSS / pPAM sidecar generation contract is defined in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that
