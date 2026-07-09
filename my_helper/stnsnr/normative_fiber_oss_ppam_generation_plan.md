@@ -197,6 +197,10 @@ run_pathway_activation
 for selected preflight rows. It writes row-local logs and a row-local status
 manifest after each step. A row can resume from the first incomplete step when
 the previous step's expected outputs and return code are already present.
+When a step is launched through an absolute OSS-DBSv2 executable path, the runner
+must prepend that executable's parent directory to `PATH`. This is required for
+`run_pathway_activation`, which shells out to NEURON's `nrnivmodl` from the same
+OSS-DBSv2 environment.
 
 Recommended command:
 

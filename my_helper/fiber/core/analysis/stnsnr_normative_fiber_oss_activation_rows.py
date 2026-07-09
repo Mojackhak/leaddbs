@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -58,9 +59,12 @@ def _run_logged_command(
     started_at = iso_now()
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    cmd_parent = str(Path(cmd[0]).expanduser().resolve().parent)
+    env["PATH"] = cmd_parent + os.pathsep + env.get("PATH", "")
     try:
         with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open("w", encoding="utf-8") as stderr_handle:
-            proc = subprocess.run(cmd, stdout=stdout_handle, stderr=stderr_handle, text=True, timeout=timeout_s)
+            proc = subprocess.run(cmd, stdout=stdout_handle, stderr=stderr_handle, text=True, timeout=timeout_s, env=env)
         return {
             "cmd": cmd,
             "started_at": started_at,
