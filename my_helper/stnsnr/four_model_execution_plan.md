@@ -145,7 +145,7 @@ dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=
 dTOR normative-fiber OSS = not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; B_DTOR oss_n_fibers=3990; D_DTOR oss_n_fibers=2321; parent_n_fibers=11820000
 dTOR normative-fiber OSS parameter preflight = B_DTOR and D_DTOR first ready rows parameter_preflight_passed with propagated oss_fiber_ids_path and frequency patched from source S frequency
-dTOR normative-fiber OSS row-level activation harness = first B_DTOR/D_DTOR rows prepareaxonmodel_complete with row-local filtered stimulation folders; no branch-level X_oss sidecar written
+dTOR normative-fiber OSS row-level activation harness = first B_DTOR/D_DTOR rows ossdbs_complete with row-local filtered stimulation folders; pathway activation and branch-level X_oss sidecar merge not yet complete
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS sensitivity results remain not run because final branch OSS sidecar inputs are still absent

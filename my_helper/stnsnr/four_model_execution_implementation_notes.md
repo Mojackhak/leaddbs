@@ -204,10 +204,13 @@ as `oss-dbs_parameters.mat` and the filtered dTOR `data*.mat` files. A separate
 converter-output folder makes downstream `prepareaxonmodel` look for
 `data*.mat` in the wrong location.
 
-The generated converter JSON must also use that same directory as
-`StimulationFolder`. Earlier converter output used the repository root, which
-would make `ossdbs` write success/failure marker files outside the row sandbox;
-the preflight now patches and records this field.
+The generated converter JSON should also use that same directory as
+`StimulationFolder` for path consistency. OSS-DBSv2 CLI then overwrites
+`StimulationFolder` with the parent directory of the input JSON file before it
+writes success/failure marker files. The row-level runner must therefore keep
+the copied converter JSON inside the row sandbox and accept success markers in
+either the JSON parent directory or the filtered stimulation folder, while
+requiring `oss_time_result_PAM.h5` under the filtered `Results` directory.
 
 A manual B_DTOR `prepareaxonmodel` activation smoke using the corrected
 parameter directory found no path or frequency error, but remained CPU-bound in
@@ -250,6 +253,15 @@ filtered 345,628 local fibers down to 5 local candidate fibers. This still does
 not create branch-level `X_oss_float32_fiber_major.npy`; it only proves the
 row-level axon-allocation step can consume the selected-source candidate
 universe without processing the full dTOR local connectome.
+
+A subsequent bounded `ossdbs` run returned code 0 and wrote
+`oss_time_result_PAM.h5` plus `success_lh.txt`, but OSS-DBSv2 placed the success
+marker in the row directory because it resets `StimulationFolder` to the input
+JSON parent. The runner now treats the row-directory marker as a valid OSS
+success marker when the filtered-folder `oss_time_result_PAM.h5` is present.
+With that fix, the first B_DTOR and D_DTOR rows reach `ossdbs_complete`.
+Pathway activation and branch-level `X_oss_float32_fiber_major.npy` merge remain
+next execution layers.
 
 The OSS worklist and sensitivity-readiness layers must resolve ULF
 selected-source output locations from the actual shared exposure preprocess

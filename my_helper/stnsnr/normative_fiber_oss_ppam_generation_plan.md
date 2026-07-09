@@ -4,7 +4,7 @@
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Parent goal.** `my_helper/stnsnr/four_model_execution_plan.md`
 > **Authoritative model specs.** `my_helper/stnsnr/model_summaries/`
-> **Status.** Input audit/worklist, parameter preflight, and row-level activation harness implemented; no final branch OSS sidecars generated yet.
+> **Status.** Input audit/worklist, parameter preflight, and row-level activation harness implemented; first B_DTOR/D_DTOR rows reach `ossdbs_complete`; no final branch OSS sidecars generated yet.
 
 ---
 
@@ -164,11 +164,20 @@ that contains `oss-dbs_parameters.mat` and the filtered connectome files
 folder, because downstream `prepareaxonmodel` resolves pathway files relative
 to the converter output path.
 
-The converter JSON `StimulationFolder` must also point to that same Lead-DBS
-OSS output directory. If the converter writes the repository root or another
-incorrect folder, the STNSNr sidecar layer must patch it before any `ossdbs`
-call, otherwise OSS-DBS success/failure marker files would be written outside
-the row sandbox.
+The converter JSON `StimulationFolder` should also point to that same Lead-DBS
+OSS output directory for path consistency. However, OSS-DBSv2 CLI overwrites
+`StimulationFolder` at runtime with the parent directory of the input JSON file
+before writing success/failure marker files. Therefore the row-level runner must
+keep the copied converter JSON inside the row sandbox and accept the OSS success
+marker in either location:
+
+```text
+<row_dir>/success_<FailFlag>.txt
+<filtered_stimulation_folder>/success_<FailFlag>.txt
+```
+
+The row is `ossdbs_complete` only when one accepted success marker exists and
+`Results/oss_time_result_PAM.h5` exists under the filtered stimulation folder.
 
 ## Resumable Row-Level Activation Runner
 

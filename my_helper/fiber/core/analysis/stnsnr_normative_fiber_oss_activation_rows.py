@@ -351,6 +351,33 @@ def _status_rank(status: str) -> int:
     return order.get(status, -1)
 
 
+def _oss_success_flag_name(fail_flag: str) -> str:
+    return f"success_{fail_flag}.txt" if fail_flag else "success.txt"
+
+
+def _unique_paths(paths: list[Path]) -> list[Path]:
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            unique.append(path)
+    return unique
+
+
+def _oss_success_flag_candidates(stimulation_folder: Path, converter_json: Path, fail_flag: str) -> list[Path]:
+    marker_name = _oss_success_flag_name(fail_flag)
+    return _unique_paths([stimulation_folder / marker_name, converter_json.parent / marker_name])
+
+
+def _first_existing_file(paths: list[Path]) -> Path | None:
+    for path in paths:
+        if path.is_file():
+            return path
+    return None
+
+
 def _run_activation_row(
     *,
     row: dict[str, str],
@@ -376,7 +403,7 @@ def _run_activation_row(
     pathway_file = Path(settings["PathwayFile"]).expanduser().resolve()
     axon_h5 = Path(settings["PointModel"]["Pathway"]["FileName"]).expanduser().resolve()
     fail_flag = str(settings.get("FailFlag", ""))
-    success_flag = stimulation_folder / f"success_{fail_flag}.txt" if fail_flag else stimulation_folder / "success.txt"
+    success_flags = _oss_success_flag_candidates(stimulation_folder, converter_json, fail_flag)
     oss_time_result = output_path / "oss_time_result_PAM.h5"
     scaling_index = None if args.pathway_scaling_index <= 0 else args.pathway_scaling_index
     pathway_outputs = _pathway_outputs(output_path, scaling_index)
@@ -410,9 +437,9 @@ def _run_activation_row(
             status = "prepareaxonmodel_failed"
 
     if args.stop_after_step == "prepareaxonmodel" or _status_rank(status) < _status_rank("prepareaxonmodel_complete"):
-        return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, pathway_outputs, filter_metadata)
+        return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, converter_json, pathway_outputs, filter_metadata)
 
-    if success_flag.is_file() and oss_time_result.is_file():
+    if _first_existing_file(success_flags) is not None and oss_time_result.is_file():
         status = "ossdbs_complete"
         step_results["ossdbs"] = {"skipped_existing_outputs": True}
     else:
@@ -424,7 +451,7 @@ def _run_activation_row(
             timeout_s=None if args.ossdbs_timeout_s <= 0 else args.ossdbs_timeout_s,
         )
         step_results["ossdbs"] = result
-        if result["returncode"] == 0 and success_flag.is_file() and oss_time_result.is_file():
+        if result["returncode"] == 0 and _first_existing_file(success_flags) is not None and oss_time_result.is_file():
             status = "ossdbs_complete"
         elif result["returncode"] in {"timeout", "interrupted"}:
             status = "timeout_or_interrupted"
@@ -432,7 +459,7 @@ def _run_activation_row(
             status = "ossdbs_failed"
 
     if args.stop_after_step == "ossdbs" or _status_rank(status) < _status_rank("ossdbs_complete"):
-        return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, pathway_outputs, filter_metadata)
+        return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, converter_json, pathway_outputs, filter_metadata)
 
     if _step_existing_status(pathway_outputs) == "complete":
         status = "pathway_activation_complete"
@@ -455,7 +482,7 @@ def _run_activation_row(
         else:
             status = "pathway_activation_failed"
 
-    return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, pathway_outputs, filter_metadata)
+    return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, converter_json, pathway_outputs, filter_metadata)
 
 
 def _finalize_row_status(
@@ -465,6 +492,7 @@ def _finalize_row_status(
     status: str,
     step_results: dict[str, Any],
     settings: dict[str, Any],
+    converter_json: Path,
     pathway_outputs: list[Path],
     filter_metadata: dict[str, Any],
 ) -> dict[str, Any]:
@@ -473,7 +501,8 @@ def _finalize_row_status(
     pathway_file = Path(settings["PathwayFile"]).expanduser().resolve()
     axon_h5 = Path(settings["PointModel"]["Pathway"]["FileName"]).expanduser().resolve()
     fail_flag = str(settings.get("FailFlag", ""))
-    success_flag = stimulation_folder / f"success_{fail_flag}.txt" if fail_flag else stimulation_folder / "success.txt"
+    success_flags = _oss_success_flag_candidates(stimulation_folder, converter_json, fail_flag)
+    success_flag = _first_existing_file(success_flags)
     oss_time_result = output_path / "oss_time_result_PAM.h5"
     status_path = row_dir / "oss_activation_row_status.json"
     status_doc = {
@@ -493,14 +522,16 @@ def _finalize_row_status(
         "expected_outputs": {
             "allocated_axons_h5": str(axon_h5),
             "pathway_file": str(pathway_file),
-            "oss_success_flag": str(success_flag),
+            "oss_success_flag": str(success_flags[0]),
+            "oss_success_flag_candidates": [str(path) for path in success_flags],
             "oss_time_result": str(oss_time_result),
             "pathway_outputs": [str(path) for path in pathway_outputs],
         },
         "existing_outputs": {
             "allocated_axons_h5": axon_h5.is_file(),
             "pathway_file": pathway_file.is_file(),
-            "oss_success_flag": success_flag.is_file(),
+            "oss_success_flag": success_flag is not None,
+            "oss_success_flag_path": str(success_flag) if success_flag is not None else "",
             "oss_time_result": oss_time_result.is_file(),
             "pathway_outputs": [path.is_file() for path in pathway_outputs],
         },
@@ -528,7 +559,8 @@ def _finalize_row_status(
         "parent_fiber_id_status": row.get("parent_fiber_id_status", ""),
         "allocated_axons_h5_exists": axon_h5.is_file(),
         "pathway_file_exists": pathway_file.is_file(),
-        "oss_success_flag_exists": success_flag.is_file(),
+        "oss_success_flag_exists": success_flag is not None,
+        "oss_success_flag_path": str(success_flag) if success_flag is not None else "",
         "oss_time_result_exists": oss_time_result.is_file(),
         "pathway_outputs_exist": all(path.is_file() for path in pathway_outputs),
         "candidate_filter_status": filter_metadata.get("filter_status", ""),
