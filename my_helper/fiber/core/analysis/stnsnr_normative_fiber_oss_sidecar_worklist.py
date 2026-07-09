@@ -59,6 +59,8 @@ def _sidecar_preprocess_dir(target: NormativeFiberTarget, manifest: dict[str, An
     outputs = manifest.get("outputs", {})
     if outputs.get("preprocess_dir"):
         return Path(outputs["preprocess_dir"]).expanduser().resolve()
+    if target.model_id == "D_DTOR":
+        return target.x_path.parent
     return target.branch_dir / "preprocess"
 
 

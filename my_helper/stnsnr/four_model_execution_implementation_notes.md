@@ -211,9 +211,18 @@ the preflight now patches and records this field.
 A manual B_DTOR `prepareaxonmodel` activation smoke using the corrected
 parameter directory found no path or frequency error, but remained CPU-bound in
 OSS-DBSv2 fiber-to-streamline conversion for more than 17 minutes and was
-interrupted before completion. This confirms that full OSS sidecar generation
-should be implemented as a resumable long-running runner with row-level status
-and logs, not as an interactive smoke command.
+interrupted before completion. A later no-timeout B_DTOR row-level run remained
+CPU-bound for about 50 minutes while reading the dTOR `data2.mat`, generated no
+`Allocated_axons` output, and was interrupted for implementation triage. This
+confirms that full OSS sidecar generation should remain resumable and
+row-status driven, with explicit long-running/interrupted states, rather than
+being treated as an interactive smoke command.
+
+The OSS worklist must resolve ULF selected-source output locations from the
+actual shared exposure preprocess directory. D_DTOR selected-source manifests do
+not always include `outputs.preprocess_dir`; in that case the correct sidecar
+directory is the parent directory of the selected `X_ULF_only_fiber...` matrix,
+not `<branch_dir>/preprocess`.
 
 The resumable OSS row-level activation runner is the next layer after
 parameter preflight. It consumes successful preflight rows and runs
