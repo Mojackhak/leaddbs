@@ -7,6 +7,44 @@
 
 ---
 
+## YAML Core Refactor Planning Checkpoint
+
+The future YAML-driven, endpoint-aware core refactor is specified in:
+
+```text
+my_helper/stnsnr/four_model_yaml_core_refactor_plan.md
+```
+
+Its current status is strictly:
+
+```text
+design_documented
+implementation_not_started
+current_outputs_unchanged
+current_legacy_entrypoints_remain_active
+```
+
+The planned refactor treats all configured scales as engineering-equivalent
+through endpoint discovery, A/B/C/D execution, source resolution, prediction
+classification, final-model realization, formal resampling, sensitivity
+analysis, and output generation. It does not assign special execution status to
+MDS-UPDRS III total, axial, or any other scale. Clinical reporting hierarchy is
+outside the workflow compiler and model resolvers.
+
+The planned core does not use an anatomical ROI to define the statistical
+candidate domain. Direct voxel models retain the right-canonical brainmask;
+normative fiber models retain the configured whole connectome followed by
+stimulation tau/Coverage filtering. VTA/ROI postprocessing, regional heatmaps,
+GUI, and HTTP services are deferred.
+
+The planned public YAML/CLI does not expose
+`candidate_threshold_v_per_m`. A future direct-voxel implementation derives it
+as `min(tau_grid_v_per_m)` and records the resolved value only in a technical
+manifest. Smoke/equivalence parameters remain fixed implementation tests and
+are not public configuration. None of these planned interfaces is available in
+the current code, and none of the current results below was generated through
+the planned YAML workflow.
+
 ## Pause Checkpoint
 
 2026-07-07 post-pause refresh: final-reporting readiness now requires separate

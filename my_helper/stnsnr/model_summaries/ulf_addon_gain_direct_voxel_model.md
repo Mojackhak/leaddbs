@@ -1,5 +1,28 @@
 # HF-Status-Resolved ULF-Only Add-On Gain Direct Voxel-Level Model
 
+## Planned YAML Core Interface (Not Implemented)
+
+The future configuration/orchestration contract is documented in
+`my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
+remains authoritative for ULF branch inputs, HF-derived intended branch role,
+branch-specific source resolution, fallback-final realization, formal
+resampling, and sensitivities. The planned interface has status
+`implementation_not_started`; current outputs and legacy/current entrypoints are
+unchanged.
+
+All configured ULF/frequency-2 endpoint scales are engineering-equivalent within
+their applicable endpoint families. Chronic, immediate, total, axial, and other
+configured scales use the same future task factories and status fields. Public
+YAML provides the shared `four_model_v1` scientific/formal/sensitivity profile.
+The direct-voxel sparse candidate threshold is `internal-derived` as
+`min(tau_grid_v_per_m)` and is not exposed. Equivalence and smoke parameters are
+`internal-test`; matched HF status, ULF branch statuses, the unique final model,
+and artifact paths are `runtime output`.
+
+The core statistical domain remains the right-canonical brainmask. Anatomical
+ROI restriction, VTA/ROI postprocessing, regional heatmaps, and GUI are outside
+the planned core refactor.
+
 ## Research Question
 
 Which ultra-low-frequency stimulation territory voxels have ULF-only exposure associated with additional clinical benefit after ULF stimulation is added to HF stimulation, after adjusting for the patient's same-day HF clinical state and model-predicted change in HF efficacy?

@@ -2,6 +2,45 @@
 
 This note records executable implementation layers for `four_model_execution_plan.md`.
 
+## Planned YAML Core Refactor: Documentation Only
+
+The future configuration and orchestration contract is documented in:
+
+```text
+my_helper/stnsnr/four_model_yaml_core_refactor_plan.md
+```
+
+Current status:
+
+```text
+design_documented
+implementation_not_started
+current_outputs_unchanged
+current_legacy_entrypoints_remain_active
+```
+
+The confirmed implementation gap is that current production drivers and
+consolidated status/formal layers still contain single-scale defaults,
+total/axial default lists, chronic-total path assumptions, or global A/B status
+rows. The planned refactor replaces these with an endpoint catalog, composite
+task identities, matched A-to-C and connectome-specific B-to-D dependencies,
+and endpoint-aware final/formal/reporting artifacts. All configured scales will
+use the same task factories and status fields; no clinical reporting hierarchy
+will change execution.
+
+The future public YAML and CLI will not accept
+`candidate_threshold_v_per_m`. Direct-voxel preprocessing will derive it as
+`min(tau_grid_v_per_m)` and record the value as internal-derived technical
+metadata. Normative fiber will not define a global candidate threshold.
+Optimized-versus-brute-force equivalence and smoke
+permutation/bootstrap/jitter remain internal-test parameters rather than public
+workflow inputs.
+
+This checkpoint is not an implemented layer. No YAML schema, generic CLI,
+workflow compiler, DAG executor, compatibility-wrapper replacement, output
+migration, or model rerun has been performed. ROI/VTA postprocessing and GUI are
+also outside this planned core refactor.
+
 The full four-model program is intentionally gated. The current codebase now
 includes readiness, observed A/B/C/D branches, C/D source resolvers,
 consolidated status reporting, final-model worklist/readiness auditing, formal

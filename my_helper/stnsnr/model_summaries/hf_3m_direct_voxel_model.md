@@ -1,5 +1,27 @@
 # HF-Only Direct Voxel-Level Model
 
+## Planned YAML Core Interface (Not Implemented)
+
+The future configuration/orchestration contract is documented in
+`my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
+remains authoritative for the estimator, resolver, classification, formal, and
+sensitivity definitions. The planned interface has status
+`implementation_not_started`; current outputs and legacy/current entrypoints are
+unchanged.
+
+All configured HF/frequency-1 endpoint scales are engineering-equivalent. The
+future endpoint catalog and DAG must not assign total, axial, or any other scale
+special execution status. Model and formal/sensitivity parameters are shared
+through the versioned `four_model_v1` public YAML profile. The direct-voxel
+sparse candidate threshold is `internal-derived` as
+`min(tau_grid_v_per_m)` and is not a public YAML/CLI parameter. Equivalence and
+smoke parameters are `internal-test`. Selected source/status fields and output
+paths are `runtime output`.
+
+The core statistical domain remains the right-canonical brainmask. Anatomical
+ROI restriction, VTA/ROI postprocessing, regional heatmaps, and GUI are outside
+the planned core refactor.
+
 ## Research Question
 
 Which high-frequency stimulation territory voxels have HF-only exposure associated with better HF-only clinical outcome for a given endpoint?

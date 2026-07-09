@@ -5,6 +5,30 @@ Scope: ULF add-on normative connectome fiber-level model, aligned to `hf_3m_norm
 
 ---
 
+## Planned YAML Core Interface (Not Implemented)
+
+The future configuration/orchestration contract is documented in
+`my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
+remains authoritative for matched-HF dependency, branch-specific exposure and
+nuisance design, endpoint realization, fallback-final selection, formal
+resampling, controls, OSS, jitter, and numeric reporting. The planned interface
+has status `implementation_not_started`; current outputs and legacy/current
+entrypoints are unchanged.
+
+All configured ULF/frequency-2 endpoint scales are engineering-equivalent within
+their applicable endpoint families. Chronic, immediate, total, axial, and other
+configured scales use the same future task factories and status fields.
+Public YAML provides the shared `four_model_v1` model/formal/sensitivity
+parameters. Normative fiber has no global candidate-threshold parameter;
+candidate fibers are `internal-derived` by tau/Coverage cell and training fold.
+Equivalence and smoke parameters are `internal-test`; matched HF status,
+branch statuses, the unique final model, and artifact paths are `runtime output`.
+
+The core statistical domain remains the configured whole connectome before
+stimulation tau/Coverage filtering. Anatomical ROI restriction, VTA/ROI
+postprocessing, regional heatmaps, and GUI are outside the planned core
+refactor.
+
 ## 1. Research Question
 
 Which ULF-only normative connectome streamlines are associated with additional clinical benefit after ULF stimulation is added to HF stimulation, after adjusting for the patient's pre-ULF HF clinical state, with the role of model-derived `DeltaHFScore` resolved by the matched HF normative fiber source and prediction statuses.
