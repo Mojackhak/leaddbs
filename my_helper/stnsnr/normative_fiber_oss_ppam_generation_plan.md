@@ -49,7 +49,7 @@ ready_for_oss_sensitivity
 
 for the HF and ULF dTOR normative fiber final branches.
 
-This plan does not complete the downstream OSS sensitivity model itself. A later execution step must consume `X_oss_float32_fiber_major.npy` and compute OSS weights, scores, LOOCV predictions, smoke permutation, and plain OSS activation controls.
+This plan separates OSS sidecar readiness from downstream OSS sensitivity fitting. The current execution has generated sidecars and then consumed `X_oss_float32_fiber_major.npy` to compute OSS weights, scores, LOOCV predictions, smoke permutation, and plain OSS activation controls for B_DTOR and D_DTOR.
 
 ## Executable Input Audit / Worklist
 
@@ -322,6 +322,7 @@ invalid candidate-column mappings = 0
 branch-level merge = complete for B_DTOR and D_DTOR from clean stnvop commit da38d35c1
 B_DTOR X_oss shape = 16x3990; nonzero entries = 34450
 D_DTOR X_oss shape = 16x2321; nonzero entries = 23816
+downstream OSS sensitivity = complete for B_DTOR and D_DTOR from clean stnvop commit 219bba028, B=1000, seed=42
 ```
 
 The branch-level sidecar files are:

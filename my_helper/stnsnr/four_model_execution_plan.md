@@ -154,14 +154,14 @@ dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000,
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS input readiness = ready_for_oss_sensitivity
-dTOR normative-fiber OSS sensitivity model results = not_run_downstream_oss_sensitivity
+dTOR normative-fiber OSS sensitivity model results = B_DTOR and D_DTOR complete at B=1000, seed=42; both passed_activation_consistent
 dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; B_DTOR oss_n_fibers=3990; D_DTOR oss_n_fibers=2321; parent_n_fibers=11820000
 dTOR normative-fiber OSS parameter preflight = 64/64 rows parameter_preflight_passed; B_DTOR 32 rows, D_DTOR 32 rows; propagated oss_fiber_ids_path; 45 rows frequency_patched_from_source_S and 19 rows frequency_validated
 dTOR normative-fiber OSS row-level activation harness = 64/64 B_DTOR/D_DTOR rows pathway_activation_complete with row-local filtered stimulation folders; 64/64 rows have oss_local_to_candidate_fiber_mapping.csv; mapping_total_rows=101247; invalid candidate-column mappings=0
 dTOR normative-fiber OSS sidecar merge = B_DTOR and D_DTOR complete from clean commit da38d35c1; B_DTOR X_oss shape 16x3990 with 34450 nonzero entries; D_DTOR X_oss shape 16x2321 with 23816 nonzero entries; current activation value subtype = deterministic_binary_0_1
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
-normative-fiber OSS sensitivity results remain not run because the downstream OSS sensitivity fitting runner has not yet consumed the ready sidecars
+normative-fiber OSS sensitivity results = B_DTOR observed OSS rho -0.3304, Q2 -0.5381, p_plus_one_two_sided 0.3976, corr(NetFiberScore_OSS, NetFiberScore_peak) 0.5045; D_DTOR observed OSS rho 0.9234, Q2 -0.4087, p_plus_one_two_sided 0.1658, corr(NetULFFiberScore_OSS, NetULFFiberScore_peak) 0.4852
 final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; B_DTOR/D_DTOR have density/label/FDR/enrichment figure-cache outputs ready and OSS sidecar inputs ready; observed robustness normative-fiber rows have density+label outputs ready
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
@@ -222,7 +222,7 @@ Current dTOR normative-fiber sensitivity readiness snapshot:
 ```text
 B_DTOR HF normative fiber: oss_sensitivity_status = ready_for_oss_sensitivity; jitter_qc_status = complete
 D_DTOR ULF normative fiber no_delta_hf final model: oss_sensitivity_status = ready_for_oss_sensitivity; jitter_qc_status = complete
-canonical OSS sidecars exist for both formal dTOR targets; downstream OSS weights, scores, LOOCV predictions, smoke permutation, and plain activation controls are not yet computed
+canonical OSS sidecars exist for both formal dTOR targets; downstream OSS weights, scores, LOOCV predictions, smoke permutation, and plain activation controls are now computed
 jitter QC and FDR/enrichment caches are complete for these formal dTOR targets
 ```
 
@@ -243,6 +243,15 @@ B_DTOR: merge_status = complete; X_oss_float32_fiber_major.npy shape = 16x3990; 
 D_DTOR: merge_status = complete; X_oss_float32_fiber_major.npy shape = 16x2321; x_oss_nonzero_count = 23816; x_oss_nonzero_fraction = 0.6413183972; total_mapping_rows = 37127; total_missing_state_ids = 0; total_inconsistent_state_local_fibers = 0
 activation value type = pPAM_activation_probability; current activation value subtype = deterministic_binary_0_1; status source = Axon_state_default_1.mat; hemisphere/source merge rule = max_probability_union
 code provenance = clean stnvop commit da38d35c1
+```
+
+Current dTOR normative-fiber OSS sensitivity result snapshot:
+
+```text
+output root = /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_sensitivity/
+B_DTOR: oss_result_status = passed_activation_consistent; B = 1000; observed_loocv_spearman_rho = -0.3303849183; observed_q2 = -0.5381254077; p_plus_one_two_sided = 0.3976023976; corr_net_score_oss_vs_peak = 0.5044714227
+D_DTOR: oss_result_status = passed_activation_consistent; B = 1000; observed_loocv_spearman_rho = 0.9234177908; observed_q2 = -0.4086776415; p_plus_one_two_sided = 0.1658341658; corr_net_score_oss_vs_peak = 0.4851677314
+code provenance = clean stnvop commit 219bba028
 ```
 
 Current final reporting and figure-output readiness snapshot:
@@ -602,6 +611,8 @@ The current codebase is no longer greenfield. The following layers already exist
 | dTOR normative-fiber OSS sidecar input audit/worklist | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_sidecar_worklist.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_oss_sidecar_worklist.py` | implemented |
 | dTOR normative-fiber OSS parameter-dictionary preflight | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_parameter_preflight.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_oss_parameter_preflight.py` | implemented for bounded converter smoke |
 | dTOR normative-fiber OSS row-level activation runner | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_activation_rows.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_oss_activation_rows.py` | implemented for resumable row-level execution |
+| dTOR normative-fiber OSS sidecar merge | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_sidecar_merge.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_oss_sidecar_merge.py` | implemented for B_DTOR/D_DTOR final branches |
+| dTOR normative-fiber OSS sensitivity fitting | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_sensitivity.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_oss_sensitivity.py` | implemented for B_DTOR/D_DTOR smoke B=1000 |
 | Normative-fiber basic density cache | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_density_cache.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_density_cache.py` | implemented |
 | Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
 | Normative-fiber FDR/enrichment cache | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_fdr_enrichment_cache.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_fdr_enrichment_cache.py` | implemented for formal dTOR normative-fiber targets |
@@ -797,7 +808,7 @@ Current observed outputs:
 | selected-source output `ulf_peak_efield_tau400_no_delta_hf`; revised scan-fallback spec `ulf_peak_efield_tau400_cov5_no_delta_hf` | `0.9411` | `-0.0849` | realized HF-derived intended primary; D_DTOR source resolver = `scan_fallback_accepted` + `error_nonpredictive`; endpoint status = `primary_branch_error_nonpredictive` |
 | selected-source output `ulf_peak_efield_tau400_delta_hf_adjusted`; revised scan-fallback spec `ulf_peak_efield_tau400_cov5_delta_hf_adjusted` | `0.9470` | `0.2169` | sensitivity because matched B_DTOR source is accepted but `error_nonpredictive`; D_DTOR source resolver = `scan_fallback_accepted` + `error_predictive` |
 
-Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. The automatically selected no-DeltaHF dTOR final model has completed formal permutation, bootstrap, and jitter QC. OSS-DBS sidecar inputs now exist after branch-level merge, so the consolidated status records `D_DTOR = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_READY`; downstream OSS sensitivity fitting remains a separate not-yet-run step.
+Both branches write scores, LOOCV predictions, fiber weights, QC JSON, and manifests. The automatically selected no-DeltaHF dTOR final model has completed formal permutation, bootstrap, jitter QC, OSS sidecar merge, and OSS smoke sensitivity fitting. The consolidated status records `D_DTOR = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_READY`; OSS sensitivity results are stored separately from the final peak-E-field model.
 
 ### A Round 2 All-Endpoint Tau/Coverage Resolver Scan
 
@@ -1567,6 +1578,20 @@ This runner consumes the sidecar worklist, row-level activation summary,
 `oss_activation_sidecar_qc.csv` into each final branch `preprocess_dir`. The
 current full run completed B_DTOR and D_DTOR sidecar merge from clean commit
 `da38d35c1`.
+
+Normative-fiber OSS sensitivity fitting:
+
+```bash
+/opt/anaconda3/bin/conda run -n leaddbs \
+  python my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_oss_sensitivity.py \
+  --n-permutations 1000 \
+  --seed 42
+```
+
+This runner consumes the canonical OSS sidecars and writes OSS weights, scores,
+LOOCV predictions, smoke permutation summaries, and plain activation controls.
+The current full run completed B_DTOR and D_DTOR from clean commit
+`219bba028`.
 
 Final reporting and figure-output readiness:
 

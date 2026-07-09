@@ -41,9 +41,9 @@ columns, left-to-right activation mapping, `max_probability_union`, verified
 modeled frequency, and separate manifest/metadata JSON files. Current OSS-DBSv2
 deterministic output is stored as binary 0/1 p(A) under this float32 contract. A
 parent raw `fiber_ids.npy` that stores the full atlas or exposure id universe is
-not the OSS column contract. This is an input readiness contract only; the
-downstream OSS sensitivity runner still has to compute OSS weights, scores,
-LOOCV predictions, smoke permutation, and plain activation controls.
+not the OSS column contract. The downstream OSS sensitivity runner then computes
+OSS weights, scores, LOOCV predictions, smoke permutation, and plain activation
+controls without changing the peak-E-field final model.
 
 2026-07-07 density/label-cache update: the normative-fiber density and
 connected-region label caches now default to all `analysis_family =
@@ -105,9 +105,10 @@ dTOR normative-fiber OSS sidecar input audit: B_DTOR and D_DTOR ready_for_true_o
 dTOR normative-fiber OSS parameter preflight: 64/64 rows parameter_preflight_passed; B_DTOR 32 rows and D_DTOR 32 rows; MATLAB parameter dictionaries and leaddbs2ossdbs converter smoke return code 0; converter JSON frequency patched from source S frequency where needed
 dTOR normative-fiber OSS row-level activation: 64/64 B_DTOR/D_DTOR rows pathway_activation_complete
 dTOR normative-fiber OSS sidecar merge: B_DTOR and D_DTOR complete from clean commit da38d35c1; B_DTOR X_oss shape 16x3990 with 34450 nonzero entries; D_DTOR X_oss shape 16x2321 with 23816 nonzero entries
+dTOR normative-fiber OSS sensitivity fitting: B_DTOR and D_DTOR complete from clean commit 219bba028 at B=1000, seed=42; both passed_activation_consistent
 normative-fiber basic density and connected-region label caches: B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches: B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
-normative-fiber OSS sensitivity results remain not run because downstream OSS fitting has not yet consumed the ready sidecars
+normative-fiber OSS sensitivity results: B_DTOR observed rho -0.3304, Q2 -0.5381, p=0.3976; D_DTOR observed rho 0.9234, Q2 -0.4087, p=0.1658
 final reporting/readiness: 7 rows; n=16 hypothesis-generating; A/C direct maps ready; all normative-fiber rows have density+label outputs ready
 C gain/total-ULF observed sensitivity outputs: complete; resampling_status = not_run_observed_only
 C same-day immediate endpoint-family observed outputs: complete for 2 endpoint rows; resampling_status = not_run_observed_only
