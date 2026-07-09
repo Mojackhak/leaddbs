@@ -35,14 +35,15 @@ jitter QC.
 
 The OSS / pPAM sidecar generation contract is now documented in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. It defines the
-canonical sidecar as continuous pPAM `X_oss_float32_fiber_major.npy` over the
+canonical sidecar as float32 p(A) `X_oss_float32_fiber_major.npy` over the
 selected-source tau/Coverage candidate fiber id order, with right-canonical
 columns, left-to-right activation mapping, `max_probability_union`, verified
-modeled frequency, and separate manifest/metadata JSON files. A parent raw
-`fiber_ids.npy` that stores the full atlas or exposure id universe is not the
-OSS column contract. This is an input readiness contract only; the downstream
-OSS sensitivity runner still has to compute OSS weights, scores, LOOCV
-predictions, smoke permutation, and plain activation controls.
+modeled frequency, and separate manifest/metadata JSON files. Current OSS-DBSv2
+deterministic output is stored as binary 0/1 p(A) under this float32 contract. A
+parent raw `fiber_ids.npy` that stores the full atlas or exposure id universe is
+not the OSS column contract. This is an input readiness contract only; the
+downstream OSS sensitivity runner still has to compute OSS weights, scores,
+LOOCV predictions, smoke permutation, and plain activation controls.
 
 2026-07-07 density/label-cache update: the normative-fiber density and
 connected-region label caches now default to all `analysis_family =

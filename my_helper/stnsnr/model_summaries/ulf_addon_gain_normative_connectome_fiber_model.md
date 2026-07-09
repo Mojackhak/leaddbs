@@ -2257,7 +2257,8 @@ Run:
 ```text
 oss_model_set = primary_locked
 candidate source = realized primary selected-source candidate universe
-exposure replacement = continuous pPAM X_ULF_only_OSS derived from X_oss_float32_fiber_major.npy
+exposure replacement = pPAM X_ULF_only_OSS derived from X_oss_float32_fiber_major.npy
+current activation subtype = deterministic binary 0/1 p(A) when using OSS-DBSv2 deterministic output
 nuisance design = realized primary branch nuisance design
 frequency validation = requested_frequency_hz equals oss_parameter_frequency_hz
 dTOR realized-primary final branch observed LOOCV

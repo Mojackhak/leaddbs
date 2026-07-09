@@ -1243,10 +1243,14 @@ delta_hf_adjusted:
 
 Primary ULF direct voxel settings:
 
-- `tau=200 V/m` primary; `180/220 V/m` sensitivity.
-- `Coverage_ULF_tau(v) >= 5`.
+- Pre-specified source is `tau200/Coverage>=5`; the ULF tau/Coverage resolver
+  uses scan fallback only when the pre-specified source is not accepted.
 - `X_ULF_only` is tau-specific because tau defines ULF active voxels, HF active voxels, overlap exclusion, coverage, and score input.
-- Formal permutation/bootstrap is restricted to the primary chronic `tau200/partial_spearman` branch unless the same-day immediate endpoint is explicitly promoted.
+- Selected-source tau sensitivity reports `0.9 * selected_tau` and
+  `1.1 * selected_tau` at the selected Coverage.
+- Formal permutation/bootstrap is restricted to the endpoint's final realized
+  `partial_spearman` branch unless the same-day immediate endpoint is explicitly
+  promoted.
 - OLS ANCOVA is optional future supplemental analysis and is not run in the current executable analysis.
 
 #### Bilateral Homologous Voxel Exposure

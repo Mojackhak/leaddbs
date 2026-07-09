@@ -92,7 +92,8 @@ waveform = clinical rectangular pulse unless otherwise specified
 frequency_Hz = clinical HF frequency
 pulse_width_us = clinical pulse width
 amplitude = clinical amplitude
-activation_output = continuous_pPAM_activation_probability
+activation_output = pPAM_activation_probability_float32
+current_activation_output_subtype = deterministic_binary_0_1
 hemisphere_source_merge_rule = max_probability_union
 ```
 
@@ -2115,7 +2116,7 @@ enrichment background is the selected-source tau/Coverage candidate fiber univer
 observed-robustness rows without promoted figure-grade status may stop at density and label outputs
 PPMI/MGH manifests record observed_only_connectome_robustness
 dTOR primary manifest records formal permutation/bootstrap status
-OSS manifest records smoke-only status
+OSS manifest/status records smoke-only status when run, or an explicit not-run reason
 unrun branches record explicit not-run reason
 ```
 

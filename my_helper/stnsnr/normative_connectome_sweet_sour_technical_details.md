@@ -503,15 +503,18 @@ That model supersedes older generic direct-voxel notes for HF. In particular, th
 
 - uses a right-hemisphere MNI brainmask candidate grid (`brainmask > 0`, voxel-center `x > 0`);
 - uses sparse candidate construction based on any valid subject with `X_HF_only > 180 V/m`;
-- uses `Coverage(v) >= 5` for the primary HF mainline;
-- documents `Coverage>=6` and `Coverage>=8` as optional sensitivities for the primary mainline; the A-model tau/Coverage source resolver scan evaluates the pre-specified source first and uses fallback cells only when the pre-specified source is not accepted;
+- uses `tau200/Coverage>=5` as the pre-specified HF source;
+- evaluates the A-model tau/Coverage source resolver scan only when the
+  pre-specified source is not accepted, and then records one final selected
+  source for the endpoint;
 - uses baseline-adjusted partial Spearman as the primary estimator and keeps OLS ANCOVA as optional future supplemental analysis not run in the current executable analysis;
 - uses voxel-count-normalized `HFScore_mean_main = sum_v X_HF_only(v) * M_HF(v) / n_valid_score_voxels` as the primary patient-level score;
 - uses `ea_flip_lr_nonlinear` for left-to-right E-field mapping;
 - records a left/right flip deformation audit as warning-only QC;
 - does not use `Omega_pair`, paired-mask membership thresholds, or `direct_voxel_<seed>_paired_mask.nii.gz`;
 - treats existing e-fields as correct inputs after prior manual/clinical QC and performs only minimum availability/uniqueness checks;
-- restricts formal permutation/bootstrap to `tau200/partial_spearman`;
+- restricts formal permutation/bootstrap to the endpoint's final selected-source
+  `partial_spearman` branch;
 - records, but does not use as a primary rule, the reference-literature `Coverage>=8` / 50% E-field rule;
 - uses LOOCV as the sole validation design for `n = 16`;
 - adds report-only top 10% + direction-stability display masks that are not significance maps.
@@ -626,7 +629,11 @@ direct_voxel_HF_mapping_qc.json
 direct_voxel_HF_generation_manifest.json
 ```
 
-`direct_voxel_HF_bootstrap_se.nii.gz` and `direct_voxel_HF_permutation_summary.csv` are generated only for `tau200/partial_spearman`. Non-final branches record `resampling_status = not_run_nonfinal` in the manifest/QC JSON instead of writing placeholder resampling files.
+`direct_voxel_HF_bootstrap_se.nii.gz` and
+`direct_voxel_HF_permutation_summary.csv` are generated only for the endpoint's
+final selected-source `partial_spearman` branch. Non-final branches record
+`resampling_status = not_run_nonfinal` in the manifest/QC JSON instead of
+writing placeholder resampling files.
 
 `direct_voxel_HF_scores.csv` must identify `HFScore_mean_main` as the primary score. `HFScore_sum_descriptive` is documented only and is not a required output field. Report-only sweet/sour display masks use the top 10% same-sign `M_HF` voxels plus direction-specific stability `>=0.75`; they are not significance maps.
 
@@ -645,7 +652,8 @@ and must not be used for HFScore, LOOCV, permutation, or bootstrap.
 
 Left/right flip deformation audit is warning-only QC. It records grid/affine, finite and nonzero voxel counts, max/p95/p99/sum, suprathreshold volumes at 180/200/220 V/m, intensity-weighted centroid, right-brainmask overlap, and optional roundtrip metrics. Empty maps, all-NaN maps, non-finite maps, or path mismatches are data-integrity failures, but ordinary deformation/interpolation differences do not automatically exclude subjects.
 
-Spatial jitter QC is run only for the primary `tau200/partial_spearman` model:
+Spatial jitter QC is run only for each endpoint's final selected-source
+`partial_spearman` model:
 
 ```text
 formal jitter resamples: B = 1000
@@ -1008,9 +1016,9 @@ no_delta_hf:
 Key direct voxel implementation details:
 
 ```text
-tau_primary = 200 V/m
-tau_sensitivity = 180 / 220 V/m
-Coverage_ULF_tau(v) >= 5
+pre-specified ULF source = tau200/Coverage>=5
+tau/Coverage fallback = selected by ULF source resolver only if pre-specified source is not accepted
+tau sensitivity = 0.9 * selected_tau and 1.1 * selected_tau at selected_coverage
 X_ULF_only is tau-specific and excludes HF-overlap voxels
 DeltaHFScore source = locked HF direct voxel model for the delta_hf_adjusted branch
 primary score = ULFScore_mean_main in both core branches
