@@ -156,6 +156,22 @@ Code refactor acceptance therefore requires both the real-data two-scale run
 and deterministic state-machine coverage. Passing only a hard-coded
 MDS-UPDRS III or MDS-UPDRS IV driver is insufficient.
 
+## Implementation Execution Policy
+
+Subagents are explicitly permitted during implementation. They may perform
+bounded codebase audits, implement independently testable components with
+disjoint write scopes, or run focused verification tasks. Every delegated task
+must name its exact responsibility and file ownership, and subagents must not
+rewrite authoritative model rules, broaden scope into ROI/postprocessing/GUI,
+or change another worker's files.
+
+The main implementation thread remains responsible for dependency ordering,
+reviewing every returned change, resolving integration issues, running the
+complete test and acceptance matrix, preserving the documentation-first rule,
+and performing the final requirement-by-requirement completion audit. A
+subagent result, isolated passing test, or delegated review cannot by itself
+establish completion of this `/goal`.
+
 ## Current Implementation Gap
 
 The current implementation predates this design and remains the active

@@ -50,6 +50,12 @@ future endpoint catalog must represent the missing MDS-UPDRS IV immediate family
 explicitly without cross-scale substitution. The acceptance harness and the
 generic YAML pipeline remain unimplemented.
 
+Subagents are permitted for the future implementation when each delegated task
+has a bounded responsibility and disjoint file ownership. The main thread must
+review and integrate all delegated work and remains solely responsible for the
+full regression suite, two-scale acceptance workflow, and final `/goal`
+completion audit.
+
 The full four-model program is intentionally gated. The current codebase now
 includes readiness, observed A/B/C/D branches, C/D source resolvers,
 consolidated status reporting, final-model worklist/readiness auditing, formal
