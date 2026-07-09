@@ -265,8 +265,12 @@ than selected-source candidate fiber ids. The row runner now persists a complete
 local-axon/status-index to selected-candidate-fiber mapping as
 `oss_local_to_candidate_fiber_mapping.csv` and carries the mapping path, row
 count, and invalid-candidate-column count into the row status JSON and summary
-CSV. Existing row-level outputs generated before this runner change must be
-rerun before branch-level `X_oss_float32_fiber_major.npy` can be written.
+CSV. The official B_DTOR/D_DTOR row-level activation outputs were rerun from
+clean commit `7d9b312eb` after this runner change: 64/64 rows reached
+`pathway_activation_complete`, 64/64 rows have mapping CSV files,
+`mapping_total_rows = 101247`, and invalid candidate-column mappings = 0.
+Branch-level `X_oss_float32_fiber_major.npy` still requires locked p(A)/Status
+semantics and the branch merge runner.
 
 The OSS worklist and sensitivity-readiness layers must resolve ULF
 selected-source output locations from the actual shared exposure preprocess

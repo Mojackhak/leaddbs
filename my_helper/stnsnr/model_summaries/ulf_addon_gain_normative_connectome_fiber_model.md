@@ -1247,7 +1247,7 @@ OSS activation must not redefine candidate fibers and must not participate in ta
 For each subject and fiber:
 
 ```text
-A_ULF_OSS_i(l) = continuous pPAM activation probability for the ULF component along fiber l
+A_ULF_OSS_i(l) = pPAM activation probability for the ULF component along fiber l
 ```
 
 The canonical OSS sidecar is `X_oss_float32_fiber_major.npy`. Its columns are
@@ -1263,7 +1263,12 @@ OSS activation uses the right-canonical feature space. Right-sided activation is
 X_ULF_OSS_i(l) = max(A_ULF_OSS_R_i(l), A_ULF_OSS_L_to_R_i(l))
 ```
 
-Canonical OSS fitting uses continuous p(A). Thresholded `p(A) >= 0.05` or `p(A) >= 0.5` variables are QC/display/plain-burden controls only and do not replace `X_oss_float32_fiber_major.npy` in `M_ULF_OSS`, `NetULFFiberScore_OSS`, LOOCV, or smoke permutation.
+Canonical OSS fitting uses stored float32 p(A). Current OSS-DBSv2 deterministic
+output is binary 0/1 p(A) from `Axon_state_default_1.mat`; future non-binary
+pPAM outputs can use the same matrix contract. Thresholded `p(A) >= 0.05` or
+`p(A) >= 0.5` variables are QC/display/plain-burden controls only and do not
+replace `X_oss_float32_fiber_major.npy` in `M_ULF_OSS`,
+`NetULFFiberScore_OSS`, LOOCV, or smoke permutation.
 
 If the ULF component cannot be separated from the stimulation protocol, the output may only be labeled `HF+ULF total OSS pPAM sensitivity`; it must not be called ULF-only OSS exposure.
 
@@ -1873,7 +1878,7 @@ S{tau}_ULF_total_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
 HF_overlap_ulf_tau{tau}_hf_overlap_rule_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
 fiber_id.npy
 candidate_fiber_metadata.json
-X_oss_float32_fiber_major.npy, continuous pPAM activation probability for inherited selected-source candidates if OSS is run
+X_oss_float32_fiber_major.npy, pPAM activation probability for inherited selected-source candidates if OSS is run
 OSS_ULFActivated_bool.npy, for inherited selected-source candidates if OSS is run
 oss_parameter_manifest.json, if OSS is run
 oss_activation_sidecar_metadata.json, if OSS is run
@@ -1890,7 +1895,7 @@ chunks/
   S{tau}_ULF_only_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
   S_HF_component_hf_overlap_rule_bool_chunk-*.npy
   HF_overlap_ulf_tau{tau}_hf_overlap_rule_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
-  X_oss_float32_fiber_major_chunk-*.npy, continuous pPAM activation probability for inherited selected-source candidates if OSS is run
+  X_oss_float32_fiber_major_chunk-*.npy, pPAM activation probability for inherited selected-source candidates if OSS is run
   OSS_ULFActivated_bool_chunk-*.npy, for inherited selected-source candidates if OSS is run
   fiber_id_chunk-*.npy
 fiber_chunk_manifest.json
@@ -2278,7 +2283,7 @@ OSS technical-pass criteria:
 ```text
 OSS parameter manifest is locked
 OSS activation sidecars align with inherited selected-source candidate fiber ids
-OSS activation sidecars use continuous pPAM p(A), not thresholded binary activation, for fitting
+OSS activation sidecars use stored float32 p(A) for fitting; current OSS-DBSv2 deterministic output is binary 0/1 before display thresholds
 OSS frequency is modeled and verified
 OSS hemisphere/source merge rule is max_probability_union
 OSS activation matrix is not all NaN

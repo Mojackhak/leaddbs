@@ -14,7 +14,7 @@ Generate OSS-DBS / probabilistic pathway activation modeling (pPAM) activation s
 
 The core operation is to keep the final branch subject rows and selected-source
 candidate fiber columns unchanged, then replace the peak-E-field exposure value
-with a continuous pPAM activation probability:
+with pPAM/OSS activation probability:
 
 ```text
 same subject rows
@@ -315,12 +315,16 @@ normative_fiber_oss_activation_row_summary.csv rows = 64
 B_DTOR rows = 32
 D_DTOR rows = 32
 row_status = pathway_activation_complete for 64/64 rows
-code provenance = clean stnvop commit 6e5c4aa3d
+code provenance = clean stnvop commit 7d9b312eb after mapping persistence
+mapping files = 64/64 rows
+mapping_total_rows = 101247
+invalid candidate-column mappings = 0
 ```
 
 The remaining branch-level blocker is not row execution. It is the merge layer:
-complete local-to-candidate mapping files and a locked interpretation of the
-OSS `Status`/p(A) output are required before writing canonical branch sidecars.
+complete local-to-candidate mapping files now exist; a locked interpretation of
+the OSS `Status`/p(A) output and the branch merge runner are still required
+before writing canonical branch sidecars.
 
 Preflight outputs live outside the final branch preprocess directory until they
 pass validation. They do not create:
@@ -474,7 +478,22 @@ N_{\mathrm{samples}}
 }
 \]
 
-The primary stored value is continuous \(p(A)\), not a binary thresholded activation.
+When repeated pPAM samples exist, \(p(A_{i,f})\) is the sample activation
+fraction above. The current OSS-DBSv2 row-level output is deterministic for each
+locked stimulation/source row. It writes per-axon activation state in
+`Axon_state_default_1.mat` / `Axon_state_default_1.csv`, not in
+`oss_time_result_PAM.h5` `default/Status`. For this current deterministic output,
+store degenerate p(A):
+
+```text
+Axon_state status == 1  -> p(A) = 1.0
+Axon_state status == 0  -> p(A) = 0.0
+Axon_state status < 0   -> p(A) = 0.0 and count as damaged/CSF/out-of-domain QC
+```
+
+`default/Status` in `oss_time_result_PAM.h5` is a pre-simulation availability
+status (`0` available, negative values unavailable). It must not be used as the
+activation result.
 
 Display/QC thresholds only:
 
@@ -483,7 +502,10 @@ loose activation  = p(A) >= 0.05
 strict activation = p(A) >= 0.5
 ```
 
-These thresholds do not change the stored matrix and do not replace canonical OSS fitting.
+These thresholds do not change the stored matrix and do not replace canonical
+OSS fitting. In the current deterministic output, the matrix is already binary,
+but it is still stored as float32 p(A) for compatibility with future non-binary
+pPAM outputs.
 
 ## Canonical Output Matrix
 
@@ -501,7 +523,7 @@ dtype = float32
 range = [0, 1]
 row order = final branch manifest / score table subject order
 column order = selected-source candidate fiber id order
-value = continuous pPAM activation probability
+value = pPAM activation probability in [0, 1]; current OSS-DBSv2 deterministic output is binary 0/1
 ```
 
 HF and ULF both use this same canonical filename. Distinguish HF versus ULF by path and manifest fields, not by changing the matrix filename.
@@ -804,7 +826,8 @@ oss fiber id hash
 parent fiber id source, when different from oss fiber ids
 row count
 column count
-activation value type = continuous_pPAM_probability
+activation value type = pPAM_activation_probability
+current activation value subtype = deterministic_binary_0_1
 display threshold loose = 0.05
 display threshold strict = 0.5
 hemisphere/source merge rule = max_probability_union
@@ -913,7 +936,7 @@ seed = 42
 
 Any `B=10000` OSS permutation/bootstrap layer requires a separate model-document revision.
 
-Canonical OSS fitting uses continuous \(p(A)\). Thresholded \(p(A) \ge 0.05\) or \(p(A) \ge 0.5\) variables are QC/display/plain-burden controls only. They do not replace `X_oss_float32_fiber_major.npy` in `M_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation.
+Canonical OSS fitting uses stored float32 \(p(A)\). Thresholded \(p(A) \ge 0.05\) or \(p(A) \ge 0.5\) variables are QC/display/plain-burden controls only. They do not replace `X_oss_float32_fiber_major.npy` in `M_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation. In the current deterministic OSS-DBSv2 output, \(p(A)\) is binary 0/1 before any display threshold is applied.
 
 ## Status Semantics
 
@@ -978,7 +1001,7 @@ Allowed hits are only explicit "do not use", "not the whole atlas", "must not re
 Check required new terms:
 
 ```bash
-rg -n "X_oss_float32_fiber_major|max_probability_union|continuous pPAM activation probability|requested_frequency_hz|oss_parameter_frequency_hz|HF\\+ULF total OSS pPAM sensitivity|fiber_ids.npy" my_helper/stnsnr -g '*.md'
+rg -n "X_oss_float32_fiber_major|max_probability_union|pPAM activation probability|deterministic_binary_0_1|requested_frequency_hz|oss_parameter_frequency_hz|HF\\+ULF total OSS pPAM sensitivity|fiber_ids.npy" my_helper/stnsnr -g '*.md'
 ```
 
 No Python tests or model runs are required for the documentation-only pass.

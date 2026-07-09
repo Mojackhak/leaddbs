@@ -45,16 +45,18 @@ branch-merge layer: row-level activation must be projected back onto the
 selected-source candidate fiber id order with complete local-to-candidate
 mapping and locked p(A) output semantics. The row runner now writes
 `oss_local_to_candidate_fiber_mapping.csv` for new row-level outputs; the
-official 64-row activation outputs must be rerun from that updated runner before
-the branch merge can consume them.
+official 64-row activation outputs have been rerun from clean commit
+`7d9b312eb` and now include complete mapping files for branch merge.
 
 The normative-fiber OSS / pPAM sidecar generation contract is defined in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that
 contract, OSS sidecars are final-branch dTOR activation-sensitivity inputs:
-`X_oss_float32_fiber_major.npy` stores continuous pPAM activation probability
+`X_oss_float32_fiber_major.npy` stores pPAM activation probability
 over the selected-source candidate fiber id order, uses right-canonical columns
 with left-sided activation mapped to homologous right-canonical ids, and merges
-hemisphere/source activation by `max_probability_union`. A parent raw
+hemisphere/source activation by `max_probability_union`. Current OSS-DBSv2
+deterministic output is stored as binary 0/1 p(A), not as `default/Status` from
+`oss_time_result_PAM.h5`. A parent raw
 `fiber_ids.npy` is not the OSS sidecar column contract when it stores the full
 atlas or parent exposure id universe.
 
@@ -154,7 +156,7 @@ dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=
 dTOR normative-fiber OSS = not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; B_DTOR oss_n_fibers=3990; D_DTOR oss_n_fibers=2321; parent_n_fibers=11820000
 dTOR normative-fiber OSS parameter preflight = 64/64 rows parameter_preflight_passed; B_DTOR 32 rows, D_DTOR 32 rows; propagated oss_fiber_ids_path; 45 rows frequency_patched_from_source_S and 19 rows frequency_validated
-dTOR normative-fiber OSS row-level activation harness = 64/64 B_DTOR/D_DTOR rows pathway_activation_complete with row-local filtered stimulation folders; branch-level X_oss sidecar merge not yet complete
+dTOR normative-fiber OSS row-level activation harness = 64/64 B_DTOR/D_DTOR rows pathway_activation_complete with row-local filtered stimulation folders; 64/64 rows have oss_local_to_candidate_fiber_mapping.csv; mapping_total_rows=101247; invalid candidate-column mappings=0; branch-level X_oss sidecar merge not yet complete
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS sensitivity results remain not run because final branch OSS sidecar inputs are still absent

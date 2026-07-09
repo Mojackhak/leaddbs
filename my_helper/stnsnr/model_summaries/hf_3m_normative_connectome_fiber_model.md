@@ -569,7 +569,7 @@ Only one selected HF source per endpoint/scale may generate a downstream ULF `De
 OSS-DBS replaces peak E-field exposure with pathway/axon activation after the peak E-field candidate set has been defined:
 
 ```text
-X_HF_OSS_i(l) = continuous pPAM activation probability for fiber l under subject i HF stimulation
+X_HF_OSS_i(l) = pPAM activation probability for fiber l under subject i HF stimulation
 ```
 
 The sidecar column universe is the final selected-source tau/Coverage candidate
@@ -613,7 +613,12 @@ The stored pPAM probability is:
 p(A_i,l) = number of activated pPAM samples for subject i and fiber l / N_samples
 ```
 
-Use `p(A) >= 0.05` and `p(A) >= 0.5` only for QC/display/plain activation controls. Thresholded p(A) variables do not replace the continuous canonical OSS fitting matrix.
+The current OSS-DBSv2 deterministic output stores binary 0/1 p(A) from
+`Axon_state_default_1.mat` activation states. `oss_time_result_PAM.h5`
+`default/Status` is a pre-simulation availability status and must not be used as
+the activation result. Use `p(A) >= 0.05` and `p(A) >= 0.5` only for
+QC/display/plain activation controls. Thresholded p(A) variables do not replace
+the canonical OSS fitting matrix.
 
 OSS fiber-wise estimator:
 
@@ -945,9 +950,9 @@ oss_parameter_manifest.json
 oss_activation_sidecar_metadata.json
 ```
 
-`X_oss_float32_fiber_major.npy` stores continuous pPAM activation probability
+`X_oss_float32_fiber_major.npy` stores pPAM activation probability
 with rows = final branch subjects and columns = selected-source candidate fiber
-ids. For alternating HF subprograms, subprogram-level activation matrices may
+ids. Current OSS-DBSv2 deterministic output is binary 0/1 p(A). For alternating HF subprograms, subprogram-level activation matrices may
 be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and
 `max_probability_union` `X_HF_OSS_i(l)` variables documented above.
 Thresholded `p(A) >= 0.05` or `p(A) >= 0.5` plain-activation files may be
@@ -1918,7 +1923,7 @@ X_oss_float32_fiber_major.npy
 oss_activation_sidecar_metadata.json
 ```
 
-`X_oss_float32_fiber_major.npy` stores continuous pPAM activation probability. Canonical fitting uses continuous p(A), not `p(A) >= 0.5` thresholded binary activation. The hemisphere/source merge rule is `max_probability_union`.
+`X_oss_float32_fiber_major.npy` stores pPAM activation probability. Current OSS-DBSv2 deterministic output is binary 0/1 p(A); future non-binary pPAM outputs can use the same float32 matrix contract. The hemisphere/source merge rule is `max_probability_union`.
 Thresholded plain-activation files may be written only as QC/display/plain-burden controls.
 
 Run order:
