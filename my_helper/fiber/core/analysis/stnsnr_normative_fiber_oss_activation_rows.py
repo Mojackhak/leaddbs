@@ -318,10 +318,14 @@ def _step_existing_status(paths: list[Path]) -> str:
     return "complete" if paths and all(path.is_file() for path in paths) else "missing"
 
 
+def _any_existing_status(paths: list[Path]) -> str:
+    return "complete" if paths and any(path.is_file() for path in paths) else "missing"
+
+
 def _pathway_outputs(output_path: Path, scaling_index: int | None) -> list[Path]:
     if scaling_index is None:
-        return [output_path / "Pathway_status.json"]
-    return [output_path / f"Pathway_status_{scaling_index}.json"]
+        return [output_path / "Pathway_status.json", output_path / "Pathway_status_default.json"]
+    return [output_path / f"Pathway_status_{scaling_index}.json", output_path / f"Pathway_status_default_{scaling_index}.json"]
 
 
 def _select_rows(rows: list[dict[str, str]], args: argparse.Namespace) -> list[dict[str, str]]:
@@ -465,7 +469,7 @@ def _run_activation_row(
     if args.stop_after_step == "ossdbs" or _status_rank(status) < _status_rank("ossdbs_complete"):
         return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, converter_json, pathway_outputs, filter_metadata)
 
-    if _step_existing_status(pathway_outputs) == "complete":
+    if _any_existing_status(pathway_outputs) == "complete":
         status = "pathway_activation_complete"
         step_results["run_pathway_activation"] = {"skipped_existing_outputs": True}
     else:
@@ -479,7 +483,7 @@ def _run_activation_row(
             timeout_s=None if args.pathway_timeout_s <= 0 else args.pathway_timeout_s,
         )
         step_results["run_pathway_activation"] = result
-        if result["returncode"] == 0 and _step_existing_status(pathway_outputs) == "complete":
+        if result["returncode"] == 0 and _any_existing_status(pathway_outputs) == "complete":
             status = "pathway_activation_complete"
         elif result["returncode"] in {"timeout", "interrupted"}:
             status = "timeout_or_interrupted"
@@ -566,7 +570,7 @@ def _finalize_row_status(
         "oss_success_flag_exists": success_flag is not None,
         "oss_success_flag_path": str(success_flag) if success_flag is not None else "",
         "oss_time_result_exists": oss_time_result.is_file(),
-        "pathway_outputs_exist": all(path.is_file() for path in pathway_outputs),
+        "pathway_outputs_exist": any(path.is_file() for path in pathway_outputs),
         "candidate_filter_status": filter_metadata.get("filter_status", ""),
         "filtered_stimulation_folder": filter_metadata.get("filtered_stimulation_folder", ""),
         "filtered_converter_json": filter_metadata.get("filtered_converter_json", ""),

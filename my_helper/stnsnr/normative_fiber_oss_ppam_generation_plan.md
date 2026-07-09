@@ -202,6 +202,18 @@ must prepend that executable's parent directory to `PATH`. This is required for
 `run_pathway_activation`, which shells out to NEURON's `nrnivmodl` from the same
 OSS-DBSv2 environment.
 
+`run_pathway_activation` may write pathway-name-qualified status files. For the
+current generated pathway file, the default pathway output is:
+
+```text
+Pathway_status_default_<scaling_index>.json
+```
+
+The row-level runner must therefore accept either the generic
+`Pathway_status_<scaling_index>.json` path or the pathway-qualified
+`Pathway_status_default_<scaling_index>.json` path when deciding whether pathway
+activation completed.
+
 Recommended command:
 
 ```bash
