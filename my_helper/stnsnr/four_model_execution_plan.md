@@ -33,10 +33,11 @@ exposure id universe. The refreshed worklist writes workflow-local
 `oss_n_fibers = 3990` for B_DTOR and `oss_n_fibers = 2321` for D_DTOR, while
 the parent exposure id universe remains `parent_n_fibers = 11820000`.
 Parameter preflight and bounded row-level activation summaries now carry these
-candidate-id fields. The bounded activation harness still times out at
-`prepareaxonmodel` without producing `Allocated_axons`, pathway files, or final
-OSS sidecars, so the remaining blocker is still missing final OSS activation
-inputs.
+candidate-id fields. A row-local filtered stimulation-folder implementation now
+lets the bounded activation harness complete `prepareaxonmodel` for the first
+B_DTOR and D_DTOR rows without processing the full dTOR local connectome.
+Branch-level OSS sidecars are still absent, so the remaining blocker is still
+missing final OSS activation inputs.
 
 The normative-fiber OSS / pPAM sidecar generation contract is defined in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that
@@ -144,7 +145,7 @@ dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=
 dTOR normative-fiber OSS = not_run_missing_oss_inputs
 dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; B_DTOR oss_n_fibers=3990; D_DTOR oss_n_fibers=2321; parent_n_fibers=11820000
 dTOR normative-fiber OSS parameter preflight = B_DTOR and D_DTOR first ready rows parameter_preflight_passed with propagated oss_fiber_ids_path and frequency patched from source S frequency
-dTOR normative-fiber OSS row-level activation harness = first B_DTOR/D_DTOR rows timeout_or_interrupted at bounded prepareaxonmodel test; no Allocated_axons or pathway files written
+dTOR normative-fiber OSS row-level activation harness = first B_DTOR/D_DTOR rows prepareaxonmodel_complete with row-local filtered stimulation folders; no branch-level X_oss sidecar written
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS remains not run due missing inputs

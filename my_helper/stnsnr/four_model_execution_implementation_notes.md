@@ -229,6 +229,26 @@ fiber IDs are not a direct one-to-one match to the right-canonical IDs. A future
 filtered-pathway implementation must use an explicit left-to-right homologous
 fiber-id mapping before replacing full dTOR `data*.mat` files.
 
+A row-local filtered-pathway probe then confirmed the safe implementation
+boundary: do not overwrite the preflight stimulation folder. Instead, create a
+per-row filtered stimulation folder under the activation-row output directory,
+copy the OSS parameter file and non-connectome inputs, write filtered
+`data{hemi}.mat` for the active hemisphere by matching the Lead-DBS local
+connectome's original fiber-id row against `oss_fiber_ids`, and patch a copied
+converter JSON so all OSS paths point at the filtered folder. In the B_DTOR
+SNr003-left probe, 17 local candidate fibers intersected the 3,990
+right-canonical selected-source candidates, and `prepareaxonmodel` completed in
+about one second after the filtered folder included `OSS_sim_files_lh`.
+
+The row-level activation runner now implements that filtered-folder behavior by
+default. A bounded B_DTOR/D_DTOR `--stop-after-step prepareaxonmodel` run
+completed `prepareaxonmodel` for the first B_DTOR and D_DTOR rows: B_DTOR
+filtered 298,142 local fibers down to 17 local candidate fibers, and D_DTOR
+filtered 345,628 local fibers down to 5 local candidate fibers. This still does
+not create branch-level `X_oss_float32_fiber_major.npy`; it only proves the
+row-level axon-allocation step can consume the selected-source candidate
+universe without processing the full dTOR local connectome.
+
 The OSS worklist and sensitivity-readiness layers must resolve ULF
 selected-source output locations from the actual shared exposure preprocess
 directory. D_DTOR selected-source manifests do not always include

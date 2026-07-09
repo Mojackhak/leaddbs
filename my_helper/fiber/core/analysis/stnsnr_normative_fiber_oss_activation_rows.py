@@ -6,9 +6,13 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+
+import h5py
+import numpy as np
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
 from stnsnr_normative_fiber_smoke_permutation import iso_now, write_csv, write_json
@@ -109,6 +113,203 @@ def _hemi_side(side: str) -> int:
     raise RuntimeError(f"unsupported side: {side!r}")
 
 
+def _oss_sim_folder_name(side: str) -> str:
+    if side == "R":
+        return "OSS_sim_files_rh"
+    if side == "L":
+        return "OSS_sim_files_lh"
+    raise RuntimeError(f"unsupported side: {side!r}")
+
+
+def _replace_path_prefix(value: Any, old_prefix: str, new_prefix: str) -> Any:
+    if isinstance(value, str):
+        if value == old_prefix:
+            return new_prefix
+        if value.startswith(old_prefix + "/"):
+            return new_prefix + value[len(old_prefix) :]
+        return value
+    if isinstance(value, list):
+        return [_replace_path_prefix(item, old_prefix, new_prefix) for item in value]
+    if isinstance(value, dict):
+        return {key: _replace_path_prefix(item, old_prefix, new_prefix) for key, item in value.items()}
+    return value
+
+
+def _copy_root_files(source_dir: Path, target_dir: Path) -> None:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for item in source_dir.iterdir():
+        if item.name.startswith("._") or item.is_dir():
+            continue
+        shutil.copy2(item, target_dir / item.name)
+
+
+def _copy_hdf5_dataset(source: h5py.Dataset, target_group: h5py.Group, name: str, data: np.ndarray | None = None) -> None:
+    dataset = target_group.create_dataset(name, data=source[()] if data is None else data)
+    for key, value in source.attrs.items():
+        dataset.attrs[key] = value
+
+
+def _filter_leaddbs_connectome_mat(source_path: Path, target_path: Path, candidate_ids: np.ndarray) -> dict[str, Any]:
+    with h5py.File(source_path, "r") as source:
+        if "fibers" not in source or "idx" not in source:
+            shutil.copy2(source_path, target_path)
+            return {"filter_status": "copied_not_leaddbs_fiber_file"}
+        fibers = source["fibers"]
+        if fibers.ndim != 2 or fibers.shape[0] < 5:
+            shutil.copy2(source_path, target_path)
+            return {"filter_status": "copied_no_original_fiber_id_row", "source_fibers_shape": tuple(int(x) for x in fibers.shape)}
+
+        original_ids = np.asarray(fibers[4, :], dtype=np.int64)
+        point_mask = np.isin(original_ids, np.asarray(candidate_ids, dtype=np.int64))
+        selected_local_ids = np.unique(np.asarray(fibers[3, point_mask], dtype=np.int64))
+        selected_local_ids = selected_local_ids[selected_local_ids > 0]
+        if selected_local_ids.size == 0:
+            shutil.copy2(source_path, target_path)
+            return {
+                "filter_status": "copied_no_local_candidate_overlap",
+                "source_n_points": int(fibers.shape[1]),
+                "source_n_local_fibers": int(np.asarray(source["idx"]).reshape(-1).size),
+                "candidate_n_fibers": int(candidate_ids.size),
+            }
+
+        idx_full = np.asarray(source["idx"]).reshape(-1).astype(np.int64)
+        offsets = np.concatenate([[0], np.cumsum(idx_full)])
+        selected_lengths = idx_full[selected_local_ids - 1]
+        filtered = np.empty((int(fibers.shape[0]), int(np.sum(selected_lengths))), dtype=np.float64)
+        write_start = 0
+        selected_original_ids: list[int] = []
+        for new_id, local_id in enumerate(selected_local_ids, start=1):
+            start = int(offsets[int(local_id) - 1])
+            stop = int(offsets[int(local_id)])
+            block = np.asarray(fibers[:, start:stop], dtype=np.float64)
+            block[3, :] = float(new_id)
+            n_points = int(block.shape[1])
+            filtered[:, write_start : write_start + n_points] = block
+            selected_original_ids.append(int(block[4, 0]))
+            write_start += n_points
+
+        with h5py.File(target_path, "w") as target:
+            _copy_hdf5_dataset(fibers, target, "fibers", filtered)
+            _copy_hdf5_dataset(source["idx"], target, "idx", selected_lengths.reshape(1, -1).astype(np.float64))
+            if "origNum" in source:
+                _copy_hdf5_dataset(source["origNum"], target, "origNum")
+            for key in source.keys():
+                if key not in {"fibers", "idx", "origNum"}:
+                    _copy_hdf5_dataset(source[key], target, key)
+        return {
+            "filter_status": "filtered_to_local_candidate_overlap",
+            "source_n_points": int(fibers.shape[1]),
+            "source_n_local_fibers": int(idx_full.size),
+            "candidate_n_fibers": int(candidate_ids.size),
+            "filtered_n_points": int(filtered.shape[1]),
+            "filtered_n_local_fibers": int(selected_local_ids.size),
+            "selected_original_fiber_ids_preview": selected_original_ids[:20],
+        }
+
+
+def _copy_connectome_dirs(
+    *,
+    source_stimulation_folder: Path,
+    target_stimulation_folder: Path,
+    hemi_side: int,
+    candidate_ids: np.ndarray,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    active_name = f"data{hemi_side + 1}.mat"
+    for item in source_stimulation_folder.iterdir():
+        if not item.is_dir() or item.name.startswith("._"):
+            continue
+        data_files = sorted(path for path in item.glob("data*.mat") if path.is_file() and not path.name.startswith("._"))
+        if not data_files:
+            continue
+        target_dir = target_stimulation_folder / item.name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for data_file in data_files:
+            target_path = target_dir / data_file.name
+            if data_file.name == active_name and candidate_ids.size:
+                metadata = _filter_leaddbs_connectome_mat(data_file, target_path, candidate_ids)
+            else:
+                shutil.copy2(data_file, target_path)
+                metadata = {"filter_status": "copied_inactive_hemi_or_no_candidate_ids"}
+            metadata.update({"source_path": str(data_file), "target_path": str(target_path), "active_hemi_file": data_file.name == active_name})
+            rows.append(metadata)
+    return rows
+
+
+def _prepare_filtered_runtime(
+    *,
+    row: dict[str, str],
+    row_dir: Path,
+    original_settings: dict[str, Any],
+    original_converter_json: Path,
+    original_parameter_file: Path,
+    disable_candidate_filter: bool,
+) -> tuple[Path, Path, Path, dict[str, Any], dict[str, Any]]:
+    if disable_candidate_filter:
+        return (
+            Path(original_settings["StimulationFolder"]).expanduser().resolve(),
+            original_parameter_file,
+            original_converter_json,
+            original_settings,
+            {"filter_status": "disabled"},
+        )
+    oss_fiber_ids_path = Path(row.get("oss_fiber_ids_path", "")).expanduser()
+    if not row.get("oss_fiber_ids_path") or not oss_fiber_ids_path.is_file():
+        return (
+            Path(original_settings["StimulationFolder"]).expanduser().resolve(),
+            original_parameter_file,
+            original_converter_json,
+            original_settings,
+            {"filter_status": "not_available_missing_oss_fiber_ids"},
+        )
+
+    candidate_ids = np.load(oss_fiber_ids_path)
+    source_stimulation_folder = Path(original_settings["StimulationFolder"]).expanduser().resolve()
+    filtered_stimulation_folder = row_dir / "filtered_stimulation_folder"
+    if filtered_stimulation_folder.exists():
+        shutil.rmtree(filtered_stimulation_folder)
+    _copy_root_files(source_stimulation_folder, filtered_stimulation_folder)
+    filtered_parameter_file = filtered_stimulation_folder / original_parameter_file.name
+    if not filtered_parameter_file.is_file():
+        shutil.copy2(original_parameter_file, filtered_parameter_file)
+    hemi_side = _hemi_side(row.get("side", ""))
+    connectome_rows = _copy_connectome_dirs(
+        source_stimulation_folder=source_stimulation_folder,
+        target_stimulation_folder=filtered_stimulation_folder,
+        hemi_side=hemi_side,
+        candidate_ids=np.asarray(candidate_ids, dtype=np.int64),
+    )
+    oss_sim_dir = filtered_stimulation_folder / _oss_sim_folder_name(row.get("side", ""))
+    oss_sim_dir.mkdir(parents=True, exist_ok=True)
+    results_dir = filtered_stimulation_folder / "Results"
+    filtered_settings = _replace_path_prefix(
+        original_settings,
+        str(source_stimulation_folder),
+        str(filtered_stimulation_folder),
+    )
+    filtered_settings["StimulationFolder"] = str(filtered_stimulation_folder)
+    filtered_settings["OutputPath"] = str(results_dir)
+    filtered_settings["PathwayFile"] = str(oss_sim_dir / "Allocated_axons_parameters.json")
+    filtered_settings.setdefault("PointModel", {}).setdefault("Pathway", {})["FileName"] = str(oss_sim_dir / "Allocated_axons.h5")
+    filtered_converter_json = row_dir / "filtered_oss-dbs_parameters.json"
+    filtered_converter_json.write_text(json.dumps(filtered_settings, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    return (
+        filtered_stimulation_folder,
+        filtered_parameter_file,
+        filtered_converter_json,
+        filtered_settings,
+        {
+            "filter_status": "prepared_filtered_stimulation_folder",
+            "oss_fiber_ids_path": str(oss_fiber_ids_path),
+            "oss_n_fibers": int(candidate_ids.size),
+            "source_stimulation_folder": str(source_stimulation_folder),
+            "filtered_stimulation_folder": str(filtered_stimulation_folder),
+            "filtered_converter_json": str(filtered_converter_json),
+            "connectome_files": connectome_rows,
+        },
+    )
+
+
 def _step_existing_status(paths: list[Path]) -> str:
     return "complete" if paths and all(path.is_file() for path in paths) else "missing"
 
@@ -159,9 +360,17 @@ def _run_activation_row(
 ) -> dict[str, Any]:
     row_dir = output_dir / _row_slug(row_index, row)
     row_dir.mkdir(parents=True, exist_ok=True)
-    converter_json = Path(row["converter_json"]).expanduser().resolve()
-    parameter_file = Path(row["parameter_file"]).expanduser().resolve()
-    settings = _load_json(converter_json)
+    original_converter_json = Path(row["converter_json"]).expanduser().resolve()
+    original_parameter_file = Path(row["parameter_file"]).expanduser().resolve()
+    original_settings = _load_json(original_converter_json)
+    stimulation_folder, parameter_file, converter_json, settings, filter_metadata = _prepare_filtered_runtime(
+        row=row,
+        row_dir=row_dir,
+        original_settings=original_settings,
+        original_converter_json=original_converter_json,
+        original_parameter_file=original_parameter_file,
+        disable_candidate_filter=args.disable_candidate_filter,
+    )
     stimulation_folder = Path(settings["StimulationFolder"]).expanduser().resolve()
     output_path = Path(settings["OutputPath"]).expanduser().resolve()
     pathway_file = Path(settings["PathwayFile"]).expanduser().resolve()
@@ -201,7 +410,7 @@ def _run_activation_row(
             status = "prepareaxonmodel_failed"
 
     if args.stop_after_step == "prepareaxonmodel" or _status_rank(status) < _status_rank("prepareaxonmodel_complete"):
-        return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, pathway_outputs)
+        return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, pathway_outputs, filter_metadata)
 
     if success_flag.is_file() and oss_time_result.is_file():
         status = "ossdbs_complete"
@@ -223,7 +432,7 @@ def _run_activation_row(
             status = "ossdbs_failed"
 
     if args.stop_after_step == "ossdbs" or _status_rank(status) < _status_rank("ossdbs_complete"):
-        return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, pathway_outputs)
+        return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, pathway_outputs, filter_metadata)
 
     if _step_existing_status(pathway_outputs) == "complete":
         status = "pathway_activation_complete"
@@ -246,7 +455,7 @@ def _run_activation_row(
         else:
             status = "pathway_activation_failed"
 
-    return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, pathway_outputs)
+    return _finalize_row_status(row, row_index, row_dir, status, step_results, settings, pathway_outputs, filter_metadata)
 
 
 def _finalize_row_status(
@@ -257,6 +466,7 @@ def _finalize_row_status(
     step_results: dict[str, Any],
     settings: dict[str, Any],
     pathway_outputs: list[Path],
+    filter_metadata: dict[str, Any],
 ) -> dict[str, Any]:
     stimulation_folder = Path(settings["StimulationFolder"]).expanduser().resolve()
     output_path = Path(settings["OutputPath"]).expanduser().resolve()
@@ -295,6 +505,7 @@ def _finalize_row_status(
             "pathway_outputs": [path.is_file() for path in pathway_outputs],
         },
         "step_results": step_results,
+        "candidate_filter": filter_metadata,
         "side_effects": "row_level_activation_only_no_branch_x_oss_written",
     }
     write_json(status_path, status_doc)
@@ -320,6 +531,9 @@ def _finalize_row_status(
         "oss_success_flag_exists": success_flag.is_file(),
         "oss_time_result_exists": oss_time_result.is_file(),
         "pathway_outputs_exist": all(path.is_file() for path in pathway_outputs),
+        "candidate_filter_status": filter_metadata.get("filter_status", ""),
+        "filtered_stimulation_folder": filter_metadata.get("filtered_stimulation_folder", ""),
+        "filtered_converter_json": filter_metadata.get("filtered_converter_json", ""),
     }
 
 
@@ -380,6 +594,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prepareaxon-timeout-s", type=int, default=0, help="prepareaxonmodel timeout; <=0 disables timeout.")
     parser.add_argument("--ossdbs-timeout-s", type=int, default=0, help="ossdbs timeout; <=0 disables timeout.")
     parser.add_argument("--pathway-timeout-s", type=int, default=0, help="run_pathway_activation timeout; <=0 disables timeout.")
+    parser.add_argument("--disable-candidate-filter", action="store_true", help="Disable row-local filtered stimulation folders and use the original preflight folder.")
     return parser
 
 
