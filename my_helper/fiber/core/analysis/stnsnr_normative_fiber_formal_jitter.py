@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,23 @@ def _candidate_fiber_ids(weights_csv: Path) -> np.ndarray:
     if not ids:
         raise RuntimeError(f"no candidate fiber ids found in {weights_csv}")
     return np.asarray(ids, dtype=np.int64)
+
+
+def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        return []
+    with path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _append_csv_row(path: Path, row: dict[str, Any], fieldnames: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        writer.writerow({key: row.get(key, "") for key in fieldnames})
 
 
 def _observed_weight_vector(weights_csv: Path, candidate_ids: np.ndarray) -> np.ndarray:
@@ -264,21 +282,20 @@ def run_target_jitter(
     y_post = _float_column(score_columns, target.outcome_column)
     nuisance = np.column_stack([_float_column(score_columns, column) for column in target.nuisance_columns])
     sigma_mm = float(jitter_fwhm_mm) / 2.3548200450309493
-    rng = np.random.default_rng(seed)
     if target.model_id == "B_DTOR":
         hf_samplers = _hf_samplers(manifest, qc)
-        matrix_builder = lambda: _hf_jitter_matrix(subject_ids, hf_samplers, coords, lengths, rng, sigma_mm)
+        matrix_builder = lambda jitter_rng: _hf_jitter_matrix(subject_ids, hf_samplers, coords, lengths, jitter_rng, sigma_mm)
     elif target.model_id == "D_DTOR":
         hf_samplers = _component_samplers(manifest, "HF")
         ulf_samplers = _component_samplers(manifest, "ULF")
         hf_overlap_tau = float(manifest["parameters"].get("hf_overlap_tau_v_per_m", 800.0))
-        matrix_builder = lambda: _ulf_jitter_matrix(
+        matrix_builder = lambda jitter_rng: _ulf_jitter_matrix(
             subject_ids,
             hf_samplers,
             ulf_samplers,
             coords,
             lengths,
-            rng,
+            jitter_rng,
             sigma_mm,
             tau=target.tau,
             hf_overlap_tau=hf_overlap_tau,
@@ -286,11 +303,36 @@ def run_target_jitter(
     else:
         raise ValueError(f"unsupported normative-fiber jitter target: {target.model_id}")
 
-    similarity_rows: list[dict[str, Any]] = []
-    overlap_rows: list[dict[str, Any]] = []
-    finite_jitter_count = 0
-    for idx in range(int(n_jitters)):
-        jitter_x = matrix_builder()
+    similarity_path = target.branch_dir / f"{prefix}_jitter_model_similarity.csv"
+    overlap_path = target.branch_dir / f"{prefix}_jitter_selected_overlap.csv"
+    summary_path = target.branch_dir / f"{prefix}_jitter_summary.csv"
+    manifest_path = target.branch_dir / f"{prefix}_formal_jitter_manifest.json"
+    progress_similarity_path = target.branch_dir / f"{prefix}_jitter_model_similarity_in_progress.csv"
+    progress_overlap_path = target.branch_dir / f"{prefix}_jitter_selected_overlap_in_progress.csv"
+    similarity_rows: list[dict[str, Any]] = [dict(row) for row in _read_csv_rows(progress_similarity_path)]
+    overlap_rows: list[dict[str, Any]] = [dict(row) for row in _read_csv_rows(progress_overlap_path)]
+    start_idx = min(len(similarity_rows), len(overlap_rows), int(n_jitters))
+    similarity_fields = [
+        "jitter_index",
+        "loocv_spearman_rho",
+        "loocv_pearson_r",
+        "mae",
+        "rmse",
+        "q2",
+        "map_pearson_r",
+        "n_finite_map_fibers",
+        "failure",
+    ]
+    overlap_fields = [
+        "jitter_index",
+        "support_intersection_fibers",
+        "support_union_fibers",
+        "valid_support_jaccard",
+        "sign_consistency_fraction",
+    ]
+    for idx in range(start_idx, int(n_jitters)):
+        jitter_rng = np.random.default_rng(int(seed) + (idx + 1) * 104729 + (0 if target.model_id == "B_DTOR" else 1000003))
+        jitter_x = matrix_builder(jitter_rng)
         jitter_weights, jitter_valid = _fit_full_weights(
             x=jitter_x,
             y_post=y_post,
@@ -317,27 +359,28 @@ def run_target_jitter(
         except Exception as exc:
             metrics = {"spearman_rho": np.nan, "pearson_r": np.nan, "mae": np.nan, "rmse": np.nan, "q2": np.nan, "failure": str(exc)}
         overlap = _support_overlap(observed_valid, jitter_valid, observed_weights, jitter_weights)
-        similarity_rows.append(
-            {
-                "jitter_index": idx + 1,
-                "loocv_spearman_rho": metrics.get("spearman_rho", np.nan),
-                "loocv_pearson_r": metrics.get("pearson_r", np.nan),
-                "mae": metrics.get("mae", np.nan),
-                "rmse": metrics.get("rmse", np.nan),
-                "q2": metrics.get("q2", np.nan),
-                "map_pearson_r": _pearson(observed_weights, jitter_weights),
-                "n_finite_map_fibers": int(np.count_nonzero(np.isfinite(jitter_weights))),
-                "failure": metrics.get("failure", ""),
-            }
-        )
-        overlap_rows.append({"jitter_index": idx + 1, **overlap})
+        similarity_row = {
+            "jitter_index": idx + 1,
+            "loocv_spearman_rho": metrics.get("spearman_rho", np.nan),
+            "loocv_pearson_r": metrics.get("pearson_r", np.nan),
+            "mae": metrics.get("mae", np.nan),
+            "rmse": metrics.get("rmse", np.nan),
+            "q2": metrics.get("q2", np.nan),
+            "map_pearson_r": _pearson(observed_weights, jitter_weights),
+            "n_finite_map_fibers": int(np.count_nonzero(np.isfinite(jitter_weights))),
+            "failure": metrics.get("failure", ""),
+        }
+        overlap_row = {"jitter_index": idx + 1, **overlap}
+        similarity_rows.append(similarity_row)
+        overlap_rows.append(overlap_row)
+        _append_csv_row(progress_similarity_path, similarity_row, similarity_fields)
+        _append_csv_row(progress_overlap_path, overlap_row, overlap_fields)
         if (idx + 1) % 25 == 0 or idx + 1 == int(n_jitters):
             print(f"  {target.model_id}: completed {idx + 1}/{int(n_jitters)} normative-fiber jitters", flush=True)
 
-    similarity_path = target.branch_dir / f"{prefix}_jitter_model_similarity.csv"
-    overlap_path = target.branch_dir / f"{prefix}_jitter_selected_overlap.csv"
-    summary_path = target.branch_dir / f"{prefix}_jitter_summary.csv"
-    manifest_path = target.branch_dir / f"{prefix}_formal_jitter_manifest.json"
+    similarity_rows = similarity_rows[: int(n_jitters)]
+    overlap_rows = overlap_rows[: int(n_jitters)]
+    finite_jitter_count = sum(int(float(row.get("n_finite_map_fibers", "0") or 0)) > 0 for row in similarity_rows)
     write_csv(similarity_path, similarity_rows, list(similarity_rows[0].keys()))
     write_csv(overlap_path, overlap_rows, list(overlap_rows[0].keys()))
     map_corr = np.asarray([row["map_pearson_r"] for row in similarity_rows], dtype=float)

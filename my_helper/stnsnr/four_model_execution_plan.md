@@ -1399,6 +1399,11 @@ dTOR normative-fiber formal jitter QC:
   --jitter-fwhm-mm 2.0
 ```
 
+The normative-fiber jitter runner writes per-target `*_in_progress.csv` files
+after each jitter iteration and can resume from those rows if interrupted.
+Canonical jitter summary/manifest files are written only after the requested
+formal jitter count is reached.
+
 dTOR normative-fiber sensitivity readiness:
 
 ```bash
