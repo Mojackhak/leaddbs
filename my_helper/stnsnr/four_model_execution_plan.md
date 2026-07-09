@@ -75,10 +75,11 @@ bootstrap record `code_provenance.git_short_commit = c6e0bb328`. The refreshed
 dTOR normative-fiber sensitivity-readiness manifests/status files record
 `code_provenance.git_short_commit = 2f30e8cfb`.
 
-The current normative-fiber formal jitter, sensitivity-readiness, final
-reporting, all-endpoint reporting, manifest schema audit, and completion audit
-manifests record `code_provenance.git_short_commit = da34d12a3` and
-`git_dirty = false`.
+The current normative-fiber formal jitter, OSS sidecar input audit,
+sensitivity-readiness, final reporting, all-endpoint reporting, manifest schema
+audit, and completion audit manifests each record their exact
+`code_provenance.git_short_commit` and `git_dirty = false` at the time of
+generation.
 
 The formal readiness audit does not run formal permutation, bootstrap, jitter,
 OSS-DBS, or display generation. It consumes the final-model formal target
