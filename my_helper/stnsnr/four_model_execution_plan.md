@@ -30,9 +30,11 @@ The normative-fiber OSS / pPAM sidecar generation contract is defined in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that
 contract, OSS sidecars are final-branch dTOR activation-sensitivity inputs:
 `X_oss_float32_fiber_major.npy` stores continuous pPAM activation probability
-over the final branch `fiber_ids.npy`, uses right-canonical columns with
-left-sided activation mapped to homologous right-canonical ids, and merges
-hemisphere/source activation by `max_probability_union`.
+over the selected-source candidate fiber id order, uses right-canonical columns
+with left-sided activation mapped to homologous right-canonical ids, and merges
+hemisphere/source activation by `max_probability_union`. A parent raw
+`fiber_ids.npy` is not the OSS sidecar column contract when it stores the full
+atlas or parent exposure id universe.
 
 Execution has resumed through the 2026-07-07 status, formal-target, and
 formal-readiness refresh. The current checkpoint has completed
@@ -958,7 +960,7 @@ registered `STN-connected regions`, `SNr-connected regions`, and
 `STNSNr-connected regions` ROI manifests. It does not change the source
 resolver, final branch, permutation/bootstrap status, or NetFiberScore. It is
 not equivalent to FDR correction or fiber-level enrichment over the selected
-final branch tested candidate fiber universe; those remain separate
+selected-source tau/Coverage candidate fiber universe; those remain separate
 figure-grade layers defined in
 `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
 
@@ -1499,7 +1501,7 @@ This runner consumes successful parameter-preflight rows and executes
 status/log outputs. It is resumable and may be long-running for dTOR. It does
 not write branch-level `X_oss_float32_fiber_major.npy` or final OSS manifests
 until all required rows for a branch have completed and have been merged into
-the final branch `fiber_ids.npy` universe.
+the selected-source candidate fiber id universe.
 
 Final reporting and figure-output readiness:
 

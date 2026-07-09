@@ -572,7 +572,12 @@ OSS-DBS replaces peak E-field exposure with pathway/axon activation after the pe
 X_HF_OSS_i(l) = continuous pPAM activation probability for fiber l under subject i HF stimulation
 ```
 
-The sidecar column universe is the final selected-source branch `fiber_ids.npy`, not the whole dTOR connectome atlas and not the top sweet/sour display fibers. OSS activation must not redefine, shrink, expand, or rescan the candidate fiber universe.
+The sidecar column universe is the final selected-source tau/Coverage candidate
+fiber id order, not the whole dTOR connectome atlas, not a parent raw
+`fiber_ids.npy` when that file stores the full exposure universe, and not the
+top sweet/sour display fibers. OSS activation must not redefine, shrink,
+expand, or rescan the candidate fiber universe. The actual OSS column order is
+recorded as `oss_fiber_ids.npy` or an equivalent sidecar manifest field.
 
 For alternating same-side HF subprograms, OSS activation is computed per subprogram and then max-reduced:
 
@@ -865,7 +870,7 @@ Minimum table semantics:
 - `normative_HF_fiber_scores.csv`: `subject_id`, `score_map_source`, `connectome`, `branch`, `SweetPeak5`, `SourPeak5`, `NetFiberScore`, candidate/selected/peak fiber counts, and `is_primary_score`.
 - `normative_HF_fiber_scores.csv` in the OSS branch additionally stores `SweetPeak5_OSS`, `SourPeak5_OSS`, and `NetFiberScore_OSS`.
 - `normative_HF_fiber_fdr_cache.csv`: canonical fiber-wise FDR cache defined in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`; it is a QC/display output and is not a source or prediction gate.
-- `normative_HF_fiber_enrichment_cache.csv`: canonical fiber-level anatomical/pathway enrichment cache defined in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`; its background is the selected final branch tested candidate fiber universe.
+- `normative_HF_fiber_enrichment_cache.csv`: canonical fiber-level anatomical/pathway enrichment cache defined in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`; its background is the selected-source tau/Coverage candidate fiber universe.
 - `fdr_summary_by_scale.csv`: derived q-threshold counts and overlap between percentile-selected fibers and q-ranked fibers.
 - `normative_HF_fiber_label_enrichment.csv`: derived display summary from the enrichment cache for selected sweet/sour fibers.
 - `normative_HF_fiber_mapping_qc.json`: candidate counts, coverage distribution, degenerate fiber counts, empty-fold failures, FDR method, label summaries, chunking parameters, memory use summaries, OSS-DBS status, OSS activation-output type, `hf_norm_fiber_source_status`, `hf_norm_fiber_prediction_status`, burden flag, and DeltaHFScore downstream role.
@@ -928,7 +933,8 @@ fiber_chunk_manifest.json
 candidate_fiber_metadata.json
 ```
 
-OSS activation sidecars are written after peak E-field candidate construction and use the same fiber ids:
+OSS activation sidecars are written after peak E-field candidate construction
+and use the same selected-source candidate fiber id order:
 
 ```text
 X_oss_float32_fiber_major.npy
@@ -937,7 +943,11 @@ oss_parameter_manifest.json
 oss_activation_sidecar_metadata.json
 ```
 
-`X_oss_float32_fiber_major.npy` stores continuous pPAM activation probability with rows = final branch subjects and columns = final branch `fiber_ids.npy`. For alternating HF subprograms, subprogram-level activation matrices may be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and `max_probability_union` `X_HF_OSS_i(l)` variables documented above.
+`X_oss_float32_fiber_major.npy` stores continuous pPAM activation probability
+with rows = final branch subjects and columns = selected-source candidate fiber
+ids. For alternating HF subprograms, subprogram-level activation matrices may
+be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and
+`max_probability_union` `X_HF_OSS_i(l)` variables documented above.
 
 For LOOCV fold `h`, derive training-fold coverage by subtraction:
 
@@ -1167,10 +1177,11 @@ candidate_tau1500_union_of_folds_bool
 
 ### OSS Candidate-First Activation
 
-OSS-DBS activation is computed only for the final selected-source branch fiber ids required by the executable OSS branch:
+OSS-DBS activation is computed only for the final selected-source candidate
+fiber ids required by the executable OSS branch:
 
 ```text
-final selected-source branch fiber_ids.npy
+final selected-source candidate fiber id order
 ```
 
 Non-candidate fibers are not used by `rho_HF_OSS`, `F+_OSS`, `F-_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation. Omitting their OSS activation does not change the OSS branch result.
@@ -1882,7 +1893,8 @@ oss_parameter_manifest.json
 OSS candidate rule:
 
 ```text
-inherit final selected-source branch fiber_ids.npy from peak E-field branch
+inherit final selected-source tau/Coverage candidate fiber ids from peak E-field branch
+write oss_fiber_ids.npy, or an equivalent manifest-recorded column order
 do not redefine candidates by OSS activation
 ```
 
@@ -1924,7 +1936,7 @@ OSS inputs are available:
 
 ```text
 OSS parameter manifest is locked
-OSS sidecar candidate fiber ids align with peak branch candidate ids
+OSS sidecar candidate fiber ids align with peak branch selected-source candidate ids
 OSS activation matrix is not all NaN
 OSS activation matrix is not all zero
 NetFiberScore_OSS has nonzero variance
@@ -2069,7 +2081,7 @@ Completion conditions:
 display files derive only from finalized numeric outputs
 FDR / enrichment / label / display outputs stay outside resolver decisions
 FDR and enrichment caches follow the canonical cache definition document
-enrichment background is the selected final branch tested candidate fiber universe
+enrichment background is the selected-source tau/Coverage candidate fiber universe
 PPMI/MGH manifests record observed_only_connectome_robustness
 dTOR primary manifest records formal permutation/bootstrap status
 OSS manifest records smoke-only status

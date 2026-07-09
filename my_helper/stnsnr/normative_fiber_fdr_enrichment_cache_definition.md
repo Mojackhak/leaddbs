@@ -47,8 +47,15 @@ For each model, endpoint, connectome, branch, and selected source, the tested
 fiber universe is:
 
 ```text
-all tested candidate fibers in the selected final branch
+all selected-source tau/Coverage candidate fibers tested in the selected final branch
 ```
+
+This is the same model-level candidate universe used by the selected peak-E-field
+branch. It is not the whole connectome atlas and not a parent raw `fiber_ids.npy`
+when that file stores the full exposure id universe. Cache manifests must record
+the tested candidate fiber id hash. When OSS sidecars are generated for the same
+final branch, their `oss_fiber_ids.npy` must match this selected candidate id
+order or explicitly document an equivalent manifest-recorded order.
 
 Do not pool HF and ULF families for FDR correction. Do not pool different
 endpoints, connectomes, branches, or tested fiber universes.
@@ -200,7 +207,7 @@ The enrichment unit is the fiber, not the voxel.
 For each model, endpoint, connectome, and branch, the background set is:
 
 ```text
-B = all tested candidate fibers in the selected final branch
+B = all selected-source tau/Coverage candidate fibers tested in the selected final branch
 ```
 
 Do not use voxel volume as the enrichment denominator. Plain touched-streamline

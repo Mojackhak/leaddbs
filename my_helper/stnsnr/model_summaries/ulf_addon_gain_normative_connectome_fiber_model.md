@@ -1250,7 +1250,12 @@ For each subject and fiber:
 A_ULF_OSS_i(l) = continuous pPAM activation probability for the ULF component along fiber l
 ```
 
-The canonical OSS sidecar is `X_oss_float32_fiber_major.npy`. Its columns are the realized final ULF branch `fiber_ids.npy`; OSS does not use the whole connectome atlas as the final matrix column set and does not redefine, shrink, expand, or rescan candidate fibers.
+The canonical OSS sidecar is `X_oss_float32_fiber_major.npy`. Its columns are
+the realized primary ULF branch selected-source tau/Coverage candidate fiber id
+order, not the whole connectome atlas and not a parent raw `fiber_ids.npy` when
+that file stores the full exposure universe. OSS does not redefine, shrink,
+expand, or rescan candidate fibers. The actual OSS column order is recorded as
+`oss_fiber_ids.npy` or an equivalent sidecar manifest field.
 
 OSS activation uses the right-canonical feature space. Right-sided activation is expressed directly on right-canonical fiber ids. Left-sided activation is computed in the real left hemisphere, mapped to homologous right-canonical fiber ids, and then merged with right-sided activation by `max_probability_union`:
 

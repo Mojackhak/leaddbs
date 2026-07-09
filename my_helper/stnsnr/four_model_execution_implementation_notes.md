@@ -159,7 +159,7 @@ filenames and must not overwrite canonical formal jitter summaries or manifests.
 The dTOR normative-fiber OSS sidecar input audit/worklist layer is a read-only
 preflight for the remaining OSS blocker. It consumes the final-model formal
 target worklist, generation manifests, mapping QC, branch score subject order,
-and inherited `fiber_ids.npy` files. It writes branch-level input-audit rows and
+and selected-source candidate fiber id order. It writes branch-level input-audit rows and
 subject/side/source-path worklist rows under
 `/Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_sidecar_worklist/`.
 For ULF alternating-program rows, it can recover empty manifest ULF source paths

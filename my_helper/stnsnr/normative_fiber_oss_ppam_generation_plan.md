@@ -12,11 +12,13 @@
 
 Generate OSS-DBS / probabilistic pathway activation modeling (pPAM) activation sidecars only for the final dTOR normative fiber branches. OSS/pPAM is an activation sensitivity layer, not a primary model and not a tau/Coverage resolver.
 
-The core operation is to keep the final branch subject rows and selected fiber columns unchanged, then replace the peak-E-field exposure value with a continuous pPAM activation probability:
+The core operation is to keep the final branch subject rows and selected-source
+candidate fiber columns unchanged, then replace the peak-E-field exposure value
+with a continuous pPAM activation probability:
 
 ```text
 same subject rows
-same selected fiber columns
+same selected-source candidate fiber columns
 peak E-field value -> pPAM activation probability
 ```
 
@@ -26,7 +28,10 @@ The canonical output is:
 X_oss_float32_fiber_major.npy
 ```
 
-with rows = subjects and columns = the final branch `fiber_ids.npy`.
+with rows = subjects and columns = the selected-source candidate fiber id order.
+This order must be written explicitly as `oss_fiber_ids.npy` or recorded in the
+OSS sidecar manifest. A parent exposure `fiber_ids.npy` that contains the raw
+dTOR atlas or full exposure id universe is not the OSS sidecar column contract.
 
 ## Goal
 
@@ -65,9 +70,9 @@ The audit writes:
 
 This layer does not create `X_oss_float32_fiber_major.npy`, does not mark
 `ready_for_oss_sensitivity`, and does not run downstream OSS fitting. It checks
-the final dTOR target manifests, branch score subject order, inherited
-`fiber_ids.npy`, required sidecar paths, and source stimulation paths that must
-be passed to the true OSS/pPAM execution layer. A branch can proceed to actual
+the final dTOR target manifests, branch score subject order, selected-source
+candidate fiber id order, required sidecar paths, and source stimulation paths
+that must be passed to the true OSS/pPAM execution layer. A branch can proceed to actual
 OSS sidecar generation only when this audit reports complete subject coverage,
 existing source stimulation inputs, and no pre-existing invalid sidecar files.
 For ULF alternating-program rows, if the generation manifest has an empty ULF
@@ -198,8 +203,8 @@ oss_activation_sidecar_metadata.json
 
 Those final branch files are written only after all required subject-side-source
 rows for a branch have completed pPAM activation and have been projected onto
-the final branch `fiber_ids.npy` with the declared `max_probability_union`
-merge rule.
+the selected-source candidate fiber id order with the declared
+`max_probability_union` merge rule.
 
 Required row-level outputs:
 
@@ -325,20 +330,24 @@ Coverage_{\tau_{\mathrm{selected}}}(f)
 \ge Coverage_{\mathrm{selected}}\}
 \]
 
-The sidecar columns must exactly equal:
+The sidecar columns must exactly equal the selected-source candidate fiber id
+order for the final executable branch:
 
 ```text
-final branch fiber_ids.npy
+oss_fiber_ids.npy, or an equivalent manifest-recorded selected candidate id order
 ```
 
 Therefore:
 
 ```text
 X_oss rows    = final branch subjects
-X_oss columns = final branch fiber_ids.npy
+X_oss columns = selected-source candidate fiber ids
 ```
 
 OSS must not redefine, shrink, expand, or rescan the candidate fiber universe.
+If a branch-level `fiber_ids.npy` stores the raw dTOR atlas or parent exposure id
+universe, it is only the source pool from which `F_candidate,selected` is derived;
+it is not the final OSS column set.
 
 ## Core Exposure Replacement
 
@@ -362,7 +371,7 @@ The replacement is:
 
 ```text
 same subject rows
-same selected fiber columns
+same selected-source candidate fiber columns
 peak E-field value -> pPAM activation probability
 ```
 
@@ -406,7 +415,7 @@ shape = n_subjects x n_fibers
 dtype = float32
 range = [0, 1]
 row order = final branch manifest / score table subject order
-column order = final branch fiber_ids.npy
+column order = selected-source candidate fiber id order
 value = continuous pPAM activation probability
 ```
 
@@ -553,10 +562,12 @@ model_family = HF_normative_fiber
 oss_exposure_component = HF_only_reference
 OSS input = HF-only reference stimulation component
 frequency = actual HF frequency
-fiber universe = selected HF dTOR final branch fiber_ids.npy
+fiber universe = selected HF dTOR final-branch candidate fiber ids
 ```
 
-Candidate fibers are inherited from the peak-E-field final branch.
+Candidate fibers are inherited from the peak-E-field final branch's
+selected-source tau/Coverage candidate set. Record the actual sidecar column
+order as `oss_fiber_ids.npy` or as an equivalent manifest field.
 
 ## ULF Sidecar Definition
 
@@ -567,8 +578,12 @@ model_family = ULF_normative_fiber
 oss_exposure_component = ULF_addon_component
 OSS input = ULF add-on component
 frequency = actual ULF frequency
-fiber universe = selected ULF dTOR final branch fiber_ids.npy
+fiber universe = selected ULF dTOR realized-primary candidate fiber ids
 ```
+
+Candidate fibers are inherited from the realized primary ULF branch's
+selected-source tau/Coverage candidate set. Record the actual sidecar column
+order as `oss_fiber_ids.npy` or as an equivalent manifest field.
 
 If the ULF component cannot be separated from the stimulation protocol, generate only:
 
@@ -658,8 +673,10 @@ python version
 OSS executable paths
 subject order
 subject order hash
-fiber_ids path
-fiber_ids hash
+oss_fiber_ids path
+oss_fiber_ids hash
+parent fiber_ids path, when different from oss_fiber_ids
+parent fiber_ids hash, when different from oss_fiber_ids
 connectome name
 model_family
 branch id
@@ -697,8 +714,9 @@ min value
 max value
 finite check status
 subject order source
-fiber id source
-fiber id hash
+oss fiber id source
+oss fiber id hash
+parent fiber id source, when different from oss fiber ids
 row count
 column count
 activation value type = continuous_pPAM_probability
@@ -717,7 +735,7 @@ A branch-level OSS sidecar is valid only if all are true:
 frequency modeled and verified
 pPAM samples completed
 subject order matched
-fiber id order matched
+oss fiber id order matched to selected-source candidate ids
 X_oss written
 X_oss dtype = float32
 X_oss shape = n_subjects x n_fibers
