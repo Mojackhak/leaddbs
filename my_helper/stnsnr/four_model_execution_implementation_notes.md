@@ -222,6 +222,13 @@ branch-level `X_oss_float32_fiber_major.npy`, `oss_parameter_manifest.json`, or
 `oss_activation_sidecar_metadata.json`; those are reserved for the later
 branch-merge layer after all required rows complete.
 
+A bounded B_DTOR runner test with `--stop-after-step prepareaxonmodel` and a
+5-second `prepareaxonmodel` timeout produced
+`row_status = timeout_or_interrupted`, wrote per-step logs and
+`oss_activation_row_status.json`, and left no residual OSS process. This
+confirms the resume/status harness without claiming row or branch activation
+completion.
+
 The consolidated status manifest records git provenance for the worktree that
 generated the status refresh, including branch, HEAD commit, and dirty files.
 Each status CSV row also records whether its referenced `latest_manifest`
