@@ -153,7 +153,12 @@ def _copy_hdf5_dataset(source: h5py.Dataset, target_group: h5py.Group, name: str
         dataset.attrs[key] = value
 
 
-def _filter_leaddbs_connectome_mat(source_path: Path, target_path: Path, candidate_ids: np.ndarray) -> dict[str, Any]:
+def _filter_leaddbs_connectome_mat(
+    source_path: Path,
+    target_path: Path,
+    candidate_ids: np.ndarray,
+    candidate_id_to_column: dict[int, int],
+) -> dict[str, Any]:
     with h5py.File(source_path, "r") as source:
         if "fibers" not in source or "idx" not in source:
             shutil.copy2(source_path, target_path)
@@ -182,14 +187,31 @@ def _filter_leaddbs_connectome_mat(source_path: Path, target_path: Path, candida
         filtered = np.empty((int(fibers.shape[0]), int(np.sum(selected_lengths))), dtype=np.float64)
         write_start = 0
         selected_original_ids: list[int] = []
+        mapping_rows: list[dict[str, Any]] = []
         for new_id, local_id in enumerate(selected_local_ids, start=1):
             start = int(offsets[int(local_id) - 1])
             stop = int(offsets[int(local_id)])
             block = np.asarray(fibers[:, start:stop], dtype=np.float64)
+            block_original_ids = np.unique(np.asarray(block[4, :], dtype=np.int64))
+            original_id = int(block_original_ids[0])
             block[3, :] = float(new_id)
             n_points = int(block.shape[1])
             filtered[:, write_start : write_start + n_points] = block
-            selected_original_ids.append(int(block[4, 0]))
+            selected_original_ids.append(original_id)
+            mapping_rows.append(
+                {
+                    "local_axon_index": int(new_id - 1),
+                    "filtered_local_fiber_id": int(new_id),
+                    "source_local_fiber_id": int(local_id),
+                    "selected_candidate_fiber_id": original_id,
+                    "candidate_column_index": int(candidate_id_to_column.get(original_id, -1)),
+                    "source_n_points": n_points,
+                    "original_id_consistency_status": "single_original_id"
+                    if block_original_ids.size == 1
+                    else "multiple_original_ids",
+                    "n_original_ids_in_source_local_fiber": int(block_original_ids.size),
+                }
+            )
             write_start += n_points
 
         with h5py.File(target_path, "w") as target:
@@ -208,6 +230,7 @@ def _filter_leaddbs_connectome_mat(source_path: Path, target_path: Path, candida
             "filtered_n_points": int(filtered.shape[1]),
             "filtered_n_local_fibers": int(selected_local_ids.size),
             "selected_original_fiber_ids_preview": selected_original_ids[:20],
+            "mapping_rows": mapping_rows,
         }
 
 
@@ -217,6 +240,7 @@ def _copy_connectome_dirs(
     target_stimulation_folder: Path,
     hemi_side: int,
     candidate_ids: np.ndarray,
+    candidate_id_to_column: dict[int, int],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     active_name = f"data{hemi_side + 1}.mat"
@@ -231,7 +255,12 @@ def _copy_connectome_dirs(
         for data_file in data_files:
             target_path = target_dir / data_file.name
             if data_file.name == active_name and candidate_ids.size:
-                metadata = _filter_leaddbs_connectome_mat(data_file, target_path, candidate_ids)
+                metadata = _filter_leaddbs_connectome_mat(
+                    data_file,
+                    target_path,
+                    candidate_ids,
+                    candidate_id_to_column,
+                )
             else:
                 shutil.copy2(data_file, target_path)
                 metadata = {"filter_status": "copied_inactive_hemi_or_no_candidate_ids"}
@@ -240,9 +269,76 @@ def _copy_connectome_dirs(
     return rows
 
 
+OSS_MAPPING_FIELDNAMES = [
+    "row_index",
+    "model_id",
+    "subject_id",
+    "side",
+    "connectome_name",
+    "source_path",
+    "target_path",
+    "filtered_stimulation_folder",
+    "local_axon_index",
+    "filtered_local_fiber_id",
+    "source_local_fiber_id",
+    "selected_candidate_fiber_id",
+    "candidate_column_index",
+    "source_n_points",
+    "oss_fiber_ids_path",
+    "original_id_consistency_status",
+    "n_original_ids_in_source_local_fiber",
+]
+
+
+def _write_local_to_candidate_mapping(
+    *,
+    row: dict[str, str],
+    row_index: int,
+    row_dir: Path,
+    filtered_stimulation_folder: Path,
+    oss_fiber_ids_path: Path,
+    connectome_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    mapping_path = row_dir / "oss_local_to_candidate_fiber_mapping.csv"
+    mapping_rows: list[dict[str, Any]] = []
+    for connectome_row in connectome_rows:
+        for mapping_row in connectome_row.get("mapping_rows", []):
+            mapping_rows.append(
+                {
+                    "row_index": row_index,
+                    "model_id": row.get("model_id", ""),
+                    "subject_id": row.get("subject_id", ""),
+                    "side": row.get("side", ""),
+                    "connectome_name": Path(str(connectome_row.get("target_path", ""))).parent.name,
+                    "source_path": connectome_row.get("source_path", ""),
+                    "target_path": connectome_row.get("target_path", ""),
+                    "filtered_stimulation_folder": str(filtered_stimulation_folder),
+                    "local_axon_index": mapping_row.get("local_axon_index", ""),
+                    "filtered_local_fiber_id": mapping_row.get("filtered_local_fiber_id", ""),
+                    "source_local_fiber_id": mapping_row.get("source_local_fiber_id", ""),
+                    "selected_candidate_fiber_id": mapping_row.get("selected_candidate_fiber_id", ""),
+                    "candidate_column_index": mapping_row.get("candidate_column_index", ""),
+                    "source_n_points": mapping_row.get("source_n_points", ""),
+                    "oss_fiber_ids_path": str(oss_fiber_ids_path),
+                    "original_id_consistency_status": mapping_row.get("original_id_consistency_status", ""),
+                    "n_original_ids_in_source_local_fiber": mapping_row.get("n_original_ids_in_source_local_fiber", ""),
+                }
+            )
+        connectome_row.pop("mapping_rows", None)
+    write_csv(mapping_path, mapping_rows, OSS_MAPPING_FIELDNAMES)
+    invalid_column_count = sum(1 for row_data in mapping_rows if str(row_data.get("candidate_column_index", "")) == "-1")
+    return {
+        "mapping_path": str(mapping_path),
+        "mapping_exists": mapping_path.is_file(),
+        "mapping_n_rows": len(mapping_rows),
+        "mapping_invalid_candidate_column_count": invalid_column_count,
+    }
+
+
 def _prepare_filtered_runtime(
     *,
     row: dict[str, str],
+    row_index: int,
     row_dir: Path,
     original_settings: dict[str, Any],
     original_converter_json: Path,
@@ -267,7 +363,8 @@ def _prepare_filtered_runtime(
             {"filter_status": "not_available_missing_oss_fiber_ids"},
         )
 
-    candidate_ids = np.load(oss_fiber_ids_path)
+    candidate_ids = np.asarray(np.load(oss_fiber_ids_path), dtype=np.int64).reshape(-1)
+    candidate_id_to_column = {int(fiber_id): index for index, fiber_id in enumerate(candidate_ids.tolist())}
     source_stimulation_folder = Path(original_settings["StimulationFolder"]).expanduser().resolve()
     filtered_stimulation_folder = row_dir / "filtered_stimulation_folder"
     if filtered_stimulation_folder.exists():
@@ -282,6 +379,15 @@ def _prepare_filtered_runtime(
         target_stimulation_folder=filtered_stimulation_folder,
         hemi_side=hemi_side,
         candidate_ids=np.asarray(candidate_ids, dtype=np.int64),
+        candidate_id_to_column=candidate_id_to_column,
+    )
+    mapping_metadata = _write_local_to_candidate_mapping(
+        row=row,
+        row_index=row_index,
+        row_dir=row_dir,
+        filtered_stimulation_folder=filtered_stimulation_folder,
+        oss_fiber_ids_path=oss_fiber_ids_path,
+        connectome_rows=connectome_rows,
     )
     oss_sim_dir = filtered_stimulation_folder / _oss_sim_folder_name(row.get("side", ""))
     oss_sim_dir.mkdir(parents=True, exist_ok=True)
@@ -309,6 +415,12 @@ def _prepare_filtered_runtime(
             "source_stimulation_folder": str(source_stimulation_folder),
             "filtered_stimulation_folder": str(filtered_stimulation_folder),
             "filtered_converter_json": str(filtered_converter_json),
+            "local_to_candidate_mapping_path": mapping_metadata["mapping_path"],
+            "local_to_candidate_mapping_exists": mapping_metadata["mapping_exists"],
+            "local_to_candidate_mapping_n_rows": mapping_metadata["mapping_n_rows"],
+            "local_to_candidate_mapping_invalid_candidate_column_count": mapping_metadata[
+                "mapping_invalid_candidate_column_count"
+            ],
             "connectome_files": connectome_rows,
         },
     )
@@ -400,6 +512,7 @@ def _run_activation_row(
     original_settings = _load_json(original_converter_json)
     stimulation_folder, parameter_file, converter_json, settings, filter_metadata = _prepare_filtered_runtime(
         row=row,
+        row_index=row_index,
         row_dir=row_dir,
         original_settings=original_settings,
         original_converter_json=original_converter_json,
@@ -542,6 +655,7 @@ def _finalize_row_status(
             "oss_success_flag_path": str(success_flag) if success_flag is not None else "",
             "oss_time_result": oss_time_result.is_file(),
             "pathway_outputs": [path.is_file() for path in pathway_outputs],
+            "local_to_candidate_mapping": bool(filter_metadata.get("local_to_candidate_mapping_exists", False)),
         },
         "step_results": step_results,
         "candidate_filter": filter_metadata,
@@ -574,6 +688,12 @@ def _finalize_row_status(
         "candidate_filter_status": filter_metadata.get("filter_status", ""),
         "filtered_stimulation_folder": filter_metadata.get("filtered_stimulation_folder", ""),
         "filtered_converter_json": filter_metadata.get("filtered_converter_json", ""),
+        "local_to_candidate_mapping_path": filter_metadata.get("local_to_candidate_mapping_path", ""),
+        "local_to_candidate_mapping_exists": filter_metadata.get("local_to_candidate_mapping_exists", ""),
+        "local_to_candidate_mapping_n_rows": filter_metadata.get("local_to_candidate_mapping_n_rows", ""),
+        "local_to_candidate_mapping_invalid_candidate_column_count": filter_metadata.get(
+            "local_to_candidate_mapping_invalid_candidate_column_count", ""
+        ),
     }
 
 

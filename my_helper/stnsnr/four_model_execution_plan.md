@@ -43,7 +43,10 @@ D_DTOR rows without processing the full dTOR local connectome.
 Branch-level OSS sidecars are still absent. The remaining blocker is the
 branch-merge layer: row-level activation must be projected back onto the
 selected-source candidate fiber id order with complete local-to-candidate
-mapping and locked p(A) output semantics.
+mapping and locked p(A) output semantics. The row runner now writes
+`oss_local_to_candidate_fiber_mapping.csv` for new row-level outputs; the
+official 64-row activation outputs must be rerun from that updated runner before
+the branch merge can consume them.
 
 The normative-fiber OSS / pPAM sidecar generation contract is defined in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that

@@ -261,9 +261,12 @@ pending.
 The merge layer must project each row's OSS output back onto the selected-source
 candidate fiber id order. The filtered connectome `idx` vector is insufficient
 for that projection because it stores filtered local fiber point counts rather
-than selected-source candidate fiber ids. The row runner must therefore persist
-a complete local-axon/status-index to selected-candidate-fiber mapping before
-the branch-level `X_oss_float32_fiber_major.npy` can be written.
+than selected-source candidate fiber ids. The row runner now persists a complete
+local-axon/status-index to selected-candidate-fiber mapping as
+`oss_local_to_candidate_fiber_mapping.csv` and carries the mapping path, row
+count, and invalid-candidate-column count into the row status JSON and summary
+CSV. Existing row-level outputs generated before this runner change must be
+rerun before branch-level `X_oss_float32_fiber_major.npy` can be written.
 
 The OSS worklist and sensitivity-readiness layers must resolve ULF
 selected-source output locations from the actual shared exposure preprocess
@@ -281,7 +284,9 @@ all required B_DTOR/D_DTOR rows. This runner still does not write branch-level
 `X_oss_float32_fiber_major.npy`, `oss_parameter_manifest.json`, or
 `oss_activation_sidecar_metadata.json`; those are reserved for the branch-merge
 layer after row-level outputs have complete local-to-candidate mapping and p(A)
-semantics are locked.
+semantics are locked. Row-level summaries after the mapping update include
+`local_to_candidate_mapping_path`, `local_to_candidate_mapping_n_rows`, and
+`local_to_candidate_mapping_invalid_candidate_column_count`.
 
 A bounded B_DTOR runner test with `--stop-after-step prepareaxonmodel` and a
 5-second `prepareaxonmodel` timeout produced
