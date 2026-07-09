@@ -16,12 +16,14 @@ fiber figure-output ready. Density plus connected-region labels remains
 manifest schema audit, and completion audit were regenerated from clean commit
 `1d34cb9f3`.
 
-Exact input/cache searches after that refresh found no `X_oss_float32_fiber_major.npy`,
-`oss_parameter_manifest.json`, `oss_activation_sidecar_metadata.json`, fiber
-jitter sidecar/cache files, FDR cache files, or enrichment cache files under the
-current `/Volumes/VAL/STNSNr` summary tree. The current B_DTOR and D_DTOR
-normative-fiber completion blockers therefore remain explicit missing-input or
-missing-cache blockers, not branch-selection ambiguity.
+2026-07-08 continuation from clean commit `9c72a0085` generated formal-target
+dTOR normative-fiber FDR and enrichment caches for B_DTOR and D_DTOR. Current
+input searches still find no required `X_oss_float32_fiber_major.npy`,
+`oss_parameter_manifest.json`, `oss_activation_sidecar_metadata.json`, or
+normative-fiber jitter input sidecars for B_DTOR/D_DTOR. The remaining
+normative-fiber completion blockers are therefore explicit OSS/jitter
+missing-input blockers, not branch-selection ambiguity and not FDR/enrichment
+cache blockers.
 
 The normative-fiber OSS / pPAM sidecar generation contract is defined in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that
@@ -58,6 +60,7 @@ B_DTOR/D_DTOR dTOR normative-fiber smoke permutation refreshed under /Volumes/VA
 B_DTOR/D_DTOR dTOR normative-fiber formal permutation refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_permutation/
 B_DTOR/D_DTOR dTOR normative-fiber formal bootstrap refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_formal_bootstrap/
 B_DTOR/D_DTOR dTOR normative-fiber sensitivity readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_sensitivity_readiness/
+B_DTOR/D_DTOR dTOR normative-fiber FDR/enrichment caches refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_fdr_enrichment_cache/
 Final reporting and figure-output readiness refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/final_reporting/
 All-endpoint reporting and missing-work audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/all_endpoint_reporting/
 Manifest schema audit refreshed under /Volumes/VAL/STNSNr/summary/four_model_execution/manifest_schema_audit/
@@ -72,9 +75,9 @@ bootstrap record `code_provenance.git_short_commit = c6e0bb328`. The refreshed
 dTOR normative-fiber sensitivity-readiness manifests/status files record
 `code_provenance.git_short_commit = 2f30e8cfb`.
 
-The post-pause final reporting, all-endpoint reporting, manifest schema audit,
-and completion audit manifests record `code_provenance.git_short_commit =
-1d34cb9f3` and `git_dirty = false`.
+The current FDR/enrichment, final reporting, all-endpoint reporting, manifest
+schema audit, and completion audit manifests record
+`code_provenance.git_short_commit = 9c72a0085` and `git_dirty = false`.
 
 The formal readiness audit does not run formal permutation, bootstrap, jitter,
 OSS-DBS, or display generation. It consumes the final-model formal target
@@ -121,11 +124,12 @@ dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000,
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR fiber jitter/OSS = not_run_missing_inputs
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
-normative-fiber FDR, enrichment, OSS, and fiber jitter remain not run
-final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; all normative-fiber rows have density+label outputs ready
+normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
+normative-fiber OSS and fiber jitter remain not run due missing inputs
+final reporting/readiness = 7 rows; n=16 hypothesis-generating; A/C direct voxel display maps ready; B_DTOR/D_DTOR have full fiber figure outputs ready; observed robustness normative-fiber rows have density+label outputs ready
 all-endpoint reporting = 79 rows; A all-endpoint scan rows = 30; discovered branch manifests = 35; missing-work audit rows = 6, with all C/D observed sensitivity and same-day immediate work items detected
 manifest schema audit = 36 unique manifest references; 6 schema_complete; 30 schema_missing_recommended_fields
-completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs+fdr_cache+enrichment_cache blockers
+completion/blocker audit = 7 rows; 2 complete_to_current_spec; 3 observed_robustness_no_formal_target with no blockers; 2 blocked_missing_fiber_inputs with oss_inputs+jitter_inputs blockers
 ```
 
 Current direct-voxel formal permutation snapshot:
@@ -176,7 +180,7 @@ Current dTOR normative-fiber sensitivity readiness snapshot:
 B_DTOR HF normative fiber: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = not_run_missing_jitter_inputs
 D_DTOR ULF normative fiber no_delta_hf final model: oss_sensitivity_status = not_run_missing_oss_inputs; jitter_qc_status = not_run_missing_jitter_inputs
 consolidated formal_resampling_status = FORMAL_BOOTSTRAP_COMPLETE_SENSITIVITY_INPUTS_MISSING for B_DTOR and D_DTOR
-readiness summaries and final reports record OSS missing input paths plus jitter search roots / missing-input reasons
+readiness summaries and final reports record OSS missing input paths plus jitter search roots / missing-input reasons; FDR/enrichment caches are complete for these formal dTOR targets
 ```
 
 Current final reporting and figure-output readiness snapshot:
@@ -187,7 +191,8 @@ four_model_final_report.csv rows = 7
 four_model_figure_output_readiness.csv rows = 7
 A direct voxel: figure_output_status = ready_from_existing_direct_voxel_maps
 C ULF direct voxel no_delta_hf: figure_output_status = ready_from_existing_direct_voxel_maps
-B/D normative fiber rows: figure_output_status = ready_for_density_label_outputs
+B_DTOR and D_DTOR normative fiber rows: figure_output_status = ready_for_full_fiber_figure_outputs
+PPMI/MGH/D_PPMI observed robustness normative fiber rows: figure_output_status = ready_for_density_label_outputs
 manifest cohort_n = 16; interpretation = hypothesis_generating
 ```
 
@@ -533,6 +538,7 @@ The current codebase is no longer greenfield. The following layers already exist
 | dTOR normative-fiber sensitivity readiness audit | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_sensitivity_readiness.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_sensitivity_readiness.py` | implemented |
 | Normative-fiber basic density cache | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_density_cache.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_density_cache.py` | implemented |
 | Final reporting and figure-output readiness | `my_helper/fiber/stnsnr/run_stnsnr_four_model_final_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_final_reporting.py` | implemented |
+| Normative-fiber FDR/enrichment cache | `my_helper/fiber/stnsnr/run_stnsnr_normative_fiber_fdr_enrichment_cache.py` | `my_helper/fiber/core/analysis/stnsnr_normative_fiber_fdr_enrichment_cache.py` | implemented for formal dTOR normative-fiber targets |
 | All-endpoint reporting and missing-work audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_all_endpoint_reporting.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_all_endpoint_reporting.py` | implemented |
 | Manifest schema audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_manifest_schema_audit.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_manifest_schema_audit.py` | implemented |
 | Completion/blocker audit | `my_helper/fiber/stnsnr/run_stnsnr_four_model_completion_audit.py` | `my_helper/fiber/core/analysis/stnsnr_four_model_completion_audit.py` | implemented |
@@ -550,14 +556,13 @@ The current codebase is no longer greenfield. The following layers already exist
 ### Not Yet Implemented
 
 ```text
-D OSS and full fiber figure-grade FDR/enrichment outputs, pending required caches
 remaining shared score, deeper stale-output, and broader cross-family manifest-schema architecture across voxel, fiber, HF, and ULF models
 fiber OSS-DBS activation branch execution, pending required inputs
-fiber FDR/enrichment cache construction; definitions are documented in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`, but cache generation remains pending
 nested/adaptive threshold-source validation
 max-stat permutation for threshold-source selection
 OLS ANCOVA optional estimator
-full figure-grade display/FDR/enrichment layers beyond final reporting/readiness summaries
+full OSS/jitter sensitivity execution for dTOR normative-fiber final targets, pending required inputs
+optional observed-robustness-row FDR/enrichment caches for PPMI/MGH/D_PPMI if those rows are later promoted to figure-grade outputs
 ```
 
 `my_helper/stnsnr/four_model_execution_implementation_notes.md` records implementation-layer details and should be updated whenever a new executable layer is added.
