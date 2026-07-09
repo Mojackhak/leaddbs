@@ -1318,13 +1318,11 @@ LOOCV predictions
 Run order:
 
 ```text
-PPMI observed LOOCV
-MGH observed LOOCV
-dTOR observed LOOCV, only after PPMI/MGH are technically valid
+dTOR realized-primary final branch observed LOOCV
 dTOR smoke Freedman-Lane permutation B=1000
 ```
 
-Do not run default formal `B=10000` permutation/bootstrap for ULF OSS unless the model document is explicitly revised. The OSS result is activation-model robustness evidence only.
+Default ULF OSS uses smoke `B=1000` only. `B=10000` OSS permutation/bootstrap is not part of the default ULF OSS round and would require a separate model-document revision. The OSS result is activation-model robustness evidence only.
 
 Required OSS manifest fields:
 
@@ -1489,7 +1487,7 @@ NetULFFiberScore
 bootstrap stability summaries
 ```
 
-If an OSS bootstrap is explicitly promoted in a future run, rerun OSS activation scoring inside the inherited selected-source candidate universe and recompute `M_ULF_OSS`, `F+_ULF_OSS`, `F-_ULF_OSS`, and `NetULFFiberScore_OSS`. OSS bootstrap is not part of the default ULF OSS round.
+If an OSS bootstrap is added by a future model-document revision, rerun OSS activation scoring inside the inherited selected-source candidate universe and recompute `M_ULF_OSS`, `F+_ULF_OSS`, `F-_ULF_OSS`, and `NetULFFiberScore_OSS`. OSS bootstrap is not part of the default ULF OSS round.
 
 Do not store full `B=10000` fiber-weight tables. Use streaming finite-count, selection-frequency, and sign-stability summaries.
 
@@ -1847,7 +1845,7 @@ connectome_selected_label_summary.csv
 
 For continuous/statistical NIfTI outputs, non-covered or non-modeled voxels are written as `NaN`, not `0`. This applies to weighted density, positive/negative weighted density, `-log(p)` density, FDR-thresholded density, stability density, jitter density, plain touched density, and display-smoothed density maps outside the density support or model candidate support. `0` is reserved for a true zero contribution inside support. Count/binary masks, if emitted, remain `0` outside support because their semantics are count/false.
 
-FDR q-values, q-thresholded maps, endpoint labels, enrichment caches, and display fibers are QC/display/interpretation outputs only. They do not define `F+`, `F-`, `NetULFFiberScore`, or final branch selection. Canonical FDR and enrichment cache definitions are maintained in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
+FDR q-values, q-thresholded maps, endpoint labels, enrichment caches, and display fibers are QC/display/interpretation outputs only. They stay outside resolver decisions, `F+`, `F-`, and `NetULFFiberScore`. Canonical FDR and enrichment cache definitions are maintained in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
 
 ---
 
@@ -2158,7 +2156,13 @@ ulf_hf_out_support_burden_control
 
 Controls must use the same nuisance set as the branch being interpreted.
 
-Proceed to Round 4 only if `PlainULFOnlyExposureTop5` is computable for accepted endpoint rows, joint QC models are not singular, and `NetULFFiberScore` is not perfectly collinear with the plain exposure or out-of-support burden metrics.
+Plain-control and burden-control failures do not change
+`ulf_norm_fiber_source_status`, `ulf_norm_fiber_prediction_status`, or the
+automatically selected final model. If `PlainULFOnlyExposureTop5` is not
+computable, a joint QC model is singular, or `NetULFFiberScore` is perfectly
+collinear with the plain exposure or out-of-support burden metrics, record the
+branch-level control-readiness failure and continue with available formal
+readiness fields. Such failures reduce burden-mechanism interpretability only.
 
 ### Round 4: dTOR Realized-Primary Smoke Resampling
 
@@ -2170,7 +2174,11 @@ subject-level smoke bootstrap B=1000
 seed = 42
 ```
 
-Proceed to Round 5 only if smoke permutation/bootstrap complete for selected endpoint rows, plus-one p values are computable, bootstrap finite counts are interpretable, and runtime profile suggests formal `B=10000` is feasible.
+Proceed to Round 5 after each selected endpoint/source row either satisfies
+smoke technical-pass criteria or records an explicit smoke technical-failure
+status. Smoke `p < 0.05` is not a hard gate. A smoke technical failure must be
+fixed before that endpoint/source row enters formal `B=10000` resampling, but it
+does not change the automatically selected final model or other endpoint rows.
 
 ### Round 5: Cheap observed sensitivity
 
@@ -2304,7 +2312,7 @@ If jitter is unstable, report the result as spatially fragile.
 
 ### Round 10: Display, FDR, labels, density, and cross-connectome summaries
 
-Generate display outputs only after numeric branches are locked. Display, FDR, enrichment, labels, density, and cross-connectome outputs must derive from finalized numeric outputs and must not alter final branch selection. FDR and enrichment caches follow `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
+Generate display outputs only after numeric branches are locked. Display, FDR, enrichment, labels, density, and cross-connectome outputs must derive from finalized numeric outputs and stay outside resolver decisions. FDR and enrichment caches follow `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`.
 
 
 ## 17. Interpretation Boundary

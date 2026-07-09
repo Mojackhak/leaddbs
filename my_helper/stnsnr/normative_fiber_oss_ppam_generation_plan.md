@@ -575,12 +575,14 @@ smoke Freedman-Lane permutation
 plain OSS activation burden control
 ```
 
-Default OSS sensitivity should use smoke permutation only unless model documents explicitly promote formal OSS inference:
+Default OSS sensitivity uses smoke permutation only:
 
 ```text
 B = 1000
 seed = 42
 ```
+
+Any `B=10000` OSS permutation/bootstrap layer requires a separate model-document revision.
 
 Canonical OSS fitting uses continuous \(p(A)\). Thresholded \(p(A) \ge 0.05\) or \(p(A) \ge 0.5\) variables are QC/display/plain-burden controls only. They do not replace `X_oss_float32_fiber_major.npy` in `M_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation.
 

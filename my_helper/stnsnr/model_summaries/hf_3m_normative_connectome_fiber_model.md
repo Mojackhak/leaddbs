@@ -697,7 +697,7 @@ Permutation p value:
 p_plus_one = (1 + count(|stat_perm| >= |stat_obs|)) / (B + 1)
 ```
 
-OSS does not run formal `B=10000` permutation and does not run bootstrap.
+Default HF OSS uses smoke `B=1000` only. `B=10000` OSS permutation/bootstrap is not part of the default HF OSS round and would require a separate model-document revision.
 
 OSS plain activation control tests whether the OSS result mainly reflects activation burden or lead placement:
 
@@ -1344,7 +1344,7 @@ Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
 F_candidate_tau = {l: Coverage_tau(l) >= coverage_min}
 ```
 
-Any legacy `cov3` or `EFieldCoverage>=3` rule is non-executable unless the model document is explicitly revised again. OLS ANCOVA remains a future supplemental estimator and is not run. FDR, labels, density maps, q-thresholded maps, and display fibers are QC/display outputs only; they do not define `F+`, `F-`, or `NetFiberScore`.
+Any legacy `cov3` or `EFieldCoverage>=3` rule is non-executable unless the model document is explicitly revised again. OLS ANCOVA remains a future supplemental estimator and is not run. FDR, enrichment, labels, density maps, q-thresholded maps, and display fibers are QC/display/interpretation outputs only; they stay outside resolver decisions, `F+`, `F-`, and `NetFiberScore`.
 
 ### Round 0: Version, Branch, Input, And Manifest Freeze
 
@@ -1572,7 +1572,9 @@ normative_HF_plain_touched_fibers.tck
 normative_HF_plain_touched_density_map.nii.gz
 ```
 
-Proceed to Round 4 only if:
+Plain-control failures do not change `hf_norm_fiber_source_status`,
+`hf_norm_fiber_prediction_status`, or the final selected-source branch. Evaluate
+the following control-readiness criteria for interpretation:
 
 ```text
 PlainExposureTop5 is computable for accepted endpoint rows
@@ -1580,6 +1582,12 @@ plain model is fit
 joint model is not singular
 NetFiberScore and PlainExposureTop5 are not perfectly collinear
 ```
+
+If `PlainExposureTop5` is not computable, the plain model is not fit, the joint
+model is singular, or `NetFiberScore` is perfectly collinear with
+`PlainExposureTop5`, record the branch-level control-readiness failure and
+continue with available formal readiness fields. Such failures reduce
+burden/placement interpretability only.
 
 Recommended collinearity flags:
 
@@ -1591,7 +1599,7 @@ Recommended collinearity flags:
 
 If plain control fully explains an endpoint row, that row may continue as a minimal formal report, but interpretation is downgraded to stimulation burden / placement-associated and OSS/jitter are not recommended for that endpoint row.
 
-### Round 4: dTOR Selected-Endpoint Smoke Permutation And Bootstrap
+### Round 4: dTOR Candidate-Source Smoke Permutation And Bootstrap
 
 Purpose: test full-process resampling before formal `B=10000`.
 
@@ -1599,12 +1607,19 @@ Run only:
 
 ```text
 connectome = dTOR
-branch = peak_efield_tau800_cov5_primary
-endpoint rows = accepted endpoint rows with accepted final models
+branch = candidate source branch under smoke validation
+initial candidate branch = peak_efield_tau800_cov5_primary
+final-source confirmation = repeat or reuse only when the selected source matches the smoked candidate
+endpoint rows = computable endpoint/source rows that may enter formal reporting
 Freedman-Lane smoke permutation B=1000
 subject-level smoke bootstrap B=1000
 seed = 42
 ```
+
+If Round 5.5 later selects `scan_fallback_accepted`, the selected fallback
+source needs its own smoke confirmation before Round 6 formal resampling. A
+pre-specified-branch smoke result cannot be reused as smoke validation for a
+different tau/Coverage source.
 
 Each permutation must rerun the full LOOCV workflow:
 
@@ -1630,7 +1645,9 @@ degenerate_fiber_summary
 bootstrap_finite_count_summary
 ```
 
-Proceed to Round 5 only if:
+Proceed to Round 5 after each candidate source either satisfies these smoke
+technical-pass criteria or records an explicit endpoint/source technical-failure
+status:
 
 ```text
 B=1000 permutation completes
@@ -1642,7 +1659,11 @@ there are not many all-NaN / degenerate maps
 runtime profile indicates B=10000 is feasible
 ```
 
-Do not use smoke `p < 0.05` as a hard gate. If smoke technically fails, stop and fix resampling, chunking, top-k, or rank cache for that endpoint row. If smoke technically passes but results are fully degenerate, either stop formal for that endpoint row as pre-specified futility or run formal for endpoint rows with an accepted final source.
+Do not use smoke `p < 0.05` as a hard gate. If smoke technically fails, fix
+resampling, chunking, top-k, or rank cache for that endpoint/source row before
+formal resampling; other endpoint/source rows may continue. If smoke technically
+passes but results are fully degenerate, record the degeneracy and let the
+source resolver decide whether a stable final source exists.
 
 ### Round 5: Cheap Observed Sensitivity
 
@@ -1690,7 +1711,8 @@ normative_HF_fiber_mapping_qc.json
 normative_HF_fiber_top_percentile_sweep_summary.csv
 ```
 
-Proceed to Round 5.5 only if:
+Cheap observed sensitivity does not gate Round 5.5. Evaluate and record these
+sensitivity-readiness criteria before the resolver summary:
 
 ```text
 tau1500 branch completes, or records candidate-empty / threshold-too-strict
@@ -1698,6 +1720,12 @@ top1500/top500 branch completes
 LOOCV outputs are finite
 mapping QC is interpretable
 ```
+
+If a sensitivity branch is candidate-empty, threshold-too-strict, nonfinite, or
+otherwise not interpretable, record the branch-level sensitivity status and
+continue to the endpoint-wise source resolver. Sensitivity-readiness failures do
+not change `hf_norm_fiber_source_status`, `hf_norm_fiber_prediction_status`, or
+the selected tau/Coverage source.
 
 QC warning:
 
@@ -1819,7 +1847,7 @@ fold sign stability is computable
 manifest records resampling_status = formal_complete
 ```
 
-If formal technically fails, do not run OSS, jitter, or final display. If formal completes but is negative, proceed only to minimal display/report and do not use OSS/jitter as mechanism strengthening.
+If formal technically fails, record the endpoint-level formal failure and do not claim OSS, jitter, or full figure-grade readiness for that endpoint row. If formal completes but is statistically negative, keep the selected final model unchanged; OSS and jitter may still be recorded as activation/spatial robustness layers, but they cannot override the formal result or become mechanism-strengthening evidence.
 
 ### Round 7: OSS-DBS Activation Sensitivity
 
@@ -1887,7 +1915,8 @@ normative_HF_plain_oss_activation_summary.csv
 normative_HF_plain_oss_activation_model_comparison.csv
 ```
 
-Proceed to Round 8 only if:
+OSS does not gate Round 8. Evaluate the following OSS technical-pass criteria when
+OSS inputs are available:
 
 ```text
 OSS parameter manifest is locked
@@ -1910,7 +1939,7 @@ selected density / label summary is partly consistent with peak branch
 OSS plain activation control does not fully replace NetFiberScore_OSS
 ```
 
-If OSS activation is all zero or mostly tied, mark OSS as failed sensitivity. If OSS and peak branch fully disagree, interpret the result as activation-model dependent. If OSS plain activation fully explains the result, downgrade mechanism interpretation to activation burden.
+If OSS activation is all zero or mostly tied, mark `hf_oss_sensitivity_status = failed_activation_degenerate` and continue without using OSS as robustness support. If required OSS activation files or locked OSS parameter metadata are missing, mark `hf_oss_sensitivity_status = not_run_missing_oss_inputs`. If OSS and peak branch disagree while remaining technically valid, mark `hf_oss_sensitivity_status = passed_activation_model_dependent`. If OSS plain activation fully explains the result, downgrade mechanism interpretation to activation burden. None of these OSS statuses changes `hf_norm_fiber_source_status`, `hf_norm_fiber_prediction_status`, or the final selected-source branch.
 
 ### Round 8: dTOR Jitter QC
 
@@ -1920,8 +1949,8 @@ Run only:
 
 ```text
 connectome = dTOR
-branch = peak_efield_tau800_cov5_primary
-endpoint rows = endpoint rows with completed formal primary result
+branch = final selected-source branch for the endpoint row
+endpoint rows = endpoint rows with completed formal final result
 ```
 
 Jitter tier 1:
@@ -1952,7 +1981,8 @@ normative_HF_fiber_jitter_density_correlation.csv
 normative_HF_fiber_jitter_example_density_maps/
 ```
 
-Proceed to Round 9 only if:
+Jitter does not gate Round 9 display generation. Evaluate the following jitter
+technical-pass criteria when jitter inputs are available:
 
 ```text
 jitter outputs are writable
@@ -1961,6 +1991,12 @@ jitter density correlation is computable
 model similarity is computable
 there are no all-empty jitter runs
 ```
+
+If jitter inputs are missing or technically invalid, record the branch-level
+jitter status and continue to Round 9 with the available formal, OSS, density,
+label, FDR, and enrichment readiness fields. Jitter status cannot change
+`hf_norm_fiber_source_status`, `hf_norm_fiber_prediction_status`, or the final
+selected-source branch.
 
 If jitter tier 1 technically fails, do not run jitter tier 2. If jitter tier 1 passes but is unstable, skip jitter tier 2 and label the final result spatially sensitive. If both tiers are stable, use them as spatial robustness support.
 
@@ -2027,7 +2063,7 @@ Completion conditions:
 
 ```text
 display files derive only from finalized numeric outputs
-FDR / label / display outputs are not used to select the primary model
+FDR / enrichment / label / display outputs stay outside resolver decisions
 FDR and enrichment caches follow the canonical cache definition document
 enrichment background is the selected final branch tested candidate fiber universe
 PPMI/MGH manifests record observed_only_connectome_robustness
@@ -2073,4 +2109,10 @@ The most resource-conscious path that still covers the mainline and planned sens
    display / FDR / labels / cross-connectome summaries
 ```
 
-The core principle is to process all available endpoint rows equivalently through `peak_efield_tau800_cov5_primary`, use plain control to separate outcome-filtered fibers from stimulation burden, select endpoint rows for formal dTOR reporting as a reporting/resource decision, and only then invest in OSS, jitter, and display-layer outputs.
+The core principle is to process all available endpoint rows equivalently,
+evaluate the pre-specified `peak_efield_tau800_cov5_primary` source first, let
+the endpoint-wise resolver choose either the pre-specified source or a stable
+tau/Coverage fallback, use plain control to separate outcome-filtered fibers
+from stimulation burden, select endpoint rows for formal dTOR reporting as a
+reporting/resource decision, and only then invest in OSS, jitter, and
+display-layer outputs.
