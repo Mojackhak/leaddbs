@@ -3,7 +3,7 @@
 > **Purpose.** This is the `/goal` plan document for executing the four STN/SNr HF/ULF modeling tracks.
 > **Authoritative model specs.** The English files under `my_helper/stnsnr/model_summaries/` define model-level executable behavior. This document defines cross-model orchestration, current implementation state, current status results, and the next engineering priorities.
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
-> **Last updated.** 2026-07-08
+> **Last updated.** 2026-07-09
 
 ---
 
@@ -25,6 +25,18 @@ B_DTOR/D_DTOR. The remaining normative-fiber execution-completion blockers are
 therefore explicit OSS missing-input blockers for the activation-sensitivity
 layer, not branch-selection ambiguity, not FDR/enrichment figure-cache blockers,
 and not jitter blockers.
+
+2026-07-09 continuation fixed the normative-fiber OSS worklist contract so it
+propagates selected-source candidate fiber IDs rather than the parent dTOR
+exposure id universe. The refreshed worklist writes workflow-local
+`candidate_fiber_ids/<MODEL>_oss_fiber_ids.npy` files and records
+`oss_n_fibers = 3990` for B_DTOR and `oss_n_fibers = 2321` for D_DTOR, while
+the parent exposure id universe remains `parent_n_fibers = 11820000`.
+Parameter preflight and bounded row-level activation summaries now carry these
+candidate-id fields. The bounded activation harness still times out at
+`prepareaxonmodel` without producing `Allocated_axons`, pathway files, or final
+OSS sidecars, so the remaining blocker is still missing final OSS activation
+inputs.
 
 The normative-fiber OSS / pPAM sidecar generation contract is defined in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. In that
@@ -130,8 +142,9 @@ dTOR normative-fiber formal permutation = B_DTOR and D_DTOR complete at B=10000,
 dTOR normative-fiber formal bootstrap = B_DTOR and D_DTOR complete at B=10000, seed=42
 dTOR normative-fiber formal jitter = B_DTOR and D_DTOR complete at B=1000, seed=42, FWHM=2 mm
 dTOR normative-fiber OSS = not_run_missing_oss_inputs
-dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation
-dTOR normative-fiber OSS parameter preflight = B_DTOR and D_DTOR first ready rows parameter_preflight_passed; converter JSON frequency patched from source S frequency
+dTOR normative-fiber OSS sidecar input audit = B_DTOR and D_DTOR ready_for_true_oss_sidecar_generation; B_DTOR oss_n_fibers=3990; D_DTOR oss_n_fibers=2321; parent_n_fibers=11820000
+dTOR normative-fiber OSS parameter preflight = B_DTOR and D_DTOR first ready rows parameter_preflight_passed with propagated oss_fiber_ids_path and frequency patched from source S frequency
+dTOR normative-fiber OSS row-level activation harness = first B_DTOR/D_DTOR rows timeout_or_interrupted at bounded prepareaxonmodel test; no Allocated_axons or pathway files written
 normative-fiber basic density and connected-region label caches = B_PPMI, B_MGH, B_DTOR, D_PPMI, and D_DTOR complete
 normative-fiber FDR/enrichment caches = B_DTOR and D_DTOR complete at B=10000; observed robustness rows remain definition_documented_cache_not_generated
 normative-fiber OSS remains not run due missing inputs
@@ -203,8 +216,8 @@ Current dTOR normative-fiber OSS sidecar input audit snapshot:
 
 ```text
 output root = /Volumes/VAL/STNSNr/summary/four_model_execution/normative_fiber_oss_sidecar_worklist/
-B_DTOR: ready_for_true_oss_sidecar_generation; 32/32 side rows have source files
-D_DTOR: ready_for_true_oss_sidecar_generation; 32/32 side rows have source files; 6 rows recovered from derivatives for SNr003 L/R, SNr006 L/R, and SNr007 L/R
+B_DTOR: ready_for_true_oss_sidecar_generation; 32/32 side rows have source files; oss_n_fibers = 3990; parent_n_fibers = 11820000
+D_DTOR: ready_for_true_oss_sidecar_generation; 32/32 side rows have source files; 6 rows recovered from derivatives for SNr003 L/R, SNr006 L/R, and SNr007 L/R; oss_n_fibers = 2321; parent_n_fibers = 11820000
 sidecar files remain absent, so oss_sensitivity_status remains not_run_missing_oss_inputs
 ```
 
