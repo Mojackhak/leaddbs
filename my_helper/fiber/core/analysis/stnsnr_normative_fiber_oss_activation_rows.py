@@ -267,7 +267,7 @@ def _prepare_filtered_runtime(
     source_stimulation_folder = Path(original_settings["StimulationFolder"]).expanduser().resolve()
     filtered_stimulation_folder = row_dir / "filtered_stimulation_folder"
     if filtered_stimulation_folder.exists():
-        shutil.rmtree(filtered_stimulation_folder)
+        shutil.rmtree(filtered_stimulation_folder, ignore_errors=True)
     _copy_root_files(source_stimulation_folder, filtered_stimulation_folder)
     filtered_parameter_file = filtered_stimulation_folder / original_parameter_file.name
     if not filtered_parameter_file.is_file():
