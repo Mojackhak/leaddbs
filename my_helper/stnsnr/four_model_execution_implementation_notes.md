@@ -8,6 +8,7 @@ The future configuration and orchestration contract is documented in:
 
 ```text
 my_helper/stnsnr/four_model_yaml_core_refactor_plan.md
+my_helper/stnsnr/four_model_yaml_core_refactor_implementation_plan.md
 ```
 
 Current status:

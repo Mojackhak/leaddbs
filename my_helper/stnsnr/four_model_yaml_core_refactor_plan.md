@@ -6,6 +6,8 @@
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Parent goal.** `my_helper/stnsnr/four_model_execution_plan.md`
 > **Authoritative model specs.** `my_helper/stnsnr/model_summaries/`
+> **Detailed implementation plan.**
+> `my_helper/stnsnr/four_model_yaml_core_refactor_implementation_plan.md`
 > **Current branch.** `stnvop`
 > **Status.** `design_documented`; `implementation_not_started`;
 > `current_outputs_unchanged`; `current_legacy_entrypoints_remain_active`.
@@ -746,6 +748,8 @@ must not silently overwrite incompatible legacy/current outputs.
 ## Planned Implementation Phases
 
 This section is future work and is not executed by documenting this plan.
+File ownership, test-first steps, commands, commits, and completion evidence are
+specified in `four_model_yaml_core_refactor_implementation_plan.md`.
 
 1. Implement JSON Schemas, YAML loaders, and typed profile objects.
 2. Implement the endpoint catalog and scale/phase pairing rules.
