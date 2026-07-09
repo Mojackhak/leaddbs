@@ -337,7 +337,7 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
         )
         assert_equal(
             readiness_by_id["B_DTOR"]["fiber_enrichment_cache_status"],
-            "not_run_missing_enrichment_cache",
+            "definition_documented_cache_not_generated",
             "B enrichment component status",
         )
         assert_equal(
@@ -347,7 +347,7 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
         )
         assert_equal(
             report_by_id["B_DTOR"]["fiber_enrichment_cache_status"],
-            "not_run_missing_enrichment_cache",
+            "definition_documented_cache_not_generated",
             "B final report enrichment component status",
         )
         assert_equal(
@@ -382,7 +382,7 @@ def test_final_reporting_records_unique_final_models_and_missing_fiber_figure_in
         )
         assert_equal(
             readiness_by_id["D_DTOR"]["fiber_fdr_cache_status"],
-            "not_run_missing_fdr_cache",
+            "definition_documented_cache_not_generated",
             "D FDR component status",
         )
         assert_equal(

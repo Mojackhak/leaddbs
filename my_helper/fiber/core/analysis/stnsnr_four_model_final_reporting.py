@@ -44,6 +44,7 @@ FIBER_FDR_CACHE_PATTERNS = [
 FIBER_ENRICHMENT_CACHE_PATTERNS = [
     "*enrichment*",
 ]
+DOCUMENTED_CACHE_NOT_GENERATED_STATUS = "definition_documented_cache_not_generated"
 
 
 def index_by_model_id(rows: list[dict[str, str]]) -> dict[str, dict[str, str]]:
@@ -185,10 +186,12 @@ def fiber_density_readiness(manifest_path: str, density_cache_roots: list[Path])
         "fiber_basic_density_cache_paths": ";".join(str(path) for path in density_caches),
         "fiber_label_cache_status": "ready_from_existing_label_cache" if label_caches else "not_run_missing_label_cache",
         "fiber_label_cache_paths": ";".join(str(path) for path in label_caches),
-        "fiber_fdr_cache_status": "ready_from_existing_fdr_cache" if fdr_caches else "not_run_missing_fdr_cache",
+        "fiber_fdr_cache_status": (
+            "ready_from_existing_fdr_cache" if fdr_caches else DOCUMENTED_CACHE_NOT_GENERATED_STATUS
+        ),
         "fiber_fdr_cache_paths": ";".join(str(path) for path in fdr_caches),
         "fiber_enrichment_cache_status": (
-            "ready_from_existing_enrichment_cache" if enrichment_caches else "not_run_missing_enrichment_cache"
+            "ready_from_existing_enrichment_cache" if enrichment_caches else DOCUMENTED_CACHE_NOT_GENERATED_STATUS
         ),
         "fiber_enrichment_cache_paths": ";".join(str(path) for path in enrichment_caches),
     }

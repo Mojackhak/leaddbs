@@ -132,8 +132,8 @@ def test_completion_audit_classifies_finished_observed_and_blocked_rows() -> Non
                     "fiber_density_label_cache_status": "ready_from_existing_density_label_cache_missing_fdr_enrichment",
                     "fiber_basic_density_cache_status": "ready_from_existing_basic_density_cache",
                     "fiber_label_cache_status": "ready_from_existing_label_cache",
-                    "fiber_fdr_cache_status": "not_run_missing_fdr_cache",
-                    "fiber_enrichment_cache_status": "not_run_missing_enrichment_cache",
+                    "fiber_fdr_cache_status": "definition_documented_cache_not_generated",
+                    "fiber_enrichment_cache_status": "definition_documented_cache_not_generated",
                 },
             ],
         )

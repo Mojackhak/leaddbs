@@ -11,6 +11,14 @@ from stnsnr_four_model_final_reporting import FORMAL_ROOT, count_by, index_by_mo
 from stnsnr_io import MANIFEST_AUDIT_FIELDS, iso_now, read_csv, write_csv, write_json
 
 
+FDR_CACHE_MISSING_STATUSES = {
+    "not_run_missing_fdr_cache",
+    "definition_documented_cache_not_generated",
+}
+ENRICHMENT_CACHE_MISSING_STATUSES = {
+    "not_run_missing_enrichment_cache",
+    "definition_documented_cache_not_generated",
+}
 COMPLETION_FIELDS = [
     "model_id",
     "model",
@@ -78,7 +86,7 @@ def classify_completion(
     if (
         formal_target == "READY_FOR_FORMAL_RESAMPLING"
         and (
-            figure_fdr_status == "not_run_missing_fdr_cache"
+            figure_fdr_status in FDR_CACHE_MISSING_STATUSES
             or (
                 not figure_fdr_status
                 and (
@@ -92,7 +100,7 @@ def classify_completion(
     if (
         formal_target == "READY_FOR_FORMAL_RESAMPLING"
         and (
-            figure_enrichment_status == "not_run_missing_enrichment_cache"
+            figure_enrichment_status in ENRICHMENT_CACHE_MISSING_STATUSES
             or (
                 not figure_enrichment_status
                 and (
