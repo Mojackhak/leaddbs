@@ -76,6 +76,15 @@ For ULF alternating-program rows, if the generation manifest has an empty ULF
 the derivatives tree, the audit may recover that source path and must label the
 row `recovered_derivatives_ulf_alt_snr`.
 
+The existing Lead-DBS `sub-*_desc-stimparameters.mat` files are not themselves
+valid `leaddbs2ossdbs` input dictionaries. A converter smoke test showed that
+the OSS-DBSv2 converter expects an HDF5/v7.3 MAT file containing a top-level
+`settings` object, not only the Lead-DBS `S` stimulation structure. Therefore the
+true sidecar generator must first run the Lead-DBS MATLAB OSS preparation path
+(`ea_prepare_ossdbs` / `ea_save_ossdbs_settings`, or an equivalent batch wrapper)
+to create the OSS parameter dictionary before calling `leaddbs2ossdbs`, `ossdbs`,
+and `run_pathway_activation`.
+
 ## Model Role
 
 OSS/pPAM does not alter:

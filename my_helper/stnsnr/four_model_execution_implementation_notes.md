@@ -167,6 +167,14 @@ It must not create `X_oss_float32_fiber_major.npy`, alter
 `oss_sensitivity_status`, or substitute for the true OSS/pPAM activation
 runner.
 
+An OSS converter smoke test found that existing
+`sub-*_desc-stimparameters.mat` files cannot be passed directly to
+`leaddbs2ossdbs`: the files are classic MAT files containing `S`, while
+OSS-DBSv2 expects an HDF5/v7.3 dictionary with top-level `settings`. The next
+implementation layer therefore needs a MATLAB-side Lead-DBS OSS preparation
+wrapper that writes the expected parameter dictionary before the OSS-DBSv2
+command-line tools can run.
+
 The consolidated status manifest records git provenance for the worktree that
 generated the status refresh, including branch, HEAD commit, and dirty files.
 Each status CSV row also records whether its referenced `latest_manifest`
