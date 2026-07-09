@@ -33,12 +33,13 @@ jitter QC.
 The OSS / pPAM sidecar generation contract is now documented in
 `my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. It defines the
 canonical sidecar as continuous pPAM `X_oss_float32_fiber_major.npy` over the
-final dTOR branch `fiber_ids.npy`, with right-canonical columns,
-left-to-right activation mapping, `max_probability_union`, verified modeled
-frequency, and separate manifest/metadata JSON files. This is an input
-readiness contract only; the downstream OSS sensitivity runner still has to
-compute OSS weights, scores, LOOCV predictions, smoke permutation, and plain
-activation controls.
+selected-source tau/Coverage candidate fiber id order, with right-canonical
+columns, left-to-right activation mapping, `max_probability_union`, verified
+modeled frequency, and separate manifest/metadata JSON files. A parent raw
+`fiber_ids.npy` that stores the full atlas or exposure id universe is not the
+OSS column contract. This is an input readiness contract only; the downstream
+OSS sensitivity runner still has to compute OSS weights, scores, LOOCV
+predictions, smoke permutation, and plain activation controls.
 
 2026-07-07 density/label-cache update: the normative-fiber density and
 connected-region label caches now default to all `analysis_family =
@@ -217,6 +218,16 @@ CPU-bound for about 50 minutes while reading the dTOR `data2.mat`, generated no
 confirms that full OSS sidecar generation should remain resumable and
 row-status driven, with explicit long-running/interrupted states, rather than
 being treated as an interactive smoke command.
+
+The 2026-07-09 candidate-universe audit found that B_DTOR has 3,990
+selected-source candidate fibers and D_DTOR has 2,321, while the parent dTOR
+exposure `fiber_ids.npy` has 11,820,000 IDs. The OSS worklist must therefore
+propagate `oss_fiber_ids` from the selected-source weights table, not from the
+parent exposure id universe. Directly filtering left-hemisphere `data2.mat` by
+right-canonical candidate IDs is not safe: the left OSS connectome's stored
+fiber IDs are not a direct one-to-one match to the right-canonical IDs. A future
+filtered-pathway implementation must use an explicit left-to-right homologous
+fiber-id mapping before replacing full dTOR `data*.mat` files.
 
 The OSS worklist and sensitivity-readiness layers must resolve ULF
 selected-source output locations from the actual shared exposure preprocess

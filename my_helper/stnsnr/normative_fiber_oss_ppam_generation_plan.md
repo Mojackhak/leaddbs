@@ -75,6 +75,11 @@ candidate fiber id order, required sidecar paths, and source stimulation paths
 that must be passed to the true OSS/pPAM execution layer. A branch can proceed to actual
 OSS sidecar generation only when this audit reports complete subject coverage,
 existing source stimulation inputs, and no pre-existing invalid sidecar files.
+The audit writes workflow-local `candidate_fiber_ids/<MODEL>_oss_fiber_ids.npy`
+files derived from the selected-source weights table. These files define the
+OSS candidate column order for downstream preflight and row-level activation
+bookkeeping, but they are not final branch OSS sidecars and do not by themselves
+make the branch `ready_for_oss_sensitivity`.
 For ULF alternating-program rows, if the generation manifest has an empty ULF
 `source_paths` entry but the corresponding
 `stnsnr_vta_<subject>_3m_STNplusSNr_alt_<side>_SNr_*` e-field folder exists in

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,49 @@ def _read_fiber_id_count(path: Path) -> tuple[int, str]:
     if arr.ndim != 1:
         return int(arr.shape[0]), "invalid_ndim"
     return int(arr.shape[0]), "ok"
+
+
+def _array_sha256(values: np.ndarray) -> str:
+    arr = np.ascontiguousarray(values)
+    digest = hashlib.sha256()
+    digest.update(str(arr.dtype).encode("utf-8"))
+    digest.update(str(arr.shape).encode("utf-8"))
+    digest.update(arr.view(np.uint8))
+    return digest.hexdigest()
+
+
+def _is_truthy(value: str) -> bool:
+    return str(value).strip().lower() in {"true", "1", "yes", "y"}
+
+
+def _candidate_fiber_ids_from_weights(path: Path) -> tuple[np.ndarray, str]:
+    if not path.is_file():
+        return np.asarray([], dtype=np.int64), "missing_weights_csv"
+    rows = _read_csv_rows(path)
+    if not rows:
+        return np.asarray([], dtype=np.int64), "empty_weights_csv"
+    if "fiber_id" not in rows[0]:
+        return np.asarray([], dtype=np.int64), "invalid_weights_missing_fiber_id"
+    use_candidate_flag = "is_candidate" in rows[0]
+    ids: list[int] = []
+    for row in rows:
+        if use_candidate_flag and not _is_truthy(row.get("is_candidate", "")):
+            continue
+        value = str(row.get("fiber_id", "")).strip()
+        if not value:
+            continue
+        ids.append(int(float(value)))
+    if not ids:
+        return np.asarray([], dtype=np.int64), "empty_candidate_ids"
+    return np.asarray(ids, dtype=np.int64), "ok"
+
+
+def _write_oss_fiber_ids(path: Path, candidate_ids: np.ndarray) -> tuple[str, str]:
+    if candidate_ids.size == 0:
+        return "", ""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(path, np.asarray(candidate_ids, dtype=np.int64))
+    return str(path), _array_sha256(candidate_ids)
 
 
 def _sidecar_preprocess_dir(target: NormativeFiberTarget, manifest: dict[str, Any]) -> Path:
@@ -150,8 +194,10 @@ def _target_audit_status(
     return "ready_for_true_oss_sidecar_generation"
 
 
-def audit_target(target: NormativeFiberTarget) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def audit_target(target: NormativeFiberTarget, candidate_id_output_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     manifest = _load_json(target.manifest_path)
+    outputs = manifest.get("outputs", {})
+    weights_csv = Path(outputs.get("weights_csv", target.branch_dir / "missing_weights.csv")).expanduser().resolve()
     subject_order = _subject_order_from_scores(target.scores_csv)
     source_component, frequency_class, source_rows = _source_rows_for_target(target, manifest)
     source_subjects = _row_subjects(source_rows)
@@ -161,9 +207,16 @@ def audit_target(target: NormativeFiberTarget) -> tuple[dict[str, Any], list[dic
     sidecar_existing = [str(path) for path in required_sidecars if path.is_file()]
     sidecar_missing = [str(path) for path in required_sidecars if not path.is_file()]
 
-    candidate_input_paths = [target.x_path, target.fiber_ids_path, target.scores_csv]
+    candidate_input_paths = [target.x_path, target.fiber_ids_path, target.scores_csv, weights_csv]
     candidate_input_missing = [str(path) for path in candidate_input_paths if not path.is_file()]
-    n_fibers, fiber_id_status = _read_fiber_id_count(target.fiber_ids_path)
+    parent_n_fibers, parent_fiber_id_status = _read_fiber_id_count(target.fiber_ids_path)
+    oss_candidate_ids, oss_fiber_id_status = _candidate_fiber_ids_from_weights(weights_csv)
+    oss_fiber_ids_path, oss_fiber_ids_hash = _write_oss_fiber_ids(
+        candidate_id_output_dir / f"{target.model_id}_oss_fiber_ids.npy",
+        oss_candidate_ids,
+    )
+    if oss_fiber_id_status != "ok":
+        candidate_input_missing.append(str(weights_csv))
 
     worklist_rows: list[dict[str, Any]] = []
     derivatives_root = _derivatives_root(manifest)
@@ -198,6 +251,13 @@ def audit_target(target: NormativeFiberTarget) -> tuple[dict[str, Any], list[dic
                 "required_x_oss_path": str(required_sidecars[0]),
                 "required_oss_parameter_manifest": str(required_sidecars[1]),
                 "required_oss_activation_metadata": str(required_sidecars[2]),
+                "oss_fiber_ids_path": oss_fiber_ids_path,
+                "oss_n_fibers": int(oss_candidate_ids.size),
+                "oss_fiber_ids_hash": oss_fiber_ids_hash,
+                "oss_fiber_id_status": oss_fiber_id_status,
+                "parent_fiber_ids_path": str(target.fiber_ids_path),
+                "parent_n_fibers": parent_n_fibers,
+                "parent_fiber_id_status": parent_fiber_id_status,
             }
         )
 
@@ -217,6 +277,7 @@ def audit_target(target: NormativeFiberTarget) -> tuple[dict[str, Any], list[dic
         "scores_csv": str(target.scores_csv),
         "n_subjects": len(subject_order),
         "subject_order": ";".join(subject_order),
+        "weights_csv": str(weights_csv),
         "n_subjects_with_source_rows": len(source_subjects),
         "missing_subject_source_rows": ";".join(missing_subjects),
         "n_side_rows": len(worklist_rows),
@@ -225,9 +286,13 @@ def audit_target(target: NormativeFiberTarget) -> tuple[dict[str, Any], list[dic
         "n_missing_source_file_side_rows": sum(1 for row in worklist_rows if row["side_input_status"] == "missing_source_files"),
         "n_recovered_source_path_side_rows": sum(1 for row in worklist_rows if "recovered_derivatives_" in row["path_mode"]),
         "candidate_x_path": str(target.x_path),
-        "candidate_fiber_ids_path": str(target.fiber_ids_path),
-        "candidate_n_fibers": n_fibers,
-        "candidate_fiber_id_status": fiber_id_status,
+        "oss_fiber_ids_path": oss_fiber_ids_path,
+        "oss_n_fibers": int(oss_candidate_ids.size),
+        "oss_fiber_ids_hash": oss_fiber_ids_hash,
+        "oss_fiber_id_status": oss_fiber_id_status,
+        "parent_fiber_ids_path": str(target.fiber_ids_path),
+        "parent_n_fibers": parent_n_fibers,
+        "parent_fiber_id_status": parent_fiber_id_status,
         "candidate_input_missing": ";".join(candidate_input_missing),
         "required_output_preprocess_dir": str(sidecar_preprocess_dir),
         "required_sidecar_files": ";".join(str(path) for path in required_sidecars),
@@ -246,16 +311,17 @@ def run_oss_sidecar_worklist(args: argparse.Namespace) -> int:
     if not targets:
         raise RuntimeError("no dTOR normative-fiber OSS sidecar worklist targets found")
 
+    output_dir = Path(args.output_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    candidate_id_output_dir = output_dir / "candidate_fiber_ids"
     audit_rows: list[dict[str, Any]] = []
     worklist_rows: list[dict[str, Any]] = []
     for target in targets:
         print(f"Auditing OSS sidecar inputs for {target.model_id}")
-        audit_row, target_worklist = audit_target(target)
+        audit_row, target_worklist = audit_target(target, candidate_id_output_dir)
         audit_rows.append(audit_row)
         worklist_rows.extend(target_worklist)
 
-    output_dir = Path(args.output_dir).expanduser().resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
     audit_path = output_dir / "normative_fiber_oss_sidecar_input_audit.csv"
     worklist_path = output_dir / "normative_fiber_oss_sidecar_worklist.csv"
     manifest_path = output_dir / "normative_fiber_oss_sidecar_worklist_manifest.json"
