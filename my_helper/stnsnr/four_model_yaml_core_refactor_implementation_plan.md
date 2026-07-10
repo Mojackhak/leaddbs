@@ -456,8 +456,18 @@ class SensitivityRequest:
     delta_hf: DeltaHFBundle | None
     output_root: Path
     selected_tau_multipliers: tuple[float, float]
+    jitter_resamples: int
+    seed: int
+    enabled_ulf_analyses: tuple[str, ...]
+    component_exposures: tuple[ArtifactRef, ...]
+    jitter_input_manifest: ArtifactRef | None
+    matched_hf_final: FinalArtifactRecord | None
+    y_base: ArtifactRef | None
+    hf_overlap_tau: float | None
     rebuild_geometry: bool
     rebuild_delta_hf: bool
+    rebuild_support_qc: bool
+    rebuild_nuisance: bool
 
 @dataclass(frozen=True)
 class FinalLinkedArtifact:
@@ -469,6 +479,15 @@ class FinalLinkedArtifact:
 Every reporting, OSS, jitter, FDR, density, and label artifact must carry the
 same `final_model_id` and final-record hash as its request. Recursive filename
 matches, branch substrings, and global model IDs are invalid provenance.
+
+`jitter_resamples` and `seed` come from the public formal profile. The enabled
+ULF analysis tuple is derived from the public sensitivity switches. Artifact
+references and matched records are immutable runtime inputs with validated
+hashes. `jitter_input_manifest` is mandatory for jitter; ULF jitter also
+requires the matched HF final record and branch-specific `Y_base`. The selected
+HF-overlap tau is carried explicitly whenever ULF exposure must be rebuilt.
+The jitter FWHM remains a fixed internal 2.0 mm method constant and is written
+to the technical manifest.
 
 - [ ] RED: ULF jitter rebuilds geometry, overlap, DeltaHFScore, support, and
   nuisance per jitter; selected source remains fixed.
@@ -482,6 +501,14 @@ matches, branch substrings, and global model IDs are invalid provenance.
 ## Task 13: Legacy Wrapper Migration And Equivalence
 
 - [ ] RED: characterize every legacy wrapper argument/output contract.
+- [ ] Add one production `build_default_service_registry` factory used by the
+  generic CLI. It binds A/B/C/D observed, qualification, formal, sensitivity,
+  OSS, and reporting services from the resolved run context; an empty registry
+  is permitted only when tests inject it explicitly.
+- [ ] Generate ULF component availability as a hash-validated run-local shared
+  sidecar from the configured stimulation table and Lead-DBS derivatives. Both
+  ULF model families reuse that exact artifact. Production configured execution
+  must not discover the latest legacy readiness CSV under a summary directory.
 - [ ] Convert wrappers to typed requests. Generic CLI exposes no scale default or
   candidate threshold; compatibility-only legacy flags remain explicitly labeled.
 - [ ] Run optimized-versus-brute-force and old-versus-new deterministic

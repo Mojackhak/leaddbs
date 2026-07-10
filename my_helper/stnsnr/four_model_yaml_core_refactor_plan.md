@@ -450,6 +450,13 @@ and result, but no public YAML or CLI field exposes them. Smoke or equivalence
 failure blocks the affected implementation path from formal execution; an
 ordinary negative smoke statistic does not alter model classification.
 
+Public sensitivity cells must remain inside their declared scientific grids.
+In particular,
+`normative_fiber.cheap_observed_sensitivity.high_tau_v_per_m` must be a member
+of `normative_fiber.tau_grid_v_per_m`, and its `coverage` must be a member of
+`normative_fiber.coverage_grid`. Configuration validation rejects a profile
+that violates either relation instead of silently extending the resolver grid.
+
 ## Round Coverage Matrix
 
 Parameter classes:
@@ -525,6 +532,17 @@ runtime output   resolver/status/artifact value, never a user selector
 | 8 ULF OSS activation | OSS profile plus final candidate universe | Sensitivity only; component/frequency validation required. |
 | 9 ULF jitter QC | jitter profile plus final branch | Rebuilds component exposure, overlap, DeltaHFScore, and model. |
 | 10 Numeric/display summaries | reporting profile and runtime artifacts | Cannot alter source, prediction, endpoint, or final-model status. |
+
+Final-linked sensitivity requests carry all execution inputs explicitly. They
+include the public formal jitter count and seed, public ULF sensitivity
+switches, immutable component-exposure artifact references, a hashed jitter
+input manifest, the matched HF final record required to rebuild ULF
+DeltaHFScore, branch-specific `Y_base`, and the selected HF-overlap tau when it
+applies. A jitter task must rebuild geometry-dependent exposure, HF overlap,
+DeltaHFScore full/fold values, support QC, and nuisance design; it may not reuse
+the final observed exposure as a surrogate. The fixed jitter FWHM of 2.0 mm is
+an internal method constant and is recorded in the technical manifest rather
+than exposed in public YAML or CLI.
 
 ## CLI Contract
 
@@ -854,6 +872,14 @@ outputs and terminal task status
 Resume may reuse an artifact only when all relevant identities and hashes match.
 `force` creates refreshed task artifacts under the configured run policy; it
 must not silently overwrite incompatible legacy/current outputs.
+
+The production CLI constructs a complete service registry from the resolved
+profiles and current configured run. ULF component availability is generated
+once inside that run from the configured stimulation table and Lead-DBS
+derivatives, recorded with input hashes, and reused by both ULF model families.
+The configured pipeline never selects a legacy readiness artifact by searching
+for a latest summary directory. An empty service registry is a test-injection
+case, not a valid production execution mode.
 
 ## Planned Implementation Phases
 

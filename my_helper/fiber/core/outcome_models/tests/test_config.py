@@ -128,6 +128,26 @@ class ConfigLoadingTests(unittest.TestCase):
             with self.assertRaisesRegex(ConfigurationError, "pre_specified_tau_v_per_m.*tau_grid"):
                 load_resolved_workflow(path, WorkflowOverrides())
 
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_profile_bundle(
+                Path(tmp),
+                mutate=lambda profiles: profiles["model"]["normative_fiber"][
+                    "cheap_observed_sensitivity"
+                ].update({"high_tau_v_per_m": 1750}),
+            )
+            with self.assertRaisesRegex(ConfigurationError, "cheap_observed_sensitivity.*tau_grid"):
+                load_resolved_workflow(path, WorkflowOverrides())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_profile_bundle(
+                Path(tmp),
+                mutate=lambda profiles: profiles["model"]["normative_fiber"][
+                    "cheap_observed_sensitivity"
+                ].update({"coverage": 9}),
+            )
+            with self.assertRaisesRegex(ConfigurationError, "cheap_observed_sensitivity.*coverage_grid"):
+                load_resolved_workflow(path, WorkflowOverrides())
+
     def test_selected_connectomes_must_exist_in_study_and_model_roles(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = write_profile_bundle(

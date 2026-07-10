@@ -335,6 +335,19 @@ def _validate_cross_profile_semantics(documents: Mapping[str, dict[str, Any]]) -
                 f"{family}.pre_specified_coverage must be present in {family}.coverage_grid"
             )
 
+    cheap_sensitivity = model["normative_fiber"]["cheap_observed_sensitivity"]
+    normative_fiber = model["normative_fiber"]
+    if cheap_sensitivity["high_tau_v_per_m"] not in normative_fiber["tau_grid_v_per_m"]:
+        raise ConfigurationError(
+            "normative_fiber.cheap_observed_sensitivity.high_tau_v_per_m must be present in "
+            "normative_fiber.tau_grid_v_per_m"
+        )
+    if cheap_sensitivity["coverage"] not in normative_fiber["coverage_grid"]:
+        raise ConfigurationError(
+            "normative_fiber.cheap_observed_sensitivity.coverage must be present in "
+            "normative_fiber.coverage_grid"
+        )
+
     selected_models = tuple(workflow["selection"]["models"])
     if "all" in selected_models and len(selected_models) != 1:
         raise ConfigurationError("model selector 'all' cannot be combined with specific models")
