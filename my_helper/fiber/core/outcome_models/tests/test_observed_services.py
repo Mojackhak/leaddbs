@@ -70,7 +70,7 @@ class ObservedServiceTests(unittest.TestCase):
             selected_coverage=5,
             adjacent_support=3,
             subject_order=tuple(f"sub-{index:02d}" for index in range(1, 13)),
-            feature_axis=FeatureAxisRef(Path("candidate_flat_indices.npy"), 3, "voxel-sha", "candidate_flat_indices"),
+            feature_axis=FeatureAxisRef(Path("candidate_flat_indices.npy"), 3, "a" * 64, "candidate_flat_indices"),
         )
         direct_runner = CaptureRunner(output)
         with tempfile.TemporaryDirectory() as tmp:
@@ -107,7 +107,7 @@ class ObservedServiceTests(unittest.TestCase):
             selected_coverage=6,
             adjacent_support=4,
             subject_order=tuple(f"sub-{index:02d}" for index in range(1, 13)),
-            feature_axis=FeatureAxisRef(Path("fiber_ids.npy"), 3, "fiber-sha", "data.mat:idx"),
+            feature_axis=FeatureAxisRef(Path("fiber_ids.npy"), 3, "b" * 64, "data.mat:idx"),
         )
         fiber_primary = CaptureRunner(ObservedServiceOutput.empty())
         fiber_resolver = CaptureRunner(output)
@@ -141,7 +141,7 @@ class ObservedServiceTests(unittest.TestCase):
             {
                 "ids_path": "fiber_ids.npy",
                 "count": 3,
-                "sha256": "fiber-sha",
+                "sha256": "b" * 64,
                 "identity_source": "data.mat:idx",
             },
         )

@@ -346,6 +346,44 @@ cap. File existence alone never authorizes reuse.
 
 **Files:** Extend observed services/tests; modify C/D modules behind tests.
 
+```python
+@dataclass(frozen=True)
+class ArtifactRef:
+    task_id: str
+    kind: str
+    relative_path: str
+    sha256: str
+    shape: tuple[int, ...] = ()
+
+@dataclass(frozen=True)
+class HFSourceRecord:
+    resolver_task_id: str
+    endpoint_model_id: str
+    source_status: str
+    prediction_status: str
+    selected_tau: float | None
+    selected_coverage: int | None
+    subject_order: tuple[str, ...]
+    feature_axis: FeatureAxisRef | None
+    artifacts: tuple[ArtifactRef, ...]
+    record_hash: str
+
+@dataclass(frozen=True)
+class DeltaHFBundle:
+    input_status: str
+    support_status: str
+    selected_hf_tau: float | None
+    selected_hf_coverage: int | None
+    full_scores: ArtifactRef | None
+    fold_scores: ArtifactRef | None
+    support_rows: ArtifactRef | None
+```
+
+`DeltaHFBundle.input_status` is successful for both `adequate` and `limited`
+support, with the limitation retained in `support_status`; extreme
+out-of-support or missing/full/fold artifacts are invalid. Adjusted nuisance
+always consumes both the full-score vector and fold-by-subject score matrix.
+
 - [ ] RED: C/D consume immutable matched `HFSourceRecord`, never global status;
   overlap and DeltaHFScore share selected HF tau; absent HF runs no-delta only;
   DeltaHF failure affects adjusted only; D never writes a mislabeled adjusted

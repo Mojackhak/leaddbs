@@ -10,23 +10,8 @@ from ..catalog import CatalogStatus, EndpointRecord
 from ..config import ConnectomeSpec
 from ..executor import RunContext, TaskArtifact, TaskResult, TaskStatus
 from ..planner import TaskSpec
+from ..records import FeatureAxisRef
 from ..state import ACCEPTED_SOURCE_STATUSES
-
-
-@dataclass(frozen=True)
-class FeatureAxisRef:
-    ids_path: Path
-    count: int
-    sha256: str
-    identity_source: str
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "ids_path": str(self.ids_path),
-            "count": int(self.count),
-            "sha256": self.sha256,
-            "identity_source": self.identity_source,
-        }
 
 
 @dataclass(frozen=True)
