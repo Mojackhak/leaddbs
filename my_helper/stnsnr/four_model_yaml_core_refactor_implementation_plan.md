@@ -398,6 +398,23 @@ always consumes both the full-score vector and fold-by-subject score matrix.
 **Files:** Create `services/formal.py` and formal service tests; modify target
 discovery/readiness and kernels only where characterized hard-coding fails.
 
+```python
+@dataclass(frozen=True)
+class FormalRequest:
+    task: TaskSpec
+    final: FinalArtifactRecord
+    output_root: Path
+    permutations: int
+    bootstraps: int
+    seed: int
+```
+
+The request's `final.nuisance` is authoritative. `delta_hf_adjusted` always
+loads both full and fold-specific DeltaHFScore artifacts identified by the
+matching `DeltaHFBundle`; `no_delta_hf` never discovers or injects Delta by
+filename. Formal output facts may report inference status but cannot emit new
+source/prediction/final classification fields.
+
 - [ ] RED: targets use immutable final records, selected tau/Coverage, final
   branch manifest, and branch-specific nuisance columns including DeltaHFScore.
 - [ ] Assert one formal target per endpoint, PPMI/MGH robustness-only, local
