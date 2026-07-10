@@ -17,6 +17,7 @@ from .connectome import ConnectomeAdapter, open_connectome
 from .engine import compute_memberships
 from .errors import ArtifactError, ConfigurationError, ConnectomeError
 from .identity import sha256_file
+from .atlas import discover_targets
 from .models import (
     ConnectivityConfig,
     ConnectivityRunResult,
@@ -24,6 +25,36 @@ from .models import (
 )
 from .roi import resolve_atlas, resolve_seed
 from .statistics import compute_statistics
+
+
+class ResolutionCache:
+    """Exact-process cache for unchanged read-only seed and atlas resolution."""
+
+    def __init__(self) -> None:
+        self._seeds: dict[tuple[Any, ...], Any] = {}
+        self._atlases: dict[tuple[Any, ...], Any] = {}
+
+    @staticmethod
+    def _file_state(path: Path) -> tuple[str, int, int]:
+        resolved = path.expanduser().resolve()
+        stat = resolved.stat()
+        return str(resolved), stat.st_size, stat.st_mtime_ns
+
+    def resolve_seed(self, path: Path | str, config: ConnectivityConfig):
+        source = Path(path)
+        key = (*self._file_state(source), config.configuration_hash)
+        if key not in self._seeds:
+            self._seeds[key] = resolve_seed(source, config)
+        return self._seeds[key]
+
+    def resolve_atlas(self, root: Path | str, config: ConnectivityConfig):
+        atlas_root = Path(root).expanduser().resolve()
+        sources = discover_targets(atlas_root)
+        source_state = tuple(self._file_state(source.path) for source in sources)
+        key = (str(atlas_root), source_state, config.configuration_hash)
+        if key not in self._atlases:
+            self._atlases[key] = resolve_atlas(atlas_root, config)
+        return self._atlases[key]
 
 
 def _resolve_config(config: ConnectivityConfig | Mapping[str, Any] | Path | str) -> ConnectivityConfig:
@@ -50,11 +81,16 @@ def validate_inputs(
     seed_roi: Path | str,
     connectome: ConnectomeAdapter | Path | str,
     config: ConnectivityConfig | Mapping[str, Any] | Path | str,
+    resolution_cache: ResolutionCache | None = None,
 ) -> ValidationReport:
     """Resolve all inputs without traversing full connectome geometry."""
     resolved_config = _resolve_config(config)
-    resolved_seed = resolve_seed(seed_roi, resolved_config)
-    resolved_atlas = resolve_atlas(target_atlas_root, resolved_config)
+    if resolution_cache is None:
+        resolved_seed = resolve_seed(seed_roi, resolved_config)
+        resolved_atlas = resolve_atlas(target_atlas_root, resolved_config)
+    else:
+        resolved_seed = resolution_cache.resolve_seed(seed_roi, resolved_config)
+        resolved_atlas = resolution_cache.resolve_atlas(target_atlas_root, resolved_config)
     adapter = _resolve_connectome(connectome)
     metadata = adapter.metadata
     n_empty = sum(target.status == "empty_after_threshold" for target in resolved_atlas.targets)
@@ -80,6 +116,7 @@ def compute_seed_target_statistics(
     output_root: Path | str,
     cache_root: Path | str | None = None,
     code_provenance: Mapping[str, Any] | None = None,
+    resolution_cache: ResolutionCache | None = None,
 ) -> ConnectivityRunResult:
     """Compute target-wise statistics and publish one immutable run."""
     validation = validate_inputs(
@@ -87,6 +124,7 @@ def compute_seed_target_statistics(
         seed_roi=seed_roi,
         connectome=connectome,
         config=config,
+        resolution_cache=resolution_cache,
     )
     output = Path(output_root).expanduser().resolve()
     resolved_cache_root = (

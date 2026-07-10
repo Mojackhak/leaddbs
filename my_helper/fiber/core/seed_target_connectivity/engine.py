@@ -70,8 +70,10 @@ def compute_memberships(
         raise MembershipError("target membership cache order does not match resolved atlas order")
 
     if seed_ids is None or target_membership is None:
-        seed_lookup = build_sparse_lookup([seed]) if seed_ids is None else None
-        target_lookup = build_sparse_lookup(atlas.targets) if target_membership is None else None
+        combine_missing = seed_ids is None and target_membership is None
+        combined_lookup = build_sparse_lookup([seed, *atlas.targets]) if combine_missing else None
+        seed_lookup = build_sparse_lookup([seed]) if seed_ids is None and not combine_missing else None
+        target_lookup = build_sparse_lookup(atlas.targets) if target_membership is None and not combine_missing else None
         seed_parts: list[np.ndarray] = []
         target_parts: list[list[np.ndarray]] = [list() for _ in atlas.targets]
         seen_fibers = 0
@@ -82,11 +84,20 @@ def compute_memberships(
                 raise MembershipError("connectome adapter yielded duplicate or invalid canonical fiber IDs")
             ordered_id_digest.update(np.asarray(chunk_ids, dtype="<i8").tobytes())
             seen_fibers += int(chunk_ids.size)
-            if seed_lookup is not None:
+            if combined_lookup is not None:
+                combined_hits = optimized_membership(chunk, combined_lookup)
+                seed_hits = combined_hits[:, 0]
+                if np.any(seed_hits):
+                    seed_parts.append(chunk_ids[seed_hits].copy())
+                for target_index in range(len(atlas.targets)):
+                    hits = combined_hits[:, target_index + 1]
+                    if np.any(hits):
+                        target_parts[target_index].append(chunk_ids[hits].copy())
+            elif seed_lookup is not None:
                 seed_hits = optimized_membership(chunk, seed_lookup)[:, 0]
                 if np.any(seed_hits):
                     seed_parts.append(chunk_ids[seed_hits].copy())
-            if target_lookup is not None:
+            if combined_lookup is None and target_lookup is not None:
                 target_hits = optimized_membership(chunk, target_lookup)
                 for target_index in range(len(atlas.targets)):
                     hits = target_hits[:, target_index]

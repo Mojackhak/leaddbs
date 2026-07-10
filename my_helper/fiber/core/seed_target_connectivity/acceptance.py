@@ -17,7 +17,7 @@ from .config import resolve_config
 from .connectome import LeadDBSHDF5Connectome, open_connectome
 from .errors import AcceptanceError
 from .models import ConnectivityConfig, ConnectivityRunResult, FiberChunk
-from .pipeline import compute_seed_target_statistics
+from .pipeline import ResolutionCache, compute_seed_target_statistics
 from .traversal import build_sparse_lookup, optimized_membership, reference_membership
 
 
@@ -222,6 +222,7 @@ def run_acceptance_fixture(
     if not isinstance(adapter, LeadDBSHDF5Connectome):
         raise AcceptanceError("acceptance sampling requires the Lead-DBS HDF5 adapter")
     code_provenance = collect_code_provenance()
+    resolution_cache = ResolutionCache()
     first_results: list[ConnectivityRunResult] = []
     for seed in fixture.seeds:
         first_results.append(
@@ -232,6 +233,7 @@ def run_acceptance_fixture(
                 config=fixture.config,
                 output_root=output,
                 code_provenance=code_provenance,
+                resolution_cache=resolution_cache,
             )
         )
     repeated_results: list[ConnectivityRunResult] = []
@@ -244,6 +246,7 @@ def run_acceptance_fixture(
                 config=fixture.config,
                 output_root=output,
                 code_provenance=code_provenance,
+                resolution_cache=resolution_cache,
             )
         )
 

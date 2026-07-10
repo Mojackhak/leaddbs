@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -18,6 +19,7 @@ from my_helper.fiber.core.seed_target_connectivity.tests.helpers import (
     resolved_atlas,
     resolved_mask,
 )
+from my_helper.fiber.core.seed_target_connectivity.traversal import optimized_membership
 
 
 class MembershipStatisticsTests(unittest.TestCase):
@@ -77,6 +79,21 @@ class MembershipStatisticsTests(unittest.TestCase):
         self.assertEqual(by_id["b"].connectivity_lift, 1.0)
         self.assertEqual(by_id["b"].connectivity_pmi, 0.0)
         self.assertEqual(by_id["b"].rank, 2)
+
+    def test_missing_seed_and_target_caches_share_one_traversal_per_chunk(self) -> None:
+        adapter = RecordingAdapter(self.streamlines)
+        with patch(
+            "my_helper.fiber.core.seed_target_connectivity.engine.optimized_membership",
+            wraps=optimized_membership,
+        ) as traversed:
+            compute_memberships(
+                adapter,
+                self.seed,
+                self.atlas,
+                self._config(chunk_size=2, cache=False),
+            )
+
+        self.assertEqual(traversed.call_count, 2)
 
     def test_zero_background_and_empty_target_semantics_are_explicit(self) -> None:
         membership = compute_memberships(

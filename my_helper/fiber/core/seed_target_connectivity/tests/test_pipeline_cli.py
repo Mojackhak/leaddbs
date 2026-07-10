@@ -8,16 +8,19 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
 from my_helper.fiber.core.seed_target_connectivity import compute_seed_target_statistics
 from my_helper.fiber.core.seed_target_connectivity.config import resolve_config
 from my_helper.fiber.core.seed_target_connectivity.pipeline import (
+    ResolutionCache,
     inspect_run_status,
     list_run_artifacts,
     validate_inputs,
 )
+from my_helper.fiber.core.seed_target_connectivity import pipeline
 from my_helper.fiber.core.seed_target_connectivity.tests.helpers import (
     RecordingAdapter,
     line,
@@ -86,6 +89,28 @@ class PipelineAPITests(unittest.TestCase):
         self.assertEqual(inspect_run_status(result.artifacts.run_dir)["status"], "complete")
         self.assertEqual(len(list_run_artifacts(result.artifacts.run_dir)), 9)
         self.assertTrue((self.root / "output" / "membership_cache").is_dir())
+
+    def test_resolution_cache_reuses_unchanged_atlas_across_public_calls(self) -> None:
+        second_seed = self.root / "second_seed.nii.gz"
+        second_seed.write_bytes(self.seed_path.read_bytes())
+        cache = ResolutionCache()
+        with patch.object(pipeline, "resolve_atlas", wraps=pipeline.resolve_atlas) as resolved:
+            validate_inputs(
+                target_atlas_root=self.atlas_root,
+                seed_roi=self.seed_path,
+                connectome=RecordingAdapter(self.streamlines),
+                config=self.config,
+                resolution_cache=cache,
+            )
+            validate_inputs(
+                target_atlas_root=self.atlas_root,
+                seed_roi=second_seed,
+                connectome=RecordingAdapter(self.streamlines),
+                config=self.config,
+                resolution_cache=cache,
+            )
+
+        self.assertEqual(resolved.call_count, 1)
 
 
 class CLITests(unittest.TestCase):
