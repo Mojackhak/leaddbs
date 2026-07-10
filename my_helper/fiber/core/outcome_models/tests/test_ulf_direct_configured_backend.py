@@ -631,6 +631,22 @@ class ULFDirectDeltaBuilderTests(unittest.TestCase):
         self.assertEqual(result.assessment.status, "invalid_no_hfcomponent_coverage")
         self.assertEqual(result.rows[1]["total_suprathreshold_voxels"], 0)
 
+    def test_support_qc_counts_suprathreshold_voxels_outside_hf_candidate_axis(self) -> None:
+        component = np.full((2, 100), 150.0)
+        result = assess_delta_hf_voxel_support(
+            component_exposure=component,
+            full_weights=self._support_weights(10, 10),
+            fold_weights=np.tile(self._support_weights(10, 10), (2, 1)),
+            candidate_indices_in_support=np.arange(10, dtype=np.int64),
+            selected_tau=100.0,
+            subject_order=("s1", "s2"),
+        )
+
+        self.assertEqual(result.assessment.status, "invalid_extreme_out_of_support")
+        self.assertEqual(result.rows[0]["total_suprathreshold_voxels"], 100)
+        self.assertEqual(result.rows[0]["full_in_support_voxels"], 10)
+        self.assertEqual(result.rows[0]["full_out_support_voxels"], 90)
+
     def test_support_qc_fold_fraction_must_be_strictly_greater_than_point_95(self) -> None:
         component = np.full((2, 100), 150.0)
         full = self._support_weights(100, 100)
@@ -726,13 +742,13 @@ class ULFDirectDeltaBuilderTests(unittest.TestCase):
             input_root.mkdir()
             brainmask = input_root / "brainmask.nii.gz"
             nib.save(
-                nib.Nifti1Image(np.ones((11, 1, 1), dtype=np.uint8), np.eye(4)),
+                nib.Nifti1Image(np.ones((12, 1, 1), dtype=np.uint8), np.eye(4)),
                 str(brainmask),
             )
             readiness_rows = []
             for subject in subjects:
                 efield = input_root / f"{subject}_hf_component.nii.gz"
-                values = np.zeros((11, 1, 1), dtype=np.float32)
+                values = np.zeros((12, 1, 1), dtype=np.float32)
                 values[1:, 0, 0] = 300.0
                 nib.save(nib.Nifti1Image(values, np.eye(4)), str(efield))
                 readiness_rows.append(
@@ -806,7 +822,7 @@ class ULFDirectDeltaBuilderTests(unittest.TestCase):
             result = builder(endpoint, source, task, context)
 
             self.assertTrue(result.bundle.valid)
-            self.assertEqual(result.bundle.support_status, "adequate")
+            self.assertEqual(result.bundle.support_status, "limited")
             self.assertEqual(result.bundle.full_scores.shape, (3,))
             self.assertEqual(result.bundle.fold_scores.shape, (3, 3))
             task_root = run_root / "models" / endpoint.endpoint_model_id / "tasks" / task.task_id
@@ -819,6 +835,8 @@ class ULFDirectDeltaBuilderTests(unittest.TestCase):
                 self.assertEqual(artifact_ref.task_id, task.task_id)
                 self.assertEqual(artifact_ref.sha256, _sha256(artifact_path))
                 self.assertTrue(artifact_path.resolve().is_relative_to(task_root))
+            support_rows = pd.read_csv(run_root / result.bundle.support_rows.relative_path)
+            self.assertEqual(set(support_rows["total_suprathreshold_voxels"]), {11})
             np.testing.assert_allclose(np.load(task_root / "full.npy"), [50.0, 50.0, 50.0])
             np.testing.assert_allclose(np.load(task_root / "folds.npy"), np.full((3, 3), 50.0))
             support = pd.read_csv(task_root / "support.csv")

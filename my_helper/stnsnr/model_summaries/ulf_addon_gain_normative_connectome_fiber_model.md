@@ -699,6 +699,8 @@ delta_hfscore_support_status = invalid_no_hfcomponent_exposure
 
 `Nearly completely outside` is therefore a fixed numeric rule (`> 0.95`), not
 a qualitative reviewer judgment.
+The comparison is strict: a value equal to `0.95` does not satisfy this extreme
+subject/fold criterion.
 
 Interpretation:
 

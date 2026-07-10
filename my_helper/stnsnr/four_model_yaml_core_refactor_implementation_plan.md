@@ -259,6 +259,12 @@ def execute_plan(plan: ExecutionPlan, context: RunContext, services: ServiceRegi
   one `<output-root>/configured_model_runs/*/<run-id>` match.
 - [ ] Keep resume/force and prior-run IDs outside the configuration hash; they
   are lineage controls recorded by the run store.
+- [ ] Resume restores every completed task's non-manifest `TaskArtifact` from
+  the run-local artifact index with exact path and SHA-256 validation. This is
+  required when a later task executes after an interrupted run and consumes a
+  completed sidecar. Missing or hash-drifted producer artifacts invalidate
+  reuse and cause that producer task to run again; resume must never reconstruct
+  a completed result with facts but an empty artifact tuple.
 - [ ] GREEN and commit `feat: add configured workflow CLI and executor`.
 
 ## Task 8: Committed v1 And Acceptance Profiles
@@ -488,6 +494,24 @@ requires the matched HF final record and branch-specific `Y_base`. The selected
 HF-overlap tau is carried explicitly whenever ULF exposure must be rebuilt.
 The jitter FWHM remains a fixed internal 2.0 mm method constant and is written
 to the technical manifest.
+
+The run-local jitter manifest uses one of two strict geometry schemas. Direct
+voxel tasks declare `builder = direct_efield_resample_v1`, the final candidate
+XYZ artifact, and endpoint-ordered hashed sampling rows. ULF direct tasks also
+declare HF- and ULF-component rows; finite HF overlap additionally declares the
+matched HF candidate XYZ, the full right-brainmask support XYZ, the matched-HF
+candidate indices in that support, and HF-reference rows. Normative-fiber tasks
+declare `builder = normative_fiber_efield_resample_v1`, the configured
+connectome `data.mat`, and the corresponding endpoint-ordered HF-reference or
+HF/ULF-component sampling rows. Every referenced file carries an exact path and
+SHA-256 digest. The registry derives these entries only from immutable endpoint
+task records and the configured study profile; it never selects a latest legacy
+output.
+
+For DeltaHFScore support rebuilt during jitter, the extreme subject/fold rule
+is strictly `out_support_fraction > 0.95`. Equality at `0.95` does not trigger
+`invalid_extreme_out_of_support` unless another invalid-support criterion is
+met.
 
 - [ ] RED: ULF jitter rebuilds geometry, overlap, DeltaHFScore, support, and
   nuisance per jitter; selected source remains fixed.

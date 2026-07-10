@@ -24,7 +24,14 @@ from stnsnr_four_model_stats import (
 )
 from stnsnr_hf_direct_voxel_smoke import slugify
 from stnsnr_io import iso_now, read_csv, write_csv, write_json
-from stnsnr_ulf_direct_voxel_sensitivity_observed import as_2d_covariates, fit_baseline_prediction
+from stnsnr_ulf_direct_voxel_sensitivity_observed import (
+    _branch_covariates,
+    _configured_delta,
+    _configured_score_columns,
+    _support_diagnostic,
+    as_2d_covariates,
+    fit_baseline_prediction,
+)
 from stnsnr_ulf_normative_fiber_observed import (
     CONNECTOMES,
     ULF_NORM_FIBER_PRIMARY_TAU,
@@ -81,10 +88,17 @@ def compute_observed_fiber_sensitivity_branch(
     min_coverage: int,
     subject_ids: list[str],
     fiber_ids: np.ndarray,
+    fold_covariates: np.ndarray | None = None,
 ) -> dict[str, Any]:
     x = np.asarray(exposure, dtype=np.float32)
     y = np.asarray(outcome, dtype=float)
     cov_full = as_2d_covariates(covariates, y.shape[0])
+    cov_folds = None if fold_covariates is None else np.asarray(fold_covariates, dtype=float)
+    if cov_folds is not None:
+        if cov_folds.ndim == 2:
+            cov_folds = cov_folds[:, :, None]
+        if cov_folds.shape[:2] != (y.shape[0], y.shape[0]):
+            raise ValueError("fold_covariates must be fold-by-subject")
     s_tau = suprathreshold_matrix(x, tau)
     coverage = coverage_from_suprathreshold(s_tau)
     candidate = candidate_mask_from_coverage(coverage, min_coverage)
@@ -122,6 +136,7 @@ def compute_observed_fiber_sensitivity_branch(
     fold_candidate_counts: list[int] = []
     for heldout in range(n_subjects):
         train = np.array([idx for idx in range(n_subjects) if idx != heldout], dtype=int)
+        fold_cov = cov_full if cov_folds is None else cov_folds[heldout]
         coverage_fold = coverage - s_tau[heldout].astype(np.int32)
         candidate_fold = candidate_mask_from_coverage(coverage_fold, min_coverage)
         if not np.any(candidate_fold):
@@ -130,7 +145,7 @@ def compute_observed_fiber_sensitivity_branch(
         rho_fold = partial_spearman_matrix(
             y[train],
             np.asarray(x[train][:, candidate_fold]),
-            cov_full[train] if cov_full.shape[1] else None,
+            fold_cov[train] if fold_cov.shape[1] else None,
         )
         weights_fold = np.full(x.shape[1], np.nan, dtype=np.float32)
         weights_fold[candidate_fold] = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
@@ -138,11 +153,13 @@ def compute_observed_fiber_sensitivity_branch(
         pred, beta = fit_linear_prediction(
             y[train],
             fold_net.net_score[train],
-            cov_full[train] if cov_full.shape[1] else None,
+            fold_cov[train] if fold_cov.shape[1] else None,
             fold_net.net_score[[heldout]],
-            cov_full[[heldout]] if cov_full.shape[1] else None,
+            fold_cov[[heldout]] if fold_cov.shape[1] else None,
         )
-        base_pred, base_beta = fit_baseline_prediction(y[train], cov_full[train], cov_full[[heldout]])
+        base_pred, base_beta = fit_baseline_prediction(
+            y[train], fold_cov[train], fold_cov[[heldout]]
+        )
         loocv_pred[heldout] = pred[0]
         loocv_base_pred[heldout] = base_pred[0]
         row = {
@@ -163,7 +180,7 @@ def compute_observed_fiber_sensitivity_branch(
             "delta_NetULFFiberSensitivityScore": float(beta[1]),
         }
         for cov_idx, name in enumerate(covariate_names):
-            row[name] = float(cov_full[heldout, cov_idx])
+            row[name] = float(fold_cov[heldout, cov_idx])
             row[f"beta_{name}"] = float(beta[2 + cov_idx])
             row[f"baseline_beta_{name}"] = float(base_beta[1 + cov_idx])
         fold_rows.append(row)
@@ -359,6 +376,316 @@ def build_sensitivity_branches(inputs: FiberSensitivityInputs) -> list[dict[str,
             covariate_names=["Y_HF_ref"],
         ),
     ]
+
+
+def _configured_fiber_branch_result(
+    *,
+    name: str,
+    exposure: np.ndarray,
+    outcome: np.ndarray,
+    covariates: np.ndarray | None,
+    fold_covariates: np.ndarray | None,
+    covariate_names: list[str],
+    target: Any,
+    fiber_ids: np.ndarray,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    try:
+        branch = compute_observed_fiber_sensitivity_branch(
+            branch_name=name,
+            exposure=exposure,
+            outcome=outcome,
+            covariates=covariates,
+            fold_covariates=fold_covariates,
+            covariate_names=covariate_names,
+            scale_direction=target.scale_direction,
+            tau=float(target.selected_tau),
+            min_coverage=int(target.selected_coverage),
+            subject_ids=list(target.subject_order),
+            fiber_ids=fiber_ids,
+        )
+    except (RuntimeError, ValueError) as exc:
+        return {"status": "not_computable", "reason": str(exc)}, None
+    return {
+        "status": "complete",
+        "branch": name,
+        "loocv_metrics": branch["metrics"],
+        "n_candidate_fibers": int(branch["n_candidate_fibers"]),
+        "all_predictions_finite": bool(branch["all_predictions_finite"]),
+    }, branch
+
+
+def _fiber_collinearity_diagnostic(
+    target: Any,
+    branch: dict[str, Any] | None,
+    y_hf_ref: np.ndarray,
+    delta_full: np.ndarray | None,
+) -> dict[str, Any]:
+    if target.y_base_path is None:
+        return {"status": "not_computable", "reason": "missing_y_base"}
+    if branch is None:
+        return {"status": "not_computable", "reason": "selected_branch_not_computable"}
+    y_base = np.asarray(np.load(target.y_base_path, mmap_mode="r"), dtype=float)
+    if y_base.shape != y_hf_ref.shape:
+        return {"status": "not_computable", "reason": "y_base_shape_mismatch"}
+    scores = np.asarray(
+        [row["NetULFFiberSensitivityScore"] for row in branch["score_rows"]],
+        dtype=float,
+    )
+    values = [scores, y_hf_ref]
+    names = ["NetULFFiberScore", "Y_HF_ref"]
+    if target.final_branch == "delta_hf_adjusted":
+        if delta_full is None:
+            return {"status": "not_computable", "reason": "missing_delta_hf"}
+        values.append(delta_full)
+        names.append("DeltaHFScore")
+    values.append(y_base)
+    names.append("Y_base")
+    design = np.column_stack(values)
+    if not np.all(np.isfinite(design)):
+        return {"status": "not_computable", "reason": "nonfinite_collinearity_design"}
+    centered = design - np.mean(design, axis=0, keepdims=True)
+    scale = np.std(centered, axis=0, ddof=1)
+    if np.any(scale <= 0):
+        return {"status": "not_computable", "reason": "constant_collinearity_column"}
+    standardized = centered / scale
+    correlations = np.corrcoef(standardized, rowvar=False)
+    off_diagonal = np.abs(correlations[np.triu_indices_from(correlations, k=1)])
+    maximum = float(np.max(off_diagonal)) if off_diagonal.size else 0.0
+    warning = "acceptable" if maximum < 0.85 else "high" if maximum < 0.95 else "severe"
+    return {
+        "status": "complete",
+        "columns": names,
+        "correlation_matrix": correlations.tolist(),
+        "maximum_absolute_pairwise_correlation": maximum,
+        "collinearity_warning": warning,
+        "condition_number": float(np.linalg.cond(standardized)),
+    }
+
+
+def run_configured_additional_sensitivities(
+    target: Any,
+    *,
+    enabled_analyses: tuple[str, ...],
+) -> dict[str, Any]:
+    """Run task-local ULF normative-fiber sensitivity models."""
+    columns = _configured_score_columns(target)
+    y_post = np.asarray(columns["Y_post"], dtype=float)
+    y_hf_ref = np.asarray(columns["Y_HF_ref"], dtype=float)
+    delta_full, delta_folds = _configured_delta(target)
+    selected_exposure = np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32)
+    fiber_ids = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"))
+    total_path = target.component_paths.get("ulf_component_exposure")
+    analyses: dict[str, Any] = {}
+
+    selected_adjusted = target.final_branch == "delta_hf_adjusted"
+    selected_cov, selected_fold_cov, selected_names = _branch_covariates(
+        y_hf_ref,
+        delta_full,
+        delta_folds,
+        adjusted=selected_adjusted,
+    )
+    selected_result, selected_branch = _configured_fiber_branch_result(
+        name=f"selected_{target.final_branch}",
+        exposure=selected_exposure,
+        outcome=y_post,
+        covariates=selected_cov,
+        fold_covariates=selected_fold_cov,
+        covariate_names=selected_names,
+        target=target,
+        fiber_ids=fiber_ids,
+    )
+
+    if "nonfinal_branch" in enabled_analyses:
+        nonfinal_adjusted = not selected_adjusted
+        try:
+            cov, fold_cov, names = _branch_covariates(
+                y_hf_ref,
+                delta_full,
+                delta_folds,
+                adjusted=nonfinal_adjusted,
+            )
+            analyses["nonfinal_branch"], _ = _configured_fiber_branch_result(
+                name=("delta_hf_adjusted" if nonfinal_adjusted else "no_delta_hf"),
+                exposure=selected_exposure,
+                outcome=y_post,
+                covariates=cov,
+                fold_covariates=fold_cov,
+                covariate_names=names,
+                target=target,
+                fiber_ids=fiber_ids,
+            )
+        except RuntimeError as exc:
+            analyses["nonfinal_branch"] = {"status": "not_computable", "reason": str(exc)}
+
+    if "gain" in enabled_analyses:
+        gain = y_hf_ref - y_post if target.scale_direction == "lower" else y_post - y_hf_ref
+        gain_cov = delta_full[:, None] if selected_adjusted and delta_full is not None else None
+        gain_folds = delta_folds[:, :, None] if selected_adjusted and delta_folds is not None else None
+        analyses["gain"], _ = _configured_fiber_branch_result(
+            name="gain_endpoint",
+            exposure=selected_exposure,
+            outcome=gain,
+            covariates=gain_cov,
+            fold_covariates=gain_folds,
+            covariate_names=(["DeltaHFScore"] if gain_cov is not None else []),
+            target=target,
+            fiber_ids=fiber_ids,
+        )
+
+    if "total_exposure" in enabled_analyses:
+        if total_path is None:
+            analyses["total_exposure"] = {
+                "status": "not_computable",
+                "reason": "missing_raw_ulf_component_exposure",
+            }
+        else:
+            analyses["total_exposure"], _ = _configured_fiber_branch_result(
+                name="total_ulf_exposure",
+                exposure=np.asarray(np.load(total_path, mmap_mode="r"), dtype=np.float32),
+                outcome=y_post,
+                covariates=selected_cov,
+                fold_covariates=selected_fold_cov,
+                covariate_names=selected_names,
+                target=target,
+                fiber_ids=fiber_ids,
+            )
+
+    if "support" in enabled_analyses:
+        analyses["support"] = _support_diagnostic(target)
+    if "collinearity" in enabled_analyses:
+        analyses["collinearity"] = _fiber_collinearity_diagnostic(
+            target,
+            selected_branch,
+            y_hf_ref,
+            delta_full,
+        )
+    analyses["selected_branch_reference"] = selected_result
+
+    summary_path = target.output_root / "ulf_normative_fiber_additional_sensitivities.csv"
+    write_csv(
+        summary_path,
+        [
+            {
+                "analysis": name,
+                "status": result.get("status", ""),
+                "reason": result.get("reason", ""),
+            }
+            for name, result in analyses.items()
+        ],
+        ["analysis", "status", "reason"],
+    )
+    return {"status": "complete", "analyses": analyses, "summary_csv": str(summary_path)}
+
+
+def _top_fraction_mean_rows(exposure: np.ndarray, fraction: float = 0.05) -> np.ndarray:
+    x = np.asarray(exposure, dtype=float)
+    count = max(1, int(np.ceil(x.shape[1] * float(fraction))))
+    split = x.shape[1] - count
+    return np.mean(np.partition(x, split, axis=1)[:, split:], axis=1)
+
+
+def run_configured_plain_burden_controls(
+    target: Any,
+    *,
+    enabled_analyses: tuple[str, ...],
+) -> dict[str, Any]:
+    """Compute Round 3 plain/burden controls from raw component exposures."""
+    del enabled_analyses
+    ulf_path = target.component_paths.get("ulf_component_exposure")
+    if ulf_path is None:
+        raise RuntimeError("plain burden controls require raw ulf_component_exposure")
+    ulf = np.asarray(np.load(ulf_path, mmap_mode="r"), dtype=np.float32)
+    hf_path = target.component_paths.get("hf_component_exposure")
+    hf = (
+        np.zeros_like(ulf)
+        if hf_path is None
+        else np.asarray(np.load(hf_path, mmap_mode="r"), dtype=np.float32)
+    )
+    if hf.shape != ulf.shape:
+        raise RuntimeError("plain burden HF and ULF component shapes differ")
+    if target.hf_overlap_tau is None:
+        raise RuntimeError("plain burden controls require hf_overlap_tau")
+    hf_active = (
+        np.zeros_like(hf, dtype=bool)
+        if np.isinf(float(target.hf_overlap_tau))
+        else hf > float(target.hf_overlap_tau)
+    )
+    ulf_active = ulf > float(target.selected_tau)
+    overlap = np.where(ulf_active & hf_active, ulf, 0.0)
+    ulf_only = np.where(ulf_active & ~hf_active, ulf, 0.0)
+    total_sum = np.sum(ulf, axis=1, dtype=np.float64)
+    only_sum = np.sum(ulf_only, axis=1, dtype=np.float64)
+    ratio = np.divide(only_sum, total_sum, out=np.zeros_like(only_sum), where=total_sum > 0)
+    rows = [
+        {
+            "subject_id": subject_id,
+            "PlainULFTotalExposureTop5": float(value_total),
+            "PlainHFComponentExposureTop5": float(value_hf),
+            "PlainHFOverlapExposureTop5": float(value_overlap),
+            "ULFOnlyToTotalULFFraction": float(value_ratio),
+        }
+        for subject_id, value_total, value_hf, value_overlap, value_ratio in zip(
+            target.subject_order,
+            _top_fraction_mean_rows(ulf),
+            _top_fraction_mean_rows(hf),
+            _top_fraction_mean_rows(overlap),
+            ratio,
+            strict=True,
+        )
+    ]
+    path = target.output_root / "ulf_normative_fiber_plain_burden_controls.csv"
+    write_csv(
+        path,
+        rows,
+        [
+            "subject_id",
+            "PlainULFTotalExposureTop5",
+            "PlainHFComponentExposureTop5",
+            "PlainHFOverlapExposureTop5",
+            "ULFOnlyToTotalULFFraction",
+        ],
+    )
+    return {
+        "status": "complete",
+        "n_subjects": len(rows),
+        "control_table": str(path),
+        "ulf_total_top5_mean": float(np.mean([row["PlainULFTotalExposureTop5"] for row in rows])),
+        "ulf_only_to_total_fraction_mean": float(
+            np.mean([row["ULFOnlyToTotalULFFraction"] for row in rows])
+        ),
+    }
+
+
+def run_configured_cheap_observed_sensitivity(
+    target: Any,
+    *,
+    enabled_analyses: tuple[str, ...],
+    tau_multipliers: tuple[float, float],
+) -> dict[str, Any]:
+    """Aggregate all request-defined cheap ULF fiber sensitivity analyses."""
+    additional = run_configured_additional_sensitivities(
+        target,
+        enabled_analyses=enabled_analyses,
+    )
+    controls = run_configured_plain_burden_controls(
+        target,
+        enabled_analyses=enabled_analyses,
+    )
+    return {
+        "status": "complete",
+        "aggregate_definition": "request_defined_ulf_fiber_cheap_observed_v1",
+        "tau_multipliers": [float(value) for value in tau_multipliers],
+        "additional_sensitivities": additional,
+        "plain_burden_controls": controls,
+        "high_tau_top_k_hf_neighbor": {
+            "status": "not_applicable",
+            "reason": (
+                "no separate high-tau, top-k, or HF-neighbor parameters are present "
+                "in the immutable SensitivityRequest"
+            ),
+        },
+        "classification_feedback": "none",
+    }
 
 
 def load_scores_by_subject(scores_csv: Path, subject_ids: list[str], column: str) -> np.ndarray:

@@ -706,6 +706,8 @@ Do not run the DeltaHF-adjusted branch:
 
 `Almost entirely outside` is therefore a fixed numeric rule (`> 0.95`), not a
 qualitative reviewer judgment.
+The comparison is strict: a value equal to `0.95` does not satisfy this extreme
+subject/fold criterion.
 ```
 
 When downgraded, report:

@@ -190,6 +190,590 @@ def _jitter_matrix_for_target(target: DirectVoxelTarget, qc: dict[str, Any], sub
     raise ValueError(f"unsupported direct-voxel jitter target: {target.model_id}")
 
 
+def _configured_neighborhood_exposure(target: Any, tau: float) -> np.ndarray:
+    if not str(target.model_family).startswith("ulf_"):
+        return np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32)
+    try:
+        ulf_path = target.component_paths["ulf_component_exposure"]
+    except KeyError as exc:
+        raise ValueError(
+            "ULF selected-source neighborhood requires raw ulf_component_exposure"
+        ) from exc
+    ulf = np.asarray(np.load(ulf_path, mmap_mode="r"), dtype=np.float32)
+    if target.hf_overlap_tau is None:
+        raise ValueError("ULF selected-source neighborhood requires hf_overlap_tau")
+    if math.isinf(float(target.hf_overlap_tau)):
+        hf_active = np.zeros_like(ulf, dtype=bool)
+    else:
+        try:
+            hf_path = target.component_paths["hf_component_exposure"]
+        except KeyError as exc:
+            raise ValueError(
+                "finite HF overlap requires raw hf_component_exposure"
+            ) from exc
+        hf = np.asarray(np.load(hf_path, mmap_mode="r"), dtype=np.float32)
+        if hf.shape != ulf.shape:
+            raise ValueError("HF and ULF raw component exposure shapes differ")
+        hf_active = hf > float(target.hf_overlap_tau)
+    return np.where((ulf > float(tau)) & ~hf_active, ulf, 0.0).astype(np.float32)
+
+
+def _configured_outcome_and_nuisance(
+    target: Any,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    table = load_subject_table(target.scores_path)
+    subject_column = next(
+        (column for column in table if column.strip().lower() == "subject_id"),
+        None,
+    )
+    if subject_column is None:
+        raise KeyError("configured sensitivity scores are missing subject_id")
+    if tuple(str(value) for value in table[subject_column]) != tuple(target.subject_order):
+        raise ValueError("configured sensitivity score subject order mismatch")
+    y_post = _float_column(table, "Y_post")
+    baseline_column = "Y_base" if target.final_branch == "hf_source" else "Y_HF_ref"
+    baseline = _float_column(table, baseline_column)[:, None]
+    if target.final_branch != "delta_hf_adjusted":
+        return y_post, baseline, None
+    if target.delta_full_path is None or target.delta_fold_path is None:
+        raise ValueError("adjusted neighborhood requires full and fold DeltaHF artifacts")
+    full_delta = np.asarray(np.load(target.delta_full_path, mmap_mode="r"), dtype=float)
+    fold_delta = np.asarray(np.load(target.delta_fold_path, mmap_mode="r"), dtype=float)
+    n_subjects = len(target.subject_order)
+    if full_delta.shape != (n_subjects,) or fold_delta.shape != (n_subjects, n_subjects):
+        raise ValueError("adjusted neighborhood DeltaHF shape mismatch")
+    nuisance = np.column_stack([baseline[:, 0], full_delta])
+    fold_nuisance = np.concatenate(
+        [np.broadcast_to(baseline, (n_subjects, *baseline.shape)), fold_delta[:, :, None]],
+        axis=2,
+    )
+    return y_post, nuisance, fold_nuisance
+
+
+def run_configured_neighborhood_sensitivity(
+    target: Any,
+    *,
+    tau_multipliers: tuple[float, float],
+) -> dict[str, Any]:
+    """Run observed LOOCV at 0.9x and 1.1x of one selected source tau."""
+    y_post, nuisance, fold_nuisance = _configured_outcome_and_nuisance(target)
+    cells: list[dict[str, Any]] = []
+    for multiplier in tau_multipliers:
+        tau = float(target.selected_tau) * float(multiplier)
+        try:
+            exposure = _configured_neighborhood_exposure(target, tau)
+            metrics = direct_voxel_loocv_statistic(
+                x=exposure,
+                y_post=y_post,
+                nuisance=nuisance,
+                fold_nuisance=fold_nuisance,
+                scale_direction=target.scale_direction,
+                tau=tau,
+                min_coverage=int(target.selected_coverage),
+            )
+            cell = {
+                "status": "complete",
+                "tau_multiplier": float(multiplier),
+                "tau_v_per_m": tau,
+                "selected_coverage": int(target.selected_coverage),
+                **metrics,
+            }
+        except (RuntimeError, ValueError) as exc:
+            cell = {
+                "status": "not_computable",
+                "reason": str(exc),
+                "tau_multiplier": float(multiplier),
+                "tau_v_per_m": tau,
+                "selected_coverage": int(target.selected_coverage),
+            }
+        cells.append(cell)
+    summary_path = target.output_root / "direct_voxel_selected_source_neighborhood.csv"
+    fields = sorted({key for cell in cells for key in cell})
+    write_csv(summary_path, cells, fields)
+    return {
+        "status": "complete",
+        "final_model_id": target.final_model_id,
+        "final_record_hash": target.final_record_hash,
+        "selected_tau": float(target.selected_tau),
+        "selected_coverage": int(target.selected_coverage),
+        "cells": cells,
+        "summary_csv": str(summary_path),
+        "classification_feedback": "none",
+    }
+
+
+def _manifest_artifact_path(manifest_path: Path, entry: Any, label: str) -> Path:
+    if not isinstance(entry, dict):
+        raise ValueError(f"jitter geometry requires {label} artifact metadata")
+    path = Path(str(entry.get("path", ""))).expanduser()
+    path = path.resolve() if path.is_absolute() else (manifest_path.parent / path).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"jitter geometry {label} artifact is missing: {path}")
+    expected_sha = str(entry.get("sha256", ""))
+    if len(expected_sha) != 64:
+        raise ValueError(f"jitter geometry {label} requires SHA-256 provenance")
+    import hashlib
+
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    digest = hasher.hexdigest()
+    if digest != expected_sha:
+        raise ValueError(f"jitter geometry {label} SHA-256 mismatch")
+    return path
+
+
+def _validated_sampling_rows(
+    manifest_path: Path,
+    rows: Any,
+    subject_order: tuple[str, ...],
+    label: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(rows, list):
+        raise ValueError(f"jitter geometry requires {label} sampling rows")
+    by_subject: dict[str, dict[str, Any]] = {}
+    validated: list[dict[str, Any]] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            raise ValueError(f"jitter geometry {label} rows must be objects")
+        subject_id = str(raw.get("subject_id", ""))
+        if subject_id in by_subject:
+            raise ValueError(f"duplicate {label} sampling row for {subject_id}")
+        row: dict[str, Any] = {"subject_id": subject_id}
+        for side in ("right", "left_to_right"):
+            entries = raw.get(side, [])
+            if not isinstance(entries, list):
+                raise ValueError(f"{label} {side} entries must be a list")
+            row[side] = [
+                {
+                    "path": str(
+                        _manifest_artifact_path(
+                            manifest_path,
+                            entry,
+                            f"{label}:{subject_id}:{side}",
+                        )
+                    )
+                }
+                for entry in entries
+            ]
+        by_subject[subject_id] = row
+        validated.append(row)
+    if tuple(by_subject) != tuple(subject_order):
+        raise ValueError(f"jitter geometry {label} subject order mismatch")
+    return validated
+
+
+def _sample_component_rows(
+    rows: list[dict[str, Any]],
+    subject_order: tuple[str, ...],
+    xyz: np.ndarray,
+    shifts: dict[tuple[str, str], np.ndarray],
+) -> np.ndarray:
+    by_subject = _qc_rows_by_subject(rows)
+    matrix = np.zeros((len(subject_order), xyz.shape[0]), dtype=np.float32)
+    for index, subject_id in enumerate(subject_order):
+        row = by_subject[subject_id]
+        right = _sample_paths_with_shift(
+            _paths_from_qc(row, "right"),
+            xyz,
+            shifts[(subject_id, "right")],
+        )
+        left = _sample_paths_with_shift(
+            _paths_from_qc(row, "left_to_right"),
+            xyz,
+            shifts[(subject_id, "left_to_right")],
+        )
+        matrix[index] = (right + left) / 2.0
+    return matrix
+
+
+def _default_configured_geometry_builder(
+    target: Any,
+    rng: np.random.Generator,
+    sigma_mm: float,
+) -> dict[str, Any]:
+    manifest = target.jitter_input_manifest
+    if not isinstance(manifest, dict) or target.jitter_input_manifest_path is None:
+        raise ValueError("configured jitter requires a validated jitter input manifest")
+    geometry = manifest.get("geometry")
+    if not isinstance(geometry, dict) or geometry.get("builder") != "direct_efield_resample_v1":
+        raise ValueError("jitter geometry requires builder='direct_efield_resample_v1'")
+    manifest_path = Path(target.jitter_input_manifest_path)
+    final_xyz_path = _manifest_artifact_path(
+        manifest_path,
+        geometry.get("final_candidate_xyz"),
+        "final_candidate_xyz",
+    )
+    final_xyz = np.asarray(np.load(final_xyz_path, mmap_mode="r"), dtype=np.float32)
+    if final_xyz.shape != (len(np.load(target.feature_ids_path, mmap_mode="r")), 3):
+        raise ValueError("final jitter xyz does not match final feature order")
+
+    def shifts() -> dict[tuple[str, str], np.ndarray]:
+        return {
+            (subject_id, side): _jitter_vector(rng, sigma_mm)
+            for subject_id in target.subject_order
+            for side in ("right", "left_to_right")
+        }
+
+    if target.model_family == "hf_voxel":
+        rows = _validated_sampling_rows(
+            manifest_path,
+            geometry.get("hf_reference_sampling_qc"),
+            target.subject_order,
+            "hf_reference",
+        )
+        return {
+            "final_exposure": _sample_component_rows(
+                rows,
+                target.subject_order,
+                final_xyz,
+                shifts(),
+            )
+        }
+
+    hf_rows = _validated_sampling_rows(
+        manifest_path,
+        geometry.get("hf_component_sampling_qc"),
+        target.subject_order,
+        "hf_component",
+    )
+    ulf_rows = _validated_sampling_rows(
+        manifest_path,
+        geometry.get("ulf_component_sampling_qc"),
+        target.subject_order,
+        "ulf_component",
+    )
+    hf_shifts = shifts()
+    ulf_shifts = shifts()
+    result: dict[str, Any] = {
+        "hf_component": _sample_component_rows(
+            hf_rows,
+            target.subject_order,
+            final_xyz,
+            hf_shifts,
+        ),
+        "ulf_component": _sample_component_rows(
+            ulf_rows,
+            target.subject_order,
+            final_xyz,
+            ulf_shifts,
+        ),
+    }
+    if target.hf_overlap_tau is not None and not math.isinf(float(target.hf_overlap_tau)):
+        matched_xyz_path = _manifest_artifact_path(
+            manifest_path,
+            geometry.get("matched_hf_candidate_xyz"),
+            "matched_hf_candidate_xyz",
+        )
+        support_xyz_path = _manifest_artifact_path(
+            manifest_path,
+            geometry.get("hf_support_xyz"),
+            "hf_support_xyz",
+        )
+        matched_indices_path = _manifest_artifact_path(
+            manifest_path,
+            geometry.get("matched_hf_candidate_indices_in_support"),
+            "matched_hf_candidate_indices_in_support",
+        )
+        matched_xyz = np.asarray(np.load(matched_xyz_path, mmap_mode="r"), dtype=np.float32)
+        support_xyz = np.asarray(np.load(support_xyz_path, mmap_mode="r"), dtype=np.float32)
+        matched_indices = np.asarray(np.load(matched_indices_path, mmap_mode="r"), dtype=np.int64)
+        hf_reference_rows = _validated_sampling_rows(
+            manifest_path,
+            geometry.get("hf_reference_sampling_qc"),
+            target.subject_order,
+            "hf_reference",
+        )
+        reference_shifts = shifts()
+        result.update(
+            {
+                "hf_reference": _sample_component_rows(
+                    hf_reference_rows,
+                    target.subject_order,
+                    matched_xyz,
+                    reference_shifts,
+                ),
+                "hf_reprogrammed": _sample_component_rows(
+                    hf_rows,
+                    target.subject_order,
+                    matched_xyz,
+                    hf_shifts,
+                ),
+                "hf_reprogrammed_support": _sample_component_rows(
+                    hf_rows,
+                    target.subject_order,
+                    support_xyz,
+                    hf_shifts,
+                ),
+                "matched_hf_candidate_indices_in_support": matched_indices,
+            }
+        )
+    return result
+
+
+def _support_fraction(
+    exposure: np.ndarray,
+    support: np.ndarray,
+    tau: float,
+) -> tuple[np.ndarray, bool]:
+    active = np.asarray(exposure) > float(tau)
+    total = np.sum(active, axis=1)
+    out = np.sum(active & ~np.asarray(support, dtype=bool)[None, :], axis=1)
+    fractions = np.divide(
+        out,
+        total,
+        out=np.ones(total.shape, dtype=float),
+        where=total > 0,
+    )
+    return fractions, bool(np.any(total == 0))
+
+
+def _support_category(subject_values: np.ndarray, fold_values: np.ndarray, any_zero: bool) -> str:
+    if any_zero:
+        return "invalid_no_hfcomponent_total_exposure"
+    if (
+        float(np.median(subject_values)) > 0.50
+        or float(np.mean(subject_values > 0.80)) > 0.25
+        or float(max(np.max(subject_values), np.max(fold_values))) > 0.95
+    ):
+        return "invalid_extreme_out_of_support"
+    if (
+        float(np.median(subject_values)) <= 0.20
+        and float(np.mean(subject_values > 0.50)) <= 0.25
+    ):
+        return "adequate"
+    return "limited"
+
+
+def _default_configured_delta_builder(target: Any, geometry: dict[str, Any]) -> dict[str, Any]:
+    if target.matched_hf_final is None:
+        raise ValueError("ULF jitter with finite HF overlap requires matched_hf_final")
+    required = {
+        "hf_reference",
+        "hf_reprogrammed",
+        "hf_reprogrammed_support",
+        "matched_hf_candidate_indices_in_support",
+    }
+    missing = sorted(required - set(geometry))
+    if missing:
+        raise ValueError("ULF jitter geometry is missing DeltaHF inputs: " + ",".join(missing))
+    if target.y_base_path is None:
+        raise ValueError("ULF jitter DeltaHF rebuild requires Y_base")
+    from stnsnr_ulf_direct_voxel_observed import fit_hf_delta_fold, fit_hf_delta_full
+
+    table = load_subject_table(target.scores_path)
+    y_hf_ref = _float_column(table, "Y_HF_ref")
+    y_base = np.asarray(np.load(target.y_base_path, mmap_mode="r"), dtype=float)
+    hf_tau = float(target.matched_hf_final.selected_tau)
+    hf_coverage = int(target.matched_hf_final.selected_coverage)
+    reference = np.asarray(geometry["hf_reference"], dtype=np.float32)
+    component = np.asarray(geometry["hf_reprogrammed"], dtype=np.float32)
+    component_support = np.asarray(geometry["hf_reprogrammed_support"], dtype=np.float32)
+    indices = np.asarray(geometry["matched_hf_candidate_indices_in_support"], dtype=np.int64)
+    full = fit_hf_delta_full(
+        reference,
+        component,
+        y_hf_ref,
+        y_base,
+        target.scale_direction,
+        hf_tau,
+        hf_coverage,
+    )
+    support_full = np.zeros(component_support.shape[1], dtype=bool)
+    support_full[indices[np.asarray(full["valid_mask"], dtype=bool)]] = True
+    subject_fractions, any_zero = _support_fraction(
+        component_support,
+        support_full,
+        hf_tau,
+    )
+    n_subjects = len(target.subject_order)
+    fold_scores = np.full((n_subjects, n_subjects), np.nan, dtype=float)
+    fold_out = np.full(n_subjects, np.nan, dtype=float)
+    for heldout in range(n_subjects):
+        fold = fit_hf_delta_fold(
+            reference,
+            component,
+            y_hf_ref,
+            y_base,
+            target.scale_direction,
+            full["s_tau"],
+            heldout,
+            hf_coverage,
+        )
+        fold_scores[heldout] = fold["delta"]
+        fold_support = np.zeros(component_support.shape[1], dtype=bool)
+        fold_support[indices[np.asarray(fold["valid_mask"], dtype=bool)]] = True
+        fractions, fold_zero = _support_fraction(
+            component_support[[heldout]],
+            fold_support,
+            hf_tau,
+        )
+        fold_out[heldout] = fractions[0]
+        any_zero = any_zero or fold_zero
+    category = _support_category(subject_fractions, fold_out, any_zero)
+    return {
+        "status": category,
+        "full_scores": np.asarray(full["delta"], dtype=float),
+        "fold_scores": fold_scores,
+        "support": {
+            "median_out_support_fraction": float(np.median(subject_fractions)),
+            "maximum_out_support_fraction": float(max(np.max(subject_fractions), np.max(fold_out))),
+            "invalid_extreme_threshold": 0.95,
+        },
+    }
+
+
+def _default_configured_branch_fitter(
+    target: Any,
+    geometry: dict[str, Any],
+    delta: dict[str, Any] | None,
+) -> dict[str, Any]:
+    table = load_subject_table(target.scores_path)
+    y_post = _float_column(table, "Y_post")
+    if target.model_family == "hf_voxel":
+        nuisance = _float_column(table, "Y_base")[:, None]
+        metrics = direct_voxel_loocv_statistic(
+            x=np.asarray(geometry["final_exposure"], dtype=np.float32),
+            y_post=y_post,
+            nuisance=nuisance,
+            scale_direction=target.scale_direction,
+            tau=float(target.selected_tau),
+            min_coverage=int(target.selected_coverage),
+        )
+        return {"status": "complete", **metrics}
+    from stnsnr_ulf_direct_voxel_observed import compute_branch
+
+    ulf = np.asarray(geometry["ulf_component"], dtype=np.float32)
+    hf = np.asarray(geometry["hf_component"], dtype=np.float32)
+    hf_active = (
+        np.zeros_like(hf, dtype=bool)
+        if target.hf_overlap_tau is None or math.isinf(float(target.hf_overlap_tau))
+        else hf > float(target.hf_overlap_tau)
+    )
+    x = np.where((ulf > float(target.selected_tau)) & ~hf_active, ulf, 0.0).astype(np.float32)
+    s_tau = suprathreshold_matrix(x, float(target.selected_tau))
+    adjusted = target.final_branch == "delta_hf_adjusted"
+    if adjusted and (delta is None or delta.get("status") not in {"adequate", "limited"}):
+        return {"status": "not_computable", "reason": "jitter_delta_hf_invalid"}
+    nuisance_full = np.asarray(delta["full_scores"], dtype=float) if adjusted else None
+    nuisance_provider = (
+        (lambda heldout: np.asarray(delta["fold_scores"], dtype=float)[heldout])
+        if adjusted
+        else None
+    )
+    branch = compute_branch(
+        branch_name=target.final_branch,
+        x_ulf_only=x,
+        coverage=coverage_from_suprathreshold(s_tau),
+        s_tau_ulf_only=s_tau,
+        y_post=y_post,
+        y_hf_ref=_float_column(table, "Y_HF_ref"),
+        nuisance_full=nuisance_full,
+        nuisance_fold_provider=nuisance_provider,
+        scale_direction=target.scale_direction,
+        min_coverage=int(target.selected_coverage),
+        subject_ids=list(target.subject_order),
+    )
+    return {"status": "complete", **branch["metrics"]}
+
+
+def run_configured_jitter(
+    target: Any,
+    *,
+    n_jitters: int,
+    jitter_fwhm_mm: float,
+    seed: int,
+    geometry_builder: Any = None,
+    delta_builder: Any = None,
+    branch_fitter: Any = None,
+) -> dict[str, Any]:
+    """Rebuild every geometry-derived ULF input within each jitter replicate."""
+    geometry_runner = geometry_builder or _default_configured_geometry_builder
+    delta_runner = delta_builder or _default_configured_delta_builder
+    branch_runner = branch_fitter or _default_configured_branch_fitter
+    sigma_mm = float(jitter_fwhm_mm) / 2.3548200450309493
+    rows: list[dict[str, Any]] = []
+    completed = 0
+    for index in range(int(n_jitters)):
+        rng = np.random.default_rng(int(seed) + (index + 1) * 104729)
+        try:
+            geometry = geometry_runner(target, rng, sigma_mm)
+            delta = None
+            if str(target.model_family).startswith("ulf_"):
+                if target.hf_overlap_tau is not None and math.isinf(float(target.hf_overlap_tau)):
+                    delta = {"status": "not_applicable_no_hf_source"}
+                else:
+                    delta = delta_runner(target, geometry)
+            branch = branch_runner(target, geometry, delta)
+            status = str(branch.get("status", "complete"))
+            if status == "complete":
+                completed += 1
+            row = {
+                "jitter_index": index + 1,
+                "status": status,
+                "delta_support_status": (delta or {}).get("status", "not_applicable"),
+                "failure": branch.get("reason", ""),
+                "loocv_spearman_rho": branch.get("spearman_rho", np.nan),
+                "loocv_pearson_r": branch.get("pearson_r", np.nan),
+                "q2": branch.get("q2", np.nan),
+                "mae": branch.get("mae", np.nan),
+                "rmse": branch.get("rmse", np.nan),
+            }
+        except (KeyError, OSError, RuntimeError, ValueError) as exc:
+            row = {
+                "jitter_index": index + 1,
+                "status": "not_computable",
+                "delta_support_status": "not_computable",
+                "failure": str(exc),
+                "loocv_spearman_rho": np.nan,
+                "loocv_pearson_r": np.nan,
+                "q2": np.nan,
+                "mae": np.nan,
+                "rmse": np.nan,
+            }
+        rows.append(row)
+    if completed == 0:
+        failures = sorted({str(row["failure"]) for row in rows if row.get("failure")})
+        raise RuntimeError(
+            "no configured direct-voxel jitter replicate completed: "
+            + ";".join(failures)
+        )
+    summary_path = target.output_root / "direct_voxel_configured_jitter_replicates.csv"
+    write_csv(
+        summary_path,
+        rows,
+        [
+            "jitter_index",
+            "status",
+            "delta_support_status",
+            "failure",
+            "loocv_spearman_rho",
+            "loocv_pearson_r",
+            "q2",
+            "mae",
+            "rmse",
+        ],
+    )
+    return {
+        "status": "complete" if completed == int(n_jitters) else "partial",
+        "requested_replicates": int(n_jitters),
+        "completed_replicates": completed,
+        "jitter_fwhm_mm": float(jitter_fwhm_mm),
+        "jitter_sigma_mm": sigma_mm,
+        "seed": int(seed),
+        "selected_source_identity_fixed": True,
+        "final_model_id": target.final_model_id,
+        "final_record_hash": target.final_record_hash,
+        "selected_tau": float(target.selected_tau),
+        "selected_coverage": int(target.selected_coverage),
+        "final_branch": target.final_branch,
+        "replicates": rows,
+        "summary_csv": str(summary_path),
+        "classification_feedback": "none",
+    }
+
+
 def _qc_path_for_target(target: DirectVoxelTarget) -> Path:
     if target.model_id == "A":
         return target.x_path.parent / "direct_voxel_HF_preprocess_qc.json"

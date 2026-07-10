@@ -289,6 +289,35 @@ class ExecutorAndCliTests(unittest.TestCase):
         self.assertEqual(second.exit_code, ExitCode.SUCCESS)
         self.assertEqual(second_service.calls, [])
         self.assertTrue(all(record.reused for record in second.tasks))
+        for original, reused in zip(first.tasks, second.tasks, strict=True):
+            self.assertEqual(
+                [(artifact.kind, artifact.path) for artifact in reused.result.artifacts],
+                [(artifact.kind, artifact.path) for artifact in original.result.artifacts],
+            )
+
+    def test_resume_reruns_only_a_completed_task_with_artifact_hash_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, config, catalog, plan = self._bundle(root)
+            store = self._store(root, config, catalog, plan)
+            first = execute_plan(
+                plan,
+                RunContext(store=store, catalog=tuple(catalog)),
+                ServiceRegistry(default=DeterministicService()),
+            )
+            producer = first.tasks[0]
+            producer.result.artifacts[0].path.write_text("tampered\n", encoding="utf-8")
+            resume_service = DeterministicService()
+
+            resumed = execute_plan(
+                plan,
+                RunContext(store=store, catalog=tuple(catalog), resume=True),
+                ServiceRegistry(default=resume_service),
+            )
+
+        self.assertEqual(resume_service.calls, [producer.task.task_id])
+        self.assertFalse(resumed.tasks[0].reused)
+        self.assertTrue(all(record.reused for record in resumed.tasks[1:]))
 
     def test_cli_validate_plan_run_status_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

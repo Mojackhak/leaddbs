@@ -119,6 +119,7 @@ def assess_delta_hf_voxel_support(
     component_exposure: np.ndarray,
     full_weights: np.ndarray,
     fold_weights: np.ndarray,
+    candidate_indices_in_support: np.ndarray | None = None,
     selected_tau: float,
     subject_order: tuple[str, ...],
 ) -> DeltaHFVoxelSupportQC:
@@ -128,16 +129,30 @@ def assess_delta_hf_voxel_support(
     folds = np.asarray(fold_weights, dtype=float)
     if component.ndim != 2 or component.shape[0] != len(subject_order):
         raise RecordError("HF-component exposure does not match the endpoint subject order")
-    if full.shape != (component.shape[1],):
-        raise RecordError("full HF weights do not match HF-component features")
-    if folds.ndim != 2 or folds.shape[1] != component.shape[1]:
-        raise RecordError("fold HF weights do not match HF-component features")
+    indices = (
+        np.arange(component.shape[1], dtype=np.int64)
+        if candidate_indices_in_support is None
+        else np.asarray(candidate_indices_in_support, dtype=np.int64)
+    )
+    if full.shape != (indices.size,):
+        raise RecordError("full HF weights do not match the immutable candidate axis")
+    if folds.ndim != 2 or folds.shape[1] != indices.size:
+        raise RecordError("fold HF weights do not match the immutable candidate axis")
+    if (
+        indices.ndim != 1
+        or np.any(indices < 0)
+        or np.any(indices >= component.shape[1])
+        or np.unique(indices).size != indices.size
+    ):
+        raise RecordError("HF candidate indices are invalid in the support-QC voxel axis")
     if not np.all(np.isfinite(component)):
         raise RecordError("HF-component exposure must be finite for support QC")
     active = component > float(selected_tau)
     total_counts = np.count_nonzero(active, axis=1).astype(np.int64)
-    full_support = np.isfinite(full)
-    fold_support = np.isfinite(folds)
+    full_support = np.zeros(component.shape[1], dtype=bool)
+    full_support[indices] = np.isfinite(full)
+    fold_support = np.zeros((folds.shape[0], component.shape[1]), dtype=bool)
+    fold_support[:, indices] = np.isfinite(folds)
     if not np.any(full_support) or np.any(np.count_nonzero(fold_support, axis=1) == 0):
         raise RecordError("locked HF full/fold map support must be nonempty")
     full_out_counts = np.count_nonzero(active & ~full_support[None, :], axis=1).astype(np.int64)
@@ -342,7 +357,16 @@ class ConfiguredULFDirectDeltaBuilder:
 
         task_root = run_root / "models" / endpoint.endpoint_model_id / "tasks" / task.task_id
         analysis = _load_analysis_module()
-        component_exposure, component_qc = analysis.build_configured_hf_component_exposure_on_axis(
+        _, _, _, right_support_flat = analysis.right_brainmask_voxels_from_path(
+            self.paths.brainmask
+        )
+        candidate_indices = np.searchsorted(right_support_flat, candidate_flat)
+        if (
+            np.any(candidate_indices >= right_support_flat.size)
+            or not np.array_equal(right_support_flat[candidate_indices], candidate_flat)
+        ):
+            raise RecordError("immutable HF candidate voxels are not contained in the right brainmask")
+        component_support_exposure, component_qc = analysis.build_configured_hf_component_exposure_on_axis(
             subject_order=endpoint.subject_ids,
             outcome_protocol=endpoint.outcome_protocol,
             outcome_phase=endpoint.outcome_phase,
@@ -350,10 +374,11 @@ class ConfiguredULFDirectDeltaBuilder:
             brainmask=self.paths.brainmask,
             asset_root=self.paths.asset_root,
             matlab_bin=self.paths.matlab_bin,
-            candidate_flat=candidate_flat,
+            candidate_flat=right_support_flat,
             sidecar_root=task_root,
             flip_backend=self.flip_backend,
         )
+        component_exposure = component_support_exposure[:, candidate_indices]
         if component_exposure.shape != reference_exposure.shape:
             raise RecordError("HF-component exposure does not match immutable HF reference exposure")
         full_scores, fold_scores = score_delta_hf_locked_support(
@@ -363,9 +388,10 @@ class ConfiguredULFDirectDeltaBuilder:
             fold_weights=fold_weights,
         )
         support = assess_delta_hf_voxel_support(
-            component_exposure=component_exposure,
+            component_exposure=component_support_exposure,
             full_weights=full_weights,
             fold_weights=fold_weights,
+            candidate_indices_in_support=candidate_indices,
             selected_tau=float(source.selected_tau),
             subject_order=endpoint.subject_ids,
         )
@@ -388,6 +414,9 @@ class ConfiguredULFDirectDeltaBuilder:
                 "subject_order": list(endpoint.subject_ids),
                 "support_definition": "HF-component suprathreshold voxel counts on locked HF map support",
                 "threshold_rule": "E_HF_component > selected_hf_tau",
+                "support_axis": "configured right-canonical brainmask",
+                "support_axis_voxel_count": int(right_support_flat.size),
+                "hf_candidate_axis_voxel_count": int(candidate_flat.size),
                 "cohort_median_subject_out_fraction": support.assessment.cohort_median,
                 "subject_fraction_over_0_50": support.assessment.subject_fraction_over_0_50,
                 "subject_fraction_over_0_80": support.assessment.subject_fraction_over_0_80,
@@ -696,8 +725,8 @@ def run_configured_ulf_direct(
         source_status=str(resolution["source_status"]),
         prediction_status=str(resolution["prediction_status"]),
         threshold_source=str(resolution["threshold_source"]),
-            selected_tau=selected_tau,
-            selected_coverage=selected_coverage,
+        selected_tau=selected_tau,
+        selected_coverage=selected_coverage,
         adjacent_support=_optional_int(resolution.get("selected_adjacent_passing_grid_cells")),
         subject_order=subject_order,
         feature_axis=FeatureAxisRef(

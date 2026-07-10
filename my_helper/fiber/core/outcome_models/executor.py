@@ -16,7 +16,7 @@ from .planner import (
     GatePredicate,
     TaskSpec,
 )
-from .run_store import ConfiguredRunStore
+from .run_store import ConfiguredRunStore, sha256_file
 
 
 class ExitCode(IntEnum):
@@ -178,16 +178,49 @@ def _gate_open(task: TaskSpec, context: RunContext) -> bool:
     raise RuntimeError(f"unsupported gate predicate {predicate}")
 
 
+def _resume_artifacts(task: TaskSpec, context: RunContext) -> tuple[TaskArtifact, ...] | None:
+    rows = [
+        row
+        for row in context.store.load_artifact_index()
+        if row["task_id"] == task.task_id and row["kind"] != "task_manifest"
+    ]
+    by_kind: dict[str, TaskArtifact] = {}
+    for row in rows:
+        kind = str(row["kind"])
+        if kind in by_kind:
+            return None
+        path = (context.store.run_root / row["relative_path"]).resolve()
+        try:
+            path.relative_to(context.store.run_root)
+        except ValueError:
+            return None
+        if not path.is_file() or sha256_file(path) != row["sha256"]:
+            return None
+        by_kind[kind] = TaskArtifact(kind, path)
+    expected = tuple(
+        kind for kind in task.expected_artifact_kinds if kind != "task_manifest"
+    )
+    if any(kind not in by_kind for kind in expected):
+        return None
+    ordered = [by_kind.pop(kind) for kind in expected]
+    ordered.extend(by_kind[kind] for kind in sorted(by_kind))
+    return tuple(ordered)
+
+
 def _resume_record(task: TaskSpec, context: RunContext) -> TaskExecutionRecord | None:
     if not context.resume:
         return None
     manifest = context.store.load_task_manifest(task.task_id)
     if manifest is None or manifest.get("status") != TaskStatus.COMPLETED.value:
         return None
+    artifacts = _resume_artifacts(task, context)
+    if artifacts is None:
+        return None
     result = TaskResult(
         status=TaskStatus.COMPLETED,
         detail=str(manifest.get("detail", "")),
         facts=dict(manifest.get("facts", {})),
+        artifacts=artifacts,
     )
     return TaskExecutionRecord(
         task=task,

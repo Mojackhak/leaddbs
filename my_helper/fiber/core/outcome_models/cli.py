@@ -252,11 +252,12 @@ def main(
                 execution_plan=plan.as_dict(),
             )
             resume = False
-        result = execute_plan(
-            plan,
-            RunContext(store=store, catalog=tuple(catalog), config=config, resume=resume),
-            service_registry or ServiceRegistry(),
-        )
+        context = RunContext(store=store, catalog=tuple(catalog), config=config, resume=resume)
+        if service_registry is None:
+            from .services.default_registry import build_default_service_registry
+
+            service_registry = build_default_service_registry(context)
+        result = execute_plan(plan, context, service_registry)
         print(
             json.dumps(
                 {

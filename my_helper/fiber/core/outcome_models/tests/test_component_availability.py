@@ -63,7 +63,7 @@ class ComponentAvailabilityTests(unittest.TestCase):
                 stimulation_table=stimulation,
                 derivatives_root=derivatives,
                 run_root=root / "configured-run",
-                addon_protocol="Combined",
+                addon_protocols=("Combined",),
                 endpoint_phases=("late",),
             )
 
@@ -101,7 +101,7 @@ class ComponentAvailabilityTests(unittest.TestCase):
                     stimulation_table=stimulation,
                     derivatives_root=root / "derivatives",
                     run_root=root / "configured-run",
-                    addon_protocol="Combined",
+                    addon_protocols=("Combined",),
                     endpoint_phases=("late", "late"),
                 )
 

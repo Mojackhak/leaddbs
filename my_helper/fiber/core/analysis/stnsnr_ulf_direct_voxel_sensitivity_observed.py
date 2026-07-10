@@ -81,10 +81,17 @@ def compute_observed_sensitivity_branch(
     tau: float,
     min_coverage: int,
     subject_ids: list[str],
+    fold_covariates: np.ndarray | None = None,
 ) -> dict[str, Any]:
     x = np.asarray(exposure, dtype=np.float32)
     y = np.asarray(outcome, dtype=float)
     cov_full = as_2d_covariates(covariates, y.shape[0])
+    cov_folds = None if fold_covariates is None else np.asarray(fold_covariates, dtype=float)
+    if cov_folds is not None:
+        if cov_folds.ndim == 2:
+            cov_folds = cov_folds[:, :, None]
+        if cov_folds.shape[:2] != (y.shape[0], y.shape[0]):
+            raise ValueError("fold_covariates must be fold-by-subject")
     s_tau = suprathreshold_matrix(x, tau)
     coverage = coverage_from_suprathreshold(s_tau)
     omega = candidate_mask_from_coverage(coverage, min_coverage)
@@ -121,6 +128,7 @@ def compute_observed_sensitivity_branch(
     fold_valid_counts: list[int] = []
     for heldout in range(n_subjects):
         train = np.array([idx for idx in range(n_subjects) if idx != heldout], dtype=int)
+        fold_cov = cov_full if cov_folds is None else cov_folds[heldout]
         coverage_fold = coverage - s_tau[heldout].astype(np.int32)
         omega_fold = candidate_mask_from_coverage(coverage_fold, min_coverage)
         if not np.any(omega_fold):
@@ -128,7 +136,7 @@ def compute_observed_sensitivity_branch(
         rho_fold = partial_spearman_matrix(
             y[train],
             x[train][:, omega_fold],
-            cov_full[train] if cov_full.shape[1] else None,
+            fold_cov[train] if fold_cov.shape[1] else None,
         )
         weights_fold_local = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
         weights_fold = np.full(x.shape[1], np.nan, dtype=np.float32)
@@ -143,11 +151,13 @@ def compute_observed_sensitivity_branch(
         pred, beta = fit_linear_prediction(
             y[train],
             fold_scores[train],
-            cov_full[train] if cov_full.shape[1] else None,
+            fold_cov[train] if fold_cov.shape[1] else None,
             fold_scores[[heldout]],
-            cov_full[[heldout]] if cov_full.shape[1] else None,
+            fold_cov[[heldout]] if fold_cov.shape[1] else None,
         )
-        base_pred, base_beta = fit_baseline_prediction(y[train], cov_full[train], cov_full[[heldout]])
+        base_pred, base_beta = fit_baseline_prediction(
+            y[train], fold_cov[train], fold_cov[[heldout]]
+        )
         loocv_pred[heldout] = pred[0]
         loocv_base_pred[heldout] = base_pred[0]
         row = {
@@ -164,7 +174,7 @@ def compute_observed_sensitivity_branch(
             "delta_SensitivityScore": float(beta[1]),
         }
         for cov_idx, name in enumerate(covariate_names):
-            row[name] = float(cov_full[heldout, cov_idx])
+            row[name] = float(fold_cov[heldout, cov_idx])
             row[f"beta_{name}"] = float(beta[2 + cov_idx])
             row[f"baseline_beta_{name}"] = float(base_beta[1 + cov_idx])
         fold_rows.append(row)
@@ -334,6 +344,298 @@ def build_sensitivity_branches(inputs: SensitivityInputs) -> list[dict[str, Any]
             covariate_names=["Y_HF_ref"],
         ),
     ]
+
+
+def _configured_score_columns(target: Any) -> dict[str, np.ndarray]:
+    with Path(target.scores_path).open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        raise RuntimeError("configured sensitivity scores table is empty")
+    subject_order = tuple(str(row.get("subject_id", "")) for row in rows)
+    if subject_order != tuple(target.subject_order):
+        raise RuntimeError("configured sensitivity score subject order mismatch")
+    columns: dict[str, np.ndarray] = {}
+    for key in rows[0]:
+        if key == "subject_id":
+            columns[key] = np.asarray([row[key] for row in rows])
+        else:
+            try:
+                columns[key] = np.asarray([float(row[key]) for row in rows], dtype=float)
+            except (TypeError, ValueError):
+                continue
+    return columns
+
+
+def _configured_delta(target: Any) -> tuple[np.ndarray | None, np.ndarray | None]:
+    if target.delta_full_path is None or target.delta_fold_path is None:
+        return None, None
+    full = np.asarray(np.load(target.delta_full_path, mmap_mode="r"), dtype=float)
+    folds = np.asarray(np.load(target.delta_fold_path, mmap_mode="r"), dtype=float)
+    n_subjects = len(target.subject_order)
+    if full.shape != (n_subjects,) or folds.shape != (n_subjects, n_subjects):
+        raise RuntimeError("configured DeltaHF artifacts have invalid shapes")
+    if not np.all(np.isfinite(full)) or not np.all(np.isfinite(folds)):
+        raise RuntimeError("configured DeltaHF artifacts contain non-finite values")
+    return full, folds
+
+
+def _branch_covariates(
+    y_hf_ref: np.ndarray,
+    delta_full: np.ndarray | None,
+    delta_folds: np.ndarray | None,
+    *,
+    adjusted: bool,
+) -> tuple[np.ndarray, np.ndarray | None, list[str]]:
+    if not adjusted:
+        return y_hf_ref[:, None], None, ["Y_HF_ref"]
+    if delta_full is None or delta_folds is None:
+        raise RuntimeError("delta_hf_adjusted sensitivity requires valid DeltaHF artifacts")
+    n_subjects = y_hf_ref.shape[0]
+    full = np.column_stack([y_hf_ref, delta_full])
+    folds = np.concatenate(
+        [
+            np.broadcast_to(y_hf_ref[None, :, None], (n_subjects, n_subjects, 1)),
+            delta_folds[:, :, None],
+        ],
+        axis=2,
+    )
+    return full, folds, ["Y_HF_ref", "DeltaHFScore"]
+
+
+def _configured_branch_result(
+    *,
+    name: str,
+    exposure: np.ndarray,
+    outcome: np.ndarray,
+    covariates: np.ndarray | None,
+    fold_covariates: np.ndarray | None,
+    covariate_names: list[str],
+    target: Any,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    try:
+        branch = compute_observed_sensitivity_branch(
+            branch_name=name,
+            exposure=exposure,
+            outcome=outcome,
+            covariates=covariates,
+            fold_covariates=fold_covariates,
+            covariate_names=covariate_names,
+            scale_direction=target.scale_direction,
+            tau=float(target.selected_tau),
+            min_coverage=int(target.selected_coverage),
+            subject_ids=list(target.subject_order),
+        )
+    except (RuntimeError, ValueError) as exc:
+        return {"status": "not_computable", "reason": str(exc)}, None
+    return {
+        "status": "complete",
+        "branch": name,
+        "loocv_metrics": branch["metrics"],
+        "n_omega_voxels": int(branch["n_omega_voxels"]),
+        "all_predictions_finite": bool(branch["all_predictions_finite"]),
+    }, branch
+
+
+def _support_diagnostic(target: Any) -> dict[str, Any]:
+    if target.delta_support_path is None:
+        return {"status": "not_computable", "reason": "invalid_or_missing_delta_hf_support"}
+    with Path(target.delta_support_path).open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    values: list[float] = []
+    for row in rows:
+        text = row.get("HF_out_support_fraction", row.get("hf_out_support_fraction", ""))
+        try:
+            values.append(float(text))
+        except (TypeError, ValueError):
+            continue
+    if not values:
+        return {"status": "not_computable", "reason": "support_rows_missing_out_fraction"}
+    fractions = np.asarray(values, dtype=float)
+    category = "adequate"
+    if (
+        float(np.median(fractions)) > 0.50
+        or float(np.mean(fractions > 0.80)) > 0.25
+        or float(np.max(fractions)) > 0.95
+    ):
+        category = "invalid_extreme_out_of_support"
+    elif not (
+        float(np.median(fractions)) <= 0.20
+        and float(np.mean(fractions > 0.50)) <= 0.25
+    ):
+        category = "limited"
+    return {
+        "status": "complete",
+        "observed_support_category": category,
+        "median_out_support_fraction": float(np.median(fractions)),
+        "fraction_over_0_50": float(np.mean(fractions > 0.50)),
+        "fraction_over_0_80": float(np.mean(fractions > 0.80)),
+        "maximum_out_support_fraction": float(np.max(fractions)),
+        "invalid_extreme_threshold": 0.95,
+    }
+
+
+def _collinearity_diagnostic(
+    target: Any,
+    branch: dict[str, Any] | None,
+    y_hf_ref: np.ndarray,
+    delta_full: np.ndarray | None,
+) -> dict[str, Any]:
+    if target.y_base_path is None:
+        return {"status": "not_computable", "reason": "missing_y_base"}
+    if branch is None:
+        return {"status": "not_computable", "reason": "selected_branch_not_computable"}
+    y_base = np.asarray(np.load(target.y_base_path, mmap_mode="r"), dtype=float)
+    if y_base.shape != y_hf_ref.shape:
+        return {"status": "not_computable", "reason": "y_base_shape_mismatch"}
+    scores = np.asarray(
+        [row["SensitivityScore_mean_main"] for row in branch["score_rows"]],
+        dtype=float,
+    )
+    columns = [scores, y_hf_ref]
+    names = ["ULFScore", "Y_HF_ref"]
+    if target.final_branch == "delta_hf_adjusted":
+        if delta_full is None:
+            return {"status": "not_computable", "reason": "missing_delta_hf"}
+        columns.append(delta_full)
+        names.append("DeltaHFScore")
+    columns.append(y_base)
+    names.append("Y_base")
+    design = np.column_stack(columns)
+    if not np.all(np.isfinite(design)):
+        return {"status": "not_computable", "reason": "nonfinite_collinearity_design"}
+    centered = design - np.mean(design, axis=0, keepdims=True)
+    scale = np.std(centered, axis=0, ddof=1)
+    if np.any(scale <= 0):
+        return {"status": "not_computable", "reason": "constant_collinearity_column"}
+    standardized = centered / scale
+    correlations = np.corrcoef(standardized, rowvar=False)
+    off_diagonal = np.abs(correlations[np.triu_indices_from(correlations, k=1)])
+    maximum = float(np.max(off_diagonal)) if off_diagonal.size else 0.0
+    warning = "acceptable" if maximum < 0.85 else "high" if maximum < 0.95 else "severe"
+    return {
+        "status": "complete",
+        "columns": names,
+        "correlation_matrix": correlations.tolist(),
+        "maximum_absolute_pairwise_correlation": maximum,
+        "collinearity_warning": warning,
+        "condition_number": float(np.linalg.cond(standardized)),
+    }
+
+
+def run_configured_additional_sensitivities(
+    target: Any,
+    *,
+    enabled_analyses: tuple[str, ...],
+) -> dict[str, Any]:
+    """Run task-local ULF direct-voxel sensitivities without classification feedback."""
+    columns = _configured_score_columns(target)
+    y_post = np.asarray(columns["Y_post"], dtype=float)
+    y_hf_ref = np.asarray(columns["Y_HF_ref"], dtype=float)
+    delta_full, delta_folds = _configured_delta(target)
+    selected_exposure = np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32)
+    total_path = target.component_paths.get("ulf_component_exposure")
+    analyses: dict[str, Any] = {}
+
+    selected_adjusted = target.final_branch == "delta_hf_adjusted"
+    selected_cov, selected_fold_cov, selected_names = _branch_covariates(
+        y_hf_ref,
+        delta_full,
+        delta_folds,
+        adjusted=selected_adjusted,
+    )
+    selected_result, selected_branch = _configured_branch_result(
+        name=f"selected_{target.final_branch}",
+        exposure=selected_exposure,
+        outcome=y_post,
+        covariates=selected_cov,
+        fold_covariates=selected_fold_cov,
+        covariate_names=selected_names,
+        target=target,
+    )
+
+    if "nonfinal_branch" in enabled_analyses:
+        nonfinal_adjusted = not selected_adjusted
+        try:
+            cov, fold_cov, names = _branch_covariates(
+                y_hf_ref,
+                delta_full,
+                delta_folds,
+                adjusted=nonfinal_adjusted,
+            )
+            analyses["nonfinal_branch"], _ = _configured_branch_result(
+                name=("delta_hf_adjusted" if nonfinal_adjusted else "no_delta_hf"),
+                exposure=selected_exposure,
+                outcome=y_post,
+                covariates=cov,
+                fold_covariates=fold_cov,
+                covariate_names=names,
+                target=target,
+            )
+        except RuntimeError as exc:
+            analyses["nonfinal_branch"] = {"status": "not_computable", "reason": str(exc)}
+
+    if "gain" in enabled_analyses:
+        gain = y_hf_ref - y_post if target.scale_direction == "lower" else y_post - y_hf_ref
+        gain_cov = delta_full[:, None] if selected_adjusted and delta_full is not None else None
+        gain_folds = delta_folds[:, :, None] if selected_adjusted and delta_folds is not None else None
+        gain_names = ["DeltaHFScore"] if gain_cov is not None else []
+        analyses["gain"], _ = _configured_branch_result(
+            name="gain_endpoint",
+            exposure=selected_exposure,
+            outcome=gain,
+            covariates=gain_cov,
+            fold_covariates=gain_folds,
+            covariate_names=gain_names,
+            target=target,
+        )
+
+    if "total_exposure" in enabled_analyses:
+        if total_path is None:
+            analyses["total_exposure"] = {
+                "status": "not_computable",
+                "reason": "missing_raw_ulf_component_exposure",
+            }
+        else:
+            total_exposure = np.asarray(np.load(total_path, mmap_mode="r"), dtype=np.float32)
+            analyses["total_exposure"], _ = _configured_branch_result(
+                name="total_ulf_exposure",
+                exposure=total_exposure,
+                outcome=y_post,
+                covariates=selected_cov,
+                fold_covariates=selected_fold_cov,
+                covariate_names=selected_names,
+                target=target,
+            )
+
+    if "support" in enabled_analyses:
+        analyses["support"] = _support_diagnostic(target)
+    if "collinearity" in enabled_analyses:
+        analyses["collinearity"] = _collinearity_diagnostic(
+            target,
+            selected_branch,
+            y_hf_ref,
+            delta_full,
+        )
+    analyses["selected_branch_reference"] = selected_result
+
+    summary_path = target.output_root / "ulf_direct_voxel_additional_sensitivities.csv"
+    write_csv(
+        summary_path,
+        [
+            {
+                "analysis": name,
+                "status": result.get("status", ""),
+                "reason": result.get("reason", ""),
+            }
+            for name, result in analyses.items()
+        ],
+        ["analysis", "status", "reason"],
+    )
+    return {
+        "status": "complete",
+        "analyses": analyses,
+        "summary_csv": str(summary_path),
+    }
 
 
 def load_delta_hfscore(delta_scores_csv: Path, subject_ids: list[str]) -> np.ndarray:

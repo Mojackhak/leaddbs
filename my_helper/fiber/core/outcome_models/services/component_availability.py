@@ -80,19 +80,19 @@ def build_run_local_component_availability(
     stimulation_table: Path,
     derivatives_root: Path,
     run_root: Path,
-    addon_protocol: str,
+    addon_protocols: tuple[str, ...],
     endpoint_phases: tuple[str, ...],
 ) -> ComponentAvailabilityOutput:
     """Write one deterministic configured component-availability sidecar."""
     stimulation_path = Path(stimulation_table).expanduser().resolve()
     derivatives_path = Path(derivatives_root).expanduser().resolve()
     configured_run_root = Path(run_root).expanduser().resolve()
-    protocol = str(addon_protocol).strip()
+    protocols = tuple(str(value).strip() for value in addon_protocols)
     phases = tuple(str(value).strip() for value in endpoint_phases)
     if not stimulation_path.is_file():
         raise FileNotFoundError(f"configured stimulation table is missing: {stimulation_path}")
-    if not protocol:
-        raise ValueError("add-on protocol must be nonempty")
+    if not protocols or any(not value for value in protocols) or len(set(protocols)) != len(protocols):
+        raise ValueError("add-on protocols must be nonempty and unique")
     if not phases or any(not value for value in phases) or len(set(phases)) != len(phases):
         raise ValueError("endpoint phases must be nonempty and unique")
 
@@ -116,7 +116,7 @@ def build_run_local_component_availability(
     rows = analysis.build_component_availability(
         table,
         derivatives_path,
-        protocols=(protocol,),
+        protocols=protocols,
         phases=phases,
     )
     output_root = configured_run_root / "shared" / "ulf_component_availability"
@@ -131,7 +131,7 @@ def build_run_local_component_availability(
             "stimulation_table": str(stimulation_path),
             "stimulation_table_sha256": stimulation_hash,
             "derivatives_root": str(derivatives_path),
-            "addon_protocol": protocol,
+            "addon_protocols": list(protocols),
             "endpoint_phases": list(phases),
             "row_count": len(rows),
             "component_availability_csv": str(csv_path),

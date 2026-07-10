@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -253,6 +254,500 @@ def _support_overlap(observed_valid: np.ndarray, jitter_valid: np.ndarray, obser
         "sign_consistency_fraction": float(np.mean(np.sign(observed_weights[intersection]) == np.sign(jitter_weights[intersection])))
         if np.any(intersection)
         else float("nan"),
+    }
+
+
+def _configured_neighborhood_exposure(target: Any, tau: float) -> np.ndarray:
+    if not str(target.model_family).startswith("ulf_"):
+        return np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32)
+    try:
+        ulf_path = target.component_paths["ulf_component_exposure"]
+    except KeyError as exc:
+        raise ValueError(
+            "ULF selected-source neighborhood requires raw ulf_component_exposure"
+        ) from exc
+    ulf = np.asarray(np.load(ulf_path, mmap_mode="r"), dtype=np.float32)
+    if target.hf_overlap_tau is None:
+        raise ValueError("ULF selected-source neighborhood requires hf_overlap_tau")
+    if math.isinf(float(target.hf_overlap_tau)):
+        hf_active = np.zeros_like(ulf, dtype=bool)
+    else:
+        try:
+            hf_path = target.component_paths["hf_component_exposure"]
+        except KeyError as exc:
+            raise ValueError(
+                "finite HF overlap requires raw hf_component_exposure"
+            ) from exc
+        hf = np.asarray(np.load(hf_path, mmap_mode="r"), dtype=np.float32)
+        if hf.shape != ulf.shape:
+            raise ValueError("HF and ULF raw component exposure shapes differ")
+        hf_active = hf > float(target.hf_overlap_tau)
+    return np.where((ulf > float(tau)) & ~hf_active, ulf, 0.0).astype(np.float32)
+
+
+def _configured_outcome_and_nuisance(
+    target: Any,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    columns = _load_score_columns(target.scores_path)
+    subject_column = next(
+        (column for column in columns if column.strip().lower() == "subject_id"),
+        None,
+    )
+    if subject_column is None:
+        raise KeyError("configured sensitivity scores are missing subject_id")
+    if tuple(str(value) for value in columns[subject_column]) != tuple(target.subject_order):
+        raise ValueError("configured sensitivity score subject order mismatch")
+    y_post = _float_column(columns, "Y_post")
+    baseline_column = "Y_base" if target.final_branch == "hf_source" else "Y_HF_ref"
+    baseline = _float_column(columns, baseline_column)[:, None]
+    if target.final_branch != "delta_hf_adjusted":
+        return y_post, baseline, None
+    if target.delta_full_path is None or target.delta_fold_path is None:
+        raise ValueError("adjusted neighborhood requires full and fold DeltaHF artifacts")
+    full_delta = np.asarray(np.load(target.delta_full_path, mmap_mode="r"), dtype=float)
+    fold_delta = np.asarray(np.load(target.delta_fold_path, mmap_mode="r"), dtype=float)
+    n_subjects = len(target.subject_order)
+    if full_delta.shape != (n_subjects,) or fold_delta.shape != (n_subjects, n_subjects):
+        raise ValueError("adjusted neighborhood DeltaHF shape mismatch")
+    nuisance = np.column_stack([baseline[:, 0], full_delta])
+    fold_nuisance = np.concatenate(
+        [np.broadcast_to(baseline, (n_subjects, *baseline.shape)), fold_delta[:, :, None]],
+        axis=2,
+    )
+    return y_post, nuisance, fold_nuisance
+
+
+def run_configured_neighborhood_sensitivity(
+    target: Any,
+    *,
+    tau_multipliers: tuple[float, float],
+) -> dict[str, Any]:
+    """Run observed fiber LOOCV around one immutable selected source."""
+    y_post, nuisance, fold_nuisance = _configured_outcome_and_nuisance(target)
+    fiber_ids = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"))
+    cells: list[dict[str, Any]] = []
+    for multiplier in tau_multipliers:
+        tau = float(target.selected_tau) * float(multiplier)
+        try:
+            exposure = _configured_neighborhood_exposure(target, tau)
+            reduced = prepare_candidate_union(
+                x=exposure,
+                fiber_ids=fiber_ids,
+                tau=tau,
+                min_coverage=int(target.selected_coverage),
+            )
+            metrics = normative_fiber_loocv_statistic(
+                reduced=reduced,
+                y_post=y_post,
+                nuisance=nuisance,
+                fold_nuisance=fold_nuisance,
+                scale_direction=target.scale_direction,
+            )
+            cell = {
+                "status": "complete",
+                "tau_multiplier": float(multiplier),
+                "tau_v_per_m": tau,
+                "selected_coverage": int(target.selected_coverage),
+                **metrics,
+            }
+        except (RuntimeError, ValueError) as exc:
+            cell = {
+                "status": "not_computable",
+                "reason": str(exc),
+                "tau_multiplier": float(multiplier),
+                "tau_v_per_m": tau,
+                "selected_coverage": int(target.selected_coverage),
+            }
+        cells.append(cell)
+    summary_path = target.output_root / "normative_fiber_selected_source_neighborhood.csv"
+    fields = sorted({key for cell in cells for key in cell})
+    write_csv(summary_path, cells, fields)
+    return {
+        "status": "complete",
+        "final_model_id": target.final_model_id,
+        "final_record_hash": target.final_record_hash,
+        "selected_tau": float(target.selected_tau),
+        "selected_coverage": int(target.selected_coverage),
+        "cells": cells,
+        "summary_csv": str(summary_path),
+        "classification_feedback": "none",
+    }
+
+
+def _configured_sampler_rows(
+    manifest_path: Path,
+    rows: Any,
+    subject_order: tuple[str, ...],
+    label: str,
+) -> dict[str, dict[str, list[Any]]]:
+    from stnsnr_direct_voxel_formal_jitter import _validated_sampling_rows
+
+    validated = _validated_sampling_rows(manifest_path, rows, subject_order, label)
+    samplers: dict[str, dict[str, list[Any]]] = {}
+    for row in validated:
+        samplers[row["subject_id"]] = {
+            "R": load_image_samplers([Path(item["path"]) for item in row["right"]]),
+            "L_to_R": load_image_samplers(
+                [Path(item["path"]) for item in row["left_to_right"]]
+            ),
+        }
+    return samplers
+
+
+def _sample_fiber_component(
+    subject_order: tuple[str, ...],
+    samplers: dict[str, dict[str, list[Any]]],
+    coords: np.ndarray,
+    lengths: np.ndarray,
+    shifts: dict[tuple[str, str], np.ndarray],
+) -> np.ndarray:
+    matrix = np.zeros((len(subject_order), lengths.shape[0]), dtype=np.float32)
+    for index, subject_id in enumerate(subject_order):
+        subject = samplers[subject_id]
+        right = _sample_shifted_peak(
+            subject["R"], coords, lengths, shifts[(subject_id, "right")]
+        )
+        left = _sample_shifted_peak(
+            subject["L_to_R"],
+            coords,
+            lengths,
+            shifts[(subject_id, "left_to_right")],
+        )
+        matrix[index] = (right + left) / 2.0
+    return matrix
+
+
+def _default_configured_geometry_builder(
+    target: Any,
+    rng: np.random.Generator,
+    sigma_mm: float,
+) -> dict[str, Any]:
+    from stnsnr_direct_voxel_formal_jitter import _manifest_artifact_path
+
+    manifest = target.jitter_input_manifest
+    if not isinstance(manifest, dict) or target.jitter_input_manifest_path is None:
+        raise ValueError("configured fiber jitter requires a validated jitter input manifest")
+    geometry = manifest.get("geometry")
+    if not isinstance(geometry, dict) or geometry.get("builder") != "normative_fiber_efield_resample_v1":
+        raise ValueError(
+            "jitter geometry requires builder='normative_fiber_efield_resample_v1'"
+        )
+    manifest_path = Path(target.jitter_input_manifest_path)
+    data_mat = _manifest_artifact_path(
+        manifest_path,
+        geometry.get("connectome_data_mat"),
+        "connectome_data_mat",
+    )
+    final_ids = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"), dtype=np.int64)
+    final_coords, final_lengths = _candidate_points(data_mat, final_ids)
+
+    def shifts() -> dict[tuple[str, str], np.ndarray]:
+        return {
+            (subject_id, side): _jitter_vector(rng, sigma_mm)
+            for subject_id in target.subject_order
+            for side in ("right", "left_to_right")
+        }
+
+    if target.model_family == "hf_fiber":
+        reference = _configured_sampler_rows(
+            manifest_path,
+            geometry.get("hf_reference_sampling_qc"),
+            target.subject_order,
+            "hf_reference",
+        )
+        return {
+            "final_exposure": _sample_fiber_component(
+                target.subject_order,
+                reference,
+                final_coords,
+                final_lengths,
+                shifts(),
+            )
+        }
+
+    hf_samplers = _configured_sampler_rows(
+        manifest_path,
+        geometry.get("hf_component_sampling_qc"),
+        target.subject_order,
+        "hf_component",
+    )
+    ulf_samplers = _configured_sampler_rows(
+        manifest_path,
+        geometry.get("ulf_component_sampling_qc"),
+        target.subject_order,
+        "ulf_component",
+    )
+    hf_shifts = shifts()
+    result: dict[str, Any] = {
+        "hf_component": _sample_fiber_component(
+            target.subject_order,
+            hf_samplers,
+            final_coords,
+            final_lengths,
+            hf_shifts,
+        ),
+        "ulf_component": _sample_fiber_component(
+            target.subject_order,
+            ulf_samplers,
+            final_coords,
+            final_lengths,
+            shifts(),
+        ),
+        "fiber_ids": final_ids,
+    }
+    if target.hf_overlap_tau is not None and not math.isinf(float(target.hf_overlap_tau)):
+        if target.matched_hf_final is None:
+            raise ValueError("finite HF-overlap fiber jitter requires matched_hf_final")
+        matched_ids = np.asarray(
+            np.load(target.matched_hf_paths["feature_ids"], mmap_mode="r"),
+            dtype=np.int64,
+        )
+        matched_coords, matched_lengths = _candidate_points(data_mat, matched_ids)
+        reference = _configured_sampler_rows(
+            manifest_path,
+            geometry.get("hf_reference_sampling_qc"),
+            target.subject_order,
+            "hf_reference",
+        )
+        result.update(
+            {
+                "hf_reference": _sample_fiber_component(
+                    target.subject_order,
+                    reference,
+                    matched_coords,
+                    matched_lengths,
+                    shifts(),
+                ),
+                "hf_reprogrammed": _sample_fiber_component(
+                    target.subject_order,
+                    hf_samplers,
+                    matched_coords,
+                    matched_lengths,
+                    hf_shifts,
+                ),
+                "matched_fiber_ids": matched_ids,
+            }
+        )
+    return result
+
+
+def _default_configured_delta_builder(target: Any, geometry: dict[str, Any]) -> dict[str, Any]:
+    from stnsnr_direct_voxel_formal_jitter import _support_category, _support_fraction
+    from stnsnr_ulf_normative_fiber_observed import fit_hf_delta_fold, fit_hf_delta_full
+
+    if target.matched_hf_final is None:
+        raise ValueError("ULF fiber jitter DeltaHF rebuild requires matched_hf_final")
+    if target.y_base_path is None:
+        raise ValueError("ULF fiber jitter DeltaHF rebuild requires Y_base")
+    required = {"hf_reference", "hf_reprogrammed", "matched_fiber_ids"}
+    missing = sorted(required - set(geometry))
+    if missing:
+        raise ValueError("ULF fiber jitter geometry is missing DeltaHF inputs: " + ",".join(missing))
+    columns = _load_score_columns(target.scores_path)
+    y_hf_ref = _float_column(columns, "Y_HF_ref")
+    y_base = np.asarray(np.load(target.y_base_path, mmap_mode="r"), dtype=float)
+    reference = np.asarray(geometry["hf_reference"], dtype=np.float32)
+    component = np.asarray(geometry["hf_reprogrammed"], dtype=np.float32)
+    fiber_ids = np.asarray(geometry["matched_fiber_ids"], dtype=np.int64)
+    tau = float(target.matched_hf_final.selected_tau)
+    coverage = int(target.matched_hf_final.selected_coverage)
+    full = fit_hf_delta_full(
+        reference,
+        component,
+        y_hf_ref,
+        y_base,
+        target.scale_direction,
+        tau,
+        coverage,
+        fiber_ids,
+    )
+    full_support = np.asarray(full["candidate"], dtype=bool) & np.isfinite(full["weights"])
+    subject_fractions, any_zero = _support_fraction(component, full_support, tau)
+    n_subjects = len(target.subject_order)
+    fold_scores = np.full((n_subjects, n_subjects), np.nan, dtype=float)
+    fold_out = np.full(n_subjects, np.nan, dtype=float)
+    for heldout in range(n_subjects):
+        fold = fit_hf_delta_fold(
+            reference,
+            component,
+            y_hf_ref,
+            y_base,
+            target.scale_direction,
+            full["s_tau"],
+            heldout,
+            coverage,
+            fiber_ids,
+        )
+        fold_scores[heldout] = fold["delta"]
+        fold_support = np.asarray(fold["candidate"], dtype=bool) & np.isfinite(fold["weights"])
+        fractions, fold_zero = _support_fraction(
+            component[[heldout]], fold_support, tau
+        )
+        fold_out[heldout] = fractions[0]
+        any_zero = any_zero or fold_zero
+    category = _support_category(subject_fractions, fold_out, any_zero)
+    return {
+        "status": category,
+        "full_scores": np.asarray(full["delta"], dtype=float),
+        "fold_scores": fold_scores,
+        "support": {
+            "median_out_support_fraction": float(np.median(subject_fractions)),
+            "maximum_out_support_fraction": float(max(np.max(subject_fractions), np.max(fold_out))),
+            "invalid_extreme_threshold": 0.95,
+        },
+    }
+
+
+def _default_configured_branch_fitter(
+    target: Any,
+    geometry: dict[str, Any],
+    delta: dict[str, Any] | None,
+) -> dict[str, Any]:
+    columns = _load_score_columns(target.scores_path)
+    y_post = _float_column(columns, "Y_post")
+    if target.model_family == "hf_fiber":
+        exposure = np.asarray(geometry["final_exposure"], dtype=np.float32)
+        fiber_ids = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"))
+        reduced = prepare_candidate_union(
+            x=exposure,
+            fiber_ids=fiber_ids,
+            tau=float(target.selected_tau),
+            min_coverage=int(target.selected_coverage),
+        )
+        metrics = normative_fiber_loocv_statistic(
+            reduced=reduced,
+            y_post=y_post,
+            nuisance=_float_column(columns, "Y_base")[:, None],
+            scale_direction=target.scale_direction,
+        )
+        return {"status": "complete", **metrics}
+    from stnsnr_ulf_normative_fiber_observed import run_ulf_fiber_branch
+
+    ulf = np.asarray(geometry["ulf_component"], dtype=np.float32)
+    hf = np.asarray(geometry["hf_component"], dtype=np.float32)
+    hf_active = (
+        np.zeros_like(hf, dtype=bool)
+        if target.hf_overlap_tau is None or math.isinf(float(target.hf_overlap_tau))
+        else hf > float(target.hf_overlap_tau)
+    )
+    x = np.where((ulf > float(target.selected_tau)) & ~hf_active, ulf, 0.0).astype(np.float32)
+    adjusted = target.final_branch == "delta_hf_adjusted"
+    if adjusted and (delta is None or delta.get("status") not in {"adequate", "limited"}):
+        return {"status": "not_computable", "reason": "jitter_delta_hf_invalid"}
+    nuisance_full = np.asarray(delta["full_scores"], dtype=float) if adjusted else None
+    nuisance_provider = (
+        (lambda heldout: np.asarray(delta["fold_scores"], dtype=float)[heldout])
+        if adjusted
+        else None
+    )
+    branch = run_ulf_fiber_branch(
+        branch_name=target.final_branch,
+        x_ulf_only=x,
+        y_post=y_post,
+        y_hf_ref=_float_column(columns, "Y_HF_ref"),
+        nuisance_full=nuisance_full,
+        nuisance_fold_provider=nuisance_provider,
+        subject_ids=list(target.subject_order),
+        scale_direction=target.scale_direction,
+        tau=float(target.selected_tau),
+        min_coverage=int(target.selected_coverage),
+        fiber_ids=np.asarray(geometry["fiber_ids"]),
+    )
+    return {"status": "complete", **branch["metrics"]}
+
+
+def run_configured_jitter(
+    target: Any,
+    *,
+    n_jitters: int,
+    jitter_fwhm_mm: float,
+    seed: int,
+    geometry_builder: Any = None,
+    delta_builder: Any = None,
+    branch_fitter: Any = None,
+) -> dict[str, Any]:
+    """Run final-linked normative-fiber jitter with per-replicate rebuilds."""
+    geometry_runner = geometry_builder or _default_configured_geometry_builder
+    delta_runner = delta_builder or _default_configured_delta_builder
+    branch_runner = branch_fitter or _default_configured_branch_fitter
+    sigma_mm = float(jitter_fwhm_mm) / 2.3548200450309493
+    rows: list[dict[str, Any]] = []
+    completed = 0
+    for index in range(int(n_jitters)):
+        rng = np.random.default_rng(int(seed) + (index + 1) * 104729)
+        try:
+            geometry = geometry_runner(target, rng, sigma_mm)
+            delta = None
+            if str(target.model_family).startswith("ulf_"):
+                if target.hf_overlap_tau is not None and math.isinf(float(target.hf_overlap_tau)):
+                    delta = {"status": "not_applicable_no_hf_source"}
+                else:
+                    delta = delta_runner(target, geometry)
+            branch = branch_runner(target, geometry, delta)
+            status = str(branch.get("status", "complete"))
+            completed += int(status == "complete")
+            row = {
+                "jitter_index": index + 1,
+                "status": status,
+                "delta_support_status": (delta or {}).get("status", "not_applicable"),
+                "failure": branch.get("reason", ""),
+                "loocv_spearman_rho": branch.get("spearman_rho", np.nan),
+                "loocv_pearson_r": branch.get("pearson_r", np.nan),
+                "q2": branch.get("q2", np.nan),
+                "mae": branch.get("mae", np.nan),
+                "rmse": branch.get("rmse", np.nan),
+            }
+        except (KeyError, OSError, RuntimeError, ValueError) as exc:
+            row = {
+                "jitter_index": index + 1,
+                "status": "not_computable",
+                "delta_support_status": "not_computable",
+                "failure": str(exc),
+                "loocv_spearman_rho": np.nan,
+                "loocv_pearson_r": np.nan,
+                "q2": np.nan,
+                "mae": np.nan,
+                "rmse": np.nan,
+            }
+        rows.append(row)
+    if completed == 0:
+        failures = sorted({str(row["failure"]) for row in rows if row.get("failure")})
+        raise RuntimeError(
+            "no configured normative-fiber jitter replicate completed: "
+            + ";".join(failures)
+        )
+    summary_path = target.output_root / "normative_fiber_configured_jitter_replicates.csv"
+    write_csv(
+        summary_path,
+        rows,
+        [
+            "jitter_index",
+            "status",
+            "delta_support_status",
+            "failure",
+            "loocv_spearman_rho",
+            "loocv_pearson_r",
+            "q2",
+            "mae",
+            "rmse",
+        ],
+    )
+    return {
+        "status": "complete" if completed == int(n_jitters) else "partial",
+        "requested_replicates": int(n_jitters),
+        "completed_replicates": completed,
+        "jitter_fwhm_mm": float(jitter_fwhm_mm),
+        "jitter_sigma_mm": sigma_mm,
+        "seed": int(seed),
+        "selected_source_identity_fixed": True,
+        "final_model_id": target.final_model_id,
+        "final_record_hash": target.final_record_hash,
+        "selected_tau": float(target.selected_tau),
+        "selected_coverage": int(target.selected_coverage),
+        "final_branch": target.final_branch,
+        "replicates": rows,
+        "summary_csv": str(summary_path),
+        "classification_feedback": "none",
     }
 
 
