@@ -24,7 +24,7 @@ from ..planner import TaskSpec
 from ..records import ArtifactRef, DeltaHFBundle, HFSourceRecord, RecordError
 from ..run_store import sha256_file
 from .delta_hf import DeltaHFSupportAssessment, classify_delta_hf_support
-from .observed import ObservedServiceOutput
+from .observed import ObservedServiceOutput, normative_fiber_score_settings
 from .ulf_observed import DeltaBuilderOutput, ULFObservedRequest, validate_hf_source_for_ulf
 
 
@@ -298,6 +298,7 @@ def _compute_delta_hf_fiber_arrays(
     selected_coverage: int,
     subject_ids: tuple[str, ...],
     fiber_net_score: Callable[..., Any],
+    score_config: Any,
 ) -> tuple[np.ndarray, np.ndarray, DeltaHFSupportAssessment, list[dict[str, object]], dict[str, object]]:
     reference = np.asarray(reference_exposure, dtype=float)
     component = np.asarray(component_exposure, dtype=float)
@@ -321,8 +322,20 @@ def _compute_delta_hf_fiber_arrays(
     active = reference > float(selected_tau)
     coverage = np.sum(active, axis=0, dtype=np.int32)
     full_candidate = (coverage >= int(selected_coverage)) & np.isfinite(weights)
-    full_reference_score = fiber_net_score(reference, weights, full_candidate, fiber_ids=ids).net_score
-    full_component_score = fiber_net_score(component, weights, full_candidate, fiber_ids=ids).net_score
+    full_reference_score = fiber_net_score(
+        reference,
+        weights,
+        full_candidate,
+        fiber_ids=ids,
+        score_config=score_config,
+    ).net_score
+    full_component_score = fiber_net_score(
+        component,
+        weights,
+        full_candidate,
+        fiber_ids=ids,
+        score_config=score_config,
+    ).net_score
     full_delta = np.asarray(full_component_score - full_reference_score, dtype=np.float64)
 
     fold_candidates = np.empty((n_subjects, reference.shape[1]), dtype=bool)
@@ -337,12 +350,14 @@ def _compute_delta_hf_fiber_arrays(
             weights_by_fold[heldout],
             candidate,
             fiber_ids=ids,
+            score_config=score_config,
         ).net_score
         fold_component_score = fiber_net_score(
             component,
             weights_by_fold[heldout],
             candidate,
             fiber_ids=ids,
+            score_config=score_config,
         ).net_score
         fold_delta[heldout] = fold_component_score - fold_reference_score
 
@@ -360,6 +375,14 @@ def _compute_delta_hf_fiber_arrays(
             "fold_candidate_fiber_counts": [
                 int(np.count_nonzero(candidate)) for candidate in fold_candidates
             ],
+            "score": {
+                "sweet_fraction": score_config.sweet_fraction,
+                "sour_fraction": score_config.sour_fraction,
+                "weighted_peak_fraction": score_config.weighted_peak_fraction,
+                "sweet_selected_min_count": score_config.sweet_selected_min_count,
+                "sour_selected_min_count": score_config.sour_selected_min_count,
+                "weighted_peak_min_count": score_config.weighted_peak_min_count,
+            },
         }
     )
     return full_delta, fold_delta, assessment, support_rows, support_qc
@@ -473,7 +496,7 @@ def _verify_selected_manifest(
     path: Path,
     *,
     source: HFSourceRecord,
-) -> None:
+) -> dict[str, float | int]:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -495,6 +518,26 @@ def _verify_selected_manifest(
         or str(axis.get("identity_source", "")) != source.feature_axis.identity_source
     ):
         raise RecordError("immutable HF selected manifest feature axis mismatch")
+    qc = manifest.get("qc")
+    selection = qc.get("score_selection") if isinstance(qc, Mapping) else None
+    if not isinstance(selection, Mapping) or selection.get("mode") != "fraction":
+        raise RecordError("immutable HF selected manifest has no primary score policy")
+    required = {
+        "sweet_fraction",
+        "sour_fraction",
+        "weighted_peak_fraction",
+        "sweet_selected_min_count",
+        "sour_selected_min_count",
+        "weighted_peak_min_count",
+    }
+    if not required <= set(selection):
+        raise RecordError("immutable HF selected manifest score policy is incomplete")
+    try:
+        return normative_fiber_score_settings(
+            {key: selection[key] for key in sorted(required)}
+        )
+    except (TypeError, ValueError) as exc:
+        raise RecordError("immutable HF selected manifest score policy is invalid") from exc
 
 
 def build_configured_ulf_fiber_delta(
@@ -536,7 +579,19 @@ def build_configured_ulf_fiber_delta(
             "selected_fold_weights",
         }
     }
-    _verify_selected_manifest(resolved_artifacts["selected_manifest"], source=source)
+    source_score = _verify_selected_manifest(resolved_artifacts["selected_manifest"], source=source)
+    if context.config is None:
+        raise RecordError("configured ULF fiber Delta builder requires resolved model configuration")
+    try:
+        configured_score = normative_fiber_score_settings(
+            context.config.model.normative_fiber["score"]
+        )
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        raise RecordError("resolved model configuration has no normative-fiber score policy") from exc
+    if source_score != configured_score:
+        raise RecordError("matched HF source score policy differs from the resolved model configuration")
+    analysis = _load_legacy_analysis()
+    score_config = analysis.NormativeFiberScoreConfig.from_mapping(source_score)
     _, fiber_ids = _resolve_feature_axis(source, run_root)
     reference_exposure = np.asarray(np.load(resolved_artifacts["exposure_matrix"]), dtype=float)
     full_weights = np.asarray(np.load(resolved_artifacts["selected_full_weights"]), dtype=float)
@@ -575,7 +630,6 @@ def build_configured_ulf_fiber_delta(
         force_flip=force or inputs.force,
         force_rebuild=force or inputs.force,
     )
-    analysis = _load_legacy_analysis()
     runner = component_runner or analysis.build_ulf_normative_fiber_hf_component_configured
     component_payload = runner(component_config)
     component_path = Path(str(component_payload["exposure_matrix"])).expanduser().resolve()
@@ -613,6 +667,7 @@ def build_configured_ulf_fiber_delta(
         selected_coverage=int(source.selected_coverage),
         subject_ids=endpoint.subject_ids,
         fiber_net_score=analysis.fiber_net_score,
+        score_config=score_config,
     )
     support_qc.update(
         {
@@ -858,12 +913,28 @@ def _observed_output(payload: Mapping[str, Any], request: ULFObservedRequest, in
     artifact_payload = payload.get("artifacts", {})
     if not isinstance(artifact_payload, Mapping):
         raise RuntimeError("configured ULF fiber backend returned invalid artifacts")
+    source_status = str(payload["source_status"])
+    if source_status in {"pre_specified_accepted", "scan_fallback_accepted"}:
+        required = {
+            "source_status",
+            "selected_source",
+            "selected_manifest",
+            "selected_scores",
+            "exposure_matrix",
+            "selected_full_weights",
+            "selected_valid_fiber_ids",
+        }
+        missing = sorted(required - set(artifact_payload))
+        if missing:
+            raise RuntimeError(
+                "accepted configured ULF fiber source is missing artifacts: " + ",".join(missing)
+            )
     artifacts = tuple(
         TaskArtifact(kind=str(kind), path=Path(str(path)))
         for kind, path in sorted(artifact_payload.items())
     )
     return ObservedServiceOutput(
-        source_status=str(payload["source_status"]),
+        source_status=source_status,
         prediction_status=str(payload["prediction_status"]),
         threshold_source=str(payload["threshold_source"]),
         selected_tau=_optional_float(payload.get("selected_tau")),

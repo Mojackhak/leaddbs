@@ -21,16 +21,30 @@ from outcome_models.services import legacy_ulf_fiber
 from outcome_models.services.legacy_ulf_fiber import (
     ULFNormativeFiberBackendInputs,
     _assess_hf_component_fiber_support,
+    _compute_delta_hf_fiber_arrays,
     build_legacy_ulf_fiber_config,
     configured_ulf_fiber_delta_builder,
     run_configured_ulf_fiber_resolver,
 )
 from outcome_models.services.observed import ObservedServiceOutput
 from outcome_models.services.ulf_observed import DeltaBuilderOutput, ULFObservedRequest
-from stnsnr_four_model_stats import candidate_mask_from_coverage, coverage_from_suprathreshold, fiber_net_score
-from stnsnr_hf_normative_fiber_smoke import sha256_array
-from stnsnr_ulf_normative_fiber_observed import _array_sha256, _configured_delta_inputs
-from stnsnr_ulf_normative_fiber_observed import ulf_fiber_artifact_names, ulf_fiber_branch_name
+from stnsnr_four_model_stats import (
+    NormativeFiberScoreConfig,
+    candidate_mask_from_coverage,
+    coverage_from_suprathreshold,
+    fiber_net_score,
+)
+from stnsnr_hf_normative_fiber_smoke import NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS, sha256_array
+import stnsnr_ulf_normative_fiber_observed as ulf_fiber_analysis
+from stnsnr_ulf_normative_fiber_observed import (
+    _array_sha256,
+    _configured_delta_inputs,
+    apply_ulf_only_fiber_rule,
+    run_ulf_fiber_branch,
+    ulf_fiber_artifact_names,
+    ulf_fiber_branch_name,
+    write_branch_outputs,
+)
 
 
 def _artifact(root: Path, kind: str, name: str, shape: tuple[int, ...]) -> ArtifactRef:
@@ -211,6 +225,17 @@ def _immutable_hf_source(
                 "selected_coverage": coverage,
                 "subject_order": list(subject_ids),
                 "feature_axis": axis.as_dict(),
+                "qc": {
+                    "score_selection": {
+                        "mode": "fraction",
+                        "sweet_fraction": 0.01,
+                        "sour_fraction": 0.005,
+                        "weighted_peak_fraction": 0.05,
+                        "sweet_selected_min_count": 200,
+                        "sour_selected_min_count": 100,
+                        "weighted_peak_min_count": 20,
+                    }
+                },
             },
             sort_keys=True,
         )
@@ -243,6 +268,97 @@ def _immutable_hf_source(
 
 
 class ConfiguredULFFiberBackendTests(unittest.TestCase):
+    def test_both_branches_emit_fold_local_support_and_post_overlap_valid_axis(self) -> None:
+        n_subjects = 6
+        fiber_ids = np.arange(1, 6, dtype=np.int64)
+        hf_component = np.zeros((n_subjects, fiber_ids.size), dtype=np.float32)
+        hf_component[:, 0] = 2.0
+        ulf_component = np.array(
+            [
+                [3.0, 2.0, 3.0, 4.0, 5.0],
+                [3.0, 3.0, 2.0, 5.0, 4.0],
+                [3.0, 4.0, 5.0, 2.0, 3.0],
+                [3.0, 5.0, 4.0, 3.0, 2.0],
+                [3.0, 6.0, 3.0, 5.0, 2.0],
+                [3.0, 2.0, 6.0, 4.0, 3.0],
+            ],
+            dtype=np.float32,
+        )
+        x_ulf_only = apply_ulf_only_fiber_rule(
+            hf_component,
+            ulf_component,
+            1.0,
+            hf_overlap_tau=1.0,
+        )
+        y_post = np.array([3.0, 1.0, 4.0, 2.0, 6.0, 5.0])
+        y_hf_ref = np.array([1.0, 3.0, 2.0, 6.0, 4.0, 5.0])
+        delta = np.array([0.2, -0.1, 0.3, -0.2, 0.4, -0.3])
+
+        def deterministic_weights(_y, exposure, _nuisance):
+            return np.linspace(1.0, -1.0, exposure.shape[1])
+
+        results = {}
+        with patch.object(
+            ulf_fiber_analysis,
+            "partial_spearman_matrix",
+            side_effect=deterministic_weights,
+        ), patch.object(
+            ulf_fiber_analysis,
+            "fit_linear_prediction",
+            return_value=(np.array([1.0]), np.zeros(4)),
+        ), patch.object(
+            ulf_fiber_analysis,
+            "fit_baseline_with_covariates",
+            return_value=(np.array([1.0]), np.zeros(3)),
+        ):
+            for branch in ("no_delta_hf", "delta_hf_adjusted"):
+                nuisance = None if branch == "no_delta_hf" else delta
+                provider = None if nuisance is None else lambda _heldout: delta
+                results[branch] = run_ulf_fiber_branch(
+                    branch_name=branch,
+                    x_ulf_only=x_ulf_only,
+                    y_post=y_post,
+                    y_hf_ref=y_hf_ref,
+                    nuisance_full=nuisance,
+                    nuisance_fold_provider=provider,
+                    subject_ids=[f"sub-{index:02d}" for index in range(n_subjects)],
+                    scale_direction="higher",
+                    tau=1.0,
+                    min_coverage=2,
+                    fiber_ids=fiber_ids,
+                    sweet_fraction=0.5,
+                    sour_fraction=0.5,
+                    weighted_peak_fraction=0.5,
+                    sweet_selected_min_count=1,
+                    sour_selected_min_count=1,
+                    weighted_peak_min_count=1,
+                )
+
+        required = set(NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS)
+        for result in results.values():
+            self.assertTrue(required <= result["score_rows"][0].keys())
+            self.assertTrue(required <= result["fold_rows"][0].keys())
+            self.assertTrue(required <= result["score_support"].keys())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for branch, result in results.items():
+                branch_dir = Path(tmp) / branch
+                artifacts = write_branch_outputs(
+                    branch_dir,
+                    result,
+                    fiber_ids,
+                    {"model": "test"},
+                    {"selected_tau_v_per_m": 1.0, "selected_coverage": 2},
+                    materialize_selected_artifacts=True,
+                )
+                valid_ids = np.load(artifacts["selected_valid_fiber_ids"])
+                full_weights = np.load(artifacts["selected_full_weights"])
+                expected = fiber_ids[result["candidate"] & np.isfinite(result["weights"])]
+                np.testing.assert_array_equal(valid_ids, expected)
+                np.testing.assert_array_equal(full_weights, result["weights"])
+                self.assertNotIn(1, valid_ids)
+                self.assertTrue(Path(artifacts["selected_valid_fiber_ids"]).is_relative_to(branch_dir))
+
     def test_adjusted_config_preserves_endpoint_connectome_grid_and_delta_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -331,10 +447,21 @@ class ConfiguredULFFiberBackendTests(unittest.TestCase):
             hf_component = request.model_root / "cache" / "hf_component.npy"
             ulf_component = request.model_root / "cache" / "ulf_component.npy"
             y_base = request.model_root / "cache" / "y_base.npy"
+            selected_manifest = request.output_root / "selected_manifest.json"
+            selected_scores = request.output_root / "selected_scores.csv"
+            selected_exposure = request.output_root / "selected_exposure.npy"
+            selected_weights = request.output_root / "selected_full_weights.npy"
+            selected_valid_ids = request.output_root / "selected_valid_fiber_ids.npy"
             hf_component.parent.mkdir(parents=True, exist_ok=True)
+            request.output_root.mkdir(parents=True, exist_ok=True)
             np.save(hf_component, np.ones((2, 3), dtype=np.float32))
             np.save(ulf_component, np.ones((2, 3), dtype=np.float32))
             np.save(y_base, np.ones(2, dtype=np.float64))
+            selected_manifest.write_text("{}\n", encoding="utf-8")
+            selected_scores.write_text("subject_id\n", encoding="utf-8")
+            np.save(selected_exposure, np.ones((2, 3), dtype=np.float32))
+            np.save(selected_weights, np.ones(3, dtype=np.float32))
+            np.save(selected_valid_ids, np.arange(1, 4, dtype=np.int64))
 
             def payload(axis_sha: str) -> dict[str, object]:
                 return {
@@ -358,12 +485,30 @@ class ConfiguredULFFiberBackendTests(unittest.TestCase):
                         "hf_component_exposure": str(hf_component),
                         "ulf_component_exposure": str(ulf_component),
                         "y_base": str(y_base),
+                        "selected_manifest": str(selected_manifest),
+                        "selected_scores": str(selected_scores),
+                        "exposure_matrix": str(selected_exposure),
+                        "selected_full_weights": str(selected_weights),
+                        "selected_valid_fiber_ids": str(selected_valid_ids),
                     },
                 }
 
             fake = SimpleNamespace(run_ulf_normative_fiber_configured=lambda config: payload("b" * 64))
             with patch.object(legacy_ulf_fiber, "_load_legacy_analysis", return_value=fake):
                 output = run_configured_ulf_fiber_resolver(request, inputs)
+            incomplete = SimpleNamespace(
+                run_ulf_normative_fiber_configured=lambda config: {
+                    **payload("b" * 64),
+                    "artifacts": {
+                        key: value
+                        for key, value in payload("b" * 64)["artifacts"].items()
+                        if key != "selected_valid_fiber_ids"
+                    },
+                }
+            )
+            with patch.object(legacy_ulf_fiber, "_load_legacy_analysis", return_value=incomplete):
+                with self.assertRaisesRegex(RuntimeError, "selected_valid_fiber_ids"):
+                    run_configured_ulf_fiber_resolver(request, inputs)
             bad = SimpleNamespace(run_ulf_normative_fiber_configured=lambda config: payload("d" * 64))
             with patch.object(legacy_ulf_fiber, "_load_legacy_analysis", return_value=bad):
                 with self.assertRaisesRegex(RuntimeError, "feature axis"):
@@ -388,6 +533,11 @@ class ConfiguredULFFiberBackendTests(unittest.TestCase):
                 "hf_component_exposure",
                 "ulf_component_exposure",
                 "y_base",
+                "selected_manifest",
+                "selected_scores",
+                "exposure_matrix",
+                "selected_full_weights",
+                "selected_valid_fiber_ids",
             },
         )
 
@@ -503,6 +653,81 @@ class DeltaHFSupportTests(unittest.TestCase):
 
 
 class DeltaHFBuilderTests(unittest.TestCase):
+    def test_delta_arrays_use_the_exact_configured_score_policy_in_full_and_folds(self) -> None:
+        n_subjects = 4
+        fiber_ids = np.arange(1, 9, dtype=np.int64)
+        reference = np.tile(np.linspace(2.0, 3.0, 8), (n_subjects, 1))
+        reference += np.arange(n_subjects, dtype=float)[:, None] * 0.1
+        component = reference + np.linspace(0.1, 1.6, 8)[None, :]
+        full_weights = np.array([4.0, 3.0, 2.0, 1.0, -1.0, -2.0, -3.0, -4.0])
+        fold_weights = np.array(
+            [
+                full_weights,
+                [3.0, 4.0, 1.0, 2.0, -2.0, -1.0, -4.0, -3.0],
+                [2.0, 1.0, 4.0, 3.0, -3.0, -4.0, -1.0, -2.0],
+                [1.0, 2.0, 3.0, 4.0, -4.0, -3.0, -2.0, -1.0],
+            ]
+        )
+        score_config = NormativeFiberScoreConfig(
+            sweet_fraction=0.25,
+            sour_fraction=0.25,
+            weighted_peak_fraction=1.0,
+            sweet_selected_min_count=1,
+            sour_selected_min_count=1,
+            weighted_peak_min_count=1,
+        )
+
+        full, folds, *_ = _compute_delta_hf_fiber_arrays(
+            reference_exposure=reference,
+            component_exposure=component,
+            full_weights=full_weights,
+            fold_weights=fold_weights,
+            fiber_ids=fiber_ids,
+            selected_tau=1.0,
+            selected_coverage=2,
+            subject_ids=tuple(f"s{index}" for index in range(n_subjects)),
+            fiber_net_score=fiber_net_score,
+            score_config=score_config,
+        )
+        candidate = np.ones(fiber_ids.size, dtype=bool)
+        expected = (
+            fiber_net_score(
+                component,
+                full_weights,
+                candidate,
+                fiber_ids=fiber_ids,
+                score_config=score_config,
+            ).net_score
+            - fiber_net_score(
+                reference,
+                full_weights,
+                candidate,
+                fiber_ids=fiber_ids,
+                score_config=score_config,
+            ).net_score
+        )
+
+        np.testing.assert_allclose(full, expected)
+        for heldout in range(n_subjects):
+            fold_candidate = np.ones(fiber_ids.size, dtype=bool)
+            fold_expected = (
+                fiber_net_score(
+                    component,
+                    fold_weights[heldout],
+                    fold_candidate,
+                    fiber_ids=fiber_ids,
+                    score_config=score_config,
+                ).net_score
+                - fiber_net_score(
+                    reference,
+                    fold_weights[heldout],
+                    fold_candidate,
+                    fiber_ids=fiber_ids,
+                    score_config=score_config,
+                ).net_score
+            )
+            np.testing.assert_allclose(folds[heldout], fold_expected)
+
     def test_builder_uses_immutable_full_and_fold_weights_and_writes_atomic_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -547,7 +772,21 @@ class DeltaHFBuilderTests(unittest.TestCase):
             )
             context = SimpleNamespace(
                 store=SimpleNamespace(run_root=root),
-                config=SimpleNamespace(workflow=SimpleNamespace(execution=SimpleNamespace(force=False))),
+                config=SimpleNamespace(
+                    workflow=SimpleNamespace(execution=SimpleNamespace(force=False)),
+                    model=SimpleNamespace(
+                        normative_fiber={
+                            "score": {
+                                "sweet_fraction": 0.01,
+                                "sour_fraction": 0.005,
+                                "weighted_peak_fraction": 0.05,
+                                "sweet_selected_min_count": 200,
+                                "sour_selected_min_count": 100,
+                                "weighted_peak_min_count": 20,
+                            }
+                        }
+                    ),
+                ),
             )
             inputs = _inputs(root)
 
@@ -579,6 +818,17 @@ class DeltaHFBuilderTests(unittest.TestCase):
                 inputs=inputs,
                 component_runner=lambda config: component_payload(config, include_hashes=True),
             )
+            mismatched_score = dict(context.config.model.normative_fiber["score"])
+            mismatched_score["sweet_selected_min_count"] = 201
+            mismatched_context = SimpleNamespace(
+                store=context.store,
+                config=SimpleNamespace(
+                    workflow=context.config.workflow,
+                    model=SimpleNamespace(normative_fiber={"score": mismatched_score}),
+                ),
+            )
+            with self.assertRaisesRegex(RecordError, "score policy differs"):
+                builder(endpoint, source, task, mismatched_context)
             output = builder(endpoint, source, task, context)
             task_root = root / "models" / endpoint.endpoint_model_id / "tasks" / task.task_id
             full = np.load(task_root / "full.npy")

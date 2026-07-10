@@ -315,11 +315,11 @@ git commit -m "feat: apply fold-local HF fiber scoring"
 - Consumes the shared score policy for both ULF branches and matched-HF Delta scores.
 - Produces branch-local `selected_valid_fiber_ids` after HF-overlap exclusion.
 
-- [ ] **Step 1: Add RED tests for realized-branch candidates and Delta consistency**
+- [x] **Step 1: Add RED tests for realized-branch candidates and Delta consistency**
 
 Test both `no_delta_hf` and `delta_hf_adjusted`. Assert `selected_valid_fiber_ids` is derived after HF-overlap exclusion, a nonfinal branch cannot provide the final axis, and DeltaHFFiberScore uses the matched HF source's exact score policy for full sample and each held-out fold.
 
-- [ ] **Step 2: Run ULF/Delta tests and verify RED**
+- [x] **Step 2: Run ULF/Delta tests and verify RED**
 
 ```bash
 conda run -n leaddbs python my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_observed_selftest.py
@@ -328,7 +328,7 @@ conda run -n leaddbs python -m unittest \
   my_helper.fiber.core.outcome_models.tests.test_delta_hf -v
 ```
 
-- [ ] **Step 3: Apply the shared policy in each ULF branch**
+- [x] **Step 3: Apply the shared policy in each ULF branch**
 
 Pass `score_config` into full and fold scoring. Preserve branch-specific nuisance design:
 
@@ -339,15 +339,15 @@ delta_hf_adjusted: Y_post ~ Y_HF_ref + DeltaHFScore + NetULFFiberScore
 
 The ULF source resolver remains branch-specific and unchanged.
 
-- [ ] **Step 4: Apply the same policy to DeltaHFFiberScore**
+- [x] **Step 4: Apply the same policy to DeltaHFFiberScore**
 
 For full and fold matched-HF scores, use identical selected tau/Coverage, training-fold weights, and `NormativeFiberScoreConfig`. Continue to classify support using the existing strict out-of-support contract; do not alter `adequate`, `limited`, or invalid thresholds.
 
-- [ ] **Step 5: Emit branch-local support fields and valid IDs**
+- [x] **Step 5: Emit branch-local support fields and valid IDs**
 
 Write `selected_valid_fiber_ids.npy` for every accepted ULF branch. Only the realized final branch is later promoted into the final record. One-sided support remains runnable and is labeled limited.
 
-- [ ] **Step 6: Run ULF/Delta tests and commit**
+- [x] **Step 6: Run ULF/Delta tests and commit**
 
 ```bash
 conda run -n leaddbs python my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_observed_selftest.py

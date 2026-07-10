@@ -34,6 +34,7 @@ from stnsnr_four_model_readiness import (
     repo_root_from_file,
 )
 from stnsnr_four_model_stats import (
+    NormativeFiberScoreConfig,
     benefit_oriented_weights,
     candidate_mask_from_coverage,
     coverage_from_suprathreshold,
@@ -41,11 +42,13 @@ from stnsnr_four_model_stats import (
     fit_linear_prediction,
     partial_spearman_matrix,
     regression_metrics,
+    score_support_fields,
     suprathreshold_matrix,
 )
 from stnsnr_hf_direct_voxel_smoke import fit_baseline_only, slugify
 from stnsnr_hf_normative_fiber_smoke import (
     CONNECTOMES,
+    NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
     fiber_block_slices,
     load_idx_lengths,
     load_image_samplers,
@@ -86,6 +89,17 @@ def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> 
 def write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def write_npy_atomic(path: Path, values: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+    try:
+        with temporary.open("wb") as handle:
+            np.save(handle, values)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def required_arg(args: argparse.Namespace, name: str) -> str:
@@ -475,11 +489,24 @@ def delta_hf_fiber_scores_from_weights(
     weights: np.ndarray,
     candidate: np.ndarray,
     fiber_ids: np.ndarray | None = None,
+    score_config: NormativeFiberScoreConfig | None = None,
 ) -> dict[str, Any]:
     """Compute DeltaHFFiberScore using the normative HF NetFiberScore definition."""
     ids = np.arange(1, weights.shape[0] + 1, dtype=np.int64) if fiber_ids is None else fiber_ids
-    ref_net = fiber_net_score(hf_reference, weights, candidate, fiber_ids=ids)
-    component_net = fiber_net_score(hf_component, weights, candidate, fiber_ids=ids)
+    ref_net = fiber_net_score(
+        hf_reference,
+        weights,
+        candidate,
+        fiber_ids=ids,
+        score_config=score_config,
+    )
+    component_net = fiber_net_score(
+        hf_component,
+        weights,
+        candidate,
+        fiber_ids=ids,
+        score_config=score_config,
+    )
     return {
         "delta": component_net.net_score - ref_net.net_score,
         "reference_score": ref_net.net_score,
@@ -594,7 +621,21 @@ def run_ulf_fiber_branch(
     tau: float,
     min_coverage: int,
     fiber_ids: np.ndarray,
+    sweet_fraction: float = 0.01,
+    sour_fraction: float = 0.005,
+    weighted_peak_fraction: float = 0.05,
+    sweet_selected_min_count: int = 200,
+    sour_selected_min_count: int = 100,
+    weighted_peak_min_count: int = 20,
 ) -> dict[str, Any]:
+    score_config = NormativeFiberScoreConfig(
+        sweet_fraction=sweet_fraction,
+        sour_fraction=sour_fraction,
+        weighted_peak_fraction=weighted_peak_fraction,
+        sweet_selected_min_count=sweet_selected_min_count,
+        sour_selected_min_count=sour_selected_min_count,
+        weighted_peak_min_count=weighted_peak_min_count,
+    )
     s_tau = suprathreshold_matrix(x_ulf_only, tau)
     coverage = coverage_from_suprathreshold(s_tau)
     candidate = candidate_mask_from_coverage(coverage, min_coverage)
@@ -605,7 +646,14 @@ def run_ulf_fiber_branch(
     rho_candidate = partial_spearman_matrix(y_post, np.asarray(x_ulf_only[:, candidate]), cov_full)
     rho[candidate] = rho_candidate.astype(np.float32)
     weights = benefit_oriented_weights(rho, scale_direction).astype(np.float32)
-    full_net = fiber_net_score(np.asarray(x_ulf_only), weights, candidate, fiber_ids=fiber_ids)
+    full_net = fiber_net_score(
+        np.asarray(x_ulf_only),
+        weights,
+        candidate,
+        fiber_ids=fiber_ids,
+        score_config=score_config,
+    )
+    full_support = score_support_fields(full_net, score_config)
 
     score_rows: list[dict[str, Any]] = []
     for idx, subject_id in enumerate(subject_ids):
@@ -620,6 +668,7 @@ def run_ulf_fiber_branch(
             "n_sour_selected_fibers": int(full_net.sour_fiber_ids.size),
             "n_sweet_peak_fibers": int(full_net.n_sweet_peak_fibers),
             "n_sour_peak_fibers": int(full_net.n_sour_peak_fibers),
+            **full_support,
             "score_map_source": "full_sample",
             "is_primary_score": True,
         }
@@ -651,7 +700,14 @@ def run_ulf_fiber_branch(
         rho_fold = partial_spearman_matrix(y_post[train], np.asarray(x_ulf_only[train][:, candidate_fold]), cov_train)
         weights_fold = np.full(x_ulf_only.shape[1], np.nan, dtype=np.float32)
         weights_fold[candidate_fold] = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
-        fold_net = fiber_net_score(np.asarray(x_ulf_only), weights_fold, candidate_fold, fiber_ids=fiber_ids)
+        fold_net = fiber_net_score(
+            np.asarray(x_ulf_only),
+            weights_fold,
+            candidate_fold,
+            fiber_ids=fiber_ids,
+            score_config=score_config,
+        )
+        fold_support = score_support_fields(fold_net, score_config)
         if np.nanstd(fold_net.net_score[train]) == 0:
             net_score_nonconstant_all_folds = False
         fold_pred, beta = fit_linear_prediction(
@@ -680,6 +736,7 @@ def run_ulf_fiber_branch(
             "n_candidate_fibers": int(np.count_nonzero(candidate_fold)),
             "n_sweet_selected_fibers": int(fold_net.sweet_fiber_ids.size),
             "n_sour_selected_fibers": int(fold_net.sour_fiber_ids.size),
+            **fold_support,
             "delta_NetULFFiberScore": beta[1],
             "beta_Y_HF_ref": beta[2],
             "baseline_beta_Y_HF_ref": base_beta[1],
@@ -709,6 +766,10 @@ def run_ulf_fiber_branch(
         "fold_n_candidate_fibers_max": int(np.nanmax(fold_count_array)) if fold_count_array.size else 0,
         "n_sweet_selected_fibers": int(full_net.sweet_fiber_ids.size),
         "n_sour_selected_fibers": int(full_net.sour_fiber_ids.size),
+        "selected_fiber_pools_computable": bool(
+            full_net.sweet_fiber_ids.size > 0 or full_net.sour_fiber_ids.size > 0
+        ),
+        "score_support": full_support,
         "netulfscore_nonconstant_all_folds": bool(net_score_nonconstant_all_folds),
         "all_predictions_finite": bool(np.all(np.isfinite(pred)) and np.all(np.isfinite(pred_base))),
     }
@@ -782,6 +843,12 @@ def evaluate_ulf_norm_fiber_grid_cell(
     tau: int,
     coverage: int,
     fiber_ids: np.ndarray,
+    sweet_fraction: float = 0.01,
+    sour_fraction: float = 0.005,
+    weighted_peak_fraction: float = 0.05,
+    sweet_selected_min_count: int = 200,
+    sour_selected_min_count: int = 100,
+    weighted_peak_min_count: int = 20,
 ) -> dict[str, Any]:
     design_status = branch_nuisance_design_status(y_hf_ref=y_hf_ref, delta_hfscore=nuisance_full)
     if design_status != "valid":
@@ -808,6 +875,12 @@ def evaluate_ulf_norm_fiber_grid_cell(
             tau=float(tau),
             min_coverage=int(coverage),
             fiber_ids=fiber_ids,
+            sweet_fraction=sweet_fraction,
+            sour_fraction=sour_fraction,
+            weighted_peak_fraction=weighted_peak_fraction,
+            sweet_selected_min_count=sweet_selected_min_count,
+            sour_selected_min_count=sour_selected_min_count,
+            weighted_peak_min_count=weighted_peak_min_count,
         )
     except Exception as exc:
         return ulf_norm_fiber_empty_scan_row(
@@ -838,9 +911,8 @@ def evaluate_ulf_norm_fiber_grid_cell(
         "fold_n_candidate_fibers_min": int(result["fold_n_candidate_fibers_min"]),
         "fold_n_candidate_fibers_median": float(result["fold_n_candidate_fibers_median"]),
         "fold_n_candidate_fibers_max": int(result["fold_n_candidate_fibers_max"]),
-        "selected_fiber_pools_computable": bool(
-            result["n_sweet_selected_fibers"] > 0 and result["n_sour_selected_fibers"] > 0
-        ),
+        "selected_fiber_pools_computable": bool(result["selected_fiber_pools_computable"]),
+        **result["score_support"],
         "netulfscore_nonconstant_all_folds": bool(result["netulfscore_nonconstant_all_folds"]),
         "branch_nuisance_design_status": design_status,
         "all_predictions_finite": bool(result["all_predictions_finite"]),
@@ -940,6 +1012,7 @@ def write_ulf_norm_fiber_source_scan_outputs(
         "passes_all_hard_filters",
         "ulf_norm_fiber_prediction_status",
         "failure_reason",
+        *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
     ]
     write_csv(scan_csv, rows, fieldnames)
     write_json(
@@ -963,7 +1036,8 @@ def write_branch_outputs(
     manifest_common: dict[str, Any],
     *,
     artifact_names: dict[str, str] | None = None,
-) -> None:
+    materialize_selected_artifacts: bool = False,
+) -> dict[str, str]:
     branch_dir.mkdir(parents=True, exist_ok=True)
     names = artifact_names or ulf_fiber_artifact_names(800, 5, "no_delta_hf", dynamic=False)
     coverage_column = f"coverage_{tau_slug(float(manifest_common.get('selected_tau_v_per_m', 800)))}"
@@ -995,6 +1069,7 @@ def write_branch_outputs(
         "n_sour_selected_fibers",
         "n_sweet_peak_fibers",
         "n_sour_peak_fibers",
+        *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
         "score_map_source",
         "is_primary_score",
     ]
@@ -1015,6 +1090,7 @@ def write_branch_outputs(
         "n_candidate_fibers",
         "n_sweet_selected_fibers",
         "n_sour_selected_fibers",
+        *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
         "delta_NetULFFiberScore",
         "beta_Y_HF_ref",
         "gamma_DeltaHFFiberScore",
@@ -1054,10 +1130,26 @@ def write_branch_outputs(
             "n_candidate_fibers": branch["n_candidate_fibers"],
             "n_sweet_selected_fibers": branch["n_sweet_selected_fibers"],
             "n_sour_selected_fibers": branch["n_sour_selected_fibers"],
+            **branch["score_support"],
             "loocv_metrics": branch["metrics"],
             "resampling_status": "not_run_observed_only",
         }
     )
+    selected_artifacts: dict[str, str] = {}
+    if materialize_selected_artifacts:
+        full_weights_path = branch_dir / "selected_full_weights.npy"
+        valid_fiber_ids_path = branch_dir / "selected_valid_fiber_ids.npy"
+        valid_mask = np.asarray(branch["candidate"], dtype=bool) & np.isfinite(branch["weights"])
+        write_npy_atomic(full_weights_path, np.asarray(branch["weights"], dtype=np.float32))
+        write_npy_atomic(
+            valid_fiber_ids_path,
+            np.asarray(fiber_ids, dtype=np.int64)[valid_mask],
+        )
+        selected_artifacts = {
+            "selected_full_weights": str(full_weights_path),
+            "selected_valid_fiber_ids": str(valid_fiber_ids_path),
+        }
+
     manifest = dict(manifest_common)
     manifest.update(
         {
@@ -1070,11 +1162,13 @@ def write_branch_outputs(
                 "loocv_predictions_csv": str(branch_dir / names["predictions_csv"]),
                 "mapping_qc_json": str(branch_dir / names["qc_json"]),
                 "generation_manifest_json": str(branch_dir / names["branch_manifest"]),
+                **selected_artifacts,
             },
         }
     )
     write_json(branch_dir / names["qc_json"], qc)
     write_json(branch_dir / names["branch_manifest"], manifest)
+    return selected_artifacts
 
 
 def _configured_clinical_records(config: Any) -> tuple[list[ULFRecord], np.ndarray, np.ndarray, np.ndarray]:
@@ -1364,6 +1458,12 @@ def run_ulf_normative_fiber_configured(config: Any) -> dict[str, Any]:
                     tau=float(tau),
                     coverage=int(coverage),
                     fiber_ids=np.asarray(fiber_ids),
+                    sweet_fraction=config.sweet_fraction,
+                    sour_fraction=config.sour_fraction,
+                    weighted_peak_fraction=config.weighted_peak_fraction,
+                    sweet_selected_min_count=config.sweet_selected_min_count,
+                    sour_selected_min_count=config.sour_selected_min_count,
+                    weighted_peak_min_count=config.weighted_peak_min_count,
                 )
             )
     resolution = resolve_ulf_norm_fiber_branch(
@@ -1416,6 +1516,14 @@ def run_ulf_normative_fiber_configured(config: Any) -> dict[str, Any]:
             "hf_overlap_coverage": config.hf_overlap_coverage,
             "delta_hf_record_hash": config.delta_hf_record_hash,
             "delta_support_status": config.delta_support_status,
+            "score": {
+                "sweet_fraction": config.sweet_fraction,
+                "sour_fraction": config.sour_fraction,
+                "weighted_peak_fraction": config.weighted_peak_fraction,
+                "sweet_selected_min_count": config.sweet_selected_min_count,
+                "sour_selected_min_count": config.sour_selected_min_count,
+                "weighted_peak_min_count": config.weighted_peak_min_count,
+            },
             "delta_full_scores_path": (
                 str(config.delta_full_scores_path) if config.delta_full_scores_path is not None else None
             ),
@@ -1456,12 +1564,20 @@ def run_ulf_normative_fiber_configured(config: Any) -> dict[str, Any]:
             tau=float(selected_tau),
             min_coverage=int(selected_coverage),
             fiber_ids=np.asarray(fiber_ids),
+            sweet_fraction=config.sweet_fraction,
+            sour_fraction=config.sour_fraction,
+            weighted_peak_fraction=config.weighted_peak_fraction,
+            sweet_selected_min_count=config.sweet_selected_min_count,
+            sour_selected_min_count=config.sour_selected_min_count,
+            weighted_peak_min_count=config.weighted_peak_min_count,
         )
         selected_names = ulf_fiber_artifact_names(
             float(selected_tau), int(selected_coverage), config.branch, dynamic=bool(config.dynamic_names)
         )
         branch_dir = output_dir / ulf_fiber_branch_name(float(selected_tau), int(selected_coverage), config.branch)
-        write_branch_outputs(
+        exposure_path = branch_dir / "X_ULF_only_fiber_float32_subject_major.npy"
+        write_npy_atomic(exposure_path, np.asarray(x_selected, dtype=np.float32))
+        materialized_artifacts = write_branch_outputs(
             branch_dir,
             selected_branch,
             np.asarray(fiber_ids),
@@ -1482,18 +1598,28 @@ def run_ulf_normative_fiber_configured(config: Any) -> dict[str, Any]:
                 "subject_order": subject_ids,
                 "hf_source_record_hash": config.hf_source_record_hash,
                 "delta_hf_record_hash": config.delta_hf_record_hash,
+                "exposure_matrix": str(exposure_path),
+                "score": {
+                    "sweet_fraction": config.sweet_fraction,
+                    "sour_fraction": config.sour_fraction,
+                    "weighted_peak_fraction": config.weighted_peak_fraction,
+                    "sweet_selected_min_count": config.sweet_selected_min_count,
+                    "sour_selected_min_count": config.sour_selected_min_count,
+                    "weighted_peak_min_count": config.weighted_peak_min_count,
+                },
                 "component_sampler_qc": {"HF": hf_sampler_qc, "ULF": ulf_sampler_qc},
             },
             artifact_names=selected_names,
+            materialize_selected_artifacts=True,
         )
-        exposure_path = branch_dir / "X_ULF_only_fiber_float32_subject_major.npy"
-        np.save(exposure_path, np.asarray(x_selected, dtype=np.float32))
         selected_artifacts = {
             "selected_manifest": str(branch_dir / selected_names["branch_manifest"]),
             "selected_scores": str(branch_dir / selected_names["scores_csv"]),
             "exposure_matrix": str(exposure_path),
+            **materialized_artifacts,
         }
         selected_payload["selected_branch_dir"] = str(branch_dir)
+        selected_payload["selected_artifacts"] = selected_artifacts
     write_json(selected_source_path, selected_payload)
 
     return {

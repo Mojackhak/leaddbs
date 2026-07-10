@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from stnsnr_four_model_stats import NormativeFiberScoreConfig
 from stnsnr_ulf_normative_fiber_observed import (
     apply_ulf_only_fiber_rule,
     classify_b_dependency,
@@ -39,6 +40,23 @@ def test_delta_hf_fiber_scores_from_weights() -> None:
     np.testing.assert_allclose(result["delta"], expected_component - expected_ref)
     assert result["n_sweet_selected_fibers"] == 1
     assert result["n_sour_selected_fibers"] == 1
+
+    configured = delta_hf_fiber_scores_from_weights(
+        np.ones((2, 8), dtype=float),
+        np.full((2, 8), 2.0, dtype=float),
+        np.array([4.0, 3.0, 2.0, 1.0, -1.0, -2.0, -3.0, -4.0]),
+        np.ones(8, dtype=bool),
+        score_config=NormativeFiberScoreConfig(
+            sweet_fraction=0.25,
+            sour_fraction=0.25,
+            weighted_peak_fraction=1.0,
+            sweet_selected_min_count=1,
+            sour_selected_min_count=1,
+            weighted_peak_min_count=1,
+        ),
+    )
+    assert configured["n_sweet_selected_fibers"] == 1
+    assert configured["n_sour_selected_fibers"] == 1
 
 
 def test_classify_b_dependency() -> None:
