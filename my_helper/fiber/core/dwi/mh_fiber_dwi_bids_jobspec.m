@@ -91,42 +91,27 @@ end
 
 function rawBase = resolve_raw_dwi_base(rawDwiDir, patientName, sessionLabel, sourceBase)
 sourceBase = char(string(sourceBase));
-if ~isempty(sourceBase)
-    rawBase = sourceBase;
-    return;
-end
-
 defaultBase = [patientName, '_', sessionLabel, '_dwi'];
-if isfile(fullfile(rawDwiDir, [defaultBase, '.nii.gz'])) || ...
-        isfile(fullfile(rawDwiDir, [defaultBase, '.nii']))
-    rawBase = defaultBase;
-    return;
-end
-
 gzFiles = dir(fullfile(rawDwiDir, '*_dwi.nii.gz'));
 niiFiles = dir(fullfile(rawDwiDir, '*_dwi.nii'));
 gzFiles = gzFiles(~startsWith({gzFiles.name}, '._'));
 niiFiles = niiFiles(~startsWith({niiFiles.name}, '._'));
 
 candidateNames = [{gzFiles.name}, {niiFiles.name}];
-candidateBases = cell(size(candidateNames));
-for i = 1:numel(candidateNames)
-    candidateBases{i} = strip_dwi_nii_extension(candidateNames{i});
+if numel(candidateNames) > 1
+    error('mh_fiber_dwi_bids_jobspec:AmbiguousRawDwi', ...
+        'Expected one raw DWI NIfTI in %s, found %d files.', ...
+        rawDwiDir, numel(candidateNames));
 end
-candidateBases = unique(candidateBases, 'stable');
-
-if isscalar(candidateBases)
-    rawBase = candidateBases{1};
+if ~isempty(sourceBase)
+    rawBase = sourceBase;
     return;
 end
-if isempty(candidateBases)
+if isempty(candidateNames)
     rawBase = defaultBase;
     return;
 end
-
-error('mh_fiber_dwi_bids_jobspec:AmbiguousRawDwi', ...
-    'Expected one raw DWI file in %s, found %d candidates.', ...
-    rawDwiDir, numel(candidateBases));
+rawBase = strip_dwi_nii_extension(candidateNames{1});
 end
 
 function base = strip_dwi_nii_extension(fileName)
