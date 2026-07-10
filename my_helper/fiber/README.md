@@ -332,14 +332,19 @@ The 16-subject raw DWI re-import and staging-only entry point is:
 matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_import_stage.m')"
 ```
 
-The project-agnostic Synb0/eddy fake-B0 UI-coreg entry point is:
+The project-agnostic YAML entry point is:
 
 ```matlab
-run_project_dwi_fake_b0_coreg( ...
-    'StudyRoot', '/path/to/project', ...
-    'SubjectIds', {'SubA', 'SubB'}, ...
-    'FreeSurferLicense', '/Applications/freesurfer/8.2.0/license.txt')
+run_bids_dwi_preprocessing( ...
+    'Config', '/path/to/project/dwi.yaml', ...
+    'Mode', 'run', ...
+    'SubjectIds', {'SubA', 'SubB'})
 ```
+
+Use `Mode='validate'` to validate every selected input without image
+processing, and `Mode='plan'` to return and record the resolved job manifest.
+Each mode writes a unique audit directory under
+`derivatives/leaddbs/import_logs/dwi_runs/<run_id>/`.
 
 The STNSNr wrapper is:
 
@@ -347,8 +352,8 @@ The STNSNr wrapper is:
 matlab -batch "cd('/Users/mojackhu/Github/leaddbs'); addpath(genpath(pwd)); run('/Users/mojackhu/Github/leaddbs/my_helper/fiber/stnsnr/run_stnsnr_dwi_registration.m')"
 ```
 
-For the imported STN/SNr cohort, the wrapper provides the STNSNr study root and
-import log, then calls the project-agnostic runner. The fake-B0 workflow writes:
+The wrapper selects `my_helper/stnsnr/config/dwi.yaml`, then calls the generic
+runner. The fake-B0 workflow writes:
 
 ```text
 preprocessing/dwi/sub-<Subject>_ses-preop_desc-preproc_dwi.nii

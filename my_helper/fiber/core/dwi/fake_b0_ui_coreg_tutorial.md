@@ -2,9 +2,9 @@
 
 This tutorial describes how to run and review the project-agnostic DWI workflow
 that generates a corrected DWI series and exposes the corrected mean b0 as a
-Lead-DBS pseudo `B0` volume for UI-based coregistration. STNSNr paths and
-subjects are examples only; reusable code should be called with project-specific
-`StudyRoot`, `SubjectIds`, and optional `ImportLog` values.
+Lead-DBS pseudo `B0` volume for UI-based coregistration. Project differences
+are defined by YAML; runtime `SubjectIds` may narrow or override the configured
+subject selection.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ subjects are examples only; reusable code should be called with project-specific
   `/Users/mojackhu/Github/leaddbs`
 - Study root containing Lead-DBS-compatible `rawdata` and `derivatives`
   directories.
-- Imported DWI data in BIDS-compatible `rawdata/sub-<ID>/ses-preop/dwi/`
+- Imported DWI data in BIDS-compatible `rawdata/sub-<ID>/ses-<session>/dwi/`
   directories.
 - Conda environment for Lead-DBS work: `leaddbs`.
 - Docker Desktop or Singularity for Synb0-DISCO.
@@ -31,11 +31,12 @@ JSON, bval, and bvec files into `rawdata`.
 flowchart TD
     Z["mh_fiber_reconstruct_mosaic_dwi_batch.m"] --> Z2["optional SaveBySlc mosaic repair"]
     Z2 --> A
-    A["run_project_dwi_fake_b0_coreg.m"] --> B["mh_fiber_register_imported_dwi_batch.m"]
-    A2["STNSNr wrapper scripts"] --> A
-    B --> C["validate raw DWI, JSON, bval, and bvec"]
-    B --> D["stage DWI derivatives"]
-    D --> E["mh_fiber_dwi_distortion_correction.m"]
+    A["run_bids_dwi_preprocessing.m"] --> B["load strict YAML configuration"]
+    A2["project YAML presets"] --> A
+    B --> C["resolve subjects and validate all job specs"]
+    C --> D["mh_fiber_process_imported_dwi_batch.m"]
+    D --> E0["stage DWI derivatives"]
+    E0 --> E["mh_fiber_dwi_distortion_correction.m"]
     E --> F["extract distorted mean b0"]
     F --> G["ea_synb0"]
     G --> H["topup outputs"]
@@ -46,26 +47,32 @@ flowchart TD
     L --> M["BIDSFetcher.getPreprocB0()"]
     M --> N["Lead-DBS UI: Coregister Volumes"]
     N --> O["manual QC and method selection"]
-    O --> P["ea_normalize.m filters B0 before normalization"]
+    O --> P["normalization uses the accepted Lead-DBS modality policy"]
 ```
 
 ## Main entry points
 
-`run_project_dwi_fake_b0_coreg.m` is the project-agnostic fake-B0 entry point.
-It expects a project `StudyRoot` and either explicit `SubjectIds`, a copied-DWI
-`ImportLog`, or discoverable BIDS DWI files under `rawdata/sub-*/ses-preop/dwi/`.
+`run_bids_dwi_preprocessing.m` is the public project-agnostic entry point. It
+loads a versioned YAML file and supports `validate`, `plan`, and `run` modes.
+Every selected subject is validated before numerical processing starts.
 
-`run_stnsnr_dwi_registration.m` and `run_stnsnr_dwi_synb0_bbr_pilot.m` are thin
-STNSNr wrappers. They only provide STNSNr paths and pilot subject choices before
-calling the project-agnostic runner.
+Project presets are stored outside the generic module, for example
+`my_helper/stnsnr/config/dwi.yaml` and `my_helper/stnvop/config/dwi.yaml`.
+`run_stnsnr_dwi_registration.m` is a thin compatibility script that selects the
+STN/SNr preset and calls the public runner.
 
-`mh_fiber_register_imported_dwi_batch.m` is the batch implementation. The key
-parameters for the fake-B0 workflow are:
+`run_project_dwi_fake_b0_coreg.m` and the name-value parameters accepted by the
+public runner remain compatibility paths. New projects should use YAML.
+
+`mh_fiber_process_imported_dwi_batch.m` is the numerical batch dispatch
+boundary. The fixed fake-B0 tag and Lead-DBS derivative names are internal and
+cannot be changed from YAML.
+
+The main configurable fake-B0 values are:
 
 ```matlab
 'DistortionCorrection', 'synb0'
 'RunCoregistration', false
-'CoregistrationTag', 'dwi_synb0_fakeb0'
 'Synb0MinDockerMemoryGB', 12
 'Synb0WorkRoot', '/Users/mojackhu/Library/Caches/leaddbs/stnsnr_synb0_work'
 ```
@@ -89,69 +96,55 @@ each mosaic row, with rows processed from top to bottom.
 `BIDSFetcher.getPreprocB0()` exposes
 `preprocessing/dwi/*_desc-preproc_b0.nii` as the Lead-DBS pseudo `B0` modality.
 
-`ea_normalize.m` removes pseudo `B0` inputs before dispatching to normalization
-backends.
+The current `ea_normalize.m` entry point does not strip `B0` from the resolved
+preoperative modality set. Normalization transform estimation still follows the
+configured anchor modality; B0 must first pass coregistration QC.
 
-## Project-agnostic pilot command
+## Validate and plan
 
-Run a pilot subject from MATLAB in the `leaddbs` environment:
+Validate a complete project without writing image derivatives:
 
 ```matlab
 repoDir = '/Users/mojackhu/Github/leaddbs';
 addpath(genpath(repoDir));
+configPath = '/path/to/project/dwi.yaml';
 
-result = run_project_dwi_fake_b0_coreg( ...
-    'StudyRoot', '/path/to/project', ...
-    'RepoDir', repoDir, ...
-    'PilotSubject', 'SubA', ...
-    'FreeSurferLicense', '/Applications/freesurfer/8.2.0/license.txt', ...
-    'Force', true);
+validated = run_bids_dwi_preprocessing( ...
+    'Config', configPath, ...
+    'Mode', 'validate');
+
+planned = run_bids_dwi_preprocessing( ...
+    'Config', configPath, ...
+    'Mode', 'plan', ...
+    'SubjectIds', {'SubA'});
 ```
 
-The equivalent STNSNr example is:
+Both modes write a versioned audit record under
+`derivatives/leaddbs/import_logs/dwi_runs/<run_id>/`, but do not write image
+derivatives.
+
+## Run preprocessing
 
 ```matlab
 repoDir = '/Users/mojackhu/Github/leaddbs';
 addpath(genpath(repoDir));
 
-result = run_project_dwi_fake_b0_coreg( ...
-    'StudyRoot', '/Volumes/VAL/STNSNr', ...
-    'RepoDir', repoDir, ...
-    'ImportLog', fullfile('/Volumes/VAL/STNSNr', 'derivatives', 'leaddbs', ...
-        'import_logs', 'dwi_import_20260701_013240.csv'), ...
-    'PilotSubject', 'ChenMeiJu', ...
-    'Force', true);
+result = run_bids_dwi_preprocessing( ...
+    'Config', '/path/to/project/dwi.yaml', ...
+    'Mode', 'run', ...
+    'SubjectIds', {'SubA'});
 ```
 
 `CoregistrationMethod` is retained as a batch parameter, but it is not used when
 `RunCoregistration=false`. The anatomical alignment is performed later in the
 Lead-DBS UI.
 
-## Batch command template
-
-After the pilot passes QC, the same workflow can be applied to an explicit
-subject list:
-
-```matlab
-repoDir = '/Users/mojackhu/Github/leaddbs';
-addpath(genpath(repoDir));
-
-subjectIds = {'SubA', 'SubB', 'SubC'};
-
-result = run_project_dwi_fake_b0_coreg( ...
-    'StudyRoot', '/path/to/project', ...
-    'RepoDir', repoDir, ...
-    'SubjectIds', subjectIds, ...
-    'FreeSurferLicense', '/Applications/freesurfer/8.2.0/license.txt', ...
-    'Force', false);
-```
-
 Use `Force=true` only when intentionally rerunning a subject and replacing the
 current derived outputs.
 
-If `SubjectIds` is omitted, subjects are resolved in this order: copied subjects
-from `ImportLog` when provided, then BIDS DWI files discovered under
-`StudyRoot/rawdata/sub-*/ses-preop/dwi/`.
+If runtime `SubjectIds` is omitted, `subjects.mode` in YAML selects automatic
+BIDS discovery or an explicit configured list. Runtime IDs always override the
+YAML selection.
 
 ## STNSNr full re-import and fake-B0 preprocessing
 
@@ -575,9 +568,9 @@ coregistration_status=pending_ui
 7. Keep the method that gives the best anatomical agreement on visual QC.
 8. Record the selected method in the project notes or subject QC record.
 
-The pseudo `B0` is a diffusion-derived reference image. It should support DWI
-quality control and DWI-to-anatomy review, but it should not be used as an
-anatomical normalization contrast.
+The pseudo `B0` is a diffusion-derived reference image. It supports DWI quality
+control and DWI-to-anatomy review. It is not the anatomical anchor used to
+estimate the normalization transform.
 
 ## Manual QC checklist
 
@@ -603,13 +596,11 @@ started through:
 ea_normalize(options)
 ```
 
-`ea_normalize.m` removes the `B0` field from local normalization inputs before
-calling `ea_norm_refine_prepare()` or any normalization backend. This prevents
-the pseudo `B0` from entering ANTs, SPM Segment, SPM Shoot, SPM Dartel,
-Schonecker, and other methods reached through the standard Lead-DBS entry point.
-
-Direct manual calls to low-level normalization backend functions are outside the
-supported path for the fake-B0 workflow.
+`ea_normalize.m` estimates the normalization transform from the configured
+anchor modality. The current branch retains coregistered `B0` in the resolved
+preoperative modality set, so downstream application may write a normalized B0
+according to the selected Lead-DBS normalization method. This is expected; B0
+must not replace the T1w/T2w anchor used for transform estimation.
 
 ## Troubleshooting
 
@@ -643,6 +634,6 @@ phase-encoding vector and compare distorted-b0 versus corrected-b0 overlays.
 If the UI coregistration result is poor with SPM, rerun the UI step with another
 available method, such as ANTs, and keep the visually superior result.
 
-If a `B0` image appears under `normalization/anat`, stop and inspect the
-normalization call path. The supported path is `ea_normalize(options)`, which
-filters pseudo `B0` inputs before backend dispatch.
+If a `B0` image appears under `normalization/anat`, verify that it follows the
+same accepted anchor-to-template transform and that its prior B0-to-anchor
+coregistration passed manual QC.

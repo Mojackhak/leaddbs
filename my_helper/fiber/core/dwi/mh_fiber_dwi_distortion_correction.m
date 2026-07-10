@@ -40,7 +40,7 @@ mh_util_must_be_file(t1Image, 'anchorNative T1w', ...
 workDir = fullfile(paths.dwiDir, 'work', 'synb0_eddy');
 mh_util_make_dir(workDir);
 
-rawBase = [paths.patientName, '_ses-preop'];
+rawBase = regexprep(paths.outputBase, '_dwi$', '');
 distortedB0 = fullfile(workDir, [rawBase, '_desc-distorted_b0.nii']);
 correctedPrefix = fullfile(workDir, [rawBase, '_desc-eddy']);
 formalDwi = fullfile(paths.dwiDir, [rawBase, '_desc-preproc_dwi.nii']);

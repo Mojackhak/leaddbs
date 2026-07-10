@@ -5,7 +5,6 @@ if nargin < 2 || isempty(opts)
     opts = struct();
 end
 opts = normalize_processing_options(opts);
-validate_job_spec(jobSpec);
 
 subjectId = char(string(jobSpec.subjectId));
 paths = jobSpec.paths;
@@ -26,12 +25,14 @@ try
     row.anchor_anat = char(string(jobSpec.anchorAnat));
     row.normalization_forward = char(string(jobSpec.normalizationForward));
 
-    validate_raw_inputs(paths);
-    [nVolumes, bvals, bvecCount] = validate_gradients(paths.rawBval, paths.rawBvec, paths.rawDwiGz);
-    row.dwi_volumes = nVolumes;
-    row.bval_count = numel(bvals);
-    row.bvec_count = bvecCount;
-    row.b0_count = sum(bvals < 10);
+    preflight = mh_fiber_dwi_validate_jobspec(jobSpec, ...
+        'RequireT1', strcmp(opts.DistortionCorrection, 'synb0'));
+    bvals = preflight.bvals;
+    row.raw_dwi = preflight.rawDwi;
+    row.dwi_volumes = preflight.dwiVolumes;
+    row.bval_count = preflight.bvalCount;
+    row.bvec_count = preflight.bvecCount;
+    row.b0_count = preflight.b0Count;
 
     stage_dwi_derivatives(paths, opts.Force);
     if strcmp(opts.DistortionCorrection, 'synb0')
@@ -151,20 +152,6 @@ end
 
 end
 
-function validate_job_spec(jobSpec)
-required = {'subjectId', 'sourceBase', 'paths', 'anchorAnat', 't1Anat', 'normalizationForward'};
-for i = 1:numel(required)
-    if ~isfield(jobSpec, required{i})
-        error('mh_fiber_process_imported_dwi:InvalidJobSpec', ...
-            'Missing jobSpec field: %s', required{i});
-    end
-end
-if ~isstruct(jobSpec.paths)
-    error('mh_fiber_process_imported_dwi:InvalidJobSpec', ...
-        'jobSpec.paths must be a struct.');
-end
-end
-
 function opts = normalize_processing_options(opts)
 opts = fill_option(opts, 'AnchorModality', 'T2w');
 opts = fill_option(opts, 'CoregistrationMethod', 'ANTs');
@@ -204,47 +191,6 @@ end
 function opts = fill_option(opts, fieldName, value)
 if ~isfield(opts, fieldName)
     opts.(fieldName) = value;
-end
-end
-
-function validate_raw_inputs(paths)
-if ~isfolder(paths.subjectDir)
-    error('Subject derivative directory does not exist: %s', paths.subjectDir);
-end
-if ~isfile(paths.rawDwiGz) && ~isfile(paths.rawDwiNii)
-    error('Raw DWI image not found: %s', paths.rawDwiGz);
-end
-mh_util_must_be_file(paths.rawJson, 'raw DWI JSON');
-mh_util_must_be_file(paths.rawBval, 'raw DWI bval');
-mh_util_must_be_file(paths.rawBvec, 'raw DWI bvec');
-end
-
-function [nVolumes, bvals, bvecCount] = validate_gradients(bvalPath, bvecPath, dwiPath)
-bvals = mh_fiber_load_bval(bvalPath);
-bvecCount = mh_fiber_bvec_count(bvecPath);
-
-dwiInfoPath = dwiPath;
-tempNii = '';
-if endsWith(dwiPath, '.gz')
-    tempDir = tempname;
-    mkdir(tempDir);
-    gunzip(dwiPath, tempDir);
-    [~, base] = fileparts(dwiPath);
-    dwiInfoPath = fullfile(tempDir, base);
-    tempNii = tempDir;
-end
-
-cleanupObj = onCleanup(@() mh_fiber_cleanup_temp_dir(tempNii));
-V = spm_vol(dwiInfoPath);
-nVolumes = numel(V);
-if numel(bvals) ~= nVolumes
-    error('bval count (%d) does not match DWI volume count (%d).', numel(bvals), nVolumes);
-end
-if bvecCount ~= nVolumes
-    error('bvec count (%d) does not match DWI volume count (%d).', bvecCount, nVolumes);
-end
-if ~any(bvals < 10)
-    error('No b0 volume found with bval < 10.');
 end
 end
 
@@ -355,7 +301,7 @@ if command_exists('dwi2mask')
 end
 
 if command_exists('dwi2tensor') && command_exists('tensor2metric')
-    tensorMif = fullfile(paths.dwiDir, [paths.patientName, '_ses-preop_dwi_tensor.mif']);
+    tensorMif = fullfile(paths.dwiDir, [paths.outputBase, '_tensor.mif']);
     if ~isfile(faPath)
         cmd1 = sprintf('dwi2tensor %s %s -fslgrad %s %s -force', ...
             mh_fiber_shell_quote(paths.dwi), mh_fiber_shell_quote(tensorMif), ...
