@@ -401,6 +401,30 @@ DeltaHFScore construction, source/prediction classification, HF-derived ULF
 branch roles, and fallback-final realization remain code and model-document
 contracts.
 
+OSS row scheduling is an internal execution concern, not a scientific model
+parameter. The configured executor uses bounded row-level concurrency with
+three workers by default. One worker owns one complete subject/side/source row
+from parameter preflight through its sequential pPAM lattice and compact row
+checkpoint; pPAM samples within a row are not scheduled concurrently by this
+layer. The public YAML and CLI do not expose the worker count in
+`four_model_v1`.
+
+Before running OSS preflight, the executor must check for an exact completed
+row checkpoint in the current content cache and then in prior configured runs
+for the same study. Reuse requires the same scientific compatibility identity,
+row identity, candidate fiber axis, pPAM lattice, and validated nested artifact
+hashes. A changed scheduler implementation alone must not invalidate this
+scientific identity. Scientific generator identity and scheduler-code
+provenance are therefore recorded separately; any change to geometry,
+activation, mapping, aggregation, or merge semantics requires an explicit
+scientific identity version change.
+
+Rows may complete out of order, but merge order is deterministic by planned
+row index. On a row failure, running rows may finish and checkpoint, pending
+rows are cancelled where possible, and no final branch matrix is published.
+A later clean-provenance run may reuse those exact completed checkpoints. Code
+drift never permits in-place resume of an older run manifest.
+
 ### `workflow`
 
 Required selection and execution fields:
