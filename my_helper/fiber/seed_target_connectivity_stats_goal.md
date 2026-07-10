@@ -8,9 +8,9 @@ Workspace: /Users/mojackhu/Github/leaddbs
 Parent goal: none; standalone reusable fiber-core module
 Authoritative specification: this document
 Current branch: stnvop
-Status: design_approved
-Implementation status: task_8_real_data_acceptance_in_progress
-Current outputs: unchanged
+Status: implemented
+Implementation status: verified_complete
+Current outputs: /private/tmp/seed-target-connectivity-dtor-acceptance-20260710
 Implementation language: Python
 Default execution environment: Conda leaddbs
 Last updated: 2026-07-10
@@ -493,6 +493,64 @@ metric, artifact, failure state, test, and acceptance requirement in this
 document against current code and generated evidence. Passing narrow unit tests
 does not prove completion of the real-data fixture or artifact/provenance
 contract.
+
+### Verified completion evidence
+
+The completion audit passed on 2026-07-10 against package code provenance:
+
+```text
+git commit: 840665d1602b3aa2b4b0b8869bedce952c03655e
+package SHA-256: 9b8fa462dd134185ac6d9783978d34e64913a5339b3d78ecb89591601bdf0289
+Conda environment: leaddbs
+synthetic/integration suite: 64 passed; 1 opt-in real test skipped
+opt-in dTOR acceptance: 1 passed in 187.692 seconds
+successful acceptance peak RSS: 3,125,428,224 bytes
+successful acceptance swap count: 0
+```
+
+The successful acceptance reused exact content-addressed target and left-seed
+membership caches produced by the immediately preceding full dTOR traversal.
+That first traversal ran for 628.98 seconds and had already atomically published
+the left run and both membership caches before it was interrupted during the
+next seed stage. The successful acceptance then verified those cache hashes,
+completed the right seed, reran both public API calls, and performed sampled
+reference/optimized equivalence.
+
+Real-data evidence:
+
+```text
+acceptance report:
+/private/tmp/seed-target-connectivity-dtor-acceptance-20260710/acceptance_report.json
+
+left run:
+/private/tmp/seed-target-connectivity-dtor-acceptance-20260710/runs/8e9731dd9875f7080987eb1b8d800ab607b68b8c8a2d348456356cea23ded543
+
+right run:
+/private/tmp/seed-target-connectivity-dtor-acceptance-20260710/runs/8bf62ccc72dfc667b0bb8f406ea37faa699f588ec0bfcffedb8c268abfbe483f
+```
+
+| Requirement group | Authoritative evidence | Audit result |
+|---|---|---|
+| Exactly three scientific inputs and generic API | `pipeline.py`, `test_pipeline_cli.py`; both fixture seeds call `compute_seed_target_statistics` independently | passed |
+| Strict configuration and unknown-field rejection | `config.py`, `config.schema.json`, `test_config.py` | passed |
+| Recursive deterministic atlas discovery and exclusions | `atlas.py`, `test_atlas_roi.py`; real fixture discovered 106 eligible targets | passed |
+| Binary/probabilistic resolution, threshold precedence, empty targets, hashes, and physical volume | `roi.py`, `test_atlas_roi.py`, both `input_resolution_qc.csv` files | passed |
+| Stable canonical IDs and bounded HDF5 chunks | `connectome.py`, `test_connectome.py`; real metadata records 11,820,000 fibers and 1,032,794,665 points | passed |
+| Segment-aware reference and optimized traversal | `traversal.py`, `test_traversal.py`; 24 sampled real fibers agreed exactly across all 106 targets | passed |
+| Overlapping target independence and no winner-takes-all policy | multi-target bitset tests, including 70-target multiword coverage | passed |
+| Five exact statistics and failure semantics | `statistics.py`, `test_engine_statistics.py`; hand calculations, zero joint, zero background, and zero seed are covered | passed |
+| Deterministic ranking without scientific selection | ranking tests and `deterministic_ranks=true` in the acceptance report | passed |
+| Independent seed/target cache reuse and identity | `cache.py`, cache-reuse/tamper tests; right run reused target membership and both unchanged reruns reused exact caches | passed |
+| Nine immutable artifacts, atomic publication, hashes, timestamps, and code provenance | `artifacts.py`, `test_artifacts.py`; both real run directories contain and verify all nine required files | passed |
+| Four-command CLI | `cli.py`, executable `pipelines/seed-target-connectivity`, subprocess integration tests | passed |
+| Real left/right dTOR support | left seed: 251,376 fibers; right seed: 327,966 fibers | passed |
+| Complete real target rows and valid denominators | 106 rows per seed; 103 estimable lift rows, 2 empty targets, and 1 no-support target per run | passed |
+| Unchanged rerun hashes and source isolation | `identical_rerun_hashes=true`, `source_state_unchanged=true`; output root is outside the repository | passed |
+| No project/anatomy/clinical logic in reusable core | production-core coupling scan; project names occur only in the explicit acceptance fixture/test | passed |
+
+Both real run manifests and artifact indexes were reverified after acceptance.
+The worktree was clean, `git diff --check` passed, and no remote mutation was
+performed.
 
 ## Deferred Work
 
