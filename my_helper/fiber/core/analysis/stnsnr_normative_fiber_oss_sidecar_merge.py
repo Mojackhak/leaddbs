@@ -8,7 +8,7 @@ import csv
 import hashlib
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 from scipy.io import loadmat
@@ -37,6 +37,51 @@ DEFAULT_ACTIVATION_SUMMARY_CSV = (
 )
 DEFAULT_READINESS_CSV = DEFAULT_VAL_ROOT / "summary/four_model_execution/formal_readiness/four_model_formal_readiness.csv"
 DEFAULT_OUTPUT_DIR = DEFAULT_VAL_ROOT / "summary/four_model_execution/normative_fiber_oss_sidecar_merge"
+
+
+def merge_right_canonical_probabilities(
+    *,
+    subject_order: tuple[str, ...],
+    valid_fiber_ids: np.ndarray,
+    side_probabilities: Mapping[
+        tuple[str, str],
+        tuple[np.ndarray, np.ndarray],
+    ],
+) -> np.ndarray:
+    """Merge exact L-to-right and native-right pPAM rows by maximum."""
+    fiber_ids = np.asarray(valid_fiber_ids, dtype=np.int64)
+    if fiber_ids.ndim != 1 or fiber_ids.size == 0:
+        raise ValueError("right-canonical valid fiber axis must be nonempty and one-dimensional")
+    if np.unique(fiber_ids).size != fiber_ids.size:
+        raise ValueError("right-canonical valid fiber axis contains duplicate IDs")
+    expected = {
+        (str(subject_id), side)
+        for subject_id in subject_order
+        for side in ("L", "R")
+    }
+    observed = {(str(subject_id), str(side).upper()) for subject_id, side in side_probabilities}
+    if observed != expected:
+        raise ValueError(
+            "side probabilities must contain exact L/R rows for every subject"
+        )
+    output = np.empty((len(subject_order), fiber_ids.size), dtype=np.float32)
+    for subject_index, subject_id in enumerate(subject_order):
+        values = []
+        for side in ("L", "R"):
+            row_ids, row_values = side_probabilities[(str(subject_id), side)]
+            row_ids = np.asarray(row_ids, dtype=np.int64)
+            probabilities = np.asarray(row_values, dtype=np.float32)
+            if not np.array_equal(row_ids, fiber_ids):
+                raise ValueError("side probability fiber axis differs from the valid axis")
+            if probabilities.shape != (fiber_ids.size,):
+                raise ValueError("side probability row shape differs from the valid axis")
+            if not np.all(np.isfinite(probabilities)):
+                raise ValueError("side probabilities contain non-finite values")
+            if np.any(probabilities < 0.0) or np.any(probabilities > 1.0):
+                raise ValueError("side probabilities fall outside [0, 1]")
+            values.append(probabilities)
+        output[subject_index] = np.maximum(values[0], values[1])
+    return output
 
 
 def _read_csv_rows(path: Path) -> list[dict[str, str]]:

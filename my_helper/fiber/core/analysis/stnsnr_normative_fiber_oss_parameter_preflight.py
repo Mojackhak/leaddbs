@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a bounded OSS-DBS parameter-dictionary preflight for normative fibers."""
+"""Build fixed ten-sample pPAM parameter inputs for normative OSS rows."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ DEFAULT_WORKLIST = (
 )
 DEFAULT_OUTPUT_DIR = DEFAULT_VAL_ROOT / "summary/four_model_execution/normative_fiber_oss_parameter_preflight"
 DEFAULT_OSS_CONVERTER = Path("/opt/anaconda3/envs/ossdbsv2/bin/leaddbs2ossdbs")
+PAM_N_SAMPLES = 10
 
 
 def _repo_root() -> Path:
@@ -65,12 +66,16 @@ def _stimparameter_from_source(path: Path) -> Path:
     return matches[0]
 
 
-def _hemi_side(side: str) -> int:
-    if side == "R":
+def _canonical_oss_hemi_side(row: dict[str, str]) -> int:
+    side = str(row.get("side", "")).upper()
+    mode = str(row.get("canonicalization_mode", ""))
+    if side == "R" and mode in {"", "native_right"}:
         return 0
-    if side == "L":
-        return 1
-    raise RuntimeError(f"unsupported side: {side!r}")
+    if side == "L" and mode == "left_geometry_to_right":
+        return 0
+    raise ValueError(
+        f"unsupported OSS canonicalization for side={side!r}, mode={mode!r}"
+    )
 
 
 def _matlab_side_index(side: str) -> int:
@@ -79,6 +84,18 @@ def _matlab_side_index(side: str) -> int:
     if side == "L":
         return 2
     raise RuntimeError(f"unsupported side: {side!r}")
+
+
+def _transform_left_to_right_for_row(row: dict[str, str]) -> bool:
+    side = str(row.get("side", "")).upper()
+    mode = str(row.get("canonicalization_mode", ""))
+    if side == "L" and mode == "left_geometry_to_right":
+        return True
+    if side == "R" and mode in {"", "native_right"}:
+        return False
+    raise ValueError(
+        f"unsupported OSS canonicalization for side={side!r}, mode={mode!r}"
+    )
 
 
 def _read_source_frequency_hz(source_mat: Path, side: str) -> tuple[float | None, str]:
@@ -200,8 +217,57 @@ def _matlab_script(
     patient_dir: Path,
     row_dir: Path,
     matlab_side_index: int,
+    transform_left_to_right: bool = False,
 ) -> str:
     stim_dir = row_dir / "lead_dbs_stimulations"
+    transform_lines = []
+    if transform_left_to_right:
+        transform_lines = [
+            "  if requested_side_idx ~= 2; error('left-to-right transform requires the left source side'); end",
+            "  if isempty(settings.contactLocation{requested_side_idx}); error('left contact locations are missing'); end",
+            "  settings.contactLocation{requested_side_idx} = ea_flip_lr_nonlinear(settings.contactLocation{requested_side_idx});",
+            "  settings.Implantation_coordinate(requested_side_idx,:) = ea_flip_lr_nonlinear(settings.Implantation_coordinate(requested_side_idx,:));",
+            "  settings.Second_coordinate(requested_side_idx,:) = ea_flip_lr_nonlinear(settings.Second_coordinate(requested_side_idx,:));",
+            "  if all(isfinite(settings.yMarkerMNI(requested_side_idx,:)))",
+            "    settings.yMarkerMNI(requested_side_idx,:) = ea_flip_lr_nonlinear(settings.yMarkerMNI(requested_side_idx,:));",
+            "  end",
+            "  if all(isfinite(settings.headMNI(requested_side_idx,:)))",
+            "    settings.headMNI(requested_side_idx,:) = ea_flip_lr_nonlinear(settings.headMNI(requested_side_idx,:));",
+            "  end",
+            "  settings.contactLocation{1} = settings.contactLocation{requested_side_idx};",
+            "  settings.Implantation_coordinate(1,:) = settings.Implantation_coordinate(requested_side_idx,:);",
+            "  settings.Second_coordinate(1,:) = settings.Second_coordinate(requested_side_idx,:);",
+            "  if isfield(settings, 'yMarkerMNI'); settings.yMarkerMNI(1,:) = settings.yMarkerMNI(requested_side_idx,:); end",
+            "  if isfield(settings, 'headMNI'); settings.headMNI(1,:) = settings.headMNI(requested_side_idx,:); end",
+            "  original_recon_file = options.subj.recon.recon;",
+            "  canonical_recon_loaded = load(original_recon_file, 'reco');",
+            "  if ~isfield(canonical_recon_loaded, 'reco') || ~isfield(canonical_recon_loaded.reco, 'mni') || ~iscell(canonical_recon_loaded.reco.mni.coords_mm)",
+            "    error('MNI reconstruction coordinates are unavailable for right-canonical fiber allocation');",
+            "  end",
+            "  reco = canonical_recon_loaded.reco; %#ok<NASGU>",
+            "  if numel(reco.mni.coords_mm) < requested_side_idx || isempty(reco.mni.coords_mm{requested_side_idx})",
+            "    error('left reconstruction coordinates are missing for right-canonical fiber allocation');",
+            "  end",
+            "  reco.mni.coords_mm{1} = ea_flip_lr_nonlinear(reco.mni.coords_mm{requested_side_idx});",
+            "  canonical_recon_file = fullfile(preflight_stim_dir, 'right_canonical_reconstruction.mat');",
+            "  save(canonical_recon_file, 'reco', '-v7.3');",
+            "  options.subj.recon.recon = canonical_recon_file;",
+            "  fprintf('RIGHT_CANONICAL_RECONSTRUCTION=%s\\n', canonical_recon_file);",
+            "  fprintf('LEFT_TO_RIGHT_TRANSFORM=ea_flip_lr_nonlinear\\n');",
+        ]
+    canonical_stimulation_lines = []
+    if transform_left_to_right:
+        canonical_stimulation_lines = [
+            "  if size(settings.Phi_vector,1) < 2; error('left Phi_vector is missing'); end",
+            "  settings.Phi_vector(1,:) = settings.Phi_vector(2,:);",
+            "  if size(settings.current_control,1) < 2; error('left current_control is missing'); end",
+            "  settings.current_control(1,:) = settings.current_control(2,:);",
+            "  if isfield(settings, 'pulseWidth'); settings.pulseWidth(1,:) = settings.pulseWidth(2,:); end",
+            "  if isfield(settings, 'Case_grounding'); settings.Case_grounding(1,:) = settings.Case_grounding(2,:); end",
+            "  if isfield(settings, 'Activation_threshold_VTA'); settings.Activation_threshold_VTA(1,:) = settings.Activation_threshold_VTA(2,:); end",
+            "  if isfield(settings, 'stim_center'); settings.stim_center(1,:) = settings.stim_center(2,:); end",
+            "  fprintf('RIGHT_CANONICAL_STIMULATION_SLOT=1\\n');",
+        ]
     return "\n".join(
         [
             "try",
@@ -220,10 +286,14 @@ def _matlab_script(
             "    error('source MAT does not contain S');",
             "  end",
             "  options = ea_get_OSS_DBS_options(patient_path, 0, '', 0);",
+            "  options.native = 0;",
             "  options.subj.stimDir = preflight_stim_dir;",
             "  options.prefs.machine.vatsettings.butenko_cond_model = 'ColeCole4';",
             "  options.prefs.machine.vatsettings.butenko_prob_PAM = 1;",
-            "  options.prefs.machine.vatsettings.butenko_N_samples = 10;",
+            f"  options.prefs.machine.vatsettings.butenko_N_samples = {PAM_N_SAMPLES};",
+            "  options.prefs.machine.vatsettings.butenko_probabilistic_parameter = 'Fiber Diameter';",
+            "  options.prefs.machine.vatsettings.butenko_parameter_limits = [1, 4];",
+            "  options.prefs.machine.vatsettings.butenko_sampling_distribution = 'Equidistant';",
             "  options.prefs.machine.vatsettings.butenko_calcPAM = 1;",
             "  options.prefs.machine.vatsettings.butenko_calcAxonActivation = 1;",
             "  options.prefs.machine.vatsettings.butenko_calcVAT = 0;",
@@ -236,6 +306,7 @@ def _matlab_script(
             "  settings = ea_segment_MRI(options, settings, outputPaths);",
             "  settings.DTI_data_name = ea_prepare_DTI(options, outputPaths);",
             "  settings = ea_get_oss_reco(options, settings);",
+            *transform_lines,
             "  [S, settings, activeSources] = ea_check_stimSources(options, S, settings);",
             "  active_for_side = activeSources(requested_side_idx, :);",
             "  source_index = active_for_side(find(~isnan(active_for_side), 1, 'first'));",
@@ -246,6 +317,7 @@ def _matlab_script(
             "    error('no active stimulation source found');",
             "  end",
             "  settings = ea_get_stimProtocol(options, S, settings, activeSources, source_index);",
+            *canonical_stimulation_lines,
             "  if settings.calcAxonActivation",
             "    [settings, fibersFound] = ea_prepare_fibers(options, S, settings, outputPaths); %#ok<ASGLU>",
             "  end",
@@ -254,6 +326,15 @@ def _matlab_script(
             "  if ~isfield(settings, 'current_control'); error('settings.current_control missing'); end",
             "  if ~isfield(settings, 'Implantation_coordinate'); error('settings.Implantation_coordinate missing'); end",
             "  if settings.calcAxonActivation && ~isfield(settings, 'pathwayParameterFile'); error('settings.pathwayParameterFile missing'); end",
+            "  if ~exist(outputPaths.HemiSimFolder, 'dir'); mkdir(outputPaths.HemiSimFolder); end",
+            f"  for sample_i = 1:{PAM_N_SAMPLES}",
+            "    settings = ea_updatePAM_parameter(options, settings, outputPaths, sample_i);",
+            "    sample_dir = fullfile(preflight_stim_dir, 'pam_parameter_samples', sprintf('sample_%02d', sample_i));",
+            "    if ~exist(sample_dir, 'dir'); mkdir(sample_dir); end",
+            "    sample_parameter_file = fullfile(sample_dir, 'oss-dbs_parameters.mat');",
+            "    copyfile(parameterFile, sample_parameter_file);",
+            "    fprintf('SAMPLE_PARAMETER_FILE=%d|%s\\n', sample_i, sample_parameter_file);",
+            "  end",
             "  fprintf('PARAMETER_FILE=%s\\n', parameterFile);",
             "  fprintf('SOURCE_INDEX=%d\\n', source_index);",
             "catch ME",
@@ -274,6 +355,19 @@ def _parse_parameter_file(stdout: str) -> str:
         if line.startswith("PARAMETER_FILE="):
             return line.split("=", 1)[1].strip()
     return ""
+
+
+def _parse_sample_parameter_files(stdout: str) -> list[tuple[int, str]]:
+    samples: list[tuple[int, str]] = []
+    for line in stdout.splitlines():
+        if not line.startswith("SAMPLE_PARAMETER_FILE="):
+            continue
+        payload = line.split("=", 1)[1].strip()
+        sample_index_text, separator, parameter_file = payload.partition("|")
+        if not separator or not parameter_file:
+            raise RuntimeError(f"invalid sample parameter marker: {line!r}")
+        samples.append((int(sample_index_text), parameter_file))
+    return samples
 
 
 def _run_row_preflight(
@@ -315,12 +409,45 @@ def _run_row_preflight(
             patient_dir=patient_dir,
             row_dir=row_dir,
             matlab_side_index=_matlab_side_index(row.get("side", "")),
+            transform_left_to_right=_transform_left_to_right_for_row(row),
         ),
         encoding="utf-8",
     )
 
     matlab_result = _run_command([str(matlab_bin), "-batch", f"run({matlab_string(script_path)})"], timeout_s=matlab_timeout_s)
     parameter_file = _parse_parameter_file(matlab_result["stdout"])
+    try:
+        parsed_samples = _parse_sample_parameter_files(matlab_result["stdout"])
+    except (RuntimeError, ValueError):
+        parsed_samples = []
+    expected_sample_indexes = list(range(1, PAM_N_SAMPLES + 1))
+    observed_sample_indexes = [sample_index for sample_index, _ in parsed_samples]
+    sample_parameter_files = [Path(path).expanduser().resolve() for _, path in parsed_samples]
+    sample_parameters_complete = (
+        observed_sample_indexes == expected_sample_indexes
+        and all(path.is_file() for path in sample_parameter_files)
+    )
+    sample_manifest_path = row_dir / "oss_parameter_samples_manifest.json"
+    write_json(
+        sample_manifest_path,
+        {
+            "generated_at": iso_now(),
+            "pam_n_samples": PAM_N_SAMPLES,
+            "probabilistic_parameter": "Fiber Diameter",
+            "parameter_limits_um": [1.0, 4.0],
+            "sampling_distribution": "Equidistant",
+            "sample_generation": "ea_updatePAM_parameter_after_geometry_canonicalization",
+            "sample_parameters_complete": sample_parameters_complete,
+            "samples": [
+                {
+                    "sample_index": sample_index,
+                    "parameter_file": str(path),
+                    "parameter_file_exists": path.is_file(),
+                }
+                for (sample_index, _), path in zip(parsed_samples, sample_parameter_files, strict=True)
+            ],
+        },
+    )
     converter_result: dict[str, Any] | None = None
     converter_json = ""
     if matlab_result["returncode"] == 0 and parameter_file and run_converter:
@@ -329,7 +456,7 @@ def _run_row_preflight(
             [
                 str(oss_converter),
                 "--hemi_side",
-                str(_hemi_side(row.get("side", ""))),
+                str(_canonical_oss_hemi_side(row)),
                 parameter_file,
                 "--output_path",
                 str(converter_output),
@@ -360,6 +487,8 @@ def _run_row_preflight(
         status = "failed_matlab_parameter_dictionary"
     elif not parameter_file:
         status = "failed_missing_parameter_file_stdout"
+    elif not sample_parameters_complete:
+        status = "failed_incomplete_probabilistic_sample_parameters"
     elif run_converter and (converter_result is None or converter_result["returncode"] != 0):
         status = "failed_leaddbs2ossdbs_converter"
     elif run_converter and not converter_json:
@@ -385,6 +514,13 @@ def _run_row_preflight(
             "patient_dir": str(patient_dir),
             "matlab_script": str(script_path),
             "parameter_file": parameter_file,
+            "pam_n_samples": PAM_N_SAMPLES,
+            "probabilistic_parameter": "Fiber Diameter",
+            "parameter_limits_um": [1.0, 4.0],
+            "sampling_distribution": "Equidistant",
+            "sample_parameter_manifest": str(sample_manifest_path),
+            "sample_parameter_files": [str(path) for path in sample_parameter_files],
+            "sample_parameters_complete": sample_parameters_complete,
             "converter_json": converter_json,
             "frequency_validation": frequency_validation,
             "stimulation_folder_validation": stimulation_folder_validation,
@@ -415,6 +551,13 @@ def _run_row_preflight(
         "row_output_dir": str(row_dir),
         "matlab_returncode": matlab_result["returncode"],
         "parameter_file": parameter_file,
+        "pam_n_samples": PAM_N_SAMPLES,
+        "probabilistic_parameter": "Fiber Diameter",
+        "parameter_limits_um": "1;4",
+        "sampling_distribution": "Equidistant",
+        "sample_parameter_manifest": str(sample_manifest_path),
+        "sample_parameter_files": ";".join(str(path) for path in sample_parameter_files),
+        "sample_parameters_complete": str(sample_parameters_complete).lower(),
         "run_converter": str(bool(run_converter)).lower(),
         "converter_returncode": "" if converter_result is None else converter_result["returncode"],
         "converter_json": converter_json,
@@ -486,6 +629,8 @@ def run_parameter_preflight(args: argparse.Namespace) -> int:
             "matlab_bin": str(matlab_bin),
             "oss_converter": str(oss_converter),
             "skip_converter": bool(args.skip_converter),
+            "pam_n_samples": PAM_N_SAMPLES,
+            "sample_count_source": "internal_fixed_contract",
             "code_provenance": git_provenance(),
             "side_effects": "parameter_preflight_only_no_final_oss_sidecars_created",
             "outputs": {

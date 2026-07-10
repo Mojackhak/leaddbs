@@ -230,9 +230,72 @@ class ExecutionPlannerTests(unittest.TestCase):
         temporary, _, _, plan = self._build(mutate=mutate)
         self.addCleanup(temporary.cleanup)
         mgh = [task for task in plan.tasks if task.endpoint.connectome == "mgh"]
-        forbidden = {"formal_permutation_bootstrap", "oss_sensitivity", "spatial_jitter"}
+        forbidden = {
+            "formal_permutation_bootstrap",
+            "oss_sidecar_preparation",
+            "oss_sensitivity",
+            "spatial_jitter",
+        }
         self.assertFalse(any(task.key.execution_stage in forbidden for task in mgh))
         self.assertTrue(any(task.workflow_phase == "report" for task in mgh))
+
+    def test_normative_fiber_oss_has_one_endpoint_local_producer_before_consumer(self) -> None:
+        temporary, _, _, plan = self._build()
+        self.addCleanup(temporary.cleanup)
+        by_id = {task.task_id: task for task in plan.tasks}
+
+        for family in ("hf_fiber", "ulf_fiber"):
+            endpoints = {
+                task.endpoint.identifier
+                for task in plan.tasks
+                if task.endpoint.model_family == family and task.endpoint.connectome == "dtor"
+            }
+            for endpoint_id in endpoints:
+                tasks = [
+                    task
+                    for task in plan.tasks
+                    if task.endpoint.identifier == endpoint_id
+                ]
+                producers = [
+                    task
+                    for task in tasks
+                    if task.key.execution_stage == "oss_sidecar_preparation"
+                ]
+                consumers = [
+                    task
+                    for task in tasks
+                    if task.key.execution_stage == "oss_sensitivity"
+                ]
+                self.assertEqual(len(producers), 1)
+                self.assertEqual(len(consumers), 1)
+                producer = producers[0]
+                consumer = consumers[0]
+                self.assertEqual(
+                    set(producer.expected_artifact_kinds),
+                    {
+                        "task_manifest",
+                        "oss_activation_probabilities",
+                        "oss_fiber_ids",
+                        "oss_parameter_manifest",
+                        "oss_activation_metadata",
+                    },
+                )
+                producer_dependencies = {
+                    by_id[item.task_id].key.execution_stage: item.requirement
+                    for item in producer.dependencies
+                }
+                self.assertEqual(
+                    producer_dependencies,
+                    {"formal_permutation_bootstrap": DependencyRequirement.FORMAL_COMPLETE},
+                )
+                consumer_dependencies = {
+                    by_id[item.task_id].key.execution_stage: item.requirement
+                    for item in consumer.dependencies
+                }
+                self.assertEqual(
+                    consumer_dependencies,
+                    {"oss_sidecar_preparation": DependencyRequirement.SUCCESS},
+                )
 
     def test_missing_dependency_and_cycle_are_rejected(self) -> None:
         endpoint = EndpointModelKey(

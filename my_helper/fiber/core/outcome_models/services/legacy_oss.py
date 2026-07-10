@@ -108,6 +108,30 @@ def _feature_axis_path(run_root: Path, request: OSSRequest) -> Path:
     return path
 
 
+def _valid_feature_axis_path(run_root: Path, request: OSSRequest) -> Path:
+    axis = request.final.valid_feature_axis
+    if axis is None:
+        raise RecordError("OSS final has no realized valid feature axis")
+    path = Path(axis.ids_path).expanduser()
+    path = path.resolve() if path.is_absolute() else (run_root / path).resolve()
+    try:
+        path.relative_to(run_root)
+    except ValueError as exc:
+        raise RecordError("OSS valid feature-axis artifact is outside the configured run root") from exc
+    if not path.is_file():
+        raise RecordError(f"OSS valid feature-axis artifact is missing: {path}")
+    values = np.asarray(np.load(path, mmap_mode="r"))
+    if values.ndim != 1 or values.shape != (axis.count,):
+        raise RecordError("OSS valid feature-axis shape is invalid")
+    if not axis.identity_source.endswith(":idx"):
+        raise RecordError(
+            f"OSS valid feature-axis identity source is unsupported: {axis.identity_source!r}"
+        )
+    if _array_sha256(values) != axis.sha256:
+        raise RecordError("OSS valid feature-axis SHA-256 mismatch")
+    return path
+
+
 def _json_object(path: Path, label: str) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -151,7 +175,27 @@ def _validate_manifest_identity(
     metadata: Mapping[str, Any],
 ) -> tuple[float, str, str | None]:
     final = request.final
-    for label, payload in (("parameter manifest", parameter), ("activation metadata", metadata)):
+    for label, payload, schema_version in (
+        (
+            "parameter manifest",
+            parameter,
+            "four_model_v1_oss_parameter_manifest",
+        ),
+        (
+            "activation metadata",
+            metadata,
+            "four_model_v1_oss_activation_metadata",
+        ),
+    ):
+        if payload.get("schema_version") != schema_version:
+            raise RecordError(f"OSS {label} schema version mismatch")
+        sample_count = payload.get("ppam_sample_count")
+        if (
+            not isinstance(sample_count, int)
+            or isinstance(sample_count, bool)
+            or sample_count != 10
+        ):
+            raise RecordError(f"OSS {label} pPAM sample count must be 10")
         if _required_text(payload, "final_model_id", label) != final.final_model_id:
             raise RecordError(f"OSS {label} final_model_id mismatch")
         if _required_text(payload, "final_record_hash", label) != final.record_hash:
@@ -162,9 +206,17 @@ def _validate_manifest_identity(
             raise RecordError(f"OSS {label} is not right-canonical")
         if (
             _required_text(payload, "left_to_right_mapping_method", label)
-            != "homologous_right_fiber_id"
+            != "ea_flip_lr_nonlinear"
         ):
-            raise RecordError(f"OSS {label} lacks homologous left-to-right fiber mapping")
+            raise RecordError(f"OSS {label} does not use the configured left geometry transform")
+        mapping_identity = payload.get("left_to_right_mapping_identity")
+        if not isinstance(mapping_identity, Mapping):
+            raise RecordError(f"OSS {label} lacks a left-to-right transform identity")
+        if mapping_identity.get("method") != "ea_flip_lr_nonlinear" or any(
+            len(str(mapping_identity.get(key, ""))) != 64
+            for key in ("code_sha256", "transform_sha256")
+        ):
+            raise RecordError(f"OSS {label} left-to-right transform identity is invalid")
         if (
             _required_text(payload, "hemisphere_source_merge_rule", label)
             != request.hemisphere_merge_rule
@@ -191,6 +243,19 @@ def _validate_manifest_identity(
         != final.feature_axis.sha256
     ):
         raise RecordError("OSS selected-source feature-axis provenance mismatch")
+    valid_axis = final.valid_feature_axis
+    if valid_axis is None:
+        raise RecordError("OSS selected final has no valid feature axis")
+    if (
+        _required_text(parameter, "valid_feature_axis_sha256", "parameter manifest")
+        != valid_axis.sha256
+    ):
+        raise RecordError("OSS valid feature-axis provenance mismatch")
+    if (
+        _required_text(metadata, "valid_feature_axis_sha256", "activation metadata")
+        != valid_axis.sha256
+    ):
+        raise RecordError("OSS activation valid-axis provenance mismatch")
     component = _required_text(parameter, "oss_exposure_component", "parameter manifest")
     if component != request.expected_component:
         raise RecordError(
@@ -312,6 +377,7 @@ class ConfiguredOSSTarget:
     hf_overlap_definition: str | None
     parameter_manifest_path: Path
     activation_metadata_path: Path
+    score_config: Any
 
 
 def build_configured_oss_target(request: OSSRequest) -> ConfiguredOSSTarget:
@@ -325,8 +391,18 @@ def build_configured_oss_target(request: OSSRequest) -> ConfiguredOSSTarget:
     parameter_path = _artifact_path(run_root, request.sidecars.parameter_manifest)
     metadata_path = _artifact_path(run_root, request.sidecars.activation_metadata)
     final_fiber_path = _feature_axis_path(run_root, request)
+    valid_fiber_path = _valid_feature_axis_path(run_root, request)
     parameter = _json_object(parameter_path, "parameter manifest")
     metadata = _json_object(metadata_path, "activation metadata")
+    for label, payload in (
+        ("parameter manifest", parameter),
+        ("activation metadata", metadata),
+    ):
+        if (
+            _required_text(payload, "compatibility_hash", label)
+            != request.sidecars.compatibility_hash
+        ):
+            raise RecordError(f"OSS {label} compatibility hash mismatch")
     requested_frequency, component, hf_overlap_definition = _validate_manifest_identity(
         request,
         parameter,
@@ -339,13 +415,21 @@ def build_configured_oss_target(request: OSSRequest) -> ConfiguredOSSTarget:
         raise RecordError("OSS activation-metadata fiber hash mismatch")
     sidecar_ids = np.asarray(np.load(sidecar_fiber_path, mmap_mode="r"))
     final_ids = np.asarray(np.load(final_fiber_path, mmap_mode="r"))
-    expected_count = request.final.feature_axis.count
+    valid_ids = np.asarray(np.load(valid_fiber_path, mmap_mode="r"))
+    parent_count = request.final.feature_axis.count
+    expected_count = request.final.valid_feature_axis.count
     if sidecar_ids.ndim != 1 or sidecar_ids.shape != (expected_count,):
-        raise RecordError("OSS fiber axis shape does not match the immutable final record")
-    if final_ids.ndim != 1 or final_ids.shape != (expected_count,):
+        raise RecordError("OSS fiber axis shape does not match the realized valid axis")
+    if final_ids.ndim != 1 or final_ids.shape != (parent_count,):
         raise RecordError("final fiber axis shape is invalid")
-    if not np.array_equal(sidecar_ids, final_ids):
-        raise RecordError("OSS fiber order differs from the immutable final feature axis")
+    parent_positions = np.flatnonzero(np.isin(final_ids, valid_ids))
+    if (
+        parent_positions.size != valid_ids.size
+        or not np.array_equal(final_ids[parent_positions], valid_ids)
+    ):
+        raise RecordError("realized valid fiber axis is not an ordered parent-axis subset")
+    if not np.array_equal(sidecar_ids, valid_ids):
+        raise RecordError("OSS fiber order differs from the realized valid feature axis")
 
     probabilities = np.asarray(np.load(probability_path, mmap_mode="r"))
     expected_shape = (len(request.final.subject_order), expected_count)
@@ -363,6 +447,12 @@ def build_configured_oss_target(request: OSSRequest) -> ConfiguredOSSTarget:
         raise RecordError("OSS activation matrix contains non-finite values")
     if float(np.min(probabilities)) < 0.0 or float(np.max(probabilities)) > 1.0:
         raise RecordError("OSS activation probabilities fall outside [0, 1]")
+    activated_counts = np.rint(probabilities.astype(np.float64) * 10.0).astype(np.int64)
+    expected_probabilities = (activated_counts.astype(np.float64) / 10.0).astype(np.float32)
+    if not np.array_equal(probabilities, expected_probabilities):
+        raise RecordError(
+            "OSS activation probabilities are not exact activated_count/10 frequencies"
+        )
 
     fit_activation = (probabilities >= request.activation_threshold).astype(np.float32)
     if not np.any(fit_activation):
@@ -379,6 +469,7 @@ def build_configured_oss_target(request: OSSRequest) -> ConfiguredOSSTarget:
             permutations=request.smoke_permutations,
             bootstraps=0,
             seed=request.seed,
+            score=request.score,
         )
     )
     return ConfiguredOSSTarget(
@@ -403,6 +494,7 @@ def build_configured_oss_target(request: OSSRequest) -> ConfiguredOSSTarget:
         hf_overlap_definition=hf_overlap_definition,
         parameter_manifest_path=parameter_path,
         activation_metadata_path=metadata_path,
+        score_config=formal_target.score_config,
     )
 
 
@@ -447,6 +539,7 @@ def _run_oss_numerical_backend(
         nuisance=nuisance,
         scale_direction=target.scale_direction,
         fold_caches=fold_caches,
+        score_config=target.score_config,
     )
     weights, scores = module._full_sample_weights_scores(
         x=x,
@@ -454,7 +547,9 @@ def _run_oss_numerical_backend(
         y_post=y_post,
         nuisance=nuisance,
         scale_direction=target.scale_direction,
+        score_config=target.score_config,
     )
+    full_support = module.score_support_fields(scores, target.score_config)
     plain = module._plain_activation_controls(x)
     y_permuted = module.freedman_lane_permuted_outcomes(
         y_post,
@@ -471,6 +566,7 @@ def _run_oss_numerical_backend(
             nuisance=nuisance,
             scale_direction=target.scale_direction,
             fold_caches=fold_caches,
+            score_config=target.score_config,
         )
         null_stats[index] = permuted["spearman_rho"]
 
@@ -492,6 +588,7 @@ def _run_oss_numerical_backend(
             "PlainOSSActivationCount": float(plain["PlainOSSActivationCount"][index]),
             "PlainOSSActivationSum": float(plain["PlainOSSActivationSum"][index]),
             "PlainOSSActivationTop5": float(plain["PlainOSSActivationTop5"][index]),
+            **full_support,
         }
         for index, subject in enumerate(subjects)
     ]
@@ -537,6 +634,8 @@ def _run_oss_numerical_backend(
             "permutation_summary_csv": str(permutation_path),
         },
         "fold_count": len(fold_rows),
+        "score": module._score_policy_values(target.score_config),
+        "score_support": full_support,
     }
 
 
@@ -603,8 +702,8 @@ def run_configured_oss(
         "connectome": request.task.endpoint.connectome,
         "selected_tau": request.final.selected_tau,
         "selected_coverage": request.final.selected_coverage,
-        "candidate_fiber_count": request.final.feature_axis.count,
-        "candidate_feature_axis_sha256": request.final.feature_axis.sha256,
+        "candidate_fiber_count": request.final.valid_feature_axis.count,
+        "candidate_feature_axis_sha256": request.final.valid_feature_axis.sha256,
         "subject_order": list(request.final.subject_order),
         "oss_model": request.oss_model,
         "activation_model": request.activation_model,
@@ -612,15 +711,17 @@ def run_configured_oss(
         "fit_activation_definition": "pPAM_probability_ge_0.5",
         "activation_threshold": request.activation_threshold,
         "canonical_hemisphere": request.canonical_hemisphere,
-        "left_to_right_mapping_method": "homologous_right_fiber_id",
+        "left_to_right_mapping_method": "ea_flip_lr_nonlinear",
         "hemisphere_merge_rule": request.hemisphere_merge_rule,
         "oss_exposure_component": target.exposure_component,
         "hf_overlap_definition": target.hf_overlap_definition,
         "requested_frequency_hz": target.requested_frequency_hz,
         "smoke_permutations": request.smoke_permutations,
         "seed": request.seed,
+        "score": dict(request.score),
         "classification_feedback": "none",
         "input_artifacts": request.sidecars.as_dict(),
+        "compatibility_hash": request.sidecars.compatibility_hash,
         "numerical_results": _plain_value(results),
         "outputs": {
             "fit_activation_matrix": str(target.fit_activation_path),

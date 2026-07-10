@@ -124,6 +124,13 @@ _ARTIFACTS = {
     "formal": ("task_manifest", "permutation_results", "bootstrap_results"),
     "jitter": ("task_manifest", "jitter_results"),
     "sensitivity": ("task_manifest", "sensitivity_results"),
+    "oss_sidecar": (
+        "task_manifest",
+        "oss_activation_probabilities",
+        "oss_fiber_ids",
+        "oss_parameter_manifest",
+        "oss_activation_metadata",
+    ),
     "oss": ("task_manifest", "oss_activation_results"),
     "summary": ("task_manifest", "endpoint_summary"),
     "report": ("task_manifest", "endpoint_report", "artifact_index"),
@@ -363,12 +370,21 @@ def _hf_fiber_tasks(record: EndpointRecord, *, formal_connectome: bool) -> tuple
             gate=GatePredicate.FINAL_MODEL_REALIZED,
             source_reference="final_model_record",
         )
+        oss_sidecars = builder.add(
+            "oss_sidecar_preparation",
+            "Round 7",
+            "sensitivity",
+            "oss_sidecar",
+            dependencies=((formal, DependencyRequirement.FORMAL_COMPLETE),),
+            gate=GatePredicate.FINAL_MODEL_REALIZED,
+            source_reference="final_model_record",
+        )
         builder.add(
             "oss_sensitivity",
             "Round 7",
             "sensitivity",
             "oss",
-            dependencies=((formal, DependencyRequirement.FORMAL_COMPLETE),),
+            dependencies=((oss_sidecars, DependencyRequirement.SUCCESS),),
             gate=GatePredicate.FINAL_MODEL_REALIZED,
             source_reference="final_model_record",
         )
@@ -573,12 +589,22 @@ def _ulf_fiber_tasks(
             branch="realized_final",
             source_reference="final_model_record",
         )
+        oss_sidecars = builder.add(
+            "oss_sidecar_preparation",
+            "Round 8",
+            "sensitivity",
+            "oss_sidecar",
+            dependencies=((formal, DependencyRequirement.FORMAL_COMPLETE),),
+            gate=GatePredicate.FINAL_MODEL_REALIZED,
+            branch="realized_final",
+            source_reference="final_model_record",
+        )
         builder.add(
             "oss_sensitivity",
             "Round 8",
             "sensitivity",
             "oss",
-            dependencies=((formal, DependencyRequirement.FORMAL_COMPLETE),),
+            dependencies=((oss_sidecars, DependencyRequirement.SUCCESS),),
             gate=GatePredicate.FINAL_MODEL_REALIZED,
             branch="realized_final",
             source_reference="final_model_record",

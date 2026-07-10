@@ -10,6 +10,7 @@ from ..executor import RunContext, TaskArtifact, TaskResult, TaskStatus
 from ..planner import TaskSpec
 from ..records import ArtifactRef, FinalArtifactRecord, RecordError
 from .record_io import load_final_record
+from .observed import normative_fiber_score_settings
 
 
 _OSS_SMOKE_PERMUTATIONS = 1000
@@ -26,6 +27,7 @@ class OSSSidecarBundle:
 
     final_model_id: str
     final_record_hash: str
+    compatibility_hash: str
     activation_probabilities: ArtifactRef
     fiber_ids: ArtifactRef
     parameter_manifest: ArtifactRef
@@ -34,6 +36,8 @@ class OSSSidecarBundle:
     def __post_init__(self) -> None:
         if not str(self.final_model_id).strip() or not str(self.final_record_hash).strip():
             raise RecordError("OSS sidecar final identity must be nonempty")
+        if len(str(self.compatibility_hash)) != 64:
+            raise RecordError("OSS sidecar compatibility hash must be a full SHA-256 digest")
         expected_kinds = {
             "activation_probabilities": "oss_activation_probabilities",
             "fiber_ids": "oss_fiber_ids",
@@ -49,6 +53,7 @@ class OSSSidecarBundle:
         return {
             "final_model_id": self.final_model_id,
             "final_record_hash": self.final_record_hash,
+            "compatibility_hash": self.compatibility_hash,
             "activation_probabilities": self.activation_probabilities.as_dict(),
             "fiber_ids": self.fiber_ids.as_dict(),
             "parameter_manifest": self.parameter_manifest.as_dict(),
@@ -66,6 +71,7 @@ class OSSSidecarBundle:
         return cls(
             final_model_id=str(value.get("final_model_id", "")),
             final_record_hash=str(value.get("final_record_hash", "")),
+            compatibility_hash=str(value.get("compatibility_hash", "")),
             activation_probabilities=artifact("activation_probabilities"),
             fiber_ids=artifact("fiber_ids"),
             parameter_manifest=artifact("parameter_manifest"),
@@ -89,6 +95,7 @@ class OSSRequest:
     expected_component: str
     smoke_permutations: int
     seed: int
+    score: Mapping[str, float | int]
 
     @classmethod
     def from_context(
@@ -131,6 +138,14 @@ class OSSRequest:
             raise RecordError("configured OSS feature space must be right-canonical")
         if not bool(settings["final_dtor_only"]):
             raise RecordError("configured OSS sensitivity must remain final-dTOR-only")
+        try:
+            score = normative_fiber_score_settings(
+                context.config.model.normative_fiber["score"]
+            )
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise RecordError(
+                "configured OSS sensitivity requires all six fiber score values"
+            ) from exc
 
         return cls(
             task=task,
@@ -155,6 +170,7 @@ class OSSRequest:
             ),
             smoke_permutations=_OSS_SMOKE_PERMUTATIONS,
             seed=_OSS_SMOKE_SEED,
+            score=score,
         )
 
 
@@ -174,26 +190,19 @@ def load_oss_sidecar_bundle(
     context: RunContext,
     final: FinalArtifactRecord,
 ) -> OSSSidecarBundle:
-    """Load one explicit sidecar bundle; never discover legacy output paths."""
-    matches: list[OSSSidecarBundle] = []
-    for record in context.results.values():
-        if record.task.endpoint.identifier != task.endpoint.identifier:
-            continue
-        payload = record.result.facts.get("oss_sidecar_bundle")
-        if not isinstance(payload, dict):
-            continue
-        bundle = OSSSidecarBundle.from_dict(payload)
-        if (
-            bundle.final_model_id == final.final_model_id
-            and bundle.final_record_hash == final.record_hash
-        ):
-            matches.append(bundle)
-    if len(matches) != 1:
+    """Load the bundle only from the typed endpoint-local producer edge."""
+    facts = context.dependency_facts(task, "oss_sidecar_preparation")
+    payload = facts.get("oss_sidecar_bundle")
+    if not isinstance(payload, dict):
         raise OSSSidecarsUnavailable(
-            "expected exactly one explicit final-linked OSS sidecar bundle; "
-            f"found {len(matches)}"
+            "the oss_sidecar_preparation dependency did not publish a bundle"
         )
-    return matches[0]
+    bundle = OSSSidecarBundle.from_dict(payload)
+    if bundle.final_model_id != final.final_model_id:
+        raise OSSSidecarsUnavailable("OSS sidecar belongs to another final model")
+    if bundle.final_record_hash != final.record_hash:
+        raise OSSSidecarsUnavailable("OSS sidecar final-record hash mismatch")
+    return bundle
 
 
 class OSSService:

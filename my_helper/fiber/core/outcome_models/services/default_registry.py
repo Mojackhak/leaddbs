@@ -57,6 +57,11 @@ from .jitter_inputs import (
     side_field_sampling_rows,
 )
 from .oss import OSSService
+from .oss_sidecar import (
+    OSSSidecarPreparationService,
+    build_configured_oss_sidecar_request,
+    run_configured_oss_sidecar_preparation,
+)
 from .qualification import QualificationService
 from .record_io import (
     load_delta_bundle_for_endpoint,
@@ -804,6 +809,10 @@ def build_default_service_registry(context: RunContext) -> ServiceRegistry:
         inputs_loader=runtime.sensitivity_inputs,
     )
     oss = OSSService(runner=run_configured_oss)
+    oss_sidecar = OSSSidecarPreparationService(
+        request_factory=build_configured_oss_sidecar_request,
+        runner=run_configured_oss_sidecar_preparation,
+    )
     reporting = ReportingService(runner=run_configured_reporting)
 
     services: dict[tuple[str, str], Any] = {}
@@ -851,6 +860,7 @@ def build_default_service_registry(context: RunContext) -> ServiceRegistry:
     )
     bind(("ulf_voxel",), ("additional_sensitivities",), sensitivity)
     bind(("ulf_fiber",), ("plain_burden_controls", "cheap_observed_sensitivity"), sensitivity)
+    bind(("hf_fiber", "ulf_fiber"), ("oss_sidecar_preparation",), oss_sidecar)
     bind(("hf_fiber", "ulf_fiber"), ("oss_sensitivity",), oss)
     bind(
         ("hf_voxel", "ulf_voxel", "hf_fiber", "ulf_fiber"),

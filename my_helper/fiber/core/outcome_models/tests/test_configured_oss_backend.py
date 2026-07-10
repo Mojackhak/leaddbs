@@ -14,7 +14,12 @@ import numpy as np
 
 from outcome_models.catalog import build_endpoint_catalog
 from outcome_models.config import WorkflowOverrides, load_resolved_workflow
-from outcome_models.executor import RunContext, TaskStatus
+from outcome_models.executor import (
+    RunContext,
+    TaskExecutionRecord,
+    TaskResult,
+    TaskStatus,
+)
 from outcome_models.planner import compile_execution_plan
 from outcome_models.records import (
     ArtifactRef,
@@ -30,6 +35,7 @@ from outcome_models.services.oss import (
     OSSService,
     OSSSidecarBundle,
     OSSSidecarsUnavailable,
+    load_oss_sidecar_bundle,
 )
 from outcome_models.tests.helpers import (
     clinical_rows_for_scale,
@@ -143,7 +149,11 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
             encoding="utf-8",
         )
         full_weights_path = artifact_root / "selected_full_weights.npy"
-        np.save(full_weights_path, np.ones(feature_ids.size, dtype=np.float32))
+        full_weights = np.asarray([1.0, np.nan, -0.5, 0.25, np.nan, np.nan], dtype=np.float32)
+        np.save(full_weights_path, full_weights)
+        valid_feature_ids = feature_ids[np.isfinite(full_weights)]
+        valid_feature_path = artifact_root / "valid_fiber_ids.npy"
+        np.save(valid_feature_path, valid_feature_ids)
         feature_axis = FeatureAxisRef(
             ids_path=feature_path,
             count=feature_ids.size,
@@ -177,7 +187,12 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
                 "selected_full_weights",
                 (feature_ids.size,),
             ),
-            valid_feature_axis=feature_axis,
+            valid_feature_axis=FeatureAxisRef(
+                ids_path=valid_feature_path,
+                count=valid_feature_ids.size,
+                sha256=_array_sha256(valid_feature_ids),
+                identity_source="data.mat:idx",
+            ),
         )
 
     def _sidecars(
@@ -191,11 +206,14 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
         hf_overlap_definition: str = "matched_hf_peak_efield_selected_tau",
         swap_fiber_order: bool = False,
         modeled_frequency_hz: float | None = None,
+        first_probability: float | None = None,
+        parameter_overrides: dict[str, object] | None = None,
+        metadata_overrides: dict[str, object] | None = None,
     ) -> OSSSidecarBundle:
         root = context.store.run_root
         sidecar_root = root / "fixture" / "oss"
         sidecar_root.mkdir(parents=True, exist_ok=True)
-        fiber_ids = np.load(final.feature_axis.ids_path)
+        fiber_ids = np.load(final.valid_feature_axis.ids_path)
         if swap_fiber_order:
             fiber_ids = fiber_ids[::-1]
         fiber_path = sidecar_root / "oss_fiber_ids.npy"
@@ -205,18 +223,23 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
         np.save(fiber_path, fiber_ids)
         base = np.asarray(
             [
-                [0.49, 0.50, 0.90, 0.10, 0.75, 0.20],
-                [0.60, 0.20, 0.85, 0.55, 0.10, 0.90],
-                [0.10, 0.70, 0.30, 0.80, 0.65, 0.40],
-                [0.80, 0.10, 0.60, 0.20, 0.90, 0.55],
+                [0.40, 0.50, 0.90],
+                [0.60, 0.20, 0.50],
+                [0.10, 0.70, 0.80],
+                [0.80, 0.10, 0.20],
             ],
             dtype=np.float32,
         )
+        if first_probability is not None:
+            base[0, 0] = first_probability
         probabilities = np.vstack([base for _ in range(3)])
         np.save(matrix_path, probabilities)
+        compatibility_hash = "f" * 64
         parameter = {
+            "schema_version": "four_model_v1_oss_parameter_manifest",
             "oss_model": "OSS-DBSv2",
             "activation_model": "pPAM",
+            "ppam_sample_count": 10,
             "final_model_id": final.final_model_id,
             "final_record_hash": final.record_hash,
             "endpoint_id": final.endpoint_model_id,
@@ -229,43 +252,62 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
             "frequency_source": "Lead-DBS stimulation protocol",
             "frequency_validation_status": "verified_exact_match",
             "canonical_hemisphere": "right",
-            "left_to_right_mapping_method": "homologous_right_fiber_id",
+            "left_to_right_mapping_method": "ea_flip_lr_nonlinear",
+            "left_to_right_mapping_identity": {
+                "method": "ea_flip_lr_nonlinear",
+                "code_sha256": "d" * 64,
+                "transform_sha256": "e" * 64,
+            },
             "hemisphere_source_merge_rule": "max_probability_union",
             "subject_order": list(final.subject_order),
             "selected_source_feature_axis_sha256": final.feature_axis.sha256,
+            "valid_feature_axis_sha256": final.valid_feature_axis.sha256,
             "oss_fiber_ids_sha256": sha256_file(fiber_path),
             "selected_tau": final.selected_tau,
             "selected_coverage": final.selected_coverage,
             "missing_subjects": [],
             "failed_subjects": [],
+            "compatibility_hash": compatibility_hash,
         }
         if hf_overlap_exclusion_applied is not None:
             parameter["hf_overlap_exclusion_applied"] = hf_overlap_exclusion_applied
             parameter["hf_overlap_definition"] = hf_overlap_definition
+        if parameter_overrides is not None:
+            parameter.update(parameter_overrides)
         parameter_path.write_text(json.dumps(parameter) + "\n", encoding="utf-8")
+        metadata = {
+            "schema_version": "four_model_v1_oss_activation_metadata",
+            "final_model_id": final.final_model_id,
+            "final_record_hash": final.record_hash,
+            "matrix_shape": list(probabilities.shape),
+            "matrix_dtype": "float32",
+            "matrix_range": [float(probabilities.min()), float(probabilities.max())],
+            "finite_check_status": "passed",
+            "activation_value_type": "pPAM_activation_probability",
+            "ppam_sample_count": 10,
+            "canonical_hemisphere": "right",
+            "left_to_right_mapping_method": "ea_flip_lr_nonlinear",
+            "left_to_right_mapping_identity": {
+                "method": "ea_flip_lr_nonlinear",
+                "code_sha256": "d" * 64,
+                "transform_sha256": "e" * 64,
+            },
+            "hemisphere_source_merge_rule": "max_probability_union",
+            "subject_order": list(final.subject_order),
+            "valid_feature_axis_sha256": final.valid_feature_axis.sha256,
+            "oss_fiber_ids_sha256": sha256_file(fiber_path),
+            "compatibility_hash": compatibility_hash,
+        }
+        if metadata_overrides is not None:
+            metadata.update(metadata_overrides)
         metadata_path.write_text(
-            json.dumps(
-                {
-                    "final_model_id": final.final_model_id,
-                    "final_record_hash": final.record_hash,
-                    "matrix_shape": list(probabilities.shape),
-                    "matrix_dtype": "float32",
-                    "matrix_range": [float(probabilities.min()), float(probabilities.max())],
-                    "finite_check_status": "passed",
-                    "activation_value_type": "pPAM_activation_probability",
-                    "canonical_hemisphere": "right",
-                    "left_to_right_mapping_method": "homologous_right_fiber_id",
-                    "hemisphere_source_merge_rule": "max_probability_union",
-                    "subject_order": list(final.subject_order),
-                    "oss_fiber_ids_sha256": sha256_file(fiber_path),
-                }
-            )
-            + "\n",
+            json.dumps(metadata) + "\n",
             encoding="utf-8",
         )
         return OSSSidecarBundle(
             final_model_id=final.final_model_id,
             final_record_hash=final.record_hash,
+            compatibility_hash=compatibility_hash,
             activation_probabilities=self._artifact(
                 root,
                 matrix_path,
@@ -318,7 +360,12 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
             fit = captured["fit"]
             self.assertEqual(fit.dtype, np.float32)
             self.assertEqual(set(np.unique(fit)), {0.0, 1.0})
-            self.assertEqual(fit[0].tolist(), [0.0, 1.0, 1.0, 0.0, 1.0, 0.0])
+            self.assertEqual(fit.shape, (12, 3))
+            self.assertEqual(fit[0].tolist(), [0.0, 1.0, 1.0])
+            np.testing.assert_array_equal(
+                np.load(captured["target"].fiber_ids_path),
+                np.asarray([101, 107, 109], dtype=np.int64),
+            )
             payload = json.loads(output.artifacts[0].path.read_text(encoding="utf-8"))
             self.assertEqual(payload["final_model_id"], final.final_model_id)
             self.assertEqual(payload["final_record_hash"], final.record_hash)
@@ -380,6 +427,70 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
             request = OSSRequest.from_context(task, context, final, sidecars=sidecars)
 
             with self.assertRaisesRegex(RecordError, "frequency"):
+                run_configured_oss(request, numerical_runner=lambda target: {})
+
+    def test_rejects_unexpected_manifest_schema_versions(self) -> None:
+        cases = (
+            (
+                "parameter manifest",
+                {"parameter_overrides": {"schema_version": "four_model_v0"}},
+            ),
+            (
+                "activation metadata",
+                {"metadata_overrides": {"schema_version": "four_model_v0"}},
+            ),
+        )
+        for label, overrides in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                context, task, _ = self._fixture(Path(tmp), "hf-fiber")
+                final = self._final(context, task, branch="hf_source")
+                sidecars = self._sidecars(
+                    context,
+                    final,
+                    component="HF_only_reference",
+                    frequency_hz=130.0,
+                    **overrides,
+                )
+                request = OSSRequest.from_context(task, context, final, sidecars=sidecars)
+
+                with self.assertRaisesRegex(RecordError, f"{label} schema version"):
+                    run_configured_oss(request, numerical_runner=lambda target: {})
+
+    def test_rejects_manifest_ppam_sample_count_other_than_ten(self) -> None:
+        cases = (
+            ("parameter manifest", {"parameter_overrides": {"ppam_sample_count": 9}}),
+            ("activation metadata", {"metadata_overrides": {"ppam_sample_count": 9}}),
+        )
+        for label, overrides in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                context, task, _ = self._fixture(Path(tmp), "hf-fiber")
+                final = self._final(context, task, branch="hf_source")
+                sidecars = self._sidecars(
+                    context,
+                    final,
+                    component="HF_only_reference",
+                    frequency_hz=130.0,
+                    **overrides,
+                )
+                request = OSSRequest.from_context(task, context, final, sidecars=sidecars)
+
+                with self.assertRaisesRegex(RecordError, f"{label} pPAM sample count"):
+                    run_configured_oss(request, numerical_runner=lambda target: {})
+
+    def test_rejects_activation_probabilities_off_activated_count_lattice(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context, task, _ = self._fixture(Path(tmp), "hf-fiber")
+            final = self._final(context, task, branch="hf_source")
+            sidecars = self._sidecars(
+                context,
+                final,
+                component="HF_only_reference",
+                frequency_hz=130.0,
+                first_probability=0.49,
+            )
+            request = OSSRequest.from_context(task, context, final, sidecars=sidecars)
+
+            with self.assertRaisesRegex(RecordError, "activated_count/10"):
                 run_configured_oss(request, numerical_runner=lambda target: {})
 
     def test_ulf_requires_addon_component_and_hf_overlap_exclusion(self) -> None:
@@ -448,6 +559,47 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
             self.assertEqual(result.facts["final_model_id"], final.final_model_id)
             self.assertNotIn("source_status", result.facts)
             self.assertNotIn("prediction_status", result.facts)
+
+    def test_sidecar_loader_reads_only_the_typed_preparation_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context, task, plan = self._fixture(Path(tmp), "hf-fiber")
+            final = self._final(context, task, branch="hf_source")
+            sidecars = self._sidecars(
+                context,
+                final,
+                component="HF_only_reference",
+                frequency_hz=130.0,
+            )
+            producer = next(
+                item
+                for item in plan.tasks
+                if item.endpoint.identifier == task.endpoint.identifier
+                and item.key.execution_stage == "oss_sidecar_preparation"
+            )
+            context.results[producer.task_id] = TaskExecutionRecord(
+                task=producer,
+                result=TaskResult(
+                    TaskStatus.COMPLETED,
+                    facts={"oss_sidecar_bundle": sidecars.as_dict()},
+                ),
+            )
+            unrelated = next(
+                item
+                for item in plan.tasks
+                if item.endpoint.identifier == task.endpoint.identifier
+                and item.key.execution_stage == "candidate_source_smoke"
+            )
+            context.results[unrelated.task_id] = TaskExecutionRecord(
+                task=unrelated,
+                result=TaskResult(
+                    TaskStatus.COMPLETED,
+                    facts={"oss_sidecar_bundle": sidecars.as_dict()},
+                ),
+            )
+
+            loaded = load_oss_sidecar_bundle(task, context, final)
+
+        self.assertEqual(loaded, sidecars)
 
     def test_service_success_has_no_classification_feedback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

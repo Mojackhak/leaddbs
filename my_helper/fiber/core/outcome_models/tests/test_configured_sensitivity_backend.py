@@ -759,7 +759,8 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
                 ).pop()
                 for task in plan.tasks
                 if task.workflow_phase == "sensitivity"
-                and task.key.execution_stage != "oss_sensitivity"
+                and task.key.execution_stage
+                not in {"oss_sensitivity", "oss_sidecar_preparation"}
             }
             planned.update(
                 {

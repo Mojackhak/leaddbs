@@ -507,30 +507,30 @@ git commit -m "fix: align fiber resampling score policy"
 - Consumes `FinalArtifactRecord.valid_feature_axis` and a destination-local `OSSSidecarBundle`.
 - Produces `OSSSidecarPreparationRequest`, an endpoint-local `oss_sidecar_preparation` task, a hash-locked `OSSSidecarBundle`, binary pPAM formal sensitivity artifacts, and an exact sidecar compatibility/reuse key.
 
-- [ ] **Step 1: Restore and refine the existing OSS TDD patch**
+- [x] **Step 1: Review and supersede the existing OSS TDD patch**
 
-Restore the saved WIP only after Tasks 1-6 are integrated:
+Inspect the saved WIP only after Tasks 1-6 are integrated:
 
 ```bash
-git stash pop stash@{0}
+git stash show -p stash@{0}
 ```
 
-Resolve against the new final-record contract. Remove coverage-only candidate derivation from `legacy_oss.py`; the expected sidecar axis is exactly `final.valid_feature_axis`.
+Do not apply its coverage-only candidate derivation. Port only still-valid test intent against the new final-record contract: the expected sidecar axis is exactly `final.valid_feature_axis`. Keep the stash until Task 7 passes and is committed, then drop it explicitly.
 
-- [ ] **Step 2: Add RED candidate-axis tests**
+- [x] **Step 2: Add RED candidate-axis tests**
 
 Create a parent axis with four coverage-passing fibers and make one final weight nonfinite. Assert the immutable valid axis and OSS sidecar contain only the other three in parent order. Reject missing, extra, reordered, or hash-drifted IDs.
 
-- [ ] **Step 3: Add RED pPAM and fold-selection tests**
+- [x] **Step 3: Add RED pPAM and fold-selection tests**
 
-Assert `0.49 -> 0`, `0.50 -> 1`, and `0.90 -> 1`. Assert each OSS training fold re-estimates weights and signed `K/H` selections on the fixed sidecar axis, while no function calls tau/Coverage on the binary matrix.
+At the isolated threshold-function boundary, assert `0.49 -> 0`, `0.50 -> 1`, and `0.90 -> 1`. Persisted 10-sample pPAM sidecars must separately reject off-lattice values and use only `0.0, 0.1, ..., 1.0`. Assert each OSS training fold re-estimates weights and signed `K/H` selections on the fixed sidecar axis, while no function calls tau/Coverage on the binary matrix.
 
-- [ ] **Step 4: Implement exact cross-endpoint compatibility identity**
+- [x] **Step 4: Implement exact cross-endpoint compatibility identity**
 
 Create a canonical compatibility payload containing:
 
 ```text
-source stimulation input hashes
+source E-field hashes and the corresponding resolved stimulation-parameter MAT hashes
 subject order
 requested and modeled frequencies
 canonical hemisphere and left-to-right mapping
@@ -538,11 +538,19 @@ max_probability_union merge rule
 HF or ULF component identity
 ordered valid fiber IDs and logical hash
 OSS-DBSv2 environment/model identity
+
+The identity also records the fixed pPAM sample count and requires a complete sample set for every subject/side/source. A cache entry is reusable only when its stored canonical payload is exactly equal to the current request payload; matching a digest string without payload equality is insufficient.
 ```
+
+The compatibility identity additionally binds the parent selected-source axis, dTOR connectome input hash, OSS generator implementation hash, and actual MATLAB/OSS tool executable hashes. With ten fixed Bernoulli samples, every persisted probability must lie on the `0.0, 0.1, ..., 1.0` lattice; arbitrary continuous values are invalid even when finite and inside `[0, 1]`.
+
+The configured left-side pathway is fixed as follows: transform the left stimulation/electrode geometry into right-canonical space with `ea_flip_lr_nonlinear`, run OSS against the same ordered `final.valid_feature_axis` used for the right side, and combine the resulting right-canonical probabilities with `max_probability_union`. Do not assume that equal left/right local fiber IDs encode tract homology. The compatibility payload and manifests must record the transform name plus an exact transform/code identity hash.
+
+For ULF, the compatibility payload and destination manifest must also preserve the realized overlap mode. Use `matched_hf_peak_efield_selected_tau` when an accepted matched HF source supplied the exclusion threshold, and `hf_source_absent_all_false` when no HF source existed and the exclusion mask was therefore all false. HF uses `not_applicable`. The producer must never hard-code the finite-threshold mode for every ULF final.
 
 Reuse is allowed only when the canonical hash matches exactly. The reused probability matrix may be content-addressed, but the destination bundle and manifest must carry the destination endpoint ID, final model ID, and final record hash.
 
-- [ ] **Step 5: Close the configured OSS producer/consumer DAG**
+- [x] **Step 5: Close the configured OSS producer/consumer DAG**
 
 Add exactly one endpoint-local `oss_sidecar_preparation` task after the selected final's formal completion and before `oss_sensitivity`. The preparation service must expose:
 
@@ -573,22 +581,34 @@ class OSSSidecarPreparationService:
         return self._runner(request)
 ```
 
-Refactor the existing worklist, parameter-preflight, activation-row, and merge modules to accept immutable request objects rather than fixed `B_DTOR`/`D_DTOR` discovery. The service runs the established `prepareaxonmodel -> leaddbs2ossdbs -> ossdbs -> run_pathway_activation` chain, maps left activation to the right canonical candidate IDs, combines left/right values with `max_probability_union`, and publishes `oss_sidecar_bundle` in task facts. The `oss_sensitivity` task has a typed successful dependency on this producer. Missing executables, incomplete subjects, or merge failure are endpoint-local input/execution failures, never a hidden manual prerequisite.
+Refactor the existing worklist, parameter-preflight, activation-row, and merge modules to accept immutable request objects rather than fixed `B_DTOR`/`D_DTOR` discovery. The service transforms left stimulation geometry with `ea_flip_lr_nonlinear`, runs the established `prepareaxonmodel -> leaddbs2ossdbs -> ossdbs -> run_pathway_activation` chain for both right-canonical side inputs on the exact realized valid axis, combines left-transformed/right probabilities with `max_probability_union`, and publishes `oss_sidecar_bundle` in task facts. The `oss_sensitivity` task has a typed successful dependency on this producer. Missing executables, incomplete subjects, transform failure, or merge failure are endpoint-local input/execution failures, never a hidden manual prerequisite.
+
+Before generation, the producer validates that its formal dependency records the same `final_model_id` and final-record hash, and validates both parent and valid axes against their recorded ordered-array hashes. The consumer depends on the successful producer rather than carrying a redundant second formal edge. Corrupt or semantically invalid cache content is treated as a cache miss and regenerated; it is not accepted and does not permanently poison other compatible endpoints.
 
 For an exact compatibility-hash hit, reuse the content-addressed probability matrix and ordered ID axis, then rewrite destination-local parameter/activation manifests and construct new `ArtifactRef`s bound to the destination final model and record hash.
 
-- [ ] **Step 6: Apply the shared score policy to OSS**
+- [x] **Step 6: Apply the shared score policy to OSS**
 
 Pass the public six-field policy into `_loocv_oss` and `_full_sample_weights_scores`. Keep the sidecar axis fixed; fold-local nonconstant/finite weight checks only determine fold-valid weights and signed selections. Record all full/fold support fields.
 
-- [ ] **Step 7: Run OSS/planner/registry tests and commit**
+- [x] **Step 7: Run OSS/planner/registry tests and commit**
+
+Verified on `stnvop` before the Task 7 commit: 68 focused OSS/planner/registry tests and 298 complete `outcome_models` tests passed; `py_compile` and `git diff --check` also passed. No real OSS workload was launched during this unit/regression stage.
 
 ```bash
-conda run -n leaddbs python -m unittest \
-  my_helper.fiber.core.outcome_models.tests.test_configured_oss_backend \
-  my_helper.fiber.core.outcome_models.tests.test_oss_sidecar_service \
-  my_helper.fiber.core.outcome_models.tests.test_default_registry \
-  my_helper.fiber.core.outcome_models.tests.test_planner -v
+PYTHONPATH=my_helper/fiber/core:my_helper/fiber/core/analysis \
+  conda run -n leaddbs python -m unittest \
+  outcome_models.tests.test_configured_oss_backend \
+  outcome_models.tests.test_configured_oss_scoring \
+  outcome_models.tests.test_oss_ppam_generation \
+  outcome_models.tests.test_oss_left_to_right_geometry \
+  outcome_models.tests.test_oss_sidecar_merge_contract \
+  outcome_models.tests.test_oss_sidecar_service \
+  outcome_models.tests.test_default_registry \
+  outcome_models.tests.test_planner -v
+PYTHONPATH=my_helper/fiber/core:my_helper/fiber/core/analysis \
+  conda run -n leaddbs python -m unittest discover \
+  -s my_helper/fiber/core/outcome_models/tests -p 'test_*.py'
 git add \
   my_helper/fiber/core/outcome_models/services/oss_sidecar.py \
   my_helper/fiber/core/outcome_models/services/legacy_oss.py \

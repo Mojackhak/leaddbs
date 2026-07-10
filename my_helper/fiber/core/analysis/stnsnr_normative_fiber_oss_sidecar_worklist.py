@@ -99,6 +99,28 @@ def _write_oss_fiber_ids(path: Path, candidate_ids: np.ndarray) -> tuple[str, st
     return str(path), _array_sha256(candidate_ids)
 
 
+def _final_valid_fiber_ids(target: NormativeFiberTarget) -> tuple[np.ndarray, str]:
+    path = getattr(target, "valid_fiber_ids_path", None)
+    if path is None:
+        outputs = _load_json(target.manifest_path).get("outputs", {})
+        path = outputs.get("selected_valid_fiber_ids_npy")
+    if path is None:
+        return np.asarray([], dtype=np.int64), "missing_final_valid_axis"
+    valid_path = Path(path).expanduser().resolve()
+    if not valid_path.is_file():
+        return np.asarray([], dtype=np.int64), "missing_final_valid_axis"
+    values = np.asarray(np.load(valid_path, mmap_mode="r"), dtype=np.int64)
+    if values.ndim != 1 or values.size == 0:
+        return np.asarray([], dtype=np.int64), "invalid_final_valid_axis_shape"
+    if np.unique(values).size != values.size:
+        return np.asarray([], dtype=np.int64), "duplicate_final_valid_fiber_ids"
+    parent = np.asarray(np.load(target.fiber_ids_path, mmap_mode="r"), dtype=np.int64)
+    positions = np.flatnonzero(np.isin(parent, values))
+    if positions.size != values.size or not np.array_equal(parent[positions], values):
+        return np.asarray([], dtype=np.int64), "final_valid_axis_not_ordered_parent_subset"
+    return values, "immutable_final_valid_axis"
+
+
 def _sidecar_preprocess_dir(target: NormativeFiberTarget, manifest: dict[str, Any]) -> Path:
     outputs = manifest.get("outputs", {})
     if outputs.get("preprocess_dir"):
@@ -176,6 +198,43 @@ def _row_subjects(rows: list[dict[str, Any]]) -> set[str]:
     return {str(row.get("subject_id", "")).strip() for row in rows if str(row.get("subject_id", "")).strip()}
 
 
+def _ordered_subject_side_rows(
+    subject_order: tuple[str, ...],
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized: dict[tuple[str, str], dict[str, Any]] = {}
+    for raw in rows:
+        row = dict(raw)
+        subject_id = str(row.get("subject_id", "")).strip()
+        side = str(row.get("side", "")).strip().upper()
+        key = (subject_id, side)
+        if key in normalized:
+            raise ValueError(f"duplicate OSS source row for {key}")
+        normalized[key] = row
+    expected = {
+        (str(subject_id), side)
+        for subject_id in subject_order
+        for side in ("L", "R")
+    }
+    if set(normalized) != expected:
+        missing = sorted(expected - set(normalized))
+        extra = sorted(set(normalized) - expected)
+        raise ValueError(
+            f"OSS source rows must match the exact subject-side set; missing={missing}; extra={extra}"
+        )
+    ordered = []
+    for subject_id in subject_order:
+        for side in ("L", "R"):
+            row = dict(normalized[(str(subject_id), side)])
+            row["subject_id"] = str(subject_id)
+            row["side"] = side
+            row["canonicalization_mode"] = (
+                "left_geometry_to_right" if side == "L" else "native_right"
+            )
+            ordered.append(row)
+    return ordered
+
+
 def _target_audit_status(
     *,
     candidate_input_missing: list[str],
@@ -200,6 +259,7 @@ def audit_target(target: NormativeFiberTarget, candidate_id_output_dir: Path) ->
     weights_csv = Path(outputs.get("weights_csv", target.branch_dir / "missing_weights.csv")).expanduser().resolve()
     subject_order = _subject_order_from_scores(target.scores_csv)
     source_component, frequency_class, source_rows = _source_rows_for_target(target, manifest)
+    source_rows = _ordered_subject_side_rows(tuple(subject_order), source_rows)
     source_subjects = _row_subjects(source_rows)
     missing_subjects = [subject for subject in subject_order if subject not in source_subjects]
     sidecar_preprocess_dir = _sidecar_preprocess_dir(target, manifest)
@@ -207,16 +267,17 @@ def audit_target(target: NormativeFiberTarget, candidate_id_output_dir: Path) ->
     sidecar_existing = [str(path) for path in required_sidecars if path.is_file()]
     sidecar_missing = [str(path) for path in required_sidecars if not path.is_file()]
 
-    candidate_input_paths = [target.x_path, target.fiber_ids_path, target.scores_csv, weights_csv]
+    candidate_input_paths = [target.x_path, target.fiber_ids_path, target.scores_csv]
     candidate_input_missing = [str(path) for path in candidate_input_paths if not path.is_file()]
     parent_n_fibers, parent_fiber_id_status = _read_fiber_id_count(target.fiber_ids_path)
-    oss_candidate_ids, oss_fiber_id_status = _candidate_fiber_ids_from_weights(weights_csv)
+    oss_candidate_ids, oss_fiber_id_status = _final_valid_fiber_ids(target)
     oss_fiber_ids_path, oss_fiber_ids_hash = _write_oss_fiber_ids(
         candidate_id_output_dir / f"{target.model_id}_oss_fiber_ids.npy",
         oss_candidate_ids,
     )
     if oss_fiber_id_status != "ok":
-        candidate_input_missing.append(str(weights_csv))
+        if oss_fiber_id_status != "immutable_final_valid_axis":
+            candidate_input_missing.append(str(getattr(target, "valid_fiber_ids_path", "missing_final_valid_axis")))
 
     worklist_rows: list[dict[str, Any]] = []
     derivatives_root = _derivatives_root(manifest)
@@ -242,6 +303,10 @@ def audit_target(target: NormativeFiberTarget, candidate_id_output_dir: Path) ->
                 "frequency_class": frequency_class,
                 "subject_id": subject,
                 "side": side,
+                "canonicalization_mode": row["canonicalization_mode"],
+                "left_to_right_transform": (
+                    "ea_flip_lr_nonlinear" if side == "L" else "none"
+                ),
                 "path_mode": path_mode_text,
                 "n_source_paths": len(source_paths),
                 "source_paths": ";".join(source_paths),
