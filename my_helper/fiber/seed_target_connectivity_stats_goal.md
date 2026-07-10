@@ -9,7 +9,7 @@ Parent goal: none; standalone reusable fiber-core module
 Authoritative specification: this document
 Current branch: stnvop
 Status: design_approved
-Implementation status: task_3_connectome_adapter_in_progress
+Implementation status: task_4_segment_traversal_in_progress
 Current outputs: unchanged
 Implementation language: Python
 Default execution environment: Conda leaddbs
@@ -173,6 +173,11 @@ f=(p_1,p_2,\ldots,p_n).
 For every consecutive segment \(L_k=[p_k,p_{k+1}]\), the production algorithm
 must transform the segment into the ROI voxel coordinate system and enumerate
 every voxel crossed by that segment using deterministic 3D voxel traversal.
+
+For deterministic grid-plane behavior, voxel index `i` owns the half-open cell
+`[i - 0.5, i + 0.5)` on each voxel axis. The segment's final endpoint is also
+evaluated explicitly. Both the reference and optimized kernels must implement
+this same convention.
 
 The intersection indicator is:
 
@@ -408,8 +413,9 @@ Current implementation progress:
 
 - strict typed configuration: complete;
 - deterministic atlas discovery and ROI resolution: complete;
-- stable-ID connectome adapter: in progress;
-- traversal, statistics, artifacts, CLI, and acceptance: pending.
+- stable-ID connectome adapter: complete;
+- reference and optimized segment-aware traversal: in progress;
+- statistics, artifacts, CLI, and acceptance: pending.
 
 Documentation must be updated before each later implementation phase changes
 production code.
