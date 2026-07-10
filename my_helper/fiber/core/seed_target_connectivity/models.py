@@ -100,3 +100,35 @@ class ResolvedAtlas:
     root: Path
     targets: tuple[ResolvedMask, ...]
     atlas_hash: str
+
+
+@dataclass(frozen=True)
+class ConnectomeMetadata:
+    """Stable identity and dimensions exposed by one connectome adapter."""
+
+    connectome_id: str
+    source_path: Path
+    source_hash: str
+    geometry_hash: str
+    ordered_fiber_id_hash: str
+    connectome_identity: str
+    identity_source: str
+    adapter_name: str
+    adapter_version: str
+    n_fibers: int
+    n_points: int
+
+
+@dataclass(frozen=True)
+class FiberChunk:
+    """One bounded block of canonical fiber IDs and ordered points."""
+
+    fiber_ids: np.ndarray
+    point_offsets: np.ndarray
+    points: np.ndarray
+
+    def streamline(self, index: int) -> np.ndarray:
+        """Return the ordered points for one zero-based fiber within the chunk."""
+        start = int(self.point_offsets[index])
+        stop = int(self.point_offsets[index + 1])
+        return self.points[start:stop]

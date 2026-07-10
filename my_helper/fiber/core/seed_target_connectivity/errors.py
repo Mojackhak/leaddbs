@@ -11,3 +11,7 @@ class ConfigurationError(SeedTargetConnectivityError, ValueError):
 
 class ROIResolutionError(SeedTargetConnectivityError, ValueError):
     """Raised when atlas discovery or ROI resolution cannot satisfy the contract."""
+
+
+class ConnectomeError(SeedTargetConnectivityError, ValueError):
+    """Raised when a streamline connectome violates its adapter contract."""
