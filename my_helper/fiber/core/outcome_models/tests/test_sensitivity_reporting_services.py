@@ -41,6 +41,8 @@ class SensitivityReportingContractTests(unittest.TestCase):
             selected_tau=250,
             selected_coverage=6,
             estimator="partial_spearman",
+            scale_direction="lower",
+            subject_order=tuple(f"sub-{index:02d}" for index in range(1, 13)),
             nuisance=nuisance,
             manifest=self._artifact("final_manifest", "manifest.json"),
             exposure=self._artifact("exposure", "exposure.npy", (12, 20)),

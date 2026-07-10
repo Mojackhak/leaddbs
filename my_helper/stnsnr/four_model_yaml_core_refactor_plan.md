@@ -20,8 +20,10 @@
 This document is the implementation contract for an active refactor. Strict
 YAML schemas/loading, immutable identities, the endpoint catalog, the pure
 HF-to-ULF final-model state machine, configured run store, Round-aware planner,
-and generic executor/CLI now exist. The four scientific model services,
-endpoint-aware final reporting adapters, and full model rerun are not yet
+and generic executor/CLI now exist. Typed service contracts and initial HF
+observed adapters exist but are still being integrated with the Round-specific
+artifact contract. The complete four scientific model services,
+endpoint-aware final reporting execution, and full model rerun are not yet
 implemented. The current Python and MATLAB production drivers, legacy/current
 output paths, and generated results remain unchanged.
 
@@ -212,6 +214,13 @@ Therefore, current outputs under `/Volumes/VAL/STNSNr/summary` are legacy/curren
 results. They are not outputs of a YAML-driven all-endpoint pipeline. This
 document must not be cited as evidence that all scales have been rerun.
 
+An isolated model runner passing its focused tests is not sufficient evidence
+that a configured Round is implemented. Before a task may be recorded as
+`completed`, its service adapter must create every artifact kind declared by
+the planner for that task, keep every path inside the configured run root, and
+pass executor-level validation. Placeholder completion records and fabricated
+empty artifacts are prohibited.
+
 ## Core Scope
 
 ### Frequency roles
@@ -358,6 +367,9 @@ direct_voxel pre-specified tau/Coverage and scan grids
 direct_voxel hard computability thresholds
 normative_fiber exposure definition
 normative_fiber pre-specified tau/Coverage and scan grids
+normative_fiber score fractions
+normative_fiber cheap-observed sensitivity parameters:
+  high_tau_v_per_m, coverage, sweet_top_count, sour_top_count
 connectome roles and connectome-specific hard computability thresholds
 source-resolver neighborhood requirement
 selected-source tau sensitivity multipliers
@@ -490,7 +502,7 @@ runtime output   resolver/status/artifact value, never a user selector
 | 2 All-endpoint observed LOOCV | scale catalog and connectome roles | All configured HF endpoint rows follow the same execution factory. |
 | 3 Plain connected control | model profile controls | Interpretation QC only; cannot alter source/prediction status. |
 | 4 dTOR smoke resampling | internal-test | Technical qualification only; no public smoke parameter. |
-| 5 Cheap observed sensitivity | model profile | High-tau, top-k, and cross-connectome observed sensitivity. |
+| 5 Cheap observed sensitivity | public `normative_fiber.cheap_observed_sensitivity` plus connectome roles | High-tau, fixed-count sweet/sour, and cross-connectome observed sensitivity; no hidden defaults. |
 | 5.5 Source/predictive resolver | model profile grids/hard filters; runtime output | Endpoint-wise selected source and prediction status. |
 | 6 dTOR formal resampling | public formal profile plus runtime selected source | Final selected dTOR source only. |
 | 7 OSS activation sensitivity | OSS profile plus final candidate universe | dTOR final branch only; OSS cannot rescan candidates or replace final model. |

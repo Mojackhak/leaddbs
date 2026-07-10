@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -11,13 +12,14 @@ import platform
 import shutil
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
+import nibabel as nib
 from scipy.stats import pearsonr, spearmanr
 
 from stnsnr_four_model_readiness import (
@@ -52,11 +54,16 @@ from stnsnr_hf_direct_voxel_smoke import (
     fit_baseline_only,
     flip_left_fields_with_matlab,
     load_stim_table,
+    load_stim_table_from_path,
     load_subject_records,
+    load_subject_records_from_table,
+    primary_branch_name,
     right_brainmask_voxels,
+    right_brainmask_voxels_from_path,
     slugify,
     write_csv,
     write_json,
+    write_nifti_from_flat,
 )
 
 
@@ -74,6 +81,244 @@ ANNOTATED_RHO_REQUIRED_COLUMNS = [
     "loocv_spearman_nominal_p",
     "passes_all_hard_filters",
 ]
+
+FlipBackend = Callable[..., tuple[dict[str, list[Path]], dict[str, Any]]]
+
+
+@dataclass(frozen=True)
+class ConfiguredHFDirectVoxelRun:
+    """Explicit analysis-side inputs for one configured HF direct-voxel endpoint."""
+
+    endpoint_id: str
+    scale_label: str
+    direction: str
+    protocol: str
+    phase: str
+    clinical_table: Path
+    stimulation_table: Path
+    derivatives_root: Path
+    brainmask: Path
+    asset_root: Path
+    output_root: Path
+    tau_grid: tuple[float, ...]
+    coverage_grid: tuple[int, ...]
+    primary_tau: float
+    primary_coverage: int
+    candidate_threshold: float
+    force: bool
+    subject_order: tuple[str, ...] = ()
+    cache_root: Path | None = None
+
+    @classmethod
+    def from_request_values(cls, **values: Any) -> "ConfiguredHFDirectVoxelRun":
+        """Normalize request values without importing the outcome-model package."""
+        config = cls(
+            endpoint_id=str(values["endpoint_id"]),
+            scale_label=str(values["scale_label"]),
+            direction=str(values["direction"]),
+            protocol=str(values["protocol"]),
+            phase=str(values["phase"]),
+            clinical_table=Path(values["clinical_table"]).expanduser(),
+            stimulation_table=Path(values["stimulation_table"]).expanduser(),
+            derivatives_root=Path(values["derivatives_root"]).expanduser(),
+            brainmask=Path(values["brainmask"]).expanduser(),
+            asset_root=Path(values["asset_root"]).expanduser(),
+            output_root=Path(values["output_root"]).expanduser(),
+            tau_grid=tuple(float(value) for value in values["tau_grid"]),
+            coverage_grid=tuple(int(value) for value in values["coverage_grid"]),
+            primary_tau=float(values["primary_tau"]),
+            primary_coverage=int(values["primary_coverage"]),
+            candidate_threshold=float(values["candidate_threshold"]),
+            force=bool(values["force"]),
+            subject_order=tuple(str(value) for value in values.get("subject_order", ())),
+            cache_root=(
+                Path(values["cache_root"]).expanduser()
+                if values.get("cache_root") is not None
+                else None
+            ),
+        )
+        config.validate()
+        return config
+
+    def validate(self) -> None:
+        if not self.endpoint_id:
+            raise ValueError("endpoint_id must be nonempty")
+        if self.direction not in {"lower", "higher"}:
+            raise ValueError("direction must be 'lower' or 'higher'")
+        if not self.protocol or not self.phase:
+            raise ValueError("protocol and phase must be nonempty")
+        if not self.tau_grid or not self.coverage_grid:
+            raise ValueError("tau_grid and coverage_grid must be nonempty")
+        if self.primary_tau not in self.tau_grid:
+            raise ValueError("primary_tau must be present in tau_grid")
+        if self.primary_coverage not in self.coverage_grid:
+            raise ValueError("primary_coverage must be present in coverage_grid")
+        if self.candidate_threshold != min(self.tau_grid):
+            raise ValueError("candidate_threshold must equal the minimum tau in tau_grid")
+
+
+def _number_token(value: int | float) -> str:
+    return f"{float(value):g}".replace("-", "neg").replace(".", "p")
+
+
+def configured_grid_id(config: ConfiguredHFDirectVoxelRun) -> str:
+    taus = "-".join(_number_token(value) for value in config.tau_grid)
+    coverages = "-".join(str(value) for value in config.coverage_grid)
+    return (
+        f"candidate_tau{_number_token(config.candidate_threshold)}__"
+        f"taus_{taus}__coverages_{coverages}__"
+        f"primary_tau{_number_token(config.primary_tau)}_cov{config.primary_coverage}"
+    )
+
+
+def configured_scan_directory(config: ConfiguredHFDirectVoxelRun) -> Path:
+    """Return an endpoint- and threshold-bound configured output directory."""
+    return config.output_root / config.endpoint_id / configured_grid_id(config) / "posthoc_threshold_scan"
+
+
+def configured_manifest_name(config: ConfiguredHFDirectVoxelRun) -> str:
+    """Return a configured manifest name that cannot hide endpoint thresholds."""
+    return f"{config.endpoint_id}__{configured_grid_id(config)}__selected_threshold_manifest.json"
+
+
+def configured_cache_manifest_name(config: ConfiguredHFDirectVoxelRun) -> str:
+    """Return the endpoint- and candidate-bound preprocess completion name."""
+    return (
+        f"{config.endpoint_id}__candidate_tau{_number_token(config.candidate_threshold)}__"
+        f"{slugify(config.protocol)}_{slugify(config.phase)}__cache_complete.json"
+    )
+
+
+def write_atomic_json(path: Path, data: dict[str, Any]) -> None:
+    """Write JSON by replacing the destination only after the payload is complete."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+    temporary.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
+def _file_identity(path: Path) -> dict[str, Any]:
+    resolved = path.expanduser().resolve()
+    stat = resolved.stat()
+    digest = hashlib.sha256()
+    with resolved.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "path": str(resolved),
+        "size": int(stat.st_size),
+        "mtime_ns": int(stat.st_mtime_ns),
+        "sha256": digest.hexdigest(),
+    }
+
+
+def cache_completion_metadata(
+    *,
+    endpoint_id: str,
+    subject_order: tuple[str, ...],
+    candidate_threshold: float,
+    brainmask_identity: dict[str, Any],
+    input_identities: tuple[dict[str, Any], ...],
+    protocol: str,
+    phase: str,
+    matrix_shape: tuple[int, int],
+    candidate_shape: tuple[int, ...],
+) -> dict[str, Any]:
+    """Build the complete identity record required to authorize cache reuse."""
+    return {
+        "schema_version": "hf_direct_preprocess_cache_v1",
+        "status": "complete",
+        "endpoint_id": str(endpoint_id),
+        "subject_order": list(subject_order),
+        "candidate_threshold_v_per_m": float(candidate_threshold),
+        "brainmask_identity": dict(brainmask_identity),
+        "input_identities": [dict(value) for value in input_identities],
+        "protocol": str(protocol),
+        "phase": str(phase),
+        "matrix_shape": [int(value) for value in matrix_shape],
+        "candidate_shape": [int(value) for value in candidate_shape],
+        "artifacts": {
+            "matrix": "X_HF_float32_subject_major.npy",
+            "candidate_flat": "candidate_flat_indices.npy",
+            "candidate_ijk": "candidate_ijk.npy",
+            "candidate_xyz": "candidate_xyz.npy",
+            "subjects": "subjects.csv",
+        },
+    }
+
+
+def validate_preprocess_cache(
+    *,
+    manifest_path: Path,
+    expected: dict[str, Any],
+    x_path: Path,
+    candidate_flat_path: Path,
+    candidate_ijk_path: Path | None = None,
+    candidate_xyz_path: Path | None = None,
+    subjects_path: Path | None = None,
+) -> tuple[bool, str]:
+    """Validate completion identity and physical array shapes before cache reuse."""
+    if not manifest_path.is_file():
+        return False, "completion_manifest_missing"
+    try:
+        observed = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, "completion_manifest_invalid"
+    for field in (
+        "schema_version",
+        "status",
+        "endpoint_id",
+        "subject_order",
+        "candidate_threshold_v_per_m",
+        "brainmask_identity",
+        "input_identities",
+        "protocol",
+        "phase",
+        "matrix_shape",
+        "candidate_shape",
+        "artifacts",
+    ):
+        if observed.get(field) != expected.get(field):
+            return False, f"{field}_mismatch"
+    if not x_path.is_file() or not candidate_flat_path.is_file():
+        return False, "cache_artifact_missing"
+    try:
+        matrix_shape = tuple(int(value) for value in np.load(x_path, mmap_mode="r").shape)
+        candidate_shape = tuple(int(value) for value in np.load(candidate_flat_path, mmap_mode="r").shape)
+    except (OSError, ValueError):
+        return False, "cache_artifact_invalid"
+    if matrix_shape != tuple(expected["matrix_shape"]):
+        return False, "matrix_shape_file_mismatch"
+    if candidate_shape != tuple(expected["candidate_shape"]):
+        return False, "candidate_shape_file_mismatch"
+    if len(matrix_shape) != 2 or matrix_shape[0] != len(expected["subject_order"]):
+        return False, "matrix_subject_axis_mismatch"
+    if len(candidate_shape) != 1 or matrix_shape[1] != candidate_shape[0]:
+        return False, "matrix_feature_axis_mismatch"
+    for label, artifact_path in (
+        ("candidate_ijk", candidate_ijk_path),
+        ("candidate_xyz", candidate_xyz_path),
+        ("subjects", subjects_path),
+    ):
+        if artifact_path is not None and not artifact_path.is_file():
+            return False, f"{label}_artifact_missing"
+    try:
+        if candidate_ijk_path is not None:
+            ijk_shape = tuple(int(value) for value in np.load(candidate_ijk_path, mmap_mode="r").shape)
+            if ijk_shape != (candidate_shape[0], 3):
+                return False, "candidate_ijk_shape_file_mismatch"
+        if candidate_xyz_path is not None:
+            xyz_shape = tuple(int(value) for value in np.load(candidate_xyz_path, mmap_mode="r").shape)
+            if xyz_shape != (candidate_shape[0], 3):
+                return False, "candidate_xyz_shape_file_mismatch"
+        if subjects_path is not None and _load_subject_ids_from_csv(subjects_path) != expected["subject_order"]:
+            return False, "subjects_artifact_order_mismatch"
+    except (OSError, ValueError, EOFError):
+        return False, "cache_artifact_invalid"
+    return True, "cache_valid"
 
 
 def iso_now() -> str:
@@ -124,15 +369,28 @@ def _primary_distance(row: dict[str, Any]) -> tuple[float, float]:
     return (abs(_finite_float(row.get("tau")) - PRIMARY_TAU), abs(_finite_float(row.get("coverage")) - PRIMARY_COVERAGE))
 
 
-def select_best_grid_cell(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+def select_best_grid_cell(
+    rows: list[dict[str, Any]],
+    *,
+    primary_tau: float = PRIMARY_TAU,
+    primary_coverage: int = PRIMARY_COVERAGE,
+    tau_grid: list[int | float] | tuple[int | float, ...] = tuple(TAU_GRID),
+    coverage_grid: list[int] | tuple[int, ...] = tuple(COVERAGE_GRID),
+) -> dict[str, Any] | None:
     """Select the resolver-selected grid cell, if any."""
-    resolved = resolve_hf_source(rows, primary_tau=PRIMARY_TAU, primary_coverage=PRIMARY_COVERAGE)
+    resolved = resolve_hf_source(
+        rows,
+        primary_tau=primary_tau,
+        primary_coverage=primary_coverage,
+        tau_grid=tau_grid,
+        coverage_grid=coverage_grid,
+    )
     selected_tau = resolved.get("selected_tau")
     selected_coverage = resolved.get("selected_coverage")
     if selected_tau == "" or selected_coverage == "":
         return None
     for row in rows:
-        if int(row["tau"]) == int(selected_tau) and int(row["coverage"]) == int(selected_coverage):
+        if float(row["tau"]) == float(selected_tau) and int(row["coverage"]) == int(selected_coverage):
             return row
     return None
 
@@ -692,6 +950,381 @@ def write_heatmap_figure(path: Path, heatmap: pd.DataFrame, title: str) -> str:
     fig.savefig(path, dpi=180)
     plt.close(fig)
     return "PASS"
+
+
+def _write_atomic_npy(path: Path, values: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+    with temporary.open("wb") as handle:
+        np.save(handle, values)
+    os.replace(temporary, path)
+
+
+def _write_atomic_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+    write_csv(temporary, rows, fieldnames)
+    os.replace(temporary, path)
+
+
+def materialize_configured_hf_direct_source(
+    *,
+    output_dir: Path,
+    x: np.ndarray,
+    y_post: np.ndarray,
+    y_base: np.ndarray,
+    subject_ids: tuple[str, ...],
+    candidate_flat: np.ndarray,
+    brainmask: Path,
+    scale_direction: str,
+    tau: float,
+    coverage: int,
+) -> dict[str, Path]:
+    """Write the full and fold-specific selected source needed downstream."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    x_arr = np.asarray(x, dtype=np.float32)
+    y = np.asarray(y_post, dtype=float)
+    nuisance = np.asarray(y_base, dtype=float)
+    if x_arr.ndim != 2 or x_arr.shape[0] != y.shape[0] or nuisance.shape != y.shape:
+        raise ValueError("selected HF source inputs have incompatible shapes")
+    if len(subject_ids) != y.shape[0]:
+        raise ValueError("selected HF source subject order does not match the exposure matrix")
+    flat = np.asarray(candidate_flat, dtype=np.int64)
+    if flat.shape != (x_arr.shape[1],):
+        raise ValueError("selected HF source feature axis does not match the exposure matrix")
+
+    suprathreshold = suprathreshold_matrix(x_arr, tau)
+    full_coverage = coverage_from_suprathreshold(suprathreshold)
+    omega = candidate_mask_from_coverage(full_coverage, coverage)
+    if not np.any(omega):
+        raise RuntimeError("selected HF source has an empty full-sample support")
+    full_weights = np.full(x_arr.shape[1], np.nan, dtype=np.float32)
+    full_rho = partial_spearman_matrix(y, x_arr[:, omega], nuisance)
+    full_weights[omega] = benefit_oriented_weights(full_rho, scale_direction).astype(np.float32)
+    full_valid = omega & np.isfinite(full_weights)
+    if not np.any(full_valid):
+        raise RuntimeError("selected HF source has no finite full-sample weights")
+    full_scores, _ = mean_map_score(x_arr, full_weights, full_valid)
+
+    n_subjects = y.shape[0]
+    fold_weights = np.full((n_subjects, x_arr.shape[1]), np.nan, dtype=np.float32)
+    fold_scores = np.full((n_subjects, n_subjects), np.nan, dtype=np.float32)
+    prediction_rows: list[dict[str, Any]] = []
+    for heldout in range(n_subjects):
+        train = np.array([index for index in range(n_subjects) if index != heldout], dtype=int)
+        fold_coverage = full_coverage - suprathreshold[heldout].astype(np.int32)
+        fold_omega = candidate_mask_from_coverage(fold_coverage, coverage)
+        if not np.any(fold_omega):
+            raise RuntimeError(f"selected HF source has empty support in fold {heldout + 1}")
+        fold_rho = partial_spearman_matrix(y[train], x_arr[train][:, fold_omega], nuisance[train])
+        fold_weights[heldout, fold_omega] = benefit_oriented_weights(
+            fold_rho,
+            scale_direction,
+        ).astype(np.float32)
+        fold_valid = fold_omega & np.isfinite(fold_weights[heldout])
+        if not np.any(fold_valid):
+            raise RuntimeError(f"selected HF source has no finite weights in fold {heldout + 1}")
+        scores, _ = mean_map_score(x_arr, fold_weights[heldout], fold_valid)
+        fold_scores[heldout] = scores.astype(np.float32)
+        if float(np.nanstd(scores[train])) == 0.0:
+            raise RuntimeError(f"selected HF source is constant in fold {heldout + 1}")
+        prediction, beta = fit_linear_prediction(
+            y[train],
+            scores[train],
+            nuisance[train],
+            scores[[heldout]],
+            nuisance[[heldout]],
+        )
+        baseline_prediction, _ = fit_baseline_only(y[train], nuisance[train], nuisance[[heldout]])
+        prediction_rows.append(
+            {
+                "fold_id": heldout + 1,
+                "heldout_subject_id": subject_ids[heldout],
+                "Y_post": y[heldout],
+                "Y_base": nuisance[heldout],
+                "HFScore_mean_main_LOOCV": scores[heldout],
+                "prediction_HFScore_model": prediction[0],
+                "prediction_baseline_only": baseline_prediction[0],
+                "delta": beta[1],
+                "n_valid_score_voxels": int(np.count_nonzero(fold_valid)),
+            }
+        )
+
+    stem = f"selected_tau{_number_token(tau)}_cov{int(coverage)}"
+    full_weights_path = output_dir / f"{stem}__full_weights.npy"
+    fold_weights_path = output_dir / f"{stem}__fold_weights.npy"
+    fold_scores_path = output_dir / f"{stem}__fold_scores.npy"
+    scores_path = output_dir / f"{stem}__scores.csv"
+    predictions_path = output_dir / f"{stem}__loocv_predictions.csv"
+    coefficient_path = output_dir / f"{stem}__coef.nii.gz"
+    manifest_path = output_dir / f"{stem}__generation_manifest.json"
+    _write_atomic_npy(full_weights_path, full_weights)
+    _write_atomic_npy(fold_weights_path, fold_weights)
+    _write_atomic_npy(fold_scores_path, fold_scores)
+    _write_atomic_csv(
+        scores_path,
+        [
+            {
+                "subject_id": subject_id,
+                "Y_post": y[index],
+                "Y_base": nuisance[index],
+                "HFScore_mean_main": full_scores[index],
+            }
+            for index, subject_id in enumerate(subject_ids)
+        ],
+        ["subject_id", "Y_post", "Y_base", "HFScore_mean_main"],
+    )
+    _write_atomic_csv(
+        predictions_path,
+        prediction_rows,
+        [
+            "fold_id",
+            "heldout_subject_id",
+            "Y_post",
+            "Y_base",
+            "HFScore_mean_main_LOOCV",
+            "prediction_HFScore_model",
+            "prediction_baseline_only",
+            "delta",
+            "n_valid_score_voxels",
+        ],
+    )
+    reference = nib.load(str(brainmask))
+    temporary_nifti = output_dir / f".{coefficient_path.name}.tmp-{os.getpid()}-{time.time_ns()}.nii.gz"
+    write_nifti_from_flat(
+        temporary_nifti,
+        reference,
+        flat,
+        full_weights,
+        np.float32,
+        np.nan,
+    )
+    os.replace(temporary_nifti, coefficient_path)
+    write_atomic_json(
+        manifest_path,
+        {
+            "status": "complete",
+            "tau_v_per_m": float(tau),
+            "coverage": int(coverage),
+            "scale_direction": scale_direction,
+            "subject_order": list(subject_ids),
+            "matrix_shape": list(x_arr.shape),
+            "artifacts": {
+                "full_weights": str(full_weights_path),
+                "fold_weights": str(fold_weights_path),
+                "fold_scores": str(fold_scores_path),
+                "scores": str(scores_path),
+                "loocv_predictions": str(predictions_path),
+                "coefficient_nifti": str(coefficient_path),
+            },
+        },
+    )
+    return {
+        "full_weights": full_weights_path,
+        "fold_weights": fold_weights_path,
+        "fold_scores": fold_scores_path,
+        "scores": scores_path,
+        "loocv_predictions": predictions_path,
+        "coefficient_nifti": coefficient_path,
+        "manifest": manifest_path,
+    }
+
+
+def _configured_preprocess_paths(
+    preprocess_dir: Path,
+    config: ConfiguredHFDirectVoxelRun,
+) -> dict[str, Path]:
+    identity_stem = (
+        f"{config.endpoint_id}__candidate_tau{_number_token(config.candidate_threshold)}__"
+        f"{slugify(config.protocol)}_{slugify(config.phase)}"
+    )
+    return {
+        "x": preprocess_dir / "X_HF_float32_subject_major.npy",
+        "flat": preprocess_dir / "candidate_flat_indices.npy",
+        "ijk": preprocess_dir / "candidate_ijk.npy",
+        "xyz": preprocess_dir / "candidate_xyz.npy",
+        "subjects": preprocess_dir / "subjects.csv",
+        "qc": preprocess_dir / f"{identity_stem}__preprocess_qc.json",
+        "completion": preprocess_dir / configured_cache_manifest_name(config),
+    }
+
+
+def _configured_input_identities(
+    config: ConfiguredHFDirectVoxelRun,
+    side_paths: dict[tuple[str, str], list[Path]],
+) -> tuple[dict[str, Any], ...]:
+    paths = {config.clinical_table.resolve(), config.stimulation_table.resolve()}
+    paths.update(path.resolve() for values in side_paths.values() for path in values)
+    return tuple(_file_identity(path) for path in sorted(paths, key=str))
+
+
+def load_or_build_configured_preprocess(
+    config: ConfiguredHFDirectVoxelRun,
+    *,
+    flip_backend: FlipBackend,
+) -> dict[str, Any]:
+    """Build or strictly validate one configured sparse HF exposure matrix."""
+    scan_dir = configured_scan_directory(config)
+    preprocess_dir = config.cache_root or (
+        scan_dir
+        / (
+            f"preprocess_candidate_tau{_number_token(config.candidate_threshold)}_"
+            f"{slugify(config.protocol)}_{slugify(config.phase)}"
+        )
+    )
+    paths = _configured_preprocess_paths(preprocess_dir, config)
+    records = load_subject_records_from_table(
+        config.clinical_table,
+        config.scale_label,
+        protocol=config.protocol,
+        phase=config.phase,
+        expected_subject_order=config.subject_order,
+    )
+    subject_order = tuple(record.subject_id for record in records)
+    subject_ids = set(subject_order)
+    stim_rows = filter_hf_stn_rows(
+        load_stim_table_from_path(config.stimulation_table),
+        subject_ids,
+        protocol=config.protocol,
+        phase=config.phase,
+    )
+    if stim_rows["ID"].nunique() != len(records):
+        missing_subjects = sorted(subject_ids - set(stim_rows["ID"].astype(str).unique()))
+        raise RuntimeError(
+            f"missing HF {config.protocol} {config.phase} stimulation rows for subjects: "
+            + ", ".join(missing_subjects)
+        )
+    side_paths, side_field_qc = collect_side_field_paths(records, stim_rows, config.derivatives_root)
+    brainmask_identity = _file_identity(config.brainmask)
+    input_identities = _configured_input_identities(config, side_paths)
+
+    observed_completion: dict[str, Any] = {}
+    if paths["completion"].is_file():
+        try:
+            observed_completion = json.loads(paths["completion"].read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            observed_completion = {}
+    observed_matrix_shape = observed_completion.get("matrix_shape", [len(records), 0])
+    observed_candidate_shape = observed_completion.get("candidate_shape", [0])
+    if (
+        not config.force
+        and isinstance(observed_matrix_shape, list)
+        and len(observed_matrix_shape) == 2
+        and all(isinstance(value, (int, float)) for value in observed_matrix_shape)
+        and isinstance(observed_candidate_shape, list)
+        and len(observed_candidate_shape) == 1
+        and all(isinstance(value, (int, float)) for value in observed_candidate_shape)
+    ):
+        expected = cache_completion_metadata(
+            endpoint_id=config.endpoint_id,
+            subject_order=subject_order,
+            candidate_threshold=config.candidate_threshold,
+            brainmask_identity=brainmask_identity,
+            input_identities=input_identities,
+            protocol=config.protocol,
+            phase=config.phase,
+            matrix_shape=tuple(int(value) for value in observed_matrix_shape),
+            candidate_shape=tuple(int(value) for value in observed_candidate_shape),
+        )
+        cache_valid, cache_reason = validate_preprocess_cache(
+            manifest_path=paths["completion"],
+            expected=expected,
+            x_path=paths["x"],
+            candidate_flat_path=paths["flat"],
+            candidate_ijk_path=paths["ijk"],
+            candidate_xyz_path=paths["xyz"],
+            subjects_path=paths["subjects"],
+        )
+        if cache_valid and not config.force:
+            return {
+                "scan_dir": scan_dir,
+                "preprocess_dir": preprocess_dir,
+                "preprocess_status": "reused",
+                "preprocess_cache_validation": cache_reason,
+                "preprocess_qc_path": paths["qc"],
+                "completion_manifest_path": paths["completion"],
+                "records": records,
+                "subject_ids": subject_order,
+                "x": np.load(paths["x"], mmap_mode="r"),
+                "candidate_flat": np.load(paths["flat"]),
+                "candidate_ijk": np.load(paths["ijk"]),
+                "candidate_xyz": np.load(paths["xyz"]),
+                "feature_ids_path": paths["flat"],
+            }
+
+    preprocess_dir.mkdir(parents=True, exist_ok=True)
+    write_atomic_json(
+        paths["completion"],
+        {
+            "schema_version": "hf_direct_preprocess_cache_v1",
+            "status": "building",
+            "endpoint_id": config.endpoint_id,
+        },
+    )
+    force_flip = config.force or (preprocess_dir / "flipped_left_to_right").exists()
+    flipped_left_paths, flip_result = flip_backend(
+        side_paths=side_paths,
+        preprocess_dir=preprocess_dir,
+        force=force_flip,
+    )
+    _, right_ijk, right_xyz, right_flat = right_brainmask_voxels_from_path(config.brainmask)
+    exposure_all, sampling_qc = build_exposure_matrix(records, side_paths, flipped_left_paths, right_xyz)
+    candidate_sparse = np.any(exposure_all > config.candidate_threshold, axis=0)
+    candidate_flat = right_flat[candidate_sparse]
+    candidate_ijk = right_ijk[candidate_sparse]
+    candidate_xyz = right_xyz[candidate_sparse]
+    x = exposure_all[:, candidate_sparse].astype(np.float32)
+
+    _write_atomic_npy(paths["x"], x)
+    _write_atomic_npy(paths["flat"], candidate_flat)
+    _write_atomic_npy(paths["ijk"], candidate_ijk)
+    _write_atomic_npy(paths["xyz"], candidate_xyz)
+    _write_atomic_csv(paths["subjects"], [asdict(record) for record in records], ["subject_id", "y_post", "y_base"])
+    write_atomic_json(
+        paths["qc"],
+        {
+            "generated_at": iso_now(),
+            "status": "PASS",
+            "endpoint_id": config.endpoint_id,
+            "scale": config.scale_label,
+            "direction": config.direction,
+            "protocol": config.protocol,
+            "phase": config.phase,
+            "brainmask": str(config.brainmask),
+            "n_subjects": len(records),
+            "candidate_threshold_v_per_m": config.candidate_threshold,
+            "n_candidate_voxels": int(candidate_flat.size),
+            "side_fields": side_field_qc,
+            "flip_result": flip_result,
+            "sampling_qc": sampling_qc,
+        },
+    )
+    completion = cache_completion_metadata(
+        endpoint_id=config.endpoint_id,
+        subject_order=subject_order,
+        candidate_threshold=config.candidate_threshold,
+        brainmask_identity=brainmask_identity,
+        input_identities=input_identities,
+        protocol=config.protocol,
+        phase=config.phase,
+        matrix_shape=tuple(x.shape),
+        candidate_shape=tuple(candidate_flat.shape),
+    )
+    write_atomic_json(paths["completion"], completion)
+    return {
+        "scan_dir": scan_dir,
+        "preprocess_dir": preprocess_dir,
+        "preprocess_status": "built",
+        "preprocess_cache_validation": "cache_rebuilt",
+        "preprocess_qc_path": paths["qc"],
+        "completion_manifest_path": paths["completion"],
+        "records": records,
+        "subject_ids": subject_order,
+        "x": np.load(paths["x"], mmap_mode="r"),
+        "candidate_flat": candidate_flat,
+        "candidate_ijk": candidate_ijk,
+        "candidate_xyz": candidate_xyz,
+        "feature_ids_path": paths["flat"],
+    }
 
 
 def load_or_build_posthoc_preprocess(args: argparse.Namespace, output_root: Path, scale_slug: str) -> dict[str, Any]:
@@ -1316,6 +1949,160 @@ def run_scale_posthoc_threshold_scan(
         "source_resolution": source_resolution,
         "scan_dir": str(scan_dir),
         "manifest": manifest,
+    }
+
+
+def run_configured_hf_direct_voxel(
+    config: ConfiguredHFDirectVoxelRun,
+    *,
+    flip_backend: FlipBackend,
+) -> dict[str, Any]:
+    """Run one fully configured endpoint without consulting legacy defaults."""
+    started = time.time()
+    config.validate()
+    preprocess = load_or_build_configured_preprocess(config, flip_backend=flip_backend)
+    records = preprocess["records"]
+    x = np.asarray(preprocess["x"], dtype=np.float32)
+    y_post = np.array([record.y_post for record in records], dtype=float)
+    y_base = np.array([record.y_base for record in records], dtype=float)
+    rows: list[dict[str, Any]] = []
+    for tau in config.tau_grid:
+        for coverage_min in config.coverage_grid:
+            row = evaluate_grid_cell(x, y_post, y_base, config.direction, tau, coverage_min)
+            row["branch_id"] = primary_branch_name(tau, coverage_min).split("/", 1)[0]
+            rows.append(row)
+
+    source_resolution = resolve_hf_source(
+        rows,
+        primary_tau=config.primary_tau,
+        primary_coverage=config.primary_coverage,
+        tau_grid=config.tau_grid,
+        coverage_grid=config.coverage_grid,
+    )
+    selected = select_best_grid_cell(
+        rows,
+        primary_tau=config.primary_tau,
+        primary_coverage=config.primary_coverage,
+        tau_grid=config.tau_grid,
+        coverage_grid=config.coverage_grid,
+    )
+    scan_dir = configured_scan_directory(config)
+    scan_dir.mkdir(parents=True, exist_ok=True)
+    selected_artifacts: dict[str, Path] = {}
+    if selected is not None:
+        selected_artifacts = materialize_configured_hf_direct_source(
+            output_dir=scan_dir / "selected_source",
+            x=x,
+            y_post=y_post,
+            y_base=y_base,
+            subject_ids=tuple(preprocess["subject_ids"]),
+            candidate_flat=np.asarray(preprocess["candidate_flat"], dtype=np.int64),
+            brainmask=config.brainmask,
+            scale_direction=config.direction,
+            tau=float(selected["tau"]),
+            coverage=int(selected["coverage"]),
+        )
+    artifact_stem = f"{config.endpoint_id}__{configured_grid_id(config)}"
+    results_path = scan_dir / f"{artifact_stem}__threshold_scan_results.csv"
+    manifest_path = scan_dir / configured_manifest_name(config)
+    fieldnames = ["branch_id"] + [
+        "tau",
+        "coverage",
+        "n_subjects",
+        "n_voxels_full",
+        "n_valid_full_score_voxels",
+        "fold_n_voxels_min",
+        "fold_n_voxels_median",
+        "fold_n_voxels_max",
+        "loocv_spearman_rho",
+        "loocv_spearman_nominal_p",
+        "loocv_pearson_r",
+        "loocv_pearson_nominal_p",
+        "q2",
+        "mae_model",
+        "mae_baseline",
+        "rmse_model",
+        "rmse_baseline",
+        "corr_HFScore_mean_main_Y_base",
+        "spearman_HFScore_mean_main_Y_base",
+        "delta_median",
+        "delta_min",
+        "delta_max",
+        "hfscore_nonconstant_all_folds",
+        "all_predictions_finite",
+        "passes_all_hard_filters",
+        "hf_voxel_prediction_status",
+        "failure_reason",
+    ]
+    _write_atomic_csv(results_path, rows, fieldnames)
+    manifest = {
+        "generated_at": iso_now(),
+        "status": "PASS",
+        "model": "HF direct voxel",
+        "analysis": "configured_tau_coverage_threshold_scan",
+        "endpoint_id": config.endpoint_id,
+        "scale": config.scale_label,
+        "direction": config.direction,
+        "protocol": config.protocol,
+        "phase": config.phase,
+        "clinical_table": str(config.clinical_table),
+        "stimulation_table": str(config.stimulation_table),
+        "derivatives_root": str(config.derivatives_root),
+        "brainmask": str(config.brainmask),
+        "primary_branch": {
+            "name": primary_branch_name(config.primary_tau, config.primary_coverage),
+            "tau_v_per_m": config.primary_tau,
+            "coverage": config.primary_coverage,
+        },
+        "grid_branches": [row["branch_id"] for row in rows],
+        "tau_grid_v_per_m": list(config.tau_grid),
+        "coverage_grid": list(config.coverage_grid),
+        "candidate_sparse_threshold_v_per_m": config.candidate_threshold,
+        "preprocess_status": preprocess["preprocess_status"],
+        "preprocess_cache_validation": preprocess["preprocess_cache_validation"],
+        "preprocess_dir": str(preprocess["preprocess_dir"]),
+        "preprocess_completion_manifest": str(preprocess["completion_manifest_path"]),
+        "subject_order": list(preprocess["subject_ids"]),
+        "matrix_shape": list(x.shape),
+        "selected_grid_cell": selected,
+        "source_resolution": source_resolution,
+        "outputs": {
+            "results_csv": str(results_path),
+            "manifest_json": str(manifest_path),
+            "feature_ids_npy": str(preprocess["feature_ids_path"]),
+            "selected_source": {key: str(path) for key, path in selected_artifacts.items()},
+        },
+        "runtime_profile": {"total_s": time.time() - started},
+    }
+    write_atomic_json(manifest_path, manifest)
+    artifact_paths = {
+        "threshold_scan_results": results_path,
+        "scan_manifest": manifest_path,
+        "preprocess_completion_manifest": Path(preprocess["completion_manifest_path"]),
+        "candidate_flat_indices": Path(preprocess["feature_ids_path"]),
+    }
+    if selected_artifacts:
+        artifact_paths.update(
+            {
+                "selected_manifest": selected_artifacts["manifest"],
+                "selected_scores": selected_artifacts["scores"],
+                "selected_loocv_predictions": selected_artifacts["loocv_predictions"],
+                "selected_full_weights": selected_artifacts["full_weights"],
+                "selected_fold_weights": selected_artifacts["fold_weights"],
+                "selected_fold_scores": selected_artifacts["fold_scores"],
+                "coefficient_nifti": selected_artifacts["coefficient_nifti"],
+                "exposure_matrix": Path(preprocess["preprocess_dir"]) / "X_HF_float32_subject_major.npy",
+                "subjects_table": Path(preprocess["preprocess_dir"]) / "subjects.csv",
+            }
+        )
+    return {
+        "source_resolution": source_resolution,
+        "selected": selected,
+        "subject_ids": list(preprocess["subject_ids"]),
+        "feature_ids_path": Path(preprocess["feature_ids_path"]),
+        "feature_count": int(x.shape[1]),
+        "manifest_path": manifest_path,
+        "artifact_paths": artifact_paths,
     }
 
 

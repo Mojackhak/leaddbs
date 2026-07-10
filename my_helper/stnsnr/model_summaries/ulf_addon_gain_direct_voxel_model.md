@@ -701,7 +701,11 @@ Do not run the DeltaHF-adjusted branch:
   delta_hfscore_support_status = invalid_extreme_out_of_support
   cohort median HF_component_coverage_out_support_fraction > 0.50
   or more than 25% of subjects have HF_component_coverage_out_support_fraction > 0.80
-  or the HF+ULF HF-component suprathreshold coverage is almost entirely outside the locked HF model support for a required subject or fold.
+  or any required subject or LOOCV fold has
+     HF_component_coverage_out_support_fraction > 0.95.
+
+`Almost entirely outside` is therefore a fixed numeric rule (`> 0.95`), not a
+qualitative reviewer judgment.
 ```
 
 When downgraded, report:

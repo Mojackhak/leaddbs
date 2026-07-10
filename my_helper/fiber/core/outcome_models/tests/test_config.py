@@ -22,6 +22,15 @@ class ConfigLoadingTests(unittest.TestCase):
             self.assertEqual(first.scales[0].scale_id, "scale_one")
             self.assertEqual(first.model.profile_id, "four_model_v1")
             self.assertEqual(first.model.direct_candidate_threshold_v_per_m, 100.0)
+            self.assertEqual(
+                first.model.normative_fiber["cheap_observed_sensitivity"],
+                {
+                    "high_tau_v_per_m": 1500,
+                    "coverage": 5,
+                    "sweet_top_count": 1500,
+                    "sour_top_count": 500,
+                },
+            )
             self.assertEqual(first.workflow.selection.scales, ("scale_one",))
             self.assertEqual(first.configuration_hash, second.configuration_hash)
             self.assertEqual(len(first.configuration_hash), 64)

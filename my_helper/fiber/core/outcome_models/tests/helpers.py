@@ -118,12 +118,18 @@ def valid_model_profile() -> dict[str, Any]:
                 "score_nonconstant_all_folds": True,
                 "predictions_finite": True,
             },
-            "score": {
-                "sweet_fraction": 0.01,
-                "sour_fraction": 0.005,
-                "weighted_peak_fraction": 0.05,
-            },
-            "connectome_roles": {"dtor": "formal"},
+          "score": {
+            "sweet_fraction": 0.01,
+            "sour_fraction": 0.005,
+            "weighted_peak_fraction": 0.05,
+          },
+          "cheap_observed_sensitivity": {
+            "high_tau_v_per_m": 1500,
+            "coverage": 5,
+            "sweet_top_count": 1500,
+            "sour_top_count": 500,
+          },
+          "connectome_roles": {"dtor": "formal"},
         },
         "resolver": {"minimum_adjacent_passing_cells": 2},
         "formal": {

@@ -272,7 +272,9 @@ aggregate configured-model selftest wrapper.
 - [ ] GREEN: record current paths, brainmask, flip resolver, frequencies,
   E-field resolvers, connectomes, direct/fiber grids, hard filters, selected
   `0.9/1.1` sensitivity, formal `B=10000`, internal smoke `B=1000`, direct jitter
-  `B=1000`, seed 42, fiber percentages, controls, OSS, and reporting policy.
+  `B=1000`, seed 42, fiber percentages, public normative-fiber cheap sensitivity
+  (`tau=1500`, `Coverage>=5`, sweet top 1500, sour top 500), controls, OSS, and
+  reporting policy.
 - [ ] Commit `config: add STNSNr four-model v1 profiles`.
 
 ## Task 9: Parameterize A/B Observed Services
@@ -333,12 +335,25 @@ Sidecar reuse requires an atomic completion manifest matching subject order,
 feature-axis hash, connectome/input fingerprint, matrix shape, and development
 cap. File existence alone never authorizes reuse.
 
+Every configured service stage must also satisfy the planner artifact contract
+for that exact Round. Analysis-native filenames are not executor artifact
+kinds. The adapter must write or translate them into the declared kinds, such
+as `sidecar_index` plus `qc`, `observed_metrics` plus
+`loocv_predictions`, or `source_status` plus `selected_source`, inside the
+task-local output root. A service must not return `completed` for readiness,
+sidecar, control, sensitivity, resolver, or reporting work when any declared
+artifact is absent. This requirement is tested through `execute_plan`, not only
+through isolated runner tests.
+
 - [ ] RED: endpoint, phase, brainmask, connectome, grid, output root, and force/
   resume are explicit; names reflect actual selected tau/Coverage; no default
   scale/connectome is read inside services.
 - [ ] Characterize A exposure/resolver arrays and B fiber IDs/order/scoring.
 - [ ] GREEN: retain numerical kernels, add typed A/B requests, phase-aware B
   stimulation selection, dynamic names, and task-local configured outputs.
+- [ ] Add executor-level A/B integration tests proving that each executable
+  observed Round emits every `TaskSpec.expected_artifact_kinds` entry and that
+  all returned paths are files below the configured run root.
 - [ ] Preserve legacy wrappers through `LegacyArtifactStore`; run exact
   equivalence and commit `refactor: parameterize HF observed services`.
 
@@ -383,6 +398,11 @@ class DeltaHFBundle:
 support, with the limitation retained in `support_status`; extreme
 out-of-support or missing/full/fold artifacts are invalid. Adjusted nuisance
 always consumes both the full-score vector and fold-by-subject score matrix.
+The shared support classifier uses the authoritative thresholds: cohort median
+out-of-support fraction `> 0.50`, more than 25% of subjects `> 0.80`, or any
+required subject/LOOCV fold `> 0.95` is
+`invalid_extreme_out_of_support`. Zero required suprathreshold HF-component
+coverage/exposure is invalid and can never be classified `adequate`.
 
 - [ ] RED: C/D consume immutable matched `HFSourceRecord`, never global status;
   overlap and DeltaHFScore share selected HF tau; absent HF runs no-delta only;

@@ -13,6 +13,7 @@ from outcome_models.records import (
     HFSourceRecord,
     NuisancePlan,
     RecordError,
+    ULFBranchRecord,
 )
 
 
@@ -137,6 +138,9 @@ class ImmutableRecordTests(unittest.TestCase):
         adjusted = NuisancePlan.for_branch("delta_hf_adjusted", bundle)
         self.assertEqual(adjusted.columns, ("Y_HF_ref", "DeltaHFScore"))
         self.assertEqual(adjusted.delta_hf_record_hash, bundle.record_hash)
+        self.assertEqual(adjusted.delta_hf_full_scores, bundle.full_scores)
+        self.assertEqual(adjusted.delta_hf_fold_scores, bundle.fold_scores)
+        self.assertEqual(adjusted.delta_hf_support_rows, bundle.support_rows)
 
     def test_final_artifact_record_binds_branch_source_nuisance_and_files(self) -> None:
         nuisance = NuisancePlan.for_branch("no_delta_hf", None)
@@ -148,16 +152,43 @@ class ImmutableRecordTests(unittest.TestCase):
             selected_tau=250,
             selected_coverage=6,
             estimator="partial_spearman",
+            scale_direction="lower",
+            subject_order=("sub-01", "sub-02"),
             nuisance=nuisance,
             manifest=self._artifact("final_manifest", "manifest.json"),
             exposure=self._artifact("exposure", "x.npy", (2, 3)),
             scores=self._artifact("scores", "scores.csv", (2,)),
             feature_axis=FeatureAxisRef(Path("voxels.npy"), 3, "c" * 64, "candidate_flat_indices"),
+            spatial_reference=self._artifact("spatial_reference", "brainmask.nii.gz"),
         )
 
         self.assertEqual(final.nuisance.columns, ("Y_HF_ref",))
+        self.assertEqual(final.scale_direction, "lower")
+        self.assertEqual(final.subject_order, ("sub-01", "sub-02"))
+        self.assertIsNotNone(final.spatial_reference)
         self.assertEqual(len(final.record_hash), 64)
         self.assertEqual(FinalArtifactRecord.from_dict(final.as_dict()), final)
+
+    def test_ulf_branch_record_binds_branch_nuisance_source_and_artifacts(self) -> None:
+        record = ULFBranchRecord.create(
+            resolver_task_id="task_branch",
+            endpoint_model_id="endpoint_ulf",
+            branch="no_delta_hf",
+            input_status="valid",
+            source_status="pre_specified_accepted",
+            prediction_status="error_nonpredictive",
+            threshold_source="pre_specified",
+            selected_tau=200,
+            selected_coverage=5,
+            adjacent_support=2,
+            subject_order=("sub-01", "sub-02"),
+            feature_axis=FeatureAxisRef(Path("voxels.npy"), 3, "c" * 64, "candidate_flat_indices"),
+            nuisance=NuisancePlan.for_branch("no_delta_hf", None),
+            artifacts=(self._artifact("selected_manifest", "manifest.json"),),
+        )
+        self.assertTrue(record.accepted)
+        self.assertEqual(ULFBranchRecord.from_dict(record.as_dict()), record)
+        self.assertEqual(record.nuisance.columns, ("Y_HF_ref",))
 
 
 if __name__ == "__main__":

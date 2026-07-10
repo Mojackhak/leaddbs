@@ -689,12 +689,16 @@ delta_hfscore_support_status = limited
 delta_hfscore_support_status = invalid_extreme_out_of_support
   if cohort median HF_out_candidate_fraction_source_tau > 0.50
   or more than 25% of subjects have HF_out_candidate_fraction_source_tau > 0.80
-  or a required subject/fold is nearly completely outside the HF score support
+  or any required subject or LOOCV fold has
+     HF_out_candidate_fraction_source_tau > 0.95
 
 delta_hfscore_support_status = invalid_no_hfcomponent_exposure
   if a required subject/fold has no suprathreshold HF-component exposure
   or nonpositive total HF-component exposure under the locked HF source tau
 ```
+
+`Nearly completely outside` is therefore a fixed numeric rule (`> 0.95`), not
+a qualitative reviewer judgment.
 
 Interpretation:
 

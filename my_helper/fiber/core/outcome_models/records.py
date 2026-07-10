@@ -302,6 +302,39 @@ class NuisancePlan:
     branch: str
     columns: tuple[str, ...]
     delta_hf_record_hash: str | None
+    delta_hf_full_scores: ArtifactRef | None = None
+    delta_hf_fold_scores: ArtifactRef | None = None
+    delta_hf_support_rows: ArtifactRef | None = None
+
+    def __post_init__(self) -> None:
+        if self.branch == "delta_hf_adjusted":
+            if self.columns != ("Y_HF_ref", "DeltaHFScore"):
+                raise RecordError("adjusted nuisance columns are invalid")
+            if (
+                self.delta_hf_record_hash is None
+                or self.delta_hf_full_scores is None
+                or self.delta_hf_fold_scores is None
+                or self.delta_hf_support_rows is None
+            ):
+                raise RecordError("adjusted nuisance requires DeltaHF record, full scores, and fold scores")
+        elif self.branch == "no_delta_hf":
+            if self.columns != ("Y_HF_ref",):
+                raise RecordError("no-delta nuisance columns are invalid")
+            if any(
+                value is not None
+                for value in (
+                    self.delta_hf_record_hash,
+                    self.delta_hf_full_scores,
+                    self.delta_hf_fold_scores,
+                    self.delta_hf_support_rows,
+                )
+            ):
+                raise RecordError("no-delta nuisance must not reference DeltaHF artifacts")
+        elif self.branch == "hf_source":
+            if self.columns != ("Y_base",):
+                raise RecordError("HF-source nuisance columns are invalid")
+        else:
+            raise RecordError(f"unsupported nuisance branch {self.branch!r}")
 
     @classmethod
     def for_branch(cls, branch: str, delta_hf: DeltaHFBundle | None) -> "NuisancePlan":
@@ -314,6 +347,9 @@ class NuisancePlan:
                 branch=branch,
                 columns=("Y_HF_ref", "DeltaHFScore"),
                 delta_hf_record_hash=delta_hf.record_hash,
+                delta_hf_full_scores=delta_hf.full_scores,
+                delta_hf_fold_scores=delta_hf.fold_scores,
+                delta_hf_support_rows=delta_hf.support_rows,
             )
         if branch == "hf_source":
             return cls(branch=branch, columns=("Y_base",), delta_hf_record_hash=None)
@@ -324,6 +360,15 @@ class NuisancePlan:
             "branch": self.branch,
             "columns": list(self.columns),
             "delta_hf_record_hash": self.delta_hf_record_hash,
+            "delta_hf_full_scores": (
+                self.delta_hf_full_scores.as_dict() if self.delta_hf_full_scores is not None else None
+            ),
+            "delta_hf_fold_scores": (
+                self.delta_hf_fold_scores.as_dict() if self.delta_hf_fold_scores is not None else None
+            ),
+            "delta_hf_support_rows": (
+                self.delta_hf_support_rows.as_dict() if self.delta_hf_support_rows is not None else None
+            ),
         }
 
     @classmethod
@@ -336,7 +381,139 @@ class NuisancePlan:
                 if value.get("delta_hf_record_hash") is not None
                 else None
             ),
+            delta_hf_full_scores=(
+                ArtifactRef.from_dict(dict(value["delta_hf_full_scores"]))
+                if isinstance(value.get("delta_hf_full_scores"), dict)
+                else None
+            ),
+            delta_hf_fold_scores=(
+                ArtifactRef.from_dict(dict(value["delta_hf_fold_scores"]))
+                if isinstance(value.get("delta_hf_fold_scores"), dict)
+                else None
+            ),
+            delta_hf_support_rows=(
+                ArtifactRef.from_dict(dict(value["delta_hf_support_rows"]))
+                if isinstance(value.get("delta_hf_support_rows"), dict)
+                else None
+            ),
         )
+
+
+@dataclass(frozen=True)
+class ULFBranchRecord:
+    resolver_task_id: str
+    endpoint_model_id: str
+    branch: str
+    input_status: str
+    source_status: str
+    prediction_status: str
+    threshold_source: str
+    selected_tau: float | None
+    selected_coverage: int | None
+    adjacent_support: int | None
+    subject_order: tuple[str, ...]
+    feature_axis: FeatureAxisRef | None
+    nuisance: NuisancePlan
+    artifacts: tuple[ArtifactRef, ...]
+    record_hash: str
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        resolver_task_id: str,
+        endpoint_model_id: str,
+        branch: str,
+        input_status: str,
+        source_status: str,
+        prediction_status: str,
+        threshold_source: str,
+        selected_tau: float | None,
+        selected_coverage: int | None,
+        adjacent_support: int | None,
+        subject_order: tuple[str, ...],
+        feature_axis: FeatureAxisRef | None,
+        nuisance: NuisancePlan,
+        artifacts: tuple[ArtifactRef, ...],
+    ) -> "ULFBranchRecord":
+        payload = {
+            "resolver_task_id": _token(resolver_task_id, "resolver_task_id"),
+            "endpoint_model_id": _token(endpoint_model_id, "endpoint_model_id"),
+            "branch": _token(branch, "branch"),
+            "input_status": _token(input_status, "input_status"),
+            "source_status": _token(source_status, "source_status"),
+            "prediction_status": _token(prediction_status, "prediction_status"),
+            "threshold_source": _token(threshold_source, "threshold_source"),
+            "selected_tau": float(selected_tau) if selected_tau is not None else None,
+            "selected_coverage": int(selected_coverage) if selected_coverage is not None else None,
+            "adjacent_support": int(adjacent_support) if adjacent_support is not None else None,
+            "subject_order": tuple(_token(value, "subject_id") for value in subject_order),
+            "feature_axis": feature_axis,
+            "nuisance": nuisance,
+            "artifacts": tuple(artifacts),
+        }
+        if nuisance.branch != payload["branch"]:
+            raise RecordError("ULF branch and nuisance plan do not match")
+        if payload["source_status"] in ACCEPTED_SOURCE_STATUSES:
+            if payload["input_status"] != "valid":
+                raise RecordError("accepted ULF branch requires valid input")
+            if payload["prediction_status"] not in PREDICTION_STATUSES:
+                raise RecordError("accepted ULF branch requires a prediction status")
+            if payload["selected_tau"] is None or payload["selected_coverage"] is None:
+                raise RecordError("accepted ULF branch requires selected tau and coverage")
+            if not payload["subject_order"] or feature_axis is None or not artifacts:
+                raise RecordError("accepted ULF branch requires subject order, feature axis, and artifacts")
+        return cls(**payload, record_hash=canonical_hash(payload))
+
+    @property
+    def accepted(self) -> bool:
+        return self.input_status == "valid" and self.source_status in ACCEPTED_SOURCE_STATUSES
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "resolver_task_id": self.resolver_task_id,
+            "endpoint_model_id": self.endpoint_model_id,
+            "branch": self.branch,
+            "input_status": self.input_status,
+            "source_status": self.source_status,
+            "prediction_status": self.prediction_status,
+            "threshold_source": self.threshold_source,
+            "selected_tau": self.selected_tau,
+            "selected_coverage": self.selected_coverage,
+            "adjacent_support": self.adjacent_support,
+            "subject_order": list(self.subject_order),
+            "feature_axis": self.feature_axis.as_dict() if self.feature_axis is not None else None,
+            "nuisance": self.nuisance.as_dict(),
+            "artifacts": [artifact.as_dict() for artifact in self.artifacts],
+            "record_hash": self.record_hash,
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict[str, object]) -> "ULFBranchRecord":
+        axis = value.get("feature_axis")
+        record = cls.create(
+            resolver_task_id=str(value["resolver_task_id"]),
+            endpoint_model_id=str(value["endpoint_model_id"]),
+            branch=str(value["branch"]),
+            input_status=str(value["input_status"]),
+            source_status=str(value["source_status"]),
+            prediction_status=str(value["prediction_status"]),
+            threshold_source=str(value["threshold_source"]),
+            selected_tau=float(value["selected_tau"]) if value.get("selected_tau") is not None else None,
+            selected_coverage=(
+                int(value["selected_coverage"]) if value.get("selected_coverage") is not None else None
+            ),
+            adjacent_support=(
+                int(value["adjacent_support"]) if value.get("adjacent_support") is not None else None
+            ),
+            subject_order=tuple(str(item) for item in value.get("subject_order", ())),
+            feature_axis=FeatureAxisRef.from_dict(dict(axis)) if isinstance(axis, dict) else None,
+            nuisance=NuisancePlan.from_dict(dict(value["nuisance"])),
+            artifacts=tuple(ArtifactRef.from_dict(dict(item)) for item in value.get("artifacts", ())),
+        )
+        if record.record_hash != value.get("record_hash"):
+            raise RecordError("ULF branch record hash mismatch")
+        return record
 
 
 @dataclass(frozen=True)
@@ -348,11 +525,14 @@ class FinalArtifactRecord:
     selected_tau: float
     selected_coverage: int
     estimator: str
+    scale_direction: str
+    subject_order: tuple[str, ...]
     nuisance: NuisancePlan
     manifest: ArtifactRef
     exposure: ArtifactRef
     scores: ArtifactRef
     feature_axis: FeatureAxisRef
+    spatial_reference: ArtifactRef | None
     record_hash: str
 
     @classmethod
@@ -366,11 +546,14 @@ class FinalArtifactRecord:
         selected_tau: float,
         selected_coverage: int,
         estimator: str,
+        scale_direction: str,
+        subject_order: tuple[str, ...],
         nuisance: NuisancePlan,
         manifest: ArtifactRef,
         exposure: ArtifactRef,
         scores: ArtifactRef,
         feature_axis: FeatureAxisRef,
+        spatial_reference: ArtifactRef | None = None,
     ) -> "FinalArtifactRecord":
         if nuisance.branch != final_branch and not (final_branch == "hf_source" and nuisance.branch == "hf_source"):
             raise RecordError("final branch and nuisance plan do not match")
@@ -382,14 +565,25 @@ class FinalArtifactRecord:
             "selected_tau": float(selected_tau),
             "selected_coverage": int(selected_coverage),
             "estimator": _token(estimator, "estimator"),
+            "scale_direction": _token(scale_direction, "scale_direction").lower(),
+            "subject_order": tuple(_token(value, "subject_id") for value in subject_order),
             "nuisance": nuisance,
             "manifest": manifest,
             "exposure": exposure,
             "scores": scores,
             "feature_axis": feature_axis,
+            "spatial_reference": spatial_reference,
         }
         if payload["selected_tau"] <= 0 or payload["selected_coverage"] < 1:
             raise RecordError("final selected tau and coverage must be positive")
+        if payload["scale_direction"] not in {"lower", "higher"}:
+            raise RecordError("final scale_direction must be lower or higher")
+        if not payload["subject_order"]:
+            raise RecordError("final subject_order must be nonempty")
+        if payload["exposure"].shape:
+            expected = (len(payload["subject_order"]), feature_axis.count)
+            if payload["exposure"].shape != expected:
+                raise RecordError("final exposure shape does not match subject and feature order")
         return cls(**payload, record_hash=canonical_hash(payload))
 
     def as_dict(self) -> dict[str, object]:
@@ -401,11 +595,16 @@ class FinalArtifactRecord:
             "selected_tau": self.selected_tau,
             "selected_coverage": self.selected_coverage,
             "estimator": self.estimator,
+            "scale_direction": self.scale_direction,
+            "subject_order": list(self.subject_order),
             "nuisance": self.nuisance.as_dict(),
             "manifest": self.manifest.as_dict(),
             "exposure": self.exposure.as_dict(),
             "scores": self.scores.as_dict(),
             "feature_axis": self.feature_axis.as_dict(),
+            "spatial_reference": (
+                self.spatial_reference.as_dict() if self.spatial_reference is not None else None
+            ),
             "record_hash": self.record_hash,
         }
 
@@ -419,11 +618,18 @@ class FinalArtifactRecord:
             selected_tau=float(value["selected_tau"]),
             selected_coverage=int(value["selected_coverage"]),
             estimator=str(value["estimator"]),
+            scale_direction=str(value["scale_direction"]),
+            subject_order=tuple(str(item) for item in value["subject_order"]),
             nuisance=NuisancePlan.from_dict(dict(value["nuisance"])),
             manifest=ArtifactRef.from_dict(dict(value["manifest"])),
             exposure=ArtifactRef.from_dict(dict(value["exposure"])),
             scores=ArtifactRef.from_dict(dict(value["scores"])),
             feature_axis=FeatureAxisRef.from_dict(dict(value["feature_axis"])),
+            spatial_reference=(
+                ArtifactRef.from_dict(dict(value["spatial_reference"]))
+                if isinstance(value.get("spatial_reference"), dict)
+                else None
+            ),
         )
         if record.record_hash != value.get("record_hash"):
             raise RecordError("final artifact record hash mismatch")

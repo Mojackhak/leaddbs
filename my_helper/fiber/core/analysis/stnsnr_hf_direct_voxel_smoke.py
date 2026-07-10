@@ -96,29 +96,69 @@ def run_command(cmd: list[str], timeout_s: int | None = None) -> dict[str, Any]:
     }
 
 
-def load_subject_records(clinical_root: Path, scale: str) -> list[SubjectRecord]:
-    raw_path = clinical_root / RAW_CLINICAL_FILE
-    raw_df = pd.read_excel(raw_path)
-    base_scale, protocol, phase = parse_endpoint_scale(scale)
+def _read_table(path: Path, *, sheet_name: str | None = None) -> pd.DataFrame:
+    """Read one explicitly selected CSV or Excel input table."""
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix in {".xlsx", ".xls"}:
+        return pd.read_excel(path, sheet_name=sheet_name or 0)
+    raise ValueError(f"unsupported table format: {path}")
+
+
+def load_subject_records_from_table(
+    clinical_table: Path,
+    scale: str,
+    *,
+    protocol: str,
+    phase: str,
+    expected_subject_order: tuple[str, ...] = (),
+) -> list[SubjectRecord]:
+    """Load one configured endpoint without deriving condition data from its label."""
+    raw_df = _read_table(clinical_table)
     subset = raw_df[
-        raw_df["Scale"].astype(str).eq(base_scale)
+        raw_df["Scale"].astype(str).eq(scale)
         & raw_df["Protocol"].astype(str).eq(protocol)
         & raw_df["Phase"].astype(str).eq(phase)
     ].copy()
-    subset = subset.sort_values("ID")
+    subset["ID"] = subset["ID"].map(sanitize)
+    if expected_subject_order:
+        order = {subject_id: index for index, subject_id in enumerate(expected_subject_order)}
+        subset = subset[subset["ID"].isin(order)].copy()
+        subset["_configured_order"] = subset["ID"].map(order)
+        subset = subset.sort_values("_configured_order")
+    else:
+        subset = subset.sort_values("ID")
     records: list[SubjectRecord] = []
     for _, row in subset.iterrows():
         if pd.isna(row["Value"]) or pd.isna(row["Baseline"]):
             continue
-        records.append(SubjectRecord(sanitize(row["ID"]), float(row["Value"]), float(row["Baseline"])))
+        records.append(SubjectRecord(str(row["ID"]), float(row["Value"]), float(row["Baseline"])))
+    observed_order = tuple(record.subject_id for record in records)
+    if expected_subject_order and observed_order != expected_subject_order:
+        raise RuntimeError(
+            "configured clinical subject order mismatch: "
+            f"expected {list(expected_subject_order)!r}, observed {list(observed_order)!r}"
+        )
     if len(records) < 12:
         raise RuntimeError(f"scale {scale!r} has only {len(records)} valid subjects")
     return records
 
 
+def load_subject_records(clinical_root: Path, scale: str) -> list[SubjectRecord]:
+    raw_path = clinical_root / RAW_CLINICAL_FILE
+    base_scale, protocol, phase = parse_endpoint_scale(scale)
+    return load_subject_records_from_table(raw_path, base_scale, protocol=protocol, phase=phase)
+
+
 def load_stim_table(clinical_root: Path) -> pd.DataFrame:
     stim_path = clinical_root / STIM_FILE
-    return pd.read_excel(stim_path, sheet_name=STIM_SHEET)
+    return load_stim_table_from_path(stim_path)
+
+
+def load_stim_table_from_path(stimulation_table: Path) -> pd.DataFrame:
+    """Load the explicitly selected stimulation table."""
+    return _read_table(stimulation_table, sheet_name=STIM_SHEET)
 
 
 def filter_hf_stn_rows(
@@ -236,8 +276,10 @@ def flip_left_fields_with_matlab(
     return left_to_right, result
 
 
-def right_brainmask_voxels(asset_root: Path) -> tuple[nib.Nifti1Image, np.ndarray, np.ndarray, np.ndarray]:
-    brainmask_path = asset_root / "templates/space/MNI152NLin2009bAsym/brainmask.nii.gz"
+def right_brainmask_voxels_from_path(
+    brainmask_path: Path,
+) -> tuple[nib.Nifti1Image, np.ndarray, np.ndarray, np.ndarray]:
+    """Load right-hemisphere voxels from an explicit configured brainmask."""
     ref_img = nib.load(str(brainmask_path))
     mask = np.asarray(ref_img.dataobj) > 0
     ijk = np.argwhere(mask)
@@ -247,6 +289,25 @@ def right_brainmask_voxels(asset_root: Path) -> tuple[nib.Nifti1Image, np.ndarra
     xyz = xyz[right].astype(np.float32)
     flat = np.ravel_multi_index((ijk[:, 0], ijk[:, 1], ijk[:, 2]), ref_img.shape).astype(np.int64)
     return ref_img, ijk, xyz, flat
+
+
+def right_brainmask_voxels(asset_root: Path) -> tuple[nib.Nifti1Image, np.ndarray, np.ndarray, np.ndarray]:
+    """Compatibility wrapper for the historical Lead-DBS brainmask layout."""
+    return right_brainmask_voxels_from_path(
+        asset_root / "templates/space/MNI152NLin2009bAsym/brainmask.nii.gz"
+    )
+
+
+def _threshold_token(value: int | float) -> str:
+    return f"{float(value):g}".replace("-", "neg").replace(".", "p")
+
+
+def primary_branch_name(tau: float, coverage: int, *, legacy_layout: bool = False) -> str:
+    """Return a primary branch name bound to its actual threshold values."""
+    tau_token = _threshold_token(tau)
+    if legacy_layout:
+        return f"tau{tau_token}/partial_spearman"
+    return f"tau{tau_token}_cov{int(coverage)}/partial_spearman"
 
 
 def sample_image_at_xyz(path: Path, xyz: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
@@ -362,7 +423,8 @@ def run_hf_direct_voxel_smoke(args: argparse.Namespace) -> int:
     scale_slug = slugify(scale)
     output_root = Path(args.output_root).expanduser().resolve() / scale_slug
     preprocess_dir = output_root / "preprocess"
-    branch_dir = output_root / "tau200" / "partial_spearman"
+    branch_name = primary_branch_name(args.tau, args.min_coverage, legacy_layout=True)
+    branch_dir = output_root / branch_name
     preprocess_dir.mkdir(parents=True, exist_ok=True)
     branch_dir.mkdir(parents=True, exist_ok=True)
 
@@ -572,7 +634,7 @@ def run_hf_direct_voxel_smoke(args: argparse.Namespace) -> int:
     manifest = {
         "generated_at": iso_now(),
         "model": "HF direct voxel",
-        "branch": "tau200/partial_spearman",
+        "branch": branch_name,
         "status": "PASS",
         "repo_root": str(repo_root),
         "asset_root": str(asset_root),
@@ -608,7 +670,7 @@ def run_hf_direct_voxel_smoke(args: argparse.Namespace) -> int:
             "bootstrap_s": None,
             "jitter_s": None,
             "n_voxels_candidate": int(candidate_flat.size),
-            "n_voxels_tau200": int(np.count_nonzero(omega)),
+            f"n_voxels_tau{_threshold_token(args.tau)}_cov{int(args.min_coverage)}": int(np.count_nonzero(omega)),
         },
     }
     write_json(branch_dir / "direct_voxel_HF_mapping_qc.json", qc)
