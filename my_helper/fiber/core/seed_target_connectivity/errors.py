@@ -19,3 +19,15 @@ class ConnectomeError(SeedTargetConnectivityError, ValueError):
 
 class TraversalError(SeedTargetConnectivityError, ValueError):
     """Raised when segment-aware voxel traversal receives invalid geometry."""
+
+
+class MembershipError(SeedTargetConnectivityError, ValueError):
+    """Raised when fiber membership cannot produce a valid run."""
+
+
+class CacheError(SeedTargetConnectivityError, ValueError):
+    """Raised when a membership cache is incomplete, incompatible, or corrupt."""
+
+
+class StatisticsError(SeedTargetConnectivityError, ValueError):
+    """Raised when connectivity statistics violate denominator contracts."""

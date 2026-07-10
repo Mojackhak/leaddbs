@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import h5py
 import nibabel as nib
 import numpy as np
 
-from my_helper.fiber.core.seed_target_connectivity.models import FiberChunk, ResolvedMask
+from my_helper.fiber.core.seed_target_connectivity.identity import canonical_hash
+from my_helper.fiber.core.seed_target_connectivity.models import (
+    ConnectomeMetadata,
+    FiberChunk,
+    ResolvedAtlas,
+    ResolvedMask,
+)
 
 
 def write_mask(
@@ -99,3 +106,54 @@ def fiber_chunk(streamlines: list[np.ndarray], first_id: int = 1) -> FiberChunk:
     points = np.concatenate(streamlines, axis=0).astype(np.float32)
     ids = np.arange(first_id, first_id + lengths.size, dtype=np.int64)
     return FiberChunk(fiber_ids=ids, point_offsets=offsets, points=points)
+
+
+def resolved_atlas(masks: list[ResolvedMask]) -> ResolvedAtlas:
+    """Build one in-memory resolved atlas with a content-derived identity."""
+    atlas_hash = canonical_hash(
+        [
+            {
+                "roi_id": mask.roi_id,
+                "mask_hash": mask.resolved_mask_hash,
+                "voxels": mask.flat_voxel_indices.tolist(),
+            }
+            for mask in masks
+        ]
+    )
+    return ResolvedAtlas(root=Path("/synthetic-atlas"), targets=tuple(masks), atlas_hash=atlas_hash)
+
+
+class RecordingAdapter:
+    """Small deterministic in-memory adapter that records traversal calls."""
+
+    def __init__(self, streamlines: list[np.ndarray], identity: str = "c" * 64):
+        self.streamlines = [np.asarray(streamline, dtype=np.float32) for streamline in streamlines]
+        self.iteration_count = 0
+        n_points = sum(streamline.shape[0] for streamline in self.streamlines)
+        self._metadata = ConnectomeMetadata(
+            connectome_id="synthetic",
+            source_path=Path("/synthetic/data.mat"),
+            source_hash="d" * 64,
+            geometry_hash=identity,
+            ordered_fiber_id_hash=hashlib.sha256(
+                np.arange(1, len(streamlines) + 1, dtype="<i8").tobytes()
+            ).hexdigest(),
+            connectome_identity=canonical_hash({"geometry": identity, "count": len(streamlines)}),
+            identity_source="synthetic_one_based_order",
+            adapter_name="recording_adapter",
+            adapter_version="1",
+            n_fibers=len(streamlines),
+            n_points=n_points,
+        )
+
+    @property
+    def metadata(self) -> ConnectomeMetadata:
+        return self._metadata
+
+    def iter_chunks(self, chunk_size: int):
+        self.iteration_count += 1
+        for start in range(0, len(self.streamlines), chunk_size):
+            yield fiber_chunk(
+                self.streamlines[start : start + chunk_size],
+                first_id=start + 1,
+            )

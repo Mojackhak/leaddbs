@@ -132,3 +132,81 @@ class FiberChunk:
         start = int(self.point_offsets[index])
         stop = int(self.point_offsets[index + 1])
         return self.points[start:stop]
+
+
+@dataclass(frozen=True)
+class TargetFiberMembership:
+    """CSR-style canonical fiber IDs for an ordered target catalog."""
+
+    target_ids: tuple[str, ...]
+    indptr: np.ndarray
+    fiber_ids: np.ndarray
+
+    def ids_for(self, target: str | int) -> np.ndarray:
+        """Return canonical IDs for one target ID or zero-based target index."""
+        index = self.target_ids.index(target) if isinstance(target, str) else int(target)
+        start = int(self.indptr[index])
+        stop = int(self.indptr[index + 1])
+        return self.fiber_ids[start:stop]
+
+
+@dataclass(frozen=True)
+class MembershipResult:
+    """Whole-connectome seed and target membership with cache provenance."""
+
+    n_all_fibers: int
+    seed_fiber_ids: np.ndarray
+    target_membership: TargetFiberMembership
+    seed_cache_key: str
+    target_cache_key: str
+    seed_cache_hit: bool
+    target_cache_hit: bool
+    seed_cache_path: Path | None
+    target_cache_path: Path | None
+
+
+@dataclass(frozen=True)
+class TargetStatistic:
+    """One target row under the exact descriptive statistics contract."""
+
+    target_id: str
+    target_group: str
+    relative_path: str
+    source_value_type: str
+    probability_threshold: float | None
+    threshold_source: str
+    target_status: str
+    n_all_fibers: int
+    n_seed_fibers: int
+    n_target_fibers: int
+    n_seed_target_fibers: int
+    raw_fiber_count: int
+    seed_normalized_fraction: float
+    target_background_prevalence: float
+    connectivity_lift: float | None
+    connectivity_pmi: float | None
+    connectivity_pmi_status: str
+    rank: int | None = None
+
+    def as_serializable_mapping(self) -> dict[str, Any]:
+        """Return a JSON-safe mapping with no nonfinite numeric values."""
+        return {
+            "target_id": self.target_id,
+            "target_group": self.target_group,
+            "relative_path": self.relative_path,
+            "source_value_type": self.source_value_type,
+            "probability_threshold": self.probability_threshold,
+            "threshold_source": self.threshold_source,
+            "target_status": self.target_status,
+            "n_all_fibers": self.n_all_fibers,
+            "n_seed_fibers": self.n_seed_fibers,
+            "n_target_fibers": self.n_target_fibers,
+            "n_seed_target_fibers": self.n_seed_target_fibers,
+            "raw_fiber_count": self.raw_fiber_count,
+            "seed_normalized_fraction": self.seed_normalized_fraction,
+            "target_background_prevalence": self.target_background_prevalence,
+            "connectivity_lift": self.connectivity_lift,
+            "connectivity_pmi": self.connectivity_pmi,
+            "connectivity_pmi_status": self.connectivity_pmi_status,
+            "rank": self.rank,
+        }
