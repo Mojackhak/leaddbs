@@ -499,17 +499,20 @@ Axon_state status < 0   -> p(A) = 0.0 and count as damaged/CSF/out-of-domain QC
 status (`0` available, negative values unavailable). It must not be used as the
 activation result.
 
-Display/QC thresholds only:
+Stored sidecar and fitting representations:
 
 ```text
-loose activation  = p(A) >= 0.05
-strict activation = p(A) >= 0.5
+stored sidecar value = float32 p(A) in [0, 1]
+canonical fitting value = 1[p(A) >= 0.5]
+loose activation QC = 1[p(A) >= 0.05]
 ```
 
-These thresholds do not change the stored matrix and do not replace canonical
-OSS fitting. In the current deterministic output, the matrix is already binary,
-but it is still stored as float32 p(A) for compatibility with future non-binary
-pPAM outputs.
+Thresholding does not overwrite the stored probability sidecar. The configured
+OSS model creates a task-local binary matrix at `p(A) >= 0.5` and uses that
+binary matrix for `M_OSS`, weights, `NetFiberScore_OSS`, LOOCV, and smoke
+permutation. The `p(A) >= 0.05` representation is QC/display only. In the
+current deterministic output the stored probabilities are already 0/1, but the
+same 0.5 fitting rule remains explicit for future non-binary pPAM outputs.
 
 ## Canonical Output Matrix
 
@@ -940,7 +943,12 @@ seed = 42
 
 Any `B=10000` OSS permutation/bootstrap layer requires a separate model-document revision.
 
-Canonical OSS fitting uses stored float32 \(p(A)\). Thresholded \(p(A) \ge 0.05\) or \(p(A) \ge 0.5\) variables are QC/display/plain-burden controls only. They do not replace `X_oss_float32_fiber_major.npy` in `M_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation. In the current deterministic OSS-DBSv2 output, \(p(A)\) is binary 0/1 before any display threshold is applied.
+Canonical OSS fitting reads stored float32 \(p(A)\), derives
+\(X^{OSS,binary}_{i,f}=\mathbf{1}[p(A_{i,f})\ge 0.5]\), and uses this binary
+matrix in `M_OSS`, `NetFiberScore_OSS`, LOOCV, and smoke permutation. The
+stored probability sidecar remains unchanged for provenance and QC. The
+\(p(A) \ge 0.05\) representation is QC/display/plain-burden only. In the
+current deterministic OSS-DBSv2 output, \(p(A)\) is already binary 0/1.
 
 ## Status Semantics
 

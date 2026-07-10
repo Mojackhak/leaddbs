@@ -310,7 +310,16 @@ The implementation should reuse Lead-DBS/OSS-DBS outputs when available, especia
 fiberActivation_model-ossdbs_hemi-*.mat
 ```
 
-For OSS-DBS sensitivity, the canonical streamline activation value is pPAM activation probability in `X_oss_float32_fiber_major.npy`. Current OSS-DBSv2 deterministic output is binary 0/1 p(A), but it is still stored as float32 p(A) rather than as a thresholded display variable. Right-canonical fiber columns are inherited from the selected-source candidate fiber id order; left-sided activation is mapped to homologous right-canonical fiber ids and merged with right-sided activation by `max_probability_union`. Candidate streamlines must not be redefined by OSS activation unless a model document explicitly states otherwise. Thresholds such as `p(A) >= 0.05` or `p(A) >= 0.5` are QC/display/plain-burden controls only.
+For OSS-DBS sensitivity, `X_oss_float32_fiber_major.npy` stores pPAM
+activation probability for provenance and QC. Canonical model fitting derives
+`I[p(A) >= 0.5]` and uses that binary matrix for fiber weights, scores, LOOCV,
+and smoke permutation. Current OSS-DBSv2 deterministic output is already binary
+0/1 p(A). Right-canonical fiber columns are inherited from the selected-source
+candidate fiber id order; left-sided activation is mapped to homologous
+right-canonical fiber ids and merged with right-sided activation by
+`max_probability_union`. Candidate streamlines must not be redefined by OSS
+activation unless a model document explicitly states otherwise. The
+`p(A) >= 0.05` representation is a QC/display/plain-burden control only.
 
 ## Target-Level Seed-Target Connectivity For Individualized DWI
 

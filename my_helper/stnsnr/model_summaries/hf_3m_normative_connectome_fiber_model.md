@@ -613,10 +613,12 @@ A_side_i,p(l) = pPAM activation probability under HF subprogram p
 A_side_i(l)   = max_p A_side_i,p(l)
 ```
 
-The right-canonical OSS activation exposure uses activation union:
+The right-canonical OSS probability sidecar uses activation union, and the
+canonical fitting exposure is its 0.5-thresholded binary form:
 
 ```text
-X_HF_OSS_i(l) = max(A_R_i(l), A_L_to_R_i(l))
+X_HF_OSS_probability_i(l) = max(A_R_i(l), A_L_to_R_i(l))
+X_HF_OSS_i(l) = I[X_HF_OSS_probability_i(l) >= 0.5]
 ```
 
 `A_L_to_R_i(l)` is computed by running the left-sided stimulation in the real left hemisphere, mapping the resulting left fiber activation to the homologous right-canonical fiber id, and then representing that value in the right-canonical feature space. The canonical OSS exposure uses `max_probability_union` because pPAM is an activation-probability metric. Bilateral mean p(A) may be reported as a descriptive activation-burden sensitivity but must not replace `X_oss_float32_fiber_major.npy` in `M_HF_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation.
@@ -643,9 +645,9 @@ p(A_i,l) = number of activated pPAM samples for subject i and fiber l / N_sample
 The current OSS-DBSv2 deterministic output stores binary 0/1 p(A) from
 `Axon_state_default_1.mat` activation states. `oss_time_result_PAM.h5`
 `default/Status` is a pre-simulation availability status and must not be used as
-the activation result. Use `p(A) >= 0.05` and `p(A) >= 0.5` only for
-QC/display/plain activation controls. Thresholded p(A) variables do not replace
-the canonical OSS fitting matrix.
+the activation result. The `p(A) >= 0.5` binary representation is the canonical
+OSS fitting matrix. The `p(A) >= 0.05` representation is only a
+QC/display/plain activation control.
 
 OSS fiber-wise estimator:
 
@@ -981,10 +983,11 @@ oss_activation_sidecar_metadata.json
 with rows = final branch subjects and columns = selected-source candidate fiber
 ids. Current OSS-DBSv2 deterministic output is binary 0/1 p(A). For alternating HF subprograms, subprogram-level activation matrices may
 be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and
-`max_probability_union` `X_HF_OSS_i(l)` variables documented above.
-Thresholded `p(A) >= 0.05` or `p(A) >= 0.5` plain-activation files may be
-written as QC/display/plain-burden controls only. They are not required
-sidecars and must not replace `X_oss_float32_fiber_major.npy` in OSS fitting.
+`max_probability_union` probability variables documented above, then derives
+`X_HF_OSS_i(l) = I[p(A_i,l) >= 0.5]` for model fitting. A `p(A) >= 0.05`
+plain-activation file may be written as a QC/display/plain-burden control. The
+stored probability sidecar remains the provenance input and is not overwritten
+by the task-local binary fitting matrix.
 
 For LOOCV fold `h`, derive training-fold selected-source coverage by subtraction:
 

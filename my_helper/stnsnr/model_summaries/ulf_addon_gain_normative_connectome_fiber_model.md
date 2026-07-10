@@ -1288,18 +1288,20 @@ that file stores the full exposure universe. OSS does not redefine, shrink,
 expand, or rescan candidate fibers. The actual OSS column order is recorded as
 `oss_fiber_ids.npy` or an equivalent sidecar manifest field.
 
-OSS activation uses the right-canonical feature space. Right-sided activation is expressed directly on right-canonical fiber ids. Left-sided activation is computed in the real left hemisphere, mapped to homologous right-canonical fiber ids, and then merged with right-sided activation by `max_probability_union`:
+OSS activation uses the right-canonical feature space. Right-sided activation is expressed directly on right-canonical fiber ids. Left-sided activation is computed in the real left hemisphere, mapped to homologous right-canonical fiber ids, and then merged with right-sided activation by `max_probability_union`. The merged probability is stored, and its 0.5-thresholded binary form is used for fitting:
 
 ```text
-X_ULF_OSS_i(l) = max(A_ULF_OSS_R_i(l), A_ULF_OSS_L_to_R_i(l))
+X_ULF_OSS_probability_i(l) = max(A_ULF_OSS_R_i(l), A_ULF_OSS_L_to_R_i(l))
+X_ULF_OSS_i(l) = I[X_ULF_OSS_probability_i(l) >= 0.5]
 ```
 
-Canonical OSS fitting uses stored float32 p(A). Current OSS-DBSv2 deterministic
-output is binary 0/1 p(A) from `Axon_state_default_1.mat`; future non-binary
-pPAM outputs can use the same matrix contract. Thresholded `p(A) >= 0.05` or
-`p(A) >= 0.5` variables are QC/display/plain-burden controls only and do not
-replace `X_oss_float32_fiber_major.npy` in `M_ULF_OSS`,
-`NetULFFiberScore_OSS`, LOOCV, or smoke permutation.
+The stored sidecar remains float32 p(A). Canonical OSS fitting derives
+`I[p(A) >= 0.5]` and uses that binary matrix in `M_ULF_OSS`,
+`NetULFFiberScore_OSS`, LOOCV, and smoke permutation. Current OSS-DBSv2
+deterministic output is already binary 0/1 p(A) from
+`Axon_state_default_1.mat`; future non-binary pPAM outputs use the same explicit
+0.5 fitting threshold. The `p(A) >= 0.05` representation is
+QC/display/plain-burden only.
 
 If the ULF component cannot be separated from the stimulation protocol, the output may only be labeled `HF+ULF total OSS pPAM sensitivity`; it must not be called ULF-only OSS exposure.
 
@@ -2315,7 +2317,7 @@ OSS technical-pass criteria:
 ```text
 OSS parameter manifest is locked
 OSS activation sidecars align with inherited selected-source candidate fiber ids
-OSS activation sidecars use stored float32 p(A) for fitting; current OSS-DBSv2 deterministic output is binary 0/1 before display thresholds
+OSS activation sidecars store float32 p(A), and fitting uses I[p(A) >= 0.5]; current OSS-DBSv2 deterministic output is already binary 0/1
 OSS frequency is modeled and verified
 OSS hemisphere/source merge rule is max_probability_union
 OSS activation matrix is not all NaN
