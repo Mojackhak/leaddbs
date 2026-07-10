@@ -63,13 +63,24 @@ result.jobSpecs = jobSpecs;
 result.preflight = preflight;
 result.jobManifest = jobManifest;
 result.summary = preflight_status_table(preflight, mode);
+runRecord = mh_fiber_dwi_run_records('start', configSource, config, ...
+    jobManifest, mode);
 
-if strcmp(mode, 'run')
-    processingOptions = build_processing_options(config);
-    result.summary = mh_fiber_process_imported_dwi_batch(jobSpecs, processingOptions);
-elseif strcmp(mode, 'plan')
-    disp(jobManifest);
+try
+    if strcmp(mode, 'run')
+        processingOptions = build_processing_options(config);
+        result.summary = mh_fiber_process_imported_dwi_batch(jobSpecs, processingOptions);
+    elseif strcmp(mode, 'plan')
+        disp(jobManifest);
+    end
+catch ME
+    failed = preflight_status_table(preflight, 'failed');
+    failed.message(:) = {mh_fiber_compact_message(ME.message, 240)};
+    mh_fiber_dwi_run_records('finish', runRecord, failed);
+    rethrow(ME);
 end
+runRecord = mh_fiber_dwi_run_records('finish', runRecord, result.summary);
+result.runRecord = runRecord;
 result.bidsDwiWrapper = config;
 end
 
@@ -301,7 +312,13 @@ state = cell(n, 1);
 message = repmat({'ok'}, n, 1);
 for i = 1:n
     subject{i} = preflight(i).subject;
-    state{i} = mode;
+    if strcmp(mode, 'validate')
+        state{i} = 'validated';
+    elseif strcmp(mode, 'plan')
+        state{i} = 'planned';
+    else
+        state{i} = mode;
+    end
 end
 status = table(subject, state, message, ...
     'VariableNames', {'subject', 'status', 'message'});
