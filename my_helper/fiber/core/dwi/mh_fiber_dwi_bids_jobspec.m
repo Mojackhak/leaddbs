@@ -5,6 +5,7 @@ parser = inputParser;
 parser.FunctionName = 'mh_fiber_dwi_bids_jobspec';
 parser.addRequired('studyRoot', @(x) ischar(x) || isstring(x));
 parser.addRequired('subjectId', @(x) ischar(x) || isstring(x));
+parser.addParameter('Session', 'preop', @(x) ischar(x) || isstring(x));
 parser.addParameter('DerivativesRoot', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('CoregistrationTag', 'dwi_t2', @(x) ischar(x) || isstring(x));
 parser.addParameter('AnchorModality', 'T2w', @(x) ischar(x) || isstring(x));
@@ -26,35 +27,41 @@ anchorModality = normalize_anchor_modality(opts.AnchorModality);
 allowT1Fallback = logical(opts.AllowT1Fallback);
 requireT1 = logical(opts.RequireT1);
 sourceBase = char(string(opts.SourceBase));
+session = normalize_session(opts.Session);
 
 paths = resolve_subject_paths(studyRoot, subjectId, derivativesRoot, ...
-    coregistrationTag, sourceBase);
+    coregistrationTag, sourceBase, session);
 jobSpec = struct();
 jobSpec.subjectId = subjectId;
+jobSpec.session = session;
 jobSpec.sourceBase = paths.rawBase;
 jobSpec.studyRoot = studyRoot;
 jobSpec.derivativesRoot = derivativesRoot;
 jobSpec.anchorModality = anchorModality;
 jobSpec.coregistrationTag = coregistrationTag;
 jobSpec.paths = paths;
-jobSpec.anchorAnat = resolve_anchor_anat(paths.subjectDir, anchorModality, allowT1Fallback);
-jobSpec.t1Anat = resolve_optional_t1(paths.subjectDir, requireT1);
+jobSpec.anchorAnat = resolve_anchor_anat(paths.subjectDir, anchorModality, ...
+    allowT1Fallback, paths.sessionLabel);
+jobSpec.t1Anat = resolve_optional_t1(paths.subjectDir, requireT1, paths.sessionLabel);
 jobSpec.normalizationForward = resolve_anchor_to_mni_transform(paths.subjectDir, paths.patientName);
 end
 
-function paths = resolve_subject_paths(studyRoot, subjectId, derivativesRoot, coregistrationTag, sourceBase)
+function paths = resolve_subject_paths(studyRoot, subjectId, derivativesRoot, coregistrationTag, sourceBase, session)
 patientName = ['sub-', subjectId];
+sessionLabel = ['ses-', session];
 subjectDir = fullfile(derivativesRoot, patientName);
-rawDwiDir = fullfile(studyRoot, 'rawdata', patientName, 'ses-preop', 'dwi');
+rawDwiDir = fullfile(studyRoot, 'rawdata', patientName, sessionLabel, 'dwi');
 dwiDir = fullfile(subjectDir, 'preprocessing', 'dwi');
 coregDir = fullfile(subjectDir, 'coregistration', coregistrationTag);
 qcDir = fullfile(subjectDir, 'qc', qc_tag_from_coreg_tag(coregistrationTag));
 
-rawBase = resolve_raw_dwi_base(rawDwiDir, patientName, sourceBase);
-outputBase = [patientName, '_ses-preop_dwi'];
+rawBase = resolve_raw_dwi_base(rawDwiDir, patientName, sessionLabel, sourceBase);
+outputBase = [patientName, '_', sessionLabel, '_dwi'];
 paths = struct();
 paths.subjectId = subjectId;
 paths.patientName = patientName;
+paths.session = session;
+paths.sessionLabel = sessionLabel;
 paths.rawBase = rawBase;
 paths.outputBase = outputBase;
 paths.subjectDir = subjectDir;
@@ -75,21 +82,21 @@ paths.bval = fullfile(dwiDir, [outputBase, '.bval']);
 paths.bvec = fullfile(dwiDir, [outputBase, '.bvec']);
 paths.b0 = fullfile(dwiDir, [outputBase, '_b0.nii']);
 paths.fakeB0Coreg = fullfile(paths.coregAnatDir, ...
-    [patientName, '_ses-preop_space-anchorNative_desc-preproc_B0.nii']);
+    [patientName, '_', sessionLabel, '_space-anchorNative_desc-preproc_B0.nii']);
 paths.fa = fullfile(dwiDir, [outputBase, '_fa.nii']);
 paths.faOnAnchor = '';
 paths.brainMask = fullfile(dwiDir, 'brainmask.nii');
 paths.trackingMask = fullfile(dwiDir, 'trackingmask.nii');
 end
 
-function rawBase = resolve_raw_dwi_base(rawDwiDir, patientName, sourceBase)
+function rawBase = resolve_raw_dwi_base(rawDwiDir, patientName, sessionLabel, sourceBase)
 sourceBase = char(string(sourceBase));
 if ~isempty(sourceBase)
     rawBase = sourceBase;
     return;
 end
 
-defaultBase = [patientName, '_ses-preop_dwi'];
+defaultBase = [patientName, '_', sessionLabel, '_dwi'];
 if isfile(fullfile(rawDwiDir, [defaultBase, '.nii.gz'])) || ...
         isfile(fullfile(rawDwiDir, [defaultBase, '.nii']))
     rawBase = defaultBase;
@@ -108,7 +115,7 @@ for i = 1:numel(candidateNames)
 end
 candidateBases = unique(candidateBases, 'stable');
 
-if numel(candidateBases) == 1
+if isscalar(candidateBases)
     rawBase = candidateBases{1};
     return;
 end
@@ -132,9 +139,9 @@ end
 base = char(base);
 end
 
-function anchorAnat = resolve_anchor_anat(subjectDir, anchorModality, allowT1Fallback)
+function anchorAnat = resolve_anchor_anat(subjectDir, anchorModality, allowT1Fallback, sessionLabel)
 anatDir = fullfile(subjectDir, 'coregistration', 'anat');
-patterns = anchor_patterns(anchorModality);
+patterns = anchor_patterns(anchorModality, sessionLabel);
 for p = 1:numel(patterns)
     d = dir(fullfile(anatDir, patterns{p}));
     d = d(~startsWith({d.name}, '._'));
@@ -146,15 +153,15 @@ for p = 1:numel(patterns)
     end
 end
 if allowT1Fallback && ~strcmp(anchorModality, 'T1w')
-    anchorAnat = resolve_anchor_anat(subjectDir, 'T1w', false);
+    anchorAnat = resolve_anchor_anat(subjectDir, 'T1w', false, sessionLabel);
     return;
 end
 error('No anchorNative %s found in %s', anchorModality, anatDir);
 end
 
-function t1Anat = resolve_optional_t1(subjectDir, requireT1)
+function t1Anat = resolve_optional_t1(subjectDir, requireT1, sessionLabel)
 try
-    t1Anat = resolve_anchor_anat(subjectDir, 'T1w', false);
+    t1Anat = resolve_anchor_anat(subjectDir, 'T1w', false, sessionLabel);
 catch ME
     if requireT1
         rethrow(ME);
@@ -191,12 +198,24 @@ switch lower(anchorModality)
 end
 end
 
-function patterns = anchor_patterns(anchorModality)
+function patterns = anchor_patterns(anchorModality, sessionLabel)
 patterns = { ...
-    ['*space-anchorNative_desc-preproc*acq-iso*', anchorModality, '.nii'], ...
-    ['*space-anchorNative_desc-preproc*acq-ax*', anchorModality, '.nii'], ...
-    ['*space-anchorNative_desc-preproc*_', anchorModality, '.nii'], ...
-    ['*', anchorModality, '.nii']};
+    ['*_', sessionLabel, '_*space-anchorNative_desc-preproc*acq-iso*', anchorModality, '.nii'], ...
+    ['*_', sessionLabel, '_*space-anchorNative_desc-preproc*acq-ax*', anchorModality, '.nii'], ...
+    ['*_', sessionLabel, '_*space-anchorNative_desc-preproc*_', anchorModality, '.nii'], ...
+    ['*_', sessionLabel, '_*', anchorModality, '.nii']};
+end
+
+function session = normalize_session(session)
+session = strtrim(char(string(session)));
+if startsWith(session, 'ses-')
+    error('mh_fiber_dwi_bids_jobspec:InvalidSession', ...
+        'Session must not include the ses- prefix: %s', session);
+end
+if isempty(regexp(session, '^[A-Za-z0-9][A-Za-z0-9._-]*$', 'once'))
+    error('mh_fiber_dwi_bids_jobspec:InvalidSession', ...
+        'Session contains unsupported BIDS label characters: %s', session);
+end
 end
 
 function qcTag = qc_tag_from_coreg_tag(coregTag)
