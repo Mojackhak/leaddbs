@@ -8,7 +8,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from ..catalog import EndpointRecord
 from ..executor import RunContext, TaskArtifact, TaskResult, TaskStatus
@@ -24,6 +24,7 @@ from ..records import (
 )
 from ..state import BranchResult, SourceResult, realize_ulf_final
 from .record_io import artifact_ref_for_task
+from .observed import normative_fiber_score_settings
 
 
 def validate_hf_source_for_ulf(
@@ -56,6 +57,7 @@ class ULFObservedRequest:
     primary_coverage: int
     hf_overlap_tau: float
     hf_overlap_coverage: int | None
+    score: Mapping[str, float | int] | None = None
 
     @classmethod
     def from_context(
@@ -107,6 +109,11 @@ class ULFObservedRequest:
             primary_coverage=int(settings["pre_specified_coverage"]),
             hf_overlap_tau=(float(hf_source.selected_tau) if hf_source.accepted else math.inf),
             hf_overlap_coverage=(int(hf_source.selected_coverage) if hf_source.accepted else None),
+            score=(
+                normative_fiber_score_settings(settings["score"])
+                if endpoint.key.model_family == "ulf_fiber"
+                else None
+            ),
         )
 
 

@@ -177,7 +177,7 @@ git commit -m "feat: add normative fiber minimum-count scoring"
 - Consumes `NormativeFiberScoreConfig.from_mapping`.
 - Produces explicit six-field score policy on HF and ULF dependency-free analysis configs.
 
-- [ ] **Step 1: Add RED schema tests**
+- [x] **Step 1: Add RED schema tests**
 
 Assert that each of these missing or nonpositive fields fails validation and that unknown score fields fail because `additionalProperties` is false:
 
@@ -189,14 +189,14 @@ weighted_peak_min_count: 20
 
 Retain rejection tests for public `candidate_threshold_v_per_m` and smoke controls.
 
-- [ ] **Step 2: Run config tests and verify RED**
+- [x] **Step 2: Run config tests and verify RED**
 
 ```bash
 conda run -n leaddbs python -m unittest \
   my_helper.fiber.core.outcome_models.tests.test_config -v
 ```
 
-- [ ] **Step 3: Extend the strict schema and committed profile**
+- [x] **Step 3: Extend the strict schema and committed profile**
 
 The `normative_fiber.score` object must require exactly:
 
@@ -211,11 +211,11 @@ The `normative_fiber.score` object must require exactly:
 }
 ```
 
-- [ ] **Step 4: Propagate all six fields into HF and ULF analysis configs**
+- [x] **Step 4: Propagate all six fields into HF and ULF analysis configs**
 
-Add the three integer fields to `HFNormativeFiberAnalysisConfig` and all six fields to `ULFNormativeFiberAnalysisConfig`. Preserve integer types in `HFNormativeFiberRequest.from_context` instead of coercing every score value to `float`. Build a `NormativeFiberScoreConfig` once in each analysis run and pass it to every primary/resolver branch call.
+Add the three integer fields to `HFNormativeFiberAnalysisConfig` and all six fields to `ULFNormativeFiberAnalysisConfig`. Preserve integer types in `HFNormativeFiberRequest.from_context` instead of coercing every score value to `float`. This task transports the policy without changing numerical scoring; Task 3 constructs `NormativeFiberScoreConfig` and applies it to every primary/resolver branch call.
 
-- [ ] **Step 5: Run config and configured-adapter tests**
+- [x] **Step 5: Run config and configured-adapter tests**
 
 ```bash
 conda run -n leaddbs python -m unittest \
@@ -225,7 +225,7 @@ conda run -n leaddbs python -m unittest \
   my_helper.fiber.core.outcome_models.tests.test_ulf_fiber_configured_backend -v
 ```
 
-- [ ] **Step 6: Commit profile plumbing**
+- [x] **Step 6: Commit profile plumbing**
 
 ```bash
 git add \
@@ -268,7 +268,7 @@ conda run -n leaddbs python -m unittest \
 
 - [ ] **Step 3: Replace primary selection with the shared kernel**
 
-In `run_observed_loocv`, use full `candidate_mask_from_coverage` plus full weights, and independently use each training-fold coverage plus fold weights. Do not reuse full-sample selected IDs, signs, or ranks in a fold.
+Construct one `NormativeFiberScoreConfig` from the six propagated analysis fields. In `run_observed_loocv`, use full `candidate_mask_from_coverage` plus full weights, and independently use each training-fold coverage plus fold weights. Do not reuse full-sample selected IDs, signs, or ranks in a fold.
 
 - [ ] **Step 4: Emit the complete support contract**
 
@@ -631,7 +631,8 @@ Describe implemented behavior and current test evidence only after code is green
 - [ ] **Step 4: Run the configured-core regression**
 
 ```bash
-PYTHONPATH=my_helper/fiber/core conda run -n leaddbs python -m unittest discover \
+PYTHONPATH=my_helper/fiber/core:my_helper/fiber/core/analysis \
+  conda run -n leaddbs python -m unittest discover \
   -s my_helper/fiber/core/outcome_models/tests \
   -p 'test_*.py' -v
 ```

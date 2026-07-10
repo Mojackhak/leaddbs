@@ -79,7 +79,14 @@ def _request(root: Path) -> HFNormativeFiberRequest:
         coverage_grid=(2, 3),
         primary_tau=275.0,
         primary_coverage=3,
-        score={"sweet_fraction": 0.01, "sour_fraction": 0.005, "weighted_peak_fraction": 0.05},
+        score={
+            "sweet_fraction": 0.01,
+            "sour_fraction": 0.005,
+            "weighted_peak_fraction": 0.05,
+            "sweet_selected_min_count": 200,
+            "sour_selected_min_count": 100,
+            "weighted_peak_min_count": 20,
+        },
         cheap_observed_sensitivity={
             "high_tau_v_per_m": 425.0,
             "coverage": 3,
@@ -109,6 +116,9 @@ class ConfiguredRequestTests(unittest.TestCase):
         self.assertEqual(config.coverage_grid, request.coverage_grid)
         self.assertEqual(config.primary_tau, 275.0)
         self.assertEqual(config.primary_coverage, 3)
+        self.assertEqual(config.sweet_selected_min_count, 200)
+        self.assertEqual(config.sour_selected_min_count, 100)
+        self.assertEqual(config.weighted_peak_min_count, 20)
         self.assertEqual(config.resolver_minimum_adjacent_passing_cells, 4)
         self.assertEqual(config.max_fibers, 17)
         self.assertEqual(config.output_dir, request.output_root)

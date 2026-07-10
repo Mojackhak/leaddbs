@@ -109,11 +109,14 @@
     },
     "fiberScore": {
       "type": "object", "additionalProperties": false,
-      "required": ["sweet_fraction", "sour_fraction", "weighted_peak_fraction"],
+      "required": ["sweet_fraction", "sour_fraction", "weighted_peak_fraction", "sweet_selected_min_count", "sour_selected_min_count", "weighted_peak_min_count"],
       "properties": {
         "sweet_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
         "sour_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
-        "weighted_peak_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+        "weighted_peak_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "sweet_selected_min_count": {"type": "integer", "minimum": 1},
+        "sour_selected_min_count": {"type": "integer", "minimum": 1},
+        "weighted_peak_min_count": {"type": "integer", "minimum": 1}
       }
     },
     "fiberCheapSensitivity": {

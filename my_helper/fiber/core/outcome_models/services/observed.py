@@ -78,7 +78,7 @@ class HFNormativeFiberRequest:
     coverage_grid: tuple[int, ...]
     primary_tau: float
     primary_coverage: int
-    score: Mapping[str, float]
+    score: Mapping[str, float | int]
     cheap_observed_sensitivity: Mapping[str, float | int]
     force: bool
 
@@ -110,13 +110,28 @@ class HFNormativeFiberRequest:
             coverage_grid=tuple(int(value) for value in settings["coverage_grid"]),
             primary_tau=float(settings["pre_specified_tau_v_per_m"]),
             primary_coverage=int(settings["pre_specified_coverage"]),
-            score={str(key): float(value) for key, value in settings["score"].items()},
+            score=normative_fiber_score_settings(settings["score"]),
             cheap_observed_sensitivity={
                 str(key): (int(value) if key in {"coverage", "sweet_top_count", "sour_top_count"} else float(value))
                 for key, value in settings["cheap_observed_sensitivity"].items()
             },
             force=bool(context.config.workflow.execution.force),
         )
+
+
+def normative_fiber_score_settings(
+    values: Mapping[str, object],
+) -> dict[str, float | int]:
+    """Preserve the public float fractions and integer minimum counts."""
+    integer_fields = {
+        "sweet_selected_min_count",
+        "sour_selected_min_count",
+        "weighted_peak_min_count",
+    }
+    return {
+        str(key): int(value) if key in integer_fields else float(value)
+        for key, value in values.items()
+    }
 
 
 @dataclass(frozen=True)

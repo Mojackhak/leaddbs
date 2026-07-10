@@ -23,6 +23,17 @@ class ConfigLoadingTests(unittest.TestCase):
             self.assertEqual(first.model.profile_id, "four_model_v1")
             self.assertEqual(first.model.direct_candidate_threshold_v_per_m, 100.0)
             self.assertEqual(
+                first.model.normative_fiber["score"],
+                {
+                    "sweet_fraction": 0.01,
+                    "sour_fraction": 0.005,
+                    "weighted_peak_fraction": 0.05,
+                    "sweet_selected_min_count": 200,
+                    "sour_selected_min_count": 100,
+                    "weighted_peak_min_count": 20,
+                },
+            )
+            self.assertEqual(
                 first.model.normative_fiber["cheap_observed_sensitivity"],
                 {
                     "high_tau_v_per_m": 1500,
@@ -34,6 +45,36 @@ class ConfigLoadingTests(unittest.TestCase):
             self.assertEqual(first.workflow.selection.scales, ("scale_one",))
             self.assertEqual(first.configuration_hash, second.configuration_hash)
             self.assertEqual(len(first.configuration_hash), 64)
+
+    def test_normative_fiber_score_requires_positive_integer_minimum_counts(self) -> None:
+        fields = (
+            "sweet_selected_min_count",
+            "sour_selected_min_count",
+            "weighted_peak_min_count",
+        )
+        for field in fields:
+            with self.subTest(field=field, case="missing"):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+
+                    def remove(profiles):
+                        del profiles["model"]["normative_fiber"]["score"][field]
+
+                    workflow_path = write_profile_bundle(root, mutate=remove)
+                    with self.assertRaisesRegex(ConfigurationError, field):
+                        load_resolved_workflow(workflow_path, WorkflowOverrides())
+
+            for invalid in (0, 1.5, True):
+                with self.subTest(field=field, invalid=invalid):
+                    with tempfile.TemporaryDirectory() as tmp:
+                        root = Path(tmp)
+
+                        def invalidate(profiles):
+                            profiles["model"]["normative_fiber"]["score"][field] = invalid
+
+                        workflow_path = write_profile_bundle(root, mutate=invalidate)
+                        with self.assertRaisesRegex(ConfigurationError, field):
+                            load_resolved_workflow(workflow_path, WorkflowOverrides())
 
     def test_unknown_nested_field_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

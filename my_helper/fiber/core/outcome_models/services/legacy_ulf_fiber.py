@@ -119,6 +119,12 @@ class ULFNormativeFiberAnalysisConfig:
     force_flip: bool
     force_rebuild: bool
     dynamic_names: bool
+    sweet_fraction: float = 0.01
+    sour_fraction: float = 0.005
+    weighted_peak_fraction: float = 0.05
+    sweet_selected_min_count: int = 200
+    sour_selected_min_count: int = 100
+    weighted_peak_min_count: int = 20
 
 
 @dataclass(frozen=True)
@@ -701,6 +707,8 @@ def build_legacy_ulf_fiber_config(
         raise RecordError("configured ULF fiber endpoint/connectome identity mismatch")
     if request.branch not in {"no_delta_hf", "delta_hf_adjusted"}:
         raise RecordError(f"unsupported ULF fiber branch {request.branch!r}")
+    if request.score is None:
+        raise RecordError("configured ULF normative-fiber backend requires score settings")
 
     source = request.hf_source
     if source.accepted:
@@ -803,6 +811,12 @@ def build_legacy_ulf_fiber_config(
         force_flip=inputs.force,
         force_rebuild=inputs.force,
         dynamic_names=True,
+        sweet_fraction=float(request.score["sweet_fraction"]),
+        sour_fraction=float(request.score["sour_fraction"]),
+        weighted_peak_fraction=float(request.score["weighted_peak_fraction"]),
+        sweet_selected_min_count=int(request.score["sweet_selected_min_count"]),
+        sour_selected_min_count=int(request.score["sour_selected_min_count"]),
+        weighted_peak_min_count=int(request.score["weighted_peak_min_count"]),
     )
 
 

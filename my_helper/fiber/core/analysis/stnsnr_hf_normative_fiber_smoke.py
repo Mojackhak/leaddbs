@@ -122,6 +122,9 @@ class HFNormativeFiberAnalysisConfig:
     sweet_fraction: float = 0.01
     sour_fraction: float = 0.005
     weighted_peak_fraction: float = NORM_FIBER_WEIGHTED_PEAK_FRACTION
+    sweet_selected_min_count: int = 200
+    sour_selected_min_count: int = 100
+    weighted_peak_min_count: int = 20
     sensitivity_high_tau: float = NORM_FIBER_SENSITIVITY_TAU
     sensitivity_coverage: int = NORM_FIBER_SENSITIVITY_COVERAGE
     sensitivity_sweet_count: int = NORM_FIBER_SENSITIVITY_SWEET_COUNT
@@ -150,6 +153,12 @@ class HFNormativeFiberAnalysisConfig:
             raise ValueError("fiber score fractions must be in (0, 1]")
         if not 0 < self.weighted_peak_fraction <= 1:
             raise ValueError("weighted_peak_fraction must be in (0, 1]")
+        if min(
+            self.sweet_selected_min_count,
+            self.sour_selected_min_count,
+            self.weighted_peak_min_count,
+        ) < 1:
+            raise ValueError("fiber score minimum counts must be positive")
         if self.sensitivity_high_tau <= 0 or self.sensitivity_coverage < 1:
             raise ValueError("cheap sensitivity tau/Coverage must be positive")
         if self.sensitivity_sweet_count < 1 or self.sensitivity_sour_count < 1:

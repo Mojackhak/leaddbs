@@ -126,6 +126,14 @@ def _request(
         primary_coverage=5,
         hf_overlap_tau=float(source.selected_tau) if source.accepted else math.inf,
         hf_overlap_coverage=int(source.selected_coverage) if source.accepted else None,
+        score={
+            "sweet_fraction": 0.01,
+            "sour_fraction": 0.005,
+            "weighted_peak_fraction": 0.05,
+            "sweet_selected_min_count": 200,
+            "sour_selected_min_count": 100,
+            "weighted_peak_min_count": 20,
+        },
     )
 
 
@@ -254,6 +262,12 @@ class ConfiguredULFFiberBackendTests(unittest.TestCase):
         self.assertEqual(config.connectome_path, inputs.connectome.path)
         self.assertEqual(config.tau_grid, request.tau_grid)
         self.assertEqual(config.coverage_grid, request.coverage_grid)
+        self.assertEqual(config.sweet_fraction, 0.01)
+        self.assertEqual(config.sour_fraction, 0.005)
+        self.assertEqual(config.weighted_peak_fraction, 0.05)
+        self.assertEqual(config.sweet_selected_min_count, 200)
+        self.assertEqual(config.sour_selected_min_count, 100)
+        self.assertEqual(config.weighted_peak_min_count, 20)
         self.assertEqual((config.hf_overlap_tau, config.hf_overlap_coverage), (675.0, 7))
         self.assertEqual(config.nuisance_columns, ("Y_HF_ref", "DeltaHFScore"))
         self.assertEqual(config.delta_full_scores_path.name, "delta_full.npy")

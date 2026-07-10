@@ -122,6 +122,9 @@ def valid_model_profile() -> dict[str, Any]:
             "sweet_fraction": 0.01,
             "sour_fraction": 0.005,
             "weighted_peak_fraction": 0.05,
+            "sweet_selected_min_count": 200,
+            "sour_selected_min_count": 100,
+            "weighted_peak_min_count": 20,
           },
           "cheap_observed_sensitivity": {
             "high_tau_v_per_m": 1500,

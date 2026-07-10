@@ -263,6 +263,12 @@ class ObservedServiceTests(unittest.TestCase):
         self.assertEqual(request.primary_tau, 800)
         self.assertEqual(request.primary_coverage, 5)
         self.assertEqual(request.score["sweet_fraction"], 0.01)
+        self.assertEqual(request.score["sweet_selected_min_count"], 200)
+        self.assertEqual(request.score["sour_selected_min_count"], 100)
+        self.assertEqual(request.score["weighted_peak_min_count"], 20)
+        self.assertIsInstance(request.score["sweet_selected_min_count"], int)
+        self.assertIsInstance(request.score["sour_selected_min_count"], int)
+        self.assertIsInstance(request.score["weighted_peak_min_count"], int)
         self.assertEqual(request.cheap_observed_sensitivity["high_tau_v_per_m"], 1500)
         self.assertEqual(request.cheap_observed_sensitivity["sweet_top_count"], 1500)
 
