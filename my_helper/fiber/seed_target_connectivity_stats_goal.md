@@ -9,7 +9,7 @@ Parent goal: none; standalone reusable fiber-core module
 Authoritative specification: this document
 Current branch: stnvop
 Status: design_approved
-Implementation status: task_1_configuration_in_progress
+Implementation status: task_2_atlas_roi_in_progress
 Current outputs: unchanged
 Implementation language: Python
 Default execution environment: Conda leaddbs
@@ -403,6 +403,12 @@ connectome and seed identities are exact.
 6. Add independent seed/target membership caches and statistic aggregation.
 7. Add atomic run storage, artifact indexing, CLI commands, and provenance.
 8. Add synthetic equivalence tests and the default real-data acceptance run.
+
+Current implementation progress:
+
+- strict typed configuration: complete;
+- deterministic atlas discovery and ROI resolution: in progress;
+- connectome, traversal, statistics, artifacts, CLI, and acceptance: pending.
 
 Documentation must be updated before each later implementation phase changes
 production code.
