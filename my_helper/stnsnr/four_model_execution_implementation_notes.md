@@ -1756,6 +1756,43 @@ Reusable implementation:
 my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_sensitivity_observed.py
 ```
 
+## Configured OSS Runtime Lifecycle And Acceptance Checkpoint
+
+The real MDS-UPDRS III/IV configured acceptance run reached the first HF dTOR
+OSS producer. One completed ten-sample source row occupied about 38 GB, while
+its accepted candidate-axis and activation-probability outputs occupied less
+than 1 MB. The dominant files were per-sample `oss_time_result_PAM.h5` solver
+outputs and stimulation workspaces. Retaining those workspaces for every source
+row would exceed the available acceptance volume and is not part of the model
+artifact contract.
+
+The approved configured lifecycle is:
+
+```text
+sample execution
+-> persist and hash compact Axon_state/converter/parameter/command provenance
+-> validate compact sample record
+-> permanently delete that sample's ephemeral solver/stimulation runtime
+-> aggregate ten compact sample states
+-> atomically validate probability/count artifacts and exact row identity
+-> write reusable row checkpoint
+-> permanently delete the filtered template and any remaining runtime
+```
+
+Accepted row artifacts retain exact activated-count/10 probabilities, canonical
+fiber order, source/frequency/transform/toolchain identity, command logs, and
+file hashes. They do not retain `oss_time_result_PAM.h5`, copied connectome
+trees, segment masks, allocated-axon solver workspaces, or VTK/HDF5 solver
+intermediates. A failed row retains compact completed-sample records/logs and
+the current failed-sample diagnostics only. Resume reuses a row only after its
+identity payload and every compact artifact hash validate.
+
+The interrupted configured run is retained as acceptance evidence, but its
+large completed and partial `ephemeral_runtime` trees may be permanently
+cleaned. This lifecycle does not alter pPAM probabilities, `p(A) >= 0.5`
+thresholding, candidate-axis selection, source resolution, final-model
+selection, or any endpoint classification.
+
 Run the D PPMI source resolver:
 
 ```bash

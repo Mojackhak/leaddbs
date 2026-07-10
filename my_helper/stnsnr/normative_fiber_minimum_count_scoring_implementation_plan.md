@@ -22,6 +22,10 @@
 - Every non-OSS held-out prediction recomputes coverage, weights, signs, selected IDs, and peak counts from the training fold only.
 - OSS uses the immutable realized-final full-sample `F_valid` axis, binary `I[p(A)>=0.5]`, fold-local weights/selections, and no pPAM-derived coverage filter.
 - Cross-endpoint OSS reuse is allowed only for exact source-input and ordered-candidate identity; reused artifacts must be rebound to destination-local final provenance.
+- OSS solver workspaces and per-sample stimulation trees are declared
+  `ephemeral_runtime`. After compact sample/row artifacts and their hashes pass
+  validation, these large intermediates are permanently deleted and are not
+  accepted model artifacts.
 - DeltaHF extreme out-of-support remains strict `out_support_fraction > 0.95`; equality at `0.95` is not failure.
 - Code, identifiers, comments, and docstrings are English.
 - Do not write to or migrate existing `/Volumes/VAL/STNSNr/summary` legacy outputs. Configured acceptance writes only under the configured run root.
@@ -545,6 +549,46 @@ The identity also records the fixed pPAM sample count and requires a complete sa
 The compatibility identity additionally binds the parent selected-source axis, dTOR connectome input hash, OSS generator implementation hash, and actual MATLAB/OSS tool executable hashes. With ten fixed Bernoulli samples, every persisted probability must lie on the `0.0, 0.1, ..., 1.0` lattice; arbitrary continuous values are invalid even when finite and inside `[0, 1]`.
 
 The configured left-side pathway is fixed as follows: transform the left stimulation/electrode geometry into right-canonical space with `ea_flip_lr_nonlinear`, run OSS against the same ordered `final.valid_feature_axis` used for the right side, and combine the resulting right-canonical probabilities with `max_probability_union`. Do not assume that equal left/right local fiber IDs encode tract homology. The compatibility payload and manifests must record the transform name plus an exact transform/code identity hash.
+
+#### OSS Runtime Lifecycle And Row Checkpoints
+
+The configured OSS producer must process each pPAM sample as a bounded runtime
+transaction. Before deleting a successful sample workspace it persists and
+validates a compact sample record containing the parameter-file hash, corrected
+converter JSON and hash, source frequency, command result/log references and
+hashes, pathway status, compact `Axon_state` data and hash, and the exact
+sample index. The large stimulation tree, `oss_time_result_PAM.h5`, allocated
+axon workspace, copied connectome data, segment masks, and solver-generated
+VTK/HDF5 intermediates are `ephemeral_runtime` and are permanently deleted
+after that compact record validates. They are not required for downstream
+fitting.
+
+After all ten compact samples validate, the row transaction atomically writes
+and validates:
+
+```text
+right_canonical_candidate_fiber_ids.npy
+right_canonical_activation_probability.npy
+right_canonical_activation_probability.csv
+probabilistic_pam_row_manifest.json
+oss_activation_row_status.json
+row_checkpoint.json
+```
+
+The checkpoint binds the final-model and final-record identities, ordered valid
+fiber-axis identity, subject, side, source index/path hash, source frequency,
+ten parameter-file hashes, pPAM contract, canonicalization transform identity,
+and OSS toolchain hashes. It also records hashes for every compact row output.
+A configured resume may reuse a row only when the complete identity payload and
+all output hashes validate; otherwise it starts a new row transaction.
+
+At most the currently executing or failed sample may retain a large runtime
+workspace. Successful earlier samples are compacted and cleaned immediately.
+On row success the filtered template and every remaining runtime workspace are
+permanently deleted. On failure, compact records/logs from completed samples
+and the current failed-sample diagnostics are retained, but completed-sample
+runtime trees are not retained. Existing interrupted configured-run
+`ephemeral_runtime` may be permanently cleaned under this same contract.
 
 For ULF, the compatibility payload and destination manifest must also preserve the realized overlap mode. Use `matched_hf_peak_efield_selected_tau` when an accepted matched HF source supplied the exclusion threshold, and `hf_source_absent_all_false` when no HF source existed and the exclusion mask was therefore all false. HF uses `not_applicable`. The producer must never hard-code the finite-threshold mode for every ULF final.
 
