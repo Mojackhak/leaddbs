@@ -15,13 +15,17 @@ from outcome_models.planner import compile_execution_plan
 from outcome_models.records import ArtifactRef, DeltaHFBundle, FeatureAxisRef, HFSourceRecord
 from outcome_models.run_store import ConfiguredRunStore, sha256_file
 from outcome_models.services.observed import ObservedServiceOutput
+from outcome_models.services.record_io import _logical_array_sha256
 from outcome_models.services.ulf_observed import DeltaBuilderOutput, ULFObservedService
 from outcome_models.tests.helpers import clinical_rows_for_scale, write_clinical_rows, write_profile_bundle
 
 
 class ULFObservedExecutionTests(unittest.TestCase):
-    def _fixture(self, root: Path):
-        workflow = write_profile_bundle(root)
+    def _fixture(self, root: Path, model: str = "ulf-voxel"):
+        def mutate(profiles):
+            profiles["workflow"]["selection"]["models"] = [model]
+
+        workflow = write_profile_bundle(root, mutate=mutate)
         write_clinical_rows(root, clinical_rows_for_scale("Scale One"))
         config = load_resolved_workflow(workflow, WorkflowOverrides())
         catalog = build_endpoint_catalog(config)
@@ -33,15 +37,17 @@ class ULFObservedExecutionTests(unittest.TestCase):
         )
         store.initialize(resolved_workflow={}, endpoint_catalog=[], execution_plan=plan.as_dict())
         context = RunContext(store=store, catalog=tuple(catalog), config=config)
+        ulf_family = "ulf_fiber" if model == "ulf-fiber" else "ulf_voxel"
+        hf_family = "hf_fiber" if model == "ulf-fiber" else "hf_voxel"
         tasks = {
             task.key.execution_stage + ":" + task.key.branch: task
             for task in plan.tasks
-            if task.endpoint.model_family == "ulf_voxel"
+            if task.endpoint.model_family == ulf_family
         }
         hf_task = next(
             task
             for task in plan.tasks
-            if task.endpoint.model_family == "hf_voxel"
+            if task.endpoint.model_family == hf_family
             and task.key.execution_stage == "observed_source_resolver"
         )
         endpoint = context.catalog_record(tasks["input_hf_lock:none"].endpoint.identifier)
@@ -51,6 +57,9 @@ class ULFObservedExecutionTests(unittest.TestCase):
             "models/hf/selected.json",
             "a" * 64,
         )
+        hf_axis_path = store.run_root / "hf_source_axis.npy"
+        hf_axis_values = np.arange(4, dtype=np.int64)
+        np.save(hf_axis_path, hf_axis_values)
         hf_source = HFSourceRecord.create(
             resolver_task_id=hf_task.task_id,
             endpoint_model_id=hf_task.endpoint.identifier,
@@ -61,7 +70,16 @@ class ULFObservedExecutionTests(unittest.TestCase):
             selected_tau=200,
             selected_coverage=5,
             subject_order=endpoint.subject_ids,
-            feature_axis=FeatureAxisRef(Path("hf_voxels.npy"), 4, "a" * 64, "candidate_flat_indices"),
+            feature_axis=FeatureAxisRef(
+                hf_axis_path,
+                4,
+                (
+                    _logical_array_sha256(hf_axis_values)
+                    if model == "ulf-fiber"
+                    else sha256_file(hf_axis_path)
+                ),
+                "data.mat:idx" if model == "ulf-fiber" else "candidate_flat_indices",
+            ),
             artifacts=(source_artifact,),
         )
         context.results[hf_task.task_id] = TaskExecutionRecord(
@@ -125,11 +143,12 @@ class ULFObservedExecutionTests(unittest.TestCase):
         def branch_runner(request):
             root = request.output_root
             root.mkdir(parents=True, exist_ok=True)
-            axis = request.model_root / "cache" / request.branch / "voxels.npy"
+            axis = request.model_root / "cache" / request.branch / "fiber_ids.npy"
             axis.parent.mkdir(parents=True, exist_ok=True)
-            np.save(axis, np.arange(4, dtype=np.int64))
+            axis_values = np.arange(4, dtype=np.int64)
+            np.save(axis, axis_values)
             exposure = root / "exposure.npy"
-            np.save(exposure, np.ones((request.endpoint.n_subjects, 4), dtype=np.float32))
+            np.save(exposure, np.full((request.endpoint.n_subjects, 4), 1000.0, dtype=np.float32))
             paths = {}
             for kind, name in (
                 ("source_status", "source.json"),
@@ -142,6 +161,17 @@ class ULFObservedExecutionTests(unittest.TestCase):
                 path.write_text("{}\n", encoding="utf-8")
                 paths[kind] = path
             paths["exposure_matrix"] = exposure
+            valid_mask = (
+                np.array([True, False, True, True])
+                if request.branch == "delta_hf_adjusted"
+                else np.array([False, True, True, True])
+            )
+            full_weights = root / "selected_full_weights.npy"
+            valid_ids = root / "selected_valid_fiber_ids.npy"
+            np.save(full_weights, np.where(valid_mask, 1.0, np.nan).astype(np.float32))
+            np.save(valid_ids, axis_values[valid_mask])
+            paths["selected_full_weights"] = full_weights
+            paths["selected_valid_fiber_ids"] = valid_ids
             return ObservedServiceOutput(
                 "pre_specified_accepted",
                 "error_predictive" if request.branch == "delta_hf_adjusted" else "error_nonpredictive",
@@ -150,13 +180,13 @@ class ULFObservedExecutionTests(unittest.TestCase):
                 5,
                 2,
                 request.endpoint.subject_ids,
-                FeatureAxisRef(axis, 4, sha256_file(axis), "candidate_flat_indices"),
+                FeatureAxisRef(axis, 4, _logical_array_sha256(axis_values), "data.mat:idx"),
                 tuple(TaskArtifact(kind, path) for kind, path in paths.items()),
             )
 
         with tempfile.TemporaryDirectory() as tmp:
-            context, tasks, _ = self._fixture(Path(tmp))
-            service = ULFObservedService(direct_runner=branch_runner, delta_builder=delta_builder)
+            context, tasks, _ = self._fixture(Path(tmp), "ulf-fiber")
+            service = ULFObservedService(fiber_runner=branch_runner, delta_builder=delta_builder)
             for key in (
                 "input_hf_lock:none",
                 "preprocessing_sidecars:none",
@@ -169,6 +199,9 @@ class ULFObservedExecutionTests(unittest.TestCase):
                 self._record(context, task, result)
 
             final = context.results[tasks["final_model_realization:resolver"].task_id].result
+            final_record = final.facts["final_model_record"]
+            valid_axis_path = Path(final_record["valid_feature_axis"]["ids_path"])
+            realized_valid_ids = np.load(valid_axis_path)
 
         self.assertEqual(final.status, TaskStatus.COMPLETED)
         self.assertTrue(final.facts["final_model_realized"])
@@ -178,6 +211,11 @@ class ULFObservedExecutionTests(unittest.TestCase):
         self.assertEqual(
             final.facts["final_model_record"]["nuisance"]["columns"],
             ["Y_HF_ref", "DeltaHFScore"],
+        )
+        np.testing.assert_array_equal(realized_valid_ids, np.array([0, 2, 3]))
+        self.assertEqual(
+            final_record["full_weights"]["task_id"],
+            tasks["observed_branch_resolver:delta_hf_adjusted"].task_id,
         )
 
 

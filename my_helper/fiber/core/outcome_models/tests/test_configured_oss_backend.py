@@ -132,6 +132,14 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        full_weights_path = artifact_root / "selected_full_weights.npy"
+        np.save(full_weights_path, np.ones(feature_ids.size, dtype=np.float32))
+        feature_axis = FeatureAxisRef(
+            ids_path=feature_path,
+            count=feature_ids.size,
+            sha256=sha256_file(feature_path),
+            identity_source="data.mat:idx",
+        )
         nuisance = NuisancePlan.for_branch(branch, None)
         return FinalArtifactRecord.create(
             final_model_id=f"configured-{task.endpoint.model_family}-final",
@@ -152,12 +160,14 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
                 (len(subject_order), feature_ids.size),
             ),
             scores=self._artifact(root, scores_path, "selected_scores", (len(subject_order),)),
-            feature_axis=FeatureAxisRef(
-                ids_path=feature_path,
-                count=feature_ids.size,
-                sha256=sha256_file(feature_path),
-                identity_source="data.mat:idx",
+            feature_axis=feature_axis,
+            full_weights=self._artifact(
+                root,
+                full_weights_path,
+                "selected_full_weights",
+                (feature_ids.size,),
             ),
+            valid_feature_axis=feature_axis,
         )
 
     def _sidecars(

@@ -23,7 +23,7 @@ from ..records import (
     ULFBranchRecord,
 )
 from ..state import BranchResult, SourceResult, realize_ulf_final
-from .record_io import artifact_ref_for_task
+from .record_io import artifact_ref_for_task, normative_fiber_final_provenance
 from .observed import normative_fiber_score_settings
 
 
@@ -450,6 +450,16 @@ class ULFObservedService:
             if task.endpoint.model_family == "ulf_voxel"
             else f"{context.config.model.normative_fiber['exposure']}_partial_spearman"
         )
+        full_weights = None
+        valid_feature_axis = None
+        if estimator == "peak_efield_partial_spearman":
+            full_weights, valid_feature_axis = normative_fiber_final_provenance(
+                refs_by_kind=refs,
+                parent_axis=branch.feature_axis,
+                selected_tau=branch.selected_tau,
+                selected_coverage=branch.selected_coverage,
+                context=context,
+            )
         key = FinalModelKey(
             endpoint_model_id=endpoint.endpoint_model_id,
             final_branch=decision.final_branch,
@@ -472,6 +482,8 @@ class ULFObservedService:
             exposure=refs["exposure_matrix"],
             scores=refs["selected_scores"],
             feature_axis=branch.feature_axis,
+            full_weights=full_weights,
+            valid_feature_axis=valid_feature_axis,
             spatial_reference=refs.get("coefficient_nifti"),
         )
         final_path = task_root / "final_model_record.json"

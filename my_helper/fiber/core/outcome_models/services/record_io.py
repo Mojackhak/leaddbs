@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -17,6 +18,7 @@ from ..planner import TaskSpec
 from ..records import (
     ArtifactRef,
     DeltaHFBundle,
+    FeatureAxisRef,
     FinalArtifactRecord,
     HFSourceRecord,
     NuisancePlan,
@@ -65,6 +67,74 @@ def artifact_ref_for_task(
         sha256=sha256_file(path),
         shape=_artifact_shape(path),
     )
+
+
+def _logical_array_sha256(values: np.ndarray) -> str:
+    array = np.ascontiguousarray(values)
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(json.dumps(list(array.shape), separators=(",", ":")).encode("ascii"))
+    digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _artifact_path(reference: ArtifactRef, context: RunContext) -> Path:
+    run_root = Path(context.store.run_root).resolve()
+    path = (run_root / reference.relative_path).resolve()
+    if not path.is_relative_to(run_root) or not path.is_file():
+        raise RecordError(f"final artifact {reference.kind!r} is missing or outside the run root")
+    if sha256_file(path) != reference.sha256:
+        raise RecordError(f"final artifact {reference.kind!r} hash mismatch")
+    return path
+
+
+def normative_fiber_final_provenance(
+    *,
+    refs_by_kind: dict[str, ArtifactRef],
+    parent_axis: FeatureAxisRef,
+    selected_tau: float,
+    selected_coverage: int,
+    context: RunContext,
+) -> tuple[ArtifactRef, FeatureAxisRef]:
+    """Verify and bind the realized full weights plus valid fiber subset."""
+    required = {"exposure_matrix", "selected_full_weights", "selected_valid_fiber_ids"}
+    missing = sorted(required - set(refs_by_kind))
+    if missing:
+        raise RecordError("accepted normative-fiber source is missing final artifacts: " + ",".join(missing))
+
+    run_root = Path(context.store.run_root).resolve()
+    parent_path = Path(parent_axis.ids_path).expanduser()
+    parent_path = parent_path.resolve() if parent_path.is_absolute() else (run_root / parent_path).resolve()
+    if not parent_path.is_relative_to(run_root) or not parent_path.is_file():
+        raise RecordError("normative-fiber parent feature axis is missing or outside the run root")
+    parent_ids = np.asarray(np.load(parent_path), dtype=np.int64)
+    if parent_ids.shape != (parent_axis.count,) or _logical_array_sha256(parent_ids) != parent_axis.sha256:
+        raise RecordError("normative-fiber parent feature axis identity mismatch")
+
+    exposure = np.asarray(np.load(_artifact_path(refs_by_kind["exposure_matrix"], context)), dtype=float)
+    full_weights_ref = refs_by_kind["selected_full_weights"]
+    full_weights = np.asarray(np.load(_artifact_path(full_weights_ref, context)), dtype=float)
+    valid_ids_ref = refs_by_kind["selected_valid_fiber_ids"]
+    valid_ids_path = _artifact_path(valid_ids_ref, context)
+    valid_ids = np.asarray(np.load(valid_ids_path), dtype=np.int64)
+    if exposure.ndim != 2 or exposure.shape[1] != parent_axis.count:
+        raise RecordError("normative-fiber exposure does not match the parent feature axis")
+    if full_weights.shape != (parent_axis.count,):
+        raise RecordError("normative-fiber full weights do not match the parent feature axis")
+    if valid_ids.ndim != 1 or valid_ids.size == 0:
+        raise RecordError("normative-fiber valid fiber IDs must be a nonempty vector")
+
+    coverage = np.count_nonzero(exposure > float(selected_tau), axis=0)
+    expected = parent_ids[(coverage >= int(selected_coverage)) & np.isfinite(full_weights)]
+    if not np.array_equal(valid_ids, expected):
+        raise RecordError("normative-fiber valid fiber IDs do not match coverage and finite weights")
+    valid_axis = FeatureAxisRef(
+        ids_path=valid_ids_path,
+        count=int(valid_ids.size),
+        sha256=_logical_array_sha256(valid_ids),
+        identity_source=parent_axis.identity_source,
+    )
+    return full_weights_ref, valid_axis
 
 
 def _estimator(task: TaskSpec, context: RunContext) -> str:
@@ -137,12 +207,23 @@ def persist_hf_resolver_output(
         raise RecordError("accepted HF source is missing final artifacts: " + ",".join(missing))
     if source.feature_axis is None or source.selected_tau is None or source.selected_coverage is None:
         raise RecordError("accepted HF source is missing feature or threshold identity")
+    estimator = _estimator(task, context)
+    full_weights = None
+    valid_feature_axis = None
+    if estimator == "peak_efield_partial_spearman":
+        full_weights, valid_feature_axis = normative_fiber_final_provenance(
+            refs_by_kind=refs_by_kind,
+            parent_axis=source.feature_axis,
+            selected_tau=source.selected_tau,
+            selected_coverage=source.selected_coverage,
+            context=context,
+        )
     final_key = FinalModelKey(
         endpoint_model_id=endpoint.endpoint_model_id,
         final_branch="hf_source",
         selected_tau=source.selected_tau,
         selected_coverage=source.selected_coverage,
-        estimator=_estimator(task, context),
+        estimator=estimator,
     )
     final = FinalArtifactRecord.create(
         final_model_id=final_key.identifier,
@@ -159,6 +240,8 @@ def persist_hf_resolver_output(
         exposure=refs_by_kind["exposure_matrix"],
         scores=refs_by_kind["selected_scores"],
         feature_axis=source.feature_axis,
+        full_weights=full_weights,
+        valid_feature_axis=valid_feature_axis,
         spatial_reference=refs_by_kind.get("coefficient_nifti"),
     )
     final_path = task_root / "final_model_record.json"

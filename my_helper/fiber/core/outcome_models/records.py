@@ -532,6 +532,8 @@ class FinalArtifactRecord:
     exposure: ArtifactRef
     scores: ArtifactRef
     feature_axis: FeatureAxisRef
+    full_weights: ArtifactRef | None
+    valid_feature_axis: FeatureAxisRef | None
     spatial_reference: ArtifactRef | None
     record_hash: str
 
@@ -553,6 +555,8 @@ class FinalArtifactRecord:
         exposure: ArtifactRef,
         scores: ArtifactRef,
         feature_axis: FeatureAxisRef,
+        full_weights: ArtifactRef | None = None,
+        valid_feature_axis: FeatureAxisRef | None = None,
         spatial_reference: ArtifactRef | None = None,
     ) -> "FinalArtifactRecord":
         if nuisance.branch != final_branch and not (final_branch == "hf_source" and nuisance.branch == "hf_source"):
@@ -572,6 +576,8 @@ class FinalArtifactRecord:
             "exposure": exposure,
             "scores": scores,
             "feature_axis": feature_axis,
+            "full_weights": full_weights,
+            "valid_feature_axis": valid_feature_axis,
             "spatial_reference": spatial_reference,
         }
         if payload["selected_tau"] <= 0 or payload["selected_coverage"] < 1:
@@ -584,6 +590,22 @@ class FinalArtifactRecord:
             expected = (len(payload["subject_order"]), feature_axis.count)
             if payload["exposure"].shape != expected:
                 raise RecordError("final exposure shape does not match subject and feature order")
+        normative_fiber = payload["estimator"] == "peak_efield_partial_spearman"
+        if normative_fiber:
+            if full_weights is None or valid_feature_axis is None:
+                raise RecordError(
+                    "normative-fiber final requires full weights and a valid feature axis"
+                )
+            if full_weights.kind != "selected_full_weights":
+                raise RecordError("normative-fiber final weights artifact kind is invalid")
+            if full_weights.shape != (feature_axis.count,):
+                raise RecordError("normative-fiber final weights do not match the parent feature axis")
+            if valid_feature_axis.identity_source != feature_axis.identity_source:
+                raise RecordError("normative-fiber valid and parent feature identities differ")
+            if valid_feature_axis.count > feature_axis.count:
+                raise RecordError("normative-fiber valid axis exceeds the parent feature axis")
+        elif full_weights is not None or valid_feature_axis is not None:
+            raise RecordError("direct-voxel final cannot carry normative-fiber-only provenance")
         return cls(**payload, record_hash=canonical_hash(payload))
 
     def as_dict(self) -> dict[str, object]:
@@ -602,6 +624,10 @@ class FinalArtifactRecord:
             "exposure": self.exposure.as_dict(),
             "scores": self.scores.as_dict(),
             "feature_axis": self.feature_axis.as_dict(),
+            "full_weights": self.full_weights.as_dict() if self.full_weights is not None else None,
+            "valid_feature_axis": (
+                self.valid_feature_axis.as_dict() if self.valid_feature_axis is not None else None
+            ),
             "spatial_reference": (
                 self.spatial_reference.as_dict() if self.spatial_reference is not None else None
             ),
@@ -625,6 +651,16 @@ class FinalArtifactRecord:
             exposure=ArtifactRef.from_dict(dict(value["exposure"])),
             scores=ArtifactRef.from_dict(dict(value["scores"])),
             feature_axis=FeatureAxisRef.from_dict(dict(value["feature_axis"])),
+            full_weights=(
+                ArtifactRef.from_dict(dict(value["full_weights"]))
+                if isinstance(value.get("full_weights"), dict)
+                else None
+            ),
+            valid_feature_axis=(
+                FeatureAxisRef.from_dict(dict(value["valid_feature_axis"]))
+                if isinstance(value.get("valid_feature_axis"), dict)
+                else None
+            ),
             spatial_reference=(
                 ArtifactRef.from_dict(dict(value["spatial_reference"]))
                 if isinstance(value.get("spatial_reference"), dict)

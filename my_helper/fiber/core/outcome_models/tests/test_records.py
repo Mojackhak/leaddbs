@@ -169,6 +169,90 @@ class ImmutableRecordTests(unittest.TestCase):
         self.assertEqual(len(final.record_hash), 64)
         self.assertEqual(FinalArtifactRecord.from_dict(final.as_dict()), final)
 
+    def test_normative_fiber_final_requires_weights_and_nonempty_valid_axis(self) -> None:
+        common = {
+            "final_model_id": "final_fiber",
+            "endpoint_model_id": "endpoint_fiber",
+            "final_branch": "hf_source",
+            "final_role": "realized_final",
+            "selected_tau": 800,
+            "selected_coverage": 5,
+            "estimator": "peak_efield_partial_spearman",
+            "scale_direction": "lower",
+            "subject_order": ("sub-01", "sub-02"),
+            "nuisance": NuisancePlan.for_branch("hf_source", None),
+            "manifest": self._artifact("selected_manifest", "manifest.json"),
+            "exposure": self._artifact("exposure_matrix", "exposure.npy", (2, 4)),
+            "scores": self._artifact("selected_scores", "scores.csv", (2,)),
+            "feature_axis": FeatureAxisRef(Path("fiber_ids.npy"), 4, "b" * 64, "data.mat:idx"),
+        }
+        with self.assertRaises(RecordError):
+            FinalArtifactRecord.create(**common)
+
+        full_weights = self._artifact("selected_full_weights", "weights.npy", (4,))
+        valid_axis = FeatureAxisRef(Path("valid_ids.npy"), 3, "c" * 64, "data.mat:idx")
+        final = FinalArtifactRecord.create(
+            **common,
+            full_weights=full_weights,
+            valid_feature_axis=valid_axis,
+        )
+        changed_weights = FinalArtifactRecord.create(
+            **common,
+            full_weights=ArtifactRef(
+                full_weights.task_id,
+                full_weights.kind,
+                full_weights.relative_path,
+                "d" * 64,
+                full_weights.shape,
+            ),
+            valid_feature_axis=valid_axis,
+        )
+        changed_axis = FinalArtifactRecord.create(
+            **common,
+            full_weights=full_weights,
+            valid_feature_axis=FeatureAxisRef(
+                valid_axis.ids_path,
+                valid_axis.count,
+                "e" * 64,
+                valid_axis.identity_source,
+            ),
+        )
+
+        self.assertNotEqual(final.record_hash, changed_weights.record_hash)
+        self.assertNotEqual(final.record_hash, changed_axis.record_hash)
+        self.assertEqual(FinalArtifactRecord.from_dict(final.as_dict()), final)
+        tampered = final.as_dict()
+        tampered["valid_feature_axis"]["sha256"] = "f" * 64
+        with self.assertRaises(RecordError):
+            FinalArtifactRecord.from_dict(tampered)
+
+    def test_direct_voxel_final_rejects_fiber_only_provenance(self) -> None:
+        common = {
+            "final_model_id": "final_voxel",
+            "endpoint_model_id": "endpoint_voxel",
+            "final_branch": "hf_source",
+            "final_role": "realized_final",
+            "selected_tau": 200,
+            "selected_coverage": 5,
+            "estimator": "partial_spearman",
+            "scale_direction": "lower",
+            "subject_order": ("sub-01", "sub-02"),
+            "nuisance": NuisancePlan.for_branch("hf_source", None),
+            "manifest": self._artifact("selected_manifest", "manifest.json"),
+            "exposure": self._artifact("exposure_matrix", "exposure.npy", (2, 4)),
+            "scores": self._artifact("selected_scores", "scores.csv", (2,)),
+            "feature_axis": FeatureAxisRef(Path("voxels.npy"), 4, "b" * 64, "candidate_flat_indices"),
+        }
+        final = FinalArtifactRecord.create(**common)
+        self.assertIsNone(final.full_weights)
+        self.assertIsNone(final.valid_feature_axis)
+        with self.assertRaises(RecordError):
+            FinalArtifactRecord.create(
+                **common,
+                full_weights=self._artifact("selected_full_weights", "weights.npy", (4,)),
+                valid_feature_axis=FeatureAxisRef(Path("valid.npy"), 2, "c" * 64, "data.mat:idx"),
+            )
+
     def test_ulf_branch_record_binds_branch_nuisance_source_and_artifacts(self) -> None:
         record = ULFBranchRecord.create(
             resolver_task_id="task_branch",

@@ -29,6 +29,7 @@ from outcome_models.services.observed import (
     direct_source_branch_name,
     fiber_primary_branch_name,
 )
+from outcome_models.services.record_io import _logical_array_sha256
 from outcome_models.tests.helpers import clinical_rows_for_scale, write_clinical_rows, write_profile_bundle
 
 
@@ -213,8 +214,13 @@ class ObservedServiceTests(unittest.TestCase):
             task_root.mkdir(parents=True, exist_ok=True)
             axis_path = task_root / "fiber_ids.npy"
             exposure = task_root / "exposure.npy"
-            np.save(axis_path, np.arange(3, dtype=np.int64))
-            np.save(exposure, np.ones((12, 3), dtype=np.float32))
+            weights = task_root / "selected_full_weights.npy"
+            valid_ids = task_root / "selected_valid_fiber_ids.npy"
+            axis_values = np.arange(3, dtype=np.int64)
+            np.save(axis_path, axis_values)
+            np.save(exposure, np.full((12, 3), 2000.0, dtype=np.float32))
+            np.save(weights, np.array([1.0, -1.0, 0.5], dtype=np.float32))
+            np.save(valid_ids, axis_values)
             artifact_rows = []
             for kind, name in (
                 ("source_status", "source.json"),
@@ -226,6 +232,8 @@ class ObservedServiceTests(unittest.TestCase):
                 path.write_text("{}\n", encoding="utf-8")
                 artifact_rows.append(TaskArtifact(kind, path))
             artifact_rows.append(TaskArtifact("exposure_matrix", exposure))
+            artifact_rows.append(TaskArtifact("selected_full_weights", weights))
+            artifact_rows.append(TaskArtifact("selected_valid_fiber_ids", valid_ids))
             output = ObservedServiceOutput(
                 source_status="scan_fallback_accepted",
                 prediction_status="error_nonpredictive",
@@ -234,7 +242,12 @@ class ObservedServiceTests(unittest.TestCase):
                 selected_coverage=6,
                 adjacent_support=4,
                 subject_order=tuple(f"sub-{index:02d}" for index in range(1, 13)),
-                feature_axis=FeatureAxisRef(axis_path, 3, "b" * 64, "data.mat:idx"),
+                feature_axis=FeatureAxisRef(
+                    axis_path,
+                    3,
+                    _logical_array_sha256(axis_values),
+                    "data.mat:idx",
+                ),
                 artifacts=tuple(artifact_rows),
             )
             fiber_resolver = CaptureRunner(output)
@@ -252,7 +265,7 @@ class ObservedServiceTests(unittest.TestCase):
             {
                 "ids_path": str(axis_path),
                 "count": 3,
-                "sha256": "b" * 64,
+                "sha256": _logical_array_sha256(np.arange(3, dtype=np.int64)),
                 "identity_source": "data.mat:idx",
             },
         )
@@ -285,9 +298,10 @@ class ObservedServiceTests(unittest.TestCase):
                     qc.write_text("{}\n", encoding="utf-8")
                     axis = request.model_root / "cache" / "fiber_ids.npy"
                     axis.parent.mkdir(parents=True, exist_ok=True)
-                    np.save(axis, np.arange(3, dtype=np.int64))
+                    axis_values = np.arange(3, dtype=np.int64)
+                    np.save(axis, axis_values)
                     exposure = request.model_root / "cache" / "exposure.npy"
-                    np.save(exposure, np.ones((12, 3), dtype=np.float32))
+                    np.save(exposure, np.full((12, 3), 2000.0, dtype=np.float32))
                     shared.update(axis=axis, exposure=exposure)
                     return (TaskArtifact("sidecar_index", path), TaskArtifact("qc", qc))
                 return (TaskArtifact(kind, path),)
@@ -308,7 +322,12 @@ class ObservedServiceTests(unittest.TestCase):
                 request.primary_coverage,
                 None,
                 request.endpoint.subject_ids,
-                FeatureAxisRef(shared["axis"], 3, "b" * 64, "data.mat:idx"),
+                FeatureAxisRef(
+                    shared["axis"],
+                    3,
+                    _logical_array_sha256(np.arange(3, dtype=np.int64)),
+                    "data.mat:idx",
+                ),
                 (TaskArtifact("observed_metrics", metrics), TaskArtifact("loocv_predictions", predictions)),
             )
 
@@ -325,6 +344,12 @@ class ObservedServiceTests(unittest.TestCase):
                 path.write_text("{}\n", encoding="utf-8")
                 paths[kind] = path
             paths["exposure_matrix"] = shared["exposure"]
+            weights = request.output_root / "selected_full_weights.npy"
+            valid_ids = request.output_root / "selected_valid_fiber_ids.npy"
+            np.save(weights, np.array([1.0, -1.0, 0.5], dtype=np.float32))
+            np.save(valid_ids, np.arange(3, dtype=np.int64))
+            paths["selected_full_weights"] = weights
+            paths["selected_valid_fiber_ids"] = valid_ids
             return ObservedServiceOutput(
                 "pre_specified_accepted",
                 "error_nonpredictive",
@@ -333,7 +358,12 @@ class ObservedServiceTests(unittest.TestCase):
                 request.primary_coverage,
                 2,
                 request.endpoint.subject_ids,
-                FeatureAxisRef(shared["axis"], 3, "b" * 64, "data.mat:idx"),
+                FeatureAxisRef(
+                    shared["axis"],
+                    3,
+                    _logical_array_sha256(np.arange(3, dtype=np.int64)),
+                    "data.mat:idx",
+                ),
                 tuple(TaskArtifact(kind, path) for kind, path in paths.items()),
             )
 

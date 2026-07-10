@@ -62,6 +62,23 @@ class QualificationServiceTests(unittest.TestCase):
 
     def _final(self, endpoint_id: str, family: str) -> FinalArtifactRecord:
         feature_kind = "candidate_flat_indices" if family.endswith("voxel") else "fiber_ids"
+        fiber_kwargs = (
+            {
+                "full_weights": self._artifact(
+                    "selected_full_weights",
+                    "weights.npy",
+                    (32,),
+                ),
+                "valid_feature_axis": FeatureAxisRef(
+                    Path("valid_fiber_ids.npy"),
+                    24,
+                    "c" * 64,
+                    "fiber_ids",
+                ),
+            }
+            if family.endswith("fiber")
+            else {}
+        )
         return FinalArtifactRecord.create(
             final_model_id="final_selected",
             endpoint_model_id=endpoint_id,
@@ -69,7 +86,11 @@ class QualificationServiceTests(unittest.TestCase):
             final_role="realized_final",
             selected_tau=200 if family.endswith("voxel") else 800,
             selected_coverage=5,
-            estimator="partial_spearman",
+            estimator=(
+                "peak_efield_partial_spearman"
+                if family.endswith("fiber")
+                else "partial_spearman"
+            ),
             scale_direction="lower",
             subject_order=tuple(f"sub-{index:02d}" for index in range(1, 13)),
             nuisance=NuisancePlan.for_branch("hf_source", None),
@@ -77,6 +98,7 @@ class QualificationServiceTests(unittest.TestCase):
             exposure=self._artifact("exposure", "exposure.npy", (12, 32)),
             scores=self._artifact("scores", "scores.csv", (12,)),
             feature_axis=FeatureAxisRef(Path("features.npy"), 32, "b" * 64, feature_kind),
+            **fiber_kwargs,
         )
 
     def test_service_writes_only_task_local_qualification_status_without_classification_feedback(self) -> None:

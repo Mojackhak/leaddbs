@@ -377,11 +377,11 @@ git commit -m "feat: apply branch-local ULF fiber scoring"
 - Produces `FinalArtifactRecord.full_weights: ArtifactRef | None` and `FinalArtifactRecord.valid_feature_axis: FeatureAxisRef | None`.
 - Normative-fiber finals require both; direct-voxel finals keep both as `None`.
 
-- [ ] **Step 1: Add RED record tests**
+- [x] **Step 1: Add RED record tests**
 
 Assert that an HF/ULF normative-fiber final cannot be created without parent-axis full weights and a nonempty valid feature axis, both artifact hashes participate in `record_hash`, an axis-order or weight-artifact change invalidates deserialization, and a direct-voxel final remains valid with both fields set to `None`.
 
-- [ ] **Step 2: Run record tests and verify RED**
+- [x] **Step 2: Run record tests and verify RED**
 
 ```bash
 conda run -n leaddbs python -m unittest \
@@ -389,7 +389,7 @@ conda run -n leaddbs python -m unittest \
   my_helper.fiber.core.outcome_models.tests.test_record_io -v
 ```
 
-- [ ] **Step 3: Extend the final record**
+- [x] **Step 3: Extend the final record**
 
 Add:
 
@@ -400,11 +400,11 @@ valid_feature_axis: FeatureAxisRef | None
 
 to create/serialize/deserialize/hash logic. Enforce both when `estimator` identifies `peak_efield_partial_spearman`; verify the weight shape equals the parent feature count and the valid axis is the exact ordered subset selected by `coverage_mask & isfinite(full_weights)` during persistence.
 
-- [ ] **Step 4: Bind HF and realized-final ULF artifacts**
+- [x] **Step 4: Bind HF and realized-final ULF artifacts**
 
 Require artifact kinds `selected_valid_fiber_ids` and `selected_full_weights` for accepted normative-fiber outputs. Construct `valid_feature_axis` from the selected IDs artifact using the connectome's canonical identity source. Never take the axis from a nonfinal ULF branch.
 
-- [ ] **Step 5: Run record/qualification tests and commit**
+- [x] **Step 5: Run record/qualification tests and commit**
 
 ```bash
 conda run -n leaddbs python -m unittest \
