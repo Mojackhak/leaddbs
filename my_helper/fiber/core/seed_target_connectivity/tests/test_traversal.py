@@ -151,6 +151,11 @@ class SegmentTraversalTests(unittest.TestCase):
 
         self.assertEqual(result.shape, (1, 70))
         self.assertTrue(np.all(result))
+        self.assertGreater(build_sparse_lookup(masks).groups[0].dense_voxel_index.size, 0)
+
+    def test_single_sparse_mask_does_not_allocate_full_grid_index(self) -> None:
+        lookup = build_sparse_lookup([resolved_mask([(1, 1, 1)])])
+        self.assertEqual(lookup.groups[0].dense_voxel_index.size, 0)
 
 
 if __name__ == "__main__":

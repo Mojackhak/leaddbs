@@ -26,6 +26,9 @@ class SparseVoxelGroup:
     voxel_keys: np.ndarray
     voxel_target_bits: np.ndarray
     full_target_bits: np.ndarray
+    dense_voxel_index: np.ndarray
+    lower_bound: np.ndarray
+    upper_bound: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -81,11 +84,31 @@ def build_sparse_lookup(masks: Sequence[ResolvedMask]) -> SparseVoxelLookup:
             voxel_bits[positions, word_index] |= bit
         full_bits = np.bitwise_or.reduce(voxel_bits, axis=0)
         shape = np.asarray(entries[0][1].shape, dtype=np.int64)
+        use_dense_index = len(entries) >= 64
+        if use_dense_index:
+            dense_voxel_index = np.full(int(np.prod(shape, dtype=np.int64)), -1, dtype=np.int32)
+            dense_voxel_index[voxel_keys] = np.arange(voxel_keys.size, dtype=np.int32)
+            lower_bound = np.zeros(3, dtype=np.int64)
+            upper_bound = shape.copy()
+        else:
+            dense_voxel_index = np.empty(0, dtype=np.int32)
+            coordinates = np.asarray(np.unravel_index(voxel_keys, tuple(shape), order="C"), dtype=np.int64)
+            lower_bound = np.min(coordinates, axis=1)
+            upper_bound = np.max(coordinates, axis=1) + 1
         try:
             inverse_affine = np.linalg.inv(np.asarray(entries[0][1].affine, dtype=np.float64))
         except np.linalg.LinAlgError as exc:
             raise TraversalError(f"mask grid {geometry_key} has a singular affine") from exc
-        for array in (voxel_keys, voxel_bits, full_bits, shape, inverse_affine):
+        for array in (
+            voxel_keys,
+            voxel_bits,
+            full_bits,
+            dense_voxel_index,
+            lower_bound,
+            upper_bound,
+            shape,
+            inverse_affine,
+        ):
             array.setflags(write=False)
         groups.append(
             SparseVoxelGroup(
@@ -94,6 +117,9 @@ def build_sparse_lookup(masks: Sequence[ResolvedMask]) -> SparseVoxelLookup:
                 voxel_keys=voxel_keys,
                 voxel_target_bits=voxel_bits,
                 full_target_bits=full_bits,
+                dense_voxel_index=dense_voxel_index,
+                lower_bound=lower_bound,
+                upper_bound=upper_bound,
             )
         )
     return SparseVoxelLookup(
@@ -140,9 +166,7 @@ def reference_membership(
         if mask.flat_voxel_indices.size == 0:
             continue
         inverse_affine = np.linalg.inv(np.asarray(mask.affine, dtype=np.float64))
-        occupied = np.column_stack(
-            np.unravel_index(mask.flat_voxel_indices, mask.shape, order="C")
-        ).astype(np.float64)
+        occupied_keys = np.asarray(mask.flat_voxel_indices, dtype=np.int64)
         for fiber_index, streamline in enumerate(streamlines):
             points = np.asarray(streamline, dtype=np.float64)
             if points.ndim != 2 or points.shape[1] != 3 or points.shape[0] < 2:
@@ -152,9 +176,27 @@ def reference_membership(
             for segment_index in range(voxel_points.shape[0] - 1):
                 start = voxel_points[segment_index]
                 stop = voxel_points[segment_index + 1]
-                for voxel in occupied:
-                    if _segment_intersects_half_open_voxel(start, stop, voxel):
-                        hit = True
+                candidate_min = np.floor(np.minimum(start, stop) + 0.5).astype(np.int64)
+                candidate_max = np.floor(np.maximum(start, stop) + 0.5).astype(np.int64)
+                candidate_min = np.maximum(candidate_min, 0)
+                candidate_max = np.minimum(candidate_max, np.asarray(mask.shape, dtype=np.int64) - 1)
+                if np.any(candidate_min > candidate_max):
+                    continue
+                for x_index in range(int(candidate_min[0]), int(candidate_max[0]) + 1):
+                    for y_index in range(int(candidate_min[1]), int(candidate_max[1]) + 1):
+                        base_key = (x_index * mask.shape[1] + y_index) * mask.shape[2]
+                        for z_index in range(int(candidate_min[2]), int(candidate_max[2]) + 1):
+                            flat_key = base_key + z_index
+                            position = int(np.searchsorted(occupied_keys, flat_key))
+                            if position >= occupied_keys.size or occupied_keys[position] != flat_key:
+                                continue
+                            voxel = np.asarray((x_index, y_index, z_index), dtype=np.float64)
+                            if _segment_intersects_half_open_voxel(start, stop, voxel):
+                                hit = True
+                                break
+                        if hit:
+                            break
+                    if hit:
                         break
                 if hit:
                     break
@@ -196,14 +238,15 @@ def _transform_point(point: np.ndarray, inverse_affine: np.ndarray) -> np.ndarra
 def _clip_segment_to_grid(
     start: np.ndarray,
     stop: np.ndarray,
-    shape: np.ndarray,
+    lower_bound: np.ndarray,
+    upper_bound: np.ndarray,
 ) -> tuple[bool, float, float]:
     enter = 0.0
     leave = 1.0
     for axis in range(3):
         direction = stop[axis] - start[axis]
-        lower = 0.0
-        upper = np.nextafter(float(shape[axis]), -np.inf)
+        lower = float(lower_bound[axis])
+        upper = np.nextafter(float(upper_bound[axis]), -np.inf)
         if direction == 0.0:
             if start[axis] < lower or start[axis] > upper:
                 return False, 0.0, 0.0
@@ -246,6 +289,9 @@ def _traverse_group(
     voxel_keys: np.ndarray,
     voxel_bits: np.ndarray,
     full_bits: np.ndarray,
+    dense_voxel_index: np.ndarray,
+    lower_bound: np.ndarray,
+    upper_bound: np.ndarray,
     output_words: np.ndarray,
 ) -> None:
     for fiber_index in range(point_offsets.size - 1):
@@ -254,7 +300,7 @@ def _traverse_group(
         for point_index in range(point_start, point_stop - 1):
             start = _transform_point(points[point_index], inverse_affine)
             stop = _transform_point(points[point_index + 1], inverse_affine)
-            intersects, enter, leave = _clip_segment_to_grid(start, stop, shape)
+            intersects, enter, leave = _clip_segment_to_grid(start, stop, lower_bound, upper_bound)
             if not intersects:
                 continue
             original_direction = stop - start
@@ -269,14 +315,14 @@ def _traverse_group(
             for axis in range(3):
                 cell[axis] = int(np.floor(clipped_start[axis]))
                 end_cell[axis] = int(np.floor(clipped_stop[axis]))
-                if cell[axis] < 0:
-                    cell[axis] = 0
-                elif cell[axis] >= shape[axis]:
-                    cell[axis] = shape[axis] - 1
-                if end_cell[axis] < 0:
-                    end_cell[axis] = 0
-                elif end_cell[axis] >= shape[axis]:
-                    end_cell[axis] = shape[axis] - 1
+                if cell[axis] < lower_bound[axis]:
+                    cell[axis] = lower_bound[axis]
+                elif cell[axis] >= upper_bound[axis]:
+                    cell[axis] = upper_bound[axis] - 1
+                if end_cell[axis] < lower_bound[axis]:
+                    end_cell[axis] = lower_bound[axis]
+                elif end_cell[axis] >= upper_bound[axis]:
+                    end_cell[axis] = upper_bound[axis] - 1
                 if direction[axis] > 0.0:
                     step[axis] = 1
                     next_boundary_t[axis] = (float(cell[axis] + 1) - clipped_start[axis]) / direction[axis]
@@ -289,10 +335,18 @@ def _traverse_group(
                     next_boundary_t[axis] = np.inf
                     delta_t[axis] = np.inf
 
-            maximum_steps = int(shape[0] + shape[1] + shape[2] + 3)
+            maximum_steps = int(
+                (upper_bound[0] - lower_bound[0])
+                + (upper_bound[1] - lower_bound[1])
+                + (upper_bound[2] - lower_bound[2])
+                + 3
+            )
             for _ in range(maximum_steps):
                 flat_key = (cell[0] * shape[1] + cell[1]) * shape[2] + cell[2]
-                key_index = _binary_search(voxel_keys, flat_key)
+                if dense_voxel_index.size:
+                    key_index = int(dense_voxel_index[flat_key])
+                else:
+                    key_index = _binary_search(voxel_keys, flat_key)
                 if key_index >= 0:
                     for word_index in range(output_words.shape[1]):
                         output_words[fiber_index, word_index] |= voxel_bits[key_index, word_index]
@@ -334,6 +388,9 @@ def optimized_membership(chunk: FiberChunk, lookup: SparseVoxelLookup) -> np.nda
             group.voxel_keys,
             group.voxel_target_bits,
             group.full_target_bits,
+            group.dense_voxel_index,
+            group.lower_bound,
+            group.upper_bound,
             output_words,
         )
     result = np.zeros((chunk.fiber_ids.size, lookup.target_count), dtype=bool)

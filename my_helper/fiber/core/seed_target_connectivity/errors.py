@@ -35,3 +35,7 @@ class StatisticsError(SeedTargetConnectivityError, ValueError):
 
 class ArtifactError(SeedTargetConnectivityError, ValueError):
     """Raised when immutable run artifacts cannot satisfy their contract."""
+
+
+class AcceptanceError(SeedTargetConnectivityError, ValueError):
+    """Raised when an explicit repository acceptance fixture is invalid."""

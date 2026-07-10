@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Iterator, Protocol, runtime_checkable
+from typing import Iterator, Protocol, Sequence, runtime_checkable
 
 import h5py
 import numpy as np
@@ -163,6 +163,40 @@ class LeadDBSHDF5Connectome:
             raise
         except Exception as exc:
             raise ConnectomeError(f"failed while reading connectome {self._path}: {exc}") from exc
+
+    def load_streamlines(self, fiber_ids: Sequence[int]) -> tuple[np.ndarray, ...]:
+        """Load a small requested set of one-based canonical fibers in request order."""
+        requested = np.asarray(fiber_ids, dtype=np.int64)
+        if requested.ndim != 1:
+            raise ConnectomeError("requested canonical fiber IDs must be one-dimensional")
+        if np.unique(requested).size != requested.size:
+            raise ConnectomeError("requested canonical fiber IDs must be unique")
+        if np.any(requested < 1) or np.any(requested > self._metadata.n_fibers):
+            raise ConnectomeError("requested canonical fiber ID is outside the connectome")
+        if requested.size == 0:
+            return ()
+        point_stops = np.cumsum(self._lengths, dtype=np.int64)
+        streamlines: list[np.ndarray] = []
+        try:
+            with h5py.File(self._path, "r") as handle:
+                fibers = handle["fibers"]
+                for fiber_id in requested:
+                    index = int(fiber_id) - 1
+                    point_start = 0 if index == 0 else int(point_stops[index - 1])
+                    point_stop = int(point_stops[index])
+                    block = np.asarray(fibers[0:4, point_start:point_stop], dtype=np.float32)
+                    coordinates = np.ascontiguousarray(block[0:3, :].T)
+                    if not np.all(np.isfinite(coordinates)):
+                        raise ConnectomeError(f"canonical fiber {int(fiber_id)} contains nonfinite coordinates")
+                    if not np.all(block[3, :] == np.float32(fiber_id)):
+                        raise ConnectomeError(f"canonical fiber ID mismatch while loading fiber {int(fiber_id)}")
+                    coordinates.setflags(write=False)
+                    streamlines.append(coordinates)
+        except ConnectomeError:
+            raise
+        except Exception as exc:
+            raise ConnectomeError(f"failed to load sampled fibers from {self._path}: {exc}") from exc
+        return tuple(streamlines)
 
 
 def open_connectome(path: Path | str) -> LeadDBSHDF5Connectome:

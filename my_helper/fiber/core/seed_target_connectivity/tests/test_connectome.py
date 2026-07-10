@@ -121,6 +121,24 @@ class LeadDBSHDF5ConnectomeTests(unittest.TestCase):
 
         self.assertEqual(first, repeated)
 
+    def test_load_streamlines_by_canonical_id_preserves_requested_order(self) -> None:
+        streamlines = [
+            line((0, 0, 0), (1, 0, 0)),
+            line((0, 1, 0), (1, 1, 0), (2, 1, 0)),
+            line((0, 2, 0), (1, 2, 0)),
+        ]
+        path = write_hdf5_connectome(self.root / "data.mat", streamlines)
+        adapter = LeadDBSHDF5Connectome(path)
+
+        loaded = adapter.load_streamlines([3, 1])
+
+        self.assertTrue(np.array_equal(loaded[0], streamlines[2]))
+        self.assertTrue(np.array_equal(loaded[1], streamlines[0]))
+        with self.assertRaises(ConnectomeError):
+            adapter.load_streamlines([1, 1])
+        with self.assertRaises(ConnectomeError):
+            adapter.load_streamlines([0])
+
 
 if __name__ == "__main__":
     unittest.main()
