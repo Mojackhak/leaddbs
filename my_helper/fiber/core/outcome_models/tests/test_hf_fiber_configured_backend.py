@@ -155,6 +155,7 @@ class ConfiguredRequestTests(unittest.TestCase):
                     "selected_manifest",
                     "selected_scores",
                     "selected_full_weights",
+                    "selected_valid_fiber_ids",
                     "selected_fold_weights",
                     "selected_fold_scores",
                 )
@@ -216,6 +217,7 @@ class ConfiguredRequestTests(unittest.TestCase):
                 "exposure_matrix",
                 "selected_scores",
                 "selected_full_weights",
+                "selected_valid_fiber_ids",
                 "selected_fold_weights",
                 "selected_fold_scores",
             },
@@ -249,6 +251,49 @@ class ConfiguredRequestTests(unittest.TestCase):
             with patch.object(legacy_hf_fiber, "_load_legacy_analysis", return_value=fake_analysis):
                 with self.assertRaisesRegex(RuntimeError, "subject order"):
                     run_configured_hf_fiber_primary(request)
+
+    def test_resolver_rejects_accepted_source_without_valid_fiber_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            request = _request(root)
+            ids_path = request.model_root / "cache" / "fiber_ids.npy"
+            ids_path.parent.mkdir(parents=True, exist_ok=True)
+            ids_path.write_text("test\n", encoding="utf-8")
+            artifact_kinds = {
+                "source_status",
+                "selected_source",
+                "selected_manifest",
+                "exposure_matrix",
+                "selected_scores",
+                "selected_full_weights",
+                "selected_fold_weights",
+                "selected_fold_scores",
+            }
+            artifacts = {kind: request.output_root / f"{kind}.artifact" for kind in artifact_kinds}
+            for path in artifacts.values():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("test\n", encoding="utf-8")
+            fake_analysis = SimpleNamespace(
+                run_hf_normative_fiber_resolver_configured=lambda _config: {
+                    "source_status": "pre_specified_accepted",
+                    "prediction_status": "error_predictive",
+                    "threshold_source": "pre_specified",
+                    "selected_tau": 275.0,
+                    "selected_coverage": 3,
+                    "adjacent_support": 2,
+                    "subject_order": list(request.endpoint.subject_ids),
+                    "feature_axis": {
+                        "ids_path": str(ids_path),
+                        "count": 1,
+                        "sha256": "a" * 64,
+                        "identity_source": "data.mat:idx",
+                    },
+                    "artifacts": {kind: str(path) for kind, path in artifacts.items()},
+                }
+            )
+            with patch.object(legacy_hf_fiber, "_load_legacy_analysis", return_value=fake_analysis):
+                with self.assertRaisesRegex(RuntimeError, "selected_valid_fiber_ids"):
+                    run_configured_hf_fiber_resolver(request)
 
     def test_all_observed_stage_artifact_runners_return_exact_planner_kinds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -292,6 +337,124 @@ class ConfiguredRequestTests(unittest.TestCase):
 
 
 class ObservedStageKernelTests(unittest.TestCase):
+    def test_suprathreshold_coverage_excludes_values_equal_to_tau(self) -> None:
+        observed = hf_fiber_analysis.suprathreshold_matrix(
+            np.array([[0.99, 1.0, 1.01]], dtype=np.float32),
+            1.0,
+        )
+        np.testing.assert_array_equal(observed, np.array([[False, False, True]]))
+
+    def test_observed_loocv_records_full_and_fold_local_score_support(self) -> None:
+        x = np.array(
+            [
+                [2.0, 3.0, 2.0, 5.0],
+                [3.0, 2.0, 2.0, 4.0],
+                [4.0, 5.0, 0.5, 3.0],
+                [5.0, 4.0, 0.5, 2.0],
+                [6.0, 7.0, 0.5, 3.5],
+                [7.0, 6.0, 0.5, 4.5],
+            ],
+            dtype=np.float32,
+        )
+
+        def deterministic_weights(_y, exposure, _baseline):
+            return np.linspace(1.0, -1.0, exposure.shape[1])
+
+        with patch.object(
+            hf_fiber_analysis,
+            "partial_spearman_matrix",
+            side_effect=deterministic_weights,
+        ), patch.object(
+            hf_fiber_analysis,
+            "fit_linear_prediction",
+            return_value=(np.array([1.0]), np.array([0.0, 0.0, 0.0])),
+        ), patch.object(
+            hf_fiber_analysis,
+            "fit_baseline_only",
+            return_value=(np.array([1.0]), np.array([0.0, 0.0])),
+        ):
+            score_rows, fold_rows, qc, *_ = hf_fiber_analysis.run_observed_loocv(
+                x=x,
+                fiber_ids=np.array([101, 102, 103, 104], dtype=np.int64),
+                y_post=np.array([3.0, 1.0, 4.0, 2.0, 6.0, 5.0]),
+                y_base=np.array([1.0, 3.0, 2.0, 6.0, 4.0, 5.0]),
+                subject_ids=[f"sub-{index:02d}" for index in range(6)],
+                scale_direction="higher",
+                tau=1.0,
+                min_coverage=2,
+                sweet_fraction=1.0,
+                sour_fraction=0.5,
+                peak_fraction=0.5,
+                sweet_selected_min_count=1,
+                sour_selected_min_count=1,
+                weighted_peak_min_count=1,
+            )
+
+        required = {
+            "n_positive_valid_fibers",
+            "n_negative_valid_fibers",
+            "sweet_fraction_requested",
+            "sour_fraction_requested",
+            "weighted_peak_fraction_requested",
+            "sweet_selected_k_min",
+            "sour_selected_k_min",
+            "weighted_peak_k_min",
+            "sweet_percentage_count",
+            "sour_percentage_count",
+            "sweet_actual_selected_count",
+            "sour_actual_selected_count",
+            "sweet_actual_peak_count",
+            "sour_actual_peak_count",
+            "sweet_minimum_count_dominated",
+            "sour_minimum_count_dominated",
+            "sweet_peak_minimum_count_dominated",
+            "sour_peak_minimum_count_dominated",
+            "fiber_score_support_status",
+            "sweet_selected_fiber_id_hash",
+            "sour_selected_fiber_id_hash",
+        }
+        self.assertTrue(required <= score_rows[0].keys())
+        self.assertTrue(required <= fold_rows[0].keys())
+        self.assertTrue(required <= qc.keys())
+        self.assertEqual(score_rows[0]["n_positive_valid_fibers"], 2)
+        self.assertEqual(fold_rows[0]["n_positive_valid_fibers"], 1)
+        self.assertNotEqual(
+            score_rows[0]["sweet_selected_fiber_id_hash"],
+            fold_rows[0]["sweet_selected_fiber_id_hash"],
+        )
+
+    def test_one_sided_score_remains_computable_and_is_limited(self) -> None:
+        x = np.arange(24, dtype=np.float32).reshape(6, 4) + 2.0
+        with patch.object(
+            hf_fiber_analysis,
+            "partial_spearman_matrix",
+            side_effect=lambda _y, exposure, _base: np.arange(1, exposure.shape[1] + 1),
+        ), patch.object(
+            hf_fiber_analysis,
+            "fit_linear_prediction",
+            return_value=(np.array([1.0]), np.array([0.0, 0.0, 0.0])),
+        ), patch.object(
+            hf_fiber_analysis,
+            "fit_baseline_only",
+            return_value=(np.array([1.0]), np.array([0.0, 0.0])),
+        ):
+            _, _, qc, *_ = hf_fiber_analysis.run_observed_loocv(
+                x=x,
+                fiber_ids=np.arange(1, 5, dtype=np.int64),
+                y_post=np.array([3.0, 1.0, 4.0, 2.0, 6.0, 5.0]),
+                y_base=np.array([1.0, 3.0, 2.0, 6.0, 4.0, 5.0]),
+                subject_ids=[f"sub-{index:02d}" for index in range(6)],
+                scale_direction="higher",
+                tau=1.0,
+                min_coverage=2,
+                sweet_selected_min_count=1,
+                sour_selected_min_count=1,
+                weighted_peak_min_count=1,
+            )
+
+        self.assertTrue(qc["selected_fiber_pools_computable"])
+        self.assertEqual(qc["fiber_score_support_status"], "limited_positive_only")
+
     def test_plain_control_computes_documented_exposures_and_four_loocv_models(self) -> None:
         rng = np.random.default_rng(42)
         x = rng.uniform(0.0, 4.0, size=(12, 80)).astype(np.float32)
@@ -414,6 +577,9 @@ class ObservedStageKernelTests(unittest.TestCase):
                 coverage_grid=(3, 4),
                 primary_tau=1.0,
                 primary_coverage=3,
+                sweet_selected_min_count=2,
+                sour_selected_min_count=1,
+                weighted_peak_min_count=1,
             )
             config.output_dir.mkdir(parents=True)
             config.preprocess_dir.mkdir(parents=True)
@@ -422,26 +588,42 @@ class ObservedStageKernelTests(unittest.TestCase):
             fiber_ids = np.arange(1, 91, dtype=np.int64)
             y_base = np.linspace(2.0, 15.0, 12)
             y_post = 0.5 * y_base - 1.2 * x[:, 0] + rng.normal(0.0, 0.3, size=12)
-            artifacts = hf_fiber_analysis._materialize_selected_source_artifacts(
-                config=config,
-                x=x,
-                fiber_ids=fiber_ids,
-                y_post=y_post,
-                y_base=y_base,
-                subject_ids=list(config.subject_order),
-                selected_tau=1.5,
-                selected_coverage=4,
-                source_status="scan_fallback_accepted",
-                prediction_status="error_predictive",
-            )
+            def weights_with_one_nonfinite(_y, exposure, _baseline):
+                values = np.linspace(1.0, -1.0, exposure.shape[1])
+                values[0] = np.nan
+                return values
+
+            with patch.object(
+                hf_fiber_analysis,
+                "partial_spearman_matrix",
+                side_effect=weights_with_one_nonfinite,
+            ):
+                artifacts = hf_fiber_analysis._materialize_selected_source_artifacts(
+                    config=config,
+                    x=x,
+                    fiber_ids=fiber_ids,
+                    y_post=y_post,
+                    y_base=y_base,
+                    subject_ids=list(config.subject_order),
+                    selected_tau=1.5,
+                    selected_coverage=4,
+                    source_status="scan_fallback_accepted",
+                    prediction_status="error_predictive",
+                )
             manifest = json.loads(Path(artifacts["selected_manifest"]).read_text(encoding="utf-8"))
             full_weights = np.load(artifacts["selected_full_weights"])
+            valid_fiber_ids = np.load(artifacts["selected_valid_fiber_ids"])
             fold_weights = np.load(artifacts["selected_fold_weights"])
 
         self.assertEqual(manifest["source_status"], "scan_fallback_accepted")
         self.assertEqual((manifest["selected_tau_v_per_m"], manifest["selected_coverage"]), (1.5, 4))
         self.assertEqual(full_weights.shape, (90,))
         self.assertEqual(fold_weights.shape, (12, 90))
+        expected_valid = fiber_ids[
+            (np.count_nonzero(x > 1.5, axis=0) >= 4) & np.isfinite(full_weights)
+        ]
+        np.testing.assert_array_equal(valid_fiber_ids, expected_valid)
+        self.assertNotIn(1, valid_fiber_ids)
         self.assertEqual(
             set(artifacts),
             {
@@ -449,6 +631,7 @@ class ObservedStageKernelTests(unittest.TestCase):
                 "exposure_matrix",
                 "selected_scores",
                 "selected_full_weights",
+                "selected_valid_fiber_ids",
                 "selected_fold_weights",
                 "selected_fold_scores",
             },

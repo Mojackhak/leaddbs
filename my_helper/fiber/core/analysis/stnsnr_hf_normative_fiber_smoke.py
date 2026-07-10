@@ -36,6 +36,7 @@ from stnsnr_four_model_readiness import (
 )
 from stnsnr_four_model_stats import (
     FiberNetScoreResult,
+    NormativeFiberScoreConfig,
     benefit_oriented_weights,
     candidate_mask_from_coverage,
     coverage_from_suprathreshold,
@@ -44,6 +45,7 @@ from stnsnr_four_model_stats import (
     partial_spearman_matrix,
     pearson_corr_columns,
     regression_metrics,
+    score_support_fields,
     suprathreshold_matrix,
 )
 from stnsnr_four_model_resolver import classify_prediction_status, finite_float
@@ -85,6 +87,29 @@ NORM_FIBER_SENSITIVITY_COVERAGE = 5
 NORM_FIBER_SENSITIVITY_SWEET_COUNT = 1500
 NORM_FIBER_SENSITIVITY_SOUR_COUNT = 500
 NORM_FIBER_WEIGHTED_PEAK_FRACTION = 0.05
+NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS = (
+    "n_positive_valid_fibers",
+    "n_negative_valid_fibers",
+    "sweet_fraction_requested",
+    "sour_fraction_requested",
+    "weighted_peak_fraction_requested",
+    "sweet_selected_k_min",
+    "sour_selected_k_min",
+    "weighted_peak_k_min",
+    "sweet_percentage_count",
+    "sour_percentage_count",
+    "sweet_actual_selected_count",
+    "sour_actual_selected_count",
+    "sweet_actual_peak_count",
+    "sour_actual_peak_count",
+    "sweet_minimum_count_dominated",
+    "sour_minimum_count_dominated",
+    "sweet_peak_minimum_count_dominated",
+    "sour_peak_minimum_count_dominated",
+    "fiber_score_support_status",
+    "sweet_selected_fiber_id_hash",
+    "sour_selected_fiber_id_hash",
+)
 
 
 @dataclass(frozen=True)
@@ -955,9 +980,7 @@ def _fiber_score_for_selection(
     candidate: np.ndarray,
     fiber_ids: np.ndarray,
     *,
-    sweet_fraction: float,
-    sour_fraction: float,
-    peak_fraction: float,
+    score_config: NormativeFiberScoreConfig,
     sweet_count: int | None,
     sour_count: int | None,
 ) -> FiberNetScoreResult:
@@ -967,9 +990,7 @@ def _fiber_score_for_selection(
             weights,
             candidate,
             fiber_ids=fiber_ids,
-            sweet_percent=sweet_fraction,
-            sour_percent=sour_fraction,
-            peak_percent=peak_fraction,
+            score_config=score_config,
         )
     if sweet_count is None or sour_count is None:
         raise ValueError("sweet_count and sour_count must be configured together")
@@ -980,7 +1001,7 @@ def _fiber_score_for_selection(
         fiber_ids=fiber_ids,
         sweet_count=sweet_count,
         sour_count=sour_count,
-        peak_fraction=peak_fraction,
+        peak_fraction=score_config.weighted_peak_fraction,
     )
 
 
@@ -997,10 +1018,22 @@ def run_observed_loocv(
     sweet_fraction: float = 0.01,
     sour_fraction: float = 0.005,
     peak_fraction: float = NORM_FIBER_WEIGHTED_PEAK_FRACTION,
+    sweet_selected_min_count: int = 200,
+    sour_selected_min_count: int = 100,
+    weighted_peak_min_count: int = 20,
     sweet_count: int | None = None,
     sour_count: int | None = None,
     fold_weights_output: Path | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], np.ndarray, np.ndarray, np.ndarray]:
+    score_config = NormativeFiberScoreConfig(
+        sweet_fraction=sweet_fraction,
+        sour_fraction=sour_fraction,
+        weighted_peak_fraction=peak_fraction,
+        sweet_selected_min_count=sweet_selected_min_count,
+        sour_selected_min_count=sour_selected_min_count,
+        weighted_peak_min_count=weighted_peak_min_count,
+    )
+    fixed_count_mode = sweet_count is not None or sour_count is not None
     s_tau = suprathreshold_matrix(x, tau)
     coverage = coverage_from_suprathreshold(s_tau)
     candidate = candidate_mask_from_coverage(coverage, min_coverage)
@@ -1016,12 +1049,11 @@ def run_observed_loocv(
         weights,
         candidate,
         fiber_ids,
-        sweet_fraction=sweet_fraction,
-        sour_fraction=sour_fraction,
-        peak_fraction=peak_fraction,
+        score_config=score_config,
         sweet_count=sweet_count,
         sour_count=sour_count,
     )
+    full_support = {} if fixed_count_mode else score_support_fields(full_net, score_config)
 
     score_rows: list[dict[str, Any]] = []
     for idx, subject_id in enumerate(subject_ids):
@@ -1037,6 +1069,7 @@ def run_observed_loocv(
                 "n_sour_selected_fibers": int(full_net.sour_fiber_ids.size),
                 "n_sweet_peak_fibers": int(full_net.n_sweet_peak_fibers),
                 "n_sour_peak_fibers": int(full_net.n_sour_peak_fibers),
+                **full_support,
                 "score_map_source": "full_sample",
                 "is_primary_score": True,
             }
@@ -1073,12 +1106,11 @@ def run_observed_loocv(
             weights_fold,
             candidate_fold,
             fiber_ids,
-            sweet_fraction=sweet_fraction,
-            sour_fraction=sour_fraction,
-            peak_fraction=peak_fraction,
+            score_config=score_config,
             sweet_count=sweet_count,
             sour_count=sour_count,
         )
+        fold_support = {} if fixed_count_mode else score_support_fields(fold_net, score_config)
         if np.nanstd(fold_net.net_score[train]) == 0:
             net_score_nonconstant_all_folds = False
         fold_pred, beta = fit_linear_prediction(
@@ -1108,6 +1140,7 @@ def run_observed_loocv(
                 "n_candidate_fibers": int(np.count_nonzero(candidate_fold)),
                 "n_sweet_selected_fibers": int(fold_net.sweet_fiber_ids.size),
                 "n_sour_selected_fibers": int(fold_net.sour_fiber_ids.size),
+                **fold_support,
                 "delta": beta[1],
                 "beta_Y_base": beta[2],
                 "baseline_beta_Y_base": base_beta[1],
@@ -1129,7 +1162,7 @@ def run_observed_loocv(
         "fold_n_candidate_fibers_min": int(np.nanmin(fold_count_array)) if fold_count_array.size else 0,
         "fold_n_candidate_fibers_median": float(np.nanmedian(fold_count_array)) if fold_count_array.size else 0.0,
         "fold_n_candidate_fibers_max": int(np.nanmax(fold_count_array)) if fold_count_array.size else 0,
-        "selected_fiber_pools_computable": bool(full_net.sweet_fiber_ids.size > 0 and full_net.sour_fiber_ids.size > 0),
+        "selected_fiber_pools_computable": bool(full_net.sweet_fiber_ids.size > 0 or full_net.sour_fiber_ids.size > 0),
         "netfiberscore_nonconstant_all_folds": net_score_nonconstant_all_folds,
         "y_base_nuisance_design_valid": y_base_nuisance_valid,
         "all_predictions_finite": finite_predictions,
@@ -1138,6 +1171,7 @@ def run_observed_loocv(
         "coverage_mean": float(np.mean(coverage)) if coverage.size else 0.0,
         "n_sweet_selected_fibers": int(full_net.sweet_fiber_ids.size),
         "n_sour_selected_fibers": int(full_net.sour_fiber_ids.size),
+        **full_support,
         "score_selection": {
             "mode": "fixed_count" if sweet_count is not None else "fraction",
             "sweet_fraction": sweet_fraction if sweet_count is None else None,
@@ -1145,6 +1179,9 @@ def run_observed_loocv(
             "sweet_count": sweet_count,
             "sour_count": sour_count,
             "weighted_peak_fraction": peak_fraction,
+            "sweet_selected_min_count": sweet_selected_min_count if not fixed_count_mode else None,
+            "sour_selected_min_count": sour_selected_min_count if not fixed_count_mode else None,
+            "weighted_peak_min_count": weighted_peak_min_count if not fixed_count_mode else None,
         },
         "loocv_metrics": metrics,
         "resampling_status": "not_run_smoke_observed_only",
@@ -1419,6 +1456,9 @@ def evaluate_normative_fiber_grid_cell(
     sweet_fraction: float = 0.01,
     sour_fraction: float = 0.005,
     peak_fraction: float = NORM_FIBER_WEIGHTED_PEAK_FRACTION,
+    sweet_selected_min_count: int = 200,
+    sour_selected_min_count: int = 100,
+    weighted_peak_min_count: int = 20,
 ) -> dict[str, Any]:
     """Evaluate one HF normative fiber tau/Coverage resolver grid cell."""
     try:
@@ -1434,6 +1474,9 @@ def evaluate_normative_fiber_grid_cell(
             sweet_fraction=sweet_fraction,
             sour_fraction=sour_fraction,
             peak_fraction=peak_fraction,
+            sweet_selected_min_count=sweet_selected_min_count,
+            sour_selected_min_count=sour_selected_min_count,
+            weighted_peak_min_count=weighted_peak_min_count,
         )
     except Exception as exc:
         return _normative_scan_empty_row(
@@ -1730,6 +1773,9 @@ def run_hf_normative_fiber_primary_configured(config: HFNormativeFiberAnalysisCo
         sweet_fraction=config.sweet_fraction,
         sour_fraction=config.sour_fraction,
         peak_fraction=config.weighted_peak_fraction,
+        sweet_selected_min_count=config.sweet_selected_min_count,
+        sour_selected_min_count=config.sour_selected_min_count,
+        weighted_peak_min_count=config.weighted_peak_min_count,
     )
 
     names = hf_fiber_artifact_names(config.primary_tau, config.primary_coverage, dynamic=config.dynamic_names)
@@ -1760,7 +1806,8 @@ def run_hf_normative_fiber_primary_configured(config: HFNormativeFiberAnalysisCo
         [
             "subject_id", "Y_post", "Y_base", "SweetPeak5", "SourPeak5", "NetFiberScore",
             "n_sweet_selected_fibers", "n_sour_selected_fibers", "n_sweet_peak_fibers",
-            "n_sour_peak_fibers", "score_map_source", "is_primary_score",
+            "n_sour_peak_fibers", *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
+            "score_map_source", "is_primary_score",
         ],
     )
     write_csv(
@@ -1771,6 +1818,7 @@ def run_hf_normative_fiber_primary_configured(config: HFNormativeFiberAnalysisCo
             "SourPeak5_LOOCV", "NetFiberScore_LOOCV", "prediction_NetFiberScore_model",
             "prediction_baseline_only", "residual_NetFiberScore_model", "residual_baseline_only",
             "n_train", "n_candidate_fibers", "n_sweet_selected_fibers", "n_sour_selected_fibers",
+            *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
             "delta", "beta_Y_base", "baseline_beta_Y_base",
         ],
     )
@@ -1818,6 +1866,14 @@ def run_hf_normative_fiber_primary_configured(config: HFNormativeFiberAnalysisCo
             "max_fibers": config.max_fibers,
             "fiber_chunk_size": config.fiber_chunk_size,
             "random_seed": 42,
+            "score": {
+                "sweet_fraction": config.sweet_fraction,
+                "sour_fraction": config.sour_fraction,
+                "weighted_peak_fraction": config.weighted_peak_fraction,
+                "sweet_selected_min_count": config.sweet_selected_min_count,
+                "sour_selected_min_count": config.sour_selected_min_count,
+                "weighted_peak_min_count": config.weighted_peak_min_count,
+            },
         },
         "outputs": {
             "preprocess_dir": str(config.preprocess_dir),
@@ -1991,7 +2047,8 @@ def _write_sensitivity_branch_outputs(
         [
             "subject_id", "Y_post", "Y_base", "SweetPeak5", "SourPeak5", "NetFiberScore",
             "n_sweet_selected_fibers", "n_sour_selected_fibers", "n_sweet_peak_fibers",
-            "n_sour_peak_fibers", "score_map_source", "is_primary_score",
+            "n_sour_peak_fibers", *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
+            "score_map_source", "is_primary_score",
         ],
     )
     write_csv(
@@ -2002,6 +2059,7 @@ def _write_sensitivity_branch_outputs(
             "SourPeak5_LOOCV", "NetFiberScore_LOOCV", "prediction_NetFiberScore_model",
             "prediction_baseline_only", "residual_NetFiberScore_model", "residual_baseline_only",
             "n_train", "n_candidate_fibers", "n_sweet_selected_fibers", "n_sour_selected_fibers",
+            *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
             "delta", "beta_Y_base", "baseline_beta_Y_base",
         ],
     )
@@ -2070,6 +2128,9 @@ def run_hf_normative_fiber_cheap_observed_sensitivity_configured(
                 sweet_fraction=config.sweet_fraction,
                 sour_fraction=config.sour_fraction,
                 peak_fraction=config.weighted_peak_fraction,
+                sweet_selected_min_count=config.sweet_selected_min_count,
+                sour_selected_min_count=config.sour_selected_min_count,
+                weighted_peak_min_count=config.weighted_peak_min_count,
             )
             if not _strict_boolean(qc["selected_fiber_pools_computable"]):
                 branch_status = "selected_fiber_pool_empty"
@@ -2172,14 +2233,18 @@ def _materialize_selected_source_artifacts(
 ) -> dict[str, str]:
     token = f"tau{_numeric_token(selected_tau)}_cov{int(selected_coverage)}"
     full_weights_path = config.output_dir / f"selected_{token}_full_weights.npy"
+    valid_fiber_ids_path = config.output_dir / f"selected_{token}_valid_fiber_ids.npy"
     fold_weights_path = config.output_dir / f"selected_{token}_fold_weights.npy"
     scores_path = config.output_dir / f"selected_{token}_scores.csv"
     fold_scores_path = config.output_dir / f"selected_{token}_fold_scores.csv"
     selected_manifest_path = config.output_dir / f"selected_{token}_manifest.json"
     temporary_full_weights = full_weights_path.with_name(f".{full_weights_path.stem}.{uuid4().hex}.tmp.npy")
+    temporary_valid_fiber_ids = valid_fiber_ids_path.with_name(
+        f".{valid_fiber_ids_path.stem}.{uuid4().hex}.tmp.npy"
+    )
     temporary_fold_weights = fold_weights_path.with_name(f".{fold_weights_path.stem}.{uuid4().hex}.tmp.npy")
     try:
-        score_rows, fold_rows, qc, _, _, weights = run_observed_loocv(
+        score_rows, fold_rows, qc, coverage, _, weights = run_observed_loocv(
             x=x,
             fiber_ids=fiber_ids,
             y_post=y_post,
@@ -2191,13 +2256,19 @@ def _materialize_selected_source_artifacts(
             sweet_fraction=config.sweet_fraction,
             sour_fraction=config.sour_fraction,
             peak_fraction=config.weighted_peak_fraction,
+            sweet_selected_min_count=config.sweet_selected_min_count,
+            sour_selected_min_count=config.sour_selected_min_count,
+            weighted_peak_min_count=config.weighted_peak_min_count,
             fold_weights_output=temporary_fold_weights,
         )
+        valid_mask = candidate_mask_from_coverage(coverage, selected_coverage) & np.isfinite(weights)
         np.save(temporary_full_weights, weights.astype(np.float32))
+        np.save(temporary_valid_fiber_ids, np.asarray(fiber_ids, dtype=np.int64)[valid_mask])
         os.replace(temporary_full_weights, full_weights_path)
+        os.replace(temporary_valid_fiber_ids, valid_fiber_ids_path)
         os.replace(temporary_fold_weights, fold_weights_path)
     finally:
-        for temporary in (temporary_full_weights, temporary_fold_weights):
+        for temporary in (temporary_full_weights, temporary_valid_fiber_ids, temporary_fold_weights):
             if temporary.exists():
                 temporary.unlink()
 
@@ -2207,7 +2278,8 @@ def _materialize_selected_source_artifacts(
         [
             "subject_id", "Y_post", "Y_base", "SweetPeak5", "SourPeak5", "NetFiberScore",
             "n_sweet_selected_fibers", "n_sour_selected_fibers", "n_sweet_peak_fibers",
-            "n_sour_peak_fibers", "score_map_source", "is_primary_score",
+            "n_sour_peak_fibers", *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
+            "score_map_source", "is_primary_score",
         ],
     )
     write_csv(
@@ -2218,6 +2290,7 @@ def _materialize_selected_source_artifacts(
             "SourPeak5_LOOCV", "NetFiberScore_LOOCV", "prediction_NetFiberScore_model",
             "prediction_baseline_only", "residual_NetFiberScore_model", "residual_baseline_only",
             "n_train", "n_candidate_fibers", "n_sweet_selected_fibers", "n_sour_selected_fibers",
+            *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
             "delta", "beta_Y_base", "baseline_beta_Y_base",
         ],
     )
@@ -2226,6 +2299,7 @@ def _materialize_selected_source_artifacts(
         "exposure_matrix": str(exposure_path),
         "selected_scores": str(scores_path),
         "selected_full_weights": str(full_weights_path),
+        "selected_valid_fiber_ids": str(valid_fiber_ids_path),
         "selected_fold_weights": str(fold_weights_path),
         "selected_fold_scores": str(fold_scores_path),
     }
@@ -2278,6 +2352,9 @@ def run_hf_normative_fiber_resolver_configured(config: HFNormativeFiberAnalysisC
                     sweet_fraction=config.sweet_fraction,
                     sour_fraction=config.sour_fraction,
                     peak_fraction=config.weighted_peak_fraction,
+                    sweet_selected_min_count=config.sweet_selected_min_count,
+                    sour_selected_min_count=config.sour_selected_min_count,
+                    weighted_peak_min_count=config.weighted_peak_min_count,
                 )
             )
     resolved = resolve_normative_fiber_source(

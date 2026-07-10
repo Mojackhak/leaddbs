@@ -160,6 +160,7 @@ def _observed_output(
         "exposure_matrix",
         "selected_scores",
         "selected_full_weights",
+        "selected_valid_fiber_ids",
         "selected_fold_weights",
         "selected_fold_scores",
     }

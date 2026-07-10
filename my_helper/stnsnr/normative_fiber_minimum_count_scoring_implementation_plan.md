@@ -252,13 +252,13 @@ git commit -m "feat: configure normative fiber score minima"
 - Consumes `NormativeFiberScoreConfig` and `FiberNetScoreResult`.
 - Produces `selected_valid_fiber_ids`, full support QC, and all required per-fold support fields.
 
-- [ ] **Step 1: Add RED tests for HF leakage prevention and support fields**
+- [x] **Step 1: Add RED tests for HF leakage prevention and support fields**
 
 Construct a fold where the held-out subject is the only subject lifting one fiber over Coverage. Assert that fiber is absent from that fold's selected ID hash but may appear in the full-sample hash. Assert one-sided folds remain computable unless score nonconstancy or another existing hard filter fails.
 
 Include an exposure exactly equal to tau and assert it is not suprathreshold, preserving the confirmed `E > tau` resolver comparator.
 
-- [ ] **Step 2: Run HF focused tests and verify RED**
+- [x] **Step 2: Run HF focused tests and verify RED**
 
 ```bash
 conda run -n leaddbs python my_helper/fiber/core/analysis/stnsnr_hf_normative_fiber_smoke_selftest.py
@@ -266,15 +266,15 @@ conda run -n leaddbs python -m unittest \
   my_helper.fiber.core.outcome_models.tests.test_hf_fiber_configured_backend -v
 ```
 
-- [ ] **Step 3: Replace primary selection with the shared kernel**
+- [x] **Step 3: Replace primary selection with the shared kernel**
 
 Construct one `NormativeFiberScoreConfig` from the six propagated analysis fields. In `run_observed_loocv`, use full `candidate_mask_from_coverage` plus full weights, and independently use each training-fold coverage plus fold weights. Do not reuse full-sample selected IDs, signs, or ranks in a fold.
 
-- [ ] **Step 4: Emit the complete support contract**
+- [x] **Step 4: Emit the complete support contract**
 
 Add all required fields from `score_support_fields(result, config)` to full-sample QC and every fold row. Keep existing `n_sweet_selected_fibers` and `n_sour_selected_fibers` as compatibility aliases of actual selected counts.
 
-- [ ] **Step 5: Materialize immutable full-sample `F_valid` IDs**
+- [x] **Step 5: Materialize immutable full-sample `F_valid` IDs**
 
 Write `selected_valid_fiber_ids.npy` in canonical parent-axis order using:
 
@@ -285,11 +285,11 @@ selected_valid_ids = np.asarray(fiber_ids, dtype=np.int64)[valid_mask]
 
 Publish it as artifact kind `selected_valid_fiber_ids`. Set `selected_fiber_pools_computable` when at least one valid signed fiber exists, not only when both signs exist.
 
-- [ ] **Step 6: Keep 1500/500 cheap sensitivity separate**
+- [x] **Step 6: Keep 1500/500 cheap sensitivity separate**
 
 The fixed `sweet_top_count=1500` and `sour_top_count=500` branch remains a cheap observed sensitivity. It may share low-level weighted-peak helpers but must not replace or mutate the primary `200/100/20` policy.
 
-- [ ] **Step 7: Run HF tests and commit**
+- [x] **Step 7: Run HF tests and commit**
 
 ```bash
 conda run -n leaddbs python my_helper/fiber/core/analysis/stnsnr_hf_normative_fiber_smoke_selftest.py
