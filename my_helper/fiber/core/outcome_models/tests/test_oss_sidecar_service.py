@@ -418,6 +418,25 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
         self.assertNotEqual(first, activation_change)
         self.assertNotEqual(first, numerical_change)
 
+    def test_reusable_row_identity_ignores_run_local_final_record_hash(self) -> None:
+        base = {
+            "oss_compatibility_hash": "a" * 64,
+            "model_id": "final-model",
+            "subject_id": "sub-01",
+            "side": "L",
+            "source_index": "0",
+            "source_paths": "/data/source.nii.gz",
+            "source_sha256": "b" * 64,
+            "canonicalization_mode": "left_geometry_to_right",
+            "final_record_hash": "c" * 64,
+        }
+        changed_run_record = {**base, "final_record_hash": "d" * 64}
+
+        self.assertEqual(
+            oss_sidecar_module._oss_row_reuse_identity_sha256(base),
+            oss_sidecar_module._oss_row_reuse_identity_sha256(changed_run_record),
+        )
+
     def test_final_axes_are_hash_checked_ordered_subsets_inside_the_run_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_root = Path(tmp) / "run"
@@ -1072,6 +1091,7 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
                 "s02-r": [0.2, 0.5, 0.6],
             }
             observed_rows = []
+            observed_by_index = {}
             completion_order = []
             concurrency_lock = threading.Lock()
             active_rows = 0
@@ -1099,6 +1119,7 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
                 row = dict(kwargs["row"])
                 with concurrency_lock:
                     observed_rows.append(row)
+                    observed_by_index[int(kwargs["row_index"])] = row
                     active_rows += 1
                     peak_active_rows = max(peak_active_rows, active_rows)
                 time.sleep(0.05)
@@ -1116,6 +1137,12 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
             def activation_runner(**kwargs):
                 nonlocal active_rows
                 row = dict(kwargs["row"])
+                row["oss_row_identity_sha256"] = (
+                    oss_sidecar_module._legacy_oss_row_identity_sha256(
+                        row,
+                        request.final.record_hash,
+                    )
+                )
                 row_index = int(kwargs["row_index"])
                 name = Path(row["source_path_used"]).name.removesuffix(".nii.gz")
                 time.sleep(0.01 * (5 - row_index))
@@ -1134,7 +1161,7 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
                 mapping_path.write_text("candidate_column_index\n", encoding="utf-8")
                 status_path = logical_row_dir / "row-status.json"
                 status_path.write_text(
-                    json.dumps({"sample_records": []}) + "\n",
+                    json.dumps({"row": row, "sample_records": []}) + "\n",
                     encoding="utf-8",
                 )
                 with concurrency_lock:
@@ -1169,12 +1196,65 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
                 preflight_runner=preflight_runner,
                 activation_runner=activation_runner,
             )
+            row_zero = observed_by_index[0]
+            old_generation_manifest = json.loads(
+                (
+                    old_cache_root
+                    / "external_generation"
+                    / "configured_oss_generation_manifest.json"
+                ).read_text(encoding="utf-8")
+            )
+            checkpoint_path_text = old_generation_manifest["rows"][0][
+                "row_checkpoint_json"
+            ]
+            self.assertTrue(checkpoint_path_text, old_generation_manifest["rows"][0])
+            self.assertNotEqual(checkpoint_path_text, "None")
+            logical_row_dir = Path(checkpoint_path_text).parent
+            checkpoint = json.loads(
+                (logical_row_dir / "row_checkpoint.json").read_text(encoding="utf-8")
+            )
+            validated_checkpoint = activation_module._load_row_checkpoint(
+                logical_row_dir,
+                checkpoint["oss_row_identity_sha256"],
+            )
+            self.assertIsNotNone(validated_checkpoint)
+            legacy_status = json.loads(
+                Path(validated_checkpoint["row_status_json"]).read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                checkpoint["oss_row_identity_sha256"],
+                oss_sidecar_module._legacy_oss_row_identity_sha256(
+                    row_zero,
+                    legacy_status["row"]["final_record_hash"],
+                ),
+            )
+            self.assertEqual(
+                oss_sidecar_module._oss_row_reuse_identity_sha256(
+                    legacy_status["row"]
+                ),
+                oss_sidecar_module._oss_row_reuse_identity_sha256(row_zero),
+            )
+            legacy_loaded = oss_sidecar_module._load_legacy_prior_row_checkpoint(
+                activation=activation_module,
+                row=row_zero,
+                row_index=0,
+                output_dir=(
+                    old_cache_root / "external_generation" / "activation_rows"
+                ),
+            )
+            self.assertIsNotNone(legacy_loaded)
 
             def unexpected_runner(**_kwargs):
                 raise AssertionError("exact prior checkpoint should bypass OSS runners")
 
-            content = oss_sidecar_module.generate_configured_oss_content(
+            new_request = replace(
                 request,
+                final=replace(request.final, record_hash="9" * 64),
+            )
+            content = oss_sidecar_module.generate_configured_oss_content(
+                new_request,
                 new_cache_root,
                 preflight_runner=unexpected_runner,
                 activation_runner=unexpected_runner,
@@ -1212,6 +1292,9 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
         self.assertEqual(
             generation_manifest["rows"][0]["row_checkpoint_source_kind"],
             "prior_run",
+        )
+        self.assertTrue(
+            generation_manifest["rows"][0]["row_checkpoint_legacy_import"]
         )
         self.assertEqual(
             generation_manifest["rows"][0]["row_checkpoint_source_run_id"],

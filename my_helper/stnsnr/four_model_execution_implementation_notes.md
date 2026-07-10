@@ -1862,6 +1862,14 @@ excludes `final_record_hash`; legacy checkpoints remain eligible only after
 their original identity, normalized cross-run identity, ten-sample lattice,
 candidate axis, and all nested artifact hashes validate exactly.
 
+The identity repair passes 34 focused OSS tests and all 310 configured-core
+tests. A direct audit of the retained row0000 checkpoint reconstructs its
+original v1 identity exactly (`f33d574c...bda230`) from the validated row and
+stimulation-parameter hash, while its normalized cross-run identity remains
+independent of the final-record hash. Python compilation and `git diff --check`
+pass. The interrupted three-worker run produced no completed replacement row
+and is not an accepted result.
+
 Run the D PPMI source resolver:
 
 ```bash

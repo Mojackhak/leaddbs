@@ -334,6 +334,99 @@ def _activation_root_run_id(activation_root: Path) -> str:
     return ""
 
 
+def _oss_row_reuse_identity_sha256(row: Mapping[str, Any]) -> str:
+    """Return the cross-run scientific identity for one OSS source row."""
+    return canonical_hash(
+        {
+            "checkpoint_contract": "configured_oss_row_v2",
+            "compatibility_hash": str(row["oss_compatibility_hash"]),
+            "final_model_id": str(row["model_id"]),
+            "subject_id": str(row["subject_id"]),
+            "side": str(row["side"]),
+            "source_index": int(row["source_index"]),
+            "source_path": str(Path(row["source_paths"]).expanduser().resolve()),
+            "source_sha256": str(row["source_sha256"]),
+            "canonicalization_mode": str(row["canonicalization_mode"]),
+        }
+    )
+
+
+def _legacy_oss_row_identity_sha256(
+    row: Mapping[str, Any],
+    final_record_hash: str,
+) -> str:
+    """Reconstruct configured_oss_row_v1 for validated legacy imports."""
+    stimulation_parameter_path = str(
+        row.get("stimulation_parameter_path", "") or ""
+    )
+    return canonical_hash(
+        {
+            "checkpoint_contract": "configured_oss_row_v1",
+            "compatibility_hash": str(row["oss_compatibility_hash"]),
+            "final_model_id": str(row["model_id"]),
+            "final_record_hash": str(final_record_hash),
+            "subject_id": str(row["subject_id"]),
+            "side": str(row["side"]),
+            "source_index": int(row["source_index"]),
+            "source_path": str(Path(row["source_paths"]).expanduser().resolve()),
+            "source_sha256": str(row["source_sha256"]),
+            "stimulation_parameter_path": (
+                ""
+                if not stimulation_parameter_path
+                else str(Path(stimulation_parameter_path).expanduser().resolve())
+            ),
+            "stimulation_parameter_sha256": str(
+                row.get("stimulation_parameter_sha256", "") or ""
+            ),
+            "source_frequency_hz": float(row["source_frequency_hz"]),
+            "canonicalization_mode": str(row["canonicalization_mode"]),
+        }
+    )
+
+
+def _load_legacy_prior_row_checkpoint(
+    *,
+    activation: Any,
+    row: Mapping[str, Any],
+    row_index: int,
+    output_dir: Path,
+) -> Mapping[str, Any] | None:
+    logical_row_dir = Path(output_dir) / activation._row_slug(row_index, row)
+    checkpoint_path = logical_row_dir / "row_checkpoint.json"
+    if not checkpoint_path.is_file():
+        return None
+    try:
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        checkpoint_identity = activation._valid_row_identity(
+            checkpoint.get("oss_row_identity_sha256")
+        )
+        if checkpoint_identity is None:
+            return None
+        validated = activation._load_row_checkpoint(
+            logical_row_dir,
+            checkpoint_identity,
+        )
+        if validated is None:
+            return None
+        status_doc = json.loads(
+            Path(validated["row_status_json"]).read_text(encoding="utf-8")
+        )
+        legacy_row = status_doc["row"]
+        legacy_final_record_hash = str(legacy_row["final_record_hash"])
+        if checkpoint_identity != _legacy_oss_row_identity_sha256(
+            row,
+            legacy_final_record_hash,
+        ):
+            return None
+        if _oss_row_reuse_identity_sha256(legacy_row) != (
+            _oss_row_reuse_identity_sha256(row)
+        ):
+            return None
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return {**validated, "row_checkpoint_legacy_import": True}
+
+
 def _generator_identity_sha256(paths: Mapping[str, Path]) -> str:
     normalized: dict[str, str] = {}
     for name, raw_path in sorted(paths.items()):
@@ -881,31 +974,6 @@ def generate_configured_oss_content(
             if side_input.stimulation_parameter_sha256
             else ""
         )
-        row_identity = canonical_hash(
-            {
-                "checkpoint_contract": "configured_oss_row_v1",
-                "compatibility_hash": request.compatibility_hash,
-                "final_model_id": request.final.final_model_id,
-                "final_record_hash": request.final.record_hash,
-                "subject_id": side_input.subject_id,
-                "side": side_input.side,
-                "source_index": source_index,
-                "source_path": str(Path(source_path).expanduser().resolve()),
-                "source_sha256": side_input.source_sha256[source_index],
-                "stimulation_parameter_path": (
-                    ""
-                    if stimulation_parameter_path is None
-                    else str(Path(stimulation_parameter_path).expanduser().resolve())
-                ),
-                "stimulation_parameter_sha256": stimulation_parameter_sha256,
-                "source_frequency_hz": side_input.modeled_frequency_hz,
-                "canonicalization_mode": (
-                    "left_geometry_to_right"
-                    if side_input.side == "L"
-                    else "native_right"
-                ),
-            }
-        )
         row = {
             "model_id": request.final.final_model_id,
             "subject_id": side_input.subject_id,
@@ -916,7 +984,6 @@ def generate_configured_oss_content(
             "source_sha256": side_input.source_sha256[source_index],
             "final_record_hash": request.final.record_hash,
             "oss_compatibility_hash": request.compatibility_hash,
-            "oss_row_identity_sha256": row_identity,
             "canonicalization_mode": (
                 "left_geometry_to_right"
                 if side_input.side == "L"
@@ -929,7 +996,15 @@ def generate_configured_oss_content(
             "parent_fiber_ids_path": str(request.final.feature_axis.ids_path),
             "parent_n_fibers": str(request.final.feature_axis.count),
             "parent_fiber_id_status": "selected_source_parent_axis",
+            "stimulation_parameter_path": (
+                ""
+                if stimulation_parameter_path is None
+                else str(Path(stimulation_parameter_path).expanduser().resolve())
+            ),
+            "stimulation_parameter_sha256": stimulation_parameter_sha256,
+            "source_frequency_hz": side_input.modeled_frequency_hz,
         }
+        row["oss_row_identity_sha256"] = _oss_row_reuse_identity_sha256(row)
         reused_result = row_checkpoint_loader(
             row=row,
             row_index=row_index,
@@ -944,6 +1019,13 @@ def generate_configured_oss_content(
                     row_index=row_index,
                     output_dir=prior_activation_root,
                 )
+                if reused_result is None:
+                    reused_result = _load_legacy_prior_row_checkpoint(
+                        activation=activation,
+                        row=row,
+                        row_index=row_index,
+                        output_dir=prior_activation_root,
+                    )
                 if reused_result is not None:
                     checkpoint_source_kind = "prior_run"
                     checkpoint_source_root = prior_activation_root
@@ -1020,6 +1102,9 @@ def generate_configured_oss_content(
             "row_checkpoint_json": activation_result.get("row_checkpoint_json", ""),
             "row_checkpoint_reused": bool(
                 activation_result.get("row_checkpoint_reused", False)
+            ),
+            "row_checkpoint_legacy_import": bool(
+                activation_result.get("row_checkpoint_legacy_import", False)
             ),
             "row_checkpoint_source_kind": (
                 checkpoint_source_kind
