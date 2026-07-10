@@ -1,0 +1,71 @@
+schema_version: four_model_v1
+profile_type: model_profile
+profile_id: four_model_v1
+
+direct_voxel:
+  estimator: partial_spearman
+  pre_specified_tau_v_per_m: 200
+  pre_specified_coverage: 5
+  tau_grid_v_per_m: [100, 150, 180, 200, 220, 250, 300, 350, 400, 500]
+  coverage_grid: [5, 6, 7, 8, 10, 12]
+  hard_filter:
+    n_subjects_min: 12
+    n_voxels_full_min: 20
+    fold_n_voxels_min: 10
+    score_nonconstant_all_folds: true
+    predictions_finite: true
+
+normative_fiber:
+  exposure: peak_efield
+  pre_specified_tau_v_per_m: 800
+  pre_specified_coverage: 5
+  tau_grid_v_per_m: [400, 600, 800, 1000, 1200, 1500, 2000]
+  coverage_grid: [5, 6, 7, 8, 10, 12]
+  hard_filter:
+    n_subjects_min: 12
+    fold_candidate_fibers_min_by_connectome:
+      ppmi: 100
+      mgh: 100
+      dtor: 1000
+    score_nonconstant_all_folds: true
+    predictions_finite: true
+  score:
+    sweet_fraction: 0.01
+    sour_fraction: 0.005
+    weighted_peak_fraction: 0.05
+  connectome_roles:
+    ppmi: observed_robustness
+    mgh: observed_robustness
+    dtor: formal
+
+resolver:
+  minimum_adjacent_passing_cells: 2
+
+formal:
+  permutations: 10000
+  bootstraps: 10000
+  jitter_resamples: 1000
+  seed: 42
+
+sensitivity:
+  selected_tau_multipliers: [0.9, 1.1]
+  ulf_nonfinal_branch: true
+  ulf_gain: true
+  ulf_total_exposure: true
+  ulf_support: true
+  ulf_collinearity: true
+  plain_burden_controls: true
+  cross_connectome: true
+
+oss:
+  model: OSS-DBSv2
+  deterministic_activation_threshold: 0.5
+  hemisphere_merge_rule: max_probability_union
+  canonical_hemisphere: right
+  final_dtor_only: true
+
+reporting:
+  fdr: true
+  density: true
+  labels: true
+  numeric_first: true

@@ -45,6 +45,20 @@ filtering. VTA/ROI overlap, regional coverage, regional heatmaps, anatomical
 postprocessing, GUI, and HTTP services are deferred and are not part of this
 plan.
 
+The committed `four_model_v1` profiles are located at:
+
+```text
+my_helper/stnsnr/config/four_model_v1/study.yaml
+my_helper/stnsnr/config/four_model_v1/scales.yaml
+my_helper/stnsnr/config/four_model_v1/model.yaml
+my_helper/stnsnr/config/four_model_v1/workflow.yaml
+```
+
+`scales.yaml` explicitly configures every scale currently present in the frozen
+clinical workbook. The workflow's III/IV selection is an acceptance fixture,
+not a default or a privileged production scale list; `--all-available` resolves
+all configured scale rows.
+
 ## Goal And Success Criteria
 
 The future refactor is successful only when one public configuration and CLI

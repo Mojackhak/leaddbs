@@ -1,0 +1,179 @@
+schema_version: four_model_v1
+profile_type: scale_profile
+
+scales:
+  - scale_id: adl
+    label: ADL
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: &chronic_bindings
+      frequency_1_reference: {protocol: STN, phase: 3m}
+      frequency_2_addon_chronic: {protocol: STN+SNr, phase: 3m}
+
+  - scale_id: bdi_score
+    label: BDI score
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: bradykinesia_med_off
+    label: Bradykinesia subscore (Med OFF)
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: cccs
+    label: CCCS
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: dsfs
+    label: DSFS
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: eat_10
+    label: EAT-10
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: ess
+    label: ESS
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: fogq_score
+    label: FOGQ score
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: fss
+    label: FSS
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: hama
+    label: HAMA
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: hamd
+    label: HAMD
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: kpps_score
+    label: KPPS score
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: madrs_score
+    label: MADRS score
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: maes
+    label: MAES
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: mds_udprs_ii
+    label: MDS-UDPRS II
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: mds_updrs_i
+    label: MDS-UPDRS I
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: mds_updrs_iii_axial_score
+    label: MDS-UPDRS III axial score
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings:
+      frequency_1_reference: {protocol: STN, phase: 3m}
+      frequency_2_addon_chronic: {protocol: STN+SNr, phase: 3m}
+      frequency_2_addon_immediate: {protocol: STN+SNr, phase: immediate}
+
+  - scale_id: mds_updrs_iii_score
+    label: MDS-UPDRS III score
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings:
+      frequency_1_reference: {protocol: STN, phase: 3m}
+      frequency_2_addon_chronic: {protocol: STN+SNr, phase: 3m}
+      frequency_2_addon_immediate: {protocol: STN+SNr, phase: immediate}
+
+  - scale_id: mds_updrs_iv
+    label: MDS-UPDRS IV
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: odq
+    label: ODQ
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: pdq39_score
+    label: PDQ39 score
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: rbdsq
+    label: RBDSQ
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: rbdsq_hk
+    label: RBDSQ-HK
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: rigidity_med_off
+    label: Rigidity subscore (Med OFF)
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: scopa_aut
+    label: SCOPA-AUT
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: sdq
+    label: SDQ
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: se_adl_score_percent
+    label: SE-ADL score (%)
+    direction: higher
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings
+
+  - scale_id: tremor_med_off
+    label: Tremor subscore (Med OFF)
+    direction: lower
+    minimum_subjects: 12
+    endpoint_bindings: *chronic_bindings

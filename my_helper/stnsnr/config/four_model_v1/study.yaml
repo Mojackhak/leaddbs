@@ -1,0 +1,63 @@
+schema_version: four_model_v1
+profile_type: study_profile
+study_id: stnsnr_frequency_addon
+
+paths:
+  clinical_table: /Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx
+  stimulation_table: /Users/mojackhu/Research/STNSNr/summary/cohort/subj/followup_stimulation.xlsx
+  leaddbs_derivatives: /Volumes/VAL/STNSNr/derivatives/leaddbs
+  asset_root: /Users/mojackhu/Github/leaddbs
+  output_root: /Volumes/VAL/STNSNr
+
+clinical_columns:
+  subject_id: ID
+  scale: Scale
+  protocol: Protocol
+  phase: Phase
+  value: Value
+  baseline: Baseline
+
+space:
+  name: MNI152NLin2009bAsym
+  reference_image: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/brainmask.nii.gz
+  brainmask: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/brainmask.nii.gz
+  canonical_hemisphere: right
+  left_to_right_transform: ea_flip_lr_nonlinear
+
+components:
+  frequency_1_reference:
+    alias: HF
+    frequency_metadata_binding: Frequency
+  frequency_2_addon:
+    alias: ULF
+    frequency_metadata_binding: Frequency
+
+conditions:
+  frequency_1_reference:
+    protocol: STN
+    phase: 3m
+  frequency_2_addon_chronic:
+    protocol: STN+SNr
+    phase: 3m
+  frequency_2_addon_immediate:
+    protocol: STN+SNr
+    phase: immediate
+
+efield_resolvers:
+  frequency_1_reference: stnsnr_hf_reference
+  frequency_1_component_under_addon: stnsnr_hf_component
+  frequency_2_component_under_addon: stnsnr_ulf_component
+
+connectomes:
+  ppmi:
+    label: PPMI 85 (Ewert 2017)
+    path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/PPMI 85 (Ewert 2017)/data.mat
+    fiber_identity_source: data.mat:idx
+  mgh:
+    label: MGH-USC HCP 32 (Horn 2017)
+    path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/MGH-USC HCP 32 (Horn 2017)/data.mat
+    fiber_identity_source: data.mat:idx
+  dtor:
+    label: dTOR-985 Full (Elias 2024)
+    path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/dTOR-985 Full (Elias 2024)/data.mat
+    fiber_identity_source: data.mat:idx

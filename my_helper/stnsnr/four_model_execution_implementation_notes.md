@@ -67,6 +67,11 @@ both scales, 16 immediate pairs for MDS-UPDRS III, and no configured MDS-UPDRS
 IV immediate endpoint. The full two-scale model execution and report acceptance
 remain unimplemented.
 
+The committed profiles under `my_helper/stnsnr/config/four_model_v1/` enumerate
+all 28 scales currently present in the frozen clinical workbook. The workflow
+selects MDS-UPDRS III/IV only as the required acceptance pair; this does not
+create a code default or alter any task factory.
+
 Subagents are permitted during implementation when each delegated task
 has a bounded responsibility and disjoint file ownership. The main thread must
 review and integrate all delegated work and remains solely responsible for the

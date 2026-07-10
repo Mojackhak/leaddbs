@@ -1,0 +1,18 @@
+schema_version: four_model_v1
+profile_type: workflow
+study_profile: study.yaml
+scale_profile: scales.yaml
+model_profile: model.yaml
+
+selection:
+  # Acceptance selection only; this is not a privileged or default scale list.
+  scales: [mds_updrs_iii_score, mds_updrs_iv]
+  phases: [chronic, immediate]
+  models: [all]
+  connectomes: [ppmi, mgh, dtor]
+
+execution:
+  through: report
+  resume: false
+  force: false
+  continue_on_endpoint_failure: true
