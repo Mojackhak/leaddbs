@@ -428,6 +428,28 @@ source/prediction/final classification fields.
 **Files:** Create `services/sensitivity.py`, `services/reporting.py`, and tests;
 modify jitter/OSS/reporting only behind failing tests.
 
+```python
+@dataclass(frozen=True)
+class SensitivityRequest:
+    task: TaskSpec
+    final: FinalArtifactRecord
+    delta_hf: DeltaHFBundle | None
+    output_root: Path
+    selected_tau_multipliers: tuple[float, float]
+    rebuild_geometry: bool
+    rebuild_delta_hf: bool
+
+@dataclass(frozen=True)
+class FinalLinkedArtifact:
+    final_model_id: str
+    final_record_hash: str
+    artifact: ArtifactRef
+```
+
+Every reporting, OSS, jitter, FDR, density, and label artifact must carry the
+same `final_model_id` and final-record hash as its request. Recursive filename
+matches, branch substrings, and global model IDs are invalid provenance.
+
 - [ ] RED: ULF jitter rebuilds geometry, overlap, DeltaHFScore, support, and
   nuisance per jitter; selected source remains fixed.
 - [ ] Test selected-source neighborhood, non-final branch, gain, total exposure,
