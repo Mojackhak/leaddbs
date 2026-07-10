@@ -428,8 +428,12 @@ git commit -m "feat: bind final fiber models to valid axes"
 - Modify: `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_bootstrap.py`
 - Modify: `my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_sensitivity_observed.py`
 - Modify: `my_helper/fiber/core/analysis/stnsnr_normative_fiber_formal_jitter.py`
+- Modify: `my_helper/fiber/core/analysis/stnsnr_ulf_normative_fiber_observed.py`
+- Modify: `my_helper/fiber/core/outcome_models/services/formal.py`
 - Modify: `my_helper/fiber/core/outcome_models/services/legacy_formal.py`
+- Modify: `my_helper/fiber/core/outcome_models/services/sensitivity.py`
 - Modify: `my_helper/fiber/core/outcome_models/services/legacy_sensitivity.py`
+- Modify: `my_helper/fiber/core/outcome_models/services/legacy_oss.py`
 - Modify: `my_helper/fiber/core/outcome_models/tests/test_configured_formal_backend.py`
 - Modify: `my_helper/fiber/core/outcome_models/tests/test_configured_sensitivity_backend.py`
 - Modify: `my_helper/fiber/core/outcome_models/tests/test_configured_jitter_spatial_qc.py`
@@ -438,11 +442,11 @@ git commit -m "feat: bind final fiber models to valid axes"
 - Consumes the final record and public score profile.
 - Produces resampling results without classification feedback.
 
-- [ ] **Step 1: Add RED tests proving profile propagation**
+- [x] **Step 1: Add RED tests proving profile propagation**
 
 Use deliberately small test minima such as `4/3/2` in fixture-only profiles and assert permutation, bootstrap, selected-tau sensitivity, nonfinal ULF sensitivity, and jitter use those values. Assert results do not mutate source, prediction, branch-role, or final-model records.
 
-- [ ] **Step 2: Run configured formal/sensitivity tests and verify RED**
+- [x] **Step 2: Run configured formal/sensitivity tests and verify RED**
 
 ```bash
 conda run -n leaddbs python -m unittest \
@@ -451,15 +455,17 @@ conda run -n leaddbs python -m unittest \
   my_helper.fiber.core.outcome_models.tests.test_configured_jitter_spatial_qc -v
 ```
 
-- [ ] **Step 3: Thread `NormativeFiberScoreConfig` through every numerical target**
+- [x] **Step 3: Thread `NormativeFiberScoreConfig` through every numerical target**
 
 Do not rely on module defaults in configured execution. Each formal/sensitivity request must derive its policy from `context.config.model.normative_fiber["score"]` and record the six values in its manifest.
 
-- [ ] **Step 4: Preserve fold-local and replicate-local fitting**
+- [x] **Step 4: Preserve fold-local and replicate-local fitting**
 
 Permutation outcomes, bootstrap samples, and jittered exposures re-estimate weights before calling the shared kernel. They may not reuse observed selected IDs or signs. The immutable final axis limits the feature universe but does not freeze resampled weights. Bump the normative-fiber jitter checkpoint method/version identity so checkpoints from the percentage-only scorer cannot resume under the new score contract.
 
-- [ ] **Step 5: Run tests and commit**
+Formal, sensitivity, and the existing OSS adapter must validate `data.mat:idx` axes with the canonical logical-array hash rather than the raw `.npy` file hash.
+
+- [x] **Step 5: Run tests and commit**
 
 ```bash
 conda run -n leaddbs python -m unittest \

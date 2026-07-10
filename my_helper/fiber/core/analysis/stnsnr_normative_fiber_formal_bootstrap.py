@@ -23,6 +23,7 @@ from stnsnr_normative_fiber_smoke_permutation import (
     iso_now,
     load_target_nuisance,
     prepare_candidate_union,
+    score_config_values,
     target_file_prefix,
     write_csv,
     write_json,
@@ -122,7 +123,18 @@ def run_target_bootstrap(target: NormativeFiberTarget, *, n_bootstraps: int, see
     target.branch_dir.mkdir(parents=True, exist_ok=True)
     x = np.load(target.x_path, mmap_mode="r")
     fiber_ids = np.load(target.fiber_ids_path, mmap_mode="r")
-    reduced = prepare_candidate_union(x=x, fiber_ids=fiber_ids, tau=target.tau, min_coverage=target.min_coverage)
+    valid_fiber_ids = (
+        np.load(target.valid_fiber_ids_path, mmap_mode="r")
+        if target.valid_fiber_ids_path is not None
+        else None
+    )
+    reduced = prepare_candidate_union(
+        x=x,
+        fiber_ids=fiber_ids,
+        tau=target.tau,
+        min_coverage=target.min_coverage,
+        valid_fiber_ids=valid_fiber_ids,
+    )
     score_columns = _load_score_columns(target.scores_csv)
     y_post = _float_column(score_columns, target.outcome_column)
     nuisance, _ = load_target_nuisance(target, score_columns)
@@ -164,7 +176,13 @@ def run_target_bootstrap(target: NormativeFiberTarget, *, n_bootstraps: int, see
             positive_count[finite & (weights > 0)] += 1
             negative_count[finite & (weights < 0)] += 1
             zero_count[finite & (weights == 0)] += 1
-            score = fiber_net_score(reduced.x, weights, finite, fiber_ids=reduced.fiber_ids)
+            score = fiber_net_score(
+                reduced.x,
+                weights,
+                finite,
+                fiber_ids=reduced.fiber_ids,
+                score_config=target.score_config,
+            )
             sweet_selected_counts.append(int(score.sweet_fiber_ids.size))
             sour_selected_counts.append(int(score.sour_fiber_ids.size))
             for fiber_id in score.sweet_fiber_ids:
@@ -288,6 +306,7 @@ def run_target_bootstrap(target: NormativeFiberTarget, *, n_bootstraps: int, see
         "seed": int(seed),
         "code_provenance": provenance,
         "method": "Subject-level dTOR normative-fiber bootstrap over selected candidate union",
+        "score": score_config_values(target.score_config),
         "outputs": {
             "summary_csv": str(summary_path),
             "bootstrap_se_csv": str(se_path),

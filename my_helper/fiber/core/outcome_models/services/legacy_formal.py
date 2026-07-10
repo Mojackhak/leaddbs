@@ -33,6 +33,25 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _array_sha256(values: np.ndarray) -> str:
+    array = np.ascontiguousarray(values)
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(json.dumps(list(array.shape), separators=(",", ":")).encode("ascii"))
+    digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _feature_axis_sha256(path: Path, identity_source: str) -> str:
+    if identity_source == "candidate_flat_indices":
+        return _sha256(path)
+    if identity_source.endswith(":idx"):
+        return _array_sha256(np.load(path, mmap_mode="r"))
+    raise RecordError(
+        f"formal feature-axis identity source is unsupported: {identity_source!r}"
+    )
+
+
 def _run_root(request: FormalRequest) -> Path:
     output_root = Path(request.output_root).expanduser().resolve()
     try:
@@ -66,12 +85,45 @@ def _feature_axis_path(run_root: Path, request: FormalRequest) -> Path:
         raise RecordError("formal feature-axis artifact is outside the configured run root") from exc
     if not path.is_file():
         raise RecordError(f"formal feature-axis artifact is missing: {path}")
-    if _sha256(path) != request.final.feature_axis.sha256:
+    if (
+        _feature_axis_sha256(path, request.final.feature_axis.identity_source)
+        != request.final.feature_axis.sha256
+    ):
         raise RecordError(f"formal feature-axis SHA-256 mismatch: {path}")
     values = np.load(path, mmap_mode="r")
     if values.ndim != 1 or int(values.shape[0]) != request.final.feature_axis.count:
         raise RecordError("formal feature-axis count does not match its immutable record")
     return path
+
+
+def _valid_feature_axis_path(run_root: Path, request: FormalRequest) -> Path:
+    axis = request.final.valid_feature_axis
+    if axis is None:
+        raise RecordError("normative-fiber formal target requires a valid feature axis")
+    path = Path(axis.ids_path).expanduser()
+    path = path.resolve() if path.is_absolute() else (run_root / path).resolve()
+    try:
+        path.relative_to(run_root)
+    except ValueError as exc:
+        raise RecordError(
+            "formal valid-feature-axis artifact is outside the configured run root"
+        ) from exc
+    if not path.is_file():
+        raise RecordError(f"formal valid-feature-axis artifact is missing: {path}")
+    if _feature_axis_sha256(path, axis.identity_source) != axis.sha256:
+        raise RecordError(f"formal valid-feature-axis SHA-256 mismatch: {path}")
+    values = np.load(path, mmap_mode="r")
+    if values.ndim != 1 or int(values.shape[0]) != axis.count:
+        raise RecordError("formal valid-feature-axis count does not match its immutable record")
+    return path
+
+
+def _validate_valid_fiber_axis(parent_path: Path, valid_path: Path) -> None:
+    parent = np.asarray(np.load(parent_path, mmap_mode="r"))
+    valid = np.asarray(np.load(valid_path, mmap_mode="r"))
+    positions = np.flatnonzero(np.isin(parent, valid))
+    if positions.size != valid.size or not np.array_equal(parent[positions], valid):
+        raise RecordError("formal valid fiber axis is not an ordered subset of the parent axis")
 
 
 def _normalized_column(value: str) -> str:
@@ -135,11 +187,16 @@ def build_configured_formal_target(request: FormalRequest) -> Any:
     elif final.final_branch not in {"hf_source", "no_delta_hf"}:
         raise RecordError(f"unsupported formal final branch {final.final_branch!r}")
 
+    family = request.task.endpoint.model_family
     run_root = _run_root(request)
     manifest_path = _artifact_path(run_root, final.manifest)
     exposure_path = _artifact_path(run_root, final.exposure)
     scores_path = _artifact_path(run_root, final.scores)
     feature_axis_path = _feature_axis_path(run_root, request)
+    valid_feature_axis_path = None
+    if family in {"hf_fiber", "ulf_fiber"}:
+        valid_feature_axis_path = _valid_feature_axis_path(run_root, request)
+        _validate_valid_fiber_axis(feature_axis_path, valid_feature_axis_path)
     spatial_reference_ref = getattr(final, "spatial_reference", None)
     spatial_reference_path = (
         _artifact_path(run_root, spatial_reference_ref)
@@ -199,7 +256,6 @@ def build_configured_formal_target(request: FormalRequest) -> Any:
 
     request.output_root.mkdir(parents=True, exist_ok=True)
     prefix = _output_prefix(final.final_model_id)
-    family = request.task.endpoint.model_family
     common = {
         "model_id": final.final_model_id,
         "manifest_path": manifest_path,
@@ -226,11 +282,18 @@ def build_configured_formal_target(request: FormalRequest) -> Any:
         )
     if family in {"hf_fiber", "ulf_fiber"}:
         module = _load_analysis("stnsnr_normative_fiber_smoke_permutation")
+        score_config = (
+            module.NormativeFiberScoreConfig.from_mapping(request.score)
+            if request.score is not None
+            else module.NormativeFiberScoreConfig()
+        )
         return module.NormativeFiberTarget(
             **common,
             x_path=exposure_path,
             fiber_ids_path=feature_axis_path,
+            valid_fiber_ids_path=valid_feature_axis_path,
             scores_csv=scores_path,
+            score_config=score_config,
         )
     raise RecordError(f"unsupported formal model family {family!r}")
 
@@ -252,6 +315,11 @@ def run_configured_formal(
     fiber_bootstrap_runner: Callable[..., Mapping[str, Any]] | None = None,
 ) -> FormalServiceOutput:
     """Run the operation encoded by one final-record-bound formal request."""
+    if (
+        request.task.endpoint.model_family in {"hf_fiber", "ulf_fiber"}
+        and request.score is None
+    ):
+        raise RecordError("configured normative-fiber formal request requires a score policy")
     target = build_configured_formal_target(request)
     stage = request.task.key.execution_stage
     prefix = target.output_prefix

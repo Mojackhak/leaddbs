@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 from ..executor import RunContext, TaskArtifact, TaskResult, TaskStatus
 from ..planner import TaskSpec
@@ -19,6 +19,7 @@ class FormalRequest:
     permutations: int
     bootstraps: int
     seed: int
+    score: Mapping[str, float | int] | None = None
 
     @classmethod
     def from_context(
@@ -36,6 +37,22 @@ class FormalRequest:
         if task.key.source_reference != "final_model_record":
             raise RecordError("formal task must reference an immutable final-model record")
         settings = context.config.model.formal
+        score = None
+        if task.endpoint.model_family in {"hf_fiber", "ulf_fiber"}:
+            try:
+                values = context.config.model.normative_fiber["score"]
+                score = {
+                    "sweet_fraction": float(values["sweet_fraction"]),
+                    "sour_fraction": float(values["sour_fraction"]),
+                    "weighted_peak_fraction": float(values["weighted_peak_fraction"]),
+                    "sweet_selected_min_count": int(values["sweet_selected_min_count"]),
+                    "sour_selected_min_count": int(values["sour_selected_min_count"]),
+                    "weighted_peak_min_count": int(values["weighted_peak_min_count"]),
+                }
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                raise RecordError(
+                    "configured normative-fiber formal request requires all six score values"
+                ) from exc
         return cls(
             task=task,
             final=final,
@@ -49,6 +66,7 @@ class FormalRequest:
             permutations=int(settings["permutations"]),
             bootstraps=int(settings["bootstraps"]),
             seed=int(settings["seed"]),
+            score=score,
         )
 
 

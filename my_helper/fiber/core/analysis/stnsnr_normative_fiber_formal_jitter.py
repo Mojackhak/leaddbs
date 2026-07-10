@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -16,7 +17,6 @@ import numpy as np
 from stnsnr_direct_voxel_formal_jitter import (
     _CONFIGURED_JITTER_CHECKPOINT_INTERVAL,
     _CONFIGURED_JITTER_CHECKPOINT_SCHEMA,
-    _CONFIGURED_JITTER_METHOD_VERSION,
     _configured_jitter_checkpoint_identity,
     _finalize_streaming_spatial_qc,
     _load_configured_jitter_checkpoint,
@@ -50,6 +50,9 @@ from stnsnr_normative_fiber_smoke_permutation import (
     write_json,
 )
 from stnsnr_run_provenance import git_provenance
+
+
+_NORMATIVE_FIBER_JITTER_METHOD_VERSION = "normative_fiber_minimum_count_spatial_jitter_v3"
 
 
 def _candidate_fiber_ids(weights_csv: Path) -> np.ndarray:
@@ -330,10 +333,33 @@ def _configured_outcome_and_nuisance(
     return y_post, nuisance, fold_nuisance
 
 
+def _configured_valid_columns(target: Any, *, matched_hf: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    paths = target.matched_hf_paths if matched_hf else {
+        "feature_ids": target.feature_ids_path,
+        "valid_feature_ids": target.valid_feature_ids_path,
+    }
+    parent_path = paths.get("feature_ids")
+    valid_path = paths.get("valid_feature_ids")
+    if parent_path is None or valid_path is None:
+        raise ValueError("configured fiber jitter requires parent and valid feature axes")
+    parent = np.asarray(np.load(parent_path, mmap_mode="r"), dtype=np.int64)
+    valid = np.asarray(np.load(valid_path, mmap_mode="r"), dtype=np.int64)
+    positions = {int(fiber_id): index for index, fiber_id in enumerate(parent)}
+    try:
+        columns = np.asarray([positions[int(fiber_id)] for fiber_id in valid], dtype=np.int64)
+    except KeyError as exc:
+        raise ValueError("configured fiber jitter valid axis is not a parent-axis subset") from exc
+    if columns.size == 0 or np.any(columns[1:] <= columns[:-1]):
+        raise ValueError("configured fiber jitter valid axis must preserve parent order")
+    return columns, valid
+
+
 def _configured_observed_weights(target: Any) -> tuple[np.ndarray, np.ndarray]:
     y_post, nuisance, _ = _configured_outcome_and_nuisance(target)
+    valid_columns, _ = _configured_valid_columns(target)
+    exposure = np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32)
     return _fit_full_weights(
-        x=np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32),
+        x=exposure[:, valid_columns],
         y_post=y_post,
         nuisance=nuisance,
         scale_direction=target.scale_direction,
@@ -349,14 +375,14 @@ def run_configured_neighborhood_sensitivity(
 ) -> dict[str, Any]:
     """Run observed fiber LOOCV around one immutable selected source."""
     y_post, nuisance, fold_nuisance = _configured_outcome_and_nuisance(target)
-    fiber_ids = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"))
+    valid_columns, fiber_ids = _configured_valid_columns(target)
     cells: list[dict[str, Any]] = []
     for multiplier in tau_multipliers:
         tau = float(target.selected_tau) * float(multiplier)
         try:
             exposure = _configured_neighborhood_exposure(target, tau)
             reduced = prepare_candidate_union(
-                x=exposure,
+                x=exposure[:, valid_columns],
                 fiber_ids=fiber_ids,
                 tau=tau,
                 min_coverage=int(target.selected_coverage),
@@ -367,6 +393,7 @@ def run_configured_neighborhood_sensitivity(
                 nuisance=nuisance,
                 fold_nuisance=fold_nuisance,
                 scale_direction=target.scale_direction,
+                score_config=target.score_config,
             )
             cell = {
                 "status": "complete",
@@ -395,6 +422,14 @@ def run_configured_neighborhood_sensitivity(
         "selected_coverage": int(target.selected_coverage),
         "cells": cells,
         "summary_csv": str(summary_path),
+        "score": {
+            "sweet_fraction": target.score_config.sweet_fraction,
+            "sour_fraction": target.score_config.sour_fraction,
+            "weighted_peak_fraction": target.score_config.weighted_peak_fraction,
+            "sweet_selected_min_count": target.score_config.sweet_selected_min_count,
+            "sour_selected_min_count": target.score_config.sour_selected_min_count,
+            "weighted_peak_min_count": target.score_config.weighted_peak_min_count,
+        },
         "classification_feedback": "none",
     }
 
@@ -463,7 +498,7 @@ def _default_configured_geometry_builder(
         geometry.get("connectome_data_mat"),
         "connectome_data_mat",
     )
-    final_ids = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"), dtype=np.int64)
+    _, final_ids = _configured_valid_columns(target)
     final_coords, final_lengths = _candidate_points(data_mat, final_ids)
 
     def shifts() -> dict[tuple[str, str], np.ndarray]:
@@ -523,10 +558,7 @@ def _default_configured_geometry_builder(
     if target.hf_overlap_tau is not None and not math.isinf(float(target.hf_overlap_tau)):
         if target.matched_hf_final is None:
             raise ValueError("finite HF-overlap fiber jitter requires matched_hf_final")
-        matched_ids = np.asarray(
-            np.load(target.matched_hf_paths["feature_ids"], mmap_mode="r"),
-            dtype=np.int64,
-        )
+        _, matched_ids = _configured_valid_columns(target, matched_hf=True)
         matched_coords, matched_lengths = _candidate_points(data_mat, matched_ids)
         reference = _configured_sampler_rows(
             manifest_path,
@@ -585,6 +617,7 @@ def _default_configured_delta_builder(target: Any, geometry: dict[str, Any]) -> 
         tau,
         coverage,
         fiber_ids,
+        target.score_config,
     )
     full_support = np.asarray(full["candidate"], dtype=bool) & np.isfinite(full["weights"])
     subject_fractions, any_zero = _support_fraction(component, full_support, tau)
@@ -602,6 +635,7 @@ def _default_configured_delta_builder(target: Any, geometry: dict[str, Any]) -> 
             heldout,
             coverage,
             fiber_ids,
+            target.score_config,
         )
         fold_scores[heldout] = fold["delta"]
         fold_support = np.asarray(fold["candidate"], dtype=bool) & np.isfinite(fold["weights"])
@@ -635,7 +669,7 @@ def _default_configured_branch_fitter(
     y_post = _float_column(columns, "Y_post")
     if target.model_family == "hf_fiber":
         exposure = np.asarray(geometry["final_exposure"], dtype=np.float32)
-        fiber_ids = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"))
+        _, fiber_ids = _configured_valid_columns(target)
         nuisance = _float_column(columns, "Y_base")[:, None]
         reduced = prepare_candidate_union(
             x=exposure,
@@ -648,6 +682,7 @@ def _default_configured_branch_fitter(
             y_post=y_post,
             nuisance=nuisance,
             scale_direction=target.scale_direction,
+            score_config=target.score_config,
         )
         weights, valid = _fit_full_weights(
             x=exposure,
@@ -694,6 +729,12 @@ def _default_configured_branch_fitter(
         tau=float(target.selected_tau),
         min_coverage=int(target.selected_coverage),
         fiber_ids=np.asarray(geometry["fiber_ids"]),
+        sweet_fraction=target.score_config.sweet_fraction,
+        sour_fraction=target.score_config.sour_fraction,
+        weighted_peak_fraction=target.score_config.weighted_peak_fraction,
+        sweet_selected_min_count=target.score_config.sweet_selected_min_count,
+        sour_selected_min_count=target.score_config.sour_selected_min_count,
+        weighted_peak_min_count=target.score_config.weighted_peak_min_count,
     )
     return {
         "status": "complete",
@@ -702,6 +743,37 @@ def _default_configured_branch_fitter(
         "_spatial_valid": np.asarray(branch["candidate"], dtype=bool)
         & np.isfinite(branch["weights"]),
     }
+
+
+def _normative_fiber_checkpoint_identity(
+    target: Any,
+    *,
+    n_jitters: int,
+    jitter_fwhm_mm: float,
+    seed: int,
+) -> tuple[dict[str, Any], str]:
+    identity, _ = _configured_jitter_checkpoint_identity(
+        target,
+        n_jitters=n_jitters,
+        jitter_fwhm_mm=jitter_fwhm_mm,
+        seed=seed,
+    )
+    identity["method_version"] = _NORMATIVE_FIBER_JITTER_METHOD_VERSION
+    identity["valid_feature_axis_file_sha256"] = _sha256_file(
+        target.valid_feature_ids_path
+    )
+    identity["score"] = {
+        "sweet_fraction": target.score_config.sweet_fraction,
+        "sour_fraction": target.score_config.sour_fraction,
+        "weighted_peak_fraction": target.score_config.weighted_peak_fraction,
+        "sweet_selected_min_count": target.score_config.sweet_selected_min_count,
+        "sour_selected_min_count": target.score_config.sour_selected_min_count,
+        "weighted_peak_min_count": target.score_config.weighted_peak_min_count,
+    }
+    key = hashlib.sha256(
+        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return identity, key
 
 
 def run_configured_jitter(
@@ -721,7 +793,7 @@ def run_configured_jitter(
     sigma_mm = float(jitter_fwhm_mm) / 2.3548200450309493
     observed_weights, observed_valid = _configured_observed_weights(target)
     spatial_state = _new_streaming_spatial_qc(observed_weights, observed_valid)
-    checkpoint_identity, checkpoint_key = _configured_jitter_checkpoint_identity(
+    checkpoint_identity, checkpoint_key = _normative_fiber_checkpoint_identity(
         target,
         n_jitters=int(n_jitters),
         jitter_fwhm_mm=float(jitter_fwhm_mm),
@@ -880,13 +952,14 @@ def run_configured_jitter(
         "spatial_robustness": spatial_robustness,
         "checkpoint": {
             "schema_version": _CONFIGURED_JITTER_CHECKPOINT_SCHEMA,
-            "method_version": _CONFIGURED_JITTER_METHOD_VERSION,
+            "method_version": _NORMATIVE_FIBER_JITTER_METHOD_VERSION,
             "method_key": checkpoint_key,
             "path": str(checkpoint_path),
             "sha256": _sha256_file(checkpoint_path),
             "resumed_replicates": resumed_replicates,
             "checkpointed_replicates": len(rows),
         },
+        "score": checkpoint_identity["score"],
         "classification_feedback": "none",
     }
 

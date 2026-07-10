@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import replace
+import hashlib
 import json
 import tempfile
 import unittest
@@ -35,6 +36,15 @@ from outcome_models.tests.helpers import (
     write_clinical_rows,
     write_profile_bundle,
 )
+
+
+def _array_sha256(values: np.ndarray) -> str:
+    array = np.ascontiguousarray(values)
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(json.dumps(list(array.shape), separators=(",", ":")).encode("ascii"))
+    digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
 
 
 class ConfiguredOSSBackendTests(unittest.TestCase):
@@ -137,7 +147,7 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
         feature_axis = FeatureAxisRef(
             ids_path=feature_path,
             count=feature_ids.size,
-            sha256=sha256_file(feature_path),
+            sha256=_array_sha256(feature_ids),
             identity_source="data.mat:idx",
         )
         nuisance = NuisancePlan.for_branch(branch, None)

@@ -54,6 +54,15 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _array_sha256(values: np.ndarray) -> str:
+    array = np.ascontiguousarray(values)
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(json.dumps(list(array.shape), separators=(",", ":")).encode("ascii"))
+    digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
 def _run_root(request: OSSRequest) -> Path:
     output_root = Path(request.output_root).expanduser().resolve()
     try:
@@ -87,7 +96,14 @@ def _feature_axis_path(run_root: Path, request: OSSRequest) -> Path:
         raise RecordError("OSS final feature-axis artifact is outside the configured run root") from exc
     if not path.is_file():
         raise RecordError(f"OSS final feature-axis artifact is missing: {path}")
-    if _sha256(path) != request.final.feature_axis.sha256:
+    axis = request.final.feature_axis
+    if axis.identity_source.endswith(":idx"):
+        observed_sha256 = _array_sha256(np.load(path, mmap_mode="r"))
+    else:
+        raise RecordError(
+            f"OSS feature-axis identity source is unsupported: {axis.identity_source!r}"
+        )
+    if observed_sha256 != axis.sha256:
         raise RecordError("OSS final feature-axis SHA-256 mismatch")
     return path
 

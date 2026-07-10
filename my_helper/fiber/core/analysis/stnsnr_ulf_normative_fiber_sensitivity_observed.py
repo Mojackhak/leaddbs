@@ -13,6 +13,7 @@ import numpy as np
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT, infer_scale_direction
 from stnsnr_four_model_stats import (
+    NormativeFiberScoreConfig,
     benefit_oriented_weights,
     candidate_mask_from_coverage,
     coverage_from_suprathreshold,
@@ -20,8 +21,10 @@ from stnsnr_four_model_stats import (
     fit_linear_prediction,
     partial_spearman_matrix,
     regression_metrics,
+    score_support_fields,
     suprathreshold_matrix,
 )
+from stnsnr_hf_normative_fiber_smoke import NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS
 from stnsnr_hf_direct_voxel_smoke import slugify
 from stnsnr_io import iso_now, read_csv, write_csv, write_json
 from stnsnr_ulf_direct_voxel_sensitivity_observed import (
@@ -89,7 +92,9 @@ def compute_observed_fiber_sensitivity_branch(
     subject_ids: list[str],
     fiber_ids: np.ndarray,
     fold_covariates: np.ndarray | None = None,
+    score_config: NormativeFiberScoreConfig | None = None,
 ) -> dict[str, Any]:
+    policy = score_config or NormativeFiberScoreConfig()
     x = np.asarray(exposure, dtype=np.float32)
     y = np.asarray(outcome, dtype=float)
     cov_full = as_2d_covariates(covariates, y.shape[0])
@@ -108,7 +113,14 @@ def compute_observed_fiber_sensitivity_branch(
     rho_candidate = partial_spearman_matrix(y, np.asarray(x[:, candidate]), cov_full if cov_full.shape[1] else None)
     rho[candidate] = rho_candidate.astype(np.float32)
     weights = benefit_oriented_weights(rho, scale_direction).astype(np.float32)
-    full_net = fiber_net_score(x, weights, candidate, fiber_ids=fiber_ids)
+    full_net = fiber_net_score(
+        x,
+        weights,
+        candidate,
+        fiber_ids=fiber_ids,
+        score_config=policy,
+    )
+    full_support = score_support_fields(full_net, policy)
 
     score_rows: list[dict[str, Any]] = []
     for idx, subject_id in enumerate(subject_ids):
@@ -122,6 +134,7 @@ def compute_observed_fiber_sensitivity_branch(
             "n_sour_selected_fibers": int(full_net.sour_fiber_ids.size),
             "n_sweet_peak_fibers": int(full_net.n_sweet_peak_fibers),
             "n_sour_peak_fibers": int(full_net.n_sour_peak_fibers),
+            **full_support,
             "score_map_source": "full_sample",
             "is_primary_score": False,
         }
@@ -149,7 +162,14 @@ def compute_observed_fiber_sensitivity_branch(
         )
         weights_fold = np.full(x.shape[1], np.nan, dtype=np.float32)
         weights_fold[candidate_fold] = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
-        fold_net = fiber_net_score(x, weights_fold, candidate_fold, fiber_ids=fiber_ids)
+        fold_net = fiber_net_score(
+            x,
+            weights_fold,
+            candidate_fold,
+            fiber_ids=fiber_ids,
+            score_config=policy,
+        )
+        fold_support = score_support_fields(fold_net, policy)
         pred, beta = fit_linear_prediction(
             y[train],
             fold_net.net_score[train],
@@ -177,6 +197,7 @@ def compute_observed_fiber_sensitivity_branch(
             "n_candidate_fibers": int(np.count_nonzero(candidate_fold)),
             "n_sweet_selected_fibers": int(fold_net.sweet_fiber_ids.size),
             "n_sour_selected_fibers": int(fold_net.sour_fiber_ids.size),
+            **fold_support,
             "delta_NetULFFiberSensitivityScore": float(beta[1]),
         }
         for cov_idx, name in enumerate(covariate_names):
@@ -202,6 +223,7 @@ def compute_observed_fiber_sensitivity_branch(
         "fold_n_candidate_fibers_max": int(np.nanmax(fold_counts)) if fold_counts.size else 0,
         "n_sweet_selected_fibers": int(full_net.sweet_fiber_ids.size),
         "n_sour_selected_fibers": int(full_net.sour_fiber_ids.size),
+        "score_support": full_support,
         "all_predictions_finite": bool(np.all(np.isfinite(loocv_pred)) and np.all(np.isfinite(loocv_base_pred))),
     }
 
@@ -243,6 +265,7 @@ def write_fiber_sensitivity_branch(
         "n_sour_selected_fibers",
         "n_sweet_peak_fibers",
         "n_sour_peak_fibers",
+        *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
         "score_map_source",
         "is_primary_score",
     ]
@@ -262,6 +285,7 @@ def write_fiber_sensitivity_branch(
         "n_candidate_fibers",
         "n_sweet_selected_fibers",
         "n_sour_selected_fibers",
+        *NORMATIVE_FIBER_SCORE_SUPPORT_FIELDS,
         "delta_NetULFFiberSensitivityScore",
         *[f"beta_{name}" for name in covariate_names],
         *[f"baseline_beta_{name}" for name in covariate_names],
@@ -402,6 +426,7 @@ def _configured_fiber_branch_result(
             min_coverage=int(target.selected_coverage),
             subject_ids=list(target.subject_order),
             fiber_ids=fiber_ids,
+            score_config=target.score_config,
         )
     except (RuntimeError, ValueError) as exc:
         return {"status": "not_computable", "reason": str(exc)}, None
@@ -412,6 +437,21 @@ def _configured_fiber_branch_result(
         "n_candidate_fibers": int(branch["n_candidate_fibers"]),
         "all_predictions_finite": bool(branch["all_predictions_finite"]),
     }, branch
+
+
+def _configured_valid_fiber_columns(target: Any) -> tuple[np.ndarray, np.ndarray]:
+    if target.valid_feature_ids_path is None:
+        raise ValueError("configured normative-fiber sensitivity has no valid feature axis")
+    parent = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"), dtype=np.int64)
+    valid = np.asarray(np.load(target.valid_feature_ids_path, mmap_mode="r"), dtype=np.int64)
+    positions = {int(fiber_id): index for index, fiber_id in enumerate(parent)}
+    try:
+        columns = np.asarray([positions[int(fiber_id)] for fiber_id in valid], dtype=np.int64)
+    except KeyError as exc:
+        raise ValueError("valid fiber axis is not a subset of the parent axis") from exc
+    if columns.size == 0 or np.any(columns[1:] <= columns[:-1]):
+        raise ValueError("valid fiber axis must preserve nonempty parent-axis order")
+    return columns, valid
 
 
 def _fiber_collinearity_diagnostic(
@@ -472,8 +512,9 @@ def run_configured_additional_sensitivities(
     y_post = np.asarray(columns["Y_post"], dtype=float)
     y_hf_ref = np.asarray(columns["Y_HF_ref"], dtype=float)
     delta_full, delta_folds = _configured_delta(target)
-    selected_exposure = np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32)
-    fiber_ids = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"))
+    selected_parent = np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32)
+    valid_columns, fiber_ids = _configured_valid_fiber_columns(target)
+    selected_exposure = selected_parent[:, valid_columns]
     total_path = target.component_paths.get("ulf_component_exposure")
     analyses: dict[str, Any] = {}
 
@@ -539,9 +580,10 @@ def run_configured_additional_sensitivities(
                 "reason": "missing_raw_ulf_component_exposure",
             }
         else:
+            total_exposure = np.asarray(np.load(total_path, mmap_mode="r"), dtype=np.float32)
             analyses["total_exposure"], _ = _configured_fiber_branch_result(
                 name="total_ulf_exposure",
-                exposure=np.asarray(np.load(total_path, mmap_mode="r"), dtype=np.float32),
+                exposure=total_exposure[:, valid_columns],
                 outcome=y_post,
                 covariates=selected_cov,
                 fold_covariates=selected_fold_cov,
@@ -574,7 +616,19 @@ def run_configured_additional_sensitivities(
         ],
         ["analysis", "status", "reason"],
     )
-    return {"status": "complete", "analyses": analyses, "summary_csv": str(summary_path)}
+    return {
+        "status": "complete",
+        "analyses": analyses,
+        "summary_csv": str(summary_path),
+        "score": {
+            "sweet_fraction": target.score_config.sweet_fraction,
+            "sour_fraction": target.score_config.sour_fraction,
+            "weighted_peak_fraction": target.score_config.weighted_peak_fraction,
+            "sweet_selected_min_count": target.score_config.sweet_selected_min_count,
+            "sour_selected_min_count": target.score_config.sour_selected_min_count,
+            "weighted_peak_min_count": target.score_config.weighted_peak_min_count,
+        },
+    }
 
 
 def _top_fraction_mean_rows(exposure: np.ndarray, fraction: float = 0.05) -> np.ndarray:

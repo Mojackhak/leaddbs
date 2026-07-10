@@ -15,6 +15,7 @@ import numpy as np
 
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
 from stnsnr_four_model_stats import (
+    NormativeFiberScoreConfig,
     average_rank_1d,
     benefit_oriented_weights,
     fiber_net_score,
@@ -70,6 +71,8 @@ class NormativeFiberTarget:
     final_record_hash: str = ""
     delta_hf_full_path: Path | None = None
     delta_hf_fold_path: Path | None = None
+    valid_fiber_ids_path: Path | None = None
+    score_config: NormativeFiberScoreConfig = NormativeFiberScoreConfig()
 
 
 def iso_now() -> str:
@@ -129,7 +132,42 @@ def default_cross_target_output_dir(tier: str) -> Path:
     return DEFAULT_VAL_ROOT / "summary/four_model_execution" / cross_target_output_stem_for_tier(tier)
 
 
-def prepare_candidate_union(*, x: np.ndarray, fiber_ids: np.ndarray, tau: float, min_coverage: int) -> CandidateUnion:
+def score_config_values(config: NormativeFiberScoreConfig) -> dict[str, float | int]:
+    """Return the complete public score policy for output provenance."""
+    return {
+        "sweet_fraction": config.sweet_fraction,
+        "sour_fraction": config.sour_fraction,
+        "weighted_peak_fraction": config.weighted_peak_fraction,
+        "sweet_selected_min_count": config.sweet_selected_min_count,
+        "sour_selected_min_count": config.sour_selected_min_count,
+        "weighted_peak_min_count": config.weighted_peak_min_count,
+    }
+
+
+def _restrict_to_valid_fiber_axis(
+    x: np.ndarray,
+    fiber_ids: np.ndarray,
+    valid_fiber_ids: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    if valid_fiber_ids is None:
+        return x, fiber_ids
+    valid = np.asarray(valid_fiber_ids, dtype=np.int64)
+    if valid.ndim != 1 or valid.size == 0:
+        raise ValueError("valid_fiber_ids must be a nonempty one-dimensional axis")
+    positions = np.flatnonzero(np.isin(fiber_ids, valid))
+    if positions.size != valid.size or not np.array_equal(fiber_ids[positions], valid):
+        raise ValueError("valid_fiber_ids must preserve parent fiber-axis order")
+    return np.asarray(x[:, positions], dtype=np.float32), fiber_ids[positions]
+
+
+def prepare_candidate_union(
+    *,
+    x: np.ndarray,
+    fiber_ids: np.ndarray,
+    tau: float,
+    min_coverage: int,
+    valid_fiber_ids: np.ndarray | None = None,
+) -> CandidateUnion:
     """Reduce a full connectome sidecar to the union of exact fold candidates."""
     x_arr = np.asarray(x, dtype=np.float32)
     ids = np.asarray(fiber_ids, dtype=np.int64)
@@ -137,6 +175,7 @@ def prepare_candidate_union(*, x: np.ndarray, fiber_ids: np.ndarray, tau: float,
         raise ValueError("x must be subject-by-fiber")
     if ids.shape[0] != x_arr.shape[1]:
         raise ValueError("fiber_ids length must match x columns")
+    x_arr, ids = _restrict_to_valid_fiber_axis(x_arr, ids, valid_fiber_ids)
     suprathreshold = x_arr > float(tau)
     coverage = suprathreshold.sum(axis=0).astype(np.int32)
     full_candidate = coverage >= int(min_coverage)
@@ -229,10 +268,12 @@ def normative_fiber_loocv_statistic(
     scale_direction: str,
     fold_caches: tuple[FoldFiberCache, ...] | None = None,
     fold_nuisance: np.ndarray | None = None,
+    score_config: NormativeFiberScoreConfig | None = None,
 ) -> dict[str, Any]:
     x = reduced.x
     y = np.asarray(y_post, dtype=float)
     cov = _as_2d(nuisance)
+    config = score_config or NormativeFiberScoreConfig()
     caches = fold_caches or build_fold_fiber_caches(reduced, cov, fold_nuisance)
     pred = np.full(y.shape[0], np.nan, dtype=float)
     base_pred = np.full(y.shape[0], np.nan, dtype=float)
@@ -252,7 +293,13 @@ def normative_fiber_loocv_statistic(
         rho_fold = cache.z_exposure_rank_resid.T @ (y_resid / y_denom)
         weights = np.full(x.shape[1], np.nan, dtype=np.float32)
         weights[candidate] = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
-        fold_net = fiber_net_score(x, weights, candidate, fiber_ids=reduced.fiber_ids)
+        fold_net = fiber_net_score(
+            x,
+            weights,
+            candidate,
+            fiber_ids=reduced.fiber_ids,
+            score_config=config,
+        )
         selected_sweet_counts.append(int(fold_net.sweet_fiber_ids.size))
         selected_sour_counts.append(int(fold_net.sour_fiber_ids.size))
         fold_pred, _ = fit_linear_prediction(
@@ -337,7 +384,18 @@ def run_target_smoke_permutation(
     suffix = permutation_suffix_for_tier(tier)
     x = np.load(target.x_path, mmap_mode="r")
     fiber_ids = np.load(target.fiber_ids_path, mmap_mode="r")
-    reduced = prepare_candidate_union(x=x, fiber_ids=fiber_ids, tau=target.tau, min_coverage=target.min_coverage)
+    valid_fiber_ids = (
+        np.load(target.valid_fiber_ids_path, mmap_mode="r")
+        if target.valid_fiber_ids_path is not None
+        else None
+    )
+    reduced = prepare_candidate_union(
+        x=x,
+        fiber_ids=fiber_ids,
+        tau=target.tau,
+        min_coverage=target.min_coverage,
+        valid_fiber_ids=valid_fiber_ids,
+    )
     score_columns = _load_score_columns(target.scores_csv)
     if target.subject_order:
         subject_column = next(
@@ -358,6 +416,7 @@ def run_target_smoke_permutation(
         nuisance=nuisance,
         scale_direction=target.scale_direction,
         fold_caches=fold_caches,
+        score_config=target.score_config,
     )
     y_perm = freedman_lane_permuted_outcomes(y_post, nuisance, n_permutations, seed=seed)
     null_stats = np.full(int(n_permutations), np.nan, dtype=np.float64)
@@ -368,6 +427,7 @@ def run_target_smoke_permutation(
             nuisance=nuisance,
             scale_direction=target.scale_direction,
             fold_caches=fold_caches,
+            score_config=target.score_config,
         )
         null_stats[idx] = permuted["spearman_rho"]
         if (idx + 1) % 100 == 0 or idx + 1 == int(n_permutations):
@@ -413,6 +473,7 @@ def run_target_smoke_permutation(
         "resampling_tier": tier,
         "code_provenance": provenance,
         "method": f"Exact dTOR normative-fiber {tier} Freedman-Lane permutation over selected candidate union",
+        "score": score_config_values(target.score_config),
         "outputs": {"summary_csv": str(summary_path), "null_stats_npy": str(null_path), "manifest_json": str(manifest_path)},
     }
     if target.final_record_hash:

@@ -23,6 +23,7 @@ DIRECT_JITTER = importlib.import_module("stnsnr_direct_voxel_formal_jitter")
 FIBER_JITTER = importlib.import_module("stnsnr_normative_fiber_formal_jitter")
 DIRECT_OBSERVED = importlib.import_module("stnsnr_ulf_direct_voxel_observed")
 FIBER_OBSERVED = importlib.import_module("stnsnr_ulf_normative_fiber_observed")
+SCORE_MODULE = importlib.import_module("stnsnr_normative_fiber_score")
 
 
 class ConfiguredDeltaHFSupportTests(unittest.TestCase):
@@ -52,6 +53,14 @@ class ConfiguredDeltaHFSupportTests(unittest.TestCase):
             scores_path=scores_path,
             scale_direction="lower",
             subject_order=("sub-01", "sub-02"),
+            score_config=SCORE_MODULE.NormativeFiberScoreConfig(
+                sweet_fraction=0.2,
+                sour_fraction=0.15,
+                weighted_peak_fraction=0.25,
+                sweet_selected_min_count=4,
+                sour_selected_min_count=3,
+                weighted_peak_min_count=2,
+            ),
         )
 
     def test_each_fold_support_is_checked_against_every_subject(self) -> None:
@@ -172,6 +181,8 @@ class ConfiguredDeltaHFSupportTests(unittest.TestCase):
 class ConfiguredJitterSpatialRobustnessTests(unittest.TestCase):
     @staticmethod
     def _target(root: Path, family: str) -> SimpleNamespace:
+        valid_ids = root / "valid_feature_ids.npy"
+        np.save(valid_ids, np.arange(3, dtype=np.int64))
         return SimpleNamespace(
             model_family=family,
             output_root=root,
@@ -181,6 +192,15 @@ class ConfiguredJitterSpatialRobustnessTests(unittest.TestCase):
             selected_coverage=1,
             final_branch="hf_source",
             hf_overlap_tau=None,
+            valid_feature_ids_path=valid_ids,
+            score_config=SCORE_MODULE.NormativeFiberScoreConfig(
+                sweet_fraction=0.2,
+                sour_fraction=0.15,
+                weighted_peak_fraction=0.25,
+                sweet_selected_min_count=4,
+                sour_selected_min_count=3,
+                weighted_peak_min_count=2,
+            ),
         )
 
     def test_direct_and_fiber_jitter_report_bounded_spatial_qc(self) -> None:
@@ -234,6 +254,12 @@ class ConfiguredJitterSpatialRobustnessTests(unittest.TestCase):
                 self.assertEqual(result["status"], "complete")
                 self.assertTrue(result["selected_source_identity_fixed"])
                 self.assertEqual(result["classification_feedback"], "none")
+                if family == "hf_fiber":
+                    self.assertEqual(
+                        result["checkpoint"]["method_version"],
+                        "normative_fiber_minimum_count_spatial_jitter_v3",
+                    )
+                    self.assertEqual(result["score"]["sweet_selected_min_count"], 4)
                 self.assertEqual(spatial["status"], "complete")
                 self.assertEqual(spatial["feature_unit"], unit)
                 self.assertEqual(spatial["completed_replicates"], 2)
@@ -272,6 +298,111 @@ class ConfiguredJitterSpatialRobustnessTests(unittest.TestCase):
                     observed_weights,
                     equal_nan=True,
                 )
+
+    def test_fiber_jitter_refits_weights_for_each_geometry_on_one_valid_axis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = self._target(root, "hf_fiber")
+            parent_ids = root / "parent_feature_ids.npy"
+            np.save(parent_ids, np.arange(5, dtype=np.int64))
+            target.feature_ids_path = parent_ids
+            scores_path = root / "scores.csv"
+            with scores_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["subject_id", "Y_post", "Y_base"],
+                )
+                writer.writeheader()
+                for index in range(12):
+                    writer.writerow(
+                        {
+                            "subject_id": f"sub-{index + 1:02d}",
+                            "Y_post": float(index + (index % 3)),
+                            "Y_base": float((index * 5) % 7),
+                        }
+                    )
+            target.scores_path = scores_path
+            target.scale_direction = "higher"
+            target.subject_order = tuple(f"sub-{index + 1:02d}" for index in range(12))
+            base = np.arange(12, dtype=np.float32)
+            first = np.column_stack((20.0 + base, 40.0 - base, 25.0 + (base % 4)))
+            second = np.column_stack((40.0 - base, 20.0 + base, 25.0 + ((base + 2) % 4)))
+
+            first_result = FIBER_JITTER._default_configured_branch_fitter(
+                target,
+                {"final_exposure": first},
+                None,
+            )
+            second_result = FIBER_JITTER._default_configured_branch_fitter(
+                target,
+                {"final_exposure": second},
+                None,
+            )
+
+        self.assertEqual(first_result["_spatial_weights"].shape, (3,))
+        self.assertEqual(second_result["_spatial_weights"].shape, (3,))
+        self.assertFalse(
+            np.array_equal(
+                np.sign(first_result["_spatial_weights"]),
+                np.sign(second_result["_spatial_weights"]),
+            )
+        )
+
+    def test_fiber_checkpoint_rejects_v2_identity_and_score_changes_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = self._target(root, "hf_fiber")
+            v2_identity, v2_key = DIRECT_JITTER._configured_jitter_checkpoint_identity(
+                target,
+                n_jitters=2,
+                jitter_fwhm_mm=2.0,
+                seed=42,
+            )
+            v3_identity, v3_key = FIBER_JITTER._normative_fiber_checkpoint_identity(
+                target,
+                n_jitters=2,
+                jitter_fwhm_mm=2.0,
+                seed=42,
+            )
+            changed_target = self._target(root, "hf_fiber")
+            changed_target.score_config = SCORE_MODULE.NormativeFiberScoreConfig(
+                sweet_fraction=0.2,
+                sour_fraction=0.15,
+                weighted_peak_fraction=0.25,
+                sweet_selected_min_count=5,
+                sour_selected_min_count=3,
+                weighted_peak_min_count=2,
+            )
+            changed_identity, changed_key = FIBER_JITTER._normative_fiber_checkpoint_identity(
+                changed_target,
+                n_jitters=2,
+                jitter_fwhm_mm=2.0,
+                seed=42,
+            )
+            state = DIRECT_JITTER._new_streaming_spatial_qc(
+                np.ones(3, dtype=np.float32),
+                np.ones(3, dtype=bool),
+            )
+            checkpoint = root / "legacy_v2_checkpoint.npz"
+            DIRECT_JITTER._save_configured_jitter_checkpoint(
+                checkpoint,
+                identity=v2_identity,
+                rows=[],
+                spatial_state=state,
+            )
+            resumed = DIRECT_JITTER._load_configured_jitter_checkpoint(
+                checkpoint,
+                identity=v3_identity,
+                spatial_state=state,
+            )
+
+        self.assertNotEqual(v2_key, v3_key)
+        self.assertNotEqual(v3_key, changed_key)
+        self.assertEqual(resumed, [])
+        self.assertEqual(
+            v3_identity["valid_feature_axis_file_sha256"],
+            changed_identity["valid_feature_axis_file_sha256"],
+        )
 
     def test_interrupted_jitter_resumes_only_remaining_replicates(self) -> None:
         observed_weights = np.array([1.0, -2.0, 3.0], dtype=np.float32)

@@ -569,6 +569,7 @@ def fit_hf_delta_full(
     tau: float,
     min_coverage: int,
     fiber_ids: np.ndarray,
+    score_config: NormativeFiberScoreConfig | None = None,
 ) -> dict[str, Any]:
     s_tau = suprathreshold_matrix(hf_reference, tau)
     coverage = coverage_from_suprathreshold(s_tau)
@@ -579,7 +580,14 @@ def fit_hf_delta_full(
     rho_candidate = partial_spearman_matrix(y_hf_ref, np.asarray(hf_reference[:, candidate]), y_base)
     rho[candidate] = rho_candidate.astype(np.float32)
     weights = benefit_oriented_weights(rho, scale_direction).astype(np.float32)
-    score = delta_hf_fiber_scores_from_weights(hf_reference, hf_component, weights, candidate, fiber_ids)
+    score = delta_hf_fiber_scores_from_weights(
+        hf_reference,
+        hf_component,
+        weights,
+        candidate,
+        fiber_ids,
+        score_config,
+    )
     score.update({"s_tau": s_tau, "coverage": coverage, "candidate": candidate, "weights": weights})
     return score
 
@@ -594,6 +602,7 @@ def fit_hf_delta_fold(
     heldout: int,
     min_coverage: int,
     fiber_ids: np.ndarray,
+    score_config: NormativeFiberScoreConfig | None = None,
 ) -> dict[str, Any]:
     train = np.array([idx for idx in range(y_hf_ref.shape[0]) if idx != heldout], dtype=int)
     coverage_fold = coverage_from_suprathreshold(s_tau) - s_tau[heldout].astype(np.int32)
@@ -603,7 +612,14 @@ def fit_hf_delta_fold(
     rho_fold = partial_spearman_matrix(y_hf_ref[train], np.asarray(hf_reference[train][:, candidate]), y_base[train])
     weights = np.full(hf_reference.shape[1], np.nan, dtype=np.float32)
     weights[candidate] = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
-    score = delta_hf_fiber_scores_from_weights(hf_reference, hf_component, weights, candidate, fiber_ids)
+    score = delta_hf_fiber_scores_from_weights(
+        hf_reference,
+        hf_component,
+        weights,
+        candidate,
+        fiber_ids,
+        score_config,
+    )
     score.update({"candidate": candidate, "weights": weights})
     return score
 

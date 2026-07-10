@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 from ..executor import RunContext, TaskArtifact, TaskResult, TaskStatus
 from ..planner import TaskSpec
 from ..records import ArtifactRef, DeltaHFBundle, FinalArtifactRecord, RecordError
 from ..run_store import sha256_file
+from .observed import normative_fiber_score_settings
 
 
 _ULF_SENSITIVITY_KEYS = (
@@ -43,6 +44,7 @@ class SensitivityRequest:
     jitter_fwhm_mm: float
     oss_model: str
     oss_activation_threshold: float
+    score: Mapping[str, float | int] | None = None
 
     @classmethod
     def from_context(
@@ -162,6 +164,13 @@ class SensitivityRequest:
             jitter_fwhm_mm=2.0,
             oss_model=str(context.config.model.oss["model"]),
             oss_activation_threshold=float(context.config.model.oss["deterministic_activation_threshold"]),
+            score=(
+                normative_fiber_score_settings(
+                    context.config.model.normative_fiber["score"]
+                )
+                if task.endpoint.model_family.endswith("fiber")
+                else None
+            ),
         )
 
 

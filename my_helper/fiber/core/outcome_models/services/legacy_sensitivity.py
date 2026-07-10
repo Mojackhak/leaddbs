@@ -36,6 +36,8 @@ class ConfiguredSensitivityTarget:
     exposure_path: Path
     scores_path: Path
     feature_ids_path: Path
+    valid_feature_ids_path: Path | None
+    score_config: Any | None
     spatial_reference_path: Path | None
     component_paths: Mapping[str, Path]
     delta_full_path: Path | None
@@ -146,6 +148,26 @@ def _axis_path(run_root: Path, final: FinalArtifactRecord, *, label: str) -> Pat
     return path
 
 
+def _valid_axis_path(run_root: Path, final: FinalArtifactRecord, *, label: str) -> Path:
+    axis = final.valid_feature_axis
+    if axis is None:
+        raise RecordError(f"{label} normative-fiber final has no valid feature axis")
+    path = Path(axis.ids_path).expanduser()
+    path = path.resolve() if path.is_absolute() else (run_root / path).resolve()
+    try:
+        path.relative_to(run_root)
+    except ValueError as exc:
+        raise RecordError(f"{label} valid feature axis escapes the configured run root") from exc
+    if not path.is_file():
+        raise RecordError(f"{label} valid feature-axis artifact is missing: {path}")
+    values = np.load(path, mmap_mode="r")
+    if values.ndim != 1 or int(values.shape[0]) != axis.count:
+        raise RecordError(f"{label} valid feature-axis count mismatch")
+    if _array_sha256(values) != axis.sha256:
+        raise RecordError(f"{label} valid feature-axis SHA-256 mismatch: {path}")
+    return path
+
+
 def _score_subject_order(path: Path) -> tuple[str, ...]:
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
@@ -176,6 +198,15 @@ def _validated_final_paths(
         "scores": scores,
         "feature_ids": axis,
     }
+    if final.estimator == "peak_efield_partial_spearman":
+        if final.full_weights is None:
+            raise RecordError(f"{label} normative-fiber final has no full weights")
+        paths["full_weights"] = _artifact_path(
+            run_root,
+            final.full_weights,
+            label=f"{label} full weights",
+        )
+        paths["valid_feature_ids"] = _valid_axis_path(run_root, final, label=label)
     if final.spatial_reference is not None:
         paths["spatial_reference"] = _artifact_path(
             run_root,
@@ -220,6 +251,17 @@ def build_configured_sensitivity_target(
         raise RecordError("sensitivity final record belongs to another endpoint")
     run_root = _run_root(request)
     final_paths = _validated_final_paths(run_root, request.final, label="final")
+    score_config = None
+    valid_feature_ids_path = None
+    if request.task.endpoint.model_family.endswith("fiber"):
+        if request.score is None:
+            raise RecordError("configured normative-fiber sensitivity requires score settings")
+        score_config = _load_analysis(
+            "stnsnr_normative_fiber_score"
+        ).NormativeFiberScoreConfig.from_mapping(request.score)
+        valid_feature_ids_path = final_paths.get("valid_feature_ids")
+        if valid_feature_ids_path is None:
+            raise RecordError("configured normative-fiber sensitivity requires a valid feature axis")
 
     component_paths: dict[str, Path] = {}
     expected_component_shape = (
@@ -306,6 +348,8 @@ def build_configured_sensitivity_target(
         exposure_path=final_paths["exposure"],
         scores_path=final_paths["scores"],
         feature_ids_path=final_paths["feature_ids"],
+        valid_feature_ids_path=valid_feature_ids_path,
+        score_config=score_config,
         spatial_reference_path=final_paths.get("spatial_reference"),
         component_paths=component_paths,
         delta_full_path=delta_full_path,
@@ -476,6 +520,18 @@ def run_configured_sensitivity(
             "final_branch": target.final_branch,
             "selected_tau": target.selected_tau,
             "selected_coverage": target.selected_coverage,
+            "score": (
+                {
+                    "sweet_fraction": target.score_config.sweet_fraction,
+                    "sour_fraction": target.score_config.sour_fraction,
+                    "weighted_peak_fraction": target.score_config.weighted_peak_fraction,
+                    "sweet_selected_min_count": target.score_config.sweet_selected_min_count,
+                    "sour_selected_min_count": target.score_config.sour_selected_min_count,
+                    "weighted_peak_min_count": target.score_config.weighted_peak_min_count,
+                }
+                if target.score_config is not None
+                else None
+            ),
             "classification_feedback": "prohibited",
             "results": result_payload,
         },

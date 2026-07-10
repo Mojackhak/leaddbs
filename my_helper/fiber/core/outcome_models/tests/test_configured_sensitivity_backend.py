@@ -11,6 +11,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import numpy as np
@@ -119,7 +120,8 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
         exposure = producer / "exposure.npy"
         subject_gradient = np.arange(12, dtype=np.float32)[:, None] * 4.0
         feature_gradient = np.arange(20, dtype=np.float32)[None, :] * 1.5
-        np.save(exposure, 260.0 + subject_gradient + feature_gradient)
+        base_exposure = 900.0 if task.endpoint.model_family.endswith("fiber") else 260.0
+        np.save(exposure, base_exposure + subject_gradient + feature_gradient)
         scores = producer / "scores.csv"
         with scores.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(
@@ -153,6 +155,32 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
         nuisance = NuisancePlan.for_branch("no_delta_hf", None)
         if branch == "hf_source":
             nuisance = NuisancePlan.for_branch("hf_source", None)
+        fiber_kwargs = {}
+        estimator = "partial_spearman"
+        if task.endpoint.model_family.endswith("fiber"):
+            estimator = "peak_efield_partial_spearman"
+            full_weights_path = producer / "selected_full_weights.npy"
+            valid_ids_path = producer / "selected_valid_fiber_ids.npy"
+            full_weights = np.concatenate(
+                [np.linspace(1.0, -1.0, 10), np.full(10, np.nan)]
+            ).astype(np.float32)
+            valid_ids = feature_ids[:10]
+            np.save(full_weights_path, full_weights)
+            np.save(valid_ids_path, valid_ids)
+            fiber_kwargs = {
+                "full_weights": self._artifact(
+                    root,
+                    full_weights_path,
+                    "selected_full_weights",
+                    (20,),
+                ),
+                "valid_feature_axis": FeatureAxisRef(
+                    valid_ids_path,
+                    valid_ids.size,
+                    _array_sha256(valid_ids),
+                    "data.mat:idx",
+                ),
+            }
         return FinalArtifactRecord.create(
             final_model_id=f"final-{family_token(task.endpoint.model_family)}-{branch}",
             endpoint_model_id=task.endpoint.identifier,
@@ -160,7 +188,7 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
             final_role="realized_final",
             selected_tau=250 if task.endpoint.model_family.endswith("voxel") else 800,
             selected_coverage=5,
-            estimator="partial_spearman",
+            estimator=estimator,
             scale_direction="lower",
             subject_order=subject_order,
             nuisance=nuisance,
@@ -181,6 +209,7 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
                     else "candidate_flat_indices"
                 ),
             ),
+            **fiber_kwargs,
         )
 
     def _request(
@@ -251,6 +280,44 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
             jitter_fwhm_mm=2.0,
             oss_model="OSS-DBSv2",
             oss_activation_threshold=0.5,
+            score=(
+                {
+                    "sweet_fraction": 0.2,
+                    "sour_fraction": 0.15,
+                    "weighted_peak_fraction": 0.25,
+                    "sweet_selected_min_count": 4,
+                    "sour_selected_min_count": 3,
+                    "weighted_peak_min_count": 2,
+                }
+                if fiber_model
+                else None
+            ),
+        )
+
+    def _valid_delta(self, root: Path) -> DeltaHFBundle:
+        delta_root = root / "delta"
+        delta_root.mkdir(parents=True, exist_ok=True)
+        full_path = delta_root / "delta_full.npy"
+        fold_path = delta_root / "delta_folds.npy"
+        support_path = delta_root / "delta_support.csv"
+        np.save(full_path, np.linspace(-1.0, 1.0, 12, dtype=np.float64))
+        np.save(
+            fold_path,
+            np.tile(np.linspace(-1.0, 1.0, 12, dtype=np.float64), (12, 1)),
+        )
+        support_path.write_text(
+            "subject_id,support_status\n"
+            + "".join(f"sub-{index:02d},adequate\n" for index in range(1, 13)),
+            encoding="utf-8",
+        )
+        return DeltaHFBundle(
+            input_status="valid",
+            support_status="adequate",
+            selected_hf_tau=800,
+            selected_hf_coverage=5,
+            full_scores=self._artifact(root, full_path, "delta_hf_full_scores", (12,)),
+            fold_scores=self._artifact(root, fold_path, "delta_hf_fold_scores", (12, 12)),
+            support_rows=self._artifact(root, support_path, "delta_hf_support_rows", (12,)),
         )
 
     def test_target_rejects_artifact_hash_mismatch(self) -> None:
@@ -277,6 +344,131 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
             )
 
         self.assertEqual(target.subject_order, final.subject_order)
+        self.assertEqual(
+            target.valid_feature_ids_path,
+            Path(final.valid_feature_axis.ids_path).resolve(),
+        )
+        self.assertEqual(target.score_config.sweet_selected_min_count, 4)
+        self.assertEqual(target.score_config.sour_selected_min_count, 3)
+        self.assertEqual(target.score_config.weighted_peak_min_count, 2)
+
+    def test_ulf_fiber_sensitivity_applies_configured_minima_in_full_and_folds(self) -> None:
+        analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+        if str(analysis_root) not in sys.path:
+            sys.path.insert(0, str(analysis_root))
+        module = importlib.import_module(
+            "stnsnr_ulf_normative_fiber_sensitivity_observed"
+        )
+        score_module = importlib.import_module("stnsnr_normative_fiber_score")
+        exposure = (
+            900.0
+            + np.arange(12, dtype=np.float32)[:, None] * 2.0
+            + np.arange(10, dtype=np.float32)[None, :]
+        )
+        score_config = score_module.NormativeFiberScoreConfig(
+            sweet_fraction=0.2,
+            sour_fraction=0.15,
+            weighted_peak_fraction=0.25,
+            sweet_selected_min_count=4,
+            sour_selected_min_count=3,
+            weighted_peak_min_count=2,
+        )
+
+        with mock.patch.object(
+            module,
+            "partial_spearman_matrix",
+            side_effect=lambda _y, x, _cov: np.concatenate(
+                [np.linspace(1.0, 0.1, 6), -np.linspace(0.1, 1.0, x.shape[1] - 6)]
+            ),
+        ), mock.patch.object(
+            module,
+            "fit_linear_prediction",
+            return_value=(np.array([1.0]), np.zeros(3)),
+        ), mock.patch.object(
+            module,
+            "fit_baseline_prediction",
+            return_value=(np.array([1.0]), np.zeros(2)),
+        ):
+            branch = module.compute_observed_fiber_sensitivity_branch(
+                branch_name="configured",
+                exposure=exposure,
+                outcome=np.linspace(10.0, 21.0, 12),
+                covariates=np.linspace(20.0, 31.0, 12),
+                covariate_names=["Y_HF_ref"],
+                scale_direction="higher",
+                tau=800.0,
+                min_coverage=5,
+                subject_ids=[f"sub-{index:02d}" for index in range(12)],
+                fiber_ids=np.arange(10, dtype=np.int64),
+                score_config=score_config,
+            )
+
+        self.assertEqual(branch["score_support"]["sweet_actual_selected_count"], 4)
+        self.assertEqual(branch["score_support"]["sour_actual_selected_count"], 3)
+        self.assertEqual(branch["score_support"]["sweet_actual_peak_count"], 2)
+        self.assertEqual(branch["fold_rows"][0]["sour_actual_peak_count"], 2)
+
+    def test_ulf_nonfinal_branch_refits_on_the_realized_final_valid_axis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task = self._task("ulf_fiber", "cheap_observed_sensitivity")
+            final = self._final(root, task)
+            delta = self._valid_delta(root)
+            target = build_configured_sensitivity_target(
+                self._request(root, task, final, delta=delta)
+            )
+            analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+            if str(analysis_root) not in sys.path:
+                sys.path.insert(0, str(analysis_root))
+            module = importlib.import_module(
+                "stnsnr_ulf_normative_fiber_sensitivity_observed"
+            )
+            calls: list[dict[str, object]] = []
+
+            def fitted_branch(**kwargs):
+                calls.append(kwargs)
+                branch = {
+                    "score_rows": [
+                        {"NetULFFiberSensitivityScore": float(index)}
+                        for index in range(12)
+                    ]
+                }
+                return (
+                    {
+                        "status": "complete",
+                        "branch": kwargs["name"],
+                        "loocv_metrics": {},
+                        "n_candidate_fibers": int(kwargs["exposure"].shape[1]),
+                        "all_predictions_finite": True,
+                    },
+                    branch,
+                )
+
+            with mock.patch.object(
+                module,
+                "_configured_fiber_branch_result",
+                side_effect=fitted_branch,
+            ):
+                module.run_configured_additional_sensitivities(
+                    target,
+                    enabled_analyses=("nonfinal_branch",),
+                )
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            [call["name"] for call in calls],
+            ["selected_no_delta_hf", "delta_hf_adjusted"],
+        )
+        self.assertEqual(
+            [call["covariate_names"] for call in calls],
+            [["Y_HF_ref"], ["Y_HF_ref", "DeltaHFScore"]],
+        )
+        for call in calls:
+            self.assertEqual(call["exposure"].shape, (12, 10))
+            np.testing.assert_array_equal(
+                call["fiber_ids"],
+                np.arange(10, dtype=np.int64),
+            )
 
     def test_normative_fiber_axis_identity_rejects_feature_order_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -453,6 +645,9 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
         analyses = payload["results"]["additional_sensitivities"]["analyses"]
         self.assertEqual(analyses["total_exposure"]["status"], "complete")
         self.assertEqual(analyses["support"]["status"], "not_computable")
+        self.assertEqual(payload["score"]["sweet_selected_min_count"], 4)
+        self.assertEqual(payload["score"]["sour_selected_min_count"], 3)
+        self.assertEqual(payload["score"]["weighted_peak_min_count"], 2)
 
     def test_plain_burden_control_is_the_only_observed_phase_sensitivity_request(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -473,6 +668,16 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
                         },
                         formal={"jitter_resamples": 1000, "seed": 42},
                         oss={"model": "OSS-DBSv2", "deterministic_activation_threshold": 0.5},
+                        normative_fiber={
+                            "score": {
+                                "sweet_fraction": 0.2,
+                                "sour_fraction": 0.15,
+                                "weighted_peak_fraction": 0.25,
+                                "sweet_selected_min_count": 4,
+                                "sour_selected_min_count": 3,
+                                "weighted_peak_min_count": 2,
+                            }
+                        },
                     )
                 ),
                 store=SimpleNamespace(run_root=root),
