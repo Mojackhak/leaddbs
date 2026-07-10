@@ -8,6 +8,8 @@ import h5py
 import nibabel as nib
 import numpy as np
 
+from my_helper.fiber.core.seed_target_connectivity.models import FiberChunk, ResolvedMask
+
 
 def write_mask(
     path: Path,
@@ -48,3 +50,52 @@ def mutate_fourth_row(path: Path, value: float, point_index: int = 0) -> None:
     """Replace one stored point-level canonical ID."""
     with h5py.File(path, "r+") as handle:
         handle["fibers"][3, point_index] = value
+
+
+def resolved_mask(
+    voxels: list[tuple[int, int, int]],
+    *,
+    shape: tuple[int, int, int] = (4, 4, 4),
+    affine: np.ndarray | None = None,
+    roi_id: str = "target",
+    role: str = "target",
+) -> ResolvedMask:
+    """Build one in-memory resolved mask for geometry tests."""
+    resolved_affine = np.eye(4, dtype=np.float64) if affine is None else np.asarray(affine, dtype=np.float64)
+    if voxels:
+        coordinates = np.asarray(voxels, dtype=np.int64).T
+        flat = np.ravel_multi_index(coordinates, shape, order="C").astype(np.int64)
+        flat.sort()
+    else:
+        flat = np.empty(0, dtype=np.int64)
+    flat.setflags(write=False)
+    resolved_affine.setflags(write=False)
+    return ResolvedMask(
+        roi_id=roi_id,
+        role=role,
+        source_path=Path(f"/{roi_id}.nii.gz"),
+        relative_path=f"{roi_id}.nii.gz",
+        target_group="synthetic",
+        source_value_type="binary",
+        probability_threshold=None,
+        threshold_source="not_applicable",
+        source_hash="a" * 64,
+        voxel_count=int(flat.size),
+        physical_volume_mm3=float(flat.size * abs(np.linalg.det(resolved_affine[:3, :3]))),
+        resolved_mask_hash=(roi_id.encode("utf-8").hex() + "0" * 64)[:64],
+        status="valid" if flat.size else "empty_after_threshold",
+        shape=shape,
+        affine=resolved_affine,
+        flat_voxel_indices=flat,
+    )
+
+
+def fiber_chunk(streamlines: list[np.ndarray], first_id: int = 1) -> FiberChunk:
+    """Build one in-memory fiber chunk."""
+    lengths = np.asarray([streamline.shape[0] for streamline in streamlines], dtype=np.int64)
+    offsets = np.empty(lengths.size + 1, dtype=np.int64)
+    offsets[0] = 0
+    np.cumsum(lengths, out=offsets[1:])
+    points = np.concatenate(streamlines, axis=0).astype(np.float32)
+    ids = np.arange(first_id, first_id + lengths.size, dtype=np.int64)
+    return FiberChunk(fiber_ids=ids, point_offsets=offsets, points=points)

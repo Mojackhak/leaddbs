@@ -15,3 +15,7 @@ class ROIResolutionError(SeedTargetConnectivityError, ValueError):
 
 class ConnectomeError(SeedTargetConnectivityError, ValueError):
     """Raised when a streamline connectome violates its adapter contract."""
+
+
+class TraversalError(SeedTargetConnectivityError, ValueError):
+    """Raised when segment-aware voxel traversal receives invalid geometry."""
