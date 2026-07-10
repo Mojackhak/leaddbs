@@ -65,20 +65,39 @@ result = compute_seed_target_statistics(
 
 The command-line interface exposes four operations:
 
-```text
-seed-target-connectivity validate
-seed-target-connectivity run
-seed-target-connectivity status
-seed-target-connectivity artifacts
+```bash
+conda run -n leaddbs python my_helper/fiber/pipelines/seed-target-connectivity validate \
+  --target-atlas-root /path/to/atlas \
+  --seed-roi /path/to/seed.nii.gz \
+  --connectome /path/to/connectome \
+  --config /path/to/config.yaml
+
+conda run -n leaddbs python my_helper/fiber/pipelines/seed-target-connectivity run \
+  --target-atlas-root /path/to/atlas \
+  --seed-roi /path/to/seed.nii.gz \
+  --connectome /path/to/connectome \
+  --config /path/to/config.yaml \
+  --output-root /path/to/output
+
+conda run -n leaddbs python my_helper/fiber/pipelines/seed-target-connectivity status \
+  --run-dir /path/to/output/runs/<run-fingerprint>
+
+conda run -n leaddbs python my_helper/fiber/pipelines/seed-target-connectivity artifacts \
+  --run-dir /path/to/output/runs/<run-fingerprint>
 ```
 
 `validate` resolves configuration, atlas targets, ROI masks, and connectome
 metadata without traversing the complete connectome. `run` computes or reuses
 independent seed/target membership caches and writes one immutable run
 directory. `status` verifies an existing run, and `artifacts` lists its indexed
-outputs. All repository invocations use the Conda `leaddbs` environment. The
-reusable core has no STN/SNr, hemisphere, clinical, stimulation, or
-target-selection defaults.
+outputs. Unless `--cache-root` is supplied, reusable membership caches live at
+`<output-root>/membership_cache`; immutable runs live at
+`<output-root>/runs/<run-fingerprint>`. Commands write JSON to standard output.
+Exit code `0` means success, `1` means a configuration/input/run integrity
+failure, and argparse uses exit code `2` for invalid command syntax. All
+repository invocations use the Conda `leaddbs` environment. The reusable core
+has no STN/SNr, hemisphere, clinical, stimulation, or target-selection
+defaults.
 
 ## VTA Computation Modules
 

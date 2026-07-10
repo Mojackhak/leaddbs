@@ -9,7 +9,7 @@ Parent goal: none; standalone reusable fiber-core module
 Authoritative specification: this document
 Current branch: stnvop
 Status: design_approved
-Implementation status: task_6_artifact_store_in_progress
+Implementation status: task_7_api_cli_in_progress
 Current outputs: unchanged
 Implementation language: Python
 Default execution environment: Conda leaddbs
@@ -416,8 +416,9 @@ Current implementation progress:
 - stable-ID connectome adapter: complete;
 - reference and optimized segment-aware traversal: complete;
 - independent membership caches, statistics, and ranking: complete;
-- atomic immutable artifacts and provenance: in progress;
-- CLI and acceptance: pending.
+- atomic immutable artifacts and provenance: complete;
+- reusable API and four-command CLI: in progress;
+- default real-data acceptance: pending.
 
 Documentation must be updated before each later implementation phase changes
 production code.
