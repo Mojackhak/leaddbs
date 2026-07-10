@@ -71,13 +71,32 @@ def run_selftest() -> dict[str, object]:
     fiber_weights = np.array([0.4, 0.3, -0.5, -0.2, np.nan, 0.0, 0.1], dtype=float)
     fiber_candidate = np.array([True, True, True, True, True, True, True])
     net = fiber_net_score(exposure, fiber_weights, fiber_candidate)
-    expected_sweet = exposure[:, 0] * 0.4
-    expected_sour = exposure[:, 2] * 0.5
+    expected_sweet = np.mean(
+        np.column_stack(
+            [
+                exposure[:, 0] * 0.4,
+                exposure[:, 1] * 0.3,
+                exposure[:, 6] * 0.1,
+            ]
+        ),
+        axis=1,
+    )
+    expected_sour = np.mean(
+        np.column_stack(
+            [
+                exposure[:, 2] * 0.5,
+                exposure[:, 3] * 0.2,
+            ]
+        ),
+        axis=1,
+    )
     _assert_close("fiber_sweet_peak", net.sweet_peak5, expected_sweet)
     _assert_close("fiber_sour_peak", net.sour_peak5, expected_sour)
     _assert_close("fiber_net_score", net.net_score, expected_sweet - expected_sour)
-    _assert_close("fiber_sweet_ids", net.sweet_fiber_ids, np.array([0]))
-    _assert_close("fiber_sour_ids", net.sour_fiber_ids, np.array([2]))
+    _assert_close("fiber_sweet_ids", net.sweet_fiber_ids, np.array([0, 1, 6]))
+    _assert_close("fiber_sour_ids", net.sour_fiber_ids, np.array([2, 3]))
+    if net.fiber_score_support_status != "limited_two_sign":
+        raise AssertionError(f"unexpected fiber support status {net.fiber_score_support_status}")
 
     perm_a = freedman_lane_permuted_outcomes(y, baseline, n_perm=5, seed=42)
     perm_b = freedman_lane_permuted_outcomes(y, baseline, n_perm=5, seed=42)

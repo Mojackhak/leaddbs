@@ -53,7 +53,7 @@
 - Produces `NormativeFiberScoreConfig`, `FiberNetScoreResult`, `fiber_net_score`, and `score_support_fields`.
 - `fiber_net_score(exposure, weights, candidate_mask, *, fiber_ids, score_config)` remains the common entrypoint used by all later tasks.
 
-- [ ] **Step 1: Write failing tests for count formulas, finite weights, ties, one-sided support, and hashes**
+- [x] **Step 1: Write failing tests for count formulas, finite weights, ties, one-sided support, and hashes**
 
 Use synthetic axes that assert:
 
@@ -74,7 +74,7 @@ self.assertEqual(result.sweet_actual_peak_count, min(result.sweet_actual_selecte
 
 Also assert a coverage-passing `NaN` weight is excluded, equal weights use ascending canonical fiber ID, duplicate canonical IDs are rejected, `N_positive=50` sets `sweet_minimum_count_dominated=True`, an empty sign sets its peak to zero and a limited one-sided status, and two identical selected ID arrays produce identical hashes.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 ```bash
 conda run -n leaddbs python -m unittest \
@@ -83,7 +83,7 @@ conda run -n leaddbs python -m unittest \
 
 Expected: import or missing-field failures for the new score API.
 
-- [ ] **Step 3: Implement the score policy and result contract**
+- [x] **Step 3: Implement the score policy and result contract**
 
 The production interface must be:
 
@@ -135,11 +135,11 @@ class FiberNetScoreResult:
 
 Use `np.lexsort((canonical_ids, -positive_weights))` for sweet and `np.lexsort((canonical_ids, negative_weights))` for sour. Define percentage count as zero for an empty sign. A minimum-dominated flag is true only when that sign/selected set is nonempty and its percentage count is below the configured minimum.
 
-- [ ] **Step 4: Re-export the API from `stnsnr_four_model_stats`**
+- [x] **Step 4: Re-export the API from `stnsnr_four_model_stats`**
 
 Delete its duplicate `FiberNetScoreResult`, `_top_mean_per_row`, and primary `fiber_net_score` implementation. Import/re-export the new symbols so existing analysis imports remain valid.
 
-- [ ] **Step 5: Run focused and legacy stats tests**
+- [x] **Step 5: Run focused and legacy stats tests**
 
 ```bash
 conda run -n leaddbs python -m unittest \
@@ -149,7 +149,7 @@ conda run -n leaddbs python my_helper/fiber/core/analysis/stnsnr_four_model_stat
 
 Expected: all tests pass; the legacy selftest is updated for the approved minimum counts rather than the old percentage-only behavior.
 
-- [ ] **Step 6: Commit the kernel**
+- [x] **Step 6: Commit the kernel**
 
 ```bash
 git add \
@@ -631,7 +631,7 @@ Describe implemented behavior and current test evidence only after code is green
 - [ ] **Step 4: Run the configured-core regression**
 
 ```bash
-conda run -n leaddbs python -m unittest discover \
+PYTHONPATH=my_helper/fiber/core conda run -n leaddbs python -m unittest discover \
   -s my_helper/fiber/core/outcome_models/tests \
   -p 'test_*.py' -v
 ```

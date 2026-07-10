@@ -3,23 +3,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable
-
 import numpy as np
 
-
-@dataclass(frozen=True)
-class FiberNetScoreResult:
-    """Patient-level net sweet-minus-sour fiber scores."""
-
-    sweet_peak5: np.ndarray
-    sour_peak5: np.ndarray
-    net_score: np.ndarray
-    sweet_fiber_ids: np.ndarray
-    sour_fiber_ids: np.ndarray
-    n_sweet_peak_fibers: int
-    n_sour_peak_fibers: int
+from stnsnr_normative_fiber_score import (
+    FiberNetScoreResult,
+    NormativeFiberScoreConfig,
+    fiber_net_score,
+    score_support_fields,
+)
 
 
 def average_rank_1d(values: np.ndarray) -> np.ndarray:
@@ -183,76 +174,6 @@ def mean_map_score(exposure: np.ndarray, weights: np.ndarray, score_mask: np.nda
         raise ValueError("score mask contains no valid features")
     scores = x[:, mask] @ w[mask] / n_valid
     return scores, n_valid
-
-
-def _ceil_count(percent: float, n_items: int) -> int:
-    if n_items <= 0:
-        return 0
-    return max(1, int(np.ceil(float(percent) * n_items)))
-
-
-def _top_mean_per_row(values: np.ndarray, percent: float) -> tuple[np.ndarray, int]:
-    if values.shape[1] == 0:
-        return np.zeros(values.shape[0], dtype=float), 0
-    count = _ceil_count(percent, values.shape[1])
-    sorted_values = np.sort(values, axis=1)[:, ::-1]
-    return np.mean(sorted_values[:, :count], axis=1), count
-
-
-def fiber_net_score(
-    exposure: np.ndarray,
-    weights: np.ndarray,
-    candidate_mask: np.ndarray,
-    *,
-    sweet_percent: float = 0.01,
-    sour_percent: float = 0.005,
-    peak_percent: float = 0.05,
-    fiber_ids: Iterable[int] | None = None,
-) -> FiberNetScoreResult:
-    """Compute NetFiberScore from selected sweet and sour fibers."""
-    x = np.asarray(exposure, dtype=float)
-    w = np.asarray(weights, dtype=float)
-    candidate = np.asarray(candidate_mask, dtype=bool) & np.isfinite(w)
-    if x.ndim != 2:
-        raise ValueError("exposure must be a subject-by-fiber matrix")
-    if x.shape[1] != w.shape[0]:
-        raise ValueError("exposure columns and weights length differ")
-    if candidate.shape[0] != w.shape[0]:
-        raise ValueError("candidate_mask and weights length differ")
-
-    ids = np.arange(w.shape[0], dtype=np.int64) if fiber_ids is None else np.asarray(fiber_ids, dtype=np.int64)
-    if ids.shape[0] != w.shape[0]:
-        raise ValueError("fiber_ids length differs from weights length")
-
-    positive = candidate & (w > 0)
-    negative = candidate & (w < 0)
-    positive_cols = np.flatnonzero(positive)
-    negative_cols = np.flatnonzero(negative)
-    positive_ids = ids[positive_cols]
-    negative_ids = ids[negative_cols]
-
-    n_sweet = _ceil_count(sweet_percent, positive_ids.size)
-    n_sour = _ceil_count(sour_percent, negative_ids.size)
-    sweet_order = np.lexsort((positive_ids, -w[positive_cols]))
-    sour_order = np.lexsort((negative_ids, w[negative_cols]))
-    sweet_cols = positive_cols[sweet_order[:n_sweet]].astype(np.int64)
-    sour_cols = negative_cols[sour_order[:n_sour]].astype(np.int64)
-    sweet_ids = ids[sweet_cols].astype(np.int64)
-    sour_ids = ids[sour_cols].astype(np.int64)
-
-    sweet_weighted = x[:, sweet_cols] * w[sweet_cols] if sweet_cols.size else np.empty((x.shape[0], 0), dtype=float)
-    sour_weighted = x[:, sour_cols] * (-w[sour_cols]) if sour_cols.size else np.empty((x.shape[0], 0), dtype=float)
-    sweet_peak, n_sweet_peak = _top_mean_per_row(sweet_weighted, peak_percent)
-    sour_peak, n_sour_peak = _top_mean_per_row(sour_weighted, peak_percent)
-    return FiberNetScoreResult(
-        sweet_peak5=sweet_peak,
-        sour_peak5=sour_peak,
-        net_score=sweet_peak - sour_peak,
-        sweet_fiber_ids=sweet_ids,
-        sour_fiber_ids=sour_ids,
-        n_sweet_peak_fibers=n_sweet_peak,
-        n_sour_peak_fibers=n_sour_peak,
-    )
 
 
 def fit_linear_prediction(
