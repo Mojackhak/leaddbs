@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
+
+import numpy as np
 
 
 @dataclass(frozen=True)
@@ -56,3 +59,44 @@ class ConnectivityConfig:
     ranking: RankingConfig
     resolved_mapping: Mapping[str, Any]
     configuration_hash: str
+
+
+@dataclass(frozen=True)
+class TargetSource:
+    """One deterministically discovered target NIfTI source."""
+
+    target_id: str
+    target_group: str
+    relative_path: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class ResolvedMask:
+    """One validated and resolved binary voxel mask."""
+
+    roi_id: str
+    role: str
+    source_path: Path
+    relative_path: str
+    target_group: str
+    source_value_type: str
+    probability_threshold: float | None
+    threshold_source: str
+    source_hash: str
+    voxel_count: int
+    physical_volume_mm3: float
+    resolved_mask_hash: str
+    status: str
+    shape: tuple[int, int, int]
+    affine: np.ndarray
+    flat_voxel_indices: np.ndarray
+
+
+@dataclass(frozen=True)
+class ResolvedAtlas:
+    """An ordered target catalog with a stable resolved identity."""
+
+    root: Path
+    targets: tuple[ResolvedMask, ...]
+    atlas_hash: str
