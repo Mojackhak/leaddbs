@@ -738,6 +738,25 @@ error. The reader now accepts `subjects_csv` for direct targets and
 configured-core tests, the direct formal-permutation selftest, compilation, and
 `git diff --check` pass.
 
+Second acceptance attempt
+`20260710T151202Z_8d4e5419ee4ba1c2` proved the direct repair through complete
+observed, formal permutation/bootstrap, jitter, sensitivity, and report tasks.
+It then exposed an OSS producer provenance mismatch: `_source_rows` called the
+legacy `manifest["outputs"]["mapping_qc_json"]` contract on a configured selected
+manifest. Configured source rows instead belong to the exact endpoint-local
+`sidecar_equivalence` QC artifact (or ULF `preprocessing_sidecars` QC artifact),
+which is already indexed and hash locked. Repair the producer to resolve that
+single completed task artifact by endpoint and stage, require its artifact-index
+path/hash to match, and parse source rows from the QC payload. Add HF and ULF
+contract tests plus tamper rejection before another clean run.
+
+Repair verification: configured HF now reads ordered source rows from the
+single completed `sidecar_equivalence` QC artifact; configured ULF reads them
+from the single completed `preprocessing_sidecars` QC artifact. Both require an
+exact endpoint/stage match and artifact-index path/SHA-256 match. HF, ULF, and
+hash-drift tests pass, as do all 304 configured-core tests, Python compilation,
+and `git diff --check`.
+
 - [ ] **Step 8: Audit final artifacts and state closure**
 
 ```bash

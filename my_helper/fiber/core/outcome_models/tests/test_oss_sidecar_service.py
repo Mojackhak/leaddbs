@@ -15,6 +15,7 @@ import numpy as np
 import outcome_models.services.oss_sidecar as oss_sidecar_module
 from outcome_models.executor import (
     RunContext,
+    TaskArtifact,
     TaskExecutionRecord,
     TaskResult,
     TaskStatus,
@@ -497,6 +498,243 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
             ),
         )
         oss_sidecar_module._validate_formal_dependency(producer, context, final)
+
+    def test_configured_hf_source_rows_come_from_indexed_sidecar_qc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            producer = self._task()
+            final = self._final(producer)
+            manifest = root / final.manifest.relative_path
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text("{}\n", encoding="utf-8")
+            side_fields = [
+                {
+                    "subject_id": subject_id,
+                    "side": side,
+                    "source_paths": [f"/{subject_id}_{side}.nii"],
+                }
+                for subject_id in final.subject_order
+                for side in ("L", "R")
+            ]
+            qc = root / "tasks" / "sidecar" / "qc.json"
+            qc.parent.mkdir(parents=True, exist_ok=True)
+            qc.write_text(
+                json.dumps({"sampler_qc": {"side_fields": side_fields}}) + "\n",
+                encoding="utf-8",
+            )
+            sidecar_key = TaskKey(
+                endpoint_model_id=producer.endpoint.identifier,
+                execution_stage="sidecar_equivalence",
+            )
+            sidecar_task = TaskSpec(
+                task_id=sidecar_key.identifier,
+                key=sidecar_key,
+                endpoint=producer.endpoint,
+                round_name="Round 1",
+                workflow_phase="observed",
+                dependencies=(),
+                gate=TaskGate(GatePredicate.ENDPOINT_DATA_AVAILABLE),
+                expected_artifact_kinds=("task_manifest", "sidecar_index", "qc"),
+            )
+            index_rows = (
+                {
+                    "task_id": sidecar_task.task_id,
+                    "kind": "qc",
+                    "relative_path": qc.relative_to(root).as_posix(),
+                    "sha256": _file_sha256(qc),
+                    "size_bytes": str(qc.stat().st_size),
+                },
+            )
+            context = RunContext(
+                store=SimpleNamespace(
+                    run_root=root,
+                    load_artifact_index=lambda: index_rows,
+                ),
+                catalog=(),
+            )
+            context.results[sidecar_task.task_id] = TaskExecutionRecord(
+                sidecar_task,
+                TaskResult(
+                    TaskStatus.COMPLETED,
+                    artifacts=(TaskArtifact("qc", qc),),
+                ),
+            )
+
+            rows = oss_sidecar_module._source_rows(final, context)
+
+        self.assertEqual(
+            [(row["subject_id"], row["side"]) for row in rows],
+            [
+                (subject_id, side)
+                for subject_id in final.subject_order
+                for side in ("L", "R")
+            ],
+        )
+        self.assertEqual(
+            [row["canonicalization_mode"] for row in rows],
+            ["left_geometry_to_right", "native_right"] * len(final.subject_order),
+        )
+        self.assertEqual(
+            [row["source_paths"] for row in rows],
+            [row["source_paths"] for row in side_fields],
+        )
+
+    def test_configured_source_rows_reject_unindexed_qc_hash_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            producer = self._task()
+            final = self._final(producer)
+            manifest = root / final.manifest.relative_path
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text("{}\n", encoding="utf-8")
+            qc = root / "qc.json"
+            qc.write_text(
+                json.dumps({"sampler_qc": {"side_fields": []}}) + "\n",
+                encoding="utf-8",
+            )
+            sidecar_key = TaskKey(
+                endpoint_model_id=producer.endpoint.identifier,
+                execution_stage="sidecar_equivalence",
+            )
+            sidecar_task = TaskSpec(
+                task_id=sidecar_key.identifier,
+                key=sidecar_key,
+                endpoint=producer.endpoint,
+                round_name="Round 1",
+                workflow_phase="observed",
+                dependencies=(),
+                gate=TaskGate(GatePredicate.ENDPOINT_DATA_AVAILABLE),
+                expected_artifact_kinds=("task_manifest", "sidecar_index", "qc"),
+            )
+            context = RunContext(
+                store=SimpleNamespace(
+                    run_root=root,
+                    load_artifact_index=lambda: (
+                        {
+                            "task_id": sidecar_task.task_id,
+                            "kind": "qc",
+                            "relative_path": qc.relative_to(root).as_posix(),
+                            "sha256": "0" * 64,
+                            "size_bytes": str(qc.stat().st_size),
+                        },
+                    ),
+                ),
+                catalog=(),
+            )
+            context.results[sidecar_task.task_id] = TaskExecutionRecord(
+                sidecar_task,
+                TaskResult(
+                    TaskStatus.COMPLETED,
+                    artifacts=(TaskArtifact("qc", qc),),
+                ),
+            )
+
+            with self.assertRaisesRegex(RecordError, "SHA-256"):
+                oss_sidecar_module._source_rows(final, context)
+
+    def test_configured_ulf_source_rows_come_from_indexed_preprocessing_qc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            hf_task = self._task()
+            base = self._final(hf_task)
+            endpoint = EndpointModelKey(
+                study_id="study",
+                scale_id="scale",
+                endpoint_phase="chronic",
+                model_family="ulf_fiber",
+                connectome="dtor",
+            )
+            final = FinalArtifactRecord.create(
+                final_model_id="final-ulf-fiber",
+                endpoint_model_id=endpoint.identifier,
+                final_branch="no_delta_hf",
+                final_role="realized_final",
+                selected_tau=800,
+                selected_coverage=5,
+                estimator=base.estimator,
+                scale_direction=base.scale_direction,
+                subject_order=base.subject_order,
+                nuisance=NuisancePlan.for_branch("no_delta_hf", None),
+                manifest=base.manifest,
+                exposure=base.exposure,
+                scores=base.scores,
+                feature_axis=base.feature_axis,
+                full_weights=base.full_weights,
+                valid_feature_axis=base.valid_feature_axis,
+            )
+            manifest = root / final.manifest.relative_path
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text("{}\n", encoding="utf-8")
+            side_paths = [
+                {
+                    "subject_id": subject_id,
+                    "side": side,
+                    "source_paths": [f"/{subject_id}_{side}_ulf.nii"],
+                }
+                for subject_id in final.subject_order
+                for side in ("L", "R")
+            ]
+            qc = root / "tasks" / "ulf-sidecar" / "qc.json"
+            qc.parent.mkdir(parents=True, exist_ok=True)
+            qc.write_text(
+                json.dumps(
+                    {"component_sampler_qc": {"ULF": {"side_paths": side_paths}}}
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            sidecar_key = TaskKey(
+                endpoint_model_id=endpoint.identifier,
+                execution_stage="preprocessing_sidecars",
+            )
+            sidecar_task = TaskSpec(
+                task_id=sidecar_key.identifier,
+                key=sidecar_key,
+                endpoint=endpoint,
+                round_name="Round 1",
+                workflow_phase="observed",
+                dependencies=(),
+                gate=TaskGate(GatePredicate.ENDPOINT_DATA_AVAILABLE),
+                expected_artifact_kinds=("task_manifest", "sidecar_index", "qc"),
+            )
+            index_rows = (
+                {
+                    "task_id": sidecar_task.task_id,
+                    "kind": "qc",
+                    "relative_path": qc.relative_to(root).as_posix(),
+                    "sha256": _file_sha256(qc),
+                    "size_bytes": str(qc.stat().st_size),
+                },
+            )
+            context = RunContext(
+                store=SimpleNamespace(
+                    run_root=root,
+                    load_artifact_index=lambda: index_rows,
+                ),
+                catalog=(),
+            )
+            context.results[sidecar_task.task_id] = TaskExecutionRecord(
+                sidecar_task,
+                TaskResult(
+                    TaskStatus.COMPLETED,
+                    artifacts=(TaskArtifact("qc", qc),),
+                ),
+            )
+
+            rows = oss_sidecar_module._source_rows(final, context)
+
+        self.assertEqual(
+            [(row["subject_id"], row["side"]) for row in rows],
+            [
+                (subject_id, side)
+                for subject_id in final.subject_order
+                for side in ("L", "R")
+            ],
+        )
+        self.assertEqual(
+            [row["source_paths"] for row in rows],
+            [row["source_paths"] for row in side_paths],
+        )
 
     def test_service_passes_final_locked_request_and_preserves_runner_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

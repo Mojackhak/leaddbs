@@ -371,17 +371,81 @@ def _run_artifact_path(context: RunContext, relative_path: str) -> Path:
     return path
 
 
-def _source_rows(final: FinalArtifactRecord, context: RunContext) -> list[dict[str, Any]]:
-    manifest_path = _run_artifact_path(context, final.manifest.relative_path)
+def _indexed_sidecar_qc(
+    final: FinalArtifactRecord,
+    context: RunContext,
+) -> dict[str, Any]:
+    stage = (
+        "sidecar_equivalence"
+        if final.final_branch == "hf_source"
+        else "preprocessing_sidecars"
+    )
+    records = [
+        record
+        for record in context.results.values()
+        if record.task.endpoint.identifier == final.endpoint_model_id
+        and record.task.key.execution_stage == stage
+    ]
+    if len(records) != 1:
+        raise OSSSidecarInputsUnavailable(
+            f"expected one completed {stage} task for OSS source rows; found {len(records)}"
+        )
+    record = records[0]
+    if record.result.status != TaskStatus.COMPLETED:
+        raise OSSSidecarInputsUnavailable(
+            f"OSS source-row task {record.task.task_id} is not completed"
+        )
+    artifacts = [
+        artifact for artifact in record.result.artifacts if artifact.kind == "qc"
+    ]
+    if len(artifacts) != 1:
+        raise OSSSidecarInputsUnavailable(
+            f"OSS source-row task must expose one QC artifact; found {len(artifacts)}"
+        )
+    run_root = context.store.run_root.resolve()
+    qc_path = Path(artifacts[0].path).expanduser().resolve()
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        relative_path = qc_path.relative_to(run_root).as_posix()
+    except ValueError as exc:
+        raise RecordError("OSS source-row QC is outside the configured run root") from exc
+    indexed = [
+        row
+        for row in context.store.load_artifact_index()
+        if row.get("task_id") == record.task.task_id and row.get("kind") == "qc"
+    ]
+    if len(indexed) != 1:
+        raise RecordError(
+            f"OSS source-row QC must have one artifact-index entry; found {len(indexed)}"
+        )
+    if str(indexed[0].get("relative_path", "")) != relative_path:
+        raise RecordError("OSS source-row QC path does not match the artifact index")
+    if not qc_path.is_file():
+        raise OSSSidecarInputsUnavailable(f"OSS source-row QC is missing: {qc_path}")
+    if str(indexed[0].get("sha256", "")) != _sha256_file(qc_path):
+        raise RecordError("OSS source-row QC SHA-256 does not match the artifact index")
+    try:
+        payload = json.loads(qc_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise OSSSidecarInputsUnavailable("cannot read the selected final manifest") from exc
+        raise OSSSidecarInputsUnavailable("cannot read the indexed OSS source-row QC") from exc
+    if not isinstance(payload, dict):
+        raise RecordError("OSS source-row QC payload must be a mapping")
+    return payload
+
+
+def _source_rows(final: FinalArtifactRecord, context: RunContext) -> list[dict[str, Any]]:
     worklist = _load_analysis("stnsnr_normative_fiber_oss_sidecar_worklist")
+    qc = _indexed_sidecar_qc(final, context)
     if final.final_branch == "hf_source":
-        rows = worklist._hf_source_rows(manifest)
+        rows = list(qc.get("sampler_qc", {}).get("side_fields", []))
     else:
-        rows = worklist._ulf_source_rows(manifest)
+        rows = worklist._ulf_source_rows(qc)
+        manifest_path = _run_artifact_path(context, final.manifest.relative_path)
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OSSSidecarInputsUnavailable(
+                "cannot read the selected final manifest"
+            ) from exc
         derivatives_root = worklist._derivatives_root(manifest)
         recovered = []
         for row in rows:

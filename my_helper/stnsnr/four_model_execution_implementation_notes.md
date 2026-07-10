@@ -80,6 +80,21 @@ dual paths. Its focused RED/GREEN test, all 301 configured-core tests, the
 direct formal-permutation selftest, compilation, and `git diff --check` pass. A
 new clean-provenance acceptance run is still required.
 
+The second real attempt, run `20260710T151202Z_8d4e5419ee4ba1c2`, completed the
+repaired HF direct-voxel path and the first dTOR HF-fiber observed/resolver,
+smoke, and formal tasks. Its OSS producer then failed because it tried to read
+legacy `outputs.mapping_qc_json` from a configured selected manifest. In the
+configured pipeline, stimulation source rows are owned by the exact endpoint-
+local sidecar QC artifact and are registered in the run artifact index. The
+producer must consume and hash-validate that artifact rather than infer a legacy
+path from the final manifest.
+
+This repair is implemented for both model families. HF resolves the unique
+completed `sidecar_equivalence` QC artifact; ULF resolves the unique completed
+`preprocessing_sidecars` QC artifact. The run-local path and SHA-256 must match
+the artifact index before source rows are accepted. Focused HF/ULF/tamper tests,
+all 304 configured-core tests, Python compilation, and `git diff --check` pass.
+
 The committed profiles under `my_helper/stnsnr/config/four_model_v1/` enumerate
 all 28 scales currently present in the frozen clinical workbook. The workflow
 selects MDS-UPDRS III/IV only as the required acceptance pair; this does not
