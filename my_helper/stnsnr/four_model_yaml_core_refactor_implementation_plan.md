@@ -541,6 +541,17 @@ met.
 
 ## Task 14: Final Acceptance
 
+### Acceptance Run Ledger
+
+- `20260710T052812Z_f502386305c1044c`: stopped during observed execution and
+  retained as failed audit evidence. HF direct Round 1 exposed an adapter
+  contract error: the production registry passed the five-argument MATLAB flip
+  implementation where the configured HF direct backend requires a callback
+  accepting only `side_paths`, `preprocess_dir`, and `force`. This run is not an
+  acceptance result and must not be resumed. The registry adapter must bind the
+  configured `asset_root` and `matlab_bin`, pass a contract test, and then start
+  a fresh run ID.
+
 - [ ] Run deterministic accepted-final, `no_final_model`, and adjusted-input-
   failure/no-delta-fallback fixtures.
 - [ ] Run two-scale `validate`, `plan`, then real `run --through report` in the

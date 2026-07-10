@@ -149,6 +149,20 @@ class DefaultRegistryTests(unittest.TestCase):
         self.assertTrue(registry.by_operation)
         self.assertFalse(legacy_readiness.exists())
 
+    def test_direct_flip_adapter_binds_repository_and_matlab_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context, _ = self._fixture(Path(tmp))
+            runtime = _ConfiguredRuntime(context)
+
+            flipped, qc = runtime.flip_backend(
+                side_paths={},
+                preprocess_dir=Path(tmp) / "preprocess",
+                force=False,
+            )
+
+        self.assertEqual(flipped, {})
+        self.assertEqual(qc["status"], "SKIPPED")
+
     def test_hf_direct_jitter_manifest_uses_exact_sidecar_geometry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             context, plan = self._fixture(Path(tmp))

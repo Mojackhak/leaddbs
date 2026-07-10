@@ -88,9 +88,18 @@ class _ConfiguredRuntime:
         self._availability_csv: Path | None = None
         readiness = _analysis_module("stnsnr_four_model_readiness")
         self.matlab_bin = Path(readiness.DEFAULT_MATLAB).expanduser().resolve()
-        self.flip_backend = _analysis_module(
-            "stnsnr_hf_direct_voxel_smoke"
-        ).flip_left_fields_with_matlab
+        direct_analysis = _analysis_module("stnsnr_hf_direct_voxel_smoke")
+
+        def flip_backend(*, side_paths, preprocess_dir, force):
+            return direct_analysis.flip_left_fields_with_matlab(
+                repo_root=self.context.config.study.paths.asset_root,
+                matlab_bin=self.matlab_bin,
+                side_paths=side_paths,
+                preprocess_dir=preprocess_dir,
+                force=force,
+            )
+
+        self.flip_backend = flip_backend
 
     def component_availability_csv(self) -> Path:
         if self._availability_csv is not None:
