@@ -8,6 +8,8 @@ import hashlib
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+import threading
+import time
 import unittest
 
 import numpy as np
@@ -382,6 +384,39 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
             )
 
         self.assertNotEqual(first, second)
+
+    def test_scientific_generator_identity_ignores_scheduler_only_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = root / "service.py"
+            activation = root / "activation.py"
+            numerical = root / "numerical.m"
+            service.write_text("service-v1", encoding="utf-8")
+            activation.write_text("activation-v1", encoding="utf-8")
+            numerical.write_text("numerical-v1", encoding="utf-8")
+            paths = {
+                "oss_sidecar_service": service,
+                "activation_rows": activation,
+                "genvat_butenko/numerical.m": numerical,
+            }
+
+            first = oss_sidecar_module._scientific_generator_identity_sha256(paths)
+            service.write_text("service-v2", encoding="utf-8")
+            scheduler_only = (
+                oss_sidecar_module._scientific_generator_identity_sha256(paths)
+            )
+            activation.write_text("activation-v2", encoding="utf-8")
+            activation_change = (
+                oss_sidecar_module._scientific_generator_identity_sha256(paths)
+            )
+            numerical.write_text("numerical-v2", encoding="utf-8")
+            numerical_change = (
+                oss_sidecar_module._scientific_generator_identity_sha256(paths)
+            )
+
+        self.assertEqual(first, scheduler_only)
+        self.assertNotEqual(first, activation_change)
+        self.assertNotEqual(first, numerical_change)
 
     def test_final_axes_are_hash_checked_ordered_subsets_inside_the_run_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1037,10 +1072,36 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
                 "s02-r": [0.2, 0.5, 0.6],
             }
             observed_rows = []
+            completion_order = []
+            concurrency_lock = threading.Lock()
+            active_rows = 0
+            peak_active_rows = 0
+            old_cache_root = (
+                root
+                / "study"
+                / "run-old"
+                / "oss_content_cache"
+                / request.compatibility_hash
+            )
+            new_cache_root = (
+                root
+                / "study"
+                / "run-new"
+                / "oss_content_cache"
+                / request.compatibility_hash
+            )
+            activation_module = oss_sidecar_module._load_analysis(
+                "stnsnr_normative_fiber_oss_activation_rows"
+            )
 
             def preflight_runner(**kwargs):
+                nonlocal active_rows, peak_active_rows
                 row = dict(kwargs["row"])
-                observed_rows.append(row)
+                with concurrency_lock:
+                    observed_rows.append(row)
+                    active_rows += 1
+                    peak_active_rows = max(peak_active_rows, active_rows)
+                time.sleep(0.05)
                 source = Path(row["source_paths"])
                 return {
                     **row,
@@ -1053,30 +1114,117 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
                 }
 
             def activation_runner(**kwargs):
+                nonlocal active_rows
                 row = dict(kwargs["row"])
+                row_index = int(kwargs["row_index"])
                 name = Path(row["source_path_used"]).name.removesuffix(".nii.gz")
-                probability_path = root / f"{name}-probability.npy"
+                time.sleep(0.01 * (5 - row_index))
+                logical_row_dir = Path(kwargs["output_dir"]) / activation_module._row_slug(
+                    row_index,
+                    row,
+                )
+                logical_row_dir.mkdir(parents=True, exist_ok=True)
+                probability_path = logical_row_dir / f"{name}-probability.npy"
                 np.save(probability_path, np.asarray(values[name], dtype=np.float32))
-                return {
+                probability_csv = logical_row_dir / "probability.csv"
+                probability_csv.write_text("fiber_id,probability\n", encoding="utf-8")
+                probability_manifest = logical_row_dir / "probability-manifest.json"
+                probability_manifest.write_text("{}\n", encoding="utf-8")
+                mapping_path = logical_row_dir / "mapping.csv"
+                mapping_path.write_text("candidate_column_index\n", encoding="utf-8")
+                status_path = logical_row_dir / "row-status.json"
+                status_path.write_text(
+                    json.dumps({"sample_records": []}) + "\n",
+                    encoding="utf-8",
+                )
+                with concurrency_lock:
+                    completion_order.append(row_index)
+                    active_rows -= 1
+                result = {
                     **row,
                     "row_status": "probabilistic_activation_complete",
                     "right_canonical_probability_path": str(probability_path),
+                    "right_canonical_probability_csv": str(probability_csv),
                     "right_canonical_candidate_fiber_ids_path": str(
                         base.final.valid_feature_axis.ids_path
                     ),
+                    "probability_manifest": str(probability_manifest),
+                    "row_status_json": str(status_path),
+                    "local_to_candidate_mapping_path": str(mapping_path),
+                }
+                checkpoint_path = activation_module._write_row_checkpoint(
+                    logical_row_dir=logical_row_dir,
+                    row_identity=row["oss_row_identity_sha256"],
+                    result=result,
+                )
+                return {
+                    **result,
+                    "row_checkpoint_json": str(checkpoint_path),
+                    "row_checkpoint_reused": False,
                 }
 
-            content = oss_sidecar_module.generate_configured_oss_content(
+            old_content = oss_sidecar_module.generate_configured_oss_content(
                 request,
-                root / "cache",
+                old_cache_root,
                 preflight_runner=preflight_runner,
                 activation_runner=activation_runner,
             )
 
+            def unexpected_runner(**_kwargs):
+                raise AssertionError("exact prior checkpoint should bypass OSS runners")
+
+            content = oss_sidecar_module.generate_configured_oss_content(
+                request,
+                new_cache_root,
+                preflight_runner=unexpected_runner,
+                activation_runner=unexpected_runner,
+            )
+
             matrix = np.load(content.activation_probabilities)
             fiber_ids = np.load(content.fiber_ids)
+            np.testing.assert_allclose(
+                matrix,
+                np.load(old_content.activation_probabilities),
+            )
+            generation_manifest = json.loads(
+                (
+                    new_cache_root
+                    / "external_generation"
+                    / "configured_oss_generation_manifest.json"
+                ).read_text(encoding="utf-8")
+            )
+            prior_checkpoint_sha256 = _file_sha256(
+                Path(generation_manifest["rows"][0]["row_checkpoint_json"])
+            )
 
         self.assertEqual(len(observed_rows), 5)
+        self.assertEqual(peak_active_rows, 3)
+        self.assertNotEqual(completion_order, sorted(completion_order))
+        self.assertEqual(
+            [row["row_index"] for row in generation_manifest["rows"]],
+            list(range(5)),
+        )
+        self.assertTrue(generation_manifest["rows"][0]["row_checkpoint_reused"])
+        self.assertEqual(
+            generation_manifest["rows"][0]["preflight_status"],
+            "skipped_exact_row_checkpoint",
+        )
+        self.assertEqual(
+            generation_manifest["rows"][0]["row_checkpoint_source_kind"],
+            "prior_run",
+        )
+        self.assertEqual(
+            generation_manifest["rows"][0]["row_checkpoint_source_run_id"],
+            "run-old",
+        )
+        self.assertEqual(
+            generation_manifest["rows"][0]["row_checkpoint_sha256"],
+            prior_checkpoint_sha256,
+        )
+        self.assertEqual(generation_manifest["row_workers"], 3)
+        self.assertEqual(len(generation_manifest["scheduler_identity_sha256"]), 64)
+        self.assertEqual(generation_manifest["n_rows_reused"], 5)
+        self.assertEqual(generation_manifest["n_rows_generated"], 0)
         self.assertTrue(all(";" not in row["source_paths"] for row in observed_rows))
         self.assertEqual(
             len({row["oss_row_identity_sha256"] for row in observed_rows}),
@@ -1100,6 +1248,42 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
             ),
         )
         np.testing.assert_array_equal(fiber_ids, np.asarray([101, 107, 109]))
+
+    def test_prior_activation_roots_only_include_same_compatibility_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            study_root = Path(tmp) / "study"
+            compatibility_hash = "c" * 64
+            current_cache = (
+                study_root / "run-new" / "oss_content_cache" / compatibility_hash
+            )
+            prior_activation = (
+                study_root
+                / "run-old"
+                / "oss_content_cache"
+                / compatibility_hash
+                / "external_generation"
+                / "activation_rows"
+            )
+            wrong_activation = (
+                study_root
+                / "run-wrong"
+                / "oss_content_cache"
+                / ("d" * 64)
+                / "external_generation"
+                / "activation_rows"
+            )
+            current_activation = (
+                current_cache / "external_generation" / "activation_rows"
+            )
+            for path in (prior_activation, wrong_activation, current_activation):
+                path.mkdir(parents=True)
+
+            roots = oss_sidecar_module._prior_oss_activation_roots(
+                current_cache,
+                compatibility_hash,
+            )
+
+        self.assertEqual(roots, (prior_activation.resolve(),))
 
 
 if __name__ == "__main__":

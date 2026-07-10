@@ -1829,15 +1829,28 @@ Those 11 checkpoints remain under run
 `20260710T183813Z_b28581bfb4ac8f55` and are inputs to the checkpoint-import
 acceptance for the bounded scheduler.
 
-The approved next scheduler uses three concurrent source-row workers by
+The configured scheduler now uses three concurrent source-row workers by
 default. Each row retains sequential ten-sample execution and the existing
 sample-level cleanup contract. Local exact checkpoints are skipped before
 preflight. A new clean-provenance run may also import an exact checkpoint from
-an earlier run with the same scientific compatibility and row identities; the
-source run and checkpoint hashes must be recorded. Scheduler implementation
+an earlier run with the same scientific compatibility and row identities; its
+source run, path, and checkpoint hash are recorded. Scheduler implementation
 identity is separate from the version-locked scientific generator identity, so
 changing only scheduling does not invalidate scientifically identical pPAM
-rows. Full-run resume with changed code provenance remains prohibited.
+rows. The activation/preflight/merge and MATLAB numerical modules remain
+dynamically hashed; only the scheduler service retains the prior scientific
+contract hash. Completion order cannot alter merge order, which remains the
+planned row index. A row failure prevents final matrix publication while
+allowing already running rows to finish their own checkpoints. Full-run resume
+with changed code provenance remains prohibited.
+
+The bounded-scheduler RED/GREEN tests verify a default peak of three active
+rows, deterministic row-index ordering despite out-of-order completion,
+preflight/activation bypass for an exact prior-run checkpoint, same-hash prior
+run discovery, and scientific-identity stability across scheduler-only changes.
+The focused OSS suite passes 33 tests and the complete configured-core suite
+passes 309 tests. Python compilation and `git diff --check` pass. Real
+clean-provenance checkpoint-import acceptance remains pending.
 
 Run the D PPMI source resolver:
 

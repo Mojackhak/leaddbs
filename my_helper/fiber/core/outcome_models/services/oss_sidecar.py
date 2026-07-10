@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 import hashlib
 import importlib
@@ -27,6 +28,15 @@ from .observed import normative_fiber_score_settings
 
 class OSSSidecarInputsUnavailable(RecordError):
     """Raised when endpoint-local OSS preparation inputs are incomplete."""
+
+
+DEFAULT_OSS_ROW_WORKERS = 3
+
+# Frozen for configured_oss_row_v1. Bump these hashes for any numerical change
+# in either module; scheduler and checkpoint-discovery changes preserve them.
+_OSS_SCIENTIFIC_SCHEDULER_LOCKED_SHA256 = {
+    "oss_sidecar_service": "cac387c3e6141f42aa6343bede05ecb6acbd8cb39ace8f40f4312aef40ef62cc",
+}
 
 
 @dataclass(frozen=True)
@@ -291,6 +301,39 @@ def _array_sha256(values: np.ndarray) -> str:
     return digest.hexdigest()
 
 
+def _prior_oss_activation_roots(
+    cache_root: Path,
+    compatibility_hash: str,
+) -> tuple[Path, ...]:
+    cache_root = Path(cache_root).expanduser().resolve()
+    if cache_root.parent.name != "oss_content_cache":
+        return ()
+    study_root = cache_root.parent.parent.parent
+    current_activation_root = (
+        cache_root / "external_generation" / "activation_rows"
+    ).resolve()
+    candidates = []
+    for path in study_root.glob(
+        f"*/oss_content_cache/{compatibility_hash}/external_generation/activation_rows"
+    ):
+        resolved = path.resolve()
+        if resolved != current_activation_root and resolved.is_dir():
+            candidates.append(resolved)
+    return tuple(sorted(set(candidates), key=str))
+
+
+def _activation_root_run_id(activation_root: Path) -> str:
+    path = Path(activation_root).expanduser().resolve()
+    if (
+        path.name == "activation_rows"
+        and path.parent.name == "external_generation"
+        and len(path.parents) > 3
+        and path.parents[2].name == "oss_content_cache"
+    ):
+        return path.parents[3].name
+    return ""
+
+
 def _generator_identity_sha256(paths: Mapping[str, Path]) -> str:
     normalized: dict[str, str] = {}
     for name, raw_path in sorted(paths.items()):
@@ -300,6 +343,26 @@ def _generator_identity_sha256(paths: Mapping[str, Path]) -> str:
                 f"OSS generator dependency is missing: {path}"
             )
         normalized[str(name)] = _sha256_file(path)
+    if not normalized:
+        raise RecordError("OSS generator identity requires at least one source file")
+    return canonical_hash(normalized)
+
+
+def _scientific_generator_identity_sha256(paths: Mapping[str, Path]) -> str:
+    """Hash numerical dependencies while version-locking scheduler-only modules."""
+    normalized: dict[str, str] = {}
+    for name, raw_path in sorted(paths.items()):
+        path = Path(raw_path).expanduser().resolve()
+        if not path.is_file():
+            raise OSSSidecarInputsUnavailable(
+                f"OSS generator dependency is missing: {path}"
+            )
+        if str(name) in _OSS_SCIENTIFIC_SCHEDULER_LOCKED_SHA256:
+            normalized[str(name)] = _OSS_SCIENTIFIC_SCHEDULER_LOCKED_SHA256[
+                str(name)
+            ]
+        else:
+            normalized[str(name)] = _sha256_file(path)
     if not normalized:
         raise RecordError("OSS generator identity requires at least one source file")
     return canonical_hash(normalized)
@@ -643,7 +706,7 @@ def build_configured_oss_sidecar_request(
         "helpers/ea_flip_lr_nonlinear.m",
     ):
         generator_files[f"leaddbs/{relative}"] = asset_root / relative
-    generator_identity = _generator_identity_sha256(generator_files)
+    generator_identity = _scientific_generator_identity_sha256(generator_files)
     toolchain_hashes = {
         name: _sha256_file(Path(path).resolve())
         for name, path in toolchain.items()
@@ -721,6 +784,8 @@ def generate_configured_oss_content(
     *,
     preflight_runner: Callable[..., Mapping[str, Any]] | None = None,
     activation_runner: Callable[..., Mapping[str, Any]] | None = None,
+    row_checkpoint_loader: Callable[..., Mapping[str, Any] | None] | None = None,
+    row_workers: int = DEFAULT_OSS_ROW_WORKERS,
 ) -> OSSGeneratedContent:
     """Generate continuous right-canonical pPAM rows for one immutable final."""
     ordered_inputs = validate_oss_side_inputs(
@@ -746,6 +811,25 @@ def generate_configured_oss_content(
         raise RecordError("configured OSS pPAM implementations must use exactly 10 samples")
     preflight_runner = preflight_runner or preflight._run_row_preflight
     activation_runner = activation_runner or activation._run_activation_row
+    if row_checkpoint_loader is None:
+        def row_checkpoint_loader(**kwargs: Any) -> Mapping[str, Any] | None:
+            row = kwargs["row"]
+            row_identity = activation._valid_row_identity(
+                row.get("oss_row_identity_sha256")
+            )
+            logical_row_dir = Path(kwargs["output_dir"]) / activation._row_slug(
+                int(kwargs["row_index"]),
+                row,
+            )
+            return activation._load_row_checkpoint(logical_row_dir, row_identity)
+    if int(row_workers) < 1:
+        raise ValueError("OSS row_workers must be at least 1")
+    scheduler_identity = _generator_identity_sha256(
+        {
+            "oss_sidecar_service": Path(__file__).resolve(),
+            "activation_rows": Path(activation.__file__).resolve(),
+        }
+    )
 
     cache_root = Path(cache_root).expanduser().resolve()
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -761,6 +845,10 @@ def generate_configured_oss_content(
     activation_root = external_root / "activation_rows"
     preflight_root.mkdir(parents=True, exist_ok=True)
     activation_root.mkdir(parents=True, exist_ok=True)
+    prior_activation_roots = _prior_oss_activation_roots(
+        cache_root,
+        request.compatibility_hash,
+    )
     activation_args = SimpleNamespace(
         prepareaxonmodel_bin=str(request.toolchain["prepareaxonmodel"]),
         oss_converter_bin=str(request.toolchain["leaddbs2ossdbs"]),
@@ -772,72 +860,98 @@ def generate_configured_oss_content(
         pathway_timeout_s=0,
         disable_candidate_filter=False,
     )
-    side_sources: dict[tuple[str, str], list[np.ndarray]] = {}
-    generation_rows: list[dict[str, Any]] = []
+    work_items: list[tuple[int, OSSSideInput, int, Path]] = []
     row_index = 0
     for side_input in ordered_inputs:
         for source_index, source_path in enumerate(side_input.source_paths):
-            stimulation_parameter_path = (
-                side_input.stimulation_parameter_paths[source_index]
-                if side_input.stimulation_parameter_paths
-                else None
-            )
-            stimulation_parameter_sha256 = (
-                side_input.stimulation_parameter_sha256[source_index]
-                if side_input.stimulation_parameter_sha256
-                else ""
-            )
-            row_identity = canonical_hash(
-                {
-                    "checkpoint_contract": "configured_oss_row_v1",
-                    "compatibility_hash": request.compatibility_hash,
-                    "final_model_id": request.final.final_model_id,
-                    "final_record_hash": request.final.record_hash,
-                    "subject_id": side_input.subject_id,
-                    "side": side_input.side,
-                    "source_index": source_index,
-                    "source_path": str(Path(source_path).expanduser().resolve()),
-                    "source_sha256": side_input.source_sha256[source_index],
-                    "stimulation_parameter_path": (
-                        ""
-                        if stimulation_parameter_path is None
-                        else str(Path(stimulation_parameter_path).expanduser().resolve())
-                    ),
-                    "stimulation_parameter_sha256": stimulation_parameter_sha256,
-                    "source_frequency_hz": side_input.modeled_frequency_hz,
-                    "canonicalization_mode": (
-                        "left_geometry_to_right"
-                        if side_input.side == "L"
-                        else "native_right"
-                    ),
-                }
-            )
-            row = {
-                "model_id": request.final.final_model_id,
+            work_items.append((row_index, side_input, source_index, source_path))
+            row_index += 1
+
+    def run_row(
+        work_item: tuple[int, OSSSideInput, int, Path],
+    ) -> tuple[int, tuple[str, str], np.ndarray, dict[str, Any]]:
+        row_index, side_input, source_index, source_path = work_item
+        stimulation_parameter_path = (
+            side_input.stimulation_parameter_paths[source_index]
+            if side_input.stimulation_parameter_paths
+            else None
+        )
+        stimulation_parameter_sha256 = (
+            side_input.stimulation_parameter_sha256[source_index]
+            if side_input.stimulation_parameter_sha256
+            else ""
+        )
+        row_identity = canonical_hash(
+            {
+                "checkpoint_contract": "configured_oss_row_v1",
+                "compatibility_hash": request.compatibility_hash,
+                "final_model_id": request.final.final_model_id,
+                "final_record_hash": request.final.record_hash,
                 "subject_id": side_input.subject_id,
                 "side": side_input.side,
-                "source_index": str(source_index),
-                "source_paths": str(source_path),
-                "source_component": str(
-                    request.compatibility_payload["component_identity"]
-                ),
+                "source_index": source_index,
+                "source_path": str(Path(source_path).expanduser().resolve()),
                 "source_sha256": side_input.source_sha256[source_index],
-                "final_record_hash": request.final.record_hash,
-                "oss_compatibility_hash": request.compatibility_hash,
-                "oss_row_identity_sha256": row_identity,
+                "stimulation_parameter_path": (
+                    ""
+                    if stimulation_parameter_path is None
+                    else str(Path(stimulation_parameter_path).expanduser().resolve())
+                ),
+                "stimulation_parameter_sha256": stimulation_parameter_sha256,
+                "source_frequency_hz": side_input.modeled_frequency_hz,
                 "canonicalization_mode": (
                     "left_geometry_to_right"
                     if side_input.side == "L"
                     else "native_right"
                 ),
-                "oss_fiber_ids_path": str(fiber_path),
-                "oss_n_fibers": str(valid_ids.size),
-                "oss_fiber_ids_hash": request.final.valid_feature_axis.sha256,
-                "oss_fiber_id_status": "immutable_final_valid_axis",
-                "parent_fiber_ids_path": str(request.final.feature_axis.ids_path),
-                "parent_n_fibers": str(request.final.feature_axis.count),
-                "parent_fiber_id_status": "selected_source_parent_axis",
             }
+        )
+        row = {
+            "model_id": request.final.final_model_id,
+            "subject_id": side_input.subject_id,
+            "side": side_input.side,
+            "source_index": str(source_index),
+            "source_paths": str(source_path),
+            "source_component": str(request.compatibility_payload["component_identity"]),
+            "source_sha256": side_input.source_sha256[source_index],
+            "final_record_hash": request.final.record_hash,
+            "oss_compatibility_hash": request.compatibility_hash,
+            "oss_row_identity_sha256": row_identity,
+            "canonicalization_mode": (
+                "left_geometry_to_right"
+                if side_input.side == "L"
+                else "native_right"
+            ),
+            "oss_fiber_ids_path": str(fiber_path),
+            "oss_n_fibers": str(valid_ids.size),
+            "oss_fiber_ids_hash": request.final.valid_feature_axis.sha256,
+            "oss_fiber_id_status": "immutable_final_valid_axis",
+            "parent_fiber_ids_path": str(request.final.feature_axis.ids_path),
+            "parent_n_fibers": str(request.final.feature_axis.count),
+            "parent_fiber_id_status": "selected_source_parent_axis",
+        }
+        reused_result = row_checkpoint_loader(
+            row=row,
+            row_index=row_index,
+            output_dir=activation_root,
+        )
+        checkpoint_source_kind = "current_run"
+        checkpoint_source_root = activation_root
+        if reused_result is None:
+            for prior_activation_root in prior_activation_roots:
+                reused_result = row_checkpoint_loader(
+                    row=row,
+                    row_index=row_index,
+                    output_dir=prior_activation_root,
+                )
+                if reused_result is not None:
+                    checkpoint_source_kind = "prior_run"
+                    checkpoint_source_root = prior_activation_root
+                    break
+        if reused_result is not None:
+            preflight_result = {"preflight_status": "skipped_exact_row_checkpoint"}
+            activation_result = dict(reused_result)
+        else:
             preflight_result = dict(
                 preflight_runner(
                     row=row,
@@ -865,65 +979,103 @@ def generate_configured_oss_content(
                     args=activation_args,
                 )
             )
-            if activation_result.get("row_status") != "probabilistic_activation_complete":
-                raise RuntimeError(
-                    "OSS probabilistic activation failed for "
-                    f"{(side_input.subject_id, side_input.side, source_index)}: "
-                    f"{activation_result.get('row_status', '')}"
-                )
-            observed_ids = np.asarray(
-                np.load(
-                    Path(
-                        activation_result[
-                            "right_canonical_candidate_fiber_ids_path"
-                        ]
-                    ),
-                    mmap_mode="r",
+        if activation_result.get("row_status") != "probabilistic_activation_complete":
+            raise RuntimeError(
+                "OSS probabilistic activation failed for "
+                f"{(side_input.subject_id, side_input.side, source_index)}: "
+                f"{activation_result.get('row_status', '')}"
+            )
+        observed_ids = np.asarray(
+            np.load(
+                Path(
+                    activation_result["right_canonical_candidate_fiber_ids_path"]
                 ),
-                dtype=np.int64,
-            )
-            observed_probabilities = np.asarray(
-                np.load(
-                    Path(activation_result["right_canonical_probability_path"]),
-                    mmap_mode="r",
-                ),
-                dtype=np.float32,
-            )
-            if not np.array_equal(observed_ids, valid_ids):
-                raise RecordError("OSS row candidate axis differs from the final valid axis")
-            if observed_probabilities.shape != (valid_ids.size,):
-                raise RecordError("OSS row probability shape differs from the final valid axis")
-            if not np.all(np.isfinite(observed_probabilities)) or np.any(
-                (observed_probabilities < 0.0) | (observed_probabilities > 1.0)
-            ):
-                raise RecordError("OSS row probabilities fall outside [0, 1]")
-            side_sources.setdefault(
-                (side_input.subject_id, side_input.side),
-                [],
-            ).append(observed_probabilities.copy())
-            generation_rows.append(
-                {
-                    "row_index": row_index,
-                    "subject_id": side_input.subject_id,
-                    "side": side_input.side,
-                    "source_index": source_index,
-                    "source_path": str(source_path),
-                    "preflight_status": preflight_result["preflight_status"],
-                    "activation_status": activation_result["row_status"],
-                    "row_checkpoint_json": activation_result.get(
-                        "row_checkpoint_json",
-                        "",
-                    ),
-                    "row_checkpoint_reused": bool(
-                        activation_result.get("row_checkpoint_reused", False)
-                    ),
-                    "probability_manifest": activation_result.get(
-                        "probability_manifest",
-                        "",
-                    ),
-                }
-            )
-            row_index += 1
+                mmap_mode="r",
+            ),
+            dtype=np.int64,
+        )
+        observed_probabilities = np.asarray(
+            np.load(
+                Path(activation_result["right_canonical_probability_path"]),
+                mmap_mode="r",
+            ),
+            dtype=np.float32,
+        )
+        if not np.array_equal(observed_ids, valid_ids):
+            raise RecordError("OSS row candidate axis differs from the final valid axis")
+        if observed_probabilities.shape != (valid_ids.size,):
+            raise RecordError("OSS row probability shape differs from the final valid axis")
+        if not np.all(np.isfinite(observed_probabilities)) or np.any(
+            (observed_probabilities < 0.0) | (observed_probabilities > 1.0)
+        ):
+            raise RecordError("OSS row probabilities fall outside [0, 1]")
+        generation_row = {
+            "row_index": row_index,
+            "subject_id": side_input.subject_id,
+            "side": side_input.side,
+            "source_index": source_index,
+            "source_path": str(source_path),
+            "preflight_status": preflight_result["preflight_status"],
+            "activation_status": activation_result["row_status"],
+            "row_checkpoint_json": activation_result.get("row_checkpoint_json", ""),
+            "row_checkpoint_reused": bool(
+                activation_result.get("row_checkpoint_reused", False)
+            ),
+            "row_checkpoint_source_kind": (
+                checkpoint_source_kind
+                if bool(activation_result.get("row_checkpoint_reused", False))
+                else "generated"
+            ),
+            "row_checkpoint_source_root": (
+                str(checkpoint_source_root)
+                if bool(activation_result.get("row_checkpoint_reused", False))
+                else str(activation_root)
+            ),
+            "row_checkpoint_source_run_id": _activation_root_run_id(
+                checkpoint_source_root
+                if bool(activation_result.get("row_checkpoint_reused", False))
+                else activation_root
+            ),
+            "row_checkpoint_sha256": (
+                _sha256_file(Path(activation_result["row_checkpoint_json"]))
+                if str(activation_result.get("row_checkpoint_json", "")).strip()
+                and Path(activation_result["row_checkpoint_json"]).is_file()
+                else ""
+            ),
+            "probability_manifest": activation_result.get("probability_manifest", ""),
+        }
+        return (
+            row_index,
+            (side_input.subject_id, side_input.side),
+            observed_probabilities.copy(),
+            generation_row,
+        )
+
+    completed_rows: list[
+        tuple[int, tuple[str, str], np.ndarray, dict[str, Any]]
+    ] = []
+    futures: dict[Future[Any], int] = {}
+    with ThreadPoolExecutor(max_workers=int(row_workers)) as executor:
+        for work_item in work_items:
+            future = executor.submit(run_row, work_item)
+            futures[future] = work_item[0]
+        try:
+            for future in as_completed(futures):
+                completed_rows.append(future.result())
+        except BaseException:
+            # Running rows finish their atomic checkpoints; only queued rows cancel.
+            for future in futures:
+                future.cancel()
+            raise
+
+    side_sources: dict[tuple[str, str], list[np.ndarray]] = {}
+    generation_rows: list[dict[str, Any]] = []
+    for _, side_key, observed_probabilities, generation_row in sorted(
+        completed_rows,
+        key=lambda item: item[0],
+    ):
+        side_sources.setdefault(side_key, []).append(observed_probabilities)
+        generation_rows.append(generation_row)
 
     side_probabilities = {
         key: (valid_ids, np.maximum.reduce(values).astype(np.float32, copy=False))
@@ -942,6 +1094,14 @@ def generate_configured_oss_content(
             "final_model_id": request.final.final_model_id,
             "final_record_hash": request.final.record_hash,
             "pam_n_samples": 10,
+            "row_workers": int(row_workers),
+            "scheduler_identity_sha256": scheduler_identity,
+            "n_rows_reused": sum(
+                bool(row["row_checkpoint_reused"]) for row in generation_rows
+            ),
+            "n_rows_generated": sum(
+                not bool(row["row_checkpoint_reused"]) for row in generation_rows
+            ),
             "n_subjects": len(request.final.subject_order),
             "n_subject_side_sources": len(generation_rows),
             "source_merge_rule": "max_probability_union",
