@@ -254,6 +254,11 @@ def execute_plan(plan: ExecutionPlan, context: RunContext, services: ServiceRegi
   `--all-available`, no default scale, automatic HF dependencies, explicit
   `--output-root` for run lookup, `--models`, `--phases`, `--connectomes`,
   dependency-complete `--through`, and forbidden overrides.
+- [ ] Define `run --resume --run-id RUN_ID`; define `run --force --run-id OLD`
+  as a new run with supersession lineage. `status/artifacts` must resolve exactly
+  one `<output-root>/configured_model_runs/*/<run-id>` match.
+- [ ] Keep resume/force and prior-run IDs outside the configuration hash; they
+  are lineage controls recorded by the run store.
 - [ ] GREEN and commit `feat: add configured workflow CLI and executor`.
 
 ## Task 8: Committed v1 And Acceptance Profiles

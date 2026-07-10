@@ -289,6 +289,27 @@ class ConfiguredRunStore:
             _csv_text([dict(row) for row in rows], _TASK_STATUS_FIELDS).encode("utf-8"),
         )
 
+    def load_task_statuses(self) -> tuple[dict[str, str], ...]:
+        self._require_initialized()
+        return tuple(_read_csv(self.run_root / "task_status.csv"))
+
+    def load_run_manifest(self) -> dict[str, Any]:
+        self._require_initialized()
+        return json.loads((self.run_root / "run_manifest.json").read_text(encoding="utf-8"))
+
+    def update_run_manifest(self, updates: Mapping[str, Any]) -> None:
+        manifest = self.load_run_manifest()
+        immutable = {"run_id", "study_id", "started_at", "run_fingerprint", "provenance_hash"}
+        changed = sorted(key for key in immutable if key in updates and updates[key] != manifest.get(key))
+        if changed:
+            raise RunStoreError(f"cannot change immutable run manifest fields: {','.join(changed)}")
+        manifest.update(dict(updates))
+        _atomic_json(self.run_root / "run_manifest.json", manifest)
+
+    def load_artifact_index(self) -> tuple[dict[str, str], ...]:
+        self._require_initialized()
+        return tuple(_read_csv(self.run_root / "artifact_index.csv"))
+
     def recover_interrupted_tasks(self) -> tuple[str, ...]:
         self._require_initialized()
         rows = _read_csv(self.run_root / "task_status.csv")
@@ -317,6 +338,14 @@ class ConfiguredRunStore:
         path = self.run_root / "tasks" / safe_task / "task_manifest.json"
         _atomic_json(path, payload)
         return path
+
+    def load_task_manifest(self, task_id: str) -> dict[str, Any] | None:
+        self._require_initialized()
+        safe_task = _safe_token(task_id, "task_id")
+        path = self.run_root / "tasks" / safe_task / "task_manifest.json"
+        if not path.is_file():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
 
     def record_artifact(self, *, task_id: str, kind: str, path: Path) -> None:
         self._require_initialized()

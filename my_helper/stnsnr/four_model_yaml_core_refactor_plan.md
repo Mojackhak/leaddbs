@@ -19,11 +19,11 @@
 
 This document is the implementation contract for an active refactor. Strict
 YAML schemas/loading, immutable identities, the endpoint catalog, the pure
-HF-to-ULF final-model state machine, and the configured run store now exist.
-The workflow compiler, executor/CLI, four model services, endpoint-aware final
-reporting, and full model rerun are not yet implemented. The current Python and
-MATLAB production drivers, legacy/current output paths, and generated results
-remain unchanged.
+HF-to-ULF final-model state machine, configured run store, Round-aware planner,
+and generic executor/CLI now exist. The four scientific model services,
+endpoint-aware final reporting adapters, and full model rerun are not yet
+implemented. The current Python and MATLAB production drivers, legacy/current
+output paths, and generated results remain unchanged.
 
 The governing engineering invariant is:
 
@@ -530,7 +530,29 @@ Selection and execution overrides:
 --dry-run
 --resume
 --force
+--run-id
 ```
+
+Run lookup and lineage are explicit:
+
+```text
+run --resume --run-id RUN_ID:
+  reopen the identity-compatible configured run and reuse completed tasks
+
+run --force [--run-id SUPERSEDED_RUN_ID]:
+  create a new run; when an old ID is supplied, record supersession lineage
+
+status|artifacts --output-root ROOT --run-id RUN_ID:
+  search ROOT/configured_model_runs/*/RUN_ID and require exactly one study match
+```
+
+`--resume` and `--force` are mutually exclusive. `--resume` without `--run-id`
+is a configuration/argument error. A resumed run never accepts a changed
+configuration, input hash, or code provenance.
+
+Resume/force flags and the referenced prior run ID are lineage controls. They
+do not modify the resolved scientific/workflow configuration hash; resume
+compares that unchanged hash and force records lineage in `run_manifest.json`.
 
 CLI overrides may change workflow selection/execution fields. They must not
 inject formulas, hidden internal parameters, per-scale scientific overrides,

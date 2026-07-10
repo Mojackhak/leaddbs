@@ -41,10 +41,12 @@ Implemented foundation layers now include strict JSON Schemas and typed YAML
 loading, immutable endpoint/task/final identities, a profile-driven endpoint
 catalog, pure HF-derived ULF branch/final transitions, and the namespaced run
 store with provenance, atomic artifacts, resume/force identity checks, and
-legacy-root write protection. The workflow compiler, generic CLI/executor,
-compatibility-wrapper replacement, four model services, output migration, and
-model rerun have not yet been completed. ROI/VTA postprocessing and GUI remain
-outside this core refactor.
+legacy-root write protection. The deterministic Round-aware planner and generic
+CLI/executor are also implemented, including typed dependency gates,
+endpoint-local continuation, resume/force lineage, and status/artifact lookup.
+Compatibility-wrapper replacement, the four scientific model services, output
+migration, and model rerun have not yet been completed. ROI/VTA postprocessing
+and GUI remain outside this core refactor.
 
 The planned DAG interface uses operation-specific task stages, logical workflow
 phases, typed dependency requirements (`terminal`, `success`,

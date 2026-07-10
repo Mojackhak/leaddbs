@@ -7,8 +7,9 @@ The future configuration/orchestration contract is documented in
 remains authoritative for the estimator, resolver, classification, formal, and
 sensitivity definitions. Shared profile, identity, catalog, state, and run-store
 foundations have status `implementation_in_progress`; this model's configured
-service, full DAG execution, and result regeneration are not implemented.
-Current outputs and legacy/current entrypoints are unchanged.
+scientific service and result regeneration are not implemented. The generic DAG
+planner/executor exists but has not replaced this model's legacy driver. Current
+outputs and legacy/current entrypoints are unchanged.
 
 All configured HF/frequency-1 endpoint scales are engineering-equivalent. The
 endpoint catalog and DAG must not assign total, axial, or any other scale

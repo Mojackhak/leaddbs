@@ -25,10 +25,10 @@ current_legacy_entrypoints_remain_active
 ```
 
 Strict profile loading, immutable identities, the endpoint catalog, the pure
-branch/final state machine, and configured run storage are implemented. The DAG
-planner, executor/CLI, four model services, full two-scale run, and report
-acceptance remain incomplete, so current production entrypoints and outputs are
-not replaced.
+branch/final state machine, configured run storage, the Round-aware DAG planner,
+and the generic executor/CLI are implemented. The four scientific model
+services, full two-scale model run, and report acceptance remain incomplete, so
+current production entrypoints and outputs are not replaced.
 
 The planned refactor treats all configured scales as engineering-equivalent
 through endpoint discovery, A/B/C/D execution, source resolution, prediction

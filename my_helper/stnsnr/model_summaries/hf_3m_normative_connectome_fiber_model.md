@@ -11,8 +11,9 @@ remains authoritative for connectome roles, exposure, source resolution,
 formal resampling, controls, OSS, jitter, and numeric reporting. Shared profile,
 identity, catalog, state, and run-store foundations have status
 `implementation_in_progress`; this model's configured service, full DAG
-execution, and result regeneration are not implemented. Current outputs and
-legacy/current entrypoints are unchanged.
+scientific execution, and result regeneration are not implemented. The generic
+DAG planner/executor exists but has not replaced this model's legacy driver.
+Current outputs and legacy/current entrypoints are unchanged.
 
 All configured HF/frequency-1 endpoint scales are engineering-equivalent.
 PPMI, MGH, and dTOR roles may differ as declared below, but scale identity does

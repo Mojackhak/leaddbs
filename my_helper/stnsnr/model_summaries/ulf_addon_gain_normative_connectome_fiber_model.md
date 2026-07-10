@@ -14,8 +14,9 @@ nuisance design, endpoint realization, fallback-final selection, formal
 resampling, controls, OSS, jitter, and numeric reporting. Shared profile,
 identity, catalog, state, and run-store foundations have status
 `implementation_in_progress`; this model's configured service, full DAG
-execution, and result regeneration are not implemented. Current outputs and
-legacy/current entrypoints are unchanged.
+scientific execution, and result regeneration are not implemented. The generic
+DAG planner/executor exists but has not replaced this model's legacy driver.
+Current outputs and legacy/current entrypoints are unchanged.
 
 All configured ULF/frequency-2 endpoint scales are engineering-equivalent within
 their applicable endpoint families. Chronic, immediate, total, axial, and other
