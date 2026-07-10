@@ -615,6 +615,17 @@ remain immutable and their source run/checkpoint/hash are recorded in the new
 generation manifest. Invalid, incomplete, or structurally malformed
 checkpoints are cache misses and the row is recomputed.
 
+The reusable row identity contains only cross-run scientific fields: OSS
+compatibility hash, deterministic final model ID, subject, side, source index,
+source and stimulation-parameter paths/hashes, modeled frequency, and
+canonicalization mode. It excludes `final_record_hash` and run-root paths
+because final records embed run-local absolute artifact paths even when their
+scientific content and immutable candidate axis are identical. Legacy
+`configured_oss_row_v1` checkpoints may be imported only after their original
+identity and every nested artifact hash validate, and after the normalized
+cross-run identity reconstructed from the validated row equals the current
+row identity.
+
 Scheduler concurrency and checkpoint-discovery code do not change the
 scientific generator compatibility identity. The scientific identity remains
 version-locked to the validated pre-concurrency implementation and continues

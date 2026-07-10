@@ -1852,6 +1852,16 @@ The focused OSS suite passes 33 tests and the complete configured-core suite
 passes 309 tests. Python compilation and `git diff --check` pass. Real
 clean-provenance checkpoint-import acceptance remains pending.
 
+The first real three-worker acceptance reached OSS and exposed one checkpoint
+import defect before any row completed: `configured_oss_row_v1` included
+`final_record_hash`, but that hash changes across runs because final records
+contain run-local absolute axis paths and selected-manifest hashes. The
+scientific compatibility hash, deterministic final model ID, source hashes,
+and 3,990-fiber valid axis were unchanged. The reusable row identity therefore
+excludes `final_record_hash`; legacy checkpoints remain eligible only after
+their original identity, normalized cross-run identity, ten-sample lattice,
+candidate axis, and all nested artifact hashes validate exactly.
+
 Run the D PPMI source resolver:
 
 ```bash
