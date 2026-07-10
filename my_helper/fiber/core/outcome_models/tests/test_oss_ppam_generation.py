@@ -37,6 +37,42 @@ def _write_axon_state(path: Path, statuses: dict[int, int]) -> None:
 
 
 class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
+    def test_structurally_invalid_checkpoint_is_a_cache_miss(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            logical_row_dir = Path(tmp)
+            (logical_row_dir / "row_checkpoint.json").write_text(
+                json.dumps(
+                    {
+                        "oss_row_identity_sha256": "a" * 64,
+                        "result": None,
+                        "artifacts": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = ACTIVATION._load_row_checkpoint(logical_row_dir, "a" * 64)
+
+            self.assertIsNone(result)
+
+    def test_ephemeral_cleanup_ignores_only_already_missing_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp) / "runtime"
+            tree.mkdir()
+            (tree / "keep_until_cleanup.txt").write_text("runtime\n", encoding="utf-8")
+            original_rmtree = ACTIVATION.shutil.rmtree
+
+            def flaky_rmtree(path, *, onerror):
+                missing = FileNotFoundError("already removed")
+                onerror(ACTIVATION.os.unlink, str(Path(path) / "._segmask.nii"), (FileNotFoundError, missing, None))
+                original_rmtree(path)
+
+            with mock.patch.object(ACTIVATION.shutil, "rmtree", side_effect=flaky_rmtree):
+                ACTIVATION._remove_tree_missing_ok(tree)
+
+            self.assertFalse(tree.exists())
+
     def test_preflight_rejects_noncanonical_side_modes(self) -> None:
         self.assertTrue(
             PREFLIGHT._transform_left_to_right_for_row(
@@ -591,6 +627,21 @@ class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
 
             self.assertFalse(nested_refreshed["row_checkpoint_reused"])
             self.assertEqual(execute_after_nested_tamper.call_count, 1)
+
+    def test_mapping_already_at_compact_destination_is_not_copied_onto_itself(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mapping_path = root / "oss_local_to_candidate_fiber_mapping.csv"
+            mapping_path.write_text(
+                "filtered_local_fiber_id,candidate_column_index,selected_candidate_fiber_id\n"
+                "1,0,101\n",
+                encoding="utf-8",
+            )
+
+            rows = ACTIVATION._persist_compact_mapping(mapping_path, mapping_path)
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["selected_candidate_fiber_id"], "101")
 
 
 if __name__ == "__main__":

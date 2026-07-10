@@ -77,6 +77,24 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
             temporary.unlink()
 
 
+def _remove_tree_missing_ok(path: Path) -> None:
+    path = Path(path)
+
+    def onerror(function: Callable[..., Any], failed_path: str, error_info: tuple[Any, Any, Any]) -> None:
+        del function, failed_path
+        error = error_info[1]
+        if isinstance(error, FileNotFoundError):
+            return
+        raise error
+
+    try:
+        shutil.rmtree(path, onerror=onerror)
+    except FileNotFoundError:
+        pass
+    if path.exists():
+        raise OSError(f"OSS ephemeral runtime cleanup did not remove {path}")
+
+
 def _run_logged_command(
     *,
     cmd: list[str],
@@ -675,7 +693,7 @@ def _compact_sample_record(
     _load_local_activation_status(Path(axon_state_ref["path"]))
 
     if cleanup_ephemeral:
-        shutil.rmtree(stimulation_folder)
+        _remove_tree_missing_ok(stimulation_folder)
     return {
         "sample_index": sample_index,
         "parameter_file": str(parameter_file),
@@ -1098,6 +1116,14 @@ def _load_mapping_rows(path: Path) -> list[dict[str, str]]:
     return rows
 
 
+def _persist_compact_mapping(mapping_path: Path, compact_mapping_path: Path) -> list[dict[str, str]]:
+    mapping_path = Path(mapping_path).expanduser().resolve()
+    compact_mapping_path = Path(compact_mapping_path).expanduser().resolve()
+    if mapping_path != compact_mapping_path:
+        shutil.copy2(mapping_path, compact_mapping_path)
+    return _load_mapping_rows(compact_mapping_path)
+
+
 def _link_or_copy_file(source: str, target: str) -> str:
     try:
         os.link(source, target)
@@ -1227,7 +1253,7 @@ def _load_row_checkpoint(
         )
         if not np.array_equal(probabilities, lattice):
             return None
-    except (KeyError, OSError, ValueError, json.JSONDecodeError):
+    except (AttributeError, KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
         return None
     result["row_checkpoint_json"] = str(checkpoint_path.resolve())
     result["row_checkpoint_reused"] = True
@@ -1267,7 +1293,7 @@ def _remove_runtime_tree(path: Path, execution_dir: Path) -> None:
     if path == execution_dir or execution_dir not in path.parents:
         raise ValueError(f"refusing to remove OSS runtime outside execution directory: {path}")
     if path.exists():
-        shutil.rmtree(path)
+        _remove_tree_missing_ok(path)
 
 
 def _run_activation_row(
@@ -1322,8 +1348,7 @@ def _run_activation_row(
         )
 
     compact_mapping_path = execution_dir / "oss_local_to_candidate_fiber_mapping.csv"
-    shutil.copy2(mapping_path, compact_mapping_path)
-    mapping_rows = _load_mapping_rows(compact_mapping_path)
+    mapping_rows = _persist_compact_mapping(mapping_path, compact_mapping_path)
 
     sample_stimulation_folders = [
         (
