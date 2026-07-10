@@ -1,0 +1,42 @@
+schema_version: 1
+
+project:
+  name: meige
+  study_root: /Volumes/VAL/meige
+  session: preop
+
+subjects:
+  mode: auto
+
+dwi:
+  distortion_correction: synb0
+  phase_encoding_vector: [0, 1, 0]
+  total_readout_time:
+    strategy: json_then_fallback
+    seconds: 0.05
+
+anatomy:
+  synb0_modality: T1w
+  coregistration_anchor: T2w
+  allow_anchor_fallback: false
+
+lead_dbs:
+  run_coregistration: false
+  coregistration_method: SPM
+
+processing:
+  generate_optional_dwi_qc: true
+
+execution:
+  force: false
+  parallel: false
+  parallel_workers: 1
+  max_concurrent_synb0: 1
+  synb0_min_memory_gb: 12
+
+runtime:
+  freesurfer_license: /Applications/freesurfer/8.2.0/license.txt
+  synb0:
+    container_engine: auto
+    container_image: leonyichencai/synb0-disco:v3.1
+    work_root: /Users/mojackhu/Library/Caches/leaddbs/meige_synb0_work
