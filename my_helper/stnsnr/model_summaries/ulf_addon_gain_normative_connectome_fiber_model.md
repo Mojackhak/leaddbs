@@ -5,15 +5,17 @@ Scope: ULF add-on normative connectome fiber-level model, aligned to `hf_3m_norm
 
 ---
 
-## Planned YAML Core Interface (Not Implemented)
+## YAML Core Interface (Foundation In Progress)
 
 The future configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
 remains authoritative for matched-HF dependency, branch-specific exposure and
 nuisance design, endpoint realization, fallback-final selection, formal
-resampling, controls, OSS, jitter, and numeric reporting. The planned interface
-has status `implementation_not_started`; current outputs and legacy/current
-entrypoints are unchanged.
+resampling, controls, OSS, jitter, and numeric reporting. Shared profile,
+identity, catalog, state, and run-store foundations have status
+`implementation_in_progress`; this model's configured service, full DAG
+execution, and result regeneration are not implemented. Current outputs and
+legacy/current entrypoints are unchanged.
 
 All configured ULF/frequency-2 endpoint scales are engineering-equivalent within
 their applicable endpoint families. Chronic, immediate, total, axial, and other

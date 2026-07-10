@@ -3,13 +3,15 @@
 Version: 2026-07-06 threshold-scan and downstream-status specification
 Scope: HF-only 3m normative connectome fiber-level model; provides source-model status and DeltaHFScore eligibility for ULF add-on fiber models.
 
-## Planned YAML Core Interface (Not Implemented)
+## YAML Core Interface (Foundation In Progress)
 
 The future configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
 remains authoritative for connectome roles, exposure, source resolution,
-formal resampling, controls, OSS, jitter, and numeric reporting. The planned
-interface has status `implementation_not_started`; current outputs and
+formal resampling, controls, OSS, jitter, and numeric reporting. Shared profile,
+identity, catalog, state, and run-store foundations have status
+`implementation_in_progress`; this model's configured service, full DAG
+execution, and result regeneration are not implemented. Current outputs and
 legacy/current entrypoints are unchanged.
 
 All configured HF/frequency-1 endpoint scales are engineering-equivalent.

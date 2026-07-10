@@ -9,7 +9,7 @@
 > **Detailed implementation plan.**
 > `my_helper/stnsnr/four_model_yaml_core_refactor_implementation_plan.md`
 > **Current branch.** `stnvop`
-> **Status.** `design_documented`; `implementation_not_started`;
+> **Status.** `design_documented`; `implementation_in_progress`;
 > `current_outputs_unchanged`; `current_legacy_entrypoints_remain_active`.
 > **Last updated.** 2026-07-09
 
@@ -17,10 +17,13 @@
 
 ## Summary
 
-This document is an implementation contract for a future refactor. It does not
-mean that YAML schemas, a workflow compiler, a DAG executor, or endpoint-aware
-status/reporting code currently exists. The current Python and MATLAB drivers,
-legacy/current output paths, and generated results remain unchanged.
+This document is the implementation contract for an active refactor. Strict
+YAML schemas/loading, immutable identities, the endpoint catalog, the pure
+HF-to-ULF final-model state machine, and the configured run store now exist.
+The workflow compiler, executor/CLI, four model services, endpoint-aware final
+reporting, and full model rerun are not yet implemented. The current Python and
+MATLAB production drivers, legacy/current output paths, and generated results
+remain unchanged.
 
 The governing engineering invariant is:
 
@@ -593,6 +596,60 @@ identities; selected source is its runtime output. Downstream tasks refer to the
 immutable resolver task and selected-source record rather than renaming the
 observed task.
 
+`execution_stage` is operation-specific, for example
+`formal_permutation`, `formal_bootstrap`, `oss_sensitivity`, or
+`endpoint_report`; the broader `workflow_phase` is separately recorded as
+`observed`, `formal`, `sensitivity`, or `report`. This prevents two operations
+in the same logical phase from receiving the same task identity.
+
+### Static DAG and runtime gates
+
+The planner compiles all conditionally possible tasks before HF source and ULF
+final-model results exist. A task therefore records typed dependencies and a
+runtime gate rather than only a tuple of prerequisite task IDs:
+
+```text
+dependency requirement:
+  terminal         prerequisite may complete, fail, or skip; its result is inspectable
+  success          prerequisite must complete successfully
+  accepted_final   final-realization prerequisite must expose one accepted final model
+  formal_complete  selected-final formal prerequisite must complete successfully
+
+runtime gate:
+  always
+  endpoint_data_available
+  hf_source_available
+  delta_hfscore_inputs_valid
+  branch_intended_or_comparison
+  final_model_realized
+```
+
+The executor evaluates gates only after their typed dependencies reach the
+required state. A false gate creates an explicit terminal skipped task; it does
+not remove or rename a statically planned task. In particular:
+
+```text
+matched HF resolver -> ULF branch realization:
+  terminal dependency, because absent/failed HF still releases no_delta_hf
+
+DeltaHFScore-adjusted branch:
+  requires hf_source_available and delta_hfscore_inputs_valid
+
+formal tasks:
+  require accepted_final
+
+OSS and jitter:
+  require formal_complete and attach to either a primary or fallback final
+
+reports:
+  wait for relevant tasks to be terminal so failures/skips remain reportable
+```
+
+Immediate and chronic endpoint rows are independent peers. Round 2b records
+the immediate document provenance but creates no chronic-to-immediate
+scientific dependency. ULF direct-voxel Round 8 sensitivity operations and the
+Round 8 endpoint summary are separate tasks with different workflow phases.
+
 ### HF resolution
 
 For each configured endpoint:
@@ -818,10 +875,11 @@ commit:
    added connectome asset and frequency-metadata bindings, defined dependency-
    complete `--through` stages, and separated endpoint-model, task, final-model,
    and run identities so runtime source selection cannot mutate an existing ID.
-5. **Current-versus-planned wording: passed.** The new interface is consistently
-   labeled `implementation_not_started`; current outputs remain read-only
-   legacy/current outputs, and existing `implemented` statements refer only to
-   explicitly documented current layers or historical execution results.
+5. **Current-versus-planned wording: passed at the documentation checkpoint.**
+   The interface was then labeled `implementation_not_started`. Active status is
+   now `implementation_in_progress`, while current outputs remain read-only
+   legacy/current outputs and completed claims name only implemented foundation
+   layers.
 
 The named-acceptance addendum was reviewed separately on 2026-07-09. The two
 scale IDs are confined to test configuration, their current endpoint
@@ -833,9 +891,9 @@ stable final source.
 No unresolved state, implicit default scale, unmatched dependency, or claim of
 completed YAML implementation remains in this plan.
 
-## Documentation-Only Acceptance Criteria
+## Historical Documentation-Only Acceptance Criteria
 
-This documentation phase is complete when:
+The initial documentation phase was completed when:
 
 - this `/goal` sub-plan is linked from the parent execution plan;
 - implementation notes identify the current code gaps and planned parameter
@@ -852,12 +910,13 @@ This documentation phase is complete when:
 
 ```text
 design_documented
-implementation_not_started
+implementation_in_progress
 current_outputs_unchanged
 current_legacy_entrypoints_remain_active
 ```
 
-No command in this document is currently a claim of implemented CLI behavior.
-The current source of truth for executable status remains
-`four_model_execution_plan.md` and the existing implementation notes until this
-refactor is implemented, validated, and explicitly promoted.
+No CLI example in this document is a claim that the generic executor is already
+complete. Current refactor status is tracked here, in the detailed
+implementation plan, and in the implementation notes. Legacy executable status
+continues to come from `four_model_execution_plan.md` until configured model
+services are implemented, validated, and explicitly promoted.

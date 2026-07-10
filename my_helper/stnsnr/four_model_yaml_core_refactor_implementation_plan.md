@@ -170,12 +170,29 @@ def realize_ulf_final(hf: SourceResult, branches: Mapping[str, BranchResult]) ->
 **Files:** Create `planner.py` and `test_planner.py`.
 
 ```python
+class DependencyRequirement(str, Enum):
+    TERMINAL = "terminal"
+    SUCCESS = "success"
+    ACCEPTED_FINAL = "accepted_final"
+    FORMAL_COMPLETE = "formal_complete"
+
+@dataclass(frozen=True)
+class DependencySpec:
+    task_id: str
+    requirement: DependencyRequirement
+
+@dataclass(frozen=True)
+class TaskGate:
+    predicate: str
+
 @dataclass(frozen=True)
 class TaskSpec:
     task_id: str
     key: TaskKey
     round_name: str
-    dependencies: tuple[str, ...]
+    workflow_phase: str
+    dependencies: tuple[DependencySpec, ...]
+    gate: TaskGate
     expected_artifact_kinds: tuple[str, ...]
 
 def compile_execution_plan(config: ResolvedWorkflow, catalog: Sequence[EndpointRecord]) -> ExecutionPlan: ...
@@ -185,7 +202,17 @@ def compile_execution_plan(config: ResolvedWorkflow, catalog: Sequence[EndpointR
   and D-to-matched-B/connectome; add HF dependencies automatically; reject
   cycles/missing edges; make `through` dependency-complete.
 - [ ] Assert III immediate uses Round 2b and IV immediate creates no executable
-  task. GREEN with deterministic standard-library topological sorting.
+  task. Use operation-specific `TaskKey.execution_stage` values so permutation,
+  bootstrap, smoke, OSS, jitter, and report tasks cannot collide.
+- [ ] RED: distinguish terminal, success, accepted-final, and formal-complete
+  dependency requirements; compile conditional ULF branch/final tasks with
+  explicit runtime gates. A failed or absent HF result must release no-delta,
+  while adjusted requires valid DeltaHFScore inputs.
+- [ ] Split ULF direct-voxel Round 8 sensitivity and endpoint-summary tasks;
+  create no chronic-to-immediate edge. Attach OSS/jitter to either a primary or
+  fallback realized final after formal completion.
+- [ ] GREEN with deterministic standard-library topological sorting. Static
+  skipped tasks retain immutable IDs and terminal skip records.
 - [ ] Commit `feat: compile endpoint-aware four-model DAG`.
 
 ## Task 6: Run Store And Provenance

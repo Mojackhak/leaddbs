@@ -2,7 +2,7 @@
 
 This note records executable implementation layers for `four_model_execution_plan.md`.
 
-## Planned YAML Core Refactor: Documentation Only
+## YAML Core Refactor: Implementation In Progress
 
 The future configuration and orchestration contract is documented in:
 
@@ -15,7 +15,7 @@ Current status:
 
 ```text
 design_documented
-implementation_not_started
+implementation_in_progress
 current_outputs_unchanged
 current_legacy_entrypoints_remain_active
 ```
@@ -37,21 +37,35 @@ Optimized-versus-brute-force equivalence and smoke
 permutation/bootstrap/jitter remain internal-test parameters rather than public
 workflow inputs.
 
-This checkpoint is not an implemented layer. No YAML schema, generic CLI,
-workflow compiler, DAG executor, compatibility-wrapper replacement, output
-migration, or model rerun has been performed. ROI/VTA postprocessing and GUI are
-also outside this planned core refactor.
+Implemented foundation layers now include strict JSON Schemas and typed YAML
+loading, immutable endpoint/task/final identities, a profile-driven endpoint
+catalog, pure HF-derived ULF branch/final transitions, and the namespaced run
+store with provenance, atomic artifacts, resume/force identity checks, and
+legacy-root write protection. The workflow compiler, generic CLI/executor,
+compatibility-wrapper replacement, four model services, output migration, and
+model rerun have not yet been completed. ROI/VTA postprocessing and GUI remain
+outside this core refactor.
+
+The planned DAG interface uses operation-specific task stages, logical workflow
+phases, typed dependency requirements (`terminal`, `success`,
+`accepted_final`, and `formal_complete`), and explicit runtime gates. This is
+required so an absent/failed HF dependency can release `no_delta_hf`, while
+adjusted, formal, OSS, and jitter tasks retain stricter input/final-state
+requirements without changing task identity.
 
 Final implementation acceptance is now required to run the ordinary generic
 pipeline with both `mds_updrs_iii` (`MDS-UPDRS III score`) and
 `mds_updrs_iv` (`MDS-UPDRS IV`) in one profile. This pair is an acceptance
 fixture, not a default or privileged scale list. The current clinical source has
 chronic rows for both scales and immediate rows for MDS-UPDRS III only; the
-future endpoint catalog must represent the missing MDS-UPDRS IV immediate family
-explicitly without cross-scale substitution. The acceptance harness and the
-generic YAML pipeline remain unimplemented.
+endpoint catalog represents the missing MDS-UPDRS IV immediate family explicitly
+without cross-scale substitution. The read-only catalog acceptance for the
+frozen clinical workbook is implemented and confirms 16 chronic subjects for
+both scales, 16 immediate pairs for MDS-UPDRS III, and no configured MDS-UPDRS
+IV immediate endpoint. The full two-scale model execution and report acceptance
+remain unimplemented.
 
-Subagents are permitted for the future implementation when each delegated task
+Subagents are permitted during implementation when each delegated task
 has a bounded responsibility and disjoint file ownership. The main thread must
 review and integrate all delegated work and remains solely responsible for the
 full regression suite, two-scale acceptance workflow, and final `/goal`

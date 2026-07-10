@@ -7,9 +7,9 @@
 
 ---
 
-## YAML Core Refactor Planning Checkpoint
+## YAML Core Refactor Implementation Checkpoint
 
-The future YAML-driven, endpoint-aware core refactor is specified in:
+The YAML-driven, endpoint-aware core refactor is specified in:
 
 ```text
 my_helper/stnsnr/four_model_yaml_core_refactor_plan.md
@@ -19,10 +19,16 @@ Its current status is strictly:
 
 ```text
 design_documented
-implementation_not_started
+implementation_in_progress
 current_outputs_unchanged
 current_legacy_entrypoints_remain_active
 ```
+
+Strict profile loading, immutable identities, the endpoint catalog, the pure
+branch/final state machine, and configured run storage are implemented. The DAG
+planner, executor/CLI, four model services, full two-scale run, and report
+acceptance remain incomplete, so current production entrypoints and outputs are
+not replaced.
 
 The planned refactor treats all configured scales as engineering-equivalent
 through endpoint discovery, A/B/C/D execution, source resolution, prediction
