@@ -224,11 +224,20 @@ def build_endpoint_reconstruction(raw_df: pd.DataFrame, hf_scale: str, post_scal
     return out
 
 
-def build_component_availability(stim_df: pd.DataFrame, derivatives_root: Path) -> list[dict[str, Any]]:
-    required_phases = {"3m", "immediate"}
+def build_component_availability(
+    stim_df: pd.DataFrame,
+    derivatives_root: Path,
+    *,
+    protocols: Iterable[str] = ("STN+SNr",),
+    phases: Iterable[str] = ("3m", "immediate"),
+) -> list[dict[str, Any]]:
+    required_protocols = {str(value) for value in protocols}
+    required_phases = {str(value) for value in phases}
+    if not required_protocols or not required_phases:
+        raise ValueError("component availability requires protocols and phases")
     required = stim_df[
         stim_df["Phase"].astype(str).isin(required_phases)
-        & (stim_df["Protocol"].astype(str) == "STN+SNr")
+        & stim_df["Protocol"].astype(str).isin(required_protocols)
     ].copy()
     rows: list[dict[str, Any]] = []
     condition_keys = ["ID", "Phase", "Protocol"]
