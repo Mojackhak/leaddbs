@@ -31,3 +31,7 @@ class CacheError(SeedTargetConnectivityError, ValueError):
 
 class StatisticsError(SeedTargetConnectivityError, ValueError):
     """Raised when connectivity statistics violate denominator contracts."""
+
+
+class ArtifactError(SeedTargetConnectivityError, ValueError):
+    """Raised when immutable run artifacts cannot satisfy their contract."""

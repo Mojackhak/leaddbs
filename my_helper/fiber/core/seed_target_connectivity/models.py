@@ -210,3 +210,13 @@ class TargetStatistic:
             "connectivity_pmi_status": self.connectivity_pmi_status,
             "rank": self.rank,
         }
+
+
+@dataclass(frozen=True)
+class RunArtifacts:
+    """One immutable content-addressed run directory."""
+
+    run_dir: Path
+    run_fingerprint: str
+    artifact_hashes: Mapping[str, str]
+    reused: bool
