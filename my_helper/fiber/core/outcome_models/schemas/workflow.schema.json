@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile_type", "study_profile", "scale_profile", "model_profile", "selection", "execution"],
+  "properties": {
+    "schema_version": {"const": "four_model_v1"},
+    "profile_type": {"const": "workflow"},
+    "study_profile": {"type": "string", "minLength": 1},
+    "scale_profile": {"type": "string", "minLength": 1},
+    "model_profile": {"type": "string", "minLength": 1},
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phases", "models", "connectomes"],
+      "properties": {
+        "scales": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "all_available": {"const": true},
+        "phases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["chronic", "immediate"]}},
+        "models": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["all", "hf-voxel", "hf-fiber", "ulf-voxel", "ulf-fiber"]}},
+        "connectomes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["through", "resume", "force", "continue_on_endpoint_failure"],
+      "properties": {
+        "through": {"enum": ["observed", "formal", "sensitivity", "report"]},
+        "resume": {"type": "boolean"},
+        "force": {"type": "boolean"},
+        "continue_on_endpoint_failure": {"const": true}
+      }
+    }
+  }
+}

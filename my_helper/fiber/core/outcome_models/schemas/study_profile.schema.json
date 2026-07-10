@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile_type", "study_id", "paths", "clinical_columns", "space", "components", "conditions", "efield_resolvers", "connectomes"],
+  "properties": {
+    "schema_version": {"const": "four_model_v1"},
+    "profile_type": {"const": "study_profile"},
+    "study_id": {"type": "string", "minLength": 1},
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clinical_table", "stimulation_table", "leaddbs_derivatives", "asset_root", "output_root"],
+      "properties": {
+        "clinical_table": {"type": "string", "minLength": 1},
+        "stimulation_table": {"type": "string", "minLength": 1},
+        "leaddbs_derivatives": {"type": "string", "minLength": 1},
+        "asset_root": {"type": "string", "minLength": 1},
+        "output_root": {"type": "string", "minLength": 1}
+      }
+    },
+    "clinical_columns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_id", "scale", "protocol", "phase", "value", "baseline"],
+      "properties": {
+        "subject_id": {"type": "string", "minLength": 1},
+        "scale": {"type": "string", "minLength": 1},
+        "protocol": {"type": "string", "minLength": 1},
+        "phase": {"type": "string", "minLength": 1},
+        "value": {"type": "string", "minLength": 1},
+        "baseline": {"type": "string", "minLength": 1}
+      }
+    },
+    "space": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "reference_image", "brainmask", "canonical_hemisphere", "left_to_right_transform"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "reference_image": {"type": "string", "minLength": 1},
+        "brainmask": {"type": "string", "minLength": 1},
+        "canonical_hemisphere": {"const": "right"},
+        "left_to_right_transform": {"type": "string", "minLength": 1}
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frequency_1_reference", "frequency_2_addon"],
+      "properties": {
+        "frequency_1_reference": {"$ref": "#/$defs/component"},
+        "frequency_2_addon": {"$ref": "#/$defs/component"}
+      }
+    },
+    "conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frequency_1_reference", "frequency_2_addon_chronic", "frequency_2_addon_immediate"],
+      "properties": {
+        "frequency_1_reference": {"$ref": "#/$defs/condition"},
+        "frequency_2_addon_chronic": {"$ref": "#/$defs/condition"},
+        "frequency_2_addon_immediate": {"$ref": "#/$defs/condition"}
+      }
+    },
+    "efield_resolvers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frequency_1_reference", "frequency_1_component_under_addon", "frequency_2_component_under_addon"],
+      "properties": {
+        "frequency_1_reference": {"type": "string", "minLength": 1},
+        "frequency_1_component_under_addon": {"type": "string", "minLength": 1},
+        "frequency_2_component_under_addon": {"type": "string", "minLength": 1}
+      }
+    },
+    "connectomes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/connectome"}
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "frequency_metadata_binding"],
+      "properties": {
+        "alias": {"type": "string", "minLength": 1},
+        "frequency_metadata_binding": {"type": "string", "minLength": 1}
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "phase"],
+      "properties": {
+        "protocol": {"type": "string", "minLength": 1},
+        "phase": {"type": "string", "minLength": 1}
+      }
+    },
+    "connectome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "path", "fiber_identity_source"],
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "fiber_identity_source": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

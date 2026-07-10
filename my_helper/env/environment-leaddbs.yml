@@ -11,6 +11,8 @@ dependencies:
   - statsmodels
   - h5py
   - openpyxl
+  - pyyaml
+  - jsonschema
   - tqdm
   - pillow
   - imageio

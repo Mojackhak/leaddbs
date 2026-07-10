@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile_type", "profile_id", "direct_voxel", "normative_fiber", "resolver", "formal", "sensitivity", "oss", "reporting"],
+  "properties": {
+    "schema_version": {"const": "four_model_v1"},
+    "profile_type": {"const": "model_profile"},
+    "profile_id": {"const": "four_model_v1"},
+    "direct_voxel": {"$ref": "#/$defs/directVoxel"},
+    "normative_fiber": {"$ref": "#/$defs/normativeFiber"},
+    "resolver": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimum_adjacent_passing_cells"],
+      "properties": {"minimum_adjacent_passing_cells": {"type": "integer", "minimum": 1}}
+    },
+    "formal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["permutations", "bootstraps", "jitter_resamples", "seed"],
+      "properties": {
+        "permutations": {"type": "integer", "minimum": 1},
+        "bootstraps": {"type": "integer", "minimum": 1},
+        "jitter_resamples": {"type": "integer", "minimum": 1},
+        "seed": {"type": "integer"}
+      }
+    },
+    "sensitivity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["selected_tau_multipliers", "ulf_nonfinal_branch", "ulf_gain", "ulf_total_exposure", "ulf_support", "ulf_collinearity", "plain_burden_controls", "cross_connectome"],
+      "properties": {
+        "selected_tau_multipliers": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number", "exclusiveMinimum": 0}},
+        "ulf_nonfinal_branch": {"type": "boolean"},
+        "ulf_gain": {"type": "boolean"},
+        "ulf_total_exposure": {"type": "boolean"},
+        "ulf_support": {"type": "boolean"},
+        "ulf_collinearity": {"type": "boolean"},
+        "plain_burden_controls": {"type": "boolean"},
+        "cross_connectome": {"type": "boolean"}
+      }
+    },
+    "oss": {
+      "type": "object", "additionalProperties": false,
+      "required": ["model", "deterministic_activation_threshold", "hemisphere_merge_rule", "canonical_hemisphere", "final_dtor_only"],
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "deterministic_activation_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "hemisphere_merge_rule": {"const": "max_probability_union"},
+        "canonical_hemisphere": {"const": "right"},
+        "final_dtor_only": {"type": "boolean"}
+      }
+    },
+    "reporting": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fdr", "density", "labels", "numeric_first"],
+      "properties": {
+        "fdr": {"type": "boolean"}, "density": {"type": "boolean"},
+        "labels": {"type": "boolean"}, "numeric_first": {"type": "boolean"}
+      }
+    }
+  },
+  "$defs": {
+    "directVoxel": {
+      "type": "object", "additionalProperties": false,
+      "required": ["estimator", "pre_specified_tau_v_per_m", "pre_specified_coverage", "tau_grid_v_per_m", "coverage_grid", "hard_filter"],
+      "properties": {
+        "estimator": {"const": "partial_spearman"},
+        "pre_specified_tau_v_per_m": {"type": "number", "exclusiveMinimum": 0},
+        "pre_specified_coverage": {"type": "integer", "minimum": 1},
+        "tau_grid_v_per_m": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "number", "exclusiveMinimum": 0}},
+        "coverage_grid": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "hard_filter": {"$ref": "#/$defs/directHardFilter"}
+      }
+    },
+    "directHardFilter": {
+      "type": "object", "additionalProperties": false,
+      "required": ["n_subjects_min", "n_voxels_full_min", "fold_n_voxels_min", "score_nonconstant_all_folds", "predictions_finite"],
+      "properties": {
+        "n_subjects_min": {"const": 12},
+        "n_voxels_full_min": {"const": 20},
+        "fold_n_voxels_min": {"const": 10},
+        "score_nonconstant_all_folds": {"const": true},
+        "predictions_finite": {"const": true}
+      }
+    },
+    "normativeFiber": {
+      "type": "object", "additionalProperties": false,
+      "required": ["exposure", "pre_specified_tau_v_per_m", "pre_specified_coverage", "tau_grid_v_per_m", "coverage_grid", "hard_filter", "score", "connectome_roles"],
+      "properties": {
+        "exposure": {"const": "peak_efield"},
+        "pre_specified_tau_v_per_m": {"type": "number", "exclusiveMinimum": 0},
+        "pre_specified_coverage": {"type": "integer", "minimum": 1},
+        "tau_grid_v_per_m": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "number", "exclusiveMinimum": 0}},
+        "coverage_grid": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "hard_filter": {"$ref": "#/$defs/fiberHardFilter"},
+        "score": {"$ref": "#/$defs/fiberScore"},
+        "connectome_roles": {"type": "object", "minProperties": 1, "additionalProperties": {"enum": ["observed_robustness", "formal"]}}
+      }
+    },
+    "fiberHardFilter": {
+      "type": "object", "additionalProperties": false,
+      "required": ["n_subjects_min", "fold_candidate_fibers_min_by_connectome", "score_nonconstant_all_folds", "predictions_finite"],
+      "properties": {
+        "n_subjects_min": {"const": 12},
+        "fold_candidate_fibers_min_by_connectome": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "integer", "minimum": 1}},
+        "score_nonconstant_all_folds": {"const": true},
+        "predictions_finite": {"const": true}
+      }
+    },
+    "fiberScore": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sweet_fraction", "sour_fraction", "weighted_peak_fraction"],
+      "properties": {
+        "sweet_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "sour_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "weighted_peak_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+      }
+    }
+  }
+}
