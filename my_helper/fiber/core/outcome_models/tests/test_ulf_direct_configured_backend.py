@@ -500,6 +500,13 @@ class ULFDirectConfiguredBackendTests(unittest.TestCase):
             self.assertEqual(output.feature_axis.count, 48)
             self.assertIn(output.source_status, {"pre_specified_accepted", "scan_fallback_accepted"})
             self.assertFalse(any(artifact.kind.startswith("delta_hf_") for artifact in output.artifacts))
+            artifacts = {artifact.kind: artifact.path for artifact in output.artifacts}
+            self.assertTrue(
+                {"ulf_component_exposure", "hf_component_exposure", "y_base"}.issubset(artifacts)
+            )
+            self.assertEqual(np.load(artifacts["ulf_component_exposure"]).shape, (12, 48))
+            self.assertEqual(np.load(artifacts["hf_component_exposure"]).shape, (12, 48))
+            self.assertEqual(np.load(artifacts["y_base"]).shape, (12,))
 
             hf_ids = root / "hf_real_candidate_ids.npy"
             np.save(hf_ids, np.arange(48, dtype=np.int64))

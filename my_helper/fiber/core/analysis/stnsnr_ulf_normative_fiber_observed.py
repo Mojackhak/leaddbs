@@ -1274,7 +1274,7 @@ def run_ulf_normative_fiber_configured(config: Any) -> dict[str, Any]:
     if config.branch == "delta_hf_adjusted" and not math.isfinite(float(config.hf_overlap_tau)):
         raise ValueError("adjusted ULF fiber branch requires a finite matched HF selected tau")
 
-    records, y_post, y_hf_ref, _ = _configured_clinical_records(config)
+    records, y_post, y_hf_ref, y_base = _configured_clinical_records(config)
     subject_ids = [record.subject_id for record in records]
     availability = load_component_availability(Path(config.readiness_csv))
     for column in ("protocol", "phase"):
@@ -1334,6 +1334,10 @@ def run_ulf_normative_fiber_configured(config: Any) -> dict[str, Any]:
     axis_sha = _array_sha256(np.asarray(fiber_ids))
     if config.hf_feature_axis_sha256 is not None and axis_sha != config.hf_feature_axis_sha256:
         raise RuntimeError("configured ULF component fiber axis does not match the immutable HF source")
+    hf_component_path = preprocess_dir / "X_HF_component_fiber_float32_subject_major.npy"
+    ulf_component_path = preprocess_dir / "X_ULF_component_fiber_float32_subject_major.npy"
+    y_base_path = preprocess_dir / "Y_base_float64.npy"
+    np.save(y_base_path, np.asarray(y_base, dtype=np.float64))
 
     nuisance_full, nuisance_provider, _ = _configured_delta_inputs(config, subject_ids)
     rows: list[dict[str, Any]] = []
@@ -1510,6 +1514,9 @@ def run_ulf_normative_fiber_configured(config: Any) -> dict[str, Any]:
         "artifacts": {
             "source_status": scan_outputs["manifest_json"],
             "selected_source": str(selected_source_path),
+            "hf_component_exposure": str(hf_component_path),
+            "ulf_component_exposure": str(ulf_component_path),
+            "y_base": str(y_base_path),
             **selected_artifacts,
         },
     }

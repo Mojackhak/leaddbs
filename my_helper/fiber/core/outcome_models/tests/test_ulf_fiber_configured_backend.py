@@ -314,6 +314,13 @@ class ConfiguredULFFiberBackendTests(unittest.TestCase):
             status = root / "source_status.json"
             selected.write_text("{}\n", encoding="utf-8")
             status.write_text("{}\n", encoding="utf-8")
+            hf_component = request.model_root / "cache" / "hf_component.npy"
+            ulf_component = request.model_root / "cache" / "ulf_component.npy"
+            y_base = request.model_root / "cache" / "y_base.npy"
+            hf_component.parent.mkdir(parents=True, exist_ok=True)
+            np.save(hf_component, np.ones((2, 3), dtype=np.float32))
+            np.save(ulf_component, np.ones((2, 3), dtype=np.float32))
+            np.save(y_base, np.ones(2, dtype=np.float64))
 
             def payload(axis_sha: str) -> dict[str, object]:
                 return {
@@ -331,7 +338,13 @@ class ConfiguredULFFiberBackendTests(unittest.TestCase):
                         "sha256": axis_sha,
                         "identity_source": "data.mat:idx",
                     },
-                    "artifacts": {"source_status": str(status), "selected_source": str(selected)},
+                    "artifacts": {
+                        "source_status": str(status),
+                        "selected_source": str(selected),
+                        "hf_component_exposure": str(hf_component),
+                        "ulf_component_exposure": str(ulf_component),
+                        "y_base": str(y_base),
+                    },
                 }
 
             fake = SimpleNamespace(run_ulf_normative_fiber_configured=lambda config: payload("b" * 64))
@@ -353,7 +366,16 @@ class ConfiguredULFFiberBackendTests(unittest.TestCase):
 
         self.assertIsInstance(output, ObservedServiceOutput)
         self.assertEqual(output.source_status, "pre_specified_accepted")
-        self.assertEqual({artifact.kind for artifact in output.artifacts}, {"source_status", "selected_source"})
+        self.assertEqual(
+            {artifact.kind for artifact in output.artifacts},
+            {
+                "source_status",
+                "selected_source",
+                "hf_component_exposure",
+                "ulf_component_exposure",
+                "y_base",
+            },
+        )
 
     def test_dynamic_names_and_all_connectome_identities_are_preserved(self) -> None:
         self.assertEqual(

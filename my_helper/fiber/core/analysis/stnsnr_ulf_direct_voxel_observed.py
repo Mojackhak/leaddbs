@@ -1313,8 +1313,14 @@ def run_configured_ulf_direct_voxel(
     ulf_component = ulf_component_all[:, candidate_sparse].astype(np.float32)
     hf_component = hf_component_all[:, candidate_sparse].astype(np.float32)
     feature_ids_path = config.model_cache_root / "candidate_flat_indices.npy"
+    ulf_component_path = config.model_cache_root / "E_ULF_component_float32_subject_major.npy"
+    hf_component_path = config.model_cache_root / "E_HF_component_float32_subject_major.npy"
+    y_base_path = config.model_cache_root / "Y_base_float64.npy"
     np.save(feature_ids_path, candidate_flat)
     np.save(config.model_cache_root / "candidate_ijk.npy", candidate_ijk)
+    np.save(ulf_component_path, ulf_component)
+    np.save(hf_component_path, hf_component)
+    np.save(y_base_path, np.asarray([record.y_base for record in records], dtype=np.float64))
 
     delta_full, delta_folds, delta_support = _load_configured_delta(config)
 
@@ -1402,6 +1408,9 @@ def run_configured_ulf_direct_voxel(
     artifact_paths = {
         "source_scan": scan_outputs["scan_csv"],
         "source_scan_manifest": scan_outputs["manifest_json"],
+        "ulf_component_exposure": str(ulf_component_path),
+        "hf_component_exposure": str(hf_component_path),
+        "y_base": str(y_base_path),
     }
     selected_tau = resolution.get("ulf_voxel_selected_tau_v_per_m")
     selected_coverage = resolution.get("ulf_voxel_selected_coverage")
