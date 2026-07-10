@@ -16,9 +16,10 @@ from stnsnr_direct_voxel_formal_permutation import (
     DirectVoxelTarget,
     _float_column,
     discover_targets,
-    file_prefix_for_manifest,
     iso_now,
+    load_target_nuisance,
     load_subject_table,
+    target_file_prefix,
     write_csv,
     write_json,
 )
@@ -69,12 +70,12 @@ def _preprocess_dir(target: DirectVoxelTarget) -> Path:
 
 
 def _template_path(target: DirectVoxelTarget, prefix: str) -> Path:
-    return target.branch_dir / f"{prefix}_coef.nii.gz"
+    return target.spatial_reference_path or target.branch_dir / f"{prefix}_coef.nii.gz"
 
 
 def _write_se_nifti(target: DirectVoxelTarget, prefix: str, se_values: np.ndarray) -> Path:
     preprocess_dir = _preprocess_dir(target)
-    flat_indices_path = preprocess_dir / "candidate_flat_indices.npy"
+    flat_indices_path = target.feature_ids_path or preprocess_dir / "candidate_flat_indices.npy"
     if not flat_indices_path.is_file():
         raise FileNotFoundError(f"missing candidate flat indices: {flat_indices_path}")
     template_path = _template_path(target, prefix)
@@ -94,10 +95,11 @@ def _write_se_nifti(target: DirectVoxelTarget, prefix: str, se_values: np.ndarra
 
 def run_target_bootstrap(target: DirectVoxelTarget, *, n_bootstraps: int, seed: int = 42) -> dict[str, Any]:
     provenance = git_provenance()
+    target.branch_dir.mkdir(parents=True, exist_ok=True)
     x = np.asarray(np.load(target.x_path, mmap_mode="r"), dtype=np.float32)
     table = load_subject_table(target.subjects_csv)
     y_post = _float_column(table, target.outcome_column)
-    nuisance = np.column_stack([_float_column(table, column) for column in target.nuisance_columns])
+    nuisance, _ = load_target_nuisance(target, table)
 
     rng = np.random.default_rng(seed)
     bootstrap_indices = rng.integers(0, int(y_post.shape[0]), size=(int(n_bootstraps), int(y_post.shape[0])))
@@ -135,7 +137,7 @@ def run_target_bootstrap(target: DirectVoxelTarget, *, n_bootstraps: int, seed: 
     valid_se = finite_count > 1
     se[valid_se] = np.sqrt(m2[valid_se] / (finite_count[valid_se] - 1)).astype(np.float32)
 
-    prefix = file_prefix_for_manifest(target.manifest_path)
+    prefix = target_file_prefix(target)
     se_path = _write_se_nifti(target, prefix, se)
     summary_path = target.branch_dir / f"{prefix}_bootstrap_summary.csv"
     manifest_path = target.branch_dir / f"{prefix}_formal_bootstrap_manifest.json"
@@ -158,20 +160,22 @@ def run_target_bootstrap(target: DirectVoxelTarget, *, n_bootstraps: int, seed: 
         "bootstrap_se_nifti": str(se_path),
         "generated_at": iso_now(),
     }
+    if target.final_record_hash:
+        summary["final_record_hash"] = target.final_record_hash
     write_csv(summary_path, [summary], list(summary.keys()))
-    write_json(
-        manifest_path,
-        {
-            "generated_at": iso_now(),
-            "model_id": target.model_id,
-            "target_manifest": str(target.manifest_path),
-            "n_bootstraps": int(n_bootstraps),
-            "seed": int(seed),
-            "code_provenance": provenance,
-            "method": "Subject-level direct-voxel bootstrap with streaming SE accumulation",
-            "outputs": {"summary_csv": str(summary_path), "bootstrap_se_nifti": str(se_path), "manifest_json": str(manifest_path)},
-        },
-    )
+    formal_manifest = {
+        "generated_at": iso_now(),
+        "model_id": target.model_id,
+        "target_manifest": str(target.manifest_path),
+        "n_bootstraps": int(n_bootstraps),
+        "seed": int(seed),
+        "code_provenance": provenance,
+        "method": "Subject-level direct-voxel bootstrap with streaming SE accumulation",
+        "outputs": {"summary_csv": str(summary_path), "bootstrap_se_nifti": str(se_path), "manifest_json": str(manifest_path)},
+    }
+    if target.final_record_hash:
+        formal_manifest["final_record_hash"] = target.final_record_hash
+    write_json(manifest_path, formal_manifest)
     return summary
 
 

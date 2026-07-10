@@ -20,9 +20,10 @@ from stnsnr_normative_fiber_smoke_permutation import (
     _load_score_columns,
     default_cross_target_output_dir,
     discover_targets,
-    file_prefix_for_manifest,
     iso_now,
+    load_target_nuisance,
     prepare_candidate_union,
+    target_file_prefix,
     write_csv,
     write_json,
 )
@@ -118,12 +119,13 @@ def _table_value(value: float | int | str) -> float | int | str:
 
 def run_target_bootstrap(target: NormativeFiberTarget, *, n_bootstraps: int, seed: int = 42) -> dict[str, Any]:
     provenance = git_provenance()
+    target.branch_dir.mkdir(parents=True, exist_ok=True)
     x = np.load(target.x_path, mmap_mode="r")
     fiber_ids = np.load(target.fiber_ids_path, mmap_mode="r")
     reduced = prepare_candidate_union(x=x, fiber_ids=fiber_ids, tau=target.tau, min_coverage=target.min_coverage)
     score_columns = _load_score_columns(target.scores_csv)
     y_post = _float_column(score_columns, target.outcome_column)
-    nuisance = np.column_stack([_float_column(score_columns, column) for column in target.nuisance_columns])
+    nuisance, _ = load_target_nuisance(target, score_columns)
 
     n_fibers = int(reduced.x.shape[1])
     rng = np.random.default_rng(seed)
@@ -183,7 +185,7 @@ def run_target_bootstrap(target: NormativeFiberTarget, *, n_bootstraps: int, see
     weight_mean[finite_count == 0] = np.nan
     weight_se[finite_count <= 1] = np.nan
 
-    prefix = file_prefix_for_manifest(target.manifest_path)
+    prefix = target_file_prefix(target)
     summary_path = target.branch_dir / f"{prefix}_bootstrap_summary.csv"
     se_path = target.branch_dir / f"{prefix}_bootstrap_se.csv"
     selection_path = target.branch_dir / f"{prefix}_bootstrap_selection_frequency.csv"
@@ -275,26 +277,28 @@ def run_target_bootstrap(target: NormativeFiberTarget, *, n_bootstraps: int, see
         "bootstrap_sour_selected_median": float(np.median(sour_array)) if sour_array.size else 0.0,
         "generated_at": iso_now(),
     }
+    if target.final_record_hash:
+        summary["final_record_hash"] = target.final_record_hash
     write_csv(summary_path, [summary], list(summary.keys()))
-    write_json(
-        manifest_path,
-        {
-            "generated_at": iso_now(),
-            "model_id": target.model_id,
-            "target_manifest": str(target.manifest_path),
-            "n_bootstraps": int(n_bootstraps),
-            "seed": int(seed),
-            "code_provenance": provenance,
-            "method": "Subject-level dTOR normative-fiber bootstrap over selected candidate union",
-            "outputs": {
-                "summary_csv": str(summary_path),
-                "bootstrap_se_csv": str(se_path),
-                "bootstrap_selection_frequency_csv": str(selection_path),
-                "bootstrap_sign_stability_csv": str(sign_path),
-                "manifest_json": str(manifest_path),
-            },
+    formal_manifest = {
+        "generated_at": iso_now(),
+        "model_id": target.model_id,
+        "target_manifest": str(target.manifest_path),
+        "n_bootstraps": int(n_bootstraps),
+        "seed": int(seed),
+        "code_provenance": provenance,
+        "method": "Subject-level dTOR normative-fiber bootstrap over selected candidate union",
+        "outputs": {
+            "summary_csv": str(summary_path),
+            "bootstrap_se_csv": str(se_path),
+            "bootstrap_selection_frequency_csv": str(selection_path),
+            "bootstrap_sign_stability_csv": str(sign_path),
+            "manifest_json": str(manifest_path),
         },
-    )
+    }
+    if target.final_record_hash:
+        formal_manifest["final_record_hash"] = target.final_record_hash
+    write_json(manifest_path, formal_manifest)
     return summary
 
 

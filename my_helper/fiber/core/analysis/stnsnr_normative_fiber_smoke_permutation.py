@@ -65,6 +65,11 @@ class NormativeFiberTarget:
     scale_direction: str
     tau: float
     min_coverage: int
+    subject_order: tuple[str, ...] = ()
+    output_prefix: str = ""
+    final_record_hash: str = ""
+    delta_hf_full_path: Path | None = None
+    delta_hf_fold_path: Path | None = None
 
 
 def iso_now() -> str:
@@ -97,6 +102,11 @@ def file_prefix_for_manifest(manifest_path: Path) -> str:
     if name == "normative_ULF_fiber_generation_manifest.json":
         return "normative_ULF_fiber"
     raise ValueError(f"unsupported normative-fiber manifest: {manifest_path}")
+
+
+def target_file_prefix(target: NormativeFiberTarget) -> str:
+    """Return an explicit configured prefix or the legacy manifest-derived prefix."""
+    return target.output_prefix or file_prefix_for_manifest(target.manifest_path)
 
 
 def permutation_suffix_for_tier(tier: str) -> str:
@@ -167,12 +177,24 @@ def _fit_baseline_with_covariates(train_y: np.ndarray, train_covariates: np.ndar
     return float((test_design @ beta)[0])
 
 
-def build_fold_fiber_caches(reduced: CandidateUnion, nuisance: np.ndarray) -> tuple[FoldFiberCache, ...]:
+def build_fold_fiber_caches(
+    reduced: CandidateUnion,
+    nuisance: np.ndarray,
+    fold_nuisance: np.ndarray | None = None,
+) -> tuple[FoldFiberCache, ...]:
     cov = _as_2d(nuisance)
+    fold_cov = None if fold_nuisance is None else np.asarray(fold_nuisance, dtype=float)
+    if fold_cov is not None and fold_cov.shape != (
+        reduced.x.shape[0],
+        reduced.x.shape[0],
+        cov.shape[1],
+    ):
+        raise ValueError("fold_nuisance must be fold-by-subject-by-nuisance")
     caches: list[FoldFiberCache] = []
     for heldout, candidate in enumerate(reduced.fold_candidate_masks):
         train = np.array([idx for idx in range(reduced.x.shape[0]) if idx != heldout], dtype=int)
-        nuisance_train = cov[train]
+        nuisance_fold = cov if fold_cov is None else fold_cov[heldout]
+        nuisance_train = nuisance_fold[train]
         nuisance_rank_train = rank_columns(nuisance_train)
         x_rank = rank_columns(np.asarray(reduced.x[train][:, candidate], dtype=float))
         x_resid = residualize(x_rank, nuisance_rank_train)
@@ -191,7 +213,7 @@ def build_fold_fiber_caches(reduced: CandidateUnion, nuisance: np.ndarray) -> tu
                 candidate_mask=candidate,
                 valid_candidate_mask=valid_candidate,
                 nuisance_train=nuisance_train,
-                nuisance_test=cov[[heldout]],
+                nuisance_test=nuisance_fold[[heldout]],
                 nuisance_rank_train=nuisance_rank_train,
                 z_exposure_rank_resid=z,
             )
@@ -206,11 +228,12 @@ def normative_fiber_loocv_statistic(
     nuisance: np.ndarray,
     scale_direction: str,
     fold_caches: tuple[FoldFiberCache, ...] | None = None,
+    fold_nuisance: np.ndarray | None = None,
 ) -> dict[str, Any]:
     x = reduced.x
     y = np.asarray(y_post, dtype=float)
     cov = _as_2d(nuisance)
-    caches = fold_caches or build_fold_fiber_caches(reduced, cov)
+    caches = fold_caches or build_fold_fiber_caches(reduced, cov, fold_nuisance)
     pred = np.full(y.shape[0], np.nan, dtype=float)
     base_pred = np.full(y.shape[0], np.nan, dtype=float)
     fold_candidate_counts: list[int] = []
@@ -275,6 +298,33 @@ def _float_column(table: dict[str, np.ndarray], column: str) -> np.ndarray:
     return np.asarray(table[column], dtype=float)
 
 
+def load_target_nuisance(
+    target: NormativeFiberTarget,
+    score_columns: dict[str, np.ndarray],
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Load full and fold-specific nuisance designs for one exact target."""
+    base = np.column_stack(
+        [_float_column(score_columns, column) for column in target.nuisance_columns]
+    )
+    if target.delta_hf_full_path is None and target.delta_hf_fold_path is None:
+        return base, None
+    if target.delta_hf_full_path is None or target.delta_hf_fold_path is None:
+        raise ValueError("adjusted formal target requires both full and fold-specific DeltaHF paths")
+    full_delta = np.asarray(np.load(target.delta_hf_full_path, mmap_mode="r"), dtype=float)
+    fold_delta = np.asarray(np.load(target.delta_hf_fold_path, mmap_mode="r"), dtype=float)
+    n_subjects = base.shape[0]
+    if full_delta.shape != (n_subjects,):
+        raise ValueError("full DeltaHF scores must have one value per subject")
+    if fold_delta.shape != (n_subjects, n_subjects):
+        raise ValueError("fold-specific DeltaHF scores must be fold-by-subject")
+    full_nuisance = np.column_stack([base, full_delta])
+    fold_nuisance = np.concatenate(
+        [np.broadcast_to(base, (n_subjects, *base.shape)), fold_delta[:, :, None]],
+        axis=2,
+    )
+    return full_nuisance, fold_nuisance
+
+
 def run_target_smoke_permutation(
     target: NormativeFiberTarget,
     *,
@@ -283,14 +333,25 @@ def run_target_smoke_permutation(
     tier: str = "smoke",
 ) -> dict[str, Any]:
     provenance = git_provenance()
+    target.branch_dir.mkdir(parents=True, exist_ok=True)
     suffix = permutation_suffix_for_tier(tier)
     x = np.load(target.x_path, mmap_mode="r")
     fiber_ids = np.load(target.fiber_ids_path, mmap_mode="r")
     reduced = prepare_candidate_union(x=x, fiber_ids=fiber_ids, tau=target.tau, min_coverage=target.min_coverage)
     score_columns = _load_score_columns(target.scores_csv)
+    if target.subject_order:
+        subject_column = next(
+            (column for column in score_columns if column.strip().lower() == "subject_id"),
+            None,
+        )
+        if subject_column is None:
+            raise KeyError("configured formal score table is missing subject_id")
+        observed_order = tuple(str(value) for value in score_columns[subject_column])
+        if observed_order != target.subject_order:
+            raise ValueError("configured formal subject order mismatch")
     y_post = _float_column(score_columns, target.outcome_column)
-    nuisance = np.column_stack([_float_column(score_columns, column) for column in target.nuisance_columns])
-    fold_caches = build_fold_fiber_caches(reduced, nuisance)
+    nuisance, fold_nuisance = load_target_nuisance(target, score_columns)
+    fold_caches = build_fold_fiber_caches(reduced, nuisance, fold_nuisance)
     observed = normative_fiber_loocv_statistic(
         reduced=reduced,
         y_post=y_post,
@@ -312,7 +373,7 @@ def run_target_smoke_permutation(
         if (idx + 1) % 100 == 0 or idx + 1 == int(n_permutations):
             print(f"  {target.model_id}: completed {idx + 1}/{int(n_permutations)} {tier} permutations", flush=True)
 
-    prefix = file_prefix_for_manifest(target.manifest_path)
+    prefix = target_file_prefix(target)
     null_path = target.branch_dir / f"{prefix}_{suffix}_null_stats.npy"
     summary_path = target.branch_dir / f"{prefix}_{suffix}_summary.csv"
     manifest_path = target.branch_dir / f"{prefix}_{suffix}_manifest.json"
@@ -340,21 +401,23 @@ def run_target_smoke_permutation(
         "resampling_tier": tier,
         "generated_at": iso_now(),
     }
+    if target.final_record_hash:
+        summary["final_record_hash"] = target.final_record_hash
     write_csv(summary_path, [summary], list(summary.keys()))
-    write_json(
-        manifest_path,
-        {
-            "generated_at": iso_now(),
-            "model_id": target.model_id,
-            "target_manifest": str(target.manifest_path),
-            "n_permutations": int(n_permutations),
-            "seed": int(seed),
-            "resampling_tier": tier,
-            "code_provenance": provenance,
-            "method": f"Exact dTOR normative-fiber {tier} Freedman-Lane permutation over selected candidate union",
-            "outputs": {"summary_csv": str(summary_path), "null_stats_npy": str(null_path), "manifest_json": str(manifest_path)},
-        },
-    )
+    formal_manifest = {
+        "generated_at": iso_now(),
+        "model_id": target.model_id,
+        "target_manifest": str(target.manifest_path),
+        "n_permutations": int(n_permutations),
+        "seed": int(seed),
+        "resampling_tier": tier,
+        "code_provenance": provenance,
+        "method": f"Exact dTOR normative-fiber {tier} Freedman-Lane permutation over selected candidate union",
+        "outputs": {"summary_csv": str(summary_path), "null_stats_npy": str(null_path), "manifest_json": str(manifest_path)},
+    }
+    if target.final_record_hash:
+        formal_manifest["final_record_hash"] = target.final_record_hash
+    write_json(manifest_path, formal_manifest)
     return summary
 
 
