@@ -608,6 +608,11 @@ The planner compiles all conditionally possible tasks before HF source and ULF
 final-model results exist. A task therefore records typed dependencies and a
 runtime gate rather than only a tuple of prerequisite task IDs:
 
+Each task also embeds its immutable `EndpointModelKey` fields in the execution
+plan. The hash remains the identifier, while the explicit study/scale/phase/
+family/connectome fields make dependency and artifact audits possible without
+reverse-decoding the hash.
+
 ```text
 dependency requirement:
   terminal         prerequisite may complete, fail, or skip; its result is inspectable

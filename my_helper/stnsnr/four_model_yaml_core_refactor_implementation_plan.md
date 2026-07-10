@@ -189,6 +189,7 @@ class TaskGate:
 class TaskSpec:
     task_id: str
     key: TaskKey
+    endpoint: EndpointModelKey
     round_name: str
     workflow_phase: str
     dependencies: tuple[DependencySpec, ...]
@@ -213,6 +214,9 @@ def compile_execution_plan(config: ResolvedWorkflow, catalog: Sequence[EndpointR
   fallback realized final after formal completion.
 - [ ] GREEN with deterministic standard-library topological sorting. Static
   skipped tasks retain immutable IDs and terminal skip records.
+- [ ] Embed the immutable `EndpointModelKey` in each task record so plan/status
+  artifacts remain directly auditable by study, scale, phase, family, and
+  connectome without reverse-decoding a hash ID.
 - [ ] Commit `feat: compile endpoint-aware four-model DAG`.
 
 ## Task 6: Run Store And Provenance
