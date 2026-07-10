@@ -9,7 +9,7 @@ Parent goal: none; standalone reusable fiber-core module
 Authoritative specification: this document
 Current branch: stnvop
 Status: design_approved
-Implementation status: task_2_atlas_roi_in_progress
+Implementation status: task_3_connectome_adapter_in_progress
 Current outputs: unchanged
 Implementation language: Python
 Default execution environment: Conda leaddbs
@@ -407,8 +407,9 @@ connectome and seed identities are exact.
 Current implementation progress:
 
 - strict typed configuration: complete;
-- deterministic atlas discovery and ROI resolution: in progress;
-- connectome, traversal, statistics, artifacts, CLI, and acceptance: pending.
+- deterministic atlas discovery and ROI resolution: complete;
+- stable-ID connectome adapter: in progress;
+- traversal, statistics, artifacts, CLI, and acceptance: pending.
 
 Documentation must be updated before each later implementation phase changes
 production code.
