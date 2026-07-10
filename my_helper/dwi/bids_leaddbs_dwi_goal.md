@@ -50,6 +50,9 @@ project:
   study_root: /Volumes/VAL/meige
   session: preop
 
+subjects:
+  mode: auto
+
 dwi:
   distortion_correction: synb0
   phase_encoding_vector: [0, 1, 0]
@@ -84,9 +87,20 @@ runtime:
     work_root: /Users/mojackhu/Library/Caches/leaddbs/synb0_work
 ```
 
-Patient IDs are not stored in the project YAML. They are supplied for a
-specific run. If no IDs are supplied, the runner discovers subjects with a DWI
-under the standard BIDS path.
+The YAML always contains a `subjects` section. `mode: auto` discovers subjects
+with a DWI under the standard BIDS path. `mode: explicit` requires a nonempty
+`ids` list containing values without the `sub-` prefix:
+
+```yaml
+subjects:
+  mode: explicit
+  ids:
+    - Subject001
+    - Subject002
+```
+
+Runtime `SubjectIds` override the YAML subject selection and are treated as an
+explicit list.
 
 Runtime options override YAML values, and YAML values override internal
 defaults.
@@ -112,13 +126,14 @@ Supported modes:
 
 Until the YAML loader is implemented, the renamed wrapper may retain its current
 name-value interface as a compatibility path. It must require `StudyRoot`, allow
-an empty `SubjectIds` list for discovery, and contain no Meige cohort list.
+an empty `SubjectIds` list for automatic discovery, and contain no Meige cohort
+list.
 
 ## Processing Flow
 
 ```text
 load and validate configuration
--> resolve explicit or discovered subjects
+-> resolve explicit or automatically discovered subjects
 -> discover one DWI four-file set per subject
 -> resolve anchorNative T1w and the selected coregistration anchor
 -> build explicit jobSpec values
@@ -161,6 +176,9 @@ Lead-DBS file discovery and UI integration.
 ## Validation Rules
 
 - Reject unsupported schema versions and unknown YAML fields.
+- Require `subjects.mode` to be `auto` or `explicit`.
+- Require a nonempty `subjects.ids` list when the mode is `explicit`.
+- Reject `subjects.ids` when the mode is `auto` to avoid ambiguous selection.
 - Reject subject IDs containing the `sub-` prefix.
 - Require exactly one DWI NIfTI and matching JSON, bval, and bvec files.
 - Require matching DWI volume, bval, and bvec counts and at least one b0.
@@ -196,7 +214,9 @@ derivatives/leaddbs/import_logs/dwi_runs/<run_id>/
 ## Test Plan
 
 - Verify that a generic dry run accepts an explicit study root and subject list.
-- Verify that an empty subject list is preserved for BIDS discovery.
+- Verify `subjects.mode=auto` discovers valid BIDS DWI subjects.
+- Verify `subjects.mode=explicit` requires a nonempty ID list.
+- Verify runtime `SubjectIds` override the YAML subject mode and IDs.
 - Verify that no Meige study root, pilot list, or cohort generator remains in the
   generic wrapper.
 - Verify acquisition-labeled DWI discovery with one candidate.
@@ -210,8 +230,9 @@ derivatives/leaddbs/import_logs/dwi_runs/<run_id>/
 
 - A new standard BIDS/Lead-DBS project requires configuration, not a new MATLAB
   wrapper.
-- A runtime subject list processes only those subjects.
-- Omitting the subject list discovers all valid BIDS DWI subjects.
+- `subjects.mode=auto` discovers all valid BIDS DWI subjects.
+- `subjects.mode=explicit` processes only its configured IDs.
+- A runtime subject list processes only those subjects and overrides YAML.
 - Raw BIDS data are never modified.
 - Existing Synb0/topup/eddy numerical behavior and Lead-DBS B0 naming remain
   unchanged.
