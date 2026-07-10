@@ -84,6 +84,10 @@ class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
         self.assertIn("butenko_parameter_limits = [1, 4]", script)
         self.assertIn("butenko_sampling_distribution = 'Equidistant'", script)
         self.assertIn("butenko_tensorData = 0", script)
+        self.assertIn(
+            "outputPaths.HemiSimFolder = fullfile(outputPaths.outputDir, 'OSS_sim_files_rh')",
+            script,
+        )
         self.assertIn("ea_updatePAM_parameter(options, settings, outputPaths, sample_i)", script)
         self.assertIn(
             "settings.contactLocation{1} = settings.contactLocation{requested_side_idx}",
@@ -94,6 +98,10 @@ class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
         self.assertEqual(script.count("SAMPLE_PARAMETER_FILE="), 1)
         self.assertLess(
             script.index("LEFT_TO_RIGHT_TRANSFORM=ea_flip_lr_nonlinear"),
+            script.index("ea_updatePAM_parameter(options, settings, outputPaths, sample_i)"),
+        )
+        self.assertLess(
+            script.index("outputPaths.HemiSimFolder = fullfile"),
             script.index("ea_updatePAM_parameter(options, settings, outputPaths, sample_i)"),
         )
         parser_dests = {action.dest for action in PREFLIGHT.build_arg_parser()._actions}

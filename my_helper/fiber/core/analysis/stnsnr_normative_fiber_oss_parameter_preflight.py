@@ -326,6 +326,7 @@ def _matlab_script(
             "  if ~isfield(settings, 'current_control'); error('settings.current_control missing'); end",
             "  if ~isfield(settings, 'Implantation_coordinate'); error('settings.Implantation_coordinate missing'); end",
             "  if settings.calcAxonActivation && ~isfield(settings, 'pathwayParameterFile'); error('settings.pathwayParameterFile missing'); end",
+            "  outputPaths.HemiSimFolder = fullfile(outputPaths.outputDir, 'OSS_sim_files_rh');",
             "  if ~exist(outputPaths.HemiSimFolder, 'dir'); mkdir(outputPaths.HemiSimFolder); end",
             f"  for sample_i = 1:{PAM_N_SAMPLES}",
             "    settings = ea_updatePAM_parameter(options, settings, outputPaths, sample_i);",

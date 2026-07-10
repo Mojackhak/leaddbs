@@ -95,6 +95,21 @@ completed `sidecar_equivalence` QC artifact; ULF resolves the unique completed
 the artifact index before source rows are accepted. Focused HF/ULF/tamper tests,
 all 304 configured-core tests, Python compilation, and `git diff --check` pass.
 
+The third real attempt, run `20260710T155953Z_b57d513ff60da8e0`, confirmed the
+source-row repair and entered actual MATLAB OSS parameter preparation. It
+failed because current `ea_get_oss_outputPaths` does not create the later-stage
+`HemiSimFolder` field before `ea_updatePAM_parameter` needs it. Configured OSS
+is always right-canonical, so preflight must bind the sample workspace to
+`fullfile(outputPaths.outputDir, 'OSS_sim_files_rh')` explicitly before the
+fixed ten-sample loop.
+
+The explicit right-canonical workspace repair passes the generated-script
+contract and all 304 configured-core tests. A separate real SNr003 left-source
+diagnostic also completed parameter preflight, converter frequency correction,
+candidate filtering, all ten OSS/pathway samples, and pPAM aggregation on the
+3,990-fiber valid axis with zero invalid mapping columns. This diagnostic proves
+the toolchain boundary but does not replace the required namespaced III/IV run.
+
 The committed profiles under `my_helper/stnsnr/config/four_model_v1/` enumerate
 all 28 scales currently present in the frozen clinical workbook. The workflow
 selects MDS-UPDRS III/IV only as the required acceptance pair; this does not

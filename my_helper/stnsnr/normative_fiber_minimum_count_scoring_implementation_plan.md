@@ -757,6 +757,27 @@ exact endpoint/stage match and artifact-index path/SHA-256 match. HF, ULF, and
 hash-drift tests pass, as do all 304 configured-core tests, Python compilation,
 and `git diff --check`.
 
+Third acceptance attempt
+`20260710T155953Z_b57d513ff60da8e0` passed the direct path again and advanced
+the repaired OSS producer into real Lead-DBS MATLAB parameter preflight. The
+current `ea_get_oss_outputPaths` returns the general output paths but does not
+populate `HemiSimFolder` before `ea_updatePAM_parameter`; the generated script
+therefore failed on that missing field. Because every configured OSS row is
+right-canonical (`--hemi_side 0`), preflight must explicitly bind
+`outputPaths.HemiSimFolder = fullfile(outputPaths.outputDir,
+'OSS_sim_files_rh')` before sample generation. Add a script-contract RED test,
+retain the ten-sample order, then rerun focused/full tests and a clean real run.
+
+Repair verification: the script-contract tests and all 304 configured-core
+tests pass. A real isolated SNr003 left-source preflight then completed with ten
+sample parameter files, converter return code 0, and source-frequency locking
+from 130 Hz to the recorded 110 Hz. Its complete ten-sample activation chain
+finished with all 3,990 valid-axis fibers mapped, zero invalid candidate
+columns, probability range `[0, 1]`, 1,880 interior probabilities, and
+`probabilistic_activation_complete`. The diagnostic artifacts are retained
+under `/Volumes/VAL/STNSNr/configured_model_acceptance_scratch/` and are not
+accepted as a configured endpoint run.
+
 - [ ] **Step 8: Audit final artifacts and state closure**
 
 ```bash
