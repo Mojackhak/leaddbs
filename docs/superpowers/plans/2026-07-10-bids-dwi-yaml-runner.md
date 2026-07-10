@@ -92,9 +92,8 @@
 ### Task 5: Project YAML Presets and Compatibility Wrappers
 
 **Files:**
-- Create: `my_helper/dwi/config/meige.yaml`
-- Create: `my_helper/dwi/config/stnsnr.yaml`
-- Modify: `my_helper/stnvop/run_meige_dwi_synb0_fakeb0.m`
+- Create: `my_helper/stnvop/config/dwi.yaml`
+- Create: `my_helper/stnsnr/config/dwi.yaml`
 - Modify: `my_helper/fiber/stnsnr/run_stnsnr_dwi_registration.m`
 - Create or modify focused wrapper tests beside each wrapper.
 

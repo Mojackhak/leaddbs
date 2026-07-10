@@ -2,7 +2,7 @@
 
 repoDir = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
 addpath(genpath(repoDir));
-configPath = fullfile(repoDir, 'my_helper', 'dwi', 'config', 'stnsnr.yaml');
+configPath = fullfile(repoDir, 'my_helper', 'stnsnr', 'config', 'dwi.yaml');
 
 result = run_bids_dwi_preprocessing( ...
     'Config', configPath, ...

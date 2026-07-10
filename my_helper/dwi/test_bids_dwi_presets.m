@@ -3,9 +3,8 @@
 repoDir = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 addpath(genpath(repoDir));
 
-configDir = fullfile(repoDir, 'my_helper', 'dwi', 'config');
-meigePath = fullfile(configDir, 'meige.yaml');
-stnsnrPath = fullfile(configDir, 'stnsnr.yaml');
+meigePath = fullfile(repoDir, 'my_helper', 'stnvop', 'config', 'dwi.yaml');
+stnsnrPath = fullfile(repoDir, 'my_helper', 'stnsnr', 'config', 'dwi.yaml');
 
 meige = mh_fiber_dwi_load_config(meigePath, struct());
 assert(strcmp(meige.project.study_root, '/Volumes/VAL/meige'), ...
@@ -31,7 +30,8 @@ wrapperText = fileread(wrapperPath);
 required = { ...
     'run_bids_dwi_preprocessing(', ...
     'config', ...
-    'stnsnr.yaml'};
+    '''stnsnr''', ...
+    '''dwi.yaml'''};
 for i = 1:numel(required)
     assert(contains(lower(wrapperText), lower(required{i})), ...
         'STN/SNr wrapper is missing generic preset snippet: %s', required{i});
@@ -53,5 +53,9 @@ for i = 1:numel(forbiddenGeneric)
     assert(~contains(genericText, forbiddenGeneric{i}), ...
         'Generic runner contains project-specific content: %s', forbiddenGeneric{i});
 end
+assert(~isfile(fullfile(repoDir, 'my_helper', 'dwi', 'config', 'meige.yaml')), ...
+    'Project-named presets must not live under the generic DWI module.');
+assert(~isfile(fullfile(repoDir, 'my_helper', 'dwi', 'config', 'stnvop.yaml')), ...
+    'STNVOP-named presets must not live under the generic DWI module.');
 
 fprintf('BIDS DWI project preset test passed.\n');
