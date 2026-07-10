@@ -220,3 +220,45 @@ class RunArtifacts:
     run_fingerprint: str
     artifact_hashes: Mapping[str, str]
     reused: bool
+
+
+@dataclass(frozen=True)
+class ValidationReport:
+    """Resolved inputs produced without full-connectome traversal."""
+
+    config: ConnectivityConfig
+    seed: ResolvedMask
+    atlas: ResolvedAtlas
+    connectome: Any
+    connectome_metadata: ConnectomeMetadata
+    n_targets: int
+    n_valid_targets: int
+    n_empty_targets: int
+    seed_voxel_count: int
+
+    def as_serializable_mapping(self) -> dict[str, Any]:
+        """Return a compact JSON-safe validation summary."""
+        return {
+            "status": "valid",
+            "configuration_hash": self.config.configuration_hash,
+            "n_targets": self.n_targets,
+            "n_valid_targets": self.n_valid_targets,
+            "n_empty_targets": self.n_empty_targets,
+            "seed_voxel_count": self.seed_voxel_count,
+            "seed_resolved_mask_hash": self.seed.resolved_mask_hash,
+            "target_atlas_resolved_mask_hash": self.atlas.atlas_hash,
+            "connectome_id": self.connectome_metadata.connectome_id,
+            "connectome_identity": self.connectome_metadata.connectome_identity,
+            "n_all_fibers": self.connectome_metadata.n_fibers,
+            "n_all_points": self.connectome_metadata.n_points,
+        }
+
+
+@dataclass(frozen=True)
+class ConnectivityRunResult:
+    """Complete public API result for one immutable connectivity run."""
+
+    validation: ValidationReport
+    membership: MembershipResult
+    statistics: tuple[TargetStatistic, ...]
+    artifacts: RunArtifacts
