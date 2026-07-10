@@ -590,6 +590,47 @@ and the current failed-sample diagnostics are retained, but completed-sample
 runtime trees are not retained. Existing interrupted configured-run
 `ephemeral_runtime` may be permanently cleaned under this same contract.
 
+#### Bounded Row Concurrency And Checkpoint-First Scheduling
+
+Configured OSS generation uses row-level bounded concurrency with an internal
+default of three workers. This is an execution resource policy, not a public
+scientific YAML parameter and not part of tau/Coverage, source, prediction, or
+final-model classification. Each worker owns one complete source row:
+
+```text
+row preflight -> ten sequential pPAM samples -> compact row checkpoint
+```
+
+The ten samples inside one row remain sequential. OSS-DBS pathway activation
+may continue to use its own internal process workers. At most three row
+runtimes may coexist, and every row keeps a distinct preflight, activation,
+compact-sample, and checkpoint directory.
+
+Before submitting work, the scheduler evaluates rows in deterministic
+`row_index` order. It first validates a local checkpoint. If none is valid, it
+may reuse a checkpoint from an earlier configured run only when the study,
+scientific OSS compatibility hash, row identity, candidate axis, probability
+lattice, and every nested artifact hash match exactly. Reused prior-run rows
+remain immutable and their source run/checkpoint/hash are recorded in the new
+generation manifest. Invalid, incomplete, or structurally malformed
+checkpoints are cache misses and the row is recomputed.
+
+Scheduler concurrency and checkpoint-discovery code do not change the
+scientific generator compatibility identity. The scientific identity remains
+version-locked to the validated pre-concurrency implementation and continues
+to hash all external numerical MATLAB/OSS dependencies. Scheduler code receives
+a separate implementation hash in provenance. Any change to pPAM sampling,
+geometry canonicalization, candidate mapping, activation aggregation, or merge
+semantics requires an explicit scientific identity bump.
+
+Worker results are sorted by original `row_index` before side/source max-union
+and subject-matrix assembly. If one row fails, already-running workers may
+finish and checkpoint their rows, pending work is cancelled where possible,
+and no branch-level matrix is published. A later clean run skips every exact
+completed row by default. Full-run code-drift resume remains forbidden; prior
+rows are imported as explicitly validated content into a new clean-provenance
+run rather than by changing the old run manifest.
+
 For ULF, the compatibility payload and destination manifest must also preserve the realized overlap mode. Use `matched_hf_peak_efield_selected_tau` when an accepted matched HF source supplied the exclusion threshold, and `hf_source_absent_all_false` when no HF source existed and the exclusion mask was therefore all false. HF uses `not_applicable`. The producer must never hard-code the finite-threshold mode for every ULF final.
 
 Reuse is allowed only when the canonical hash matches exactly. The reused probability matrix may be content-addressed, but the destination bundle and manifest must carry the destination endpoint ID, final model ID, and final record hash.

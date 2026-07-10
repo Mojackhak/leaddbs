@@ -1822,6 +1822,23 @@ cleanup, and malformed-checkpoint cache-miss repair, 29 focused OSS tests and
 all 307 configured-core tests pass. Python compilation and `git diff --check`
 also pass.
 
+The first clean two-scale acceptance run was stopped after 11 of 34 HF dTOR OSS
+source rows completed and 110 compact samples validated. The next row had only
+entered parameter preflight; no active sample runtime remained after the stop.
+Those 11 checkpoints remain under run
+`20260710T183813Z_b28581bfb4ac8f55` and are inputs to the checkpoint-import
+acceptance for the bounded scheduler.
+
+The approved next scheduler uses three concurrent source-row workers by
+default. Each row retains sequential ten-sample execution and the existing
+sample-level cleanup contract. Local exact checkpoints are skipped before
+preflight. A new clean-provenance run may also import an exact checkpoint from
+an earlier run with the same scientific compatibility and row identities; the
+source run and checkpoint hashes must be recorded. Scheduler implementation
+identity is separate from the version-locked scientific generator identity, so
+changing only scheduling does not invalidate scientifically identical pPAM
+rows. Full-run resume with changed code provenance remains prohibited.
+
 Run the D PPMI source resolver:
 
 ```bash
