@@ -2,8 +2,8 @@
 
 ## Status
 
-Design approved. Directory and wrapper naming generalization are in progress.
-The YAML loader and runner described below remain implementation work.
+Design approved. Directory and wrapper naming generalization are complete.
+The YAML loader and runner modes described below remain implementation work.
 
 ## Goal
 
@@ -186,7 +186,7 @@ derivatives/leaddbs/import_logs/dwi_runs/<run_id>/
 
 ## Implementation Phases
 
-1. Generalize the current directory, wrapper, test, and documentation names.
+1. Complete: generalize the current directory, wrapper, test, and documentation names.
 2. Add strict YAML loading and configuration validation.
 3. Add `validate`, `plan`, and `run` modes to the public runner.
 4. Add versioned run manifests and status outputs.
