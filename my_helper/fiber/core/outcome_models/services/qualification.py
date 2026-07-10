@@ -140,11 +140,26 @@ def _float_column(rows: list[dict[str, str]], column: str) -> np.ndarray:
         raise RecordError(f"qualification score column {column!r} is not numeric") from exc
 
 
+def _target_score_table(target: Any) -> Path:
+    candidates = [
+        Path(value)
+        for name in ("subjects_csv", "scores_csv")
+        if (value := getattr(target, name, None)) is not None
+    ]
+    if not candidates:
+        raise RecordError(
+            "qualification target requires subjects_csv or scores_csv"
+        )
+    if len(candidates) > 1 and candidates[0] != candidates[1]:
+        raise RecordError("qualification target score-table fields disagree")
+    return candidates[0]
+
+
 def _target_arrays(target: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
     exposure = np.asarray(np.load(Path(target.x_path), mmap_mode="r"), dtype=float)
     if exposure.ndim != 2 or exposure.shape[1] < 1:
         raise RecordError("qualification exposure must be a nonempty subject-by-feature matrix")
-    with Path(target.scores_csv).open(newline="", encoding="utf-8") as handle:
+    with _target_score_table(target).open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     if len(rows) != exposure.shape[0]:
         raise RecordError("qualification score and exposure subject counts differ")

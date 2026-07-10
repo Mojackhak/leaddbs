@@ -721,6 +721,23 @@ conda run -n leaddbs python my_helper/fiber/pipelines/run_configured_outcome_mod
 
 Do not claim completion if OSS inputs cannot be generated, if any selected final lacks formal/sensitivity/report artifacts, or if the command exits nonzero. Record endpoint-local failures and continue other endpoints according to workflow policy.
 
+First acceptance attempt
+`20260710T143933Z_6b8054589fd9e59b` was intentionally interrupted after it
+exposed a real direct-voxel qualification contract defect: the generic
+equivalence reader expected normative-fiber `scores_csv`, while
+`DirectVoxelTarget` exposes `subjects_csv`. The run had already proved
+endpoint-local continuation and reached dTOR HF-fiber formal/jitter work, but it
+cannot be acceptance evidence because the HF-voxel formal path was skipped.
+Fix this mismatch with a RED test that uses the direct target field contract,
+rerun the 300-test regression, commit the repair, and start a new clean-
+provenance run. Do not resume the old run under changed code provenance.
+
+Repair verification: the RED test reproduced the exact `scores_csv` attribute
+error. The reader now accepts `subjects_csv` for direct targets and
+`scores_csv` for fiber targets, while rejecting conflicting dual paths. All 301
+configured-core tests, the direct formal-permutation selftest, compilation, and
+`git diff --check` pass.
+
 - [ ] **Step 8: Audit final artifacts and state closure**
 
 ```bash

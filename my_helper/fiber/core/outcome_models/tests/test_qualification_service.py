@@ -192,6 +192,47 @@ class QualificationServiceTests(unittest.TestCase):
         self.assertGreater(first.metrics["finite_comparison_count"], 0)
         self.assertLessEqual(first.metrics["max_abs_difference"], 1e-12)
 
+    def test_actual_equivalence_reads_direct_voxel_subjects_csv_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context, task = self._fixture(root, "hf-voxel")
+            final = self._final(task.endpoint.identifier, task.endpoint.model_family)
+            request = QualificationRequest.from_context(task, context, final)
+            rng = np.random.default_rng(11)
+            exposure_path = root / "exposure.npy"
+            np.save(exposure_path, rng.integers(0, 9, size=(12, 24)).astype(float))
+            subjects_path = root / "subjects.csv"
+            with subjects_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=("subject_id", "Y_post", "Y_base"),
+                )
+                writer.writeheader()
+                for index in range(12):
+                    writer.writerow(
+                        {
+                            "subject_id": f"sub-{index + 1:02d}",
+                            "Y_post": float((index * 7) % 13),
+                            "Y_base": float((index * 5) % 9),
+                        }
+                    )
+            target = SimpleNamespace(
+                x_path=exposure_path,
+                subjects_csv=subjects_path,
+                outcome_column="Y_post",
+                nuisance_columns=("Y_base",),
+                delta_hf_full_path=None,
+                branch_dir=request.output_root,
+            )
+
+            result = run_technical_qualification(
+                request,
+                target_builder=lambda _request: target,
+            )
+
+        self.assertTrue(result.passed)
+        self.assertGreater(result.metrics["finite_comparison_count"], 0)
+
     def test_candidate_source_smoke_uses_fixed_internal_counts_and_seed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

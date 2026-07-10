@@ -70,6 +70,16 @@ both scales, 16 immediate pairs for MDS-UPDRS III, and no configured MDS-UPDRS
 IV immediate endpoint. The full two-scale model execution and report acceptance
 remain pending.
 
+The first real report-through attempt, run
+`20260710T143933Z_6b8054589fd9e59b`, exposed an acceptance-only interface gap:
+direct-voxel qualification attempted to read normative-fiber `scores_csv`
+instead of `DirectVoxelTarget.subjects_csv`. Endpoint isolation worked and
+later endpoint work continued, but that run is not acceptance evidence. The
+reader now supports both explicit target contracts and rejects conflicting
+dual paths. Its focused RED/GREEN test, all 301 configured-core tests, the
+direct formal-permutation selftest, compilation, and `git diff --check` pass. A
+new clean-provenance acceptance run is still required.
+
 The committed profiles under `my_helper/stnsnr/config/four_model_v1/` enumerate
 all 28 scales currently present in the frozen clinical workbook. The workflow
 selects MDS-UPDRS III/IV only as the required acceptance pair; this does not
