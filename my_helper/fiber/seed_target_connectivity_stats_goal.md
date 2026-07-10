@@ -9,7 +9,7 @@ Parent goal: none; standalone reusable fiber-core module
 Authoritative specification: this document
 Current branch: stnvop
 Status: design_approved
-Implementation status: implementation_not_started
+Implementation status: task_1_configuration_in_progress
 Current outputs: unchanged
 Implementation language: Python
 Default execution environment: Conda leaddbs

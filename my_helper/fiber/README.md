@@ -45,6 +45,41 @@ my_helper/fiber/
 
 Core implementation functions live under `core/`. The `stnsnr/` folder must only contain pipeline scripts that call core functions; ROI specs, selectors, chunked connectome readers, and report writers belong under `core/`.
 
+## Generic Seed-Target Connectivity Statistics
+
+`core/seed_target_connectivity/` provides the project-independent Python
+implementation for target-wise structural-connectivity statistics. Its public
+API accepts exactly one target-atlas directory, one seed ROI NIfTI, one
+stable-ID streamline connectome, and an algorithm configuration:
+
+```python
+from my_helper.fiber.core.seed_target_connectivity import compute_seed_target_statistics
+
+result = compute_seed_target_statistics(
+    target_atlas_root=target_atlas_root,
+    seed_roi=seed_roi,
+    connectome=connectome,
+    config=config,
+)
+```
+
+The command-line interface exposes four operations:
+
+```text
+seed-target-connectivity validate
+seed-target-connectivity run
+seed-target-connectivity status
+seed-target-connectivity artifacts
+```
+
+`validate` resolves configuration, atlas targets, ROI masks, and connectome
+metadata without traversing the complete connectome. `run` computes or reuses
+independent seed/target membership caches and writes one immutable run
+directory. `status` verifies an existing run, and `artifacts` lists its indexed
+outputs. All repository invocations use the Conda `leaddbs` environment. The
+reusable core has no STN/SNr, hemisphere, clinical, stimulation, or
+target-selection defaults.
+
 ## VTA Computation Modules
 
 VTA generation now uses `core/stimulation/model/mh_vta_compute.m` as the
