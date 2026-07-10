@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import csv
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable, Mapping
 
 import yaml
+import pandas as pd
 
 
 def valid_study_profile(root: Path) -> dict[str, Any]:
@@ -206,3 +208,103 @@ def cloned_profiles(root: Path) -> dict[str, Any]:
         "model": deepcopy(valid_model_profile()),
         "workflow": deepcopy(valid_workflow_profile()),
     }
+
+
+def write_clinical_rows(root: Path, rows: list[dict[str, Any]]) -> Path:
+    path = root / "clinical.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+    return path
+
+
+def clinical_rows_for_scale(
+    scale: str,
+    *,
+    n_subjects: int = 12,
+    include_chronic: bool = True,
+    include_immediate: bool = False,
+    subject_prefix: str = "sub",
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index in range(n_subjects):
+        subject = f"{subject_prefix}-{index + 1:02d}"
+        baseline = float(40 + index)
+        rows.append(
+            {
+                "ID": subject,
+                "Scale": scale,
+                "Protocol": "STN",
+                "Phase": "3m",
+                "Value": float(30 + index),
+                "Baseline": baseline,
+            }
+        )
+        if include_chronic:
+            rows.append(
+                {
+                    "ID": subject,
+                    "Scale": scale,
+                    "Protocol": "STN+SNr",
+                    "Phase": "3m",
+                    "Value": float(25 + index),
+                    "Baseline": baseline,
+                }
+            )
+        if include_immediate:
+            rows.append(
+                {
+                    "ID": subject,
+                    "Scale": scale,
+                    "Protocol": "STN+SNr",
+                    "Phase": "immediate",
+                    "Value": float(27 + index),
+                    "Baseline": baseline,
+                }
+            )
+    return rows
+
+
+def clinical_rows(
+    *,
+    scale: str = "Scale One",
+    protocol: str,
+    phase: str,
+    subject_ids: Iterable[str] = tuple(f"sub-{index:02d}" for index in range(1, 13)),
+    value_offset: float = 0.0,
+) -> list[dict[str, Any]]:
+    """Build deterministic synthetic clinical rows for one condition."""
+    return [
+        {
+            "ID": subject_id,
+            "Scale": scale,
+            "Protocol": protocol,
+            "Phase": phase,
+            "Value": value_offset + index,
+            "Baseline": 100.0 + index,
+        }
+        for index, subject_id in enumerate(subject_ids, start=1)
+    ]
+
+
+def write_clinical_table(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
+    """Write a synthetic CSV or XLSX clinical table."""
+    materialized = [dict(row) for row in rows]
+    if path.suffix.lower() == ".csv":
+        fieldnames = list(materialized[0]) if materialized else [
+            "ID",
+            "Scale",
+            "Protocol",
+            "Phase",
+            "Value",
+            "Baseline",
+        ]
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(materialized)
+        return
+    if path.suffix.lower() == ".xlsx":
+        import pandas as pd
+
+        pd.DataFrame(materialized).to_excel(path, index=False)
+        return
+    raise ValueError(f"unsupported synthetic clinical table extension: {path.suffix}")
