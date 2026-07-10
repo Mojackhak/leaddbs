@@ -254,7 +254,7 @@ def main(
             resume = False
         result = execute_plan(
             plan,
-            RunContext(store=store, catalog=tuple(catalog), resume=resume),
+            RunContext(store=store, catalog=tuple(catalog), config=config, resume=resume),
             service_registry or ServiceRegistry(),
         )
         print(

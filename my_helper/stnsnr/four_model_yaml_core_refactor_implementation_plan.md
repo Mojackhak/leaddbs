@@ -280,6 +280,59 @@ aggregate configured-model selftest wrapper.
 **Files:** Create service contracts/import adapter/observed service tests; modify
 A/B modules only after characterization tests fail for the required interface.
 
+```python
+@dataclass(frozen=True)
+class HFDirectVoxelRequest:
+    endpoint: EndpointRecord
+    clinical_table: Path
+    stimulation_table: Path
+    derivatives_root: Path
+    brainmask: Path
+    model_root: Path
+    output_root: Path  # <model_root>/tasks/<task_id>
+    tau_grid: tuple[float, ...]
+    coverage_grid: tuple[int, ...]
+    primary_tau: float
+    primary_coverage: int
+    candidate_threshold: float
+    force: bool
+
+@dataclass(frozen=True)
+class HFNormativeFiberRequest:
+    endpoint: EndpointRecord
+    connectome: ConnectomeSpec
+    clinical_table: Path
+    stimulation_table: Path
+    derivatives_root: Path
+    model_root: Path
+    output_root: Path  # <model_root>/tasks/<task_id>
+    tau_grid: tuple[float, ...]
+    coverage_grid: tuple[int, ...]
+    primary_tau: float
+    primary_coverage: int
+    force: bool
+
+@dataclass(frozen=True)
+class FeatureAxisRef:
+    ids_path: Path
+    count: int
+    sha256: str
+    identity_source: str
+```
+
+Configured services write only below
+`<run_root>/models/<endpoint_model_id>/`. Each stage writes to
+`tasks/<task_id>/`; reusable sidecars live under a hash-keyed `cache/` directory
+and require the atomic provenance checks below. Legacy wrappers retain their
+current layout through a separate compatibility artifact store. Request
+construction must not inspect a scale-name default, infer a connectome, or
+derive a model parameter from output folder names.
+Subject order may be embedded because the cohort is small. Voxel/fiber order
+must use `FeatureAxisRef`; task JSON must not embed millions of feature IDs.
+Sidecar reuse requires an atomic completion manifest matching subject order,
+feature-axis hash, connectome/input fingerprint, matrix shape, and development
+cap. File existence alone never authorizes reuse.
+
 - [ ] RED: endpoint, phase, brainmask, connectome, grid, output root, and force/
   resume are explicit; names reflect actual selected tau/Coverage; no default
   scale/connectome is read inside services.

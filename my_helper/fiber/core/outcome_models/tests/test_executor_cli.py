@@ -17,6 +17,7 @@ from outcome_models.executor import (
     ExitCode,
     RunContext,
     ServiceRegistry,
+    TaskArtifact,
     TaskResult,
     TaskStatus,
     execute_plan,
@@ -30,11 +31,13 @@ class DeterministicService:
     def __init__(self, outcomes=None) -> None:
         self.outcomes = dict(outcomes or {})
         self.calls: list[str] = []
+        self.configs = []
 
     def execute(self, task, context) -> TaskResult:
         self.calls.append(task.task_id)
+        self.configs.append(context.config)
         if task.task_id in self.outcomes:
-            return self.outcomes[task.task_id]
+            return self._with_artifacts(task, context, self.outcomes[task.task_id])
         facts: dict[str, object] = {}
         if task.key.execution_stage == "preprocessing_sidecars" and task.endpoint.model_family.startswith("ulf_"):
             facts["delta_hfscore_inputs_valid"] = True
@@ -56,7 +59,28 @@ class DeterministicService:
             )
         if task.workflow_phase == "formal":
             facts["formal_complete"] = True
-        return TaskResult(status=TaskStatus.COMPLETED, detail="ok", facts=facts)
+        return self._with_artifacts(task, context, TaskResult(status=TaskStatus.COMPLETED, detail="ok", facts=facts))
+
+    @staticmethod
+    def _with_artifacts(task, context, result: TaskResult) -> TaskResult:
+        if result.status != TaskStatus.COMPLETED:
+            return result
+        artifacts = list(result.artifacts)
+        existing = {artifact.kind for artifact in artifacts}
+        for kind in task.expected_artifact_kinds:
+            if kind == "task_manifest" or kind in existing:
+                continue
+            path = context.store.run_root / "tasks" / task.task_id / f"{kind}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"kind": kind, "task_id": task.task_id}) + "\n", encoding="utf-8")
+            artifacts.append(TaskArtifact(kind, path))
+        return TaskResult(result.status, result.detail, result.facts, tuple(artifacts))
+
+
+class EmptyArtifactService:
+    def execute(self, task, context) -> TaskResult:
+        del task, context
+        return TaskResult(TaskStatus.COMPLETED, "incorrectly claims completion")
 
 
 class ExecutorAndCliTests(unittest.TestCase):
@@ -124,6 +148,21 @@ class ExecutorAndCliTests(unittest.TestCase):
         self.assertTrue(any(record.result.status == TaskStatus.COMPLETED for record in scale_two))
         self.assertEqual(len({record.task.task_id for record in result.tasks}), len(result.tasks))
 
+    def test_completed_service_result_missing_expected_artifacts_becomes_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, config, catalog, plan = self._bundle(root)
+            store = self._store(root, config, catalog, plan)
+            result = execute_plan(
+                plan,
+                RunContext(store=store, catalog=tuple(catalog), config=config),
+                ServiceRegistry(default=EmptyArtifactService()),
+            )
+
+        first = result.tasks[0]
+        self.assertEqual(first.result.status, TaskStatus.EXECUTION_FAILURE)
+        self.assertIn("missing_expected_artifacts", first.result.detail)
+
     def test_failed_hf_resolver_releases_no_delta_and_skips_adjusted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -156,6 +195,44 @@ class ExecutorAndCliTests(unittest.TestCase):
         self.assertEqual(no_delta.result.status, TaskStatus.COMPLETED)
         self.assertEqual(adjusted.result.status, TaskStatus.SKIPPED_GATE)
         self.assertEqual(result.exit_code, ExitCode.EXECUTION_OR_NO_FINAL_FAILURE)
+
+    def test_delta_gate_reads_exact_sidecar_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, config, catalog, plan = self._bundle(root)
+            hf_lock = next(
+                task
+                for task in plan.tasks
+                if task.endpoint.model_family == "ulf_voxel" and task.key.execution_stage == "input_hf_lock"
+            )
+            sidecar = next(
+                task
+                for task in plan.tasks
+                if task.endpoint.model_family == "ulf_voxel" and task.key.execution_stage == "preprocessing_sidecars"
+            )
+            service = DeterministicService(
+                {
+                    hf_lock.task_id: TaskResult(
+                        TaskStatus.COMPLETED,
+                        "unrelated fact must not open adjusted gate",
+                        {"delta_hfscore_inputs_valid": True},
+                    ),
+                    sidecar.task_id: TaskResult(TaskStatus.COMPLETED, "sidecar has no Delta bundle", {}),
+                }
+            )
+            store = self._store(root, config, catalog, plan)
+            result = execute_plan(
+                plan,
+                RunContext(store=store, catalog=tuple(catalog), config=config),
+                ServiceRegistry(default=service),
+            )
+
+        adjusted = next(
+            record
+            for record in result.tasks
+            if record.task.endpoint.model_family == "ulf_voxel" and record.task.key.branch == "delta_hf_adjusted"
+        )
+        self.assertEqual(adjusted.result.status, TaskStatus.SKIPPED_GATE)
 
     def test_no_final_model_skips_formal_but_report_still_runs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -269,6 +346,8 @@ class ExecutorAndCliTests(unittest.TestCase):
             artifact_payload = json.loads(artifact_output.getvalue())
             self.assertEqual(artifact_code, ExitCode.SUCCESS)
             self.assertTrue(artifact_payload["artifacts"])
+            self.assertTrue(registry.default.configs)
+            self.assertTrue(all(config is not None for config in registry.default.configs))
 
     def test_cli_selection_and_run_lookup_argument_errors_return_two(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

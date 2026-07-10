@@ -71,6 +71,7 @@ class ServiceRegistry:
 class RunContext:
     store: ConfiguredRunStore
     catalog: tuple[EndpointRecord, ...]
+    config: Any | None = None
     resume: bool = False
     results: dict[str, "TaskExecutionRecord"] = field(default_factory=dict)
 
@@ -80,12 +81,16 @@ class RunContext:
             raise RuntimeError(f"expected one catalog row for {endpoint_model_id}; found {len(matches)}")
         return matches[0]
 
-    def endpoint_facts(self, task: TaskSpec) -> dict[str, Any]:
-        facts: dict[str, Any] = {}
-        for record in self.results.values():
-            if record.task.endpoint.identifier == task.endpoint.identifier:
-                facts.update(record.result.facts)
-        return facts
+    def dependency_facts(self, task: TaskSpec, execution_stage: str) -> Mapping[str, Any]:
+        matches = [
+            self.results[item.task_id].result.facts
+            for item in task.dependencies
+            if item.task_id in self.results
+            and self.results[item.task_id].task.key.execution_stage == execution_stage
+        ]
+        if len(matches) != 1:
+            return {}
+        return matches[0]
 
     def matched_hf_source_accepted(self, task: TaskSpec) -> bool:
         expected_family = "hf_voxel" if task.endpoint.model_family == "ulf_voxel" else "hf_fiber"
@@ -166,7 +171,7 @@ def _gate_open(task: TaskSpec, context: RunContext) -> bool:
     if predicate == GatePredicate.BRANCH_INTENDED_OR_COMPARISON:
         return context.catalog_record(task.endpoint.identifier).status == CatalogStatus.DATA_AVAILABLE
     if predicate == GatePredicate.DELTA_HFSCORE_INPUTS_VALID:
-        facts = context.endpoint_facts(task)
+        facts = context.dependency_facts(task, "preprocessing_sidecars")
         return context.matched_hf_source_accepted(task) and bool(facts.get("delta_hfscore_inputs_valid", False))
     if predicate == GatePredicate.FINAL_MODEL_REALIZED:
         return context.final_model_realized(task)
@@ -220,6 +225,32 @@ def _exit_code(records: Sequence[TaskExecutionRecord]) -> ExitCode:
     return ExitCode.SUCCESS
 
 
+def _validate_service_result(task: TaskSpec, result: TaskResult, context: RunContext) -> TaskResult:
+    if result.status != TaskStatus.COMPLETED:
+        return result
+    expected = set(task.expected_artifact_kinds) - {"task_manifest"}
+    by_kind = {artifact.kind: artifact for artifact in result.artifacts}
+    missing = sorted(expected - set(by_kind))
+    invalid: list[str] = []
+    for kind, artifact in by_kind.items():
+        path = Path(artifact.path).expanduser().resolve()
+        try:
+            path.relative_to(context.store.run_root)
+        except ValueError:
+            invalid.append(f"{kind}:outside_run_root")
+            continue
+        if not path.is_file():
+            invalid.append(f"{kind}:missing_file")
+    if not missing and not invalid:
+        return result
+    details = []
+    if missing:
+        details.append("missing_expected_artifacts:" + ",".join(missing))
+    if invalid:
+        details.append("invalid_artifacts:" + ",".join(sorted(invalid)))
+    return TaskResult(TaskStatus.EXECUTION_FAILURE, ";".join(details))
+
+
 def execute_plan(
     plan: ExecutionPlan,
     context: RunContext,
@@ -260,6 +291,8 @@ def execute_plan(
                         result = TaskResult(TaskStatus.EXECUTION_FAILURE, f"service_exception:{exc}")
                     if not isinstance(result, TaskResult):
                         result = TaskResult(TaskStatus.EXECUTION_FAILURE, "service_returned_invalid_result")
+                    else:
+                        result = _validate_service_result(task, result, context)
             record = TaskExecutionRecord(
                 task=task,
                 result=result,
