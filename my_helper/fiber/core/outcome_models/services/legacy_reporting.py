@@ -8,6 +8,7 @@ import json
 import math
 import os
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -23,6 +24,48 @@ DENSITY_ARTIFACT_KINDS = frozenset(
 )
 LABEL_ARTIFACT_KINDS = frozenset(
     {"label_cache", "label_results", "fiber_label_results"}
+)
+
+_FIBER_SUPPORT_NUMERIC_FIELDS = frozenset(
+    {
+        "n_positive_valid_fibers",
+        "n_negative_valid_fibers",
+        "sweet_fraction_requested",
+        "sour_fraction_requested",
+        "weighted_peak_fraction_requested",
+        "sweet_selected_k_min",
+        "sour_selected_k_min",
+        "weighted_peak_k_min",
+        "sweet_percentage_count",
+        "sour_percentage_count",
+        "sweet_actual_selected_count",
+        "sour_actual_selected_count",
+        "sweet_actual_peak_count",
+        "sour_actual_peak_count",
+    }
+)
+_FIBER_SUPPORT_BOOLEAN_FIELDS = frozenset(
+    {
+        "sweet_minimum_count_dominated",
+        "sour_minimum_count_dominated",
+        "sweet_peak_minimum_count_dominated",
+        "sour_peak_minimum_count_dominated",
+    }
+)
+_FIBER_SUPPORT_TEXT_FIELDS = frozenset(
+    {
+        "fiber_score_support_status",
+        "sweet_selected_fiber_id_hash",
+        "sour_selected_fiber_id_hash",
+    }
+)
+_FIBER_SUPPORT_FIELDS = (
+    _FIBER_SUPPORT_NUMERIC_FIELDS
+    | _FIBER_SUPPORT_BOOLEAN_FIELDS
+    | _FIBER_SUPPORT_TEXT_FIELDS
+)
+_FOLD_MARKERS = frozenset(
+    {"fold", "fold_index", "held_out_subject", "held_out_subject_id"}
 )
 
 
@@ -106,6 +149,17 @@ def _parse_number(value: object) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
+def _parse_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    token = str(value).strip().lower()
+    if token in {"true", "1", "yes"}:
+        return True
+    if token in {"false", "0", "no"}:
+        return False
+    return None
+
+
 def _csv_metrics(path: Path) -> list[dict[str, str]]:
     accumulators: dict[str, _NumericAccumulator] = {}
     with path.open(newline="", encoding="utf-8") as handle:
@@ -117,6 +171,117 @@ def _csv_metrics(path: Path) -> list[dict[str, str]]:
                     continue
                 accumulators.setdefault(str(name), _NumericAccumulator()).add(parsed)
     return [accumulators[name].as_metric(name) for name in sorted(accumulators)]
+
+
+def _empty_text_metric() -> dict[str, str]:
+    return {"metric_scope": "", "text_value": "", "text_count": ""}
+
+
+def _fiber_support_metrics(
+    rows: list[Mapping[str, object]],
+    fields: set[str],
+    scope: str,
+) -> list[dict[str, str]]:
+    if not rows or not (fields & _FIBER_SUPPORT_FIELDS):
+        return []
+    metrics: list[dict[str, str]] = []
+    for name in sorted(fields & _FIBER_SUPPORT_NUMERIC_FIELDS):
+        accumulator = _NumericAccumulator()
+        for row in rows:
+            parsed = _parse_number(row.get(name))
+            if parsed is not None:
+                accumulator.add(parsed)
+        if accumulator.count:
+            metrics.append(
+                {
+                    **accumulator.as_metric(name),
+                    "metric_status": "reported_support_numeric_summary",
+                    "metric_scope": scope,
+                    "text_value": "",
+                    "text_count": "",
+                }
+            )
+    for name in sorted(fields & _FIBER_SUPPORT_BOOLEAN_FIELDS):
+        values = [
+            parsed
+            for row in rows
+            if (parsed := _parse_bool(row.get(name))) is not None
+        ]
+        if values:
+            proportion = sum(values) / len(values)
+            metrics.append(
+                {
+                    "metric_name": name,
+                    "metric_status": "reported_boolean_proportion",
+                    "metric_scope": scope,
+                    "numeric_count": str(len(values)),
+                    "numeric_value": _number(proportion),
+                    "numeric_min": "",
+                    "numeric_max": "",
+                    "numeric_mean": _number(proportion),
+                    "text_value": "",
+                    "text_count": "",
+                }
+            )
+    status_field = "fiber_score_support_status"
+    if status_field in fields:
+        counts = Counter(
+            str(row.get(status_field, "")).strip()
+            for row in rows
+            if str(row.get(status_field, "")).strip()
+        )
+        for value, count in sorted(counts.items()):
+            metrics.append(
+                {
+                    "metric_name": status_field,
+                    "metric_status": "reported_categorical_count",
+                    "metric_scope": scope,
+                    "numeric_count": "",
+                    "numeric_value": "",
+                    "numeric_min": "",
+                    "numeric_max": "",
+                    "numeric_mean": "",
+                    "text_value": value,
+                    "text_count": str(count),
+                }
+            )
+    for name in sorted(
+        fields
+        & {
+            "sweet_selected_fiber_id_hash",
+            "sour_selected_fiber_id_hash",
+        }
+    ):
+        counts = Counter(
+            str(row.get(name, "")).strip()
+            for row in rows
+            if str(row.get(name, "")).strip()
+        )
+        for value, count in sorted(counts.items()):
+            metrics.append(
+                {
+                    "metric_name": name,
+                    "metric_status": "reported_identity_count",
+                    "metric_scope": scope,
+                    "numeric_count": "",
+                    "numeric_value": "",
+                    "numeric_min": "",
+                    "numeric_max": "",
+                    "numeric_mean": "",
+                    "text_value": value,
+                    "text_count": str(count),
+                }
+            )
+    return metrics
+
+
+def _csv_fiber_support_metrics(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+        fields = set(reader.fieldnames or ())
+    scope = "fold" if fields & _FOLD_MARKERS else "full_sample"
+    return _fiber_support_metrics(rows, fields, scope)
 
 
 def _flatten_json_numbers(value: object, prefix: str = "") -> Iterable[tuple[str, float]]:
@@ -145,6 +310,49 @@ def _json_metrics(path: Path) -> list[dict[str, str]]:
     return [accumulators[name].as_metric(name) for name in sorted(accumulators)]
 
 
+def _json_fiber_support_metrics(path: Path) -> list[dict[str, str]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RecordError(f"cannot read reporting JSON artifact {path}: {exc}") from exc
+    buckets: dict[str, list[Mapping[str, object]]] = {
+        "full_sample": [],
+        "fold": [],
+    }
+
+    def visit(value: object, path_tokens: tuple[str, ...]) -> None:
+        if isinstance(value, dict):
+            support = {
+                str(key): item
+                for key, item in value.items()
+                if str(key) in _FIBER_SUPPORT_FIELDS
+            }
+            if support:
+                scope = (
+                    "fold"
+                    if any("fold" in token.lower() or "loocv" in token.lower() for token in path_tokens)
+                    else "full_sample"
+                )
+                buckets[scope].append(support)
+            for key, item in value.items():
+                visit(item, path_tokens + (str(key),))
+        elif isinstance(value, list):
+            for item in value:
+                visit(item, path_tokens)
+
+    visit(payload, ())
+    metrics: list[dict[str, str]] = []
+    for scope in ("full_sample", "fold"):
+        rows = buckets[scope]
+        fields = {str(key) for row in rows for key in row}
+        metrics.extend(_fiber_support_metrics(rows, fields, scope))
+    return metrics
+
+
+def _metric_leaf(name: str) -> str:
+    return str(name).replace("[]", "").rsplit(".", 1)[-1]
+
+
 def _numeric_metrics(path: Path, *, enabled: bool) -> list[dict[str, str]]:
     if not enabled:
         return []
@@ -167,6 +375,7 @@ def _optional_status(enabled: bool, kinds: set[str], accepted: frozenset[str]) -
 def _identity(request: ReportingRequest) -> dict[str, str]:
     final = request.final
     endpoint = request.task.endpoint
+    valid_axis = final.valid_feature_axis if final is not None else None
     final_values = (
         {
             "final_model_id": final.final_model_id,
@@ -178,7 +387,17 @@ def _identity(request: ReportingRequest) -> dict[str, str]:
             "estimator": final.estimator,
             "scale_direction": final.scale_direction,
             "n_subjects": str(len(final.subject_order)),
-            "n_features": str(final.feature_axis.count),
+            "n_features": str(
+                valid_axis.count if valid_axis is not None else final.feature_axis.count
+            ),
+            "n_parent_features": str(final.feature_axis.count),
+            "n_valid_features": str(
+                valid_axis.count if valid_axis is not None else final.feature_axis.count
+            ),
+            "parent_feature_axis_sha256": final.feature_axis.sha256,
+            "valid_feature_axis_sha256": (
+                valid_axis.sha256 if valid_axis is not None else final.feature_axis.sha256
+            ),
             "nuisance_columns": json.dumps(
                 list(final.nuisance.columns),
                 separators=(",", ":"),
@@ -196,6 +415,10 @@ def _identity(request: ReportingRequest) -> dict[str, str]:
             "scale_direction": "",
             "n_subjects": "",
             "n_features": "",
+            "n_parent_features": "",
+            "n_valid_features": "",
+            "parent_feature_axis_sha256": "",
+            "valid_feature_axis_sha256": "",
             "nuisance_columns": "[]",
         }
     )
@@ -241,6 +464,10 @@ _IDENTITY_FIELDS = (
     "scale_direction",
     "n_subjects",
     "n_features",
+    "n_parent_features",
+    "n_valid_features",
+    "parent_feature_axis_sha256",
+    "valid_feature_axis_sha256",
     "nuisance_columns",
 )
 
@@ -257,11 +484,14 @@ _METRIC_FIELDS = (
     "source_artifact_sha256",
     "metric_name",
     "metric_status",
+    "metric_scope",
     "numeric_count",
     "numeric_value",
     "numeric_min",
     "numeric_max",
     "numeric_mean",
+    "text_value",
+    "text_count",
 )
 
 
@@ -289,7 +519,18 @@ def _metric_rows(
     identity = _identity(request)
     rows: list[dict[str, str]] = []
     for artifact, path in inputs:
-        metrics = _numeric_metrics(path, enabled=request.numeric_first)
+        if request.numeric_first and path.suffix.lower() == ".csv":
+            support_metrics = _csv_fiber_support_metrics(path)
+        elif request.numeric_first and path.suffix.lower() == ".json":
+            support_metrics = _json_fiber_support_metrics(path)
+        else:
+            support_metrics = []
+        metrics = [
+            {**metric, **_empty_text_metric()}
+            for metric in _numeric_metrics(path, enabled=request.numeric_first)
+            if _metric_leaf(metric["metric_name"]) not in _FIBER_SUPPORT_FIELDS
+        ]
+        metrics.extend(support_metrics)
         if not metrics:
             metrics = [
                 {
@@ -299,11 +540,14 @@ def _metric_rows(
                         if request.numeric_first
                         else "numeric_reporting_disabled"
                     ),
+                    "metric_scope": "",
                     "numeric_count": "0",
                     "numeric_value": "",
                     "numeric_min": "",
                     "numeric_max": "",
                     "numeric_mean": "",
+                    "text_value": "",
+                    "text_count": "",
                 }
             ]
         for metric in metrics:
@@ -329,11 +573,14 @@ def _metric_rows(
                 "source_artifact_sha256": "",
                 "metric_name": "",
                 "metric_status": "no_linked_reporting_artifacts",
+                "metric_scope": "",
                 "numeric_count": "0",
                 "numeric_value": "",
                 "numeric_min": "",
                 "numeric_max": "",
                 "numeric_mean": "",
+                "text_value": "",
+                "text_count": "",
             }
         )
     return rows
@@ -366,12 +613,23 @@ def _artifact_index_rows(
     run_root: Path,
 ) -> list[dict[str, str]]:
     final = request.final
+    report_identity = _identity(request)
     identity = {
         "endpoint_model_id": request.task.endpoint.identifier,
         "endpoint_terminal_status": request.endpoint_terminal_status,
         "endpoint_terminal_detail": request.endpoint_terminal_detail,
         "final_model_id": final.final_model_id if final is not None else "",
         "final_record_hash": final.record_hash if final is not None else "",
+        "final_branch": report_identity["final_branch"],
+        "final_role": report_identity["final_role"],
+        "n_parent_features": report_identity["n_parent_features"],
+        "n_valid_features": report_identity["n_valid_features"],
+        "parent_feature_axis_sha256": report_identity[
+            "parent_feature_axis_sha256"
+        ],
+        "valid_feature_axis_sha256": report_identity[
+            "valid_feature_axis_sha256"
+        ],
     }
     rows = [
         {
@@ -463,6 +721,12 @@ def run_configured_reporting(request: ReportingRequest) -> ConfiguredReportingOu
                 "endpoint_terminal_detail",
                 "final_model_id",
                 "final_record_hash",
+                "final_branch",
+                "final_role",
+                "n_parent_features",
+                "n_valid_features",
+                "parent_feature_axis_sha256",
+                "valid_feature_axis_sha256",
                 "artifact_role",
                 "artifact_kind",
                 "artifact_path",

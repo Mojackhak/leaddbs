@@ -5,7 +5,7 @@ Scope: ULF add-on normative connectome fiber-level model, aligned to `hf_3m_norm
 
 ---
 
-## YAML Core Interface (Foundation In Progress)
+## YAML Core Interface (Implemented; Real Acceptance Pending)
 
 The configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
@@ -13,11 +13,12 @@ records matched-HF dependency, branch-specific exposure and nuisance design,
 endpoint realization, fallback-final selection, formal resampling, controls,
 OSS, jitter, and numeric reporting. Explicit user decisions govern when this
 record conflicts with code, results, or another document. Shared profile,
-identity, catalog, state, and run-store foundations have status
-`implementation_in_progress`; this model's configured service, full DAG
-scientific execution, and result regeneration are not implemented. The generic
-DAG planner/executor exists but has not replaced this model's legacy driver.
-Current outputs and legacy/current entrypoints are unchanged.
+identity, catalog, state, run-store, configured branch services, final-model
+realization, formal/sensitivity adapters, OSS producer/consumer, and numeric
+reporting are implemented. The configured-core regression currently passes
+300 tests, and the related HF/ULF/statistics selftests pass. Real MDS-UPDRS
+III/IV execution and artifact acceptance remain pending; existing legacy output
+trees are unchanged until that run completes.
 
 All configured ULF/frequency-2 endpoint scales are engineering-equivalent within
 their applicable endpoint families. Chronic, immediate, total, axial, and other
@@ -249,9 +250,12 @@ tau = 800 V/m
 coverage = Coverage>=5
 estimator = partial_spearman
 score = NetFiberScore
-F+ = top 1% positive HF fibers
-F- = top 0.5% sour HF fibers
-SweetPeak5/SourPeak5 = mean top 5% patient-specific weighted selected fibers
+F_valid = coverage-passing fibers intersect finite HF weights
+K+ = min(N+, max(ceil(0.01 * N+), 200))
+K- = min(N-, max(ceil(0.005 * N-), 100))
+H+ = min(K+, max(ceil(0.05 * K+), 20))
+H- = min(K-, max(ceil(0.05 * K-), 20))
+SweetPeak5/SourPeak5 = compatibility fields computed from H+/H-
 map source in LOOCV = training-fold HF model
 full-sample HF model = descriptive scores only
 ```
@@ -501,8 +505,7 @@ O_HF_fold = {
   M_HF_fold(l),
   F+_HF_fold,
   F-_HF_fold,
-  SweetPeak5 rule,
-  SourPeak5 rule,
+  K+/K- and H+/H- score rules,
   NetFiberScore rule
 }
 ```
@@ -521,8 +524,8 @@ Explicitly:
 SweetWeighted_HF_i(l) = X_E_i(l) * M_HF_fold(l),       l in F+_HF_fold
 SourWeighted_HF_i(l)  = X_E_i(l) * [-M_HF_fold(l)],    l in F-_HF_fold
 
-SweetPeak5_HF_i = mean top 5% largest SweetWeighted_HF_i(l)
-SourPeak5_HF_i  = mean top 5% largest SourWeighted_HF_i(l)
+SweetPeak5_HF_i = mean of the H+ largest SweetWeighted_HF_i(l)
+SourPeak5_HF_i  = mean of the H- largest SourWeighted_HF_i(l)
 
 S_HF_norm_fiber(E; O_HF_fold)_i = SweetPeak5_HF_i - SourPeak5_HF_i
 ```
@@ -819,8 +822,11 @@ This branch is the intended primary branch when the matched HF normative fiber s
 Within each full-sample map or LOOCV training fold:
 
 ```text
-F+_ULF = top 1% fibers with largest positive M_ULF(l)
-F-_ULF = top 0.5% fibers with most negative M_ULF(l)
+F_valid_ULF = branch candidate fibers intersect finite branch weights
+K+ = min(N+, max(ceil(0.01 * N+), 200))
+K- = min(N-, max(ceil(0.005 * N-), 100))
+F+_ULF = K+ largest positive weights, tie-broken by canonical fiber id
+F-_ULF = K- most negative weights, tie-broken by canonical fiber id
 ```
 
 For each patient:
@@ -829,8 +835,10 @@ For each patient:
 SweetWeighted_ULF_i(l) = X_ULF_only_i(l,tau) * M_ULF(l),      l in F+_ULF
 SourWeighted_ULF_i(l)  = X_ULF_only_i(l,tau) * [-M_ULF(l)],   l in F-_ULF
 
-SweetPeak5_ULF_i = mean top 5% largest SweetWeighted_ULF_i(l)
-SourPeak5_ULF_i  = mean top 5% largest SourWeighted_ULF_i(l)
+H+ = min(K+, max(ceil(0.05 * K+), 20))
+H- = min(K-, max(ceil(0.05 * K-), 20))
+SweetPeak5_ULF_i = mean of the H+ largest SweetWeighted_ULF_i(l)
+SourPeak5_ULF_i  = mean of the H- largest SourWeighted_ULF_i(l)
 
 NetULFFiberScore_i = SweetPeak5_ULF_i - SourPeak5_ULF_i
 ```
@@ -845,14 +853,21 @@ no_delta_hf branch uses M_ULF_noDeltaHF(l)
 Selection and edge cases:
 
 ```text
-F+ and F- are selected within F_candidate_ULF_tau_cov
+F+ and F- are selected within F_candidate_ULF_tau_cov intersect finite weights
 NaN or degenerate fibers are excluded
-percentile counts use ceil(percent * n)
-minimum count is 1 when the corresponding positive or negative pool is non-empty
+outer counts use the fixed 1%/0.5% fractions with 200/100 minima
+patient peak counts use the fixed 5% fraction with minimum 20 per nonempty side
 empty F+ gives SweetPeak5 = 0
 empty F- gives SourPeak5 = 0
 if a selected set is non-empty but a patient has zero exposure to all selected fibers, that peak component is 0
 ```
+
+`SweetPeak5` and `SourPeak5` remain compatibility output names; they do not
+mean an unconstrained 5% score. Full sample and every fold record
+`adequate_two_sign`, `limited_two_sign`, `limited_positive_only`,
+`limited_negative_only`, or `absent_no_valid_signed_fibers`, plus requested and
+actual K/H counts, minimum-dominated flags, and selected-ID hashes. These
+support labels do not alter branch source, prediction, endpoint, or final role.
 
 ### 9.3 Final prediction models
 
@@ -1291,20 +1306,24 @@ that file stores the full exposure universe. OSS does not redefine, shrink,
 expand, or rescan candidate fibers. The actual OSS column order is recorded as
 `oss_fiber_ids.npy` or an equivalent sidecar manifest field.
 
-OSS activation uses the right-canonical feature space. Right-sided activation is expressed directly on right-canonical fiber ids. Left-sided activation is computed in the real left hemisphere, mapped to homologous right-canonical fiber ids, and then merged with right-sided activation by `max_probability_union`. The merged probability is stored, and its 0.5-thresholded binary form is used for fitting:
+OSS activation uses the right-canonical feature space. Right-sided activation
+uses the native right geometry. Left electrode/stimulation geometry and
+reconstruction coordinates are transformed with `ea_flip_lr_nonlinear`, and
+OSS is run directly on the same ordered `final.valid_feature_axis`; native
+left/right local fiber-ID equality is never assumed. Left-transformed and
+right probabilities are merged by `max_probability_union`, and the
+0.5-thresholded binary form is used for fitting:
 
 ```text
 X_ULF_OSS_probability_i(l) = max(A_ULF_OSS_R_i(l), A_ULF_OSS_L_to_R_i(l))
 X_ULF_OSS_i(l) = I[X_ULF_OSS_probability_i(l) >= 0.5]
 ```
 
-The stored sidecar remains float32 p(A). Canonical OSS fitting derives
-`I[p(A) >= 0.5]` and uses that binary matrix in `M_ULF_OSS`,
-`NetULFFiberScore_OSS`, LOOCV, and smoke permutation. Current OSS-DBSv2
-deterministic output is already binary 0/1 p(A) from
-`Axon_state_default_1.mat`; future non-binary pPAM outputs use the same explicit
-0.5 fitting threshold. The `p(A) >= 0.05` representation is
-QC/display/plain-burden only.
+The configured producer runs ten complete OSS samples with Fiber Diameter
+sampled equidistantly over `[1, 4]` micrometers. Stored float32 p(A) is exact
+`activated_count / 10` on the `0.0, 0.1, ..., 1.0` lattice. Canonical fitting
+derives `I[p(A) >= 0.5]` and uses that binary matrix in `M_ULF_OSS`,
+`NetULFFiberScore_OSS`, LOOCV, and smoke permutation.
 
 If the ULF component cannot be separated from the stimulation protocol, the output may only be labeled `HF+ULF total OSS pPAM sensitivity`; it must not be called ULF-only OSS exposure.
 
@@ -1353,8 +1372,7 @@ Within the inherited candidate universe, recompute:
 
 ```text
 M_ULF_OSS(l)
-F+_ULF_OSS = top 1% positive OSS fibers
-F-_ULF_OSS = top 0.5% sour OSS fibers
+F+_ULF_OSS and F-_ULF_OSS use the same fold-local K+/K- rule and 200/100 minima
 SweetPeak5_ULF_OSS
 SourPeak5_ULF_OSS
 NetULFFiberScore_OSS
@@ -2294,7 +2312,7 @@ Run:
 oss_model_set = primary_locked
 candidate source = realized primary selected-source candidate universe
 exposure replacement = pPAM X_ULF_only_OSS derived from X_oss_float32_fiber_major.npy
-current activation subtype = deterministic binary 0/1 p(A) when using OSS-DBSv2 deterministic output
+activation probability subtype = exact activated_count/10 over 10 pPAM samples
 nuisance design = realized primary branch nuisance design
 frequency validation = requested_frequency_hz equals oss_parameter_frequency_hz
 dTOR realized-primary final branch observed LOOCV
@@ -2320,7 +2338,7 @@ OSS technical-pass criteria:
 ```text
 OSS parameter manifest is locked
 OSS activation sidecars align with inherited selected-source candidate fiber ids
-OSS activation sidecars store float32 p(A), and fitting uses I[p(A) >= 0.5]; current OSS-DBSv2 deterministic output is already binary 0/1
+OSS activation sidecars store exact ten-sample float32 p(A), and fitting uses I[p(A) >= 0.5]
 OSS frequency is modeled and verified
 OSS hemisphere/source merge rule is max_probability_union
 OSS activation matrix is not all NaN

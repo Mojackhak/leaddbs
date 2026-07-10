@@ -22,16 +22,16 @@ current_outputs_unchanged
 current_legacy_entrypoints_remain_active
 ```
 
-The confirmed implementation gap is that current production drivers and
-consolidated status/formal layers still contain single-scale defaults,
-total/axial default lists, chronic-total path assumptions, or global A/B status
-rows. The planned refactor replaces these with an endpoint catalog, composite
+The legacy/current production drivers and consolidated status/formal layers
+still contain single-scale defaults, total/axial default lists, chronic-total
+path assumptions, or global A/B status rows. The configured YAML pipeline now
+isolates those compatibility entrypoints behind an endpoint catalog, composite
 task identities, matched A-to-C and connectome-specific B-to-D dependencies,
-and endpoint-aware final/formal/reporting artifacts. All configured scales will
-use the same task factories and status fields; no clinical reporting hierarchy
-will change execution.
+and endpoint-aware final/formal/reporting artifacts. All configured scales use
+the same task factories and status fields; no clinical reporting hierarchy
+changes execution.
 
-The future public YAML and CLI will not accept
+The configured public YAML and CLI do not accept
 `candidate_threshold_v_per_m`. Direct-voxel preprocessing will derive it as
 `min(tau_grid_v_per_m)` and record the value as internal-derived technical
 metadata. Normative fiber will not define a global candidate threshold.
@@ -39,18 +39,19 @@ Optimized-versus-brute-force equivalence and smoke
 permutation/bootstrap/jitter remain internal-test parameters rather than public
 workflow inputs.
 
-Implemented foundation layers now include strict JSON Schemas and typed YAML
-loading, immutable endpoint/task/final identities, a profile-driven endpoint
-catalog, pure HF-derived ULF branch/final transitions, and the namespaced run
-store with provenance, atomic artifacts, resume/force identity checks, and
-legacy-root write protection. The deterministic Round-aware planner and generic
-CLI/executor are also implemented, including typed dependency gates,
-endpoint-local continuation, resume/force lineage, and status/artifact lookup.
-Compatibility-wrapper replacement, the four scientific model services, output
-migration, and model rerun have not yet been completed. ROI/VTA postprocessing
-and GUI remain outside this core refactor.
+Implemented layers now include strict JSON Schemas and typed YAML loading,
+immutable endpoint/task/final identities, the profile-driven endpoint catalog,
+pure HF-derived ULF branch/final transitions, the namespaced run store,
+Round-aware planner, generic CLI/executor, all four configured scientific model
+services, final-model realization, formal and sensitivity adapters, the
+final-record-bound OSS producer/consumer, and endpoint-aware numeric reporting.
+They include typed dependency gates, endpoint-local continuation, resume/force
+lineage, artifact identity checks, and legacy-root write protection. Legacy
+wrappers remain explicit compatibility entrypoints; output migration is not
+performed. The real two-scale acceptance run remains pending. ROI/VTA
+postprocessing and GUI remain outside this core refactor.
 
-The planned DAG interface uses operation-specific task stages, logical workflow
+The configured DAG interface uses operation-specific task stages, logical workflow
 phases, typed dependency requirements (`terminal`, `success`,
 `accepted_final`, and `formal_complete`), and explicit runtime gates. This is
 required so an absent/failed HF dependency can release `no_delta_hf`, while
@@ -67,7 +68,7 @@ without cross-scale substitution. The read-only catalog acceptance for the
 frozen clinical workbook is implemented and confirms 16 chronic subjects for
 both scales, 16 immediate pairs for MDS-UPDRS III, and no configured MDS-UPDRS
 IV immediate endpoint. The full two-scale model execution and report acceptance
-remain unimplemented.
+remain pending.
 
 The committed profiles under `my_helper/stnsnr/config/four_model_v1/` enumerate
 all 28 scales currently present in the frozen clinical workbook. The workflow
@@ -112,16 +113,18 @@ branch-selection ambiguity, not FDR/enrichment cache availability, and not
 jitter QC.
 
 The OSS / pPAM sidecar generation contract is now documented in
-`my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. It defines the
-canonical sidecar as float32 p(A) `X_oss_float32_fiber_major.npy` over the
-selected-source tau/Coverage candidate fiber id order, with right-canonical
-columns, left-to-right activation mapping, `max_probability_union`, verified
-modeled frequency, and separate manifest/metadata JSON files. Current OSS-DBSv2
-deterministic output is stored as binary 0/1 p(A) under this float32 contract. A
-parent raw `fiber_ids.npy` that stores the full atlas or exposure id universe is
-not the OSS column contract. The downstream OSS sensitivity runner then computes
-OSS weights, scores, LOOCV predictions, smoke permutation, and plain activation
-controls without changing the peak-E-field final model.
+`my_helper/stnsnr/normative_fiber_oss_ppam_generation_plan.md`. The configured
+producer binds float32 p(A) `X_oss_float32_fiber_major.npy` to the immutable
+realized-final valid fiber axis. It transforms left electrode/stimulation
+geometry and reconstruction coordinates into right-canonical space with
+`ea_flip_lr_nonlinear`, runs both sides on the same ordered axis, and merges
+probabilities with `max_probability_union`; it never assumes local left/right
+fiber-ID homology. Ten complete equidistant Fiber Diameter samples over
+`[1, 4]` micrometers produce exact `activated_count / 10` probabilities, and
+fitting uses `I[p(A) >= 0.5]`. A parent raw `fiber_ids.npy` is not the OSS column
+contract. The downstream sensitivity recomputes weights and the shared
+`200/100/20` score within every training fold without changing the peak-E-field
+final model.
 
 2026-07-07 density/label-cache update: the normative-fiber density and
 connected-region label caches now default to all `analysis_family =

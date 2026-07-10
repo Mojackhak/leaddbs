@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -41,7 +42,7 @@ from outcome_models.tests.helpers import (
 class ConfiguredReportingBackendTests(unittest.TestCase):
     def _fixture(self, root: Path) -> tuple[RunContext, object]:
         def mutate(profiles):
-            profiles["workflow"]["selection"]["models"] = ["ulf-voxel"]
+            profiles["workflow"]["selection"]["models"] = ["ulf-voxel", "ulf-fiber"]
             profiles["workflow"]["execution"]["through"] = "report"
             profiles["study"]["paths"]["output_root"] = str(root / "outputs")
 
@@ -99,6 +100,41 @@ class ConfiguredReportingBackendTests(unittest.TestCase):
             ),
         )
 
+    def _fiber_final(self, endpoint_model_id: str) -> FinalArtifactRecord:
+        parent_axis = FeatureAxisRef(
+            Path("parent_fiber_ids.npy"),
+            500,
+            "c" * 64,
+            "data.mat:idx",
+        )
+        return FinalArtifactRecord.create(
+            final_model_id="final-selected-fiber-model",
+            endpoint_model_id=endpoint_model_id,
+            final_branch="no_delta_hf",
+            final_role="fallback_final",
+            selected_tau=800,
+            selected_coverage=5,
+            estimator="peak_efield_partial_spearman",
+            scale_direction="lower",
+            subject_order=tuple(f"sub-{index:02d}" for index in range(1, 13)),
+            nuisance=NuisancePlan.for_branch("no_delta_hf", None),
+            manifest=self._placeholder("selected_manifest", "fiber-manifest.json"),
+            exposure=self._placeholder("exposure_matrix", "fiber-exposure.npy", (12, 500)),
+            scores=self._placeholder("selected_scores", "fiber-scores.csv", (12,)),
+            feature_axis=parent_axis,
+            full_weights=self._placeholder(
+                "selected_full_weights",
+                "fiber-weights.npy",
+                (500,),
+            ),
+            valid_feature_axis=FeatureAxisRef(
+                Path("valid_fiber_ids.npy"),
+                300,
+                "d" * 64,
+                "data.mat:idx",
+            ),
+        )
+
     @staticmethod
     def _linked_csv(
         context: RunContext,
@@ -114,6 +150,26 @@ class ConfiguredReportingBackendTests(unittest.TestCase):
             writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
             writer.writeheader()
             writer.writerows(rows)
+        artifact = ArtifactRef(
+            task_id=f"task-{kind}",
+            kind=kind,
+            relative_path=path.relative_to(context.store.run_root).as_posix(),
+            sha256=sha256_file(path),
+        )
+        return FinalLinkedArtifact(final.final_model_id, final.record_hash, artifact)
+
+    @staticmethod
+    def _linked_json(
+        context: RunContext,
+        final: FinalArtifactRecord,
+        *,
+        kind: str,
+        name: str,
+        payload: dict[str, object],
+    ) -> FinalLinkedArtifact:
+        path = context.store.run_root / "explicit_inputs" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
         artifact = ArtifactRef(
             task_id=f"task-{kind}",
             kind=kind,
@@ -239,6 +295,197 @@ class ConfiguredReportingBackendTests(unittest.TestCase):
             self.assertNotIn("prediction_status", rows[0])
             self.assertNotIn("source_status", output.facts)
             self.assertNotIn("prediction_status", output.facts)
+
+    def test_normative_fiber_report_exposes_full_and_fold_support_without_classification_feedback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context, plan = self._fixture(Path(tmp))
+            task = next(
+                item
+                for item in plan.tasks
+                if item.endpoint.model_family == "ulf_fiber"
+                and item.key.execution_stage == "endpoint_report"
+            )
+            final = self._fiber_final(task.endpoint.identifier)
+            common = {
+                "sweet_fraction_requested": 0.01,
+                "sour_fraction_requested": 0.005,
+                "weighted_peak_fraction_requested": 0.05,
+                "sweet_selected_k_min": 200,
+                "sour_selected_k_min": 100,
+                "weighted_peak_k_min": 20,
+            }
+            full = self._linked_csv(
+                context,
+                final,
+                kind="selected_scores",
+                name="full-support.csv",
+                rows=[
+                    {
+                        **common,
+                        "n_positive_valid_fibers": 240,
+                        "n_negative_valid_fibers": 80,
+                        "sweet_percentage_count": 3,
+                        "sour_percentage_count": 1,
+                        "sweet_actual_selected_count": 200,
+                        "sour_actual_selected_count": 80,
+                        "sweet_actual_peak_count": 20,
+                        "sour_actual_peak_count": 20,
+                        "sweet_minimum_count_dominated": True,
+                        "sour_minimum_count_dominated": False,
+                        "sweet_peak_minimum_count_dominated": True,
+                        "sour_peak_minimum_count_dominated": True,
+                        "fiber_score_support_status": "limited_two_sign",
+                        "sweet_selected_fiber_id_hash": "a" * 64,
+                        "sour_selected_fiber_id_hash": "b" * 64,
+                    }
+                ],
+            )
+            folds = self._linked_csv(
+                context,
+                final,
+                kind="loocv_predictions",
+                name="fold-support.csv",
+                rows=[
+                    {
+                        **common,
+                        "fold_index": 0,
+                        "n_positive_valid_fibers": 210,
+                        "n_negative_valid_fibers": 0,
+                        "sweet_percentage_count": 3,
+                        "sour_percentage_count": 0,
+                        "sweet_actual_selected_count": 200,
+                        "sour_actual_selected_count": 0,
+                        "sweet_actual_peak_count": 20,
+                        "sour_actual_peak_count": 0,
+                        "sweet_minimum_count_dominated": True,
+                        "sour_minimum_count_dominated": False,
+                        "sweet_peak_minimum_count_dominated": True,
+                        "sour_peak_minimum_count_dominated": False,
+                        "fiber_score_support_status": "limited_positive_only",
+                        "sweet_selected_fiber_id_hash": "e" * 64,
+                        "sour_selected_fiber_id_hash": "",
+                    },
+                    {
+                        **common,
+                        "fold_index": 1,
+                        "n_positive_valid_fibers": 230,
+                        "n_negative_valid_fibers": 120,
+                        "sweet_percentage_count": 3,
+                        "sour_percentage_count": 1,
+                        "sweet_actual_selected_count": 200,
+                        "sour_actual_selected_count": 100,
+                        "sweet_actual_peak_count": 20,
+                        "sour_actual_peak_count": 20,
+                        "sweet_minimum_count_dominated": True,
+                        "sour_minimum_count_dominated": True,
+                        "sweet_peak_minimum_count_dominated": True,
+                        "sour_peak_minimum_count_dominated": True,
+                        "fiber_score_support_status": "adequate_two_sign",
+                        "sweet_selected_fiber_id_hash": "f" * 64,
+                        "sour_selected_fiber_id_hash": "1" * 64,
+                    },
+                ],
+            )
+            request = ReportingRequest.from_context(
+                task,
+                context,
+                final,
+                artifacts=(full, folds),
+            )
+
+            output = run_configured_reporting(request)
+            rows = self._read_csv(output.artifacts[0].path)
+            index_rows = self._read_csv(output.artifacts[1].path)
+
+        self.assertEqual({row["n_parent_features"] for row in rows}, {"500"})
+        self.assertEqual({row["n_valid_features"] for row in rows}, {"300"})
+        status_rows = [
+            row for row in rows if row["metric_name"] == "fiber_score_support_status"
+        ]
+        self.assertEqual(
+            {(row["metric_scope"], row["text_value"], row["text_count"]) for row in status_rows},
+            {
+                ("full_sample", "limited_two_sign", "1"),
+                ("fold", "limited_positive_only", "1"),
+                ("fold", "adequate_two_sign", "1"),
+            },
+        )
+        dominated = next(
+            row
+            for row in rows
+            if row["metric_scope"] == "fold"
+            and row["metric_name"] == "sour_minimum_count_dominated"
+        )
+        self.assertEqual(dominated["metric_status"], "reported_boolean_proportion")
+        self.assertEqual(dominated["numeric_value"], "0.5")
+        hash_rows = [
+            row
+            for row in rows
+            if row["metric_name"] in {
+                "sweet_selected_fiber_id_hash",
+                "sour_selected_fiber_id_hash",
+            }
+        ]
+        self.assertTrue(hash_rows)
+        self.assertTrue(all(row["metric_status"] == "reported_identity_count" for row in hash_rows))
+        self.assertTrue(all("source_status" not in row for row in rows))
+        self.assertTrue(all("prediction_status" not in row for row in rows))
+        self.assertEqual({row["final_branch"] for row in index_rows}, {"no_delta_hf"})
+        self.assertEqual(
+            {row["valid_feature_axis_sha256"] for row in index_rows},
+            {final.valid_feature_axis.sha256},
+        )
+
+    def test_normative_fiber_json_support_is_split_into_full_and_fold_scopes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context, plan = self._fixture(Path(tmp))
+            task = next(
+                item
+                for item in plan.tasks
+                if item.endpoint.model_family == "ulf_fiber"
+                and item.key.execution_stage == "endpoint_report"
+            )
+            final = self._fiber_final(task.endpoint.identifier)
+            artifact = self._linked_json(
+                context,
+                final,
+                kind="oss_activation_results",
+                name="oss-support.json",
+                payload={
+                    "score_support": {
+                        "fiber_score_support_status": "limited_two_sign",
+                        "sweet_minimum_count_dominated": True,
+                        "sweet_selected_fiber_id_hash": "a" * 64,
+                    },
+                    "fold_rows": [
+                        {
+                            "fiber_score_support_status": "adequate_two_sign",
+                            "sweet_minimum_count_dominated": False,
+                            "sweet_selected_fiber_id_hash": "b" * 64,
+                        }
+                    ],
+                },
+            )
+            request = ReportingRequest.from_context(
+                task,
+                context,
+                final,
+                artifacts=(artifact,),
+            )
+
+            output = run_configured_reporting(request)
+            rows = self._read_csv(output.artifacts[0].path)
+
+        status_rows = [
+            row for row in rows if row["metric_name"] == "fiber_score_support_status"
+        ]
+        self.assertEqual(
+            {(row["metric_scope"], row["text_value"]) for row in status_rows},
+            {
+                ("full_sample", "limited_two_sign"),
+                ("fold", "adequate_two_sign"),
+            },
+        )
 
     def test_rejects_tampered_explicit_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

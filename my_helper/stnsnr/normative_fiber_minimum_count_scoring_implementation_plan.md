@@ -642,19 +642,19 @@ git commit -m "feat: bind OSS to realized fiber axes"
 - Consumes all score/support artifacts.
 - Produces endpoint-aware report artifacts and final acceptance evidence.
 
-- [ ] **Step 1: Add RED reporting tests**
+- [x] **Step 1: Add RED reporting tests**
 
 Assert reports expose full-sample and fold summaries for all required support fields, label limited/one-sided scores, retain the unique final model identity, and do not promote support status into source/prediction classification.
 
-- [ ] **Step 2: Implement numeric reporting and manifests**
+- [x] **Step 2: Implement numeric reporting and manifests**
 
 Add the six score parameters, support-status counts, min-dominated proportions, and selected-ID hashes. Keep endpoint rows independent and engineering-equal.
 
-- [ ] **Step 3: Synchronize model and implementation documentation**
+- [x] **Step 3: Synchronize model and implementation documentation**
 
 Describe implemented behavior and current test evidence only after code is green. Remove stale percentage-only score wording. Keep the explicit statement that user decisions take precedence over conflicting documentation.
 
-- [ ] **Step 4: Run the configured-core regression**
+- [x] **Step 4: Run the configured-core regression**
 
 ```bash
 PYTHONPATH=my_helper/fiber/core:my_helper/fiber/core/analysis \
@@ -665,7 +665,9 @@ PYTHONPATH=my_helper/fiber/core:my_helper/fiber/core/analysis \
 
 Expected: all configured-core tests pass.
 
-- [ ] **Step 5: Run related legacy selftests and static checks**
+Verified before real-data acceptance: all 300 configured-core tests pass.
+
+- [x] **Step 5: Run related legacy selftests and static checks**
 
 ```bash
 conda run -n leaddbs python my_helper/fiber/core/analysis/stnsnr_four_model_stats_selftest.py
@@ -677,7 +679,10 @@ conda run -n leaddbs python -m compileall -q \
 git diff --check
 ```
 
-- [ ] **Step 6: Validate the real MDS-UPDRS III/IV DAG before execution**
+Verified before real-data acceptance: all three named selftests report `PASS`;
+Python compilation and `git diff --check` pass.
+
+- [x] **Step 6: Validate the real MDS-UPDRS III/IV DAG before execution**
 
 ```bash
 conda run -n leaddbs python my_helper/fiber/pipelines/run_configured_outcome_models.py \
@@ -688,6 +693,12 @@ conda run -n leaddbs python my_helper/fiber/pipelines/run_configured_outcome_mod
 ```
 
 Verify all A/B/C/D endpoint tasks are present for both scales, every normative-fiber final has at most one OSS sidecar producer and one OSS fit, and there is no total/axial special task type.
+
+Verified: configuration validation reports 24 catalog rows and zero input
+failures. The report-through plan contains 205 tasks. All five dTOR
+normative-fiber endpoint rows have exactly one OSS sidecar producer and one OSS
+fit, no execution-stage name contains total/axial specialization, and the
+omitted MDS-UPDRS IV immediate bindings are explicit nonfailure catalog rows.
 
 - [ ] **Step 7: Execute the real two-scale workflow**
 

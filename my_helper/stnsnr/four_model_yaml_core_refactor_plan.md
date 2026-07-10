@@ -31,12 +31,13 @@ older document as authoritative.
 This document is the implementation contract for an active refactor. Strict
 YAML schemas/loading, immutable identities, the endpoint catalog, the pure
 HF-to-ULF final-model state machine, configured run store, Round-aware planner,
-and generic executor/CLI now exist. Typed service contracts and initial HF
-observed adapters exist but are still being integrated with the Round-specific
-artifact contract. The complete four scientific model services,
-endpoint-aware final reporting execution, and full model rerun are not yet
-implemented. The current Python and MATLAB production drivers, legacy/current
-output paths, and generated results remain unchanged.
+generic executor/CLI, all four scientific model services, final realization,
+formal/sensitivity adapters, final-record-bound OSS generation, and endpoint-
+aware reporting now exist. The configured-core regression passes 300 tests and
+the related statistics/HF-fiber/ULF-fiber selftests pass. The real MDS-UPDRS
+III/IV run and artifact acceptance are not yet complete. The current Python and
+MATLAB compatibility drivers, legacy/current output paths, and generated
+results remain unchanged.
 
 The governing engineering invariant is:
 
@@ -1005,8 +1006,9 @@ current_outputs_unchanged
 current_legacy_entrypoints_remain_active
 ```
 
-No CLI example in this document is a claim that the generic executor is already
-complete. Current refactor status is tracked here, in the detailed
-implementation plan, and in the implementation notes. Legacy executable status
-continues to come from `four_model_execution_plan.md` until configured model
-services are implemented, validated, and explicitly promoted.
+CLI examples in this document describe the implemented generic executor, but
+they do not claim that the real two-scale acceptance has passed. Current
+refactor status is tracked here, in the detailed implementation plan, and in
+the implementation notes. Legacy output status continues to come from
+`four_model_execution_plan.md`; configured status becomes acceptance evidence
+only for a completed, audited namespaced run.

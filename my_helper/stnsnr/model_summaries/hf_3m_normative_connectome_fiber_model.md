@@ -3,17 +3,18 @@
 Version: 2026-07-06 threshold-scan and downstream-status specification
 Scope: HF-only 3m normative connectome fiber-level model; provides source-model status and DeltaHFScore eligibility for ULF add-on fiber models.
 
-## YAML Core Interface (Foundation In Progress)
+## YAML Core Interface (Implemented; Real Acceptance Pending)
 
 The future configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
 remains authoritative for connectome roles, exposure, source resolution,
 formal resampling, controls, OSS, jitter, and numeric reporting. Shared profile,
-identity, catalog, state, and run-store foundations have status
-`implementation_in_progress`; this model's configured service, full DAG
-scientific execution, and result regeneration are not implemented. The generic
-DAG planner/executor exists but has not replaced this model's legacy driver.
-Current outputs and legacy/current entrypoints are unchanged.
+identity, catalog, state, run-store, configured model service, final-model
+resolver, formal/sensitivity adapters, OSS producer/consumer, and numeric
+reporting are implemented. The configured-core regression currently passes
+300 tests, and the related HF/ULF/statistics selftests pass. Real MDS-UPDRS
+III/IV execution and artifact acceptance remain pending; existing legacy output
+trees are unchanged until that run completes.
 
 All configured HF/frequency-1 endpoint scales are engineering-equivalent.
 PPMI, MGH, and dTOR roles may differ as declared below, but scale identity does
@@ -193,12 +194,16 @@ full tau x Coverage scan:
 
 `X_HF_i(l)` is used for candidate definition, fiber-wise association, scoring, LOOCV, and prediction. dTOR exposure and candidate calculations must be chunked; loading the complete dTOR `fibers` matrix or all exposure values into memory is invalid.
 
-For the source resolver scan, only `tau` and `Coverage` vary. The selected-fiber rule is fixed:
+For the source resolver scan, only `tau` and `Coverage` vary. The score rule is fixed:
 
 ```text
-F+ = top 1% positive fibers
-F- = top 0.5% sour fibers
-SweetPeak5/SourPeak5 = patient-level mean of top 5% weighted selected fibers
+F_valid = coverage-passing fibers intersect finite-weight fibers
+K+ = min(N+, max(ceil(0.01 * N+), 200))
+K- = min(N-, max(ceil(0.005 * N-), 100))
+H+ = min(K+, max(ceil(0.05 * K+), 20))
+H- = min(K-, max(ceil(0.05 * K-), 20))
+NetFiberScore = mean top-H+ positive weighted values
+                - mean top-H- negative weighted values
 ```
 
 Do not scan `top-k`, `top percentile`, `SweetPeak percentile`, `SourPeak percentile`, estimator family, connectome choice, or OSS-DBS activation variables inside the same threshold search. Top-count sensitivity remains a separate branch.
@@ -245,22 +250,37 @@ If enabled in a future run, `theta_HF(l)` would be reported as the fiber-wise OL
 
 ### Patient-Level Score
 
-Within each full-sample map or LOOCV training fold:
+Within each full-sample map or LOOCV training fold, recompute the valid signed
+fiber pools, outer libraries, and patient-level peak counts:
 
 ```text
-F+ = top 1% fibers with largest positive M_HF(l)
-F- = top 0.5% fibers with most negative M_HF(l)
+F_valid = F_candidate_tau_cov intersect {l: M_HF(l) is finite}
+F+_pool = {l in F_valid: M_HF(l) > 0}
+F-_pool = {l in F_valid: M_HF(l) < 0}
+K+ = min(N+, max(ceil(0.01 * N+), 200))
+K- = min(N-, max(ceil(0.005 * N-), 100))
+F+ = K+ largest positive weights, tie-broken by canonical fiber id
+F- = K- most negative weights, tie-broken by canonical fiber id
 
 SweetWeighted_i(l) = X_HF_i(l) * M_HF(l),      l in F+
 SourWeighted_i(l)  = X_HF_i(l) * [-M_HF(l)],   l in F-
 
-SweetPeak5_i = mean of top 5% largest SweetWeighted_i(l)
-SourPeak5_i  = mean of top 5% largest SourWeighted_i(l)
+H+ = min(K+, max(ceil(0.05 * K+), 20))
+H- = min(K-, max(ceil(0.05 * K-), 20))
+SweetPeak5_i = mean of the H+ largest SweetWeighted_i(l)
+SourPeak5_i  = mean of the H- largest SourWeighted_i(l)
 
 NetFiberScore_i = SweetPeak5_i - SourPeak5_i
 ```
 
-`F+` and `F-` are selected within `F_candidate_tau`, excluding NaN or degenerate fibers. Percentile counts use `ceil(percent * n)` with at least 1 fiber when the corresponding positive or negative pool is non-empty. Empty `F+` or `F-` contributes `0` for that component. If a selected set is non-empty but a patient has zero exposure to all selected fibers, the corresponding peak score is `0`.
+The historical output names `SweetPeak5` and `SourPeak5` are compatibility
+field names; they no longer mean an unconstrained 5% rule. Empty positive or
+negative pools contribute `0` and are labeled one-sided. Full sample and every
+fold record `adequate_two_sign`, `limited_two_sign`,
+`limited_positive_only`, `limited_negative_only`, or
+`absent_no_valid_signed_fibers`, together with requested/actual K/H counts,
+minimum-dominated flags, and selected-ID hashes. These support labels do not
+change source or prediction classification.
 
 Final prediction model:
 
@@ -519,9 +539,10 @@ Each grid cell reruns the complete observed LOOCV workflow:
 fold-specific candidate fibers
 rho_HF(l)
 M_HF(l)
-F+ = top 1% positive fibers
-F- = top 0.5% sour fibers
-SweetPeak5 / SourPeak5
+fold-local finite signed pools
+K+/K- outer libraries with 200/100 minima
+H+/H- patient peaks with minimum 20
+SweetPeak5 / SourPeak5 compatibility fields
 NetFiberScore
 Y_post ~ NetFiberScore + Y_base
 LOOCV prediction
@@ -621,7 +642,12 @@ X_HF_OSS_probability_i(l) = max(A_R_i(l), A_L_to_R_i(l))
 X_HF_OSS_i(l) = I[X_HF_OSS_probability_i(l) >= 0.5]
 ```
 
-`A_L_to_R_i(l)` is computed by running the left-sided stimulation in the real left hemisphere, mapping the resulting left fiber activation to the homologous right-canonical fiber id, and then representing that value in the right-canonical feature space. The canonical OSS exposure uses `max_probability_union` because pPAM is an activation-probability metric. Bilateral mean p(A) may be reported as a descriptive activation-burden sensitivity but must not replace `X_oss_float32_fiber_major.npy` in `M_HF_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation.
+`A_L_to_R_i(l)` is computed by transforming the left electrode/stimulation
+geometry and reconstruction coordinates into right-canonical space with
+`ea_flip_lr_nonlinear`, then running OSS directly on the same ordered
+`final.valid_feature_axis` used by the right side. No equality between native
+left and right local fiber IDs is assumed. The canonical OSS exposure uses
+`max_probability_union`; bilateral mean p(A) cannot replace it in fitting.
 
 The OSS branch uses the selected-source candidate rule from the locked peak
 E-field branch. It must use the endpoint row's resolved selected tau and
@@ -642,12 +668,11 @@ The stored pPAM probability is:
 p(A_i,l) = number of activated pPAM samples for subject i and fiber l / N_samples
 ```
 
-The current OSS-DBSv2 deterministic output stores binary 0/1 p(A) from
-`Axon_state_default_1.mat` activation states. `oss_time_result_PAM.h5`
-`default/Status` is a pre-simulation availability status and must not be used as
-the activation result. The `p(A) >= 0.5` binary representation is the canonical
-OSS fitting matrix. The `p(A) >= 0.05` representation is only a
-QC/display/plain activation control.
+The configured producer runs ten complete OSS samples with Fiber Diameter
+sampled equidistantly over `[1, 4]` micrometers. Stored p(A) must therefore be
+an exact `activated_count / 10` value on the `0.0, 0.1, ..., 1.0` lattice.
+`oss_time_result_PAM.h5` availability status is not the activation result. The
+`p(A) >= 0.5` binary representation is the canonical fitting matrix.
 
 OSS fiber-wise estimator:
 
@@ -667,14 +692,13 @@ Positive `M_HF_OSS(l)` means activation of that streamline is benefit-associated
 OSS patient-level score:
 
 ```text
-F+_OSS = top 1% fibers with largest positive M_HF_OSS(l)
-F-_OSS = top 0.5% fibers with most negative M_HF_OSS(l)
+F+_OSS and F-_OSS use the same fold-local K+/K- rule and 200/100 minima
 
 SweetWeighted_OSS_i(l) = X_HF_OSS_i(l) * M_HF_OSS(l),       l in F+_OSS
 SourWeighted_OSS_i(l)  = X_HF_OSS_i(l) * [-M_HF_OSS(l)],    l in F-_OSS
 
-SweetPeak5_OSS_i = mean top 5% largest SweetWeighted_OSS_i(l)
-SourPeak5_OSS_i  = mean top 5% largest SourWeighted_OSS_i(l)
+SweetPeak5_OSS_i = mean of the fold-local H+ largest SweetWeighted_OSS_i(l)
+SourPeak5_OSS_i  = mean of the fold-local H- largest SourWeighted_OSS_i(l)
 
 NetFiberScore_OSS_i = SweetPeak5_OSS_i - SourPeak5_OSS_i
 ```
@@ -904,7 +928,7 @@ normative_HF_fiber_threshold_scan_nested_validation_predictions.csv, if run
 Minimum table semantics:
 
 - `normative_HF_fiber_weights.csv`: `connectome`, `fiber_id`, `tau_v_per_m`, `coverage`, `rho_HF`, `p_uncorrected`, `q_fdr`, `M_HF`, `direction_class`, display/sensitivity flags, and target labels for QC.
-- `normative_HF_fiber_scores.csv`: `subject_id`, `score_map_source`, `connectome`, `branch`, `SweetPeak5`, `SourPeak5`, `NetFiberScore`, candidate/selected/peak fiber counts, and `is_primary_score`.
+- `normative_HF_fiber_scores.csv`: `subject_id`, `score_map_source`, `connectome`, `branch`, compatibility fields `SweetPeak5`/`SourPeak5`, `NetFiberScore`, all requested/actual K/H counts, support status, dominated flags, selected-ID hashes, and `is_primary_score`.
 - `normative_HF_fiber_scores.csv` in the OSS branch additionally stores `SweetPeak5_OSS`, `SourPeak5_OSS`, and `NetFiberScore_OSS`.
 - `normative_HF_fiber_fdr_cache.csv`: canonical fiber-wise FDR cache defined in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`; it is a QC/display output and is not a source or prediction gate.
 - `normative_HF_fiber_enrichment_cache.csv`: canonical fiber-level anatomical/pathway enrichment cache defined in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`; its background is the selected-source tau/Coverage candidate fiber universe.
@@ -923,8 +947,8 @@ resampling_status = observed_only_connectome_robustness
 
 Display outputs include:
 
-- top 1% positive fibers by `M_HF(l)`;
-- top 0.5% sour fibers by negative `M_HF(l)`;
+- selected `K+` sweet library by `M_HF(l)`;
+- selected `K-` sour library by negative `M_HF(l)`;
 - selected-fiber density maps;
 - unthresholded weighted-density maps;
 - `-log(P)` density maps and q-value summaries;
@@ -981,7 +1005,7 @@ oss_activation_sidecar_metadata.json
 
 `X_oss_float32_fiber_major.npy` stores pPAM activation probability
 with rows = final branch subjects and columns = selected-source candidate fiber
-ids. Current OSS-DBSv2 deterministic output is binary 0/1 p(A). For alternating HF subprograms, subprogram-level activation matrices may
+ids. The configured producer stores exact ten-sample pPAM probabilities. For alternating HF subprograms, subprogram-level activation matrices may
 be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and
 `max_probability_union` probability variables documented above, then derives
 `X_HF_OSS_i(l) = I[p(A_i,l) >= 0.5]` for model fitting. A `p(A) >= 0.05`
@@ -1182,8 +1206,8 @@ Pass 2 scores patients by rereading only chunks that contain selected `F+` or `F
 ```text
 SweetWeighted_i(l) = X_i(l) * M_HF(l)
 SourWeighted_i(l)  = X_i(l) * [-M_HF(l)]
-SweetPeak5_i       = patient-level top 5% mean over SweetWeighted_i(l)
-SourPeak5_i        = patient-level top 5% mean over SourWeighted_i(l)
+SweetPeak5_i       = patient-level mean over the H+ largest SweetWeighted_i(l)
+SourPeak5_i        = patient-level mean over the H- largest SourWeighted_i(l)
 NetFiberScore_i    = SweetPeak5_i - SourPeak5_i
 ```
 
@@ -1543,8 +1567,8 @@ For each endpoint/scale and connectome compute:
 
 ```text
 full-sample rho_HF / M_HF
-F+ top 1%
-F- top 0.5%
+K+ selected sweet library with minimum 200
+K- selected sour library with minimum 100
 SweetPeak5
 SourPeak5
 NetFiberScore
@@ -1953,7 +1977,7 @@ X_oss_float32_fiber_major.npy
 oss_activation_sidecar_metadata.json
 ```
 
-`X_oss_float32_fiber_major.npy` stores pPAM activation probability. Current OSS-DBSv2 deterministic output is binary 0/1 p(A); future non-binary pPAM outputs can use the same float32 matrix contract. The hemisphere/source merge rule is `max_probability_union`.
+`X_oss_float32_fiber_major.npy` stores exact ten-sample pPAM activation probability on the realized valid axis. The hemisphere/source merge rule is `max_probability_union`.
 Thresholded plain-activation files may be written only as QC/display/plain-burden controls.
 
 Run order:
@@ -2083,8 +2107,8 @@ formal or explicitly promoted figure-grade selected final branches:
 Output families:
 
 ```text
-top 1% positive fibers
-top 0.5% sour fibers
+selected K+ sweet library
+selected K- sour library
 selected-fiber density maps
 unthresholded weighted-density maps
 positive weighted-density maps
