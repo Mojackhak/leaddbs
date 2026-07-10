@@ -99,6 +99,31 @@ repository invocations use the Conda `leaddbs` environment. The reusable core
 has no STN/SNr, hemisphere, clinical, stimulation, or target-selection
 defaults.
 
+### Default Real-Data Acceptance
+
+The repository acceptance fixture is explicit and remains outside reusable
+core defaults:
+
+```text
+my_helper/fiber/core/seed_target_connectivity/tests/fixtures/dtor_stnsnr_acceptance.yaml
+```
+
+Run it in Conda `leaddbs` with an output directory outside the source tree:
+
+```bash
+conda run -n leaddbs python -m \
+  my_helper.fiber.core.seed_target_connectivity.acceptance \
+  --fixture my_helper/fiber/core/seed_target_connectivity/tests/fixtures/dtor_stnsnr_acceptance.yaml \
+  --repo-root /Users/mojackhu/Github/leaddbs \
+  --output-root /tmp/seed-target-connectivity-dtor-acceptance
+```
+
+The fixture invokes the same public API twice, once per declared seed. It
+requires complete optimized dTOR traversal, target-cache reuse, deterministic
+artifact hashes on unchanged reruns, and exact reference/optimized membership
+agreement for deterministic sampled real fibers. It does not union seeds or
+infer hemisphere/anatomical meaning from fixture labels.
+
 ## VTA Computation Modules
 
 VTA generation now uses `core/stimulation/model/mh_vta_compute.m` as the

@@ -1,0 +1,25 @@
+schema_version: 1
+
+target_atlas_root: templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions
+
+seeds:
+  - fixture_id: left_seed
+    path: templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions/lh/STNSNrplus.nii.gz
+  - fixture_id: right_seed
+    path: templates/space/MNI152NLin2009bAsym/atlases/STNSNr-connected regions/rh/STNSNrplus.nii.gz
+
+connectome: connectomes/dMRI/dTOR-985 Full (Elias 2024)/data.mat
+
+config:
+  schema_version: 1
+  intersection:
+    method: segment_aware_voxel_traversal
+  execution:
+    fiber_chunk_size: 100000
+    cache_membership: true
+  ranking:
+    enabled: true
+
+sampling:
+  seed_connected_per_run: 8
+  background_fibers: 8

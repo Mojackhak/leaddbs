@@ -9,7 +9,7 @@ Parent goal: none; standalone reusable fiber-core module
 Authoritative specification: this document
 Current branch: stnvop
 Status: design_approved
-Implementation status: task_7_api_cli_in_progress
+Implementation status: task_8_real_data_acceptance_in_progress
 Current outputs: unchanged
 Implementation language: Python
 Default execution environment: Conda leaddbs
@@ -417,8 +417,8 @@ Current implementation progress:
 - reference and optimized segment-aware traversal: complete;
 - independent membership caches, statistics, and ranking: complete;
 - atomic immutable artifacts and provenance: complete;
-- reusable API and four-command CLI: in progress;
-- default real-data acceptance: pending.
+- reusable API and four-command CLI: complete;
+- default real-data acceptance and completion audit: in progress.
 
 Documentation must be updated before each later implementation phase changes
 production code.
