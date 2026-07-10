@@ -38,7 +38,7 @@ F_{\mathrm{coverage}}
 =
 \left\{
 f:
-\operatorname{Coverage}_{f}(E \ge \tau_{\mathrm{selected}})
+\operatorname{Coverage}_{f}(E > \tau_{\mathrm{selected}})
 \ge C_{\mathrm{selected}}
 \right\},
 \]
@@ -55,6 +55,11 @@ Coverage-insufficient fibers, non-finite-weight fibers, and fibers outside the
 realized branch must never be used to satisfy a minimum count. For ULF,
 candidate construction uses the realized final branch after HF-overlap
 exclusion.
+
+The strict \(E > \tau\) comparator is the existing normative-fiber resolver
+definition and was explicitly retained by the user. Score construction consumes
+the resolver's full-sample or training-fold candidate mask; it must not apply an
+independent threshold comparator or alter source classification.
 
 ## Signed Outer Selection
 

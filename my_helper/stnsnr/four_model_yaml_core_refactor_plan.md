@@ -10,10 +10,12 @@
 > `my_helper/stnsnr/four_model_yaml_core_refactor_implementation_plan.md`
 > **Normative-fiber scoring design.**
 > `my_helper/stnsnr/normative_fiber_minimum_count_scoring_design.md`
+> **Normative-fiber scoring implementation plan.**
+> `my_helper/stnsnr/normative_fiber_minimum_count_scoring_implementation_plan.md`
 > **Current branch.** `stnvop`
 > **Status.** `design_documented`; `implementation_in_progress`;
 > `current_outputs_unchanged`; `current_legacy_entrypoints_remain_active`.
-> **Last updated.** 2026-07-09
+> **Last updated.** 2026-07-10
 
 ---
 

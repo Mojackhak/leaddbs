@@ -9,6 +9,8 @@ The future configuration and orchestration contract is documented in:
 ```text
 my_helper/stnsnr/four_model_yaml_core_refactor_plan.md
 my_helper/stnsnr/four_model_yaml_core_refactor_implementation_plan.md
+my_helper/stnsnr/normative_fiber_minimum_count_scoring_design.md
+my_helper/stnsnr/normative_fiber_minimum_count_scoring_implementation_plan.md
 ```
 
 Current status:
@@ -56,7 +58,7 @@ adjusted, formal, OSS, and jitter tasks retain stricter input/final-state
 requirements without changing task identity.
 
 Final implementation acceptance is now required to run the ordinary generic
-pipeline with both `mds_updrs_iii` (`MDS-UPDRS III score`) and
+pipeline with both `mds_updrs_iii_score` (`MDS-UPDRS III score`) and
 `mds_updrs_iv` (`MDS-UPDRS IV`) in one profile. This pair is an acceptance
 fixture, not a default or privileged scale list. The current clinical source has
 chronic rows for both scales and immediate rows for MDS-UPDRS III only; the
