@@ -57,6 +57,7 @@ from stnsnr_hf_direct_voxel_smoke import (
     flip_left_fields_with_matlab,
     load_stim_table,
     right_brainmask_voxels,
+    right_brainmask_voxels_from_path,
     sample_max_at_xyz,
     slugify,
     write_nifti_from_flat,
@@ -72,6 +73,87 @@ ULF_DIRECT_COVERAGE_GRID = [5, 6, 7, 8, 10, 12]
 ULF_DIRECT_PRIMARY_TAU = 200
 ULF_DIRECT_PRIMARY_COVERAGE = 5
 ULF_DIRECT_CANDIDATE_THRESHOLD = 100.0
+
+
+@dataclass(frozen=True)
+class ConfiguredULFDirectVoxelRun:
+    """Complete configured input for exactly one ULF direct-voxel branch."""
+
+    endpoint_id: str
+    scale_label: str
+    direction: str
+    outcome_protocol: str
+    outcome_phase: str
+    hf_reference_protocol: str
+    hf_reference_phase: str
+    subject_order: tuple[str, ...]
+    branch: str
+    branch_name: str
+    nuisance_columns: tuple[str, ...]
+    clinical_table: Path
+    stimulation_table: Path
+    derivatives_root: Path
+    brainmask: Path
+    asset_root: Path
+    readiness_csv: Path
+    matlab_bin: Path
+    model_cache_root: Path
+    output_root: Path
+    tau_grid: tuple[float, ...]
+    coverage_grid: tuple[int, ...]
+    primary_tau: float
+    primary_coverage: int
+    hf_overlap_tau: float
+    hf_overlap_coverage: int | None
+    delta_hf_tau: float | None
+    delta_hf_coverage: int | None
+    delta_full_scores: Path | None
+    delta_fold_scores: Path | None
+    delta_support_rows: Path | None
+
+    def __post_init__(self) -> None:
+        if not self.endpoint_id or not self.scale_label:
+            raise ValueError("configured ULF endpoint id and scale label must be nonempty")
+        if self.direction not in {"lower", "higher"}:
+            raise ValueError("configured ULF scale direction must be lower or higher")
+        if self.branch not in {"no_delta_hf", "delta_hf_adjusted"}:
+            raise ValueError(f"unsupported configured ULF branch {self.branch!r}")
+        if not self.subject_order:
+            raise ValueError("configured ULF subject order must be nonempty")
+        if not self.tau_grid or not self.coverage_grid:
+            raise ValueError("configured ULF tau and coverage grids must be nonempty")
+        if self.primary_tau not in self.tau_grid or self.primary_coverage not in self.coverage_grid:
+            raise ValueError("configured ULF primary cell must be present in its scan grids")
+        expected_nuisance = (
+            ("Y_HF_ref",)
+            if self.branch == "no_delta_hf"
+            else ("Y_HF_ref", "DeltaHFScore")
+        )
+        if self.nuisance_columns != expected_nuisance:
+            raise ValueError("configured ULF nuisance columns do not match the requested branch")
+        if self.branch == "delta_hf_adjusted":
+            if not math.isfinite(self.hf_overlap_tau):
+                raise ValueError("adjusted ULF branch requires a finite selected HF threshold")
+            if self.delta_hf_tau != self.hf_overlap_tau:
+                raise ValueError("selected HF tau must drive overlap and DeltaHFScore")
+            if self.delta_hf_coverage != self.hf_overlap_coverage:
+                raise ValueError("selected HF coverage must drive overlap and DeltaHFScore")
+            if any(
+                path is None
+                for path in (self.delta_full_scores, self.delta_fold_scores, self.delta_support_rows)
+            ):
+                raise ValueError("adjusted ULF branch requires full, fold, and support DeltaHF artifacts")
+
+
+def _threshold_token(value: int | float) -> str:
+    return f"{float(value):g}".replace("-", "neg").replace(".", "p")
+
+
+def ulf_direct_branch_name(branch: str, tau: float, coverage: int) -> str:
+    """Return a branch name bound to the actual ULF source cell."""
+    if branch not in {"no_delta_hf", "delta_hf_adjusted"}:
+        raise ValueError(f"unsupported ULF direct branch {branch!r}")
+    return f"tau{_threshold_token(tau)}_cov{int(coverage)}_{branch}"
 
 
 @dataclass(frozen=True)
@@ -829,13 +911,20 @@ def evaluate_ulf_direct_grid_cell(
     return row
 
 
-def resolve_ulf_direct_branch(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def resolve_ulf_direct_branch(
+    rows: list[dict[str, Any]],
+    *,
+    primary_tau: float = ULF_DIRECT_PRIMARY_TAU,
+    primary_coverage: int = ULF_DIRECT_PRIMARY_COVERAGE,
+    tau_grid: list[float] | tuple[float, ...] = tuple(ULF_DIRECT_TAU_GRID),
+    coverage_grid: list[int] | tuple[int, ...] = tuple(ULF_DIRECT_COVERAGE_GRID),
+) -> dict[str, Any]:
     resolved = resolve_hf_source(
         rows,
-        primary_tau=ULF_DIRECT_PRIMARY_TAU,
-        primary_coverage=ULF_DIRECT_PRIMARY_COVERAGE,
-        tau_grid=ULF_DIRECT_TAU_GRID,
-        coverage_grid=ULF_DIRECT_COVERAGE_GRID,
+        primary_tau=primary_tau,
+        primary_coverage=primary_coverage,
+        tau_grid=list(tau_grid),
+        coverage_grid=list(coverage_grid),
         pass_predicate=ulf_direct_hard_computability_passes,
     )
     return {
@@ -1004,6 +1093,406 @@ def write_branch_outputs(
     )
     write_json(branch_dir / "direct_voxel_ULF_only_mapping_qc.json", qc)
     write_json(branch_dir / "direct_voxel_ULF_only_generation_manifest.json", manifest)
+
+
+def _read_configured_clinical_table(path: Path) -> pd.DataFrame:
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix in {".xlsx", ".xls"}:
+        return pd.read_excel(path)
+    raise ValueError(f"unsupported configured clinical table format: {path}")
+
+
+def load_configured_ulf_records(config: ConfiguredULFDirectVoxelRun) -> list[ULFRecord]:
+    """Load exactly the configured endpoint and preserve its immutable subject order."""
+    raw_df = _read_configured_clinical_table(config.clinical_table)
+    post_rows = raw_df[
+        raw_df["Scale"].astype(str).eq(config.scale_label)
+        & raw_df["Protocol"].astype(str).eq(config.outcome_protocol)
+        & raw_df["Phase"].astype(str).eq(config.outcome_phase)
+    ].copy()
+    hf_rows = raw_df[
+        raw_df["Scale"].astype(str).eq(config.scale_label)
+        & raw_df["Protocol"].astype(str).eq(config.hf_reference_protocol)
+        & raw_df["Phase"].astype(str).eq(config.hf_reference_phase)
+    ].copy()
+    if post_rows["ID"].astype(str).duplicated().any() or hf_rows["ID"].astype(str).duplicated().any():
+        raise RuntimeError("configured ULF endpoint contains duplicate subject rows")
+    merged = post_rows[["ID", "Value", "Baseline"]].rename(
+        columns={"Value": "Y_post", "Baseline": "Y_base"}
+    ).merge(
+        hf_rows[["ID", "Value"]].rename(columns={"Value": "Y_HF_ref"}),
+        on="ID",
+        how="inner",
+        validate="one_to_one",
+    )
+    merged["ID"] = merged["ID"].astype(str)
+    by_subject = merged.set_index("ID")
+    missing = [subject for subject in config.subject_order if subject not in by_subject.index]
+    if missing:
+        raise RuntimeError("configured ULF endpoint is missing subjects: " + ", ".join(missing))
+    records: list[ULFRecord] = []
+    for subject in config.subject_order:
+        row = by_subject.loc[subject]
+        values = (row["Y_post"], row["Y_HF_ref"], row["Y_base"])
+        if not all(np.isfinite(float(value)) for value in values):
+            raise RuntimeError(f"configured ULF endpoint has nonfinite clinical data for {subject}")
+        records.append(ULFRecord(subject, float(values[0]), float(values[1]), float(values[2])))
+    return records
+
+
+def _configured_component_exposure(
+    config: ConfiguredULFDirectVoxelRun,
+    records: list[ULFRecord],
+    availability: pd.DataFrame,
+    frequency_class: str,
+    xyz: np.ndarray,
+    *,
+    flip_backend: Any,
+) -> tuple[np.ndarray, list[dict[str, Any]], dict[str, Any]]:
+    side_paths, path_qc = component_side_paths(availability, records, frequency_class)
+    nonempty_left = {key: value for key, value in side_paths.items() if key[1] == "L" and value}
+    if nonempty_left:
+        flipped, flip_qc = flip_backend(
+            repo_root=config.asset_root,
+            matlab_bin=config.matlab_bin,
+            side_paths=nonempty_left,
+            preprocess_dir=config.model_cache_root / "preprocess" / frequency_class.lower(),
+            force=False,
+        )
+    else:
+        flipped = {}
+        flip_qc = {"status": "SKIPPED", "detail": f"no left {frequency_class} fields", "n_jobs": 0}
+    exposure, sampling_qc = build_component_exposure_matrix(records, side_paths, flipped, xyz)
+    return exposure, path_qc + sampling_qc, flip_qc
+
+
+def build_configured_hf_component_exposure_on_axis(
+    *,
+    subject_order: tuple[str, ...],
+    outcome_protocol: str,
+    outcome_phase: str,
+    readiness_csv: Path,
+    brainmask: Path,
+    asset_root: Path,
+    matlab_bin: Path,
+    candidate_flat: np.ndarray,
+    sidecar_root: Path,
+    flip_backend: Any = flip_left_fields_with_matlab,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Sample add-on HF-component fields on the immutable HF feature axis."""
+    flat = np.asarray(candidate_flat, dtype=np.int64)
+    if flat.ndim != 1 or flat.size == 0:
+        raise ValueError("configured HF feature axis must be a nonempty one-dimensional array")
+    if len(np.unique(flat)) != flat.size:
+        raise ValueError("configured HF feature axis contains duplicate flat voxel IDs")
+    reference = nib.load(str(brainmask))
+    mask = np.asarray(reference.dataobj) > 0
+    if np.any(flat < 0) or np.any(flat >= int(np.prod(reference.shape))):
+        raise ValueError("configured HF feature axis contains out-of-range flat voxel IDs")
+    ijk = np.column_stack(np.unravel_index(flat, reference.shape)).astype(np.int32)
+    if not np.all(mask[tuple(ijk.T)]):
+        raise ValueError("configured HF feature axis contains voxels outside the configured brainmask")
+    xyz = nib.affines.apply_affine(reference.affine, ijk).astype(np.float32)
+    if not np.all(xyz[:, 0] > 0):
+        raise ValueError("configured HF feature axis is not entirely in right-canonical space")
+
+    availability = load_component_availability(readiness_csv)
+    availability = availability[
+        availability["protocol"].astype(str).eq(outcome_protocol)
+        & availability["phase"].astype(str).eq(outcome_phase)
+    ].copy()
+    records = [ULFRecord(subject, 0.0, 0.0, 0.0) for subject in subject_order]
+    side_paths, path_qc = component_side_paths(availability, records, "HF")
+    nonempty_left = {key: value for key, value in side_paths.items() if key[1] == "L" and value}
+    if nonempty_left:
+        flipped, flip_qc = flip_backend(
+            repo_root=asset_root,
+            matlab_bin=matlab_bin,
+            side_paths=nonempty_left,
+            preprocess_dir=sidecar_root / "hf_component_left_to_right",
+            force=False,
+        )
+    else:
+        flipped = {}
+        flip_qc = {"status": "SKIPPED", "detail": "no left HF component fields", "n_jobs": 0}
+    exposure, sampling_qc = build_component_exposure_matrix(records, side_paths, flipped, xyz)
+    return exposure.astype(np.float32), {
+        "subject_order": list(subject_order),
+        "outcome_protocol": outcome_protocol,
+        "outcome_phase": outcome_phase,
+        "readiness_csv": str(readiness_csv),
+        "brainmask": str(brainmask),
+        "feature_count": int(flat.size),
+        "path_qc": path_qc,
+        "sampling_qc": sampling_qc,
+        "flip_qc": flip_qc,
+    }
+
+
+def _load_configured_delta(
+    config: ConfiguredULFDirectVoxelRun,
+) -> tuple[np.ndarray | None, np.ndarray | None, pd.DataFrame | None]:
+    if config.branch == "no_delta_hf":
+        return None, None, None
+    assert config.delta_full_scores is not None
+    assert config.delta_fold_scores is not None
+    assert config.delta_support_rows is not None
+    full = np.asarray(np.load(config.delta_full_scores), dtype=float)
+    folds = np.asarray(np.load(config.delta_fold_scores), dtype=float)
+    expected_n = len(config.subject_order)
+    if full.shape != (expected_n,):
+        raise RuntimeError(f"DeltaHF full-score shape must be {(expected_n,)}, got {full.shape}")
+    if folds.shape != (expected_n, expected_n):
+        raise RuntimeError(
+            f"DeltaHF fold-by-subject shape must be {(expected_n, expected_n)}, got {folds.shape}"
+        )
+    if not np.all(np.isfinite(full)) or not np.all(np.isfinite(folds)):
+        raise RuntimeError("DeltaHF full and fold-by-subject scores must be finite")
+    support = pd.read_csv(config.delta_support_rows)
+    if "subject_id" not in support.columns:
+        raise RuntimeError("DeltaHF support rows must include subject_id")
+    support_subjects = tuple(support["subject_id"].astype(str))
+    if support_subjects != config.subject_order:
+        raise RuntimeError("DeltaHF support-row subject order does not match the configured endpoint")
+    return full, folds, support
+
+
+def run_configured_ulf_direct_voxel(
+    config: ConfiguredULFDirectVoxelRun,
+    *,
+    flip_backend: Any = flip_left_fields_with_matlab,
+) -> dict[str, Any]:
+    """Run one endpoint/branch source resolver from explicit configured inputs."""
+    records = load_configured_ulf_records(config)
+    subject_ids = [record.subject_id for record in records]
+    y_post = np.asarray([record.y_post for record in records], dtype=float)
+    y_hf_ref = np.asarray([record.y_hf_ref for record in records], dtype=float)
+    config.model_cache_root.mkdir(parents=True, exist_ok=True)
+    config.output_root.mkdir(parents=True, exist_ok=True)
+
+    availability = load_component_availability(config.readiness_csv)
+    availability = availability[
+        availability["protocol"].astype(str).eq(config.outcome_protocol)
+        & availability["phase"].astype(str).eq(config.outcome_phase)
+    ].copy()
+    if availability.empty:
+        raise RuntimeError(
+            f"no component e-fields found for {config.outcome_protocol} {config.outcome_phase}"
+        )
+    ref_img, right_ijk, right_xyz, right_flat = right_brainmask_voxels_from_path(config.brainmask)
+    ulf_component_all, ulf_qc, ulf_flip = _configured_component_exposure(
+        config,
+        records,
+        availability,
+        "ULF",
+        right_xyz,
+        flip_backend=flip_backend,
+    )
+    if math.isfinite(config.hf_overlap_tau):
+        hf_component_all, hf_qc, hf_flip = _configured_component_exposure(
+            config,
+            records,
+            availability,
+            "HF",
+            right_xyz,
+            flip_backend=flip_backend,
+        )
+    else:
+        hf_component_all = np.zeros_like(ulf_component_all)
+        hf_qc = []
+        hf_flip = {"status": "SKIPPED", "detail": "HF source absent; overlap exclusion disabled"}
+
+    candidate_threshold = float(min(config.tau_grid))
+    candidate_sparse = np.any(ulf_component_all > candidate_threshold, axis=0)
+    if not np.any(candidate_sparse):
+        raise RuntimeError("empty configured ULF sparse candidate mask")
+    candidate_flat = right_flat[candidate_sparse]
+    candidate_ijk = right_ijk[candidate_sparse]
+    ulf_component = ulf_component_all[:, candidate_sparse].astype(np.float32)
+    hf_component = hf_component_all[:, candidate_sparse].astype(np.float32)
+    feature_ids_path = config.model_cache_root / "candidate_flat_indices.npy"
+    np.save(feature_ids_path, candidate_flat)
+    np.save(config.model_cache_root / "candidate_ijk.npy", candidate_ijk)
+
+    delta_full, delta_folds, delta_support = _load_configured_delta(config)
+
+    def fold_delta_provider(heldout: int) -> dict[str, Any] | None:
+        if delta_folds is None or delta_support is None:
+            return None
+        support_row = delta_support.iloc[heldout].to_dict()
+        support_row["fold_id"] = heldout + 1
+        support_row["DeltaHFScore_in_support"] = float(delta_folds[heldout, heldout])
+        return {"delta": delta_folds[heldout], "support_row": support_row}
+
+    rows: list[dict[str, Any]] = []
+    for tau in config.tau_grid:
+        ulf_active = ulf_component > float(tau)
+        hf_active = (
+            np.zeros_like(hf_component, dtype=bool)
+            if math.isinf(config.hf_overlap_tau)
+            else hf_component > float(config.hf_overlap_tau)
+        )
+        x_ulf_only = np.where(ulf_active & ~hf_active, ulf_component, 0.0).astype(np.float32)
+        s_tau = suprathreshold_matrix(x_ulf_only, float(tau))
+        coverage_array = coverage_from_suprathreshold(s_tau)
+        for coverage in config.coverage_grid:
+            rows.append(
+                evaluate_ulf_direct_grid_cell(
+                    branch=config.branch,
+                    branch_role="resolver_candidate",
+                    x_ulf_only=x_ulf_only,
+                    coverage_array=coverage_array,
+                    s_tau_ulf_only=s_tau,
+                    y_post=y_post,
+                    y_hf_ref=y_hf_ref,
+                    nuisance_full=delta_full,
+                    nuisance_fold_provider=(fold_delta_provider if delta_full is not None else None),
+                    scale_direction=config.direction,
+                    subject_ids=subject_ids,
+                    tau=float(tau),
+                    coverage=int(coverage),
+                )
+            )
+    resolution = resolve_ulf_direct_branch(
+        rows,
+        primary_tau=config.primary_tau,
+        primary_coverage=config.primary_coverage,
+        tau_grid=config.tau_grid,
+        coverage_grid=config.coverage_grid,
+    )
+    scan_outputs = write_ulf_direct_source_scan_outputs(
+        config.output_root / "source_scan",
+        rows=rows,
+        branch_resolutions={config.branch: resolution},
+        manifest={
+            "generated_at": iso_now(),
+            "analysis": "configured_ulf_direct_voxel_source_resolver",
+            "endpoint_id": config.endpoint_id,
+            "scale_label": config.scale_label,
+            "outcome_protocol": config.outcome_protocol,
+            "outcome_phase": config.outcome_phase,
+            "subject_order": subject_ids,
+            "branch": config.branch,
+            "nuisance_columns": list(config.nuisance_columns),
+            "tau_grid_v_per_m": list(config.tau_grid),
+            "coverage_grid": list(config.coverage_grid),
+            "pre_specified_tau_v_per_m": config.primary_tau,
+            "pre_specified_coverage": config.primary_coverage,
+            "candidate_sparse_threshold_v_per_m": candidate_threshold,
+            "hf_overlap_tau_v_per_m": (
+                config.hf_overlap_tau if math.isfinite(config.hf_overlap_tau) else "+Inf"
+            ),
+            "delta_hf_tau_v_per_m": config.delta_hf_tau,
+            "delta_hf_coverage": config.delta_hf_coverage,
+            "ulf_component_qc": ulf_qc,
+            "hf_component_qc": hf_qc,
+            "ulf_flip_qc": ulf_flip,
+            "hf_flip_qc": hf_flip,
+            "input_paths": {
+                "clinical_table": str(config.clinical_table),
+                "stimulation_table": str(config.stimulation_table),
+                "derivatives_root": str(config.derivatives_root),
+                "brainmask": str(config.brainmask),
+                "readiness_csv": str(config.readiness_csv),
+            },
+        },
+    )
+    artifact_paths = {
+        "source_scan": scan_outputs["scan_csv"],
+        "source_scan_manifest": scan_outputs["manifest_json"],
+    }
+    selected_tau = resolution.get("ulf_voxel_selected_tau_v_per_m")
+    selected_coverage = resolution.get("ulf_voxel_selected_coverage")
+    realized_branch_name = config.branch_name
+    if selected_tau is not None and selected_coverage is not None:
+        selected_tau = float(selected_tau)
+        selected_coverage = int(selected_coverage)
+        realized_branch_name = ulf_direct_branch_name(config.branch, selected_tau, selected_coverage)
+        ulf_active = ulf_component > selected_tau
+        hf_active = (
+            np.zeros_like(hf_component, dtype=bool)
+            if math.isinf(config.hf_overlap_tau)
+            else hf_component > float(config.hf_overlap_tau)
+        )
+        x_selected = np.where(ulf_active & ~hf_active, ulf_component, 0.0).astype(np.float32)
+        s_selected = suprathreshold_matrix(x_selected, selected_tau)
+        selected_result = compute_branch(
+            branch_name=realized_branch_name,
+            x_ulf_only=x_selected,
+            coverage=coverage_from_suprathreshold(s_selected),
+            s_tau_ulf_only=s_selected,
+            y_post=y_post,
+            y_hf_ref=y_hf_ref,
+            nuisance_full=delta_full,
+            nuisance_fold_provider=(fold_delta_provider if delta_full is not None else None),
+            scale_direction=config.direction,
+            min_coverage=selected_coverage,
+            subject_ids=subject_ids,
+        )
+        branch_dir = config.output_root / realized_branch_name
+        write_branch_outputs(
+            branch_dir,
+            ref_img,
+            candidate_flat,
+            selected_result,
+            {
+                "model": "ULF direct voxel",
+                "endpoint_id": config.endpoint_id,
+                "branch": config.branch,
+                "tau_v_per_m": selected_tau,
+                "min_coverage": selected_coverage,
+                "hf_overlap_tau_v_per_m": (
+                    config.hf_overlap_tau if math.isfinite(config.hf_overlap_tau) else "+Inf"
+                ),
+            },
+            {
+                "generated_at": iso_now(),
+                "model": "ULF direct voxel",
+                "endpoint_id": config.endpoint_id,
+                "branch": config.branch,
+                "scale_direction": config.direction,
+                "subject_order": subject_ids,
+                "nuisance_columns": list(config.nuisance_columns),
+            },
+        )
+        exposure_path = branch_dir / "X_ULF_only_float32_subject_major.npy"
+        np.save(exposure_path, x_selected)
+        artifact_paths.update(
+            {
+                "observed_metrics": str(branch_dir / "direct_voxel_ULF_only_mapping_qc.json"),
+                "loocv_predictions": str(
+                    branch_dir / "direct_voxel_ULF_only_loocv_predictions.csv"
+                ),
+                "selected_manifest": str(
+                    branch_dir / "direct_voxel_ULF_only_generation_manifest.json"
+                ),
+                "selected_scores": str(branch_dir / "direct_voxel_ULF_only_scores.csv"),
+                "exposure_matrix": str(exposure_path),
+                "coefficient_nifti": str(
+                    branch_dir / "direct_voxel_ULF_only_sweet_sour.nii.gz"
+                ),
+            }
+        )
+    return {
+        "branch": config.branch,
+        "branch_name": realized_branch_name,
+        "source_resolution": {
+            "source_status": resolution["ulf_voxel_source_status"],
+            "prediction_status": resolution["ulf_voxel_prediction_status"],
+            "threshold_source": resolution["ulf_voxel_threshold_source"],
+            "selected_tau": selected_tau,
+            "selected_coverage": selected_coverage,
+            "selected_adjacent_passing_grid_cells": resolution[
+                "ulf_voxel_selected_adjacent_passing_grid_cells"
+            ],
+        },
+        "subject_ids": subject_ids,
+        "feature_ids_path": str(feature_ids_path),
+        "feature_count": int(candidate_flat.size),
+        "artifact_paths": artifact_paths,
+    }
 
 
 def run_ulf_direct_voxel_observed(args: argparse.Namespace) -> int:

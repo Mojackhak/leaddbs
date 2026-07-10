@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import os
@@ -100,6 +101,47 @@ def tau_slug(tau: float) -> str:
     if value.is_integer():
         return f"tau{int(value)}"
     return "tau" + str(value).replace(".", "p")
+
+
+def ulf_fiber_branch_name(tau: float, coverage: int, branch: str, *, legacy: bool = False) -> str:
+    """Return a branch name that preserves the configured threshold identity."""
+    if branch not in {"no_delta_hf", "delta_hf_adjusted"}:
+        raise ValueError(f"unsupported ULF normative-fiber branch {branch!r}")
+    if legacy:
+        return f"ulf_peak_efield_{tau_slug(tau)}_{branch}"
+    return f"ulf_peak_efield_{tau_slug(tau)}_cov{int(coverage)}_{branch}"
+
+
+def ulf_fiber_artifact_names(
+    tau: float,
+    coverage: int,
+    branch: str,
+    *,
+    dynamic: bool,
+) -> dict[str, str]:
+    """Return configured names while retaining the legacy wrapper names on request."""
+    if not dynamic:
+        return {
+            "weights_csv": "normative_ULF_fiber_weights.csv",
+            "scores_csv": "normative_ULF_fiber_scores.csv",
+            "predictions_csv": "normative_ULF_fiber_loocv_predictions.csv",
+            "qc_json": "normative_ULF_fiber_mapping_qc.json",
+            "branch_manifest": "normative_ULF_fiber_generation_manifest.json",
+            "resolver_scan": "normative_ULF_fiber_tau_coverage_source_resolver_scan.csv",
+            "resolver_manifest": "normative_ULF_fiber_tau_coverage_source_resolver_manifest.json",
+            "selected_source": "normative_ULF_fiber_selected_source.json",
+        }
+    token = ulf_fiber_branch_name(tau, coverage, branch).removeprefix("ulf_peak_efield_")
+    return {
+        "weights_csv": f"normative_ULF_fiber_{token}_weights.csv",
+        "scores_csv": f"normative_ULF_fiber_{token}_scores.csv",
+        "predictions_csv": f"normative_ULF_fiber_{token}_loocv_predictions.csv",
+        "qc_json": f"normative_ULF_fiber_{token}_mapping_qc.json",
+        "branch_manifest": f"normative_ULF_fiber_{token}_generation_manifest.json",
+        "resolver_scan": f"normative_ULF_fiber_{token}_source_resolver_scan.csv",
+        "resolver_manifest": f"normative_ULF_fiber_{token}_source_resolver_manifest.json",
+        "selected_source": f"normative_ULF_fiber_{token}_selected_source.json",
+    }
 
 
 def component_phase_from_post_scale(post_scale: str) -> str:
@@ -755,7 +797,7 @@ def evaluate_ulf_norm_fiber_grid_cell(
         )
     try:
         result = run_ulf_fiber_branch(
-            branch_name=f"ulf_peak_efield_tau{tau}_{branch}",
+            branch_name=ulf_fiber_branch_name(float(tau), int(coverage), branch),
             x_ulf_only=x_ulf_only,
             y_post=y_post,
             y_hf_ref=y_hf_ref,
@@ -820,13 +862,20 @@ def evaluate_ulf_norm_fiber_grid_cell(
     return row
 
 
-def resolve_ulf_norm_fiber_branch(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def resolve_ulf_norm_fiber_branch(
+    rows: list[dict[str, Any]],
+    *,
+    tau_grid: tuple[float, ...] | list[float] = tuple(ULF_NORM_FIBER_TAU_GRID),
+    coverage_grid: tuple[int, ...] | list[int] = tuple(ULF_NORM_FIBER_COVERAGE_GRID),
+    primary_tau: float = ULF_NORM_FIBER_PRIMARY_TAU,
+    primary_coverage: int = ULF_NORM_FIBER_PRIMARY_COVERAGE,
+) -> dict[str, Any]:
     resolved = resolve_hf_source(
         rows,
-        primary_tau=ULF_NORM_FIBER_PRIMARY_TAU,
-        primary_coverage=ULF_NORM_FIBER_PRIMARY_COVERAGE,
-        tau_grid=ULF_NORM_FIBER_TAU_GRID,
-        coverage_grid=ULF_NORM_FIBER_COVERAGE_GRID,
+        primary_tau=float(primary_tau),
+        primary_coverage=int(primary_coverage),
+        tau_grid=tuple(float(value) for value in tau_grid),
+        coverage_grid=tuple(int(value) for value in coverage_grid),
         pass_predicate=ulf_norm_fiber_hard_computability_passes,
     )
     return {
@@ -858,10 +907,12 @@ def write_ulf_norm_fiber_source_scan_outputs(
     rows: list[dict[str, Any]],
     branch_resolutions: dict[str, dict[str, Any]],
     manifest: dict[str, Any],
+    scan_filename: str = "normative_ULF_fiber_tau_coverage_source_resolver_scan.csv",
+    manifest_filename: str = "normative_ULF_fiber_tau_coverage_source_resolver_manifest.json",
 ) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    scan_csv = output_dir / "normative_ULF_fiber_tau_coverage_source_resolver_scan.csv"
-    manifest_json = output_dir / "normative_ULF_fiber_tau_coverage_source_resolver_manifest.json"
+    scan_csv = output_dir / scan_filename
+    manifest_json = output_dir / manifest_filename
     fieldnames = [
         "branch",
         "branch_role",
@@ -904,20 +955,34 @@ def write_ulf_norm_fiber_source_scan_outputs(
     return {"scan_csv": str(scan_csv), "manifest_json": str(manifest_json)}
 
 
-def write_branch_outputs(branch_dir: Path, branch: dict[str, Any], fiber_ids: np.ndarray, qc_common: dict[str, Any], manifest_common: dict[str, Any]) -> None:
+def write_branch_outputs(
+    branch_dir: Path,
+    branch: dict[str, Any],
+    fiber_ids: np.ndarray,
+    qc_common: dict[str, Any],
+    manifest_common: dict[str, Any],
+    *,
+    artifact_names: dict[str, str] | None = None,
+) -> None:
     branch_dir.mkdir(parents=True, exist_ok=True)
+    names = artifact_names or ulf_fiber_artifact_names(800, 5, "no_delta_hf", dynamic=False)
+    coverage_column = f"coverage_{tau_slug(float(manifest_common.get('selected_tau_v_per_m', 800)))}"
     candidate_indices = np.where(branch["candidate"])[0]
     weight_rows = [
         {
             "fiber_id": int(fiber_ids[idx]),
-            "coverage_tau800": int(branch["coverage"][idx]),
+            coverage_column: int(branch["coverage"][idx]),
             "rho_ULF": float(branch["rho"][idx]) if np.isfinite(branch["rho"][idx]) else "",
             "M_ULF": float(branch["weights"][idx]) if np.isfinite(branch["weights"][idx]) else "",
             "is_candidate": True,
         }
         for idx in candidate_indices
     ]
-    write_csv(branch_dir / "normative_ULF_fiber_weights.csv", weight_rows, ["fiber_id", "coverage_tau800", "rho_ULF", "M_ULF", "is_candidate"])
+    write_csv(
+        branch_dir / names["weights_csv"],
+        weight_rows,
+        ["fiber_id", coverage_column, "rho_ULF", "M_ULF", "is_candidate"],
+    )
     score_fields = [
         "subject_id",
         "Y_post",
@@ -956,8 +1021,8 @@ def write_branch_outputs(branch_dir: Path, branch: dict[str, Any], fiber_ids: np
         "baseline_beta_Y_HF_ref",
         "baseline_gamma_DeltaHFFiberScore",
     ]
-    write_csv(branch_dir / "normative_ULF_fiber_scores.csv", branch["score_rows"], score_fields)
-    write_csv(branch_dir / "normative_ULF_fiber_loocv_predictions.csv", branch["fold_rows"], fold_fields)
+    write_csv(branch_dir / names["scores_csv"], branch["score_rows"], score_fields)
+    write_csv(branch_dir / names["predictions_csv"], branch["fold_rows"], fold_fields)
     if branch["support_rows"]:
         write_csv(
             branch_dir / "normative_ULF_fiber_delta_hf_support_summary.csv",
@@ -1000,16 +1065,454 @@ def write_branch_outputs(branch_dir: Path, branch: dict[str, Any], fiber_ids: np
             "status": "PASS",
             "outputs": {
                 "branch_dir": str(branch_dir),
-                "weights_csv": str(branch_dir / "normative_ULF_fiber_weights.csv"),
-                "scores_csv": str(branch_dir / "normative_ULF_fiber_scores.csv"),
-                "loocv_predictions_csv": str(branch_dir / "normative_ULF_fiber_loocv_predictions.csv"),
-                "mapping_qc_json": str(branch_dir / "normative_ULF_fiber_mapping_qc.json"),
-                "generation_manifest_json": str(branch_dir / "normative_ULF_fiber_generation_manifest.json"),
+                "weights_csv": str(branch_dir / names["weights_csv"]),
+                "scores_csv": str(branch_dir / names["scores_csv"]),
+                "loocv_predictions_csv": str(branch_dir / names["predictions_csv"]),
+                "mapping_qc_json": str(branch_dir / names["qc_json"]),
+                "generation_manifest_json": str(branch_dir / names["branch_manifest"]),
             },
         }
     )
-    write_json(branch_dir / "normative_ULF_fiber_mapping_qc.json", qc)
-    write_json(branch_dir / "normative_ULF_fiber_generation_manifest.json", manifest)
+    write_json(branch_dir / names["qc_json"], qc)
+    write_json(branch_dir / names["branch_manifest"], manifest)
+
+
+def _configured_clinical_records(config: Any) -> tuple[list[ULFRecord], np.ndarray, np.ndarray, np.ndarray]:
+    """Load one configured endpoint without inferring scale, protocol, phase, or subjects."""
+    path = Path(config.clinical_table)
+    if not path.is_file():
+        raise FileNotFoundError(f"configured clinical table is missing: {path}")
+    if path.suffix.lower() == ".csv":
+        table = pd.read_csv(path)
+    elif path.suffix.lower() in {".xlsx", ".xls"}:
+        table = pd.read_excel(path)
+    else:
+        raise ValueError(f"unsupported configured clinical table format: {path.suffix}")
+    columns = dict(config.clinical_columns)
+    missing = sorted(set(columns.values()).difference(table.columns))
+    if missing:
+        raise RuntimeError("configured clinical table is missing columns: " + ", ".join(missing))
+
+    def condition(protocol: str, phase: str) -> pd.DataFrame:
+        return table[
+            table[columns["scale"]].astype(str).eq(config.scale)
+            & table[columns["protocol"]].astype(str).eq(protocol)
+            & table[columns["phase"]].astype(str).eq(phase)
+        ].copy()
+
+    post = condition(config.endpoint_protocol, config.endpoint_phase)
+    reference = condition(config.hf_reference_protocol, config.hf_reference_phase)
+    subject_column = columns["subject_id"]
+    for label, rows in (("post", post), ("HF reference", reference)):
+        duplicates = rows[rows.duplicated(subject_column, keep=False)][subject_column].astype(str).unique()
+        if duplicates.size:
+            raise RuntimeError(f"duplicate configured {label} rows: {','.join(sorted(duplicates))}")
+    post_by_subject = post.set_index(post[subject_column].astype(str), drop=False)
+    reference_by_subject = reference.set_index(reference[subject_column].astype(str), drop=False)
+    records: list[ULFRecord] = []
+    for subject_id in config.subject_order:
+        if subject_id not in post_by_subject.index or subject_id not in reference_by_subject.index:
+            raise RuntimeError(f"configured endpoint subject is missing clinical rows: {subject_id}")
+        post_row = post_by_subject.loc[subject_id]
+        reference_row = reference_by_subject.loc[subject_id]
+        values = (
+            float(post_row[columns["value"]]),
+            float(reference_row[columns["value"]]),
+            float(post_row[columns["baseline"]]),
+        )
+        if not all(np.isfinite(value) for value in values):
+            raise RuntimeError(f"configured endpoint subject has nonfinite clinical values: {subject_id}")
+        records.append(ULFRecord(subject_id=subject_id, y_post=values[0], y_hf_ref=values[1], y_base=values[2]))
+    y_post = np.asarray([record.y_post for record in records], dtype=float)
+    y_hf_ref = np.asarray([record.y_hf_ref for record in records], dtype=float)
+    y_base = np.asarray([record.y_base for record in records], dtype=float)
+    return records, y_post, y_hf_ref, y_base
+
+
+def _array_sha256(values: np.ndarray) -> str:
+    array = np.ascontiguousarray(values)
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(json.dumps(list(array.shape), separators=(",", ":")).encode("ascii"))
+    digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_ulf_normative_fiber_hf_component_configured(config: Any) -> dict[str, Any]:
+    """Build endpoint-ordered HF-component exposure on an explicit normative-fiber axis."""
+    required = (
+        "scale",
+        "endpoint_protocol",
+        "endpoint_phase",
+        "connectome_id",
+        "connectome_path",
+        "output_dir",
+    )
+    missing = [name for name in required if not str(getattr(config, name, "")).strip()]
+    if missing:
+        raise ValueError("configured HF-component fiber input is missing: " + ", ".join(missing))
+    records, _, _, _ = _configured_clinical_records(config)
+    subject_ids = [record.subject_id for record in records]
+    if tuple(subject_ids) != tuple(config.subject_order):
+        raise RuntimeError("configured HF-component clinical subject order drifted")
+    availability = load_component_availability(Path(config.readiness_csv))
+    for column in ("protocol", "phase"):
+        if column not in availability.columns:
+            raise RuntimeError(f"configured component readiness CSV is missing {column!r}")
+    availability = availability[
+        availability["protocol"].astype(str).eq(config.endpoint_protocol)
+        & availability["phase"].astype(str).eq(config.endpoint_phase)
+    ].copy()
+    if availability.empty:
+        raise RuntimeError("configured component readiness has no rows for the requested endpoint phase")
+
+    output_dir = Path(config.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    samplers, sampler_qc = prepare_component_fiber_samplers(
+        availability,
+        records,
+        "HF",
+        Path(config.asset_root),
+        Path(config.matlab_bin),
+        output_dir,
+        bool(config.force_flip),
+    )
+    exposure, fiber_ids, exposure_qc = load_or_build_component_exposure(
+        Path(config.connectome_path),
+        records,
+        samplers,
+        output_dir,
+        "HF_component",
+        max_fibers=int(config.max_fibers),
+        fiber_chunk_size=int(config.fiber_chunk_size),
+        force_rebuild=bool(config.force_rebuild),
+    )
+    exposure_path = output_dir / "X_HF_component_fiber_float32_subject_major.npy"
+    fiber_ids_path = output_dir / "fiber_ids.npy"
+    observed_shape = tuple(int(value) for value in np.asarray(exposure).shape)
+    if observed_shape != (len(subject_ids), int(np.asarray(fiber_ids).size)):
+        raise RuntimeError("configured HF-component exposure shape is inconsistent")
+    return {
+        "exposure_matrix": str(exposure_path),
+        "exposure_sha256": _file_sha256(exposure_path),
+        "fiber_ids": str(fiber_ids_path),
+        "fiber_ids_file_sha256": _file_sha256(fiber_ids_path),
+        "feature_axis_sha256": _array_sha256(np.asarray(fiber_ids)),
+        "feature_axis_count": int(np.asarray(fiber_ids).size),
+        "feature_identity_source": config.connectome_identity_source,
+        "subject_order": subject_ids,
+        "component_sampler_qc": sampler_qc,
+        "component_exposure_qc": exposure_qc,
+    }
+
+
+def _configured_delta_inputs(config: Any, subject_ids: list[str]) -> tuple[np.ndarray | None, Any, list[dict[str, Any]]]:
+    if config.branch == "no_delta_hf":
+        if config.delta_full_scores_path is not None or config.delta_fold_scores_path is not None:
+            raise ValueError("no_delta_hf must not receive DeltaHF score artifacts")
+        return None, None, []
+    if config.branch != "delta_hf_adjusted":
+        raise ValueError(f"unsupported configured ULF normative-fiber branch {config.branch!r}")
+    if config.delta_full_scores_path is None or config.delta_fold_scores_path is None:
+        raise ValueError("delta_hf_adjusted requires full and fold-by-subject DeltaHF artifacts")
+    full_scores = np.asarray(np.load(config.delta_full_scores_path), dtype=float)
+    fold_scores = np.asarray(np.load(config.delta_fold_scores_path), dtype=float)
+    n_subjects = len(subject_ids)
+    if full_scores.shape != (n_subjects,):
+        raise ValueError(f"DeltaHF full-score shape must be {(n_subjects,)}, got {full_scores.shape}")
+    if fold_scores.shape != (n_subjects, n_subjects):
+        raise ValueError(
+            f"DeltaHF fold-by-subject shape must be {(n_subjects, n_subjects)}, got {fold_scores.shape}"
+        )
+    if not np.all(np.isfinite(full_scores)) or not np.all(np.isfinite(fold_scores)):
+        raise ValueError("DeltaHF full and fold-by-subject scores must be finite")
+    support_rows: list[dict[str, Any]] = []
+    if config.delta_support_rows_path is not None:
+        support_rows = pd.read_csv(config.delta_support_rows_path).to_dict(orient="records")
+
+    def fold_provider(heldout: int) -> dict[str, Any]:
+        def matches(item: dict[str, Any]) -> bool:
+            if str(item.get("subject_id", "")) == subject_ids[heldout]:
+                return True
+            fold_id = pd.to_numeric(pd.Series([item.get("fold_id")]), errors="coerce").iloc[0]
+            return bool(np.isfinite(fold_id) and int(fold_id) == heldout + 1)
+
+        row = next(
+            (item for item in support_rows if matches(item)),
+            None,
+        )
+        return {"delta": fold_scores[heldout], "support_row": row}
+
+    return full_scores, fold_provider, support_rows
+
+
+def run_ulf_normative_fiber_configured(config: Any) -> dict[str, Any]:
+    """Run one configured ULF fiber branch and resolve its source grid."""
+    started = time.time()
+    required = (
+        "scale",
+        "endpoint_protocol",
+        "endpoint_phase",
+        "hf_reference_protocol",
+        "hf_reference_phase",
+        "connectome_id",
+        "connectome_path",
+        "output_dir",
+        "branch",
+    )
+    missing = [name for name in required if not str(getattr(config, name, "")).strip()]
+    if missing:
+        raise ValueError("configured ULF fiber input is missing: " + ", ".join(missing))
+    if config.branch == "delta_hf_adjusted" and not math.isfinite(float(config.hf_overlap_tau)):
+        raise ValueError("adjusted ULF fiber branch requires a finite matched HF selected tau")
+
+    records, y_post, y_hf_ref, _ = _configured_clinical_records(config)
+    subject_ids = [record.subject_id for record in records]
+    availability = load_component_availability(Path(config.readiness_csv))
+    for column in ("protocol", "phase"):
+        if column not in availability.columns:
+            raise RuntimeError(f"configured component readiness CSV is missing {column!r}")
+    availability = availability[
+        availability["protocol"].astype(str).eq(config.endpoint_protocol)
+        & availability["phase"].astype(str).eq(config.endpoint_phase)
+    ].copy()
+    if availability.empty:
+        raise RuntimeError("configured component readiness has no rows for the requested endpoint phase")
+
+    preprocess_dir = Path(config.preprocess_dir)
+    output_dir = Path(config.output_dir)
+    preprocess_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    hf_samplers, hf_sampler_qc = prepare_component_fiber_samplers(
+        availability,
+        records,
+        "HF",
+        Path(config.asset_root),
+        Path(config.matlab_bin),
+        preprocess_dir,
+        bool(config.force_flip),
+    )
+    ulf_samplers, ulf_sampler_qc = prepare_component_fiber_samplers(
+        availability,
+        records,
+        "ULF",
+        Path(config.asset_root),
+        Path(config.matlab_bin),
+        preprocess_dir,
+        bool(config.force_flip),
+    )
+    x_hf_component, fiber_ids, hf_component_qc = load_or_build_component_exposure(
+        Path(config.connectome_path),
+        records,
+        hf_samplers,
+        preprocess_dir,
+        "HF_component",
+        max_fibers=int(config.max_fibers),
+        fiber_chunk_size=int(config.fiber_chunk_size),
+        force_rebuild=bool(config.force_rebuild),
+    )
+    x_ulf_component, ulf_fiber_ids, ulf_component_qc = load_or_build_component_exposure(
+        Path(config.connectome_path),
+        records,
+        ulf_samplers,
+        preprocess_dir,
+        "ULF_component",
+        max_fibers=int(config.max_fibers),
+        fiber_chunk_size=int(config.fiber_chunk_size),
+        force_rebuild=bool(config.force_rebuild),
+    )
+    if not np.array_equal(fiber_ids, ulf_fiber_ids):
+        raise RuntimeError("configured HF and ULF component fiber identities differ")
+    axis_sha = _array_sha256(np.asarray(fiber_ids))
+    if config.hf_feature_axis_sha256 is not None and axis_sha != config.hf_feature_axis_sha256:
+        raise RuntimeError("configured ULF component fiber axis does not match the immutable HF source")
+
+    nuisance_full, nuisance_provider, _ = _configured_delta_inputs(config, subject_ids)
+    rows: list[dict[str, Any]] = []
+    for tau in config.tau_grid:
+        x_ulf_only = apply_ulf_only_fiber_rule(
+            np.asarray(x_hf_component),
+            np.asarray(x_ulf_component),
+            float(tau),
+            hf_overlap_tau=float(config.hf_overlap_tau),
+        )
+        for coverage in config.coverage_grid:
+            rows.append(
+                evaluate_ulf_norm_fiber_grid_cell(
+                    branch=config.branch,
+                    branch_role="configured_candidate",
+                    connectome_key=config.connectome_id,
+                    x_ulf_only=x_ulf_only,
+                    y_post=y_post,
+                    y_hf_ref=y_hf_ref,
+                    nuisance_full=nuisance_full,
+                    nuisance_fold_provider=nuisance_provider,
+                    subject_ids=subject_ids,
+                    scale_direction=config.scale_direction,
+                    tau=float(tau),
+                    coverage=int(coverage),
+                    fiber_ids=np.asarray(fiber_ids),
+                )
+            )
+    resolution = resolve_ulf_norm_fiber_branch(
+        rows,
+        tau_grid=config.tau_grid,
+        coverage_grid=config.coverage_grid,
+        primary_tau=config.primary_tau,
+        primary_coverage=config.primary_coverage,
+    )
+    names = ulf_fiber_artifact_names(
+        config.primary_tau,
+        config.primary_coverage,
+        config.branch,
+        dynamic=bool(config.dynamic_names),
+    )
+    scan_outputs = write_ulf_norm_fiber_source_scan_outputs(
+        output_dir,
+        rows=rows,
+        branch_resolutions={config.branch: resolution},
+        manifest={
+            "generated_at": iso_now(),
+            "analysis": "configured_ulf_normative_fiber_source_resolver",
+            "endpoint": {
+                "scale": config.scale,
+                "protocol": config.endpoint_protocol,
+                "phase": config.endpoint_phase,
+                "subject_order": subject_ids,
+            },
+            "inputs": {
+                "clinical_table": str(config.clinical_table),
+                "stimulation_table": str(config.stimulation_table),
+                "readiness_csv": str(config.readiness_csv),
+                "derivatives_root": str(config.derivatives_root),
+                "asset_root": str(config.asset_root),
+            },
+            "branch": config.branch,
+            "nuisance_columns": list(config.nuisance_columns),
+            "connectome_id": config.connectome_id,
+            "connectome_label": config.connectome_label,
+            "connectome_path": str(config.connectome_path),
+            "connectome_identity_source": config.connectome_identity_source,
+            "tau_grid_v_per_m": list(config.tau_grid),
+            "coverage_grid": list(config.coverage_grid),
+            "pre_specified_tau_v_per_m": config.primary_tau,
+            "pre_specified_coverage": config.primary_coverage,
+            "hf_source_status": config.hf_source_status,
+            "hf_prediction_status": config.hf_prediction_status,
+            "hf_source_record_hash": config.hf_source_record_hash,
+            "hf_overlap_tau_v_per_m": config.hf_overlap_tau if math.isfinite(config.hf_overlap_tau) else "+Inf",
+            "hf_overlap_coverage": config.hf_overlap_coverage,
+            "delta_hf_record_hash": config.delta_hf_record_hash,
+            "delta_support_status": config.delta_support_status,
+            "delta_full_scores_path": (
+                str(config.delta_full_scores_path) if config.delta_full_scores_path is not None else None
+            ),
+            "delta_fold_scores_path": (
+                str(config.delta_fold_scores_path) if config.delta_fold_scores_path is not None else None
+            ),
+            "delta_support_rows_path": (
+                str(config.delta_support_rows_path) if config.delta_support_rows_path is not None else None
+            ),
+            "runtime_s": time.time() - started,
+        },
+        scan_filename=names["resolver_scan"],
+        manifest_filename=names["resolver_manifest"],
+    )
+
+    selected_source_path = output_dir / names["selected_source"]
+    selected_payload: dict[str, Any] = {"branch": config.branch, **resolution}
+    selected_artifacts: dict[str, str] = {}
+    source_status = str(resolution["ulf_norm_fiber_source_status"])
+    selected_tau = resolution["ulf_norm_fiber_selected_tau_v_per_m"]
+    selected_coverage = resolution["ulf_norm_fiber_selected_coverage"]
+    if source_status in {"pre_specified_accepted", "scan_fallback_accepted"}:
+        x_selected = apply_ulf_only_fiber_rule(
+            np.asarray(x_hf_component),
+            np.asarray(x_ulf_component),
+            float(selected_tau),
+            hf_overlap_tau=float(config.hf_overlap_tau),
+        )
+        selected_branch = run_ulf_fiber_branch(
+            branch_name=ulf_fiber_branch_name(float(selected_tau), int(selected_coverage), config.branch),
+            x_ulf_only=x_selected,
+            y_post=y_post,
+            y_hf_ref=y_hf_ref,
+            nuisance_full=nuisance_full,
+            nuisance_fold_provider=nuisance_provider,
+            subject_ids=subject_ids,
+            scale_direction=config.scale_direction,
+            tau=float(selected_tau),
+            min_coverage=int(selected_coverage),
+            fiber_ids=np.asarray(fiber_ids),
+        )
+        selected_names = ulf_fiber_artifact_names(
+            float(selected_tau), int(selected_coverage), config.branch, dynamic=bool(config.dynamic_names)
+        )
+        branch_dir = output_dir / ulf_fiber_branch_name(float(selected_tau), int(selected_coverage), config.branch)
+        write_branch_outputs(
+            branch_dir,
+            selected_branch,
+            np.asarray(fiber_ids),
+            {
+                "model": "configured ULF normative connectome fiber",
+                "branch": config.branch,
+                "connectome_id": config.connectome_id,
+                "n_subjects": len(subject_ids),
+                "hf_component_qc": hf_component_qc,
+                "ulf_component_qc": ulf_component_qc,
+            },
+            {
+                "generated_at": iso_now(),
+                "branch": config.branch,
+                "selected_tau_v_per_m": float(selected_tau),
+                "selected_coverage": int(selected_coverage),
+                "scale_direction": config.scale_direction,
+                "subject_order": subject_ids,
+                "hf_source_record_hash": config.hf_source_record_hash,
+                "delta_hf_record_hash": config.delta_hf_record_hash,
+                "component_sampler_qc": {"HF": hf_sampler_qc, "ULF": ulf_sampler_qc},
+            },
+            artifact_names=selected_names,
+        )
+        exposure_path = branch_dir / "X_ULF_only_fiber_float32_subject_major.npy"
+        np.save(exposure_path, np.asarray(x_selected, dtype=np.float32))
+        selected_artifacts = {
+            "selected_manifest": str(branch_dir / selected_names["branch_manifest"]),
+            "selected_scores": str(branch_dir / selected_names["scores_csv"]),
+            "exposure_matrix": str(exposure_path),
+        }
+        selected_payload["selected_branch_dir"] = str(branch_dir)
+    write_json(selected_source_path, selected_payload)
+
+    return {
+        "branch": config.branch,
+        "source_status": source_status,
+        "prediction_status": resolution["ulf_norm_fiber_prediction_status"],
+        "threshold_source": resolution["ulf_norm_fiber_threshold_source"],
+        "selected_tau": selected_tau,
+        "selected_coverage": selected_coverage,
+        "adjacent_support": resolution["ulf_norm_fiber_selected_adjacent_passing_grid_cells"],
+        "subject_order": subject_ids,
+        "feature_axis": {
+            "ids_path": str(preprocess_dir / "fiber_ids.npy"),
+            "count": int(np.asarray(fiber_ids).shape[0]),
+            "sha256": axis_sha,
+            "identity_source": config.connectome_identity_source,
+        },
+        "artifacts": {
+            "source_status": scan_outputs["manifest_json"],
+            "selected_source": str(selected_source_path),
+            **selected_artifacts,
+        },
+    }
 
 
 def run_ulf_normative_fiber_observed(args: argparse.Namespace) -> int:
