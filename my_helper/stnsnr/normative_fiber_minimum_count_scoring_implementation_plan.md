@@ -639,6 +639,13 @@ Pass the public six-field policy into `_loocv_oss` and `_full_sample_weights_sco
 
 Verified on `stnvop` before the Task 7 commit: 68 focused OSS/planner/registry tests and 298 complete `outcome_models` tests passed; `py_compile` and `git diff --check` also passed. No real OSS workload was launched during this unit/regression stage.
 
+The later real-acceptance storage repair implements sample-level compact
+artifacts, permanent `ephemeral_runtime` cleanup, exact row identities, nested
+artifact hashes, and tamper-sensitive row checkpoint reuse. Its focused OSS
+suite passes 26 tests and the complete configured-core suite passes 304 tests;
+Python compilation and `git diff --check` pass. Real two-scale acceptance still
+must be resumed after cleaning the interrupted runtime.
+
 ```bash
 PYTHONPATH=my_helper/fiber/core:my_helper/fiber/core/analysis \
   conda run -n leaddbs python -m unittest \

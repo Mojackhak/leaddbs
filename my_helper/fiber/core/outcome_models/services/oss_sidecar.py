@@ -777,6 +777,41 @@ def generate_configured_oss_content(
     row_index = 0
     for side_input in ordered_inputs:
         for source_index, source_path in enumerate(side_input.source_paths):
+            stimulation_parameter_path = (
+                side_input.stimulation_parameter_paths[source_index]
+                if side_input.stimulation_parameter_paths
+                else None
+            )
+            stimulation_parameter_sha256 = (
+                side_input.stimulation_parameter_sha256[source_index]
+                if side_input.stimulation_parameter_sha256
+                else ""
+            )
+            row_identity = canonical_hash(
+                {
+                    "checkpoint_contract": "configured_oss_row_v1",
+                    "compatibility_hash": request.compatibility_hash,
+                    "final_model_id": request.final.final_model_id,
+                    "final_record_hash": request.final.record_hash,
+                    "subject_id": side_input.subject_id,
+                    "side": side_input.side,
+                    "source_index": source_index,
+                    "source_path": str(Path(source_path).expanduser().resolve()),
+                    "source_sha256": side_input.source_sha256[source_index],
+                    "stimulation_parameter_path": (
+                        ""
+                        if stimulation_parameter_path is None
+                        else str(Path(stimulation_parameter_path).expanduser().resolve())
+                    ),
+                    "stimulation_parameter_sha256": stimulation_parameter_sha256,
+                    "source_frequency_hz": side_input.modeled_frequency_hz,
+                    "canonicalization_mode": (
+                        "left_geometry_to_right"
+                        if side_input.side == "L"
+                        else "native_right"
+                    ),
+                }
+            )
             row = {
                 "model_id": request.final.final_model_id,
                 "subject_id": side_input.subject_id,
@@ -786,6 +821,10 @@ def generate_configured_oss_content(
                 "source_component": str(
                     request.compatibility_payload["component_identity"]
                 ),
+                "source_sha256": side_input.source_sha256[source_index],
+                "final_record_hash": request.final.record_hash,
+                "oss_compatibility_hash": request.compatibility_hash,
+                "oss_row_identity_sha256": row_identity,
                 "canonicalization_mode": (
                     "left_geometry_to_right"
                     if side_input.side == "L"
@@ -871,6 +910,13 @@ def generate_configured_oss_content(
                     "source_path": str(source_path),
                     "preflight_status": preflight_result["preflight_status"],
                     "activation_status": activation_result["row_status"],
+                    "row_checkpoint_json": activation_result.get(
+                        "row_checkpoint_json",
+                        "",
+                    ),
+                    "row_checkpoint_reused": bool(
+                        activation_result.get("row_checkpoint_reused", False)
+                    ),
                     "probability_manifest": activation_result.get(
                         "probability_manifest",
                         "",

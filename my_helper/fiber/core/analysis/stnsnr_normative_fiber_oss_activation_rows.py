@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import shutil
@@ -52,6 +53,28 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    try:
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def _run_logged_command(
@@ -570,6 +593,109 @@ def _find_sample_axon_state(output_path: Path, sample_index: int) -> Path:
     return mat_candidates[0] if mat_candidates else candidates[0]
 
 
+def _copy_compact_artifact(source: Path, destination: Path) -> dict[str, str]:
+    source = Path(source).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"missing compact OSS source artifact: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return {
+        "path": str(destination.resolve()),
+        "sha256": _sha256_file(destination),
+    }
+
+
+def _compact_sample_record(
+    *,
+    sample_index: int,
+    parameter_file: Path,
+    stimulation_folder: Path,
+    converter_json: Path,
+    pathway_outputs: Sequence[Path],
+    axon_state_path: Path,
+    frequency_metadata: dict[str, Any],
+    commands: dict[str, dict[str, Any]],
+    compact_output_dir: Path,
+    cleanup_ephemeral: bool,
+) -> dict[str, Any]:
+    sample_dir = Path(compact_output_dir) / f"sample_{sample_index:02d}"
+    sample_dir.mkdir(parents=True, exist_ok=True)
+    converter_ref = _copy_compact_artifact(
+        converter_json,
+        sample_dir / "converter_parameters.json",
+    )
+    axon_state_ref = _copy_compact_artifact(
+        axon_state_path,
+        sample_dir / f"axon_state{axon_state_path.suffix.lower()}",
+    )
+    pathway_refs = []
+    for path in pathway_outputs:
+        if Path(path).is_file():
+            pathway_refs.append(
+                _copy_compact_artifact(
+                    Path(path),
+                    sample_dir / Path(path).name,
+                )
+            )
+    if not pathway_refs:
+        raise RuntimeError(f"sample {sample_index} has no compact pathway status")
+
+    command_records: dict[str, dict[str, Any]] = {}
+    for name, command in commands.items():
+        command_record = dict(command)
+        for key in ("stdout_log", "stderr_log"):
+            value = str(command_record.get(key, "")).strip()
+            if value:
+                log_path = Path(value).expanduser().resolve()
+                if not log_path.is_file():
+                    raise FileNotFoundError(
+                        f"sample {sample_index} command log is missing: {log_path}"
+                    )
+                command_record[f"{key}_sha256"] = _sha256_file(log_path)
+        command_records[name] = command_record
+
+    parameter_file = Path(parameter_file).expanduser().resolve()
+    manifest_path = sample_dir / "compact_sample_manifest.json"
+    manifest = {
+        "sample_index": sample_index,
+        "pam_n_samples": PAM_N_SAMPLES,
+        "parameter_file": str(parameter_file),
+        "parameter_file_sha256": _sha256_file(parameter_file),
+        "converter_json": converter_ref,
+        "axon_state": axon_state_ref,
+        "pathway_outputs": pathway_refs,
+        "frequency": frequency_metadata,
+        "commands": command_records,
+        "ephemeral_runtime_policy": "delete_after_compact_validation",
+    }
+    _write_json_atomic(manifest_path, manifest)
+    if _load_json(manifest_path) != manifest:
+        raise RuntimeError(f"sample {sample_index} compact manifest validation failed")
+    _load_json(Path(converter_ref["path"]))
+    _load_local_activation_status(Path(axon_state_ref["path"]))
+
+    if cleanup_ephemeral:
+        shutil.rmtree(stimulation_folder)
+    return {
+        "sample_index": sample_index,
+        "parameter_file": str(parameter_file),
+        "parameter_file_sha256": manifest["parameter_file_sha256"],
+        "hemi_side": 0,
+        "canonicalization": "right",
+        "converter_json": converter_ref["path"],
+        "converter_json_sha256": converter_ref["sha256"],
+        "pathway_outputs": [item["path"] for item in pathway_refs],
+        "pathway_output_sha256": [item["sha256"] for item in pathway_refs],
+        "axon_state_path": axon_state_ref["path"],
+        "axon_state_sha256": axon_state_ref["sha256"],
+        "frequency": frequency_metadata,
+        "commands": command_records,
+        "compact_sample_manifest": str(manifest_path.resolve()),
+        "compact_sample_manifest_sha256": _sha256_file(manifest_path),
+        "ephemeral_runtime_deleted": bool(cleanup_ephemeral),
+    }
+
+
 def _execute_probabilistic_sample_chain(
     *,
     sample_parameter_files: Sequence[Path],
@@ -584,6 +710,9 @@ def _execute_probabilistic_sample_chain(
     ossdbs_timeout_s: int | None,
     pathway_timeout_s: int | None,
     command_runner: Callable[..., dict[str, Any]] = _run_logged_command,
+    compact_output_dir: Path | None = None,
+    cleanup_ephemeral: bool = False,
+    stimulation_template: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Execute the complete right-canonical OSS chain for all ten pPAM samples."""
     parameter_files = [Path(path).expanduser().resolve() for path in sample_parameter_files]
@@ -601,6 +730,11 @@ def _execute_probabilistic_sample_chain(
         zip(parameter_files, stimulation_folders, strict=True),
         start=1,
     ):
+        if stimulation_template is not None:
+            _materialize_sample_stimulation_folder(
+                Path(stimulation_template),
+                stimulation_folder,
+            )
         stimulation_folder.mkdir(parents=True, exist_ok=True)
         command_log_dir = stimulation_folder.parent / "command_logs"
         hemi_folder = stimulation_folder / "OSS_sim_files_rh"
@@ -688,8 +822,7 @@ def _execute_probabilistic_sample_chain(
         if _any_existing_status(pathway_outputs) != "complete":
             raise RuntimeError(f"sample {sample_index} pathway status output is missing")
         axon_state_path = _find_sample_axon_state(output_path, sample_index)
-        records.append(
-            {
+        record = {
                 "sample_index": sample_index,
                 "parameter_file": str(parameter_file),
                 "stimulation_folder": str(stimulation_folder),
@@ -707,7 +840,20 @@ def _execute_probabilistic_sample_chain(
                     "run_pathway_activation": pathway_result,
                 },
             }
-        )
+        if compact_output_dir is not None:
+            record = _compact_sample_record(
+                sample_index=sample_index,
+                parameter_file=parameter_file,
+                stimulation_folder=stimulation_folder,
+                converter_json=converter_json,
+                pathway_outputs=pathway_outputs,
+                axon_state_path=axon_state_path,
+                frequency_metadata=frequency_metadata,
+                commands=record["commands"],
+                compact_output_dir=Path(compact_output_dir),
+                cleanup_ephemeral=cleanup_ephemeral,
+            )
+        records.append(record)
     return records
 
 
@@ -985,6 +1131,145 @@ def _new_execution_dir(row_dir: Path) -> Path:
     return candidate
 
 
+_ROW_CHECKPOINT_ARTIFACT_KEYS = (
+    "right_canonical_candidate_fiber_ids_path",
+    "right_canonical_probability_path",
+    "right_canonical_probability_csv",
+    "probability_manifest",
+    "row_status_json",
+    "local_to_candidate_mapping_path",
+)
+
+
+def _row_checkpoint_artifact_paths(result: dict[str, Any]) -> dict[str, Path]:
+    paths = {
+        f"row.{key}": Path(str(result[key])).expanduser().resolve()
+        for key in _ROW_CHECKPOINT_ARTIFACT_KEYS
+    }
+    status_doc = _load_json(paths["row.row_status_json"])
+    for sample in status_doc.get("sample_records", []):
+        sample_index = int(sample.get("sample_index", -1))
+        prefix = f"sample_{sample_index:02d}"
+        scalar_fields = (
+            "parameter_file",
+            "converter_json",
+            "axon_state_path",
+            "compact_sample_manifest",
+        )
+        for field in scalar_fields:
+            value = str(sample.get(field, "")).strip()
+            if value:
+                paths[f"{prefix}.{field}"] = Path(value).expanduser().resolve()
+        for index, value in enumerate(sample.get("pathway_outputs", [])):
+            paths[f"{prefix}.pathway_output_{index:02d}"] = (
+                Path(str(value)).expanduser().resolve()
+            )
+        for command_name, command in sample.get("commands", {}).items():
+            for log_name in ("stdout_log", "stderr_log"):
+                value = str(command.get(log_name, "")).strip()
+                if value:
+                    paths[f"{prefix}.{command_name}.{log_name}"] = (
+                        Path(value).expanduser().resolve()
+                    )
+    return paths
+
+
+def _valid_row_identity(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if len(text) != 64 or any(ch not in "0123456789abcdef" for ch in text):
+        raise ValueError("OSS row identity must be a full SHA-256 digest")
+    return text
+
+
+def _load_row_checkpoint(
+    logical_row_dir: Path,
+    expected_identity: str | None,
+) -> dict[str, Any] | None:
+    if expected_identity is None:
+        return None
+    checkpoint_path = logical_row_dir / "row_checkpoint.json"
+    if not checkpoint_path.is_file():
+        return None
+    try:
+        checkpoint = _load_json(checkpoint_path)
+        if checkpoint.get("oss_row_identity_sha256") != expected_identity:
+            return None
+        result = dict(checkpoint["result"])
+        artifact_refs = checkpoint["artifacts"]
+        expected_paths = _row_checkpoint_artifact_paths(result)
+        if set(artifact_refs) != set(expected_paths):
+            return None
+        for key, expected_path in expected_paths.items():
+            ref = artifact_refs[key]
+            path = Path(str(ref["path"])).expanduser().resolve()
+            if not path.is_file() or _sha256_file(path) != ref["sha256"]:
+                return None
+            if path != expected_path:
+                return None
+        candidate_ids = np.asarray(
+            np.load(result["right_canonical_candidate_fiber_ids_path"], mmap_mode="r"),
+            dtype=np.int64,
+        )
+        probabilities = np.asarray(
+            np.load(result["right_canonical_probability_path"], mmap_mode="r"),
+            dtype=np.float32,
+        )
+        if candidate_ids.ndim != 1 or probabilities.shape != candidate_ids.shape:
+            return None
+        if not np.all(np.isfinite(probabilities)) or np.any(
+            (probabilities < 0.0) | (probabilities > 1.0)
+        ):
+            return None
+        lattice = (np.rint(probabilities.astype(np.float64) * PAM_N_SAMPLES) / PAM_N_SAMPLES).astype(
+            np.float32
+        )
+        if not np.array_equal(probabilities, lattice):
+            return None
+    except (KeyError, OSError, ValueError, json.JSONDecodeError):
+        return None
+    result["row_checkpoint_json"] = str(checkpoint_path.resolve())
+    result["row_checkpoint_reused"] = True
+    return result
+
+
+def _write_row_checkpoint(
+    *,
+    logical_row_dir: Path,
+    row_identity: str | None,
+    result: dict[str, Any],
+) -> Path | None:
+    if row_identity is None:
+        return None
+    artifact_refs = {}
+    for key, path in _row_checkpoint_artifact_paths(result).items():
+        if not path.is_file():
+            raise FileNotFoundError(f"row checkpoint artifact is missing: {path}")
+        artifact_refs[key] = {"path": str(path), "sha256": _sha256_file(path)}
+    checkpoint_path = logical_row_dir / "row_checkpoint.json"
+    _write_json_atomic(
+        checkpoint_path,
+        {
+            "checkpoint_version": 1,
+            "generated_at": iso_now(),
+            "oss_row_identity_sha256": row_identity,
+            "artifacts": artifact_refs,
+            "result": result,
+        },
+    )
+    return checkpoint_path
+
+
+def _remove_runtime_tree(path: Path, execution_dir: Path) -> None:
+    path = Path(path).expanduser().resolve()
+    execution_dir = Path(execution_dir).expanduser().resolve()
+    if path == execution_dir or execution_dir not in path.parents:
+        raise ValueError(f"refusing to remove OSS runtime outside execution directory: {path}")
+    if path.exists():
+        shutil.rmtree(path)
+
+
 def _run_activation_row(
     *,
     row: dict[str, str],
@@ -1005,6 +1290,10 @@ def _run_activation_row(
 
     logical_row_dir = output_dir / _row_slug(row_index, row)
     logical_row_dir.mkdir(parents=True, exist_ok=True)
+    row_identity = _valid_row_identity(row.get("oss_row_identity_sha256"))
+    reused = _load_row_checkpoint(logical_row_dir, row_identity)
+    if reused is not None:
+        return reused
     execution_dir = _new_execution_dir(logical_row_dir)
     sample_parameter_files = _load_sample_parameter_files(row)
     original_converter_json = Path(row["converter_json"]).expanduser().resolve()
@@ -1032,16 +1321,19 @@ def _run_activation_row(
             f"local-to-candidate mapping has {invalid_mapping_count} invalid candidate columns"
         )
 
-    sample_stimulation_folders: list[Path] = []
-    for sample_index in range(1, PAM_N_SAMPLES + 1):
-        stimulation_folder = (
+    compact_mapping_path = execution_dir / "oss_local_to_candidate_fiber_mapping.csv"
+    shutil.copy2(mapping_path, compact_mapping_path)
+    mapping_rows = _load_mapping_rows(compact_mapping_path)
+
+    sample_stimulation_folders = [
+        (
             execution_dir
             / "pam_samples"
             / f"sample_{sample_index:02d}"
             / "stimulation"
         )
-        _materialize_sample_stimulation_folder(stimulation_template, stimulation_folder)
-        sample_stimulation_folders.append(stimulation_folder)
+        for sample_index in range(1, PAM_N_SAMPLES + 1)
+    ]
 
     sample_records = _execute_probabilistic_sample_chain(
         sample_parameter_files=sample_parameter_files,
@@ -1055,9 +1347,11 @@ def _run_activation_row(
         converter_timeout_s=None if args.converter_timeout_s <= 0 else args.converter_timeout_s,
         ossdbs_timeout_s=None if args.ossdbs_timeout_s <= 0 else args.ossdbs_timeout_s,
         pathway_timeout_s=None if args.pathway_timeout_s <= 0 else args.pathway_timeout_s,
+        compact_output_dir=execution_dir / "compact_samples",
+        cleanup_ephemeral=True,
+        stimulation_template=stimulation_template,
     )
     sample_state_paths = [Path(str(record["axon_state_path"])) for record in sample_records]
-    mapping_rows = _load_mapping_rows(mapping_path)
     candidate_fiber_ids_path = Path(row.get("oss_fiber_ids_path", "")).expanduser().resolve()
     if not candidate_fiber_ids_path.is_file():
         raise FileNotFoundError(f"missing exact candidate fiber axis: {candidate_fiber_ids_path}")
@@ -1075,6 +1369,20 @@ def _run_activation_row(
         mapping_rows=mapping_rows,
         sample_records=sample_records,
     )
+    for stimulation_folder in sample_stimulation_folders:
+        if stimulation_folder.exists():
+            _remove_runtime_tree(stimulation_folder, execution_dir)
+    if (
+        stimulation_template.exists()
+        and execution_dir.resolve() in stimulation_template.resolve().parents
+    ):
+        _remove_runtime_tree(stimulation_template, execution_dir)
+    filter_metadata = {
+        **filter_metadata,
+        "filtered_stimulation_folder": "",
+        "local_to_candidate_mapping_path": str(compact_mapping_path.resolve()),
+        "ephemeral_runtime_deleted": True,
+    }
     status_path = execution_dir / "oss_activation_row_status.json"
     status_doc = {
         "generated_at": iso_now(),
@@ -1093,8 +1401,8 @@ def _run_activation_row(
         "deterministic_single_sample_fallback_allowed": False,
         "side_effects": "row_level_probability_outputs_only_no_branch_x_oss_written",
     }
-    write_json(status_path, status_doc)
-    return {
+    _write_json_atomic(status_path, status_doc)
+    result = {
         "row_index": row_index,
         "model_id": row.get("model_id", ""),
         "subject_id": row.get("subject_id", ""),
@@ -1110,13 +1418,22 @@ def _run_activation_row(
         "oss_n_fibers": row.get("oss_n_fibers", ""),
         "oss_fiber_ids_hash": row.get("oss_fiber_ids_hash", ""),
         "candidate_filter_status": filter_metadata.get("filter_status", ""),
-        "filtered_stimulation_folder": filter_metadata.get("filtered_stimulation_folder", ""),
-        "local_to_candidate_mapping_path": str(mapping_path),
+        "filtered_stimulation_folder": "",
+        "local_to_candidate_mapping_path": str(compact_mapping_path.resolve()),
         "local_to_candidate_mapping_exists": True,
         "local_to_candidate_mapping_n_rows": len(mapping_rows),
         "local_to_candidate_mapping_invalid_candidate_column_count": 0,
+        "ephemeral_runtime_deleted": True,
         **artifacts,
     }
+    checkpoint_path = _write_row_checkpoint(
+        logical_row_dir=logical_row_dir,
+        row_identity=row_identity,
+        result=result,
+    )
+    result["row_checkpoint_json"] = "" if checkpoint_path is None else str(checkpoint_path.resolve())
+    result["row_checkpoint_reused"] = False
+    return result
 
 
 def run_activation_rows(args: argparse.Namespace) -> int:

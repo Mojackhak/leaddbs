@@ -1079,6 +1079,13 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
         self.assertEqual(len(observed_rows), 5)
         self.assertTrue(all(";" not in row["source_paths"] for row in observed_rows))
         self.assertEqual(
+            len({row["oss_row_identity_sha256"] for row in observed_rows}),
+            len(observed_rows),
+        )
+        self.assertTrue(
+            all(len(row["oss_row_identity_sha256"]) == 64 for row in observed_rows)
+        )
+        self.assertEqual(
             {(row["side"], row["canonicalization_mode"]) for row in observed_rows},
             {("L", "left_geometry_to_right"), ("R", "native_right")},
         )

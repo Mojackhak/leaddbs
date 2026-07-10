@@ -1793,6 +1793,16 @@ cleaned. This lifecycle does not alter pPAM probabilities, `p(A) >= 0.5`
 thresholding, candidate-axis selection, source resolution, final-model
 selection, or any endpoint classification.
 
+The configured implementation now creates one sample runtime at a time, copies
+and validates compact sample artifacts before cleanup, deletes successful
+sample runtimes, copies the local-to-candidate mapping outside the filtered
+template, and deletes the filtered template after row completion. A
+content-addressed row checkpoint validates top-level outputs plus nested sample
+parameters, converter JSON, `Axon_state`, pathway status, compact manifests,
+and command logs. Probability or nested-provenance tampering forces row
+regeneration. Verification passes 26 focused OSS tests, all 304 configured-core
+tests, Python compilation, and `git diff --check`.
+
 Run the D PPMI source resolver:
 
 ```bash

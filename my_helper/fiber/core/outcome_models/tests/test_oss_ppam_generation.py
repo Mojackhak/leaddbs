@@ -124,6 +124,11 @@ class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
             def fake_runner(**kwargs: object) -> dict[str, object]:
                 cmd = list(kwargs["cmd"])
                 invocations.append(cmd)
+                stdout_path = Path(kwargs["stdout_path"])
+                stderr_path = Path(kwargs["stderr_path"])
+                stdout_path.parent.mkdir(parents=True, exist_ok=True)
+                stdout_path.write_text("ok\n", encoding="utf-8")
+                stderr_path.write_text("", encoding="utf-8")
                 executable = Path(cmd[0]).name
                 if executable == "prepareaxonmodel":
                     hemi_folder = Path(cmd[1]) / "OSS_sim_files_rh"
@@ -161,7 +166,13 @@ class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
                     )
                 else:
                     self.fail(f"unexpected executable: {executable}")
-                return {"cmd": cmd, "returncode": 0, "timed_out": False}
+                return {
+                    "cmd": cmd,
+                    "returncode": 0,
+                    "timed_out": False,
+                    "stdout_log": str(stdout_path),
+                    "stderr_log": str(stderr_path),
+                }
 
             records = ACTIVATION._execute_probabilistic_sample_chain(
                 sample_parameter_files=parameter_files,
@@ -176,6 +187,8 @@ class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
                 ossdbs_timeout_s=None,
                 pathway_timeout_s=None,
                 command_runner=fake_runner,
+                compact_output_dir=root / "compact_samples",
+                cleanup_ephemeral=True,
             )
 
             self.assertEqual(len(records), 10)
@@ -198,6 +211,10 @@ class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
             for record in records:
                 settings = json.loads(Path(record["converter_json"]).read_text(encoding="utf-8"))
                 self.assertEqual(settings["StimulationSignal"]["Frequency[Hz]"], 130.000000000123)
+                self.assertTrue(Path(record["axon_state_path"]).is_file())
+                self.assertTrue(Path(record["compact_sample_manifest"]).is_file())
+                self.assertTrue(record["ephemeral_runtime_deleted"])
+            self.assertTrue(all(not path.exists() for path in stimulation_folders))
 
     def test_aggregation_preserves_candidate_order_and_zero_half_one_probabilities(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -422,7 +439,11 @@ class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
                     {1: 1 if sample_index <= 5 else 0, 2: 0},
                 )
                 sample_records.append(
-                    {"sample_index": sample_index, "axon_state_path": str(state_path)}
+                    {
+                        "sample_index": sample_index,
+                        "parameter_file": str(parameter_file),
+                        "axon_state_path": str(state_path),
+                    }
                 )
             sample_manifest = root / "sample_manifest.json"
             sample_manifest.write_text(
@@ -434,6 +455,7 @@ class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
                 "subject_id": "sub-01",
                 "side": "L",
                 "canonicalization_mode": "left_geometry_to_right",
+                "oss_row_identity_sha256": "a" * 64,
                 "converter_json": str(converter_json),
                 "parameter_file": str(baseline_parameter),
                 "sample_parameter_manifest": str(sample_manifest),
@@ -494,6 +516,81 @@ class OSSProbabilisticPAMGenerationTests(unittest.TestCase):
             )
             self.assertEqual(execute.call_count, 1)
             self.assertEqual(len(execute.call_args.kwargs["sample_parameter_files"]), 10)
+            self.assertTrue(Path(result["row_checkpoint_json"]).is_file())
+            self.assertFalse(result["row_checkpoint_reused"])
+
+            with mock.patch.object(
+                ACTIVATION,
+                "_prepare_filtered_runtime",
+            ) as prepare_again, mock.patch.object(
+                ACTIVATION,
+                "_execute_probabilistic_sample_chain",
+            ) as execute_again:
+                reused = ACTIVATION._run_activation_row(
+                    row=row,
+                    row_index=0,
+                    output_dir=root / "output",
+                    args=args,
+                )
+
+            self.assertTrue(reused["row_checkpoint_reused"])
+            self.assertEqual(reused["row_output_dir"], result["row_output_dir"])
+            prepare_again.assert_not_called()
+            execute_again.assert_not_called()
+
+            probability_path = Path(result["right_canonical_probability_path"])
+            np.save(probability_path, np.asarray([0.4, 0.0], dtype=np.float32))
+            with mock.patch.object(
+                ACTIVATION,
+                "_prepare_filtered_runtime",
+                return_value=(
+                    template_folder,
+                    baseline_parameter,
+                    converter_json,
+                    json.loads(converter_json.read_text(encoding="utf-8")),
+                    filter_metadata,
+                ),
+            ), mock.patch.object(
+                ACTIVATION,
+                "_execute_probabilistic_sample_chain",
+                return_value=sample_records,
+            ) as execute_after_tamper:
+                refreshed = ACTIVATION._run_activation_row(
+                    row=row,
+                    row_index=0,
+                    output_dir=root / "output",
+                    args=args,
+                )
+
+            self.assertFalse(refreshed["row_checkpoint_reused"])
+            self.assertNotEqual(refreshed["row_output_dir"], result["row_output_dir"])
+            self.assertEqual(execute_after_tamper.call_count, 1)
+
+            sample_parameters[0].write_bytes(b"tampered-sample-parameter")
+            with mock.patch.object(
+                ACTIVATION,
+                "_prepare_filtered_runtime",
+                return_value=(
+                    template_folder,
+                    baseline_parameter,
+                    converter_json,
+                    json.loads(converter_json.read_text(encoding="utf-8")),
+                    filter_metadata,
+                ),
+            ), mock.patch.object(
+                ACTIVATION,
+                "_execute_probabilistic_sample_chain",
+                return_value=sample_records,
+            ) as execute_after_nested_tamper:
+                nested_refreshed = ACTIVATION._run_activation_row(
+                    row=row,
+                    row_index=0,
+                    output_dir=root / "output",
+                    args=args,
+                )
+
+            self.assertFalse(nested_refreshed["row_checkpoint_reused"])
+            self.assertEqual(execute_after_nested_tamper.call_count, 1)
 
 
 if __name__ == "__main__":
