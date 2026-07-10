@@ -16,7 +16,13 @@ import numpy as np
 
 from ..executor import RunContext, ServiceRegistry, TaskArtifact
 from ..planner import TaskSpec
-from ..records import ArtifactRef, FinalArtifactRecord, RecordError, ULFBranchRecord
+from ..records import (
+    ArtifactRef,
+    FinalArtifactRecord,
+    HFSourceRecord,
+    RecordError,
+    ULFBranchRecord,
+)
 from ..run_store import sha256_file
 from .component_availability import build_run_local_component_availability
 from .formal import FormalService
@@ -52,7 +58,11 @@ from .jitter_inputs import (
 )
 from .oss import OSSService
 from .qualification import QualificationService
-from .record_io import load_delta_bundle_for_final, load_final_record
+from .record_io import (
+    load_delta_bundle_for_endpoint,
+    load_delta_bundle_for_final,
+    load_final_record,
+)
 from .reporting import ReportingService
 from .sensitivity import SensitivityRuntimeInputs, SensitivityService
 from .ulf_observed import DeltaBuilderOutput, ULFObservedRequest, ULFObservedService
@@ -207,9 +217,38 @@ class _ConfiguredRuntime:
         return matches[0]
 
     @staticmethod
-    def _matched_hf_final(task: TaskSpec, context: RunContext) -> FinalArtifactRecord | None:
+    def _locked_hf_source(task: TaskSpec, context: RunContext) -> HFSourceRecord:
+        matches = [
+            execution
+            for execution in context.results.values()
+            if execution.task.endpoint.identifier == task.endpoint.identifier
+            and execution.task.key.execution_stage == "input_hf_lock"
+        ]
+        if len(matches) != 1:
+            raise RecordError(
+                f"expected one input_hf_lock task for {task.endpoint.identifier}; "
+                f"found {len(matches)}"
+            )
+        payload = matches[0].result.facts.get("hf_source_record")
+        if not isinstance(payload, dict):
+            raise RecordError("input_hf_lock is missing its immutable HF source record")
+        source = HFSourceRecord.from_dict(dict(payload))
+        accepted_fact = matches[0].result.facts.get("hf_source_accepted")
+        if accepted_fact is not None and bool(accepted_fact) != source.accepted:
+            raise RecordError("input_hf_lock acceptance fact conflicts with its HF source record")
+        return source
+
+    @classmethod
+    def _matched_hf_final(
+        cls,
+        task: TaskSpec,
+        context: RunContext,
+    ) -> FinalArtifactRecord | None:
+        source = cls._locked_hf_source(task, context)
+        if not source.accepted:
+            return None
         expected_family = "hf_voxel" if task.endpoint.model_family == "ulf_voxel" else "hf_fiber"
-        matches: dict[str, FinalArtifactRecord] = {}
+        matches = []
         for execution in context.results.values():
             endpoint = execution.task.endpoint
             if (
@@ -217,15 +256,50 @@ class _ConfiguredRuntime:
                 or endpoint.scale_id != task.endpoint.scale_id
                 or endpoint.model_family != expected_family
                 or endpoint.connectome != task.endpoint.connectome
+                or endpoint.identifier != source.endpoint_model_id
+                or execution.task.key.execution_stage != "observed_source_resolver"
             ):
                 continue
-            payload = execution.result.facts.get("final_model_record")
-            if isinstance(payload, dict):
-                final = FinalArtifactRecord.from_dict(dict(payload))
-                matches[final.record_hash] = final
-        if len(matches) > 1:
-            raise RecordError("multiple matched HF final records found for sensitivity")
-        return next(iter(matches.values()), None)
+            source_payload = execution.result.facts.get("hf_source_record")
+            if not isinstance(source_payload, dict):
+                continue
+            resolver_source = HFSourceRecord.from_dict(dict(source_payload))
+            if resolver_source.record_hash != source.record_hash:
+                continue
+            final_payload = execution.result.facts.get("final_model_record")
+            if not isinstance(final_payload, dict):
+                raise RecordError("locked HF resolver is missing its final-model record")
+            matches.append((execution, resolver_source, FinalArtifactRecord.from_dict(dict(final_payload))))
+        if len(matches) != 1:
+            raise RecordError(
+                "expected one matched HF final bound to the locked HF source; "
+                f"found {len(matches)}"
+            )
+        execution, resolver_source, final = matches[0]
+        if resolver_source.resolver_task_id != execution.task.task_id:
+            raise RecordError("locked HF source resolver task identity mismatch")
+        if final.endpoint_model_id != resolver_source.endpoint_model_id:
+            raise RecordError("locked HF source and final endpoint identities differ")
+        if final.final_branch != "hf_source" or final.final_role != "realized_final":
+            raise RecordError("matched HF final must be the realized hf_source model")
+        if (
+            final.selected_tau != resolver_source.selected_tau
+            or final.selected_coverage != resolver_source.selected_coverage
+        ):
+            raise RecordError("locked HF source and final tau/Coverage differ")
+        if final.subject_order != resolver_source.subject_order:
+            raise RecordError("locked HF source and final subject order differ")
+        if resolver_source.feature_axis is None:
+            raise RecordError("accepted locked HF source is missing its feature axis")
+        source_axis = resolver_source.feature_axis
+        final_axis = final.feature_axis
+        if (
+            final_axis.count != source_axis.count
+            or final_axis.sha256 != source_axis.sha256
+            or final_axis.identity_source != source_axis.identity_source
+        ):
+            raise RecordError("locked HF source and final feature axes differ")
+        return final
 
     @staticmethod
     def _execution_for_stage(
@@ -638,6 +712,19 @@ class _ConfiguredRuntime:
         matched_hf: FinalArtifactRecord | None = None
         hf_overlap_tau: float | None = None
         if task.endpoint.model_family.startswith("ulf_"):
+            locked_source = self._locked_hf_source(task, context)
+            delta = load_delta_bundle_for_endpoint(
+                task.endpoint.identifier,
+                context,
+                expected_hf_source_hash=locked_source.record_hash,
+            )
+            if (
+                final.nuisance.delta_hf_record_hash is not None
+                and final.nuisance.delta_hf_record_hash != delta.record_hash
+            ):
+                raise RecordError(
+                    "endpoint-local DeltaHF bundle does not match the adjusted final nuisance"
+                )
             branch = self._ulf_branch_record(final, context)
             by_kind = {artifact.kind: artifact for artifact in branch.artifacts}
             component_exposures = tuple(

@@ -22,9 +22,12 @@ from outcome_models.executor import (
 from outcome_models.planner import compile_execution_plan
 from outcome_models.records import (
     ArtifactRef,
+    DeltaHFBundle,
     FeatureAxisRef,
     FinalArtifactRecord,
+    HFSourceRecord,
     NuisancePlan,
+    RecordError,
     ULFBranchRecord,
 )
 from outcome_models.run_store import ConfiguredRunStore, sha256_file
@@ -125,6 +128,68 @@ class DefaultRegistryTests(unittest.TestCase):
             ),
         )
 
+    @staticmethod
+    def _hf_source(
+        task,
+        final: FinalArtifactRecord,
+        *,
+        prediction_status: str = "error_predictive",
+    ) -> HFSourceRecord:
+        return HFSourceRecord.create(
+            resolver_task_id=task.task_id,
+            endpoint_model_id=task.endpoint.identifier,
+            input_status="valid",
+            source_status="pre_specified_accepted",
+            prediction_status=prediction_status,
+            threshold_source="pre_specified",
+            selected_tau=final.selected_tau,
+            selected_coverage=final.selected_coverage,
+            subject_order=final.subject_order,
+            feature_axis=final.feature_axis,
+            artifacts=(final.manifest, final.exposure, final.scores),
+        )
+
+    def _delta_bundle(
+        self,
+        context: RunContext,
+        *,
+        tau: float,
+        coverage: int,
+        subject_order: tuple[str, ...],
+    ) -> DeltaHFBundle:
+        root = context.store.run_root / "delta_hf"
+        root.mkdir(parents=True, exist_ok=True)
+        full = root / "full.npy"
+        folds = root / "folds.npy"
+        support = root / "support.csv"
+        np.save(full, np.arange(len(subject_order), dtype=np.float64))
+        np.save(folds, np.ones((len(subject_order), len(subject_order)), dtype=np.float64))
+        support.write_text("subject_id,out_support_fraction\n", encoding="utf-8")
+        return DeltaHFBundle(
+            input_status="valid",
+            support_status="adequate",
+            selected_hf_tau=tau,
+            selected_hf_coverage=coverage,
+            full_scores=self._artifact_ref(
+                context,
+                full,
+                "delta_hf_full_scores",
+                (len(subject_order),),
+            ),
+            fold_scores=self._artifact_ref(
+                context,
+                folds,
+                "delta_hf_fold_scores",
+                (len(subject_order), len(subject_order)),
+            ),
+            support_rows=self._artifact_ref(
+                context,
+                support,
+                "delta_hf_support_rows",
+                (len(subject_order),),
+            ),
+        )
+
     def test_every_planned_operation_resolves_without_a_default_placeholder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             context, plan = self._fixture(Path(tmp))
@@ -162,6 +227,160 @@ class DefaultRegistryTests(unittest.TestCase):
 
         self.assertEqual(flipped, {})
         self.assertEqual(qc["status"], "SKIPPED")
+
+    def test_ulf_sensitivity_rejects_hf_final_not_bound_by_exact_input_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context, plan = self._fixture(Path(tmp))
+            ulf_task = next(
+                task
+                for task in plan.tasks
+                if task.endpoint.model_family == "ulf_voxel"
+                and task.key.execution_stage == "additional_sensitivities"
+            )
+            lock_task = next(
+                task
+                for task in plan.tasks
+                if task.endpoint.identifier == ulf_task.endpoint.identifier
+                and task.key.execution_stage == "input_hf_lock"
+            )
+            hf_task = next(
+                task
+                for task in plan.tasks
+                if task.endpoint.model_family == "hf_voxel"
+                and task.endpoint.scale_id == ulf_task.endpoint.scale_id
+                and task.key.execution_stage == "observed_source_resolver"
+            )
+            hf_final = self._final(context, hf_task)
+            resolver_source = self._hf_source(hf_task, hf_final)
+            locked_source = self._hf_source(
+                hf_task,
+                hf_final,
+                prediction_status="error_nonpredictive",
+            )
+            context.results[lock_task.task_id] = TaskExecutionRecord(
+                lock_task,
+                TaskResult(
+                    TaskStatus.COMPLETED,
+                    facts={"hf_source_record": locked_source.as_dict()},
+                ),
+            )
+            context.results[hf_task.task_id] = TaskExecutionRecord(
+                hf_task,
+                TaskResult(
+                    TaskStatus.COMPLETED,
+                    facts={
+                        "hf_source_record": resolver_source.as_dict(),
+                        "final_model_record": hf_final.as_dict(),
+                    },
+                ),
+            )
+
+            with self.assertRaisesRegex(RecordError, "locked HF source"):
+                _ConfiguredRuntime(context)._matched_hf_final(ulf_task, context)
+
+    def test_no_delta_final_uses_valid_endpoint_delta_for_adjusted_sensitivity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context, plan = self._fixture(Path(tmp))
+            ulf_task = next(
+                task
+                for task in plan.tasks
+                if task.endpoint.model_family == "ulf_voxel"
+                and task.key.execution_stage == "additional_sensitivities"
+            )
+            lock_task = next(
+                task
+                for task in plan.tasks
+                if task.endpoint.identifier == ulf_task.endpoint.identifier
+                and task.key.execution_stage == "input_hf_lock"
+            )
+            sidecar_task = next(
+                task
+                for task in plan.tasks
+                if task.endpoint.identifier == ulf_task.endpoint.identifier
+                and task.key.execution_stage == "preprocessing_sidecars"
+            )
+            branch_task = next(
+                task
+                for task in plan.tasks
+                if task.endpoint.identifier == ulf_task.endpoint.identifier
+                and task.key.execution_stage == "observed_branch_resolver"
+                and task.key.branch == "no_delta_hf"
+            )
+            hf_task = next(
+                task
+                for task in plan.tasks
+                if task.endpoint.model_family == "hf_voxel"
+                and task.endpoint.scale_id == ulf_task.endpoint.scale_id
+                and task.key.execution_stage == "observed_source_resolver"
+            )
+            hf_final = self._final(context, hf_task)
+            hf_source = self._hf_source(hf_task, hf_final)
+            ulf_final = self._final(context, ulf_task, branch="no_delta_hf")
+            delta = self._delta_bundle(
+                context,
+                tau=hf_final.selected_tau,
+                coverage=hf_final.selected_coverage,
+                subject_order=hf_final.subject_order,
+            )
+            branch = ULFBranchRecord.create(
+                resolver_task_id=branch_task.task_id,
+                endpoint_model_id=ulf_task.endpoint.identifier,
+                branch="no_delta_hf",
+                input_status="valid",
+                source_status="pre_specified_accepted",
+                prediction_status="error_nonpredictive",
+                threshold_source="pre_specified",
+                selected_tau=ulf_final.selected_tau,
+                selected_coverage=ulf_final.selected_coverage,
+                adjacent_support=2,
+                subject_order=ulf_final.subject_order,
+                feature_axis=ulf_final.feature_axis,
+                nuisance=ulf_final.nuisance,
+                artifacts=(ulf_final.manifest, ulf_final.exposure, ulf_final.scores),
+            )
+            context.results[lock_task.task_id] = TaskExecutionRecord(
+                lock_task,
+                TaskResult(
+                    TaskStatus.COMPLETED,
+                    facts={"hf_source_record": hf_source.as_dict()},
+                ),
+            )
+            context.results[hf_task.task_id] = TaskExecutionRecord(
+                hf_task,
+                TaskResult(
+                    TaskStatus.COMPLETED,
+                    facts={
+                        "hf_source_record": hf_source.as_dict(),
+                        "final_model_record": hf_final.as_dict(),
+                    },
+                ),
+            )
+            context.results[sidecar_task.task_id] = TaskExecutionRecord(
+                sidecar_task,
+                TaskResult(
+                    TaskStatus.COMPLETED,
+                    facts={
+                        "delta_hf_bundle": delta.as_dict(),
+                        "hf_source_record_hash": hf_source.record_hash,
+                    },
+                ),
+            )
+            context.results[branch_task.task_id] = TaskExecutionRecord(
+                branch_task,
+                TaskResult(
+                    TaskStatus.COMPLETED,
+                    facts={"ulf_branch_record": branch.as_dict()},
+                ),
+            )
+
+            inputs = _ConfiguredRuntime(context).sensitivity_inputs(
+                ulf_task,
+                context,
+                ulf_final,
+            )
+
+        self.assertIsNotNone(inputs.delta_hf)
+        self.assertEqual(inputs.delta_hf.record_hash, delta.record_hash)
 
     def test_hf_direct_jitter_manifest_uses_exact_sidecar_geometry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

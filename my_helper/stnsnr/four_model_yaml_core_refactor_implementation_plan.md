@@ -551,6 +551,51 @@ met.
   acceptance result and must not be resumed. The registry adapter must bind the
   configured `asset_root` and `matlab_bin`, pass a contract test, and then start
   a fresh run ID.
+- `20260710T053236Z_bd038a13c80b9c1c`: stopped during the first HF direct
+  MATLAB flip after an independent pre-acceptance audit found unresolved
+  sensitivity/control correctness defects. No terminal scientific result from
+  this run is accepted, and the run must not be resumed.
+
+### Pre-Acceptance Correctness Audit
+
+The following findings must be closed before the next real run:
+
+1. Validate direct feature axes by file hash and normative-fiber axes by their
+   declared logical array-identity hash; do not compare incompatible hash
+   definitions.
+2. Jitter DeltaHFScore support must evaluate the complete
+   `n_folds x n_subjects` out-of-support matrix. The strict `> 0.95` rule applies
+   to every required pair, not only the held-out diagonal. A value exactly equal
+   to `0.95` remains within the accepted boundary and does not trigger the
+   extreme out-of-support failure.
+3. A realized `no_delta_hf` final may still run the non-final adjusted
+   sensitivity when the endpoint-local DeltaHFScore bundle is valid. The bundle
+   must be loaded through the exact ULF sidecar/lock provenance, not inferred
+   from the final nuisance plan.
+4. Direct and normative-fiber jitter must report spatial robustness, including
+   map correlation, support overlap, sign consistency, and map-variability
+   summaries, in addition to LOOCV metrics.
+5. ULF normative-fiber plain/burden controls must implement the documented
+   touched-candidate plain exposure, branch-specific nuisance comparisons, and
+   HF out-of-support burden; descriptive raw-axis summaries alone are not a
+   completed control task.
+6. Support sensitivity parsing must accept the typed direct and fiber support
+   row schemas and include fold maxima.
+7. ULF sensitivity must resolve the exact matched HF source through the
+   endpoint's `input_hf_lock` record and verify source hash, tau/Coverage,
+   subject order, feature axis, and connectome before using HF-derived inputs.
+8. Fiber jitter sampling provenance requires exactly one R and one L row for
+   every subject, including intentionally empty sides; duplicate empty rows are
+   invalid.
+9. Resume must validate files referenced inside strict jitter manifests, not
+   only the outer manifest hash. Long jitter execution must use atomic,
+   final-hash/seed/method-keyed replicate progress so an interrupted task can
+   resume without accepting partial or stale results. The checkpoint identity
+   must include the immutable final-record hash, seed, FWHM, requested replicate
+   count, method version, and strict jitter-input-manifest hash. It atomically
+   stores completed replicate rows plus streaming spatial state; recovery may
+   continue only from an exact identity match and must regenerate the final
+   summary/artifacts rather than treating the checkpoint itself as completion.
 
 - [ ] Run deterministic accepted-final, `no_final_model`, and adjusted-input-
   failure/no-delta-fallback fixtures.

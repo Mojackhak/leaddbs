@@ -196,6 +196,11 @@ def _resume_artifacts(task: TaskSpec, context: RunContext) -> tuple[TaskArtifact
             return None
         if not path.is_file() or sha256_file(path) != row["sha256"]:
             return None
+        if kind == "jitter_input_manifest" and not _nested_manifest_inputs_valid(
+            path,
+            context.store.run_root,
+        ):
+            return None
         by_kind[kind] = TaskArtifact(kind, path)
     expected = tuple(
         kind for kind in task.expected_artifact_kinds if kind != "task_manifest"
@@ -205,6 +210,31 @@ def _resume_artifacts(task: TaskSpec, context: RunContext) -> tuple[TaskArtifact
     ordered = [by_kind.pop(kind) for kind in expected]
     ordered.extend(by_kind[kind] for kind in sorted(by_kind))
     return tuple(ordered)
+
+
+def _nested_manifest_inputs_valid(manifest: Path, run_root: Path) -> bool:
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    def valid(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            if "path" in value and "sha256" in value:
+                raw_path = value.get("path")
+                expected_hash = value.get("sha256")
+                if not isinstance(raw_path, str) or not isinstance(expected_hash, str):
+                    return False
+                path = Path(raw_path).expanduser()
+                path = path.resolve() if path.is_absolute() else (run_root / path).resolve()
+                if not path.is_file() or sha256_file(path) != expected_hash:
+                    return False
+            return all(valid(item) for item in value.values())
+        if isinstance(value, list):
+            return all(valid(item) for item in value)
+        return True
+
+    return valid(payload)
 
 
 def _resume_record(task: TaskSpec, context: RunContext) -> TaskExecutionRecord | None:

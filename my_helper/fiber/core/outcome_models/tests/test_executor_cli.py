@@ -23,7 +23,7 @@ from outcome_models.executor import (
     execute_plan,
 )
 from outcome_models.planner import compile_execution_plan
-from outcome_models.run_store import ConfiguredRunStore, REQUIRED_RUN_ARTIFACTS
+from outcome_models.run_store import ConfiguredRunStore, REQUIRED_RUN_ARTIFACTS, sha256_file
 from outcome_models.tests.helpers import clinical_rows_for_scale, write_clinical_rows, write_profile_bundle
 
 
@@ -81,6 +81,54 @@ class EmptyArtifactService:
     def execute(self, task, context) -> TaskResult:
         del task, context
         return TaskResult(TaskStatus.COMPLETED, "incorrectly claims completion")
+
+
+class NestedJitterManifestService(DeterministicService):
+    def __init__(self) -> None:
+        super().__init__()
+        self.nested_inputs: dict[str, Path] = {}
+
+    def execute(self, task, context) -> TaskResult:
+        result = super().execute(task, context)
+        if task.key.execution_stage != "spatial_jitter":
+            return result
+        by_kind = {artifact.kind: artifact for artifact in result.artifacts}
+        manifest_artifact = by_kind.get("jitter_input_manifest")
+        if manifest_artifact is None:
+            manifest = (
+                context.store.run_root
+                / "tasks"
+                / task.task_id
+                / "jitter_input_manifest.json"
+            )
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            result = TaskResult(
+                result.status,
+                result.detail,
+                result.facts,
+                (*result.artifacts, TaskArtifact("jitter_input_manifest", manifest)),
+            )
+        else:
+            manifest = manifest_artifact.path
+        nested = manifest.with_name("nested_efield_input.nii")
+        nested.write_bytes(task.task_id.encode("ascii"))
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema_version": "stnsnr_sensitivity_jitter_v1",
+                    "geometry": {
+                        "input": {
+                            "path": str(nested),
+                            "sha256": sha256_file(nested),
+                        }
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.nested_inputs[task.task_id] = nested
+        return result
 
 
 class ExecutorAndCliTests(unittest.TestCase):
@@ -318,6 +366,43 @@ class ExecutorAndCliTests(unittest.TestCase):
         self.assertEqual(resume_service.calls, [producer.task.task_id])
         self.assertFalse(resumed.tasks[0].reused)
         self.assertTrue(all(record.reused for record in resumed.tasks[1:]))
+
+    def test_resume_reruns_jitter_when_a_nested_manifest_input_drifts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, config, catalog, plan = self._bundle(root, through="sensitivity")
+            store = self._store(root, config, catalog, plan)
+            first_service = NestedJitterManifestService()
+            first = execute_plan(
+                plan,
+                RunContext(store=store, catalog=tuple(catalog), config=config),
+                ServiceRegistry(default=first_service),
+            )
+            target = next(
+                record
+                for record in first.tasks
+                if record.task.key.execution_stage == "spatial_jitter"
+                and record.result.status == TaskStatus.COMPLETED
+            )
+            first_service.nested_inputs[target.task.task_id].write_bytes(b"drifted")
+            resume_service = NestedJitterManifestService()
+
+            resumed = execute_plan(
+                plan,
+                RunContext(
+                    store=store,
+                    catalog=tuple(catalog),
+                    config=config,
+                    resume=True,
+                ),
+                ServiceRegistry(default=resume_service),
+            )
+
+        self.assertIn(target.task.task_id, resume_service.calls)
+        reused_target = next(
+            record for record in resumed.tasks if record.task.task_id == target.task.task_id
+        )
+        self.assertFalse(reused_target.reused)
 
     def test_cli_validate_plan_run_status_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -579,9 +579,381 @@ def run_configured_additional_sensitivities(
 
 def _top_fraction_mean_rows(exposure: np.ndarray, fraction: float = 0.05) -> np.ndarray:
     x = np.asarray(exposure, dtype=float)
+    if x.ndim != 2 or x.shape[1] == 0:
+        raise ValueError("top-fraction exposure must be a nonempty subject-by-fiber matrix")
     count = max(1, int(np.ceil(x.shape[1] * float(fraction))))
     split = x.shape[1] - count
     return np.mean(np.partition(x, split, axis=1)[:, split:], axis=1)
+
+
+def _top_fraction_mean(values: np.ndarray, fraction: float = 0.05) -> float:
+    array = np.asarray(values, dtype=float)
+    if array.ndim != 1:
+        raise ValueError("top-fraction values must be one-dimensional")
+    if array.size == 0:
+        return 0.0
+    count = max(1, int(np.ceil(array.size * float(fraction))))
+    return float(np.mean(np.partition(array, array.size - count)[-count:]))
+
+
+def _plain_ulf_only_burden(
+    target: Any,
+) -> tuple[dict[str, Any], dict[str, np.ndarray] | None]:
+    try:
+        exposure = np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32)
+    except (OSError, ValueError) as exc:
+        return {
+            "status": "not_computable",
+            "reason": f"invalid_final_ulf_only_exposure:{exc}",
+        }, None
+    expected_shape = (len(target.subject_order), np.asarray(np.load(target.feature_ids_path)).size)
+    if exposure.ndim != 2 or exposure.shape != expected_shape:
+        return {
+            "status": "not_computable",
+            "reason": "final_ulf_only_exposure_shape_mismatch",
+        }, None
+    if not np.all(np.isfinite(exposure)):
+        return {
+            "status": "not_computable",
+            "reason": "nonfinite_final_ulf_only_exposure",
+        }, None
+
+    touched = suprathreshold_matrix(exposure, float(target.selected_tau))
+    coverage = coverage_from_suprathreshold(touched)
+    candidate = candidate_mask_from_coverage(coverage, int(target.selected_coverage))
+    if not np.any(candidate):
+        return {"status": "not_computable", "reason": "empty_selected_candidate_universe"}, None
+
+    counts = np.count_nonzero(touched & candidate[None, :], axis=1).astype(np.int64)
+    if np.any(counts == 0):
+        missing = [
+            str(target.subject_order[index])
+            for index in np.flatnonzero(counts == 0)
+        ]
+        return {
+            "status": "not_computable",
+            "reason": "no_touched_candidate_fibers",
+            "affected_subject_ids": missing,
+            "candidate_fiber_count": int(np.count_nonzero(candidate)),
+        }, None
+
+    sums = np.zeros(exposure.shape[0], dtype=np.float64)
+    top5 = np.zeros(exposure.shape[0], dtype=np.float64)
+    for index in range(exposure.shape[0]):
+        values = exposure[index, touched[index] & candidate]
+        sums[index] = np.sum(values, dtype=np.float64)
+        top5[index] = _top_fraction_mean(values)
+    values = {"touched_count": counts, "exposure_sum": sums, "exposure_top5": top5}
+    return {
+        "status": "complete",
+        "definition": "top_5_percent_among_suprathreshold_selected_candidate_fibers",
+        "selected_tau": float(target.selected_tau),
+        "selected_coverage": int(target.selected_coverage),
+        "candidate_fiber_count": int(np.count_nonzero(candidate)),
+    }, values
+
+
+def _fit_qc_ols(
+    outcome: np.ndarray,
+    predictors: list[np.ndarray],
+    predictor_names: list[str],
+) -> dict[str, Any]:
+    y = np.asarray(outcome, dtype=float)
+    columns = [np.asarray(values, dtype=float) for values in predictors]
+    if any(values.shape != y.shape for values in columns):
+        return {"status": "not_computable", "reason": "model_column_shape_mismatch"}
+    design = np.column_stack([np.ones(y.size, dtype=float), *columns])
+    if not np.all(np.isfinite(y)) or not np.all(np.isfinite(design)):
+        return {"status": "not_computable", "reason": "nonfinite_model_design"}
+    rank = int(np.linalg.matrix_rank(design))
+    if rank < design.shape[1]:
+        return {
+            "status": "not_computable",
+            "reason": "singular_model_design",
+            "predictor_names": predictor_names,
+            "design_rank": rank,
+            "n_parameters": int(design.shape[1]),
+        }
+    if y.size <= design.shape[1]:
+        return {
+            "status": "not_computable",
+            "reason": "insufficient_residual_degrees_of_freedom",
+            "predictor_names": predictor_names,
+        }
+
+    beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+    fitted = design @ beta
+    residual = y - fitted
+    residual_sum_squares = float(np.sum(residual * residual))
+    total_sum_squares = float(np.sum((y - np.mean(y)) ** 2))
+    if total_sum_squares <= 0:
+        return {
+            "status": "not_computable",
+            "reason": "constant_outcome",
+            "predictor_names": predictor_names,
+        }
+    r_squared = 1.0 - residual_sum_squares / total_sum_squares
+    residual_degrees = y.size - design.shape[1]
+    adjusted_r_squared = 1.0 - (1.0 - r_squared) * (y.size - 1) / residual_degrees
+    coefficient_names = ["intercept", *predictor_names]
+    return {
+        "status": "complete",
+        "method": "descriptive_full_sample_ols_qc",
+        "predictor_names": predictor_names,
+        "n_subjects": int(y.size),
+        "n_parameters": int(design.shape[1]),
+        "design_rank": rank,
+        "coefficients": {
+            name: float(value) for name, value in zip(coefficient_names, beta, strict=True)
+        },
+        "mae": float(np.mean(np.abs(residual))),
+        "rmse": float(np.sqrt(np.mean(residual * residual))),
+        "r_squared": float(r_squared),
+        "adjusted_r_squared": float(adjusted_r_squared),
+    }
+
+
+def _branch_nuisance_model_comparisons(
+    target: Any,
+    plain_top5: np.ndarray | None,
+) -> dict[str, Any]:
+    branch = str(target.final_branch)
+    nuisance_names = ["Y_HF_ref"]
+    if branch == "delta_hf_adjusted":
+        nuisance_names.append("DeltaHFScore")
+    elif branch != "no_delta_hf":
+        return {
+            "status": "not_computable",
+            "reason": "unsupported_realized_final_branch",
+            "realized_final_branch": branch,
+            "nuisance_columns": nuisance_names,
+        }
+    if plain_top5 is None:
+        return {
+            "status": "not_computable",
+            "reason": "plain_ulf_only_exposure_not_computable",
+            "realized_final_branch": branch,
+            "nuisance_columns": nuisance_names,
+        }
+
+    try:
+        columns = _configured_score_columns(target)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return {
+            "status": "not_computable",
+            "reason": f"invalid_final_scores:{exc}",
+            "realized_final_branch": branch,
+            "nuisance_columns": nuisance_names,
+        }
+    required = ("Y_post", "Y_HF_ref", "NetULFFiberScore")
+    if any(name not in columns for name in required):
+        return {
+            "status": "not_computable",
+            "reason": "missing_final_score_columns",
+            "realized_final_branch": branch,
+            "nuisance_columns": nuisance_names,
+        }
+
+    nuisance = [np.asarray(columns["Y_HF_ref"], dtype=float)]
+    if branch == "delta_hf_adjusted":
+        if target.delta_full_path is None:
+            return {
+                "status": "not_computable",
+                "reason": "missing_final_branch_delta_hf",
+                "realized_final_branch": branch,
+                "nuisance_columns": nuisance_names,
+            }
+        try:
+            delta = np.asarray(np.load(target.delta_full_path, mmap_mode="r"), dtype=float)
+        except (OSError, ValueError) as exc:
+            return {
+                "status": "not_computable",
+                "reason": f"invalid_final_branch_delta_hf:{exc}",
+                "realized_final_branch": branch,
+                "nuisance_columns": nuisance_names,
+            }
+        if delta.shape != np.asarray(columns["Y_post"]).shape or not np.all(np.isfinite(delta)):
+            return {
+                "status": "not_computable",
+                "reason": "invalid_final_branch_delta_hf",
+                "realized_final_branch": branch,
+                "nuisance_columns": nuisance_names,
+            }
+        nuisance.append(delta)
+
+    outcome = np.asarray(columns["Y_post"], dtype=float)
+    net_score = np.asarray(columns["NetULFFiberScore"], dtype=float)
+    models = {
+        "nuisance_only": _fit_qc_ols(outcome, nuisance, nuisance_names),
+        "plain_plus_nuisance": _fit_qc_ols(
+            outcome,
+            [plain_top5, *nuisance],
+            ["PlainULFOnlyExposureTop5", *nuisance_names],
+        ),
+        "net_plus_nuisance": _fit_qc_ols(
+            outcome,
+            [net_score, *nuisance],
+            ["NetULFFiberScore", *nuisance_names],
+        ),
+        "joint": _fit_qc_ols(
+            outcome,
+            [net_score, plain_top5, *nuisance],
+            ["NetULFFiberScore", "PlainULFOnlyExposureTop5", *nuisance_names],
+        ),
+    }
+    status = "complete" if all(model["status"] == "complete" for model in models.values()) else "partial"
+    result: dict[str, Any] = {
+        "status": status,
+        "method": "descriptive_full_sample_ols_qc",
+        "realized_final_branch": branch,
+        "nuisance_columns": nuisance_names,
+        "models": models,
+    }
+    nuisance_model = models["nuisance_only"]
+    if nuisance_model["status"] == "complete":
+        result["comparisons_vs_nuisance"] = {
+            name: {
+                "r_squared_gain": float(model["r_squared"] - nuisance_model["r_squared"]),
+                "rmse_reduction": float(nuisance_model["rmse"] - model["rmse"]),
+            }
+            for name, model in models.items()
+            if name != "nuisance_only" and model["status"] == "complete"
+        }
+    return result
+
+
+def _hf_out_of_support_burden(
+    target: Any,
+) -> tuple[dict[str, Any], dict[str, np.ndarray] | None]:
+    matched = target.matched_hf_final
+    if matched is None:
+        return {"status": "not_computable", "reason": "missing_matched_hf_final"}, None
+    hf_component_path = target.component_paths.get("hf_component_exposure")
+    if hf_component_path is None:
+        return {"status": "not_computable", "reason": "missing_hf_component_exposure"}, None
+    reference_path = target.matched_hf_paths.get("exposure")
+    hf_ids_path = target.matched_hf_paths.get("feature_ids")
+    if reference_path is None or hf_ids_path is None:
+        return {"status": "not_computable", "reason": "missing_matched_hf_candidate_inputs"}, None
+
+    try:
+        component = np.asarray(np.load(hf_component_path, mmap_mode="r"), dtype=np.float32)
+        reference = np.asarray(np.load(reference_path, mmap_mode="r"), dtype=np.float32)
+        ulf_ids = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"))
+        hf_ids = np.asarray(np.load(hf_ids_path, mmap_mode="r"))
+    except (OSError, ValueError) as exc:
+        return {"status": "not_computable", "reason": f"invalid_matched_hf_inputs:{exc}"}, None
+    expected_shape = (len(target.subject_order), ulf_ids.size)
+    if component.shape != expected_shape or reference.shape != expected_shape:
+        return {"status": "not_computable", "reason": "matched_hf_exposure_shape_mismatch"}, None
+    if hf_ids.shape != ulf_ids.shape or not np.array_equal(hf_ids, ulf_ids):
+        return {"status": "not_computable", "reason": "matched_hf_feature_axis_mismatch"}, None
+    if not np.all(np.isfinite(component)) or not np.all(np.isfinite(reference)):
+        return {"status": "not_computable", "reason": "nonfinite_matched_hf_exposure"}, None
+
+    tau = float(matched.selected_tau)
+    reference_touched = suprathreshold_matrix(reference, tau)
+    candidate = candidate_mask_from_coverage(
+        coverage_from_suprathreshold(reference_touched),
+        int(matched.selected_coverage),
+    )
+    if not np.any(candidate):
+        return {"status": "not_computable", "reason": "empty_matched_hf_candidate_universe"}, None
+
+    touched = suprathreshold_matrix(component, tau)
+    suprathreshold = np.where(touched, component, 0.0)
+    outside = touched & ~candidate[None, :]
+    counts = np.count_nonzero(outside, axis=1).astype(np.int64)
+    sums = np.sum(np.where(outside, component, 0.0), axis=1, dtype=np.float64)
+    total_sums = np.sum(suprathreshold, axis=1, dtype=np.float64)
+    fractions = np.divide(sums, total_sums, out=np.zeros_like(sums), where=total_sums > 0)
+    top5 = np.asarray(
+        [_top_fraction_mean(component[index, outside[index]]) for index in range(component.shape[0])],
+        dtype=np.float64,
+    )
+    values = {
+        "touched_count": counts,
+        "exposure_sum": sums,
+        "exposure_top5": top5,
+        "exposure_fraction": fractions,
+    }
+    return {
+        "status": "complete",
+        "definition": "suprathreshold_hf_component_outside_matched_hf_candidate_universe",
+        "matched_hf_final_model_id": str(matched.final_model_id),
+        "matched_hf_tau": tau,
+        "matched_hf_coverage": int(matched.selected_coverage),
+        "hf_candidate_fiber_count": int(np.count_nonzero(candidate)),
+    }, values
+
+
+def _descriptive_burdens(
+    target: Any,
+) -> tuple[dict[str, Any], dict[str, np.ndarray] | None]:
+    ulf_path = target.component_paths.get("ulf_component_exposure")
+    if ulf_path is None:
+        return {"status": "not_computable", "reason": "missing_raw_ulf_component_exposure"}, None
+    try:
+        ulf = np.asarray(np.load(ulf_path, mmap_mode="r"), dtype=np.float32)
+    except (OSError, ValueError) as exc:
+        return {"status": "not_computable", "reason": f"invalid_raw_ulf_component_exposure:{exc}"}, None
+    expected_shape = (len(target.subject_order), np.asarray(np.load(target.feature_ids_path)).size)
+    if ulf.shape != expected_shape or not np.all(np.isfinite(ulf)):
+        return {"status": "not_computable", "reason": "invalid_raw_ulf_component_exposure"}, None
+
+    hf_path = target.component_paths.get("hf_component_exposure")
+    hf = None
+    if hf_path is not None:
+        try:
+            hf = np.asarray(np.load(hf_path, mmap_mode="r"), dtype=np.float32)
+        except (OSError, ValueError):
+            hf = None
+    if hf is not None and (hf.shape != ulf.shape or not np.all(np.isfinite(hf))):
+        hf = None
+
+    ulf_active = suprathreshold_matrix(ulf, float(target.selected_tau))
+    total_sum = np.sum(ulf, axis=1, dtype=np.float64)
+    values: dict[str, np.ndarray] = {
+        "ulf_total_top5": _top_fraction_mean_rows(ulf),
+        "ulf_only_to_total_fraction": np.zeros(ulf.shape[0], dtype=np.float64),
+        "hf_component_top5": np.full(ulf.shape[0], np.nan),
+        "hf_overlap_top5": np.full(ulf.shape[0], np.nan),
+        "hf_overlap_fraction": np.full(ulf.shape[0], np.nan),
+    }
+    if hf is None or target.hf_overlap_tau is None:
+        return {
+            "status": "partial",
+            "reason": "missing_or_invalid_hf_component_exposure",
+        }, values
+
+    hf_active = (
+        np.zeros_like(hf, dtype=bool)
+        if np.isinf(float(target.hf_overlap_tau))
+        else suprathreshold_matrix(hf, float(target.hf_overlap_tau))
+    )
+    overlap = np.where(ulf_active & hf_active, ulf, 0.0)
+    ulf_only = np.where(ulf_active & ~hf_active, ulf, 0.0)
+    only_sum = np.sum(ulf_only, axis=1, dtype=np.float64)
+    overlap_sum = np.sum(overlap, axis=1, dtype=np.float64)
+    values.update(
+        {
+            "ulf_only_to_total_fraction": np.divide(
+                only_sum,
+                total_sum,
+                out=np.zeros_like(only_sum),
+                where=total_sum > 0,
+            ),
+            "hf_component_top5": _top_fraction_mean_rows(hf),
+            "hf_overlap_top5": _top_fraction_mean_rows(overlap),
+            "hf_overlap_fraction": np.divide(
+                overlap_sum,
+                total_sum,
+                out=np.zeros_like(overlap_sum),
+                where=total_sum > 0,
+            ),
+        }
+    )
+    return {"status": "complete"}, values
 
 
 def run_configured_plain_burden_controls(
@@ -589,69 +961,148 @@ def run_configured_plain_burden_controls(
     *,
     enabled_analyses: tuple[str, ...],
 ) -> dict[str, Any]:
-    """Compute Round 3 plain/burden controls from raw component exposures."""
+    """Compute final-linked Round 3 controls without classification feedback.
+
+    Plain ULF-only exposure is summarized among suprathreshold fibers in the
+    realized final model's selected tau/coverage candidate universe. Model
+    comparisons use only the realized branch's nuisance columns. HF
+    out-of-support burden uses the matched immutable HF candidate universe when
+    that input is available. Each control reports ``not_computable``
+    independently when one of its required inputs is unavailable.
+    """
     del enabled_analyses
-    ulf_path = target.component_paths.get("ulf_component_exposure")
-    if ulf_path is None:
-        raise RuntimeError("plain burden controls require raw ulf_component_exposure")
-    ulf = np.asarray(np.load(ulf_path, mmap_mode="r"), dtype=np.float32)
-    hf_path = target.component_paths.get("hf_component_exposure")
-    hf = (
-        np.zeros_like(ulf)
-        if hf_path is None
-        else np.asarray(np.load(hf_path, mmap_mode="r"), dtype=np.float32)
+    plain_analysis, plain_values = _plain_ulf_only_burden(target)
+    comparison_analysis = _branch_nuisance_model_comparisons(
+        target,
+        None if plain_values is None else plain_values["exposure_top5"],
     )
-    if hf.shape != ulf.shape:
-        raise RuntimeError("plain burden HF and ULF component shapes differ")
-    if target.hf_overlap_tau is None:
-        raise RuntimeError("plain burden controls require hf_overlap_tau")
-    hf_active = (
-        np.zeros_like(hf, dtype=bool)
-        if np.isinf(float(target.hf_overlap_tau))
-        else hf > float(target.hf_overlap_tau)
-    )
-    ulf_active = ulf > float(target.selected_tau)
-    overlap = np.where(ulf_active & hf_active, ulf, 0.0)
-    ulf_only = np.where(ulf_active & ~hf_active, ulf, 0.0)
-    total_sum = np.sum(ulf, axis=1, dtype=np.float64)
-    only_sum = np.sum(ulf_only, axis=1, dtype=np.float64)
-    ratio = np.divide(only_sum, total_sum, out=np.zeros_like(only_sum), where=total_sum > 0)
-    rows = [
-        {
-            "subject_id": subject_id,
-            "PlainULFTotalExposureTop5": float(value_total),
-            "PlainHFComponentExposureTop5": float(value_hf),
-            "PlainHFOverlapExposureTop5": float(value_overlap),
-            "ULFOnlyToTotalULFFraction": float(value_ratio),
-        }
-        for subject_id, value_total, value_hf, value_overlap, value_ratio in zip(
-            target.subject_order,
-            _top_fraction_mean_rows(ulf),
-            _top_fraction_mean_rows(hf),
-            _top_fraction_mean_rows(overlap),
-            ratio,
-            strict=True,
+    hf_support_analysis, hf_support_values = _hf_out_of_support_burden(target)
+    descriptive_analysis, descriptive_values = _descriptive_burdens(target)
+    analyses = {
+        "plain_ulf_only_exposure": plain_analysis,
+        "branch_nuisance_model_comparisons": comparison_analysis,
+        "hf_out_of_support_burden": hf_support_analysis,
+        "descriptive_burdens": descriptive_analysis,
+    }
+
+    rows = [{"subject_id": subject_id} for subject_id in target.subject_order]
+    for index, row in enumerate(rows):
+        row.update(
+            {
+                "PlainULFOnlyTouchedCount": (
+                    int(plain_values["touched_count"][index]) if plain_values is not None else ""
+                ),
+                "PlainULFOnlyExposureSum": (
+                    float(plain_values["exposure_sum"][index]) if plain_values is not None else ""
+                ),
+                "PlainULFOnlyExposureTop5": (
+                    float(plain_values["exposure_top5"][index]) if plain_values is not None else ""
+                ),
+                "PlainULFTotalExposureTop5": (
+                    float(descriptive_values["ulf_total_top5"][index])
+                    if descriptive_values is not None
+                    else ""
+                ),
+                "PlainHFComponentExposureTop5": (
+                    float(descriptive_values["hf_component_top5"][index])
+                    if descriptive_values is not None
+                    and np.isfinite(descriptive_values["hf_component_top5"][index])
+                    else ""
+                ),
+                "PlainHFOverlapExposureTop5": (
+                    float(descriptive_values["hf_overlap_top5"][index])
+                    if descriptive_values is not None
+                    and np.isfinite(descriptive_values["hf_overlap_top5"][index])
+                    else ""
+                ),
+                "PlainHFOutSupportTop5": (
+                    float(hf_support_values["exposure_top5"][index])
+                    if hf_support_values is not None
+                    else ""
+                ),
+                "HFOverlapFraction": (
+                    float(descriptive_values["hf_overlap_fraction"][index])
+                    if descriptive_values is not None
+                    and np.isfinite(descriptive_values["hf_overlap_fraction"][index])
+                    else ""
+                ),
+                "ULFOnlyToTotalULFFraction": (
+                    float(descriptive_values["ulf_only_to_total_fraction"][index])
+                    if descriptive_values is not None
+                    else ""
+                ),
+                "HFOutSupportTouchedCount": (
+                    int(hf_support_values["touched_count"][index])
+                    if hf_support_values is not None
+                    else ""
+                ),
+                "HFOutSupportExposureSum": (
+                    float(hf_support_values["exposure_sum"][index])
+                    if hf_support_values is not None
+                    else ""
+                ),
+                "HFOutSupportExposureFraction": (
+                    float(hf_support_values["exposure_fraction"][index])
+                    if hf_support_values is not None
+                    else ""
+                ),
+            }
         )
-    ]
     path = target.output_root / "ulf_normative_fiber_plain_burden_controls.csv"
     write_csv(
         path,
         rows,
         [
             "subject_id",
+            "PlainULFOnlyTouchedCount",
+            "PlainULFOnlyExposureSum",
+            "PlainULFOnlyExposureTop5",
             "PlainULFTotalExposureTop5",
             "PlainHFComponentExposureTop5",
             "PlainHFOverlapExposureTop5",
+            "PlainHFOutSupportTop5",
+            "HFOverlapFraction",
             "ULFOnlyToTotalULFFraction",
+            "HFOutSupportTouchedCount",
+            "HFOutSupportExposureSum",
+            "HFOutSupportExposureFraction",
         ],
     )
+    statuses = [analysis["status"] for analysis in analyses.values()]
+    status = (
+        "complete"
+        if all(value == "complete" for value in statuses)
+        else "partial"
+        if any(value in {"complete", "partial"} for value in statuses)
+        else "not_computable"
+    )
     return {
-        "status": "complete",
+        "status": status,
+        "control_definition": "final_linked_ulf_fiber_plain_burden_v2",
+        "final_model_id": str(target.final_model_id),
+        "final_record_hash": str(target.final_record_hash),
+        "final_branch": str(target.final_branch),
+        "classification_feedback": "none",
+        "analyses": analyses,
         "n_subjects": len(rows),
         "control_table": str(path),
-        "ulf_total_top5_mean": float(np.mean([row["PlainULFTotalExposureTop5"] for row in rows])),
-        "ulf_only_to_total_fraction_mean": float(
-            np.mean([row["ULFOnlyToTotalULFFraction"] for row in rows])
+        "ulf_only_top5_mean": (
+            float(np.mean(plain_values["exposure_top5"])) if plain_values is not None else None
+        ),
+        "ulf_total_top5_mean": (
+            float(np.mean(descriptive_values["ulf_total_top5"]))
+            if descriptive_values is not None
+            else None
+        ),
+        "ulf_only_to_total_fraction_mean": (
+            float(np.mean(descriptive_values["ulf_only_to_total_fraction"]))
+            if descriptive_values is not None
+            else None
+        ),
+        "hf_out_support_top5_mean": (
+            float(np.mean(hf_support_values["exposure_top5"]))
+            if hf_support_values is not None
+            else None
         ),
     }
 

@@ -64,17 +64,26 @@ def side_field_sampling_rows(
     by_subject: dict[str, dict[str, list[Path]]] = {
         subject_id: {"R": [], "L": []} for subject_id in subject_order
     }
+    seen: set[tuple[str, str]] = set()
     for row in rows:
         subject_id = str(row.get("subject_id", ""))
         side = str(row.get("side", ""))
         if subject_id not in by_subject or side not in {"R", "L"}:
             raise ValueError("jitter side-field rows contain an unexpected subject or side")
-        if by_subject[subject_id][side]:
+        key = (subject_id, side)
+        if key in seen:
             raise ValueError(f"duplicate jitter side-field row for {subject_id}:{side}")
+        seen.add(key)
         raw_paths = row.get("source_paths", [])
         if not isinstance(raw_paths, list):
             raise ValueError("jitter side-field source_paths must be a list")
         by_subject[subject_id][side] = [Path(str(path)) for path in raw_paths]
+
+    expected = {(subject_id, side) for subject_id in subject_order for side in ("R", "L")}
+    missing = sorted(expected - seen)
+    if missing:
+        rendered = ",".join(f"{subject_id}:{side}" for subject_id, side in missing)
+        raise ValueError(f"missing jitter side-field row for {rendered}")
 
     root = Path(flipped_root).expanduser().resolve()
     output: list[dict[str, Any]] = []

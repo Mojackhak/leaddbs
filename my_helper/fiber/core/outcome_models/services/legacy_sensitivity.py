@@ -83,6 +83,15 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _array_sha256(values: np.ndarray) -> str:
+    array = np.ascontiguousarray(values)
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(json.dumps(list(array.shape), separators=(",", ":")).encode("ascii"))
+    digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
 def _run_root(request: SensitivityRequest) -> Path:
     output_root = Path(request.output_root).expanduser().resolve()
     try:
@@ -120,11 +129,20 @@ def _axis_path(run_root: Path, final: FinalArtifactRecord, *, label: str) -> Pat
         raise RecordError(f"{label} feature axis escapes the configured run root") from exc
     if not path.is_file():
         raise RecordError(f"{label} feature-axis artifact is missing: {path}")
-    if _sha256(path) != final.feature_axis.sha256:
-        raise RecordError(f"{label} feature-axis SHA-256 mismatch: {path}")
     values = np.load(path, mmap_mode="r")
     if values.ndim != 1 or int(values.shape[0]) != final.feature_axis.count:
         raise RecordError(f"{label} feature-axis count mismatch")
+    identity_source = final.feature_axis.identity_source
+    if identity_source == "candidate_flat_indices":
+        observed_sha256 = _sha256(path)
+    elif identity_source.endswith(":idx"):
+        observed_sha256 = _array_sha256(values)
+    else:
+        raise RecordError(
+            f"{label} feature-axis identity source is unsupported: {identity_source!r}"
+        )
+    if observed_sha256 != final.feature_axis.sha256:
+        raise RecordError(f"{label} feature-axis SHA-256 mismatch: {path}")
     return path
 
 

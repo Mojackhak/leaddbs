@@ -50,6 +50,24 @@ class SensitivityInputs:
     hf_reference_scale: str
 
 
+@dataclass(frozen=True)
+class SupportFractionColumns:
+    subject: str
+    fold_maximum: str
+
+
+_SUPPORT_FRACTION_COLUMNS = {
+    "ulf_voxel": SupportFractionColumns(
+        subject="full_out_support_fraction",
+        fold_maximum="fold_out_support_fraction_max",
+    ),
+    "ulf_fiber": SupportFractionColumns(
+        subject="subject_out_candidate_fraction",
+        fold_maximum="maximum_fold_out_candidate_fraction",
+    ),
+}
+
+
 def as_2d_covariates(covariates: np.ndarray | None, n_rows: int) -> np.ndarray:
     if covariates is None:
         return np.empty((n_rows, 0), dtype=float)
@@ -439,23 +457,38 @@ def _configured_branch_result(
 def _support_diagnostic(target: Any) -> dict[str, Any]:
     if target.delta_support_path is None:
         return {"status": "not_computable", "reason": "invalid_or_missing_delta_hf_support"}
+    columns = _SUPPORT_FRACTION_COLUMNS.get(target.model_family)
+    if columns is None:
+        return {"status": "not_computable", "reason": "unsupported_support_model_family"}
     with Path(target.delta_support_path).open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    values: list[float] = []
+    subject_values: list[float] = []
+    fold_maximum_values: list[float] = []
     for row in rows:
-        text = row.get("HF_out_support_fraction", row.get("hf_out_support_fraction", ""))
         try:
-            values.append(float(text))
-        except (TypeError, ValueError):
-            continue
-    if not values:
+            subject_values.append(float(row[columns.subject]))
+            fold_maximum_values.append(float(row[columns.fold_maximum]))
+        except (KeyError, TypeError, ValueError):
+            return {"status": "not_computable", "reason": "support_rows_missing_out_fraction"}
+    if not subject_values:
         return {"status": "not_computable", "reason": "support_rows_missing_out_fraction"}
-    fractions = np.asarray(values, dtype=float)
+    fractions = np.asarray(subject_values, dtype=float)
+    fold_maxima = np.asarray(fold_maximum_values, dtype=float)
+    if (
+        not np.all(np.isfinite(fractions))
+        or not np.all(np.isfinite(fold_maxima))
+        or np.any(fractions < 0.0)
+        or np.any(fractions > 1.0)
+        or np.any(fold_maxima < 0.0)
+        or np.any(fold_maxima > 1.0)
+    ):
+        return {"status": "not_computable", "reason": "support_rows_invalid_out_fraction"}
+    maximum = float(max(np.max(fractions), np.max(fold_maxima)))
     category = "adequate"
     if (
         float(np.median(fractions)) > 0.50
         or float(np.mean(fractions > 0.80)) > 0.25
-        or float(np.max(fractions)) > 0.95
+        or maximum > 0.95
     ):
         category = "invalid_extreme_out_of_support"
     elif not (
@@ -469,7 +502,7 @@ def _support_diagnostic(target: Any) -> dict[str, Any]:
         "median_out_support_fraction": float(np.median(fractions)),
         "fraction_over_0_50": float(np.mean(fractions > 0.50)),
         "fraction_over_0_80": float(np.mean(fractions > 0.80)),
-        "maximum_out_support_fraction": float(np.max(fractions)),
+        "maximum_out_support_fraction": maximum,
         "invalid_extreme_threshold": 0.95,
     }
 

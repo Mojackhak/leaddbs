@@ -149,6 +149,28 @@ class JitterInputManifestTests(unittest.TestCase):
                 ("s1",),
             )
 
+    def test_side_field_rows_reject_duplicate_empty_side_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "duplicate jitter side-field row"):
+                side_field_sampling_rows(
+                    [
+                        {"subject_id": "s1", "side": "R", "source_paths": []},
+                        {"subject_id": "s1", "side": "R", "source_paths": []},
+                        {"subject_id": "s1", "side": "L", "source_paths": []},
+                    ],
+                    ("s1",),
+                    flipped_root=Path(tmp) / "flipped",
+                )
+
+    def test_side_field_rows_require_explicit_empty_rows_for_both_sides(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "missing jitter side-field row"):
+                side_field_sampling_rows(
+                    [{"subject_id": "s1", "side": "R", "source_paths": []}],
+                    ("s1",),
+                    flipped_root=Path(tmp) / "flipped",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

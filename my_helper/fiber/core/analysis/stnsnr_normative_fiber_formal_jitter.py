@@ -13,6 +13,19 @@ from typing import Any
 import h5py
 import numpy as np
 
+from stnsnr_direct_voxel_formal_jitter import (
+    _CONFIGURED_JITTER_CHECKPOINT_INTERVAL,
+    _CONFIGURED_JITTER_CHECKPOINT_SCHEMA,
+    _CONFIGURED_JITTER_METHOD_VERSION,
+    _configured_jitter_checkpoint_identity,
+    _finalize_streaming_spatial_qc,
+    _load_configured_jitter_checkpoint,
+    _missing_spatial_qc,
+    _new_streaming_spatial_qc,
+    _save_configured_jitter_checkpoint,
+    _sha256_file,
+    _update_streaming_spatial_qc,
+)
 from stnsnr_four_model_readiness import DEFAULT_VAL_ROOT
 from stnsnr_four_model_stats import benefit_oriented_weights, fiber_net_score, partial_spearman_matrix
 from stnsnr_hf_normative_fiber_smoke import (
@@ -317,6 +330,18 @@ def _configured_outcome_and_nuisance(
     return y_post, nuisance, fold_nuisance
 
 
+def _configured_observed_weights(target: Any) -> tuple[np.ndarray, np.ndarray]:
+    y_post, nuisance, _ = _configured_outcome_and_nuisance(target)
+    return _fit_full_weights(
+        x=np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32),
+        y_post=y_post,
+        nuisance=nuisance,
+        scale_direction=target.scale_direction,
+        tau=float(target.selected_tau),
+        min_coverage=int(target.selected_coverage),
+    )
+
+
 def run_configured_neighborhood_sensitivity(
     target: Any,
     *,
@@ -565,7 +590,7 @@ def _default_configured_delta_builder(target: Any, geometry: dict[str, Any]) -> 
     subject_fractions, any_zero = _support_fraction(component, full_support, tau)
     n_subjects = len(target.subject_order)
     fold_scores = np.full((n_subjects, n_subjects), np.nan, dtype=float)
-    fold_out = np.full(n_subjects, np.nan, dtype=float)
+    fold_out = np.full((n_subjects, n_subjects), np.nan, dtype=float)
     for heldout in range(n_subjects):
         fold = fit_hf_delta_fold(
             reference,
@@ -581,9 +606,9 @@ def _default_configured_delta_builder(target: Any, geometry: dict[str, Any]) -> 
         fold_scores[heldout] = fold["delta"]
         fold_support = np.asarray(fold["candidate"], dtype=bool) & np.isfinite(fold["weights"])
         fractions, fold_zero = _support_fraction(
-            component[[heldout]], fold_support, tau
+            component, fold_support, tau
         )
-        fold_out[heldout] = fractions[0]
+        fold_out[heldout] = fractions
         any_zero = any_zero or fold_zero
     category = _support_category(subject_fractions, fold_out, any_zero)
     return {
@@ -594,6 +619,9 @@ def _default_configured_delta_builder(target: Any, geometry: dict[str, Any]) -> 
             "median_out_support_fraction": float(np.median(subject_fractions)),
             "maximum_out_support_fraction": float(max(np.max(subject_fractions), np.max(fold_out))),
             "invalid_extreme_threshold": 0.95,
+            "fold_subject_fraction_shape": list(fold_out.shape),
+            "n_fold_subject_pairs_evaluated": int(fold_out.size),
+            "n_extreme_fold_subject_pairs": int(np.count_nonzero(fold_out > 0.95)),
         },
     }
 
@@ -608,6 +636,7 @@ def _default_configured_branch_fitter(
     if target.model_family == "hf_fiber":
         exposure = np.asarray(geometry["final_exposure"], dtype=np.float32)
         fiber_ids = np.asarray(np.load(target.feature_ids_path, mmap_mode="r"))
+        nuisance = _float_column(columns, "Y_base")[:, None]
         reduced = prepare_candidate_union(
             x=exposure,
             fiber_ids=fiber_ids,
@@ -617,10 +646,23 @@ def _default_configured_branch_fitter(
         metrics = normative_fiber_loocv_statistic(
             reduced=reduced,
             y_post=y_post,
-            nuisance=_float_column(columns, "Y_base")[:, None],
+            nuisance=nuisance,
             scale_direction=target.scale_direction,
         )
-        return {"status": "complete", **metrics}
+        weights, valid = _fit_full_weights(
+            x=exposure,
+            y_post=y_post,
+            nuisance=nuisance,
+            scale_direction=target.scale_direction,
+            tau=float(target.selected_tau),
+            min_coverage=int(target.selected_coverage),
+        )
+        return {
+            "status": "complete",
+            **metrics,
+            "_spatial_weights": weights,
+            "_spatial_valid": valid,
+        }
     from stnsnr_ulf_normative_fiber_observed import run_ulf_fiber_branch
 
     ulf = np.asarray(geometry["ulf_component"], dtype=np.float32)
@@ -653,7 +695,13 @@ def _default_configured_branch_fitter(
         min_coverage=int(target.selected_coverage),
         fiber_ids=np.asarray(geometry["fiber_ids"]),
     )
-    return {"status": "complete", **branch["metrics"]}
+    return {
+        "status": "complete",
+        **branch["metrics"],
+        "_spatial_weights": branch["weights"],
+        "_spatial_valid": np.asarray(branch["candidate"], dtype=bool)
+        & np.isfinite(branch["weights"]),
+    }
 
 
 def run_configured_jitter(
@@ -671,45 +719,111 @@ def run_configured_jitter(
     delta_runner = delta_builder or _default_configured_delta_builder
     branch_runner = branch_fitter or _default_configured_branch_fitter
     sigma_mm = float(jitter_fwhm_mm) / 2.3548200450309493
-    rows: list[dict[str, Any]] = []
-    completed = 0
-    for index in range(int(n_jitters)):
-        rng = np.random.default_rng(int(seed) + (index + 1) * 104729)
-        try:
-            geometry = geometry_runner(target, rng, sigma_mm)
-            delta = None
-            if str(target.model_family).startswith("ulf_"):
-                if target.hf_overlap_tau is not None and math.isinf(float(target.hf_overlap_tau)):
-                    delta = {"status": "not_applicable_no_hf_source"}
+    observed_weights, observed_valid = _configured_observed_weights(target)
+    spatial_state = _new_streaming_spatial_qc(observed_weights, observed_valid)
+    checkpoint_identity, checkpoint_key = _configured_jitter_checkpoint_identity(
+        target,
+        n_jitters=int(n_jitters),
+        jitter_fwhm_mm=float(jitter_fwhm_mm),
+        seed=int(seed),
+    )
+    checkpoint_path = (
+        target.output_root / f"configured_jitter_checkpoint_{checkpoint_key}.npz"
+    )
+    rows = _load_configured_jitter_checkpoint(
+        checkpoint_path,
+        identity=checkpoint_identity,
+        spatial_state=spatial_state,
+    )
+    resumed_replicates = len(rows)
+    completed = sum(str(row.get("status")) == "complete" for row in rows)
+    try:
+        for index in range(len(rows), int(n_jitters)):
+            rng = np.random.default_rng(int(seed) + (index + 1) * 104729)
+            try:
+                geometry = geometry_runner(target, rng, sigma_mm)
+                delta = None
+                if str(target.model_family).startswith("ulf_"):
+                    if target.hf_overlap_tau is not None and math.isinf(
+                        float(target.hf_overlap_tau)
+                    ):
+                        delta = {"status": "not_applicable_no_hf_source"}
+                    else:
+                        delta = delta_runner(target, geometry)
+                branch = branch_runner(target, geometry, delta)
+                status = str(branch.get("status", "complete"))
+                completed += int(status == "complete")
+                row = {
+                    "jitter_index": index + 1,
+                    "status": status,
+                    "delta_support_status": (delta or {}).get("status", "not_applicable"),
+                    "failure": branch.get("reason", ""),
+                    "loocv_spearman_rho": branch.get("spearman_rho", np.nan),
+                    "loocv_pearson_r": branch.get("pearson_r", np.nan),
+                    "q2": branch.get("q2", np.nan),
+                    "mae": branch.get("mae", np.nan),
+                    "rmse": branch.get("rmse", np.nan),
+                }
+                if status == "complete" and "_spatial_weights" in branch:
+                    try:
+                        row.update(
+                            _update_streaming_spatial_qc(
+                                spatial_state,
+                                branch["_spatial_weights"],
+                                branch.get(
+                                    "_spatial_valid",
+                                    np.isfinite(branch["_spatial_weights"]),
+                                ),
+                            )
+                        )
+                    except (TypeError, ValueError) as exc:
+                        row.update(_missing_spatial_qc(str(exc)))
                 else:
-                    delta = delta_runner(target, geometry)
-            branch = branch_runner(target, geometry, delta)
-            status = str(branch.get("status", "complete"))
-            completed += int(status == "complete")
-            row = {
-                "jitter_index": index + 1,
-                "status": status,
-                "delta_support_status": (delta or {}).get("status", "not_applicable"),
-                "failure": branch.get("reason", ""),
-                "loocv_spearman_rho": branch.get("spearman_rho", np.nan),
-                "loocv_pearson_r": branch.get("pearson_r", np.nan),
-                "q2": branch.get("q2", np.nan),
-                "mae": branch.get("mae", np.nan),
-                "rmse": branch.get("rmse", np.nan),
-            }
-        except (KeyError, OSError, RuntimeError, ValueError) as exc:
-            row = {
-                "jitter_index": index + 1,
-                "status": "not_computable",
-                "delta_support_status": "not_computable",
-                "failure": str(exc),
-                "loocv_spearman_rho": np.nan,
-                "loocv_pearson_r": np.nan,
-                "q2": np.nan,
-                "mae": np.nan,
-                "rmse": np.nan,
-            }
-        rows.append(row)
+                    row.update(
+                        _missing_spatial_qc(
+                            "completed branch did not expose spatial weights"
+                            if status == "complete"
+                            else "prediction replicate was not computable"
+                        )
+                    )
+            except (KeyError, OSError, RuntimeError, ValueError) as exc:
+                row = {
+                    "jitter_index": index + 1,
+                    "status": "not_computable",
+                    "delta_support_status": "not_computable",
+                    "failure": str(exc),
+                    "loocv_spearman_rho": np.nan,
+                    "loocv_pearson_r": np.nan,
+                    "q2": np.nan,
+                    "mae": np.nan,
+                    "rmse": np.nan,
+                    **_missing_spatial_qc("prediction replicate was not computable"),
+                }
+            rows.append(row)
+            if (
+                len(rows) % _CONFIGURED_JITTER_CHECKPOINT_INTERVAL == 0
+                or len(rows) == int(n_jitters)
+            ):
+                _save_configured_jitter_checkpoint(
+                    checkpoint_path,
+                    identity=checkpoint_identity,
+                    rows=rows,
+                    spatial_state=spatial_state,
+                )
+    except BaseException:
+        _save_configured_jitter_checkpoint(
+            checkpoint_path,
+            identity=checkpoint_identity,
+            rows=rows,
+            spatial_state=spatial_state,
+        )
+        raise
+    _save_configured_jitter_checkpoint(
+        checkpoint_path,
+        identity=checkpoint_identity,
+        rows=rows,
+        spatial_state=spatial_state,
+    )
     if completed == 0:
         failures = sorted({str(row["failure"]) for row in rows if row.get("failure")})
         raise RuntimeError(
@@ -730,7 +844,23 @@ def run_configured_jitter(
             "q2",
             "mae",
             "rmse",
+            "spatial_qc_status",
+            "spatial_failure",
+            "map_pearson_r",
+            "n_finite_map_features",
+            "support_intersection_features",
+            "support_union_features",
+            "valid_support_jaccard",
+            "sign_consistency_fraction",
         ],
+    )
+    spatial_robustness = _finalize_streaming_spatial_qc(
+        spatial_state,
+        rows,
+        output_root=target.output_root,
+        artifact_prefix="normative_fiber_configured_jitter",
+        feature_unit="fiber",
+        requested_replicates=int(n_jitters),
     )
     return {
         "status": "complete" if completed == int(n_jitters) else "partial",
@@ -747,6 +877,16 @@ def run_configured_jitter(
         "final_branch": target.final_branch,
         "replicates": rows,
         "summary_csv": str(summary_path),
+        "spatial_robustness": spatial_robustness,
+        "checkpoint": {
+            "schema_version": _CONFIGURED_JITTER_CHECKPOINT_SCHEMA,
+            "method_version": _CONFIGURED_JITTER_METHOD_VERSION,
+            "method_key": checkpoint_key,
+            "path": str(checkpoint_path),
+            "sha256": _sha256_file(checkpoint_path),
+            "resumed_replicates": resumed_replicates,
+            "checkpointed_replicates": len(rows),
+        },
         "classification_feedback": "none",
     }
 

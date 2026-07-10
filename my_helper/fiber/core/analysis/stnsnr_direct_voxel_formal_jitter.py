@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -169,6 +170,319 @@ def _support_overlap(observed_valid: np.ndarray, jitter_valid: np.ndarray, obser
     }
 
 
+def _new_streaming_spatial_qc(
+    observed_weights: np.ndarray,
+    observed_valid: np.ndarray,
+) -> dict[str, np.ndarray]:
+    weights = np.asarray(observed_weights, dtype=np.float32)
+    valid = np.asarray(observed_valid, dtype=bool)
+    if weights.ndim != 1 or valid.shape != weights.shape:
+        raise ValueError("observed spatial weights and support must be aligned vectors")
+    valid = valid & np.isfinite(weights)
+    return {
+        "observed_weights": weights,
+        "observed_valid": valid,
+        "mean": np.zeros(weights.shape, dtype=np.float64),
+        "m2": np.zeros(weights.shape, dtype=np.float64),
+        "finite_count": np.zeros(weights.shape, dtype=np.uint32),
+    }
+
+
+def _update_streaming_spatial_qc(
+    state: dict[str, np.ndarray],
+    jitter_weights: np.ndarray,
+    jitter_valid: np.ndarray,
+) -> dict[str, Any]:
+    weights = np.asarray(jitter_weights, dtype=np.float32)
+    valid = np.asarray(jitter_valid, dtype=bool)
+    observed_weights = state["observed_weights"]
+    observed_valid = state["observed_valid"]
+    if weights.shape != observed_weights.shape or valid.shape != weights.shape:
+        raise ValueError("jitter spatial weights and support must match the final feature axis")
+    valid = valid & np.isfinite(weights)
+    finite_count = state["finite_count"]
+    if np.any(valid):
+        values = weights[valid].astype(np.float64)
+        finite_count[valid] += 1
+        delta = values - state["mean"][valid]
+        state["mean"][valid] += delta / finite_count[valid]
+        delta2 = values - state["mean"][valid]
+        state["m2"][valid] += delta * delta2
+
+    intersection = observed_valid & valid
+    union = observed_valid | valid
+    observed_map = np.where(observed_valid, observed_weights, np.nan)
+    jitter_map = np.where(valid, weights, np.nan)
+    return {
+        "spatial_qc_status": "complete",
+        "spatial_failure": "",
+        "map_pearson_r": _pearson(observed_map, jitter_map),
+        "n_finite_map_features": int(np.count_nonzero(valid)),
+        "support_intersection_features": int(np.count_nonzero(intersection)),
+        "support_union_features": int(np.count_nonzero(union)),
+        "valid_support_jaccard": (
+            float(np.count_nonzero(intersection) / np.count_nonzero(union))
+            if np.any(union)
+            else float("nan")
+        ),
+        "sign_consistency_fraction": (
+            float(
+                np.mean(
+                    np.sign(observed_weights[intersection])
+                    == np.sign(weights[intersection])
+                )
+            )
+            if np.any(intersection)
+            else float("nan")
+        ),
+    }
+
+
+def _missing_spatial_qc(reason: str) -> dict[str, Any]:
+    return {
+        "spatial_qc_status": "not_computable",
+        "spatial_failure": reason,
+        "map_pearson_r": np.nan,
+        "n_finite_map_features": 0,
+        "support_intersection_features": 0,
+        "support_union_features": 0,
+        "valid_support_jaccard": np.nan,
+        "sign_consistency_fraction": np.nan,
+    }
+
+
+def _write_npy_atomic(path: Path, values: np.ndarray) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("wb") as handle:
+        np.save(handle, values, allow_pickle=False)
+    temporary.replace(path)
+    return path
+
+
+_CONFIGURED_JITTER_CHECKPOINT_SCHEMA = "stnsnr_configured_jitter_checkpoint_v1"
+_CONFIGURED_JITTER_METHOD_VERSION = "full_process_spatial_jitter_v2"
+_CONFIGURED_JITTER_CHECKPOINT_INTERVAL = 10
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _configured_jitter_checkpoint_identity(
+    target: Any,
+    *,
+    n_jitters: int,
+    jitter_fwhm_mm: float,
+    seed: int,
+) -> tuple[dict[str, Any], str]:
+    input_manifest = getattr(target, "jitter_input_manifest_path", None)
+    input_manifest_hash = None
+    if input_manifest is not None:
+        input_manifest_path = Path(input_manifest).expanduser().resolve()
+        if not input_manifest_path.is_file():
+            raise FileNotFoundError(
+                f"configured jitter input manifest is missing: {input_manifest_path}"
+            )
+        input_manifest_hash = _sha256_file(input_manifest_path)
+    identity = {
+        "schema_version": _CONFIGURED_JITTER_CHECKPOINT_SCHEMA,
+        "method_version": _CONFIGURED_JITTER_METHOD_VERSION,
+        "model_family": str(target.model_family),
+        "final_model_id": str(target.final_model_id),
+        "final_record_hash": str(target.final_record_hash),
+        "final_branch": str(target.final_branch),
+        "selected_tau": float(target.selected_tau),
+        "selected_coverage": int(target.selected_coverage),
+        "seed": int(seed),
+        "jitter_fwhm_mm": float(jitter_fwhm_mm),
+        "requested_replicates": int(n_jitters),
+        "jitter_input_manifest_sha256": input_manifest_hash,
+    }
+    key = hashlib.sha256(
+        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return identity, key
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(f"unsupported checkpoint value {type(value).__name__}")
+
+
+def _save_configured_jitter_checkpoint(
+    path: Path,
+    *,
+    identity: dict[str, Any],
+    rows: list[dict[str, Any]],
+    spatial_state: dict[str, np.ndarray],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    identity_bytes = json.dumps(
+        identity,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    rows_bytes = json.dumps(
+        rows,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=_json_default,
+    ).encode("utf-8")
+    with temporary.open("wb") as handle:
+        np.savez_compressed(
+            handle,
+            identity_json=np.frombuffer(identity_bytes, dtype=np.uint8),
+            rows_json=np.frombuffer(rows_bytes, dtype=np.uint8),
+            next_index=np.asarray([len(rows)], dtype=np.int64),
+            mean=np.asarray(spatial_state["mean"], dtype=np.float64),
+            m2=np.asarray(spatial_state["m2"], dtype=np.float64),
+            finite_count=np.asarray(spatial_state["finite_count"], dtype=np.uint32),
+        )
+    temporary.replace(path)
+
+
+def _load_configured_jitter_checkpoint(
+    path: Path,
+    *,
+    identity: dict[str, Any],
+    spatial_state: dict[str, np.ndarray],
+) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    try:
+        with np.load(path, allow_pickle=False) as checkpoint:
+            observed_identity = json.loads(
+                np.asarray(checkpoint["identity_json"], dtype=np.uint8).tobytes().decode("utf-8")
+            )
+            rows = json.loads(
+                np.asarray(checkpoint["rows_json"], dtype=np.uint8).tobytes().decode("utf-8")
+            )
+            next_index = int(np.asarray(checkpoint["next_index"], dtype=np.int64).reshape(-1)[0])
+            mean = np.asarray(checkpoint["mean"], dtype=np.float64)
+            m2 = np.asarray(checkpoint["m2"], dtype=np.float64)
+            finite_count = np.asarray(checkpoint["finite_count"], dtype=np.uint32)
+    except (KeyError, OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        return []
+    if observed_identity != identity or not isinstance(rows, list) or next_index != len(rows):
+        return []
+    if next_index > int(identity["requested_replicates"]):
+        return []
+    if [row.get("jitter_index") for row in rows if isinstance(row, dict)] != list(
+        range(1, next_index + 1)
+    ):
+        return []
+    expected_shape = spatial_state["mean"].shape
+    if mean.shape != expected_shape or m2.shape != expected_shape or finite_count.shape != expected_shape:
+        return []
+    spatial_state["mean"][:] = mean
+    spatial_state["m2"][:] = m2
+    spatial_state["finite_count"][:] = finite_count
+    return [dict(row) for row in rows]
+
+
+def _finite_summary(rows: list[dict[str, Any]], key: str, statistic: str) -> float:
+    values = np.asarray([row.get(key, np.nan) for row in rows], dtype=float)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return float("nan")
+    if statistic == "median":
+        return float(np.median(finite))
+    if statistic == "minimum":
+        return float(np.min(finite))
+    raise ValueError(f"unsupported spatial summary statistic: {statistic}")
+
+
+def _finalize_streaming_spatial_qc(
+    state: dict[str, np.ndarray],
+    rows: list[dict[str, Any]],
+    *,
+    output_root: Path,
+    artifact_prefix: str,
+    feature_unit: str,
+    requested_replicates: int,
+) -> dict[str, Any]:
+    count = state["finite_count"]
+    mean = np.full(count.shape, np.nan, dtype=np.float32)
+    has_value = count > 0
+    mean[has_value] = state["mean"][has_value].astype(np.float32)
+    sd = np.full(count.shape, np.nan, dtype=np.float32)
+    has_sd = count > 1
+    sd[has_sd] = np.sqrt(
+        state["m2"][has_sd] / (count[has_sd].astype(np.float64) - 1.0)
+    ).astype(np.float32)
+
+    observed_path = _write_npy_atomic(
+        output_root / f"{artifact_prefix}_observed_final_weights.npy",
+        state["observed_weights"],
+    )
+    mean_path = _write_npy_atomic(
+        output_root / f"{artifact_prefix}_map_mean.npy",
+        mean,
+    )
+    sd_path = _write_npy_atomic(
+        output_root / f"{artifact_prefix}_map_sd.npy",
+        sd,
+    )
+    count_path = _write_npy_atomic(
+        output_root / f"{artifact_prefix}_map_finite_count.npy",
+        count,
+    )
+    completed = sum(row.get("spatial_qc_status") == "complete" for row in rows)
+    return {
+        "status": (
+            "complete"
+            if completed == int(requested_replicates)
+            else "partial"
+            if completed > 0
+            else "not_computable"
+        ),
+        "feature_unit": feature_unit,
+        "requested_replicates": int(requested_replicates),
+        "completed_replicates": int(completed),
+        "observed_final_weights_source": "recomputed_from_immutable_final_inputs",
+        "observed_final_weights_npy": str(observed_path),
+        "n_observed_valid_features": int(
+            np.count_nonzero(state["observed_valid"])
+        ),
+        "map_pearson_r_median": _finite_summary(rows, "map_pearson_r", "median"),
+        "map_pearson_r_minimum": _finite_summary(rows, "map_pearson_r", "minimum"),
+        "valid_support_jaccard_median": _finite_summary(
+            rows,
+            "valid_support_jaccard",
+            "median",
+        ),
+        "valid_support_jaccard_minimum": _finite_summary(
+            rows,
+            "valid_support_jaccard",
+            "minimum",
+        ),
+        "sign_consistency_fraction_median": _finite_summary(
+            rows,
+            "sign_consistency_fraction",
+            "median",
+        ),
+        "sign_consistency_fraction_minimum": _finite_summary(
+            rows,
+            "sign_consistency_fraction",
+            "minimum",
+        ),
+        "streaming_variability_method": "per-feature Welford mean and sample SD over finite supported weights",
+        "streaming_memory_complexity": "O(n_features)",
+        "map_variability_artifacts": {
+            "mean_npy": str(mean_path),
+            "sd_npy": str(sd_path),
+            "finite_count_npy": str(count_path),
+        },
+    }
+
+
 def _write_jitter_se_nifti(target: DirectVoxelTarget, prefix: str, se_values: np.ndarray) -> Path:
     flat_indices = np.asarray(np.load(target.x_path.parent / "candidate_flat_indices.npy"), dtype=np.int64)
     template = nib.load(str(target.branch_dir / f"{prefix}_coef.nii.gz"))
@@ -248,6 +562,18 @@ def _configured_outcome_and_nuisance(
         axis=2,
     )
     return y_post, nuisance, fold_nuisance
+
+
+def _configured_observed_weights(target: Any) -> tuple[np.ndarray, np.ndarray]:
+    y_post, nuisance, _ = _configured_outcome_and_nuisance(target)
+    return _full_weights(
+        x=np.asarray(np.load(target.exposure_path, mmap_mode="r"), dtype=np.float32),
+        y_post=y_post,
+        nuisance=nuisance,
+        scale_direction=target.scale_direction,
+        tau=float(target.selected_tau),
+        min_coverage=int(target.selected_coverage),
+    )
 
 
 def run_configured_neighborhood_sensitivity(
@@ -589,7 +915,7 @@ def _default_configured_delta_builder(target: Any, geometry: dict[str, Any]) -> 
     )
     n_subjects = len(target.subject_order)
     fold_scores = np.full((n_subjects, n_subjects), np.nan, dtype=float)
-    fold_out = np.full(n_subjects, np.nan, dtype=float)
+    fold_out = np.full((n_subjects, n_subjects), np.nan, dtype=float)
     for heldout in range(n_subjects):
         fold = fit_hf_delta_fold(
             reference,
@@ -605,11 +931,11 @@ def _default_configured_delta_builder(target: Any, geometry: dict[str, Any]) -> 
         fold_support = np.zeros(component_support.shape[1], dtype=bool)
         fold_support[indices[np.asarray(fold["valid_mask"], dtype=bool)]] = True
         fractions, fold_zero = _support_fraction(
-            component_support[[heldout]],
+            component_support,
             fold_support,
             hf_tau,
         )
-        fold_out[heldout] = fractions[0]
+        fold_out[heldout] = fractions
         any_zero = any_zero or fold_zero
     category = _support_category(subject_fractions, fold_out, any_zero)
     return {
@@ -620,6 +946,9 @@ def _default_configured_delta_builder(target: Any, geometry: dict[str, Any]) -> 
             "median_out_support_fraction": float(np.median(subject_fractions)),
             "maximum_out_support_fraction": float(max(np.max(subject_fractions), np.max(fold_out))),
             "invalid_extreme_threshold": 0.95,
+            "fold_subject_fraction_shape": list(fold_out.shape),
+            "n_fold_subject_pairs_evaluated": int(fold_out.size),
+            "n_extreme_fold_subject_pairs": int(np.count_nonzero(fold_out > 0.95)),
         },
     }
 
@@ -633,15 +962,29 @@ def _default_configured_branch_fitter(
     y_post = _float_column(table, "Y_post")
     if target.model_family == "hf_voxel":
         nuisance = _float_column(table, "Y_base")[:, None]
+        exposure = np.asarray(geometry["final_exposure"], dtype=np.float32)
         metrics = direct_voxel_loocv_statistic(
-            x=np.asarray(geometry["final_exposure"], dtype=np.float32),
+            x=exposure,
             y_post=y_post,
             nuisance=nuisance,
             scale_direction=target.scale_direction,
             tau=float(target.selected_tau),
             min_coverage=int(target.selected_coverage),
         )
-        return {"status": "complete", **metrics}
+        weights, valid = _full_weights(
+            x=exposure,
+            y_post=y_post,
+            nuisance=nuisance,
+            scale_direction=target.scale_direction,
+            tau=float(target.selected_tau),
+            min_coverage=int(target.selected_coverage),
+        )
+        return {
+            "status": "complete",
+            **metrics,
+            "_spatial_weights": weights,
+            "_spatial_valid": valid,
+        }
     from stnsnr_ulf_direct_voxel_observed import compute_branch
 
     ulf = np.asarray(geometry["ulf_component"], dtype=np.float32)
@@ -675,7 +1018,13 @@ def _default_configured_branch_fitter(
         min_coverage=int(target.selected_coverage),
         subject_ids=list(target.subject_order),
     )
-    return {"status": "complete", **branch["metrics"]}
+    return {
+        "status": "complete",
+        **branch["metrics"],
+        "_spatial_weights": branch["weights"],
+        "_spatial_valid": np.asarray(branch["omega"], dtype=bool)
+        & np.isfinite(branch["weights"]),
+    }
 
 
 def run_configured_jitter(
@@ -693,46 +1042,112 @@ def run_configured_jitter(
     delta_runner = delta_builder or _default_configured_delta_builder
     branch_runner = branch_fitter or _default_configured_branch_fitter
     sigma_mm = float(jitter_fwhm_mm) / 2.3548200450309493
-    rows: list[dict[str, Any]] = []
-    completed = 0
-    for index in range(int(n_jitters)):
-        rng = np.random.default_rng(int(seed) + (index + 1) * 104729)
-        try:
-            geometry = geometry_runner(target, rng, sigma_mm)
-            delta = None
-            if str(target.model_family).startswith("ulf_"):
-                if target.hf_overlap_tau is not None and math.isinf(float(target.hf_overlap_tau)):
-                    delta = {"status": "not_applicable_no_hf_source"}
+    observed_weights, observed_valid = _configured_observed_weights(target)
+    spatial_state = _new_streaming_spatial_qc(observed_weights, observed_valid)
+    checkpoint_identity, checkpoint_key = _configured_jitter_checkpoint_identity(
+        target,
+        n_jitters=int(n_jitters),
+        jitter_fwhm_mm=float(jitter_fwhm_mm),
+        seed=int(seed),
+    )
+    checkpoint_path = (
+        target.output_root / f"configured_jitter_checkpoint_{checkpoint_key}.npz"
+    )
+    rows = _load_configured_jitter_checkpoint(
+        checkpoint_path,
+        identity=checkpoint_identity,
+        spatial_state=spatial_state,
+    )
+    resumed_replicates = len(rows)
+    completed = sum(str(row.get("status")) == "complete" for row in rows)
+    try:
+        for index in range(len(rows), int(n_jitters)):
+            rng = np.random.default_rng(int(seed) + (index + 1) * 104729)
+            try:
+                geometry = geometry_runner(target, rng, sigma_mm)
+                delta = None
+                if str(target.model_family).startswith("ulf_"):
+                    if target.hf_overlap_tau is not None and math.isinf(
+                        float(target.hf_overlap_tau)
+                    ):
+                        delta = {"status": "not_applicable_no_hf_source"}
+                    else:
+                        delta = delta_runner(target, geometry)
+                branch = branch_runner(target, geometry, delta)
+                status = str(branch.get("status", "complete"))
+                if status == "complete":
+                    completed += 1
+                row = {
+                    "jitter_index": index + 1,
+                    "status": status,
+                    "delta_support_status": (delta or {}).get("status", "not_applicable"),
+                    "failure": branch.get("reason", ""),
+                    "loocv_spearman_rho": branch.get("spearman_rho", np.nan),
+                    "loocv_pearson_r": branch.get("pearson_r", np.nan),
+                    "q2": branch.get("q2", np.nan),
+                    "mae": branch.get("mae", np.nan),
+                    "rmse": branch.get("rmse", np.nan),
+                }
+                if status == "complete" and "_spatial_weights" in branch:
+                    try:
+                        row.update(
+                            _update_streaming_spatial_qc(
+                                spatial_state,
+                                branch["_spatial_weights"],
+                                branch.get(
+                                    "_spatial_valid",
+                                    np.isfinite(branch["_spatial_weights"]),
+                                ),
+                            )
+                        )
+                    except (TypeError, ValueError) as exc:
+                        row.update(_missing_spatial_qc(str(exc)))
                 else:
-                    delta = delta_runner(target, geometry)
-            branch = branch_runner(target, geometry, delta)
-            status = str(branch.get("status", "complete"))
-            if status == "complete":
-                completed += 1
-            row = {
-                "jitter_index": index + 1,
-                "status": status,
-                "delta_support_status": (delta or {}).get("status", "not_applicable"),
-                "failure": branch.get("reason", ""),
-                "loocv_spearman_rho": branch.get("spearman_rho", np.nan),
-                "loocv_pearson_r": branch.get("pearson_r", np.nan),
-                "q2": branch.get("q2", np.nan),
-                "mae": branch.get("mae", np.nan),
-                "rmse": branch.get("rmse", np.nan),
-            }
-        except (KeyError, OSError, RuntimeError, ValueError) as exc:
-            row = {
-                "jitter_index": index + 1,
-                "status": "not_computable",
-                "delta_support_status": "not_computable",
-                "failure": str(exc),
-                "loocv_spearman_rho": np.nan,
-                "loocv_pearson_r": np.nan,
-                "q2": np.nan,
-                "mae": np.nan,
-                "rmse": np.nan,
-            }
-        rows.append(row)
+                    row.update(
+                        _missing_spatial_qc(
+                            "completed branch did not expose spatial weights"
+                            if status == "complete"
+                            else "prediction replicate was not computable"
+                        )
+                    )
+            except (KeyError, OSError, RuntimeError, ValueError) as exc:
+                row = {
+                    "jitter_index": index + 1,
+                    "status": "not_computable",
+                    "delta_support_status": "not_computable",
+                    "failure": str(exc),
+                    "loocv_spearman_rho": np.nan,
+                    "loocv_pearson_r": np.nan,
+                    "q2": np.nan,
+                    "mae": np.nan,
+                    "rmse": np.nan,
+                    **_missing_spatial_qc("prediction replicate was not computable"),
+                }
+            rows.append(row)
+            if (
+                len(rows) % _CONFIGURED_JITTER_CHECKPOINT_INTERVAL == 0
+                or len(rows) == int(n_jitters)
+            ):
+                _save_configured_jitter_checkpoint(
+                    checkpoint_path,
+                    identity=checkpoint_identity,
+                    rows=rows,
+                    spatial_state=spatial_state,
+                )
+    except BaseException:
+        _save_configured_jitter_checkpoint(
+            checkpoint_path,
+            identity=checkpoint_identity,
+            rows=rows,
+            spatial_state=spatial_state,
+        )
+        raise
+    _save_configured_jitter_checkpoint(
+        checkpoint_path,
+        identity=checkpoint_identity,
+        rows=rows,
+        spatial_state=spatial_state,
+    )
     if completed == 0:
         failures = sorted({str(row["failure"]) for row in rows if row.get("failure")})
         raise RuntimeError(
@@ -753,7 +1168,23 @@ def run_configured_jitter(
             "q2",
             "mae",
             "rmse",
+            "spatial_qc_status",
+            "spatial_failure",
+            "map_pearson_r",
+            "n_finite_map_features",
+            "support_intersection_features",
+            "support_union_features",
+            "valid_support_jaccard",
+            "sign_consistency_fraction",
         ],
+    )
+    spatial_robustness = _finalize_streaming_spatial_qc(
+        spatial_state,
+        rows,
+        output_root=target.output_root,
+        artifact_prefix="direct_voxel_configured_jitter",
+        feature_unit="voxel",
+        requested_replicates=int(n_jitters),
     )
     return {
         "status": "complete" if completed == int(n_jitters) else "partial",
@@ -770,6 +1201,16 @@ def run_configured_jitter(
         "final_branch": target.final_branch,
         "replicates": rows,
         "summary_csv": str(summary_path),
+        "spatial_robustness": spatial_robustness,
+        "checkpoint": {
+            "schema_version": _CONFIGURED_JITTER_CHECKPOINT_SCHEMA,
+            "method_version": _CONFIGURED_JITTER_METHOD_VERSION,
+            "method_key": checkpoint_key,
+            "path": str(checkpoint_path),
+            "sha256": _sha256_file(checkpoint_path),
+            "resumed_replicates": resumed_replicates,
+            "checkpointed_replicates": len(rows),
+        },
         "classification_feedback": "none",
     }
 

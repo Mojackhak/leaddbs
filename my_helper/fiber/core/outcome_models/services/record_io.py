@@ -220,8 +220,40 @@ def load_delta_bundle_for_final(
     return matches[0]
 
 
+def load_delta_bundle_for_endpoint(
+    endpoint_model_id: str,
+    context: RunContext,
+    *,
+    expected_hf_source_hash: str,
+) -> DeltaHFBundle:
+    """Load the endpoint-local Delta bundle bound to one exact HF source lock."""
+    matches: list[DeltaHFBundle] = []
+    for record in context.results.values():
+        if (
+            record.task.endpoint.identifier != endpoint_model_id
+            or record.task.key.execution_stage != "preprocessing_sidecars"
+        ):
+            continue
+        source_hash = record.result.facts.get("hf_source_record_hash")
+        if source_hash != expected_hf_source_hash:
+            raise RecordError(
+                "ULF DeltaHF sidecar does not match the endpoint's locked HF source"
+            )
+        payload = record.result.facts.get("delta_hf_bundle")
+        if not isinstance(payload, dict):
+            raise RecordError("ULF preprocessing sidecar is missing its DeltaHF bundle")
+        matches.append(DeltaHFBundle.from_dict(dict(payload)))
+    if len(matches) != 1:
+        raise RecordError(
+            f"expected exactly one endpoint-local DeltaHF bundle for {endpoint_model_id}; "
+            f"found {len(matches)}"
+        )
+    return matches[0]
+
+
 __all__ = [
     "artifact_ref_for_task",
+    "load_delta_bundle_for_endpoint",
     "load_delta_bundle_for_final",
     "load_final_record",
     "persist_hf_resolver_output",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 import hashlib
 import importlib
 import json
@@ -49,6 +50,15 @@ from outcome_models.tests.helpers import (
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _array_sha256(values: np.ndarray) -> str:
+    array = np.ascontiguousarray(values)
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(json.dumps(list(array.shape), separators=(",", ":")).encode("ascii"))
+    digest.update(array.tobytes(order="C"))
     return digest.hexdigest()
 
 
@@ -127,7 +137,8 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
                     }
                 )
         ids = producer / "feature_ids.npy"
-        np.save(ids, np.arange(20, dtype=np.int64))
+        feature_ids = np.arange(20, dtype=np.int64)
+        np.save(ids, feature_ids)
         manifest = producer / "manifest.json"
         manifest.write_text(
             json.dumps(
@@ -156,7 +167,20 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
             manifest=self._artifact(root, manifest, "selected_manifest"),
             exposure=self._artifact(root, exposure, "exposure_matrix", (12, 20)),
             scores=self._artifact(root, scores, "selected_scores", (12,)),
-            feature_axis=FeatureAxisRef(ids, 20, _sha256(ids), "synthetic_axis"),
+            feature_axis=FeatureAxisRef(
+                ids,
+                20,
+                (
+                    _array_sha256(feature_ids)
+                    if task.endpoint.model_family.endswith("fiber")
+                    else _sha256(ids)
+                ),
+                (
+                    "data.mat:idx"
+                    if task.endpoint.model_family.endswith("fiber")
+                    else "candidate_flat_indices"
+                ),
+            ),
         )
 
     def _request(
@@ -239,6 +263,137 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
             raw.write_bytes(b"changed")
             with self.assertRaisesRegex(RecordError, "SHA-256 mismatch"):
                 build_configured_sensitivity_target(request)
+
+    def test_normative_fiber_axis_uses_logical_array_identity_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task = self._task("ulf_fiber", "selected_source_neighborhood")
+            final = self._final(root, task)
+            axis_path = Path(final.feature_axis.ids_path)
+
+            self.assertNotEqual(final.feature_axis.sha256, _sha256(axis_path))
+            target = build_configured_sensitivity_target(
+                self._request(root, task, final)
+            )
+
+        self.assertEqual(target.subject_order, final.subject_order)
+
+    def test_normative_fiber_axis_identity_rejects_feature_order_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task = self._task("ulf_fiber", "selected_source_neighborhood")
+            final = self._final(root, task)
+            axis_path = Path(final.feature_axis.ids_path)
+            np.save(axis_path, np.arange(19, -1, -1, dtype=np.int64))
+
+            with self.assertRaisesRegex(RecordError, "feature-axis SHA-256 mismatch"):
+                build_configured_sensitivity_target(self._request(root, task, final))
+
+    def test_normative_fiber_axis_validation_keeps_score_subject_order_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task = self._task("ulf_fiber", "selected_source_neighborhood")
+            final = self._final(root, task)
+            scores_path = root / final.scores.relative_path
+            with scores_path.open(newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                rows = list(reader)
+                fieldnames = list(reader.fieldnames or ())
+            rows[0], rows[1] = rows[1], rows[0]
+            with scores_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+            mismatched_final = replace(
+                final,
+                scores=self._artifact(root, scores_path, "selected_scores", (12,)),
+            )
+
+            with self.assertRaisesRegex(RecordError, "score subject order"):
+                build_configured_sensitivity_target(
+                    self._request(root, task, mismatched_final)
+                )
+
+    def test_direct_support_diagnostic_reads_full_and_fold_maximum_fractions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            support_path = Path(tmp) / "direct_support.csv"
+            with support_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "subject_id",
+                        "full_out_support_fraction",
+                        "fold_out_support_fraction_max",
+                    ],
+                )
+                writer.writeheader()
+                for index, fold_maximum in enumerate((0.20, 0.30, 0.40, 0.96)):
+                    writer.writerow(
+                        {
+                            "subject_id": f"sub-{index + 1:02d}",
+                            "full_out_support_fraction": 0.10,
+                            "fold_out_support_fraction_max": fold_maximum,
+                        }
+                    )
+            analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+            if str(analysis_root) not in sys.path:
+                sys.path.insert(0, str(analysis_root))
+            module = importlib.import_module(
+                "stnsnr_ulf_direct_voxel_sensitivity_observed"
+            )
+
+            diagnostic = module._support_diagnostic(
+                SimpleNamespace(
+                    model_family="ulf_voxel",
+                    delta_support_path=support_path,
+                )
+            )
+
+        self.assertEqual(
+            diagnostic["observed_support_category"],
+            "invalid_extreme_out_of_support",
+        )
+        self.assertEqual(diagnostic["median_out_support_fraction"], 0.10)
+        self.assertEqual(diagnostic["maximum_out_support_fraction"], 0.96)
+
+    def test_fiber_support_diagnostic_reads_subject_and_fold_maximum_fractions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            support_path = Path(tmp) / "fiber_support.csv"
+            with support_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "subject_id",
+                        "subject_out_candidate_fraction",
+                        "maximum_fold_out_candidate_fraction",
+                    ],
+                )
+                writer.writeheader()
+                for index, fold_maximum in enumerate((0.25, 0.50, 0.60, 0.75)):
+                    writer.writerow(
+                        {
+                            "subject_id": f"sub-{index + 1:02d}",
+                            "subject_out_candidate_fraction": 0.10,
+                            "maximum_fold_out_candidate_fraction": fold_maximum,
+                        }
+                    )
+            analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+            if str(analysis_root) not in sys.path:
+                sys.path.insert(0, str(analysis_root))
+            module = importlib.import_module(
+                "stnsnr_ulf_direct_voxel_sensitivity_observed"
+            )
+
+            diagnostic = module._support_diagnostic(
+                SimpleNamespace(
+                    model_family="ulf_fiber",
+                    delta_support_path=support_path,
+                )
+            )
+
+        self.assertEqual(diagnostic["observed_support_category"], "adequate")
+        self.assertEqual(diagnostic["median_out_support_fraction"], 0.10)
+        self.assertEqual(diagnostic["maximum_out_support_fraction"], 0.75)
 
     def test_ulf_neighborhood_passes_raw_components_and_selected_thresholds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
