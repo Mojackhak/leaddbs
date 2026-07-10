@@ -2,8 +2,9 @@
 
 ## Status
 
-Design approved. Directory and wrapper naming generalization are complete.
-The YAML loader and runner modes described below remain implementation work.
+Implemented and verified on 2026-07-10. The strict YAML loader, public runner
+modes, session-aware preflight, versioned run records, and project-owned YAML
+presets are complete.
 
 ## Goal
 
@@ -124,10 +125,9 @@ Supported modes:
   image derivatives.
 - `run`: execute the existing processing batch.
 
-Until the YAML loader is implemented, the renamed wrapper may retain its current
-name-value interface as a compatibility path. It must require `StudyRoot`, allow
-an empty `SubjectIds` list for automatic discovery, and contain no Meige cohort
-list.
+The runner retains its name-value interface as a compatibility path. Without a
+YAML file it requires `StudyRoot`, allows an empty `SubjectIds` list for
+automatic discovery, and contains no project cohort list.
 
 ## Processing Flow
 
@@ -205,11 +205,28 @@ derivatives/leaddbs/import_logs/dwi_runs/<run_id>/
 ## Implementation Phases
 
 1. Complete: generalize the current directory, wrapper, test, and documentation names.
-2. Add strict YAML loading and configuration validation.
-3. Add `validate`, `plan`, and `run` modes to the public runner.
-4. Add versioned run manifests and status outputs.
-5. Replace Meige and STN/SNr project wrappers with thin YAML presets while
+2. Complete: add strict YAML loading and configuration validation.
+3. Complete: add `validate`, `plan`, and `run` modes to the public runner.
+4. Complete: add versioned run manifests and status outputs.
+5. Complete: replace project-specific orchestration with YAML presets while
    preserving compatibility entry points where required.
+
+## Verification Record
+
+- All 11 MATLAB tests under `my_helper/dwi/test_*.m` and
+  `my_helper/fiber/core/dwi/test_*.m` passed in Conda `leaddbs`.
+- MATLAB `checkcode` passed for all 15 changed `.m` files.
+- The Meige preset validated all 22 discovered subjects. The versioned record is
+  `/Volumes/VAL/meige/derivatives/leaddbs/import_logs/dwi_runs/20260710_114457_551_validate`.
+- The legacy and YAML-driven Meige001 job specifications were identical.
+- A one-subject temporary standard BIDS project completed the real
+  Synb0/topup/eddy reuse path with status `pending_ui_coregistration`.
+  Corrected DWI/gradient counts, mean-b0 geometry, metadata, formal B0 target,
+  and `BIDSFetcher.getPreprocB0` visibility all passed.
+- The temporary raw DWI SHA-256 remained
+  `4ba3a49e6ffabb124eaaae7d12f5289f8fc8a754bcb857346d2cd24487426f6a`
+  before and after processing. The completed temporary project was moved to
+  `/Volumes/VAL/.Trashes/501/bids_dwi_yaml_validation_20260710_1150_completed`.
 
 ## Test Plan
 
