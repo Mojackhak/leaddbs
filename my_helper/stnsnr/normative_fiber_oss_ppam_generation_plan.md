@@ -3,7 +3,7 @@
 > **Purpose.** This is the `/goal` sub-plan document for generating OSS-DBS / pPAM activation sidecars for STNSNr normative fiber final dTOR branches.
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Parent goal.** `my_helper/stnsnr/four_model_execution_plan.md`
-> **Authoritative model specs.** `my_helper/stnsnr/model_summaries/`
+> **Reference model descriptions.** `my_helper/stnsnr/model_summaries/`; explicit user decisions govern conflicts.
 > **Status.** Input audit/worklist, parameter preflight, and row-level activation harness implemented; full B_DTOR/D_DTOR parameter preflight passes 64/64 rows; full B_DTOR/D_DTOR row-level activation reaches `pathway_activation_complete` for 64/64 rows; no final branch OSS sidecars have been merged yet.
 
 ---

@@ -5,15 +5,24 @@
 > core workflow.
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Parent goal.** `my_helper/stnsnr/four_model_execution_plan.md`
-> **Authoritative model specs.** `my_helper/stnsnr/model_summaries/`
+> **Reference model descriptions.** `my_helper/stnsnr/model_summaries/`
 > **Detailed implementation plan.**
 > `my_helper/stnsnr/four_model_yaml_core_refactor_implementation_plan.md`
+> **Normative-fiber scoring design.**
+> `my_helper/stnsnr/normative_fiber_minimum_count_scoring_design.md`
 > **Current branch.** `stnvop`
 > **Status.** `design_documented`; `implementation_in_progress`;
 > `current_outputs_unchanged`; `current_legacy_entrypoints_remain_active`.
 > **Last updated.** 2026-07-09
 
 ---
+
+Explicit user decisions are the model-contract authority. Markdown files record
+those decisions for implementation and review but are not independently
+authoritative. When documentation, current code, legacy output, and an explicit
+user decision disagree, implementation must stop for clarification or follow
+the clarified user decision; it must not resolve the conflict by treating an
+older document as authoritative.
 
 ## Summary
 
@@ -75,7 +84,7 @@ can:
 5. realize exactly one final model, or an explicit `no_final_model`, for every
    endpoint/model family;
 6. attach formal resampling and sensitivity tasks only to the automatically
-   realized final model where required by the authoritative model specs;
+   realized final model where required by the confirmed model contract;
 7. generate endpoint-aware status, manifests, artifacts, and final reports;
 8. continue independent endpoint tasks after a local failure and return a
    nonzero process status when any requested executable task fails; and
@@ -183,7 +192,7 @@ Subagents are explicitly permitted during implementation. They may perform
 bounded codebase audits, implement independently testable components with
 disjoint write scopes, or run focused verification tasks. Every delegated task
 must name its exact responsibility and file ownership, and subagents must not
-rewrite authoritative model rules, broaden scope into ROI/postprocessing/GUI,
+rewrite user-confirmed model rules, broaden scope into ROI/postprocessing/GUI,
 or change another worker's files.
 
 The main implementation thread remains responsible for dependency ordering,
@@ -380,7 +389,7 @@ plain/burden control definitions
 cheap normative-fiber tau/top-k/cross-connectome sensitivity definitions
 OSS/pPAM sensitivity parameters
 numeric display/FDR/stability reporting parameters already required by the
-authoritative model specs
+confirmed model contract
 ```
 
 The profile may select a versioned scientific policy, but it must not contain
@@ -621,7 +630,7 @@ report:
   sensitivity plus numeric summaries, manifests, and artifact indexing
 ```
 
-This logical stage order does not renumber the authoritative model documents.
+This logical stage order does not renumber the reference model documents.
 For example, an observed cheap sensitivity that is required by a source
 resolver remains an `observed` prerequisite even when its document Round number
 precedes formal resampling.
@@ -921,7 +930,7 @@ Before this design document is accepted, run five review passes:
    DeltaHFScore input state, ULF branch state, and final/fallback state has one
    terminal outcome.
 3. **Round-to-parameter coverage.** Verify every executable round in all four
-   authoritative model summaries appears in the Round Coverage Matrix.
+   reference model summaries appears in the Round Coverage Matrix.
 4. **CLI/YAML/manifest consistency.** Verify public inputs, internal-derived
    parameters, internal tests, runtime outputs, and forbidden fields do not
    conflict.
@@ -946,7 +955,7 @@ commit:
    `no_delta_hf` after intended adjusted-branch input/design failure. An
    evaluable intended branch with no stable source resolves to `no_final_model`.
 3. **Round-to-parameter coverage: passed.** Matched every Round heading in the
-   four authoritative model summaries, including both Round 2b entries and HF
+   four reference model summaries, including both Round 2b entries and HF
    fiber Round 5.5, to a public-YAML, internal-derived, internal-test, runtime,
    or explicitly excluded source in the coverage matrix.
 4. **CLI/YAML/manifest consistency: passed after correction.** Replaced the

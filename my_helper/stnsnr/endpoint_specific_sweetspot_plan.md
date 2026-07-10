@@ -45,10 +45,11 @@ The six model-specific summaries are:
 | HF-status-resolved ULF-only add-on gain | Normative connectome DBS Fiber Filtering / fiber-level | [`ulf_addon_gain_normative_connectome_fiber_model.md`](model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md) |
 | HF-status-resolved ULF-only add-on gain | Individualized DWI seed-target / fiber-derived target-level | [`ulf_addon_gain_individualized_dwi_seed_target_model.md`](model_summaries/ulf_addon_gain_individualized_dwi_seed_target_model.md) |
 
-For the currently executable non-individualized model families, the model-specific
-summaries are the authoritative specifications. This master plan records the
-overall rationale and shared conventions, but it must not override model-level
-candidate rules, scores, outputs, resolver checkpoints, or resampling settings.
+For the currently executable non-individualized model families, the
+model-specific summaries are implementation-reference records. Explicit user
+decisions govern when any summary, master plan, current code, or historical
+output disagrees. A conflict must be clarified rather than resolved by assuming
+that one Markdown file is independently authoritative.
 
 - HF direct voxel: [`hf_3m_direct_voxel_model.md`](model_summaries/hf_3m_direct_voxel_model.md)
 - HF normative connectome fiber: [`hf_3m_normative_connectome_fiber_model.md`](model_summaries/hf_3m_normative_connectome_fiber_model.md)

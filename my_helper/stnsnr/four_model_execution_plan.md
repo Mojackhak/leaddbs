@@ -1,7 +1,7 @@
 # Four-Model Execution Plan (Codex + Subagent Orchestration)
 
 > **Purpose.** This is the `/goal` plan document for executing the four STN/SNr HF/ULF modeling tracks.
-> **Authoritative model specs.** The English files under `my_helper/stnsnr/model_summaries/` define model-level executable behavior. This document defines cross-model orchestration, current implementation state, current status results, and the next engineering priorities.
+> **Reference model descriptions.** The English files under `my_helper/stnsnr/model_summaries/` record model-level executable behavior. Explicit user decisions govern conflicts. This document records cross-model orchestration, current implementation state, current status results, and the next engineering priorities.
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Last updated.** 2026-07-09
 
@@ -392,7 +392,7 @@ or consolidated status files as current results. The rerun must record:
 ```text
 git branch
 git commit or local patch identifier
-authoritative model document version/date
+confirmed model-contract and reference-document version/date
 affected model(s)
 affected endpoint rows
 affected branches

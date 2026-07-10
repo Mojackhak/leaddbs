@@ -7,6 +7,11 @@
 **Goal:** Implement `four_model_yaml_core_refactor_plan.md` end to end and pass
 the named MDS-UPDRS III plus MDS-UPDRS IV acceptance.
 
+**User-confirmed normative-fiber scoring design:**
+`normative_fiber_minimum_count_scoring_design.md`. Explicit user decisions
+govern; this and other Markdown files are implementation records rather than
+independent authorities.
+
 **Architecture:** Add an isolated `my_helper/fiber/core/outcome_models/` package
 for strict profiles, immutable identities, endpoint catalog, state machine, DAG,
 run store, executor, service adapters, and reporting readers. Existing
@@ -596,6 +601,13 @@ The following findings must be closed before the next real run:
    stores completed replicate rows plus streaming spatial state; recovery may
    continue only from an exact identity match and must regenerate the final
    summary/artifacts rather than treating the checkpoint itself as completion.
+10. Configured OSS must use the realized final selected-source candidate fiber
+   axis, not the full parent dTOR exposure axis. Candidate IDs are derived from
+   the immutable final exposure with its selected tau/Coverage, and
+   `oss_fiber_ids.npy` must equal that ordered subset exactly. The OSS matrix
+   shape is therefore `n_subjects x n_selected_candidate_fibers`; the parent
+   feature axis remains provenance only. A full-parent-axis equality check is a
+   contract violation and must be rejected by tests.
 
 - [ ] Run deterministic accepted-final, `no_final_model`, and adjusted-input-
   failure/no-delta-fallback fixtures.

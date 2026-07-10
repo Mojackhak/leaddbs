@@ -7,11 +7,12 @@ Scope: ULF add-on normative connectome fiber-level model, aligned to `hf_3m_norm
 
 ## YAML Core Interface (Foundation In Progress)
 
-The future configuration/orchestration contract is documented in
+The configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
-remains authoritative for matched-HF dependency, branch-specific exposure and
-nuisance design, endpoint realization, fallback-final selection, formal
-resampling, controls, OSS, jitter, and numeric reporting. Shared profile,
+records matched-HF dependency, branch-specific exposure and nuisance design,
+endpoint realization, fallback-final selection, formal resampling, controls,
+OSS, jitter, and numeric reporting. Explicit user decisions govern when this
+record conflicts with code, results, or another document. Shared profile,
 identity, catalog, state, and run-store foundations have status
 `implementation_in_progress`; this model's configured service, full DAG
 scientific execution, and result regeneration are not implemented. The generic
