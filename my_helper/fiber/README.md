@@ -124,6 +124,12 @@ artifact hashes on unchanged reruns, and exact reference/optimized membership
 agreement for deterministic sampled real fibers. It does not union seeds or
 infer hemisphere/anatomical meaning from fixture labels.
 
+Within one process, the acceptance runner may reuse a read-only resolution
+cache for the unchanged atlas and seed NIfTIs. This avoids decompressing the
+same 106 high-resolution target files on every public-API invocation; cache
+identity includes source path, file size, modification time, and configuration
+hash. Membership identities and immutable artifacts remain unchanged.
+
 ## VTA Computation Modules
 
 VTA generation now uses `core/stimulation/model/mh_vta_compute.m` as the

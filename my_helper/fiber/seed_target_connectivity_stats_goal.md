@@ -420,6 +420,15 @@ Current implementation progress:
 - reusable API and four-command CLI: complete;
 - default real-data acceptance and completion audit: in progress.
 
+Acceptance performance note:
+
+- when both seed and target memberships are absent, the engine traverses one
+  combined ordered mask lookup and then splits the independent cache outputs;
+- repeated API calls may reuse an exact read-only ROI resolution cache, but
+  membership-cache identities remain independently bound to seed or atlas;
+- the first dTOR attempt was interrupted before artifact publication after it
+  exposed redundant traversal/resolution work; no partial run was accepted.
+
 Documentation must be updated before each later implementation phase changes
 production code.
 
