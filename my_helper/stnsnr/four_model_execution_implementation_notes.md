@@ -1800,8 +1800,27 @@ template, and deletes the filtered template after row completion. A
 content-addressed row checkpoint validates top-level outputs plus nested sample
 parameters, converter JSON, `Axon_state`, pathway status, compact manifests,
 and command logs. Probability or nested-provenance tampering forces row
-regeneration. Verification passes 26 focused OSS tests, all 304 configured-core
-tests, Python compilation, and `git diff --check`.
+regeneration. Final verification passes 29 focused OSS tests, all 307
+configured-core tests, Python compilation, and `git diff --check`.
+
+Real compact-row verification completed for the same SNr003 left source and
+exact 3,990-fiber axis used by the earlier activation-chain diagnostic. All ten
+samples completed, the row retained 1,880 probabilities strictly inside
+`(0, 1)`, the mapping retained 3,990 rows with zero invalid candidate columns,
+and the final diagnostic directory occupied 140 MB rather than about 38 GB.
+It contained ten compact sample manifests, zero stimulation runtime directories,
+and zero filtered templates. A second invocation returned
+`row_checkpoint_reused=true` in under two seconds without launching OSS. The
+evidence directory is:
+
+```text
+/Volumes/VAL/STNSNr/configured_model_acceptance_scratch/oss_compact_chain_20260710T1845Z
+```
+
+After the real-path same-file mapping repair, missing-entry-tolerant filesystem
+cleanup, and malformed-checkpoint cache-miss repair, 29 focused OSS tests and
+all 307 configured-core tests pass. Python compilation and `git diff --check`
+also pass.
 
 Run the D PPMI source resolver:
 

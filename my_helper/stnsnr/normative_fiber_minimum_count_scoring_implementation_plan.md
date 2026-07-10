@@ -642,9 +642,11 @@ Verified on `stnvop` before the Task 7 commit: 68 focused OSS/planner/registry t
 The later real-acceptance storage repair implements sample-level compact
 artifacts, permanent `ephemeral_runtime` cleanup, exact row identities, nested
 artifact hashes, and tamper-sensitive row checkpoint reuse. Its focused OSS
-suite passes 26 tests and the complete configured-core suite passes 304 tests;
-Python compilation and `git diff --check` pass. Real two-scale acceptance still
-must be resumed after cleaning the interrupted runtime.
+suite passes 29 tests and the complete configured-core suite passes 307 tests;
+Python compilation and `git diff --check` pass. A real ten-sample row on the
+3,990-fiber SNr003 left-source axis completed in 140 MB, left no solver runtime,
+and reused its validated checkpoint without launching OSS. Real two-scale
+acceptance still must be resumed from a clean-provenance run.
 
 ```bash
 PYTHONPATH=my_helper/fiber/core:my_helper/fiber/core/analysis \
