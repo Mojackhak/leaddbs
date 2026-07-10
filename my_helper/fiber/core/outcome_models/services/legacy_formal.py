@@ -60,6 +60,10 @@ def _artifact_path(run_root: Path, artifact: ArtifactRef) -> Path:
 def _feature_axis_path(run_root: Path, request: FormalRequest) -> Path:
     path = Path(request.final.feature_axis.ids_path).expanduser()
     path = path.resolve() if path.is_absolute() else (run_root / path).resolve()
+    try:
+        path.relative_to(run_root)
+    except ValueError as exc:
+        raise RecordError("formal feature-axis artifact is outside the configured run root") from exc
     if not path.is_file():
         raise RecordError(f"formal feature-axis artifact is missing: {path}")
     if _sha256(path) != request.final.feature_axis.sha256:

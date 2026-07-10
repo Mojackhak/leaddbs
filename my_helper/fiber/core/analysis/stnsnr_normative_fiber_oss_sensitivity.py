@@ -102,8 +102,22 @@ def _valid_oss_candidate_mask(x: np.ndarray) -> np.ndarray:
     return finite & nonconstant & activated
 
 
-def _build_oss_fold_caches(x: np.ndarray, nuisance: np.ndarray) -> tuple[OssFoldCache, ...]:
+def _build_oss_fold_caches(
+    x: np.ndarray,
+    nuisance: np.ndarray,
+    *,
+    fold_delta_scores: np.ndarray | None = None,
+) -> tuple[OssFoldCache, ...]:
     cov = _as_2d(nuisance)
+    fold_delta = None
+    if fold_delta_scores is not None:
+        fold_delta = np.asarray(fold_delta_scores, dtype=float)
+        if fold_delta.shape != (x.shape[0], x.shape[0]):
+            raise RuntimeError(
+                "fold-specific DeltaHFScore must be fold-by-subject in OSS subject order"
+            )
+        if cov.shape[1] < 1:
+            raise RuntimeError("fold-specific DeltaHFScore requires a nuisance column to replace")
     caches: list[OssFoldCache] = []
     for heldout in range(x.shape[0]):
         train = np.array([idx for idx in range(x.shape[0]) if idx != heldout], dtype=int)
@@ -111,7 +125,11 @@ def _build_oss_fold_caches(x: np.ndarray, nuisance: np.ndarray) -> tuple[OssFold
         candidate = _valid_oss_candidate_mask(x_train)
         if not np.any(candidate):
             raise RuntimeError(f"no valid OSS candidate fibers for heldout index {heldout}")
-        nuisance_train = cov[train]
+        fold_cov = cov
+        if fold_delta is not None:
+            fold_cov = cov.copy()
+            fold_cov[:, -1] = fold_delta[heldout]
+        nuisance_train = fold_cov[train]
         nuisance_rank = rank_columns(nuisance_train)
         x_rank = rank_columns(np.asarray(x_train[:, candidate], dtype=float))
         x_resid = residualize(x_rank, nuisance_rank)
@@ -128,7 +146,7 @@ def _build_oss_fold_caches(x: np.ndarray, nuisance: np.ndarray) -> tuple[OssFold
                 train=train,
                 valid_candidate_mask=valid_candidate,
                 nuisance_train=nuisance_train,
-                nuisance_test=cov[[heldout]],
+                nuisance_test=fold_cov[[heldout]],
                 nuisance_rank_train=nuisance_rank,
                 z_exposure_rank_resid=x_resid[:, valid_local] / denom[valid_local],
             )

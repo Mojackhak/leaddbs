@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 import hashlib
 import importlib
 import json
@@ -174,6 +175,36 @@ class ConfiguredFormalBackendTests(unittest.TestCase):
         self.assertEqual((target.tau, target.min_coverage), (250.0, 6))
         self.assertEqual(target.subject_order[0], "sub-01")
         self.assertFalse(hasattr(target, "delta_hf_path"))
+
+    def test_feature_axis_must_remain_inside_configured_run_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            root = Path(tmp)
+            request = self._request(
+                root,
+                model_family="hf_voxel",
+                stage="formal_permutation",
+                branch="hf_source",
+                nuisance=NuisancePlan.for_branch("hf_source", None),
+                tau=200,
+                coverage=5,
+            )
+            outside_axis = Path(outside) / "feature_ids.npy"
+            np.save(outside_axis, np.arange(4, dtype=np.int64))
+            request = replace(
+                request,
+                final=replace(
+                    request.final,
+                    feature_axis=FeatureAxisRef(
+                        ids_path=outside_axis,
+                        count=4,
+                        sha256=_sha256(outside_axis),
+                        identity_source="candidate_flat_indices",
+                    ),
+                ),
+            )
+
+            with self.assertRaisesRegex(RecordError, "outside.*run root"):
+                build_configured_formal_target(request)
 
     def test_fiber_combined_runner_returns_exact_standard_artifact_kinds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
