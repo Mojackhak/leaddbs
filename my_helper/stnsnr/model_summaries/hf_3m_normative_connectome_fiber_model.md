@@ -39,9 +39,13 @@ This is a full-connectome fiber-level DBS Fiber Filtering model. Individual stre
 Frequency definitions:
 
 ```text
-HF  = high-frequency stimulation component, frequency_Hz >= 100
-ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
+HF  = high-frequency stimulation class, frequency_Hz > 100
+ULF = ultra-low-frequency stimulation class, frequency_Hz < 50
+unclassified = 50 <= frequency_Hz <= 100
 ```
+
+STN/SNr is raw target identity. HF/ULF is derived from frequency alone; Target
+does not participate in source classification.
 
 ## Endpoint
 

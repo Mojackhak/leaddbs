@@ -37,9 +37,13 @@ This is a direct local ULF-only add-on sweet-spot model. It does not define the 
 Frequency definitions:
 
 ```text
-HF  = high-frequency stimulation component, frequency_Hz >= 100
-ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
+HF  = high-frequency stimulation class, frequency_Hz > 100
+ULF = ultra-low-frequency stimulation class, frequency_Hz < 50
+unclassified = 50 <= frequency_Hz <= 100
 ```
+
+STN/SNr is raw target identity. HF/ULF is derived from frequency alone; Target
+does not participate in source classification.
 
 Voxels co-activated by HF and ULF are attributed to the HF adjustment model and are excluded from the primary ULF-only predictor. This is a modeling choice, not a biological claim that ULF cannot have an effect in HF-overlap territory.
 
@@ -920,7 +924,7 @@ The later code implementation should keep image preprocessing and statistical po
 MATLAB/Lead-DBS preprocessing:
 
 - discover and availability-check required HF-only reference, HF-component, and ULF-component e-fields;
-- classify components by frequency (`HF >= 100 Hz`, `ULF <= 50 Hz`);
+- classify sources by frequency (`HF > 100 Hz`, `ULF < 50 Hz`, otherwise unclassified);
 - combine same-side same-frequency alternating subprograms by voxel-wise maximum;
 - call `ea_flip_lr_nonlinear` for all left/right flips;
 - compute left/right flip deformation audit metrics and record warnings without automatic exclusion;

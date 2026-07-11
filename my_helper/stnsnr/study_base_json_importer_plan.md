@@ -163,14 +163,14 @@ descriptions and must not appear in the generated strict JSON.
     "study_label": "STNSNr frequency add-on",  # Human-readable study label
     "data_version": "1",                      # Importer contract version
 
-    "frequency_components": [                   # Dual-frequency component definitions
+    "stimulation_components": [                 # Raw stimulation target definitions
       {
-        "component_id": "frequency_1_reference", # Reference component identifier
-        "label": "HF"                           # STNSNr display label
+        "component_id": "target_stn",           # Raw STN target identifier
+        "label": "STN"                          # Source target label
       },
       {
-        "component_id": "frequency_2_addon",    # Add-on component identifier
-        "label": "ULF"                          # STNSNr display label
+        "component_id": "target_snr",           # Raw SNr target identifier
+        "label": "SNr"                          # Source target label
       }
     ],
 
@@ -306,13 +306,13 @@ descriptions and must not appear in the generated strict JSON.
                     "frequency_groups": [
                       {
                         "frequency_group_id": null, # Stable group within electrode/program
-                        "frequency_hz": null,   # Group frequency in Hz
                         "delivery_mode": null,  # continuous or alternating
                         "sources": [
                           {
                             "source_id": null,  # Stable source within group
                             "source_label": null, # Source Target label
-                            "component_id": null, # Reference or add-on component
+                            "component_id": null, # target_stn or target_snr
+                            "frequency_hz": null, # Raw source frequency in Hz
                             "control_mode": "voltage", # Current workbook control mode
                             "amplitude": null,  # Voltage amplitude in V
                             "pulse_width_us": null, # Pulse width in microseconds
@@ -507,8 +507,8 @@ Source phase/protocol mapping:
 Component mapping is STNSNr importer behavior only:
 
 ```text
-Target = STN -> component_id = frequency_1_reference
-Target = SNr -> component_id = frequency_2_addon
+Target = STN -> component_id = target_stn
+Target = SNr -> component_id = target_snr
 ```
 
 Program role validation:
@@ -520,13 +520,19 @@ none:
 
 reference_only:
   stimulation_state = active
-  every source component_id = frequency_1_reference
+  every source component_id = target_stn
 
 combined:
   stimulation_state = active
-  at least one frequency_1_reference source
-  at least one frequency_2_addon source
+  at least one target_stn source
+  at least one target_snr source
 ```
+
+`component_id` preserves raw target identity only. HF/ULF is not imported,
+stored, or inferred from Target. Each source stores its own positive finite
+`frequency_hz`; frequency groups only preserve delivery grouping and require
+all member sources to have the same frequency. The configured model classifies
+sources later from `frequency_hz` alone.
 
 Contact conversion preserves the workbook convention exactly:
 

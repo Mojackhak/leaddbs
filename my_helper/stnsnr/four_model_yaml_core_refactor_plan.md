@@ -41,10 +41,11 @@ add-on direct voxel
 add-on normative fiber
 ```
 
-The default STNSNr profile labels the reference component HF and the add-on
-component ULF. Generic runtime code uses only `reference_component` and
-`addon_component`; it does not infer role from numerical frequency, protocol
-name, project name, scale name, or connectome name.
+The STNSNr study bundle preserves raw `target_stn` and `target_snr` component
+identity. HF/ULF classes are derived exclusively from source frequency using
+the configured model profile: HF is `frequency_hz > 100`, ULF is
+`frequency_hz < 50`, and the inclusive interval `50..100` is unclassified.
+Target identity never changes the frequency class.
 
 The implemented `four_model_v1` catalog/DAG/executor is a predecessor
 foundation. It remains paused and its scientific services still use eight
@@ -92,9 +93,11 @@ reference_component
 addon_component
 ```
 
-Roles are independent of frequency ordering. The default profile may be HF
-reference plus ULF add-on; another profile may use different frequencies
-without code changes.
+Raw stimulation components and frequency classes are separate axes. The study
+bundle stores raw components and source frequencies; `spot_model.yaml` stores
+the complete, non-overlapping frequency intervals. Runtime model inputs use HF
+sources from the reference/combined conditions and ULF sources from the
+combined condition. Unclassified sources remain in QC but enter neither model.
 
 The modeled stimulation states are:
 

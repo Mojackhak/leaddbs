@@ -1,5 +1,15 @@
 # Four-Model YAML Core Refactor Implementation Plan
 
+## Study-Base Frequency Migration Addendum
+
+The configured runner must use `study_base.json` as its only project data
+input. Raw source components are `target_stn` and `target_snr`; HF/ULF is
+derived only from source-level `frequency_hz` and the strict intervals in
+`spot_model.yaml`. The workflow no longer loads project clinical or stimulation
+workbooks through `study.yaml`. Runtime writes source-level frequency QC inside
+the run directory and summary counts into the existing run manifest; no
+independent resolved manifest is created.
+
 > **For agentic workers:** Implement task-by-task with test-first red/green
 > cycles. Subagents are permitted for bounded responsibilities with disjoint
 > file ownership; the main thread reviews and integrates every change.

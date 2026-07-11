@@ -21,6 +21,12 @@
 
 ## Dual-Frequency Target Handoff
 
+The successor configured runner uses `study_base.json` as the only project data
+input. In that contract STN/SNr are raw stimulation components, while HF/ULF
+are determined only by `spot_model.yaml` frequency intervals (`>100 Hz`,
+`<50 Hz`, otherwise unclassified). Historical STN/HF and SNr/ULF wording below
+describes predecessor outputs and is not a target input-mapping rule.
+
 The only current `/goal` is:
 
 ```text

@@ -47,9 +47,13 @@ This is a right-canonical, full-connectome, fiber-level model. Individual stream
 Frequency definitions:
 
 ```text
-HF  = high-frequency stimulation component, frequency_Hz >= 100
-ULF = ultra-low-frequency stimulation component, frequency_Hz <= 50
+HF  = high-frequency stimulation class, frequency_Hz > 100
+ULF = ultra-low-frequency stimulation class, frequency_Hz < 50
+unclassified = 50 <= frequency_Hz <= 100
 ```
+
+STN/SNr is raw target identity. HF/ULF is derived from frequency alone; Target
+does not participate in source classification.
 
 The primary predictor represents streamlines uniquely recruited by the ULF component. HF-overlap streamlines are excluded from the ULF-only exposure definition. `DeltaHFScore` is run when available, but it is interpreted as the primary adjustment only when the matched HF normative fiber source exists and `hf_norm_fiber_prediction_status = error_predictive`.
 
