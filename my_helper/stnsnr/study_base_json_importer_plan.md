@@ -393,6 +393,23 @@ duplicate ID/Feature/Condition keys: 0
 missing source cells: 0
 ```
 
+Confirmed source correction applied before importer acceptance:
+
+```text
+workbook: followup_stimulation.xlsx
+sheet: Contact Parameters
+subject: SNr015
+phase: immediate
+protocol: STN+SNr
+contact 0: SNr
+contact 3: STN
+contact 8: SNr
+contact 11: STN
+```
+
+Only the `Target` cells for contacts 3 and 11 are corrected. Their other
+programming fields and all other workbook rows remain unchanged.
+
 Every exact source `Feature` becomes one independent scale:
 
 ```text
