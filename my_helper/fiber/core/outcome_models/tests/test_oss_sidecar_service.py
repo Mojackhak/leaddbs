@@ -686,7 +686,7 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
             with self.assertRaisesRegex(RecordError, "SHA-256"):
                 oss_sidecar_module._source_rows(final, context)
 
-    def test_configured_ulf_source_rows_come_from_indexed_preprocessing_qc(self) -> None:
+    def test_configured_ulf_source_rows_come_from_selected_final_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             hf_task = self._task()
@@ -698,6 +698,25 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
                 model_family="ulf_fiber",
                 connectome="dtor",
             )
+            side_paths = [
+                {
+                    "subject_id": subject_id,
+                    "side": side,
+                    "source_paths": [f"/{subject_id}_{side}_ulf.nii"],
+                }
+                for subject_id in base.subject_order
+                for side in ("L", "R")
+            ]
+            manifest = root / base.manifest.relative_path
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                json.dumps(
+                    {"component_sampler_qc": {"ULF": {"side_paths": side_paths}}}
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            manifest_ref = replace(base.manifest, sha256=_file_sha256(manifest))
             final = FinalArtifactRecord.create(
                 final_model_id="final-ulf-fiber",
                 endpoint_model_id=endpoint.identifier,
@@ -709,32 +728,17 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
                 scale_direction=base.scale_direction,
                 subject_order=base.subject_order,
                 nuisance=NuisancePlan.for_branch("no_delta_hf", None),
-                manifest=base.manifest,
+                manifest=manifest_ref,
                 exposure=base.exposure,
                 scores=base.scores,
                 feature_axis=base.feature_axis,
                 full_weights=base.full_weights,
                 valid_feature_axis=base.valid_feature_axis,
             )
-            manifest = root / final.manifest.relative_path
-            manifest.parent.mkdir(parents=True, exist_ok=True)
-            manifest.write_text("{}\n", encoding="utf-8")
-            side_paths = [
-                {
-                    "subject_id": subject_id,
-                    "side": side,
-                    "source_paths": [f"/{subject_id}_{side}_ulf.nii"],
-                }
-                for subject_id in final.subject_order
-                for side in ("L", "R")
-            ]
             qc = root / "tasks" / "ulf-sidecar" / "qc.json"
             qc.parent.mkdir(parents=True, exist_ok=True)
             qc.write_text(
-                json.dumps(
-                    {"component_sampler_qc": {"ULF": {"side_paths": side_paths}}}
-                )
-                + "\n",
+                json.dumps({"delta_hfscore_support_status": "invalid_extreme_out_of_support"}) + "\n",
                 encoding="utf-8",
             )
             sidecar_key = TaskKey(
@@ -776,6 +780,9 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
             )
 
             rows = oss_sidecar_module._source_rows(final, context)
+            manifest.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(RecordError, "selected final manifest SHA-256"):
+                oss_sidecar_module._source_rows(final, context)
 
         self.assertEqual(
             [(row["subject_id"], row["side"]) for row in rows],

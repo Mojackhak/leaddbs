@@ -1924,6 +1924,24 @@ repair is committed, failed ULF direct-voxel tasks are recovered through a new
 forced lineage rooted at run `20260711T034644Z_d318f177f7f2ac7d`, rather than
 editing task states or resuming the older code provenance in place.
 
+The same resumed run subsequently exposed a separate ULF normative-fiber OSS
+source-wiring defect after the chronic dTOR `no_delta_hf` branch had been
+realized and formal inference had completed. The generic OSS preparation path
+looked for ULF component source rows in the endpoint preprocessing QC. That QC
+correctly contains DeltaHFScore support information only; the authoritative
+ULF subject-side rows are branch-specific and live in the selected final
+manifest. Exact subject-side validation therefore reported all expected rows
+as missing before OSS generation or cache lookup began.
+
+The planned correction keeps HF OSS source loading unchanged and makes ULF
+normative-fiber OSS load component rows from the hash-verified realized-final
+manifest. Empty source paths still use the existing deterministic recovery,
+and duplicate, missing, extra, or wrong-subject rows still fail exact-set
+validation. Regression coverage must use realistic DeltaHF-only preprocessing
+QC and place both `no_delta_hf` and `delta_hf_adjusted` source rows in their
+selected manifests. This repair changes only OSS sidecar input wiring; it does
+not alter the realized final branch or any observed, formal, or jitter result.
+
 Run the D PPMI source resolver:
 
 ```bash

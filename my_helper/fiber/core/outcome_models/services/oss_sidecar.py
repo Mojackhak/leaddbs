@@ -590,18 +590,24 @@ def _indexed_sidecar_qc(
 
 def _source_rows(final: FinalArtifactRecord, context: RunContext) -> list[dict[str, Any]]:
     worklist = _load_analysis("stnsnr_normative_fiber_oss_sidecar_worklist")
-    qc = _indexed_sidecar_qc(final, context)
     if final.final_branch == "hf_source":
+        qc = _indexed_sidecar_qc(final, context)
         rows = list(qc.get("sampler_qc", {}).get("side_fields", []))
     else:
-        rows = worklist._ulf_source_rows(qc)
         manifest_path = _run_artifact_path(context, final.manifest.relative_path)
+        if not manifest_path.is_file():
+            raise OSSSidecarInputsUnavailable(
+                f"selected final manifest is missing: {manifest_path}"
+            )
+        if _sha256_file(manifest_path) != final.manifest.sha256:
+            raise RecordError("selected final manifest SHA-256 does not match the final record")
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise OSSSidecarInputsUnavailable(
                 "cannot read the selected final manifest"
             ) from exc
+        rows = worklist._ulf_source_rows(manifest)
         derivatives_root = worklist._derivatives_root(manifest)
         recovered = []
         for row in rows:
