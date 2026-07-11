@@ -243,11 +243,11 @@ excluded = task_id not in approved_task_allowlist
 
 Create a temporary run with two completed scientific tasks, one completed
 failure-report task, one failed task, and one missing artifact. Put only the
-first completed scientific task in the test allowlist and assert no status-based
-auto-enrollment occurs:
+first completed scientific task in a temporary test allowlist, pass that
+allowlist path explicitly, and assert no status-based auto-enrollment occurs:
 
 ```python
-manifest = build_fixture_manifest(run_root, output_root)
+manifest = build_fixture_manifest(run_root, allowlist_path, output_root)
 payload = json.loads(manifest.read_text(encoding="utf-8"))
 self.assertEqual([row["task_id"] for row in payload["eligible_tasks"]], ["task_science"])
 self.assertEqual(payload["source_run_id"], "frozen_run")
