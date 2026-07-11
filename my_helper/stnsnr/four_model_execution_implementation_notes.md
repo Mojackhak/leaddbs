@@ -1892,6 +1892,19 @@ positive finite values, and pairwise equality. The OSS result preserves the
 frequency scope and map. This repair passes 49 focused OSS tests and all 312
 configured-core tests, plus Python compilation and `git diff --check`.
 
+Final clean-provenance acceptance run
+`20260711T034644Z_d318f177f7f2ac7d` uses commit `e3606e9ba` with
+`dirty=false` and the unchanged configuration hash. Its HF dTOR generation
+manifest records `row_workers=3`, 34/34 rows reused, zero generated rows, 11
+validated legacy imports from run `20260710T183813Z_b28581bfb4ac8f55`, and 23
+v2 imports from run `20260710T234453Z_d1b7308d0ae466d0`. Sidecar preparation
+completed in six seconds and configured OSS sensitivity completed six seconds
+later with `pPAM_probability_ge_0.5`. The subject-side manifest preserves ten
+distinct modeled frequencies from 105 to 170 Hz and reports
+`verified_exact_match_per_subject_side`. The run was then stopped safely before
+unrelated downstream jitter/other endpoints and may be resumed with the same
+run ID and code provenance.
+
 Run the D PPMI source resolver:
 
 ```bash
