@@ -1914,15 +1914,15 @@ MATLAB flip backend already supports the complete five-keyword contract, so the
 planned repair is limited to widening the configured adapter signature while
 continuing to use the repository and MATLAB paths bound by `RunContext`.
 
-The repair must be test-first. Registry coverage must call the adapter using
-the ULF five-keyword shape, and ULF configured-backend coverage must include a
-left-sided HF component so a permissive variadic test callback cannot hide the
-contract. This is an execution-interface repair only; it does not change any
-endpoint, source resolver, branch-role, final-model, or scientific parameter
-definition. The current clean-provenance run remains immutable. After the
-repair is committed, failed ULF direct-voxel tasks are recovered through a new
-forced lineage rooted at run `20260711T034644Z_d318f177f7f2ac7d`, rather than
-editing task states or resuming the older code provenance in place.
+The repair was implemented test-first in commit `4eb28907f`. Registry coverage
+calls the adapter using the ULF five-keyword shape, and ULF configured-backend
+coverage includes a left-sided HF component so a permissive variadic test
+callback cannot hide the contract. This is an execution-interface repair only;
+it does not change any endpoint, source resolver, branch-role, final-model, or
+scientific parameter definition. The current clean-provenance run remains
+immutable. Failed ULF direct-voxel tasks must be recovered through a new forced
+lineage rooted at run `20260711T034644Z_d318f177f7f2ac7d`, rather than editing
+task states or resuming the older code provenance in place.
 
 The same resumed run subsequently exposed a separate ULF normative-fiber OSS
 source-wiring defect after the chronic dTOR `no_delta_hf` branch had been
@@ -1933,14 +1933,62 @@ ULF subject-side rows are branch-specific and live in the selected final
 manifest. Exact subject-side validation therefore reported all expected rows
 as missing before OSS generation or cache lookup began.
 
-The planned correction keeps HF OSS source loading unchanged and makes ULF
-normative-fiber OSS load component rows from the hash-verified realized-final
-manifest. Empty source paths still use the existing deterministic recovery,
-and duplicate, missing, extra, or wrong-subject rows still fail exact-set
-validation. Regression coverage must use realistic DeltaHF-only preprocessing
-QC and place both `no_delta_hf` and `delta_hf_adjusted` source rows in their
-selected manifests. This repair changes only OSS sidecar input wiring; it does
-not alter the realized final branch or any observed, formal, or jitter result.
+The correction was implemented test-first in commit `5e148df42`. HF OSS source
+loading remains unchanged, while ULF normative-fiber OSS loads component rows
+from the hash-verified realized-final manifest. Empty source paths still use
+the existing deterministic recovery, and duplicate, missing, extra, or
+wrong-subject rows still fail exact-set validation. Regression coverage uses
+realistic DeltaHF-only preprocessing QC and branch-specific selected-manifest
+source rows. This repair changes only OSS sidecar input wiring; it does not
+alter the realized final branch or any observed, formal, or jitter result.
+
+## 2026-07-11 Paused Acceptance Snapshot
+
+Execution was paused explicitly by the user without starting another task.
+The immutable acceptance run remains:
+
+```text
+run_id: 20260711T034644Z_d318f177f7f2ac7d
+run_commit: e3606e9ba57e83b61a18883b571ebe184029ebc0
+configuration_hash: e686212ba6658b2f4b8abf3a94305817555ec334ee9ba07262fbca9190f5f338
+dirty: false
+planned_tasks: 205
+terminal_tasks: 73
+completed: 50
+skipped_gate: 1
+no_final_model: 2
+skipped_dependency: 17
+execution_failure: 3
+```
+
+The two ULF direct-voxel execution failures are the adapter-signature defect
+repaired by `4eb28907f`. The third execution failure is ULF normative-fiber OSS
+source wiring repaired by `5e148df42`. These statuses remain valid historical
+evidence for the old provenance and must not be edited in place.
+
+The run completed the first HF dTOR normative-fiber endpoint through formal,
+OSS, 1,000-replicate spatial jitter, and reporting. It also completed HF MGH
+and PPMI observed robustness endpoints. For MDS-UPDRS III chronic ULF dTOR, it
+realized `final_9153c815de267bbd0323` from `no_delta_hf`, completed formal,
+cheap sensitivity, and selected-source neighborhood tasks, then continued to
+spatial jitter after the OSS preparation failure. The safe interruption point
+is:
+
+```text
+endpoint_model_id: endpoint_0e489d4dae7d51a3fa0c
+jitter_task_id: task_83788a6c59239f5b088b
+jitter_checkpoint: 388 / 1000
+active_model_processes_after_stop: 0
+```
+
+The working repository is back on clean branch `stnvop` at `5e148df42`; no
+remote operation was performed. Resumption has two distinct steps. First, the
+old run may be resumed only at exact commit `e3606e9ba` to continue its
+checkpointed acceptance/defect-discovery pass. Second, scientific acceptance
+of the two repairs requires a new forced lineage from the old run ID under the
+current clean `stnvop` provenance. The forced lineage must rerun the affected
+ULF direct-voxel and ULF normative-fiber paths and must not overwrite or repair
+the old task-status records.
 
 Run the D PPMI source resolver:
 
