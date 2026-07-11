@@ -4,6 +4,8 @@
 > configured four-model workflow with a reusable strict dual-frequency core.
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
 > **Parent goal.** `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`
+> **Implementation plan.**
+> `my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md`
 > **Predecessor schema.** `four_model_v1`
 > **Target schema.** `dual_frequency_v1`
 > **Current branch.** `stnvop`
