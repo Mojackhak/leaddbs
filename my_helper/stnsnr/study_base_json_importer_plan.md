@@ -89,7 +89,9 @@ The importer is complete only when it:
 7. validates the bilateral contiguous zero-based contact convention;
 8. records only source data needed by VTA and the four spot models;
 9. excludes E-field/VTA paths and generated model artifacts;
-10. writes one deterministic, schema-valid JSON atomically; and
+10. writes one schema-valid JSON atomically whose data content, identifiers,
+    ordering, and serialization are deterministic apart from the documented
+    real-time `provenance.created_at` value; and
 11. fails without replacing the previous output if any required source row is
     ambiguous, duplicated, invalid, or unmappable.
 
@@ -159,7 +161,7 @@ descriptions and must not appear in the generated strict JSON.
   "study": {
     "study_id": "stnsnr_frequency_addon",      # Stable study identifier
     "study_label": "STNSNr frequency add-on",  # Human-readable study label
-    "data_version": null,                       # Importer-assigned data version
+    "data_version": "1",                      # Importer contract version
 
     "frequency_components": [                   # Dual-frequency component definitions
       {
@@ -335,7 +337,7 @@ descriptions and must not appear in the generated strict JSON.
     ],
 
     "provenance": {
-      "created_at": null,                     # Import completion timestamp
+      "created_at": null,                     # Real UTC import completion timestamp
       "importer": {
         "name": "build_stnsnr_study_base",    # Importer identity
         "version": "1",                       # Importer contract version
@@ -725,6 +727,8 @@ source file, sheet, and source-row context.
 8. Implement source/component/contact conversion.
 9. Write failing tests for all role closure and failure paths.
 10. Implement semantic validation and deterministic ordering.
+11. Inject the UTC clock used for `provenance.created_at` so tests can use a
+    fixed instant and assert byte-for-byte deterministic serialization.
 
 ### Stage 3: CLI And Atomic Output
 
@@ -732,7 +736,9 @@ source file, sheet, and source-row context.
 2. Implement explicit path arguments and STNSNr defaults.
 3. Implement `--validate-only` and `--force`.
 4. Validate before writing.
-5. Write formatted UTF-8 JSON with deterministic key and list ordering.
+5. Write formatted UTF-8 JSON with deterministic key and list ordering. The
+   only production-run volatile field is the real UTC
+   `provenance.created_at`; fixed-clock tests must be byte deterministic.
 6. Use atomic output replacement.
 
 ### Stage 4: Real-Data Acceptance
@@ -807,7 +813,11 @@ all contacts preserve bilateral contiguous zero-based source numbering
 program and source roles are explicit and name-independent downstream
 no E-field/VTA or generated fiber-ID path appears in the input JSON
 schema and semantic validation pass
-output generation is deterministic and atomic
+all data content, identifiers, list/key ordering, and serialization are
+deterministic; only the real UTC provenance.created_at varies between
+production imports
+fixed-clock tests produce byte-for-byte identical output
+output replacement is atomic
 ```
 
 ## Deferred Work
