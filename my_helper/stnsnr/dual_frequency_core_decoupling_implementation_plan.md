@@ -214,6 +214,7 @@ argument parsing, output discovery, and project naming.
 - Create: `my_helper/fiber/projects/stnsnr/acceptance/tests/test_bounded_fixture_manifest.py`
 - Create: `my_helper/fiber/projects/stnsnr/migration/__init__.py`
 - Create: `my_helper/fiber/projects/stnsnr/migration/tests/__init__.py`
+- Create: `my_helper/fiber/projects/stnsnr/migration/four_model_v1_mapping.yaml`
 - Create: `my_helper/fiber/projects/stnsnr/migration/convert_four_model_v1.py`
 - Create: `my_helper/fiber/projects/stnsnr/migration/tests/test_convert_four_model_v1.py`
 - Modify: `my_helper/stnsnr/four_model_execution_implementation_notes.md`
@@ -221,7 +222,7 @@ argument parsing, output discovery, and project naming.
 **Interfaces:**
 - Produces: `build_fixture_manifest(run_root: Path, allowlist_path: Path, output_root: Path) -> Path`
 - Produces: `compare_fixture(expected: Path, observed: Path) -> ComparisonResult`
-- Produces: `convert_profiles(source_workflow: Path, output_dir: Path) -> Path`
+- Produces: `convert_profiles(source_workflow: Path, mapping_path: Path, output_dir: Path) -> Path`
 - Constraint: tools are manually invoked and never imported by runtime code.
 
 - [ ] **Step 1: Document the frozen task/artifact eligibility rule**
@@ -297,34 +298,31 @@ fixture.
 
 - [ ] **Step 6: Add old-YAML migration tests and implementation**
 
-The converter uses context-specific mappings. Component roles and condition
-roles are not interchangeable:
+The converter uses an explicit project migration mapping. Python does not
+hard-code predecessor period labels. Component roles, condition roles,
+exposure bindings, and child subscale IDs are separate mapping sections:
 
-```python
-COMPONENT_ROLE_MAP = {
-    "frequency_1_reference": "reference_component",
-    "frequency_2_addon": "addon_component",
-}
-
-CONDITION_ROLE_MAP = {
-    "frequency_1_reference": "reference_only",
-    "frequency_2_addon_chronic": "combined",
-    "frequency_2_addon_immediate": "combined",
-}
-
-EXPOSURE_BINDING_MAP = {
-    "frequency_1_reference": ("reference_only", "reference_component"),
-    "frequency_1_component_under_addon": ("combined", "reference_component"),
-    "frequency_2_component_under_addon": ("combined", "addon_component"),
-}
+```yaml
+component_roles:
+  <source-reference-component-key>: reference_component
+  <source-addon-component-key>: addon_component
+condition_roles:
+  <source-reference-condition-key>: reference_only
+  <source-combined-condition-key-a>: combined
+  <source-combined-condition-key-b>: combined
+exposure_bindings:
+  <source-exposure-key>: {condition_role: combined, component_role: addon_component}
+subscale_bindings:
+  <source-endpoint-key>: {endpoint_binding_id: stable_child_id, condition_role: combined}
 ```
 
 The converted study has one `reference_only` and one `combined` condition.
-Predecessor chronic/immediate labels become distinct child subscale
-`endpoint_binding_id` values under the same parent scale; they do not create
-`combined_chronic` or `combined_immediate` conditions. Every combined child
-points to the same parent scale's reference binding. Conflicting predecessor
-definitions for the shared combined stimulation state fail conversion.
+Distinct source-period labels become child subscale `endpoint_binding_id`
+values under the same parent scale; they do not create additional core
+conditions. Every combined child points to the same parent scale's reference
+binding. Conflicting predecessor definitions for the shared combined
+stimulation state fail conversion. Source labels may occur only as mapping-file
+data and conversion-report evidence; target profiles contain no period field.
 
 It writes draft `dual_frequency_v1` files plus a conversion report. Unknown
 fields fail with `MigrationError`; the production loader is not imported.
@@ -419,7 +417,7 @@ Use this interface:
 key = EndpointKey(
     study_id="synthetic",
     scale_id="scale_a",
-    phase_id="phase_b",
+    endpoint_binding_id="subscale_b",
     model_family="addon_fiber",
     connectome_id="connectome_x",
 )
@@ -545,15 +543,17 @@ orders, units, and role IDs.
 
 - [ ] **Step 2: Write failing importer tests with synthetic Excel files**
 
-The test workbook columns are exactly:
+The synthetic test workbook columns are exactly:
 
 ```text
-ID, Scale, Protocol, Phase, Value, Baseline
+ID, Scale, Protocol, Subscale, Value, Baseline
 ```
 
 Assert the importer maps project labels through configuration and emits only
-generic role IDs. A missing immediate MDS-UPDRS IV row must remain absent rather
-than copied from another scale. Run from a randomized temporary root and assert
+generic role IDs. A missing configured MDS-UPDRS IV child row must remain absent
+rather than copied from another scale. The real STNSNr import configuration may
+map an explicitly named source column to `endpoint_binding_id`, but the
+canonical bundle has no period field. Run from a randomized temporary root and assert
 that changing only configured paths relocates every read; monkeypatch filesystem
 access to fail on `/Volumes/VAL/STNSNr`, `/Users/mojackhu/Research/STNSNr`, and
 known legacy summary roots.
@@ -589,9 +589,9 @@ Preserve current scientific grids and parameters. Assign current connectomes by
 roles rather than runtime name checks. Keep MDS-UPDRS III score and IV as normal
 workflow selections, not defaults. Give every endpoint binding a stable
 `endpoint_binding_id`; every combined binding must name its
-`matched_reference_binding_id`, even when reference and combined phase IDs
-differ. Model `3m` and `immediate` as child subscale bindings under one parent
-scale and one shared `combined` condition. One reference endpoint is reused by
+`matched_reference_binding_id`, even when reference and combined child IDs
+differ. Model period-specific outcomes as child subscale bindings under one
+parent scale and one shared `combined` condition. One reference endpoint is reused by
 all matched downstream bindings. Assign exactly one primary-formal connectome,
 zero or more robustness connectomes, and activation role only to the
 primary-formal connectome.
@@ -629,19 +629,20 @@ git commit -m "feat: add canonical dual-frequency study bundle"
 
 - [ ] **Step 1: Write failing catalog tests**
 
-Cover all four model families, multiple connectome roles, multiple phases,
+Cover all four model families, multiple connectome roles, multiple child subscales,
 minimum subjects, unavailable rows, and scale equality. Assert the synthetic
 profile has no project-frequency names in serialized catalog rows. Include a
 reference binding and two differently named combined child subscales; assert
-both resolve the same configured reference endpoint ID without phase-name
+both resolve the same configured reference endpoint ID without source-period
 equality and that the reference endpoint is planned only once. Assert
 robustness connectomes are `final_eligible = false` and the sole primary-formal
 connectome is `final_eligible = true`.
 
 - [ ] **Step 2: Add the named III/IV structural fixture**
 
-Assert MDS-UPDRS III immediate is executable and MDS-UPDRS IV immediate is
-`not_configured`, with no scale-name conditional in the builder.
+Assert the second MDS-UPDRS III child subscale is executable and the analogous
+MDS-UPDRS IV child subscale is `not_configured`, with no scale-name conditional
+in the builder.
 
 - [ ] **Step 3: Run tests and verify RED**
 
@@ -772,14 +773,14 @@ Assert:
 
 - all four families are planned;
 - add-on dependencies use explicit matched-reference endpoint IDs even when
-  reference and combined phases differ;
+  reference and combined child binding IDs differ;
 - normative-fiber add-on dependencies require exact connectome identity;
 - robustness connectomes stop at resolver/control/report stages, emit
   `RobustnessRecord`, and have no final/formal/jitter/activation tasks;
 - exactly one primary-formal connectome is final-eligible;
 - formal/activation tasks use connectome roles, not names;
 - expensive activation producer tasks are statically visible;
-- missing endpoint phases produce terminal catalog/report tasks, not models;
+- missing child subscales produce terminal catalog/report tasks, not models;
 - every scale receives the same task factory.
 
 - [ ] **Step 2: Run tests and verify RED**
@@ -1133,7 +1134,7 @@ git commit -m "feat: extract add-on direct-voxel backend"
 - Create: `my_helper/fiber/core/dual_frequency/backends/normative_fiber/addon.py`
 - Create: `my_helper/fiber/core/dual_frequency/tests/test_delta_reference_fiber.py`
 - Create: `my_helper/fiber/core/dual_frequency/tests/test_addon_fiber.py`
-- Test source: completed chronic dTOR add-on-fiber stages only.
+- Test source: completed first combined-child dTOR add-on-fiber stages only.
 
 **Interfaces:**
 - Produces: `build_delta_reference_fiber(...) -> DeltaReferenceBundle`
@@ -1150,7 +1151,7 @@ resolver/robustness records but cannot realize a final or fallback final.
 
 - [ ] **Step 2: Write failing bounded parity tests**
 
-Compare only completed chronic dTOR preprocessing, resolver, final, controls,
+Compare only completed first combined-child dTOR preprocessing, resolver, final, controls,
 formal inputs, cheap sensitivity inputs, and neighborhood artifacts. Exclude
 failed OSS and partial jitter.
 
@@ -1408,7 +1409,7 @@ formal endpoint has one final or closed state.
 - [ ] **Step 2: Add the named III/IV lightweight smoke**
 
 Use the new STNSNr bundle/profile and existing exact caches. MDS-UPDRS III and
-IV traverse ordinary catalog/DAG paths; IV immediate is `not_configured`.
+IV traverse ordinary catalog/DAG paths; the second IV child subscale is `not_configured`.
 Use only internal-test permutation/bootstrap/jitter counts and block expensive
 misses. Invoke the standalone importer first; then remove/block the project
 namespace before starting `WorkflowService`, proving the generic runtime uses
@@ -1514,7 +1515,7 @@ until implementation evidence exists.
   backends accept only typed requests, arrays, and artifact references.
 - [ ] All scales use identical task factories and status fields.
 - [ ] Combined endpoints use explicit matched-reference IDs; cross-phase binding
-  never depends on phase-name equality.
+  never depends on source-period equality.
 - [ ] Reference dependency failure is distinct from ready input with no stable
   source.
 - [ ] Four model families and all non-deferred Rounds are represented.

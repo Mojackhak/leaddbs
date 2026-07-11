@@ -103,8 +103,8 @@ reference_only = reference_component
 combined       = reference_component + addon_component
 ```
 
-There is exactly one core `combined` stimulation condition. Clinical periods
-such as `3m` and `immediate` are not separate stimulation conditions; they are
+There is exactly one core `combined` stimulation condition. Period-specific
+clinical measurements are not separate stimulation conditions; they are
 separate downstream subscale endpoint bindings under the same parent scale.
 One reference binding may therefore fan out to any number of combined
 subscale bindings. The reference endpoint/model is realized once and each
@@ -353,15 +353,14 @@ matched_reference_binding_id on every combined binding
 
 `scale_id` identifies the parent clinical scale. Each period-specific outcome
 is a child subscale identified by its stable `endpoint_binding_id`. Multiple
-combined child bindings, including `3m` and `immediate`, may share the same
-`combined` condition and the same matched reference binding. Selecting a parent
+combined child bindings may share the same `combined` condition and the same matched reference binding. Selecting a parent
 scale selects all of its configured child bindings; no period receives special
 engineering status.
 
-Missing phases become explicit `not_configured` catalog rows. They are not
-copied from another scale. A combined endpoint may have a different `phase_id`
-from its matched reference endpoint. Matching is performed only through the
-explicit binding relation; phase labels are never equated or inferred.
+Missing child subscale bindings become explicit `not_configured` catalog rows.
+They are not copied from another scale. Matching is performed only through the
+explicit binding relation; source-period labels are never equated or inferred.
+The canonical runtime has no `phase_id` or `endpoint_phase` field.
 
 ### Model profile
 
@@ -390,7 +389,7 @@ both fields if supplied through YAML or CLI.
 Declares:
 
 ```text
-scale/model/phase/connectome-role selection
+parent-scale/subscale/model/connectome-role selection
 through stage
 resume/force policy
 endpoint failure policy
@@ -455,7 +454,7 @@ Selection and execution rules:
 --scale              repeatable
 --all-available      mutually exclusive with --scale
 --models             reference-voxel,reference-fiber,addon-voxel,addon-fiber,all
---phases
+--subscale           repeatable child `endpoint_binding_id` selector
 --connectomes
 --through            observed|formal|sensitivity|report
 --resume --run-id
@@ -915,8 +914,8 @@ All target paths require:
 - documentation, compile, and diff checks.
 
 MDS-UPDRS III score and MDS-UPDRS IV remain ordinary named real-data smoke
-fixtures. MDS-UPDRS IV immediate remains explicit `not_configured`; this is not
-a scale-specific code branch.
+fixtures. The unconfigured second MDS-UPDRS IV child subscale remains explicit
+`not_configured`; this is not a scale-specific code branch.
 
 ### Bounded numerical acceptance
 
@@ -944,7 +943,7 @@ evidence covers:
 3. MDS-UPDRS III reference MGH/PPMI fiber observed robustness through resolver
    and report; predecessor final-like records are converted to target
    `RobustnessRecord` evidence, never target `FinalModelRecord`; and
-4. MDS-UPDRS III chronic add-on dTOR fiber through preprocessing, resolver,
+4. the first completed MDS-UPDRS III combined child add-on dTOR fiber through preprocessing, resolver,
    final, controls, formal, cheap sensitivity, and neighborhood sensitivity.
 
 Explicit numerical exclusions:

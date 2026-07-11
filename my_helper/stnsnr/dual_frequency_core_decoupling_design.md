@@ -67,10 +67,11 @@ combined       = reference_component + addon_component
 ```
 
 `addon_only` is not required and is not modeled by the four-model core.
-There is one `combined` stimulation condition. Immediate, chronic, and other
-clinical periods are child subscale endpoint bindings, not different core
+There is one `combined` stimulation condition. Period-specific clinical
+measurements are child subscale endpoint bindings, not different core
 conditions. A single reference binding may feed multiple downstream combined
-subscale branches; phase names are data and never code branches.
+subscale branches; source-period labels remain importer data and never become
+runtime fields or code branches.
 
 ### Statistical model families
 
@@ -291,10 +292,9 @@ zero or more combined bindings
 explicit matched-reference binding ID for every combined binding
 ```
 
-There is no default scale. Missing phase bindings produce explicit catalog
-states and do not trigger substitution. Reference and combined phases may
-differ; dependency matching uses only the explicit binding relation and never
-phase-name equality. `scale_id` is the parent clinical scale and each
+There is no default scale. Missing child bindings produce explicit catalog
+states and do not trigger substitution. Dependency matching uses only the
+explicit binding relation and never source-period equality. `scale_id` is the parent clinical scale and each
 period-specific child subscale is identified by `endpoint_binding_id`. Parent
 scale selection includes every configured child binding. Multiple combined
 children may share one reference binding and one `combined` condition, so the
@@ -319,7 +319,7 @@ fields and project-specific aliases.
 
 ### Workflow profile
 
-The workflow selects scales, phases, model families, connectome roles, and the
+The workflow selects parent scales, child subscales, model families, connectome roles, and the
 execution cutoff. It also controls resume, force, endpoint failure policy,
 workers, and expensive-producer authorization. Runtime scheduling parameters
 do not alter scientific cache identity.
@@ -331,13 +331,13 @@ Each scale independently expands into:
 ```text
 A = reference direct voxel
 B = reference normative fiber x configured connectomes
-C = add-on direct voxel x configured combined phases
-D = add-on normative fiber x configured phases/connectomes
+C = add-on direct voxel x configured combined child subscales
+D = add-on normative fiber x configured child subscales/connectomes
 ```
 
 Every combined endpoint record stores an explicit
 `matched_reference_endpoint_id` resolved from configuration. Reference and
-combined `phase_id` values need not match. Normative-fiber dependencies also
+combined child binding IDs need not match. Normative-fiber dependencies also
 require the same configured connectome ID; no name or approximate matching is
 allowed.
 
@@ -727,7 +727,7 @@ The completed evidence currently covers:
 3. MDS-UPDRS III HF normative fiber MGH and PPMI through sidecars, observed
    analysis, controls, resolver, and reporting. Their predecessor final-like
    records become target robustness evidence, not target final models.
-4. MDS-UPDRS III chronic add-on normative fiber dTOR through matched-reference
+4. the first completed MDS-UPDRS III combined child add-on normative fiber dTOR through matched-reference
    lock, preprocessing, branch resolver, final realization, plain/burden
    controls, candidate smoke, formal inference, cheap observed sensitivity,
    and selected-source neighborhood.
@@ -740,7 +740,7 @@ not infer coverage from this prose alone.
 No real-data numerical parity is required for:
 
 - any task that was pending or unstarted when the predecessor run stopped;
-- the chronic add-on dTOR jitter checkpoint at `388/1000`;
+- the first combined-child add-on dTOR jitter checkpoint at `388/1000`;
 - failed add-on direct-voxel tasks;
 - failed add-on normative-fiber OSS preparation;
 - skipped dependency or skipped gate tasks;
@@ -837,7 +837,7 @@ The model-core full rerun begins from standardized clinical/stimulation inputs
 and Lead-DBS derivatives. Electrode reconstruction and raw-image-to-E-field
 processing remain upstream external production stages.
 
-## Migration Phases
+## Migration Stages
 
 1. freeze existing completed artifacts and write the bounded fixture manifest;
 2. implement `dual_frequency_v1` schemas and typed contracts;
