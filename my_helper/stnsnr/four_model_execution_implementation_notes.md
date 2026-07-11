@@ -1905,6 +1905,25 @@ distinct modeled frequencies from 105 to 170 Hz and reports
 unrelated downstream jitter/other endpoints and may be resumed with the same
 run ID and code provenance.
 
+During the resumed report-through run, both MDS-UPDRS III ULF direct-voxel
+endpoints reached `preprocessing_sidecars` and exposed a configured-adapter
+signature defect. The ULF component-exposure service supplies `repo_root`,
+`matlab_bin`, `side_paths`, `preprocess_dir`, and `force`, while the configured
+`flip_backend` adapter accepted only the final three keywords. The underlying
+MATLAB flip backend already supports the complete five-keyword contract, so the
+planned repair is limited to widening the configured adapter signature while
+continuing to use the repository and MATLAB paths bound by `RunContext`.
+
+The repair must be test-first. Registry coverage must call the adapter using
+the ULF five-keyword shape, and ULF configured-backend coverage must include a
+left-sided HF component so a permissive variadic test callback cannot hide the
+contract. This is an execution-interface repair only; it does not change any
+endpoint, source resolver, branch-role, final-model, or scientific parameter
+definition. The current clean-provenance run remains immutable. After the
+repair is committed, failed ULF direct-voxel tasks are recovered through a new
+forced lineage rooted at run `20260711T034644Z_d318f177f7f2ac7d`, rather than
+editing task states or resuming the older code provenance in place.
+
 Run the D PPMI source resolver:
 
 ```bash

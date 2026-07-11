@@ -478,7 +478,7 @@ class ULFDirectConfiguredBackendTests(unittest.TestCase):
                 readiness_rows.append(
                     {
                         "subject_id": subject,
-                        "side": "R",
+                        "side": "L",
                         "frequency_class": "HF",
                         "efield_exists": True,
                         "efield_path": str(hf_efield),
@@ -814,9 +814,22 @@ class ULFDirectDeltaBuilderTests(unittest.TestCase):
                 readiness_csv=readiness,
                 matlab_bin=Path("/usr/bin/false"),
             )
+
+            def explicit_flip_backend(
+                *, repo_root, matlab_bin, side_paths, preprocess_dir, force
+            ):
+                self.assertEqual(repo_root, paths.asset_root)
+                self.assertEqual(matlab_bin, paths.matlab_bin)
+                self.assertFalse(force)
+                self.assertEqual(preprocess_dir.name, "hf_component_left_to_right")
+                return (
+                    {subject_id: source_paths for (subject_id, _), source_paths in side_paths.items()},
+                    {"status": "PASS", "n_jobs": len(side_paths)},
+                )
+
             builder = ConfiguredULFDirectDeltaBuilder(
                 paths=paths,
-                flip_backend=lambda *args, **kwargs: ({}, {}),
+                flip_backend=explicit_flip_backend,
             )
 
             result = builder(endpoint, source, task, context)

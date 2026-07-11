@@ -105,7 +105,15 @@ class _ConfiguredRuntime:
         self.matlab_bin = Path(readiness.DEFAULT_MATLAB).expanduser().resolve()
         direct_analysis = _analysis_module("stnsnr_hf_direct_voxel_smoke")
 
-        def flip_backend(*, side_paths, preprocess_dir, force):
+        def flip_backend(
+            *,
+            side_paths,
+            preprocess_dir,
+            force,
+            repo_root=None,
+            matlab_bin=None,
+        ):
+            _ = repo_root, matlab_bin
             return direct_analysis.flip_left_fields_with_matlab(
                 repo_root=self.context.config.study.paths.asset_root,
                 matlab_bin=self.matlab_bin,

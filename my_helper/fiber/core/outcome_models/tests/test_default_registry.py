@@ -220,6 +220,8 @@ class DefaultRegistryTests(unittest.TestCase):
             runtime = _ConfiguredRuntime(context)
 
             flipped, qc = runtime.flip_backend(
+                repo_root=Path(tmp) / "ignored-repository-root",
+                matlab_bin=Path(tmp) / "ignored-matlab-binary",
                 side_paths={},
                 preprocess_dir=Path(tmp) / "preprocess",
                 force=False,
