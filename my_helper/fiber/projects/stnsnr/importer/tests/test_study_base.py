@@ -285,6 +285,14 @@ class StudyBaseImporterTests(unittest.TestCase):
         self.assertEqual(payload_a["study"]["provenance"]["created_at"], "2026-07-11T12:30:00Z")
         validate_study_base(payload_a)
 
+    def test_serialized_subjects_begin_with_id_and_label(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+        serialized = serialize_study_base(payload)
+        restored = json.loads(serialized, object_pairs_hook=dict)
+        for subject in restored["study"]["subjects"]:
+            self.assertEqual(list(subject)[:2], ["subject_id", "subject_label"])
+
     def test_schema_rejects_unknown_fields_and_invalid_none_program_structure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             payload = self._build_fixture(Path(tmp))

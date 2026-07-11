@@ -633,7 +633,7 @@ def validate_study_base(payload: Mapping[str, Any], schema_path: str | Path | No
 
 def serialize_study_base(payload: Mapping[str, Any]) -> bytes:
     """Serialize strict JSON with stable formatting."""
-    return (json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
+    return (json.dumps(payload, indent=2, sort_keys=False, allow_nan=False) + "\n").encode("utf-8")
 
 
 def write_study_base_atomic(
