@@ -1,55 +1,69 @@
-# Four-Model Execution Plan (Codex + Subagent Orchestration)
+# Four-Model V1 Historical Execution Checkpoint
 
-> **Purpose.** This is the `/goal` plan document for executing the four STN/SNr HF/ULF modeling tracks.
-> **Reference model descriptions.** The English files under `my_helper/stnsnr/model_summaries/` record model-level executable behavior. Explicit user decisions govern conflicts. This document records cross-model orchestration, current implementation state, current status results, and the next engineering priorities.
+> **Purpose.** Preserve the historical STNSNr `four_model_v1` execution record,
+> paused-run evidence, and predecessor implementation status.
+> **Current authoritative `/goal`.**
+> `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`
+> **Approved target design.**
+> `my_helper/stnsnr/dual_frequency_core_decoupling_design.md`
+> **Current implementation plan.**
+> `my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md`
+> **Authority.** This file is predecessor evidence only. It is not a target
+> runtime, interface, state-machine, or acceptance authority.
+> **Reference model descriptions.** The English files under
+> `my_helper/stnsnr/model_summaries/` preserve model-level scientific behavior.
+> Explicit user decisions and the current authoritative `/goal` govern target
+> implementation conflicts.
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
-> **Last updated.** 2026-07-09
+> **Last updated.** 2026-07-11
 
 ---
 
-## YAML Core Refactor Implementation Checkpoint
+## Dual-Frequency Target Handoff
 
-The YAML-driven, endpoint-aware core refactor is specified in:
+The only current `/goal` is:
 
 ```text
 my_helper/stnsnr/four_model_yaml_core_refactor_plan.md
 ```
 
-Its current status is strictly:
+Its target status is strictly:
 
 ```text
-design_documented
-implementation_in_progress
-current_outputs_unchanged
-current_legacy_entrypoints_remain_active
+design_approved
+goal_review_passed
+implementation_not_started
+predecessor_implementation_paused
+partial_numeric_evidence_frozen
 ```
 
-Strict profile loading, immutable identities, the endpoint catalog, the pure
-branch/final state machine, configured run storage, the Round-aware DAG planner,
-and the generic executor/CLI are implemented. The four scientific model
-services, full two-scale model run, and report acceptance remain incomplete, so
-current production entrypoints and outputs are not replaced.
+The strict profile loading, immutable identities, endpoint catalog, branch/final
+state machine, configured run storage, Round-aware DAG planner, and executor/CLI
+described below belong to the predecessor `four_model_v1` foundation. They are
+not the project-neutral `dual_frequency_v1` implementation. The target generic
+core remains unimplemented until the linked implementation plan and acceptance
+contract pass.
 
-The planned refactor treats all configured scales as engineering-equivalent
+The target refactor treats all configured scales as engineering-equivalent
 through endpoint discovery, A/B/C/D execution, source resolution, prediction
 classification, final-model realization, formal resampling, sensitivity
 analysis, and output generation. It does not assign special execution status to
 MDS-UPDRS III total, axial, or any other scale. Clinical reporting hierarchy is
 outside the workflow compiler and model resolvers.
 
-The planned core does not use an anatomical ROI to define the statistical
+The target core does not use an anatomical ROI to define the statistical
 candidate domain. Direct voxel models retain the right-canonical brainmask;
 normative fiber models retain the configured whole connectome followed by
 stimulation tau/Coverage filtering. VTA/ROI postprocessing, regional heatmaps,
 GUI, and HTTP services are deferred.
 
-The planned public YAML/CLI does not expose
+The target public YAML/CLI does not expose
 `candidate_threshold_v_per_m`. A future direct-voxel implementation derives it
 as `min(tau_grid_v_per_m)` and records the resolved value only in a technical
 manifest. Smoke/equivalence parameters remain fixed implementation tests and
-are not public configuration. None of these planned interfaces is available in
-the current code, and none of the current results below was generated through
-the planned YAML workflow.
+are not public configuration. None of these target interfaces is available in
+the current code, and none of the historical results below was generated
+through `dual_frequency_v1`.
 
 ## Pause Checkpoint
 

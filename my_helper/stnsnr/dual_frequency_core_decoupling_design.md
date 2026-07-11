@@ -9,7 +9,8 @@
 > **Predecessor schema.** `four_model_v1`
 > **Target schema.** `dual_frequency_v1`
 > **Current branch.** `stnvop`
-> **Status.** `design_approved`; `implementation_not_started`;
+> **Status.** `design_approved`; `goal_review_passed`;
+> `implementation_not_started`;
 > `legacy_runtime_still_active`; `partial_numeric_baseline_available`.
 > **Last updated.** 2026-07-11
 
@@ -158,9 +159,12 @@ my_helper/fiber/projects/stnsnr/
   legacy/
 ```
 
-`migration`, `acceptance`, and `legacy` are not runtime dependencies. The
-default registry, production CLI, DAG, scientific backends, cache, and reports
-must not import them.
+The standalone project importer may depend on generic bundle contracts, but the
+dependency cannot point back from generic code into the project namespace. The
+default registry, production CLI, application service, DAG, scientific
+backends, cache, and reports must not import any module under
+`my_helper.fiber.projects.stnsnr`, including importer, profiles, migration,
+acceptance, and legacy.
 
 ## Stable Interfaces
 
@@ -177,10 +181,17 @@ ActivationBackend.materialize(cache_request) -> ActivationArtifact
 ReportingBackend.render(run_records) -> ReportArtifacts
 ```
 
-Scientific backends receive typed requests and explicit artifact references.
-They do not receive unresolved YAML, read raw project workbooks, infer meaning
-from directory names, search a `latest` directory, or discover another task's
+Scientific backends receive typed requests, explicit arrays with declared axes,
+and explicit artifact references. Pure numerical kernels are array-in/record-
+out. Backend orchestrators may load arrays only through an injected artifact
+store using a validated `ArtifactRef`. They do not receive an untyped project
+path or unresolved YAML, read raw project workbooks, infer meaning from
+directory names, search a `latest` directory, or discover another task's
 outputs implicitly.
+
+Only the config loader, bundle loader, artifact store, and standalone project
+importer may receive explicitly configured paths or URIs. Project paths and old
+output filenames are never generic-runtime constants.
 
 ## Canonical Study Input
 
@@ -202,12 +213,15 @@ bundle_manifest.json
 
 All relations use stable IDs. The bundle manifest records schema version,
 input hashes, subject order, units, spatial identity, importer version, and
-provenance.
+provenance. Every array `ArtifactRef` records kind/schema, explicit URI,
+SHA-256, dtype, shape, ordered axis references/hashes, units/space, and producer
+identity/version.
 
 The STNSNr importer is project-specific by necessity, but it is a data-ingest
-boundary rather than a scientific model adapter. Another project may implement
-a different importer and produce the same bundle contract without modifying
-the core.
+boundary rather than a scientific model adapter. Every input path is supplied
+through validated `ImportConfig`; the importer contains no fixed STNSNr path or
+legacy-output filename inference. Another project may implement a different
+importer and produce the same bundle contract without modifying the core.
 
 ## YAML Profiles
 
@@ -251,6 +265,12 @@ primary_formal
 activation_sensitivity_enabled
 ```
 
+Each normative-fiber model profile has exactly one `primary_formal`
+connectome. `observed_robustness` connectomes produce resolver, control, and
+`RobustnessRecord` outputs but never a `FinalModelRecord`. The
+`activation_sensitivity_enabled` role is valid only on the same primary-formal
+connectome because activation consumes a realized final.
+
 The core never tests for PPMI, MGH, or dTOR names. The default STNSNr profile
 may continue to assign PPMI/MGH to observed robustness and dTOR to primary
 formal plus activation sensitivity.
@@ -264,12 +284,16 @@ scale_id
 label
 direction
 minimum subjects
-reference endpoint binding
-zero or more combined endpoint bindings
+stable endpoint binding IDs
+exactly one reference-only binding
+zero or more combined bindings
+explicit matched-reference binding ID for every combined binding
 ```
 
 There is no default scale. Missing phase bindings produce explicit catalog
-states and do not trigger substitution.
+states and do not trigger substitution. Reference and combined phases may
+differ; dependency matching uses only the explicit binding relation and never
+phase-name equality.
 
 ### Model profile
 
@@ -304,6 +328,12 @@ B = reference normative fiber x configured connectomes
 C = add-on direct voxel x configured combined phases
 D = add-on normative fiber x configured phases/connectomes
 ```
+
+Every combined endpoint record stores an explicit
+`matched_reference_endpoint_id` resolved from configuration. Reference and
+combined `phase_id` values need not match. Normative-fiber dependencies also
+require the same configured connectome ID; no name or approximate matching is
+allowed.
 
 Each executable endpoint follows:
 
@@ -350,13 +380,22 @@ metrics and do not become hard gates.
 
 ### Add-on model
 
-If the matched reference source is absent:
+Add-on branch permission first requires a matched reference endpoint with valid
+clinical input. A missing binding or reference input/readiness/design/technical
+failure produces add-on `dependency_failure` and runs no branch. This is
+distinct from a valid reference model input whose source resolver finds no
+stable spatial source.
+
+If the matched reference input is valid but its source is absent:
 
 ```text
 run no_delta_reference only
 reference-overlap threshold = +infinity
 add-on exposure remains unexcluded
 ```
+
+The no-delta branch still requires valid `Y_reference`; source absence never
+means reference clinical-input absence.
 
 If the matched reference source exists, use the same selected reference
 tau/Coverage for all held-out subjects. Each held-out subject's
@@ -370,7 +409,8 @@ limited -> input valid, limitation reported
 invalid_extreme_out_of_support -> adjusted branch input failure
 ```
 
-When DeltaReferenceScore inputs are valid, run both:
+The no-delta branch is attempted whenever the matched reference clinical input
+is ready. When DeltaReferenceScore inputs are valid, also run adjusted:
 
 ```text
 no_delta_reference
@@ -379,11 +419,17 @@ delta_reference_adjusted
 
 Each branch independently runs the add-on tau/Coverage resolver.
 
+When DeltaReferenceScore input is invalid, do not invoke the adjusted numerical
+backend; record adjusted input failure. If adjusted is intended, an accepted
+no-delta branch may become the one-way fallback. If no-delta is intended, its
+normal realization is unaffected.
+
 Branch roles are:
 
 ```text
 reference error_predictive    -> adjusted intended primary
 reference error_nonpredictive -> no-delta intended primary
+valid reference input with no stable source -> no-delta intended primary
 ```
 
 Fallback is intentionally one-way. When `delta_reference_adjusted` is the
@@ -395,6 +441,11 @@ the endpoint records `no_final_model`. Technical execution failures never
 trigger fallback. Formal, sensitivity, OSS, and reporting results never change
 source, prediction, branch-role, or final-model status.
 
+For normative fiber, every configured connectome may produce source/prediction
+and control records. Only the exactly one `primary_formal` connectome applies
+final realization. Robustness connectomes terminate with `RobustnessRecord` and
+cannot schedule formal, jitter, activation, or final-model sensitivity.
+
 ## Final States
 
 Every endpoint/model family terminates in exactly one of:
@@ -405,7 +456,10 @@ fallback_final_realized
 no_final_model
 not_configured
 input_failure
+dependency_failure
 design_failure
+execution_failure
+robustness_complete
 ```
 
 At most one model is realized as final. Comparison branches and robustness
@@ -526,6 +580,16 @@ status
 artifacts
 ```
 
+`validate`, `plan`, and `run` require explicit study/scale/model/workflow profile
+paths and an exact StudyBundle path. `status` and `artifacts` require an exact
+run root. No command searches for a default profile, `latest` run, or inferred
+bundle.
+
+The repository script bootstraps only `my_helper/fiber/core` and imports
+`dual_frequency.application.cli`. It must run directly from the workspace
+without caller-supplied `PYTHONPATH` and cannot add any project, migration,
+acceptance, or legacy directory.
+
 Rules:
 
 - `--scale` is repeatable;
@@ -637,10 +701,12 @@ terminal_tasks: 73
 completed_tasks: 50
 ```
 
-Only terminal `completed` scientific tasks with complete, hash-valid artifacts
-are eligible for numerical golden parity. A completed reporting task that only
-summarizes an upstream failure is structural evidence, not a numerical model
-oracle.
+Only exact task IDs in a reviewed frozen allowlist are eligible for numerical
+golden parity. Every allowlisted task must also be terminal `completed`,
+scientific, complete, and hash-valid. Status-based discovery cannot enroll a
+task automatically, and a later output cannot extend the allowlist implicitly.
+A completed reporting task that only summarizes an upstream failure is
+structural evidence, not a numerical model oracle.
 
 ### Included real-data numerical scope
 
@@ -653,7 +719,8 @@ The completed evidence currently covers:
    controls, source/final realization, candidate smoke, formal inference,
    complete OSS/pPAM sensitivity, 1,000-replicate spatial jitter, and reporting.
 3. MDS-UPDRS III HF normative fiber MGH and PPMI through sidecars, observed
-   analysis, controls, source/final realization, and reporting.
+   analysis, controls, resolver, and reporting. Their predecessor final-like
+   records become target robustness evidence, not target final models.
 4. MDS-UPDRS III chronic add-on normative fiber dTOR through matched-reference
    lock, preprocessing, branch resolver, final realization, plain/burden
    controls, candidate smoke, formal inference, cheap observed sensitivity,
@@ -725,15 +792,18 @@ solver smoke proves execution without regenerating the full activation universe.
    tests;
 2. a synthetic profile with no STNSNr/HF/ULF/STN/dTOR names;
 3. all-scale equality and missing-phase catalog tests;
-4. matched-reference, DeltaReferenceScore, two-branch, fallback, and no-final
+4. explicit cross-phase matched-reference, reference-input-failure, stable-
+   source-absence, DeltaReferenceScore, two-branch, fallback, and no-final
    fixtures;
-5. legacy import blockers with migration tools removed from `PYTHONPATH`;
+5. typed request/array/ArtifactRef boundary tests plus AST and runtime blockers
+   for the complete `projects.stnsnr` namespace;
 6. bounded golden replay for the completed scope above;
 7. lightweight two-scale smoke using MDS-UPDRS III and IV without expensive
    cache generation;
 8. OSS cache, canonical mapping, threshold, subset, and sampled numerical tests;
 9. CLI `validate/plan/run/status/artifacts` tests; and
-10. documentation, schema, compile, and diff checks.
+10. direct CLI execution without caller-supplied `PYTHONPATH`, fixed-path/name
+    scans, documentation, schema, compile, and diff checks.
 
 ## Full-Rerun Independence Criterion
 
@@ -752,7 +822,8 @@ raw project inputs
 
 It must succeed with the migration, acceptance, and legacy directories removed
 from the Python path. It cannot import `run_stnsnr_*`, `legacy_*`, or
-`stnsnr_*` analysis modules and cannot read old output trees. Lead-DBS,
+`stnsnr_*` analysis modules, cannot import the project namespace after bundle
+creation, and cannot read old output trees. Lead-DBS,
 OSS-DBS, NIfTI, and connectome libraries remain external scientific engines,
 accessed through generic provider/backend contracts.
 
@@ -784,16 +855,18 @@ The design is implemented only when:
 
 1. the production runtime accepts only `dual_frequency_v1` and validated study
    bundles;
-2. no generic runtime module contains STNSNr, HF, ULF, STN, STN+SNr, dTOR, or
-   scale-name dispatch semantics;
+2. no generic runtime module imports `projects.stnsnr` or contains STNSNr, HF,
+   ULF, STN, STN+SNr, dTOR, fixed-project-path, legacy-filename, or scale-name
+   dispatch semantics;
 3. the original interaction state machine and four model families remain
    intact;
 4. all configured scales receive equal DAG and output treatment;
 5. connectome scheduling is role-based;
 6. expensive caches are scientifically keyed and reusable across scales/runs;
 7. OSS uses the shared activation universe and final-axis subset;
-8. exactly one final model or an explicit closed terminal state exists per
-   endpoint/model family;
+8. robustness connectomes emit no final model, while exactly one final model or
+   an explicit closed terminal state exists per endpoint/model family after
+   primary-formal role filtering;
 9. migration/acceptance tools remain non-runtime dependencies;
 10. bounded numerical parity passes for every eligible completed predecessor
     artifact and is not claimed for unfinished predecessor paths; and
