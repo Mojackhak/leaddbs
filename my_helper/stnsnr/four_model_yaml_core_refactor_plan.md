@@ -103,6 +103,13 @@ reference_only = reference_component
 combined       = reference_component + addon_component
 ```
 
+There is exactly one core `combined` stimulation condition. Clinical periods
+such as `3m` and `immediate` are not separate stimulation conditions; they are
+separate downstream subscale endpoint bindings under the same parent scale.
+One reference binding may therefore fan out to any number of combined
+subscale bindings. The reference endpoint/model is realized once and each
+downstream binding reuses its exact `matched_reference_binding_id`.
+
 `addon_only` and N-frequency interaction models are outside
 `dual_frequency_v1`.
 
@@ -304,7 +311,7 @@ Declares:
 ```text
 study ID and bundle/import inputs
 reference/add-on component metadata sources
-reference-only and combined condition IDs
+exactly one reference-only and one combined condition ID
 canonical space, hemisphere, and transform
 brainmask
 connectomes and role sets
@@ -343,6 +350,13 @@ exactly one reference_only binding for dual_frequency_v1
 zero or more combined bindings
 matched_reference_binding_id on every combined binding
 ```
+
+`scale_id` identifies the parent clinical scale. Each period-specific outcome
+is a child subscale identified by its stable `endpoint_binding_id`. Multiple
+combined child bindings, including `3m` and `immediate`, may share the same
+`combined` condition and the same matched reference binding. Selecting a parent
+scale selects all of its configured child bindings; no period receives special
+engineering status.
 
 Missing phases become explicit `not_configured` catalog rows. They are not
 copied from another scale. A combined endpoint may have a different `phase_id`
@@ -480,7 +494,7 @@ report:
 
 ```text
 endpoint model identity =
-  study + scale + endpoint phase + model family + connectome role/ID
+  study + parent scale + endpoint binding + model family + connectome role/ID
 
 task identity =
   endpoint model identity + workflow stage + branch + parameter identity
@@ -492,6 +506,9 @@ final model identity =
 Every combined endpoint catalog record stores an explicit
 `matched_reference_endpoint_id` resolved from
 `matched_reference_binding_id`. Reference and combined phase IDs may differ.
+Multiple combined subscale endpoints may resolve to the same reference
+endpoint ID, forming a one-to-many dependency fan-out without rerunning the
+reference model.
 Normative-fiber dependencies additionally require the same configured
 `connectome_id`; no connectome is selected by name or nearest match.
 

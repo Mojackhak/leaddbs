@@ -297,16 +297,34 @@ fixture.
 
 - [ ] **Step 6: Add old-YAML migration tests and implementation**
 
-The converter maps only explicit predecessor roles:
+The converter uses context-specific mappings. Component roles and condition
+roles are not interchangeable:
 
 ```python
-ROLE_MAP = {
+COMPONENT_ROLE_MAP = {
     "frequency_1_reference": "reference_component",
     "frequency_2_addon": "addon_component",
+}
+
+CONDITION_ROLE_MAP = {
+    "frequency_1_reference": "reference_only",
     "frequency_2_addon_chronic": "combined",
     "frequency_2_addon_immediate": "combined",
 }
+
+EXPOSURE_BINDING_MAP = {
+    "frequency_1_reference": ("reference_only", "reference_component"),
+    "frequency_1_component_under_addon": ("combined", "reference_component"),
+    "frequency_2_component_under_addon": ("combined", "addon_component"),
+}
 ```
+
+The converted study has one `reference_only` and one `combined` condition.
+Predecessor chronic/immediate labels become distinct child subscale
+`endpoint_binding_id` values under the same parent scale; they do not create
+`combined_chronic` or `combined_immediate` conditions. Every combined child
+points to the same parent scale's reference binding. Conflicting predecessor
+definitions for the shared combined stimulation state fail conversion.
 
 It writes draft `dual_frequency_v1` files plus a conversion report. Unknown
 fields fail with `MigrationError`; the production loader is not imported.
@@ -572,8 +590,11 @@ roles rather than runtime name checks. Keep MDS-UPDRS III score and IV as normal
 workflow selections, not defaults. Give every endpoint binding a stable
 `endpoint_binding_id`; every combined binding must name its
 `matched_reference_binding_id`, even when reference and combined phase IDs
-differ. Assign exactly one primary-formal connectome, zero or more robustness
-connectomes, and activation role only to the primary-formal connectome.
+differ. Model `3m` and `immediate` as child subscale bindings under one parent
+scale and one shared `combined` condition. One reference endpoint is reused by
+all matched downstream bindings. Assign exactly one primary-formal connectome,
+zero or more robustness connectomes, and activation role only to the
+primary-formal connectome.
 
 - [ ] **Step 7: Run tests and real read-only import validation**
 
@@ -611,8 +632,9 @@ git commit -m "feat: add canonical dual-frequency study bundle"
 Cover all four model families, multiple connectome roles, multiple phases,
 minimum subjects, unavailable rows, and scale equality. Assert the synthetic
 profile has no project-frequency names in serialized catalog rows. Include a
-reference phase and two differently named combined phases; assert both resolve
-the configured reference endpoint ID without phase-name equality. Assert
+reference binding and two differently named combined child subscales; assert
+both resolve the same configured reference endpoint ID without phase-name
+equality and that the reference endpoint is planned only once. Assert
 robustness connectomes are `final_eligible = false` and the sole primary-formal
 connectome is `final_eligible = true`.
 

@@ -67,9 +67,10 @@ combined       = reference_component + addon_component
 ```
 
 `addon_only` is not required and is not modeled by the four-model core.
-Combined conditions may expose any configured endpoint phases, including but
-not limited to immediate and chronic phases. Phase names are data, not code
-branches.
+There is one `combined` stimulation condition. Immediate, chronic, and other
+clinical periods are child subscale endpoint bindings, not different core
+conditions. A single reference binding may feed multiple downstream combined
+subscale branches; phase names are data and never code branches.
 
 ### Statistical model families
 
@@ -293,7 +294,12 @@ explicit matched-reference binding ID for every combined binding
 There is no default scale. Missing phase bindings produce explicit catalog
 states and do not trigger substitution. Reference and combined phases may
 differ; dependency matching uses only the explicit binding relation and never
-phase-name equality.
+phase-name equality. `scale_id` is the parent clinical scale and each
+period-specific child subscale is identified by `endpoint_binding_id`. Parent
+scale selection includes every configured child binding. Multiple combined
+children may share one reference binding and one `combined` condition, so the
+reference endpoint/model is executed once and reused by all downstream
+branches.
 
 ### Model profile
 
