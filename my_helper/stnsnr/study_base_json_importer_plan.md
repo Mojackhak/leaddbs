@@ -59,10 +59,10 @@ stnvop
 ## Status
 
 ```text
-design_documented
-implementation_not_started
-study_base_json_not_generated
-current_source_workbooks_read_only
+implementation_complete
+study_base_json_generated_and_validated
+importer_source_access_read_only
+confirmed_snr015_source_correction_applied_before_acceptance
 current_model_outputs_unchanged
 ```
 
@@ -800,7 +800,7 @@ conda run -n leaddbs python \
 conda run -n leaddbs python \
   my_helper/stnsnr/build_stnsnr_study_base.py --force
 
-python -m json.tool \
+conda run -n leaddbs python -m json.tool \
   /Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json >/dev/null
 
 rg -n 'efield|e-field|binary_vta|"vta"|fiber_ids\.npy|sha256|size_bytes|artifact_index' \
@@ -817,7 +817,8 @@ formal resampling, OSS, or output refresh runs as part of this goal.
 Implementation is accepted only when:
 
 ```text
-the two source workbooks remain unchanged
+the importer never writes either source workbook
+the only pre-acceptance source correction is the documented SNr015 Target fix
 study_base.json is the only structured project data input
 all 16 source subjects are present exactly once
 all 28 Features are independent, equivalent scales
