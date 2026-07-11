@@ -642,6 +642,13 @@ completed row by default. Full-run code-drift resume remains forbidden; prior
 rows are imported as explicitly validated content into a new clean-provenance
 run rather than by changing the old run manifest.
 
+Requested and modeled stimulation frequencies are subject-side fields, not a
+single branch-wide scalar. The OSS parameter manifest always records the full
+`requested_frequencies_hz` and `modeled_frequencies_hz` maps. It records scalar
+frequency fields only for a uniform-frequency branch; otherwise those scalar
+fields are `null` and `frequency_scope = subject_side_specific`. Frequency
+heterogeneity cannot invalidate an otherwise complete OSS matrix.
+
 For ULF, the compatibility payload and destination manifest must also preserve the realized overlap mode. Use `matched_hf_peak_efield_selected_tau` when an accepted matched HF source supplied the exclusion threshold, and `hf_source_absent_all_false` when no HF source existed and the exclusion mask was therefore all false. HF uses `not_applicable`. The producer must never hard-code the finite-threshold mode for every ULF final.
 
 Reuse is allowed only when the canonical hash matches exactly. The reused probability matrix may be content-addressed, but the destination bundle and manifest must carry the destination endpoint ID, final model ID, and final record hash.

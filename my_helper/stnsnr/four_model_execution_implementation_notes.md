@@ -1870,6 +1870,14 @@ independent of the final-record hash. Python compilation and `git diff --check`
 pass. The interrupted three-worker run produced no completed replacement row
 and is not an accepted result.
 
+The repaired run then reused all 11 retained rows, completed 23 new rows with
+three workers, and closed all 34 HF rows. Final destination publication exposed
+a separate pre-existing manifest defect: the publisher required one uniform
+modeled frequency although each subject-side frequency had already been
+validated exactly and recorded in frequency maps. The manifest contract now
+treats those maps as authoritative, emits scalar frequency fields only when
+uniform, and uses `frequency_scope = subject_side_specific` otherwise.
+
 Run the D PPMI source resolver:
 
 ```bash
