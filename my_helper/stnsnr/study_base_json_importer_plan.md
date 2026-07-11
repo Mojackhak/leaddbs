@@ -355,6 +355,19 @@ descriptions and must not appear in the generated strict JSON.
 }
 ```
 
+Canonical object key ordering follows the contract order shown above rather
+than alphabetical sorting. In particular, every object in `subjects` begins
+with:
+
+```text
+subject_id
+subject_label
+```
+
+The importer constructs all objects in this explicit order and preserves that
+order during JSON serialization. This improves readability without weakening
+fixed-clock byte determinism.
+
 Explicitly excluded keys:
 
 ```text
@@ -753,8 +766,10 @@ source file, sheet, and source-row context.
 2. Implement explicit path arguments and STNSNr defaults.
 3. Implement `--validate-only` and `--force`.
 4. Validate before writing.
-5. Write formatted UTF-8 JSON with deterministic key and list ordering. The
-   only production-run volatile field is the real UTC
+5. Write formatted UTF-8 JSON with deterministic contract-defined key and list
+   ordering. Do not alphabetically sort keys; preserve the explicit object
+   order, including `subject_id` and `subject_label` as the first two keys of
+   every subject. The only production-run volatile field is the real UTC
    `provenance.created_at`; fixed-clock tests must be byte deterministic.
 6. Use atomic output replacement.
 
