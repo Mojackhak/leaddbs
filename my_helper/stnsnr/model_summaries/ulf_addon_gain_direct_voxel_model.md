@@ -1,20 +1,23 @@
 # HF-Status-Resolved ULF-Only Add-On Gain Direct Voxel-Level Model
 
-## YAML Core Interface (Foundation In Progress)
+## YAML Core Interface (Predecessor Implemented; Acceptance Paused)
 
-The future configuration/orchestration contract is documented in
+The predecessor configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
 remains authoritative for ULF branch inputs, HF-derived intended branch role,
 branch-specific source resolution, fallback-final realization, formal
-resampling, and sensitivities. Shared profile, identity, catalog, state, and
-run-store foundations have status `implementation_in_progress`; this model's
-configured scientific service and result regeneration are not implemented. The
-generic DAG planner/executor exists but has not replaced this model's legacy
-driver. Current outputs and legacy/current entrypoints are unchanged.
+resampling, and sensitivities. The `four_model_v1` profile, identity, catalog,
+state, run store, configured service, and DAG executor exist. The paused
+MDS-UPDRS III/IV acceptance run reached the ULF direct path, but its two ULF
+direct tasks ended in an adapter execution failure; the adapter repair has not
+received a new immutable real-run acceptance lineage. The approved strict dual-
+frequency successor is documented in
+`my_helper/stnsnr/dual_frequency_core_decoupling_design.md` and has status
+`implementation_not_started`. Current outputs remain read-only.
 
 All configured ULF/frequency-2 endpoint scales are engineering-equivalent within
 their applicable endpoint families. Chronic, immediate, total, axial, and other
-configured scales use the same future task factories and status fields. Public
+configured scales use the same task factories and status fields. Public
 YAML provides the shared `four_model_v1` scientific/formal/sensitivity profile.
 The direct-voxel sparse candidate threshold is `internal-derived` as
 `min(tau_grid_v_per_m)` and is not exposed. Equivalence and smoke parameters are
@@ -241,10 +244,10 @@ if hf_voxel_prediction_status = error_predictive
 and fold-specific DeltaHFScore inputs are invalid:
   ulf_primary_branch = delta_hf_adjusted
   delta_hfscore_role = primary_input_failure
-  no_delta_hf_role   = fallback_final
+  no_delta_hf_role   = fallback_final_if_accepted_source
 ```
 
-When `ulf_primary_branch = delta_hf_adjusted` but `DeltaHFScore` inputs are invalid, the HF-derived primary branch is not executable. The endpoint primary status remains `primary_branch_input_failure`; if `no_delta_hf` is executable, it becomes the endpoint's fallback final model rather than a non-final sensitivity result.
+When `ulf_primary_branch = delta_hf_adjusted` but `DeltaHFScore` inputs are invalid, the HF-derived primary branch is not executable. The endpoint primary status remains `primary_branch_input_failure`; if `no_delta_hf` has an accepted ULF source, it becomes the endpoint's fallback final model rather than a non-final sensitivity result. The same one-way fallback applies when intended `delta_hf_adjusted` is evaluable but its source resolver returns `absent_no_stable_grid`. An accepted adjusted comparison branch is never promoted when intended `no_delta_hf` fails, and technical execution failure never triggers fallback.
 
 The branch-role decision must be written to the model manifest:
 
@@ -270,7 +273,7 @@ branch_role_decision_reason
 hf_model_support_status
 ```
 
-If the matched HF resolver returns `absent_no_stable_grid`, the DeltaHF-adjusted branch is not run for that endpoint and `no_delta_hf` is the primary branch. If the HF-derived primary branch is `delta_hf_adjusted` but accepted HF support cannot provide valid fold-specific `DeltaHFScore`, do not relabel `no_delta_hf` as the HF-derived primary branch; record `ulf_endpoint_model_status = primary_branch_input_failure` and, if `no_delta_hf` is executable, set `ulf_final_model_branch = no_delta_hf` and `ulf_final_model_role = fallback_final`. A `scan_fallback_accepted` HF source may define the intended primary ULF branch when its `hf_voxel_prediction_status` is `error_predictive`, but the manifest must still record `hf_voxel_threshold_source = scan_fallback`.
+If the matched HF resolver returns `absent_no_stable_grid`, the DeltaHF-adjusted branch is not run for that endpoint and `no_delta_hf` is the primary branch. If the HF-derived primary branch is `delta_hf_adjusted` but accepted HF support cannot provide valid fold-specific `DeltaHFScore`, do not relabel `no_delta_hf` as the HF-derived primary branch; record `ulf_endpoint_model_status = primary_branch_input_failure` and, if `no_delta_hf` has an accepted ULF source, set `ulf_final_model_branch = no_delta_hf` and `ulf_final_model_role = fallback_final`. The same final-role assignment applies if intended adjusted has `absent_no_stable_grid` and no-delta has an accepted source. A `scan_fallback_accepted` HF source may define the intended primary ULF branch when its `hf_voxel_prediction_status` is `error_predictive`, but the manifest must still record `hf_voxel_threshold_source = scan_fallback`.
 
 ## ULF Voxel Source And Prediction Resolver
 
@@ -410,7 +413,7 @@ ulf_endpoint_model_status = primary_branch_input_failure
   HF-source, DeltaHFScore, or nuisance-design inputs are invalid
 ```
 
-Final-model status is assigned after endpoint primary realization. Ordinary non-final branch comparisons remain sensitivity analyses and are not fallback. If the intended primary branch has input/design failure, executable `no_delta_hf` becomes the fallback final model:
+Final-model status is assigned after endpoint primary realization. Fallback is one-way: if intended `delta_hf_adjusted` has input/design failure or `absent_no_stable_grid`, an accepted `no_delta_hf` becomes the fallback final model. Intended `no_delta_hf` failure never promotes adjusted, and technical execution failure never triggers fallback:
 
 ```text
 if ulf_endpoint_model_status in
@@ -420,13 +423,15 @@ if ulf_endpoint_model_status in
 
 ulf_final_model_branch = no_delta_hf
 ulf_final_model_role = fallback_final
-  if ulf_endpoint_model_status = primary_branch_input_failure
+  if intended_primary_branch = delta_hf_adjusted
+  and ulf_endpoint_model_status in
+    {primary_branch_input_failure, absent_no_stable_ulf_grid}
   and no_delta_hf has an accepted ULF source
 
 ulf_final_model_branch = none
 ulf_final_model_role = no_final_model
-  if ulf_endpoint_model_status = primary_branch_input_failure
-  and no_delta_hf is not executable
+  if the intended primary branch has no accepted source
+  and no permitted no_delta_hf fallback has an accepted source
 ```
 
 The final ULF model is unique for each endpoint:
@@ -764,7 +769,7 @@ rho_ULF_noDeltaHF(v) =
   )
 ```
 
-This branch is not intrinsically secondary. It is the intended primary branch when the matched HF voxel source exists but `hf_voxel_prediction_status = error_nonpredictive`, and it is the only primary branch when the matched HF voxel source is absent. When HF is `error_predictive` but `DeltaHFScore` inputs are invalid, it may be reported as `fallback_final_no_delta_hf`. Otherwise, it reports how much the ULF map depends on the model-derived HF adjustment.
+This branch is not intrinsically secondary. It is the intended primary branch when the matched HF voxel source exists but `hf_voxel_prediction_status = error_nonpredictive`, and it is the only primary branch when the matched HF voxel source is absent. When HF is `error_predictive` but intended adjusted has invalid inputs, invalid design, or `absent_no_stable_grid`, accepted no-delta may be reported as `fallback_final_no_delta_hf`. Otherwise, it reports how much the ULF map depends on the model-derived HF adjustment.
 
 ### Gain Endpoint Sensitivity Estimator
 
@@ -1402,7 +1407,7 @@ if hf_voxel_prediction_status == error_predictive:
   ulf_primary_branch = delta_hf_adjusted
   if DeltaHFScore inputs are invalid:
     ulf_endpoint_model_status = primary_branch_input_failure
-    fallback_final_branch = no_delta_hf
+    fallback_final_branch = no_delta_hf, if it has an accepted ULF source
 
 if hf_voxel_prediction_status == error_nonpredictive:
   intended_primary_branch = no_delta_hf
@@ -1527,7 +1532,7 @@ direct_voxel_ULF_only_generation_manifest.json
 
 For branches with `absent_no_stable_grid`, do not generate selected-source NIfTI maps, score files, LOOCV prediction files, permutation summaries, bootstrap maps, or jitter outputs. Generate only resolver scan tables plus a branch-level QC/manifest row recording `ulf_voxel_source_status = absent_no_stable_grid` and `ulf_voxel_prediction_status = not_applicable`.
 
-Endpoint final-model realization first evaluates the HF-derived `intended_primary_branch`. If that branch is executable, it is the endpoint's final model. If the intended primary branch has input/design failure, `no_delta_hf` becomes the fallback final model when executable. A non-final branch may still be retained as sensitivity/comparison output, but it does not define the endpoint's final model:
+Endpoint final-model realization first evaluates the HF-derived `intended_primary_branch`. If that branch has an accepted source, it is the endpoint's final model. If intended `delta_hf_adjusted` has input/design failure or `absent_no_stable_grid`, `no_delta_hf` becomes the fallback final model when it has an accepted source. This fallback is one-way. A non-final branch may still be retained as sensitivity/comparison output, but it does not otherwise define the endpoint's final model:
 
 ```text
 ulf_endpoint_model_status = primary_branch_error_predictive
@@ -1554,13 +1559,15 @@ if ulf_endpoint_model_status in
     ulf_final_model_branch = intended_primary_branch
     ulf_final_model_role = primary
 
-if ulf_endpoint_model_status = primary_branch_input_failure
+if intended_primary_branch = delta_hf_adjusted
+and ulf_endpoint_model_status in
+  {primary_branch_input_failure, absent_no_stable_ulf_grid}
 and no_delta_hf has an accepted ULF source:
     ulf_final_model_branch = no_delta_hf
     ulf_final_model_role = fallback_final
 
-if ulf_endpoint_model_status = absent_no_stable_ulf_grid
-or no_delta_hf fallback is also not executable:
+if the intended primary branch has no accepted source
+and no permitted no_delta_hf fallback has an accepted source:
     ulf_final_model_branch = none
     ulf_final_model_role = no_final_model
 ```
@@ -1583,7 +1590,7 @@ ulf_final_model_status = no_final_model_input_failure
 
 Permutation p values, LOOCV rho, `Q2`, bootstrap stability, and jitter stability are inference-strength or robustness fields. They do not change `ulf_voxel_source_status`, `ulf_voxel_prediction_status`, `ulf_endpoint_model_status`, `ulf_final_model_branch`, `ulf_final_model_role`, `ulf_final_model_status`, or the HF-derived `ulf_primary_branch`.
 
-If Round 2 assigns `absent_no_stable_grid` to the intended primary branch and no fallback final model exists, skip Round 3 through Round 7 for that endpoint/branch and proceed directly to Round 8 summary/manifest reporting. If the intended primary branch has `primary_branch_input_failure`, use any executable `no_delta_hf` fallback as the final unique model for downstream formal reporting.
+If Round 2 assigns `absent_no_stable_grid` to the intended primary branch and no permitted fallback final model exists, skip Round 3 through Round 7 for that endpoint/branch and proceed directly to Round 8 summary/manifest reporting. If intended `delta_hf_adjusted` has `primary_branch_input_failure` or `absent_no_stable_ulf_grid`, use accepted `no_delta_hf` as the final unique fallback model for downstream formal reporting.
 
 ### Round 2b: Same-Day Immediate Observed LOOCV
 
@@ -1684,7 +1691,7 @@ resampling_reason = selected-source neighborhood sensitivity only
 
 ### Round 8: Additional Sensitivities And Endpoint Summary
 
-Run after endpoint resolver fields are complete. For accepted final models, also wait for final-source reporting fields; for `absent_no_stable_grid` with no fallback final model, use the absent QC/manifest row. For `primary_branch_input_failure`, include the primary failure reason and promote any executable `no_delta_hf` fallback to `ulf_final_model_role = fallback_final`.
+Run after endpoint resolver fields are complete. For accepted final models, also wait for final-source reporting fields; for `absent_no_stable_grid` with no permitted fallback final model, use the absent QC/manifest row. When intended adjusted has `primary_branch_input_failure` or `absent_no_stable_ulf_grid`, include the primary failure reason and promote accepted `no_delta_hf` to `ulf_final_model_role = fallback_final`.
 
 Accepted final model sensitivities:
 
@@ -1696,7 +1703,7 @@ DeltaHFScore delta-support sensitivity when support limitation is nontrivial
 Y_base-added collinearity sensitivity if baseline data are complete
 ```
 
-Primary input-failure fallback final reporting:
+One-way adjusted-primary failure fallback reporting:
 
 ```text
 no_delta_hf fallback final source/prediction status
@@ -1784,7 +1791,7 @@ ULF-only exposure
 HF-overlap exclusion
 DeltaHFScore-adjusted branch when HF source exists and DeltaHFScore inputs are valid
 no-DeltaHF branch
-no-DeltaHF fallback final model when the intended DeltaHF-adjusted primary branch has input failure
+no-DeltaHF fallback final model when the intended DeltaHF-adjusted primary branch has input/design/source failure
 DeltaHFScore delta-support QC when DeltaHFScore is used
 ULFScore_mean_main
 LOOCV

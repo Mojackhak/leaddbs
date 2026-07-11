@@ -8,14 +8,17 @@
 > **Reference model descriptions.** `my_helper/stnsnr/model_summaries/`
 > **Detailed implementation plan.**
 > `my_helper/stnsnr/four_model_yaml_core_refactor_implementation_plan.md`
+> **Approved successor design.**
+> `my_helper/stnsnr/dual_frequency_core_decoupling_design.md`
 > **Normative-fiber scoring design.**
 > `my_helper/stnsnr/normative_fiber_minimum_count_scoring_design.md`
 > **Normative-fiber scoring implementation plan.**
 > `my_helper/stnsnr/normative_fiber_minimum_count_scoring_implementation_plan.md`
 > **Current branch.** `stnvop`
-> **Status.** `design_documented`; `implementation_in_progress`;
-> `current_outputs_unchanged`; `current_legacy_entrypoints_remain_active`.
-> **Last updated.** 2026-07-10
+> **Status.** `design_documented`; `implementation_paused`;
+> `partial_acceptance_evidence_frozen`; `current_outputs_unchanged`;
+> `current_legacy_entrypoints_remain_active`.
+> **Last updated.** 2026-07-11
 
 ---
 
@@ -28,16 +31,25 @@ older document as authoritative.
 
 ## Summary
 
-This document is the implementation contract for an active refactor. Strict
-YAML schemas/loading, immutable identities, the endpoint catalog, the pure
-HF-to-ULF final-model state machine, configured run store, Round-aware planner,
-generic executor/CLI, all four scientific model services, final realization,
+This document records the implemented `four_model_v1` foundation and the
+paused acceptance run. Strict YAML loading, immutable identities, the endpoint
+catalog, final-model state machine, configured run store, Round-aware planner,
+generic executor/CLI, four configured model services, final realization,
 formal/sensitivity adapters, final-record-bound OSS generation, and endpoint-
-aware reporting now exist. The configured-core regression passes 300 tests and
-the related statistics/HF-fiber/ULF-fiber selftests pass. The real MDS-UPDRS
-III/IV run and artifact acceptance are not yet complete. The current Python and
-MATLAB compatibility drivers, legacy/current output paths, and generated
-results remain unchanged.
+aware reporting now exist. The real MDS-UPDRS III/IV run did not finish: its
+immutable partial results are bounded evidence, not proof of complete
+end-to-end acceptance. The current numerical services still pass through eight
+STNSNr-oriented legacy adapters.
+
+The approved next architecture is
+`dual_frequency_core_decoupling_design.md`. It replaces project-specific
+runtime semantics with strict `reference_component` and `addon_component`
+roles while preserving the current four-model mathematics and interaction
+state machine. Numerical parity is required only where the paused predecessor
+run produced a terminal completed scientific artifact. Unfinished, failed,
+partially checkpointed, and unstarted predecessor paths require contract,
+synthetic, and lightweight smoke validation but do not acquire a fabricated
+numerical-equivalence obligation.
 
 The governing engineering invariant is:
 
@@ -97,13 +109,13 @@ Success explicitly excludes adding a preferred scale list, first-pass scale,
 primary engineering scale, total-scale shortcut, axial-only round, or any
 scale-name-dependent dispatch rule.
 
-## Named End-To-End Implementation Acceptance
+## Named Structural And Bounded Numerical Acceptance
 
-Final code acceptance must include a real-data integration profile containing
-both of these base scales:
+Final code acceptance must include a real-data configuration and lightweight
+integration profile containing both of these base scales:
 
 ```text
-scale_id: mds_updrs_iii
+scale_id: mds_updrs_iii_score
 current clinical row label: MDS-UPDRS III score
 direction: lower
 minimum_subjects: 12
@@ -145,11 +157,13 @@ Each nonzero cell contains 16 unique subjects and all 16 rows have nonmissing
 results. Final acceptance must record a fresh input hash and endpoint catalog
 rather than assuming the counts remain unchanged.
 
-The acceptance workflow must validate, plan, and run both scale IDs together:
+The acceptance workflow must validate and plan both scale IDs together. A
+lightweight smoke run must exercise both through the generic report path without
+starting an unauthorized expensive producer:
 
 ```text
 models = all
-scales = [mds_updrs_iii, mds_updrs_iv]
+scales = [mds_updrs_iii_score, mds_updrs_iv]
 phases = [chronic, immediate]
 through = report
 ```
@@ -168,26 +182,73 @@ The acceptance oracle is:
    endpoint terminates explicitly as `not_requested_or_not_configured`; it is
    not treated as a code failure and is never substituted with MDS-UPDRS III or
    another scale.
-5. Every requested executable endpoint independently reaches an accepted final
-   model or `no_final_model`. An observed nonpredictive or no-stable-source
-   result is a scientific terminal result, not evidence that generic scale
-   dispatch failed.
-6. Formal and sensitivity tasks attach only to each endpoint's realized final
-   model. Endpoints with `no_final_model` emit the specified skip/status
-   artifacts and do not fabricate formal results.
+5. Deterministic integration fixtures must independently realize accepted final
+   models, `fallback_final`, and `no_final_model` so every state-machine path is
+   tested without depending on unfinished real-data execution.
+6. Formal and sensitivity tasks attach only to the realized final model.
+   Endpoints with `no_final_model` emit the specified skip/status artifacts and
+   do not fabricate formal results.
 7. The process exit code, task terminal states, artifact index, and manifest
-   must agree. A scientifically valid `no_final_model` may make the workflow
-   exit nonzero under the declared failure policy while the code acceptance
-   assertion still passes by verifying that expected state explicitly.
-8. At least one deterministic integration fixture using these two scale IDs
-   must realize an accepted final source so formal and sensitivity execution is
-   exercised independently of the real data's scientific outcome. Additional
-   deterministic fixtures must cover `no_final_model` and adjusted-primary
-   input failure with an accepted `no_delta_hf` fallback.
+   agree under success, permitted scientific terminal states, and injected
+   endpoint-local failures.
+8. Real-data numerical parity is evaluated only for hash-valid scientific
+   artifacts completed by the frozen paused run defined below. Structural and
+   smoke coverage remains mandatory for all other paths, but no numerical
+   comparison is claimed where the predecessor produced no completed result.
 
-Code refactor acceptance therefore requires both the real-data two-scale run
-and deterministic state-machine coverage. Passing only a hard-coded
-MDS-UPDRS III or MDS-UPDRS IV driver is insufficient.
+Code refactor acceptance therefore requires the real two-scale configuration,
+deterministic state-machine coverage, lightweight end-to-end smoke, and bounded
+golden parity. It does not require completing the predecessor's 205-task run.
+Passing only a hard-coded MDS-UPDRS III or MDS-UPDRS IV driver remains
+insufficient.
+
+### Frozen Numerical Evidence Boundary
+
+The predecessor acceptance run was paused before completion:
+
+```text
+run_id: 20260711T034644Z_d318f177f7f2ac7d
+run_commit: e3606e9ba57e83b61a18883b571ebe184029ebc0
+configuration_hash: e686212ba6658b2f4b8abf3a94305817555ec334ee9ba07262fbca9190f5f338
+planned_tasks: 205
+terminal_tasks: 73
+completed_tasks: 50
+```
+
+Only terminal `completed` scientific tasks with complete, hash-valid artifacts
+belong to the numerical parity oracle. A completed report that summarizes an
+upstream failure is structural evidence only.
+
+Completed numerical evidence covers:
+
+1. MDS-UPDRS III HF direct voxel through final realization, formal inference,
+   complete jitter, selected-source neighborhood, and reporting;
+2. MDS-UPDRS III HF dTOR normative fiber through observed analysis, controls,
+   final realization, formal inference, OSS/pPAM, complete jitter, and
+   reporting;
+3. MDS-UPDRS III HF MGH and PPMI normative-fiber observed robustness through
+   source/final realization and reporting; and
+4. MDS-UPDRS III chronic ULF dTOR normative fiber through preprocessing, branch
+   resolver, final realization, controls, formal inference, cheap sensitivity,
+   and selected-source neighborhood.
+
+The exact acceptance fixture must enumerate task IDs, artifact paths, and
+content hashes from `task_status.csv` and task manifests. This prose is not a
+substitute for that machine-readable fixture manifest.
+
+No numerical parity is required for the partial `388/1000` ULF dTOR jitter,
+failed ULF direct-voxel tasks, failed ULF normative-fiber OSS preparation,
+skipped tasks, pending/unstarted tasks, or uncompleted MDS-UPDRS IV paths. The
+old run is not resumed or repaired merely to enlarge the numerical oracle.
+Those paths still require unit, synthetic, state-machine, import-isolation,
+artifact, and lightweight smoke tests under the successor design.
+
+Completed formal, bootstrap, jitter, and OSS products are not recomputed in
+full for parity. Their complete artifacts receive hash/provenance validation;
+new numerical backends replay only deterministic internal-test slices or
+prefixes recorded by the fixture converter. Smoke iteration counts remain
+fixed test constants and never become public YAML parameters or scientific
+outputs.
 
 ## Implementation Execution Policy
 
@@ -207,24 +268,34 @@ establish completion of this `/goal`.
 
 ## Current Implementation Gap
 
-The current implementation predates this design and remains the active
-execution layer. Confirmed legacy/current gaps include:
+The configured YAML/catalog/DAG foundation is implemented, but the scientific
+runtime is not project-independent. The default service registry still imports
+these eight adapters:
 
-- total/axial default scale constants in readiness and observed drivers;
-- single-scale CLI defaults rather than an endpoint catalog and workflow-level
-  scale selector;
-- consolidated status and gate readers that use chronic total output paths or
-  global A/B model rows;
-- formal-target and reporting layers that are not keyed by a composite endpoint
-  identity;
-- HF direct voxel all-scale tau/Coverage scanning without an equivalent
-  all-endpoint execution path for every downstream A/B/C/D stage; and
-- reporting/audit layers that discover existing manifests but do not execute
-  missing endpoint models.
+```text
+legacy_hf_direct.py
+legacy_hf_fiber.py
+legacy_ulf_direct.py
+legacy_ulf_fiber.py
+legacy_formal.py
+legacy_sensitivity.py
+legacy_oss.py
+legacy_reporting.py
+```
 
-Therefore, current outputs under `/Volumes/VAL/STNSNr/summary` are legacy/current
-results. They are not outputs of a YAML-driven all-endpoint pipeline. This
-document must not be cited as evidence that all scales have been rerun.
+Those adapters translate configured requests into `stnsnr_*` numerical
+modules, preserve old artifact conventions, and contain remaining project/model
+dispatch. `legacy_reporting.py` is already close to a generic record-driven
+implementation, but its legacy schema/name remains part of the incomplete
+migration. The successor design replaces all eight with generic strict dual-
+frequency backends and removes their default registration.
+
+The paused configured run is evidence that the YAML workflow can execute real
+paths and that several completed numerical products exist. It is not evidence
+that all 205 tasks, both scales, or all four model paths completed. Current
+outputs under `/Volumes/VAL/STNSNr/summary` remain legacy/current results, while
+the immutable namespaced configured run remains partial acceptance evidence.
+Neither output tree may be overwritten or edited to fabricate completion.
 
 An isolated model runner passing its focused tests is not sufficient evidence
 that a configured Round is implemented. Before a task may be recorded as
@@ -237,25 +308,32 @@ empty artifacts are prohibited.
 
 ### Frequency roles
 
-The generic core names are:
+The implemented predecessor schema names are:
 
 ```text
 frequency_1_reference
 frequency_2_addon
 ```
 
-The current STNSNr aliases are:
+The approved `dual_frequency_v1` runtime names are:
 
 ```text
-frequency_1_reference = HF
-frequency_2_addon     = ULF
+reference_component
+addon_component
 ```
 
-These aliases preserve current model/document terminology without hard-coding
-HF or ULF as universal frequency values. Actual stimulation frequency,
-component identity, phase, pulse width, and amplitude remain input metadata and
-must be audited. OSS inputs additionally require exact modeled-frequency
-validation as defined by the normative fiber model documents.
+The default STNSNr profile labels are:
+
+```text
+reference_component = HF
+addon_component     = ULF
+```
+
+The core uses roles only and does not assume numerical frequency ordering. HF,
+ULF, STN, and STN+SNr remain project-profile labels and cannot appear in generic
+runtime dispatch, cache identity rules, or reporting fields. Actual frequency,
+component identity, phase, pulse width, and amplitude remain validated input
+metadata. OSS inputs additionally require exact modeled-frequency validation.
 
 ### Statistical domains
 
@@ -291,6 +369,12 @@ part of the current model-document reporting rounds. The exclusion above means
 this refactor does not add a new configurable VTA/ROI postprocessing subsystem.
 
 ## Configuration Profiles
+
+The implemented predecessor configuration consists of four `four_model_v1`
+YAML profiles. The approved successor keeps the four-profile split, validates
+it as `dual_frequency_v1`, and resolves project input through a canonical
+`DualFrequencyStudyBundle`. The old schema is converted only by an explicit
+retained migration tool; the production runtime does not silently accept it.
 
 The public configuration consists of four versioned YAML profiles validated by
 JSON Schema with `additionalProperties: false`.
@@ -824,7 +908,7 @@ intended primary executable with accepted source:
   final_model = intended primary
   final_role = primary
 
-intended primary input/design failure and no_delta_hf executable with accepted source:
+intended delta_hf_adjusted input/design/source failure and no_delta_hf executable with accepted source:
   final_model = no_delta_hf
   final_role = fallback_final
   primary failure remains recorded
@@ -832,16 +916,16 @@ intended primary input/design failure and no_delta_hf executable with accepted s
 delta_hf_adjusted cannot be a fallback when the matched HF source is absent or
 DeltaHFScore input/support is invalid
 
-intended primary has no stable source, or no accepted permitted fallback exists:
+intended no_delta_hf input/design/source failure, or no accepted permitted fallback exists:
   endpoint_model_status = no_final_model
   formal tasks = not_run_no_final_model
 ```
 
-An accepted comparison branch is not automatically promoted when the intended
-primary branch is evaluable but has `absent_no_stable_grid`. The only permitted
-`four_model_v1` fallback is an accepted `no_delta_hf` branch after intended
-`delta_hf_adjusted` input/design failure, as defined by the authoritative ULF
-model summaries.
+Fallback is one-way. The only permitted fallback is an accepted `no_delta_hf`
+branch after intended `delta_hf_adjusted` input failure, design failure, or
+`absent_no_stable_grid`. An accepted `delta_hf_adjusted` comparison branch is
+never promoted when intended `no_delta_hf` fails. Technical execution failure
+does not trigger fallback.
 
 Exactly one realized final model may enter formal resampling. Non-selected core
 branches remain observed sensitivities. Formal, OSS, jitter, and display results
@@ -919,31 +1003,39 @@ case, not a valid production execution mode.
 
 ## Planned Implementation Phases
 
-This section is future work and is not executed by documenting this plan.
-File ownership, test-first steps, commands, commits, and completion evidence are
-specified in `four_model_yaml_core_refactor_implementation_plan.md`.
+The predecessor implementation completed the configured schema/catalog/DAG/
+executor foundation and reached the paused evidence checkpoint. It did not
+complete the planned real-data run. The approved next phases are governed by
+`dual_frequency_core_decoupling_design.md`:
 
-1. Implement JSON Schemas, YAML loaders, and typed profile objects.
-2. Implement the endpoint catalog and scale/phase pairing rules.
-3. Parameterize A/B/C/D model services and remove scale/path hard-coding.
-4. Implement the workflow compiler and dependency DAG.
-5. Convert status, formal target, resampling, sensitivity, and reporting layers
-   to endpoint-aware manifests.
-6. Add resumable execution and artifact/provenance indexing.
-7. Convert old entry points to explicit-parameter compatibility wrappers.
-8. Run numerical-equivalence tests before any all-scale model rerun.
-9. Run the named MDS-UPDRS III plus MDS-UPDRS IV real-data acceptance workflow
-   and deterministic terminal-state fixtures defined above.
+1. freeze a machine-readable manifest of completed predecessor artifacts;
+2. implement `dual_frequency_v1` schemas and typed contracts;
+3. implement the project importer and `DualFrequencyStudyBundle`;
+4. migrate orchestration into the strict dual-frequency package;
+5. replace reference direct-voxel and normative-fiber adapters;
+6. replace DeltaReferenceScore and add-on adapters while preserving the current
+   interaction state machine;
+7. replace formal, sensitivity, and generic reporting adapters;
+8. implement the scale-independent activation-universe cache and replace OSS;
+9. remove all legacy default registration and enforce import isolation; and
+10. run bounded golden parity for completed evidence plus synthetic, smoke,
+    cache, provenance, and documentation acceptance for the complete new core.
+
+The paused predecessor run is not resumed or completed solely to enlarge the
+numerical-equivalence set. Backend paths without completed predecessor evidence
+are accepted through deterministic contracts and lightweight execution, not by
+comparison with nonexistent results.
 
 ## Deferred Work
 
 ```text
-Python/YAML schema implementation
-legacy wrapper replacement
-model rerun or current-output migration
+completion of the paused predecessor run solely for parity expansion
+full expensive all-scale numerical rerun
+old output migration or overwrite
 VTA/ROI postprocessing and regional heatmaps
 GUI or HTTP service
 ROI-restricted model variants
+N-frequency and addon-only models
 new estimators and optional future analyses
 ```
 
@@ -978,9 +1070,12 @@ commit:
    substitution.
 2. **HF-to-ULF dependency and fallback closure: passed after correction.**
    Added a terminal `HF source unavailable` path, kept DeltaHFScore failure local
-   to `delta_hf_adjusted`, and restricted fallback promotion to accepted
-   `no_delta_hf` after intended adjusted-branch input/design failure. An
-   evaluable intended branch with no stable source resolves to `no_final_model`.
+   to `delta_hf_adjusted`, and initially restricted fallback promotion to
+   accepted `no_delta_hf` after intended adjusted-branch input/design failure.
+   The explicit 2026-07-11 decision supersedes only the source-failure part of
+   that historical review: intended adjusted `absent_no_stable_grid` now also
+   permits accepted no-delta fallback. Fallback remains one-way; intended
+   no-delta failure never promotes the adjusted comparison branch.
 3. **Round-to-parameter coverage: passed.** Matched every Round heading in the
    four reference model summaries, including both Round 2b entries and HF
    fiber Round 5.5, to a public-YAML, internal-derived, internal-test, runtime,
@@ -992,9 +1087,9 @@ commit:
    and run identities so runtime source selection cannot mutate an existing ID.
 5. **Current-versus-planned wording: passed at the documentation checkpoint.**
    The interface was then labeled `implementation_not_started`. Active status is
-   now `implementation_in_progress`, while current outputs remain read-only
-   legacy/current outputs and completed claims name only implemented foundation
-   layers.
+   now `implementation_paused` with partial acceptance evidence frozen, while
+   current outputs remain read-only and completed claims name only implemented
+   foundation layers or terminal completed tasks from the immutable paused run.
 
 The named-acceptance addendum was reviewed separately on 2026-07-09. The two
 scale IDs are confined to test configuration, their current endpoint
@@ -1003,8 +1098,39 @@ MDS-UPDRS IV immediate rows have an explicit terminal state, and code acceptance
 is independent of whether the real-data models are predictive or realize a
 stable final source.
 
-No unresolved state, implicit default scale, unmatched dependency, or claim of
-completed YAML implementation remains in this plan.
+### 2026-07-11 Dual-Frequency Successor Review Record
+
+Five additional review passes were completed after approval of
+`dual_frequency_core_decoupling_design.md`:
+
+1. **Scale equality and role neutrality: passed.** The successor core uses
+   reference/add-on component and condition roles. HF/ULF, STN/STN+SNr,
+   connectome names, and named acceptance scales remain profile/fixture data and
+   cannot drive generic runtime or reporting dispatch.
+2. **Dependency and fallback closure: passed after explicit clarification.**
+   Fallback is one-way. Intended adjusted input failure, design failure, or
+   `absent_no_stable_grid` permits accepted no-delta fallback. Intended no-delta
+   failure never promotes adjusted, and technical execution failure never
+   triggers fallback. Both ULF model summaries were synchronized.
+3. **Round, cache, and activation coverage: passed.** The existing Round
+   Coverage Matrix remains the predecessor scientific inventory. The successor
+   assigns each function to a generic backend, uses connectome roles, derives a
+   scale-independent activation universe, and separates scientific cache
+   identity from scheduling identity.
+4. **Bounded numerical acceptance: passed after correction.** Only terminal
+   completed, hash-valid scientific artifacts from the immutable paused run are
+   numerical golden evidence. The partial jitter, failures, skips, pending
+   tasks, and uncompleted MDS-UPDRS IV paths are explicitly excluded. Full
+   resampling is not replayed; fixed internal-test prefixes and OSS samples are
+   used instead.
+5. **Current-versus-target and runtime isolation: passed.** The documents label
+   `dual_frequency_v1` as approved but unimplemented, retain the eight legacy
+   adapters as current gaps, and require a production full rerun to work with
+   migration, acceptance, and legacy directories absent from `PYTHONPATH`.
+
+No unresolved state, implicit default scale, unmatched dependency, unbounded
+numerical-parity claim, or claim of completed `dual_frequency_v1`
+implementation remains in this plan or the approved successor design.
 
 ## Historical Documentation-Only Acceptance Criteria
 
@@ -1025,14 +1151,22 @@ The initial documentation phase was completed when:
 
 ```text
 design_documented
-implementation_in_progress
+implementation_paused
+partial_acceptance_evidence_frozen
 current_outputs_unchanged
 current_legacy_entrypoints_remain_active
 ```
 
-CLI examples in this document describe the implemented generic executor, but
-they do not claim that the real two-scale acceptance has passed. Current
-refactor status is tracked here, in the detailed implementation plan, and in
-the implementation notes. Legacy output status continues to come from
-`four_model_execution_plan.md`; configured status becomes acceptance evidence
-only for a completed, audited namespaced run.
+The immutable paused run contains 73 terminal tasks out of 205 planned tasks,
+including 50 completed task records. It is a bounded artifact source, not a
+completed two-scale acceptance run. Its partial jitter, execution failures,
+skips, pending tasks, and unstarted paths are excluded from numerical parity.
+
+CLI examples in this document describe the implemented predecessor executor;
+they do not claim that the real two-scale acceptance passed or that the
+`dual_frequency_v1` successor exists. Current status is tracked here, in the
+implementation plan, implementation notes, and approved successor design.
+Legacy output status continues to come from `four_model_execution_plan.md`.
+Configured artifacts become numerical acceptance evidence only when a frozen
+fixture manifest identifies a terminal completed scientific task and validates
+all referenced hashes.
