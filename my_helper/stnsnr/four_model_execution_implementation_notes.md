@@ -1884,6 +1884,14 @@ completed HF row checkpoints remain reusable inputs for the next
 clean-provenance publication run; no OSS row needs regeneration for this
 manifest-only repair.
 
+The next clean run imported and published all 34 HF rows in eight seconds, but
+the configured OSS consumer still enforced the legacy uniform-frequency scalar.
+The consumer now validates either a legacy uniform scalar or exact
+subject-side requested/modeled maps with complete `subject_id:L/R` keys,
+positive finite values, and pairwise equality. The OSS result preserves the
+frequency scope and map. This repair passes 49 focused OSS tests and all 312
+configured-core tests, plus Python compilation and `git diff --check`.
+
 Run the D PPMI source resolver:
 
 ```bash

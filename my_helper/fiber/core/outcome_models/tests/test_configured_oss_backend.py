@@ -429,6 +429,40 @@ class ConfiguredOSSBackendTests(unittest.TestCase):
             with self.assertRaisesRegex(RecordError, "frequency"):
                 run_configured_oss(request, numerical_runner=lambda target: {})
 
+    def test_accepts_verified_subject_side_frequency_maps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context, task, _ = self._fixture(Path(tmp), "hf-fiber")
+            final = self._final(context, task, branch="hf_source")
+            frequencies = {
+                f"{subject_id}:{side}": (110.0 if index < 6 else 130.0)
+                for index, subject_id in enumerate(final.subject_order)
+                for side in ("L", "R")
+            }
+            sidecars = self._sidecars(
+                context,
+                final,
+                component="HF_only_reference",
+                frequency_hz=110.0,
+                parameter_overrides={
+                    "frequency_scope": "subject_side_specific",
+                    "requested_frequency_hz": None,
+                    "oss_parameter_frequency_hz": None,
+                    "frequency_validation_status": (
+                        "verified_exact_match_per_subject_side"
+                    ),
+                    "requested_frequencies_hz": frequencies,
+                    "modeled_frequencies_hz": frequencies,
+                },
+            )
+            request = OSSRequest.from_context(task, context, final, sidecars=sidecars)
+
+            output = run_configured_oss(request, numerical_runner=lambda target: {})
+            payload = json.loads(output.artifacts[0].path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["frequency_scope"], "subject_side_specific")
+        self.assertIsNone(payload["requested_frequency_hz"])
+        self.assertEqual(payload["requested_frequencies_hz"], frequencies)
+
     def test_rejects_unexpected_manifest_schema_versions(self) -> None:
         cases = (
             (

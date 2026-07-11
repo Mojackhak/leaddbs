@@ -169,11 +169,70 @@ def _required_float(mapping: Mapping[str, Any], key: str, label: str) -> float:
     return value
 
 
+def _validated_frequency_contract(
+    parameter: Mapping[str, Any],
+    subject_order: tuple[str, ...],
+) -> tuple[float | None, str, dict[str, float]]:
+    scope = str(parameter.get("frequency_scope", "uniform")).strip().lower()
+    if scope == "uniform":
+        requested = _required_float(
+            parameter,
+            "requested_frequency_hz",
+            "parameter manifest",
+        )
+        modeled = _required_float(
+            parameter,
+            "oss_parameter_frequency_hz",
+            "parameter manifest",
+        )
+        if requested != modeled:
+            raise RecordError(
+                "OSS requested frequency does not equal the modeled parameter frequency"
+            )
+        return requested, scope, {}
+    if scope != "subject_side_specific":
+        raise RecordError("OSS parameter manifest frequency_scope is invalid")
+    if parameter.get("requested_frequency_hz") is not None or parameter.get(
+        "oss_parameter_frequency_hz"
+    ) is not None:
+        raise RecordError("subject-side OSS frequency scalars must be null")
+    requested_map = parameter.get("requested_frequencies_hz")
+    modeled_map = parameter.get("modeled_frequencies_hz")
+    if not isinstance(requested_map, Mapping) or not isinstance(modeled_map, Mapping):
+        raise RecordError("subject-side OSS frequency maps are missing")
+    expected_keys = {
+        f"{subject_id}:{side}"
+        for subject_id in subject_order
+        for side in ("L", "R")
+    }
+    if set(requested_map) != expected_keys or set(modeled_map) != expected_keys:
+        raise RecordError("subject-side OSS frequency map keys are incomplete")
+    normalized: dict[str, float] = {}
+    for key in sorted(expected_keys):
+        try:
+            requested = float(requested_map[key])
+            modeled = float(modeled_map[key])
+        except (TypeError, ValueError) as exc:
+            raise RecordError("subject-side OSS frequencies must be numeric") from exc
+        if (
+            not np.isfinite(requested)
+            or requested <= 0.0
+            or not np.isfinite(modeled)
+            or modeled <= 0.0
+            or requested != modeled
+        ):
+            raise RecordError("subject-side OSS requested/modeled frequencies differ")
+        normalized[key] = modeled
+    if len(set(normalized.values())) < 2:
+        raise RecordError("subject-side OSS frequency scope requires heterogeneous values")
+    return None, scope, normalized
+
+
 def _validate_manifest_identity(
     request: OSSRequest,
     parameter: Mapping[str, Any],
     metadata: Mapping[str, Any],
-) -> tuple[float, str, str | None]:
+) -> tuple[float | None, str, dict[str, float], str, str | None]:
     final = request.final
     for label, payload, schema_version in (
         (
@@ -276,20 +335,9 @@ def _validate_manifest_identity(
         }:
             raise RecordError("ULF OSS HF-overlap definition is invalid")
 
-    requested_frequency = _required_float(
-        parameter,
-        "requested_frequency_hz",
-        "parameter manifest",
+    requested_frequency, frequency_scope, requested_frequencies = (
+        _validated_frequency_contract(parameter, final.subject_order)
     )
-    modeled_frequency = _required_float(
-        parameter,
-        "oss_parameter_frequency_hz",
-        "parameter manifest",
-    )
-    if requested_frequency != modeled_frequency:
-        raise RecordError(
-            "OSS requested frequency does not equal the modeled parameter frequency"
-        )
     if "verified" not in _required_text(
         parameter,
         "frequency_validation_status",
@@ -312,7 +360,13 @@ def _validate_manifest_identity(
         raise RecordError("OSS activation metadata must contain pPAM probabilities")
     if _required_text(metadata, "finite_check_status", "activation metadata") != "passed":
         raise RecordError("OSS activation metadata finite check did not pass")
-    return requested_frequency, component, hf_overlap_definition
+    return (
+        requested_frequency,
+        frequency_scope,
+        requested_frequencies,
+        component,
+        hf_overlap_definition,
+    )
 
 
 def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
@@ -372,7 +426,9 @@ class ConfiguredOSSTarget:
     scale_direction: str
     subject_order: tuple[str, ...]
     activation_threshold: float
-    requested_frequency_hz: float
+    requested_frequency_hz: float | None
+    frequency_scope: str
+    requested_frequencies_hz: dict[str, float]
     exposure_component: str
     hf_overlap_definition: str | None
     parameter_manifest_path: Path
@@ -403,11 +459,13 @@ def build_configured_oss_target(request: OSSRequest) -> ConfiguredOSSTarget:
             != request.sidecars.compatibility_hash
         ):
             raise RecordError(f"OSS {label} compatibility hash mismatch")
-    requested_frequency, component, hf_overlap_definition = _validate_manifest_identity(
-        request,
-        parameter,
-        metadata,
-    )
+    (
+        requested_frequency,
+        frequency_scope,
+        requested_frequencies,
+        component,
+        hf_overlap_definition,
+    ) = _validate_manifest_identity(request, parameter, metadata)
 
     if _required_text(parameter, "oss_fiber_ids_sha256", "parameter manifest") != request.sidecars.fiber_ids.sha256:
         raise RecordError("OSS parameter-manifest fiber hash mismatch")
@@ -490,6 +548,8 @@ def build_configured_oss_target(request: OSSRequest) -> ConfiguredOSSTarget:
         subject_order=tuple(formal_target.subject_order),
         activation_threshold=request.activation_threshold,
         requested_frequency_hz=requested_frequency,
+        frequency_scope=frequency_scope,
+        requested_frequencies_hz=requested_frequencies,
         exposure_component=component,
         hf_overlap_definition=hf_overlap_definition,
         parameter_manifest_path=parameter_path,
@@ -715,7 +775,9 @@ def run_configured_oss(
         "hemisphere_merge_rule": request.hemisphere_merge_rule,
         "oss_exposure_component": target.exposure_component,
         "hf_overlap_definition": target.hf_overlap_definition,
+        "frequency_scope": target.frequency_scope,
         "requested_frequency_hz": target.requested_frequency_hz,
+        "requested_frequencies_hz": target.requested_frequencies_hz,
         "smoke_permutations": request.smoke_permutations,
         "seed": request.seed,
         "score": dict(request.score),
