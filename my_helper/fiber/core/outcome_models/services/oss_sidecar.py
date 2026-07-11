@@ -1359,9 +1359,12 @@ def run_configured_oss_sidecar_preparation(
         float(value)
         for value in request.compatibility_payload["modeled_frequencies_hz"].values()
     }
-    if len(frequency_values) != 1:
-        raise RecordError("OSS destination manifest requires one modeled frequency")
-    frequency = next(iter(frequency_values))
+    uniform_frequency = (
+        next(iter(frequency_values)) if len(frequency_values) == 1 else None
+    )
+    frequency_scope = (
+        "uniform" if uniform_frequency is not None else "subject_side_specific"
+    )
     component = str(request.compatibility_payload["component_identity"])
     parameter_path = request.output_root / "oss_parameter_manifest.json"
     metadata_path = request.output_root / "oss_activation_sidecar_metadata.json"
@@ -1379,10 +1382,15 @@ def run_configured_oss_sidecar_preparation(
         "ppam_sample_count": int(request.compatibility_payload["ppam_sample_count"]),
         "ppam_sampling": dict(request.compatibility_payload["ppam_sampling"]),
         "oss_exposure_component": component,
-        "requested_frequency_hz": frequency,
-        "oss_parameter_frequency_hz": frequency,
+        "frequency_scope": frequency_scope,
+        "requested_frequency_hz": uniform_frequency,
+        "oss_parameter_frequency_hz": uniform_frequency,
         "frequency_source": "source_stimulation_mat",
-        "frequency_validation_status": "verified_exact_match",
+        "frequency_validation_status": (
+            "verified_exact_match"
+            if uniform_frequency is not None
+            else "verified_exact_match_per_subject_side"
+        ),
         "canonical_hemisphere": "right",
         "left_to_right_mapping_method": mapping["method"],
         "left_to_right_mapping_identity": mapping,

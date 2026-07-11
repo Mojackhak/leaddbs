@@ -1878,6 +1878,12 @@ validated exactly and recorded in frequency maps. The manifest contract now
 treats those maps as authoritative, emits scalar frequency fields only when
 uniform, and uses `frequency_scope = subject_side_specific` otherwise.
 
+The frequency-manifest repair passes 35 focused OSS tests and all 311
+configured-core tests. Python compilation and `git diff --check` pass. The 34
+completed HF row checkpoints remain reusable inputs for the next
+clean-provenance publication run; no OSS row needs regeneration for this
+manifest-only repair.
+
 Run the D PPMI source resolver:
 
 ```bash

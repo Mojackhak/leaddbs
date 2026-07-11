@@ -980,6 +980,54 @@ class OSSSidecarPreparationServiceTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertFalse(result.facts["oss_content_reused"])
 
+    def test_destination_manifest_allows_subject_specific_frequencies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = self._cache_request(root, "scale-one")
+            frequencies = {
+                "sub-01:L": 110.0,
+                "sub-01:R": 110.0,
+                "sub-02:L": 130.0,
+                "sub-02:R": 130.0,
+            }
+            payload = {
+                **base.compatibility_payload,
+                "requested_frequencies_hz": frequencies,
+                "modeled_frequencies_hz": frequencies,
+            }
+            request = replace(
+                base,
+                compatibility_hash=oss_compatibility_hash(payload),
+                compatibility_payload=payload,
+            )
+
+            def generator(_request, cache_root):
+                cache_root.mkdir(parents=True, exist_ok=True)
+                probabilities = cache_root / "probabilities.npy"
+                fiber_ids = cache_root / "fiber-ids.npy"
+                np.save(
+                    probabilities,
+                    np.asarray(
+                        [[0.1, 0.5, 0.9], [0.2, 0.6, 0.8]],
+                        dtype=np.float32,
+                    ),
+                )
+                np.save(fiber_ids, np.asarray([101, 107, 109], dtype=np.int64))
+                return OSSGeneratedContent(probabilities, fiber_ids)
+
+            result = run_configured_oss_sidecar_preparation(
+                request,
+                generator=generator,
+            )
+            parameter = json.loads(
+                result.artifacts[2].path.read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(parameter["frequency_scope"], "subject_side_specific")
+        self.assertIsNone(parameter["requested_frequency_hz"])
+        self.assertIsNone(parameter["oss_parameter_frequency_hz"])
+        self.assertEqual(parameter["modeled_frequencies_hz"], frequencies)
+
     def test_hash_consistent_but_semantically_invalid_cache_is_regenerated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
