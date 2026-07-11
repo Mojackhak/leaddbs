@@ -1990,6 +1990,42 @@ current clean `stnvop` provenance. The forced lineage must rerun the affected
 ULF direct-voxel and ULF normative-fiber paths and must not overwrite or repair
 the old task-status records.
 
+## Frozen Dual-Frequency Bounded Evidence
+
+The strict `dual_frequency_v1` implementation treats the paused run only as a
+read-only, bounded numerical oracle. Eligibility is explicit:
+
+```text
+eligible = task_id in approved_task_allowlist
+           and task status == completed
+           and the task exposes reviewed scientific artifacts
+           and every referenced artifact path and SHA-256 validates
+
+excluded = task_id not in approved_task_allowlist
+           or task is a failure-only report
+           or task is partial, failed, skipped, pending, or unstarted
+           or any required artifact is missing or hash-invalid
+```
+
+Completed status alone never enrolls a task. The reviewed allowlist is a static
+input to fixture construction and must be passed explicitly; fixture tooling
+does not discover new candidates, repair the old run, resume it, or invoke a
+producer. The frozen source identity is:
+
+```text
+run_id: 20260711T034644Z_d318f177f7f2ac7d
+run_commit: e3606e9ba57e83b61a18883b571ebe184029ebc0
+configuration_hash: e686212ba6658b2f4b8abf3a94305817555ec334ee9ba07262fbca9190f5f338
+```
+
+The allowlist is restricted to the four completed scientific scopes named by
+the current `/goal`: MDS-UPDRS III reference direct voxel, reference dTOR
+fiber, reference MGH/PPMI fiber robustness, and chronic add-on dTOR fiber up to
+its last complete pre-jitter stages. Partial jitter, failed add-on direct
+tasks, failed add-on OSS, skipped/unstarted tasks, and MDS-UPDRS IV numerical
+paths are excluded. Any future allowlist change requires a separate explicit
+documentation decision.
+
 Run the D PPMI source resolver:
 
 ```bash

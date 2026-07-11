@@ -1,0 +1,52 @@
+schema_version: dual_frequency_migration_mapping_v1
+source_subscale_field: phase
+source_subscale_selection_field: phases
+
+component_roles:
+  frequency_1_reference: reference_component
+  frequency_2_addon: addon_component
+
+condition_roles:
+  frequency_1_reference: reference_only
+  frequency_2_addon_chronic: combined
+  frequency_2_addon_immediate: combined
+
+exposure_bindings:
+  frequency_1_reference:
+    condition_role: reference_only
+    component_role: reference_component
+  frequency_1_component_under_addon:
+    condition_role: combined
+    component_role: reference_component
+  frequency_2_component_under_addon:
+    condition_role: combined
+    component_role: addon_component
+
+subscale_bindings:
+  frequency_1_reference:
+    endpoint_binding_suffix: reference
+    condition_role: reference_only
+  frequency_2_addon_chronic:
+    endpoint_binding_suffix: combined_a
+    condition_role: combined
+  frequency_2_addon_immediate:
+    endpoint_binding_suffix: combined_b
+    condition_role: combined
+
+workflow_subscale_values:
+  chronic: combined_a
+  immediate: combined_b
+
+model_section_map:
+  oss: activation
+
+model_field_map:
+  sensitivity:
+    ulf_nonfinal_branch: addon_nonfinal_branch
+    ulf_gain: addon_gain
+    ulf_total_exposure: addon_total_exposure
+    ulf_support: addon_support
+    ulf_collinearity: addon_collinearity
+
+drop_model_fields:
+  - activation.final_dtor_only
