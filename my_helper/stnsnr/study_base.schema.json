@@ -1,0 +1,311 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leaddbs.org/schemas/stnsnr-study-base-v1.json",
+  "title": "STNSNr dual-frequency study base",
+  "description": "Strict source-data contract for the STNSNr dual-frequency study.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "study"],
+  "properties": {
+    "schema_version": {"const": "dual_frequency_study_v1"},
+    "study": {"$ref": "#/$defs/study"}
+  },
+  "$defs": {
+    "path": {"description": "Non-empty source filesystem path.", "type": "string", "minLength": 1},
+    "nullablePath": {"description": "Optional non-empty source filesystem path.", "oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "study": {
+      "description": "Study metadata, source assets, subjects, and provenance.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["study_id", "study_label", "data_version", "frequency_components", "scale_definitions", "spot_model_sources", "subjects", "provenance"],
+      "properties": {
+        "study_id": {"type": "string", "minLength": 1},
+        "study_label": {"type": "string", "minLength": 1},
+        "data_version": {"const": "1"},
+        "frequency_components": {
+          "description": "Reference and add-on frequency components.",
+          "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/component"},
+          "allOf": [
+            {"contains": {"properties": {"component_id": {"const": "frequency_1_reference"}}, "required": ["component_id"]}, "minContains": 1, "maxContains": 1},
+            {"contains": {"properties": {"component_id": {"const": "frequency_2_addon"}}, "required": ["component_id"]}, "minContains": 1, "maxContains": 1}
+          ]
+        },
+        "scale_definitions": {"description": "Engineering-equivalent clinical scales.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/scale"}},
+        "spot_model_sources": {"$ref": "#/$defs/spotSources"},
+        "subjects": {"description": "Imported subjects in deterministic order.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/subject"}},
+        "provenance": {"$ref": "#/$defs/provenance"}
+      }
+    },
+    "component": {
+      "description": "One frequency component definition.",
+      "type": "object", "additionalProperties": false,
+      "required": ["component_id", "label"],
+      "properties": {
+        "component_id": {"enum": ["frequency_1_reference", "frequency_2_addon"]},
+        "label": {"type": "string", "minLength": 1}
+      }
+    },
+    "scale": {
+      "description": "One independent source Feature represented as a scale.",
+      "type": "object", "additionalProperties": false,
+      "required": ["scale_id", "label", "value_type", "unit", "direction", "subscales"],
+      "properties": {
+        "scale_id": {"type": "string", "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$"},
+        "label": {"type": "string", "minLength": 1},
+        "value_type": {"const": "integer"},
+        "unit": {"const": "score"},
+        "direction": {"const": "unknown"},
+        "subscales": {
+          "type": "array", "minItems": 1, "maxItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["subscale_id", "label"],
+            "properties": {"subscale_id": {"const": "total"}, "label": {"const": "Total"}}
+          }
+        }
+      }
+    },
+    "spotSources": {
+      "description": "Study-level canonical images, mask, transform, and connectomes.",
+      "type": "object", "additionalProperties": false,
+      "required": ["canonical_space", "hemisphere_mapping", "reference_images", "brainmask", "connectomes"],
+      "properties": {
+        "canonical_space": {"const": "MNI152NLin2009bAsym"},
+        "hemisphere_mapping": {
+          "type": "object", "additionalProperties": false,
+          "required": ["canonical_hemisphere", "left_to_right_transform"],
+          "properties": {
+            "canonical_hemisphere": {"const": "R"},
+            "left_to_right_transform": {
+              "type": "object", "additionalProperties": false, "required": ["path"],
+              "properties": {"path": {"$ref": "#/$defs/path"}}
+            }
+          }
+        },
+        "reference_images": {
+          "description": "Canonical T1w and T2w reference images.",
+          "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/referenceImage"},
+          "allOf": [
+            {"contains": {"properties": {"modality": {"const": "T1w"}}, "required": ["modality"]}, "minContains": 1, "maxContains": 1},
+            {"contains": {"properties": {"modality": {"const": "T2w"}}, "required": ["modality"]}, "minContains": 1, "maxContains": 1}
+          ]
+        },
+        "brainmask": {
+          "type": "object", "additionalProperties": false,
+          "required": ["brainmask_id", "space", "path"],
+          "properties": {
+            "brainmask_id": {"type": "string", "minLength": 1},
+            "space": {"const": "MNI152NLin2009bAsym"},
+            "path": {"$ref": "#/$defs/path"}
+          }
+        },
+        "connectomes": {"description": "Normative streamline source datasets.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/connectome"}}
+      }
+    },
+    "referenceImage": {
+      "description": "One canonical anatomical reference image.",
+      "type": "object", "additionalProperties": false,
+      "required": ["image_id", "modality", "label", "path"],
+      "properties": {
+        "image_id": {"type": "string", "minLength": 1},
+        "modality": {"enum": ["T1w", "T2w"]},
+        "label": {"type": "string", "minLength": 1},
+        "path": {"$ref": "#/$defs/path"}
+      }
+    },
+    "connectome": {
+      "description": "One Lead-DBS normative streamline dataset.",
+      "type": "object", "additionalProperties": false,
+      "required": ["connectome_id", "label", "space", "modality", "representation", "streamlines", "metadata"],
+      "properties": {
+        "connectome_id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "space": {"const": "MNI152NLin2009bAsym"},
+        "modality": {"const": "diffusion"},
+        "representation": {"const": "streamlines"},
+        "streamlines": {
+          "type": "object", "additionalProperties": false, "required": ["format", "path"],
+          "properties": {"format": {"const": "leaddbs_data_mat_v7_3"}, "path": {"$ref": "#/$defs/path"}}
+        },
+        "metadata": {
+          "type": "object", "additionalProperties": false, "required": ["path"],
+          "properties": {"path": {"$ref": "#/$defs/nullablePath"}}
+        }
+      }
+    },
+    "subject": {
+      "description": "One subject with hardware, programs, and clinical observations.",
+      "type": "object", "additionalProperties": false,
+      "required": ["subject_id", "subject_label", "subject_sources", "contact_numbering", "electrodes", "phases"],
+      "properties": {
+        "subject_id": {"type": "string", "minLength": 1},
+        "subject_label": {"type": "string", "minLength": 1},
+        "subject_sources": {
+          "type": "object", "additionalProperties": false,
+          "required": ["leaddbs_subject_dir", "electrode_reconstruction"],
+          "properties": {
+            "leaddbs_subject_dir": {"$ref": "#/$defs/path"},
+            "electrode_reconstruction": {
+              "type": "object", "additionalProperties": false, "required": ["path"],
+              "properties": {"path": {"$ref": "#/$defs/path"}}
+            }
+          }
+        },
+        "contact_numbering": {
+          "type": "object", "additionalProperties": false,
+          "required": ["convention", "electrode_order"],
+          "properties": {
+            "convention": {"const": "bilateral_contiguous_zero_based"},
+            "electrode_order": {"const": ["lead-L", "lead-R"]}
+          }
+        },
+        "electrodes": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/electrode"}},
+        "phases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/phase"}}
+      }
+    },
+    "electrode": {
+      "description": "One reconstructed implanted lead.",
+      "type": "object", "additionalProperties": false,
+      "required": ["electrode_id", "hemisphere", "electrode_model", "contact_count", "reconstruction_lead_id"],
+      "properties": {
+        "electrode_id": {"enum": ["lead-L", "lead-R"]},
+        "hemisphere": {"enum": ["L", "R"]},
+        "electrode_model": {"type": "string", "minLength": 1},
+        "contact_count": {"type": "integer", "minimum": 1},
+        "reconstruction_lead_id": {"type": "integer", "minimum": 1, "maximum": 2}
+      }
+    },
+    "phase": {
+      "description": "One study time group containing assessment programs.",
+      "type": "object", "additionalProperties": false,
+      "required": ["phase_id", "phase_label", "date", "programs"],
+      "properties": {
+        "phase_id": {"enum": ["T0", "T1", "T2", "T3"]},
+        "phase_label": {"type": "string", "minLength": 1},
+        "date": {
+          "type": "object", "additionalProperties": false,
+          "required": ["window_start_date", "window_end_date"],
+          "properties": {"window_start_date": {"type": ["string", "null"]}, "window_end_date": {"type": ["string", "null"]}}
+        },
+        "programs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/program"}}
+      }
+    },
+    "program": {
+      "description": "One assessment condition and its stimulation settings.",
+      "type": "object", "additionalProperties": false,
+      "required": ["program_id", "program_label", "condition_role", "stimulation_state", "assessment_order", "exposure", "clinical_observations", "electrode_programs"],
+      "properties": {
+        "program_id": {"type": "integer", "minimum": 0},
+        "program_label": {"type": "string", "minLength": 1},
+        "condition_role": {"enum": ["none", "reference_only", "combined"]},
+        "stimulation_state": {"enum": ["none", "active"]},
+        "assessment_order": {"type": "integer", "minimum": 0},
+        "exposure": {"$ref": "#/$defs/exposure"},
+        "clinical_observations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/observation"}},
+        "electrode_programs": {"type": "array", "items": {"$ref": "#/$defs/electrodeProgram"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"condition_role": {"const": "none"}}}, "then": {"properties": {"stimulation_state": {"const": "none"}, "electrode_programs": {"maxItems": 0}}}},
+        {"if": {"properties": {"condition_role": {"enum": ["reference_only", "combined"]}}}, "then": {"properties": {"stimulation_state": {"const": "active"}, "electrode_programs": {"minItems": 1}}}}
+      ]
+    },
+    "exposure": {
+      "description": "Program exposure timing metadata.",
+      "type": "object", "additionalProperties": false,
+      "required": ["duration_label", "stimulation_start_date", "assessment_date", "exposure_days"],
+      "properties": {
+        "duration_label": {"enum": ["preoperative", "immediate", "3m"]},
+        "stimulation_start_date": {"type": ["string", "null"]},
+        "assessment_date": {"type": ["string", "null"]},
+        "exposure_days": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "observation": {
+      "description": "One scale observation or explicit not-assessed slot.",
+      "type": "object", "additionalProperties": false,
+      "required": ["observation_id", "scale_id", "subscale_id", "value", "status"],
+      "properties": {
+        "observation_id": {"type": "string", "minLength": 1},
+        "scale_id": {"type": "string", "minLength": 1},
+        "subscale_id": {"const": "total"},
+        "value": {"type": ["integer", "null"]},
+        "status": {"enum": ["observed", "not_assessed"]}
+      },
+      "allOf": [
+        {"if": {"properties": {"status": {"const": "observed"}}}, "then": {"properties": {"value": {"type": "integer"}}}},
+        {"if": {"properties": {"status": {"const": "not_assessed"}}}, "then": {"properties": {"value": {"type": "null"}}}}
+      ]
+    },
+    "electrodeProgram": {
+      "description": "Stimulation settings for one electrode in one program.",
+      "type": "object", "additionalProperties": false,
+      "required": ["electrode_id", "frequency_groups"],
+      "properties": {
+        "electrode_id": {"enum": ["lead-L", "lead-R"]},
+        "frequency_groups": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/frequencyGroup"}}
+      }
+    },
+    "frequencyGroup": {
+      "description": "Sources delivered continuously or in one alternating group.",
+      "type": "object", "additionalProperties": false,
+      "required": ["frequency_group_id", "frequency_hz", "delivery_mode", "sources"],
+      "properties": {
+        "frequency_group_id": {"type": "string", "minLength": 1},
+        "frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+        "delivery_mode": {"enum": ["continuous", "alternating"]},
+        "sources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/source"}}
+      }
+    },
+    "source": {
+      "description": "One voltage-controlled stimulation source.",
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "source_label", "component_id", "control_mode", "amplitude", "pulse_width_us", "contacts"],
+      "properties": {
+        "source_id": {"type": "string", "minLength": 1},
+        "source_label": {"enum": ["STN", "SNr"]},
+        "component_id": {"enum": ["frequency_1_reference", "frequency_2_addon"]},
+        "control_mode": {"const": "voltage"},
+        "amplitude": {"type": "number", "minimum": 0},
+        "pulse_width_us": {"type": "number", "exclusiveMinimum": 0},
+        "contacts": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/contact"}}
+      }
+    },
+    "contact": {
+      "description": "One contact allocation for a stimulation source.",
+      "type": "object", "additionalProperties": false,
+      "required": ["contact", "polarity", "fraction"],
+      "properties": {
+        "contact": {"oneOf": [{"type": "integer", "minimum": 0}, {"const": "case"}]},
+        "polarity": {"enum": ["cathode", "anode"]},
+        "fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+      }
+    },
+    "provenance": {
+      "description": "Import timestamp, implementation identity, and direct source files.",
+      "type": "object", "additionalProperties": false,
+      "required": ["created_at", "importer", "source_files", "notes"],
+      "properties": {
+        "created_at": {"type": "string", "format": "date-time"},
+        "importer": {
+          "type": "object", "additionalProperties": false,
+          "required": ["name", "version", "code_commit"],
+          "properties": {
+            "name": {"const": "build_stnsnr_study_base"},
+            "version": {"const": "1"},
+            "code_commit": {"type": ["string", "null"]}
+          }
+        },
+        "source_files": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/sourceFile"}},
+        "notes": {"type": ["string", "null"]}
+      }
+    },
+    "sourceFile": {
+      "description": "One direct workbook source used by the importer.",
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "path"],
+      "properties": {"role": {"enum": ["clinical", "programming"]}, "path": {"$ref": "#/$defs/path"}}
+    }
+  }
+}
