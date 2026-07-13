@@ -1,21 +1,53 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Seed-target connectivity configuration",
+  "title": "Seed-target connectivity batch configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version"],
+  "required": ["schema_version", "inputs", "output"],
   "properties": {
-    "schema_version": {
-      "const": 1
+    "schema_version": {"const": 2},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_atlas_root", "seed_rois", "connectome"],
+      "properties": {
+        "target_atlas_root": {"type": "string", "minLength": 1},
+        "seed_rois": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$",
+            "not": {"enum": [".", ".."]}
+          },
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
+        "connectome": {"type": "string", "minLength": 1}
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["output_root", "run_name"],
+      "properties": {
+        "output_root": {"type": "string", "minLength": 1},
+        "run_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+$",
+          "not": {"enum": [".", ".."]}
+        },
+        "cache_root": {"type": "string", "minLength": 1}
+      }
     },
     "seed": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "probability_threshold": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1
+          "anyOf": [
+            {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+            {"type": "null"}
+          ]
         }
       }
     },
@@ -24,16 +56,14 @@
       "additionalProperties": false,
       "properties": {
         "probability_threshold": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1
+          "anyOf": [
+            {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+            {"type": "null"}
+          ]
         },
         "roi_thresholds": {
           "type": "object",
-          "propertyNames": {
-            "type": "string",
-            "minLength": 1
-          },
+          "propertyNames": {"type": "string", "minLength": 1},
           "additionalProperties": {
             "type": "number",
             "exclusiveMinimum": 0,
@@ -42,35 +72,19 @@
         }
       }
     },
-    "intersection": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "method": {
-          "const": "segment_aware_voxel_traversal"
-        }
-      }
-    },
     "execution": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "fiber_chunk_size": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "cache_membership": {
-          "type": "boolean"
-        }
+        "fiber_chunk_size": {"type": "integer", "minimum": 1},
+        "cache_membership": {"type": "boolean"}
       }
     },
     "ranking": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
-          "type": "boolean"
-        }
+        "enabled": {"type": "boolean"}
       }
     }
   }

@@ -26,13 +26,6 @@ class TargetConfig:
 
 
 @dataclass(frozen=True)
-class IntersectionConfig:
-    """Streamline-to-voxel intersection settings."""
-
-    method: str = "segment_aware_voxel_traversal"
-
-
-@dataclass(frozen=True)
 class ExecutionConfig:
     """Bounded execution and cache settings."""
 
@@ -48,17 +41,62 @@ class RankingConfig:
 
 
 @dataclass(frozen=True)
-class ConnectivityConfig:
-    """Fully resolved algorithm configuration."""
+class InputConfig:
+    """Resolved shared scientific input paths for one batch."""
+
+    target_atlas_root: Path
+    seed_rois: Mapping[str, Path]
+    connectome: Path
+
+
+@dataclass(frozen=True)
+class OutputConfig:
+    """Resolved semantic publication settings for one batch."""
+
+    output_root: Path
+    run_name: str
+    cache_root: Path
+
+
+@dataclass(frozen=True)
+class BatchConnectivityConfig:
+    """Fully resolved YAML configuration for named seed runs."""
 
     schema_version: int
+    inputs: InputConfig
+    output: OutputConfig
     seed: SeedConfig
     targets: TargetConfig
-    intersection: IntersectionConfig
     execution: ExecutionConfig
     ranking: RankingConfig
     resolved_mapping: Mapping[str, Any]
-    configuration_hash: str
+    batch_configuration_hash: str
+
+
+@dataclass(frozen=True)
+class EffectiveConnectivityConfig:
+    """Side-specific scientific configuration used by single-seed primitives."""
+
+    schema_version: int
+    seed_name: str
+    seed_roi: Path
+    seed: SeedConfig
+    targets: TargetConfig
+    execution: ExecutionConfig
+    ranking: RankingConfig
+    resolved_mapping: Mapping[str, Any]
+    batch_resolved_mapping: Mapping[str, Any]
+    batch_configuration_hash: str
+    effective_configuration_hash: str
+
+    @property
+    def configuration_hash(self) -> str:
+        """Return the effective hash expected by single-seed primitives."""
+
+        return self.effective_configuration_hash
+
+
+ConnectivityConfig = EffectiveConnectivityConfig
 
 
 @dataclass(frozen=True)
