@@ -10,10 +10,9 @@ from pathlib import Path
 import numpy as np
 
 from my_helper.fiber.core.seed_target_connectivity.atlas import discover_targets
-from my_helper.fiber.core.seed_target_connectivity.config import resolve_config
 from my_helper.fiber.core.seed_target_connectivity.errors import ROIResolutionError
 from my_helper.fiber.core.seed_target_connectivity.roi import resolve_atlas, resolve_seed
-from my_helper.fiber.core.seed_target_connectivity.tests.helpers import write_mask
+from my_helper.fiber.core.seed_target_connectivity.tests.helpers import effective_test_config, write_mask
 
 
 class AtlasDiscoveryTests(unittest.TestCase):
@@ -72,7 +71,7 @@ class ROIResolutionTests(unittest.TestCase):
         affine = np.diag([2.0, 3.0, 4.0, 1.0])
         path = write_mask(self.root / "seed.nii.gz", data, affine)
 
-        resolved = resolve_seed(path, resolve_config({"schema_version": 1}))
+        resolved = resolve_seed(path, effective_test_config())
 
         self.assertEqual(resolved.source_value_type, "binary")
         self.assertIsNone(resolved.probability_threshold)
@@ -87,11 +86,11 @@ class ROIResolutionTests(unittest.TestCase):
         path = write_mask(self.root / "seed.nii.gz", np.array([[[0.0, 0.4, 0.8]]]))
 
         with self.assertRaisesRegex(ROIResolutionError, "probability threshold"):
-            resolve_seed(path, resolve_config({"schema_version": 1}))
+            resolve_seed(path, effective_test_config())
 
         resolved = resolve_seed(
             path,
-            resolve_config({"schema_version": 1, "seed": {"probability_threshold": 0.5}}),
+            effective_test_config(seed={"probability_threshold": 0.5}),
         )
         self.assertEqual(resolved.source_value_type, "probabilistic")
         self.assertEqual(resolved.probability_threshold, 0.5)
@@ -102,14 +101,11 @@ class ROIResolutionTests(unittest.TestCase):
         data = np.array([[[0.2, 0.6, 0.9]]])
         write_mask(self.root / "group" / "override.nii.gz", data)
         write_mask(self.root / "group" / "default.nii.gz", data)
-        config = resolve_config(
-            {
-                "schema_version": 1,
-                "targets": {
+        config = effective_test_config(
+                targets={
                     "probability_threshold": 0.5,
                     "roi_thresholds": {"group/override": 0.8},
-                },
-            }
+                }
         )
 
         atlas = resolve_atlas(self.root, config)
@@ -123,9 +119,7 @@ class ROIResolutionTests(unittest.TestCase):
     def test_empty_target_is_recorded_without_aborting_peer_targets(self) -> None:
         write_mask(self.root / "group" / "empty.nii.gz", np.array([[[0.1, 0.2]]]))
         write_mask(self.root / "group" / "valid.nii.gz", np.array([[[0.1, 0.9]]]))
-        config = resolve_config(
-            {"schema_version": 1, "targets": {"probability_threshold": 0.5}}
-        )
+        config = effective_test_config(targets={"probability_threshold": 0.5})
 
         atlas = resolve_atlas(self.root, config)
         by_id = {target.roi_id: target for target in atlas.targets}
@@ -138,7 +132,7 @@ class ROIResolutionTests(unittest.TestCase):
     def test_probabilistic_target_without_threshold_fails_validation(self) -> None:
         write_mask(self.root / "group" / "region.nii.gz", np.array([[[0.1, 0.9]]]))
         with self.assertRaisesRegex(ROIResolutionError, "group/region"):
-            resolve_atlas(self.root, resolve_config({"schema_version": 1}))
+            resolve_atlas(self.root, effective_test_config())
 
     def test_empty_seed_and_invalid_value_ranges_are_rejected(self) -> None:
         cases = {
@@ -151,16 +145,12 @@ class ROIResolutionTests(unittest.TestCase):
             with self.subTest(name=name):
                 path = write_mask(self.root / f"{name}.nii.gz", data)
                 with self.assertRaises(ROIResolutionError):
-                    resolve_seed(path, resolve_config({"schema_version": 1}))
+                    resolve_seed(path, effective_test_config())
 
     def test_resolution_hashes_are_deterministic_and_threshold_sensitive(self) -> None:
         path = write_mask(self.root / "seed.nii.gz", np.array([[[0.1, 0.5, 0.9]]]))
-        low_config = resolve_config(
-            {"schema_version": 1, "seed": {"probability_threshold": 0.4}}
-        )
-        high_config = resolve_config(
-            {"schema_version": 1, "seed": {"probability_threshold": 0.8}}
-        )
+        low_config = effective_test_config(seed={"probability_threshold": 0.4})
+        high_config = effective_test_config(seed={"probability_threshold": 0.8})
 
         first = resolve_seed(path, low_config)
         repeated = resolve_seed(path, low_config)

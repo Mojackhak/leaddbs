@@ -332,3 +332,30 @@ class ConnectivityRunResult:
     membership: MembershipResult
     statistics: tuple[TargetStatistic, ...]
     artifacts: RunArtifacts
+
+
+@dataclass(frozen=True)
+class BatchConnectivityResult:
+    """Complete results for every named seed in one YAML batch."""
+
+    config: BatchConnectivityConfig
+    results: Mapping[str, ConnectivityRunResult]
+
+    def as_serializable_mapping(self) -> dict[str, Any]:
+        """Return the compact JSON-safe CLI result for a completed batch."""
+
+        return {
+            "status": "complete",
+            "batch_configuration_hash": self.config.batch_configuration_hash,
+            "results": {
+                name: {
+                    "run_dir": str(result.artifacts.run_dir),
+                    "run_fingerprint": result.artifacts.run_fingerprint,
+                    "reused": result.artifacts.reused,
+                    "n_targets": len(result.statistics),
+                    "n_seed_fibers": int(result.membership.seed_fiber_ids.size),
+                    "target_cache_hit": result.membership.target_cache_hit,
+                }
+                for name, result in self.results.items()
+            },
+        }

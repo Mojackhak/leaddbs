@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 import numpy as np
 
-from my_helper.fiber.core.seed_target_connectivity.config import resolve_config
 from my_helper.fiber.core.seed_target_connectivity.engine import compute_memberships
 from my_helper.fiber.core.seed_target_connectivity.errors import CacheError, MembershipError
 from my_helper.fiber.core.seed_target_connectivity.statistics import compute_statistics
 from my_helper.fiber.core.seed_target_connectivity.tests.helpers import (
     RecordingAdapter,
+    effective_test_config,
     line,
     resolved_atlas,
     resolved_mask,
@@ -46,14 +46,11 @@ class MembershipStatisticsTests(unittest.TestCase):
         self.temporary_directory.cleanup()
 
     def _config(self, chunk_size: int = 2, cache: bool = True):
-        return resolve_config(
-            {
-                "schema_version": 1,
-                "execution": {
+        return effective_test_config(
+                execution={
                     "fiber_chunk_size": chunk_size,
                     "cache_membership": cache,
-                },
-            }
+                }
         )
 
     def test_memberships_and_five_statistics_match_hand_calculation(self) -> None:

@@ -13,10 +13,10 @@ import yaml
 
 from .artifacts import collect_code_provenance
 from .atlas import discover_targets
-from .config import resolve_config
+from .config import effective_config, resolve_config
 from .connectome import LeadDBSHDF5Connectome, open_connectome
 from .errors import AcceptanceError
-from .models import ConnectivityConfig, ConnectivityRunResult, FiberChunk
+from .models import BatchConnectivityConfig, ConnectivityRunResult, FiberChunk
 from .pipeline import ResolutionCache, compute_seed_target_statistics
 from .traversal import build_sparse_lookup, optimized_membership, reference_membership
 
@@ -32,7 +32,7 @@ class AcceptanceFixture:
     target_atlas_root: Path
     seeds: tuple[AcceptanceSeed, ...]
     connectome: Path
-    config: ConnectivityConfig
+    config: BatchConnectivityConfig
     seed_connected_per_run: int
     background_fibers: int
 
@@ -144,11 +144,35 @@ def load_acceptance_fixture(
         raise AcceptanceError("sampling.seed_connected_per_run must be a positive integer")
     if not isinstance(background_sample, int) or background_sample < 0:
         raise AcceptanceError("sampling.background_fibers must be a nonnegative integer")
+    target_atlas_root = _resolve_path(root, document.get("target_atlas_root"), "target_atlas_root")
+    connectome = _resolve_path(root, document.get("connectome"), "connectome")
+    legacy_settings = document.get("config")
+    if not isinstance(legacy_settings, dict):
+        raise AcceptanceError("acceptance fixture config must be an object")
+    algorithm_settings = {
+        key: value
+        for key, value in legacy_settings.items()
+        if key not in {"schema_version", "intersection"}
+    }
+    batch_document = {
+        "schema_version": 2,
+        "inputs": {
+            "target_atlas_root": str(target_atlas_root),
+            "seed_rois": {seed.fixture_id: str(seed.path) for seed in seeds},
+            "connectome": str(connectome),
+        },
+        "output": {
+            "output_root": str(root / ".acceptance-results"),
+            "run_name": "acceptance",
+            "cache_root": str(root / ".acceptance-cache"),
+        },
+        **algorithm_settings,
+    }
     return AcceptanceFixture(
-        target_atlas_root=_resolve_path(root, document.get("target_atlas_root"), "target_atlas_root"),
+        target_atlas_root=target_atlas_root,
         seeds=tuple(seeds),
-        connectome=_resolve_path(root, document.get("connectome"), "connectome"),
-        config=resolve_config(document.get("config")),
+        connectome=connectome,
+        config=resolve_config(batch_document),
         seed_connected_per_run=seed_sample,
         background_fibers=background_sample,
     )
@@ -225,12 +249,13 @@ def run_acceptance_fixture(
     resolution_cache = ResolutionCache()
     first_results: list[ConnectivityRunResult] = []
     for seed in fixture.seeds:
+        config = effective_config(fixture.config, seed.fixture_id)
         first_results.append(
             compute_seed_target_statistics(
                 target_atlas_root=fixture.target_atlas_root,
                 seed_roi=seed.path,
                 connectome=adapter,
-                config=fixture.config,
+                config=config,
                 output_root=output,
                 code_provenance=code_provenance,
                 resolution_cache=resolution_cache,
@@ -238,12 +263,13 @@ def run_acceptance_fixture(
         )
     repeated_results: list[ConnectivityRunResult] = []
     for seed in fixture.seeds:
+        config = effective_config(fixture.config, seed.fixture_id)
         repeated_results.append(
             compute_seed_target_statistics(
                 target_atlas_root=fixture.target_atlas_root,
                 seed_roi=seed.path,
                 connectome=adapter,
-                config=fixture.config,
+                config=config,
                 output_root=output,
                 code_provenance=code_provenance,
                 resolution_cache=resolution_cache,

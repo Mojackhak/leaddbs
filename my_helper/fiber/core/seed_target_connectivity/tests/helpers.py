@@ -10,12 +10,33 @@ import nibabel as nib
 import numpy as np
 
 from my_helper.fiber.core.seed_target_connectivity.identity import canonical_hash
+from my_helper.fiber.core.seed_target_connectivity.config import effective_config, resolve_config
 from my_helper.fiber.core.seed_target_connectivity.models import (
     ConnectomeMetadata,
     FiberChunk,
     ResolvedAtlas,
     ResolvedMask,
 )
+
+
+def effective_test_config(**sections):
+    """Build one schema-v2 effective config for unit-level algorithm tests."""
+
+    document = {
+        "schema_version": 2,
+        "inputs": {
+            "target_atlas_root": "/synthetic-atlas",
+            "seed_rois": {"seed": "/synthetic-seed.nii.gz"},
+            "connectome": "/synthetic-connectome",
+        },
+        "output": {
+            "output_root": "/synthetic-results",
+            "run_name": "synthetic",
+            "cache_root": "/synthetic-cache",
+        },
+    }
+    document.update(sections)
+    return effective_config(resolve_config(document), "seed")
 
 
 def write_mask(

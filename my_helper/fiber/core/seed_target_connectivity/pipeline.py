@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
 from .artifacts import (
     collect_code_provenance,
+    publish_staged_batch,
+    stage_run_artifacts,
     verify_artifact_index,
     write_run_atomic,
 )
@@ -21,6 +24,7 @@ from .identity import sha256_file
 from .atlas import discover_targets
 from .models import (
     BatchConnectivityConfig,
+    BatchConnectivityResult,
     BatchValidationReport,
     ConnectivityConfig,
     ConnectivityRunResult,
@@ -206,6 +210,72 @@ def compute_seed_target_statistics(
         membership=membership,
         statistics=statistics,
         artifacts=artifacts,
+    )
+
+
+def compute_seed_target_batch(
+    config: BatchConnectivityConfig | Mapping[str, Any] | Path | str,
+    *,
+    connectome_override: ConnectomeAdapter | None = None,
+    code_provenance: Mapping[str, Any] | None = None,
+    trash=None,
+) -> BatchConnectivityResult:
+    """Compute all named seeds, then publish the complete batch atomically."""
+
+    batch = _resolve_batch_config(config)
+    validation = validate_batch(batch, connectome_override=connectome_override)
+    provenance = dict(code_provenance or collect_code_provenance())
+    computed: dict[str, tuple[Any, tuple[Any, ...], Any]] = {}
+    staged: dict[str, Any] = {}
+    try:
+        for seed_name, report in validation.seeds.items():
+            membership = compute_memberships(
+                report.connectome,
+                report.seed,
+                report.atlas,
+                report.config,
+                batch.output.cache_root,
+            )
+            statistics = compute_statistics(
+                membership,
+                report.atlas,
+                ranking_enabled=report.config.ranking.enabled,
+            )
+            staged_run = stage_run_artifacts(
+                batch=batch,
+                config=report.config,
+                seed=report.seed,
+                atlas=report.atlas,
+                connectome_metadata=report.connectome_metadata,
+                membership=membership,
+                statistics=statistics,
+                code_provenance=provenance,
+            )
+            computed[seed_name] = (membership, statistics, report)
+            staged[seed_name] = staged_run
+
+        if trash is None:
+            published = publish_staged_batch(staged)
+        else:
+            published = publish_staged_batch(staged, trash=trash)
+    except Exception:
+        for staged_run in staged.values():
+            if staged_run.staging_dir is not None and staged_run.staging_dir.exists():
+                shutil.rmtree(staged_run.staging_dir)
+        raise
+
+    results = {
+        seed_name: ConnectivityRunResult(
+            validation=computed[seed_name][2],
+            membership=computed[seed_name][0],
+            statistics=computed[seed_name][1],
+            artifacts=published[seed_name],
+        )
+        for seed_name in validation.seeds
+    }
+    return BatchConnectivityResult(
+        config=batch,
+        results=MappingProxyType(results),
     )
 
 

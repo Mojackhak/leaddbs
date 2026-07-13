@@ -14,6 +14,7 @@ import numpy as np
 
 from my_helper.fiber.core.seed_target_connectivity import compute_seed_target_statistics
 from my_helper.fiber.core.seed_target_connectivity.config import effective_config, resolve_config
+from my_helper.fiber.core.seed_target_connectivity.errors import MembershipError
 from my_helper.fiber.core.seed_target_connectivity.pipeline import (
     ResolutionCache,
     inspect_run_status,
@@ -143,6 +144,63 @@ class PipelineAPITests(unittest.TestCase):
 
         self.assertEqual(resolved.call_count, 1)
 
+    def test_compute_batch_publishes_both_sides_and_reuses_target_cache(self) -> None:
+        runner = getattr(pipeline, "compute_seed_target_batch", None)
+        if runner is None:
+            self.fail("compute_seed_target_batch must run every named seed")
+        adapter = RecordingAdapter(self.streamlines)
+        provenance = {"git_commit": "1" * 40, "package_sha256": "2" * 64}
+
+        first = runner(
+            self.batch,
+            connectome_override=adapter,
+            code_provenance=provenance,
+            trash=lambda path: None,
+        )
+
+        self.assertEqual(tuple(first.results), ("lh", "rh"))
+        self.assertEqual(first.results["lh"].artifacts.run_dir, self.batch.output.output_root / "lh" / "bilateral")
+        self.assertEqual(first.results["rh"].artifacts.run_dir, self.batch.output.output_root / "rh" / "bilateral")
+        self.assertTrue(first.results["rh"].membership.target_cache_hit)
+        self.assertEqual(adapter.iteration_count, 2)
+
+        second_adapter = RecordingAdapter(self.streamlines)
+        second = runner(
+            self.batch,
+            connectome_override=second_adapter,
+            code_provenance=provenance,
+            trash=lambda path: None,
+        )
+
+        self.assertTrue(all(result.artifacts.reused for result in second.results.values()))
+        self.assertEqual(second_adapter.iteration_count, 0)
+
+    def test_second_seed_computation_failure_publishes_neither_side(self) -> None:
+        runner = getattr(pipeline, "compute_seed_target_batch", None)
+        if runner is None:
+            self.fail("compute_seed_target_batch must run every named seed")
+        original = pipeline.compute_memberships
+        calls = 0
+
+        def fail_second(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise MembershipError("injected second-seed failure")
+            return original(*args, **kwargs)
+
+        with patch.object(pipeline, "compute_memberships", side_effect=fail_second):
+            with self.assertRaisesRegex(MembershipError, "second-seed"):
+                runner(
+                    self.batch,
+                    connectome_override=RecordingAdapter(self.streamlines),
+                    code_provenance={"git_commit": "1" * 40, "package_sha256": "2" * 64},
+                    trash=lambda path: None,
+                )
+
+        self.assertFalse((self.batch.output.output_root / "lh" / "bilateral").exists())
+        self.assertFalse((self.batch.output.output_root / "rh" / "bilateral").exists())
+
 
 class CLITests(unittest.TestCase):
     def setUp(self) -> None:
@@ -225,6 +283,24 @@ ranking:
         self.assertEqual(completed.returncode, 0)
         self.assertNotIn("--resume", completed.stdout)
         self.assertNotIn("--force", completed.stdout)
+
+    def test_run_publishes_and_reuses_named_semantic_results(self) -> None:
+        first = self._run("run", "--config", str(self.config_path))
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        first_payload = json.loads(first.stdout)
+        self.assertEqual(tuple(first_payload["results"]), ("lh", "rh"))
+        for name in ("lh", "rh"):
+            result = first_payload["results"][name]
+            self.assertEqual(Path(result["run_dir"]).name, "bilateral")
+            self.assertEqual(Path(result["run_dir"]).parent.name, name)
+            self.assertFalse(result["reused"])
+
+        second = self._run("run", "--config", str(self.config_path))
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        second_payload = json.loads(second.stdout)
+        self.assertTrue(all(row["reused"] for row in second_payload["results"].values()))
 
     def test_status_and_artifacts_remain_run_directory_inspection_commands(self) -> None:
         batch = resolve_config(json.loads(json.dumps({
