@@ -247,6 +247,10 @@ derived native field is:
 E_group_peak_native(v) = max_s E_s_native(v)
 ```
 
+Native fixed-grid interpolation intentionally uses `NaN` outside each FEM
+sample hull. Group peak therefore takes the maximum over finite source values
+at each voxel and preserves `NaN` only where every source is non-finite.
+
 The native peak is thresholded, transformed once to MNI, and thresholded again
 in MNI. No additional FEM solve is performed for the derived task.
 

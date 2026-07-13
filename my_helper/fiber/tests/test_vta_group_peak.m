@@ -35,6 +35,23 @@ verifyEqual(testCase, double(ea_load_nii(firstPath).img), double(first));
 verifyEqual(testCase, double(ea_load_nii(secondPath).img), double(second));
 end
 
+function testPeakIgnoresPerSourceNaNAndPreservesAllNaN(testCase)
+root = tempname;
+mkdir(root);
+cleanup = onCleanup(@() rmdir(root, 's'));
+left = fullfile(root, 'left.nii');
+right = fullfile(root, 'right.nii');
+output = fullfile(root, 'peak.nii');
+write_nifti(left, single(reshape([NaN 10 NaN 5], [4 1 1])));
+write_nifti(right, single(reshape([NaN NaN 20 7], [4 1 1])));
+
+mh_vta_compose_group_peak({left, right}, output);
+
+actual = ea_load_nii(output).img;
+verifyTrue(testCase, isnan(actual(1)));
+verifyEqual(testCase, double(actual(2:4)), [10; 20; 7]);
+end
+
 function testPeakRejectsGridMismatch(testCase)
 workDir = make_work_dir(testCase);
 firstPath = fullfile(workDir, 'first.nii');

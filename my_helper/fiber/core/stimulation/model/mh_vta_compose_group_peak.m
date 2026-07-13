@@ -11,20 +11,18 @@ end
 
 reference = ea_load_nii(sourcePaths{1});
 peak = single(reference.img);
-if any(~isfinite(peak(:)))
-    error('mh_vta:NonFiniteEfield', ...
-        'Source E-field contains non-finite values: %s', sourcePaths{1});
-end
+peak(~isfinite(peak)) = NaN;
 
 for index = 2:numel(sourcePaths)
     current = ea_load_nii(sourcePaths{index});
     assert_same_grid(reference, current, sourcePaths{index});
     values = single(current.img);
-    if any(~isfinite(values(:)))
-        error('mh_vta:NonFiniteEfield', ...
-            'Source E-field contains non-finite values: %s', sourcePaths{index});
-    end
-    peak = max(peak, values);
+    values(~isfinite(values)) = NaN;
+    peakFinite = isfinite(peak);
+    valueFinite = isfinite(values);
+    peak(~peakFinite & valueFinite) = values(~peakFinite & valueFinite);
+    bothFinite = peakFinite & valueFinite;
+    peak(bothFinite) = max(peak(bothFinite), values(bothFinite));
 end
 
 outputDir = fileparts(outputPath);
