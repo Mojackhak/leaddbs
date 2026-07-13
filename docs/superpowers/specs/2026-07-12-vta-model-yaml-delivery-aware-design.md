@@ -5,10 +5,12 @@
 ```text
 design_approved_in_discussion
 documentation_written
-implementation_migration_in_progress
+implementation_complete
+unit_and_copied_subject_acceptance_passed
+production_rebuild_ready
 current_stimulations_backed_up
 current_headmodels_moved_to_system_trash
-rebuild_not_started
+production_rebuild_not_started
 ```
 
 This specification defines a project-independent `vta_model.yaml`, its generic
@@ -16,10 +18,11 @@ CLI, and the delivery-aware VTA/E-field execution contract. It builds on the
 canonical stimulation hierarchy in
 `my_helper/fiber/vta_stimulation_contract_design.md`.
 
-The design does not run FEM calculations or replace the existing STNSNr
-entrypoints. Existing stimulation outputs and head models were moved as the
-explicitly approved preparation recorded below. Rebuilding them requires a
-separate implementation plan after this specification is reviewed.
+The generic implementation and copied-subject acceptance are complete. Legacy
+STNSNr entrypoints remain available but are not called by the new pipeline.
+Existing stimulation outputs and head models were moved as the explicitly
+approved preparation recorded below. Production rebuilding remains a separate
+operational action and has not been started.
 
 ## Current Migration State
 
@@ -33,11 +36,13 @@ On 2026-07-12 America/Los_Angeles:
   external-volume Trash location
   `/Volumes/VAL/.Trashes/501/STNSNr_headmodel_rebuild_20260713T070547Z`;
 - the Trash backup contains all 16 subject head-model directories; and
-- no new `stimulations` or `headmodel` directory has been generated.
+- no new production `stimulations` or `headmodel` directory has been generated;
+  all implementation acceptance writes were confined to copied subjects below
+  `/Volumes/VAL/STNSNr/validation`.
 
 ## Goals
 
-The implementation must:
+The implementation:
 
 - consume `study_base.json` as the only study-data input;
 - consume one validated `vta_model.yaml` as the public physical/output model;
@@ -338,10 +343,9 @@ The implementation must:
 - use explicit anode contacts for electrode-return stimulation; and
 - assemble every source in a continuous current group into one RHS.
 
-The existing one-solve backend currently fixes `constvol=true` and rejects
-current mode. Implementation must add a real current boundary assembler and
-exercise the existing constant-current branch of the generic FEM solver. Merely
-changing the backend capability flag is insufficient.
+The canonical one-solve backend now uses a real current boundary assembler and
+the existing constant-current branch of the generic FEM solver. Current support
+is implemented as a boundary strategy, not as a capability-flag change.
 
 The production backend does not support mixed voltage/current groups because
 the study contract forbids them.
@@ -369,10 +373,10 @@ For the current STNSNr migration, the user approved discarding reuse of all 16
 existing subject head models, including the three whose protocols already use
 `Custom_Ewert_Zhang_Middlebrooks`. Every existing untracked `headmodel`
 directory is moved to the recoverable system Trash, not permanently deleted.
-The new pipeline later rebuilds all 16 canonical head models on demand with the
-same YAML-selected atlas and conductivities. No model-scoped head-model cache is
-introduced, and no rebuild is started before the new pipeline is implemented
-and accepted.
+The new pipeline is ready to rebuild the canonical hemisphere head models on
+demand with the same YAML-selected atlas and conductivities. No model-scoped
+head-model cache is introduced. Production rebuilding was not started during
+implementation acceptance.
 
 ## Computation And Export Spaces
 
@@ -583,9 +587,12 @@ artifact index or provenance file.
 
 | Scope | Status | Meaning |
 | --- | --- | --- |
-| Canonical YAML, study-base adapter, task DAG, CLI, path-based artifacts, and MATLAB task execution | `path_only_runtime_implemented` | The approved path-only state machine and same-subject frequency-group reuse are implemented; representative acceptance remains pending. |
+| Canonical YAML, study-base adapter, task DAG, CLI, path-based artifacts, and MATLAB task execution | `implementation_complete` | The path-only state machine, same-subject frequency-group reuse, missing-path repair, force-to-Trash, and MATLAB execution are implemented. |
 | Static and deterministic unit coverage | `unit_validated` | Automated Python and MATLAB unit suites validate their covered contracts. |
-| Historical bilateral SNr003 single-voltage backend comparison | `fem_validated` | Existing numerical evidence covers only the documented single-voltage pilot. |
+| Historical bilateral SNr003 single-voltage backend comparison | `historical_fem_validated` | Existing numerical evidence was refreshed with zero FEM and retains its recorded `Custom_Ewert_Zhang_Middlebrooks0.05` atlas identity. |
+| Representative copied-subject delivery-aware gate | `copied_subject_acceptance_passed` | Fresh continuous and alternating execution, group peak, equivalent-group copy, repair, force, and four-artifact leaves passed in the isolated SNr003 tree. |
+| Fresh deterministic current gate | `current_fem_validated` | One fixed right-sided current case passed after exactly two FEM solves with the current canonical atlas. |
+| Production planning | `production_rebuild_ready` | Read-only planning resolves 16 subjects, 208 tasks, and 32 missing canonical hemisphere head models. |
 | Real-cohort output rebuild | `production_rebuild_not_started` | Production subject trees and model outputs have not been rebuilt by this pipeline. |
 
 The copied-subject preparation helper is an isolation mechanism, not numerical
@@ -594,12 +601,14 @@ dataset description and only the selected `derivatives/leaddbs/sub-*` tree.
 Its `run_id` is one safe path component matching
 `[A-Za-z0-9][A-Za-z0-9._-]*`; separators, traversal, and absolute paths are
 rejected before the destination is constructed.
-The path-state, alternating-source, group-peak, and same-subject reuse portions
-have passed in the copied SNr003 tree. That historical copied tree contains
-leaf-level `provenance.json` files from the superseded output contract, so it
-does not prove the final four-artifact-only leaf contract. A fresh continuous
-solve and the corrected current-control numerical comparison remain
-unverified. No production execution is implied by any status in this table.
+The accepted copied-subject root is
+`/Volumes/VAL/STNSNr/validation/vta_pipeline_e2e_maskfix_20260713T172111Z`.
+It contains 16 native/MNI leaf directories and 64 scientific artifacts, exactly
+four per leaf, with no `provenance.json` or `qc.json`. It also verifies fresh
+continuous solves, independent alternating sources, native group peak,
+equivalent frequency-group reuse, missing-artifact repair, force-to-Trash, and
+single-mask GM head-model construction. No production execution is implied by
+any status in this table.
 
 ### Schema And Planner
 
@@ -643,12 +652,11 @@ test_run_voltage_backend_equivalence
 test_run_current_backend_equivalence
 ```
 
-The already completed SNr003 bilateral single-voltage
-`simbio`-versus-canonical outputs are reused directly when they satisfy the
-current atlas and native-grid contract. Voltage acceptance recomputes metrics
-from eligible existing native E-fields and VTAs and starts zero new voltage FEM
-solves; otherwise it runs the minimum copied-subject native pair needed to
-establish the same contract.
+The completed SNr003 bilateral single-voltage `simbio`-versus-canonical outputs
+are historical evidence. Their zero-FEM refresh preserves the manifest's
+`Custom_Ewert_Zhang_Middlebrooks0.05` atlas identity and does not relabel them
+as current-atlas results. New voltage acceptance, when required, must use the
+current atlas and a new copied-subject root.
 
 A new copied-subject current suite uses SNr003 and Medtronic 3387 geometry. It
 uses fixed seed `20260712` to generate hypothetical current parameters without
@@ -682,9 +690,9 @@ relative VTA volume difference: <= 0.1%
 The accepted current evidence from copied SNr003 is:
 
 ```text
-native maximum absolute difference: 0.04248046875 V/m
-native relative L2 error: 1.91357285323195e-6
-native correlation: 0.999999999997491
+native maximum absolute difference: 0.04443359375 V/m
+native relative L2 error: 2.2273793323536e-6
+native correlation: 0.999999999996588
 native VTA Dice at 180/200/220 V/m: 1.0 / 1.0 / 1.0
 native relative VTA volume difference: 0 / 0 / 0
 ```

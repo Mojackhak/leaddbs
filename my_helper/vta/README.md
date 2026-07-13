@@ -9,10 +9,12 @@ clinical endpoint definitions are outside the VTA execution contract.
 
 | Scope | Status | Meaning |
 | --- | --- | --- |
-| Canonical YAML, study-base adapter, task DAG, CLI, path-based artifacts, and MATLAB task execution | `path_only_runtime_implemented` | Provenance/hash reuse has been removed; same-subject frequency-group reuse and missing-path repair are implemented. |
+| Canonical YAML, study-base adapter, task DAG, CLI, path-based artifacts, and MATLAB task execution | `implementation_complete` | Provenance/hash reuse has been removed; same-subject frequency-group reuse, missing-path repair, force-to-Trash, and endpoint-independent execution are implemented. |
 | Static and deterministic unit coverage | `unit_validated` | Python and MATLAB contract suites validate path state, donor reuse, failure isolation, voltage/current boundaries, output actions, and atomic publication. |
-| Historical bilateral SNr003 single-voltage backend comparison | `fem_validated` | Existing numerical evidence covers only the documented single-voltage pilot. |
-| Representative copied-subject delivery-aware gate | `path_reuse_partially_validated` | Existing continuous leaves were skipped by path, two alternating source solves and one group peak were generated, and an equivalent same-subject group copied with no FEM. Those historical leaves predate removal of `provenance.json`, so they do not satisfy the final leaf-content gate. A fresh continuous solve and the corrected current numerical gate remain pending. |
+| Historical bilateral SNr003 single-voltage backend comparison | `historical_fem_validated` | Existing single-voltage evidence was re-compared with zero FEM solves; its original `Custom_Ewert_Zhang_Middlebrooks0.05` atlas identity is preserved and is not relabeled as current-atlas evidence. |
+| Representative copied-subject delivery-aware gate | `copied_subject_acceptance_passed` | Fresh continuous and alternating tasks, group-peak derivation, equivalent-group reuse, repair, force-to-Trash, four-artifact leaves, and GM-mask head-model construction passed in an isolated SNr003 copy. |
+| Fresh deterministic current gate | `current_fem_validated` | One fixed right-sided current case passed standard SimBio versus canonical comparison after exactly two FEM solves using `Custom_Ewert_Zhang_Middlebrooks`. |
+| Production planning | `production_rebuild_ready` | Read-only planning resolves 16 subjects, 208 tasks, and 32 missing canonical hemisphere head models without writing outputs. |
 | Real-cohort output rebuild | `production_rebuild_not_started` | Production subject trees and model outputs have not been rebuilt by this pipeline. |
 
 The copied-subject representative FEM gate is separate from unit validation. Its
@@ -26,7 +28,18 @@ The representative gate does not run all 20 SNr003 tasks. It covers left and
 right continuous solves, one two-source alternating group and its group peak,
 one equivalent frequency-group copy represented by T2/T3 in the fixture, and a
 minimal right-sided deterministic current acceptance with two FEM solves.
-Production all-subject execution remains a separate operational goal.
+T2/T3 are fixture values only; implementation reuse is based on normalized
+same-subject frequency-group content. Production all-subject execution remains
+a separate operational goal.
+
+The accepted delivery-aware run is
+`/Volumes/VAL/STNSNr/validation/vta_pipeline_e2e_maskfix_20260713T172111Z`.
+It contains 16 native/MNI leaves and exactly four scientific files per leaf,
+with no provenance or QC sidecars. Head-model construction used the unified
+patient-space GM mask surface. The fresh current numerical run is
+`/Volumes/VAL/STNSNr/validation/vta_current_backend_equivalence_20260713_113545_719`;
+it passed the native E-field, three native VTA, MNI transform, two-solve, and
+production-tree safety gates.
 
 The current acceptance runner also supports two bounded maintenance modes.
 `compare_existing` recomputes metrics with zero FEM solves. `rerun_candidate`

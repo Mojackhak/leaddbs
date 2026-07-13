@@ -11,10 +11,11 @@ the standard Lead-DBS SimBio reference with the same canonical production
 backend in voltage and current mode, respectively. Voltage and current are
 boundary strategies inside one backend; they do not have separate production
 export implementations. The voltage runner uses one identical voltage source.
-The current real-data pilot is deliberately bounded to subject `SNr003`, phase
-`T1`, program `1`, and both Medtronic 3387 hemispheres. Passing this pilot does
-not establish numerical equivalence for SceneRay electrodes or multi-source
-stimulation.
+The historical voltage pilot is bounded to subject `SNr003`, phase `T1`,
+program `1`, and both Medtronic 3387 hemispheres. The fresh current pilot uses
+the same subject geometry but one fixed hypothetical right-sided current case.
+Neither result establishes numerical equivalence for SceneRay electrodes or
+multi-source clinical stimulation.
 
 Historical voltage artifacts retain the atlas identity recorded in their own
 manifest. Any new voltage or current acceptance run uses the canonical atlas
@@ -28,7 +29,7 @@ the replaced untracked files are moved to the filesystem Trash. It preserves
 the historical manifest's atlas, code, and scope instead of relabeling those
 outputs as a current-atlas run.
 
-The runner:
+The historical voltage runner:
 
 1. reads source, electrode, reconstruction, and subject paths from
    `study_base.json`;
@@ -54,10 +55,10 @@ The official SNr003 pilot always requires a new root and rejects prepared-root
 reuse. Any Horn retry also fails the matched-RNG acceptance gate because it
 changes the actual attempt seed.
 
-The official pilot scope is `SNr003`, `T1`, program `1`, with bilateral
-Medtronic 3387 leads. Parameter overrides are retained for synthetic contract
-tests and future pilots, but such runs are labeled as custom scope and cannot
-be reported as the official SNr003 pilot.
+The historical voltage pilot scope is `SNr003`, `T1`, program `1`, with
+bilateral Medtronic 3387 leads. Parameter overrides are retained for synthetic
+contract tests and future pilots, but such runs are labeled as custom scope and
+cannot be reported as that historical pilot.
 
 The runner applies a process-scoped `MNI152NLin2009bAsym` Lead-DBS space
 override so atlas lookup, patient-space atlas materialization, output folders,
@@ -72,8 +73,9 @@ difference at most `0.05 V/m`, relative L2 error at most `1e-5`, and Pearson
 correlation at least `0.999999`.
 
 For each native threshold, binary masks must have Dice at least `0.999` and
-relative volume difference at most `0.001`. Backend repeat runs must be
-voxel-identical.
+relative volume difference at most `0.001`. Historical voltage backend repeat
+runs must be voxel-identical. The minimal current gate runs each backend once
+and therefore does not claim a current FEM repeatability result.
 
 MNI is not compared to the legacy direct-MNI E-field. The canonical MNI field
 must be transformed from canonical native continuous E-field with the patient
@@ -197,5 +199,30 @@ run_voltage_backend_equivalence( ...
     'ExistingRunRoot', '/path/to/vta_single_source_backend_equivalence_RUN');
 ```
 
-This command is not part of the lightweight test suite and is not run while the
-current harness itself is being implemented.
+This command remains an explicit maintenance action outside the lightweight
+test suite.
+
+## Accepted Evidence
+
+The historical bilateral voltage outputs were refreshed without FEM at:
+
+```text
+/Volumes/VAL/STNSNr/validation/
+  vta_single_source_backend_equivalence_20260712_214218_510
+```
+
+That run retains its original `Custom_Ewert_Zhang_Middlebrooks0.05` atlas
+identity. The refresh passed and recorded zero comparison FEM solves.
+
+The fresh current-controlled gate completed at:
+
+```text
+/Volumes/VAL/STNSNr/validation/
+  vta_current_backend_equivalence_20260713_113545_719
+```
+
+It used `Custom_Ewert_Zhang_Middlebrooks`, executed exactly two FEM solves, and
+passed. Native maximum absolute difference was `0.04443359375 V/m`, relative L2
+error was `2.2273793323536e-6`, and correlation was
+`0.999999999996588`. Dice was `1.0` at 180, 200, and 220 V/m. The MNI transform
+contract passed and the production subject-tree hash was unchanged.
