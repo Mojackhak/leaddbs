@@ -123,13 +123,19 @@ After a successful replacement, prior untracked result directories are moved to 
 
 ## Compatibility
 
-Schema version 1 YAML and the old scientific path flags are intentionally unsupported by the new CLI. Existing content-addressed result directories remain readable through `status` and `artifacts` if they contain `analysis_manifest.json`; new results use `provenance.json`. This read-only legacy support does not preserve the old run interface.
+Schema version 1 YAML and the old scientific path flags are intentionally unsupported by the new CLI. Existing content-addressed result directories remain readable through `status` and `artifacts` if they contain `analysis_manifest.json`; new results use `provenance.json` and are inspected through the same commands. Status inspection selects the matching provenance filename and reports the effective configuration hash for current results. This read-only legacy support does not preserve the old run interface.
 
 The existing Python statistical and traversal units remain single-seed primitives. A new batch orchestration layer resolves schema version 2 and invokes those units for each named seed. This keeps the scientific definitions unchanged while changing configuration, publication, and CLI behavior.
 
 ## Error Handling
 
 Validation fails before traversal when any seed, target atlas, connectome, output location, name, or threshold is invalid. A failure while computing one seed prevents publication of all new batch results. Cache entries are accepted only when their recorded identities and hashes match the effective inputs. Corrupt cache entries are treated as misses and recomputed by the normal run; no explicit resume or force mode is exposed.
+
+On filesystems such as ExFAT, macOS may create `._*` AppleDouble sidecars next
+to files written by the pipeline. These filesystem metadata files are not
+scientific artifacts, must not enter the artifact index or fingerprint, and
+must be ignored when checking the exact required artifact set. Every named
+pipeline artifact remains required and hash-verified.
 
 ## Acceptance Criteria
 

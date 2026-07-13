@@ -9,11 +9,13 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from my_helper.fiber.core.seed_target_connectivity import artifacts
 from my_helper.fiber.core.seed_target_connectivity.config import effective_config, resolve_config
 from my_helper.fiber.core.seed_target_connectivity.engine import compute_memberships
 from my_helper.fiber.core.seed_target_connectivity.errors import ArtifactError
+from my_helper.fiber.core.seed_target_connectivity.pipeline import inspect_run_status
 from my_helper.fiber.core.seed_target_connectivity.statistics import compute_statistics
 from my_helper.fiber.core.seed_target_connectivity.tests.helpers import (
     RecordingAdapter,
@@ -143,6 +145,24 @@ class BatchArtifactTests(unittest.TestCase):
         self.assertEqual(provenance["seed_name"], "lh")
         self.assertEqual(artifacts.verify_artifact_index(staged.staging_dir), dict(staged.artifact_hashes))
 
+    def test_stage_ignores_exfat_appledouble_sidecars(self) -> None:
+        original = artifacts._write_primary_artifacts
+
+        def write_with_sidecar(staging, **kwargs):
+            hashes = original(staging, **kwargs)
+            (staging / "._config_resolved.yaml").write_bytes(b"filesystem metadata")
+            return hashes
+
+        with patch.object(artifacts, "_write_primary_artifacts", side_effect=write_with_sidecar):
+            staged = self._stage("lh")
+
+        self.assertTrue((staged.staging_dir / "._config_resolved.yaml").is_file())
+        self.assertNotIn("._config_resolved.yaml", staged.artifact_hashes)
+        self.assertEqual(
+            artifacts.verify_artifact_index(staged.staging_dir),
+            dict(staged.artifact_hashes),
+        )
+
     def test_matching_result_is_reused_without_rewriting(self) -> None:
         first = self._stage("lh")
         published = self._publish({"lh": first})["lh"]
@@ -157,6 +177,18 @@ class BatchArtifactTests(unittest.TestCase):
         self.assertEqual(
             {path.name: path.stat().st_mtime_ns for path in reused.run_dir.iterdir()},
             mtimes,
+        )
+
+    def test_status_inspects_current_provenance(self) -> None:
+        published = self._publish({"lh": self._stage("lh")})["lh"]
+
+        status = inspect_run_status(published.run_dir)
+
+        self.assertEqual(status["status"], "complete")
+        self.assertEqual(status["run_fingerprint"], published.run_fingerprint)
+        self.assertEqual(
+            status["configuration_hash"],
+            effective_config(self.batch, "lh").configuration_hash,
         )
 
     def test_sibling_seed_change_refreshes_batch_provenance_without_changing_fingerprint(self) -> None:

@@ -283,8 +283,10 @@ def inspect_run_status(run_dir: Path | str) -> dict[str, Any]:
     """Verify and summarize one immutable run directory."""
     root = Path(run_dir).expanduser().resolve()
     hashes = verify_artifact_index(root)
+    current = (root / "provenance.json").is_file()
+    provenance_name = "provenance.json" if current else "analysis_manifest.json"
     try:
-        manifest = json.loads((root / "analysis_manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads((root / provenance_name).read_text(encoding="utf-8"))
     except Exception as exc:
         raise ArtifactError(f"failed to read run manifest {root}: {exc}") from exc
     return {
@@ -292,7 +294,11 @@ def inspect_run_status(run_dir: Path | str) -> dict[str, Any]:
         "run_dir": str(root),
         "run_fingerprint": manifest["run_fingerprint"],
         "created_at": manifest["created_at"],
-        "configuration_hash": manifest["configuration_hash"],
+        "configuration_hash": (
+            manifest["effective_configuration_hash"]
+            if current
+            else manifest["configuration_hash"]
+        ),
         "artifact_count": len(hashes) + 1,
     }
 
