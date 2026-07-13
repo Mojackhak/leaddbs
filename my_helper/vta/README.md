@@ -12,7 +12,7 @@ clinical endpoint definitions are outside the VTA execution contract.
 | Canonical YAML, study-base adapter, task DAG, CLI, path-based artifacts, and MATLAB task execution | `path_only_runtime_implemented` | Provenance/hash reuse has been removed; same-subject frequency-group reuse and missing-path repair are implemented. |
 | Static and deterministic unit coverage | `unit_validated` | Python and MATLAB contract suites validate path state, donor reuse, failure isolation, voltage/current boundaries, output actions, and atomic publication. |
 | Historical bilateral SNr003 single-voltage backend comparison | `fem_validated` | Existing numerical evidence covers only the documented single-voltage pilot. |
-| Representative copied-subject delivery-aware gate | `path_reuse_partially_validated` | Existing continuous leaves were skipped by path, two alternating source solves and one group peak were generated, and an equivalent same-subject group copied with no FEM. A fresh continuous solve and the separate current numerical gate remain pending. |
+| Representative copied-subject delivery-aware gate | `path_reuse_partially_validated` | Existing continuous leaves were skipped by path, two alternating source solves and one group peak were generated, and an equivalent same-subject group copied with no FEM. Those historical leaves predate removal of `provenance.json`, so they do not satisfy the final leaf-content gate. A fresh continuous solve and the corrected current numerical gate remain pending. |
 | Real-cohort output rebuild | `production_rebuild_not_started` | Production subject trees and model outputs have not been rebuilt by this pipeline. |
 
 The copied-subject representative FEM gate is separate from unit validation. Its

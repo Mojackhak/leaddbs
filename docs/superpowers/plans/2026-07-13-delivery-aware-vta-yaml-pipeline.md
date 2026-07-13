@@ -59,8 +59,10 @@ equivalent later group without MATLAB, and then skipped every completed path on
 ordinary and `--resume` reruns. All 12 resulting E-fields were nonblank with
 finite support and all 36 threshold outputs were binary across the two
 equivalent phase paths. This is partial acceptance: a fresh continuous solve
-and the separate current-control numerical comparison remain pending and are
-not implied by the path/reuse result.
+and the corrected current-control numerical comparison remain pending and are
+not implied by the path/reuse result. The historical copied leaves also retain
+superseded `provenance.json` files, so only a fresh copied-subject run can prove
+the final four-artifact-only leaf contract.
 
 Progress is reported against these ordered milestones:
 
@@ -1013,6 +1015,23 @@ Expected: current acceptance functions are missing.
 - [ ] **Step 4: Implement the deterministic copied-subject suite**
 
 Generate exactly one deterministic right-sided single-cathode/case-return current case. Compare standard SimBio current as reference against one-solve current for native and MNI continuous E-field plus all three thresholds. Run each backend exactly once, for two FEM solves total. Do not run backend repeatability FEM in this minimal gate.
+
+Use the standard Lead-DBS `simbio` current path for the reference solve and the canonical-task `simbio_onesolve` current backend for the candidate solve. Do not route the current candidate through the legacy registry one-solve wrapper because that wrapper is voltage-only. Require both paths to reuse the same fixed native headmodel in the copied subject.
+
+Use the standard `simbio` local E-field grid as the fixed numerical comparison grid. During a fresh current gate, export the canonical raw tetrahedral field directly to the standard native reference grid instead of first exporting to the 0.7 mm production-native grid. Align MNI continuous fields by world-coordinate linear resampling to the standard MNI reference grid before computing continuous metrics or applying 180/200/220 V/m thresholds. Permit comparison to rerun directly from existing FEM outputs without starting FEM, while explicitly treating a previous coarse native export as insufficient to recover discarded raw-field detail.
+
+Grid alignment is an identity operation when dimensions and affine already
+match the reference within the strict affine tolerance. In that case the
+comparison must not interpolate again, because redundant interpolation can
+change finite support at image boundaries.
+
+Expose this no-solve path as `Mode=compare_existing` plus an explicit
+`ExistingRunRoot`. It may refresh only comparison tables and the acceptance
+summary; it must not copy a subject, mesh, or call either FEM backend. Before
+refreshing an existing untracked table or summary, move the old file to the
+filesystem Trash. A refreshed overall `pass` still requires the original
+`production_subject_tree_unchanged=true` safety result in addition to the
+recomputed numerical gates.
 
 Use these exact gates independently for every case and hemisphere:
 

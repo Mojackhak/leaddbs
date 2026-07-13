@@ -1,5 +1,11 @@
-function status = mh_vta_backend_simbio_onesolve_canonical(task)
+function status = mh_vta_backend_simbio_onesolve_canonical(task, varargin)
 % Execute one canonical voltage- or current-controlled SimBio solve.
+
+parser = inputParser;
+parser.FunctionName = mfilename;
+parser.addParameter('NativeAnchorPath', '', ...
+    @(value) ischar(value) || isstring(value));
+parser.parse(varargin{:});
 
 nativeLeaf = char(string(task.output_leaves.native));
 mniLeaf = char(string(task.output_leaves.MNI152NLin2009bAsym));
@@ -9,7 +15,9 @@ actions = mh_vta_resolve_output_actions(task);
 headmodelState = 'not_required';
 
 if actions.solve_native_efield
-    [options, S, sideIndex, anchorPath] = build_context(task);
+    [options, S, sideIndex, defaultAnchorPath] = build_context(task);
+    anchorPath = mh_vta_resolve_native_anchor(defaultAnchorPath, ...
+        parser.Results.NativeAnchorPath);
     stimLabel = ['canonical-', task.task_id(1:12)];
     [headmodelPath, headmodelState] = mh_vta_prepare_canonical_headmodel( ...
         S, sideIndex, options, stimLabel);

@@ -52,6 +52,28 @@ verifyEqual(testCase, output.img(1, 1, 1), 3, 'AbsTol', 1e-6);
 verifyTrue(testCase, isnan(output.img(3, 3, 3)));
 end
 
+function testAcceptanceAnchorOverrideUsesExistingReferenceGrid(testCase)
+testRoot = tempname;
+mkdir(testRoot);
+cleanup = onCleanup(@() rmdir(testRoot, 's'));
+defaultAnchor = fullfile(testRoot, 'default.nii');
+acceptanceAnchor = fullfile(testRoot, 'acceptance.nii');
+write_fixture_nifti(defaultAnchor, zeros(2, 2, 2, 'single'), eye(4));
+write_fixture_nifti(acceptanceAnchor, zeros(3, 3, 3, 'single'), eye(4));
+
+verifyEqual(testCase, ...
+    mh_vta_resolve_native_anchor(defaultAnchor, ''), defaultAnchor);
+verifyEqual(testCase, ...
+    mh_vta_resolve_native_anchor(defaultAnchor, acceptanceAnchor), ...
+    acceptanceAnchor);
+end
+
+function testAcceptanceAnchorOverrideRejectsMissingPath(testCase)
+verifyError(testCase, @() mh_vta_resolve_native_anchor( ...
+    '/tmp/default-anchor.nii', '/tmp/missing-acceptance-anchor.nii'), ...
+    'mh_vta:MissingNativeAnchorOverride');
+end
+
 function testTransformUsesForwardNormalization(testCase)
 testRoot = tempname;
 stubDir = fullfile(testRoot, 'stubs');

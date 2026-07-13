@@ -515,9 +515,11 @@ The copied-subject preparation helper is an isolation mechanism, not numerical
 FEM evidence. It preserves the minimal valid BIDS hierarchy by copying the
 dataset description and only the selected `derivatives/leaddbs/sub-*` tree.
 The path-state, alternating-source, group-peak, and same-subject reuse portions
-have passed in the copied SNr003 tree. A fresh continuous solve and the separate
-current-control numerical comparison remain unverified. No production
-execution is implied by any status in this table.
+have passed in the copied SNr003 tree. That historical copied tree contains
+leaf-level `provenance.json` files from the superseded output contract, so it
+does not prove the final four-artifact-only leaf contract. A fresh continuous
+solve and the corrected current-control numerical comparison remain
+unverified. No production execution is implied by any status in this table.
 
 ### Schema And Planner
 
@@ -583,6 +585,26 @@ Pearson correlation: >= 0.999999
 VTA Dice at every threshold: >= 0.999
 relative VTA volume difference: <= 0.1%
 ```
+
+The standard Lead-DBS `simbio` current path is the reference implementation.
+The candidate implementation is the canonical-task `simbio_onesolve` current
+backend. The legacy registry one-solve wrapper remains voltage-only and is not
+an execution path for this current gate. Both accepted paths must use the same
+fixed native headmodel under the copied subject tree.
+
+For numerical comparison only, the standard `simbio` local E-field grid is the
+authoritative comparison grid. In a fresh gate the canonical raw tetrahedral
+field is exported directly to the standard native reference grid, bypassing the
+coarser 0.7 mm production-native export. MNI continuous fields are aligned by
+world-coordinate linear resampling to the standard MNI reference grid, then all
+metrics and 180/200/220 V/m masks are computed. No binary image is resampled.
+Existing paired NIfTI outputs may be re-compared without another solve, but a
+coarse previous export cannot reconstruct discarded tetrahedral detail.
+If dimensions and affine already match the reference within the acceptance
+tolerance, alignment is a no-op and must not interpolate the candidate again.
+Re-comparison moves any replaced metrics or summary file to the filesystem
+Trash first. It cannot upgrade the overall result unless the original run also
+recorded that the production subject tree remained unchanged.
 
 Multiple-cathode, electrode-return, repeatability, and continuous multi-current
 behavior remain covered by deterministic solver-free unit fixtures. The

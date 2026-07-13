@@ -114,6 +114,26 @@ superposition remain solver-free unit fixtures; the vector fixture verifies
 that neither scalar maximum nor scalar sum can replace signed vector
 superposition.
 
+The reference solve uses the standard Lead-DBS `simbio` current path. The
+candidate solve uses the canonical task `simbio_onesolve` implementation, which
+supports current-controlled boundaries and reuses the same fixed native
+headmodel in the copied subject. The older registry wrapper whose one-solve
+contract is voltage-only is not used for the current candidate solve.
+
+Numerical comparison uses the standard `simbio` local E-field grid as the
+fixed comparison grid. For a valid fresh acceptance run, the canonical raw
+tetrahedral E-field is interpolated directly to the standard native reference
+grid during candidate export; it must not first be reduced to the 0.7 mm
+production native grid. MNI comparison still uses world-coordinate linear
+resampling to the standard MNI reference grid, and thresholds are applied only
+after alignment. Re-comparison of existing NIfTI outputs starts no FEM, but it
+cannot recover raw tetrahedral detail that was previously exported only on the
+coarser production grid.
+
+When candidate and reference dimensions and affine already match, alignment is
+an identity operation. The comparison helper skips interpolation in that case
+to preserve the original finite support at image boundaries.
+
 The lightweight test entry point exercises fixture generation, safety guards,
 inventory validation, and the independent vector-superposition fixture. The
 existing synthetic NIfTI comparison test separately verifies the shared strict
@@ -133,6 +153,21 @@ run_single_current_backend_equivalence( ...
     'WorkRoot', '/Volumes/VAL/STNSNr/validation', ...
     'SubjectId', 'SNr003');
 ```
+
+An existing current FEM pair can be compared again without copying a subject,
+meshing, or solving:
+
+```matlab
+run_single_current_backend_equivalence( ...
+    'Mode', 'compare_existing', ...
+    'ExistingRunRoot', '/path/to/vta_single_current_backend_equivalence_RUN');
+```
+
+This mode requires the recorded single right-sided case and both backend
+E-fields. It refreshes only the comparison CSV files and acceptance summary.
+Existing versions of those untracked files are moved to the filesystem Trash
+before replacement. The refreshed overall result also preserves the original
+`production_subject_tree_unchanged` safety gate.
 
 This command is not part of the lightweight test suite and is not run while the
 current harness itself is being implemented.
