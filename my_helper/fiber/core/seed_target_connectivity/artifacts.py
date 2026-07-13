@@ -196,6 +196,16 @@ def _write_text(path: Path, payload: str) -> None:
     _write_bytes(path, payload.encode("utf-8"))
 
 
+def _artifact_names(directory: Path) -> set[str]:
+    """Return pipeline artifact names while excluding AppleDouble metadata."""
+
+    return {
+        path.name
+        for path in directory.iterdir()
+        if not path.name.startswith("._")
+    }
+
+
 def _csv_payload(rows: Sequence[Mapping[str, Any]], fieldnames: Sequence[str]) -> str:
     output = io.StringIO(newline="")
     writer = csv.DictWriter(
@@ -482,7 +492,7 @@ def write_run_atomic(
     runs_root = output / "runs"
     final = runs_root / fingerprint
     if final.exists():
-        if not final.is_dir() or {path.name for path in final.iterdir()} != set(REQUIRED_ARTIFACTS):
+        if not final.is_dir() or _artifact_names(final) != set(REQUIRED_ARTIFACTS):
             raise ArtifactError(f"existing immutable run is incomplete: {final}")
         hashes = verify_artifact_index(final)
         try:
@@ -570,7 +580,7 @@ def write_run_atomic(
             "created_at": created_at,
         }
         _write_index(staging, indexed_hashes, index_provenance)
-        if {path.name for path in staging.iterdir()} != set(REQUIRED_ARTIFACTS):
+        if _artifact_names(staging) != set(REQUIRED_ARTIFACTS):
             raise ArtifactError("staged run does not contain the exact required artifact set")
         os.replace(staging, final)
         hashes = verify_artifact_index(final)
@@ -739,7 +749,7 @@ def stage_run_artifacts(
                 "created_at": created_at,
             },
         )
-        if {path.name for path in staging.iterdir()} != set(CURRENT_REQUIRED_ARTIFACTS):
+        if _artifact_names(staging) != set(CURRENT_REQUIRED_ARTIFACTS):
             raise ArtifactError("staged result does not contain the exact required artifact set")
         hashes = verify_artifact_index(staging)
     except Exception:

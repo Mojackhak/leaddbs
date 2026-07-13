@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from my_helper.fiber.core.seed_target_connectivity import artifacts
 from my_helper.fiber.core.seed_target_connectivity.config import effective_config, resolve_config
@@ -142,6 +143,24 @@ class BatchArtifactTests(unittest.TestCase):
         self.assertEqual(provenance["run_fingerprint"], staged.run_fingerprint)
         self.assertEqual(provenance["seed_name"], "lh")
         self.assertEqual(artifacts.verify_artifact_index(staged.staging_dir), dict(staged.artifact_hashes))
+
+    def test_stage_ignores_exfat_appledouble_sidecars(self) -> None:
+        original = artifacts._write_primary_artifacts
+
+        def write_with_sidecar(staging, **kwargs):
+            hashes = original(staging, **kwargs)
+            (staging / "._config_resolved.yaml").write_bytes(b"filesystem metadata")
+            return hashes
+
+        with patch.object(artifacts, "_write_primary_artifacts", side_effect=write_with_sidecar):
+            staged = self._stage("lh")
+
+        self.assertTrue((staged.staging_dir / "._config_resolved.yaml").is_file())
+        self.assertNotIn("._config_resolved.yaml", staged.artifact_hashes)
+        self.assertEqual(
+            artifacts.verify_artifact_index(staged.staging_dir),
+            dict(staged.artifact_hashes),
+        )
 
     def test_matching_result_is_reused_without_rewriting(self) -> None:
         first = self._stage("lh")
