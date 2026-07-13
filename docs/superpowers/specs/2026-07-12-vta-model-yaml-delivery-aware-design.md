@@ -5,7 +5,7 @@
 ```text
 design_approved_in_discussion
 documentation_written
-implementation_not_started
+implementation_migration_in_progress
 current_stimulations_backed_up
 current_headmodels_moved_to_system_trash
 rebuild_not_started
@@ -48,7 +48,7 @@ The implementation must:
 - preserve independent alternating-source E-fields and VTAs;
 - derive one alternating group-peak E-field and thresholded group VTA;
 - write artifacts directly into each subject's Lead-DBS derivative tree; and
-- provide deterministic paths, resume identity, and minimal provenance.
+- provide deterministic paths and path-based incremental execution.
 
 ## Non-Goals
 
@@ -185,7 +185,7 @@ The implementation is divided into these responsibilities:
 9. `alternating_composer` creates the native group-peak field only after every
    source parent is complete.
 10. `artifact_store` owns paths, staging, atomic publication, Trash-on-force,
-   minimal provenance, and resume checks.
+   and path-based completion checks.
 11. `cli_service` is the single application API for CLI and a future GUI.
 
 Dependencies flow in that order. A CLI or future GUI cannot implement a second
@@ -388,86 +388,47 @@ efield.nii.gz
 vta_threshold-0p18Vpermm.nii.gz
 vta_threshold-0p20Vpermm.nii.gz
 vta_threshold-0p22Vpermm.nii.gz
-provenance.json
 ```
 
 The threshold filenames are generated from the configured values; the three
 shown names are the v1 profile's concrete outputs.
 
-## Minimal Leaf Provenance
+## Path-Based Publication And Reuse
 
-`provenance.json` uses this exact minimal shape and field order:
+No `provenance.json` is generated. Final-path existence is the only persistent
+completion signal. A leaf is `complete` only when all four scientific artifact
+paths exist and is otherwise `missing`. Existing final artifacts are preserved
+without content, hash, code-version, or configuration comparison.
 
-```json
-{
-  "schema_version": "vta_leaf_provenance_v1",
-  "run_id": "20260712T220000Z",
-  "input_hash": "...",
-  "study_base_sha256": "...",
-  "vta_model_sha256": "...",
-  "code_commit": "...",
-  "efield_sha256": "...",
-  "final_status": "completed"
-}
-```
+New artifacts are produced at temporary paths in the destination directory and
+atomically renamed after successful generation. Ordinary run and
+`run --resume` fill only missing paths in this order: native E-field, native
+thresholds, transformed MNI E-field, and MNI thresholds. Explicit force moves
+selected stimulation leaves to Trash, making their paths missing before the
+same state machine runs.
 
-`final_status` is the last field and allows only:
+Reuse is resolved from the complete normalized `frequency_group` record and is
+restricted to the same subject. For each selected group, runtime scans all
+same-subject groups represented by `study_base.json` for physically equivalent
+existing artifacts. Missing artifacts are copied from the first deterministic
+donor; if no donor exists, they are generated only in the selected path. When
+multiple equivalent groups are selected together, the first selected group is
+generated and becomes the in-run donor. Equality is direct record comparison,
+not a hash, and implementation logic cannot recognize project phase names.
+`/Volumes/VAL` is ExFAT, so reuse publication uses atomic copy rather than hard
+links or filesystem clones.
 
-```text
-completed
-failed
-```
-
-`completed` requires a valid E-field, every configured VTA, successful basic
-integrity checks, and a non-null `efield_sha256`. `failed` publishes no partial
-scientific artifacts and stores `efield_sha256: null`. Partially generated
-files remain in staging or diagnostic logs and are not formal leaf artifacts.
-
-If Git is unavailable and no build-time commit is embedded, `code_commit` is
-`null`. Execution must not invent an `unknown` commit or fail solely because
-Git is absent. The task `input_hash` still includes a deterministic content
-hash of the VTA implementation files so code changes invalidate resume identity.
-
-The task `input_hash` covers:
-
-```text
-leaf relative-path identity
-exact source/group stimulation records
-head-model content
-native anchor and grid
-atlas GM mask
-deformation and MNI reference for MNI leaves
-effective model parameters
-VTA implementation content
-```
-
-The leaf provenance does not duplicate effective-model objects, detailed QC,
-artifact indexes, or hashes for derived VTAs. A VTA is validated by rebuilding
-the mask from `efield.nii.gz` and the configured threshold.
-
-## Publication, Resume, And Failure Rules
-
-All files are written to a staging directory, validated, and atomically renamed
-to the formal leaf. Failed tasks leave a minimal failed provenance record and
-do not publish partial E-field/VTA files.
-
-Resume may reuse a leaf only when:
-
-- `final_status` is `completed`;
-- `input_hash` matches the newly resolved task;
-- every expected file exists and has a valid NIfTI header;
-- dimensions and affine match the expected output grid; and
-- the current E-field SHA-256 equals `efield_sha256`.
-
-An incompatible existing leaf is an error by default. Explicit force first
-moves the old untracked leaf to the system Trash and then computes a new leaf.
-Force never permanently deletes an untracked directory.
+Head models are also path based: existing canonical MAT files are reused and
+missing files are built. An unreadable existing head model fails explicitly.
+`--force` does not implicitly rebuild it.
 
 One task failure does not delete successful independent tasks. Batch execution
-continues across other subjects and groups and returns nonzero if any selected
-task fails. An alternating group-peak task fails if any required source parent
-is not complete. Native success does not make the MNI leaf successful when its
-transform/export fails.
+continues across independent tasks for the same subject and across other
+subjects, and returns nonzero if any selected task fails. Alternating group peak
+and reuse recipients are skipped only when their required donor generation
+fails. The complete
+approved state machine is defined in
+`docs/superpowers/specs/2026-07-13-path-based-vta-reuse-design.md`.
 
 There is no fallback to the standard `simbio` backend and no delivery-semantic
 fallback.
@@ -521,8 +482,9 @@ vta-model status \
   --subject SNr003
 ```
 
-Status replans the expected leaves and reads their minimal provenance. It does
-not depend on an artifact index.
+Status replans the expected leaves and derives `complete` or `missing` directly
+from the four expected scientific artifact paths. It does not depend on an
+artifact index or provenance file.
 
 ### Selection And Runtime Rules
 
@@ -544,7 +506,7 @@ not depend on an artifact index.
 
 | Scope | Status | Meaning |
 | --- | --- | --- |
-| Canonical YAML, study-base adapter, task DAG, CLI, provenance, and MATLAB task execution | `implemented` | The delivery-aware implementation exists in the repository. |
+| Canonical YAML, study-base adapter, task DAG, CLI, path-based artifacts, and MATLAB task execution | `migration_in_progress` | The delivery-aware implementation exists, but the approved path-only state machine and representative acceptance are not yet complete. |
 | Static and deterministic unit coverage | `unit_validated` | Automated Python and MATLAB unit suites validate their covered contracts. |
 | Historical bilateral SNr003 single-voltage backend comparison | `fem_validated` | Existing numerical evidence covers only the documented single-voltage pilot. |
 | Real-cohort output rebuild | `production_rebuild_not_started` | Production subject trees and model outputs have not been rebuilt by this pipeline. |
@@ -647,9 +609,17 @@ study base. It runs:
 - native and MNI exports;
 - all three VTA thresholds;
 - hierarchical path publication;
-- minimal completed and failed provenance;
-- resume; and
+- path-only skip and partial-artifact repair;
+- one equivalent frequency-group copy, represented by T2/T3 only in the SNr003 fixture;
+- dependency failure isolation;
+- resume-compatible path reuse; and
 - force-to-Trash behavior.
+
+The representative pilot does not run all 20 SNr003 tasks. It executes two
+continuous joint solves, one hemisphere's two alternating source solves and
+group-peak derivation, plus the logical frequency-group reuse path and
+deterministic current suite. T2/T3 are fixture labels only and are never
+hard-coded by the generic planner or executor.
 
 Acceptance must not write or overwrite the real
 `/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-*` tree. A real cohort run requires

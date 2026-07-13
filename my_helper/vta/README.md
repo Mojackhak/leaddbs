@@ -9,17 +9,23 @@ clinical endpoint definitions are outside the VTA execution contract.
 
 | Scope | Status | Meaning |
 | --- | --- | --- |
-| Canonical YAML, study-base adapter, task DAG, CLI, provenance, and MATLAB task execution | `implemented` | The delivery-aware implementation exists in the repository. |
+| Canonical YAML, study-base adapter, task DAG, CLI, path-based artifacts, and MATLAB task execution | `migration_in_progress` | The delivery-aware implementation exists; provenance/hash reuse is being replaced by the approved path-only state machine. |
 | Static and deterministic unit coverage | `unit_validated` | Automated Python and MATLAB unit suites validate their covered contracts. |
 | Historical bilateral SNr003 single-voltage backend comparison | `fem_validated` | Existing numerical evidence covers only the documented single-voltage pilot. |
 | Real-cohort output rebuild | `production_rebuild_not_started` | Production subject trees and model outputs have not been rebuilt by this pipeline. |
 
-The copied-subject end-to-end FEM gate is separate from unit validation. Its
+The copied-subject representative FEM gate is separate from unit validation. Its
 preparation helper creates an isolated minimal BIDS tree containing the source
 `dataset_description.json` and only the selected
 `derivatives/leaddbs/sub-$SUBJECT_ID` directory, then rewrites the validation
 study base to that copied subject. Creating the copy does not run FEM or
 establish end-to-end acceptance.
+
+The representative gate does not run all 20 SNr003 tasks. It covers left and
+right continuous solves, one two-source alternating group and its group peak,
+one equivalent frequency-group copy represented by T2/T3 in the fixture, and deterministic synthetic current
+acceptance. Production all-subject execution remains a separate operational
+goal.
 
 ## Public Model Profile
 
@@ -103,8 +109,27 @@ four-source limit.
 Each selected subject has one canonical head-model prerequisite. A continuous
 frequency group creates one joint solve task containing every group source. An
 alternating group creates one solve task per source and one derived group-peak
-task that depends on every source task. Task IDs are SHA-256 hashes of canonical
-VTA-semantic task payloads; ignored study labels cannot change them.
+task that depends on every source task. Task IDs may remain deterministic
+SHA-256 identifiers, but hashes do not control output reuse or recalculation.
+Ignored study labels cannot change the numerical task definition.
+
+Reuse is resolved at the complete `frequency_group` level and only within the
+same subject. For each selected group, runtime scans all same-subject groups
+represented by `study_base.json`. If a normalized group record is exactly equal
+and a matching artifact already exists, that artifact is copied into the
+selected hierarchical leaf. If no donor exists, computation occurs only in the
+selected path. When multiple equivalent groups are selected together, the
+first selected group in deterministic order is generated and becomes the
+in-run donor. Equality is direct record comparison; no physical-stimulation
+hash is generated. Phase names such as T2/T3 are fixture data and are never
+recognized by generic planner or executor logic.
+
+Production VTA modules cannot branch on concrete subject IDs, phase IDs,
+program IDs, target/component labels, study names, HF/ULF roles, or
+chronic/immediate labels. Concrete values such as SNr003 and T1/T2/T3 are
+permitted only in isolated fixtures and copied-subject acceptance scripts. The
+canonical execution path receives selected subjects through generic task input
+and does not use the legacy `STNSNR_VTA_SUBJECT_IDS` environment variable.
 
 Output directories are derived from canonical identifiers rather than a flat
 stimulation label:
@@ -124,7 +149,7 @@ Subject, phase, program, electrode, and frequency-group filters are exact. An
 unknown selector or a selection producing no solve tasks is an error rather
 than a successful empty plan.
 
-## Leaf Artifacts And Provenance
+## Leaf Artifacts And Path State
 
 Every completed native or MNI leaf contains:
 
@@ -133,23 +158,24 @@ efield.nii.gz
 vta_threshold-0p18Vpermm.nii.gz
 vta_threshold-0p20Vpermm.nii.gz
 vta_threshold-0p22Vpermm.nii.gz
-provenance.json
 ```
 
-`provenance.json` contains only `schema_version`, `run_id`, `input_hash`,
-`study_base_sha256`, `vta_model_sha256`, `code_commit`, `efield_sha256`, and
-`final_status`, in that order. `final_status` is last and accepts only
-`completed` or `failed`. Git absence is represented by `code_commit: null`.
+No `provenance.json` is generated. Final-path existence is the only persistent
+completion signal. A leaf is `complete` when all four paths exist and is
+otherwise `missing`. Ordinary `run` and `run --resume` preserve every existing
+final artifact and generate only missing paths.
 
-Resume reuses a leaf only when its status is `completed`, its input hash
-matches the planned input, its E-field exists, and the current E-field SHA-256
-matches provenance. Otherwise the leaf is stale and is not reused.
+Missing artifacts are repaired in dependency order: native E-field, native
+thresholds, transformed MNI E-field, then MNI thresholds. An existing native
+E-field can therefore repair downstream outputs without another FEM solve.
+New artifacts and frequency-group copies use a temporary path in the destination
+directory followed by atomic rename. `/Volumes/VAL` is ExFAT and does not
+support hard links or filesystem clones, so equivalent frequency-group leaves are
+materialized by copying only missing files.
 
-Force replacement moves the previous leaf directory to the filesystem Trash
-before creating a new leaf. Failure cleanup also moves partial scientific
-artifacts to Trash and then writes a failed provenance file with
-`efield_sha256: null`. If Trash cannot be used, replacement or cleanup aborts
-without permanently deleting data.
+Force replacement moves selected stimulation leaf directories to the
+filesystem Trash before using the same missing-path state machine. If Trash
+cannot be used, replacement aborts without permanently deleting data.
 
 ## Command-Line Interface
 
@@ -167,18 +193,18 @@ integer and parallelizes subjects only.
 
 `validate`, `plan`, and `status` are read-only. `plan` emits tasks in stable
 subject/DAG order. `status` reports every planned native and MNI leaf as
-`missing`, `completed`, `failed`, or `stale`.
+`missing` or `complete`. The runtime summary may additionally report
+`generated`, `copied`, `skipped_existing`, `failed`, and
+`skipped_dependency`.
 
 ## MATLAB Task Contract
 
 Python sends one resolved task JSON to `mh_vta_run_canonical_task`. Required
-fields include task/run IDs, task kind, subject and reconstruction paths,
+fields include task ID, task kind, subject and reconstruction paths,
 phase/program/electrode/group IDs, hemisphere, delivery mode, canonical
 sources, conductivities, atlas, output spaces, thresholds, output leaves,
-input hashes, `implementation_sha256`, and resume/force state. The
-implementation hash is the same value used by resume identity and the embedded
-head-model contract. Backend selection and project labels are not part of the
-task payload.
+and missing-artifact instructions. Input hashes, implementation hashes,
+backend selection, and project labels are not part of the execution payload.
 
 Continuous groups resolve to one solve unit containing all sources. Alternating
 groups resolve to one solve unit per source. Every production solve uses
@@ -210,17 +236,12 @@ $LEADDBS_SUBJECT_DIR/headmodel/native/sub-$SUBJECT_ID_desc-headmodel1.mat  # rig
 $LEADDBS_SUBJECT_DIR/headmodel/native/sub-$SUBJECT_ID_desc-headmodel2.mat  # left
 ```
 
-The embedded `mh_vta_headmodel_contract` records subject, side, atlas,
-conductivity, reconstruction, native-anchor, and implementation hashes. Missing
-head models are rebuilt. A stale contract is rejected unless replacement was
-explicitly authorized.
-
-When `--force` explicitly authorizes an incompatible head-model replacement,
-the old head model and matching Horn protocol are moved to the same-filesystem
-Trash before rebuilding. If that move cannot be completed, execution aborts;
-canonical execution never permanently deletes an existing head model. Trash
-destinations use collision-resistant UUID names because macOS external-volume
-Trash may permit blind writes while denying directory enumeration.
+Head-model reuse is path based. A missing canonical head-model file is built; an
+existing file is reused without provenance or hash comparison. A present but
+unreadable or structurally invalid MAT file fails explicitly rather than being
+silently replaced. `--force` applies to stimulation leaves and does not rebuild
+an existing head model. To rebuild a head model, the operator must first move
+its canonical file out of the way.
 
 Canonical head-model preparation invokes the Horn meshing path in an internal
 head-model-only mode. That call stops immediately after writing the volume
@@ -259,6 +280,13 @@ in MNI. No additional FEM solve is performed for the derived task.
 ## Execution Policy
 
 Tasks for one subject execute sequentially in DAG order. Different subjects may
-execute concurrently up to `--workers`. A failed subject stops its dependent
-tasks but does not cancel other subjects. The command returns nonzero when any
-selected task fails.
+execute concurrently up to `--workers`. A failed task skips only dependency
+descendants; independent tasks for the same subject and tasks for other subjects
+continue. The command returns nonzero when any selected task fails.
+
+This path-only design intentionally favors compatibility over automatic
+invalidation. Existing artifacts are reused even after code, YAML, atlas
+content, or metadata changes. Operators must use `--force` for stimulation
+outputs or move a canonical head-model file when intentional recalculation is
+required. The complete approved state machine is documented in
+`docs/superpowers/specs/2026-07-13-path-based-vta-reuse-design.md`.

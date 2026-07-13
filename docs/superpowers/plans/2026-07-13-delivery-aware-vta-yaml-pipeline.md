@@ -4,7 +4,7 @@
 
 **Goal:** Build a project-independent `vta-model` pipeline that reads canonical stimulation records from `study_base.json`, reads public FEM/output settings from `vta_model.yaml`, dispatches delivery-aware SimBio one-solve tasks, and writes deterministic native/MNI E-field and VTA artifacts under each Lead-DBS subject directory.
 
-**Architecture:** A Python package validates inputs, resolves canonical stimulation records, creates a deterministic per-subject DAG, controls resume/force behavior, invokes MATLAB, and owns artifact/provenance state. A MATLAB adapter consumes one resolved task JSON at a time, rebuilds or reuses the canonical Lead-DBS head model, performs all production FEM calculations through `simbio_onesolve`, exports native common-grid E-fields, transforms continuous E-fields to MNI, and thresholds in each space. Existing STNSNr workbook adapters and legacy VTA entry points remain available but are not called by the new pipeline.
+**Architecture:** A Python package validates inputs, resolves canonical stimulation records, creates a deterministic per-subject DAG, controls path-based reuse and force-to-Trash behavior, invokes MATLAB, and fills missing artifacts without overwriting existing files. A MATLAB adapter consumes one resolved task JSON at a time, builds a missing or reuses an existing canonical Lead-DBS head model, performs all production FEM calculations through `simbio_onesolve`, exports native common-grid E-fields, transforms continuous E-fields to MNI, and thresholds in each space. Existing STNSNr workbook adapters and legacy VTA entry points remain available but are not called by the new pipeline.
 
 **Tech Stack:** Python 3 in Conda environment `leaddbs`, `argparse`, PyYAML, JSON Schema, pytest, MATLAB, Lead-DBS, SimBio, NIfTI, Git.
 
@@ -27,6 +27,9 @@
 - Do not write acceptance artifacts into the real subject tree. Use copied subjects below `/Volumes/VAL/STNSNr/validation`.
 - Existing `/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-*/stimulations` and `headmodel` directories have already been removed from the production tree; the new pipeline must rebuild all canonical head models and VTA outputs.
 - Never permanently delete an untracked output. `--force` moves the previous leaf directory to the filesystem Trash before replacement.
+- Recalculation is path based. Existing final artifacts are preserved; missing final artifacts are generated without provenance or hash checks.
+- Reuse is resolved for complete same-subject `frequency_group` records. Runtime scans all groups represented by `study_base.json`, copies missing artifacts from an exactly equivalent existing donor, and computes only in selected paths when no donor exists. No phase or program value is recognized by implementation logic.
+- The approved state-machine design is `docs/superpowers/specs/2026-07-13-path-based-vta-reuse-design.md`.
 
 ---
 
@@ -56,32 +59,33 @@ The implementation goal is complete only when milestone 6 is documented and ever
 
 ## Artifact And Head-Model Contract
 
-For subject `SNr003`, `$LEADDBS_SUBJECT_DIR` means `/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-SNr003`. The same relative layout applies to every configured subject.
+`$LEADDBS_SUBJECT_DIR` is read from each configured subject record. The generic
+pipeline does not construct it from a project root or recognize a subject-name
+pattern. The relative stimulation layout is:
 
 ```text
 $LEADDBS_SUBJECT_DIR/stimulations/native/
-  phase-T2/program-2/electrode-lead-R/frequency-group-group-1/
+  phase-$PHASE_ID/program-$PROGRAM_ID/electrode-$ELECTRODE_ID/frequency-group-$GROUP_ID/
     delivery-continuous/joint/
-  phase-T2/program-2/electrode-lead-R/frequency-group-group-2/
-    delivery-alternating/sources/source-source-1/
+  phase-$PHASE_ID/program-$PROGRAM_ID/electrode-$ELECTRODE_ID/frequency-group-$GROUP_ID/
+    delivery-alternating/sources/source-$SOURCE_ID/
     delivery-alternating/derived/group-peak/
 
 $LEADDBS_SUBJECT_DIR/stimulations/MNI152NLin2009bAsym/
-  phase-T2/program-2/electrode-lead-R/frequency-group-group-1/
+  phase-$PHASE_ID/program-$PROGRAM_ID/electrode-$ELECTRODE_ID/frequency-group-$GROUP_ID/
     delivery-continuous/joint/
-  phase-T2/program-2/electrode-lead-R/frequency-group-group-2/
-    delivery-alternating/sources/source-source-1/
+  phase-$PHASE_ID/program-$PROGRAM_ID/electrode-$ELECTRODE_ID/frequency-group-$GROUP_ID/
+    delivery-alternating/sources/source-$SOURCE_ID/
     delivery-alternating/derived/group-peak/
 ```
 
-Every completed leaf contains exactly these scientific artifacts plus provenance:
+Every completed leaf contains exactly these scientific artifacts:
 
 ```text
 efield.nii.gz
 vta_threshold-0p18Vpermm.nii.gz
 vta_threshold-0p20Vpermm.nii.gz
 vta_threshold-0p22Vpermm.nii.gz
-provenance.json
 ```
 
 Canonical native head models use the existing Lead-DBS side convention and these exact paths:
@@ -91,24 +95,7 @@ $LEADDBS_SUBJECT_DIR/headmodel/native/sub-SNr003_desc-headmodel1.mat  # right
 $LEADDBS_SUBJECT_DIR/headmodel/native/sub-SNr003_desc-headmodel2.mat  # left
 ```
 
-Each MAT file stores `mh_vta_headmodel_contract` with subject, side, atlas, conductivity, reconstruction, anchor, and implementation hashes. This embedded record is the only head-model reuse metadata; no model-scoped cache or separate resolved manifest is created.
-
-`provenance.json` preserves this exact field order:
-
-```json
-{
-  "schema_version": "vta_leaf_provenance_v1",
-  "run_id": "20260713T120000Z",
-  "input_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "study_base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "vta_model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "code_commit": null,
-  "efield_sha256": null,
-  "final_status": "failed"
-}
-```
-
-`final_status` is always the last key and accepts only `completed` or `failed`. A completed leaf replaces `efield_sha256` with the actual file hash and records `code_commit` as a Git commit string when Git is available.
+Head-model reuse is also path based. An existing canonical head-model MAT file is reused without provenance or implementation-hash comparison; a missing file is built. An existing unreadable or structurally invalid MAT file fails explicitly instead of being silently replaced.
 
 ## Locked File Structure
 
@@ -123,7 +110,7 @@ my_helper/fiber/core/vta_pipeline/
   study_base.py
   planner.py
   paths.py
-  provenance.py
+  artifacts.py
   matlab_bridge.py
   service.py
   cli.py
@@ -133,7 +120,7 @@ my_helper/fiber/core/vta_pipeline/
     test_config.py
     test_study_base.py
     test_planner.py
-    test_paths_and_provenance.py
+    test_paths_and_artifacts.py
     test_matlab_bridge.py
     test_cli.py
 ```
@@ -382,7 +369,7 @@ Document the exact hierarchy from the approved design and state that every subje
 
 ```python
 def test_continuous_group_creates_one_joint_task(study, model):
-    plan = build_plan(study, model, Selection(subject_ids=("SNr003",)))
+    plan = build_plan(study, model, Selection(subject_ids=("subject-A",)))
     tasks = tasks_for_group(plan, "group-continuous")
     assert [task.kind for task in tasks] == [TaskKind.CONTINUOUS_JOINT]
 
@@ -400,9 +387,20 @@ def test_alternating_group_creates_source_tasks_then_peak(study, model):
 def test_leaf_path_is_hierarchical_not_flat(study, model):
     task = first_alternating_source_task(build_plan(study, model, Selection(all_subjects=True)))
     assert leaf_directory(task, "native").parts[-8:] == (
-        "native", "phase-T2", "program-2", "electrode-lead-R",
-        "frequency-group-group-2", "delivery-alternating", "sources", "source-source-1",
+        "native", "phase-phase-alpha", "program-program-a", "electrode-lead-R",
+        "frequency-group-group-b", "delivery-alternating", "sources", "source-source-1",
     )
+
+
+def test_reuse_equivalence_is_group_based_and_phase_agnostic(study, model):
+    first, second = equivalent_groups_with_different_labels(study)
+    assert normalized_group_record(first) == normalized_group_record(second)
+    assert first.phase_id != second.phase_id
+
+
+def test_target_component_and_phase_labels_do_not_change_group_equivalence(study, model):
+    original, relabeled = physically_identical_relabeling(study)
+    assert normalized_group_record(original) == normalized_group_record(relabeled)
 ```
 
 - [ ] **Step 3: Run tests and confirm failure**
@@ -442,7 +440,7 @@ class VtaTask:
         return canonical_task_payload(self)
 ```
 
-Sort subjects, phases, programs, electrodes, groups, and source IDs deterministically. Task IDs are SHA-256 hashes of the canonical task payload. Filters reject unknown values and must never silently produce an empty plan.
+Sort subjects, phases, programs, electrodes, groups, and source IDs deterministically. Task IDs may remain deterministic SHA-256 identifiers, but hashes never determine output reuse or recalculation. Build a normalized immutable record for each complete frequency group after excluding phase/program/group/source identifiers, target/component metadata, and display labels. The normalized group contains hemisphere, reconstruction/electrode identity, delivery and control modes, and the complete normalized source multiset. Alternating source artifacts are matched by normalized source record; group-peak artifacts are reusable only when the complete normalized group records are equal. Filters reject unknown values and must never silently produce an empty plan. No literal phase, program, subject, target, or frequency-class value may affect planning behavior.
 
 - [ ] **Step 5: Run tests and commit**
 
@@ -452,90 +450,70 @@ git add my_helper/vta/README.md my_helper/fiber/core/vta_pipeline
 git commit -m "feat: plan delivery-aware VTA tasks"
 ```
 
-### Task 4: Minimal Provenance, Resume, Force, And Status
+### Task 4: Path-Based Artifacts, Force, And Status
 
 **Files:**
-- Create: `my_helper/fiber/core/vta_pipeline/provenance.py`
-- Create: `my_helper/fiber/core/vta_pipeline/tests/test_paths_and_provenance.py`
+- Create: `my_helper/fiber/core/vta_pipeline/artifacts.py`
+- Create: `my_helper/fiber/core/vta_pipeline/tests/test_paths_and_artifacts.py`
+- Remove: `my_helper/fiber/core/vta_pipeline/provenance.py`
+- Remove: `my_helper/fiber/core/vta_pipeline/tests/test_paths_and_provenance.py`
 - Modify: `my_helper/vta/README.md`
 
 **Interfaces:**
-- Produces: `compute_input_hash(...)`, `ProvenanceContext`, `LeafProvenance`, `LeafStore.prepare()`, `LeafStore.complete()`, `LeafStore.fail()`, and `read_leaf_status()`.
+- Produces: `expected_artifacts(...)`, `leaf_status(...)`, `missing_artifacts(...)`, `atomic_copy_missing(...)`, and `move_leaf_to_trash(...)`.
 
 - [ ] **Step 1: Document state semantics**
 
-Document: `--resume` reuses only a `completed` leaf whose `input_hash` and `efield_sha256` match; `--force` moves an existing leaf to Trash; a failed leaf retains only `provenance.json`; partial NIfTI files are moved to Trash.
+Document: final-path existence is the only persistent completion signal; a leaf is `complete` only when all four scientific artifacts exist and is otherwise `missing`; ordinary run and `--resume` fill only missing paths; `--force` moves selected leaves to Trash before using the same path-based state machine. No `provenance.json`, input hash, E-field hash, stale state, or persistent failed state is generated.
 
-- [ ] **Step 2: Write failing provenance tests**
+- [ ] **Step 2: Write failing path-state tests**
 
 ```python
-def test_completed_provenance_has_exact_order_and_status_last(tmp_path):
-    store = LeafStore(tmp_path / "leaf", trash_root=tmp_path / "Trash")
-    store.complete(context=CONTEXT, efield_path=write_efield(store.leaf))
-    pairs = json.loads((store.leaf / "provenance.json").read_text(), object_pairs_hook=list)
-    assert [key for key, _ in pairs] == [
-        "schema_version", "run_id", "input_hash", "study_base_sha256",
-        "vta_model_sha256", "code_commit", "efield_sha256", "final_status",
-    ]
-    assert pairs[-1] == ("final_status", "completed")
+def test_leaf_is_complete_only_when_all_expected_paths_exist(tmp_path):
+    leaf = tmp_path / "leaf"
+    write_expected_artifacts(leaf)
+    assert leaf_status(leaf, THRESHOLDS) == "complete"
+    (leaf / "vta_threshold-0p22Vpermm.nii.gz").unlink()
+    assert leaf_status(leaf, THRESHOLDS) == "missing"
+
+
+def test_atomic_copy_preserves_existing_destination(tmp_path):
+    source = tmp_path / "source.nii.gz"
+    destination = tmp_path / "leaf" / "efield.nii.gz"
+    source.write_bytes(b"new")
+    destination.parent.mkdir()
+    destination.write_bytes(b"existing")
+    assert atomic_copy_missing(source, destination) == "skipped_existing"
+    assert destination.read_bytes() == b"existing"
 
 
 def test_force_moves_existing_leaf_to_trash(tmp_path):
-    store = LeafStore(tmp_path / "leaf", trash_root=tmp_path / "Trash")
-    store.leaf.mkdir(parents=True)
-    (store.leaf / "old.txt").write_text("old")
-    store.prepare(force=True, resume=False)
-    assert not (store.leaf / "old.txt").exists()
+    leaf = tmp_path / "leaf"
+    leaf.mkdir()
+    (leaf / "old.txt").write_text("old")
+    move_leaf_to_trash(leaf, trash_root=tmp_path / "Trash")
+    assert not leaf.exists()
     assert list((tmp_path / "Trash").rglob("old.txt"))
 ```
 
 - [ ] **Step 3: Run tests and confirm failure**
 
 ```bash
-conda run -n leaddbs python -m pytest my_helper/fiber/core/vta_pipeline/tests/test_paths_and_provenance.py -q
+conda run -n leaddbs python -m pytest my_helper/fiber/core/vta_pipeline/tests/test_paths_and_artifacts.py -q
 ```
 
-Expected: provenance module is absent.
+Expected: path-based artifact module is absent.
 
-- [ ] **Step 4: Implement atomic state transitions**
+- [ ] **Step 4: Implement atomic path transitions**
 
-```python
-@dataclass(frozen=True)
-class ProvenanceContext:
-    run_id: str
-    input_hash: str
-    study_base_sha256: str
-    vta_model_sha256: str
-    code_commit: str | None
-
-
-@dataclass(frozen=True)
-class LeafProvenance:
-    schema_version: str
-    run_id: str
-    input_hash: str
-    study_base_sha256: str
-    vta_model_sha256: str
-    code_commit: str | None
-    efield_sha256: str | None
-    final_status: Literal["completed", "failed"]
-
-
-def write_provenance(path: Path, value: LeafProvenance) -> None:
-    payload = asdict(value)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
-```
-
-Compute `input_hash` from canonical task JSON, study/model hashes, implementation content hash, and code commit. If Git is unavailable set `code_commit` to `None`; the implementation content hash remains mandatory. Use same-filesystem atomic rename into `~/.Trash` for the root volume and `$VOLUME_ROOT/.Trashes/$UID` for external volumes; if Trash is unavailable, abort force/failure cleanup without deleting data.
+Implement expected-path enumeration, complete/missing status, atomic temporary-copy promotion, and recoverable Trash moves. Existing final artifacts are immutable during ordinary execution. Failure removes or moves temporary files only and does not create a persistent failure marker.
 
 - [ ] **Step 5: Run tests and commit**
 
 ```bash
-conda run -n leaddbs python -m pytest my_helper/fiber/core/vta_pipeline/tests/test_paths_and_provenance.py -q
+conda run -n leaddbs python -m pytest my_helper/fiber/core/vta_pipeline/tests/test_paths_and_artifacts.py -q
 git add my_helper/vta/README.md my_helper/fiber/core/vta_pipeline
-git commit -m "feat: manage VTA leaf provenance"
+git commit -m "feat: manage path-based VTA artifacts"
 ```
 
 ### Task 5: Read-Only CLI Surface
@@ -603,7 +581,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 ```
 
-`validate` validates model, study base, selected records, reconstruction, preoperative anchor, normalization transform, and atlas availability. `plan` prints ordered task IDs and output paths. `status` prints one row per planned leaf with `missing`, `completed`, `failed`, or `stale`. The `run` handler must exist but return a clear `execution backend is not installed` error until Task 10 connects it.
+`validate` validates model, study base, selected records, reconstruction, preoperative anchor, normalization transform, and atlas availability. `plan` prints ordered task IDs and output paths. `status` prints one row per planned leaf with `missing` or `complete`, based only on the four expected artifact paths. The `run` handler must exist but return a clear `execution backend is not installed` error until Task 10 connects it.
 
 - [ ] **Step 5: Run tests and commit**
 
@@ -630,7 +608,7 @@ git commit -m "feat: add VTA model CLI"
 
 - [ ] **Step 1: Document the MATLAB task JSON**
 
-Document these required top-level fields: task/run IDs, kind, subject/reconstruction paths, phase/program/electrode/group IDs, hemisphere, delivery mode, sources, conductivities, atlas, spaces, thresholds, output leaves, hashes, and flags `resume`/`force`. State that backend is not part of the payload.
+Document these required top-level fields: task ID, kind, subject/reconstruction paths, phase/program/electrode/group IDs, hemisphere, delivery mode, sources, conductivities, atlas, spaces, thresholds, output leaves, and missing-artifact instructions. State that backend, provenance hashes, and project labels are not part of the payload.
 
 - [ ] **Step 2: Write failing MATLAB contract tests**
 
@@ -814,7 +792,7 @@ for threshold = thresholds
 end
 ```
 
-Rebuild a missing head model in `$LEADDBS_SUBJECT_DIR/headmodel/native/`; save `mh_vta_headmodel_contract` in the MAT file and validate its subject ID, side, atlas, conductivities, reconstruction hash, anchor hash, and Lead-DBS implementation hash before reuse. A mismatch triggers rebuild only through explicit run/force semantics; never silently reuse a stale head model.
+Build a missing head model in `$LEADDBS_SUBJECT_DIR/headmodel/native/`. If the canonical head-model path exists, reuse it without provenance or hash comparison. Loading an existing unreadable or structurally invalid MAT file fails explicitly and does not silently replace it. `--force` applies only to selected stimulation leaves; rebuilding a head model requires the operator to move its canonical file out of the way.
 
 - [ ] **Step 5: Run tests and commit**
 
@@ -898,14 +876,16 @@ git commit -m "feat: derive alternating group peak VTA"
 - Modify: `my_helper/fiber/core/vta_pipeline/cli.py`
 - Create: `my_helper/fiber/core/vta_pipeline/tests/test_matlab_bridge.py`
 - Modify: `my_helper/fiber/core/vta_pipeline/tests/test_cli.py`
+- Modify: `my_helper/fiber/core/stimulation/model/mh_vta_launch_process_workers.m`
+- Create: `my_helper/fiber/core/vta_pipeline/tests/test_no_project_hardcoding.py`
 - Modify: `my_helper/vta/README.md`
 
 **Interfaces:**
-- Produces: `MatlabBridge.run_task(task, context) -> None` and `RunService.run(plan, workers, resume, force) -> RunSummary`.
+- Produces: `MatlabBridge.run_task(task, context) -> None` and `RunService.run(plan, workers, resume, force) -> RunSummary` with `generated`, `copied`, `skipped_existing`, `failed`, and `skipped_dependency` counts.
 
 - [ ] **Step 1: Document execution and failure policy**
 
-Document that tasks within one subject are sequential, subjects may run concurrently, a failed subject stops its dependent tasks but does not cancel other subjects, and the final CLI exit code is nonzero if any selected task fails.
+Document that tasks within one subject are sequential, subjects may run concurrently, a failed task skips only its dependency descendants, independent tasks for the same subject continue, and the final CLI exit code is nonzero if any selected task fails. For each selected group, runtime scans all same-subject frequency groups represented by `study_base.json` for exactly equivalent existing artifacts. Donor failure skips only selected recipients that still depend on that donor; complete donors atomically copy only missing artifacts.
 
 - [ ] **Step 2: Write failing bridge/executor tests**
 
@@ -925,6 +905,17 @@ def test_workers_never_overlap_tasks_from_same_subject(fake_bridge):
     assert summary.failed == 0
     assert fake_bridge.maximum_inflight_per_subject == 1
     assert fake_bridge.maximum_subjects_inflight == 2
+
+
+def test_failed_task_does_not_stop_independent_sibling(fake_bridge):
+    summary = RunService(fake_bridge).run(PLAN_WITH_FAILED_OWNER_AND_SIBLING, workers=1)
+    assert summary.failed == 1
+    assert summary.skipped_dependency == 1
+    assert summary.generated == 1
+
+
+def test_generic_production_modules_contain_no_project_control_literals():
+    assert forbidden_control_literals_in_generic_modules() == []
 ```
 
 - [ ] **Step 3: Run tests and confirm failure**
@@ -947,7 +938,7 @@ command = [
 subprocess.run(command, check=True, text=True, capture_output=False)
 ```
 
-Serialize task JSON atomically in the task working directory. Use one `ThreadPoolExecutor(max_workers=workers)` future per subject and run that subject's topological task list in one worker. Connect leaf state transitions around each MATLAB invocation. Default workers to `1`; require a positive integer.
+Serialize task JSON atomically in the task working directory. Use one `ThreadPoolExecutor(max_workers=workers)` future per subject and run that subject's topological task list in one worker. Before MATLAB invocation, determine which native/MNI artifacts are missing. For each missing artifact, scan deterministic same-subject equivalent-group paths and copy the first existing match. Pass only still-missing generation instructions to MATLAB. If multiple equivalent selected groups remain missing, generate the first selected group and use it as the in-run donor without writing to any unselected path. Track task outcomes in memory so only dependency descendants are skipped. Default workers to `1`; require a positive integer. Remove the legacy `STNSNR_VTA_SUBJECT_IDS` project-named environment-variable dependency from canonical execution. Generic production modules cannot branch on concrete subject, phase, program, target, study, HF/ULF, chronic, or immediate literals; fixture-only tests and acceptance scripts are explicitly outside this static production-module check.
 
 - [ ] **Step 5: Run Python tests and commit**
 
@@ -1027,7 +1018,7 @@ First run the Task 11 test command. Then run:
 matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); run_single_current_backend_equivalence('StudyBase','/Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json','WorkRoot','/Volumes/VAL/STNSNr/validation','SubjectId','SNr003');"
 ```
 
-Expected: all bilateral voltage/current gates pass and the production subject tree hash inventory is unchanged.
+Expected: all bilateral voltage/current gates pass and the production subject tree path/size inventory is unchanged.
 
 - [ ] **Step 6: Commit acceptance code and documentation**
 
@@ -1046,11 +1037,16 @@ git commit -m "test: validate voltage and current one-solve FEM"
 - Modify: `docs/superpowers/specs/2026-07-12-vta-model-yaml-delivery-aware-design.md`
 
 **Interfaces:**
-- Final acceptance of `validate`, `plan`, `run`, `status`, resume, force-to-Trash, head-model rebuild, and all artifacts for copied SNr003.
+- Representative acceptance of `validate`, `plan`, `run`, `status`, path-only skip/repair, force-to-Trash, same-subject frequency-group reuse, head-model reuse, and voltage/current execution for copied SNr003.
+- The acceptance run must not execute all 20 SNr003 tasks.
 
 - [ ] **Step 1: Update documentation status before the end-to-end run**
 
-Add an implementation-status table with `implemented`, `unit_validated`, `fem_validated`, and `production_rebuild_not_started`. Do not mark production complete.
+Keep the implementation-status table at `migration_in_progress` until the
+path-only state machine and representative end-to-end gate both pass. Preserve
+the narrower `unit_validated` and historical `fem_validated` evidence labels,
+and keep `production_rebuild_not_started`. Do not describe the migration or
+production rebuild as complete.
 
 - [ ] **Step 2: Run all static/unit suites**
 
@@ -1098,7 +1094,7 @@ conda run -n leaddbs python -m pytest my_helper/vta/test/test_prepare_copied_vta
 
 Expected: pass after implementation.
 
-- [ ] **Step 4: Create a copied SNr003 study base and execute the CLI**
+- [ ] **Step 4: Create a copied SNr003 study base and execute representative tasks**
 
 Run:
 
@@ -1106,16 +1102,25 @@ Run:
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 VALIDATION_STUDY="$(conda run -n leaddbs python my_helper/vta/test/prepare_copied_vta_validation.py --study-base /Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json --subject SNr003 --work-root /Volumes/VAL/STNSNr/validation --run-id "$RUN_ID")"
 conda run -n leaddbs my_helper/fiber/pipelines/vta-model validate --study-base "$VALIDATION_STUDY" --vta-model my_helper/stnsnr/config/vta_model.yaml --subject SNr003
-conda run -n leaddbs my_helper/fiber/pipelines/vta-model plan --study-base "$VALIDATION_STUDY" --vta-model my_helper/stnsnr/config/vta_model.yaml --subject SNr003
-conda run -n leaddbs my_helper/fiber/pipelines/vta-model run --study-base "$VALIDATION_STUDY" --vta-model my_helper/stnsnr/config/vta_model.yaml --subject SNr003 --workers 1
+conda run -n leaddbs my_helper/fiber/pipelines/vta-model run --study-base "$VALIDATION_STUDY" --vta-model my_helper/stnsnr/config/vta_model.yaml --subject SNr003 --phase T1 --program 1 --workers 1
+conda run -n leaddbs my_helper/fiber/pipelines/vta-model run --study-base "$VALIDATION_STUDY" --vta-model my_helper/stnsnr/config/vta_model.yaml --subject SNr003 --phase T2 --program 2 --electrode lead-L --workers 1
+conda run -n leaddbs my_helper/fiber/pipelines/vta-model run --study-base "$VALIDATION_STUDY" --vta-model my_helper/stnsnr/config/vta_model.yaml --subject SNr003 --phase T3 --program 2 --electrode lead-L --workers 1
 conda run -n leaddbs my_helper/fiber/pipelines/vta-model status --study-base "$VALIDATION_STUDY" --vta-model my_helper/stnsnr/config/vta_model.yaml --subject SNr003
 ```
 
-Expected: the copied subject receives canonical head models and every planned native/MNI leaf reports `completed` with an E-field hash and three VTA files.
+The representative commands execute exactly two continuous joint tasks and the
+two alternating source solves plus group-peak derivation for one hemisphere.
+In this fixture only, T2 and T3 contain physically identical frequency groups,
+so the later command must reuse the existing same-subject group artifacts and
+perform no additional physical solve or derivation. T2/T3 values are acceptance
+data, not implementation branches. The current-control numerical suite remains
+a separate deterministic acceptance command. Expected: every selected
+native/MNI leaf reports `complete` and contains one E-field plus three VTA
+files; no `provenance.json` is created.
 
-- [ ] **Step 5: Verify resume and force semantics**
+- [ ] **Step 5: Verify path-only repair, alias copy, and force semantics**
 
-Run the copied-subject command with `--resume`; expect zero FEM invocations and unchanged hashes. Run one filtered leaf with `--force`; expect the old leaf in Trash and a new completed leaf. Confirm no production subject path changed.
+Run the representative command again with and without `--resume`; expect zero FEM invocations because every expected path exists. Remove one copied-subject threshold by moving it to Trash, rerun, and expect only that missing threshold to be recreated from an existing equivalent-group artifact or the selected group's existing E-field. Verify with synthetic arbitrary phase/program labels that same-subject equivalent groups copy missing artifacts, while equal groups in different subjects do not. Run one filtered stimulation leaf with `--force`; expect the old leaf in Trash and regenerated artifacts while the existing head model remains untouched. Confirm no production subject path changed.
 
 - [ ] **Step 6: Validate production rebuild plan without running it**
 
@@ -1123,7 +1128,11 @@ Run the copied-subject command with `--resume`; expect zero FEM invocations and 
 conda run -n leaddbs my_helper/fiber/pipelines/vta-model plan --study-base /Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json --vta-model my_helper/stnsnr/config/vta_model.yaml --all-subjects
 ```
 
-Expected: 16 subjects are selected, all canonical head models are reported missing/rebuild-required, and no output is created. Production execution requires a separate explicit user instruction after this plan is implemented and accepted.
+Expected: 16 subjects are selected; each required hemisphere reports
+`reuse_existing` when its canonical head-model path exists or `build_required`
+when it does not; and no output is created. Production execution requires a
+separate explicit user instruction after this plan is implemented and
+accepted.
 
 - [ ] **Step 7: Final documentation commit**
 
@@ -1135,7 +1144,7 @@ git commit -m "docs: record VTA pipeline acceptance"
 ## Final Acceptance Checklist
 
 - [ ] Public YAML contains only the approved conductivities, atlas, spaces, and VTA thresholds.
-- [ ] Changing target/component labels does not alter the task DAG or hashes.
+- [ ] Changing target/component, phase, program, or subject display labels does not alter normalized physical-group equality.
 - [ ] Continuous groups use one joint `simbio_onesolve` task.
 - [ ] Alternating groups use independent `simbio_onesolve` source tasks and a derived maximum E-field.
 - [ ] Voltage and current groups pass strict unit and numerical gates.
@@ -1144,9 +1153,12 @@ git commit -m "docs: record VTA pipeline acceptance"
 - [ ] MNI E-field is transformed from native continuous E-field.
 - [ ] All binary VTAs are thresholded in their own space at 180/200/220 V/m.
 - [ ] Artifact hierarchy is deterministic and hierarchical.
-- [ ] Completed and failed leaves use the exact minimal provenance contract.
+- [ ] Leaves contain only one E-field and three threshold artifacts; no `provenance.json` is generated.
 - [ ] `--workers` parallelizes subjects only.
-- [ ] Resume is hash-safe; force and failed-partial cleanup use Trash.
-- [ ] Copied SNr003 end-to-end acceptance passes without modifying production subjects.
+- [ ] Ordinary run and `--resume` preserve existing paths and fill only missing artifacts.
+- [ ] Same-subject equivalent frequency groups reuse existing artifacts without hashes; no phase/program/subject literal controls behavior.
+- [ ] A failed task skips only dependency descendants; independent tasks continue.
+- [ ] Force uses Trash and does not implicitly rebuild an existing head model.
+- [ ] Representative copied SNr003 acceptance passes without running all 20 tasks or modifying production subjects.
 - [ ] Production all-subject planning selects 16 subjects and performs no writes.
 - [ ] Production rebuild remains unstarted until separately authorized.
