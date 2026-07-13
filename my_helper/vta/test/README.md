@@ -13,6 +13,11 @@ The current real-data pilot is deliberately bounded to subject `SNr003`, phase
 not establish numerical equivalence for SceneRay electrodes or multi-source
 stimulation.
 
+Historical voltage artifacts retain the atlas identity recorded in their own
+manifest. Any new voltage or current acceptance run uses the canonical atlas
+`Custom_Ewert_Zhang_Middlebrooks`; an earlier `0.05`-suffixed atlas directory
+must not be silently treated as the current acceptance atlas.
+
 The runner:
 
 1. reads source, electrode, reconstruction, and subject paths from
@@ -75,3 +80,60 @@ run_single_source_backend_equivalence( ...
 The default selection is `SNr003`, `T1`, program `1`. The generated validation
 directory contains manifests, case inventories, head-model hashes, comparison
 tables, summaries, copied inputs, and backend outputs.
+
+## Deterministic Current Acceptance
+
+`run_single_current_backend_equivalence` is the current-controlled companion to
+the historical voltage pilot. The two suites remain separate evidence: the
+voltage suite records the existing SNr003 bilateral single-source comparison,
+while the current suite generates deterministic hypothetical current programs
+for both SNr003 hemispheres and compares the standard SimBio current path with
+the canonical `simbio_onesolve` current path. A voltage pass is not treated as
+current evidence, and synthetic current tests are not reported as completed
+real-FEM acceptance.
+
+The current fixture seed is fixed at `20260712`. Generated amplitudes are in
+the inclusive range `0.5-5.0 mA`, pulse widths are in the inclusive range
+`30-120 us`, and every fixture uses the atlas
+`Custom_Ewert_Zhang_Middlebrooks`. For each hemisphere the inventory contains:
+
+1. one cathode with case return;
+2. multiple cathodes with normalized cathodic fractions and case return; and
+3. separately normalized cathode and electrode-return fractions.
+
+Fixture ordering, selected contacts, amplitudes, pulse widths, and fractions
+must be byte-stable for the same seed. The runner refuses a `WorkRoot` that is
+the production Lead-DBS derivatives tree, lies inside it, or contains it. Real
+acceptance always operates on a copied subject below a new validation root and
+never writes the source SNr003 subject tree.
+
+For every current case and hemisphere, both current paths run twice. The suite
+uses the same native/MNI continuous E-field and 180/200/220 V/m gates listed
+above, with exact within-path repeatability. It also includes a solver-free
+vector-field fixture. That fixture requires signed linear superposition of
+per-source vector fields before magnitude calculation and verifies that neither
+the scalar maximum nor the scalar sum of individual field magnitudes can be
+substituted for vector superposition.
+
+The lightweight test entry point exercises fixture generation, safety guards,
+inventory validation, and the independent vector-superposition fixture. The
+existing synthetic NIfTI comparison test separately verifies the shared strict
+E-field/VTA gates. Neither test invokes meshing or FEM:
+
+```matlab
+r = testsuite('my_helper/vta/test/test_run_single_current_backend_equivalence.m');
+assertSuccess(run(r));
+```
+
+The copied-subject FEM acceptance is deliberately separate and must be started
+explicitly:
+
+```matlab
+run_single_current_backend_equivalence( ...
+    'StudyBase', '/Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json', ...
+    'WorkRoot', '/Volumes/VAL/STNSNr/validation', ...
+    'SubjectId', 'SNr003');
+```
+
+This command is not part of the lightweight test suite and is not run while the
+current harness itself is being implemented.

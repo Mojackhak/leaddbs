@@ -15,6 +15,8 @@ parser.addParameter('ReusePreparedRoot', false, @(x) islogical(x) || isnumeric(x
 parser.parse(varargin{:});
 opts = parser.Results;
 
+assert_safe_work_root(opts.WorkRoot);
+
 repoDir = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
 addpath(genpath(repoDir), '-end');
 templateSpace = 'MNI152NLin2009bAsym';
@@ -779,4 +781,23 @@ end
 function value = timestamp_iso()
 value = char(datetime('now', 'TimeZone', 'UTC', ...
     'Format', 'yyyy-MM-dd''T''HH:mm:ss.SSS''Z'''));
+end
+
+function assert_safe_work_root(value)
+root = canonical_path(value);
+production = canonical_path('/Volumes/VAL/STNSNr/derivatives/leaddbs');
+rootPrefix = [root, filesep];
+productionPrefix = [production, filesep];
+if strcmp(root, production) || startsWith(rootPrefix, productionPrefix) || ...
+        startsWith(productionPrefix, rootPrefix)
+    error('mh_vta_acceptance:UnsafeWorkRoot', ...
+        'WorkRoot must be outside the production Lead-DBS derivatives tree.');
+end
+end
+
+function path = canonical_path(value)
+path = char(java.io.File(char(string(value))).getCanonicalPath());
+while numel(path) > 1 && path(end) == filesep
+    path(end) = [];
+end
 end

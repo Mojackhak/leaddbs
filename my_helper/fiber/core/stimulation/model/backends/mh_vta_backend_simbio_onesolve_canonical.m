@@ -4,8 +4,8 @@ function status = mh_vta_backend_simbio_onesolve_canonical(task)
 [options, S, sideIndex, anchorPath, mniReference] = build_context(task);
 contract = headmodel_contract(task, anchorPath);
 stimLabel = ['canonical-', task.task_id(1:12)];
-[headmodelPath, headmodelState] = mh_vta_prepare_canonical_headmodel( ...
-    S, sideIndex, options, stimLabel, contract);
+[headmodelPath, headmodelState] = prepare_headmodel( ...
+    task, S, sideIndex, options, stimLabel, contract);
 
 hm = load(headmodelPath, ...
     'vol', 'mesh', 'centroids', 'wmboundary', 'elfv', 'meshregions');
@@ -39,6 +39,39 @@ status = struct( ...
     'headmodel_state', headmodelState, ...
     'native_efield', nativeEfield, ...
     'mni_efield', mniEfield);
+end
+
+function [path, state] = prepare_headmodel( ...
+        task, S, sideIndex, options, stimLabel, contract)
+try
+    [path, state] = mh_vta_prepare_canonical_headmodel( ...
+        S, sideIndex, options, stimLabel, contract);
+catch ME
+    if ~strcmp(ME.identifier, ...
+            'mh_vta_prepare_canonical_headmodel:IncompatibleHeadmodel') || ...
+            ~logical(task.force)
+        rethrow(ME);
+    end
+    path = canonical_headmodel_path(options, sideIndex);
+    protocolPath = canonical_protocol_path(options, sideIndex);
+    mh_vta_move_path_to_trash(path);
+    mh_vta_move_path_to_trash(protocolPath);
+    [path, state] = mh_vta_prepare_canonical_headmodel( ...
+        S, sideIndex, options, stimLabel, contract);
+    state = ['force_', state];
+end
+end
+
+function path = canonical_headmodel_path(options, sideIndex)
+subjectId = regexprep(char(string(options.subj.subjId)), '^sub-', '');
+path = fullfile(options.subj.subjDir, 'headmodel', 'native', ...
+    sprintf('sub-%s_desc-headmodel%d.mat', subjectId, sideIndex));
+end
+
+function path = canonical_protocol_path(options, sideIndex)
+subjectId = regexprep(char(string(options.subj.subjId)), '^sub-', '');
+path = fullfile(options.subj.subjDir, 'headmodel', 'native', ...
+    sprintf('sub-%s_desc-hmprotocol%d.mat', subjectId, sideIndex));
 end
 
 function [options, S, sideIndex, anchorPath, mniReference] = build_context(task)

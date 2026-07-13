@@ -540,6 +540,20 @@ not depend on an artifact index.
 
 ## Validation And Test Strategy
 
+### Implementation Status
+
+| Scope | Status | Meaning |
+| --- | --- | --- |
+| Canonical YAML, study-base adapter, task DAG, CLI, provenance, and MATLAB task execution | `implemented` | The delivery-aware implementation exists in the repository. |
+| Static and deterministic unit coverage | `unit_validated` | Automated Python and MATLAB unit suites validate their covered contracts. |
+| Historical bilateral SNr003 single-voltage backend comparison | `fem_validated` | Existing numerical evidence covers only the documented single-voltage pilot. |
+| Real-cohort output rebuild | `production_rebuild_not_started` | Production subject trees and model outputs have not been rebuilt by this pipeline. |
+
+The copied-subject preparation helper is an isolation mechanism, not numerical
+FEM evidence. The copied-subject end-to-end gate remains unverified until its
+separate explicit run is completed. No production execution is implied by any
+status in this table.
+
 ### Schema And Planner
 
 Tests must cover:
@@ -641,7 +655,7 @@ separate explicit approval after implementation acceptance.
 
 ## Implementation Boundary
 
-Implementation work begins only after this written specification is reviewed
-and a separate detailed implementation plan is approved. The implementation
-must update relevant documentation before code changes and use the Conda
-environment `leaddbs` for repository tests and tooling.
+Implementation follows the approved detailed plan. Relevant documentation is
+updated before each code change, and repository tests and tooling use the Conda
+environment `leaddbs`. Copied-subject and production FEM execution remain
+separate, explicit acceptance operations.

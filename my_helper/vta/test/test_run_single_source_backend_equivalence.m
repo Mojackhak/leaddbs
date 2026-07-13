@@ -15,6 +15,11 @@ mkdir(workRoot);
 mkdir(stubDir);
 cleanupObj = onCleanup(@() cleanup_test(testRoot, stubDir));
 
+assert_error_id(@() run_single_source_backend_equivalence( ...
+    'StudyBase', fullfile(testRoot, 'missing.json'), ...
+    'WorkRoot', '/Volumes/VAL/STNSNr/derivatives/leaddbs'), ...
+    'mh_vta_acceptance:UnsafeWorkRoot');
+
 write_text(fullfile(sourceDataset, 'dataset_description.json'), ...
     jsonencode(struct('Name', 'Synthetic VTA acceptance', ...
     'BIDSVersion', '1.6.0', 'DatasetType', 'raw'), PrettyPrint=true));
@@ -81,7 +86,7 @@ assert(contains(string(manifest.copied_subject_dir), ...
 assert(isfile(fullfile(result.run_root, 'copied_subject', ...
     'dataset_description.json')), ...
     'Copied BIDS root must contain dataset_description.json.');
-assert(strcmp(manifest.atlas_set, 'Custom_Ewert_Zhang_Middlebrooks0.05'), ...
+assert(strcmp(manifest.atlas_set, 'Custom_Ewert_Zhang_Middlebrooks'), ...
     'Manifest atlas mismatch.');
 assert(strcmp(manifest.template_space, 'MNI152NLin2009bAsym'), ...
     'Manifest template-space mismatch.');
@@ -128,6 +133,17 @@ assert(didFail, 'Reuse must reject a validation root containing outputs.');
 fprintf('Single-source backend equivalence runner contract test passed.\n');
 end
 
+function assert_error_id(operation, expectedId)
+actualId = '';
+try
+    operation();
+catch ME
+    actualId = ME.identifier;
+end
+assert(strcmp(actualId, expectedId), ...
+    'Expected error ID "%s", received "%s".', expectedId, actualId);
+end
+
 function test_explicit_horn_seed(testRoot)
 originalDirectory = pwd;
 directoryCleanup = onCleanup(@() cd(originalDirectory));
@@ -172,7 +188,7 @@ function write_fixture_subject(subjectDir)
 mkdir(fullfile(subjectDir, 'reconstruction'));
 mkdir(fullfile(subjectDir, 'normalization', 'transformations'));
 atlasDir = fullfile(subjectDir, 'atlases', ...
-    'Custom_Ewert_Zhang_Middlebrooks0.05');
+    'Custom_Ewert_Zhang_Middlebrooks');
 mkdir(atlasDir);
 write_text(fullfile(subjectDir, 'reconstruction', ...
     'sub-Test003_desc-reconstruction.mat'), 'reconstruction');

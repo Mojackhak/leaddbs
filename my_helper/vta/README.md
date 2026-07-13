@@ -5,6 +5,19 @@ The generic VTA pipeline consumes canonical stimulation records from a
 Project-specific workbooks, target labels, component labels, HF/ULF roles, and
 clinical endpoint definitions are outside the VTA execution contract.
 
+## Implementation Status
+
+| Scope | Status | Meaning |
+| --- | --- | --- |
+| Canonical YAML, study-base adapter, task DAG, CLI, provenance, and MATLAB task execution | `implemented` | The delivery-aware implementation exists in the repository. |
+| Static and deterministic unit coverage | `unit_validated` | Automated Python and MATLAB unit suites validate their covered contracts. |
+| Historical bilateral SNr003 single-voltage backend comparison | `fem_validated` | Existing numerical evidence covers only the documented single-voltage pilot. |
+| Real-cohort output rebuild | `production_rebuild_not_started` | Production subject trees and model outputs have not been rebuilt by this pipeline. |
+
+The copied-subject end-to-end FEM gate is separate from unit validation. Its
+preparation helper creates an isolated validation study base and subject copy;
+creating that copy does not run FEM or establish end-to-end acceptance.
+
 ## Public Model Profile
 
 The `vta_model_v1` public profile contains only tissue conductivity, atlas,
@@ -198,6 +211,11 @@ The embedded `mh_vta_headmodel_contract` records subject, side, atlas,
 conductivity, reconstruction, native-anchor, and implementation hashes. Missing
 head models are rebuilt. A stale contract is rejected unless replacement was
 explicitly authorized.
+
+When `--force` explicitly authorizes an incompatible head-model replacement,
+the old head model and matching Horn protocol are moved to the same-filesystem
+Trash before rebuilding. If that move cannot be completed, execution aborts;
+canonical execution never permanently deletes an existing head model.
 
 Canonical head-model preparation invokes the Horn meshing path in an internal
 head-model-only mode. That call stops immediately after writing the volume
