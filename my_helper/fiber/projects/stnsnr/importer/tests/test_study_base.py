@@ -32,6 +32,20 @@ FIXED_TIME = datetime(2026, 7, 11, 12, 30, tzinfo=timezone.utc)
 
 
 class StudyBaseImporterTests(unittest.TestCase):
+    @staticmethod
+    def _first_source_context(payload: dict[str, object]):
+        subject = payload["study"]["subjects"][0]
+        program = subject["phases"][1]["programs"][0]
+        electrode_program = program["electrode_programs"][0]
+        group = electrode_program["frequency_groups"][0]
+        source = group["sources"][0]
+        electrode = next(
+            row
+            for row in subject["electrodes"]
+            if row["electrode_id"] == electrode_program["electrode_id"]
+        )
+        return group, source, electrode
+
     def _write_reconstruction(
         self,
         root: Path,
@@ -349,6 +363,100 @@ class StudyBaseImporterTests(unittest.TestCase):
         payload["study"]["stimulation_components"][0]["label"] = "SNr"
         with self.assertRaisesRegex(StudyBaseImportError, "stimulation component catalog"):
             validate_study_base(payload)
+
+    def test_schema_and_semantics_accept_voltage_multi_contact_case_return(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+        _, source, electrode = self._first_source_context(payload)
+        used = source["contacts"][0]["contact"]
+        extra = next(index for index in range(electrode["contact_count"]) if index != used)
+        source["contacts"].insert(
+            1,
+            {"contact": extra, "polarity": "cathode", "fraction": 1.0},
+        )
+        validate_study_base(payload)
+
+    def test_schema_and_semantics_accept_current_explicit_allocation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+        _, source, electrode = self._first_source_context(payload)
+        used = source["contacts"][0]["contact"]
+        extra = next(index for index in range(electrode["contact_count"]) if index != used)
+        source["control_mode"] = "current"
+        source["contacts"] = [
+            {"contact": used, "polarity": "cathode", "fraction": 0.7},
+            {"contact": extra, "polarity": "cathode", "fraction": 0.3},
+            {"contact": "case", "polarity": "anode", "fraction": 1.0},
+        ]
+        validate_study_base(payload)
+
+    def test_schema_and_semantics_accept_voltage_bipolar_return(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+        _, source, electrode = self._first_source_context(payload)
+        used = source["contacts"][0]["contact"]
+        return_contact = next(
+            index for index in range(electrode["contact_count"]) if index != used
+        )
+        source["contacts"] = [
+            {"contact": used, "polarity": "cathode", "fraction": 1.0},
+            {"contact": return_contact, "polarity": "anode", "fraction": 1.0},
+        ]
+        validate_study_base(payload)
+
+    def test_continuous_allows_multiple_sources_and_alternating_requires_two(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+        group, source, electrode = self._first_source_context(payload)
+        second = copy.deepcopy(source)
+        second["source_id"] = "source-2"
+        used = source["contacts"][0]["contact"]
+        second["contacts"][0]["contact"] = next(
+            index for index in range(electrode["contact_count"]) if index != used
+        )
+        group["sources"].append(second)
+        validate_study_base(payload)
+
+        group["delivery_mode"] = "alternating"
+        validate_study_base(payload)
+        group["sources"] = group["sources"][:1]
+        with self.assertRaises(StudyBaseImportError):
+            validate_study_base(payload)
+
+    def test_semantics_reject_invalid_contact_contracts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+
+        duplicate = copy.deepcopy(payload)
+        _, source, _ = self._first_source_context(duplicate)
+        source["contacts"].insert(1, copy.deepcopy(source["contacts"][0]))
+        with self.assertRaises(StudyBaseImportError):
+            validate_study_base(duplicate)
+
+        missing_anode = copy.deepcopy(payload)
+        _, source, _ = self._first_source_context(missing_anode)
+        source["contacts"] = [source["contacts"][0]]
+        with self.assertRaises(StudyBaseImportError):
+            validate_study_base(missing_anode)
+
+        invalid_voltage = copy.deepcopy(payload)
+        _, source, _ = self._first_source_context(invalid_voltage)
+        source["contacts"][0]["fraction"] = 0.5
+        with self.assertRaises(StudyBaseImportError):
+            validate_study_base(invalid_voltage)
+
+        mixed_return = copy.deepcopy(payload)
+        _, source, electrode = self._first_source_context(mixed_return)
+        used = source["contacts"][0]["contact"]
+        return_contact = next(
+            index for index in range(electrode["contact_count"]) if index != used
+        )
+        source["contacts"].insert(
+            1,
+            {"contact": return_contact, "polarity": "anode", "fraction": 1.0},
+        )
+        with self.assertRaises(StudyBaseImportError):
+            validate_study_base(mixed_return)
 
     def test_serialized_subjects_begin_with_id_and_label(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
