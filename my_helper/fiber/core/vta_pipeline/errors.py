@@ -15,3 +15,7 @@ class StudyBaseError(VtaPipelineError):
 
 class PlanningError(VtaPipelineError):
     """Raised when VTA task selection or DAG construction is invalid."""
+
+
+class ArtifactError(VtaPipelineError):
+    """Raised when artifact state cannot be changed without data loss."""

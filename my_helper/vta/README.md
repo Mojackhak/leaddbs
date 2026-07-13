@@ -107,3 +107,30 @@ $LEADDBS_SUBJECT_DIR/stimulations/$SPACE/
 Subject, phase, program, electrode, and frequency-group filters are exact. An
 unknown selector or a selection producing no solve tasks is an error rather
 than a successful empty plan.
+
+## Leaf Artifacts And Provenance
+
+Every completed native or MNI leaf contains:
+
+```text
+efield.nii.gz
+vta_threshold-0p18Vpermm.nii.gz
+vta_threshold-0p20Vpermm.nii.gz
+vta_threshold-0p22Vpermm.nii.gz
+provenance.json
+```
+
+`provenance.json` contains only `schema_version`, `run_id`, `input_hash`,
+`study_base_sha256`, `vta_model_sha256`, `code_commit`, `efield_sha256`, and
+`final_status`, in that order. `final_status` is last and accepts only
+`completed` or `failed`. Git absence is represented by `code_commit: null`.
+
+Resume reuses a leaf only when its status is `completed`, its input hash
+matches the planned input, its E-field exists, and the current E-field SHA-256
+matches provenance. Otherwise the leaf is stale and is not reused.
+
+Force replacement moves the previous leaf directory to the filesystem Trash
+before creating a new leaf. Failure cleanup also moves partial scientific
+artifacts to Trash and then writes a failed provenance file with
+`efield_sha256: null`. If Trash cannot be used, replacement or cleanup aborts
+without permanently deleting data.
