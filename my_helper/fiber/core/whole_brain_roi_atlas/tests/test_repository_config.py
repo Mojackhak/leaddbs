@@ -18,6 +18,7 @@ class RepositoryConfigTests(unittest.TestCase):
         config = load_atlas_config(CONFIG)
         labels = resolve_labels(config, nib.load(config.source_labeling))
 
+        self.assertEqual(config.atlas_root.name, "HybraPD Whole Brain (Yu 2021)")
         self.assertEqual(len(labels), 198)
         self.assertEqual(len(config.categories.cortical_limbic), 90)
         self.assertEqual(len(config.categories.cerebellar_hemisphere), 18)

@@ -179,7 +179,7 @@ def write_readme(root: Path, rows: list[dict[str, Any]], census: EndpointCensus)
     """Write a complete categorized region inventory and build interpretation."""
 
     lines = [
-        "# dTOR-HybraPD Whole-Brain ROI Atlas",
+        "# HybraPD Whole-Brain ROI Atlas",
         "",
         "This atlas is a deterministic mapping of HybraPD Whole Brain labels to the Lead-DBS MNI152NLin2009bAsym reference grid. dTOR provides streamline endpoints and does not define the anatomy.",
         "",

@@ -110,6 +110,7 @@ execution:
         }
         self.assertTrue(required.issubset({path.name for path in self.atlas_root.iterdir()}))
         readme = (self.atlas_root / "README.md").read_text(encoding="utf-8")
+        self.assertTrue(readme.startswith("# HybraPD Whole-Brain ROI Atlas\n"))
         for name in (
             "Precentral_L",
             "Vermis_1_2",
