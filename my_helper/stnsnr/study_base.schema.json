@@ -17,18 +17,18 @@
       "description": "Study metadata, source assets, subjects, and provenance.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["study_id", "study_label", "data_version", "frequency_components", "scale_definitions", "spot_model_sources", "subjects", "provenance"],
+      "required": ["study_id", "study_label", "data_version", "stimulation_components", "scale_definitions", "spot_model_sources", "subjects", "provenance"],
       "properties": {
         "study_id": {"type": "string", "minLength": 1},
         "study_label": {"type": "string", "minLength": 1},
         "data_version": {"const": "1"},
-        "frequency_components": {
-          "description": "Reference and add-on frequency components.",
+        "stimulation_components": {
+          "description": "Raw stimulation target components.",
           "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
           "items": {"$ref": "#/$defs/component"},
           "allOf": [
-            {"contains": {"properties": {"component_id": {"const": "frequency_1_reference"}}, "required": ["component_id"]}, "minContains": 1, "maxContains": 1},
-            {"contains": {"properties": {"component_id": {"const": "frequency_2_addon"}}, "required": ["component_id"]}, "minContains": 1, "maxContains": 1}
+            {"contains": {"properties": {"component_id": {"const": "target_stn"}}, "required": ["component_id"]}, "minContains": 1, "maxContains": 1},
+            {"contains": {"properties": {"component_id": {"const": "target_snr"}}, "required": ["component_id"]}, "minContains": 1, "maxContains": 1}
           ]
         },
         "scale_definitions": {"description": "Engineering-equivalent clinical scales.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/scale"}},
@@ -38,12 +38,12 @@
       }
     },
     "component": {
-      "description": "One frequency component definition.",
+      "description": "One raw stimulation target definition.",
       "type": "object", "additionalProperties": false,
       "required": ["component_id", "label"],
       "properties": {
-        "component_id": {"enum": ["frequency_1_reference", "frequency_2_addon"]},
-        "label": {"type": "string", "minLength": 1}
+        "component_id": {"enum": ["target_stn", "target_snr"]},
+        "label": {"enum": ["STN", "SNr"]}
       }
     },
     "scale": {
@@ -250,10 +250,9 @@
     "frequencyGroup": {
       "description": "Sources delivered continuously or in one alternating group.",
       "type": "object", "additionalProperties": false,
-      "required": ["frequency_group_id", "frequency_hz", "delivery_mode", "sources"],
+      "required": ["frequency_group_id", "delivery_mode", "sources"],
       "properties": {
         "frequency_group_id": {"type": "string", "minLength": 1},
-        "frequency_hz": {"type": "number", "exclusiveMinimum": 0},
         "delivery_mode": {"enum": ["continuous", "alternating"]},
         "sources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/source"}}
       }
@@ -261,11 +260,12 @@
     "source": {
       "description": "One voltage-controlled stimulation source.",
       "type": "object", "additionalProperties": false,
-      "required": ["source_id", "source_label", "component_id", "control_mode", "amplitude", "pulse_width_us", "contacts"],
+      "required": ["source_id", "source_label", "component_id", "frequency_hz", "control_mode", "amplitude", "pulse_width_us", "contacts"],
       "properties": {
         "source_id": {"type": "string", "minLength": 1},
         "source_label": {"enum": ["STN", "SNr"]},
-        "component_id": {"enum": ["frequency_1_reference", "frequency_2_addon"]},
+        "component_id": {"enum": ["target_stn", "target_snr"]},
+        "frequency_hz": {"type": "number", "exclusiveMinimum": 0},
         "control_mode": {"const": "voltage"},
         "amplitude": {"type": "number", "minimum": 0},
         "pulse_width_us": {"type": "number", "exclusiveMinimum": 0},

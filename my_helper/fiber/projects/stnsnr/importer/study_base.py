@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
+import errno
 import json
 import math
 import os
@@ -40,8 +41,8 @@ _PROGRAMMING_MAP = {
     ("3m", "STN+SNr"): ("T3", 2),
 }
 _TARGET_COMPONENT = {
-    "STN": "frequency_1_reference",
-    "SNr": "frequency_2_addon",
+    "STN": "target_stn",
+    "SNr": "target_snr",
 }
 _ELECTRODE_MODEL_CONTACTS = {
     "Medtronic 3387": 4,
@@ -274,6 +275,11 @@ def _validate_stimulation(frame: pd.DataFrame) -> None:
             raise StudyBaseImportError(
                 f"Contact must be an integer at source row {source_row}"
             )
+        frequency = _finite_number(row["Frequency"], "Frequency", source_row)
+        if frequency <= 0:
+            raise StudyBaseImportError(
+                f"Frequency must be positive at source row {source_row}"
+            )
 
 
 def _stimulation_programs(
@@ -333,6 +339,7 @@ def _stimulation_programs(
                             "source_id": f"source-{source_number}",
                             "source_label": target,
                             "component_id": _TARGET_COMPONENT[target],
+                            "frequency_hz": _finite_number(row["Frequency"], "Frequency", row_index + 2),
                             "control_mode": "voltage",
                             "amplitude": _finite_number(row["Voltage"], "Voltage", row_index + 2),
                             "pulse_width_us": _finite_number(row["PulseWidth"], "PulseWidth", row_index + 2),
@@ -345,7 +352,6 @@ def _stimulation_programs(
                 frequency_groups.append(
                     {
                         "frequency_group_id": f"group-{group_number}",
-                        "frequency_hz": frequencies[0],
                         "delivery_mode": group_key[0],
                         "sources": sources,
                     }
@@ -485,9 +491,9 @@ def build_study_base(
             "study_id": "stnsnr_frequency_addon",
             "study_label": "STNSNr frequency add-on",
             "data_version": "1",
-            "frequency_components": [
-                {"component_id": "frequency_1_reference", "label": "HF"},
-                {"component_id": "frequency_2_addon", "label": "ULF"},
+            "stimulation_components": [
+                {"component_id": "target_stn", "label": "STN"},
+                {"component_id": "target_snr", "label": "SNr"},
             ],
             "scale_definitions": scale_definitions,
             "spot_model_sources": _asset_sources(assets),
@@ -509,6 +515,11 @@ def build_study_base(
 
 def _validate_semantics(payload: Mapping[str, Any]) -> None:
     study = payload["study"]
+    if study["stimulation_components"] != [
+        {"component_id": "target_stn", "label": "STN"},
+        {"component_id": "target_snr", "label": "SNr"},
+    ]:
+        raise StudyBaseImportError("stimulation component catalog is invalid")
     scale_ids = [row["scale_id"] for row in study["scale_definitions"]]
     if len(scale_ids) != len(set(scale_ids)):
         raise StudyBaseImportError("duplicate scale_id")
@@ -575,10 +586,15 @@ def _validate_semantics(payload: Mapping[str, Any]) -> None:
                     for group in electrode_program["frequency_groups"]:
                         group_ids.append(group["frequency_group_id"])
                         source_ids: list[str] = []
+                        frequencies: set[float] = set()
                         for source in group["sources"]:
                             source_ids.append(source["source_id"])
                             component = source["component_id"]
                             components.add(component)
+                            frequency = source["frequency_hz"]
+                            if not isinstance(frequency, (int, float)) or isinstance(frequency, bool) or not math.isfinite(frequency) or frequency <= 0:
+                                raise StudyBaseImportError("source frequency_hz must be positive and finite")
+                            frequencies.add(float(frequency))
                             if _TARGET_COMPONENT.get(source["source_label"]) != component:
                                 raise StudyBaseImportError("source label/component mapping is invalid")
                             contacts = source["contacts"]
@@ -597,6 +613,8 @@ def _validate_semantics(payload: Mapping[str, Any]) -> None:
                             )
                             if not valid:
                                 raise StudyBaseImportError("source contact is outside its electrode range")
+                        if len(frequencies) != 1:
+                            raise StudyBaseImportError("mixed frequencies within frequency group")
                         if len(source_ids) != len(set(source_ids)):
                             raise StudyBaseImportError("duplicate source_id within frequency group")
                     if len(group_ids) != len(set(group_ids)):
@@ -606,9 +624,9 @@ def _validate_semantics(payload: Mapping[str, Any]) -> None:
                 role = program["condition_role"]
                 if role == "none" and (program["stimulation_state"] != "none" or components):
                     raise StudyBaseImportError("none program contains stimulation")
-                if role == "reference_only" and components != {"frequency_1_reference"}:
+                if role == "reference_only" and components != {"target_stn"}:
                     raise StudyBaseImportError("reference_only program component closure failed")
-                if role == "combined" and not {"frequency_1_reference", "frequency_2_addon"}.issubset(components):
+                if role == "combined" and not {"target_stn", "target_snr"}.issubset(components):
                     raise StudyBaseImportError("combined program component closure failed")
 
 
@@ -666,6 +684,40 @@ def write_study_base_atomic(
                 raise FileExistsError(
                     f"output exists; pass force to replace it: {destination}"
                 ) from exc
+            except OSError as exc:
+                unsupported = {errno.ENOTSUP, errno.EOPNOTSUPP}
+                if exc.errno not in unsupported:
+                    raise
+                descriptor: int | None = None
+                created_inode: tuple[int, int] | None = None
+                try:
+                    descriptor = os.open(
+                        destination,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                        0o666,
+                    )
+                    created = os.fstat(descriptor)
+                    created_inode = (created.st_dev, created.st_ino)
+                    with temporary.open("rb") as source, os.fdopen(descriptor, "wb") as stream:
+                        descriptor = None
+                        while chunk := source.read(1024 * 1024):
+                            stream.write(chunk)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                except FileExistsError as fallback_exc:
+                    raise FileExistsError(
+                        f"output exists; pass force to replace it: {destination}"
+                    ) from fallback_exc
+                except BaseException:
+                    if descriptor is not None:
+                        os.close(descriptor)
+                    try:
+                        current = destination.stat()
+                        if created_inode == (current.st_dev, current.st_ino):
+                            destination.unlink()
+                    except FileNotFoundError:
+                        pass
+                    raise
             temporary.unlink()
         temporary = None
     finally:
@@ -695,7 +747,6 @@ def program_to_vta_spec(
                 if component_id is not None and source["component_id"] != component_id:
                     continue
                 converted = dict(source)
-                converted["frequency_hz"] = group.get("frequency_hz")
                 converted["delivery_mode"] = group.get("delivery_mode")
                 converted["contacts"] = [
                     {
