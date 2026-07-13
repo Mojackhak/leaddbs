@@ -808,12 +808,31 @@ backend `build_context` function. Set the GM mode only to `mask`; do not add an
 conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_canonical_options_contract.m'); r=[r testsuite('my_helper/fiber/tests/test_vta_canonical_task_contract.m')]; r=[r testsuite('my_helper/fiber/tests/test_vta_common_grid_export.m')]; assertSuccess(run(r));"
 ```
 
-- [ ] **Step 4: Re-run copied-subject representative acceptance**
+- [x] **Step 4: Re-run copied-subject representative acceptance**
 
 Move any incomplete copied right-sided head-model artifacts to Trash before
 retrying. The right-sided run must no longer create a cumulative multi-ROI
 surface Boolean input. Native/MNI E-field and three threshold artifacts must be
 present before continuing to alternating-source and reuse acceptance.
+
+Acceptance evidence (2026-07-13):
+
+- Validation root:
+  `/Volumes/VAL/STNSNr/validation/vta_pipeline_e2e_maskfix_20260713T172111Z`.
+- Both `SNr003/T1/program-1` hemispheres completed from the configured patient
+  `gm_mask.nii.gz`. Each run loaded one 43,976-vertex/87,924-face mask surface;
+  neither run constructed the prior cumulative 4,972,826-vertex atlas-ROI
+  Boolean input.
+- The bilateral continuous run produced native and MNI E-field/VTA artifacts.
+- The left `SNr003/T2/program-2` alternating group generated two independent
+  source results plus one derived group-peak result (`generated=3`,
+  `failed=0`).
+- The matching `SNr003/T3/program-2` group reused all three frequency-group
+  results without FEM recomputation (`copied=3`, `generated=0`, `failed=0`).
+- Re-running the completed T1, T2, and T3 selections skipped 2, 3, and 3
+  existing tasks respectively. The 16 completed native/MNI leaf directories
+  contain exactly 64 required artifacts, with no invalid leaf and no
+  `provenance.json` or `qc.json` sidecar.
 
 ### Task 8: Canonical Head Model, Native Common Grid, MNI Transform, And Thresholding
 
