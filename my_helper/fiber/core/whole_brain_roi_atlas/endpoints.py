@@ -29,7 +29,7 @@ def _lookup_labels(
 
 
 def compute_endpoint_census(
-    connectome_path: Path | str,
+    connectome_path: Path | str | object,
     label_image: nib.spatialimages.SpatialImage,
     labels: tuple[ResolvedLabel, ...],
     chunk_size: int,
@@ -54,7 +54,11 @@ def compute_endpoint_census(
     unassigned_fiber_count = 0
     inverse_affine = np.linalg.inv(label_image.affine)
     try:
-        connectome = open_connectome(connectome_path)
+        connectome = (
+            connectome_path
+            if hasattr(connectome_path, "iter_chunks") and hasattr(connectome_path, "metadata")
+            else open_connectome(connectome_path)
+        )
         for chunk in connectome.iter_chunks(chunk_size):
             first = chunk.point_offsets[:-1]
             last = chunk.point_offsets[1:] - 1
