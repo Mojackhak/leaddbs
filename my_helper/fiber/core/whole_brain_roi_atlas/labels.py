@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 
 import nibabel as nib
@@ -119,4 +120,32 @@ def resolve_labels(
                 contralateral_voxel_fraction=contralateral,
             )
         )
+    by_base: dict[tuple[str, str], list[int]] = {}
+    for index, label in enumerate(resolved):
+        by_base.setdefault((label.tissue_type, label.base_name), []).append(index)
+    for indices in by_base.values():
+        by_side = {
+            side: sorted(
+                (index for index in indices if resolved[index].hemisphere == side),
+                key=lambda index: resolved[index].label_id,
+            )
+            for side in ("L", "R", "M")
+        }
+        if max(len(items) for items in by_side.values()) <= 1:
+            continue
+        if len(by_side["L"]) == len(by_side["R"]) and not by_side["M"]:
+            for pair_number, (left_index, right_index) in enumerate(
+                zip(by_side["L"], by_side["R"]),
+                start=1,
+            ):
+                filename = f"{resolved[left_index].base_name}__pair-{pair_number}.nii.gz"
+                resolved[left_index] = replace(resolved[left_index], paired_filename=filename)
+                resolved[right_index] = replace(resolved[right_index], paired_filename=filename)
+        else:
+            for index in indices:
+                label = resolved[index]
+                resolved[index] = replace(
+                    label,
+                    paired_filename=f"{label.base_name}__label-{label.label_id}.nii.gz",
+                )
     return tuple(sorted(resolved, key=lambda label: label.label_id))

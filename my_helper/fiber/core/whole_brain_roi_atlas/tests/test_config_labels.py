@@ -113,6 +113,48 @@ execution:
         self.assertEqual(resolved[218].hemisphere, "R")
         self.assertEqual(resolved[218].paired_filename, "Anterior_limb_of_internal_capsule.nii.gz")
 
+    def test_repeated_white_matter_names_get_stable_pair_suffixes(self) -> None:
+        data = np.zeros((2, 2, 2), dtype=np.uint16)
+        data[0, 0, 0] = 235
+        data[1, 0, 0] = 236
+        data[0, 1, 0] = 237
+        data[1, 1, 0] = 238
+        affine = np.eye(4)
+        affine[0, 3] = -0.5
+        nib.save(nib.Nifti1Image(data, affine), self.source)
+        self.labels.write_text(
+            "235 Cingulum_R\n236 Cingulum_L\n237 Cingulum_R\n238 Cingulum_L\n",
+            encoding="utf-8",
+        )
+        path = self.root / "repeated.yaml"
+        path.write_text(
+            f"""schema_version: 1
+inputs:
+  source_labeling: {self.source}
+  source_labels: {self.labels}
+  reference_image: {self.reference}
+  connectome: {self.connectome}
+output:
+  atlas_root: {self.output}
+labels:
+  cortical_limbic: []
+  cerebellar_hemisphere: []
+  cerebellar_midline: []
+  subcortical: []
+  white_matter: [235, 236, 237, 238]
+expected:
+  label_count: 4
+  fiber_count: 2
+""",
+            encoding="utf-8",
+        )
+        resolved = {item.label_id: item for item in resolve_labels(load_atlas_config(path), nib.load(self.source))}
+
+        self.assertEqual(resolved[235].paired_filename, "Cingulum__pair-1.nii.gz")
+        self.assertEqual(resolved[236].paired_filename, "Cingulum__pair-1.nii.gz")
+        self.assertEqual(resolved[237].paired_filename, "Cingulum__pair-2.nii.gz")
+        self.assertEqual(resolved[238].paired_filename, "Cingulum__pair-2.nii.gz")
+
 
 if __name__ == "__main__":
     unittest.main()

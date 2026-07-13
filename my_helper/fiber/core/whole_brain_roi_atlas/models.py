@@ -93,6 +93,16 @@ class ResolvedLabel:
 
 
 @dataclass(frozen=True)
+class RoiArtifact:
+    """One exported binary ROI and its grid summary."""
+
+    label_id: int
+    relative_path: str
+    voxel_count: int
+    volume_mm3: float
+
+
+@dataclass(frozen=True)
 class AtlasBuildResult:
     """Published atlas identity and summary."""
 
