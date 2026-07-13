@@ -33,3 +33,16 @@ The atlas root contains the exact 0.5 mm label image, resolved/source label tabl
 The Python builder intentionally does not create `atlas_index.mat` or `gm_mask.nii.gz`. Lead-DBS creates them when the atlas is first opened in the UI.
 
 The generated atlas `README.md` lists all 198 regions and their exact dTOR endpoint coverage.
+
+## Verified Repository Build
+
+The repository configuration was built and independently verified on 2026-07-13:
+
+- build fingerprint: `058ee47f5e80245655abbeb6870944eb4828fb6356de151c39d17940b1f686e1`;
+- 198 integer labels and region-manifest rows;
+- 150 main ROIs: 71 left, 71 right, 8 midline, and 0 mixed;
+- 48 hidden white-matter QC ROIs;
+- 42 spatial laterality corrections in white-matter display metadata;
+- 11,820,000 fibers and 23,640,000 reconciled endpoints;
+- 207 indexed artifacts with verified SHA-256 hashes;
+- exact immutable reuse on a second build.
