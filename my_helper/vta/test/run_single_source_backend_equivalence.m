@@ -41,7 +41,7 @@ runRoot = prepare_run_root(opts.WorkRoot, logical(opts.ReusePreparedRoot));
 copiedSubject = prepare_subject_copy(subject, runRoot, logical(opts.ReusePreparedRoot));
 archive_copied_headmodel(copiedSubject, runRoot, logical(opts.ReusePreparedRoot));
 
-atlasSet = 'Custom_Ewert_Zhang_Middlebrooks0.05';
+atlasSet = 'Custom_Ewert_Zhang_Middlebrooks';
 thresholdsVPerM = [180 200 220];
 rngSeed = 20260712;
 inventory = case_inventory(cases, subject, opts);

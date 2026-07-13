@@ -104,7 +104,7 @@ end
 
 function cases = generate_current_cases(seed, sides, contactCounts)
 previousRng = rng;
-cleanupObj = onCleanup(@() rng(previousRng)); %#ok<NASGU>
+cleanupObj = onCleanup(@() rng(previousRng));
 rng(seed, 'twister');
 
 if numel(sides) ~= numel(contactCounts) || isempty(sides)
@@ -537,7 +537,7 @@ if fid < 0
     error('run_single_current_backend_equivalence:WriteFailed', ...
         'Could not write JSON: %s', path);
 end
-cleanupObj = onCleanup(@() fclose(fid)); %#ok<NASGU>
+cleanupObj = onCleanup(@() fclose(fid));
 fprintf(fid, '%s\n', text);
 end
 
