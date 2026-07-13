@@ -103,6 +103,31 @@ class RoiArtifact:
 
 
 @dataclass(frozen=True)
+class EndpointLabelCount:
+    """Exact endpoint and unique-fiber counts for one label."""
+
+    label_id: int
+    endpoint_count: int
+    endpoint_fraction: float
+    fiber_count: int
+    fiber_fraction: float
+
+
+@dataclass(frozen=True)
+class EndpointCensus:
+    """Exact whole-connectome endpoint assignment summary."""
+
+    n_fibers: int
+    n_endpoints: int
+    labels: tuple[EndpointLabelCount, ...]
+    unassigned_endpoint_count: int
+    unassigned_endpoint_fraction: float
+    unassigned_fiber_count: int
+    unassigned_fiber_fraction: float
+    connectome_source_hash: str
+
+
+@dataclass(frozen=True)
 class AtlasBuildResult:
     """Published atlas identity and summary."""
 
