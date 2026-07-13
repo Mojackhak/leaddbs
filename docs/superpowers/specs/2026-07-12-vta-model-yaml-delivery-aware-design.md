@@ -201,6 +201,32 @@ the native/MNI artifact paths. The backend owns context preparation, head-model
 reuse/build, active-contact lookup, boundary assembly, FEM solve, and gradient
 calculation; it delegates all output generation to this shared exporter.
 
+### Canonical Gray-Matter Geometry
+
+The canonical backend uses the configured atlas to materialize a patient-space
+`gm_mask.nii.gz`, but it must not merge the atlas ROI surfaces from
+`atlas_index.mat`. Parent ROIs and overlapping subregions can cause repeated
+surface Boolean resolution to split triangles combinatorially. The observed
+SNr003 right-sided failure produced approximately 29.6 million faces and a
+999 MB Boolean input before FEM began.
+
+Canonical context configuration therefore fixes:
+
+```matlab
+options.prefs.vat.gm = 'mask';
+options.prefs.machine.vatsettings.horn_useatlas = 1;
+options.prefs.machine.vatsettings.horn_atlasset = task.model.atlas_set;
+```
+
+In native space, `ea_fem_getmask` ensures that the configured atlas is warped
+for the patient, reads its `gm_mask.nii.gz`, smooths according to the existing
+Lead-DBS default, and extracts one isosurface at `max(mask)/2`. Disconnected GM
+components may remain disconnected within that single surface object; they are
+not resolved sequentially as separate atlas ROIs. This changes geometry input
+construction only. Voltage/current boundaries, FEM, export, and thresholding
+remain unchanged. Legacy non-canonical VTA entry points retain their existing
+user-selected GM source behavior.
+
 ```text
 study_base.json + vta_model.yaml
   -> schema and cross-input validation

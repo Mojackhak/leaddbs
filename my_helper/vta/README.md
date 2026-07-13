@@ -101,6 +101,13 @@ axis, displace tissue samples radially to the lead surface, and remove samples
 that cannot be mapped outside the lead. It is applied uniformly to
 voltage/current and continuous/alternating tasks.
 
+The configured atlas supplies a patient-space `gm_mask.nii.gz`. Canonical
+head-model construction uses Lead-DBS `mask` geometry, which extracts one GM
+surface at `max(mask)/2`; it does not sequentially resolve every tissue-type-1
+ROI surface from `atlas_index.mat`. This fixed internal choice prevents
+overlapping parent and subregion ROIs from causing combinatorial mesh growth
+and is not exposed in YAML.
+
 Continuous frequency-group sources are solved jointly. Alternating sources are
 solved independently, and their group-level peak E-field is derived using a
 voxelwise maximum. The pipeline does not infer duty cycle or generate a

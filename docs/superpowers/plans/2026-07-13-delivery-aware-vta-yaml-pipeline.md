@@ -777,6 +777,44 @@ git add my_helper/vta/README.md my_helper/fiber/core/stimulation/model my_helper
 git commit -m "refactor: unify canonical VTA backend"
 ```
 
+### Task 7.1: Canonical Mask-Surface Gray-Matter Geometry
+
+**Files:**
+- Create: `my_helper/fiber/core/stimulation/model/mh_vta_configure_canonical_options.m`
+- Modify: `my_helper/fiber/core/stimulation/model/backends/mh_vta_backend_simbio_onesolve_canonical.m`
+- Create: `my_helper/fiber/tests/test_vta_canonical_options_contract.m`
+- Modify: `my_helper/vta/README.md`
+
+**Interfaces:**
+- Produces: `options = mh_vta_configure_canonical_options(options, task)`.
+- Keeps the configured atlas as the source of patient-space `gm_mask.nii.gz`.
+- Fixes the canonical Horn GM geometry mode to `mask`; no public YAML field is added.
+
+- [ ] **Step 1: Write a failing canonical options test**
+
+The test must verify `prefs.vat.gm == "mask"`, `horn_useatlas == 1`, the
+configured atlas name is preserved, and both conductivities are copied from
+the task. It must fail because the helper does not yet exist.
+
+- [ ] **Step 2: Implement the canonical options helper**
+
+Move canonical conductivity, atlas, and Horn preference assignment out of the
+backend `build_context` function. Set the GM mode only to `mask`; do not add an
+`atlas` fallback and do not modify `ea_genvat_horn` or `ea_fem_getmask`.
+
+- [ ] **Step 3: Run focused and regression tests**
+
+```bash
+conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_canonical_options_contract.m'); r=[r testsuite('my_helper/fiber/tests/test_vta_canonical_task_contract.m')]; r=[r testsuite('my_helper/fiber/tests/test_vta_common_grid_export.m')]; assertSuccess(run(r));"
+```
+
+- [ ] **Step 4: Re-run copied-subject representative acceptance**
+
+Move any incomplete copied right-sided head-model artifacts to Trash before
+retrying. The right-sided run must no longer create a cumulative multi-ROI
+surface Boolean input. Native/MNI E-field and three threshold artifacts must be
+present before continuing to alternating-source and reuse acceptance.
+
 ### Task 8: Canonical Head Model, Native Common Grid, MNI Transform, And Thresholding
 
 **Files:**
