@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from scipy.io import savemat
 
+from projects.stnsnr.importer import study_base as study_base_module
 from projects.stnsnr.importer.study_base import (
     StudyBaseImportError,
     build_study_base,
@@ -303,6 +304,32 @@ class StudyBaseImporterTests(unittest.TestCase):
         ])
         self.assertEqual(payload_a["study"]["provenance"]["created_at"], "2026-07-11T12:30:00Z")
         validate_study_base(payload_a)
+
+    def test_default_code_commit_comes_from_importer_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clinical, stimulation, reconstruction_root = self._write_workbooks(root)
+            self._write_assets(root)
+            expected_repository = Path(study_base_module.__file__).resolve().parents[5]
+            with mock.patch.object(
+                study_base_module,
+                "_git_commit",
+                return_value="importer-repository-commit",
+            ) as git_commit:
+                payload = build_study_base(
+                    clinical,
+                    stimulation,
+                    "Contact Parameters",
+                    reconstruction_root,
+                    root,
+                    created_at=lambda: FIXED_TIME,
+                )
+
+        git_commit.assert_called_once_with(expected_repository)
+        self.assertEqual(
+            payload["study"]["provenance"]["importer"]["code_commit"],
+            "importer-repository-commit",
+        )
 
     def test_frequency_is_positive_finite_per_source_and_equal_within_group(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

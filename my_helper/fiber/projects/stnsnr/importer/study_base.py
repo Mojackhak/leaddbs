@@ -511,7 +511,13 @@ def build_study_base(
             "subjects": subjects,
             "provenance": {
                 "created_at": _utc_timestamp(now()),
-                "importer": {"name": "build_stnsnr_study_base", "version": "1", "code_commit": code_commit if code_commit is not None else _git_commit(assets)},
+                "importer": {
+                    "name": "build_stnsnr_study_base",
+                    "version": "1",
+                    "code_commit": code_commit
+                    if code_commit is not None
+                    else _git_commit(Path(__file__).resolve().parents[5]),
+                },
                 "source_files": [
                     {"role": "clinical", "path": str(clinical_path)},
                     {"role": "programming", "path": str(stimulation_path)},
