@@ -18,6 +18,7 @@ class TaskRunContext:
     input_hash: str
     study_base_sha256: str
     vta_model_sha256: str
+    implementation_sha256: str
     code_commit: str | None
     resume: bool
     force: bool
@@ -45,6 +46,7 @@ class MatlabBridge:
             "input_hash": context.input_hash,
             "study_base_sha256": context.study_base_sha256,
             "vta_model_sha256": context.vta_model_sha256,
+            "implementation_sha256": context.implementation_sha256,
             "code_commit": context.code_commit,
             "resume": context.resume,
             "force": context.force,

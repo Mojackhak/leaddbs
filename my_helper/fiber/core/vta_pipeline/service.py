@@ -158,6 +158,7 @@ class RunService:
             input_hash=input_hash,
             study_base_sha256=self.study_base_sha256,
             vta_model_sha256=self.vta_model_sha256,
+            implementation_sha256=self.implementation_sha256,
             code_commit=self.code_commit,
             resume=resume,
             force=force,
