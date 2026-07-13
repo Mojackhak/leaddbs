@@ -25,6 +25,7 @@ write_vta_stubs(stubDir);
 addpath(stubDir, '-begin');
 rehash;
 test_explicit_horn_seed(testRoot);
+test_process_space_override();
 
 result = run_single_source_backend_equivalence( ...
     'StudyBase', studyBase, ...
@@ -82,6 +83,8 @@ assert(isfile(fullfile(result.run_root, 'copied_subject', ...
     'Copied BIDS root must contain dataset_description.json.');
 assert(strcmp(manifest.atlas_set, 'Custom_Ewert_Zhang_Middlebrooks0.05'), ...
     'Manifest atlas mismatch.');
+assert(strcmp(manifest.template_space, 'MNI152NLin2009bAsym'), ...
+    'Manifest template-space mismatch.');
 assert(isequal(manifest.thresholds_v_per_m(:)', [180 200 220]), ...
     'Manifest threshold mismatch.');
 assert(~manifest.official_pilot, ...
@@ -151,8 +154,18 @@ try
 catch ME
     didFail = strcmp(ME.identifier, 'test:ForcedHornFailure');
 end
+
 assert(didFail, ...
     'A pre-existing expected file must not swallow an arbitrary Horn error.');
+end
+
+function test_process_space_override()
+previous = getenv('LEADDBS_SPACE_OVERRIDE');
+environmentCleanup = onCleanup( ...
+    @() setenv('LEADDBS_SPACE_OVERRIDE', previous));
+setenv('LEADDBS_SPACE_OVERRIDE', 'MNI152NLin2009bAsym');
+assert(strcmp(ea_getspace(), 'MNI152NLin2009bAsym'), ...
+    'ea_getspace must honor the process-scoped override.');
 end
 
 function write_fixture_subject(subjectDir)

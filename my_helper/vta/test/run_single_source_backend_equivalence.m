@@ -17,6 +17,8 @@ opts = parser.Results;
 
 repoDir = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
 addpath(genpath(repoDir), '-end');
+templateSpace = 'MNI152NLin2009bAsym';
+spaceOverrideCleanup = apply_space_override(templateSpace); %#ok<NASGU>
 
 studyBasePath = must_be_file(opts.StudyBase, 'study-base JSON');
 studyDocument = jsondecode(fileread(studyBasePath));
@@ -45,7 +47,7 @@ writetable(inventory, fullfile(runRoot, 'case_inventory.csv'));
 
 manifest = initial_manifest(repoDir, studyBasePath, subject, opts, atlasSet, ...
     thresholdsVPerM, rngSeed, copiedSubject, cases, officialPilot, scope, ...
-    gitCommit, gitDirty);
+    gitCommit, gitDirty, templateSpace);
 write_json(fullfile(runRoot, 'validation_manifest.json'), manifest);
 
 outputIndex = struct();
@@ -598,7 +600,7 @@ end
 
 function manifest = initial_manifest(repoDir, studyBase, subject, opts, atlasSet, ...
         thresholds, rngSeed, copiedSubject, cases, officialPilot, scope, ...
-        gitCommit, gitDirty)
+        gitCommit, gitDirty, templateSpace)
 atlasDir = fullfile(repoDir, 'templates', 'space', 'MNI152NLin2009bAsym', ...
     'atlases', atlasSet);
 templateMask = must_be_file(fullfile(atlasDir, 'gm_mask.nii.gz'), ...
@@ -623,6 +625,7 @@ manifest.native_to_mni_transform = resolve_native_to_mni_transform( ...
 manifest.native_to_mni_transform_sha256 = ...
     hash_if_file(manifest.native_to_mni_transform);
 manifest.atlas_set = atlasSet;
+manifest.template_space = templateSpace;
 manifest.atlas_dir = atlasDir;
 manifest.template_gm_mask = templateMask;
 manifest.template_gm_mask_sha256 = mh_fiber_file_sha256(templateMask);
@@ -639,6 +642,12 @@ manifest.scope = scope;
 manifest.code_file_hashes = acceptance_code_hashes(repoDir);
 end
 
+function cleanup = apply_space_override(templateSpace)
+previous = getenv('LEADDBS_SPACE_OVERRIDE');
+setenv('LEADDBS_SPACE_OVERRIDE', templateSpace);
+cleanup = onCleanup(@() setenv('LEADDBS_SPACE_OVERRIDE', previous));
+end
+
 function hashes = acceptance_code_hashes(repoDir)
 relativePaths = { ...
     'my_helper/vta/test/run_single_source_backend_equivalence.m', ...
@@ -647,7 +656,8 @@ relativePaths = { ...
         'mh_vta_backend_simbio_twosource.m'], ...
     ['my_helper/fiber/core/stimulation/model/backends/', ...
         'mh_vta_backend_simbio_onesolve.m'], ...
-    'my_helper/fiber/core/stimulation/model/mh_vta_run_horn_with_retry.m'};
+    'my_helper/fiber/core/stimulation/model/mh_vta_run_horn_with_retry.m', ...
+    'helpers/space/ea_getspace.m'};
 hashes = repmat(struct('path', '', 'sha256', ''), numel(relativePaths), 1);
 for i = 1:numel(relativePaths)
     hashes(i).path = relativePaths{i};

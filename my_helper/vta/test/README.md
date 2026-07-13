@@ -42,6 +42,11 @@ Medtronic 3387 leads. Parameter overrides are retained for synthetic contract
 tests and future pilots, but such runs are labeled as custom scope and cannot
 be reported as the official SNr003 pilot.
 
+The runner applies a process-scoped `MNI152NLin2009bAsym` Lead-DBS space
+override so atlas lookup, patient-space atlas materialization, output folders,
+and coordinate transforms do not depend on the user's persistent GUI space
+preference. The previous environment value is restored when the runner exits.
+
 ## Acceptance Limits
 
 Continuous E-fields must have identical dimensions and finite masks, affine
