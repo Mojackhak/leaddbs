@@ -293,6 +293,26 @@ class ValidationReport:
 
 
 @dataclass(frozen=True)
+class BatchValidationReport:
+    """Resolved shared inputs and ordered per-seed validation reports."""
+
+    config: BatchConnectivityConfig
+    seeds: Mapping[str, ValidationReport]
+
+    def as_serializable_mapping(self) -> dict[str, Any]:
+        """Return a compact JSON-safe batch validation summary."""
+
+        return {
+            "status": "valid",
+            "batch_configuration_hash": self.config.batch_configuration_hash,
+            "seeds": {
+                name: report.as_serializable_mapping()
+                for name, report in self.seeds.items()
+            },
+        }
+
+
+@dataclass(frozen=True)
 class ConnectivityRunResult:
     """Complete public API result for one immutable connectivity run."""
 

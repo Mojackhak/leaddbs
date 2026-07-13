@@ -9,18 +9,15 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .errors import SeedTargetConnectivityError
+from . import pipeline as pipeline_module
 from .pipeline import (
-    compute_seed_target_statistics,
     inspect_run_status,
     list_run_artifacts,
-    validate_inputs,
+    validate_batch,
 )
 
 
-def _add_scientific_inputs(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--target-atlas-root", type=Path, required=True)
-    parser.add_argument("--seed-roi", type=Path, required=True)
-    parser.add_argument("--connectome", type=Path, required=True)
+def _add_batch_config(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", type=Path, required=True)
 
 
@@ -30,12 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     validate_parser = subparsers.add_parser("validate", help="Resolve inputs without full connectome traversal.")
-    _add_scientific_inputs(validate_parser)
+    _add_batch_config(validate_parser)
 
     run_parser = subparsers.add_parser("run", help="Compute statistics and publish an immutable run.")
-    _add_scientific_inputs(run_parser)
-    run_parser.add_argument("--output-root", type=Path, required=True)
-    run_parser.add_argument("--cache-root", type=Path)
+    _add_batch_config(run_parser)
 
     status_parser = subparsers.add_parser("status", help="Verify one immutable run.")
     status_parser.add_argument("--run-dir", type=Path, required=True)
@@ -58,30 +53,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "validate":
-            report = validate_inputs(
-                target_atlas_root=args.target_atlas_root,
-                seed_roi=args.seed_roi,
-                connectome=args.connectome,
-                config=args.config,
-            )
+            report = validate_batch(args.config)
             payload = report.as_serializable_mapping()
         elif args.command == "run":
-            result = compute_seed_target_statistics(
-                target_atlas_root=args.target_atlas_root,
-                seed_roi=args.seed_roi,
-                connectome=args.connectome,
-                config=args.config,
-                output_root=args.output_root,
-                cache_root=args.cache_root,
-            )
-            payload = {
-                "status": "complete",
-                "run_dir": str(result.artifacts.run_dir),
-                "run_fingerprint": result.artifacts.run_fingerprint,
-                "reused": result.artifacts.reused,
-                "n_targets": len(result.statistics),
-                "n_seed_fibers": int(result.membership.seed_fiber_ids.size),
-            }
+            result = pipeline_module.compute_seed_target_batch(args.config)
+            payload = result.as_serializable_mapping()
         elif args.command == "status":
             payload = inspect_run_status(args.run_dir)
         else:

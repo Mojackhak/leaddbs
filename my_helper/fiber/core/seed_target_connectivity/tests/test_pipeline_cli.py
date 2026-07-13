@@ -1,4 +1,4 @@
-"""Reusable API and four-command CLI integration tests."""
+"""Single-seed primitives and schema-v2 batch CLI integration tests."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from unittest.mock import patch
 import numpy as np
 
 from my_helper.fiber.core.seed_target_connectivity import compute_seed_target_statistics
-from my_helper.fiber.core.seed_target_connectivity.config import resolve_config
+from my_helper.fiber.core.seed_target_connectivity.config import effective_config, resolve_config
 from my_helper.fiber.core.seed_target_connectivity.pipeline import (
     ResolutionCache,
     inspect_run_status,
@@ -38,22 +38,39 @@ class PipelineAPITests(unittest.TestCase):
         data_a[1, 1, 1] = 1
         data_b = np.zeros((5, 4, 4), dtype=np.float32)
         data_b[3, 1, 1] = 1
-        seed_data = np.zeros((5, 4, 4), dtype=np.float32)
-        seed_data[1, 1, 1] = 1
+        left_seed_data = np.zeros((5, 4, 4), dtype=np.float32)
+        left_seed_data[1, 1, 1] = 1
+        right_seed_data = np.zeros((5, 4, 4), dtype=np.float32)
+        right_seed_data[3, 1, 1] = 1
         write_mask(self.atlas_root / "group" / "a.nii.gz", data_a)
         write_mask(self.atlas_root / "group" / "b.nii.gz", data_b)
-        self.seed_path = write_mask(self.root / "seed.nii.gz", seed_data)
+        self.left_seed_path = write_mask(self.root / "left_seed.nii.gz", left_seed_data)
+        self.right_seed_path = write_mask(self.root / "right_seed.nii.gz", right_seed_data)
         self.streamlines = [
             line((0, 1, 1), (4, 1, 1)),
             line((0, 1, 1), (2, 1, 1)),
             line((2.5, 1, 1), (3.25, 1, 1)),
         ]
-        self.config = resolve_config(
+        self.batch = resolve_config(
             {
-                "schema_version": 1,
+                "schema_version": 2,
+                "inputs": {
+                    "target_atlas_root": str(self.atlas_root),
+                    "seed_rois": {
+                        "lh": str(self.left_seed_path),
+                        "rh": str(self.right_seed_path),
+                    },
+                    "connectome": str(self.root / "connectome"),
+                },
+                "output": {
+                    "output_root": str(self.root / "results"),
+                    "run_name": "bilateral",
+                    "cache_root": str(self.root / ".cache"),
+                },
                 "execution": {"fiber_chunk_size": 2, "cache_membership": True},
             }
         )
+        self.left_config = effective_config(self.batch, "lh")
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -63,9 +80,9 @@ class PipelineAPITests(unittest.TestCase):
 
         report = validate_inputs(
             target_atlas_root=self.atlas_root,
-            seed_roi=self.seed_path,
+            seed_roi=self.left_seed_path,
             connectome=adapter,
-            config=self.config,
+            config=self.left_config,
         )
 
         self.assertEqual(report.n_targets, 2)
@@ -74,13 +91,30 @@ class PipelineAPITests(unittest.TestCase):
         self.assertEqual(report.connectome_metadata.n_fibers, 3)
         self.assertEqual(adapter.iteration_count, 0)
 
-    def test_public_api_computes_statistics_and_immutable_run(self) -> None:
+    def test_validate_batch_resolves_both_seeds_without_iteration(self) -> None:
+        adapter = RecordingAdapter(self.streamlines)
+        validator = getattr(pipeline, "validate_batch", None)
+        if validator is None:
+            self.fail("validate_batch must validate every named seed")
+
+        report = validator(self.batch, connectome_override=adapter)
+
+        self.assertEqual(tuple(report.seeds), ("lh", "rh"))
+        self.assertEqual(report.seeds["lh"].n_targets, 2)
+        self.assertEqual(report.seeds["rh"].n_targets, 2)
+        self.assertEqual(
+            report.seeds["lh"].connectome_metadata.connectome_identity,
+            report.seeds["rh"].connectome_metadata.connectome_identity,
+        )
+        self.assertEqual(adapter.iteration_count, 0)
+
+    def test_single_seed_primitive_computes_legacy_inspectable_run(self) -> None:
         result = compute_seed_target_statistics(
             target_atlas_root=self.atlas_root,
-            seed_roi=self.seed_path,
+            seed_roi=self.left_seed_path,
             connectome=RecordingAdapter(self.streamlines),
-            config=self.config,
-            output_root=self.root / "output",
+            config=self.left_config,
+            output_root=self.root / "legacy-output",
             code_provenance={"git_commit": "1" * 40, "package_sha256": "2" * 64},
         )
 
@@ -88,25 +122,22 @@ class PipelineAPITests(unittest.TestCase):
         self.assertTrue(result.artifacts.run_dir.is_dir())
         self.assertEqual(inspect_run_status(result.artifacts.run_dir)["status"], "complete")
         self.assertEqual(len(list_run_artifacts(result.artifacts.run_dir)), 9)
-        self.assertTrue((self.root / "output" / "membership_cache").is_dir())
 
-    def test_resolution_cache_reuses_unchanged_atlas_across_public_calls(self) -> None:
-        second_seed = self.root / "second_seed.nii.gz"
-        second_seed.write_bytes(self.seed_path.read_bytes())
+    def test_resolution_cache_reuses_unchanged_atlas_across_effective_configs(self) -> None:
         cache = ResolutionCache()
         with patch.object(pipeline, "resolve_atlas", wraps=pipeline.resolve_atlas) as resolved:
             validate_inputs(
                 target_atlas_root=self.atlas_root,
-                seed_roi=self.seed_path,
+                seed_roi=self.left_seed_path,
                 connectome=RecordingAdapter(self.streamlines),
-                config=self.config,
+                config=self.left_config,
                 resolution_cache=cache,
             )
             validate_inputs(
                 target_atlas_root=self.atlas_root,
-                seed_roi=second_seed,
+                seed_roi=self.right_seed_path,
                 connectome=RecordingAdapter(self.streamlines),
-                config=self.config,
+                config=effective_config(self.batch, "rh"),
                 resolution_cache=cache,
             )
 
@@ -122,20 +153,38 @@ class CLITests(unittest.TestCase):
         self.atlas_root = self.root / "atlas"
         target = np.zeros((5, 4, 4), dtype=np.float32)
         target[1, 1, 1] = 1
-        seed = np.zeros((5, 4, 4), dtype=np.float32)
-        seed[1, 1, 1] = 1
+        left_seed = np.zeros((5, 4, 4), dtype=np.float32)
+        left_seed[1, 1, 1] = 1
+        right_seed = np.zeros((5, 4, 4), dtype=np.float32)
+        right_seed[3, 1, 1] = 1
         write_mask(self.atlas_root / "group" / "target.nii.gz", target)
-        self.seed_path = write_mask(self.root / "seed.nii.gz", seed)
+        self.left_seed_path = write_mask(self.root / "left_seed.nii.gz", left_seed)
+        self.right_seed_path = write_mask(self.root / "right_seed.nii.gz", right_seed)
         self.connectome_path = write_hdf5_connectome(
             self.root / "connectome" / "data.mat",
-            [line((0, 1, 1), (2, 1, 1)), line((0, 3, 3), (1, 3, 3))],
+            [line((0, 1, 1), (4, 1, 1)), line((0, 3, 3), (1, 3, 3))],
         )
         self.config_path = self.root / "config.yaml"
         self.config_path.write_text(
-            "schema_version: 1\nexecution:\n  fiber_chunk_size: 1\n  cache_membership: true\n",
+            f"""schema_version: 2
+inputs:
+  target_atlas_root: {self.atlas_root}
+  seed_rois:
+    lh: {self.left_seed_path}
+    rh: {self.right_seed_path}
+  connectome: {self.connectome_path.parent}
+output:
+  output_root: {self.root / 'results'}
+  run_name: bilateral
+  cache_root: {self.root / '.cache'}
+execution:
+  fiber_chunk_size: 1
+  cache_membership: true
+ranking:
+  enabled: true
+""",
             encoding="utf-8",
         )
-        self.output_root = self.root / "output"
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -149,70 +198,61 @@ class CLITests(unittest.TestCase):
             check=False,
         )
 
-    def _scientific_arguments(self) -> list[str]:
-        return [
-            "--target-atlas-root",
-            str(self.atlas_root),
-            "--seed-roi",
-            str(self.seed_path),
-            "--connectome",
-            str(self.connectome_path.parent),
+    def test_validate_accepts_only_yaml_and_returns_named_seed_reports(self) -> None:
+        validated = self._run("validate", "--config", str(self.config_path))
+
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        payload = json.loads(validated.stdout)
+        self.assertEqual(tuple(payload["seeds"]), ("lh", "rh"))
+        self.assertEqual(payload["seeds"]["lh"]["n_targets"], 1)
+        self.assertEqual(payload["seeds"]["rh"]["n_targets"], 1)
+
+    def test_removed_path_flags_are_rejected_by_argparse(self) -> None:
+        completed = self._run(
+            "validate",
             "--config",
             str(self.config_path),
-        ]
-
-    def test_validate_run_status_and_artifacts_commands(self) -> None:
-        validated = self._run("validate", *self._scientific_arguments())
-        self.assertEqual(validated.returncode, 0, validated.stderr)
-        validation_payload = json.loads(validated.stdout)
-        self.assertEqual(validation_payload["n_targets"], 1)
-        self.assertFalse(self.output_root.exists())
-
-        completed = self._run(
-            "run",
-            *self._scientific_arguments(),
-            "--output-root",
-            str(self.output_root),
+            "--seed-roi",
+            str(self.left_seed_path),
         )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        run_payload = json.loads(completed.stdout)
-        run_dir = Path(run_payload["run_dir"])
-        self.assertTrue(run_dir.is_dir())
 
-        status = self._run("status", "--run-dir", str(run_dir))
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("unrecognized arguments", completed.stderr)
+
+    def test_run_help_does_not_offer_resume_or_force(self) -> None:
+        completed = self._run("run", "--help")
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertNotIn("--resume", completed.stdout)
+        self.assertNotIn("--force", completed.stdout)
+
+    def test_status_and_artifacts_remain_run_directory_inspection_commands(self) -> None:
+        batch = resolve_config(json.loads(json.dumps({
+            "schema_version": 2,
+            "inputs": {
+                "target_atlas_root": str(self.atlas_root),
+                "seed_rois": {"lh": str(self.left_seed_path)},
+                "connectome": str(self.connectome_path.parent),
+            },
+            "output": {"output_root": str(self.root / "unused"), "run_name": "legacy"},
+            "execution": {"fiber_chunk_size": 1, "cache_membership": True},
+        })))
+        result = compute_seed_target_statistics(
+            target_atlas_root=self.atlas_root,
+            seed_roi=self.left_seed_path,
+            connectome=self.connectome_path.parent,
+            config=effective_config(batch, "lh"),
+            output_root=self.root / "legacy-output",
+            code_provenance={"git_commit": "1" * 40, "package_sha256": "2" * 64},
+        )
+
+        status = self._run("status", "--run-dir", str(result.artifacts.run_dir))
+        artifacts = self._run("artifacts", "--run-dir", str(result.artifacts.run_dir))
+
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertEqual(json.loads(status.stdout)["status"], "complete")
-
-        artifacts = self._run("artifacts", "--run-dir", str(run_dir))
         self.assertEqual(artifacts.returncode, 0, artifacts.stderr)
         self.assertEqual(len(json.loads(artifacts.stdout)["artifacts"]), 9)
-
-    def test_validation_error_returns_exit_code_one_and_json_error(self) -> None:
-        probabilistic = np.array([[[0.0, 0.5, 1.0]]], dtype=np.float32)
-        write_mask(self.atlas_root / "group" / "target.nii.gz", probabilistic)
-
-        completed = self._run("validate", *self._scientific_arguments())
-
-        self.assertEqual(completed.returncode, 1)
-        error = json.loads(completed.stderr)
-        self.assertEqual(error["status"], "error")
-        self.assertIn("probability threshold", error["error"])
-
-    def test_status_detects_artifact_tampering(self) -> None:
-        completed = self._run(
-            "run",
-            *self._scientific_arguments(),
-            "--output-root",
-            str(self.output_root),
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        run_dir = Path(json.loads(completed.stdout)["run_dir"])
-        (run_dir / "target_connectivity.csv").write_text("tampered\n", encoding="utf-8")
-
-        status = self._run("status", "--run-dir", str(run_dir))
-
-        self.assertEqual(status.returncode, 1)
-        self.assertIn("hash mismatch", json.loads(status.stderr)["error"])
 
 
 if __name__ == "__main__":

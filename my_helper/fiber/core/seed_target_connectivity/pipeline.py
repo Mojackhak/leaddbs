@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from .artifacts import (
@@ -12,13 +13,15 @@ from .artifacts import (
     verify_artifact_index,
     write_run_atomic,
 )
-from .config import load_config, resolve_config
+from .config import effective_config, load_config, resolve_config
 from .connectome import ConnectomeAdapter, open_connectome
 from .engine import compute_memberships
 from .errors import ArtifactError, ConfigurationError, ConnectomeError
 from .identity import sha256_file
 from .atlas import discover_targets
 from .models import (
+    BatchConnectivityConfig,
+    BatchValidationReport,
     ConnectivityConfig,
     ConnectivityRunResult,
     ValidationReport,
@@ -42,7 +45,7 @@ class ResolutionCache:
 
     def resolve_seed(self, path: Path | str, config: ConnectivityConfig):
         source = Path(path)
-        key = (*self._file_state(source), config.configuration_hash)
+        key = (*self._file_state(source), config.seed.probability_threshold)
         if key not in self._seeds:
             self._seeds[key] = resolve_seed(source, config)
         return self._seeds[key]
@@ -51,7 +54,12 @@ class ResolutionCache:
         atlas_root = Path(root).expanduser().resolve()
         sources = discover_targets(atlas_root)
         source_state = tuple(self._file_state(source.path) for source in sources)
-        key = (str(atlas_root), source_state, config.configuration_hash)
+        key = (
+            str(atlas_root),
+            source_state,
+            config.targets.probability_threshold,
+            tuple(config.targets.roi_thresholds.items()),
+        )
         if key not in self._atlases:
             self._atlases[key] = resolve_atlas(atlas_root, config)
         return self._atlases[key]
@@ -65,6 +73,18 @@ def _resolve_config(config: ConnectivityConfig | Mapping[str, Any] | Path | str)
     if isinstance(config, (Path, str)):
         return load_config(config)
     raise ConfigurationError(f"unsupported configuration input type: {type(config).__name__}")
+
+
+def _resolve_batch_config(
+    config: BatchConnectivityConfig | Mapping[str, Any] | Path | str,
+) -> BatchConnectivityConfig:
+    if isinstance(config, BatchConnectivityConfig):
+        return config
+    if isinstance(config, Mapping):
+        return resolve_config(config)
+    if isinstance(config, (Path, str)):
+        return load_config(config)
+    raise ConfigurationError(f"unsupported batch configuration input type: {type(config).__name__}")
 
 
 def _resolve_connectome(connectome: ConnectomeAdapter | Path | str) -> ConnectomeAdapter:
@@ -104,6 +124,32 @@ def validate_inputs(
         n_valid_targets=len(resolved_atlas.targets) - n_empty,
         n_empty_targets=n_empty,
         seed_voxel_count=resolved_seed.voxel_count,
+    )
+
+
+def validate_batch(
+    config: BatchConnectivityConfig | Mapping[str, Any] | Path | str,
+    *,
+    connectome_override: ConnectomeAdapter | None = None,
+) -> BatchValidationReport:
+    """Resolve every named seed without traversing full connectome geometry."""
+
+    batch = _resolve_batch_config(config)
+    adapter = connectome_override or open_connectome(batch.inputs.connectome)
+    resolution_cache = ResolutionCache()
+    reports: dict[str, ValidationReport] = {}
+    for seed_name in batch.inputs.seed_rois:
+        effective = effective_config(batch, seed_name)
+        reports[seed_name] = validate_inputs(
+            target_atlas_root=batch.inputs.target_atlas_root,
+            seed_roi=effective.seed_roi,
+            connectome=adapter,
+            config=effective,
+            resolution_cache=resolution_cache,
+        )
+    return BatchValidationReport(
+        config=batch,
+        seeds=MappingProxyType(reports),
     )
 
 
