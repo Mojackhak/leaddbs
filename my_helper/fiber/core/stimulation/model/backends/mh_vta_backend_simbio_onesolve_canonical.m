@@ -25,6 +25,7 @@ if actions.solve_native_efield
         S, sideIndex, options, stimLabel);
     hm = load(headmodelPath, ...
         'vol', 'mesh', 'centroids', 'wmboundary', 'elfv', 'meshregions');
+    mh_vta_validate_canonical_headmodel_units(hm.vol, hm.mesh);
     activeidx = ea_getactiveidx(S, sideIndex, hm.centroids, hm.mesh, ...
         hm.elfv, options.elspec, hm.meshregions);
     controlMode = lower(char(string(task.sources(1).control_mode)));

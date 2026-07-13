@@ -32,11 +32,13 @@ if isfile(headmodelPath)
             headmodelPath);
     end
     try
-        stored = load(headmodelPath, required{:}); %#ok<NASGU>
+        stored = load(headmodelPath, required{:});
+        mh_vta_validate_canonical_headmodel_units(stored.vol, stored.mesh);
     catch ME
         wrapped = MException( ...
             'mh_vta_prepare_canonical_headmodel:InvalidExistingHeadmodel', ...
-            'Existing canonical head model is unreadable: %s', headmodelPath);
+            ['Existing canonical head model is unreadable or violates ', ...
+             'the coordinate-unit contract: %s'], headmodelPath);
         wrapped = addCause(wrapped, ME);
         throw(wrapped);
     end
