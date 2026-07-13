@@ -123,7 +123,7 @@ After a successful replacement, prior untracked result directories are moved to 
 
 ## Compatibility
 
-Schema version 1 YAML and the old scientific path flags are intentionally unsupported by the new CLI. Existing content-addressed result directories remain readable through `status` and `artifacts` if they contain `analysis_manifest.json`; new results use `provenance.json`. This read-only legacy support does not preserve the old run interface.
+Schema version 1 YAML and the old scientific path flags are intentionally unsupported by the new CLI. Existing content-addressed result directories remain readable through `status` and `artifacts` if they contain `analysis_manifest.json`; new results use `provenance.json` and are inspected through the same commands. Status inspection selects the matching provenance filename and reports the effective configuration hash for current results. This read-only legacy support does not preserve the old run interface.
 
 The existing Python statistical and traversal units remain single-seed primitives. A new batch orchestration layer resolves schema version 2 and invokes those units for each named seed. This keeps the scientific definitions unchanged while changing configuration, publication, and CLI behavior.
 
