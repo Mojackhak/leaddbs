@@ -1,8 +1,14 @@
-# dTOR-HybraPD Whole-Brain ROI Atlas Design
+# HybraPD Whole-Brain ROI Atlas Design
 
 ## Purpose
 
 Create a deterministic, standalone Python workflow that maps the existing HybraPD Whole Brain labeling into the Lead-DBS MNI152NLin2009bAsym 0.5 mm grid and measures its exact coverage of dTOR streamline endpoints. HybraPD remains the sole anatomical source; dTOR supplies streamlines, not anatomy.
+
+## Naming Boundary
+
+The anatomical atlas is named `HybraPD Whole Brain (Yu 2021)`. Its Lead-DBS directory, generated README title, and atlas-facing documentation must not use a `dTOR-` prefix because dTOR does not define the anatomical labels or their boundaries.
+
+dTOR-specific analysis artifacts retain explicit dTOR names. In particular, `dtor_endpoint_qc.csv` and the tracked configuration `dtor_hybrapd_whole_brain.yaml` continue to identify the connectome used for endpoint coverage statistics. This separates atlas identity from analysis provenance without hiding the source of the QC measurements.
 
 ## Inputs
 
@@ -47,7 +53,7 @@ The summary must account exactly for 11,820,000 fibers and 23,640,000 endpoints.
 
 ## Outputs and Publication
 
-The default atlas directory is `templates/space/MNI152NLin2009bAsym/atlases/dTOR-HybraPD Whole Brain (Yu 2021)` and contains:
+The default atlas directory is `templates/space/MNI152NLin2009bAsym/atlases/HybraPD Whole Brain (Yu 2021)` and contains:
 
 - `labels.nii.gz`, `labels.txt`, and `labels_source.txt`;
 - `lh`, `rh`, `midline`, and `mixed` main ROI directories;
@@ -75,7 +81,7 @@ whole-brain-roi-atlas build --config CONFIG
 whole-brain-roi-atlas status --atlas-root ATLAS_ROOT
 ```
 
-The implementation is generic; the tracked dTOR-HybraPD YAML config supplies dataset-specific paths and label category sets.
+The implementation is generic; the tracked dTOR-HybraPD YAML config supplies dataset-specific paths, endpoint-census provenance, and label category sets. The dTOR-specific configuration name does not become part of the anatomical atlas name.
 
 ## Acceptance Criteria
 
@@ -85,3 +91,4 @@ The implementation is generic; the tracked dTOR-HybraPD YAML config supplies dat
 - All masks match the reference shape, affine, qform, and sform.
 - All endpoint totals reconcile exactly and all artifacts pass SHA-256 verification.
 - Rebuilding from identical inputs is deterministic and reuses the immutable output.
+- No atlas-facing directory or generated README title uses the `dTOR-` prefix; dTOR remains identified in endpoint-QC artifacts and configuration provenance.
