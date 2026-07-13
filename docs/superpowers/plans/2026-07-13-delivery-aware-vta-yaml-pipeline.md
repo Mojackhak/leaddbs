@@ -1078,6 +1078,9 @@ git commit -m "feat: execute VTA tasks by subject"
 - [ ] **Step 1: Document historical and new evidence separately**
 
 Record the existing SNr003 bilateral single-voltage `simbio` versus `simbio_onesolve` outputs as reusable evidence and recompute their metrics without FEM. Define the minimal current FEM gate with RNG seed `20260712`, atlas `Custom_Ewert_Zhang_Middlebrooks`, amplitude `0.5-5.0 mA`, pulse width `30-120 us`, right hemisphere only, and one cathode with case return.
+The voltage no-solve interface is `Mode=compare_existing` plus an explicit
+`ExistingRunRoot`; it preserves the historical manifest identity and moves
+replaced untracked tables/summaries to Trash.
 
 - [ ] **Step 2: Write failing fixture-generation and safety tests**
 
@@ -1138,6 +1141,8 @@ Grid alignment is an identity operation when dimensions and affine already
 match the reference within the strict affine tolerance. In that case the
 comparison must not interpolate again, because redundant interpolation can
 change finite support at image boundaries.
+For the current numerical gate, a native candidate grid mismatch is a failed
+acceptance input and must not be repaired by comparison-time resampling.
 
 Expose this no-solve path as `Mode=compare_existing` plus an explicit
 `ExistingRunRoot`. It may refresh only comparison tables and the acceptance

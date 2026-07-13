@@ -121,9 +121,9 @@ mkdir(candidateNativeDir);
 mkdir(candidateMniDir);
 
 referenceAffine = diag([2 2 2 1]);
-candidateAffine = diag([1 1 1 1]);
+candidateAffine = referenceAffine;
 referenceData = linear_world_field([10 10 10], referenceAffine);
-candidateData = linear_world_field([20 20 20], candidateAffine);
+candidateData = referenceData;
 write_nii_with_affine(fullfile(referenceDir, 'native_efield.nii'), ...
     referenceData, referenceAffine);
 write_nii_with_affine(fullfile(referenceDir, 'mni_efield.nii'), ...
@@ -173,6 +173,31 @@ verifyTrue(testCase, summary.mni_transform_contract_passed);
 verifyTrue(testCase, summary.pass);
 trashed = dir(fullfile(trashRoot, '*'));
 verifyEqual(testCase, nnz(~[trashed.isdir]), 5);
+end
+
+function testCompareExistingRejectsCandidateGridMismatch(testCase)
+runRoot = tempname;
+mkdir(runRoot);
+cleanup = onCleanup(@() remove_test_root(runRoot));
+trashRoot = fullfile(runRoot, 'test-trash');
+write_existing_comparison_fixture(runRoot, true);
+candidatePath = fullfile(runRoot, 'outputs', 'simbio_onesolve', ...
+    'R_single_cathode_case_return', 'native', 'efield.nii.gz');
+candidateAffine = eye(4);
+candidateData = linear_world_field([20 20 20], candidateAffine);
+write_nii_with_affine(candidatePath, candidateData, candidateAffine);
+
+result = run_current_backend_equivalence( ...
+    'Mode', 'compare_existing', ...
+    'ExistingRunRoot', runRoot, ...
+    'TrashRoot', trashRoot, ...
+    'MniRepeatFunction', @copy_stored_mni_to_repeat, ...
+    'WorkRoot', testCase.TestData.safeWorkRoot);
+
+verifyEqual(testCase, result.pass, false);
+metrics = readtable(fullfile(runRoot, 'efield_metrics.csv'));
+verifyEqual(testCase, metrics.resampled_to_reference_grid, 0);
+verifyEqual(testCase, metrics.dimensions_match, 0);
 end
 
 function testCompareExistingPreservesFailedProductionSafetyGate(testCase)
@@ -272,9 +297,9 @@ mkdir(referenceDir);
 mkdir(candidateNativeDir);
 mkdir(candidateMniDir);
 referenceAffine = diag([2 2 2 1]);
-candidateAffine = eye(4);
+candidateAffine = referenceAffine;
 referenceData = linear_world_field([10 10 10], referenceAffine);
-candidateData = linear_world_field([20 20 20], candidateAffine);
+candidateData = referenceData;
 write_nii_with_affine(fullfile(referenceDir, 'native_efield.nii'), ...
     referenceData, referenceAffine);
 write_nii_with_affine(fullfile(referenceDir, 'mni_efield.nii'), ...

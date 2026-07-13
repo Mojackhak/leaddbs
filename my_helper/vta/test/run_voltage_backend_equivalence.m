@@ -12,10 +12,22 @@ parser.addParameter('SubjectId', 'SNr003', @(x) ischar(x) || isstring(x));
 parser.addParameter('PhaseId', 'T1', @(x) ischar(x) || isstring(x));
 parser.addParameter('ProgramId', 1, @(x) isnumeric(x) && isscalar(x));
 parser.addParameter('ReusePreparedRoot', false, @(x) islogical(x) || isnumeric(x));
+parser.addParameter('Mode', 'fem', @(x) ischar(x) || isstring(x));
+parser.addParameter('ExistingRunRoot', '', @(x) ischar(x) || isstring(x));
+parser.addParameter('TrashRoot', '', @(x) ischar(x) || isstring(x));
 parser.parse(varargin{:});
 opts = parser.Results;
 
 assert_safe_work_root(opts.WorkRoot);
+mode = lower(char(string(opts.Mode)));
+if ~ismember(mode, {'fem', 'compare_existing'})
+    error('run_voltage_backend_equivalence:InvalidMode', ...
+        'Mode must be fem or compare_existing.');
+end
+if strcmp(mode, 'compare_existing')
+    result = compare_existing_voltage(opts.ExistingRunRoot, opts.TrashRoot);
+    return;
+end
 
 repoDir = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
 addpath(genpath(repoDir), '-end');
@@ -31,6 +43,7 @@ if officialPilot && logical(opts.ReusePreparedRoot)
     error('run_voltage_backend_equivalence:OfficialReuseForbidden', ...
         'Official SNr003 acceptance requires a newly copied validation root.');
 end
+
 [gitCommit, gitDirty] = git_provenance(repoDir);
 if officialPilot && gitDirty
     error('run_voltage_backend_equivalence:DirtyOfficialPilot', ...
@@ -153,6 +166,130 @@ if ~overallPass
     error('run_voltage_backend_equivalence:AcceptanceFailed', ...
         'Single-source backend equivalence acceptance failed: %s', runRoot);
 end
+end
+
+function result = compare_existing_voltage(runRootValue, trashRoot)
+runRoot = must_be_folder(runRootValue, 'existing voltage acceptance run');
+assert_safe_work_root(runRoot);
+manifestPath = must_be_file(fullfile(runRoot, 'validation_manifest.json'), ...
+    'voltage acceptance manifest');
+inventoryPath = must_be_file(fullfile(runRoot, 'case_inventory.csv'), ...
+    'voltage case inventory');
+manifest = jsondecode(fileread(manifestPath));
+inventory = readtable(inventoryPath, 'TextType', 'string');
+required = {'case_id', 'side'};
+if ~all(ismember(required, inventory.Properties.VariableNames)) || ...
+        height(inventory) < 1
+    error('run_voltage_backend_equivalence:InvalidExistingRun', ...
+        'Existing voltage run has an invalid case inventory.');
+end
+
+candidateBackend = existing_candidate_backend(runRoot);
+cases = repmat(struct('case_id', '', 'side', ''), height(inventory), 1);
+outputs = struct();
+for index = 1:height(inventory)
+    cases(index).case_id = char(inventory.case_id(index));
+    cases(index).side = char(inventory.side(index));
+    field = matlab.lang.makeValidName(cases(index).case_id);
+    outputs.(field).simbio = existing_voltage_repeats( ...
+        runRoot, 'simbio', cases(index).side);
+    outputs.(field).canonical = existing_voltage_repeats( ...
+        runRoot, candidateBackend, cases(index).side);
+end
+
+[efieldMetrics, binaryMetrics, repeatabilityMetrics, comparisonPass] = ...
+    compare_all_outputs(cases, outputs);
+replace_table_safely(efieldMetrics, ...
+    fullfile(runRoot, 'efield_metrics.csv'), trashRoot);
+replace_table_safely(binaryMetrics, ...
+    fullfile(runRoot, 'binary_vta_metrics.csv'), trashRoot);
+replace_table_safely(repeatabilityMetrics, ...
+    fullfile(runRoot, 'repeatability_metrics.csv'), trashRoot);
+
+summaryPath = fullfile(runRoot, 'acceptance_summary.json');
+if isfile(summaryPath)
+    summary = jsondecode(fileread(summaryPath));
+else
+    summary = struct();
+end
+summary.pass = comparisonPass;
+summary.comparison_gates_passed = comparisonPass;
+summary.native_equivalence_passed = all(efieldMetrics.pass) && ...
+    all(binaryMetrics.pass);
+summary.comparison_fem_solve_count = 0;
+summary.comparison_mode = 'compare_existing';
+summary.historical_candidate_backend = candidateBackend;
+summary.refreshed_at = timestamp_iso();
+replace_json_safely(summaryPath, summary, trashRoot);
+
+markdownPath = fullfile(runRoot, 'acceptance_summary.md');
+if isfile(markdownPath)
+    mh_vta_move_path_to_trash(markdownPath, 'TrashRoot', trashRoot);
+end
+write_summary_markdown(markdownPath, summary, efieldMetrics, ...
+    binaryMetrics, repeatabilityMetrics);
+
+result = struct( ...
+    'mode', 'compare_existing', ...
+    'run_root', runRoot, ...
+    'fem_solve_count', 0, ...
+    'manifest_atlas_set', char(string(manifest.atlas_set)), ...
+    'summary', summary, ...
+    'pass', comparisonPass);
+end
+
+function backend = existing_candidate_backend(runRoot)
+if isfolder(fullfile(runRoot, 'outputs', 'canonical'))
+    backend = 'canonical';
+elseif isfolder(fullfile(runRoot, 'outputs', 'simbio_onesolve'))
+    backend = 'simbio_onesolve';
+else
+    error('run_voltage_backend_equivalence:InvalidExistingRun', ...
+        'Existing voltage run has no canonical candidate outputs.');
+end
+end
+
+function outputs = existing_voltage_repeats(runRoot, backend, side)
+outputs = repmat(struct('native', '', 'mni', ''), 2, 1);
+for repeat = 1:2
+    folder = fullfile(runRoot, 'outputs', backend, side, ...
+        sprintf('run-%d', repeat));
+    outputs(repeat).native = first_existing_file({ ...
+        fullfile(folder, 'native_efield.nii'), ...
+        fullfile(folder, 'native_efield.nii.gz'), ...
+        fullfile(folder, 'native', 'efield.nii'), ...
+        fullfile(folder, 'native', 'efield.nii.gz')});
+    outputs(repeat).mni = first_existing_file({ ...
+        fullfile(folder, 'mni_efield.nii'), ...
+        fullfile(folder, 'mni_efield.nii.gz'), ...
+        fullfile(folder, 'MNI152NLin2009bAsym', 'efield.nii'), ...
+        fullfile(folder, 'MNI152NLin2009bAsym', 'efield.nii.gz')});
+end
+end
+
+function path = first_existing_file(candidates)
+for index = 1:numel(candidates)
+    if isfile(candidates{index})
+        path = candidates{index};
+        return;
+    end
+end
+error('run_voltage_backend_equivalence:InvalidExistingRun', ...
+    'Existing voltage output is missing: %s', candidates{1});
+end
+
+function replace_table_safely(value, path, trashRoot)
+if isfile(path)
+    mh_vta_move_path_to_trash(path, 'TrashRoot', trashRoot);
+end
+writetable(value, path);
+end
+
+function replace_json_safely(path, value, trashRoot)
+if isfile(path)
+    mh_vta_move_path_to_trash(path, 'TrashRoot', trashRoot);
+end
+write_json(path, value);
 end
 
 function validate_study_document(document)

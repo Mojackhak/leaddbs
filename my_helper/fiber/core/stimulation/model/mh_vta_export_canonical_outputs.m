@@ -9,8 +9,6 @@ mniEfield = fullfile(mniLeaf, 'efield.nii.gz');
 actions = mh_vta_resolve_output_actions(task);
 
 if actions.solve_native_efield
-    gradient = fill_electrode_tetrahedra(mesh, gradient, ...
-        activeNodeIndices);
     fieldValues = sqrt(sum(double(gradient).^2, 2));
     meshPointsMm = tetrahedron_midpoints_mm(mesh);
     [~, trajectory] = ea_load_reconstruction(options);
@@ -59,22 +57,6 @@ points = mean(cat(3, ...
 if isfield(mesh, 'unit') && strcmpi(mesh.unit, 'm')
     points = points * 1000;
 end
-end
-
-function gradient = fill_electrode_tetrahedra(mesh, gradient, nodeIndices)
-electrodeTetrahedra = sum(ismember(mesh.tet, unique(nodeIndices)), 2) == 4;
-if ~any(electrodeTetrahedra)
-    return;
-end
-magnitudes = sqrt(sum(double(gradient).^2, 2));
-finiteValues = sort(magnitudes(isfinite(magnitudes)), 'descend');
-if isempty(finiteValues)
-    return;
-end
-count = max(1, ceil(numel(finiteValues) * 0.001));
-replacementMagnitude = mean(finiteValues(1:count));
-gradient(electrodeTetrahedra, :) = 0;
-gradient(electrodeTetrahedra, 1) = replacementMagnitude;
 end
 
 function write_requested_thresholds(efieldPath, leaf, thresholds, requestedNames)

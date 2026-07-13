@@ -115,6 +115,12 @@ verifyEqual(testCase, filteredPoints, points(1:2, :));
 verifyEqual(testCase, filteredValues, values(1:2));
 end
 
+function testCanonicalExporterDoesNotHighFieldFillElectrodeTetrahedra(testCase)
+source = fileread(which('mh_vta_export_canonical_outputs'));
+
+verifyFalse(testCase, contains(source, 'fill_electrode_tetrahedra'));
+end
+
 function testElectrodeTissueFilterRejectsMisalignedSamples(testCase)
 mesh = struct('tissue', [1; 2; 3]);
 verifyError(testCase, @() mh_vta_filter_export_samples( ...

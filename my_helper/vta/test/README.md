@@ -21,6 +21,13 @@ manifest. Any new voltage or current acceptance run uses the canonical atlas
 `Custom_Ewert_Zhang_Middlebrooks`; an earlier `0.05`-suffixed atlas directory
 must not be silently treated as the current acceptance atlas.
 
+Historical paired voltage outputs are refreshed with
+`Mode='compare_existing'` and an explicit `ExistingRunRoot`. This mode starts
+no FEM, copies no subject, and refreshes only comparison tables and summaries;
+the replaced untracked files are moved to the filesystem Trash. It preserves
+the historical manifest's atlas, code, and scope instead of relabeling those
+outputs as a current-atlas run.
+
 The runner:
 
 1. reads source, electrode, reconstruction, and subject paths from
@@ -141,7 +148,10 @@ coarser production grid.
 
 When candidate and reference dimensions and affine already match, alignment is
 an identity operation. The comparison helper skips interpolation in that case
-to preserve the original finite support at image boundaries.
+to preserve the original finite support at image boundaries. A current
+acceptance candidate whose native dimensions or affine do not already match the
+standard SimBio reference grid fails; the runner does not resample it into a
+passing result.
 
 The lightweight test entry point exercises fixture generation, safety guards,
 inventory validation, and the independent vector-superposition fixture. The
@@ -149,8 +159,8 @@ existing synthetic NIfTI comparison test separately verifies the shared strict
 E-field/VTA gates. Neither test invokes meshing or FEM:
 
 ```matlab
-r = testsuite('my_helper/vta/test/test_run_voltage_backend_equivalence.m');
-r = [r testsuite('my_helper/vta/test/test_run_current_backend_equivalence.m')];
+test_run_voltage_backend_equivalence;
+r = testsuite('my_helper/vta/test/test_run_current_backend_equivalence.m');
 assertSuccess(run(r));
 ```
 
@@ -178,6 +188,14 @@ E-fields. It refreshes only the comparison CSV files and acceptance summary.
 Existing versions of those untracked files are moved to the filesystem Trash
 before replacement. The refreshed overall result also preserves the original
 `production_subject_tree_unchanged` safety gate.
+
+Historical voltage outputs can likewise be re-compared without FEM:
+
+```matlab
+run_voltage_backend_equivalence( ...
+    'Mode', 'compare_existing', ...
+    'ExistingRunRoot', '/path/to/vta_single_source_backend_equivalence_RUN');
+```
 
 This command is not part of the lightweight test suite and is not run while the
 current harness itself is being implemented.
