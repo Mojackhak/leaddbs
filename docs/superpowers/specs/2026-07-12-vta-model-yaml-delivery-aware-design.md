@@ -550,9 +550,11 @@ not depend on an artifact index.
 | Real-cohort output rebuild | `production_rebuild_not_started` | Production subject trees and model outputs have not been rebuilt by this pipeline. |
 
 The copied-subject preparation helper is an isolation mechanism, not numerical
-FEM evidence. The copied-subject end-to-end gate remains unverified until its
-separate explicit run is completed. No production execution is implied by any
-status in this table.
+FEM evidence. It preserves the minimal valid BIDS hierarchy by copying the
+dataset description and only the selected `derivatives/leaddbs/sub-*` tree.
+The copied-subject end-to-end gate remains unverified until its separate
+explicit run is completed. No production execution is implied by any status in
+this table.
 
 ### Schema And Planner
 

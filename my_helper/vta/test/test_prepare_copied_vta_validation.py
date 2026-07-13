@@ -27,7 +27,13 @@ def _load_module():
 
 
 def _write_study_base(tmp_path: Path) -> tuple[Path, dict[str, Path]]:
-    source_root = tmp_path / "source" / "derivatives" / "leaddbs"
+    dataset_root = tmp_path / "source"
+    dataset_root.mkdir()
+    dataset_root.joinpath("dataset_description.json").write_text(
+        json.dumps({"Name": "Fixture", "BIDSVersion": "1.6.0"}) + "\n",
+        encoding="utf-8",
+    )
+    source_root = dataset_root / "derivatives" / "leaddbs"
     paths: dict[str, Path] = {}
     subjects = []
     for subject_id in ("SNr003", "SNr004"):
@@ -95,7 +101,13 @@ def test_prepare_validation_copy_never_points_to_production(tmp_path: Path) -> N
     copied_reconstruction = Path(
         subject["subject_sources"]["electrode_reconstruction"]["path"]
     )
-    assert copied_subject == output.parent / "copied_subject" / "sub-SNr003"
+    copied_dataset = output.parent / "copied_dataset"
+    assert copied_subject == (
+        copied_dataset / "derivatives" / "leaddbs" / "sub-SNr003"
+    )
+    assert json.loads(
+        copied_dataset.joinpath("dataset_description.json").read_text()
+    )["Name"] == "Fixture"
     assert copied_reconstruction == (
         copied_subject
         / "reconstruction"
@@ -104,7 +116,9 @@ def test_prepare_validation_copy_never_points_to_production(tmp_path: Path) -> N
     assert copied_subject != source_paths["SNr003"]
     assert copied_subject.joinpath("source-marker.txt").read_text() == "SNr003"
     assert copied_reconstruction.read_bytes() == b"reconstruction:SNr003"
-    assert not output.parent.joinpath("copied_subject", "sub-SNr004").exists()
+    assert not copied_dataset.joinpath(
+        "derivatives", "leaddbs", "sub-SNr004"
+    ).exists()
     assert not copied_subject.is_relative_to(PRODUCTION_ROOT)
 
 

@@ -47,6 +47,12 @@ def prepare_validation_copy(
         raise ValueError(f"Lead-DBS subject directory does not exist: {source_subject_dir}")
     if not source_reconstruction.is_file():
         raise ValueError(f"Reconstruction does not exist: {source_reconstruction}")
+    source_dataset_root = _dataset_root_for_subject(source_subject_dir)
+    source_dataset_description = source_dataset_root / "dataset_description.json"
+    if not source_dataset_description.is_file():
+        raise ValueError(
+            f"BIDS dataset description does not exist: {source_dataset_description}"
+        )
     try:
         reconstruction_relative = source_reconstruction.relative_to(source_subject_dir)
     except ValueError as exc:
@@ -57,8 +63,18 @@ def prepare_validation_copy(
     run_root = validation_root / f"vta_pipeline_e2e_{run_id}"
     if run_root.exists():
         raise FileExistsError(f"Validation run already exists: {run_root}")
-    copied_subject_dir = run_root / "copied_subject" / source_subject_dir.name
+    copied_dataset_root = run_root / "copied_dataset"
+    copied_subject_dir = (
+        copied_dataset_root
+        / "derivatives"
+        / "leaddbs"
+        / source_subject_dir.name
+    )
     copied_subject_dir.parent.mkdir(parents=True)
+    shutil.copy2(
+        source_dataset_description,
+        copied_dataset_root / "dataset_description.json",
+    )
     shutil.copytree(source_subject_dir, copied_subject_dir)
 
     copied_reconstruction = copied_subject_dir / reconstruction_relative
@@ -100,6 +116,17 @@ def _is_within(path: Path, root: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _dataset_root_for_subject(subject_dir: Path) -> Path:
+    leaddbs_root = subject_dir.parent
+    derivatives_root = leaddbs_root.parent
+    if leaddbs_root.name != "leaddbs" or derivatives_root.name != "derivatives":
+        raise ValueError(
+            "Lead-DBS subject directory must use "
+            "<dataset>/derivatives/leaddbs/sub-* layout"
+        )
+    return derivatives_root.parent
 
 
 def _parse_args() -> argparse.Namespace:

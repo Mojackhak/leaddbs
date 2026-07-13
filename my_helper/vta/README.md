@@ -15,8 +15,11 @@ clinical endpoint definitions are outside the VTA execution contract.
 | Real-cohort output rebuild | `production_rebuild_not_started` | Production subject trees and model outputs have not been rebuilt by this pipeline. |
 
 The copied-subject end-to-end FEM gate is separate from unit validation. Its
-preparation helper creates an isolated validation study base and subject copy;
-creating that copy does not run FEM or establish end-to-end acceptance.
+preparation helper creates an isolated minimal BIDS tree containing the source
+`dataset_description.json` and only the selected
+`derivatives/leaddbs/sub-$SUBJECT_ID` directory, then rewrites the validation
+study base to that copied subject. Creating the copy does not run FEM or
+establish end-to-end acceptance.
 
 ## Public Model Profile
 
