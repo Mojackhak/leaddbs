@@ -30,6 +30,8 @@ simbio.backend = 'mh_vta_backend_simbio_twosource';
 simbio.supportsVoltage = true;
 simbio.supportsCurrent = true;
 simbio.supportsMultiVoltage = false;
+simbio.supportsJointVoltage = false;
+simbio.supportsJointCurrent = false;
 simbio.outputs = mh_vta_output_spaces_from_config();
 
 oneSolve = simbio;
@@ -38,6 +40,7 @@ oneSolve.aliases = {'simbio_onesolve', 'onesolve', 'helper_onesolve_multivoltage
 oneSolve.backend = 'mh_vta_backend_simbio_onesolve';
 oneSolve.supportsCurrent = false;
 oneSolve.supportsMultiVoltage = true;
+oneSolve.supportsJointVoltage = true;
 
 entries = [simbio, oneSolve];
 end

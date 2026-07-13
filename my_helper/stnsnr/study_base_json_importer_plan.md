@@ -554,6 +554,39 @@ one case anode with fraction 1.0
 source_label = Target
 ```
 
+The current row-level conversion above is an STNSNr adapter behavior, not the
+limit of the canonical stimulation contract. The project-independent contract
+is defined in:
+
+```text
+my_helper/fiber/vta_stimulation_contract_design.md
+```
+
+It preserves the existing JSON fields while allowing one source to own multiple
+contacts. Frequency groups require equal source frequency. Continuous groups
+contain one or more simultaneously delivered sources; alternating groups
+contain at least two alternating source states and do not imply a duty cycle.
+
+Contact fractions are resolved per source and polarity:
+
+```text
+voltage:
+  every active contact has fraction 1.0
+
+current with complete observed allocation:
+  preserve the observed normalized allocation
+
+current with allocation absent for all same-polarity contacts:
+  infer 1 / n within that source and polarity
+
+current with partially observed allocation:
+  reject the input
+```
+
+Fractions are never normalized across sources. The current STNSNr workbook is
+voltage controlled and contains no contact-allocation field, so current imports
+remain unchanged at fraction `1.0` and the importer must not infer current mode.
+
 Frequency grouping:
 
 ```text

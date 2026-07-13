@@ -51,20 +51,12 @@ for i = 1:numel(cfg.stimSpec.sources)
     sourceIdx = sideCounts.(sideCode);
     sourceField = [sideCode, 's', num2str(sourceIdx)];
 
-    if src.contact > S.numContacts
-        error('mh_fiber_build_stimulation:ContactOutOfRange', ...
-            'Contact %d is outside electrode contact count %d.', src.contact, S.numContacts);
-    end
-
     S.amplitude{sideIdx}(sourceIdx) = src.amp;
     S.(sourceField).amp = src.amp;
     S.(sourceField).va = unit_to_va(src.unit);
     S.(sourceField).pulseWidth = src.pulseWidth;
     S.(sourceField).frequency = src.frequency;
-    S.(sourceField).case.perc = 100;
-    S.(sourceField).case.pol = 2;
-    S.(sourceField).(['k', num2str(src.contact)]).perc = 100;
-    S.(sourceField).(['k', num2str(src.contact)]).pol = 1;
+    S = mh_fiber_apply_source_contacts(S, sourceField, src, S.numContacts);
 end
 
 S = ea_activecontacts(S);

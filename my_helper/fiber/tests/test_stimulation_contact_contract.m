@@ -1,0 +1,138 @@
+% Validate canonical multi-contact stimulation specs without running FEM.
+
+repoDir = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
+addpath(genpath(fullfile(repoDir, 'my_helper', 'fiber')));
+addpath(repoDir);
+
+cfg = base_cfg();
+legacy = struct( ...
+    'side', 'L', ...
+    'contact', 1, ...
+    'amp', 2.0, ...
+    'unit', 'V', ...
+    'pulseWidth', 60, ...
+    'frequency', 130, ...
+    'cathode', true, ...
+    'anode', 'case');
+stimSpec = struct('label', '', 'model', 'simbio', 'space', ...
+    'MNI152NLin2009bAsym', 'sources', legacy);
+legacyCfg = mh_fiber_set_stimulation(cfg, stimSpec);
+assert(numel(legacyCfg.stimSpec.sources.contacts) == 2);
+assert(strcmp(legacyCfg.stimSpec.sources.contacts(1).polarity, 'cathode'));
+assert(legacyCfg.stimSpec.sources.contacts(1).fraction == 1.0);
+assert(strcmp(legacyCfg.stimSpec.sources.contacts(2).contact, 'case'));
+assert(strcmp(legacyCfg.stimLabel, 'clinical_L1_2V'));
+
+voltage = canonical_source('L', 2.5, 'V', [ ...
+    contact_spec(1, 'cathode', 1.0), ...
+    contact_spec(2, 'cathode', 1.0), ...
+    contact_spec('case', 'anode', 1.0)]);
+voltageCfg = mh_fiber_set_stimulation(cfg, spec_with_source(voltage));
+assert(numel(voltageCfg.stimSpec.sources.contacts) == 3);
+
+current = canonical_source('R', 3.0, 'mA', [ ...
+    contact_spec(1, 'cathode', 0.5), ...
+    contact_spec(2, 'cathode', 0.5), ...
+    contact_spec('case', 'anode', 1.0)]);
+currentCfg = mh_fiber_set_stimulation(cfg, spec_with_source(current));
+assert(strcmp(currentCfg.stimSpec.sources.controlMode, 'current'));
+
+bipolar = canonical_source('L', 2.0, 'V', [ ...
+    contact_spec(1, 'cathode', 1.0), ...
+    contact_spec(2, 'anode', 1.0)]);
+mh_fiber_set_stimulation(cfg, spec_with_source(bipolar));
+
+duplicate = canonical_source('L', 2.0, 'V', [ ...
+    contact_spec(1, 'cathode', 1.0), ...
+    contact_spec(1, 'anode', 1.0)]);
+assert_error(@() mh_fiber_set_stimulation(cfg, spec_with_source(duplicate)), ...
+    'mh_fiber_set_stimulation:DuplicateContact');
+
+invalidCurrent = canonical_source('L', 3.0, 'mA', [ ...
+    contact_spec(1, 'cathode', 0.6), ...
+    contact_spec(2, 'cathode', 0.3), ...
+    contact_spec('case', 'anode', 1.0)]);
+assert_error(@() mh_fiber_set_stimulation(cfg, spec_with_source(invalidCurrent)), ...
+    'mh_fiber_set_stimulation:InvalidContactFraction');
+
+tableSpec = mh_fiber_stimspec_from_table({'L', 1, 2.0, 60, 130}, 'case');
+assert(isfield(tableSpec.sources, 'contacts'));
+assert(numel(tableSpec.sources.contacts) == 2);
+
+currentS = empty_s(4, 'Rs1');
+currentS = mh_fiber_apply_source_contacts( ...
+    currentS, 'Rs1', currentCfg.stimSpec.sources, 4);
+assert(currentS.Rs1.k1.perc == 50 && currentS.Rs1.k1.pol == 1);
+assert(currentS.Rs1.k2.perc == 50 && currentS.Rs1.k2.pol == 1);
+assert(currentS.Rs1.case.perc == 100 && currentS.Rs1.case.pol == 2);
+
+voltageS = empty_s(4, 'Ls1');
+voltageS = mh_fiber_apply_source_contacts( ...
+    voltageS, 'Ls1', voltageCfg.stimSpec.sources, 4);
+assert(voltageS.Ls1.k1.perc == 100 && voltageS.Ls1.k1.pol == 1);
+assert(voltageS.Ls1.k2.perc == 100 && voltageS.Ls1.k2.pol == 1);
+assert(voltageS.Ls1.case.perc == 100 && voltageS.Ls1.case.pol == 2);
+
+bipolarCfg = mh_fiber_set_stimulation(cfg, spec_with_source(bipolar));
+bipolarS = empty_s(4, 'Ls1');
+bipolarS = mh_fiber_apply_source_contacts( ...
+    bipolarS, 'Ls1', bipolarCfg.stimSpec.sources, 4);
+assert(bipolarS.Ls1.k1.perc == 100 && bipolarS.Ls1.k1.pol == 1);
+assert(bipolarS.Ls1.k2.perc == 100 && bipolarS.Ls1.k2.pol == 2);
+assert(bipolarS.Ls1.case.perc == 0 && bipolarS.Ls1.case.pol == 0);
+
+fprintf('Stimulation contact contract test passed.\n');
+
+function cfg = base_cfg()
+cfg = struct();
+cfg.maxSourcesPerSide = 4;
+cfg.outputRoot = tempdir;
+cfg.vta = struct( ...
+    'modelKey', 'simbio', ...
+    'model', 'SimBio/FieldTrip (see Horn 2017)', ...
+    'space', 'MNI152NLin2009bAsym');
+end
+
+function source = canonical_source(side, amplitude, unit, contacts)
+source = struct( ...
+    'side', side, ...
+    'amp', amplitude, ...
+    'unit', unit, ...
+    'pulseWidth', 60, ...
+    'frequency', 130, ...
+    'contacts', contacts);
+end
+
+function contact = contact_spec(identifier, polarity, fraction)
+contact = struct('contact', identifier, 'polarity', polarity, 'fraction', fraction);
+end
+
+function stimSpec = spec_with_source(source)
+stimSpec = struct( ...
+    'label', '', ...
+    'model', 'simbio', ...
+    'space', 'MNI152NLin2009bAsym', ...
+    'sources', source);
+end
+
+function assert_error(callback, expectedId)
+raised = false;
+try
+    callback();
+catch ME
+    raised = true;
+    assert(strcmp(ME.identifier, expectedId), ...
+        'Expected error %s, received %s.', expectedId, ME.identifier);
+end
+assert(raised, 'Expected error was not raised: %s', expectedId);
+end
+
+function S = empty_s(numContacts, sourceField)
+S = struct('numContacts', numContacts);
+source = struct();
+source.case = struct('perc', 0, 'pol', 0);
+for contactIndex = 1:numContacts
+    source.(['k', num2str(contactIndex)]) = struct('perc', 0, 'pol', 0);
+end
+S.(sourceField) = source;
+end

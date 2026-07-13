@@ -21,6 +21,12 @@ import numpy as np
 import pandas as pd
 from scipy.io import loadmat
 
+from core.stimulation.contact_fraction import (
+    ContactFractionError,
+    resolve_contact_fractions,
+    validate_resolved_contact_fractions,
+)
+
 
 class StudyBaseImportError(ValueError):
     """Raised when source data cannot be mapped without ambiguity."""
@@ -334,6 +340,11 @@ def _stimulation_programs(
                         raise StudyBaseImportError(f"contact {contact} is outside {side} electrode range at source row {row_index + 2}")
                     source_rows.append((contact, int(row_index), row, target))
                 for source_number, (contact, row_index, row, target) in enumerate(sorted(source_rows), start=1):
+                    source_contacts = [
+                        {"contact": contact, "polarity": "cathode"},
+                        {"contact": "case", "polarity": "anode"},
+                    ]
+                    fractions = resolve_contact_fractions(source_contacts, "voltage")
                     sources.append(
                         {
                             "source_id": f"source-{source_number}",
@@ -344,8 +355,8 @@ def _stimulation_programs(
                             "amplitude": _finite_number(row["Voltage"], "Voltage", row_index + 2),
                             "pulse_width_us": _finite_number(row["PulseWidth"], "PulseWidth", row_index + 2),
                             "contacts": [
-                                {"contact": contact, "polarity": "cathode", "fraction": 1.0},
-                                {"contact": "case", "polarity": "anode", "fraction": 1.0},
+                                {**row, "fraction": fractions[index]}
+                                for index, row in enumerate(source_contacts)
                             ],
                         }
                     )
@@ -500,7 +511,13 @@ def build_study_base(
             "subjects": subjects,
             "provenance": {
                 "created_at": _utc_timestamp(now()),
-                "importer": {"name": "build_stnsnr_study_base", "version": "1", "code_commit": code_commit if code_commit is not None else _git_commit(assets)},
+                "importer": {
+                    "name": "build_stnsnr_study_base",
+                    "version": "1",
+                    "code_commit": code_commit
+                    if code_commit is not None
+                    else _git_commit(Path(__file__).resolve().parents[5]),
+                },
                 "source_files": [
                     {"role": "clinical", "path": str(clinical_path)},
                     {"role": "programming", "path": str(stimulation_path)},
@@ -585,6 +602,10 @@ def _validate_semantics(payload: Mapping[str, Any]) -> None:
                     group_ids: list[str] = []
                     for group in electrode_program["frequency_groups"]:
                         group_ids.append(group["frequency_group_id"])
+                        if group["delivery_mode"] == "alternating" and len(group["sources"]) < 2:
+                            raise StudyBaseImportError(
+                                "alternating frequency group must contain at least two sources"
+                            )
                         source_ids: list[str] = []
                         frequencies: set[float] = set()
                         for source in group["sources"]:
@@ -598,21 +619,45 @@ def _validate_semantics(payload: Mapping[str, Any]) -> None:
                             if _TARGET_COMPONENT.get(source["source_label"]) != component:
                                 raise StudyBaseImportError("source label/component mapping is invalid")
                             contacts = source["contacts"]
+                            contact_ids = [row["contact"] for row in contacts]
+                            if len(contact_ids) != len(set(contact_ids)):
+                                raise StudyBaseImportError("duplicate contact within source")
                             cathodes = [row for row in contacts if row["polarity"] == "cathode"]
                             anodes = [row for row in contacts if row["polarity"] == "anode"]
-                            if len(cathodes) != 1 or len(anodes) != 1 or anodes[0]["contact"] != "case":
-                                raise StudyBaseImportError("source contact polarity structure is invalid")
-                            contact = cathodes[0]["contact"]
-                            valid = (
-                                isinstance(contact, int)
-                                and (
-                                    0 <= contact < left_count
-                                    if electrode_id == "lead-L"
-                                    else left_count <= contact < total_count
+                            if not cathodes or not anodes:
+                                raise StudyBaseImportError(
+                                    "source must contain at least one cathode and one anode"
                                 )
-                            )
-                            if not valid:
-                                raise StudyBaseImportError("source contact is outside its electrode range")
+                            case_rows = [row for row in contacts if row["contact"] == "case"]
+                            if case_rows:
+                                if len(case_rows) != 1 or case_rows[0]["polarity"] != "anode" or len(anodes) != 1:
+                                    raise StudyBaseImportError(
+                                        "case return must be the sole source anode"
+                                    )
+                            for contact_row in contacts:
+                                contact = contact_row["contact"]
+                                if contact == "case":
+                                    continue
+                                valid = (
+                                    isinstance(contact, int)
+                                    and not isinstance(contact, bool)
+                                    and (
+                                        0 <= contact < left_count
+                                        if electrode_id == "lead-L"
+                                        else left_count <= contact < total_count
+                                    )
+                                )
+                                if not valid:
+                                    raise StudyBaseImportError(
+                                        "source contact is outside its electrode range"
+                                    )
+                            try:
+                                validate_resolved_contact_fractions(
+                                    contacts,
+                                    source["control_mode"],
+                                )
+                            except ContactFractionError as exc:
+                                raise StudyBaseImportError(str(exc)) from exc
                         if len(frequencies) != 1:
                             raise StudyBaseImportError("mixed frequencies within frequency group")
                         if len(source_ids) != len(set(source_ids)):
