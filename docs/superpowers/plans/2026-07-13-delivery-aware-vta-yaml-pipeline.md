@@ -1178,22 +1178,22 @@ git commit -m "docs: record VTA pipeline acceptance"
 
 ## Final Acceptance Checklist
 
-- [ ] Public YAML contains only the approved conductivities, atlas, spaces, and VTA thresholds.
-- [ ] Changing target/component, phase, program, or subject display labels does not alter normalized physical-group equality.
-- [ ] Continuous groups use one joint `simbio_onesolve` task.
-- [ ] Alternating groups use independent `simbio_onesolve` source tasks and a derived maximum E-field.
+- [x] Public YAML contains only the approved conductivities, atlas, spaces, and VTA thresholds.
+- [x] Changing target/component, phase, program, or subject display labels does not alter normalized physical-group equality.
+- [x] Continuous groups use one joint `simbio_onesolve` task.
+- [x] Alternating groups use independent `simbio_onesolve` source tasks and a derived maximum E-field.
 - [ ] Voltage and current groups pass strict unit and numerical gates.
-- [ ] No legacy four-source cap affects canonical input.
+- [x] No legacy four-source cap affects canonical input.
 - [ ] Native E-field uses the preoperative common grid.
-- [ ] MNI E-field is transformed from native continuous E-field.
-- [ ] All binary VTAs are thresholded in their own space at 180/200/220 V/m.
-- [ ] Artifact hierarchy is deterministic and hierarchical.
+- [x] MNI E-field is transformed from native continuous E-field.
+- [x] All binary VTAs are thresholded in their own space at 180/200/220 V/m.
+- [x] Artifact hierarchy is deterministic and hierarchical.
 - [ ] Leaves contain only one E-field and three threshold artifacts; no `provenance.json` is generated.
-- [ ] `--workers` parallelizes subjects only.
-- [ ] Ordinary run and `--resume` preserve existing paths and fill only missing artifacts.
-- [ ] Same-subject equivalent frequency groups reuse existing artifacts without hashes; no phase/program/subject literal controls behavior.
-- [ ] A failed task skips only dependency descendants; independent tasks continue.
-- [ ] Force uses Trash and does not implicitly rebuild an existing head model.
+- [x] `--workers` parallelizes subjects only.
+- [x] Ordinary run and `--resume` preserve existing paths and fill only missing artifacts.
+- [x] Same-subject equivalent frequency groups reuse existing artifacts without hashes; no phase/program/subject literal controls behavior.
+- [x] A failed task skips only dependency descendants; independent tasks continue.
+- [x] Force uses Trash and does not implicitly rebuild an existing head model.
 - [ ] Representative copied SNr003 acceptance passes without running all 20 tasks or modifying production subjects.
-- [ ] Production all-subject planning selects 16 subjects and performs no writes.
-- [ ] Production rebuild remains unstarted until separately authorized.
+- [x] Production all-subject planning selects 16 subjects and performs no writes.
+- [x] Production rebuild remains unstarted until separately authorized.
