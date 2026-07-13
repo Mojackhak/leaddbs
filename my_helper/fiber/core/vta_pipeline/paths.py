@@ -8,6 +8,18 @@ from .errors import PlanningError
 from .planner import TaskKind, VtaTask
 
 
+def canonical_head_model_path(task: VtaTask) -> Path:
+    """Return the canonical native head-model path for a task hemisphere."""
+
+    side_index = 1 if task.hemisphere == "R" else 2
+    return (
+        task.subject_dir
+        / "headmodel"
+        / "native"
+        / f"sub-{task.subject_id}_desc-headmodel{side_index}.mat"
+    )
+
+
 def leaf_directory(task: VtaTask, space: str) -> Path:
     """Return the canonical output leaf for one task and output space."""
 

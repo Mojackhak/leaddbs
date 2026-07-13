@@ -532,10 +532,13 @@ vta-model plan \
   --subject SNr003
 ```
 
-Plan prints deterministic task rows with subject, phase, program, electrode,
-frequency group, delivery mode, source/joint identity, control mode, output
-directory, and `compute | resume_skip | blocked` action. It does not create a
-new authoritative input file.
+Plan prints deterministic JSON task rows with subject, phase, program,
+electrode, frequency group, delivery mode, task kind, dependencies, and native
+and MNI output leaves. Every row also reports the canonical hemisphere-specific
+head-model path and path-derived status: `reuse_existing` when that MAT file is
+present, otherwise `build_required`. Planning does not inspect FEM contents,
+build a head model, resolve a runtime donor, or create a new authoritative
+input file.
 
 ### Run
 

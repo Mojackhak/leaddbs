@@ -94,6 +94,56 @@ def test_plan_is_deterministic_and_read_only(
     assert not (study_path.parent / "subject" / "stimulations").exists()
 
 
+def test_plan_reports_identifiers_and_head_model_path_state(
+    study_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    args = common_args("plan", study_path)
+    assert main(args) == 0
+    initial = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+
+    required_identifiers = {
+        "phase_id",
+        "program_id",
+        "electrode_id",
+        "frequency_group_id",
+        "delivery_mode",
+    }
+    assert all(required_identifiers <= row.keys() for row in initial)
+    assert {row["head_model"]["status"] for row in initial} == {
+        "build_required"
+    }
+    expected_names = {
+        "L": "sub-SNr003_desc-headmodel2.mat",
+        "R": "sub-SNr003_desc-headmodel1.mat",
+    }
+    assert all(
+        Path(row["head_model"]["path"]).name == expected_names[row["hemisphere"]]
+        for row in initial
+    )
+
+    right_path = Path(
+        next(row for row in initial if row["hemisphere"] == "R")["head_model"][
+            "path"
+        ]
+    )
+    right_path.parent.mkdir(parents=True)
+    right_path.write_bytes(b"head model")
+
+    assert main(args) == 0
+    updated = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert {
+        row["head_model"]["status"]
+        for row in updated
+        if row["hemisphere"] == "R"
+    } == {"reuse_existing"}
+    assert {
+        row["head_model"]["status"]
+        for row in updated
+        if row["hemisphere"] == "L"
+    } == {"build_required"}
+
+
 def test_status_reports_every_space_leaf(
     study_path: Path,
     capsys: pytest.CaptureFixture[str],

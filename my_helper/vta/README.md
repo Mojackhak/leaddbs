@@ -235,9 +235,13 @@ Selectors are repeatable `--phase`, `--program`, `--electrode`, and
 required, and the two forms are mutually exclusive. `--workers` is a positive
 integer and parallelizes subjects only.
 
-`validate`, `plan`, and `status` are read-only. `plan` emits tasks in stable
-subject/DAG order. `status` reports every planned native and MNI leaf as
-`missing` or `complete`. The runtime summary may additionally report
+`validate`, `plan`, and `status` are read-only. `plan` emits one JSON row per
+task in stable subject/DAG order. Each row includes the task identifiers,
+dependencies, native/MNI leaves, and the canonical hemisphere-specific head
+model path with status `reuse_existing` or `build_required`. The head-model
+status is path based and does not build or inspect FEM data. `status` reports
+every planned native and MNI leaf as `missing` or `complete`. The runtime
+summary may additionally report
 `generated`, `copied`, `skipped_existing`, `failed`, and
 `skipped_dependency`.
 

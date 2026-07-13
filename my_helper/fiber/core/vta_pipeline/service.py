@@ -18,7 +18,7 @@ from .artifacts import (
     move_leaf_to_trash,
 )
 from .matlab_bridge import MatlabBridge, TaskRunContext
-from .paths import leaf_directory
+from .paths import canonical_head_model_path, leaf_directory
 from .planner import (
     Selection,
     SubjectPlan,
@@ -250,13 +250,30 @@ def validate_runtime_inputs(
 def plan_lines(prepared: PreparedPlan) -> Iterable[str]:
     for subject in prepared.subjects:
         for task in subject.tasks:
+            head_model = canonical_head_model_path(task)
             row = {
+                "control_mode": task.sources[0].control_mode,
                 "dependencies": list(task.dependencies),
+                "delivery_mode": task.delivery_mode,
+                "electrode_id": task.electrode_id,
+                "frequency_group_id": task.frequency_group_id,
+                "head_model": {
+                    "path": str(head_model),
+                    "status": (
+                        "reuse_existing"
+                        if head_model.is_file()
+                        else "build_required"
+                    ),
+                },
+                "hemisphere": task.hemisphere,
                 "kind": task.kind.value,
                 "leaves": {
                     space: str(leaf_directory(task, space))
                     for space in task.model.spaces
                 },
+                "phase_id": task.phase_id,
+                "program_id": task.program_id,
+                "source_ids": [source.source_id for source in task.sources],
                 "subject_id": subject.subject_id,
                 "task_id": task.task_id,
             }
