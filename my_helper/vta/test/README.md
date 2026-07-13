@@ -30,9 +30,9 @@ The runner:
    dataset description required by `ea_getptopts`;
 3. archives any copied head model and builds and hashes one fresh shared head
    model before the measured runs;
-4. runs `simbio` and `simbio_onesolve` twice per hemisphere with the same
-   explicit per-side RNG seed and distinct stimulation labels, recording the
-   actual Horn attempt seed used by every run;
+4. runs standard `simbio` and the unified canonical backend twice per
+   hemisphere with the same explicit per-side RNG seed and distinct output
+   labels, recording the actual Horn attempt seed used by every standard run;
 5. compares native continuous E-fields;
 6. derives and compares native 180, 200, and 220 V/m masks;
 7. validates canonical native-to-MNI transformation and MNI thresholding
@@ -98,7 +98,7 @@ the historical voltage pilot. The two suites remain separate evidence: the
 voltage suite reuses the existing SNr003 bilateral single-source outputs,
 while the current suite generates one deterministic hypothetical right-sided
 current program and compares the standard SimBio current path with
-the canonical `simbio_onesolve` current path. A voltage pass is not treated as
+the unified canonical current path. A voltage pass is not treated as
 current evidence, and synthetic current tests are not reported as completed
 real-FEM acceptance.
 

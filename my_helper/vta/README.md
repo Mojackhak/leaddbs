@@ -89,8 +89,10 @@ and 220 V/m.
 
 The public YAML does not expose backend selection, solve unit, mesh controls,
 tissue-surface controls, electrode removal, smoke settings, random seeds, or
-acceptance tolerances. Production calculations use `simbio_onesolve` and the
-Lead-DBS internal default `remove_electrode=true`.
+acceptance tolerances. Production calculations call the unified canonical
+backend directly; that backend uses the SimBio one-solve FEM implementation
+for both voltage and current control. The Lead-DBS internal default is
+`remove_electrode=true`.
 
 The fixed removal behavior solves FEM on the complete mesh. Before continuous
 E-field interpolation, it reproduces the complete standard Horn export

@@ -193,8 +193,8 @@ native thresholding, native-to-MNI continuous-field transformation, and MNI
 thresholding. No control-mode-specific code may write E-field or VTA outputs.
 
 `mh_vta_assemble_boundary` is the only canonical boundary assembler. The old
-`mh_vta_assemble_onesolve_boundary` name is removed after all callers and tests
-migrate, preventing two implementations from drifting.
+`mh_vta_assemble_onesolve_boundary` file and its tests have been removed,
+preventing two implementations from drifting.
 
 `mh_vta_export_canonical_outputs` owns the shared export pipeline and returns
 the native/MNI artifact paths. The backend owns context preparation, head-model

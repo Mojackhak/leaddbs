@@ -694,7 +694,7 @@ git commit -m "feat: define canonical VTA task contract"
 **Files:**
 - Modify: `my_helper/fiber/core/stimulation/model/mh_vta_execute_canonical_task.m`
 - Create: `my_helper/fiber/core/stimulation/model/fem/mh_vta_assemble_boundary.m`
-- Remove after migration: `my_helper/fiber/core/stimulation/model/fem/mh_vta_assemble_onesolve_boundary.m`
+- Removed: `my_helper/fiber/core/stimulation/model/fem/mh_vta_assemble_onesolve_boundary.m`
 - Modify: `my_helper/fiber/core/stimulation/model/backends/mh_vta_backend_simbio_onesolve_canonical.m`
 - Create: `my_helper/fiber/core/stimulation/model/mh_vta_export_canonical_outputs.m`
 - Create: `my_helper/fiber/tests/test_vta_boundary_contract.m`
@@ -707,11 +707,11 @@ git commit -m "feat: define canonical VTA task contract"
 - Produces: `status = mh_vta_export_canonical_outputs(task, options, sideIndex, mesh, gradient, activeNodeIndices, nativeAnchorPath, headmodelState)`.
 - Current values passed to `mh_vta_fem_apply_dbs` are amperes; voltage values are volts.
 
-- [ ] **Step 1: Document control-mode math**
+- [x] **Step 1: Document control-mode math**
 
 Document that each source's cathode and anode fractions are normalized within sign, voltage uses signed volts, current uses signed milliamperes converted by `1e-3`, case return sets the existing SimBio unipolar/current-return path, and electrode-return contacts remain explicit boundary groups.
 
-- [ ] **Step 2: Write failing boundary tests**
+- [x] **Step 2: Write failing boundary tests**
 
 ```matlab
 function testCurrentIsConvertedFromMilliampereToAmpere(testCase)
@@ -729,7 +729,7 @@ verifyEqual(testCase, sort(unique(b.values_and_groups(:,1))), ...
 end
 ```
 
-- [ ] **Step 3: Run tests and confirm failure**
+- [x] **Step 3: Run tests and confirm failure**
 
 ```bash
 matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_boundary_contract.m'); r=[r testsuite('my_helper/fiber/tests/test_vta_canonical_task_contract.m')]; assertSuccess(run(r));"
@@ -738,7 +738,7 @@ matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('
 Expected: the renamed boundary assembler and shared exporter are missing, and
 the canonical dispatcher still routes through the legacy compatibility wrapper.
 
-- [ ] **Step 4: Implement the assembler and refactor one-solve**
+- [x] **Step 4: Implement the assembler and refactor one-solve**
 
 ```matlab
 scale = 1;
@@ -769,7 +769,7 @@ write to `mh_vta_export_canonical_outputs`; that exporter contains no voltage
 or current branch. Remove the old boundary file after migrating all callers.
 Keep the legacy backend wrapper only for non-canonical callers.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests**
 
 ```bash
 matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_boundary_contract.m'); r=[r testsuite('my_helper/fiber/tests/test_vta_canonical_task_contract.m')]; r=[r testsuite('my_helper/fiber/tests/test_vta_common_grid_export.m')]; assertSuccess(run(r));"
@@ -1009,10 +1009,10 @@ git commit -m "feat: execute VTA tasks by subject"
 - Create: `my_helper/vta/test/run_current_backend_equivalence.m`
 - Create: `my_helper/vta/test/test_run_voltage_backend_equivalence.m`
 - Create: `my_helper/vta/test/test_run_current_backend_equivalence.m`
-- Remove after migration: `my_helper/vta/test/run_single_source_backend_equivalence.m`
-- Remove after migration: `my_helper/vta/test/run_single_current_backend_equivalence.m`
-- Remove after migration: `my_helper/vta/test/test_run_single_source_backend_equivalence.m`
-- Remove after migration: `my_helper/vta/test/test_run_single_current_backend_equivalence.m`
+- Removed: `my_helper/vta/test/run_single_source_backend_equivalence.m`
+- Removed: `my_helper/vta/test/run_single_current_backend_equivalence.m`
+- Removed: `my_helper/vta/test/test_run_single_source_backend_equivalence.m`
+- Removed: `my_helper/vta/test/test_run_single_current_backend_equivalence.m`
 
 **Interfaces:**
 - Produces repeatable copied-subject acceptance artifacts below `/Volumes/VAL/STNSNr/validation`.
@@ -1158,7 +1158,7 @@ production rebuild as complete.
 
 ```bash
 conda run -n leaddbs python -m pytest my_helper/fiber/core/vta_pipeline/tests -q
-matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); files={'test_vta_canonical_task_contract.m','test_vta_onesolve_boundary_contract.m','test_vta_common_grid_export.m','test_vta_delivery_group_contract.m'}; r=matlab.unittest.Test.empty; for i=1:numel(files), r=[r testsuite(fullfile('my_helper','fiber','tests',files{i}))]; end; assertSuccess(run(r));"
+matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); files={'test_vta_canonical_task_contract.m','test_vta_boundary_contract.m','test_vta_common_grid_export.m','test_vta_delivery_group_contract.m'}; r=matlab.unittest.Test.empty; for i=1:numel(files), r=[r testsuite(fullfile('my_helper','fiber','tests',files{i}))]; end; assertSuccess(run(r));"
 git diff --check
 ```
 
