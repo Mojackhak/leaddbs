@@ -306,17 +306,58 @@ function copiedSubject = prepare_subject_copy(subject, runRoot, reuse)
 sourceSubject = must_be_folder(subject.subject_sources.leaddbs_subject_dir, ...
     'Lead-DBS subject directory');
 copyRoot = fullfile(runRoot, 'copied_subject');
+[sourceDatasetRoot, sourceDerivativeRoot] = bids_roots(sourceSubject);
 [~, subjectLeaf] = fileparts(sourceSubject);
-copiedSubject = fullfile(copyRoot, subjectLeaf);
+copiedDerivativeRoot = fullfile(copyRoot, 'derivatives', 'leaddbs');
+copiedSubject = fullfile(copiedDerivativeRoot, subjectLeaf);
 if reuse
     must_be_folder(copiedSubject, 'prepared copied subject');
     return;
 end
-mkdir(copyRoot);
+mkdir(copiedDerivativeRoot);
+copy_required_file(fullfile(sourceDatasetRoot, 'dataset_description.json'), ...
+    fullfile(copyRoot, 'dataset_description.json'), ...
+    'source BIDS dataset description');
+copy_optional_file(fullfile(sourceDatasetRoot, '.bidsignore'), ...
+    fullfile(copyRoot, '.bidsignore'));
+copy_optional_file(fullfile(sourceDerivativeRoot, 'dataset_description.json'), ...
+    fullfile(copiedDerivativeRoot, 'dataset_description.json'));
 [ok, message] = copyfile(sourceSubject, copiedSubject);
 if ~ok
     error('run_single_source_backend_equivalence:SubjectCopyFailed', ...
         'Could not copy subject directory: %s', message);
+end
+end
+
+function [datasetRoot, derivativeRoot] = bids_roots(subjectDir)
+marker = [filesep, 'derivatives', filesep, 'leaddbs', filesep];
+markerIndex = strfind(subjectDir, marker);
+if numel(markerIndex) ~= 1
+    error('run_single_source_backend_equivalence:InvalidBidsSubjectPath', ...
+        'Lead-DBS subject path must be under derivatives/leaddbs: %s', ...
+        subjectDir);
+end
+datasetRoot = subjectDir(1:markerIndex - 1);
+derivativeRoot = fullfile(datasetRoot, 'derivatives', 'leaddbs');
+end
+
+function copy_required_file(source, target, label)
+must_be_file(source, label);
+[ok, message] = copyfile(source, target);
+if ~ok
+    error('run_single_source_backend_equivalence:MetadataCopyFailed', ...
+        'Could not copy %s: %s', label, message);
+end
+end
+
+function copy_optional_file(source, target)
+if ~isfile(source)
+    return;
+end
+[ok, message] = copyfile(source, target);
+if ~ok
+    error('run_single_source_backend_equivalence:MetadataCopyFailed', ...
+        'Could not copy optional BIDS metadata %s: %s', source, message);
 end
 end
 

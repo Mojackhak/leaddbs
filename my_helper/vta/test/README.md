@@ -17,7 +17,9 @@ The runner:
 
 1. reads source, electrode, reconstruction, and subject paths from
    `study_base.json`;
-2. copies the selected Lead-DBS subject into a new validation root;
+2. copies the selected Lead-DBS subject into a private validation BIDS layout
+   at `copied_subject/derivatives/leaddbs/sub-*`, together with the source
+   dataset description required by `ea_getptopts`;
 3. archives any copied head model and builds and hashes one fresh shared head
    model before the measured runs;
 4. runs `simbio` and `simbio_onesolve` twice per hemisphere with the same

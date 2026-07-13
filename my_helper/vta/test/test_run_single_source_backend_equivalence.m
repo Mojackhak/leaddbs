@@ -5,7 +5,9 @@ repoDir = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
 addpath(genpath(repoDir));
 
 testRoot = tempname;
-sourceSubject = fullfile(testRoot, 'source', 'sub-Test003');
+sourceDataset = fullfile(testRoot, 'source');
+sourceSubject = fullfile(sourceDataset, 'derivatives', 'leaddbs', ...
+    'sub-Test003');
 workRoot = fullfile(testRoot, 'validation');
 stubDir = fullfile(testRoot, 'stubs');
 mkdir(sourceSubject);
@@ -13,6 +15,9 @@ mkdir(workRoot);
 mkdir(stubDir);
 cleanupObj = onCleanup(@() cleanup_test(testRoot, stubDir));
 
+write_text(fullfile(sourceDataset, 'dataset_description.json'), ...
+    jsonencode(struct('Name', 'Synthetic VTA acceptance', ...
+    'BIDSVersion', '1.6.0', 'DatasetType', 'raw'), PrettyPrint=true));
 write_fixture_subject(sourceSubject);
 studyBase = fullfile(testRoot, 'study_base.json');
 write_study_base(studyBase, sourceSubject);
@@ -69,6 +74,12 @@ end
 
 manifest = jsondecode(fileread(fullfile(result.run_root, 'validation_manifest.json')));
 assert(strcmp(manifest.subject_id, 'Test003'), 'Manifest subject mismatch.');
+assert(contains(string(manifest.copied_subject_dir), ...
+    fullfile('copied_subject', 'derivatives', 'leaddbs', 'sub-Test003')), ...
+    'Copied subject must preserve the Lead-DBS BIDS derivative layout.');
+assert(isfile(fullfile(result.run_root, 'copied_subject', ...
+    'dataset_description.json')), ...
+    'Copied BIDS root must contain dataset_description.json.');
 assert(strcmp(manifest.atlas_set, 'Custom_Ewert_Zhang_Middlebrooks0.05'), ...
     'Manifest atlas mismatch.');
 assert(isequal(manifest.thresholds_v_per_m(:)', [180 200 220]), ...
