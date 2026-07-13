@@ -104,7 +104,8 @@ if hmchanged
                     atlases.tissuetypes=ones(length(atlases.names),1);
                 end
                 for atlas=1:numel(atlases.roi)
-                    if isempty(atlases.roi{atlas}.fv) || (atlases.tissuetypes~=1)
+                    if isempty(atlases.roi{atlas}.fv) || ...
+                            (atlases.tissuetypes(atlas) ~= 1)
                         continue
                     end
                     fv(cnt)=atlases.roi{atlas}.fv;

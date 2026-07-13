@@ -225,6 +225,10 @@ head-model-only mode. That call stops immediately after writing the volume
 conductor and never writes a legacy dynamic-grid VTA; canonical E-field and VTA
 artifacts are produced only by the fixed-grid executor below.
 
+Horn atlas iteration evaluates the tissue type of the current atlas entry, not
+the full tissue-type vector. This is required for multi-entry custom atlas sets
+such as `Custom_Ewert_Zhang_Middlebrooks`.
+
 The authoritative order is:
 
 1. solve FEM in native space;
