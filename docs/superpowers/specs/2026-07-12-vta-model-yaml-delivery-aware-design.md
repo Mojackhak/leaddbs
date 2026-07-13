@@ -591,6 +591,9 @@ artifact index or provenance file.
 The copied-subject preparation helper is an isolation mechanism, not numerical
 FEM evidence. It preserves the minimal valid BIDS hierarchy by copying the
 dataset description and only the selected `derivatives/leaddbs/sub-*` tree.
+Its `run_id` is one safe path component matching
+`[A-Za-z0-9][A-Za-z0-9._-]*`; separators, traversal, and absolute paths are
+rejected before the destination is constructed.
 The path-state, alternating-source, group-peak, and same-subject reuse portions
 have passed in the copied SNr003 tree. That historical copied tree contains
 leaf-level `provenance.json` files from the superseded output contract, so it

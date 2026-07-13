@@ -138,3 +138,27 @@ def test_unsafe_identifier_is_rejected(minimal_study_path: Path) -> None:
 
     with pytest.raises(StudyBaseError, match="unsafe phase_id"):
         load_study_base(minimal_study_path)
+
+
+def test_duplicate_phase_id_is_rejected(minimal_study_path: Path) -> None:
+    raw = load_raw(minimal_study_path)
+    subject = raw["study"]["subjects"][0]
+    duplicate = copy.deepcopy(subject["phases"][0])
+    duplicate["programs"][0]["program_id"] = 2
+    subject["phases"].append(duplicate)
+    save_raw(minimal_study_path, raw)
+
+    with pytest.raises(StudyBaseError, match="duplicate phase_id"):
+        load_study_base(minimal_study_path)
+
+
+def test_duplicate_program_id_within_phase_is_rejected(
+    minimal_study_path: Path,
+) -> None:
+    raw = load_raw(minimal_study_path)
+    phase = raw["study"]["subjects"][0]["phases"][0]
+    phase["programs"].append(copy.deepcopy(phase["programs"][0]))
+    save_raw(minimal_study_path, raw)
+
+    with pytest.raises(StudyBaseError, match="duplicate program_id"):
+        load_study_base(minimal_study_path)

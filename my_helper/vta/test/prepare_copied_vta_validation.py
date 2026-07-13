@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import shutil
 from typing import Any
 
 
 _PRODUCTION_LEADDBS_ROOT = Path("/Volumes/VAL/STNSNr/derivatives/leaddbs")
+_SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def prepare_validation_copy(
@@ -23,6 +25,8 @@ def prepare_validation_copy(
     source_study_base = Path(study_base_path).expanduser().resolve()
     validation_root = Path(work_root).expanduser().resolve()
     production_root = _PRODUCTION_LEADDBS_ROOT.resolve()
+    if _SAFE_RUN_ID.fullmatch(str(run_id)) is None:
+        raise ValueError("run_id must be one safe path component")
     if _is_within(validation_root, production_root):
         raise ValueError(
             f"work_root must not be inside the production Lead-DBS tree: "
@@ -61,6 +65,8 @@ def prepare_validation_copy(
         ) from exc
 
     run_root = validation_root / f"vta_pipeline_e2e_{run_id}"
+    if not _is_within(run_root.resolve(), validation_root):
+        raise ValueError("run_id must resolve inside work_root")
     if run_root.exists():
         raise FileExistsError(f"Validation run already exists: {run_root}")
     copied_dataset_root = run_root / "copied_dataset"

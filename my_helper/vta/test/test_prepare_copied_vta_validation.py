@@ -151,6 +151,26 @@ def test_prepare_validation_copy_rejects_unknown_subject(tmp_path: Path) -> None
         )
 
 
+@pytest.mark.parametrize(
+    "run_id",
+    ["../escape", "nested/path", "/absolute", "", ".", ".."],
+)
+def test_prepare_validation_copy_rejects_unsafe_run_id(
+    tmp_path: Path,
+    run_id: str,
+) -> None:
+    module = _load_module()
+    study_base, _ = _write_study_base(tmp_path)
+    work_root = tmp_path / "validation"
+
+    with pytest.raises(ValueError, match="safe path component"):
+        module.prepare_validation_copy(
+            study_base, "SNr003", work_root, run_id
+        )
+
+    assert not work_root.exists()
+
+
 def test_prepare_validation_copy_does_not_overwrite_existing_run(
     tmp_path: Path,
 ) -> None:

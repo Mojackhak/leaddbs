@@ -1236,6 +1236,8 @@ def prepare_validation_copy(
 ```
 
 The helper creates `$WORK_ROOT/vta_pipeline_e2e_$RUN_ID`, copies only the selected Lead-DBS subject directory, rewrites that subject's `leaddbs_subject_dir` and reconstruction path in a study-base copy, removes all other subjects, and refuses a work root within `/Volumes/VAL/STNSNr/derivatives/leaddbs`.
+`run_id` must match `[A-Za-z0-9][A-Za-z0-9._-]*`; path separators, traversal,
+and absolute paths are rejected before resolving the output root.
 
 Its executable block parses `--study-base`, `--subject`, `--work-root`, and `--run-id`, calls `prepare_validation_copy`, and prints only the absolute output study-base path to stdout so shell command substitution is deterministic.
 

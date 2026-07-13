@@ -110,10 +110,17 @@ class RunService:
     ) -> RunSummary:
         summary = RunSummary()
         blocked: set[str] = set()
+        reuse_owners: dict[tuple[object, ...], str] = {}
         if force:
             self._trash_selected_leaves(subject)
         for task in subject.tasks:
+            reuse_key = equivalent_task_key(task)
+            owner_id = reuse_owners.setdefault(reuse_key, task.task_id)
             if any(dependency in blocked for dependency in task.dependencies):
+                blocked.add(task.task_id)
+                summary += RunSummary(skipped_dependency=1)
+                continue
+            if owner_id in blocked and not self._task_is_complete(task):
                 blocked.add(task.task_id)
                 summary += RunSummary(skipped_dependency=1)
                 continue
@@ -125,6 +132,16 @@ class RunService:
                 continue
             summary += RunSummary(**{result: 1})
         return summary
+
+    @staticmethod
+    def _task_is_complete(task: VtaTask) -> bool:
+        return all(
+            leaf_status(
+                leaf_directory(task, space), task.model.thresholds_v_per_m
+            ).value
+            == "complete"
+            for space in task.model.spaces
+        )
 
     def _run_task(
         self,
@@ -234,16 +251,19 @@ def validate_runtime_inputs(
     )
     if not atlas.is_dir():
         raise RuntimeInputError(f"Atlas does not exist: {atlas}")
+    _require_file(atlas / "atlas_index.mat", "atlas index")
+    _require_file(atlas / "gm_mask.nii.gz", "template atlas GM mask")
     for subject in subjects:
-        _require_subject_file(
-            subject.subject_dir,
-            "coregistration/anat/*space-anchorNative*desc-preproc*T1w.nii*",
-            "native T1w anchor",
-        )
+        _require_native_anchor(subject.subject_dir)
         _require_subject_file(
             subject.subject_dir,
             "normalization/transformations/*from-anchorNative_to-MNI152NLin2009bAsym*.nii.gz",
             "native-to-MNI transform",
+        )
+        _require_subject_file(
+            subject.subject_dir,
+            f"atlases/{model.atlas_set}/gm_mask.nii*",
+            "patient-space atlas GM mask",
         )
 
 
@@ -306,6 +326,29 @@ def _require_subject_file(subject_dir: Path, pattern: str, label: str) -> Path:
     if not matches:
         raise RuntimeInputError(f"Missing {label} under {subject_dir}")
     return matches[0]
+
+
+def _require_native_anchor(subject_dir: Path) -> Path:
+    matches = sorted(
+        path
+        for path in subject_dir.glob(
+            "coregistration/anat/*space-anchorNative*desc-preproc*T1w.nii*"
+        )
+        if path.is_file()
+        and not path.name.startswith("._")
+        and "_label-" not in path.name
+    )
+    if not matches:
+        raise RuntimeInputError(f"Missing native T1w anchor under {subject_dir}")
+    if len(matches) != 1:
+        raise RuntimeInputError(f"Ambiguous native T1w anchor under {subject_dir}")
+    return matches[0]
+
+
+def _require_file(path: Path, label: str) -> Path:
+    if not path.is_file():
+        raise RuntimeInputError(f"Missing {label}: {path}")
+    return path
 
 
 def _validate_leaf_artifacts(task: VtaTask, leaf: Path) -> None:

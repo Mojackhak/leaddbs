@@ -78,10 +78,15 @@ def _parse_subject(raw: Mapping[str, Any], base: Path) -> SubjectRecord:
         raise StudyBaseError("electrode_order must contain every electrode exactly once")
 
     programs: list[ProgramRecord] = []
+    phase_ids: set[str] = set()
     for phase in raw["phases"]:
         phase_id = _safe_id(phase["phase_id"], "phase_id")
+        if phase_id in phase_ids:
+            raise StudyBaseError(f"duplicate phase_id: {phase_id}")
+        phase_ids.add(phase_id)
+        phase_programs: list[ProgramRecord] = []
         for program in phase["programs"]:
-            programs.append(
+            phase_programs.append(
                 _parse_program(
                     phase_id,
                     program,
@@ -89,6 +94,10 @@ def _parse_subject(raw: Mapping[str, Any], base: Path) -> SubjectRecord:
                     electrode_order,
                 )
             )
+        program_ids = [program.program_id for program in phase_programs]
+        if len(set(program_ids)) != len(program_ids):
+            raise StudyBaseError(f"duplicate program_id in phase {phase_id}")
+        programs.extend(phase_programs)
 
     return SubjectRecord(
         subject_id=subject_id,

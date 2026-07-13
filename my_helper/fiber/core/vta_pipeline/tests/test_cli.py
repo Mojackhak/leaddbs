@@ -39,6 +39,14 @@ def study_path(tmp_path: Path) -> Path:
     )
     transform.parent.mkdir(parents=True)
     transform.write_bytes(b"transform")
+    patient_mask = (
+        subject_dir
+        / "atlases"
+        / "Custom_Ewert_Zhang_Middlebrooks"
+        / "gm_mask.nii.gz"
+    )
+    patient_mask.parent.mkdir(parents=True)
+    patient_mask.write_bytes(b"mask")
     path = tmp_path / "study_base.json"
     path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
     return path
@@ -204,3 +212,22 @@ def test_unknown_selector_returns_nonzero(
     assert main(common_args("plan", study_path) + ["--phase", "T9"]) == 2
 
     assert "Unknown phase selector" in capsys.readouterr().err
+
+
+def test_validate_rejects_labelled_mask_as_native_anchor(
+    study_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    subject_dir = study_path.parent / "subject"
+    anchor = next(
+        path
+        for path in (subject_dir / "coregistration" / "anat").glob("*T1w.nii")
+        if "_label-" not in path.name
+    )
+    labelled_mask = anchor.with_name(
+        anchor.name.replace("desc-preproc_", "desc-preproc_label-Brain_")
+    )
+    anchor.rename(labelled_mask)
+
+    assert main(common_args("validate", study_path)) == 2
+    assert "Missing native T1w anchor" in capsys.readouterr().err

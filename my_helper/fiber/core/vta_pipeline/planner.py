@@ -361,10 +361,27 @@ def normalized_frequency_group(task: VtaTask) -> tuple[object, ...]:
 def equivalent_task_key(task: VtaTask) -> tuple[object, ...]:
     """Return the same-subject donor matching key for one task artifact."""
 
-    source_key: tuple[object, ...] | None = None
     if task.kind is TaskKind.ALTERNATING_SOURCE:
-        source_key = _normalized_source(task.sources[0])
-    return (task.kind.value, normalized_frequency_group(task), source_key)
+        return (
+            task.kind.value,
+            _normalized_execution_context(task),
+            _normalized_source(task.sources[0]),
+        )
+    return (task.kind.value, normalized_frequency_group(task))
+
+
+def _normalized_execution_context(task: VtaTask) -> tuple[object, ...]:
+    return (
+        task.hemisphere,
+        task.electrode_model,
+        task.reconstruction_lead_id,
+        task.delivery_mode,
+        task.model.gray_matter_s_per_m,
+        task.model.white_matter_s_per_m,
+        task.model.atlas_set,
+        tuple(task.model.spaces),
+        tuple(task.model.thresholds_v_per_m),
+    )
 
 
 def _normalized_source(source: SourceRecord) -> tuple[object, ...]:

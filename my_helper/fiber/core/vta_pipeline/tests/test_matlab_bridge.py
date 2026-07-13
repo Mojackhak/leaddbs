@@ -207,6 +207,36 @@ def test_failure_skips_only_dependency_descendants(
     assert len(bridge.calls) == 3
 
 
+def test_failed_reuse_owner_skips_still_dependent_recipient(
+    tmp_path: Path,
+) -> None:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    duplicate_phase(raw)
+    path = write_runtime_inputs(raw, tmp_path)
+    full = build_plan(
+        load_study_base(path),
+        load_vta_model(MODEL_PATH),
+        Selection(subject_ids=("SNr003",)),
+    )[0]
+    equivalent = tuple(
+        task
+        for task in full.tasks
+        if task.kind is TaskKind.CONTINUOUS_JOINT
+    )
+    assert len(equivalent) == 2
+    plan = replace(full, tasks=equivalent, reuse_candidates=equivalent)
+    bridge = RecordingBridge(fail_task_id=equivalent[0].task_id)
+
+    summary = RunService(bridge, run_id="run").run(
+        (plan,), workers=1, resume=False, force=False
+    )
+
+    assert summary.failed == 1
+    assert summary.skipped_dependency == 1
+    assert summary.generated == 0
+    assert bridge.calls == [equivalent[0].task_id]
+
+
 def test_existing_paths_are_skipped_without_hash_checks(
     subject_plan: SubjectPlan,
 ) -> None:

@@ -213,6 +213,38 @@ def test_frequency_group_equivalence_changes_with_physical_parameters(
     assert equivalent_task_key(original) != equivalent_task_key(changed)
 
 
+def test_alternating_source_equivalence_ignores_other_group_sources(
+    study_path: Path,
+) -> None:
+    add_equivalent_relabelled_phase(study_path)
+    raw = json.loads(study_path.read_text(encoding="utf-8"))
+    changed_group = raw["study"]["subjects"][0]["phases"][1]["programs"][0][
+        "electrode_programs"
+    ][1]["frequency_groups"][0]
+    changed_group["sources"][1]["amplitude"] += 0.25
+    study_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+    plan = make_plan(study_path)[0]
+    original = next(
+        task
+        for task in plan.reuse_candidates
+        if task.phase_id == "T1"
+        and task.kind is TaskKind.ALTERNATING_SOURCE
+        and task.sources[0].source_id == "source-1"
+    )
+    relabelled = next(
+        task
+        for task in plan.reuse_candidates
+        if task.phase_id == "arbitrary-followup"
+        and task.kind is TaskKind.ALTERNATING_SOURCE
+        and task.sources[0].amplitude == original.sources[0].amplitude
+    )
+
+    assert normalized_frequency_group(original) != normalized_frequency_group(
+        relabelled
+    )
+    assert equivalent_task_key(original) == equivalent_task_key(relabelled)
+
+
 def test_filter_selects_exact_frequency_group(study_path: Path) -> None:
     plan = build_plan(
         load_study_base(study_path),

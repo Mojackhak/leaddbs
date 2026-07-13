@@ -146,7 +146,11 @@ Each frequency group must contain at least one source and use one control mode.
 Cathode fractions and anode fractions are normalized independently within each
 source. A continuous group cannot assign the same non-case electrode contact to
 more than one source. The canonical adapter does not impose the legacy
-four-source limit.
+four-source limit. Hierarchical execution identities must be unique: a subject
+cannot repeat a phase ID, a phase cannot repeat a program ID, a program cannot
+repeat an electrode ID, an electrode program cannot repeat a frequency-group
+ID, and a group cannot repeat a source ID. The adapter rejects collisions
+before any two physically different tasks can resolve to the same output leaf.
 
 ## Deterministic Task DAG
 
@@ -157,14 +161,18 @@ task that depends on every source task. Task IDs may remain deterministic
 SHA-256 identifiers, but hashes do not control output reuse or recalculation.
 Ignored study labels cannot change the numerical task definition.
 
-Reuse is resolved at the complete `frequency_group` level and only within the
-same subject. For each selected group, runtime scans all same-subject groups
-represented by `study_base.json`. If a normalized group record is exactly equal
-and a matching artifact already exists, that artifact is copied into the
-selected hierarchical leaf. If no donor exists, computation occurs only in the
-selected path. When multiple equivalent groups are selected together, the
-first selected group in deterministic order is generated and becomes the
-in-run donor. Equality is direct record comparison; no physical-stimulation
+Reuse is resolved only within one subject. Continuous joint and alternating
+group-peak artifacts require equality of the complete normalized
+`frequency_group`. An alternating source artifact requires equality of that
+source's normalized physical record and execution context; a change to another
+source in the same group therefore does not invalidate the unchanged source
+leaf. Runtime scans every same-subject group represented by `study_base.json`
+and copies a matching artifact into the selected hierarchical leaf. If no donor
+exists, computation occurs only in the selected path. When multiple equivalent
+tasks are selected together, the first task in deterministic order is their
+in-run owner. A failed owner marks still-dependent recipients as
+`skipped_dependency`; it is not silently replaced by another physical solve in
+the same run. Equality is direct record comparison; no physical-stimulation
 hash is generated. Phase names such as T2/T3 are fixture data and are never
 recognized by generic planner or executor logic.
 
@@ -235,7 +243,10 @@ Selectors are repeatable `--phase`, `--program`, `--electrode`, and
 required, and the two forms are mutually exclusive. `--workers` is a positive
 integer and parallelizes subjects only.
 
-`validate`, `plan`, and `status` are read-only. `plan` emits one JSON row per
+`validate` requires one unlabelled preoperative anchor T1w, the forward native
+to MNI transform, the configured atlas index and template GM mask, and the
+patient-space atlas `gm_mask.nii.gz`; a `label-Brain` mask cannot satisfy the
+anchor requirement. `validate`, `plan`, and `status` are read-only. `plan` emits one JSON row per
 task in stable subject/DAG order. Each row includes the task identifiers,
 dependencies, native/MNI leaves, and the canonical hemisphere-specific head
 model path with status `reuse_existing` or `build_required`. The head-model
