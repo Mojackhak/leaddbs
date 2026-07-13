@@ -151,6 +151,7 @@
 
 **Interfaces:**
 - Compares the Task 1 raw-component baseline with the final implementation using identical source workbooks, fixed `created_at`, and fixed `code_commit` so provenance does not create false differences.
+- Records `study.provenance.importer.code_commit` from the repository containing the importer implementation, not from the configured Lead-DBS asset root.
 
 - [ ] Generate `before.json` from the Task 1 commit in a temporary detached worktree.
 - [ ] Generate `after.json` from final HEAD with identical fixed provenance.
@@ -158,6 +159,7 @@
 - [ ] Write a machine-readable recursive JSON diff and aggregate count summary.
 - [ ] Require no stimulation-value differences for the current all-voltage cohort: subjects `16`, scales `28`, slots `2240`, sources `194`, HF audit `142`, ULF audit `52`, unclassified `0`, and all fractions `1.0`.
 - [ ] Move the previous external authoritative JSON to Trash, generate the final JSON atomically, and validate the on-disk file.
+- [ ] Verify the generated `code_commit` equals the implementation worktree HEAD used for generation.
 - [ ] Run all Python importer/resolver tests, focused MATLAB contract tests, and `git diff --check`.
 - [ ] Commit code and audit tooling only; do not commit external generated data.
 
@@ -170,4 +172,3 @@
 - MATLAB maps voltage/current contacts into Lead-DBS `S` without dropping contacts.
 - Delivery expansion distinguishes simultaneous continuous from independent alternating states.
 - No FEM, formal model, OSS, coverage, or fiber analysis is run in this slice.
-
