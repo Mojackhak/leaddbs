@@ -3,26 +3,26 @@
 ## Goal Metadata
 
 ```text
-Purpose: Compute target-wise structural-connectivity statistics for one seed ROI over one streamline connectome
+Purpose: Compute target-wise structural-connectivity statistics for named seed ROIs over one shared streamline connectome
 Workspace: /Users/mojackhu/Github/leaddbs
 Parent goal: none; standalone reusable fiber-core module
 Authoritative specification: this document
 Current branch: stnvop
-Status: implemented
-Implementation status: verified_complete
-Current outputs: /private/tmp/seed-target-connectivity-dtor-acceptance-20260710
+Status: implementation_in_progress
+Implementation status: schema_v2_yaml_batch_refactor
+Current outputs: pending schema-v2 bilateral HybraPD run; schema-v1 evidence retained below
 Implementation language: Python
 Default execution environment: Conda leaddbs
-Last updated: 2026-07-10
+Last updated: 2026-07-13
 ```
 
 ## Goal And Success Criteria
 
-Implement one project-independent module with exactly three scientific data
-inputs:
+Implement one project-independent module with three scientific data input
+categories supplied by one strict YAML batch:
 
 1. a Lead-DBS-style target-atlas directory;
-2. one seed ROI NIfTI;
+2. a nonempty mapping of named seed ROI NIfTIs, with one independent result per seed;
 3. one streamline connectome with stable canonical fiber identifiers.
 
 For every discovered target ROI, the module must identify streamlines that
@@ -277,16 +277,16 @@ the responsibility of the caller.
 
 ## Public Interface
 
-The reusable API is conceptually:
+The public batch API is:
 
 ```python
-compute_seed_target_statistics(
-    target_atlas_root=target_atlas_root,
-    seed_roi=seed_roi,
-    connectome=connectome,
-    config=config,
-)
+validate_batch(config: BatchConnectivityConfig | Path | str) -> BatchValidationReport
+compute_seed_target_batch(config: BatchConnectivityConfig | Path | str) -> BatchConnectivityResult
 ```
+
+The existing `validate_inputs(...)` and `compute_seed_target_statistics(...)`
+functions remain internal single-seed primitives. Batch orchestration invokes
+them independently for each named seed and does not union seed masks.
 
 The CLI contract is:
 
@@ -297,16 +297,30 @@ seed-target-connectivity status
 seed-target-connectivity artifacts
 ```
 
-`validate` resolves the atlas and configuration without traversing the full
-connectome. `run` computes the statistics. `status` and `artifacts` inspect
-an existing immutable run directory.
+`validate` and `run` accept only `--config CONFIG`. The CLI does not accept
+scientific or publication path overrides and does not provide `--resume` or
+`--force`. `validate` resolves every named seed, the atlas, and connectome
+metadata without full traversal. `run` computes every named seed result.
+`status --run-dir` and `artifacts --run-dir` inspect one published result.
 
 ## Configuration Contract
 
 An illustrative configuration is:
 
 ```yaml
-schema_version: 1
+schema_version: 2
+
+inputs:
+  target_atlas_root: /path/to/atlas
+  seed_rois:
+    lh: /path/to/lh_seed.nii.gz
+    rh: /path/to/rh_seed.nii.gz
+  connectome: /path/to/connectome
+
+output:
+  output_root: /path/to/seed_target_connectivity/results
+  run_name: example_connectome__example_atlas__example_seed
+  cache_root: /path/to/seed_target_connectivity/.cache
 
 seed:
   probability_threshold: 0.25
@@ -316,9 +330,6 @@ targets:
   roi_thresholds:
     group_a/region_1: 0.50
 
-intersection:
-  method: segment_aware_voxel_traversal
-
 execution:
   fiber_chunk_size: 100000
   cache_membership: true
@@ -327,12 +338,16 @@ ranking:
   enabled: true
 ```
 
-Unknown fields must be rejected. No project-specific defaults are permitted in
+Unknown fields, schema version 1, unsafe seed names, unsafe run names, and the
+removed public `intersection` object must be rejected. Relative paths resolve
+against the YAML parent. Segment-aware voxel traversal remains fixed internally
+and is recorded in provenance. No project-specific defaults are permitted in
 the reusable module.
 
 ## Artifact And Provenance Contract
 
-Every run writes an immutable run directory containing:
+Each named seed writes one semantic current-result directory at
+`<output_root>/<seed_name>/<run_name>` containing:
 
 ```text
 config_resolved.yaml
@@ -342,7 +357,7 @@ target_ranking.csv
 seed_connected_fiber_ids.npy
 target_fiber_membership.npz
 input_resolution_qc.csv
-analysis_manifest.json
+provenance.json
 artifact_index.csv
 ```
 
@@ -368,9 +383,18 @@ connectivity_pmi
 rank
 ```
 
-The manifest and artifact index must record configuration hashes, source-file
+Provenance and the artifact index must record the full batch configuration
+hash, side-specific effective configuration hash, run fingerprint, source-file
 hashes, connectome identity, ordered fiber-ID hash, algorithm version, chunk
 size, resolved-mask hashes, artifact hashes, code provenance, and timestamps.
+The fingerprint is never used as a directory name.
+
+Matching valid semantic results are reused. Changed results are fully staged
+for every affected seed before publication. Existing tool-owned semantic
+directories are retained as rollback locations until every new result verifies;
+publication failure restores all prior results. Replaced untracked directories
+are moved to Trash after successful publication. The cache is outside the
+result tree.
 
 Membership-cache identity must include:
 
@@ -408,6 +432,9 @@ connectome and seed identities are exact.
 6. Add independent seed/target membership caches and statistic aggregation.
 7. Add atomic run storage, artifact indexing, CLI commands, and provenance.
 8. Add synthetic equivalence tests and the default real-data acceptance run.
+9. Upgrade the public configuration and CLI to schema version 2 YAML batches.
+10. Replace hash-named publication with semantic per-seed directories and
+    rollback-safe `provenance.json` publication.
 
 Current implementation progress:
 
@@ -416,9 +443,9 @@ Current implementation progress:
 - stable-ID connectome adapter: complete;
 - reference and optimized segment-aware traversal: complete;
 - independent membership caches, statistics, and ranking: complete;
-- atomic immutable artifacts and provenance: complete;
-- reusable API and four-command CLI: complete;
-- default real-data acceptance and completion audit: in progress.
+- schema-v1 content-addressed artifacts and provenance: legacy complete;
+- schema-v2 YAML batch configuration and semantic publication: in progress;
+- default bilateral HybraPD/dTOR run: pending schema-v2 implementation.
 
 Acceptance performance note:
 
@@ -468,11 +495,11 @@ seed ROI: lh/STNSNrplus and rh/STNSNrplus as two independent runs
 connectome: dTOR-985 Full (Elias 2024)
 ```
 
-The fixture must run the same generic public interface used by any other atlas,
-seed, and connectome. It must not invoke a project wrapper or branch on these
-names. The two seed files are tested separately because the generic API consumes
-exactly one seed NIfTI per run; the core must not union them or infer hemisphere
-semantics from their paths.
+The fixture must run the same single-seed scientific primitives used by batch
+orchestration. It must not branch on these project names. Each result remains
+scientifically independent because it consumes exactly one seed NIfTI. Batch
+orchestration may configure both seed files in one YAML, but the core must not
+union them or infer hemisphere semantics from their paths.
 
 Acceptance requires:
 
@@ -494,7 +521,11 @@ document against current code and generated evidence. Passing narrow unit tests
 does not prove completion of the real-data fixture or artifact/provenance
 contract.
 
-### Verified completion evidence
+### Legacy schema-version-1 verified completion evidence
+
+The following evidence remains authoritative for the unchanged traversal,
+membership, statistics, and cache primitives. It does not claim completion of
+the schema-version-2 YAML batch and semantic-publication refactor.
 
 The completion audit passed on 2026-07-10 against package code provenance:
 

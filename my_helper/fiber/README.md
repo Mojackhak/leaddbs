@@ -48,56 +48,45 @@ Core implementation functions live under `core/`. The `stnsnr/` folder must only
 ## Generic Seed-Target Connectivity Statistics
 
 `core/seed_target_connectivity/` provides the project-independent Python
-implementation for target-wise structural-connectivity statistics. Its public
-API accepts exactly one target-atlas directory, one seed ROI NIfTI, one
-stable-ID streamline connectome, and an algorithm configuration:
+implementation for target-wise structural-connectivity statistics. One schema
+version 2 YAML batch defines a shared target atlas, a stable-ID streamline
+connectome, named seed ROI NIfTIs, publication paths, and algorithm settings:
 
 ```python
-from my_helper.fiber.core.seed_target_connectivity import compute_seed_target_statistics
+from my_helper.fiber.core.seed_target_connectivity import compute_seed_target_batch
 
-result = compute_seed_target_statistics(
-    target_atlas_root=target_atlas_root,
-    seed_roi=seed_roi,
-    connectome=connectome,
-    config=config,
-)
+result = compute_seed_target_batch("/path/to/config.yaml")
 ```
 
 The command-line interface exposes four operations:
 
 ```bash
 conda run -n leaddbs python my_helper/fiber/pipelines/seed-target-connectivity validate \
-  --target-atlas-root /path/to/atlas \
-  --seed-roi /path/to/seed.nii.gz \
-  --connectome /path/to/connectome \
   --config /path/to/config.yaml
 
 conda run -n leaddbs python my_helper/fiber/pipelines/seed-target-connectivity run \
-  --target-atlas-root /path/to/atlas \
-  --seed-roi /path/to/seed.nii.gz \
-  --connectome /path/to/connectome \
-  --config /path/to/config.yaml \
-  --output-root /path/to/output
+  --config /path/to/config.yaml
 
 conda run -n leaddbs python my_helper/fiber/pipelines/seed-target-connectivity status \
-  --run-dir /path/to/output/runs/<run-fingerprint>
+  --run-dir /path/to/results/lh/<run-name>
 
 conda run -n leaddbs python my_helper/fiber/pipelines/seed-target-connectivity artifacts \
-  --run-dir /path/to/output/runs/<run-fingerprint>
+  --run-dir /path/to/results/lh/<run-name>
 ```
 
 `validate` resolves configuration, atlas targets, ROI masks, and connectome
-metadata without traversing the complete connectome. `run` computes or reuses
-independent seed/target membership caches and writes one immutable run
-directory. `status` verifies an existing run, and `artifacts` lists its indexed
-outputs. Unless `--cache-root` is supplied, reusable membership caches live at
-`<output-root>/membership_cache`; immutable runs live at
-`<output-root>/runs/<run-fingerprint>`. Commands write JSON to standard output.
+metadata for every named seed without traversing the complete connectome. `run`
+computes or reuses independent seed/target membership caches and publishes one
+current semantic result per seed under `<output-root>/<seed-name>/<run-name>`.
+Each result stores its fingerprint in `provenance.json`. `status` verifies an
+existing result, and `artifacts` lists its indexed outputs. Reusable membership
+caches use `output.cache_root`, which defaults to `<output-root parent>/.cache`.
+Commands write JSON to standard output.
 Exit code `0` means success, `1` means a configuration/input/run integrity
 failure, and argparse uses exit code `2` for invalid command syntax. All
 repository invocations use the Conda `leaddbs` environment. The reusable core
-has no STN/SNr, hemisphere, clinical, stimulation, or target-selection
-defaults.
+does not infer STN/SNr, hemisphere, clinical, stimulation, or target-selection
+meaning from seed names. The CLI has no `--resume` or `--force` mode.
 
 ### Default Real-Data Acceptance
 
@@ -118,11 +107,12 @@ conda run -n leaddbs python -m \
   --output-root /tmp/seed-target-connectivity-dtor-acceptance
 ```
 
-The fixture invokes the same public API twice, once per declared seed. It
-requires complete optimized dTOR traversal, target-cache reuse, deterministic
-artifact hashes on unchanged reruns, and exact reference/optimized membership
-agreement for deterministic sampled real fibers. It does not union seeds or
-infer hemisphere/anatomical meaning from fixture labels.
+The legacy fixture invokes the same single-seed scientific primitives used by
+the schema version 2 batch layer, once per declared seed. It requires complete
+optimized dTOR traversal, target-cache reuse, deterministic artifact hashes on
+unchanged reruns, and exact reference/optimized membership agreement for
+deterministic sampled real fibers. It does not union seeds or infer
+hemisphere/anatomical meaning from fixture labels.
 
 Within one process, the acceptance runner may reuse a read-only resolution
 cache for the unchanged atlas and seed NIfTIs. This avoids decompressing the
