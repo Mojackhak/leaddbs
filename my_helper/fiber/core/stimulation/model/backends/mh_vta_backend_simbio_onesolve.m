@@ -1,6 +1,11 @@
 function vta = mh_vta_backend_simbio_onesolve(cfg, S, options, request)
 % Compute SimBio/Horn VTA outputs using one simultaneous multi-voltage solve.
 
+if nargin == 1 && isstruct(cfg) && isfield(cfg, 'task_id')
+    vta = mh_vta_backend_simbio_onesolve_canonical(cfg);
+    return;
+end
+
 stimFolders = mh_vta_request_field(request, 'stimFolders', []);
 vta = mh_fiber_vta_paths(cfg, stimFolders);
 sides = mh_vta_normalize_sides(request);

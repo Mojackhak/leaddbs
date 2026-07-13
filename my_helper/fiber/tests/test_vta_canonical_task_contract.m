@@ -90,11 +90,45 @@ fileCleanup = onCleanup(@() fclose(fid));
 fwrite(fid, jsonencode(task), 'char');
 clear fileCleanup;
 
-resolved = mh_vta_run_canonical_task(taskPath);
+resolved = mh_vta_run_canonical_task(taskPath, ...
+    'SolveFunction', @identity_task);
 
 verifyEqual(testCase, string(resolved.task_id), "task-001");
 verifyEqual(testCase, string(resolved.kind), "continuous_joint");
 verifyEqual(testCase, numel(resolved.solve_units), 1);
+end
+
+function status = identity_task(task)
+status = task;
+end
+
+function testRunnerDispatchesSolveTask(testCase)
+task = fixture_task('continuous_joint', 'continuous', ...
+    fixture_source('source-1', 'voltage'));
+taskPath = write_task_fixture(task);
+cleanup = onCleanup(@() delete_if_present(taskPath));
+
+status = mh_vta_run_canonical_task(taskPath, ...
+    'SolveFunction', @record_solve, ...
+    'DerivedFunction', @reject_unexpected_dispatch);
+
+verifyEqual(testCase, string(status.execution), "solve");
+verifyEqual(testCase, string(status.task_id), "task-001");
+end
+
+function testRunnerDispatchesDerivedTaskWithoutFem(testCase)
+task = fixture_task('alternating_group_peak', 'alternating', ...
+    [fixture_source('source-1', 'voltage'), ...
+     fixture_source('source-2', 'voltage')]);
+taskPath = write_task_fixture(task);
+cleanup = onCleanup(@() delete_if_present(taskPath));
+
+status = mh_vta_run_canonical_task(taskPath, ...
+    'SolveFunction', @reject_unexpected_dispatch, ...
+    'DerivedFunction', @record_derived);
+
+verifyEqual(testCase, string(status.execution), "derived");
+verifyEqual(testCase, string(status.task_id), "task-001");
 end
 
 function task = fixture_task(kind, deliveryMode, sources)
@@ -138,6 +172,27 @@ source = struct( ...
     'contacts', [ ...
         struct('contact', 1, 'polarity', 'cathode', 'fraction', 1.0), ...
         struct('contact', 'case', 'polarity', 'anode', 'fraction', 1.0)]);
+end
+
+function path = write_task_fixture(task)
+path = [tempname '.json'];
+fid = fopen(path, 'w');
+assert(fid >= 0, 'Could not create canonical task fixture.');
+cleanup = onCleanup(@() fclose(fid));
+fwrite(fid, jsonencode(task), 'char');
+end
+
+function status = record_solve(task)
+status = struct('execution', 'solve', 'task_id', task.task_id);
+end
+
+function status = record_derived(task)
+status = struct('execution', 'derived', 'task_id', task.task_id);
+end
+
+function status = reject_unexpected_dispatch(~)
+error('test_vta:UnexpectedDispatch', 'Unexpected execution path.');
+status = struct(); %#ok<UNRCH>
 end
 
 function model = fixture_model()

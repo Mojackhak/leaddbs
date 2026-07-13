@@ -249,6 +249,11 @@ else
     activeidx=ea_getactiveidx(S,side,centroids,mesh,elfv,elspec,meshregions);
 end
 
+if isfield(options, 'mh_vta_headmodel_only') && ...
+        logical(options.mh_vta_headmodel_only)
+    return
+end
+
 switch side
     case 1
         sidec='R';

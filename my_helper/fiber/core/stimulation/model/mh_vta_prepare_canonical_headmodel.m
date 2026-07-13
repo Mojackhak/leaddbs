@@ -37,6 +37,7 @@ nativeOptions = options;
 nativeOptions.native = 1;
 nativeOptions.orignative = 1;
 nativeOptions.subj.subjId = subjectId;
+nativeOptions.mh_vta_headmodel_only = true;
 mh_vta_run_horn_with_retry( ...
     S, sideIndex, nativeOptions, char(string(stimulationLabel)), headmodelPath);
 if ~isfile(headmodelPath)

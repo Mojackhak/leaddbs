@@ -169,6 +169,13 @@ groups resolve to one solve unit per source. Every production solve uses
 `simbio_onesolve`; an alternating source can still contain multiple active and
 return contacts within its independent solve.
 
+The MATLAB entry point validates first and then dispatches by task kind.
+`continuous_joint` and `alternating_source` tasks enter the canonical
+one-solve executor. `alternating_group_peak` is a derived task: it reads the
+completed source-level native E-fields, forms the native voxelwise maximum,
+thresholds it, transforms the continuous maximum to MNI, and thresholds again.
+The derived task never invokes FEM.
+
 ## Voltage And Current Boundary Values
 
 Voltage boundaries use signed volts. Current boundaries convert public mA to A
@@ -191,6 +198,11 @@ The embedded `mh_vta_headmodel_contract` records subject, side, atlas,
 conductivity, reconstruction, native-anchor, and implementation hashes. Missing
 head models are rebuilt. A stale contract is rejected unless replacement was
 explicitly authorized.
+
+Canonical head-model preparation invokes the Horn meshing path in an internal
+head-model-only mode. That call stops immediately after writing the volume
+conductor and never writes a legacy dynamic-grid VTA; canonical E-field and VTA
+artifacts are produced only by the fixed-grid executor below.
 
 The authoritative order is:
 

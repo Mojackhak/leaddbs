@@ -1,5 +1,5 @@
-function status = mh_vta_run_canonical_task(taskJsonPath)
-% Read and validate one canonical VTA task JSON file.
+function status = mh_vta_run_canonical_task(taskJsonPath, varargin)
+% Read, validate, and execute one canonical VTA task JSON file.
 
 path = string(taskJsonPath);
 if ~isscalar(path) || ismissing(path) || strlength(path) == 0 || ~isfile(path)
@@ -16,5 +16,6 @@ catch ME
     throw(wrapped);
 end
 
-status = mh_vta_validate_canonical_task(task);
+task = mh_vta_validate_canonical_task(task);
+status = mh_vta_execute_canonical_task(task, varargin{:});
 end
