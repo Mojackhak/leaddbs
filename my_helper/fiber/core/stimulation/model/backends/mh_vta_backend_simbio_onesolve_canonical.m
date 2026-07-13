@@ -53,16 +53,7 @@ options.orignative = 1;
 options.subj.recon.recon = char(string(task.reconstruction_path));
 options.elmodel = char(string(task.electrode_model));
 options = ea_resolve_elspec(options);
-options.atlasset = char(string(task.model.atlas_set));
-options.prefs.vat.gm = 'atlas';
-options.prefs.machine.vatsettings.horn_cgm = ...
-    double(task.model.gray_matter_s_per_m);
-options.prefs.machine.vatsettings.horn_cwm = ...
-    double(task.model.white_matter_s_per_m);
-options.prefs.machine.vatsettings.horn_useatlas = 1;
-options.prefs.machine.vatsettings.horn_atlasset = ...
-    char(string(task.model.atlas_set));
-options.prefs.machine.vatsettings.horn_removeElectrode = 1;
+options = mh_vta_configure_canonical_options(options, task);
 
 sideIndex = side_to_index(task.hemisphere);
 if double(task.reconstruction_lead_id) ~= sideIndex

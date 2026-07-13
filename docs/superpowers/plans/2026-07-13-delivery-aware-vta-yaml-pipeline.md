@@ -790,19 +790,19 @@ git commit -m "refactor: unify canonical VTA backend"
 - Keeps the configured atlas as the source of patient-space `gm_mask.nii.gz`.
 - Fixes the canonical Horn GM geometry mode to `mask`; no public YAML field is added.
 
-- [ ] **Step 1: Write a failing canonical options test**
+- [x] **Step 1: Write a failing canonical options test**
 
 The test must verify `prefs.vat.gm == "mask"`, `horn_useatlas == 1`, the
 configured atlas name is preserved, and both conductivities are copied from
 the task. It must fail because the helper does not yet exist.
 
-- [ ] **Step 2: Implement the canonical options helper**
+- [x] **Step 2: Implement the canonical options helper**
 
 Move canonical conductivity, atlas, and Horn preference assignment out of the
 backend `build_context` function. Set the GM mode only to `mask`; do not add an
 `atlas` fallback and do not modify `ea_genvat_horn` or `ea_fem_getmask`.
 
-- [ ] **Step 3: Run focused and regression tests**
+- [x] **Step 3: Run focused and regression tests**
 
 ```bash
 conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_canonical_options_contract.m'); r=[r testsuite('my_helper/fiber/tests/test_vta_canonical_task_contract.m')]; r=[r testsuite('my_helper/fiber/tests/test_vta_common_grid_export.m')]; assertSuccess(run(r));"
