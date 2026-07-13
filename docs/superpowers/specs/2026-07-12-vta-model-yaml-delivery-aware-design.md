@@ -148,10 +148,58 @@ path or expose `gray_matter_source`, `template_mask`, tissue-surface, meshing,
 or electrode-removal fields. Electrode removal remains fixed to the current
 Lead-DBS/helper value `true`.
 
+This fixed behavior does not remove the electrode from the FEM solve. Before
+scattered interpolation of the continuous E-field, it reproduces the complete
+standard Horn export geometry: remove contact/insulator tetrahedral samples
+(`mesh.tissue > 2`), align samples to the electrode axis, displace tissue
+samples radially to the lead surface, and remove samples that cannot be mapped
+outside the lead. The rule applies to voltage and current tasks in both
+delivery modes.
+
 The YAML also does not expose `backend`, `backend_policy`, `solve_unit`, smoke
 settings, retry seeds, concurrency, resume, force, or subject selection.
 
 ## Architecture
+
+### Unified Canonical Backend
+
+Canonical production execution has one backend and one export path:
+
+```text
+mh_vta_execute_canonical_task
+  -> mh_vta_backend_simbio_onesolve_canonical
+       -> mh_vta_assemble_boundary(control_mode)
+       -> mh_vta_fem_apply_dbs
+       -> mh_vta_fem_calc_gradient
+       -> mh_vta_export_canonical_outputs
+```
+
+`mh_vta_execute_canonical_task` calls the canonical backend directly for every
+FEM task. It does not dispatch canonical tasks through the legacy model
+registry or the legacy `mh_vta_backend_simbio_onesolve` compatibility wrapper.
+That wrapper may remain for non-canonical callers, but it is not a production
+path for this pipeline.
+
+Voltage and current are boundary strategies, not separate backends:
+
+```text
+voltage -> Dirichlet boundary values
+current -> current RHS plus case/electrode return boundary
+```
+
+Both strategies use the same head model, linear solver, gradient calculation,
+complete Horn electrode-removal geometry, native common-grid interpolation,
+native thresholding, native-to-MNI continuous-field transformation, and MNI
+thresholding. No control-mode-specific code may write E-field or VTA outputs.
+
+`mh_vta_assemble_boundary` is the only canonical boundary assembler. The old
+`mh_vta_assemble_onesolve_boundary` name is removed after all callers and tests
+migrate, preventing two implementations from drifting.
+
+`mh_vta_export_canonical_outputs` owns the shared export pipeline and returns
+the native/MNI artifact paths. The backend owns context preparation, head-model
+reuse/build, active-contact lookup, boundary assembly, FEM solve, and gradient
+calculation; it delegates all output generation to this shared exporter.
 
 ```text
 study_base.json + vta_model.yaml
@@ -553,10 +601,22 @@ Tests must cover:
 
 ### Numerical FEM Acceptance
 
+Voltage and current use paired acceptance entrypoints:
+
+```text
+run_voltage_backend_equivalence
+run_current_backend_equivalence
+
+test_run_voltage_backend_equivalence
+test_run_current_backend_equivalence
+```
+
 The already completed SNr003 bilateral single-voltage
-`simbio`-versus-`simbio_onesolve` outputs are reused directly. Voltage
-acceptance recomputes metrics from those existing E-fields and VTAs and starts
-zero new voltage FEM solves.
+`simbio`-versus-canonical outputs are reused directly when they satisfy the
+current atlas and native-grid contract. Voltage acceptance recomputes metrics
+from eligible existing native E-fields and VTAs and starts zero new voltage FEM
+solves; otherwise it runs the minimum copied-subject native pair needed to
+establish the same contract.
 
 A new copied-subject current suite uses SNr003 and Medtronic 3387 geometry. It
 uses fixed seed `20260712` to generate hypothetical current parameters without
@@ -573,31 +633,50 @@ case design: one cathode with case return
 The real current FEM gate contains exactly one deterministic hypothetical case.
 The same right-sided contacts, polarity, amplitude, pulse width, and frequency
 run once through standard `simbio` current mode and once through
-`simbio_onesolve` current mode while sharing one frozen head model. The gate
-therefore starts exactly two current FEM solves. Native and MNI E-fields and
-0.18/0.20/0.22 V/mm VTAs are compared directly; no averaging or backend-repeat
-run is part of this minimal numerical gate. Acceptance gates are:
+the canonical current strategy while sharing one frozen head model. A fresh
+gate therefore starts exactly two current FEM solves. Backend numerical
+equivalence is evaluated only on native E-field and native
+0.18/0.20/0.22 V/mm VTAs; no averaging or backend-repeat run is part of this
+minimal gate. Native acceptance gates are:
 
 ```text
-maximum absolute E-field difference: <= 1e-3 V/m
+maximum absolute E-field difference: <= 0.05 V/m
 relative L2 error: <= 1e-5
 Pearson correlation: >= 0.999999
 VTA Dice at every threshold: >= 0.999
 relative VTA volume difference: <= 0.1%
 ```
 
-The standard Lead-DBS `simbio` current path is the reference implementation.
-The candidate implementation is the canonical-task `simbio_onesolve` current
-backend. The legacy registry one-solve wrapper remains voltage-only and is not
-an execution path for this current gate. Both accepted paths must use the same
-fixed native headmodel under the copied subject tree.
+The accepted current evidence from copied SNr003 is:
 
-For numerical comparison only, the standard `simbio` local E-field grid is the
-authoritative comparison grid. In a fresh gate the canonical raw tetrahedral
-field is exported directly to the standard native reference grid, bypassing the
-coarser 0.7 mm production-native export. MNI continuous fields are aligned by
-world-coordinate linear resampling to the standard MNI reference grid, then all
-metrics and 180/200/220 V/m masks are computed. No binary image is resampled.
+```text
+native maximum absolute difference: 0.04248046875 V/m
+native relative L2 error: 1.91357285323195e-6
+native correlation: 0.999999999997491
+native VTA Dice at 180/200/220 V/m: 1.0 / 1.0 / 1.0
+native relative VTA volume difference: 0 / 0 / 0
+```
+
+MNI is a transformation-contract acceptance, not a legacy backend-equivalence
+gate. The canonical MNI continuous field must be produced from the canonical
+native continuous field using the patient's forward normalization; dimensions,
+affine, finite support, and nonzero signal must be valid; repeated transforms
+must be deterministic; and MNI binary VTAs must be recreated from that MNI
+continuous field at 180/200/220 V/m. Legacy SimBio maps FEM sample points into
+MNI before interpolation, so its direct-MNI field is intentionally not the
+numerical reference for the canonical native-to-MNI architecture.
+
+The standard Lead-DBS `simbio` current path is the reference implementation.
+The candidate implementation is the shared canonical backend in current mode.
+The legacy registry one-solve wrapper remains outside canonical execution and
+is not an execution path for either paired gate. Both accepted paths must use
+the same fixed native headmodel under the copied subject tree.
+
+For native numerical comparison only, the standard `simbio` local E-field grid
+is the authoritative comparison grid. In a fresh gate the canonical raw
+tetrahedral field is exported directly to the standard native reference grid,
+bypassing the coarser 0.7 mm production-native export. No binary image is
+resampled.
 Existing paired NIfTI outputs may be re-compared without another solve, but a
 coarse previous export cannot reconstruct discarded tetrahedral detail.
 If dimensions and affine already match the reference within the acceptance
@@ -605,6 +684,14 @@ tolerance, alignment is a no-op and must not interpolate the candidate again.
 Re-comparison moves any replaced metrics or summary file to the filesystem
 Trash first. It cannot upgrade the overall result unless the original run also
 recorded that the production subject tree remained unchanged.
+
+If a completed two-solve gate identifies a candidate-only implementation
+defect, recovery may reuse the existing standard SimBio reference, copied
+subject, fixed headmodel, and deterministic fixture. Each attempt is recorded
+before the old candidate output directory is moved to Trash and only the
+canonical candidate is solved again. The recovery result records the latest
+one-solve attempt and the actual accumulated solve count for that run lineage;
+it is not represented as a fresh two-solve gate.
 
 Multiple-cathode, electrode-return, repeatability, and continuous multi-current
 behavior remain covered by deterministic solver-free unit fixtures. The

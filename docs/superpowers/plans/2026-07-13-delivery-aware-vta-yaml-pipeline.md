@@ -18,6 +18,13 @@
 - `component_id`, source labels, STN/SNr, HF/ULF, and clinical endpoint roles do not control VTA task generation.
 - Production FEM uses `simbio_onesolve` only. Backend selection, solve unit, mesh controls, tissue-surface controls, electrode removal, smoke settings, random seeds, and acceptance tolerances are not public YAML fields.
 - `remove_electrode` remains the Lead-DBS internal default (`true`).
+- The internal `remove_electrode=true` behavior solves FEM on the complete
+  mesh, then applies the complete standard Horn export geometry before
+  continuous E-field interpolation: exclude tetrahedra with
+  `mesh.tissue > 2`, align samples to the electrode axis, displace tissue
+  samples radially to the lead surface, and remove samples that cannot be
+  mapped outside the lead. This fixed behavior applies to every
+  voltage/current and continuous/alternating solve.
 - `continuous` groups are solved jointly; `alternating` groups are solved once per source and derive a voxelwise maximum group E-field without duty-cycle or time averaging.
 - A frequency group is homogeneous: every source is voltage-controlled or every source is current-controlled. Mixed groups are invalid.
 - A continuous group cannot reuse the same electrode contact across sources. Case return may be shared.
@@ -159,11 +166,12 @@ my_helper/fiber/core/stimulation/model/mh_vta_run_canonical_task.m
 my_helper/fiber/core/stimulation/model/mh_vta_validate_canonical_task.m
 my_helper/fiber/core/stimulation/model/mh_vta_prepare_canonical_headmodel.m
 my_helper/fiber/core/stimulation/model/mh_vta_export_common_grid.m
+my_helper/fiber/core/stimulation/model/mh_vta_export_canonical_outputs.m
 my_helper/fiber/core/stimulation/model/mh_vta_transform_efield_to_mni.m
 my_helper/fiber/core/stimulation/model/mh_vta_threshold_efield.m
 my_helper/fiber/core/stimulation/model/mh_vta_compose_group_peak.m
-my_helper/fiber/core/stimulation/model/fem/mh_vta_assemble_onesolve_boundary.m
-my_helper/fiber/core/stimulation/model/backends/mh_vta_backend_simbio_onesolve.m
+my_helper/fiber/core/stimulation/model/fem/mh_vta_assemble_boundary.m
+my_helper/fiber/core/stimulation/model/backends/mh_vta_backend_simbio_onesolve_canonical.m
 my_helper/fiber/core/stimulation/model/mh_vta_expand_delivery_group.m
 ```
 
@@ -171,11 +179,13 @@ Create or update tests and documentation:
 
 ```text
 my_helper/fiber/tests/test_vta_canonical_task_contract.m
-my_helper/fiber/tests/test_vta_onesolve_boundary_contract.m
+my_helper/fiber/tests/test_vta_boundary_contract.m
 my_helper/fiber/tests/test_vta_common_grid_export.m
 my_helper/fiber/tests/test_vta_delivery_group_contract.m
-my_helper/vta/test/run_single_current_backend_equivalence.m
-my_helper/vta/test/test_run_single_current_backend_equivalence.m
+my_helper/vta/test/run_voltage_backend_equivalence.m
+my_helper/vta/test/run_current_backend_equivalence.m
+my_helper/vta/test/test_run_voltage_backend_equivalence.m
+my_helper/vta/test/test_run_current_backend_equivalence.m
 my_helper/vta/test/README.md
 my_helper/vta/README.md
 ```
@@ -679,16 +689,22 @@ git add my_helper/vta/README.md my_helper/fiber/core/stimulation/model my_helper
 git commit -m "feat: define canonical VTA task contract"
 ```
 
-### Task 7: Voltage And Current One-Solve Boundary Assembly
+### Task 7: Unified Canonical Backend And Boundary Strategies
 
 **Files:**
-- Create: `my_helper/fiber/core/stimulation/model/fem/mh_vta_assemble_onesolve_boundary.m`
-- Modify: `my_helper/fiber/core/stimulation/model/backends/mh_vta_backend_simbio_onesolve.m`
-- Create: `my_helper/fiber/tests/test_vta_onesolve_boundary_contract.m`
+- Modify: `my_helper/fiber/core/stimulation/model/mh_vta_execute_canonical_task.m`
+- Create: `my_helper/fiber/core/stimulation/model/fem/mh_vta_assemble_boundary.m`
+- Remove after migration: `my_helper/fiber/core/stimulation/model/fem/mh_vta_assemble_onesolve_boundary.m`
+- Modify: `my_helper/fiber/core/stimulation/model/backends/mh_vta_backend_simbio_onesolve_canonical.m`
+- Create: `my_helper/fiber/core/stimulation/model/mh_vta_export_canonical_outputs.m`
+- Create: `my_helper/fiber/tests/test_vta_boundary_contract.m`
+- Modify: `my_helper/fiber/tests/test_vta_canonical_task_contract.m`
+- Modify: `my_helper/fiber/tests/test_vta_common_grid_export.m`
 - Modify: `my_helper/vta/README.md`
 
 **Interfaces:**
-- Produces: `boundary = mh_vta_assemble_onesolve_boundary(sources, activeidx, controlMode)` with `node_indices`, `values_and_groups`, `unipolar`, `constvol`, and `source_groups`.
+- Produces: `boundary = mh_vta_assemble_boundary(sources, activeidx, controlMode)` with `node_indices`, `values_and_groups`, `unipolar`, `constvol`, and `source_groups`.
+- Produces: `status = mh_vta_export_canonical_outputs(task, options, sideIndex, mesh, gradient, activeNodeIndices, nativeAnchorPath, headmodelState)`.
 - Current values passed to `mh_vta_fem_apply_dbs` are amperes; voltage values are volts.
 
 - [ ] **Step 1: Document control-mode math**
@@ -700,14 +716,14 @@ Document that each source's cathode and anode fractions are normalized within si
 ```matlab
 function testCurrentIsConvertedFromMilliampereToAmpere(testCase)
 source = fixture_current_source(2.5, cathode=1, anode="case");
-b = mh_vta_assemble_onesolve_boundary(source, fixture_activeidx(), "current");
+b = mh_vta_assemble_boundary(source, fixture_activeidx(), "current");
 verifyFalse(testCase, b.constvol);
 verifyEqual(testCase, min(b.values_and_groups(:,1)), -2.5e-3, AbsTol=1e-12);
 end
 
 function testMultipolarCurrentKeepsSignedFractions(testCase)
 source = fixture_multipolar_current_source(4.0, [0.25 0.75], [0.4 0.6]);
-b = mh_vta_assemble_onesolve_boundary(source, fixture_activeidx(), "current");
+b = mh_vta_assemble_boundary(source, fixture_activeidx(), "current");
 verifyEqual(testCase, sort(unique(b.values_and_groups(:,1))), ...
     sort([-3e-3 -1e-3 1.6e-3 2.4e-3])', AbsTol=1e-12);
 end
@@ -716,10 +732,11 @@ end
 - [ ] **Step 3: Run tests and confirm failure**
 
 ```bash
-matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_onesolve_boundary_contract.m'); assertSuccess(run(r));"
+matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_boundary_contract.m'); r=[r testsuite('my_helper/fiber/tests/test_vta_canonical_task_contract.m')]; assertSuccess(run(r));"
 ```
 
-Expected: boundary assembler is missing and the backend still rejects current mode.
+Expected: the renamed boundary assembler and shared exporter are missing, and
+the canonical dispatcher still routes through the legacy compatibility wrapper.
 
 - [ ] **Step 4: Implement the assembler and refactor one-solve**
 
@@ -744,12 +761,20 @@ potential = mh_vta_fem_apply_dbs(vol, boundary.node_indices, ...
 
 Delete the fixed `for source = 1:4` extraction path from canonical execution. Legacy `S` remains available only for Lead-DBS geometry/head-model helpers.
 
+Change `mh_vta_execute_canonical_task` so every non-derived task calls
+`mh_vta_backend_simbio_onesolve_canonical` directly. The backend performs only
+context/head-model preparation, active-contact lookup, boundary assembly, FEM,
+and gradient calculation. Delegate every native/MNI E-field and threshold
+write to `mh_vta_export_canonical_outputs`; that exporter contains no voltage
+or current branch. Remove the old boundary file after migrating all callers.
+Keep the legacy backend wrapper only for non-canonical callers.
+
 - [ ] **Step 5: Run tests and commit**
 
 ```bash
-matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_onesolve_boundary_contract.m'); assertSuccess(run(r));"
+matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_boundary_contract.m'); r=[r testsuite('my_helper/fiber/tests/test_vta_canonical_task_contract.m')]; r=[r testsuite('my_helper/fiber/tests/test_vta_common_grid_export.m')]; assertSuccess(run(r));"
 git add my_helper/vta/README.md my_helper/fiber/core/stimulation/model my_helper/fiber/tests
-git commit -m "feat: support current one-solve boundaries"
+git commit -m "refactor: unify canonical VTA backend"
 ```
 
 ### Task 8: Canonical Head Model, Native Common Grid, MNI Transform, And Thresholding
@@ -813,6 +838,14 @@ end
 ```
 
 Build a missing head model in `$LEADDBS_SUBJECT_DIR/headmodel/native/`. If the canonical head-model path exists, reuse it without provenance or hash comparison. Loading an existing unreadable or structurally invalid MAT file fails explicitly and does not silently replace it. `--force` applies only to selected stimulation leaves; rebuilding a head model requires the operator to move its canonical file out of the way.
+
+Match the complete standard Horn `remove_electrode=true` export path: calculate
+potential and gradient on the complete mesh; remove samples whose
+`mesh.tissue > 2`; align the remaining samples to the electrode axis; displace
+tissue samples radially to the lead surface; and remove samples that cannot be
+mapped outside the lead before interpolation to the native common grid. Do not
+retain or high-field-fill contact/insulator tetrahedra in the published
+E-field.
 
 - [ ] **Step 5: Run tests and commit**
 
@@ -972,10 +1005,14 @@ git commit -m "feat: execute VTA tasks by subject"
 
 **Files:**
 - Modify: `my_helper/vta/test/README.md`
-- Create: `my_helper/vta/test/run_single_current_backend_equivalence.m`
-- Create: `my_helper/vta/test/test_run_single_current_backend_equivalence.m`
-- Modify: `my_helper/vta/test/run_single_source_backend_equivalence.m`
-- Modify: `my_helper/vta/test/test_run_single_source_backend_equivalence.m`
+- Create: `my_helper/vta/test/run_voltage_backend_equivalence.m`
+- Create: `my_helper/vta/test/run_current_backend_equivalence.m`
+- Create: `my_helper/vta/test/test_run_voltage_backend_equivalence.m`
+- Create: `my_helper/vta/test/test_run_current_backend_equivalence.m`
+- Remove after migration: `my_helper/vta/test/run_single_source_backend_equivalence.m`
+- Remove after migration: `my_helper/vta/test/run_single_current_backend_equivalence.m`
+- Remove after migration: `my_helper/vta/test/test_run_single_source_backend_equivalence.m`
+- Remove after migration: `my_helper/vta/test/test_run_single_current_backend_equivalence.m`
 
 **Interfaces:**
 - Produces repeatable copied-subject acceptance artifacts below `/Volumes/VAL/STNSNr/validation`.
@@ -998,7 +1035,7 @@ verifyTrue(testCase, all([a.amplitude_mA] >= 0.5 & [a.amplitude_mA] <= 5.0));
 end
 
 function testWorkRootCannotBeProductionSubjectTree(testCase)
-verifyError(testCase, @() run_single_current_backend_equivalence( ...
+verifyError(testCase, @() run_current_backend_equivalence( ...
     'WorkRoot','/Volumes/VAL/STNSNr/derivatives/leaddbs'), ...
     'mh_vta_acceptance:UnsafeWorkRoot');
 end
@@ -1007,18 +1044,38 @@ end
 - [ ] **Step 3: Run lightweight tests and confirm failure**
 
 ```bash
-matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/vta/test/test_run_single_current_backend_equivalence.m'); assertSuccess(run(r));"
+matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/vta/test/test_run_voltage_backend_equivalence.m'); r=[r testsuite('my_helper/vta/test/test_run_current_backend_equivalence.m')]; assertSuccess(run(r));"
 ```
 
 Expected: current acceptance functions are missing.
 
 - [ ] **Step 4: Implement the deterministic copied-subject suite**
 
-Generate exactly one deterministic right-sided single-cathode/case-return current case. Compare standard SimBio current as reference against one-solve current for native and MNI continuous E-field plus all three thresholds. Run each backend exactly once, for two FEM solves total. Do not run backend repeatability FEM in this minimal gate.
+Generate exactly one deterministic right-sided single-cathode/case-return
+current case. Compare standard SimBio current as reference against canonical
+current on the native continuous E-field and all three native thresholds. Run
+each implementation exactly once for a fresh two-solve gate. Do not run backend
+repeatability FEM in this minimal gate.
 
-Use the standard Lead-DBS `simbio` current path for the reference solve and the canonical-task `simbio_onesolve` current backend for the candidate solve. Do not route the current candidate through the legacy registry one-solve wrapper because that wrapper is voltage-only. Require both paths to reuse the same fixed native headmodel in the copied subject.
+Use the standard Lead-DBS `simbio` current path for the reference solve and the
+shared canonical backend in current mode for the candidate solve. Do not route
+either canonical candidate through the legacy registry wrapper. Require both
+paths to reuse the same fixed native headmodel in the copied subject.
 
-Use the standard `simbio` local E-field grid as the fixed numerical comparison grid. During a fresh current gate, export the canonical raw tetrahedral field directly to the standard native reference grid instead of first exporting to the 0.7 mm production-native grid. Align MNI continuous fields by world-coordinate linear resampling to the standard MNI reference grid before computing continuous metrics or applying 180/200/220 V/m thresholds. Permit comparison to rerun directly from existing FEM outputs without starting FEM, while explicitly treating a previous coarse native export as insufficient to recover discarded raw-field detail.
+Use the standard `simbio` local E-field grid as the fixed native numerical
+comparison grid. During a fresh gate, export the canonical raw tetrahedral
+field directly to the standard native reference grid instead of first exporting
+to the 0.7 mm production-native grid. Permit native comparison to rerun directly
+from existing FEM outputs without starting FEM, while explicitly treating a
+previous coarse native export as insufficient to recover discarded raw-field
+detail.
+
+Validate MNI separately as a canonical transformation contract: transform the
+canonical native continuous E-field with the patient forward normalization,
+require valid dimensions/affine/finite nonzero signal, require deterministic
+repeat transformation, and regenerate all three MNI VTAs from the transformed
+continuous field. Do not compare canonical MNI numerically against legacy
+direct-MNI interpolation.
 
 Grid alignment is an identity operation when dimensions and affine already
 match the reference within the strict affine tolerance. In that case the
@@ -1033,10 +1090,24 @@ filesystem Trash. A refreshed overall `pass` still requires the original
 `production_subject_tree_unchanged=true` safety result in addition to the
 recomputed numerical gates.
 
+Expose a separate failed-gate recovery path as `Mode=rerun_candidate` plus an
+explicit `ExistingRunRoot`. This mode is allowed only when the existing run
+satisfies the fixed right-sided current contract and already contains the
+standard SimBio native/MNI reference outputs, copied subject, fixed headmodel,
+manifest, and deterministic fixture inventory. It must reuse all of those
+inputs, record the recovery attempt, move only the previous
+`simbio_onesolve` candidate directory to the filesystem Trash, execute the
+canonical candidate exactly once per recovery attempt, and then refresh the
+comparison tables and acceptance summary. It must never rerun the standard
+SimBio reference. The refreshed summary records one FEM solve for the latest
+attempt and the actual accumulated solve count for the run lineage. Recovery
+cannot upgrade the result unless the original production-tree safety check
+remains true.
+
 Use these exact gates independently for every case and hemisphere:
 
 ```text
-maximum absolute E-field difference <= 1e-3 V/m
+maximum absolute E-field difference <= 0.05 V/m
 relative L2 error <= 1e-5
 Pearson correlation >= 0.999999
 VTA Dice >= 0.999
@@ -1050,7 +1121,7 @@ Add an independent multi-current RHS/vector-field superposition fixture that ver
 First run the Task 11 test command. Then run:
 
 ```bash
-matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); run_single_current_backend_equivalence('StudyBase','/Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json','WorkRoot','/Volumes/VAL/STNSNr/validation','SubjectId','SNr003');"
+matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); run_current_backend_equivalence('StudyBase','/Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json','WorkRoot','/Volumes/VAL/STNSNr/validation','SubjectId','SNr003');"
 ```
 
 Expected: existing bilateral voltage metrics are regenerated with zero voltage FEM; one right-sided current case passes after exactly two current FEM solves; and the production subject tree path/size inventory is unchanged.

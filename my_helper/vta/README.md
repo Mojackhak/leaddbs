@@ -28,6 +28,33 @@ one equivalent frequency-group copy represented by T2/T3 in the fixture, and a
 minimal right-sided deterministic current acceptance with two FEM solves.
 Production all-subject execution remains a separate operational goal.
 
+The current acceptance runner also supports two bounded maintenance modes.
+`compare_existing` recomputes metrics with zero FEM solves. `rerun_candidate`
+is reserved for a failed fixed-contract gate: it reuses the existing standard
+SimBio reference and copied headmodel, records the attempt, moves the old
+candidate directory to Trash, and performs exactly one new canonical one-solve
+FEM per attempt. Its summary keeps the accumulated solve count rather than
+presenting recovery as a fresh gate.
+
+## Canonical Backend Architecture
+
+Canonical FEM execution has one production path:
+
+```text
+mh_vta_execute_canonical_task
+  -> mh_vta_backend_simbio_onesolve_canonical
+       -> mh_vta_assemble_boundary(control_mode)
+       -> mh_vta_fem_apply_dbs
+       -> mh_vta_fem_calc_gradient
+       -> mh_vta_export_canonical_outputs
+```
+
+Voltage uses a Dirichlet boundary strategy. Current uses a current RHS plus
+case/electrode return boundary strategy. Both modes share the same solver,
+gradient calculation, electrode-removal geometry, native/MNI export, and
+threshold pipeline. Canonical tasks never pass through the legacy registry
+wrapper.
+
 ## Public Model Profile
 
 The `vta_model_v1` public profile contains only tissue conductivity, atlas,
@@ -64,6 +91,13 @@ The public YAML does not expose backend selection, solve unit, mesh controls,
 tissue-surface controls, electrode removal, smoke settings, random seeds, or
 acceptance tolerances. Production calculations use `simbio_onesolve` and the
 Lead-DBS internal default `remove_electrode=true`.
+
+The fixed removal behavior solves FEM on the complete mesh. Before continuous
+E-field interpolation, it reproduces the complete standard Horn export
+geometry: remove contact/insulator tetrahedra, align samples to the electrode
+axis, displace tissue samples radially to the lead surface, and remove samples
+that cannot be mapped outside the lead. It is applied uniformly to
+voltage/current and continuous/alternating tasks.
 
 Continuous frequency-group sources are solved jointly. Alternating sources are
 solved independently, and their group-level peak E-field is derived using a
