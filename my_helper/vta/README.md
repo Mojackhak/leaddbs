@@ -315,6 +315,17 @@ silently replaced. `--force` applies to stimulation leaves and does not rebuild
 an existing head model. To rebuild a head model, the operator must first move
 its canonical file out of the way.
 
+Every reused or newly built canonical head model must also satisfy the FEM
+coordinate-unit contract before execution continues. `mesh.pnt` and `vol.pos`
+must be finite real `N x 3` arrays with the same nodes. If `mesh.unit` exists,
+it must be `mm`. After conversion to `double`, `mesh.pnt / 1000` must match
+`vol.pos` within `1e-6 m` at every node, and all `vol.pos` coordinates must have
+absolute magnitude below `2 m`. The canonical backend enforces this contract
+immediately after loading the head model; existing-model preparation also uses
+it for early failure. The pipeline never attempts an automatic conversion,
+because coordinate-only repair cannot validate the units used to assemble the
+stored FEM matrices. An empty suprathreshold VTA is not a unit-contract failure.
+
 Canonical head-model preparation invokes the Horn meshing path in an internal
 head-model-only mode. That call stops immediately after writing the volume
 conductor and never writes a legacy dynamic-grid VTA; canonical E-field and VTA

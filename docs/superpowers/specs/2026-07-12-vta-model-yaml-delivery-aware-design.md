@@ -364,6 +364,18 @@ head-model implementation contract. A compatible canonical head model is
 reused. A missing canonical head model is built before the first dependent FEM
 task.
 
+Compatibility includes a strict coordinate-unit contract. `mesh.pnt` and
+`vol.pos` must be finite real `N x 3` arrays with identical node counts. If
+`mesh.unit` exists, it must be `mm`. After conversion to `double`,
+`mesh.pnt / 1000` must match `vol.pos` node by node within `1e-6 m`, and
+`max(abs(vol.pos(:)))` must remain below `2 m`. The mandatory check runs after
+the canonical backend loads either a reused or newly built head model and
+before FEM boundary assembly or gradient calculation. Existing-model
+preparation also applies the same check as an early failure. A violation fails
+explicitly; the pipeline neither repairs units nor silently replaces the file.
+The detailed contract is defined in
+`2026-07-13-canonical-headmodel-unit-contract-design.md`.
+
 An incompatible canonical head model is never silently reused or overwritten.
 Validation reports `incompatible_headmodel`. An explicit replacement action
 must first move the incompatible untracked head-model files to a recoverable
