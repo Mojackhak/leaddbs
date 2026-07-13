@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import copy
+import errno
 import json
 from pathlib import Path
 import tempfile
@@ -130,7 +131,7 @@ class StudyBaseImporterTests(unittest.TestCase):
                                 "Side": side,
                                 "Voltage": 2.5,
                                 "PulseWidth": 60,
-                                "Frequency": 130 if target == "STN" else 10,
+                                "Frequency": 145 if target == "STN" else 10,
                                 "ParameterSource": "fixture",
                                 "StimulationPattern": "continuous",
                                 "AlternatingGroup": np.nan,
@@ -210,7 +211,7 @@ class StudyBaseImporterTests(unittest.TestCase):
             selected = (frame["ID"] == "001") & (frame["Phase"] == "immediate") & (frame["Protocol"] == "STN+SNr") & (frame["Side"] == "L")
             frame.loc[selected, "StimulationPattern"] = "alternating"
             frame.loc[selected, "AlternatingGroup"] = "A"
-            frame.loc[selected, "Frequency"] = 130
+            frame.loc[selected, "Frequency"] = 145
             with pd.ExcelWriter(stimulation) as writer:
                 frame.to_excel(writer, sheet_name="Contact Parameters", index=False)
             self._write_assets(root)
@@ -282,8 +283,72 @@ class StudyBaseImporterTests(unittest.TestCase):
             payload_b = self._build_fixture(Path(tmp))
         self.assertEqual(serialize_study_base(payload_a), serialize_study_base(payload_b))
         self.assertEqual(payload_a["study"]["data_version"], "1")
+        self.assertEqual(payload_a["study"]["stimulation_components"], [
+            {"component_id": "target_stn", "label": "STN"},
+            {"component_id": "target_snr", "label": "SNr"},
+        ])
         self.assertEqual(payload_a["study"]["provenance"]["created_at"], "2026-07-11T12:30:00Z")
         validate_study_base(payload_a)
+
+    def test_frequency_is_positive_finite_per_source_and_equal_within_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+        combined = payload["study"]["subjects"][0]["phases"][2]["programs"][1]
+        group = combined["electrode_programs"][0]["frequency_groups"][0]
+        self.assertNotIn("frequency_hz", group)
+        self.assertTrue(all(source["frequency_hz"] > 0 for source in group["sources"]))
+        stn_sources = [
+            source
+            for electrode in combined["electrode_programs"]
+            for frequency_group in electrode["frequency_groups"]
+            for source in frequency_group["sources"]
+            if source["component_id"] == "target_stn"
+        ]
+        self.assertTrue(stn_sources)
+        self.assertTrue(all(source["frequency_hz"] == 145.0 for source in stn_sources))
+
+        invalid = copy.deepcopy(payload)
+        group = invalid["study"]["subjects"][0]["phases"][2]["programs"][1]["electrode_programs"][0]["frequency_groups"][0]
+        group["sources"][0]["frequency_hz"] = float("inf")
+        with self.assertRaisesRegex(StudyBaseImportError, "frequency_hz"):
+            validate_study_base(invalid)
+
+    def test_semantics_reject_mixed_source_frequencies_within_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clinical, stimulation, reconstruction_root = self._write_workbooks(root)
+            frame = pd.read_excel(stimulation, sheet_name="Contact Parameters", dtype={"ID": str})
+            frame["AlternatingGroup"] = frame["AlternatingGroup"].astype(object)
+            selected = (frame["ID"] == "001") & (frame["Phase"] == "immediate") & (frame["Protocol"] == "STN+SNr") & (frame["Side"] == "L")
+            frame.loc[selected, "StimulationPattern"] = "alternating"
+            frame.loc[selected, "AlternatingGroup"] = "A"
+            frame.loc[selected, "Frequency"] = 145
+            with pd.ExcelWriter(stimulation) as writer:
+                frame.to_excel(writer, sheet_name="Contact Parameters", index=False)
+            self._write_assets(root)
+            payload = build_study_base(clinical, stimulation, "Contact Parameters", reconstruction_root, root, created_at=lambda: FIXED_TIME, code_commit="test")
+        group = payload["study"]["subjects"][0]["phases"][2]["programs"][1]["electrode_programs"][0]["frequency_groups"][0]
+        group["sources"][1]["frequency_hz"] = 10
+        with self.assertRaisesRegex(StudyBaseImportError, "mixed frequencies"):
+            validate_study_base(payload)
+
+    def test_schema_rejects_legacy_frequency_role_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+        payload["study"]["frequency_components"] = [
+            {"component_id": "frequency_1_reference", "label": "HF"},
+            {"component_id": "frequency_2_addon", "label": "ULF"},
+        ]
+        del payload["study"]["stimulation_components"]
+        with self.assertRaisesRegex(StudyBaseImportError, "schema validation failed"):
+            validate_study_base(payload)
+
+    def test_semantics_rejects_swapped_stimulation_component_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+        payload["study"]["stimulation_components"][0]["label"] = "SNr"
+        with self.assertRaisesRegex(StudyBaseImportError, "stimulation component catalog"):
+            validate_study_base(payload)
 
     def test_serialized_subjects_begin_with_id_and_label(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -318,7 +383,7 @@ class StudyBaseImporterTests(unittest.TestCase):
         invalid_source = copy.deepcopy(payload)
         combined = invalid_source["study"]["subjects"][0]["phases"][2]["programs"][1]
         source = combined["electrode_programs"][0]["frequency_groups"][0]["sources"][0]
-        source["source_label"] = "SNr" if source["component_id"] == "frequency_1_reference" else "STN"
+        source["source_label"] = "SNr" if source["component_id"] == "target_stn" else "STN"
         with self.assertRaisesRegex(StudyBaseImportError, "source label/component"):
             validate_study_base(invalid_source)
 
@@ -349,6 +414,40 @@ class StudyBaseImporterTests(unittest.TestCase):
                     write_study_base_atomic(output, payload)
             self.assertEqual(output.read_text(encoding="utf-8"), "concurrent")
 
+    def test_atomic_writer_falls_back_when_hard_links_are_not_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = self._build_fixture(root)
+            output = root / "study_base.json"
+
+            unsupported = OSError(errno.ENOTSUP, "Operation not supported")
+            with mock.patch(
+                "projects.stnsnr.importer.study_base.os.link",
+                side_effect=unsupported,
+            ):
+                write_study_base_atomic(output, payload)
+
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8")), payload)
+
+    def test_atomic_writer_fallback_does_not_clobber_concurrent_creator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = self._build_fixture(root)
+            output = root / "study_base.json"
+
+            def concurrent_create(_temporary: Path, destination: Path) -> None:
+                destination.write_text("concurrent", encoding="utf-8")
+                raise OSError(errno.ENOTSUP, "Operation not supported")
+
+            with mock.patch(
+                "projects.stnsnr.importer.study_base.os.link",
+                side_effect=concurrent_create,
+            ):
+                with self.assertRaisesRegex(FileExistsError, "force"):
+                    write_study_base_atomic(output, payload)
+
+            self.assertEqual(output.read_text(encoding="utf-8"), "concurrent")
+
     def test_atomic_writer_uses_explicit_schema_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -368,20 +467,21 @@ class StudyBaseImporterTests(unittest.TestCase):
         program = {
             "condition_role": "combined",
             "electrode_programs": [
-                {"electrode_id": "lead-L", "frequency_groups": [{"sources": [{"component_id": "frequency_1_reference", "contacts": [{"contact": 0, "polarity": "cathode", "fraction": 1.0}, {"contact": "case", "polarity": "anode", "fraction": 1.0}]}]}]},
-                {"electrode_id": "lead-R", "frequency_groups": [{"sources": [{"component_id": "frequency_2_addon", "contacts": [{"contact": 7, "polarity": "cathode", "fraction": 1.0}, {"contact": "case", "polarity": "anode", "fraction": 1.0}]}]}]},
+                {"electrode_id": "lead-L", "frequency_groups": [{"delivery_mode": "continuous", "sources": [{"component_id": "target_stn", "frequency_hz": 145, "contacts": [{"contact": 0, "polarity": "cathode", "fraction": 1.0}, {"contact": "case", "polarity": "anode", "fraction": 1.0}]}]}]},
+                {"electrode_id": "lead-R", "frequency_groups": [{"delivery_mode": "continuous", "sources": [{"component_id": "target_snr", "frequency_hz": 10, "contacts": [{"contact": 7, "polarity": "cathode", "fraction": 1.0}, {"contact": "case", "polarity": "anode", "fraction": 1.0}]}]}]},
             ],
         }
         handoff = program_to_vta_spec(program, electrodes)
         self.assertEqual(handoff["lead-L"][0]["contacts"][0]["contact"], 1)
         self.assertEqual(handoff["lead-R"][0]["contacts"][0]["contact"], 4)
-        self.assertEqual(handoff["lead-R"][0]["component_id"], "frequency_2_addon")
-        reference = program_to_vta_spec(program, electrodes, component_id="frequency_1_reference")
-        addon = program_to_vta_spec(program, electrodes, component_id="frequency_2_addon")
-        self.assertEqual([row["component_id"] for row in reference["lead-L"]], ["frequency_1_reference"])
+        self.assertEqual(handoff["lead-R"][0]["component_id"], "target_snr")
+        self.assertEqual(handoff["lead-L"][0]["frequency_hz"], 145)
+        reference = program_to_vta_spec(program, electrodes, component_id="target_stn")
+        addon = program_to_vta_spec(program, electrodes, component_id="target_snr")
+        self.assertEqual([row["component_id"] for row in reference["lead-L"]], ["target_stn"])
         self.assertEqual(reference["lead-R"], [])
         self.assertEqual(addon["lead-L"], [])
-        self.assertEqual([row["component_id"] for row in addon["lead-R"]], ["frequency_2_addon"])
+        self.assertEqual([row["component_id"] for row in addon["lead-R"]], ["target_snr"])
 
     def test_cli_validate_only_builds_without_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
