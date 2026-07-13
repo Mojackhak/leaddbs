@@ -194,6 +194,17 @@ specs. It delegates built stimulation dispatch to
 `mh_vta_run_built_stimulation_tasks`, which owns shared side-task construction
 and task-harness execution for both analyzer-generated and manually customized
 Lead-DBS stimulation structures.
+
+The approved next-generation canonical stimulation hierarchy and contact
+fraction semantics are documented in
+`vta_stimulation_contract_design.md`. Field names remain compatible with the
+study-base hierarchy. Voltage contacts use fraction `1.0`; current contacts use
+complete observed allocation when available and otherwise equal allocation
+within one source and polarity. Partial allocation is invalid. Continuous
+groups contain one or more simultaneous sources, whereas alternating groups
+contain at least two independently solved source states and do not infer a duty
+cycle. These rules are documented design requirements and are not yet fully
+implemented by the current single-contact `stimSpec` adapter.
 STN/SNr analyzers share `mh_fiber_stnsnr_stimspec_from_table` for converting
 workbook-style and normalized contact rows into Layer 1 stimulation specs.
 STN/SNr stimulation-pattern report labels use

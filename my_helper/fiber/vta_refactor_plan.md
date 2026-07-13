@@ -1,5 +1,11 @@
 # VTA 计算模块重构计划
 
+> Current stimulation data contract: the approved project-independent hierarchy,
+> control-mode-dependent contact fraction rules, voltage amplitude semantics,
+> and delivery-aware solve requirements are defined in
+> `my_helper/fiber/vta_stimulation_contract_design.md`. Implementation of that
+> contract has not started. Existing STNSNr stimulation values remain unchanged.
+
 > Status: **Phase 1 implemented**. The initial checkpoint commit `ddb6888f0`
 > recorded this plan before code changes. Phase 1 keeps existing public entry
 > points compatible while extracting shared VTA, coverage, utility, and
