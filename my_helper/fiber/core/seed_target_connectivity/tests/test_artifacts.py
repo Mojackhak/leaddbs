@@ -14,6 +14,7 @@ import numpy as np
 import yaml
 
 from my_helper.fiber.core.seed_target_connectivity.artifacts import (
+    LEGACY_REQUIRED_ARTIFACTS,
     REQUIRED_ARTIFACTS,
     artifact_hashes,
     build_run_fingerprint,
@@ -21,7 +22,7 @@ from my_helper.fiber.core.seed_target_connectivity.artifacts import (
     verify_artifact_index,
     write_run_atomic,
 )
-from my_helper.fiber.core.seed_target_connectivity.config import resolve_config
+from my_helper.fiber.core.seed_target_connectivity.config import effective_config, resolve_config
 from my_helper.fiber.core.seed_target_connectivity.engine import compute_memberships
 from my_helper.fiber.core.seed_target_connectivity.errors import ArtifactError
 from my_helper.fiber.core.seed_target_connectivity.statistics import compute_statistics
@@ -38,12 +39,18 @@ class ArtifactTests(unittest.TestCase):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary_directory.name)
         self.output_root = self.root / "output"
-        self.config = resolve_config(
+        self.config = effective_config(resolve_config(
             {
-                "schema_version": 1,
+                "schema_version": 2,
+                "inputs": {
+                    "target_atlas_root": str(self.root / "atlas"),
+                    "seed_rois": {"seed": str(self.root / "seed.nii.gz")},
+                    "connectome": str(self.root / "connectome"),
+                },
+                "output": {"output_root": str(self.output_root), "run_name": "legacy"},
                 "execution": {"fiber_chunk_size": 2, "cache_membership": False},
             }
-        )
+        ), "seed")
         self.seed = resolved_mask([(1, 1, 1)], roi_id="seed", role="seed")
         self.atlas = resolved_atlas(
             [
@@ -206,7 +213,7 @@ class ArtifactTests(unittest.TestCase):
         with (run.run_dir / "target_ranking.csv").open(newline="", encoding="utf-8") as handle:
             ranking = list(csv.DictReader(handle))
 
-        self.assertEqual(config["schema_version"], 1)
+        self.assertEqual(config["schema_version"], 2)
         self.assertEqual([row["target_id"] for row in ranking], ["group/a", "group/b"])
         self.assertEqual([row["rank"] for row in ranking], ["1", "2"])
 
@@ -227,12 +234,18 @@ class ArtifactTests(unittest.TestCase):
 
     def test_stable_input_change_creates_a_different_run_fingerprint(self) -> None:
         first = self._write()
-        changed_config = resolve_config(
+        changed_config = effective_config(resolve_config(
             {
-                "schema_version": 1,
+                "schema_version": 2,
+                "inputs": {
+                    "target_atlas_root": str(self.root / "atlas"),
+                    "seed_rois": {"seed": str(self.root / "seed.nii.gz")},
+                    "connectome": str(self.root / "connectome"),
+                },
+                "output": {"output_root": str(self.output_root), "run_name": "legacy"},
                 "execution": {"fiber_chunk_size": 3, "cache_membership": False},
             }
-        )
+        ), "seed")
         second = self._write(config=changed_config)
 
         self.assertNotEqual(first.run_fingerprint, second.run_fingerprint)
@@ -267,6 +280,32 @@ class ArtifactTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ArtifactError, "provenance"):
             verify_artifact_index(run.run_dir)
+
+    def test_legacy_index_without_v2_identity_columns_remains_readable(self) -> None:
+        run = self._write()
+        index_path = run.run_dir / "artifact_index.csv"
+        with index_path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        legacy_fields = tuple(
+            field
+            for field in rows[0]
+            if field not in {
+                "batch_configuration_hash",
+                "effective_configuration_hash",
+                "run_fingerprint",
+            }
+        )
+        with index_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=legacy_fields, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows({field: row[field] for field in legacy_fields} for row in rows)
+
+        try:
+            verified = verify_artifact_index(run.run_dir)
+        except ArtifactError as exc:
+            self.fail(f"legacy index columns should remain readable: {exc}")
+
+        self.assertEqual(set(verified), set(LEGACY_REQUIRED_ARTIFACTS) - {"artifact_index.csv"})
 
 
 if __name__ == "__main__":

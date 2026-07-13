@@ -9,28 +9,32 @@ import os
 import shutil
 import subprocess
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 import yaml
+from send2trash import send2trash
 
 from .errors import ArtifactError
 from .identity import canonical_hash, sha256_file
 from .models import (
     ConnectomeMetadata,
+    BatchConnectivityConfig,
     ConnectivityConfig,
     MembershipResult,
     ResolvedAtlas,
     ResolvedMask,
     RunArtifacts,
+    StagedRunArtifacts,
     TargetStatistic,
 )
 from .traversal import TRAVERSAL_ALGORITHM, TRAVERSAL_VERSION
 
 
-REQUIRED_ARTIFACTS = (
+LEGACY_REQUIRED_ARTIFACTS = (
     "config_resolved.yaml",
     "target_catalog.csv",
     "target_connectivity.csv",
@@ -41,6 +45,20 @@ REQUIRED_ARTIFACTS = (
     "analysis_manifest.json",
     "artifact_index.csv",
 )
+
+CURRENT_REQUIRED_ARTIFACTS = (
+    "config_resolved.yaml",
+    "target_catalog.csv",
+    "target_connectivity.csv",
+    "target_ranking.csv",
+    "seed_connected_fiber_ids.npy",
+    "target_fiber_membership.npz",
+    "input_resolution_qc.csv",
+    "provenance.json",
+    "artifact_index.csv",
+)
+
+REQUIRED_ARTIFACTS = LEGACY_REQUIRED_ARTIFACTS
 
 _CONNECTIVITY_FIELDS = (
     "target_id",
@@ -87,6 +105,9 @@ _INDEX_FIELDS = (
     "sha256",
     "size_bytes",
     "configuration_hash",
+    "batch_configuration_hash",
+    "effective_configuration_hash",
+    "run_fingerprint",
     "source_file_hashes_json",
     "connectome_identity",
     "ordered_fiber_id_hash",
@@ -216,8 +237,13 @@ def _write_primary_artifacts(
     atlas: ResolvedAtlas,
     membership: MembershipResult,
     statistics: Sequence[TargetStatistic],
+    resolved_mapping: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
-    config_payload = yaml.safe_dump(_thaw(config.resolved_mapping), sort_keys=False, allow_unicode=False)
+    config_payload = yaml.safe_dump(
+        _thaw(config.resolved_mapping if resolved_mapping is None else resolved_mapping),
+        sort_keys=False,
+        allow_unicode=False,
+    )
     _write_text(staging / "config_resolved.yaml", config_payload)
 
     catalog_rows = [_mask_row(target) for target in atlas.targets]
@@ -352,7 +378,10 @@ def verify_artifact_index(run_dir: Path | str) -> dict[str, str]:
             rows = list(csv.DictReader(handle))
     except Exception as exc:
         raise ArtifactError(f"failed to read artifact index {index_path}: {exc}") from exc
-    expected_names = set(REQUIRED_ARTIFACTS) - {"artifact_index.csv"}
+    current = (root / "provenance.json").is_file()
+    provenance_name = "provenance.json" if current else "analysis_manifest.json"
+    required = CURRENT_REQUIRED_ARTIFACTS if current else LEGACY_REQUIRED_ARTIFACTS
+    expected_names = set(required) - {"artifact_index.csv"}
     names = [str(row.get("artifact_name", "")) for row in rows]
     if len(names) != len(set(names)) or set(names) != expected_names:
         raise ArtifactError(f"artifact index contents do not match required run artifacts: {root}")
@@ -371,7 +400,7 @@ def verify_artifact_index(run_dir: Path | str) -> dict[str, str]:
             raise ArtifactError(f"artifact size mismatch for {path}")
         hashes[name] = actual_hash
     try:
-        manifest = json.loads((root / "analysis_manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads((root / provenance_name).read_text(encoding="utf-8"))
         expected_source_hashes = {
             "seed": manifest["seed"]["source_hash"],
             "targets": manifest["target_atlas"]["target_source_hashes"],
@@ -384,13 +413,25 @@ def verify_artifact_index(run_dir: Path | str) -> dict[str, str]:
         }
         for row in rows:
             scalar_expected = {
-                "configuration_hash": manifest["configuration_hash"],
+                "configuration_hash": (
+                    manifest["effective_configuration_hash"]
+                    if current
+                    else manifest["configuration_hash"]
+                ),
                 "connectome_identity": manifest["connectome"]["connectome_identity"],
                 "ordered_fiber_id_hash": manifest["connectome"]["ordered_fiber_id_hash"],
                 "algorithm_version": str(manifest["algorithm"]["intersection_version"]),
                 "fiber_chunk_size": str(manifest["algorithm"]["fiber_chunk_size"]),
                 "created_at": manifest["created_at"],
             }
+            if current:
+                scalar_expected.update(
+                    {
+                        "batch_configuration_hash": manifest["batch_configuration_hash"],
+                        "effective_configuration_hash": manifest["effective_configuration_hash"],
+                        "run_fingerprint": manifest["run_fingerprint"],
+                    }
+                )
             if any(row.get(field) != value for field, value in scalar_expected.items()):
                 raise ArtifactError("artifact index provenance does not match analysis manifest")
             if json.loads(row["source_file_hashes_json"]) != expected_source_hashes:
@@ -400,9 +441,9 @@ def verify_artifact_index(run_dir: Path | str) -> dict[str, str]:
             if json.loads(row["code_provenance_json"]) != manifest["code_provenance"]:
                 raise ArtifactError("artifact index code provenance does not match analysis manifest")
         if manifest.get("artifact_hashes") != {
-            name: digest for name, digest in hashes.items() if name != "analysis_manifest.json"
+            name: digest for name, digest in hashes.items() if name != provenance_name
         }:
-            raise ArtifactError("analysis manifest artifact hashes do not match artifact index")
+            raise ArtifactError("run provenance artifact hashes do not match artifact index")
     except ArtifactError:
         raise
     except Exception as exc:
@@ -543,3 +584,233 @@ def write_run_atomic(
         artifact_hashes=hashes,
         reused=False,
     )
+
+
+def _current_provenance(
+    *,
+    fingerprint: str,
+    created_at: str,
+    batch: BatchConnectivityConfig,
+    config: ConnectivityConfig,
+    seed: ResolvedMask,
+    atlas: ResolvedAtlas,
+    connectome_metadata: ConnectomeMetadata,
+    membership: MembershipResult,
+    code_provenance: Mapping[str, Any],
+    artifact_hashes: Mapping[str, str],
+) -> dict[str, Any]:
+    provenance = _manifest(
+        fingerprint=fingerprint,
+        created_at=created_at,
+        config=config,
+        seed=seed,
+        atlas=atlas,
+        connectome_metadata=connectome_metadata,
+        membership=membership,
+        code_provenance=code_provenance,
+        artifact_hashes=artifact_hashes,
+    )
+    provenance["schema_version"] = 2
+    provenance["seed_name"] = config.seed_name
+    provenance["batch_configuration_hash"] = batch.batch_configuration_hash
+    provenance["effective_configuration_hash"] = config.configuration_hash
+    provenance.pop("configuration_hash", None)
+    return provenance
+
+
+def stage_run_artifacts(
+    *,
+    batch: BatchConnectivityConfig,
+    config: ConnectivityConfig,
+    seed: ResolvedMask,
+    atlas: ResolvedAtlas,
+    connectome_metadata: ConnectomeMetadata,
+    membership: MembershipResult,
+    statistics: Sequence[TargetStatistic],
+    code_provenance: Mapping[str, Any],
+    now: datetime | None = None,
+) -> StagedRunArtifacts:
+    """Write and verify one side without publishing its semantic directory."""
+
+    if tuple(row.target_id for row in statistics) != tuple(target.roi_id for target in atlas.targets):
+        raise ArtifactError("statistics order does not match resolved target atlas")
+    fingerprint = build_run_fingerprint(
+        config=config,
+        seed=seed,
+        atlas=atlas,
+        connectome_metadata=connectome_metadata,
+        code_provenance=code_provenance,
+    )
+    final = batch.output.output_root / config.seed_name / batch.output.run_name
+    if final.exists():
+        if not final.is_dir() or not (final / "provenance.json").is_file():
+            raise ArtifactError(f"existing semantic result is not tool-owned: {final}")
+        hashes = verify_artifact_index(final)
+        provenance = json.loads((final / "provenance.json").read_text(encoding="utf-8"))
+        if (
+            provenance.get("run_fingerprint") == fingerprint
+            and provenance.get("batch_configuration_hash") == batch.batch_configuration_hash
+        ):
+            return StagedRunArtifacts(
+                seed_name=config.seed_name,
+                staging_dir=None,
+                final_dir=final,
+                run_fingerprint=fingerprint,
+                artifact_hashes=hashes,
+                reused=True,
+            )
+
+    final.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{batch.output.run_name}.",
+            suffix=".staging",
+            dir=final.parent,
+        )
+    )
+    try:
+        primary_hashes = _write_primary_artifacts(
+            staging,
+            config=config,
+            seed=seed,
+            atlas=atlas,
+            membership=membership,
+            statistics=statistics,
+            resolved_mapping=batch.resolved_mapping,
+        )
+        created_at = _utc_text(now or datetime.now(timezone.utc))
+        provenance = _current_provenance(
+            fingerprint=fingerprint,
+            created_at=created_at,
+            batch=batch,
+            config=config,
+            seed=seed,
+            atlas=atlas,
+            connectome_metadata=connectome_metadata,
+            membership=membership,
+            code_provenance=code_provenance,
+            artifact_hashes=primary_hashes,
+        )
+        _write_text(
+            staging / "provenance.json",
+            json.dumps(provenance, indent=2, sort_keys=True, ensure_ascii=True, allow_nan=False) + "\n",
+        )
+        indexed_hashes = {
+            **primary_hashes,
+            "provenance.json": sha256_file(staging / "provenance.json"),
+        }
+        _write_index(
+            staging,
+            indexed_hashes,
+            {
+                "configuration_hash": config.configuration_hash,
+                "batch_configuration_hash": batch.batch_configuration_hash,
+                "effective_configuration_hash": config.configuration_hash,
+                "run_fingerprint": fingerprint,
+                "source_file_hashes_json": json.dumps(
+                    {
+                        "seed": seed.source_hash,
+                        "targets": {target.roi_id: target.source_hash for target in atlas.targets},
+                        "connectome": connectome_metadata.source_hash,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                "connectome_identity": connectome_metadata.connectome_identity,
+                "ordered_fiber_id_hash": connectome_metadata.ordered_fiber_id_hash,
+                "algorithm_version": TRAVERSAL_VERSION,
+                "fiber_chunk_size": config.execution.fiber_chunk_size,
+                "resolved_mask_hashes_json": json.dumps(
+                    {
+                        "seed": seed.resolved_mask_hash,
+                        "target_atlas": atlas.atlas_hash,
+                        "targets": {
+                            target.roi_id: target.resolved_mask_hash for target in atlas.targets
+                        },
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                "code_provenance_json": json.dumps(
+                    dict(code_provenance),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                "created_at": created_at,
+            },
+        )
+        if {path.name for path in staging.iterdir()} != set(CURRENT_REQUIRED_ARTIFACTS):
+            raise ArtifactError("staged result does not contain the exact required artifact set")
+        hashes = verify_artifact_index(staging)
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging)
+        raise
+    return StagedRunArtifacts(
+        seed_name=config.seed_name,
+        staging_dir=staging,
+        final_dir=final,
+        run_fingerprint=fingerprint,
+        artifact_hashes=hashes,
+        reused=False,
+    )
+
+
+def publish_staged_batch(
+    staged_runs: Mapping[str, StagedRunArtifacts],
+    *,
+    trash=lambda path: send2trash(str(path)),
+    replace=os.replace,
+) -> Mapping[str, RunArtifacts]:
+    """Publish all changed sides with rollback before sending prior results to Trash."""
+
+    ordered = [(name, staged_runs[name]) for name in sorted(staged_runs)]
+    for name, staged in ordered:
+        if name != staged.seed_name:
+            raise ArtifactError("staged seed key does not match artifact seed name")
+        if staged.staging_dir is not None:
+            verify_artifact_index(staged.staging_dir)
+    rollbacks: dict[str, Path] = {}
+    published: list[tuple[str, StagedRunArtifacts]] = []
+    try:
+        for name, staged in ordered:
+            if staged.reused:
+                continue
+            if staged.staging_dir is None:
+                raise ArtifactError(f"changed seed {name} has no staging directory")
+            if staged.final_dir.exists():
+                if not (staged.final_dir / "provenance.json").is_file():
+                    raise ArtifactError(f"existing semantic result is not tool-owned: {staged.final_dir}")
+                rollback = staged.final_dir.parent / f".{staged.final_dir.name}.{uuid.uuid4().hex}.rollback"
+                replace(staged.final_dir, rollback)
+                rollbacks[name] = rollback
+        for name, staged in ordered:
+            if staged.reused:
+                continue
+            replace(staged.staging_dir, staged.final_dir)
+            published.append((name, staged))
+        for _, staged in published:
+            verify_artifact_index(staged.final_dir)
+    except Exception as exc:
+        for _, staged in reversed(published):
+            if staged.final_dir.exists() and staged.staging_dir is not None:
+                replace(staged.final_dir, staged.staging_dir)
+        for name, rollback in reversed(tuple(rollbacks.items())):
+            final = staged_runs[name].final_dir
+            if rollback.exists():
+                replace(rollback, final)
+        raise ArtifactError(str(exc)) from exc
+
+    for rollback in rollbacks.values():
+        trash(rollback)
+
+    results: dict[str, RunArtifacts] = {}
+    for name, staged in ordered:
+        hashes = verify_artifact_index(staged.final_dir)
+        results[name] = RunArtifacts(
+            run_dir=staged.final_dir,
+            run_fingerprint=staged.run_fingerprint,
+            artifact_hashes=hashes,
+            reused=staged.reused,
+        )
+    return results

@@ -261,6 +261,18 @@ class RunArtifacts:
 
 
 @dataclass(frozen=True)
+class StagedRunArtifacts:
+    """One verified semantic result awaiting batch publication."""
+
+    seed_name: str
+    staging_dir: Path | None
+    final_dir: Path
+    run_fingerprint: str
+    artifact_hashes: Mapping[str, str]
+    reused: bool
+
+
+@dataclass(frozen=True)
 class ValidationReport:
     """Resolved inputs produced without full-connectome traversal."""
 
