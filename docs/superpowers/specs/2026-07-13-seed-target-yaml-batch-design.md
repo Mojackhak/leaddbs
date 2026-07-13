@@ -131,6 +131,12 @@ The existing Python statistical and traversal units remain single-seed primitive
 
 Validation fails before traversal when any seed, target atlas, connectome, output location, name, or threshold is invalid. A failure while computing one seed prevents publication of all new batch results. Cache entries are accepted only when their recorded identities and hashes match the effective inputs. Corrupt cache entries are treated as misses and recomputed by the normal run; no explicit resume or force mode is exposed.
 
+On filesystems such as ExFAT, macOS may create `._*` AppleDouble sidecars next
+to files written by the pipeline. These filesystem metadata files are not
+scientific artifacts, must not enter the artifact index or fingerprint, and
+must be ignored when checking the exact required artifact set. Every named
+pipeline artifact remains required and hash-verified.
+
 ## Acceptance Criteria
 
 - The CLI rejects all removed scientific and output path flags.
