@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vta_model.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile_type", "fem", "outputs"],
+  "properties": {
+    "schema_version": {
+      "const": "vta_model_v1"
+    },
+    "profile_type": {
+      "const": "vta_model"
+    },
+    "fem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conductivity_s_per_m", "atlas_set"],
+      "properties": {
+        "conductivity_s_per_m": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["gray_matter", "white_matter"],
+          "properties": {
+            "gray_matter": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "white_matter": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "atlas_set": {
+          "const": "Custom_Ewert_Zhang_Middlebrooks"
+        }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spaces", "binary_vta"],
+      "properties": {
+        "spaces": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "native"
+            },
+            {
+              "const": "MNI152NLin2009bAsym"
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "binary_vta": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "primary_threshold_v_per_mm",
+            "sensitivity_thresholds_v_per_mm"
+          ],
+          "properties": {
+            "primary_threshold_v_per_mm": {
+              "const": 0.2
+            },
+            "sensitivity_thresholds_v_per_mm": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "const": 0.18
+                },
+                {
+                  "const": 0.22
+                }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        }
+      }
+    }
+  }
+}

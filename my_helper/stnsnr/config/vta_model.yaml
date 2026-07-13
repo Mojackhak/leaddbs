@@ -1,0 +1,18 @@
+schema_version: vta_model_v1
+profile_type: vta_model
+
+fem:
+  conductivity_s_per_m:
+    gray_matter: 0.33
+    white_matter: 0.14
+  atlas_set: Custom_Ewert_Zhang_Middlebrooks
+
+outputs:
+  spaces:
+    - native
+    - MNI152NLin2009bAsym
+  binary_vta:
+    primary_threshold_v_per_mm: 0.20
+    sensitivity_thresholds_v_per_mm:
+      - 0.18
+      - 0.22
