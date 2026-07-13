@@ -10,14 +10,21 @@ from typing import Iterable
 
 from .config import VtaModelConfig, load_vta_model
 from .errors import RuntimeInputError
-from .paths import leaf_directory
+from .artifacts import (
+    atomic_copy_missing,
+    expected_artifacts,
+    leaf_status,
+    missing_artifacts,
+    move_leaf_to_trash,
+)
 from .matlab_bridge import MatlabBridge, TaskRunContext
-from .planner import Selection, SubjectPlan, VtaTask, build_plan
-from .provenance import (
-    LeafStore,
-    ProvenanceContext,
-    compute_input_hash,
-    read_leaf_status,
+from .paths import leaf_directory
+from .planner import (
+    Selection,
+    SubjectPlan,
+    VtaTask,
+    build_plan,
+    equivalent_task_key,
 )
 from .records import StudyBase
 from .study_base import load_study_base
@@ -39,15 +46,17 @@ class PreparedPlan:
 
 @dataclass(frozen=True)
 class RunSummary:
-    completed: int = 0
-    reused: int = 0
+    generated: int = 0
+    copied: int = 0
+    skipped_existing: int = 0
     failed: int = 0
     skipped_dependency: int = 0
 
     def __add__(self, other: "RunSummary") -> "RunSummary":
         return RunSummary(
-            completed=self.completed + other.completed,
-            reused=self.reused + other.reused,
+            generated=self.generated + other.generated,
+            copied=self.copied + other.copied,
+            skipped_existing=self.skipped_existing + other.skipped_existing,
             failed=self.failed + other.failed,
             skipped_dependency=(
                 self.skipped_dependency + other.skipped_dependency
@@ -63,17 +72,9 @@ class RunService:
         bridge: MatlabBridge,
         *,
         run_id: str,
-        study_base_sha256: str,
-        vta_model_sha256: str,
-        implementation_sha256: str,
-        code_commit: str | None,
     ) -> None:
         self.bridge = bridge
         self.run_id = run_id
-        self.study_base_sha256 = study_base_sha256
-        self.vta_model_sha256 = vta_model_sha256
-        self.implementation_sha256 = implementation_sha256
-        self.code_commit = code_commit
 
     def run(
         self,
@@ -85,12 +86,13 @@ class RunService:
     ) -> RunSummary:
         if workers <= 0:
             raise ValueError("workers must be positive")
+        if resume and force:
+            raise ValueError("resume and force are mutually exclusive")
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [
                 executor.submit(
                     self._run_subject,
                     subject,
-                    resume=resume,
                     force=force,
                 )
                 for subject in subjects
@@ -104,79 +106,106 @@ class RunService:
         self,
         subject: SubjectPlan,
         *,
-        resume: bool,
         force: bool,
     ) -> RunSummary:
         summary = RunSummary()
-        for index, task in enumerate(subject.tasks):
+        blocked: set[str] = set()
+        if force:
+            self._trash_selected_leaves(subject)
+        for task in subject.tasks:
+            if any(dependency in blocked for dependency in task.dependencies):
+                blocked.add(task.task_id)
+                summary += RunSummary(skipped_dependency=1)
+                continue
             try:
-                result = self._run_task(task, resume=resume, force=force)
+                result = self._run_task(task, subject)
             except Exception:
-                return summary + RunSummary(
-                    failed=1,
-                    skipped_dependency=len(subject.tasks) - index - 1,
-                )
-            if result == "reuse":
-                summary += RunSummary(reused=1)
-            else:
-                summary += RunSummary(completed=1)
+                blocked.add(task.task_id)
+                summary += RunSummary(failed=1)
+                continue
+            summary += RunSummary(**{result: 1})
         return summary
 
     def _run_task(
         self,
         task: VtaTask,
-        *,
-        resume: bool,
-        force: bool,
+        subject: SubjectPlan,
     ) -> str:
-        input_hash = compute_input_hash(
-            task.to_payload(),
-            study_base_sha256=self.study_base_sha256,
-            vta_model_sha256=self.vta_model_sha256,
-            implementation_sha256=self.implementation_sha256,
-            code_commit=self.code_commit,
-        )
-        provenance = ProvenanceContext(
-            run_id=self.run_id,
-            input_hash=input_hash,
-            study_base_sha256=self.study_base_sha256,
-            vta_model_sha256=self.vta_model_sha256,
-            code_commit=self.code_commit,
-        )
         leaves = {
             space: leaf_directory(task, space) for space in task.model.spaces
         }
-        stores = {space: LeafStore(path) for space, path in leaves.items()}
-        preparation = {
-            space: store.prepare(provenance, force=force, resume=resume)
-            for space, store in stores.items()
+        if all(
+            leaf_status(leaf, task.model.thresholds_v_per_m).value == "complete"
+            for leaf in leaves.values()
+        ):
+            return "skipped_existing"
+        copied = self._copy_from_equivalent_groups(task, subject, leaves)
+        missing = {
+            space: tuple(
+                path.name
+                for path in missing_artifacts(
+                    leaf,
+                    task.model.thresholds_v_per_m,
+                )
+            )
+            for space, leaf in leaves.items()
         }
-        if all(value == "reuse" for value in preparation.values()):
-            return "reuse"
+        missing = {space: names for space, names in missing.items() if names}
+        if not missing:
+            return "copied" if copied else "skipped_existing"
         context = TaskRunContext(
             run_id=self.run_id,
-            input_hash=input_hash,
-            study_base_sha256=self.study_base_sha256,
-            vta_model_sha256=self.vta_model_sha256,
-            implementation_sha256=self.implementation_sha256,
-            code_commit=self.code_commit,
-            resume=resume,
-            force=force,
             output_leaves=leaves,
+            missing_artifacts=missing,
         )
-        run_spaces = [
-            space for space, value in preparation.items() if value == "run"
-        ]
-        try:
-            self.bridge.run_task(task, context)
-            for space in run_spaces:
-                _validate_leaf_artifacts(task, leaves[space])
-                stores[space].complete(provenance, leaves[space] / "efield.nii.gz")
-        except Exception:
-            for space in run_spaces:
-                stores[space].fail(provenance)
-            raise
-        return "completed"
+        self.bridge.run_task(task, context)
+        for leaf in leaves.values():
+            _validate_leaf_artifacts(task, leaf)
+        return "generated"
+
+    def _copy_from_equivalent_groups(
+        self,
+        task: VtaTask,
+        subject: SubjectPlan,
+        leaves: dict[str, Path],
+    ) -> bool:
+        copied = False
+        candidates = subject.reuse_candidates or subject.tasks
+        task_key = equivalent_task_key(task)
+        donors = tuple(
+            candidate
+            for candidate in candidates
+            if candidate.subject_id == task.subject_id
+            and candidate.task_id != task.task_id
+            and equivalent_task_key(candidate) == task_key
+        )
+        for space, leaf in leaves.items():
+            for destination in expected_artifacts(
+                leaf, task.model.thresholds_v_per_m
+            ):
+                if destination.is_file():
+                    continue
+                for donor in donors:
+                    source = leaf_directory(donor, space) / destination.name
+                    if not source.is_file():
+                        continue
+                    copied = (
+                        atomic_copy_missing(source, destination) == "copied"
+                        or copied
+                    )
+                    break
+        return copied
+
+    @staticmethod
+    def _trash_selected_leaves(subject: SubjectPlan) -> None:
+        leaves = {
+            leaf_directory(task, space)
+            for task in subject.tasks
+            for space in task.model.spaces
+        }
+        for leaf in sorted(leaves, key=str):
+            if leaf.exists():
+                move_leaf_to_trash(leaf)
 
 
 def prepare_plan(
@@ -242,7 +271,9 @@ def status_lines(prepared: PreparedPlan) -> Iterable[str]:
                 row = {
                     "leaf": str(leaf),
                     "space": space,
-                    "status": read_leaf_status(leaf).value,
+                    "status": leaf_status(
+                        leaf, task.model.thresholds_v_per_m
+                    ).value,
                     "subject_id": subject.subject_id,
                     "task_id": task.task_id,
                 }
@@ -261,10 +292,7 @@ def _require_subject_file(subject_dir: Path, pattern: str, label: str) -> Path:
 
 
 def _validate_leaf_artifacts(task: VtaTask, leaf: Path) -> None:
-    required = [leaf / "efield.nii.gz"]
-    for threshold in task.model.thresholds_v_per_m:
-        token = f"{threshold / 1000:.2f}".replace(".", "p")
-        required.append(leaf / f"vta_threshold-{token}Vpermm.nii.gz")
+    required = expected_artifacts(leaf, task.model.thresholds_v_per_m)
     missing = [path for path in required if not path.is_file()]
     if missing:
         raise RuntimeInputError(f"MATLAB did not create artifact: {missing[0]}")

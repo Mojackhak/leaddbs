@@ -39,10 +39,28 @@ The goal begins in this state:
 
 ```text
 design_approved
-implementation_not_started
+path_only_runtime_implemented
+python_and_matlab_unit_validated
+representative_path_and_frequency_group_reuse_validated
+fresh_continuous_and_current_fem_acceptance_pending
 production_headmodels_absent
 production_vta_outputs_absent
 ```
+
+The current implementation scan of the example study base resolves 208 tasks
+into 113 unique same-subject physical task records and 95 reusable tasks. These
+counts are validation observations for that input file, not constants in the
+planner. The generic implementation contains no branch keyed by those counts,
+SNr003, or any T1/T2/T3 label.
+
+The narrowed copied-subject run reused two existing continuous leaves, generated
+two alternating source tasks plus one group-peak task, copied the physically
+equivalent later group without MATLAB, and then skipped every completed path on
+ordinary and `--resume` reruns. All 12 resulting E-fields were nonblank with
+finite support and all 36 threshold outputs were binary across the two
+equivalent phase paths. This is partial acceptance: a fresh continuous solve
+and the separate current-control numerical comparison remain pending and are
+not implied by the path/reuse result.
 
 Progress is reported against these ordered milestones:
 

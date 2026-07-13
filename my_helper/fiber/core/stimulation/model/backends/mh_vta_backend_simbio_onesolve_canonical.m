@@ -1,37 +1,51 @@
 function status = mh_vta_backend_simbio_onesolve_canonical(task)
 % Execute one canonical voltage- or current-controlled SimBio solve.
 
-[options, S, sideIndex, anchorPath, mniReference] = build_context(task);
-contract = headmodel_contract(task, anchorPath);
-stimLabel = ['canonical-', task.task_id(1:12)];
-[headmodelPath, headmodelState] = prepare_headmodel( ...
-    task, S, sideIndex, options, stimLabel, contract);
-
-hm = load(headmodelPath, ...
-    'vol', 'mesh', 'centroids', 'wmboundary', 'elfv', 'meshregions');
-activeidx = ea_getactiveidx(S, sideIndex, hm.centroids, hm.mesh, ...
-    hm.elfv, options.elspec, hm.meshregions);
-controlMode = lower(char(string(task.sources(1).control_mode)));
-boundary = mh_vta_assemble_onesolve_boundary( ...
-    task.sources, activeidx, controlMode);
-potential = mh_vta_fem_apply_dbs( ...
-    hm.vol, boundary.node_indices, boundary.values_and_groups, ...
-    boundary.unipolar, boundary.constvol, hm.wmboundary);
-gradient = mh_vta_fem_calc_gradient(hm.vol, potential);
-gradient = fill_electrode_tetrahedra(hm.mesh, gradient, ...
-    boundary.node_indices);
-fieldValues = sqrt(sum(double(gradient).^2, 2));
-meshPointsMm = tetrahedron_midpoints_mm(hm.mesh);
-
 nativeLeaf = char(string(task.output_leaves.native));
 mniLeaf = char(string(task.output_leaves.MNI152NLin2009bAsym));
 nativeEfield = fullfile(nativeLeaf, 'efield.nii.gz');
 mniEfield = fullfile(mniLeaf, 'efield.nii.gz');
-mh_vta_export_common_grid(meshPointsMm, fieldValues, anchorPath, nativeEfield);
-write_thresholds(nativeEfield, nativeLeaf, task.model.thresholds_v_per_m);
-mh_vta_transform_efield_to_mni( ...
-    nativeEfield, options, mniReference, mniEfield);
-write_thresholds(mniEfield, mniLeaf, task.model.thresholds_v_per_m);
+actions = mh_vta_resolve_output_actions(task);
+headmodelState = 'not_required';
+
+if actions.solve_native_efield
+    [options, S, sideIndex, anchorPath] = build_context(task);
+    stimLabel = ['canonical-', task.task_id(1:12)];
+    [headmodelPath, headmodelState] = mh_vta_prepare_canonical_headmodel( ...
+        S, sideIndex, options, stimLabel);
+    hm = load(headmodelPath, ...
+        'vol', 'mesh', 'centroids', 'wmboundary', 'elfv', 'meshregions');
+    activeidx = ea_getactiveidx(S, sideIndex, hm.centroids, hm.mesh, ...
+        hm.elfv, options.elspec, hm.meshregions);
+    controlMode = lower(char(string(task.sources(1).control_mode)));
+    boundary = mh_vta_assemble_onesolve_boundary( ...
+        task.sources, activeidx, controlMode);
+    potential = mh_vta_fem_apply_dbs( ...
+        hm.vol, boundary.node_indices, boundary.values_and_groups, ...
+        boundary.unipolar, boundary.constvol, hm.wmboundary);
+    gradient = mh_vta_fem_calc_gradient(hm.vol, potential);
+    gradient = fill_electrode_tetrahedra(hm.mesh, gradient, ...
+        boundary.node_indices);
+    fieldValues = sqrt(sum(double(gradient).^2, 2));
+    meshPointsMm = tetrahedron_midpoints_mm(hm.mesh);
+    mh_vta_publish_atomic(nativeEfield, @(temporaryPath) ...
+        mh_vta_export_common_grid(meshPointsMm, fieldValues, ...
+            anchorPath, temporaryPath));
+end
+
+write_requested_thresholds(nativeEfield, nativeLeaf, ...
+    task.model.thresholds_v_per_m, actions.native_threshold_names);
+
+if actions.transform_mni_efield
+    require_file(nativeEfield, 'native E-field');
+    [transformOptions, mniReference] = transform_context(task);
+    mh_vta_publish_atomic(mniEfield, @(temporaryPath) ...
+        mh_vta_transform_efield_to_mni(nativeEfield, transformOptions, ...
+            mniReference, temporaryPath));
+end
+
+write_requested_thresholds(mniEfield, mniLeaf, ...
+    task.model.thresholds_v_per_m, actions.mni_threshold_names);
 
 status = struct( ...
     'task_id', task.task_id, ...
@@ -41,40 +55,7 @@ status = struct( ...
     'mni_efield', mniEfield);
 end
 
-function [path, state] = prepare_headmodel( ...
-        task, S, sideIndex, options, stimLabel, contract)
-try
-    [path, state] = mh_vta_prepare_canonical_headmodel( ...
-        S, sideIndex, options, stimLabel, contract);
-catch ME
-    if ~strcmp(ME.identifier, ...
-            'mh_vta_prepare_canonical_headmodel:IncompatibleHeadmodel') || ...
-            ~logical(task.force)
-        rethrow(ME);
-    end
-    path = canonical_headmodel_path(options, sideIndex);
-    protocolPath = canonical_protocol_path(options, sideIndex);
-    mh_vta_move_path_to_trash(path);
-    mh_vta_move_path_to_trash(protocolPath);
-    [path, state] = mh_vta_prepare_canonical_headmodel( ...
-        S, sideIndex, options, stimLabel, contract);
-    state = ['force_', state];
-end
-end
-
-function path = canonical_headmodel_path(options, sideIndex)
-subjectId = regexprep(char(string(options.subj.subjId)), '^sub-', '');
-path = fullfile(options.subj.subjDir, 'headmodel', 'native', ...
-    sprintf('sub-%s_desc-headmodel%d.mat', subjectId, sideIndex));
-end
-
-function path = canonical_protocol_path(options, sideIndex)
-subjectId = regexprep(char(string(options.subj.subjId)), '^sub-', '');
-path = fullfile(options.subj.subjDir, 'headmodel', 'native', ...
-    sprintf('sub-%s_desc-hmprotocol%d.mat', subjectId, sideIndex));
-end
-
-function [options, S, sideIndex, anchorPath, mniReference] = build_context(task)
+function [options, S, sideIndex, anchorPath] = build_context(task)
 subjectDir = char(string(task.subject_dir));
 options = ea_getptopts(subjectDir, struct());
 options.root = [fileparts(subjectDir), filesep];
@@ -105,6 +86,11 @@ end
 verify_reconstruction_model(task, sideIndex);
 S = geometry_stimulation(task, options, sideIndex);
 anchorPath = options.subj.preopAnat.(options.subj.AnchorModality).coreg;
+end
+
+function [options, mniReference] = transform_context(task)
+options = ea_getptopts(char(string(task.subject_dir)), struct());
+options.subj.recon.recon = char(string(task.reconstruction_path));
 mniReference = fullfile(ea_space(options), 't1.nii');
 end
 
@@ -154,20 +140,6 @@ end
 S = ea_activecontacts(S);
 end
 
-function contract = headmodel_contract(task, anchorPath)
-contract = struct( ...
-    'subject_id', char(string(task.subject_id)), ...
-    'side', char(string(task.hemisphere)), ...
-    'atlas_set', char(string(task.model.atlas_set)), ...
-    'conductivity_s_per_m', struct( ...
-        'gray_matter', double(task.model.gray_matter_s_per_m), ...
-        'white_matter', double(task.model.white_matter_s_per_m)), ...
-    'reconstruction_sha256', mh_fiber_file_sha256( ...
-        char(string(task.reconstruction_path))), ...
-    'anchor_sha256', mh_fiber_file_sha256(anchorPath), ...
-    'implementation_sha256', char(string(task.implementation_sha256)));
-end
-
 function points = tetrahedron_midpoints_mm(mesh)
 points = mean(cat(3, ...
     mesh.pnt(mesh.tet(:, 1), :), ...
@@ -195,12 +167,27 @@ gradient(electrodeTetrahedra, :) = 0;
 gradient(electrodeTetrahedra, 1) = replacementMagnitude;
 end
 
-function write_thresholds(efieldPath, leaf, thresholds)
+function write_requested_thresholds(efieldPath, leaf, thresholds, requestedNames)
+if isempty(requestedNames)
+    return;
+end
+require_file(efieldPath, 'threshold source E-field');
 for threshold = double(thresholds(:)')
     token = strrep(sprintf('%.2f', threshold / 1000), '.', 'p');
-    output = fullfile(leaf, sprintf( ...
-        'vta_threshold-%sVpermm.nii.gz', token));
-    mh_vta_threshold_efield(efieldPath, threshold, output);
+    name = "vta_threshold-" + token + "Vpermm.nii.gz";
+    if ~any(requestedNames == name)
+        continue;
+    end
+    output = fullfile(leaf, char(name));
+    mh_vta_publish_atomic(output, @(temporaryPath) ...
+        mh_vta_threshold_efield(efieldPath, threshold, temporaryPath));
+end
+end
+
+function require_file(path, label)
+if ~isfile(path)
+    error('mh_vta:MissingCanonicalDependency', ...
+        'Missing %s: %s', label, path);
 end
 end
 

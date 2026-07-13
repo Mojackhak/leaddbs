@@ -15,14 +15,8 @@ from .planner import VtaTask
 @dataclass(frozen=True)
 class TaskRunContext:
     run_id: str
-    input_hash: str
-    study_base_sha256: str
-    vta_model_sha256: str
-    implementation_sha256: str
-    code_commit: str | None
-    resume: bool
-    force: bool
     output_leaves: Mapping[str, Path]
+    missing_artifacts: Mapping[str, tuple[str, ...]]
 
 
 class MatlabBridge:
@@ -43,15 +37,12 @@ class MatlabBridge:
         payload = {
             **task.to_payload(),
             "run_id": context.run_id,
-            "input_hash": context.input_hash,
-            "study_base_sha256": context.study_base_sha256,
-            "vta_model_sha256": context.vta_model_sha256,
-            "implementation_sha256": context.implementation_sha256,
-            "code_commit": context.code_commit,
-            "resume": context.resume,
-            "force": context.force,
             "output_leaves": {
                 space: str(path) for space, path in context.output_leaves.items()
+            },
+            "missing_artifacts": {
+                space: list(names)
+                for space, names in context.missing_artifacts.items()
             },
         }
         with tempfile.TemporaryDirectory(prefix="vta-model-") as directory:

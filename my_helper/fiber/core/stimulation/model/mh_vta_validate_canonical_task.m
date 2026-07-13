@@ -10,9 +10,7 @@ requiredFields = { ...
     'reconstruction_path', 'phase_id', 'program_id', 'electrode_id', ...
     'hemisphere', 'electrode_model', 'reconstruction_lead_id', ...
     'frequency_group_id', 'delivery_mode', 'sources', 'dependencies', ...
-    'model', 'run_id', 'input_hash', 'study_base_sha256', ...
-    'vta_model_sha256', 'implementation_sha256', 'code_commit', ...
-    'resume', 'force', 'output_leaves'};
+    'model', 'run_id', 'output_leaves', 'missing_artifacts'};
 require_fields(task, requiredFields, 'task');
 if isfield(task, 'backend')
     invalid_task('Canonical tasks must not select a backend.');
@@ -21,8 +19,7 @@ end
 textFields = { ...
     'task_id', 'subject_id', 'subject_dir', 'reconstruction_path', ...
     'phase_id', 'electrode_id', 'electrode_model', 'frequency_group_id', ...
-    'run_id', 'input_hash', 'study_base_sha256', 'vta_model_sha256', ...
-    'implementation_sha256'};
+    'run_id'};
 for fieldIndex = 1:numel(textFields)
     require_nonempty_text(task.(textFields{fieldIndex}), textFields{fieldIndex});
 end
@@ -75,20 +72,14 @@ switch kind
 end
 
 function validate_runtime_context(task)
-if ~isempty(task.code_commit)
-    require_nonempty_text(task.code_commit, 'code_commit');
-end
-if ~islogical(task.resume) || ~isscalar(task.resume) || ...
-        ~islogical(task.force) || ~isscalar(task.force)
-    invalid_task('resume and force must be scalar logical values.');
-end
-if task.resume && task.force
-    invalid_task('resume and force are mutually exclusive.');
-end
 if ~isstruct(task.output_leaves) || ~isscalar(task.output_leaves)
     invalid_task('output_leaves must be a scalar struct.');
 end
+if ~isstruct(task.missing_artifacts) || ~isscalar(task.missing_artifacts)
+    invalid_task('missing_artifacts must be a scalar struct.');
+end
 spaces = cellstr(string(task.model.spaces));
+requestedCount = 0;
 for spaceIndex = 1:numel(spaces)
     space = spaces{spaceIndex};
     if ~isfield(task.output_leaves, space)
@@ -96,7 +87,36 @@ for spaceIndex = 1:numel(spaces)
     end
     require_nonempty_text(task.output_leaves.(space), ...
         sprintf('output_leaves.%s', space));
+    if ~isfield(task.missing_artifacts, space)
+        continue;
+    end
+    names = string(task.missing_artifacts.(space));
+    names = names(:);
+    if isempty(names) || any(ismissing(names)) || any(strlength(names) == 0)
+        invalid_task('missing_artifacts.%s must contain file names.', space);
+    end
+    allowed = expected_artifact_names(task.model.thresholds_v_per_m);
+    if any(~ismember(names, allowed)) || numel(unique(names)) ~= numel(names)
+        invalid_task('missing_artifacts.%s contains an invalid file name.', space);
+    end
+    requestedCount = requestedCount + numel(names);
 end
+unknownSpaces = setdiff(fieldnames(task.missing_artifacts), spaces);
+if ~isempty(unknownSpaces)
+    invalid_task('missing_artifacts contains unsupported space %s.', ...
+        unknownSpaces{1});
+end
+if requestedCount == 0
+    invalid_task('missing_artifacts must request at least one artifact.');
+end
+end
+end
+
+function names = expected_artifact_names(thresholds)
+names = "efield.nii.gz";
+for threshold = double(thresholds(:)')
+    token = strrep(sprintf('%.2f', threshold / 1000), '.', 'p');
+    names(end + 1) = "vta_threshold-" + token + "Vpermm.nii.gz"; %#ok<AGROW>
 end
 end
 

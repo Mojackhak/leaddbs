@@ -46,6 +46,7 @@ class VtaTask:
     frequency_group_id: str
     delivery_mode: Literal["continuous", "alternating"]
     sources: tuple[SourceRecord, ...]
+    group_sources: tuple[SourceRecord, ...]
     dependencies: tuple[str, ...]
     model: VtaModelConfig
 
@@ -76,6 +77,7 @@ class SubjectPlan:
     subject_dir: Path
     headmodel_sides: tuple[Literal["L", "R"], ...]
     tasks: tuple[VtaTask, ...]
+    reuse_candidates: tuple[VtaTask, ...] = ()
 
 
 def build_plan(
@@ -89,6 +91,7 @@ def build_plan(
     _validate_selectors(selected_subjects, selection)
     plans: list[SubjectPlan] = []
     for subject in selected_subjects:
+        reuse_candidates = tuple(_subject_tasks(subject, model, Selection()))
         tasks = _subject_tasks(subject, model, selection)
         if not tasks:
             continue
@@ -99,6 +102,7 @@ def build_plan(
                 subject_dir=subject.subject_dir,
                 headmodel_sides=sides,
                 tasks=tuple(tasks),
+                reuse_candidates=reuse_candidates,
             )
         )
     if not plans:
@@ -193,6 +197,9 @@ def _subject_tasks(
                     "program": program,
                     "electrode": electrode,
                     "group_id": group.frequency_group_id,
+                    "group_sources": tuple(
+                        sorted(group.sources, key=lambda item: item.source_id)
+                    ),
                     "model": model,
                 }
                 if group.delivery_mode == "continuous":
@@ -240,6 +247,7 @@ def _make_task(
     program,
     electrode,
     group_id: str,
+    group_sources: tuple[SourceRecord, ...],
     delivery_mode: Literal["continuous", "alternating"],
     sources: tuple[SourceRecord, ...],
     dependencies: tuple[str, ...],
@@ -259,10 +267,13 @@ def _make_task(
         "frequency_group_id": group_id,
         "delivery_mode": delivery_mode,
         "sources": sources,
+        "group_sources": group_sources,
         "dependencies": dependencies,
         "model": model,
     }
-    payload = _task_payload_without_id(**values)
+    payload = _task_payload_without_id(
+        **{key: value for key, value in values.items() if key != "group_sources"}
+    )
     task_id = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -328,3 +339,49 @@ def _source_payload(source: SourceRecord) -> dict[str, object]:
             for contact in source.contacts
         ],
     }
+
+
+def normalized_frequency_group(task: VtaTask) -> tuple[object, ...]:
+    """Return the project-identifier-free physical record for one group."""
+
+    return (
+        task.hemisphere,
+        task.electrode_model,
+        task.reconstruction_lead_id,
+        task.delivery_mode,
+        tuple(sorted(_normalized_source(source) for source in task.group_sources)),
+        task.model.gray_matter_s_per_m,
+        task.model.white_matter_s_per_m,
+        task.model.atlas_set,
+        tuple(task.model.spaces),
+        tuple(task.model.thresholds_v_per_m),
+    )
+
+
+def equivalent_task_key(task: VtaTask) -> tuple[object, ...]:
+    """Return the same-subject donor matching key for one task artifact."""
+
+    source_key: tuple[object, ...] | None = None
+    if task.kind is TaskKind.ALTERNATING_SOURCE:
+        source_key = _normalized_source(task.sources[0])
+    return (task.kind.value, normalized_frequency_group(task), source_key)
+
+
+def _normalized_source(source: SourceRecord) -> tuple[object, ...]:
+    contacts = tuple(
+        sorted(
+            (
+                str(contact.contact),
+                contact.polarity,
+                contact.fraction,
+            )
+            for contact in source.contacts
+        )
+    )
+    return (
+        source.frequency_hz,
+        source.control_mode,
+        source.amplitude,
+        source.pulse_width_us,
+        contacts,
+    )

@@ -127,14 +127,11 @@ def test_run_uses_matlab_bridge_and_reports_summary(
             pass
 
         def run_task(self, task, context):
-            for leaf in context.output_leaves.values():
+            for space, names in context.missing_artifacts.items():
+                leaf = context.output_leaves[space]
                 leaf.mkdir(parents=True, exist_ok=True)
-                (leaf / "efield.nii.gz").write_bytes(b"efield")
-                for threshold in task.model.thresholds_v_per_m:
-                    token = f"{threshold / 1000:.2f}".replace(".", "p")
-                    (leaf / f"vta_threshold-{token}Vpermm.nii.gz").write_bytes(
-                        b"vta"
-                    )
+                for name in names:
+                    (leaf / name).write_bytes(b"artifact")
 
     monkeypatch.setattr(cli_module, "MatlabBridge", FakeBridge, raising=False)
 
@@ -142,9 +139,10 @@ def test_run_uses_matlab_bridge_and_reports_summary(
 
     summary = json.loads(capsys.readouterr().out)
     assert summary == {
-        "completed": 4,
+        "copied": 0,
         "failed": 0,
-        "reused": 0,
+        "generated": 4,
+        "skipped_existing": 0,
         "skipped_dependency": 0,
     }
 

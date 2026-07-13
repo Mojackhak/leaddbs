@@ -12,6 +12,8 @@ parser.addParameter('DryRun', executionDefaults.processDryRun, ...
 parser.addParameter('CondaEnv', executionDefaults.condaEnv, ...
     @(x) ischar(x) || isstring(x));
 parser.addParameter('Env', struct(), @isstruct);
+parser.addParameter('SubjectEnvVar', 'VTA_SUBJECT_IDS', ...
+    @(x) ischar(x) || isstring(x));
 parser.parse(varargin{:});
 opts = parser.Results;
 
@@ -37,7 +39,12 @@ for i = 1:workerCount
     innerCmd = mh_vta_matlab_batch_command(opts.MatlabExe, batchExpr, opts.CondaEnv);
 
     envValues = opts.Env;
-    envValues.STNSNR_VTA_SUBJECT_IDS = subjectEnvList;
+    subjectEnvVar = char(string(opts.SubjectEnvVar));
+    if isempty(regexp(subjectEnvVar, '^[A-Za-z_][A-Za-z0-9_]*$', 'once'))
+        error('mh_vta_launch_process_workers:InvalidSubjectEnvVar', ...
+            'SubjectEnvVar must be a valid environment variable name.');
+    end
+    envValues.(subjectEnvVar) = subjectEnvList;
     envPrefix = env_assignments(envValues);
     cmd = sprintf('%s /bin/zsh -lc %s > %s 2>&1 & echo $!', ...
         envPrefix, mh_fiber_shell_quote(innerCmd), mh_fiber_shell_quote(logPath));

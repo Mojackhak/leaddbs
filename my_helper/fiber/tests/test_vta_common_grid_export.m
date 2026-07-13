@@ -80,7 +80,40 @@ verifyEqual(testCase, call.ref, referencePath);
 verifyTrue(testCase, isfile(outputPath));
 end
 
-function testHeadmodelBuildEmbedsContractAndCompatibleModelIsReused(testCase)
+function testAtomicPublisherPreservesExistingFinalFile(testCase)
+testRoot = tempname;
+mkdir(testRoot);
+cleanup = onCleanup(@() rmdir(testRoot, 's'));
+outputPath = fullfile(testRoot, 'efield.nii.gz');
+write_text(outputPath, 'existing');
+producerCalled = false;
+
+published = mh_vta_publish_atomic(outputPath, @producer);
+
+verifyFalse(testCase, published);
+verifyFalse(testCase, producerCalled);
+verifyEqual(testCase, fileread(outputPath), 'existing');
+
+    function producer(path)
+        producerCalled = true;
+        write_text(path, 'replacement');
+    end
+end
+
+function testAtomicPublisherCreatesMissingFinalFile(testCase)
+testRoot = tempname;
+mkdir(testRoot);
+cleanup = onCleanup(@() rmdir(testRoot, 's'));
+outputPath = fullfile(testRoot, 'efield.nii.gz');
+
+published = mh_vta_publish_atomic(outputPath, ...
+    @(path) write_text(path, 'generated'));
+
+verifyTrue(testCase, published);
+verifyEqual(testCase, fileread(outputPath), 'generated');
+end
+
+function testHeadmodelBuildAndExistingStructurallyValidModelIsReused(testCase)
 testRoot = tempname;
 stubDir = fullfile(testRoot, 'stubs');
 subjectDir = fullfile(testRoot, 'sub-SNr003');
@@ -94,22 +127,19 @@ clear mh_vta_run_horn_with_retry;
 rehash;
 
 options = fixture_options(subjectDir);
-contract = fixture_headmodel_contract();
 [headmodelPath, state] = mh_vta_prepare_canonical_headmodel( ...
-    struct(), 1, options, 'fixture-stimulation', contract);
+    struct(), 1, options, 'fixture-stimulation');
 
 verifyEqual(testCase, state, 'built');
 verifyTrue(testCase, isfile(headmodelPath));
-stored = load(headmodelPath, 'mh_vta_headmodel_contract');
-verifyEqual(testCase, stored.mh_vta_headmodel_contract, contract);
 
 [reusedPath, reusedState] = mh_vta_prepare_canonical_headmodel( ...
-    struct(), 1, options, 'fixture-stimulation', contract);
+    struct(), 1, options, 'fixture-stimulation');
 verifyEqual(testCase, reusedPath, headmodelPath);
 verifyEqual(testCase, reusedState, 'reused');
 end
 
-function testHeadmodelContractMismatchIsRejectedWithoutOverwrite(testCase)
+function testUnreadableOrIncompleteHeadmodelIsRejectedWithoutOverwrite(testCase)
 testRoot = tempname;
 subjectDir = fullfile(testRoot, 'sub-SNr003');
 headmodelDir = fullfile(subjectDir, 'headmodel', 'native');
@@ -117,17 +147,14 @@ mkdir(headmodelDir);
 cleanup = onCleanup(@() rmdir(testRoot, 's'));
 
 options = fixture_options(subjectDir);
-contract = fixture_headmodel_contract();
-staleContract = contract;
-staleContract.anchor_sha256 = repmat('f', 1, 64);
-mh_vta_headmodel_contract = staleContract;
 headmodelPath = fullfile(headmodelDir, 'sub-SNr003_desc-headmodel1.mat');
-save(headmodelPath, 'mh_vta_headmodel_contract');
+unrelated = true;
+save(headmodelPath, 'unrelated');
 originalHash = mh_fiber_file_sha256(headmodelPath);
 
 verifyError(testCase, @() mh_vta_prepare_canonical_headmodel( ...
-    struct(), 1, options, 'fixture-stimulation', contract), ...
-    'mh_vta_prepare_canonical_headmodel:IncompatibleHeadmodel');
+    struct(), 1, options, 'fixture-stimulation'), ...
+    'mh_vta_prepare_canonical_headmodel:InvalidExistingHeadmodel');
 verifyEqual(testCase, mh_fiber_file_sha256(headmodelPath), originalHash);
 end
 
@@ -135,17 +162,6 @@ function options = fixture_options(subjectDir)
 options = struct();
 options.native = 1;
 options.subj = struct('subjDir', subjectDir, 'subjId', 'SNr003');
-end
-
-function contract = fixture_headmodel_contract()
-contract = struct( ...
-    'subject_id', 'SNr003', ...
-    'side', 'right', ...
-    'atlas_set', 'Custom_Ewert_Zhang_Middlebrooks', ...
-    'conductivity_s_per_m', struct('gray_matter', 0.33, 'white_matter', 0.14), ...
-    'reconstruction_sha256', repmat('a', 1, 64), ...
-    'anchor_sha256', repmat('b', 1, 64), ...
-    'implementation_sha256', repmat('c', 1, 64));
 end
 
 function write_fixture_nifti(path, image, affine)
@@ -181,7 +197,9 @@ text = ...
     "function diagnostics = mh_vta_run_horn_with_retry(varargin)" + newline + ...
     "expectedPath = varargin{5};" + newline + ...
     "vol = struct('fixture', true);" + newline + ...
-    "save(expectedPath, 'vol', '-v7.3');" + newline + ...
+    "mesh = struct(); centroids = []; wmboundary = [];" + newline + ...
+    "elfv = []; meshregions = [];" + newline + ...
+    "save(expectedPath, 'vol', 'mesh', 'centroids', 'wmboundary', 'elfv', 'meshregions', '-v7.3');" + newline + ...
     "diagnostics = struct('attempt_count', 1);" + newline + ...
     "end" + newline;
 write_text(path, text);

@@ -506,7 +506,7 @@ artifact index or provenance file.
 
 | Scope | Status | Meaning |
 | --- | --- | --- |
-| Canonical YAML, study-base adapter, task DAG, CLI, path-based artifacts, and MATLAB task execution | `migration_in_progress` | The delivery-aware implementation exists, but the approved path-only state machine and representative acceptance are not yet complete. |
+| Canonical YAML, study-base adapter, task DAG, CLI, path-based artifacts, and MATLAB task execution | `path_only_runtime_implemented` | The approved path-only state machine and same-subject frequency-group reuse are implemented; representative acceptance remains pending. |
 | Static and deterministic unit coverage | `unit_validated` | Automated Python and MATLAB unit suites validate their covered contracts. |
 | Historical bilateral SNr003 single-voltage backend comparison | `fem_validated` | Existing numerical evidence covers only the documented single-voltage pilot. |
 | Real-cohort output rebuild | `production_rebuild_not_started` | Production subject trees and model outputs have not been rebuilt by this pipeline. |
@@ -514,9 +514,10 @@ artifact index or provenance file.
 The copied-subject preparation helper is an isolation mechanism, not numerical
 FEM evidence. It preserves the minimal valid BIDS hierarchy by copying the
 dataset description and only the selected `derivatives/leaddbs/sub-*` tree.
-The copied-subject end-to-end gate remains unverified until its separate
-explicit run is completed. No production execution is implied by any status in
-this table.
+The path-state, alternating-source, group-peak, and same-subject reuse portions
+have passed in the copied SNr003 tree. A fresh continuous solve and the separate
+current-control numerical comparison remain unverified. No production
+execution is implied by any status in this table.
 
 ### Schema And Planner
 

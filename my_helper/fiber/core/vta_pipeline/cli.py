@@ -6,16 +6,13 @@ import argparse
 from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
-import subprocess
 import sys
 
 from .errors import VtaPipelineError
 from .matlab_bridge import MatlabBridge
 from .planner import Selection
-from .provenance import file_sha256
 from .service import RunService, plan_lines, prepare_plan, status_lines
 
 
@@ -108,10 +105,6 @@ def _handle_run(args: argparse.Namespace) -> int:
     service = RunService(
         MatlabBridge(repo_root=_REPO_ROOT),
         run_id=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
-        study_base_sha256=file_sha256(args.study_base),
-        vta_model_sha256=file_sha256(args.vta_model),
-        implementation_sha256=_implementation_sha256(),
-        code_commit=_code_commit(),
     )
     summary = service.run(
         prepared.subjects,
@@ -128,34 +121,3 @@ def _positive_int(value: str) -> int:
     if parsed <= 0:
         raise argparse.ArgumentTypeError("workers must be positive")
     return parsed
-
-
-def _implementation_sha256() -> str:
-    digest = hashlib.sha256()
-    paths = sorted(
-        [
-            *(_REPO_ROOT / "my_helper/fiber/core/vta_pipeline").glob("*.py"),
-            *(_REPO_ROOT / "my_helper/fiber/core/stimulation/model").rglob("*.m"),
-        ]
-    )
-    for path in paths:
-        digest.update(str(path.relative_to(_REPO_ROOT)).encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _code_commit() -> str | None:
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=_REPO_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    commit = result.stdout.strip()
-    return commit or None
