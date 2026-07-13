@@ -11,6 +11,8 @@ parser.addParameter('ExportThresholdVPerMm', [], @(x) isempty(x) || (isnumeric(x
 parser.addParameter('GmAtlas', defaults.gmAtlas, @(x) isempty(x) || ischar(x) || isstring(x));
 parser.addParameter('UseAtlas', [], @(x) isempty(x) || islogical(x) || isnumeric(x));
 parser.addParameter('RemoveElectrode', [], @(x) isempty(x) || islogical(x) || isnumeric(x));
+parser.addParameter('RngSeedBase', [], @(x) isempty(x) || ...
+    (isnumeric(x) && isscalar(x) && isfinite(x) && x >= 0));
 parser.parse(varargin{:});
 opts = parser.Results;
 
@@ -27,5 +29,6 @@ cfg = mh_fiber_set_stimulation(cfg, stimSpec);
     'ExportThresholdVPerMm', opts.ExportThresholdVPerMm, ...
     'GmAtlas', opts.GmAtlas, ...
     'UseAtlas', opts.UseAtlas, ...
-    'RemoveElectrode', opts.RemoveElectrode);
+    'RemoveElectrode', opts.RemoveElectrode, ...
+    'RngSeedBase', opts.RngSeedBase);
 end

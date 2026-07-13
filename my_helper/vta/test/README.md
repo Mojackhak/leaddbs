@@ -18,15 +18,27 @@ The runner:
 1. reads source, electrode, reconstruction, and subject paths from
    `study_base.json`;
 2. copies the selected Lead-DBS subject into a new validation root;
-3. archives any copied head model and builds one fresh shared head model;
-4. runs `simbio` and `simbio_onesolve` twice per hemisphere with fixed RNG
-   seeds and distinct stimulation labels;
+3. archives any copied head model and builds and hashes one fresh shared head
+   model before the measured runs;
+4. runs `simbio` and `simbio_onesolve` twice per hemisphere with the same
+   explicit per-side RNG seed and distinct stimulation labels, recording the
+   actual Horn attempt seed used by every run;
 5. compares native and MNI continuous E-fields;
 6. derives 180, 200, and 220 V/m masks from each continuous E-field; and
 7. fails the MATLAB process when any per-side gate fails.
 
 The source Lead-DBS subject tree is read-only. A validation root is never
-overwritten or automatically deleted.
+automatically deleted. `ReusePreparedRoot=true` is accepted only for an
+incomplete, output-free prepared root; a root containing backend outputs or an
+acceptance summary is rejected to prevent stale-output reuse.
+The official SNr003 pilot always requires a new root and rejects prepared-root
+reuse. Any Horn retry also fails the matched-RNG acceptance gate because it
+changes the actual attempt seed.
+
+The official pilot scope is `SNr003`, `T1`, program `1`, with bilateral
+Medtronic 3387 leads. Parameter overrides are retained for synthetic contract
+tests and future pilots, but such runs are labeled as custom scope and cannot
+be reported as the official SNr003 pilot.
 
 ## Acceptance Limits
 
@@ -39,6 +51,11 @@ For each threshold, binary masks must have Dice at least `0.999`, relative
 volume difference at most `0.001`, and every discordant voxel must be within
 `1e-3 V/m` of the threshold in both input E-fields. Backend repeat runs must be
 voxel-identical.
+
+An equivalence pass also requires each input image to contain finite,
+nonzero E-field signal and at least one suprathreshold voxel at every requested
+threshold. Identical all-NaN, all-zero, or empty-VTA outputs are invalid and
+cannot pass by numerical identity alone.
 
 ## Entry Point
 

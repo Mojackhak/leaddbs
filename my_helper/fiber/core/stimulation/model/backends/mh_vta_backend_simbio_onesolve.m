@@ -6,6 +6,8 @@ vta = mh_fiber_vta_paths(cfg, stimFolders);
 sides = mh_vta_normalize_sides(request);
 force = mh_vta_request_field(request, 'force', mh_vta_config_force(cfg));
 spaces = mh_vta_request_field(request, 'outputSpaces', mh_vta_output_spaces_from_config());
+seedBase = mh_vta_request_field(request, 'rngSeedBase', []);
+vta.rng_diagnostics = struct();
 
 options.native = 1;
 options.orignative = 1;
@@ -18,11 +20,17 @@ for i = 1:numel(sides)
         sideIdx = mh_util_side_to_index(side);
         headmodelPath = headmodel_path(options, sideIdx);
         fprintf('Preparing Lead-DBS headmodel for one-solve VTA, side %s...\n', side);
-        mh_vta_run_horn_with_retry(S, sideIdx, options, cfg.stimLabel, headmodelPath, ...
-            'WarningPrefix', 'mh_vta_backend_simbio_onesolve');
+        diagnostics = mh_vta_run_horn_with_retry( ...
+            S, sideIdx, options, cfg.stimLabel, headmodelPath, ...
+            'WarningPrefix', 'mh_vta_backend_simbio_onesolve', ...
+            'SeedBase', seedBase);
 
         fprintf('Running one-solve multi-voltage VTA, side %s...\n', side);
+        if ~isempty(seedBase)
+            rng(diagnostics.seed_used, 'twister');
+        end
         solve_one_side(cfg, S, options, sideIdx);
+        vta.rng_diagnostics.(side) = diagnostics;
     else
         fprintf('Reusing one-solve VTA/e-field: %s side %s\n', cfg.stimLabel, side);
     end

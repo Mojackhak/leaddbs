@@ -12,6 +12,8 @@ parser.addParameter('ExportThresholdVPerMm', [], @(x) isempty(x) || (isnumeric(x
 parser.addParameter('GmAtlas', defaults.gmAtlas, @(x) isempty(x) || ischar(x) || isstring(x));
 parser.addParameter('UseAtlas', [], @(x) isempty(x) || islogical(x) || isnumeric(x));
 parser.addParameter('RemoveElectrode', [], @(x) isempty(x) || islogical(x) || isnumeric(x));
+parser.addParameter('RngSeedBase', [], @(x) isempty(x) || ...
+    (isnumeric(x) && isscalar(x) && isfinite(x) && x >= 0));
 parser.parse(varargin{:});
 opts = parser.Results;
 
@@ -36,6 +38,9 @@ if ~isempty(opts.UseAtlas)
 end
 if ~isempty(opts.RemoveElectrode)
     request.removeElectrode = logical(opts.RemoveElectrode);
+end
+if ~isempty(opts.RngSeedBase)
+    request.rngSeedBase = double(opts.RngSeedBase);
 end
 
 taskCells = cell(numel(request.sides), 1);

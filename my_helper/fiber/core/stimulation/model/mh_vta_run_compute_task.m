@@ -12,6 +12,10 @@ result.efield_mni = vta.mni.(sideCode).efieldNii;
 result.binary_mni = vta.mni.(sideCode).binaryNii;
 result.efield_native = vta.native.(sideCode).efieldNii;
 result.binary_native = vta.native.(sideCode).binaryNii;
+if isfield(vta, 'rng_diagnostics') && ...
+        isfield(vta.rng_diagnostics, sideCode)
+    result.rng_diagnostics = vta.rng_diagnostics.(sideCode);
+end
 result.completed_at = char(datetime('now', 'TimeZone', 'local', ...
     'Format', 'yyyy-MM-dd HH:mm:ss Z'));
 end
