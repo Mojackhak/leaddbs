@@ -11,3 +11,7 @@ class ConfigError(VtaPipelineError):
 
 class StudyBaseError(VtaPipelineError):
     """Raised when canonical study stimulation records are invalid."""
+
+
+class PlanningError(VtaPipelineError):
+    """Raised when VTA task selection or DAG construction is invalid."""

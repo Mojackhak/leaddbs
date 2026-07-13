@@ -81,3 +81,29 @@ Cathode fractions and anode fractions are normalized independently within each
 source. A continuous group cannot assign the same non-case electrode contact to
 more than one source. The canonical adapter does not impose the legacy
 four-source limit.
+
+## Deterministic Task DAG
+
+Each selected subject has one canonical head-model prerequisite. A continuous
+frequency group creates one joint solve task containing every group source. An
+alternating group creates one solve task per source and one derived group-peak
+task that depends on every source task. Task IDs are SHA-256 hashes of canonical
+VTA-semantic task payloads; ignored study labels cannot change them.
+
+Output directories are derived from canonical identifiers rather than a flat
+stimulation label:
+
+```text
+$LEADDBS_SUBJECT_DIR/stimulations/$SPACE/
+  phase-$PHASE_ID/
+    program-$PROGRAM_ID/
+      electrode-$ELECTRODE_ID/
+        frequency-group-$FREQUENCY_GROUP_ID/
+          delivery-continuous/joint/
+          delivery-alternating/sources/source-$SOURCE_ID/
+          delivery-alternating/derived/group-peak/
+```
+
+Subject, phase, program, electrode, and frequency-group filters are exact. An
+unknown selector or a selection producing no solve tasks is an error rather
+than a successful empty plan.
