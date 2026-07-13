@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from my_helper.fiber.core.vta_pipeline import cli as cli_module
 from my_helper.fiber.core.vta_pipeline.cli import main
 
 
@@ -116,13 +117,36 @@ def test_resume_and_force_are_mutually_exclusive(study_path: Path) -> None:
     assert result == 2
 
 
-def test_run_is_explicitly_unavailable_until_bridge_is_installed(
+def test_run_uses_matlab_bridge_and_reports_summary(
     study_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(common_args("run", study_path)) == 2
+    class FakeBridge:
+        def __init__(self, **kwargs):
+            pass
 
-    assert "execution backend is not installed" in capsys.readouterr().err
+        def run_task(self, task, context):
+            for leaf in context.output_leaves.values():
+                leaf.mkdir(parents=True, exist_ok=True)
+                (leaf / "efield.nii.gz").write_bytes(b"efield")
+                for threshold in task.model.thresholds_v_per_m:
+                    token = f"{threshold / 1000:.2f}".replace(".", "p")
+                    (leaf / f"vta_threshold-{token}Vpermm.nii.gz").write_bytes(
+                        b"vta"
+                    )
+
+    monkeypatch.setattr(cli_module, "MatlabBridge", FakeBridge, raising=False)
+
+    assert main(common_args("run", study_path)) == 0
+
+    summary = json.loads(capsys.readouterr().out)
+    assert summary == {
+        "completed": 4,
+        "failed": 0,
+        "reused": 0,
+        "skipped_dependency": 0,
+    }
 
 
 def test_unknown_selector_returns_nonzero(

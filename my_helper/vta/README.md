@@ -152,3 +152,67 @@ integer and parallelizes subjects only.
 `validate`, `plan`, and `status` are read-only. `plan` emits tasks in stable
 subject/DAG order. `status` reports every planned native and MNI leaf as
 `missing`, `completed`, `failed`, or `stale`.
+
+## MATLAB Task Contract
+
+Python sends one resolved task JSON to `mh_vta_run_canonical_task`. Required
+fields include task/run IDs, task kind, subject and reconstruction paths,
+phase/program/electrode/group IDs, hemisphere, delivery mode, canonical
+sources, conductivities, atlas, output spaces, thresholds, output leaves,
+input hashes, and resume/force state. Backend selection and project labels are
+not part of the task payload.
+
+Continuous groups resolve to one solve unit containing all sources. Alternating
+groups resolve to one solve unit per source. Every production solve uses
+`simbio_onesolve`; an alternating source can still contain multiple active and
+return contacts within its independent solve.
+
+## Voltage And Current Boundary Values
+
+Voltage boundaries use signed volts. Current boundaries convert public mA to A
+using `1e-3`. Cathode values are negative and anode values are positive. Case
+return uses the existing SimBio unipolar/current-return path; electrode-return
+contacts remain explicit boundary groups. Multi-source current is assembled as
+one signed FEM right-hand side, not as a maximum or sum of scalar E-field
+magnitudes.
+
+## Head Model And Output-Space Order
+
+Each hemisphere uses a canonical native head model under:
+
+```text
+$LEADDBS_SUBJECT_DIR/headmodel/native/sub-$SUBJECT_ID_desc-headmodel1.mat  # right
+$LEADDBS_SUBJECT_DIR/headmodel/native/sub-$SUBJECT_ID_desc-headmodel2.mat  # left
+```
+
+The embedded `mh_vta_headmodel_contract` records subject, side, atlas,
+conductivity, reconstruction, native-anchor, and implementation hashes. Missing
+head models are rebuilt. A stale contract is rejected unless replacement was
+explicitly authorized.
+
+The authoritative order is:
+
+1. solve FEM in native space;
+2. sample continuous E-field onto the preoperative anchor NIfTI geometry;
+3. threshold native E-field at 180, 200, and 220 V/m;
+4. transform the continuous native E-field to `MNI152NLin2009bAsym`;
+5. threshold the transformed MNI E-field at the same values.
+
+Binary VTA files are never spatially warped from native to MNI.
+
+For alternating groups, source-level native E-fields remain preserved. The
+derived native field is:
+
+```text
+E_group_peak_native(v) = max_s E_s_native(v)
+```
+
+The native peak is thresholded, transformed once to MNI, and thresholded again
+in MNI. No additional FEM solve is performed for the derived task.
+
+## Execution Policy
+
+Tasks for one subject execute sequentially in DAG order. Different subjects may
+execute concurrently up to `--workers`. A failed subject stops its dependent
+tasks but does not cancel other subjects. The command returns nonzero when any
+selected task fails.

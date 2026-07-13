@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from dataclasses import asdict
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import subprocess
 import sys
 
 from .errors import VtaPipelineError
+from .matlab_bridge import MatlabBridge
 from .planner import Selection
-from .service import plan_lines, prepare_plan, run_unavailable, status_lines
+from .provenance import file_sha256
+from .service import RunService, plan_lines, prepare_plan, status_lines
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -93,9 +104,23 @@ def _handle_status(args: argparse.Namespace) -> int:
 
 
 def _handle_run(args: argparse.Namespace) -> int:
-    _prepared(args)
-    run_unavailable()
-    return 2
+    prepared = _prepared(args)
+    service = RunService(
+        MatlabBridge(repo_root=_REPO_ROOT),
+        run_id=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
+        study_base_sha256=file_sha256(args.study_base),
+        vta_model_sha256=file_sha256(args.vta_model),
+        implementation_sha256=_implementation_sha256(),
+        code_commit=_code_commit(),
+    )
+    summary = service.run(
+        prepared.subjects,
+        workers=args.workers,
+        resume=bool(args.resume),
+        force=bool(args.force),
+    )
+    print(json.dumps(asdict(summary), sort_keys=True))
+    return 1 if summary.failed else 0
 
 
 def _positive_int(value: str) -> int:
@@ -103,3 +128,34 @@ def _positive_int(value: str) -> int:
     if parsed <= 0:
         raise argparse.ArgumentTypeError("workers must be positive")
     return parsed
+
+
+def _implementation_sha256() -> str:
+    digest = hashlib.sha256()
+    paths = sorted(
+        [
+            *(_REPO_ROOT / "my_helper/fiber/core/vta_pipeline").glob("*.py"),
+            *(_REPO_ROOT / "my_helper/fiber/core/stimulation/model").rglob("*.m"),
+        ]
+    )
+    for path in paths:
+        digest.update(str(path.relative_to(_REPO_ROOT)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _code_commit() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=_REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    commit = result.stdout.strip()
+    return commit or None
