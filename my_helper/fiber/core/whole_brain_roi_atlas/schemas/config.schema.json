@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "inputs", "output", "labels", "expected"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_labeling", "source_labels", "reference_image", "connectome"],
+      "properties": {
+        "source_labeling": {"type": "string", "minLength": 1},
+        "source_labels": {"type": "string", "minLength": 1},
+        "reference_image": {"type": "string", "minLength": 1},
+        "connectome": {"type": "string", "minLength": 1}
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["atlas_root"],
+      "properties": {"atlas_root": {"type": "string", "minLength": 1}}
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cortical_limbic", "cerebellar_hemisphere", "cerebellar_midline", "subcortical", "white_matter"],
+      "properties": {
+        "cortical_limbic": {"$ref": "#/$defs/idArray"},
+        "cerebellar_hemisphere": {"$ref": "#/$defs/idArray"},
+        "cerebellar_midline": {"$ref": "#/$defs/idArray"},
+        "subcortical": {"$ref": "#/$defs/idArray"},
+        "white_matter": {"$ref": "#/$defs/idArray"}
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label_count", "fiber_count"],
+      "properties": {
+        "label_count": {"type": "integer", "minimum": 1},
+        "fiber_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"fiber_chunk_size": {"type": "integer", "minimum": 1}}
+    }
+  },
+  "$defs": {
+    "idArray": {
+      "type": "array",
+      "items": {"type": "integer", "minimum": 1},
+      "uniqueItems": true
+    }
+  }
+}
