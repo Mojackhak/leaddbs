@@ -159,8 +159,10 @@ Python sends one resolved task JSON to `mh_vta_run_canonical_task`. Required
 fields include task/run IDs, task kind, subject and reconstruction paths,
 phase/program/electrode/group IDs, hemisphere, delivery mode, canonical
 sources, conductivities, atlas, output spaces, thresholds, output leaves,
-input hashes, and resume/force state. Backend selection and project labels are
-not part of the task payload.
+input hashes, `implementation_sha256`, and resume/force state. The
+implementation hash is the same value used by resume identity and the embedded
+head-model contract. Backend selection and project labels are not part of the
+task payload.
 
 Continuous groups resolve to one solve unit containing all sources. Alternating
 groups resolve to one solve unit per source. Every production solve uses

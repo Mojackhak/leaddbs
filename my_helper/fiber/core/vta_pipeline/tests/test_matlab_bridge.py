@@ -52,6 +52,7 @@ def task_context(task) -> TaskRunContext:
         input_hash="input-hash",
         study_base_sha256="study-hash",
         vta_model_sha256="model-hash",
+        implementation_sha256="implementation-hash",
         code_commit=None,
         resume=False,
         force=False,
@@ -80,6 +81,7 @@ def test_bridge_writes_canonical_json_and_invokes_one_entrypoint(
     assert payload["task_id"] == task.task_id
     assert "backend" not in payload
     assert "component_id" not in json.dumps(payload)
+    assert payload["implementation_sha256"] == "implementation-hash"
     assert "mh_vta_run_canonical_task" in captured["command"][-1]
 
 
