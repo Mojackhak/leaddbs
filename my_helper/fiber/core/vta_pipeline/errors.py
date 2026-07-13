@@ -19,3 +19,11 @@ class PlanningError(VtaPipelineError):
 
 class ArtifactError(VtaPipelineError):
     """Raised when artifact state cannot be changed without data loss."""
+
+
+class RuntimeInputError(VtaPipelineError):
+    """Raised when Lead-DBS runtime inputs are unavailable or ambiguous."""
+
+
+class ExecutionUnavailableError(VtaPipelineError):
+    """Raised while the execution bridge is intentionally disconnected."""

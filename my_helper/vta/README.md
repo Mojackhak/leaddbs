@@ -134,3 +134,21 @@ before creating a new leaf. Failure cleanup also moves partial scientific
 artifacts to Trash and then writes a failed provenance file with
 `efield_sha256: null`. If Trash cannot be used, replacement or cleanup aborts
 without permanently deleting data.
+
+## Command-Line Interface
+
+```text
+vta-model validate --study-base PATH --vta-model PATH (--subject ID ... | --all-subjects) [selectors]
+vta-model plan     --study-base PATH --vta-model PATH (--subject ID ... | --all-subjects) [selectors]
+vta-model run      --study-base PATH --vta-model PATH (--subject ID ... | --all-subjects) [selectors] [--workers N] [--resume | --force]
+vta-model status   --study-base PATH --vta-model PATH (--subject ID ... | --all-subjects) [selectors]
+```
+
+Selectors are repeatable `--phase`, `--program`, `--electrode`, and
+`--frequency-group`. One of repeatable `--subject` or `--all-subjects` is
+required, and the two forms are mutually exclusive. `--workers` is a positive
+integer and parallelizes subjects only.
+
+`validate`, `plan`, and `status` are read-only. `plan` emits tasks in stable
+subject/DAG order. `status` reports every planned native and MNI leaf as
+`missing`, `completed`, `failed`, or `stale`.
