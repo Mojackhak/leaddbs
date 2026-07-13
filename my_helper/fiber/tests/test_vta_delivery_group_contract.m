@@ -4,60 +4,54 @@ repoDir = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
 addpath(genpath(fullfile(repoDir, 'my_helper', 'fiber')));
 addpath(repoDir);
 
-source1 = source_spec('L', 130, 'voltage');
-source2 = source_spec('L', 130, 'voltage');
-source2.amp = 1.5;
+source1 = source_spec('source-1', 130, 'voltage');
+source2 = source_spec('source-2', 130, 'voltage');
+source2.amplitude = 1.5;
 
-continuous = struct( ...
-    'delivery_mode', 'continuous', ...
-    'sources', [source1, source2]);
-oneSolve = mh_vta_model_registry('simbio_onesolve');
-[continuousSpecs, continuousKind] = mh_vta_expand_delivery_group(continuous, oneSolve);
+[continuousSpecs, continuousKind] = mh_vta_expand_delivery_group( ...
+    'continuous', [source1, source2]);
 assert(strcmp(continuousKind, 'joint'));
-assert(numel(continuousSpecs) == 1);
-assert(numel(continuousSpecs.sources) == 2);
+assert(iscell(continuousSpecs));
+assert(isscalar(continuousSpecs));
+assert(numel(continuousSpecs{1}) == 2);
 
-alternating = continuous;
-alternating.delivery_mode = 'alternating';
-simbio = mh_vta_model_registry('simbio');
-[alternatingSpecs, alternatingKind] = mh_vta_expand_delivery_group(alternating, simbio);
+[alternatingSpecs, alternatingKind] = mh_vta_expand_delivery_group( ...
+    'alternating', [source1, source2]);
 assert(strcmp(alternatingKind, 'independent'));
 assert(numel(alternatingSpecs) == 2);
-assert(all(arrayfun(@(value) numel(value.sources) == 1, alternatingSpecs)));
+assert(all(cellfun(@isscalar, alternatingSpecs)));
+assert(strcmp(alternatingSpecs{1}.source_id, 'source-1'));
+assert(strcmp(alternatingSpecs{2}.source_id, 'source-2'));
 
-invalidAlternating = alternating;
-invalidAlternating.sources = source1;
-assert_error(@() mh_vta_expand_delivery_group(invalidAlternating, simbio), ...
-    'mh_vta_expand_delivery_group:InvalidAlternatingGroup');
+singleAlternating = mh_vta_expand_delivery_group('alternating', source1);
+assert(isscalar(singleAlternating));
+assert(strcmp(singleAlternating{1}.source_id, 'source-1'));
 
-mixedFrequency = alternating;
-mixedFrequency.sources(2).frequency = 30;
-assert_error(@() mh_vta_expand_delivery_group(mixedFrequency, simbio), ...
+mixedFrequency = [source1, source2];
+mixedFrequency(2).frequency_hz = 30;
+assert_error(@() mh_vta_expand_delivery_group('alternating', mixedFrequency), ...
     'mh_vta_expand_delivery_group:MixedFrequency');
 
-current1 = source_spec('L', 130, 'current');
-current2 = source_spec('L', 130, 'current');
-continuousCurrent = struct( ...
-    'delivery_mode', 'continuous', ...
-    'sources', [current1, current2]);
-assert_error(@() mh_vta_expand_delivery_group(continuousCurrent, simbio), ...
-    'mh_vta_expand_delivery_group:UnsupportedBackendCapability');
+current1 = source_spec('source-1', 130, 'current');
+current2 = source_spec('source-2', 130, 'current');
+[continuousCurrent, currentKind] = mh_vta_expand_delivery_group( ...
+    'continuous', [current1, current2]);
+assert(strcmp(currentKind, 'joint'));
+assert(numel(continuousCurrent{1}) == 2);
+
+mixedControl = [source1, current2];
+assert_error(@() mh_vta_expand_delivery_group('continuous', mixedControl), ...
+    'mh_vta_expand_delivery_group:MixedControlMode');
 
 fprintf('VTA delivery group contract test passed.\n');
 
-function source = source_spec(side, frequency, controlMode)
-if strcmp(controlMode, 'voltage')
-    unit = 'V';
-else
-    unit = 'mA';
-end
+function source = source_spec(sourceId, frequency, controlMode)
 source = struct( ...
-    'side', side, ...
-    'amp', 2.0, ...
-    'unit', unit, ...
-    'pulseWidth', 60, ...
-    'frequency', frequency, ...
-    'controlMode', controlMode, ...
+    'source_id', sourceId, ...
+    'amplitude', 2.0, ...
+    'pulse_width_us', 60, ...
+    'frequency_hz', frequency, ...
+    'control_mode', controlMode, ...
     'contacts', [ ...
         struct('contact', 1, 'polarity', 'cathode', 'fraction', 1.0), ...
         struct('contact', 'case', 'polarity', 'anode', 'fraction', 1.0)]);
