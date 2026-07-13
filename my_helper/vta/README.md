@@ -46,3 +46,38 @@ Continuous frequency-group sources are solved jointly. Alternating sources are
 solved independently, and their group-level peak E-field is derived using a
 voxelwise maximum. The pipeline does not infer duty cycle or generate a
 time-weighted E-field.
+
+## Study-Base Input Boundary
+
+The VTA adapter reads only the stimulation and Lead-DBS location fields below:
+
+```text
+schema_version
+study.subjects[].subject_id
+study.subjects[].subject_label
+study.subjects[].subject_sources.leaddbs_subject_dir
+study.subjects[].subject_sources.electrode_reconstruction.path
+study.subjects[].contact_numbering
+study.subjects[].electrodes
+study.subjects[].phases[].phase_id
+study.subjects[].phases[].programs[].program_id
+study.subjects[].phases[].programs[].electrode_programs[]
+study.subjects[].phases[].programs[].electrode_programs[].frequency_groups[]
+study.subjects[].phases[].programs[].electrode_programs[].frequency_groups[].sources[]
+```
+
+Source execution uses `frequency_hz`, `control_mode`, `amplitude`,
+`pulse_width_us`, contacts, polarity, and fractions. The adapter ignores
+`component_id`, `source_label`, Target, clinical observations, condition roles,
+HF/ULF labels, and endpoint definitions.
+
+The current study-base contact convention is bilateral contiguous zero-based.
+The adapter validates each global contact against its electrode range and
+converts it to a side-local one-based contact before creating MATLAB tasks.
+`case` remains `case`.
+
+Each frequency group must contain at least one source and use one control mode.
+Cathode fractions and anode fractions are normalized independently within each
+source. A continuous group cannot assign the same non-case electrode contact to
+more than one source. The canonical adapter does not impose the legacy
+four-source limit.

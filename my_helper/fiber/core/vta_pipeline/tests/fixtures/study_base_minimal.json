@@ -1,0 +1,139 @@
+{
+  "schema_version": "dual_frequency_study_v1",
+  "study": {
+    "study_id": "fixture",
+    "subjects": [
+      {
+        "subject_id": "SNr003",
+        "subject_label": "Fixture Subject",
+        "subject_sources": {
+          "leaddbs_subject_dir": "subject",
+          "electrode_reconstruction": {
+            "path": "subject/reconstruction/sub-SNr003_desc-reconstruction.mat"
+          }
+        },
+        "contact_numbering": {
+          "convention": "bilateral_contiguous_zero_based",
+          "electrode_order": ["lead-L", "lead-R"]
+        },
+        "electrodes": [
+          {
+            "electrode_id": "lead-L",
+            "hemisphere": "L",
+            "electrode_model": "Medtronic 3387",
+            "contact_count": 4,
+            "reconstruction_lead_id": 2
+          },
+          {
+            "electrode_id": "lead-R",
+            "hemisphere": "R",
+            "electrode_model": "Medtronic 3387",
+            "contact_count": 4,
+            "reconstruction_lead_id": 1
+          }
+        ],
+        "phases": [
+          {
+            "phase_id": "T1",
+            "phase_label": "Reference",
+            "programs": [
+              {
+                "program_id": 1,
+                "program_label": "Reference program",
+                "condition_role": "reference_only",
+                "stimulation_state": "active",
+                "electrode_programs": [
+                  {
+                    "electrode_id": "lead-L",
+                    "frequency_groups": [
+                      {
+                        "frequency_group_id": "group-1",
+                        "delivery_mode": "continuous",
+                        "sources": [
+                          {
+                            "source_id": "source-1",
+                            "source_label": "STN",
+                            "component_id": "target_stn",
+                            "frequency_hz": 130.0,
+                            "control_mode": "voltage",
+                            "amplitude": 2.5,
+                            "pulse_width_us": 60.0,
+                            "contacts": [
+                              {
+                                "contact": 0,
+                                "polarity": "cathode",
+                                "fraction": 1.0
+                              },
+                              {
+                                "contact": "case",
+                                "polarity": "anode",
+                                "fraction": 1.0
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "electrode_id": "lead-R",
+                    "frequency_groups": [
+                      {
+                        "frequency_group_id": "group-2",
+                        "delivery_mode": "alternating",
+                        "sources": [
+                          {
+                            "source_id": "source-1",
+                            "source_label": "SNr",
+                            "component_id": "target_snr",
+                            "frequency_hz": 30.0,
+                            "control_mode": "current",
+                            "amplitude": 1.5,
+                            "pulse_width_us": 70.0,
+                            "contacts": [
+                              {
+                                "contact": 4,
+                                "polarity": "cathode",
+                                "fraction": 1.0
+                              },
+                              {
+                                "contact": "case",
+                                "polarity": "anode",
+                                "fraction": 1.0
+                              }
+                            ]
+                          },
+                          {
+                            "source_id": "source-2",
+                            "source_label": "SNr",
+                            "component_id": "target_snr",
+                            "frequency_hz": 30.0,
+                            "control_mode": "current",
+                            "amplitude": 1.0,
+                            "pulse_width_us": 70.0,
+                            "contacts": [
+                              {
+                                "contact": 5,
+                                "polarity": "cathode",
+                                "fraction": 1.0
+                              },
+                              {
+                                "contact": "case",
+                                "polarity": "anode",
+                                "fraction": 1.0
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
