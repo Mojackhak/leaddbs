@@ -27,6 +27,34 @@ header = spm_vol(outputPath);
 verifyEqual(testCase, header.dt(1), 2);
 end
 
+function testSharedExporterRepairsThresholdWithoutControlModeBranch(testCase)
+testRoot = tempname;
+nativeLeaf = fullfile(testRoot, 'native');
+mniLeaf = fullfile(testRoot, 'mni');
+mkdir(nativeLeaf);
+mkdir(mniLeaf);
+cleanup = onCleanup(@() rmdir(testRoot, 's'));
+nativeEfield = fullfile(nativeLeaf, 'efield.nii.gz');
+write_fixture_nifti(nativeEfield, ...
+    single(reshape([179, 180, 220], [3, 1, 1])), eye(4));
+task = struct( ...
+    'task_id', 'shared-export-test', ...
+    'output_leaves', struct('native', nativeLeaf, ...
+        'MNI152NLin2009bAsym', mniLeaf), ...
+    'missing_artifacts', struct('native', ...
+        {{'vta_threshold-0p20Vpermm.nii.gz'}}), ...
+    'model', struct('thresholds_v_per_m', [180, 200, 220]));
+
+status = mh_vta_export_canonical_outputs(task, struct(), 1, ...
+    struct(), [], [], '', 'not_required');
+
+output = fullfile(nativeLeaf, 'vta_threshold-0p20Vpermm.nii.gz');
+verifyTrue(testCase, isfile(output));
+verifyEqual(testCase, uint8(ea_load_nii(output).img), ...
+    uint8(reshape([0, 0, 1], [3, 1, 1])));
+verifyEqual(testCase, string(status.execution), "solve");
+end
+
 function testExportMatchesAnchorGeometryAndPreservesOutsideNaN(testCase)
 testRoot = tempname;
 mkdir(testRoot);
@@ -72,6 +100,58 @@ function testAcceptanceAnchorOverrideRejectsMissingPath(testCase)
 verifyError(testCase, @() mh_vta_resolve_native_anchor( ...
     '/tmp/default-anchor.nii', '/tmp/missing-acceptance-anchor.nii'), ...
     'mh_vta:MissingNativeAnchorOverride');
+end
+
+function testElectrodeTissueSamplesAreExcludedBeforeExport(testCase)
+mesh = struct('tissue', [1; 2; 3; 4]);
+points = reshape(1:12, 4, 3);
+values = [10; 20; 30; 40];
+
+[filteredPoints, filteredValues, keep] = ...
+    mh_vta_filter_export_samples(mesh, points, values);
+
+verifyEqual(testCase, keep, [true; true; false; false]);
+verifyEqual(testCase, filteredPoints, points(1:2, :));
+verifyEqual(testCase, filteredValues, values(1:2));
+end
+
+function testElectrodeTissueFilterRejectsMisalignedSamples(testCase)
+mesh = struct('tissue', [1; 2; 3]);
+verifyError(testCase, @() mh_vta_filter_export_samples( ...
+    mesh, zeros(2, 3), zeros(2, 1)), ...
+    'mh_vta:InvalidFemExportSamples');
+end
+
+function testElectrodeRemovalMatchesAxialRadialDisplacement(testCase)
+mesh = struct('tissue', [1; 2; 3]);
+points = [2, 5, 0; 2, -1, 0; 3, 5, 0];
+values = [10; 20; 30];
+trajectory = cell(1, 2);
+trajectory{1} = [0, 0, 0; 0, 10, 0];
+elspec = struct('lead_diameter', 1.2);
+
+[adjustedPoints, adjustedValues] = ...
+    mh_vta_remove_electrode_export_samples( ...
+        mesh, points, values, trajectory, 1, elspec);
+
+verifyEqual(testCase, adjustedPoints, [1.4, 5, 0; 2, -1, 0], ...
+    'AbsTol', 1e-12);
+verifyEqual(testCase, adjustedValues, [10; 20]);
+end
+
+function testElectrodeRemovalDropsSamplesInsideLeadRadius(testCase)
+mesh = struct('tissue', [1; 1]);
+points = [0.1, 5, 0; 2, 5, 0];
+values = [10; 20];
+trajectory = {[0, 0, 0; 0, 10, 0]};
+elspec = struct('lead_diameter', 1.2);
+
+[adjustedPoints, adjustedValues] = ...
+    mh_vta_remove_electrode_export_samples( ...
+        mesh, points, values, trajectory, 1, elspec);
+
+verifyEqual(testCase, adjustedPoints, [1.4, 5, 0], 'AbsTol', 1e-12);
+verifyEqual(testCase, adjustedValues, 20);
 end
 
 function testTransformUsesForwardNormalization(testCase)

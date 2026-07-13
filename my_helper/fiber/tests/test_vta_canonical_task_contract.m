@@ -169,6 +169,28 @@ verifyEqual(testCase, string(status.execution), "derived");
 verifyEqual(testCase, string(status.task_id), "task-001");
 end
 
+function testDefaultSolveDispatchesDirectlyToCanonicalBackend(testCase)
+stubDir = tempname;
+mkdir(stubDir);
+cleanup = onCleanup(@() cleanup_backend_stubs(stubDir));
+write_backend_stub(stubDir, ...
+    'mh_vta_backend_simbio_onesolve_canonical', ...
+    "status = struct('execution','canonical','task_id',task.task_id);");
+write_backend_stub(stubDir, 'mh_vta_backend_simbio_onesolve', ...
+    "error('test_vta:LegacyBackendCalled','Legacy backend was called.');");
+addpath(stubDir, '-begin');
+clear mh_vta_backend_simbio_onesolve_canonical ...
+    mh_vta_backend_simbio_onesolve mh_vta_execute_canonical_task;
+rehash;
+
+task = fixture_task('continuous_joint', 'continuous', ...
+    fixture_source('source-1', 'voltage'));
+status = mh_vta_execute_canonical_task(task);
+
+verifyEqual(testCase, string(status.execution), "canonical");
+verifyEqual(testCase, string(status.task_id), "task-001");
+end
+
 function task = fixture_task(kind, deliveryMode, sources)
 task = struct( ...
     'task_id', 'task-001', ...
@@ -248,4 +270,23 @@ function delete_if_present(path)
 if isfile(path)
     delete(path);
 end
+end
+
+function write_backend_stub(stubDir, functionName, body)
+path = fullfile(stubDir, [functionName, '.m']);
+fid = fopen(path, 'w');
+assert(fid >= 0, 'Could not create backend stub.');
+cleanup = onCleanup(@() fclose(fid));
+fprintf(fid, 'function status = %s(task)\n%s\nend\n', ...
+    functionName, char(body));
+end
+
+function cleanup_backend_stubs(stubDir)
+if isfolder(stubDir)
+    rmpath(stubDir);
+    rmdir(stubDir, 's');
+end
+clear mh_vta_backend_simbio_onesolve_canonical ...
+    mh_vta_backend_simbio_onesolve mh_vta_execute_canonical_task;
+rehash;
 end

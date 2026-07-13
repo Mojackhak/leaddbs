@@ -17,5 +17,5 @@ end
 end
 
 function status = default_solve(task)
-status = mh_vta_backend_simbio_onesolve(task);
+status = mh_vta_backend_simbio_onesolve_canonical(task);
 end
