@@ -1,10 +1,10 @@
-# dTOR-HybraPD Whole-Brain ROI Atlas Implementation Plan
+# HybraPD Whole-Brain ROI Atlas Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a deterministic Python package and CLI that exports a Lead-DBS-compatible HybraPD whole-brain ROI atlas and exact dTOR endpoint coverage.
 
-**Architecture:** A generic core loads strict YAML into immutable models, parses and classifies integer labels, resamples the label volume, exports binary masks, streams endpoint counts from a Lead-DBS HDF5 connectome, and atomically publishes immutable artifacts. A tracked dTOR-HybraPD config supplies project-specific paths and category IDs.
+**Architecture:** A generic core loads strict YAML into immutable models, parses and classifies integer labels, resamples the label volume, exports binary masks, streams endpoint counts from a Lead-DBS HDF5 connectome, and atomically publishes immutable artifacts. A tracked dTOR endpoint-census config supplies project-specific paths and category IDs without making dTOR part of the anatomical atlas name.
 
 **Tech Stack:** Python 3.11, NumPy, SciPy, nibabel, h5py, PyYAML, jsonschema, unittest.
 
@@ -20,7 +20,7 @@
 
 ### Task 1: Strict configuration and label metadata
 
-**Files:** create the package models/config/labels modules, JSON schema, tracked dTOR-HybraPD YAML config, and focused tests.
+**Files:** create the package models/config/labels modules, JSON schema, tracked dTOR endpoint-census YAML config, and focused tests.
 
 **Interfaces:** `load_atlas_config(path) -> AtlasBuildConfig`; `parse_label_table(path) -> tuple[AtlasLabel, ...]`; `resolve_labels(config, source_image) -> tuple[ResolvedLabel, ...]`.
 

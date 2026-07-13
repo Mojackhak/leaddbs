@@ -2,7 +2,7 @@
 
 This standalone Python package converts an integer whole-brain labeling into a deterministic Lead-DBS atlas and computes exact endpoint coverage for a Lead-DBS HDF5 connectome.
 
-The repository configuration builds `dTOR-HybraPD Whole Brain (Yu 2021)` from HybraPD anatomy and dTOR fibers. It uses strict endpoint-voxel assignment and does not use dTOR to define anatomical boundaries.
+The repository configuration builds `HybraPD Whole Brain (Yu 2021)` from HybraPD anatomy and measures endpoint coverage using dTOR fibers. It uses strict endpoint-voxel assignment and does not use dTOR to define anatomical boundaries.
 
 ## Commands
 
@@ -23,7 +23,7 @@ conda run -n leaddbs python \
 ```bash
 conda run -n leaddbs python \
   my_helper/fiber/pipelines/whole-brain-roi-atlas status \
-  --atlas-root "templates/space/MNI152NLin2009bAsym/atlases/dTOR-HybraPD Whole Brain (Yu 2021)"
+  --atlas-root "templates/space/MNI152NLin2009bAsym/atlases/HybraPD Whole Brain (Yu 2021)"
 ```
 
 ## Outputs
