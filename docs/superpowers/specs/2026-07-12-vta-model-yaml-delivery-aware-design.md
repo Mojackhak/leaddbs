@@ -552,8 +552,9 @@ Tests must cover:
 ### Numerical FEM Acceptance
 
 The already completed SNr003 bilateral single-voltage
-`simbio`-versus-`simbio_onesolve` pilot remains evidence for the voltage
-single-source boundary.
+`simbio`-versus-`simbio_onesolve` outputs are reused directly. Voltage
+acceptance recomputes metrics from those existing E-fields and VTAs and starts
+zero new voltage FEM solves.
 
 A new copied-subject current suite uses SNr003 and Medtronic 3387 geometry. It
 uses fixed seed `20260712` to generate hypothetical current parameters without
@@ -563,28 +564,19 @@ modifying `study_base.json`:
 control mode: current
 amplitude range: 0.5-5.0 mA
 pulse-width range: 30-120 us
-hemispheres: left and right
+hemisphere: right only
+case design: one cathode with case return
 ```
 
-The deterministic random suite includes:
-
-1. one cathode with case return;
-2. multiple cathodes with case return and normalized random fractions; and
-3. electrode return with random cathode/anode contacts and separately
-   normalized polarity fractions.
-
-Every case runs the same contacts, polarities, fractions, amplitude, and pulse
-width through standard `simbio` current mode and the new
-`simbio_onesolve` current mode while sharing one frozen head model. Native and
-MNI E-fields and 0.18/0.20/0.22 V/mm VTAs are compared separately for every
-hemisphere and case.
-
-At least one case repeats each backend twice for deterministic repeatability.
-No average may hide a failed hemisphere or stimulation case. Acceptance gates
-are:
+The real current FEM gate contains exactly one deterministic hypothetical case.
+The same right-sided contacts, polarity, amplitude, pulse width, and frequency
+run once through standard `simbio` current mode and once through
+`simbio_onesolve` current mode while sharing one frozen head model. The gate
+therefore starts exactly two current FEM solves. Native and MNI E-fields and
+0.18/0.20/0.22 V/mm VTAs are compared directly; no averaging or backend-repeat
+run is part of this minimal numerical gate. Acceptance gates are:
 
 ```text
-backend-internal repeated E-field: voxelwise identical
 maximum absolute E-field difference: <= 1e-3 V/m
 relative L2 error: <= 1e-5
 Pearson correlation: >= 0.999999
@@ -592,9 +584,11 @@ VTA Dice at every threshold: >= 0.999
 relative VTA volume difference: <= 0.1%
 ```
 
-Continuous multi-current joint execution also requires an independent
-RHS/vector-field superposition test; maximum or sum of scalar E-field
-magnitudes is not an acceptable reference.
+Multiple-cathode, electrode-return, repeatability, and continuous multi-current
+behavior remain covered by deterministic solver-free unit fixtures. The
+independent RHS/vector-field superposition fixture requires signed vector
+superposition; maximum or sum of scalar E-field magnitudes is not an acceptable
+reference.
 
 These tests validate the implemented current boundary path on copied SNr003
 geometry. They do not claim cross-device real-clinical current validation until

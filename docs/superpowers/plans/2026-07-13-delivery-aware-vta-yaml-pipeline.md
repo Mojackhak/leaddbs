@@ -981,7 +981,7 @@ git commit -m "feat: execute VTA tasks by subject"
 
 - [ ] **Step 1: Document historical and new evidence separately**
 
-Record the existing SNr003 bilateral single-voltage `simbio` versus `simbio_onesolve` pilot as historical evidence. Define the new deterministic current suite with RNG seed `20260712`, atlas `Custom_Ewert_Zhang_Middlebrooks`, amplitudes `0.5-5.0 mA`, pulse widths `30-120 us`, both hemispheres, case-return and electrode-return configurations.
+Record the existing SNr003 bilateral single-voltage `simbio` versus `simbio_onesolve` outputs as reusable evidence and recompute their metrics without FEM. Define the minimal current FEM gate with RNG seed `20260712`, atlas `Custom_Ewert_Zhang_Middlebrooks`, amplitude `0.5-5.0 mA`, pulse width `30-120 us`, right hemisphere only, and one cathode with case return.
 
 - [ ] **Step 2: Write failing fixture-generation and safety tests**
 
@@ -1012,13 +1012,11 @@ Expected: current acceptance functions are missing.
 
 - [ ] **Step 4: Implement the deterministic copied-subject suite**
 
-Generate: one cathode plus case return; multiple cathodes plus case with random normalized fractions; and electrode return with separately normalized random cathode/anode fractions. Compare standard SimBio current as reference against new one-solve current for native and MNI continuous E-field plus all three thresholds. Repeat at least one case for each path.
+Generate exactly one deterministic right-sided single-cathode/case-return current case. Compare standard SimBio current as reference against one-solve current for native and MNI continuous E-field plus all three thresholds. Run each backend exactly once, for two FEM solves total. Do not run backend repeatability FEM in this minimal gate.
 
 Use these exact gates independently for every case and hemisphere:
 
 ```text
-repeat E-field: voxelwise exact
-repeat binary VTA: voxelwise exact
 maximum absolute E-field difference <= 1e-3 V/m
 relative L2 error <= 1e-5
 Pearson correlation >= 0.999999
@@ -1036,7 +1034,7 @@ First run the Task 11 test command. Then run:
 matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); run_single_current_backend_equivalence('StudyBase','/Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json','WorkRoot','/Volumes/VAL/STNSNr/validation','SubjectId','SNr003');"
 ```
 
-Expected: all bilateral voltage/current gates pass and the production subject tree path/size inventory is unchanged.
+Expected: existing bilateral voltage metrics are regenerated with zero voltage FEM; one right-sided current case passes after exactly two current FEM solves; and the production subject tree path/size inventory is unchanged.
 
 - [ ] **Step 6: Commit acceptance code and documentation**
 

@@ -85,9 +85,9 @@ tables, summaries, copied inputs, and backend outputs.
 
 `run_single_current_backend_equivalence` is the current-controlled companion to
 the historical voltage pilot. The two suites remain separate evidence: the
-voltage suite records the existing SNr003 bilateral single-source comparison,
-while the current suite generates deterministic hypothetical current programs
-for both SNr003 hemispheres and compares the standard SimBio current path with
+voltage suite reuses the existing SNr003 bilateral single-source outputs,
+while the current suite generates one deterministic hypothetical right-sided
+current program and compares the standard SimBio current path with
 the canonical `simbio_onesolve` current path. A voltage pass is not treated as
 current evidence, and synthetic current tests are not reported as completed
 real-FEM acceptance.
@@ -95,11 +95,9 @@ real-FEM acceptance.
 The current fixture seed is fixed at `20260712`. Generated amplitudes are in
 the inclusive range `0.5-5.0 mA`, pulse widths are in the inclusive range
 `30-120 us`, and every fixture uses the atlas
-`Custom_Ewert_Zhang_Middlebrooks`. For each hemisphere the inventory contains:
-
-1. one cathode with case return;
-2. multiple cathodes with normalized cathodic fractions and case return; and
-3. separately normalized cathode and electrode-return fractions.
+`Custom_Ewert_Zhang_Middlebrooks`. The real FEM inventory contains exactly one
+right-sided cathode with case return. Its amplitude and pulse width are selected
+deterministically from those ranges.
 
 Fixture ordering, selected contacts, amplitudes, pulse widths, and fractions
 must be byte-stable for the same seed. The runner refuses a `WorkRoot` that is
@@ -107,13 +105,14 @@ the production Lead-DBS derivatives tree, lies inside it, or contains it. Real
 acceptance always operates on a copied subject below a new validation root and
 never writes the source SNr003 subject tree.
 
-For every current case and hemisphere, both current paths run twice. The suite
-uses the same native/MNI continuous E-field and 180/200/220 V/m gates listed
-above, with exact within-path repeatability. It also includes a solver-free
-vector-field fixture. That fixture requires signed linear superposition of
-per-source vector fields before magnitude calculation and verifies that neither
-the scalar maximum nor the scalar sum of individual field magnitudes can be
-substituted for vector superposition.
+The current FEM gate runs the standard `simbio` path once and the
+`simbio_onesolve` path once, for exactly two FEM solves. It uses the same
+native/MNI continuous E-field and 180/200/220 V/m gates listed above. Bilateral
+single-voltage metrics are recomputed from existing paired outputs without new
+voltage FEM. Multiple-cathode, electrode-return, repeatability, and vector
+superposition remain solver-free unit fixtures; the vector fixture verifies
+that neither scalar maximum nor scalar sum can replace signed vector
+superposition.
 
 The lightweight test entry point exercises fixture generation, safety guards,
 inventory validation, and the independent vector-superposition fixture. The

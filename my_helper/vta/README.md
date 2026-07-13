@@ -24,9 +24,9 @@ establish end-to-end acceptance.
 
 The representative gate does not run all 20 SNr003 tasks. It covers left and
 right continuous solves, one two-source alternating group and its group peak,
-one equivalent frequency-group copy represented by T2/T3 in the fixture, and deterministic synthetic current
-acceptance. Production all-subject execution remains a separate operational
-goal.
+one equivalent frequency-group copy represented by T2/T3 in the fixture, and a
+minimal right-sided deterministic current acceptance with two FEM solves.
+Production all-subject execution remains a separate operational goal.
 
 ## Public Model Profile
 
