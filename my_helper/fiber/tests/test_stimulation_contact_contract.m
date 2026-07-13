@@ -59,6 +59,28 @@ tableSpec = mh_fiber_stimspec_from_table({'L', 1, 2.0, 60, 130}, 'case');
 assert(isfield(tableSpec.sources, 'contacts'));
 assert(numel(tableSpec.sources.contacts) == 2);
 
+currentS = empty_s(4, 'Rs1');
+currentS = mh_fiber_apply_source_contacts( ...
+    currentS, 'Rs1', currentCfg.stimSpec.sources, 4);
+assert(currentS.Rs1.k1.perc == 50 && currentS.Rs1.k1.pol == 1);
+assert(currentS.Rs1.k2.perc == 50 && currentS.Rs1.k2.pol == 1);
+assert(currentS.Rs1.case.perc == 100 && currentS.Rs1.case.pol == 2);
+
+voltageS = empty_s(4, 'Ls1');
+voltageS = mh_fiber_apply_source_contacts( ...
+    voltageS, 'Ls1', voltageCfg.stimSpec.sources, 4);
+assert(voltageS.Ls1.k1.perc == 100 && voltageS.Ls1.k1.pol == 1);
+assert(voltageS.Ls1.k2.perc == 100 && voltageS.Ls1.k2.pol == 1);
+assert(voltageS.Ls1.case.perc == 100 && voltageS.Ls1.case.pol == 2);
+
+bipolarCfg = mh_fiber_set_stimulation(cfg, spec_with_source(bipolar));
+bipolarS = empty_s(4, 'Ls1');
+bipolarS = mh_fiber_apply_source_contacts( ...
+    bipolarS, 'Ls1', bipolarCfg.stimSpec.sources, 4);
+assert(bipolarS.Ls1.k1.perc == 100 && bipolarS.Ls1.k1.pol == 1);
+assert(bipolarS.Ls1.k2.perc == 100 && bipolarS.Ls1.k2.pol == 2);
+assert(bipolarS.Ls1.case.perc == 0 && bipolarS.Ls1.case.pol == 0);
+
 fprintf('Stimulation contact contract test passed.\n');
 
 function cfg = base_cfg()
@@ -103,4 +125,14 @@ catch ME
         'Expected error %s, received %s.', expectedId, ME.identifier);
 end
 assert(raised, 'Expected error was not raised: %s', expectedId);
+end
+
+function S = empty_s(numContacts, sourceField)
+S = struct('numContacts', numContacts);
+source = struct();
+source.case = struct('perc', 0, 'pol', 0);
+for contactIndex = 1:numContacts
+    source.(['k', num2str(contactIndex)]) = struct('perc', 0, 'pol', 0);
+end
+S.(sourceField) = source;
 end
