@@ -35,6 +35,42 @@ destination = mh_vta_move_path_to_trash([tempname '.missing']);
 verifyEqual(testCase, destination, '');
 end
 
+function testRepeatedMovesUseDistinctDestinations(testCase)
+root = tempname;
+trashRoot = fullfile(root, 'trash');
+mkdir(root);
+cleanup = onCleanup(@() cleanup_root(root));
+first = fullfile(root, 'same-name.mat');
+secondRoot = fullfile(root, 'other');
+mkdir(secondRoot);
+second = fullfile(secondRoot, 'same-name.mat');
+write_bytes(first, uint8(1:4));
+write_bytes(second, uint8(5:8));
+
+firstDestination = mh_vta_move_path_to_trash( ...
+    first, 'TrashRoot', trashRoot);
+secondDestination = mh_vta_move_path_to_trash( ...
+    second, 'TrashRoot', trashRoot);
+
+verifyNotEqual(testCase, firstDestination, secondDestination);
+verifyEqual(testCase, read_bytes(firstDestination), uint8((1:4)'));
+verifyEqual(testCase, read_bytes(secondDestination), uint8((5:8)'));
+end
+
+function write_bytes(path, values)
+fid = fopen(path, 'w');
+assert(fid > 0);
+cleanup = onCleanup(@() fclose(fid));
+fwrite(fid, values, 'uint8');
+end
+
+function values = read_bytes(path)
+fid = fopen(path, 'r');
+assert(fid > 0);
+cleanup = onCleanup(@() fclose(fid));
+values = fread(fid, inf, '*uint8');
+end
+
 function cleanup_root(root)
 if isfolder(root)
     rmdir(root, 's');

@@ -218,7 +218,9 @@ explicitly authorized.
 When `--force` explicitly authorizes an incompatible head-model replacement,
 the old head model and matching Horn protocol are moved to the same-filesystem
 Trash before rebuilding. If that move cannot be completed, execution aborts;
-canonical execution never permanently deletes an existing head model.
+canonical execution never permanently deletes an existing head model. Trash
+destinations use collision-resistant UUID names because macOS external-volume
+Trash may permit blind writes while denying directory enumeration.
 
 Canonical head-model preparation invokes the Horn meshing path in an internal
 head-model-only mode. That call stops immediately after writing the volume

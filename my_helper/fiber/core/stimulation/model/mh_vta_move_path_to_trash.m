@@ -23,10 +23,10 @@ if ~isfolder(trashRoot)
     end
 end
 
-[~, token] = fileparts(tempname(trashRoot));
+token = char(java.util.UUID.randomUUID());
 [~, name, extension] = fileparts(path);
 destination = fullfile(trashRoot, sprintf('%s.%s%s', name, token, extension));
-[moved, message] = movefile(path, destination);
+[moved, message] = movefile(path, destination, 'f');
 if ~moved
     error('mh_vta:TrashMoveFailed', ...
         'Could not move %s to Trash: %s', path, message);
