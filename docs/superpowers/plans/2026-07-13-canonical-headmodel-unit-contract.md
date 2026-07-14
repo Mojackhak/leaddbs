@@ -4,9 +4,22 @@
 
 **Goal:** Reject canonical Lead-DBS head models whose mesh and FEM volume coordinates do not satisfy the approved millimeter/meter contract.
 
-**Architecture:** Add one side-effect-free MATLAB validator. Reused models receive an early check in the head-model preparer, while the canonical backend applies the authoritative check immediately after every load so reused and newly built paths are covered before boundary assembly.
+**Architecture:** Add one side-effect-free MATLAB validator. The shared canonical
+head-model loader validates immediately after every disk load; the preparer and
+backend runtime cache therefore receive only validated reused or newly built
+models before boundary assembly.
 
 **Tech Stack:** MATLAB function-based unit tests, Lead-DBS canonical VTA MATLAB pipeline, Git.
+
+## Current State
+
+```text
+implementation_complete
+shared_loader_guard_complete
+real_artifact_validation_complete
+full_matlab_fiber_suite_130_passed
+full_python_vta_suite_210_passed
+```
 
 ## Global Constraints
 
@@ -25,10 +38,17 @@
 ## File Map
 
 - Create `my_helper/fiber/core/stimulation/model/mh_vta_validate_canonical_headmodel_units.m`: pure validator using `mh_vta:InvalidCanonicalHeadmodelUnits`.
+- Create `my_helper/fiber/core/stimulation/model/mh_vta_load_canonical_headmodel.m`: shared load-and-validate boundary used by preparation and backend execution.
 - Create `my_helper/fiber/tests/test_vta_headmodel_unit_contract.m`: unit, integration, and backend call-order tests.
 - Modify `my_helper/fiber/core/stimulation/model/mh_vta_prepare_canonical_headmodel.m`: early validation for reused models.
 - Modify `my_helper/fiber/core/stimulation/model/backends/mh_vta_backend_simbio_onesolve_canonical.m`: mandatory post-load validation.
 - Modify `my_helper/fiber/tests/test_vta_common_grid_export.m`: valid mm/m Horn builder fixture.
+
+Implementation consolidated the originally planned duplicate prepare/backend
+guards into `mh_vta_load_canonical_headmodel`. This preserves the required
+post-load, pre-boundary validation while ensuring every disk load uses one
+authoritative implementation. Runtime cache entries are populated only from
+this validated loader path.
 
 ### Task 1: Add The Pure Coordinate-Unit Validator
 
@@ -40,7 +60,7 @@
 - Consumes: `vol.pos`, `mesh.pnt`, and optional `mesh.unit`.
 - Produces: `mh_vta_validate_canonical_headmodel_units(vol, mesh)`, returning normally on success and throwing `mh_vta:InvalidCanonicalHeadmodelUnits` on violation.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test_vta_headmodel_unit_contract.m` as a MATLAB function-based suite
 with this header and fixture:
@@ -124,7 +144,7 @@ verifyError(testCase, @() mh_vta_validate_canonical_headmodel_units(vol, fewerNo
 end
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_headmodel_unit_contract.m'); assertSuccess(run(r));"
@@ -132,7 +152,7 @@ conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/lead
 
 Expected: FAIL because `mh_vta_validate_canonical_headmodel_units` is undefined.
 
-- [ ] **Step 3: Implement the validator**
+- [x] **Step 3: Implement the validator**
 
 Create `mh_vta_validate_canonical_headmodel_units.m`:
 
@@ -188,11 +208,11 @@ error('mh_vta:InvalidCanonicalHeadmodelUnits', message, varargin{:});
 end
 ```
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run the Step 2 command again. Expected: all tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add my_helper/fiber/core/stimulation/model/mh_vta_validate_canonical_headmodel_units.m my_helper/fiber/tests/test_vta_headmodel_unit_contract.m
@@ -211,7 +231,7 @@ git commit -m "fix: validate canonical headmodel coordinate units"
 - Consumes: the validator from Task 1.
 - Produces: early `InvalidExistingHeadmodel` for invalid reused input and mandatory `mh_vta:InvalidCanonicalHeadmodelUnits` before backend boundary assembly.
 
-- [ ] **Step 1: Add failing integration and call-order tests**
+- [x] **Step 1: Add failing integration and call-order tests**
 
 Add these functions to `test_vta_headmodel_unit_contract.m`:
 
@@ -257,7 +277,7 @@ end
 Run the Task 1 focused command. Expected: both new tests FAIL because neither
 production call site invokes the validator.
 
-- [ ] **Step 2: Correct the existing Horn builder fixture**
+- [x] **Step 2: Correct the existing Horn builder fixture**
 
 Replace the body assembled by `write_headmodel_builder_stub` in
 `test_vta_common_grid_export.m` with:
@@ -275,7 +295,7 @@ text = ...
     "end" + newline;
 ```
 
-- [ ] **Step 3: Add early validation to reused-model preparation**
+- [x] **Step 3: Add early validation to reused-model preparation**
 
 Replace the existing `load` try/catch in
 `mh_vta_prepare_canonical_headmodel.m` with:
@@ -296,7 +316,7 @@ Replace the existing `load` try/catch in
 
 Do not add a second load after a new build.
 
-- [ ] **Step 4: Add the mandatory backend guard**
+- [x] **Step 4: Add the mandatory backend guard**
 
 Immediately after the backend's multi-line `hm = load(...)`, add:
 
@@ -307,7 +327,7 @@ Immediately after the backend's multi-line `hm = load(...)`, add:
 Keep it before `ea_getactiveidx`, boundary assembly, FEM solving, and gradient
 calculation.
 
-- [ ] **Step 5: Run focused integration suites**
+- [x] **Step 5: Run focused integration suites**
 
 ```bash
 conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); r=testsuite('my_helper/fiber/tests/test_vta_headmodel_unit_contract.m'); r=[r testsuite('my_helper/fiber/tests/test_vta_common_grid_export.m')]; assertSuccess(run(r));"
@@ -315,7 +335,7 @@ conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/lead
 
 Expected: all tests PASS, including build/reuse of the corrected fixture.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add my_helper/fiber/core/stimulation/model/mh_vta_prepare_canonical_headmodel.m my_helper/fiber/core/stimulation/model/backends/mh_vta_backend_simbio_onesolve_canonical.m my_helper/fiber/tests/test_vta_headmodel_unit_contract.m my_helper/fiber/tests/test_vta_common_grid_export.m
@@ -331,7 +351,7 @@ git commit -m "fix: enforce canonical headmodel unit guard"
 - Consumes: completed Tasks 1 and 2.
 - Produces: evidence that current VTA contracts remain green and the known valid SNr003 artifact satisfies the guard.
 
-- [ ] **Step 1: Run relevant MATLAB regression suites**
+- [x] **Step 1: Run relevant MATLAB regression suites**
 
 ```bash
 conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); files={'test_vta_headmodel_unit_contract.m','test_vta_canonical_options_contract.m','test_vta_canonical_task_contract.m','test_vta_boundary_contract.m','test_vta_common_grid_export.m'}; r=matlab.unittest.Test.empty; for i=1:numel(files), r=[r testsuite(fullfile('my_helper','fiber','tests',files{i}))]; end; assertSuccess(run(r));"
@@ -339,7 +359,7 @@ conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/lead
 
 Expected: all selected suites PASS.
 
-- [ ] **Step 2: Validate the existing accepted SNr003 head model when present**
+- [x] **Step 2: Validate the existing accepted SNr003 head model when present**
 
 ```bash
 conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/leaddbs')); p='/Volumes/VAL/STNSNr/validation/vta_pipeline_e2e_maskfix_20260713T172111Z/copied_dataset/derivatives/leaddbs/sub-SNr003/headmodel/native/sub-SNr003_desc-headmodel1.mat'; if isfile(p), hm=load(p,'vol','mesh'); mh_vta_validate_canonical_headmodel_units(hm.vol,hm.mesh); end"
@@ -347,7 +367,7 @@ conda run -n leaddbs matlab -batch "addpath(genpath('/Users/mojackhu/Github/lead
 
 Expected: exit code 0. The command is read-only.
 
-- [ ] **Step 3: Run repository consistency checks**
+- [x] **Step 3: Run repository consistency checks**
 
 ```bash
 git diff --check
