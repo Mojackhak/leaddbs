@@ -8,9 +8,10 @@ phase_0_telemetry_and_baseline_harness_implemented
 phase_1_bulk_threshold_generation_implemented
 phase_1_bounded_native_interpolation_implemented
 slice_4_context_and_headmodel_load_consolidation_implemented
+slice_5_subject_manifest_and_state_machine_implemented
 solver_free_verification_complete
 real_fem_baseline_not_run
-remaining_optimization_slices_not_started
+persistent_subject_runner_not_connected
 current_outputs_unchanged
 ```
 
@@ -26,8 +27,9 @@ speedup, candidate performance bound, or three-worker memory-safety result is
 therefore claimed. The public CLI default remains one worker until the required
 memory gate passes. Bulk threshold generation, bounded native interpolation,
 and context/headmodel load consolidation are implemented and solver-free
-verified. Persistent subject execution, runtime caches, and FEM reuse remain
-planned work.
+verified. The deterministic subject manifest and path-based artifact state
+resolver are also implemented and solver-free verified. Persistent subject
+process integration, runtime caches, and FEM reuse remain planned work.
 
 This document defines a performance optimization plan for the canonical
 VTA/E-field pipeline. It does not authorize a scientific model change, an

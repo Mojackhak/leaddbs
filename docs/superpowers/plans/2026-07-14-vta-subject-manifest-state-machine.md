@@ -4,7 +4,8 @@
 
 ```text
 design_aligned
-implementation_not_started
+implementation_complete
+solver_free_verification_complete
 persistent_subject_process_not_yet_connected
 current_outputs_unchanged
 ```
@@ -18,6 +19,15 @@ runner.
 This is slice 5 of the approved VTA performance optimization design. It creates
 and validates the subject execution contract but does not yet replace the
 production per-task MATLAB bridge. Existing outputs remain unchanged.
+
+As implemented on 2026-07-14, Python builds and atomically writes deterministic
+subject manifests, while MATLAB independently validates the envelope and
+resolves each task to `skipped_existing`, `copied`, `ready`, or
+`skipped_dependency`. The compatibility task validator now composes separate
+static-definition and runtime-artifact validators. The complete solver-free
+MATLAB suite passes 106 tests, the Python VTA pipeline and benchmark suite
+passes 151 tests, and MATLAB Code Analyzer reports no findings in the touched
+files. No real FEM was run for this contract-only slice.
 
 ## Python Manifest Contract
 

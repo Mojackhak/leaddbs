@@ -17,6 +17,10 @@ class PlanningError(VtaPipelineError):
     """Raised when VTA task selection or DAG construction is invalid."""
 
 
+class SubjectManifestError(VtaPipelineError):
+    """Raised when a subject execution manifest violates its contract."""
+
+
 class ArtifactError(VtaPipelineError):
     """Raised when artifact state cannot be changed without data loss."""
 
