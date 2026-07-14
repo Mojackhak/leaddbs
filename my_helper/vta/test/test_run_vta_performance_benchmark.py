@@ -7,13 +7,18 @@ from datetime import datetime, timezone
 import importlib.util
 import json
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
 from my_helper.fiber.core.vta_pipeline.artifacts import expected_artifacts
 from my_helper.fiber.core.vta_pipeline.paths import leaf_directory
+from my_helper.fiber.core.vta_pipeline.telemetry import (
+    ProcessObservation,
+    StageTiming,
+    TaskOutcome,
+)
 
 
 MODULE_PATH = Path(__file__).with_name("run_vta_performance_benchmark.py")
@@ -543,14 +548,15 @@ def test_public_main_returns_nonzero_when_baseline_fails(
 
 
 @pytest.mark.parametrize(
-    ("failed", "skipped_dependency", "expected_exit"),
-    ((0, 0, 0), (1, 0, 1), (0, 1, 1)),
+    ("failed", "skipped_dependency", "subject_process_failed", "expected_exit"),
+    ((0, 0, 0, 0), (1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 1)),
 )
 def test_case_runner_exit_reflects_failure_and_dependency_skip(
     benchmark_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     failed: int,
     skipped_dependency: int,
+    subject_process_failed: int,
     expected_exit: int,
 ) -> None:
     monkeypatch.setattr(
@@ -559,6 +565,7 @@ def test_case_runner_exit_reflects_failure_and_dependency_skip(
         lambda *args, **kwargs: {
             "failed": failed,
             "skipped_dependency": skipped_dependency,
+            "subject_process_failed": subject_process_failed,
         },
     )
 
@@ -584,6 +591,518 @@ def test_case_runner_exit_reflects_failure_and_dependency_skip(
     )
 
     assert exit_code == expected_exit
+
+
+def test_compatibility_executor_runs_planner_order_and_blocks_failed_dependency(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    fixture = benchmark_module.load_fixture(FIXTURE_PATH)
+    case = _case(fixture, "snr003_t2_p2_l_alternating")
+    subject = benchmark_module._resolve_case_subject_plan(
+        study_base, vta_model, case
+    )
+
+    class Bridge:
+        def __init__(self, fail_first: bool = False) -> None:
+            self.fail_first = fail_first
+            self.calls: list[str] = []
+
+        def run_task(self, task: Any, context: Any) -> Any:
+            self.calls.append(task.task_id)
+            if self.fail_first and len(self.calls) == 1:
+                raise RuntimeError("synthetic source failure")
+            for leaf in context.output_leaves.values():
+                for path in expected_artifacts(
+                    leaf, task.model.thresholds_v_per_m
+                ):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b"artifact")
+            timings = (
+                StageTiming(
+                    scope="task",
+                    task_id=task.task_id,
+                    stage="fem_pcg_solve",
+                    stage_status="executed",
+                    cache_status=None,
+                    duration_seconds=1.0,
+                ),
+            ) if task.kind is benchmark_module.TaskKind.ALTERNATING_SOURCE else ()
+            return ProcessObservation(
+                run_id="run",
+                subject_id=task.subject_id,
+                outcomes=(TaskOutcome(task.task_id, "generated", 0, 1),),
+                timings=timings,
+                protocol_complete=True,
+                returncode=0,
+            )
+
+    passing_delegate = Bridge()
+    passing_bridge = benchmark_module._RecordingBridge(passing_delegate)
+    passing = benchmark_module._CompatibilityPerTaskService(
+        passing_bridge, run_id="run"
+    ).run((subject,), workers=3, resume=False, force=False)
+    assert passing.generated == 3
+    assert passing.failed == 0
+    assert passing.skipped_dependency == 0
+    assert passing_delegate.calls == [task.task_id for task in subject.tasks]
+    assert len(passing_bridge.observations) == 3
+    assert sum(
+        timing.stage == "fem_pcg_solve"
+        for observation in passing_bridge.observations
+        for timing in observation.timings
+    ) == 2
+
+    for task in subject.tasks:
+        for space in task.model.spaces:
+            leaf = benchmark_module.leaf_directory(task, space)
+            if leaf.exists():
+                import shutil
+
+                shutil.rmtree(leaf)
+    failing_delegate = Bridge(fail_first=True)
+    failing_bridge = benchmark_module._RecordingBridge(failing_delegate)
+    failing = benchmark_module._CompatibilityPerTaskService(
+        failing_bridge, run_id="run"
+    ).run((subject,), workers=3, resume=False, force=False)
+    assert failing.generated == 1
+    assert failing.failed == 1
+    assert failing.skipped_dependency == 1
+    assert failing_delegate.calls == [
+        subject.tasks[0].task_id,
+        subject.tasks[1].task_id,
+    ]
+
+
+def test_persistent_executor_records_one_process_for_same_three_task_dag(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    fixture = benchmark_module.load_fixture(FIXTURE_PATH)
+    case = _case(fixture, benchmark_module.REPRESENTATIVE_CASE_ID)
+    subject = benchmark_module._resolve_case_subject_plan(
+        study_base, vta_model, case
+    )
+
+    class Delegate:
+        def run_subject_manifest(self, selected_subject: Any, run_id: str) -> Any:
+            for task in selected_subject.tasks:
+                for space in task.model.spaces:
+                    leaf = benchmark_module.leaf_directory(task, space)
+                    for path in expected_artifacts(
+                        leaf, task.model.thresholds_v_per_m
+                    ):
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(b"artifact")
+            timings = tuple(
+                StageTiming(
+                    scope="task",
+                    task_id=task.task_id,
+                    stage="fem_pcg_solve",
+                    stage_status="executed",
+                    cache_status=None,
+                    duration_seconds=1.0,
+                )
+                for task in selected_subject.tasks
+                if task.kind is benchmark_module.TaskKind.ALTERNATING_SOURCE
+            )
+            outcomes = tuple(
+                TaskOutcome(task.task_id, "generated", 0, 1)
+                for task in selected_subject.tasks
+            )
+            return ProcessObservation(
+                run_id=run_id,
+                subject_id=selected_subject.subject_id,
+                outcomes=outcomes,
+                timings=timings,
+                protocol_complete=True,
+                returncode=0,
+            )
+
+    bridge = benchmark_module._RecordingBridge(Delegate())
+    summary = benchmark_module.RunService(bridge, run_id="run").run(
+        (subject,), workers=3, resume=False, force=False
+    )
+    assert summary.generated == 3
+    assert len(bridge.observations) == 1
+    assert sum(
+        timing.stage == "fem_pcg_solve"
+        for timing in bridge.observations[0].timings
+    ) == 2
+
+
+def test_recording_bridge_retains_partial_observation(
+    benchmark_module: ModuleType,
+) -> None:
+    partial = SimpleNamespace(outcomes=(), timings=())
+
+    class Delegate:
+        def run_task(self, task: Any, context: Any) -> Any:
+            error = RuntimeError("interrupted")
+            error.partial_observation = partial
+            raise error
+
+    bridge = benchmark_module._RecordingBridge(Delegate())
+    with pytest.raises(RuntimeError, match="interrupted"):
+        bridge.run_task(SimpleNamespace(), SimpleNamespace())
+    assert bridge.bridge_call_count == 1
+    assert bridge.observations == (partial,)
+
+
+def test_run_paired_uses_fixed_schedule_and_exact_fem_bound(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    trash = tmp_path / "Trash"
+    root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "validation",
+        now=lambda: datetime(2026, 7, 14, 4, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+    fixture = json.loads(root.joinpath("fixture.json").read_text())
+    case = _case(fixture, "snr003_t2_p2_l_alternating")
+    paths: list[str] = []
+    compared: list[tuple[Path, Path]] = []
+
+    def fake_runner(command: tuple[str, ...]) -> dict[str, Any]:
+        path = command[command.index("--execution-path") + 1]
+        paths.append(path)
+        expected_key = "baseline" if path == "compatibility_per_task" else "candidate"
+        counts = case["expected_counts"][expected_key]
+        return {
+            "returncode": 0,
+            "stdout": json.dumps(
+                {
+                    "generated": 3,
+                    "copied": 0,
+                    "skipped_existing": 0,
+                    "failed": 0,
+                    "skipped_dependency": 0,
+                    "benchmark_counts": counts,
+                }
+            ),
+        }
+
+    def fake_compare(
+        reference: Path,
+        candidate: Path,
+        selected_case: dict[str, Any],
+        spaces: tuple[str, ...],
+    ) -> dict[str, Any]:
+        assert reference != candidate
+        assert selected_case["case_id"] == benchmark_module.REPRESENTATIVE_CASE_ID
+        assert spaces == ("native", "MNI152NLin2009bAsym")
+        compared.append((reference, candidate))
+        return {"pass": True}
+
+    summary = benchmark_module.run_paired(
+        root,
+        benchmark_module.REPRESENTATIVE_CASE_ID,
+        command_runner=fake_runner,
+        artifact_comparator=fake_compare,
+        trash_root=trash,
+    )
+
+    assert paths == [
+        "compatibility_per_task",
+        "persistent_subject",
+        "compatibility_per_task",
+        "persistent_subject",
+        "persistent_subject",
+        "compatibility_per_task",
+        "compatibility_per_task",
+        "persistent_subject",
+    ]
+    assert len(compared) == 3
+    assert summary["completed_fem_solve_count"] == 16
+    assert summary["completed_fem_solve_limit"] == 16
+    assert summary["status"] == "paired_complete"
+    assert summary["three_worker_memory_gate"] == "not_measured"
+    with pytest.raises(ValueError, match="single-use"):
+        benchmark_module.run_paired(
+            root,
+            benchmark_module.REPRESENTATIVE_CASE_ID,
+            command_runner=fake_runner,
+            artifact_comparator=fake_compare,
+            trash_root=trash,
+        )
+
+
+def test_run_paired_rejects_nonrepresentative_case(
+    benchmark_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "prepared"
+    root.mkdir()
+    root.joinpath("fixture.json").write_text(
+        json.dumps({"schema_version": "vta_performance_benchmark_v1"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="only permits"):
+        benchmark_module.run_paired(root, "snr011_t2_p2_l_continuous")
+
+
+def test_paired_path_records_failed_process_before_raising(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    trash = tmp_path / "Trash"
+    root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "validation",
+        now=lambda: datetime(2026, 7, 14, 5, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+    fixture = json.loads(root.joinpath("fixture.json").read_text())
+    case = _case(fixture, benchmark_module.REPRESENTATIVE_CASE_ID)
+
+    with pytest.raises(RuntimeError, match="return code 7"):
+        benchmark_module._run_paired_path(
+            root,
+            fixture,
+            case,
+            execution_path="persistent_subject",
+            run_label="synthetic-failure",
+            repetition_index=1,
+            command_runner=lambda command: {
+                "returncode": 7,
+                "stdout": "partial telemetry",
+                "stderr": "synthetic failure",
+            },
+            trash_root=trash,
+        )
+
+    record = json.loads(
+        root.joinpath(
+            "runs",
+            "synthetic-failure",
+            f"{benchmark_module.REPRESENTATIVE_CASE_ID}.json",
+        ).read_text()
+    )
+    assert record["status"] == "failed"
+    assert record["returncode"] == 7
+    assert record["stdout"] == "partial telemetry"
+
+
+def test_run_paired_charges_nonzero_process_fem_before_failure(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    trash = tmp_path / "Trash"
+    root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "validation",
+        now=lambda: datetime(2026, 7, 14, 6, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+    fixture = json.loads(root.joinpath("fixture.json").read_text())
+    case = _case(fixture, benchmark_module.REPRESENTATIVE_CASE_ID)
+    counts = case["expected_counts"]["baseline"]
+
+    with pytest.raises(RuntimeError, match="return code 9"):
+        benchmark_module.run_paired(
+            root,
+            benchmark_module.REPRESENTATIVE_CASE_ID,
+            command_runner=lambda command: {
+                "returncode": 9,
+                "stdout": json.dumps(
+                    {
+                        "generated": 2,
+                        "copied": 0,
+                        "skipped_existing": 0,
+                        "failed": 1,
+                        "skipped_dependency": 0,
+                        "benchmark_counts": counts,
+                    }
+                ),
+                "stderr": "late process failure",
+            },
+            artifact_comparator=lambda *args: {"pass": True},
+            trash_root=trash,
+        )
+
+    summary = json.loads(root.joinpath("benchmark_summary.json").read_text())
+    assert summary["status"] == "paired_failed"
+    assert summary["completed_fem_solve_count"] == 2
+    assert summary["execution_records"][0]["counts"]["fem_solve_count"] == 2
+
+
+def test_run_paired_conservatively_charges_malformed_failed_fem_count(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    trash = tmp_path / "Trash"
+    root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "validation",
+        now=lambda: datetime(2026, 7, 14, 7, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+    malformed = {
+        "matlab_process_count": 3,
+        "fem_solve_count": "invalid",
+        "derived_task_count": 0,
+        "copy_count": 0,
+        "skip_count": 0,
+    }
+    with pytest.raises(RuntimeError, match="return code 9"):
+        benchmark_module.run_paired(
+            root,
+            benchmark_module.REPRESENTATIVE_CASE_ID,
+            command_runner=lambda command: {
+                "returncode": 9,
+                "stdout": json.dumps(
+                    {
+                        "generated": 1,
+                        "failed": 1,
+                        "skipped_dependency": 1,
+                        "benchmark_counts": malformed,
+                    }
+                ),
+                "stderr": "malformed failure",
+            },
+            artifact_comparator=lambda *args: {"pass": True},
+            trash_root=trash,
+        )
+    summary = json.loads(root.joinpath("benchmark_summary.json").read_text())
+    assert summary["status"] == "paired_failed"
+    assert summary["completed_fem_solve_count"] == 2
+    assert summary["execution_records"][0]["fem_count_accounting"].startswith(
+        "conservative_expected"
+    )
+
+
+def test_paired_root_claim_is_atomic_and_persistent(
+    benchmark_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "prepared"
+    root.mkdir()
+    root.joinpath("benchmark_summary.json").write_text(
+        json.dumps({"status": "prepared"}), encoding="utf-8"
+    )
+    benchmark_module._claim_paired_root(root)
+    assert root.joinpath(".paired_gate_claim", "claim.json").is_file()
+    with pytest.raises(ValueError, match="already claimed"):
+        benchmark_module._claim_paired_root(root)
+
+
+def test_run_paired_rejects_protected_root_before_claim(
+    benchmark_module: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authoritative = tmp_path / "authoritative"
+    root = authoritative / "benchmark"
+    root.mkdir(parents=True)
+    fixture = benchmark_module.load_fixture(FIXTURE_PATH)
+    fixture["protected_roots"] = [str(authoritative)]
+    root.joinpath("fixture.json").write_text(
+        json.dumps(fixture), encoding="utf-8"
+    )
+    root.joinpath("benchmark_summary.json").write_text(
+        json.dumps({"status": "prepared"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        benchmark_module, "AUTHORITATIVE_LEADDBS_ROOT", authoritative
+    )
+    with pytest.raises(ValueError, match="authoritative derivatives"):
+        benchmark_module.run_paired(
+            root, benchmark_module.REPRESENTATIVE_CASE_ID
+        )
+    assert not root.joinpath(".paired_gate_claim").exists()
+
+
+def test_representative_fem_bound_rejects_excess(
+    benchmark_module: ModuleType,
+) -> None:
+    benchmark_module._assert_representative_fem_bound(16)
+    with pytest.raises(ValueError, match="exceeded"):
+        benchmark_module._assert_representative_fem_bound(17)
+
+
+def test_compare_case_outputs_accepts_equal_arrays_and_rejects_drift(
+    benchmark_module: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    nib = pytest.importorskip("nibabel")
+    np = pytest.importorskip("numpy")
+    reference_root = tmp_path / "compatibility"
+    candidate_root = tmp_path / "persistent"
+    reference_leaf = reference_root / "leaf"
+    candidate_leaf = candidate_root / "leaf"
+    values = np.asarray([0, 179, 181, 199, 201, 219, 221, 300], dtype=np.float32)
+    values = values.reshape((2, 2, 2))
+    affine = np.eye(4)
+
+    def write_leaf(leaf: Path, data: Any) -> None:
+        leaf.mkdir(parents=True, exist_ok=True)
+        nib.save(nib.Nifti1Image(data, affine), leaf / "efield.nii.gz")
+        for threshold in (180.0, 200.0, 220.0):
+            mask = (data >= threshold).astype(np.uint8)
+            nib.save(
+                nib.Nifti1Image(mask, affine),
+                leaf / benchmark_module.threshold_filename(threshold),
+            )
+
+    write_leaf(reference_leaf, values)
+    write_leaf(candidate_leaf, values.copy())
+    model = SimpleNamespace(thresholds_v_per_m=(180.0, 200.0, 220.0))
+    source = SimpleNamespace(source_id="source-1")
+    reference_task = SimpleNamespace(
+        kind=benchmark_module.TaskKind.ALTERNATING_SOURCE,
+        sources=(source,),
+        model=model,
+        leaf=reference_leaf,
+    )
+    candidate_task = SimpleNamespace(
+        kind=benchmark_module.TaskKind.ALTERNATING_SOURCE,
+        sources=(source,),
+        model=model,
+        leaf=candidate_leaf,
+    )
+    monkeypatch.setattr(
+        benchmark_module,
+        "resolve_case_tasks",
+        lambda study, model_path, case: (
+            (reference_task,) if reference_root in study.parents else (candidate_task,)
+        ),
+    )
+    monkeypatch.setattr(
+        benchmark_module,
+        "leaf_directory",
+        lambda task, space: task.leaf,
+    )
+
+    result = benchmark_module.compare_case_outputs(
+        reference_root, candidate_root, {}, ("native",)
+    )
+    assert result["pass"] is True
+    assert result["rows"][0]["exact_values"] is True
+
+    drifted = values.copy()
+    drifted.flat[-1] += 0.002
+    write_leaf(candidate_leaf, drifted)
+    with pytest.raises(ValueError, match="1e-3 V/m"):
+        benchmark_module.compare_case_outputs(
+            reference_root, candidate_root, {}, ("native",)
+        )
 
 
 def _subject(

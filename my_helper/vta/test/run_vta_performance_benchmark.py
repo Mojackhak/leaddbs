@@ -25,8 +25,12 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from my_helper.fiber.core.vta_pipeline.artifacts import (  # noqa: E402
+    atomic_copy_missing,
     expected_artifacts,
+    leaf_status,
+    missing_artifacts,
     move_leaf_to_trash,
+    threshold_filename,
 )
 from my_helper.fiber.core.vta_pipeline.config import load_vta_model  # noqa: E402
 from my_helper.fiber.core.vta_pipeline.matlab_bridge import (  # noqa: E402
@@ -49,6 +53,7 @@ from my_helper.fiber.core.vta_pipeline.process_monitor import (  # noqa: E402
     ProcessTreeMemoryMonitor,
 )
 from my_helper.fiber.core.vta_pipeline.service import (  # noqa: E402
+    RunSummary,
     RunService,
     prepare_plan,
 )
@@ -75,6 +80,14 @@ EXPECTED_PAIR_ORDER = (
     ("candidate", "baseline"),
     ("baseline", "candidate"),
 )
+REPRESENTATIVE_CASE_ID = "snr003_t2_p2_l_alternating"
+REPRESENTATIVE_PAIR_ORDER = (
+    ("compatibility_per_task", "persistent_subject"),
+    ("persistent_subject", "compatibility_per_task"),
+    ("compatibility_per_task", "persistent_subject"),
+)
+EXECUTION_PATHS = ("compatibility_per_task", "persistent_subject")
+REPRESENTATIVE_FEM_LIMIT = 16
 CURRENT_PAYLOAD = {
     "case_id": "R_single_cathode_case_return",
     "hemisphere": "R",
@@ -92,6 +105,18 @@ CURRENT_PAYLOAD = {
 
 
 CommandRunner = Callable[[Sequence[str]], Any]
+ArtifactComparator = Callable[
+    [Path, Path, Mapping[str, Any], Sequence[str]], Mapping[str, Any]
+]
+
+
+class _BenchmarkAttemptFailure(RuntimeError):
+    """Carry a persisted failed attempt record back to the paired state machine."""
+
+    def __init__(self, record: Mapping[str, Any], cause: BaseException) -> None:
+        super().__init__(str(cause))
+        self.record = dict(record)
+        self.cause = cause
 
 
 def load_fixture(path: Path | str = FIXTURE_PATH) -> dict[str, Any]:
@@ -442,6 +467,30 @@ def build_baseline_command(
     return tuple(command)
 
 
+def build_case_command(
+    study_base_path: Path | str,
+    vta_model_path: Path | str,
+    selector: Mapping[str, Any],
+    *,
+    execution_path: str,
+    python_executable: str = sys.executable,
+) -> tuple[str, ...]:
+    """Build one isolated benchmark case command for an explicit path."""
+
+    if execution_path not in EXECUTION_PATHS:
+        raise ValueError(f"Unsupported benchmark execution path: {execution_path}")
+    command = list(
+        build_baseline_command(
+            study_base_path,
+            vta_model_path,
+            selector,
+            python_executable=python_executable,
+        )
+    )
+    command.extend(("--execution-path", execution_path))
+    return tuple(command)
+
+
 def assert_expected_counts(
     actual: Mapping[str, Any],
     expected: Mapping[str, Any],
@@ -534,6 +583,427 @@ def run_baseline(
         trash_root=trash_root,
     )
     return summary
+
+
+def run_paired(
+    benchmark_root: Path | str,
+    case_id: str,
+    *,
+    command_runner: CommandRunner | None = None,
+    artifact_comparator: ArtifactComparator | None = None,
+    trash_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Run the bounded representative compatibility/candidate comparison."""
+
+    root = Path(benchmark_root).expanduser().resolve()
+    fixture = _read_json_object(root / "fixture.json", "resolved fixture")
+    if fixture.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError("Resolved benchmark fixture has an invalid schema")
+    if case_id != REPRESENTATIVE_CASE_ID:
+        raise ValueError(
+            "The paired real-FEM gate only permits the documented "
+            f"representative case: {REPRESENTATIVE_CASE_ID}"
+        )
+    matches = [
+        case
+        for case in fixture.get("cases", ())
+        if case.get("case_id") == case_id
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"Representative case must resolve exactly once: {case_id}")
+    case = matches[0]
+    protected_roots = tuple(
+        Path(path).expanduser().resolve()
+        for path in fixture.get("protected_roots", ())
+    )
+    _reject_protected_path(root, (AUTHORITATIVE_LEADDBS_ROOT, *protected_roots))
+    _claim_paired_root(root)
+    runner = command_runner or _run_subprocess
+    comparator = artifact_comparator or compare_case_outputs
+    records: list[dict[str, Any]] = []
+    fem_count = 0
+    warmups: list[dict[str, Any]] = []
+    pairs: list[dict[str, Any]] = []
+    _publish_paired_state(
+        root,
+        status="paired_in_progress",
+        case_id=case_id,
+        records=records,
+        fem_count=fem_count,
+        trash_root=trash_root,
+    )
+    try:
+        for execution_path in EXECUTION_PATHS:
+            record = _run_paired_path(
+                root,
+                fixture,
+                case,
+                execution_path=execution_path,
+                run_label=f"warmup-{execution_path}",
+                repetition_index=None,
+                command_runner=runner,
+                trash_root=trash_root,
+            )
+            warmups.append(record)
+            records.append(record)
+            fem_count += record["counts"]["fem_solve_count"]
+            _assert_representative_fem_bound(fem_count)
+            _publish_paired_state(
+                root,
+                status="paired_in_progress",
+                case_id=case_id,
+                records=records,
+                fem_count=fem_count,
+                trash_root=trash_root,
+            )
+
+        for repetition_index, order in enumerate(
+            REPRESENTATIVE_PAIR_ORDER, start=1
+        ):
+            by_path: dict[str, dict[str, Any]] = {}
+            for order_index, execution_path in enumerate(order, start=1):
+                record = _run_paired_path(
+                    root,
+                    fixture,
+                    case,
+                    execution_path=execution_path,
+                    run_label=(
+                        f"pair-{repetition_index:02d}-order-{order_index}-"
+                        f"{execution_path}"
+                    ),
+                    repetition_index=repetition_index,
+                    command_runner=runner,
+                    trash_root=trash_root,
+                )
+                by_path[execution_path] = record
+                records.append(record)
+                fem_count += record["counts"]["fem_solve_count"]
+                _assert_representative_fem_bound(fem_count)
+                _publish_paired_state(
+                    root,
+                    status="paired_in_progress",
+                    case_id=case_id,
+                    records=records,
+                    fem_count=fem_count,
+                    trash_root=trash_root,
+                )
+            try:
+                comparison = dict(
+                    comparator(
+                        Path(
+                            by_path["compatibility_per_task"]["working_root"]
+                        ),
+                        Path(by_path["persistent_subject"]["working_root"]),
+                        case,
+                        tuple(fixture["spaces"]),
+                    )
+                )
+                if comparison.get("pass") is not True:
+                    raise ValueError(
+                        "Numerical artifact comparison failed for pair "
+                        f"{repetition_index}"
+                    )
+                pair = {
+                    "status": "completed",
+                    "repetition_index": repetition_index,
+                    "order": list(order),
+                    "runs": by_path,
+                    "artifact_comparison": comparison,
+                }
+            except BaseException as error:
+                pair = {
+                    "status": "failed",
+                    "repetition_index": repetition_index,
+                    "order": list(order),
+                    "runs": by_path,
+                    "error_type": type(error).__name__,
+                    "error": str(error),
+                }
+                _publish_json(
+                    root
+                    / "runs"
+                    / f"pair-{repetition_index:02d}-comparison.json",
+                    pair,
+                    trash_root=trash_root,
+                )
+                raise
+            _publish_json(
+                root / "runs" / f"pair-{repetition_index:02d}-comparison.json",
+                pair,
+                trash_root=trash_root,
+            )
+            pairs.append(pair)
+    except _BenchmarkAttemptFailure as failure:
+        failed_record = failure.record
+        records.append(failed_record)
+        fem_count += _failed_attempt_fem_charge(failed_record, case)
+        _publish_paired_state(
+            root,
+            status="paired_failed",
+            case_id=case_id,
+            records=records,
+            fem_count=fem_count,
+            trash_root=trash_root,
+            error=failure.cause,
+        )
+        _assert_representative_fem_bound(fem_count)
+        raise failure.cause
+    except BaseException as error:
+        _publish_paired_state(
+            root,
+            status="paired_failed",
+            case_id=case_id,
+            records=records,
+            fem_count=fem_count,
+            trash_root=trash_root,
+            error=error,
+        )
+        raise
+
+    medians = {
+        execution_path: statistics.median(
+            record["wall_seconds"]
+            for record in records
+            if record["repetition_index"] is not None
+            and record["path"] == execution_path
+        )
+        for execution_path in EXECUTION_PATHS
+    }
+    ratio = medians["persistent_subject"] / medians["compatibility_per_task"]
+    summary = {
+        "schema_version": SCHEMA_VERSION,
+        "status": "paired_complete",
+        "candidate_binding": "persistent_subject",
+        "case_id": case_id,
+        "warmups": warmups,
+        "measured_pairs": pairs,
+        "completed_fem_solve_count": fem_count,
+        "completed_fem_solve_limit": REPRESENTATIVE_FEM_LIMIT,
+        "median_wall_seconds": medians,
+        "persistent_to_compatibility_ratio": ratio,
+        "representative_25_percent_target_pass": ratio <= 0.75,
+        "numerical_gate_pass": True,
+        "three_worker_memory_gate": "not_measured",
+    }
+    _publish_json(root / "benchmark_summary.json", summary, trash_root=trash_root)
+    return summary
+
+
+def _claim_paired_root(root: Path) -> None:
+    prior_summary = _read_json_object(
+        root / "benchmark_summary.json", "benchmark summary"
+    )
+    if prior_summary.get("status") != "prepared":
+        raise ValueError(
+            "A paired benchmark root is single-use and must be in prepared state"
+        )
+    claim = root / ".paired_gate_claim"
+    try:
+        claim.mkdir()
+    except FileExistsError as error:
+        raise ValueError("The paired benchmark root is already claimed") from error
+    current_summary = _read_json_object(
+        root / "benchmark_summary.json", "benchmark summary"
+    )
+    if current_summary.get("status") != "prepared":
+        raise ValueError("The paired benchmark root changed while being claimed")
+    _write_new_json(
+        claim / "claim.json",
+        {
+            "schema_version": SCHEMA_VERSION,
+            "pid": os.getpid(),
+            "claimed_at_utc": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
+def _failed_attempt_fem_charge(
+    record: dict[str, Any], case: Mapping[str, Any]
+) -> int:
+    counts = record.get("counts")
+    if isinstance(counts, Mapping):
+        value = counts.get("fem_solve_count")
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            record["fem_count_accounting"] = "observed"
+            return value
+    expected_key = (
+        "baseline"
+        if record.get("path") == "compatibility_per_task"
+        else "candidate"
+    )
+    expected = _mapping(
+        _mapping(case.get("expected_counts"), "expected counts").get(expected_key),
+        f"{expected_key} expected counts",
+    )
+    value = expected.get("fem_solve_count")
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError("Representative expected FEM count is invalid")
+    record["fem_count_accounting"] = (
+        "conservative_expected_due_to_missing_or_malformed_observed_count"
+    )
+    return value
+
+
+def _publish_paired_state(
+    root: Path,
+    *,
+    status: str,
+    case_id: str,
+    records: Sequence[Mapping[str, Any]],
+    fem_count: int,
+    trash_root: Path | str | None,
+    error: BaseException | None = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "status": status,
+        "candidate_binding": "persistent_subject",
+        "case_id": case_id,
+        "completed_fem_solve_count": fem_count,
+        "completed_fem_solve_limit": REPRESENTATIVE_FEM_LIMIT,
+        "execution_records": list(records),
+        "three_worker_memory_gate": "not_measured",
+    }
+    if error is not None:
+        payload.update(
+            {"error_type": type(error).__name__, "error": str(error)}
+        )
+    _publish_json(root / "benchmark_summary.json", payload, trash_root=trash_root)
+
+
+def _run_paired_path(
+    root: Path,
+    fixture: Mapping[str, Any],
+    case: Mapping[str, Any],
+    *,
+    execution_path: str,
+    run_label: str,
+    repetition_index: int | None,
+    command_runner: CommandRunner,
+    trash_root: Path | str | None,
+) -> dict[str, Any]:
+    run_directory = root / "runs" / run_label
+    _move_conflict_to_trash(run_directory, trash_root=trash_root)
+    run_directory.mkdir(parents=True)
+    working = root / "working" / run_label / execution_path / str(case["case_id"])
+    record: dict[str, Any] = {
+        "case_id": case["case_id"],
+        "path": execution_path,
+        "run_label": run_label,
+        "repetition_index": repetition_index,
+        "working_root": str(working),
+        "status": "in_progress",
+    }
+    record_path = run_directory / f"{case['case_id']}.json"
+    _publish_json(record_path, record, trash_root=trash_root)
+    started = time.perf_counter()
+    try:
+        working = restore_snapshot(
+            root / str(case["snapshot"]),
+            working,
+            trash_root=trash_root,
+            protected_roots=fixture.get("protected_roots", ()),
+        )
+        command = build_case_command(
+            working / "study_base.json",
+            working / "vta_model.yaml",
+            _mapping(case.get("selector"), "representative selector"),
+            execution_path=execution_path,
+        )
+        record["command"] = list(command)
+        _publish_json(record_path, record, trash_root=trash_root)
+        result = command_runner(command)
+        returncode, stdout, stderr, supplied_counts = _command_result(result)
+        record.update(
+            {
+                "returncode": returncode,
+                "stderr": stderr,
+                "stdout": stdout,
+            }
+        )
+        run_summary: Mapping[str, Any] | None = None
+        try:
+            run_summary = _parse_run_summary(stdout)
+        except ValueError:
+            if returncode == 0:
+                raise
+        if run_summary is not None:
+            reported_counts = run_summary.get("benchmark_counts")
+            if supplied_counts is not None:
+                counts = supplied_counts
+            elif isinstance(reported_counts, Mapping):
+                counts = dict(reported_counts)
+            else:
+                counts = None
+            record.update(
+                {
+                    "run_summary": dict(run_summary),
+                    "process_observations": run_summary.get(
+                        "process_observations", []
+                    ),
+                    "memory_observation": run_summary.get(
+                        "memory_observation"
+                    ),
+                    "artifact_inventory": run_summary.get(
+                        "artifact_inventory", []
+                    ),
+                }
+            )
+            if counts is not None:
+                record["counts"] = counts
+        if returncode != 0:
+            raise RuntimeError(
+                f"{execution_path} failed for {case['case_id']} with return code "
+                f"{returncode}: {stderr.strip()}"
+            )
+        if run_summary is None:
+            raise ValueError(f"{execution_path} emitted no JSON run summary")
+        if run_summary.get("failed", 0) or run_summary.get(
+            "skipped_dependency", 0
+        ):
+            raise RuntimeError(f"{execution_path} reported a task failure")
+        counts = record.get("counts")
+        if not isinstance(counts, Mapping):
+            raise ValueError(
+                f"{execution_path} emitted no observed execution counts"
+            )
+        expected_key = (
+            "baseline"
+            if execution_path == "compatibility_per_task"
+            else "candidate"
+        )
+        assert_expected_counts(counts, case["expected_counts"][expected_key])
+        record.update(
+            {
+                "status": "completed",
+            }
+        )
+    except BaseException as error:
+        record.update(
+            {
+                "status": "failed",
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+        )
+        record["wall_seconds"] = time.perf_counter() - started
+        _publish_json(record_path, record, trash_root=trash_root)
+        raise _BenchmarkAttemptFailure(record, error) from error
+    record["wall_seconds"] = time.perf_counter() - started
+    _publish_json(
+        record_path,
+        record,
+        trash_root=trash_root,
+    )
+    return record
+
+
+def _assert_representative_fem_bound(completed_count: int) -> None:
+    if completed_count > REPRESENTATIVE_FEM_LIMIT:
+        raise ValueError(
+            "Representative benchmark exceeded the approved completed FEM "
+            f"limit: {completed_count} > {REPRESENTATIVE_FEM_LIMIT}"
+        )
 
 
 def _run_suite(
@@ -862,11 +1332,12 @@ def _run_subprocess(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
 
 
 class _RecordingBridge:
-    """Thread-safe observation collector around the compatibility bridge."""
+    """Thread-safe observation collector around either MATLAB bridge API."""
 
     def __init__(self, delegate: MatlabBridge) -> None:
         self._delegate = delegate
         self._observations = []
+        self._bridge_call_count = 0
         self._lock = threading.Lock()
 
     @property
@@ -874,11 +1345,180 @@ class _RecordingBridge:
         with self._lock:
             return tuple(self._observations)
 
+    @property
+    def bridge_call_count(self) -> int:
+        with self._lock:
+            return self._bridge_call_count
+
     def run_task(self, task: VtaTask, context: TaskRunContext) -> Any:
-        observation = self._delegate.run_task(task, context)
+        with self._lock:
+            self._bridge_call_count += 1
+        try:
+            observation = self._delegate.run_task(task, context)
+        except Exception as error:
+            self._record_partial(error)
+            raise
+        self._record(observation)
+        return observation
+
+    def run_subject_manifest(self, subject: SubjectPlan, run_id: str) -> Any:
+        with self._lock:
+            self._bridge_call_count += 1
+        try:
+            observation = self._delegate.run_subject_manifest(subject, run_id)
+        except Exception as error:
+            self._record_partial(error)
+            raise
+        self._record(observation)
+        return observation
+
+    def _record_partial(self, error: Exception) -> None:
+        partial = getattr(error, "partial_observation", None)
+        if partial is not None:
+            self._record(partial)
+
+    def _record(self, observation: Any) -> None:
         with self._lock:
             self._observations.append(observation)
-        return observation
+
+
+class _CompatibilityPerTaskService:
+    """Preserve the pre-persistent per-task execution path for benchmarking."""
+
+    def __init__(self, bridge: _RecordingBridge, *, run_id: str) -> None:
+        self.bridge = bridge
+        self.run_id = run_id
+
+    def run(
+        self,
+        subjects: tuple[SubjectPlan, ...],
+        *,
+        workers: int,
+        resume: bool,
+        force: bool,
+    ) -> RunSummary:
+        if workers != WORKER_COUNT:
+            raise ValueError(f"Benchmark workers must be exactly {WORKER_COUNT}")
+        if resume or force:
+            raise ValueError("Compatibility benchmark requires a restored snapshot")
+        if len(subjects) != 1:
+            raise ValueError(
+                "Compatibility representative benchmark requires one subject"
+            )
+        summary = RunSummary()
+        for subject in subjects:
+            summary += self._run_subject(subject)
+        return summary
+
+    def _run_subject(self, subject: SubjectPlan) -> RunSummary:
+        summary = RunSummary()
+        blocked: set[str] = set()
+        reuse_owners: dict[tuple[object, ...], str] = {}
+        for task in subject.tasks:
+            owner_id = reuse_owners.setdefault(
+                equivalent_task_key(task), task.task_id
+            )
+            if any(dependency in blocked for dependency in task.dependencies):
+                blocked.add(task.task_id)
+                summary += RunSummary(skipped_dependency=1)
+                continue
+            if owner_id in blocked and not self._task_is_complete(task):
+                blocked.add(task.task_id)
+                summary += RunSummary(skipped_dependency=1)
+                continue
+            try:
+                outcome = self._run_task(task, subject)
+            except Exception:
+                blocked.add(task.task_id)
+                summary += RunSummary(failed=1)
+                continue
+            summary += RunSummary(**{outcome: 1})
+        return summary
+
+    @staticmethod
+    def _task_is_complete(task: VtaTask) -> bool:
+        return all(
+            leaf_status(
+                leaf_directory(task, space), task.model.thresholds_v_per_m
+            ).value
+            == "complete"
+            for space in task.model.spaces
+        )
+
+    def _run_task(self, task: VtaTask, subject: SubjectPlan) -> str:
+        leaves = {
+            space: leaf_directory(task, space) for space in task.model.spaces
+        }
+        if all(
+            leaf_status(leaf, task.model.thresholds_v_per_m).value == "complete"
+            for leaf in leaves.values()
+        ):
+            return "skipped_existing"
+        copied = self._copy_from_equivalent_groups(task, subject, leaves)
+        missing = {
+            space: tuple(
+                path.name
+                for path in missing_artifacts(
+                    leaf, task.model.thresholds_v_per_m
+                )
+            )
+            for space, leaf in leaves.items()
+        }
+        missing = {space: names for space, names in missing.items() if names}
+        if not missing:
+            return "copied" if copied else "skipped_existing"
+        self.bridge.run_task(
+            task,
+            TaskRunContext(
+                run_id=self.run_id,
+                output_leaves=leaves,
+                missing_artifacts=missing,
+            ),
+        )
+        for leaf in leaves.values():
+            absent = [
+                path
+                for path in expected_artifacts(
+                    leaf, task.model.thresholds_v_per_m
+                )
+                if not path.is_file()
+            ]
+            if absent:
+                raise RuntimeError(
+                    f"Compatibility task left missing artifacts: {absent[0]}"
+                )
+        return "generated"
+
+    @staticmethod
+    def _copy_from_equivalent_groups(
+        task: VtaTask,
+        subject: SubjectPlan,
+        leaves: Mapping[str, Path],
+    ) -> bool:
+        copied = False
+        task_key = equivalent_task_key(task)
+        donors = tuple(
+            candidate
+            for candidate in (subject.reuse_candidates or subject.tasks)
+            if candidate.subject_id == task.subject_id
+            and candidate.task_id != task.task_id
+            and equivalent_task_key(candidate) == task_key
+        )
+        for space, leaf in leaves.items():
+            for destination in expected_artifacts(
+                leaf, task.model.thresholds_v_per_m
+            ):
+                if destination.is_file():
+                    continue
+                for donor in donors:
+                    source = leaf_directory(donor, space) / destination.name
+                    if source.is_file():
+                        copied = (
+                            atomic_copy_missing(source, destination) == "copied"
+                            or copied
+                        )
+                        break
+        return copied
 
 
 def _execute_case(
@@ -887,6 +1527,7 @@ def _execute_case(
     selector: Mapping[str, Any],
     *,
     workers: int,
+    execution_path: str = "compatibility_per_task",
 ) -> dict[str, Any]:
     if workers != WORKER_COUNT:
         raise ValueError(f"Benchmark workers must be exactly {WORKER_COUNT}")
@@ -904,12 +1545,21 @@ def _execute_case(
     bridge = _RecordingBridge(
         MatlabBridge(repo_root=_REPO_ROOT, memory_monitor=monitor)
     )
-    started = time.perf_counter()
-    try:
-        summary = RunService(
+    if execution_path == "compatibility_per_task":
+        service: Any = _CompatibilityPerTaskService(
             bridge,
             run_id=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"),
-        ).run(
+        )
+    elif execution_path == "persistent_subject":
+        service = RunService(
+            bridge,
+            run_id=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"),
+        )
+    else:
+        raise ValueError(f"Unsupported benchmark execution path: {execution_path}")
+    started = time.perf_counter()
+    try:
+        summary = service.run(
             prepared.subjects,
             workers=workers,
             resume=False,
@@ -926,7 +1576,7 @@ def _execute_case(
     )
     derived_task_count = sum(
         task_kind_by_id.get(outcome.task_id) is TaskKind.ALTERNATING_GROUP_PEAK
-        and outcome.status in {"generated", "recovered_complete"}
+        and outcome.status == "generated"
         for observation in observations
         for outcome in observation.outcomes
     )
@@ -944,6 +1594,8 @@ def _execute_case(
         "process_observations": [asdict(item) for item in observations],
         "memory_observation": asdict(memory),
         "artifact_inventory": _artifact_inventory(tasks),
+        "execution_path": execution_path,
+        "bridge_call_count": bridge.bridge_call_count,
     }
 
 
@@ -965,6 +1617,208 @@ def _artifact_inventory(tasks: tuple[VtaTask, ...]) -> list[dict[str, Any]]:
     return inventory
 
 
+def compare_case_outputs(
+    compatibility_root: Path,
+    persistent_root: Path,
+    case: Mapping[str, Any],
+    spaces: Sequence[str],
+) -> dict[str, Any]:
+    """Compare paired canonical outputs on semantically corresponding tasks."""
+
+    import nibabel as nib
+    import numpy as np
+
+    reference_tasks = resolve_case_tasks(
+        compatibility_root / "study_base.json",
+        compatibility_root / "vta_model.yaml",
+        case,
+    )
+    candidate_tasks = resolve_case_tasks(
+        persistent_root / "study_base.json",
+        persistent_root / "vta_model.yaml",
+        case,
+    )
+    if len(reference_tasks) != len(candidate_tasks):
+        raise ValueError("Paired benchmark task counts differ")
+    rows: list[dict[str, Any]] = []
+    for task_index, (reference_task, candidate_task) in enumerate(
+        zip(reference_tasks, candidate_tasks, strict=True), start=1
+    ):
+        if (
+            reference_task.kind is not candidate_task.kind
+            or tuple(source.source_id for source in reference_task.sources)
+            != tuple(source.source_id for source in candidate_task.sources)
+        ):
+            raise ValueError("Paired benchmark semantic task identities differ")
+        exact = reference_task.kind is TaskKind.ALTERNATING_GROUP_PEAK
+        for space in spaces:
+            reference_leaf = leaf_directory(reference_task, space)
+            candidate_leaf = leaf_directory(candidate_task, space)
+            reference_image = nib.load(str(reference_leaf / "efield.nii.gz"))
+            candidate_image = nib.load(str(candidate_leaf / "efield.nii.gz"))
+            reference = np.asarray(reference_image.dataobj, dtype=np.float64)
+            candidate = np.asarray(candidate_image.dataobj, dtype=np.float64)
+            row = _compare_efield_arrays(
+                reference,
+                candidate,
+                np.asarray(reference_image.affine, dtype=np.float64),
+                np.asarray(candidate_image.affine, dtype=np.float64),
+                exact=exact,
+            )
+            row.update(
+                {
+                    "task_index": task_index,
+                    "task_kind": reference_task.kind.value,
+                    "source_ids": [
+                        source.source_id for source in reference_task.sources
+                    ],
+                    "space": space,
+                    "thresholds": [],
+                }
+            )
+            for threshold in reference_task.model.thresholds_v_per_m:
+                reference_vta_image = nib.load(
+                    str(reference_leaf / threshold_filename(threshold))
+                )
+                candidate_vta_image = nib.load(
+                    str(candidate_leaf / threshold_filename(threshold))
+                )
+                reference_vta = np.asarray(reference_vta_image.dataobj) != 0
+                candidate_vta = np.asarray(candidate_vta_image.dataobj) != 0
+                expected_reference = np.isfinite(reference) & (reference >= threshold)
+                expected_candidate = np.isfinite(candidate) & (candidate >= threshold)
+                if not np.array_equal(reference_vta, expected_reference):
+                    raise ValueError(
+                        "Compatibility VTA does not equal thresholded E-field"
+                    )
+                if not np.array_equal(candidate_vta, expected_candidate):
+                    raise ValueError(
+                        "Persistent VTA does not equal thresholded E-field"
+                    )
+                if not np.array_equal(
+                    reference_vta_image.affine, reference_image.affine
+                ):
+                    raise ValueError("Compatibility VTA affine differs from E-field")
+                if not np.array_equal(
+                    candidate_vta_image.affine, candidate_image.affine
+                ):
+                    raise ValueError("Persistent VTA affine differs from E-field")
+                threshold_row = _compare_vta_masks(
+                    reference_vta,
+                    candidate_vta,
+                    reference,
+                    candidate,
+                    float(threshold),
+                    exact=exact,
+                )
+                row["thresholds"].append(threshold_row)
+            rows.append(row)
+    return {"pass": True, "rows": rows}
+
+
+def _compare_efield_arrays(
+    reference: Any,
+    candidate: Any,
+    reference_affine: Any,
+    candidate_affine: Any,
+    *,
+    exact: bool,
+) -> dict[str, Any]:
+    import numpy as np
+
+    if reference.shape != candidate.shape:
+        raise ValueError("Paired E-field dimensions differ")
+    reference_finite = np.isfinite(reference)
+    candidate_finite = np.isfinite(candidate)
+    if not np.array_equal(reference_finite, candidate_finite):
+        raise ValueError("Paired E-field finite masks differ")
+    values = reference[reference_finite]
+    candidates = candidate[candidate_finite]
+    if values.size == 0 or max(float(np.max(np.abs(values))), 0.0) == 0:
+        raise ValueError("Paired E-fields contain no finite nonzero signal")
+    affine_max_abs = float(np.max(np.abs(candidate_affine - reference_affine)))
+    difference = candidates - values
+    value_max_abs = float(np.max(np.abs(difference))) if difference.size else 0.0
+    denominator = float(np.linalg.norm(values))
+    relative_l2 = float(np.linalg.norm(difference) / denominator)
+    if np.array_equal(values, candidates):
+        correlation = 1.0
+    else:
+        correlation = float(np.corrcoef(values, candidates)[0, 1])
+    exact_values = bool(np.array_equal(reference, candidate, equal_nan=True))
+    if affine_max_abs > 1e-12:
+        raise ValueError("Paired E-field affine difference exceeds 1e-12")
+    if value_max_abs > 1e-3:
+        raise ValueError("Paired E-field value difference exceeds 1e-3 V/m")
+    if relative_l2 > 1e-5:
+        raise ValueError("Paired E-field relative L2 exceeds 1e-5")
+    if not np.isfinite(correlation) or correlation < 0.999999:
+        raise ValueError("Paired E-field correlation is below 0.999999")
+    if exact and not exact_values:
+        raise ValueError("Derived group-peak E-field is not exactly repeatable")
+    return {
+        "shape": list(reference.shape),
+        "finite_voxel_count": int(values.size),
+        "affine_max_abs": affine_max_abs,
+        "value_max_abs_v_per_m": value_max_abs,
+        "relative_l2": relative_l2,
+        "correlation": correlation,
+        "exact_values": exact_values,
+    }
+
+
+def _compare_vta_masks(
+    reference_mask: Any,
+    candidate_mask: Any,
+    reference_efield: Any,
+    candidate_efield: Any,
+    threshold: float,
+    *,
+    exact: bool,
+) -> dict[str, Any]:
+    import numpy as np
+
+    discordant = np.logical_xor(reference_mask, candidate_mask)
+    reference_count = int(np.count_nonzero(reference_mask))
+    candidate_count = int(np.count_nonzero(candidate_mask))
+    total = reference_count + candidate_count
+    intersection = int(np.count_nonzero(reference_mask & candidate_mask))
+    dice = 1.0 if total == 0 else 2.0 * intersection / total
+    volume_denominator = max(reference_count, 1)
+    relative_volume_difference = (
+        abs(candidate_count - reference_count) / volume_denominator
+    )
+    if np.any(discordant):
+        near_reference = np.abs(reference_efield[discordant] - threshold) <= 1e-3
+        near_candidate = np.abs(candidate_efield[discordant] - threshold) <= 1e-3
+        discordant_near_threshold = bool(np.all(near_reference & near_candidate))
+    else:
+        discordant_near_threshold = True
+    exact_masks = bool(np.array_equal(reference_mask, candidate_mask))
+    if dice < 0.999:
+        raise ValueError(f"VTA Dice is below 0.999 at {threshold:g} V/m")
+    if relative_volume_difference > 0.001:
+        raise ValueError(
+            f"VTA relative volume difference exceeds 0.1% at {threshold:g} V/m"
+        )
+    if not discordant_near_threshold:
+        raise ValueError(
+            f"VTA discordance is not threshold-local at {threshold:g} V/m"
+        )
+    if exact and not exact_masks:
+        raise ValueError("Derived group-peak VTA is not exactly repeatable")
+    return {
+        "threshold_v_per_m": threshold,
+        "reference_voxel_count": reference_count,
+        "candidate_voxel_count": candidate_count,
+        "discordant_voxel_count": int(np.count_nonzero(discordant)),
+        "dice": dice,
+        "relative_volume_difference": relative_volume_difference,
+        "discordant_near_threshold": discordant_near_threshold,
+        "exact_masks": exact_masks,
+    }
+
+
 def _case_runner_main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--study-base", type=Path, required=True)
@@ -975,6 +1829,11 @@ def _case_runner_main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--electrode", required=True)
     parser.add_argument("--frequency-group", required=True)
     parser.add_argument("--workers", type=int, required=True)
+    parser.add_argument(
+        "--execution-path",
+        choices=EXECUTION_PATHS,
+        default="compatibility_per_task",
+    )
     args = parser.parse_args(argv)
     result = _execute_case(
         args.study_base,
@@ -987,9 +1846,16 @@ def _case_runner_main(argv: Sequence[str] | None = None) -> int:
             "frequency_group_id": args.frequency_group,
         },
         workers=args.workers,
+        execution_path=args.execution_path,
     )
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
-    return 1 if result["failed"] or result["skipped_dependency"] else 0
+    return (
+        1
+        if result["failed"]
+        or result["skipped_dependency"]
+        or result.get("subject_process_failed", 0)
+        else 0
+    )
 
 
 def _validate_synthetic_payload(payload: Mapping[str, Any]) -> None:
@@ -1352,12 +2218,19 @@ def _build_parser() -> argparse.ArgumentParser:
         command.add_argument("--fixture", type=Path, default=FIXTURE_PATH)
         if mode != "validate":
             command.add_argument("--work-root", type=Path, required=True)
+    paired = commands.add_parser("run-paired")
+    paired.add_argument("--benchmark-root", type=Path, required=True)
+    paired.add_argument("--case", required=True)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
+        if args.mode == "run-paired":
+            run_paired(args.benchmark_root, args.case)
+            print(args.benchmark_root / "benchmark_summary.json")
+            return 0
         if args.mode == "validate":
             result = validate_benchmark_inputs(
                 args.study_base,
