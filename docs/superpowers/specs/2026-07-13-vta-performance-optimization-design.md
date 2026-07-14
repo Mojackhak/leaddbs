@@ -75,6 +75,12 @@ absolute native difference `0.04443359375 V/m`, relative L2
 unchanged during recovery. This is numerical evidence only; the paired real-FEM
 performance baseline remains unmeasured.
 
+The first representative attempt completed two compatibility warm-up FEM
+solves before a missing `native_anchor_load` timing-stage registry entry stopped
+export. The failed root is retained. A registry-only repair and tightly
+validated warm-up credit allow the linked replacement root to run at most 14
+additional FEM solves, preserving the aggregate 16-FEM bound.
+
 This status does not claim a measured runtime improvement. The real FEM
 baseline, candidate comparison, and three-worker memory gate have not run.
 The production CLI default remains one worker until that gate passes. Slices 8

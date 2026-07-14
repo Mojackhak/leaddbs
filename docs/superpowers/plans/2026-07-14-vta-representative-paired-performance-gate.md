@@ -92,6 +92,22 @@ total maximum = 16 FEM
 The harness aborts if observed completed FEM count exceeds this bound. A failed
 or interrupted attempt is recorded from telemetry and is not silently retried.
 
+The first single-use root,
+`vta_performance_benchmark_20260714T110925763267Z`, stopped after both
+compatibility warm-up FEM solves because the newly emitted
+`native_anchor_load` timing stage was missing from the allowed registry. The
+root remains immutable failed evidence with `2` completed FEM solves and is not
+reused.
+
+After that registry-only repair, one new root may explicitly credit this failed
+root as the compatibility warm-up only when its summary proves exactly two
+`fem_pcg_solve` executions for the same case and path, no generated artifacts,
+and failure identifier `mh_vta:InvalidTimingStage` naming
+`native_anchor_load`. The recovery run skips only the compatibility warm-up,
+runs the persistent warm-up and all three measured pairs, and therefore performs
+at most 14 new FEM solves. The linked aggregate remains the original 16-FEM
+bound. No other failure reason or partial solve can receive warm-up credit.
+
 ## Snapshot And Isolation Contract
 
 The benchmark root is timestamped under the validation root. Before every path
@@ -196,7 +212,8 @@ Add:
 ```bash
 python my_helper/vta/test/run_vta_performance_benchmark.py run-paired \
   --benchmark-root <prepared-root> \
-  --case snr003_t2_p2_l_alternating
+  --case snr003_t2_p2_l_alternating \
+  --credited-compatibility-warmup-root <failed-root>
 ```
 
 Prepare this gate with:
@@ -213,6 +230,8 @@ python my_helper/vta/test/run_vta_performance_benchmark.py prepare \
 `run-paired --case` is required and resolves exactly one declared fixture case.
 This gate rejects other case IDs. `prepare --case` is repeatable in the general
 harness, but the warm donor option requires exactly one selected warm case.
+`--credited-compatibility-warmup-root` is optional and accepted only under the
+exact failed-stage contract above; otherwise both warm-ups run normally.
 Existing unfiltered `validate`, `prepare`, and `run-baseline` interfaces remain
 available; `run-baseline` is historical and is not used for this gate.
 

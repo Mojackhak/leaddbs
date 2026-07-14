@@ -41,6 +41,13 @@ repair does not load reconstruction geometry, replaced head-model files
 invalidate memory entries, and direct export calls without an exact head-model
 identity remain uncached. No real FEM run is claimed by this slice.
 
+The first representative real-FEM attempt exposed one registry omission:
+`native_anchor_load` was emitted by the implemented cache path but was absent
+from the MATLAB and Python allowed timing-stage registries. Both source FEM
+solves completed before MATLAB rejected the stage. The repair adds this exact
+stage to both registries and regression tests; it does not change FEM,
+interpolation, export, or cache behavior.
+
 ## Ownership And Lifetime
 
 `mh_vta_run_canonical_subject_manifest` creates exactly one subject runtime

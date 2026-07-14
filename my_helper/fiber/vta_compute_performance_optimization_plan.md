@@ -50,6 +50,13 @@ three thresholds. The MNI contract and production-tree safety gate passed.
 The real-FEM performance baseline, FEM reuse, and post-reuse acceptance remain
 planned work.
 
+The first representative paired attempt completed two compatibility warm-up
+FEM solves, then stopped at export because `native_anchor_load` was not in the
+allowed timing-stage registry. This is an instrumentation registry defect, not
+a numerical FEM failure. The failed root is retained. After the registry repair,
+the linked recovery credits only those two verified warm-up solves and limits
+the new root to 14 FEM, preserving the aggregate 16-FEM acceptance bound.
+
 This document defines a performance optimization plan for the canonical
 VTA/E-field pipeline. It does not authorize a scientific model change, an
 artifact-contract change, or a model rerun.
