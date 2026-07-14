@@ -262,6 +262,10 @@ def prepare_subject(
         "subject_dir": str(subject.subject_dir),
         "preparation_identity": identity,
         "identity_document": identity_document,
+        "generation_provenance": {
+            "lead_dbs_git_commit": validation.lead_dbs_git_commit,
+            "preparation_code_hash": validation.preparation_code_hash,
+        },
         "artifacts": artifacts,
         "rois": final_rois,
     }

@@ -103,6 +103,7 @@ def publish_subject(
     subject: ResolvedSubjectInputs,
     preparation: Mapping[str, Any],
     seed_results: Mapping[str, Mapping[str, Any]],
+    run_provenance: Mapping[str, str],
 ) -> dict[str, Any]:
     """Publish every changed seed-side TCK as one recoverable subject transaction."""
 
@@ -155,6 +156,7 @@ def publish_subject(
         "configuration_hash": config.configuration_hash,
         "subject_id": subject.subject_id,
         "subject_dir": str(subject.subject_dir),
+        "run_provenance": dict(run_provenance),
         "preparation_identity": preparation["preparation_identity"],
         "published_artifacts": prior.get("published_artifacts", []),
         "publication_intent": desired,
@@ -212,6 +214,7 @@ def publish_subject(
         "configuration_hash": config.configuration_hash,
         "subject_id": subject.subject_id,
         "subject_dir": str(subject.subject_dir),
+        "run_provenance": dict(run_provenance),
         "preparation_identity": preparation["preparation_identity"],
         "seed_results": {
             key: {

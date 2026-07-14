@@ -18,6 +18,15 @@ from ..tck import write_selected_tck
 from .helpers import minimal_document
 
 
+RUN_PROVENANCE = {
+    "lead_dbs_git_commit": "0" * 40,
+    "code_hash": "code",
+    "preparation_code_hash": "preparation",
+    "tracking_code_hash": "tracking",
+    "publication_code_hash": "publication",
+}
+
+
 def _resolved_subject(subject_dir: Path) -> ResolvedSubjectInputs:
     dummy = subject_dir / "dummy"
     return ResolvedSubjectInputs(
@@ -85,6 +94,7 @@ def test_fresh_publication_and_unchanged_reuse_preserve_tck_mtime(
         subject=subject,
         preparation={"preparation_identity": "prep"},
         seed_results={"lh/Seed": result},
+        run_provenance=RUN_PROVENANCE,
     )
     assert first["status"] == "complete"
     final = subject.output_root / "tractograms" / "lh" / "Seed" / "seedwide.tck"
@@ -104,6 +114,7 @@ def test_fresh_publication_and_unchanged_reuse_preserve_tck_mtime(
         subject=subject,
         preparation={"preparation_identity": "prep"},
         seed_results={"lh/Seed": result},
+        run_provenance=RUN_PROVENANCE,
     )
     assert second["generated_artifacts"] == 0
     assert second["reused_artifacts"] == 2
@@ -131,5 +142,6 @@ def test_unknown_final_collision_is_never_overwritten(tmp_path: Path) -> None:
             subject=subject,
             preparation={"preparation_identity": "prep"},
             seed_results={"lh/Seed": _seed_result(tmp_path)},
+            run_provenance=RUN_PROVENANCE,
         )
     assert final.read_bytes() == b"unknown"

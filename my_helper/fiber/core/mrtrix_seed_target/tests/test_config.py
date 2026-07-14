@@ -11,6 +11,7 @@ from .. import cli
 from ..cli import build_parser
 from ..config import load_config, resolve_config
 from ..errors import ConfigurationError
+from ..identity import git_head_commit
 from ..validation import _layer_paths
 from .helpers import minimal_document
 
@@ -107,3 +108,10 @@ def test_code_identity_layers_do_not_cross_invalidate_scientific_work() -> None:
     assert "tracking.py" not in preparation
     assert "tracking.py" in tracking
     assert "publication.py" in publication
+
+
+def test_git_head_commit_is_recorded_as_full_sha() -> None:
+    repo_root = Path(__file__).resolve().parents[5]
+    commit = git_head_commit(repo_root)
+    assert len(commit) == 40
+    assert set(commit).issubset(set("0123456789abcdef"))

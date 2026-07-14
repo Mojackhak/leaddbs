@@ -11,7 +11,7 @@ import numpy as np
 from .config import load_config
 from .discovery import discover_subject, iter_all_roi_paths
 from .errors import ValidationError
-from .identity import file_sha256, implementation_hash
+from .identity import file_sha256, git_head_commit, implementation_hash
 from .models import BatchConfig, ValidationBundle
 from .tools import resolve_tool_identities
 
@@ -211,6 +211,7 @@ def validate_config(path: Path | str) -> ValidationBundle:
     subjects = tuple(discover_subject(subject) for subject in config.subjects)
     tools = resolve_tool_identities(config)
     repo_root = Path(__file__).resolve().parents[4]
+    lead_dbs_git_commit = git_head_commit(repo_root)
     code_hash = implementation_hash(_implementation_paths(repo_root))
     preparation_code_hash = implementation_hash(
         _layer_paths(repo_root, "preparation")
@@ -236,6 +237,7 @@ def validate_config(path: Path | str) -> ValidationBundle:
         subjects=subjects,
         tools=tools,
         source_roi_hashes=source_hashes,
+        lead_dbs_git_commit=lead_dbs_git_commit,
         code_hash=code_hash,
         preparation_code_hash=preparation_code_hash,
         tracking_code_hash=tracking_code_hash,

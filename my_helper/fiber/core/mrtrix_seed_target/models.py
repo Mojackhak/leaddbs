@@ -150,6 +150,7 @@ class ValidationBundle:
     subjects: tuple[ResolvedSubjectInputs, ...]
     tools: Mapping[str, ToolIdentity]
     source_roi_hashes: Mapping[str, str]
+    lead_dbs_git_commit: str
     code_hash: str
     preparation_code_hash: str
     tracking_code_hash: str
@@ -162,6 +163,7 @@ class ValidationBundle:
         return {
             "status": "valid",
             "configuration_hash": self.config.configuration_hash,
+            "lead_dbs_git_commit": self.lead_dbs_git_commit,
             "code_hash": self.code_hash,
             "code_hashes": {
                 "preparation": self.preparation_code_hash,

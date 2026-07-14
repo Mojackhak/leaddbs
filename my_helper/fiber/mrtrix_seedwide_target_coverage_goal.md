@@ -578,10 +578,13 @@ MATLAB preparation helper at
 `my_helper/fiber/core/tracking/mh_fiber_prepare_mrtrix_seed_target_subject.m`.
 
 The final pre-formal gate used code identity
-`9a65eee04dad09210bf8afef4860f85d0dd2fd7420ac987b50b9bad462332bc0`.
+`e3fd2b06f5b282360617decf873dfdfcb830dc38cc1c2460344f94af11a857b7`
+and explicitly recorded both the current Lead-DBS Git HEAD and the layered
+content hashes. The content hashes remain authoritative when the worktree is
+dirty.
 Its automated results were:
 
-- 22 focused Python tests passed;
+- 23 focused Python tests passed;
 - 77 existing normative-connectivity tests passed, one was skipped, and 27
   subtests passed;
 - Python compilation and `git diff --check` passed.
@@ -590,10 +593,10 @@ The final real-data test run completed all four subject-side units:
 
 | Subject | Seed | Mother | GPi | PPN | Minimum |
 |---|---|---:|---:|---:|---:|
-| `sub-SNr003` | `lh/STNSNrplus` | 50,000 | 13,674 | 5,531 | 5,531 |
-| `sub-SNr003` | `rh/STNSNrplus` | 50,000 | 14,198 | 2,813 | 2,813 |
-| `sub-SNr007` | `lh/STNSNrplus` | 50,000 | 12,939 | 5,999 | 5,999 |
-| `sub-SNr007` | `rh/STNSNrplus` | 50,000 | 17,093 | 8,149 | 8,149 |
+| `sub-SNr003` | `lh/STNSNrplus` | 50,000 | 13,658 | 5,387 | 5,387 |
+| `sub-SNr003` | `rh/STNSNrplus` | 50,000 | 14,294 | 2,926 | 2,926 |
+| `sub-SNr007` | `lh/STNSNrplus` | 50,000 | 12,873 | 5,922 | 5,922 |
+| `sub-SNr007` | `rh/STNSNrplus` | 50,000 | 17,226 | 8,175 | 8,175 |
 
 All twelve public files were structurally valid TCKs whose counts and hashes
 matched state. Every transformed seed and cleaned target was binary, nonempty,

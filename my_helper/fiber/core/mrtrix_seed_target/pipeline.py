@@ -40,6 +40,18 @@ def _thaw(value: Any) -> Any:
     return value
 
 
+def _run_provenance(validation: ValidationBundle) -> dict[str, str]:
+    """Return the current commit plus layered content identities."""
+
+    return {
+        "lead_dbs_git_commit": validation.lead_dbs_git_commit,
+        "code_hash": validation.code_hash,
+        "preparation_code_hash": validation.preparation_code_hash,
+        "tracking_code_hash": validation.tracking_code_hash,
+        "publication_code_hash": validation.publication_code_hash,
+    }
+
+
 @contextmanager
 def _subject_lock(work_root: Path) -> Iterator[None]:
     work_root.mkdir(parents=True, exist_ok=True)
@@ -152,6 +164,7 @@ def _process_subject(
             subject=subject,
             preparation=preparation,
             seed_results=ordered_results,
+            run_provenance=_run_provenance(validation),
         )
         return {
             **publication,
@@ -226,6 +239,7 @@ def run_batch(
     return {
         "status": "complete" if not failed else "partial_failure",
         "configuration_hash": validation.config.configuration_hash,
+        "run_provenance": _run_provenance(validation),
         "subjects": ordered,
         "completed_subjects": len(ordered) - len(failed),
         "failed_subjects": len(failed),
@@ -294,6 +308,7 @@ def status_batch(path: Path | str) -> dict[str, Any]:
                 "status": status,
                 "output_root": str(output_root),
                 "configuration_hash": state.get("configuration_hash"),
+                "run_provenance": state.get("run_provenance", {}),
                 "seed_results": state.get("seed_results", {}),
                 "artifact_count": len(state.get("published_artifacts", [])),
                 "artifact_errors": artifact_errors,

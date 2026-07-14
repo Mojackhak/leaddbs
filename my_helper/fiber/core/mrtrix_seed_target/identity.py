@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 from typing import Any, Iterable, Mapping
 
 
@@ -47,3 +48,27 @@ def implementation_hash(paths: Iterable[Path]) -> str:
         digest.update(file_sha256(path).encode("ascii"))
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def git_head_commit(repo_root: Path | str) -> str:
+    """Return the exact current Git HEAD commit for provenance reporting."""
+
+    root = Path(repo_root).resolve()
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"cannot resolve Git HEAD under {root}: {exc}") from exc
+    commit = result.stdout.strip().lower()
+    if result.returncode != 0 or len(commit) != 40 or any(
+        character not in "0123456789abcdef" for character in commit
+    ):
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"cannot resolve Git HEAD under {root}: {detail}")
+    return commit
