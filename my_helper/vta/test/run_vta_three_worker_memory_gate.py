@@ -131,7 +131,13 @@ def _is_matlab_process(process: psutil.Process) -> bool:
         name = process.name().lower()
     except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
         return False
-    return name == "matlab" or name.startswith("matlab_")
+    return name in {
+        "matlab",
+        "matlab.exe",
+        "matlab_maca64",
+        "matlab_maci64",
+        "matlab_glnxa64",
+    }
 
 
 def observe_matlab_processes(

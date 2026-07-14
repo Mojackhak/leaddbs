@@ -134,8 +134,9 @@ class FakeProcess:
 
 def test_sampled_overlap_counts_only_live_matlab_roots() -> None:
     nested = FakeProcess(20)
+    expected_helper = FakeProcess(21, name="matlab_helper")
     processes = {
-        1: FakeProcess(1, children=(nested,)),
+        1: FakeProcess(1, children=(nested, expected_helper)),
         2: FakeProcess(2),
         3: FakeProcess(3, running=False),
     }
