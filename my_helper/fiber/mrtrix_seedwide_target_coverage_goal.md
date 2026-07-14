@@ -398,6 +398,13 @@ reuse and audit. No density NIfTI, CSV, VTK, FTR, MAT display file, figure,
 VTA/e-field result, SIFT/SIFT2 result, or normative connectivity ranking is
 produced.
 
+On external filesystems where macOS creates AppleDouble `._*` metadata files,
+the publisher must treat those sidecars as post-publication cleanup artifacts.
+It must move them to the platform Trash rather than permanently delete them.
+An AppleDouble cleanup failure is reported as `cleanup_pending`; it never
+silently weakens the requirement that the public `tractograms` tree contain
+only the declared TCK artifacts.
+
 Each target TCK contains exactly the subset of the published mother TCK that
 hit the corresponding cleaned target under the recorded classifier. Its
 streamline count must equal `n_t`. The mother count and all target counts are
@@ -419,6 +426,14 @@ Identity is layered:
   derived RNG seed;
 - published artifact identity covers content hash, canonical path, producer
   completion record, and structural TCK count.
+
+Code identity is layered by dependency rather than represented by one global
+invalidation switch. Preparation identity hashes only preparation/discovery,
+transform, ROI, FOD, and directly used shared code. Seed-wide identity hashes
+only tracking, TCK, classifier, RNG, and directly used shared scientific code.
+Publication/scheduler/CLI code has its own provenance hash but must not
+invalidate unchanged FODs, ROIs, chunks, or tractograms merely because a
+non-scientific publication behavior changes.
 
 Although chunk and maximum sizes appear under `execution`, they affect the
 sampled scientific result and therefore enter seed-wide identity.
@@ -553,6 +568,42 @@ The formal configuration is:
 ```text
 /Volumes/VAL/STNSNr/config/mrtrix_seed_target.yaml
 ```
+
+### Implementation and Real-Test Gate Record (2026-07-14)
+
+The standalone implementation is present under
+`my_helper/fiber/core/mrtrix_seed_target/`, with the public executable at
+`my_helper/fiber/pipelines/mrtrix-seed-target` and the isolated Lead-DBS
+MATLAB preparation helper at
+`my_helper/fiber/core/tracking/mh_fiber_prepare_mrtrix_seed_target_subject.m`.
+
+The final pre-formal gate used code identity
+`9a65eee04dad09210bf8afef4860f85d0dd2fd7420ac987b50b9bad462332bc0`.
+Its automated results were:
+
+- 22 focused Python tests passed;
+- 77 existing normative-connectivity tests passed, one was skipped, and 27
+  subtests passed;
+- Python compilation and `git diff --check` passed.
+
+The final real-data test run completed all four subject-side units:
+
+| Subject | Seed | Mother | GPi | PPN | Minimum |
+|---|---|---:|---:|---:|---:|
+| `sub-SNr003` | `lh/STNSNrplus` | 50,000 | 13,674 | 5,531 | 5,531 |
+| `sub-SNr003` | `rh/STNSNrplus` | 50,000 | 14,198 | 2,813 | 2,813 |
+| `sub-SNr007` | `lh/STNSNrplus` | 50,000 | 12,939 | 5,999 | 5,999 |
+| `sub-SNr007` | `rh/STNSNrplus` | 50,000 | 17,093 | 8,149 | 8,149 |
+
+All twelve public files were structurally valid TCKs whose counts and hashes
+matched state. Every transformed seed and cleaned target was binary, nonempty,
+on the exact native-B0 grid, and had zero cleaned seed-target overlap. No
+cleanup remained pending and no process exceeded its configured memory
+reservation. A second unchanged run reported both preparations, all four
+seed-wide units, and all twelve public artifacts as reused; it generated zero
+public artifacts and left every public SHA-256, byte size, and nanosecond mtime
+unchanged. Therefore the real-test gate is passed and formal validation is
+authorized as the next step.
 
 After all automated and real-data test gates pass, execute:
 

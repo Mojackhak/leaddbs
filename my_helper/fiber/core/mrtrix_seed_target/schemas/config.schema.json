@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "atlas", "subjects", "tracking", "execution"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "atlas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "space", "root", "seeds"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "space": {"const": "MNI152NLin2009bAsym"},
+        "root": {"type": "string", "minLength": 1},
+        "seeds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/seed"}
+        }
+      }
+    },
+    "subjects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/subject"}
+    },
+    "tracking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_streamlines_per_target",
+        "fod_cutoff",
+        "min_length_mm",
+        "max_length_mm",
+        "random_seed"
+      ],
+      "properties": {
+        "minimum_streamlines_per_target": {"type": "integer", "minimum": 1},
+        "fod_cutoff": {"type": "number", "exclusiveMinimum": 0},
+        "min_length_mm": {"type": "number", "exclusiveMinimum": 0},
+        "max_length_mm": {"type": "number", "exclusiveMinimum": 0},
+        "random_seed": {"type": "integer", "minimum": 1, "maximum": 2147483646}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_workers",
+        "preparation_threads_per_subject",
+        "seedwide_workers_per_subject",
+        "mrtrix_threads_per_seedwide_job",
+        "cpu_budget",
+        "memory_budget_gb",
+        "memory_dispatch_fraction",
+        "preparation_memory_reservation_gb",
+        "seedwide_memory_reservation_gb",
+        "generation_chunk_streamlines",
+        "maximum_seedwide_streamlines",
+        "matlab_executable",
+        "mrtrix_path_prefix"
+      ],
+      "properties": {
+        "subject_workers": {"type": "integer", "minimum": 1},
+        "preparation_threads_per_subject": {"type": "integer", "minimum": 1},
+        "seedwide_workers_per_subject": {"type": "integer", "minimum": 1},
+        "mrtrix_threads_per_seedwide_job": {"type": "integer", "minimum": 1},
+        "cpu_budget": {"type": "integer", "minimum": 1},
+        "memory_budget_gb": {"type": "number", "exclusiveMinimum": 0},
+        "memory_dispatch_fraction": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "preparation_memory_reservation_gb": {"type": "number", "exclusiveMinimum": 0},
+        "seedwide_memory_reservation_gb": {"type": "number", "exclusiveMinimum": 0},
+        "generation_chunk_streamlines": {"type": "integer", "minimum": 1},
+        "maximum_seedwide_streamlines": {"type": "integer", "minimum": 1},
+        "matlab_executable": {"type": "string", "minLength": 1},
+        "mrtrix_path_prefix": {"type": "string"}
+      }
+    }
+  },
+  "$defs": {
+    "safeId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "side": {"enum": ["lh", "rh", "midline"]},
+    "roi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "side", "path"],
+      "properties": {
+        "id": {"$ref": "#/$defs/safeId"},
+        "side": {"$ref": "#/$defs/side"},
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "seed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "side", "path", "targets"],
+      "properties": {
+        "id": {"$ref": "#/$defs/safeId"},
+        "side": {"$ref": "#/$defs/side"},
+        "path": {"type": "string", "minLength": 1},
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/roi"}
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "subject_dir"],
+      "properties": {
+        "id": {"$ref": "#/$defs/safeId"},
+        "subject_dir": {"type": "string", "minLength": 1},
+        "paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dwi": {"type": "string", "minLength": 1},
+            "bvec": {"type": "string", "minLength": 1},
+            "bval": {"type": "string", "minLength": 1},
+            "b0": {"type": "string", "minLength": 1},
+            "brain_mask": {"type": "string", "minLength": 1},
+            "tracking_mask": {"type": "string", "minLength": 1},
+            "anchor_native_reference": {"type": "string", "minLength": 1},
+            "mni_to_anchor_transform": {"type": "string", "minLength": 1},
+            "anchor_to_dwi_transform": {"type": "string", "minLength": 1},
+            "coregistration_method_log": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    }
+  }
+}
