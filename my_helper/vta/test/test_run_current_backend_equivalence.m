@@ -112,6 +112,16 @@ verifyError(testCase, @() run_current_backend_equivalence( ...
     'run_current_backend_equivalence:InvalidRecoveryReason');
 end
 
+function testRecoveryGuardsCurrentRunRatherThanHistoricalDrift(testCase)
+source = fileread(which('run_current_backend_equivalence'));
+verifyFalse(testCase, contains(source, ...
+    'run_current_backend_equivalence:ProductionTreeChanged'));
+verifyTrue(testCase, contains(source, ...
+    'source_tree_changed_since_original_acceptance'));
+verifyTrue(testCase, contains(source, ...
+    'production_subject_tree_unchanged_during_recovery'));
+end
+
 function testCompareExistingUsesNoFemAndRefreshesMetrics(testCase)
 runRoot = tempname;
 mkdir(runRoot);

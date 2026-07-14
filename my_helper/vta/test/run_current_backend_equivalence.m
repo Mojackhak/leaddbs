@@ -674,11 +674,8 @@ copiedSubject = must_be_folder(manifest.copied_subject, ...
 sourceSubject = must_be_folder(manifest.source_subject, ...
     'production Lead-DBS subject directory');
 sourceHashBeforeRecovery = directory_inventory_hash(sourceSubject);
-if ~strcmp(sourceHashBeforeRecovery, ...
-        char(string(manifest.source_tree_sha256_before)))
-    error('run_current_backend_equivalence:ProductionTreeChanged', ...
-        'Production subject tree changed since the original acceptance run.');
-end
+sourceChangedSinceOriginal = ~strcmp(sourceHashBeforeRecovery, ...
+    char(string(manifest.source_tree_sha256_before)));
 
 caseId = oneCase.case_id;
 standardRoot = fullfile(runRoot, 'outputs', 'simbio', caseId);
@@ -703,6 +700,9 @@ recoveryStartedAt = timestamp_iso();
 manifest.recovery_attempt_count = recoveryAttempt;
 manifest.recovery_started_at = recoveryStartedAt;
 manifest.recovery_completed_at = '';
+manifest.source_tree_sha256_before_recovery = sourceHashBeforeRecovery;
+manifest.source_tree_changed_since_original_acceptance = ...
+    sourceChangedSinceOriginal;
 manifest.accumulated_fem_solve_count = ...
     double(manifest.planned_fem_solve_count) + recoveryAttempt;
 manifest.pass = false;
@@ -724,6 +724,10 @@ summary.recovery_attempt_count = recoveryAttempt;
 summary.latest_recovery_fem_solve_count = 1;
 summary.standard_reference_reused = true;
 summary.recovery_reason = char(string(recoveryReason));
+summary.production_subject_tree_changed_since_original_acceptance = ...
+    sourceChangedSinceOriginal;
+summary.production_subject_tree_unchanged_during_recovery = ...
+    productionTreeUnchanged;
 summary.production_subject_tree_unchanged = productionTreeUnchanged;
 summary.pass = summary.comparison_gates_passed && productionTreeUnchanged;
 replace_json_safely(fullfile(runRoot, 'acceptance_summary.json'), ...
@@ -732,6 +736,8 @@ replace_json_safely(fullfile(runRoot, 'acceptance_summary.json'), ...
 manifest.recovery_completed_at = timestamp_iso();
 manifest.latest_recovery_fem_solve_count = 1;
 manifest.source_tree_sha256_after_recovery = sourceHashAfterRecovery;
+manifest.production_subject_tree_unchanged_during_recovery = ...
+    productionTreeUnchanged;
 manifest.pass = summary.pass;
 replace_json_safely(manifestPath, manifest, trashRoot);
 

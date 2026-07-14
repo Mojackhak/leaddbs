@@ -197,6 +197,12 @@ solve and records an explicit `RecoveryReason`; the default reason is
 `canonical_backend_post_runtime_cache_validation`. The reason is provenance
 only and does not alter the numerical gate.
 
+Candidate recovery is self-contained in the frozen copied subject. It records
+whether the production subject tree has changed since the original acceptance,
+but historical drift does not block recovery. The mandatory safety gate is
+that the production tree hash immediately before and after the recovery is
+identical; recovery must not mutate the current production tree.
+
 Historical voltage outputs can likewise be re-compared without FEM:
 
 ```matlab
