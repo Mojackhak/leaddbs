@@ -145,6 +145,7 @@ class ObservedServiceOutput:
     subject_order: tuple[str, ...]
     feature_axis: FeatureAxisRef | None
     artifacts: tuple[TaskArtifact, ...] = ()
+    input_status: str = "valid"
 
     @classmethod
     def empty(cls) -> "ObservedServiceOutput":
@@ -157,15 +158,20 @@ class ObservedServiceOutput:
             adjacent_support=None,
             subject_order=(),
             feature_axis=None,
+            input_status="not_applicable",
         )
 
     def task_result(self) -> TaskResult:
-        accepted = self.source_status in ACCEPTED_SOURCE_STATUSES
+        accepted = (
+            self.input_status == "valid"
+            and self.source_status in ACCEPTED_SOURCE_STATUSES
+        )
         return TaskResult(
             status=TaskStatus.COMPLETED,
             detail="observed_service_completed",
             facts={
                 "source_accepted": accepted,
+                "input_status": self.input_status,
                 "source_status": self.source_status,
                 "prediction_status": self.prediction_status,
                 "threshold_source": self.threshold_source,

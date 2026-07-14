@@ -82,10 +82,11 @@ def test_scan_fallback_priority_after_unstable_primary() -> None:
         base_row(tau=180, coverage=5, fold_n_voxels_min=12),
         base_row(tau=220, coverage=5, fold_n_voxels_min=14),
         base_row(tau=220, coverage=6, fold_n_voxels_min=14),
+        base_row(tau=250, coverage=5, fold_n_voxels_min=14),
     ]
     resolved = resolve_hf_source(rows, primary_tau=200, primary_coverage=5)
     assert_equal(resolved["source_status"], HF_SOURCE_SCAN_FALLBACK, "fallback source accepted")
-    assert_equal(resolved["selected_tau"], 220, "fallback tie chooses higher fold support before coverage")
+    assert_equal(resolved["selected_tau"], 220, "fallback selects nearest stable tau")
     assert_equal(resolved["selected_coverage"], 5, "fallback selected coverage")
 
 
@@ -127,8 +128,13 @@ def test_branch_nuisance_design_status() -> None:
     )
     assert_equal(
         branch_nuisance_design_status(y_hf_ref=y_hf_ref, delta_hfscore=np.ones_like(y_hf_ref)),
-        "invalid_nuisance_design",
+        "invalid_delta_reference_scaling",
         "constant DeltaHFScore",
+    )
+    assert_equal(
+        branch_nuisance_design_status(y_hf_ref=y_hf_ref, delta_hfscore=2.0 * y_hf_ref + 3.0),
+        "invalid_nuisance_design",
+        "collinear DeltaHFScore",
     )
 
 

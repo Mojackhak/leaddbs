@@ -62,3 +62,64 @@ belong to the predecessor multi-profile runtime. They are not modified by this
 profile addition. The new direct-voxel profiles are configuration contracts for
 the upcoming loader/runner refactor and do not imply that the current legacy
 entrypoint already consumes them.
+
+## Three-Layer Test Strategy
+
+The smoke profile is one of three complementary test layers. It cannot provide
+complete branch coverage because source, prediction, branch, fallback, and
+terminal statuses are data-dependent and mutually exclusive.
+
+1. The real-data end-to-end smoke uses `direct_voxel_model_test.yaml`. It checks
+   catalog construction, both configured scales, observed execution, resolver
+   dispatch, final-model realization, formal/sensitivity dispatch, and artifact
+   writing. A required downstream stage that is silently skipped does not count
+   as a passing success-path smoke.
+2. Pure state-machine unit tests provide deterministic truth-table coverage for
+   source status, prediction status, branch permission, one-way fallback, and
+   `no_final_model`. They do not run LOOCV or resampling.
+3. Small deterministic exposure/outcome integration fixtures execute the real
+   statistical kernels, fold-local scoring, resolver, prediction classifier,
+   and branch-specific nuisance checks.
+
+The integration fixture uses fixed `float64` arrays with 16 subjects, 32
+voxels, 24 signal voxels, 8 background voxels, and the complete production
+tau/Coverage grid. It does not draw random numbers at test time. Define
+`z = linspace(-1.5, 1.5, 16)`, signal loadings from `0.8` through `1.2`, and
+deterministic sinusoidal voxel variation. Background exposure remains below the
+lowest production tau.
+
+The locked source fixtures are:
+
+```text
+pre-specified: b=260, s=20 -> tau200/Coverage5 accepted with >=2 neighbors
+scan fallback: b=190, s=4  -> tau200 fails; tau180/Coverage5 selected
+absent:        all exposure <100 V/m -> no stable grid
+```
+
+Predictive and nonpredictive outcomes are fixed arrays whose expected MAE/RMSE
+relations are verified through the production LOOCV implementation. Resolver
+selection must not inspect MAE, RMSE, Q2, or rho. A single `4x4x2` synthetic
+NIfTI checks the array-input adapter; state fixtures remain NumPy-only.
+
+The adjusted nuisance covariate is always standardized. Full-sample descriptive
+fitting uses the full-sample mean and population standard deviation. Every
+LOOCV fit uses only that training fold's mean and population standard deviation
+and applies those locked values to its held-out subject. Fold-scaling tests must
+prove that changing a held-out value cannot change training-row standardized
+values.
+
+For the adjusted add-on branch, a constant or otherwise non-scalable
+DeltaReferenceScore has:
+
+```text
+branch_nuisance_design_status = invalid_delta_reference_scaling
+```
+
+General full-sample or fold-specific rank deficiency has:
+
+```text
+branch_nuisance_design_status = invalid_nuisance_design
+```
+
+Either status fails only the adjusted branch. The no-delta branch remains
+independently executable.

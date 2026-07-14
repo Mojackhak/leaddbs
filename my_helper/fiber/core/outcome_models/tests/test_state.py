@@ -48,16 +48,20 @@ class StateMachineTests(unittest.TestCase):
         self.assertEqual(decision.executable_branches, ("no_delta_hf", "delta_hf_adjusted"))
         self.assertEqual(decision.delta_hfscore_role, "stable_error_nonpredictive_hf_adjustment_sensitivity")
 
-    def test_hf_unavailable_runs_no_delta_only(self) -> None:
-        for hf in (
-            source("absent_no_stable_grid", "not_applicable", tau=None),
-            source("", "not_applicable", input_status="input_failure", tau=None),
-        ):
-            with self.subTest(hf=hf):
-                decision = intended_ulf_branches(hf, delta_hf_input_valid=False)
-                self.assertEqual(decision.intended_primary_branch, "no_delta_hf")
-                self.assertEqual(decision.executable_branches, ("no_delta_hf",))
-                self.assertEqual(decision.delta_hfscore_role, "not_run_no_stable_hf_source")
+    def test_hf_source_absent_runs_no_delta_only(self) -> None:
+        hf = source("absent_no_stable_grid", "not_applicable", tau=None)
+        decision = intended_ulf_branches(hf, delta_hf_input_valid=False)
+        self.assertEqual(decision.intended_primary_branch, "no_delta_hf")
+        self.assertEqual(decision.executable_branches, ("no_delta_hf",))
+        self.assertEqual(decision.delta_hfscore_role, "not_run_no_stable_hf_source")
+
+    def test_hf_input_failure_is_a_dependency_failure(self) -> None:
+        hf = source("", "not_applicable", input_status="input_failure", tau=None)
+        intended = intended_ulf_branches(hf, delta_hf_input_valid=False)
+        self.assertEqual(intended.intended_primary_branch, "none")
+        self.assertEqual(intended.executable_branches, ())
+        final = realize_ulf_final(hf, {})
+        self.assertEqual(final.final_status, "dependency_failure")
 
     def test_adjusted_input_failure_preserves_intended_role_and_allows_no_delta_fallback(self) -> None:
         hf = source("pre_specified_accepted", "error_predictive")
@@ -68,7 +72,11 @@ class StateMachineTests(unittest.TestCase):
         final = realize_ulf_final(
             hf,
             {
-                "delta_hf_adjusted": branch("delta_hf_adjusted", None, input_status="invalid_delta_hfscore"),
+                "delta_hf_adjusted": branch(
+                    "delta_hf_adjusted",
+                    None,
+                    input_status="invalid_delta_reference_scaling",
+                ),
                 "no_delta_hf": branch(
                     "no_delta_hf",
                     source("pre_specified_accepted", "error_nonpredictive"),
@@ -99,7 +107,7 @@ class StateMachineTests(unittest.TestCase):
         self.assertEqual(final.final_role, "primary")
         self.assertEqual(final.final_status, "final_model_error_predictive")
 
-    def test_unstable_intended_branch_does_not_promote_comparison_branch(self) -> None:
+    def test_absent_adjusted_source_allows_no_delta_fallback(self) -> None:
         hf = source("pre_specified_accepted", "error_predictive")
         final = realize_ulf_final(
             hf,
@@ -114,9 +122,9 @@ class StateMachineTests(unittest.TestCase):
                 ),
             },
         )
-        self.assertIsNone(final.final_branch)
-        self.assertEqual(final.final_role, "no_final_model")
-        self.assertEqual(final.final_status, "no_final_model_absent_no_stable_grid")
+        self.assertEqual(final.final_branch, "no_delta_hf")
+        self.assertEqual(final.final_role, "fallback_final")
+        self.assertEqual(final.final_status, "final_model_error_predictive")
 
     def test_no_delta_input_failure_cannot_fallback_to_adjusted(self) -> None:
         hf = source("pre_specified_accepted", "error_nonpredictive")
@@ -133,6 +141,45 @@ class StateMachineTests(unittest.TestCase):
         self.assertIsNone(final.final_branch)
         self.assertEqual(final.final_role, "no_final_model")
         self.assertEqual(final.final_status, "no_final_model_input_failure")
+
+    def test_absent_no_delta_source_cannot_promote_adjusted(self) -> None:
+        hf = source("pre_specified_accepted", "error_nonpredictive")
+        final = realize_ulf_final(
+            hf,
+            {
+                "no_delta_hf": branch(
+                    "no_delta_hf",
+                    source("absent_no_stable_grid", "not_applicable", tau=None),
+                ),
+                "delta_hf_adjusted": branch(
+                    "delta_hf_adjusted",
+                    source("pre_specified_accepted", "error_predictive"),
+                ),
+            },
+        )
+        self.assertIsNone(final.final_branch)
+        self.assertEqual(final.final_role, "no_final_model")
+        self.assertEqual(final.final_status, "no_final_model_absent_no_stable_grid")
+
+    def test_adjusted_execution_failure_never_triggers_fallback(self) -> None:
+        hf = source("pre_specified_accepted", "error_predictive")
+        final = realize_ulf_final(
+            hf,
+            {
+                "delta_hf_adjusted": branch(
+                    "delta_hf_adjusted",
+                    None,
+                    input_status="execution_failure",
+                ),
+                "no_delta_hf": branch(
+                    "no_delta_hf",
+                    source("pre_specified_accepted", "error_predictive"),
+                ),
+            },
+        )
+        self.assertIsNone(final.final_branch)
+        self.assertEqual(final.final_role, "no_final_model")
+        self.assertEqual(final.final_status, "execution_failure")
 
     def test_absent_hf_no_delta_branch_can_be_primary(self) -> None:
         hf = source("absent_no_stable_grid", "not_applicable", tau=None)

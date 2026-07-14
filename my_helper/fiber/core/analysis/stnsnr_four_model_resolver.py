@@ -17,9 +17,35 @@ HF_SOURCE_ABSENT = "absent_no_stable_grid"
 PREDICTION_ERROR_PREDICTIVE = "error_predictive"
 PREDICTION_ERROR_NONPREDICTIVE = "error_nonpredictive"
 PREDICTION_NOT_APPLICABLE = "not_applicable"
+INVALID_DELTA_REFERENCE_SCALING = "invalid_delta_reference_scaling"
 
 DEFAULT_TAU_GRID = [100, 150, 180, 200, 220, 250, 300, 350, 400, 500]
 DEFAULT_COVERAGE_GRID = [5, 6, 7, 8, 10, 12]
+
+
+class DeltaReferenceScalingError(ValueError):
+    """Raised when a DeltaReferenceScore cannot be standardized."""
+
+
+def zscore_from_training_rows(values: np.ndarray, training_rows: np.ndarray) -> np.ndarray:
+    """Standardize a vector using only the declared training rows."""
+    array = np.asarray(values, dtype=float)
+    train = np.asarray(training_rows, dtype=int)
+    if array.ndim != 1:
+        raise ValueError("values must be one-dimensional")
+    if train.ndim != 1 or train.size == 0:
+        raise ValueError("training_rows must contain at least one row index")
+    if np.any(train < 0) or np.any(train >= array.size):
+        raise IndexError("training_rows contains an out-of-range index")
+    if not np.all(np.isfinite(array)):
+        raise ValueError("DeltaReferenceScore must contain only finite values")
+    train_values = array[train]
+    center = float(np.mean(train_values))
+    scale = float(np.std(train_values, ddof=0))
+    tolerance = np.finfo(float).eps * max(1.0, abs(center))
+    if not math.isfinite(scale) or scale <= tolerance:
+        raise DeltaReferenceScalingError(INVALID_DELTA_REFERENCE_SCALING)
+    return (array - center) / scale
 
 
 def as_bool(value: Any) -> bool:
@@ -86,13 +112,21 @@ def branch_nuisance_design_status(
         return "invalid_nuisance_design"
     if np.nanstd(covariates[:, 0]) == 0:
         return "invalid_nuisance_design"
-    if delta_hfscore is not None and np.nanstd(covariates[:, 1]) == 0:
-        return "invalid_nuisance_design"
+    if delta_hfscore is not None:
+        try:
+            zscore_from_training_rows(covariates[:, 1], np.arange(covariates.shape[0], dtype=int))
+        except DeltaReferenceScalingError:
+            return INVALID_DELTA_REFERENCE_SCALING
     full_design = np.column_stack([np.ones(covariates.shape[0]), covariates])
     if not design_full_rank(full_design):
         return "invalid_nuisance_design"
     for heldout in range(covariates.shape[0]):
         train = np.array([idx for idx in range(covariates.shape[0]) if idx != heldout], dtype=int)
+        if delta_hfscore is not None:
+            try:
+                zscore_from_training_rows(covariates[:, 1], train)
+            except DeltaReferenceScalingError:
+                return INVALID_DELTA_REFERENCE_SCALING
         fold_design = np.column_stack([np.ones(train.size), covariates[train]])
         if train.size <= fold_design.shape[1] or not design_full_rank(fold_design):
             return "invalid_nuisance_design"
@@ -208,6 +242,7 @@ def _source_payload(
     tau_grid: list[int],
     coverage_grid: list[int],
     pass_predicate: Callable[[dict[str, Any]], bool],
+    failure_reason: str = "no_grid_cell_passed_hard_computability",
 ) -> dict[str, Any]:
     if selected is None:
         return {
@@ -217,7 +252,7 @@ def _source_payload(
             "selected_tau": "",
             "selected_coverage": "",
             "selected_adjacent_passing_grid_cells": 0,
-            "source_failure_reasons": "no_grid_cell_passed_hard_computability",
+            "source_failure_reasons": failure_reason,
         }
     return {
         "source_status": source_status,
@@ -240,8 +275,11 @@ def resolve_hf_source(
     tau_grid: list[int] | None = None,
     coverage_grid: list[int] | None = None,
     pass_predicate: Callable[[dict[str, Any]], bool] = hard_computability_passes,
+    minimum_adjacent_passing_cells: int = 2,
 ) -> dict[str, Any]:
     """Resolve a foundational HF source from pre-specified and scan grid rows."""
+    if minimum_adjacent_passing_cells < 1:
+        raise ValueError("minimum_adjacent_passing_cells must be positive")
     tau_values = DEFAULT_TAU_GRID if tau_grid is None else tau_grid
     coverage_values = DEFAULT_COVERAGE_GRID if coverage_grid is None else coverage_grid
     primary_rows = [row for row in rows if _row_matches(row, primary_tau, primary_coverage)]
@@ -250,7 +288,7 @@ def resolve_hf_source(
         primary_adjacent = adjacent_passing_count(
             rows, primary, tau_grid=tau_values, coverage_grid=coverage_values, pass_predicate=pass_predicate
         )
-        if primary_adjacent >= 2:
+        if primary_adjacent >= minimum_adjacent_passing_cells:
             return _source_payload(
                 source_status=HF_SOURCE_PRE_SPECIFIED,
                 selected=primary,
@@ -261,7 +299,19 @@ def resolve_hf_source(
                 pass_predicate=pass_predicate,
             )
 
-    eligible = [row for row in rows if pass_predicate(row)]
+    passing = [row for row in rows if pass_predicate(row)]
+    eligible = [
+        row
+        for row in passing
+        if adjacent_passing_count(
+            rows,
+            row,
+            tau_grid=tau_values,
+            coverage_grid=coverage_values,
+            pass_predicate=pass_predicate,
+        )
+        >= minimum_adjacent_passing_cells
+    ]
     if not eligible:
         return _source_payload(
             source_status=HF_SOURCE_ABSENT,
@@ -271,6 +321,11 @@ def resolve_hf_source(
             tau_grid=tau_values,
             coverage_grid=coverage_values,
             pass_predicate=pass_predicate,
+            failure_reason=(
+                "no_grid_cell_met_adjacent_support"
+                if passing
+                else "no_grid_cell_passed_hard_computability"
+            ),
         )
     selected = sorted(
         eligible,

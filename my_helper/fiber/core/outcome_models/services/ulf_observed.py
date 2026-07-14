@@ -352,7 +352,7 @@ class ULFObservedService:
             resolver_task_id=task.task_id,
             endpoint_model_id=endpoint.endpoint_model_id,
             branch=task.key.branch,
-            input_status="valid",
+            input_status=output.input_status,
             source_status=str(output.source_status),
             prediction_status=str(output.prediction_status),
             threshold_source=str(output.threshold_source),

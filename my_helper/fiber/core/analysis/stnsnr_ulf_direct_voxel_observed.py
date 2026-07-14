@@ -21,11 +21,14 @@ import numpy as np
 import pandas as pd
 
 from stnsnr_four_model_resolver import (
+    DeltaReferenceScalingError,
+    INVALID_DELTA_REFERENCE_SCALING,
     branch_nuisance_design_status,
     classify_prediction_status,
     resolve_hf_source,
     safe_pearson,
     safe_spearman,
+    zscore_from_training_rows,
 )
 from stnsnr_four_model_execution_status import latest_run_dir
 from stnsnr_four_model_readiness import (
@@ -643,7 +646,16 @@ def compute_branch(
     omega = candidate_mask_from_coverage(coverage, min_coverage)
     if not np.any(omega):
         raise RuntimeError(f"empty ULF Omega for branch {branch_name}")
-    cov_full = y_hf_ref if nuisance_full is None else np.column_stack([y_hf_ref, nuisance_full])
+    n_subjects = y_post.shape[0]
+    nuisance_full_z = None
+    if nuisance_full is None:
+        cov_full = y_hf_ref
+    else:
+        nuisance_full_z = zscore_from_training_rows(
+            np.asarray(nuisance_full, dtype=float),
+            np.arange(n_subjects, dtype=int),
+        )
+        cov_full = np.column_stack([y_hf_ref, nuisance_full_z])
     rho = np.full(x_ulf_only.shape[1], np.nan, dtype=np.float32)
     rho_omega = partial_spearman_matrix(y_post, x_ulf_only[:, omega], cov_full)
     rho[omega] = rho_omega.astype(np.float32)
@@ -665,9 +677,9 @@ def compute_branch(
         }
         if nuisance_full is not None:
             row["DeltaHFScore"] = float(nuisance_full[idx])
+            row["DeltaHFScore_z"] = float(nuisance_full_z[idx])
         score_rows.append(row)
 
-    n_subjects = y_post.shape[0]
     stability_positive = np.zeros(x_ulf_only.shape[1], dtype=np.int16)
     stability_valid = np.zeros(x_ulf_only.shape[1], dtype=np.int16)
     loocv_pred = np.full(n_subjects, np.nan, dtype=float)
@@ -689,8 +701,15 @@ def compute_branch(
         if isinstance(nuisance_fold_result, dict):
             nuisance_fold = nuisance_fold_result["delta"]
             support_payload = nuisance_fold_result.get("support_row")
-        cov_train = y_hf_ref[train] if nuisance_fold is None else np.column_stack([y_hf_ref[train], nuisance_fold[train]])
-        cov_test = y_hf_ref[[heldout]] if nuisance_fold is None else np.column_stack([y_hf_ref[[heldout]], nuisance_fold[[heldout]]])
+        nuisance_fold_z = None
+        if nuisance_fold is None:
+            cov_train = y_hf_ref[train]
+            cov_test = y_hf_ref[[heldout]]
+        else:
+            nuisance_fold = np.asarray(nuisance_fold, dtype=float)
+            nuisance_fold_z = zscore_from_training_rows(nuisance_fold, train)
+            cov_train = np.column_stack([y_hf_ref[train], nuisance_fold_z[train]])
+            cov_test = np.column_stack([y_hf_ref[[heldout]], nuisance_fold_z[[heldout]]])
         rho_fold = partial_spearman_matrix(y_post[train], x_ulf_only[train][:, omega_fold], cov_train)
         weights_fold_local = benefit_oriented_weights(rho_fold, scale_direction).astype(np.float32)
         weights_fold = np.full(x_ulf_only.shape[1], np.nan, dtype=np.float32)
@@ -732,6 +751,7 @@ def compute_branch(
         }
         if nuisance_fold is not None:
             row["DeltaHFScore_LOOCV"] = float(nuisance_fold[heldout])
+            row["DeltaHFScore_z_LOOCV"] = float(nuisance_fold_z[heldout])
             row["gamma_DeltaHFScore"] = float(beta[3])
             row["baseline_gamma_DeltaHFScore"] = float(base_beta[2])
             if support_payload is not None:
@@ -862,6 +882,16 @@ def evaluate_ulf_direct_grid_cell(
             min_coverage=coverage,
             subject_ids=subject_ids,
         )
+    except DeltaReferenceScalingError as exc:
+        return ulf_direct_scan_empty_row(
+            branch=branch,
+            tau=tau,
+            coverage=coverage,
+            n_subjects=int(y_post.shape[0]),
+            branch_role=branch_role,
+            branch_nuisance_design_status=INVALID_DELTA_REFERENCE_SCALING,
+            reason=str(exc),
+        )
     except Exception as exc:
         return ulf_direct_scan_empty_row(
             branch=branch,
@@ -919,6 +949,16 @@ def resolve_ulf_direct_branch(
     tau_grid: list[float] | tuple[float, ...] = tuple(ULF_DIRECT_TAU_GRID),
     coverage_grid: list[int] | tuple[int, ...] = tuple(ULF_DIRECT_COVERAGE_GRID),
 ) -> dict[str, Any]:
+    design_statuses = {
+        str(row.get("branch_nuisance_design_status", ""))
+        for row in rows
+        if str(row.get("branch_nuisance_design_status", ""))
+    }
+    if len(design_statuses) > 1:
+        raise RuntimeError(
+            "branch nuisance design status must be invariant across the tau/Coverage grid"
+        )
+    branch_input_status = next(iter(design_statuses), "valid")
     resolved = resolve_hf_source(
         rows,
         primary_tau=primary_tau,
@@ -928,6 +968,7 @@ def resolve_ulf_direct_branch(
         pass_predicate=ulf_direct_hard_computability_passes,
     )
     return {
+        "ulf_branch_input_status": branch_input_status,
         "ulf_voxel_source_status": resolved["source_status"],
         "ulf_voxel_prediction_status": resolved["prediction_status"],
         "ulf_voxel_threshold_source": resolved["threshold_source"],
@@ -939,8 +980,11 @@ def resolve_ulf_direct_branch(
 
 
 def ulf_endpoint_status_for_primary(primary_resolution: dict[str, Any]) -> str:
+    input_status = primary_resolution.get("ulf_branch_input_status", "valid")
     source_status = primary_resolution.get("ulf_voxel_source_status", "")
     prediction_status = primary_resolution.get("ulf_voxel_prediction_status", "")
+    if input_status != "valid":
+        return "primary_branch_input_failure"
     if source_status in {"pre_specified_accepted", "scan_fallback_accepted"} and prediction_status == "error_predictive":
         return "primary_branch_error_predictive"
     if source_status in {"pre_specified_accepted", "scan_fallback_accepted"} and prediction_status == "error_nonpredictive":
@@ -1419,7 +1463,7 @@ def run_configured_ulf_direct_voxel(
     selected_tau = resolution.get("ulf_voxel_selected_tau_v_per_m")
     selected_coverage = resolution.get("ulf_voxel_selected_coverage")
     realized_branch_name = config.branch_name
-    if selected_tau is not None and selected_coverage is not None:
+    if selected_tau not in (None, "") and selected_coverage not in (None, ""):
         selected_tau = float(selected_tau)
         selected_coverage = int(selected_coverage)
         realized_branch_name = ulf_direct_branch_name(config.branch, selected_tau, selected_coverage)
@@ -1492,6 +1536,7 @@ def run_configured_ulf_direct_voxel(
         "branch": config.branch,
         "branch_name": realized_branch_name,
         "source_resolution": {
+            "input_status": resolution["ulf_branch_input_status"],
             "source_status": resolution["ulf_voxel_source_status"],
             "prediction_status": resolution["ulf_voxel_prediction_status"],
             "threshold_source": resolution["ulf_voxel_threshold_source"],

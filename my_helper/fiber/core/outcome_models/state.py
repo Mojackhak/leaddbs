@@ -57,12 +57,22 @@ class FinalModelDecision:
 
 def intended_ulf_branches(hf: SourceResult, *, delta_hf_input_valid: bool) -> IntendedBranches:
     """Resolve HF-derived ULF branch roles without consulting ULF outcomes."""
-    if not hf.accepted:
+    if hf.input_status != "valid":
+        return IntendedBranches(
+            intended_primary_branch="none",
+            executable_branches=(),
+            delta_hfscore_role="not_run_reference_dependency_failure",
+        )
+
+    if hf.source_status == "absent_no_stable_grid":
         return IntendedBranches(
             intended_primary_branch="no_delta_hf",
             executable_branches=("no_delta_hf",),
             delta_hfscore_role="not_run_no_stable_hf_source",
         )
+
+    if not hf.accepted:
+        raise ValueError("a valid HF input requires an accepted source or absent_no_stable_grid")
 
     if hf.prediction_status == "error_predictive":
         executable = ("no_delta_hf", "delta_hf_adjusted") if delta_hf_input_valid else ("no_delta_hf",)
@@ -93,6 +103,25 @@ def _branch_input_failure(result: BranchResult | None) -> bool:
     return result is None or not result.input_valid
 
 
+def _branch_execution_failure(result: BranchResult | None) -> bool:
+    return bool(
+        result is not None
+        and (
+            result.input_status == "execution_failure"
+            or (result.source is not None and result.source.input_status == "execution_failure")
+        )
+    )
+
+
+def _branch_source_absent(result: BranchResult | None) -> bool:
+    return bool(
+        result is not None
+        and result.input_valid
+        and result.source is not None
+        and result.source.source_status == "absent_no_stable_grid"
+    )
+
+
 def _failure_reason(result: BranchResult | None, branch: str) -> str:
     if result is None:
         return f"{branch}:missing_branch_result"
@@ -114,7 +143,24 @@ def realize_ulf_final(
     delta_input_valid = adjusted is not None and adjusted.input_valid
     intended = intended_ulf_branches(hf, delta_hf_input_valid=delta_input_valid)
     primary_name = intended.intended_primary_branch
+    if primary_name == "none":
+        return FinalModelDecision(
+            intended_primary_branch="none",
+            final_branch=None,
+            final_role="no_final_model",
+            final_status="dependency_failure",
+            failure_reasons=(f"hf_source:{hf.input_status}",),
+        )
     primary = branches.get(primary_name)
+
+    if _branch_execution_failure(primary):
+        return FinalModelDecision(
+            intended_primary_branch=primary_name,
+            final_branch=None,
+            final_role="no_final_model",
+            final_status="execution_failure",
+            failure_reasons=(_failure_reason(primary, primary_name),),
+        )
 
     if not _branch_input_failure(primary) and primary is not None and primary.source is not None:
         if primary.source.accepted:
@@ -125,17 +171,19 @@ def realize_ulf_final(
                 final_status=_prediction_final_status(primary.source.prediction_status),
                 failure_reasons=(),
             )
-        if primary.source.source_status == "absent_no_stable_grid":
+
+    if primary_name == "delta_hf_adjusted" and (
+        _branch_input_failure(primary) or _branch_source_absent(primary)
+    ):
+        fallback = branches.get("no_delta_hf")
+        if _branch_execution_failure(fallback):
             return FinalModelDecision(
                 intended_primary_branch=primary_name,
                 final_branch=None,
                 final_role="no_final_model",
-                final_status="no_final_model_absent_no_stable_grid",
-                failure_reasons=(f"{primary_name}:absent_no_stable_grid",),
+                final_status="execution_failure",
+                failure_reasons=(_failure_reason(primary, primary_name), _failure_reason(fallback, "no_delta_hf")),
             )
-
-    if _branch_input_failure(primary) and primary_name == "delta_hf_adjusted":
-        fallback = branches.get("no_delta_hf")
         if fallback is not None and fallback.input_valid and fallback.source is not None and fallback.source.accepted:
             return FinalModelDecision(
                 intended_primary_branch=primary_name,
@@ -146,9 +194,7 @@ def realize_ulf_final(
             )
         reasons = [_failure_reason(primary, primary_name), _failure_reason(fallback, "no_delta_hf")]
         fallback_absent = (
-            fallback is not None
-            and fallback.source is not None
-            and fallback.source.source_status == "absent_no_stable_grid"
+            _branch_source_absent(fallback)
         )
         return FinalModelDecision(
             intended_primary_branch=primary_name,
@@ -158,6 +204,15 @@ def realize_ulf_final(
                 "no_final_model_absent_no_stable_grid" if fallback_absent else "no_final_model_input_failure"
             ),
             failure_reasons=tuple(reasons),
+        )
+
+    if _branch_source_absent(primary):
+        return FinalModelDecision(
+            intended_primary_branch=primary_name,
+            final_branch=None,
+            final_role="no_final_model",
+            final_status="no_final_model_absent_no_stable_grid",
+            failure_reasons=(f"{primary_name}:absent_no_stable_grid",),
         )
 
     return FinalModelDecision(

@@ -70,6 +70,27 @@ class ObservedServiceTests(unittest.TestCase):
         )
         return config, catalog, plan, RunContext(store=store, catalog=tuple(catalog), config=config)
 
+    def test_invalid_input_cannot_report_an_accepted_source(self) -> None:
+        output = ObservedServiceOutput(
+            input_status="invalid_delta_reference_scaling",
+            source_status="pre_specified_accepted",
+            prediction_status="error_predictive",
+            threshold_source="pre_specified",
+            selected_tau=200,
+            selected_coverage=5,
+            adjacent_support=3,
+            subject_order=(),
+            feature_axis=None,
+        )
+
+        result = output.task_result()
+
+        self.assertFalse(result.facts["source_accepted"])
+        self.assertEqual(
+            result.facts["input_status"],
+            "invalid_delta_reference_scaling",
+        )
+
     def test_hf_direct_request_has_no_scale_or_path_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config, catalog, plan, context = self._fixture(Path(tmp))

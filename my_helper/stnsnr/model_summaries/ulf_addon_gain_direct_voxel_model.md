@@ -316,8 +316,15 @@ required checks:
 If the nuisance design fails, the branch is not interpreted as nonpredictive. It is recorded as an input/design failure:
 
 ```text
+ulf_branch_input_status = invalid_delta_reference_scaling
+  if DeltaHFScore is constant or otherwise cannot be scaled
+
 ulf_branch_input_status = invalid_nuisance_design
+  if the full-sample or any fold-specific nuisance matrix is rank deficient
+  or otherwise not estimable
 ```
+
+The generic runtime name for the first status is `invalid_delta_reference_scaling`; `DeltaHFScore` is the STNSNr compatibility name for the corresponding `DeltaReferenceScore`. Both statuses invalidate only `delta_hf_adjusted`; they do not prevent an otherwise valid `no_delta_hf` branch from running.
 
 Branch input/design failure has priority over `absent_no_stable_grid`. If a branch cannot evaluate the declared grid because branch-specific inputs or the branch nuisance design are invalid, record `ulf_endpoint_model_status = primary_branch_input_failure` when that branch is primary. Do not reclassify this condition as `absent_no_stable_grid`.
 
@@ -618,7 +625,7 @@ DeltaHFScore_chronic_i =
 
 If the HF component settings in HF+ULF are identical to the T2 HF-only reference settings, `DeltaHFScore` should be near zero except for numerical interpolation and component-labeling differences. If the HF component changed, `DeltaHFScore` captures the model-predicted HF efficacy shift caused by HF-component reprogramming.
 
-`DeltaHFScore` is not assigned a fixed biological scaling coefficient before modeling. It may be z-scored within training folds for numerical stability; its regression coefficient estimates its association with outcome. In LOOCV, `DeltaHFScore` for the held-out patient must be computed from the training-fold HF map, not a full-sample HF map.
+`DeltaHFScore` is not assigned a fixed biological scaling coefficient before modeling. It must be z-scored for the adjusted nuisance design. Full-sample descriptive fitting uses the full-sample mean and population standard deviation. In LOOCV, the mean and population standard deviation are estimated from the training rows only and then applied to both training and held-out values. The held-out patient's raw `DeltaHFScore` must itself be computed from the training-fold HF map, not a full-sample HF map. A zero or non-estimable training-fold standard deviation is `invalid_delta_reference_scaling`, not an error-nonpredictive result.
 
 ### HF-Map Support And DeltaHFScore Support Adequacy
 

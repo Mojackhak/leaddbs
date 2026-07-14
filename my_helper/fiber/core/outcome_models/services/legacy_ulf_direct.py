@@ -688,6 +688,7 @@ def run_configured_ulf_direct(
             "endpoint_model_id": request.endpoint.endpoint_model_id,
             "branch": request.branch,
             "branch_name": expected_branch_name,
+            "input_status": str(resolution.get("input_status", "valid")),
             "source_status": str(resolution["source_status"]),
             "prediction_status": str(resolution["prediction_status"]),
             "threshold_source": str(resolution["threshold_source"]),
@@ -736,6 +737,7 @@ def run_configured_ulf_direct(
             identity_source="candidate_flat_indices",
         ),
         artifacts=artifacts,
+        input_status=str(resolution.get("input_status", "valid")),
     )
 
 

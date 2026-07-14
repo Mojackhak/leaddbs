@@ -455,7 +455,7 @@ class ULFDirectConfiguredBackendTests(unittest.TestCase):
                 )
                 efield = root / "inputs" / f"{subject}_ulf.nii.gz"
                 nib.save(
-                    nib.Nifti1Image(rng.uniform(110, 260, size=(4, 4, 4)).astype(np.float32), affine),
+                    nib.Nifti1Image(rng.uniform(440, 520, size=(4, 4, 4)).astype(np.float32), affine),
                     str(efield),
                 )
                 hf_efield = root / "inputs" / f"{subject}_hf.nii.gz"

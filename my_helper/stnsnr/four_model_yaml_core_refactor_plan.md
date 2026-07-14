@@ -911,6 +911,11 @@ All target paths require:
 - explicit matched-reference binding tests with different phase IDs;
 - reference/add-on state-machine and one-way fallback tests;
 - reference-input-failure versus stable-source-absence truth-table tests;
+- deterministic direct-voxel source fixtures for pre-specified acceptance,
+  scan fallback, and absent-grid states on the complete production grid;
+- deterministic predictive/nonpredictive LOOCV fixtures and branch-specific
+  nuisance fixtures, including `invalid_delta_reference_scaling` versus
+  `invalid_nuisance_design`;
 - robustness-record versus primary-final connectome-role tests;
 - backend contract and artifact validation tests;
 - cache hit/miss/reindex and expensive-producer authorization tests;
@@ -926,6 +931,13 @@ All target paths require:
 MDS-UPDRS III score and MDS-UPDRS IV remain ordinary named real-data smoke
 fixtures. The unconfigured second MDS-UPDRS IV child subscale remains explicit
 `not_configured`; this is not a scale-specific code branch.
+
+Direct-voxel acceptance is explicitly three-layered: the two-scale real-data
+smoke checks end-to-end dispatch, pure state-machine tests cover every mutually
+exclusive status transition, and fixed 16-subject/32-voxel NumPy fixtures run
+the production resolver and LOOCV kernels. Real-data outcomes are never assumed
+to exercise every status, and a silently skipped required smoke stage is not a
+pass. Only one `4x4x2` synthetic NIfTI is required for input-adapter coverage.
 
 ### Bounded numerical acceptance
 
