@@ -12,8 +12,8 @@ end
 subjectId = char(string(options.subj.subjId));
 subjectId = regexprep(subjectId, '^sub-', '');
 headmodelDir = fullfile(char(string(options.subj.subjDir)), 'headmodel', 'native');
-headmodelPath = fullfile(headmodelDir, sprintf( ...
-    'sub-%s_desc-headmodel%d.mat', subjectId, sideIndex));
+headmodelPath = mh_vta_canonical_headmodel_path( ...
+    options.subj.subjDir, subjectId, sideIndex);
 
 if isfile(headmodelPath)
     required = {'vol', 'mesh', 'centroids', 'wmboundary', 'elfv', 'meshregions'};

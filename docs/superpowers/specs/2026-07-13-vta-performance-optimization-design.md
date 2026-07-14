@@ -10,9 +10,10 @@ slice_3_bounded_native_interpolation_implemented
 slice_4_context_headmodel_consolidation_implemented
 slice_5_subject_manifest_state_machine_implemented
 slice_6_persistent_subject_runner_implemented
+slice_7_process_local_runtime_caches_implemented
 solver_free_verification_complete
 real_fem_baseline_not_run
-slices_7_to_9_not_started
+slices_8_to_9_not_started
 current_outputs_unchanged
 ```
 
@@ -48,13 +49,25 @@ subject, keeps the per-task bridge as a compatibility path, adds partial event
 snapshots and fatal-process reconciliation, and makes force reset transactional
 per subject. Complete subjects launch no MATLAB process.
 
+Slice 7 adds one explicit process-local subject runtime with lightweight
+transform context, reconstruction/lead context, validated head-model,
+native-anchor, and field-independent export-geometry caches. Exact keys and
+backing-file signatures prevent incompatible reuse; direct calls without an
+exact head-model identity remain uncached. Transform-only repair remains
+independent of FEM reconstruction geometry. The complete solver-free MATLAB
+fiber suite passes 121 tests, the Python VTA pipeline/benchmark suite passes
+171 tests, and Code Analyzer reports zero findings.
+
 This status does not claim a measured runtime improvement. The real FEM
 baseline, candidate comparison, and three-worker memory gate have not run.
-The production CLI default remains one worker until that gate passes. Slices 7
-through 9 remain implementation work.
+The production CLI default remains one worker until that gate passes. Slices 8
+and 9 remain implementation work.
 
 The executable slice 6 plan is documented in
 `docs/superpowers/plans/2026-07-14-vta-persistent-subject-runner.md`.
+
+The executable slice 7 plan is documented in
+`docs/superpowers/plans/2026-07-14-vta-process-local-runtime-caches.md`.
 
 ## Purpose
 

@@ -1,5 +1,11 @@
-function mh_vta_export_common_grid(meshPointsMm, fieldValues, anchorPath, outputPath)
+function mh_vta_export_common_grid(meshPointsMm, fieldValues, anchorPath, outputPath, varargin)
 % Interpolate a continuous FEM E-field onto the native anchor geometry.
+
+parser = inputParser;
+parser.FunctionName = mfilename;
+parser.addParameter('Anchor', [], ...
+    @(value) isempty(value) || isstruct(value) && isscalar(value));
+parser.parse(varargin{:});
 
 anchorPath = char(string(anchorPath));
 outputPath = char(string(outputPath));
@@ -27,7 +33,15 @@ values = fieldValues(valid);
 interpolant = scatteredInterpolant( ...
     points(:, 1), points(:, 2), points(:, 3), values, 'linear', 'none');
 
-anchor = ea_load_nii(anchorPath);
+anchor = parser.Results.Anchor;
+if isempty(anchor)
+    anchor = ea_load_nii(anchorPath);
+end
+if ~isfield(anchor, 'dim') || ~isfield(anchor, 'mat') || ...
+        numel(anchor.dim) < 3 || ~isequal(size(anchor.mat), [4, 4])
+    error('mh_vta_export_common_grid:InvalidAnchor', ...
+        'Native anchor must define dimensions and a 4-by-4 affine.');
+end
 dimensions = double(anchor.dim(1:3));
 sampled = nan(dimensions, 'single');
 [lowerBound, upperBound] = mh_vta_native_query_bounds( ...

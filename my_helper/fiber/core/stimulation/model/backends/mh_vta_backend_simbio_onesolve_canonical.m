@@ -9,40 +9,61 @@ parser.addParameter('EventEmitter', [], ...
     @(value) isempty(value) || isa(value, 'function_handle'));
 parser.addParameter('TaskId', char(string(task.task_id)), ...
     @(value) ischar(value) || (isstring(value) && isscalar(value)));
+parser.addParameter('SubjectRuntime', [], ...
+    @(value) isempty(value) || isstruct(value) && isscalar(value));
 parser.parse(varargin{:});
 
 emit = parser.Results.EventEmitter;
 taskId = char(string(parser.Results.TaskId));
+runtime = parser.Results.SubjectRuntime;
+if isempty(runtime)
+    runtime = mh_vta_create_subject_runtime(task.subject_id);
+end
 stageTimer = tic;
 actions = mh_vta_resolve_output_actions(task);
 mh_vta_emit_stage_timing(emit, 'task', taskId, ...
     'task_runtime_resolution', 'executed', toc(stageTimer), '');
 headmodelState = 'not_required';
+headmodelKey = '';
 options = struct();
 sideIndex = NaN;
 mesh = struct();
 gradient = [];
 anchorPath = '';
 trajectory = [];
+mniReference = '';
 
 if actions.solve_native_efield
     stageTimer = tic;
-    [options, S, sideIndex, defaultAnchorPath, trajectory] = ...
-        build_context(task);
+    [context, cacheStatus] = mh_vta_resolve_canonical_context(task, runtime);
+    options = context.options;
+    sideIndex = context.side_index;
+    trajectory = context.trajectory;
+    mniReference = context.mni_reference;
     mh_vta_emit_stage_timing(emit, 'task', taskId, ...
-        'subject_reconstruction_context', 'executed', toc(stageTimer), '');
-    anchorPath = mh_vta_resolve_native_anchor(defaultAnchorPath, ...
-        parser.Results.NativeAnchorPath);
-
-    stimLabel = ['canonical-', task.task_id(1:12)];
+        'subject_reconstruction_context', 'executed', ...
+        toc(stageTimer), cacheStatus);
+elseif actions.transform_mni_efield
     stageTimer = tic;
-    [~, headmodelState, hm] = mh_vta_prepare_canonical_headmodel( ...
-        S, sideIndex, options, stimLabel);
-    if strcmp(headmodelState, 'reused')
-        cacheStatus = 'hit';
-    else
-        cacheStatus = 'miss';
-    end
+    [transformContext, cacheStatus] = ...
+        mh_vta_resolve_transform_context(task, runtime);
+    options = transformContext.options;
+    mniReference = transformContext.mni_reference;
+    mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+        'subject_reconstruction_context', 'executed', ...
+        toc(stageTimer), cacheStatus);
+end
+
+if actions.solve_native_efield
+    anchorPath = mh_vta_resolve_native_anchor( ...
+        context.native_anchor_path, parser.Results.NativeAnchorPath);
+    S = mh_vta_build_geometry_stimulation(task, options, sideIndex);
+    labelId = char(string(task.task_id));
+    stimLabel = ['canonical-', labelId(1:min(12, numel(labelId)))];
+    stageTimer = tic;
+    [hm, headmodelState, cacheStatus, headmodelKey] = ...
+        mh_vta_get_canonical_headmodel( ...
+            task, context, S, runtime, stimLabel);
     mh_vta_emit_stage_timing(emit, 'task', taskId, ...
         'headmodel_build_or_load', 'executed', toc(stageTimer), cacheStatus);
 
@@ -67,108 +88,7 @@ end
 
 status = mh_vta_export_canonical_outputs(task, options, sideIndex, ...
     mesh, gradient, trajectory, anchorPath, headmodelState, ...
-    'EventEmitter', emit, 'TaskId', taskId);
-end
-
-function [options, S, sideIndex, anchorPath, trajectory] = build_context(task)
-subjectDir = char(string(task.subject_dir));
-options = ea_getptopts(subjectDir, struct());
-options.root = [fileparts(subjectDir), filesep];
-[~, options.patientname] = fileparts(subjectDir);
-options.leadprod = 'dbs';
-options.native = 1;
-options.orignative = 1;
-options.subj.recon.recon = char(string(task.reconstruction_path));
-options.elmodel = char(string(task.electrode_model));
-options = ea_resolve_elspec(options);
-options = mh_vta_configure_canonical_options(options, task);
-
-sideIndex = side_to_index(task.hemisphere);
-if double(task.reconstruction_lead_id) ~= sideIndex
-    error('mh_vta:ReconstructionLeadMismatch', ...
-        'reconstruction_lead_id does not match hemisphere %s.', ...
-        char(string(task.hemisphere)));
-end
-options.elside = sideIndex;
-try
-    [~, trajectory, ~, actualModel] = ea_load_reconstruction(options);
-catch ME
-    wrapped = MException('mh_vta:InvalidReconstruction', ...
-        'Could not load reconstruction lead %d.', sideIndex);
-    wrapped = addCause(wrapped, ME);
-    throw(wrapped);
-end
-if isempty(actualModel)
-    error('mh_vta:InvalidReconstruction', ...
-        'Reconstruction does not define an electrode model for lead %d.', ...
-        sideIndex);
-end
-verify_reconstruction_model(task, actualModel);
-S = geometry_stimulation(task, options, sideIndex);
-anchorPath = options.subj.preopAnat.(options.subj.AnchorModality).coreg;
-end
-
-function verify_reconstruction_model(task, actualModel)
-actual = char(string(actualModel));
-expected = char(string(task.electrode_model));
-if ~strcmp(actual, expected)
-    error('mh_vta:ElectrodeModelMismatch', ...
-        'Reconstruction model %s does not match task model %s.', ...
-        actual, expected);
-end
-end
-
-function S = geometry_stimulation(task, options, sideIndex)
-S = ea_initializeS(['canonical-', task.task_id(1:12)], options);
-S.model = 'SimBio/FieldTrip (see Horn 2017)';
-S.sources = 1;
-sideCode = index_to_side(sideIndex);
-sourceField = [sideCode, 's1'];
-S.amplitude{sideIndex} = zeros(1, 4);
-S.amplitude{sideIndex}(1) = max(double([task.sources.amplitude]));
-S.(sourceField).amp = S.amplitude{sideIndex}(1);
-S.(sourceField).va = 1;
-S.(sourceField).case.perc = 0;
-S.(sourceField).case.pol = 0;
-for contactIndex = 1:S.numContacts
-    contactField = ['k', num2str(contactIndex)];
-    S.(sourceField).(contactField).perc = 0;
-    S.(sourceField).(contactField).pol = 0;
-end
-contacts = [task.sources.contacts];
-for index = 1:numel(contacts)
-    if ischar(contacts(index).contact) || isstring(contacts(index).contact)
-        S.(sourceField).case.perc = 100;
-        S.(sourceField).case.pol = polarity_code(contacts(index).polarity);
-        continue;
-    end
-    contactField = ['k', num2str(contacts(index).contact)];
-    S.(sourceField).(contactField).perc = 100;
-    S.(sourceField).(contactField).pol = polarity_code(contacts(index).polarity);
-end
-S = ea_activecontacts(S);
-end
-
-function sideIndex = side_to_index(side)
-if strcmpi(char(string(side)), 'R')
-    sideIndex = 1;
-else
-    sideIndex = 2;
-end
-end
-
-function side = index_to_side(sideIndex)
-if sideIndex == 1
-    side = 'R';
-else
-    side = 'L';
-end
-end
-
-function code = polarity_code(polarity)
-if strcmpi(char(string(polarity)), 'cathode')
-    code = 1;
-else
-    code = 2;
-end
+    'EventEmitter', emit, 'TaskId', taskId, ...
+    'SubjectRuntime', runtime, 'HeadmodelKey', headmodelKey, ...
+    'MniReference', mniReference);
 end

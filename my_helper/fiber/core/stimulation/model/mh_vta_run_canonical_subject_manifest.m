@@ -44,12 +44,13 @@ mh_vta_emit_stage_timing(emit, 'subject', '', ...
     'manifest_decode_validation', 'executed', initializationDuration, '');
 emit('subject_ready', struct());
 
+runtime = mh_vta_create_subject_runtime(manifest.subject_id);
 outcomes = repmat(empty_outcome(), numel(manifest.tasks), 1);
 for taskIndex = 1:numel(manifest.tasks)
     taskId = char(string(manifest.tasks(taskIndex).task.task_id));
     emit('task_started', struct('task_id', taskId));
     outcomes(taskIndex) = run_task( ...
-        manifest, taskIndex, emit, parser.Results);
+        manifest, taskIndex, emit, parser.Results, runtime);
     emit('task_outcome', outcome_fields(outcomes(taskIndex)));
 end
 
@@ -58,7 +59,7 @@ emit('subject_summary', summary);
 result = struct('outcomes', outcomes, 'summary', summary);
 end
 
-function outcome = run_task(manifest, taskIndex, emit, options)
+function outcome = run_task(manifest, taskIndex, emit, options, runtime)
 taskId = char(string(manifest.tasks(taskIndex).task.task_id));
 resolutionTimer = tic;
 try
@@ -81,7 +82,7 @@ if ~strcmp(resolution.status, 'ready')
 end
 
 try
-    execute_task(resolution.task, emit, options);
+    execute_task(resolution.task, emit, options, runtime);
     [~, remainingCount] = mh_vta_missing_task_artifacts(resolution.task);
     generatedCount = max(0, ...
         resolution.missing_artifact_count - remainingCount);
@@ -103,8 +104,8 @@ catch ME
 end
 end
 
-function execute_task(task, emit, options)
-callArguments = {'EventEmitter', emit};
+function execute_task(task, emit, options, runtime)
+callArguments = {'EventEmitter', emit, 'SubjectRuntime', runtime};
 if ~isempty(options.SolveFunction)
     callArguments = [callArguments, ...
         {'SolveFunction', options.SolveFunction}];

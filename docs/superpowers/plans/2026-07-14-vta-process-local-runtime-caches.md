@@ -1,6 +1,6 @@
 # VTA Process-Local Runtime Cache Implementation Plan
 
-**Status:** implementation_not_started
+**Status:** implementation_complete_solver_free_verified
 
 **Parent design:**
 `docs/superpowers/specs/2026-07-13-vta-performance-optimization-design.md`
@@ -20,17 +20,26 @@ path-existence-based resume behavior.
 
 This slice caches only:
 
-1. base subject/reconstruction context resolved by `ea_getptopts`,
+1. lightweight native-to-MNI transform context resolved by `ea_getptopts`;
+2. base subject/reconstruction context resolved by `ea_getptopts`,
    `ea_resolve_elspec`, and `ea_load_reconstruction`;
-2. canonical head models after the existing coordinate-unit validator passes;
-3. native anchor headers loaded by `ea_load_nii`;
-4. field-independent export geometry: tetrahedron midpoint coordinates,
+3. canonical head models after the existing coordinate-unit validator passes;
+4. native anchor headers loaded by `ea_load_nii`;
+5. field-independent export geometry: tetrahedron midpoint coordinates,
    brain-tissue selection indices, and electrode-removal-adjusted coordinates.
 
 This slice does not cache FEM matrices, preconditioners, stimulation-dependent
 boundaries, potentials, gradients, field values, `scatteredInterpolant`
 objects, barycentric mappings, or generated artifacts. FEM system reuse remains
 a separate later slice.
+
+Implemented on 2026-07-14. The complete solver-free MATLAB fiber suite passes
+121 tests, the Python VTA pipeline/benchmark suite passes 171 tests, and MATLAB
+Code Analyzer reports zero findings in the canonical model directory and the
+new cache tests. Review-driven regression coverage confirms that transform-only
+repair does not load reconstruction geometry, replaced head-model files
+invalidate memory entries, and direct export calls without an exact head-model
+identity remain uncached. No real FEM run is claimed by this slice.
 
 ## Ownership And Lifetime
 
@@ -63,9 +72,17 @@ headmodel_key:
   + electrode_model + reconstruction_lead_id + trajectory_coordinates
   + patient_gm_mask_path + patient_gm_mask_size + patient_gm_mask_mtime_ns
 
+transform_context_key:
+  subject_dir + reconstruction_path
+
 export_geometry_key:
-  headmodel_key + reconstruction_path + reconstruction_lead_id
+  validated_headmodel_instance_key + reconstruction_path
+  + reconstruction_lead_id
   + electrode_model + trajectory_coordinates + lead_diameter
+
+validated_headmodel_instance_key:
+  headmodel_key + current_headmodel_path + current_headmodel_size
+  + current_headmodel_mtime
 
 anchor_key:
   native_anchor_path + file_size + file_mtime_ns
@@ -94,16 +111,28 @@ Each task constructs its own stimulation `S` from the cached base context.
 Therefore tasks sharing reconstruction geometry can reuse context while still
 producing distinct FEM boundary conditions.
 
+Native-to-MNI-only repair uses the separate lightweight transform context. It
+must not call `ea_resolve_elspec`, load reconstruction geometry, validate an
+electrode model, or require a native anchor. This preserves repairability when
+the native E-field exists but FEM-only inputs are unavailable.
+
 ## Head-Model Contract
 
 On a miss, the existing canonical preparation path builds or reads the exact
 head-model path and immediately validates its coordinate-unit contract. Only
 the successfully validated loaded structure is inserted into the runtime.
 
-On a hit, the already validated MATLAB structure is returned without another
-MAT-file inventory, load, or validation pass. Disk existence and task-context
-compatibility are checked before lookup. A cache hit never authorizes resume
-and never substitutes for an expected output artifact.
+On a hit, the cache compares the current head-model path/size/available-mtime
+signature with the signature captured after validation. An exact match returns
+the already validated MATLAB structure without another MAT-file inventory,
+load, or validation pass. A changed, removed, or replaced file invalidates the
+entry and returns to the normal load/build-and-validate path. A cache hit never
+authorizes resume and never substitutes for an expected output artifact.
+
+The head-model function returns a validated-instance key that includes the
+post-validation backing-file signature. Export geometry uses this instance key,
+so replacing a head model with a different valid mesh also invalidates geometry
+derived from the prior mesh.
 
 Manifest validation rejects tasks that declare one canonical head-model path
 with incompatible head-model key inputs. This fails before any task executes.
@@ -169,14 +198,15 @@ an empty cache status.
 
 1. Add a process-local runtime constructor and focused cache get/put helpers.
 2. Split base context resolution from task-specific stimulation construction.
-3. Thread runtime through the default subject-runner solve path while
+3. Add a lightweight transform-only context that does not load FEM geometry.
+4. Thread runtime through the default subject-runner solve path while
    preserving custom callback compatibility.
-4. Add keyed validated head-model reuse.
-5. Split field-independent export geometry from field-value application and
+5. Add keyed validated head-model reuse with backing-file invalidation.
+6. Split field-independent export geometry from field-value application and
    add keyed reuse.
-6. Allow common-grid export to consume a cached native anchor header.
-7. Add cache hit/miss telemetry and manifest cross-task compatibility checks.
-8. Update the parent specification and optimization goal status only after all
+7. Allow common-grid export to consume a cached native anchor header.
+8. Add cache hit/miss telemetry and manifest cross-task compatibility checks.
+9. Update the parent specification and optimization goal status only after all
    solver-free tests pass.
 
 ## Verification
@@ -190,8 +220,8 @@ Required solver-free evidence:
    key and incompatible key inputs do not hit.
 4. Export tests prove cached and uncached geometry produce identical points,
    selected field values, native E-field arrays, and thresholded VTA arrays.
-5. Subject-runner tests prove two matching tasks report miss then hit and a
-   changed key reports miss.
+5. Runtime integration tests prove two matching operations report miss then hit
+   and changed context, geometry, path, or backing-file inputs do not hit.
 6. Existing Python VTA pipeline tests, MATLAB solver-free fiber tests, and
    MATLAB Code Analyzer checks remain green.
 
@@ -204,7 +234,7 @@ complete.
 This slice is complete only when:
 
 - the production per-subject runner owns and passes one explicit runtime;
-- all four scoped cache categories are active and keyed as documented;
+- all five scoped cache categories are active and keyed as documented;
 - no disk-persistent cache or artifact-hash resume logic is introduced;
 - compatibility task execution remains valid;
 - cache telemetry distinguishes hits and misses;

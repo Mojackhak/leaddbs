@@ -1,0 +1,16 @@
+function points = mh_vta_tetrahedron_midpoints_mm(mesh)
+% Compute FEM tetrahedron midpoint coordinates in millimeters.
+
+if ~isstruct(mesh) || ~isfield(mesh, 'pnt') || ~isfield(mesh, 'tet')
+    error('mh_vta:InvalidFemExportSamples', ...
+        'FEM mesh must define pnt and tet arrays.');
+end
+points = mean(cat(3, ...
+    mesh.pnt(mesh.tet(:, 1), :), ...
+    mesh.pnt(mesh.tet(:, 2), :), ...
+    mesh.pnt(mesh.tet(:, 3), :), ...
+    mesh.pnt(mesh.tet(:, 4), :)), 3);
+if isfield(mesh, 'unit') && strcmpi(mesh.unit, 'm')
+    points = points * 1000;
+end
+end

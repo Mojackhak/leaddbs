@@ -10,9 +10,10 @@ phase_1_bounded_native_interpolation_implemented
 slice_4_context_and_headmodel_load_consolidation_implemented
 slice_5_subject_manifest_and_state_machine_implemented
 slice_6_persistent_subject_runner_implemented
+slice_7_process_local_runtime_caches_implemented
 solver_free_verification_complete
 real_fem_baseline_not_run
-process_local_runtime_caches_not_implemented
+fem_system_reuse_not_implemented
 current_outputs_unchanged
 ```
 
@@ -31,8 +32,11 @@ and context/headmodel load consolidation are implemented and solver-free
 verified. The deterministic subject manifest and path-based artifact state
 resolver are also implemented and solver-free verified. Production execution
 now uses one persistent MATLAB process per active subject while preserving the
-per-task compatibility runner. Process-local runtime caches and FEM reuse
-remain planned work.
+per-task compatibility runner. Process-local transform/subject context,
+validated head-model, native-anchor, and export-geometry caches are implemented
+and solver-free verified. The complete MATLAB fiber suite passes 121 tests, the
+Python VTA pipeline/benchmark suite passes 171 tests, and Code Analyzer reports
+zero findings. FEM reuse and real-FEM acceptance remain planned work.
 
 This document defines a performance optimization plan for the canonical
 VTA/E-field pipeline. It does not authorize a scientific model change, an
@@ -48,6 +52,12 @@ The slice 6 persistent-subject-runner implementation contract is:
 
 ```text
 docs/superpowers/plans/2026-07-14-vta-persistent-subject-runner.md
+```
+
+The slice 7 process-local runtime-cache implementation contract is:
+
+```text
+docs/superpowers/plans/2026-07-14-vta-process-local-runtime-caches.md
 ```
 
 ## Goal
