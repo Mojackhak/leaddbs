@@ -18,7 +18,7 @@ real_fem_performance_baseline_complete
 representative_pre_reuse_numerical_gate_complete
 fem_system_reuse_implemented
 current_factorization_real_fem_gate_complete
-post_reuse_representative_gate_pending
+post_reuse_representative_gate_complete
 current_outputs_unchanged
 ```
 
@@ -94,6 +94,34 @@ correlation `1`); all 180/200/220 V/m VTA comparisons had Dice `1` and zero
 volume difference. The two output leaves were independent. This proves a real
 cache hit without expanding the acceptance to the historical multi-case FEM
 suite.
+
+The fresh post-reuse representative gate completed successfully at:
+
+```text
+/Volumes/VAL/STNSNr/validation/vta_performance_benchmark_20260714T140401688999Z
+```
+
+It completed the full bounded `16/16` FEM contract. Compatibility per-task
+median wall time was `77.99708383297548 s`; persistent-subject median wall time
+was `44.61829545791261 s`, for a ratio of `0.5720508160722921` and a `42.79%`
+reduction. Every source/group-peak native and MNI comparison across all three
+measured pairs was exact: maximum E-field difference `0 V/m`, relative L2 `0`,
+correlation `1`, affine difference `0`, Dice `1`, and relative VTA volume
+difference `0` at 180/200/220 V/m. Peak single-subject process-tree RSS was
+`9,205,678,080` bytes.
+
+The representative alternating voltage sources use different constrained-node
+sets, so their factorization cache status remains miss/miss by design. Relative
+to the pre-reuse gate, median `fem_matrix_preparation` time increased from
+`0.054461 s` to `0.064422 s` in compatibility mode and from `0.049960 s` to
+`0.059627 s` in persistent mode. These `18.29%` and `19.35%` relative changes
+are about `10 ms` absolute and are the expected bounded miss-path cost of exact
+cache-key validation, lookup, and one-entry publication. Persistent
+`electrode_removal_geometry` changed from `0.014517 s` to `0.016216 s`
+(`11.70%`, about `1.7 ms`); that stage was not changed by the factorization
+slice and the absolute variation is timing noise. Persistent total median wall
+time improved slightly from `44.65844920813106 s` to `44.61829545791261 s`.
+No scientific or output regression was observed.
 
 This document defines a performance optimization plan for the canonical
 VTA/E-field pipeline. It does not authorize a scientific model change, an

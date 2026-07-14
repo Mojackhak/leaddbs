@@ -11,9 +11,10 @@ semantics. Reuse is process-local to one persistent subject worker.
 ```text
 design_documented
 implementation_complete
-post_reuse_acceptance_in_progress
+post_reuse_acceptance_complete
 pre_reuse_representative_gate_complete
 real_current_cache_hit_gate_complete
+post_reuse_representative_gate_complete
 three_worker_memory_gate_not_run
 public_cli_default_workers_1
 ```
@@ -186,3 +187,37 @@ independent output leaves: passed
 
 The failed setup-only root ending in `070049_790` contains no FEM result and is
 not acceptance evidence. It is retained rather than overwritten or deleted.
+
+## Measured Post-Reuse Representative Evidence
+
+The fresh bounded paired gate passed at:
+
+```text
+/Volumes/VAL/STNSNr/validation/vta_performance_benchmark_20260714T140401688999Z
+```
+
+Measured evidence:
+
+```text
+completed FEM solves: 16/16
+compatibility median: 77.99708383297548 s
+persistent median: 44.61829545791261 s
+persistent/compatibility ratio: 0.5720508160722921
+25 percent target: passed
+maximum E-field difference: 0 V/m
+maximum relative L2: 0
+minimum correlation: 1
+maximum affine difference: 0
+minimum VTA Dice: 1
+maximum relative VTA volume difference: 0
+peak single-subject process-tree RSS: 9,205,678,080 bytes
+```
+
+The alternating voltage tasks have different constrained-node sets and
+therefore correctly report factorization misses. Median matrix-preparation time
+rose by about `10 ms` (`18.29%` compatibility, `19.35%` persistent) because the
+miss path now validates and publishes the exact bounded cache identity. The
+only other stage above the 10% relative-review threshold was persistent
+electrode removal (`+1.7 ms`, `11.70%`); that stage was untouched and the
+absolute change is measurement noise. Persistent total median changed from
+`44.65844920813106 s` pre-reuse to `44.61829545791261 s` post-reuse.
