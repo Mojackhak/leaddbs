@@ -19,6 +19,10 @@ from typing import Any
 
 import psutil
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from my_helper.fiber.core.vta_pipeline.artifacts import expected_artifacts
 from my_helper.fiber.core.vta_pipeline.matlab_bridge import MatlabBridge
 from my_helper.fiber.core.vta_pipeline.paths import leaf_directory
@@ -29,7 +33,6 @@ from my_helper.fiber.core.vta_pipeline.process_monitor import (
 from my_helper.fiber.core.vta_pipeline.service import RunService, prepare_plan
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_FIXTURE = Path(__file__).resolve().parent / "fixtures" / (
     "vta_performance_benchmark_v1.json"
 )
