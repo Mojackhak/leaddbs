@@ -61,14 +61,27 @@ def _desired_artifacts(
     return artifacts
 
 
-def _owned_records(state: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
-    records: dict[str, Mapping[str, Any]] = {}
+def _owned_records(
+    state: Mapping[str, Any],
+) -> dict[str, list[Mapping[str, Any]]]:
+    records: dict[str, list[Mapping[str, Any]]] = {}
     for key in ("published_artifacts", "publication_intent"):
         for artifact in state.get(key, []) if isinstance(state, Mapping) else []:
             path = str(artifact.get("path", ""))
             if path:
-                records[path] = artifact
+                records.setdefault(path, []).append(artifact)
     return records
+
+
+def _matching_owned_record(
+    candidates: Sequence[Mapping[str, Any]], current_hash: str
+) -> Mapping[str, Any] | None:
+    """Return the ownership record matching the file currently on disk."""
+
+    return next(
+        (record for record in candidates if record.get("sha256") == current_hash),
+        None,
+    )
 
 
 def _link_or_copy(source: Path, destination: Path) -> None:
@@ -114,6 +127,21 @@ def publish_subject(
         raise PublicationError(f"non-tool-owned state file blocks publication: {state_path}")
     desired = _desired_artifacts(subject, config.atlas.seeds, seed_results)
     owned = _owned_records(prior)
+    desired_paths = {artifact["path"] for artifact in desired}
+    public_root = (subject.output_root / "tractograms").resolve()
+
+    if public_root.is_dir():
+        for existing in sorted(
+            (path for path in public_root.rglob("*") if path.is_file()),
+            key=lambda path: path.as_posix(),
+        ):
+            if existing.name.startswith("._"):
+                continue
+            path_text = str(existing)
+            if path_text not in desired_paths and path_text not in owned:
+                raise PublicationError(
+                    f"non-tool-owned stale path blocks publication: {existing}"
+                )
 
     replacements: list[dict[str, Any]] = []
     reused: list[str] = []
@@ -123,13 +151,13 @@ def publish_subject(
         if not source.is_file() or file_sha256(source) != artifact["sha256"]:
             raise PublicationError(f"staged artifact failed hash verification: {source}")
         if final.exists():
-            record = owned.get(str(final))
-            if record is None:
+            candidates = owned.get(str(final), [])
+            if not candidates:
                 raise PublicationError(
                     f"non-tool-owned final path blocks publication: {final}"
                 )
             current_hash = file_sha256(final)
-            if current_hash != record.get("sha256"):
+            if _matching_owned_record(candidates, current_hash) is None:
                 raise PublicationError(
                     f"tool ownership hash no longer matches final path: {final}"
                 )
@@ -137,6 +165,28 @@ def publish_subject(
                 reused.append(str(final))
                 continue
         replacements.append(artifact)
+
+    stale: list[Path] = []
+    for path_text, candidates in sorted(owned.items()):
+        if path_text in desired_paths:
+            continue
+        path = Path(path_text)
+        if not path.exists():
+            continue
+        try:
+            path.resolve().relative_to(public_root)
+        except ValueError as exc:
+            raise PublicationError(
+                f"owned stale path resolves outside the public root: {path}"
+            ) from exc
+        if not path.is_file():
+            raise PublicationError(f"owned stale path is not a file: {path}")
+        current_hash = file_sha256(path)
+        if _matching_owned_record(candidates, current_hash) is None:
+            raise PublicationError(
+                f"tool ownership hash no longer matches stale path: {path}"
+            )
+        stale.append(path)
 
     transaction_id = uuid.uuid4().hex
     transaction_root = work_root / "staging" / f"publication-{transaction_id}"
@@ -177,6 +227,11 @@ def publish_subject(
                 moved_old[str(final)] = rollback
             os.replace(prepared_files[str(final)], final)
             installed.append(final)
+        for index, final in enumerate(stale):
+            rollback = rollback_root / f"stale-{index:04d}.tck"
+            rollback.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(final, rollback)
+            moved_old[str(final)] = rollback
         for artifact in desired:
             final = Path(artifact["path"])
             if not final.is_file() or file_sha256(final) != artifact["sha256"]:
@@ -189,8 +244,12 @@ def publish_subject(
                     recovery = transaction_root / f"failed-{uuid.uuid4().hex}.tck"
                     recovery.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(final, recovery)
-                old = moved_old.get(str(final))
-                if old is not None and old.exists():
+            except OSError as rollback_exc:
+                rollback_errors.append(f"{final}: {rollback_exc}")
+        for final_text, old in reversed(tuple(moved_old.items())):
+            final = Path(final_text)
+            try:
+                if old.exists():
                     final.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(old, final)
             except OSError as rollback_exc:
@@ -258,6 +317,7 @@ def publish_subject(
         "output_root": str(subject.output_root),
         "generated_artifacts": len(replacements),
         "reused_artifacts": len(reused),
+        "retired_artifacts": len(stale),
         "published_artifacts": desired,
         "cleanup_pending": cleanup_pending,
         "appledouble_trashed": appledouble_trashed,

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from ..discovery import discover_subject
-from ..errors import DiscoveryError
+from ..errors import DiscoveryError, ValidationError
 from ..models import SubjectSpec
 from .helpers import make_subject_tree, write_nifti
 
@@ -49,4 +50,25 @@ def test_anatomical_anchor_ambiguity_is_rejected(tmp_path: Path) -> None:
         __import__("numpy").ones((2, 2, 2), dtype="float32"),
     )
     with pytest.raises(DiscoveryError, match="exactly one anatomical"):
+        discover_subject(SubjectSpec(subject_id, subject_dir))
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        (np.zeros((4, 5, 6), dtype=np.uint8), "tracking mask is empty"),
+        (np.full((4, 5, 6), 2, dtype=np.uint8), "tracking mask must be binary"),
+    ],
+)
+def test_invalid_tracking_mask_is_rejected_before_preparation(
+    tmp_path: Path, data: np.ndarray, message: str
+) -> None:
+    subject_id = "sub-001"
+    subject_dir = make_subject_tree(tmp_path, subject_id)
+    write_nifti(
+        subject_dir / "preprocessing" / "dwi" / "trackingmask.nii",
+        data,
+        np.diag([1.5, 1.5, 2.0, 1.0]),
+    )
+    with pytest.raises(ValidationError, match=message):
         discover_subject(SubjectSpec(subject_id, subject_dir))

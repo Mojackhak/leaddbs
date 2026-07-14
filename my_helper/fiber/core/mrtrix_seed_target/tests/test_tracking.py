@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +15,7 @@ from ..tracking import (
     coverage_complete,
     derive_chunk_rng_seed,
     next_chunk_request,
+    source_tracking_mask_path,
 )
 from .helpers import minimal_document, write_nifti
 
@@ -87,3 +89,21 @@ def test_global_coverage_and_exact_final_chunk_request() -> None:
     assert next_chunk_request(0, 50_000, 100_000_000) == 50_000
     assert next_chunk_request(99_980_000, 50_000, 100_000_000) == 20_000
     assert next_chunk_request(100_000_000, 50_000, 100_000_000) == 0
+
+
+def test_tracking_uses_validated_source_nifti_instead_of_redundant_mif(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "trackingmask.nii"
+    source.write_bytes(b"mask")
+    preparation = {
+        "identity_document": {
+            "inputs": {
+                "tracking_mask": {
+                    "path": str(source),
+                    "sha256": hashlib.sha256(b"mask").hexdigest(),
+                }
+            }
+        }
+    }
+    assert source_tracking_mask_path(preparation) == source

@@ -261,6 +261,16 @@ def validate_subject_geometry(subject: ResolvedSubjectInputs) -> None:
             raise ValidationError(f"{label} is not on the native DWI shape: {path}")
         if not np.allclose(image.affine, b0.affine, atol=1e-4, rtol=1e-6):
             raise ValidationError(f"{label} is not on the native DWI affine: {path}")
+        data = np.asanyarray(image.dataobj)
+        if not np.all(np.isfinite(data)):
+            raise ValidationError(f"{label} contains nonfinite values: {path}")
+        unique = np.unique(data)
+        if unique.size > 2 or not set(float(value) for value in unique).issubset(
+            {0.0, 1.0}
+        ):
+            raise ValidationError(f"{label} must be binary with values 0 and 1: {path}")
+        if not np.any(data):
+            raise ValidationError(f"{label} is empty: {path}")
     if len(anchor.shape) != 3:
         raise ValidationError(
             f"anchorNative reference must be three-dimensional: {subject.anchor_native_reference}"

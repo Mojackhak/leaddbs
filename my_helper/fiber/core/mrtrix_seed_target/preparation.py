@@ -148,7 +148,6 @@ def prepare_subject(
     tools = validation.tools
     dwi_mif = staging / "dwi.mif"
     brain_mif = staging / "brainmask.mif"
-    tracking_mif = staging / "trackingmask.mif"
     response = staging / "response_wm.txt"
     fod = staging / "wm_fod.mif"
     threads = str(execution.preparation_threads_per_subject)
@@ -180,20 +179,6 @@ def prepare_subject(
             "-force",
         ],
         log_path=log_dir / "mrconvert_brainmask.log",
-        memory_observer=memory_observer,
-    )
-    run_command(
-        [
-            tools["mrconvert"].executable,
-            subject.tracking_mask,
-            tracking_mif,
-            "-datatype",
-            "bit",
-            "-nthreads",
-            threads,
-            "-force",
-        ],
-        log_path=log_dir / "mrconvert_trackingmask.log",
         memory_observer=memory_observer,
     )
     run_command(
@@ -235,14 +220,13 @@ def prepare_subject(
         repo_root,
         memory_observer=memory_observer,
     )
-    for path in (dwi_mif, brain_mif, tracking_mif, response, fod):
+    for path in (dwi_mif, brain_mif, response, fod):
         if not path.is_file() or path.stat().st_size <= 0:
             raise ValidationError(f"preparation artifact is missing or empty: {path}")
 
     final_artifact_paths = {
         "dwi_mif": final_dir / dwi_mif.relative_to(staging),
         "brain_mask_mif": final_dir / brain_mif.relative_to(staging),
-        "tracking_mask_mif": final_dir / tracking_mif.relative_to(staging),
         "response_wm": final_dir / response.relative_to(staging),
         "wm_fod": final_dir / fod.relative_to(staging),
     }

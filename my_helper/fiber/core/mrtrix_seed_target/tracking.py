@@ -97,6 +97,24 @@ def build_tckgen_command(
     ]
 
 
+def source_tracking_mask_path(preparation: Mapping[str, Any]) -> Path:
+    """Return the validated native-DWI tracking-mask NIfTI from provenance."""
+
+    try:
+        record = preparation["identity_document"]["inputs"]["tracking_mask"]
+        path = Path(record["path"])
+        expected_hash = str(record["sha256"])
+    except (KeyError, TypeError) as exc:
+        raise ValidationError(
+            "prepared subject does not record its source tracking-mask path"
+        ) from exc
+    if not path.is_file() or file_sha256(path) != expected_hash:
+        raise ValidationError(
+            f"source tracking mask no longer matches preparation identity: {path}"
+        )
+    return path
+
+
 def seedwide_identity(
     config: BatchConfig,
     subject_id: str,
@@ -276,7 +294,7 @@ def _generate_chunk(
         Path(preparation["artifacts"]["wm_fod"]["path"]),
         inflight,
         Path(seed_record["path"]),
-        Path(preparation["artifacts"]["tracking_mask_mif"]["path"]),
+        source_tracking_mask_path(preparation),
         config,
         requested,
     )

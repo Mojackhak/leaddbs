@@ -48,7 +48,7 @@ def _resolved_subject(subject_dir: Path) -> ResolvedSubjectInputs:
     )
 
 
-def _seed_result(tmp_path: Path) -> dict:
+def _seed_result(tmp_path: Path, *, target_id: str = "Target") -> dict:
     streamlines = [np.asarray([[0, 0, 0], [1, 1, 1]], dtype=np.float32)]
     mother = tmp_path / "stage" / "seedwide.tck"
     target = tmp_path / "stage" / "target.tck"
@@ -68,9 +68,9 @@ def _seed_result(tmp_path: Path) -> dict:
             },
             "targets": [
                 {
-                    "id": "Target",
+                    "id": target_id,
                     "side": "lh",
-                    "key": "lh/Target",
+                    "key": f"lh/{target_id}",
                     "path": str(target),
                     "sha256": file_sha256(target),
                     "streamline_count": 1,
@@ -145,3 +145,133 @@ def test_unknown_final_collision_is_never_overwritten(tmp_path: Path) -> None:
             run_provenance=RUN_PROVENANCE,
         )
     assert final.read_bytes() == b"unknown"
+
+
+def test_unknown_extra_public_file_blocks_publication(tmp_path: Path) -> None:
+    document = minimal_document(tmp_path)
+    document["subjects"][0]["subject_dir"] = str(tmp_path / "sub-001")
+    config = resolve_config(document, source_path=tmp_path / "config.yaml")
+    subject = _resolved_subject(tmp_path / "sub-001")
+    unknown = subject.output_root / "tractograms" / "unknown.tck"
+    unknown.parent.mkdir(parents=True, exist_ok=True)
+    unknown.write_bytes(b"unknown")
+    with pytest.raises(PublicationError, match="non-tool-owned stale path"):
+        publish_subject(
+            config=config,
+            subject=subject,
+            preparation={"preparation_identity": "prep"},
+            seed_results={"lh/Seed": _seed_result(tmp_path)},
+            run_provenance=RUN_PROVENANCE,
+        )
+    assert unknown.read_bytes() == b"unknown"
+
+
+def test_stale_tool_owned_target_is_transactionally_retired(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    document = minimal_document(tmp_path)
+    document["subjects"][0]["subject_dir"] = str(tmp_path / "sub-001")
+    first_config = resolve_config(document, source_path=tmp_path / "first.yaml")
+    subject = _resolved_subject(tmp_path / "sub-001")
+    first = publish_subject(
+        config=first_config,
+        subject=subject,
+        preparation={"preparation_identity": "prep"},
+        seed_results={"lh/Seed": _seed_result(tmp_path / "first")},
+        run_provenance=RUN_PROVENANCE,
+    )
+    assert first["retired_artifacts"] == 0
+    stale = (
+        subject.output_root
+        / "tractograms"
+        / "lh"
+        / "Seed"
+        / "targets"
+        / "lh"
+        / "Target.tck"
+    )
+    assert stale.is_file()
+
+    second_document = minimal_document(tmp_path)
+    second_document["subjects"][0]["subject_dir"] = str(tmp_path / "sub-001")
+    second_document["atlas"]["seeds"][0]["targets"][0]["id"] = "Other"
+    second_config = resolve_config(
+        second_document, source_path=tmp_path / "second.yaml"
+    )
+    trashed: list[str] = []
+
+    def fake_trash(path: str) -> None:
+        trashed.append(path)
+        Path(path).unlink()
+
+    monkeypatch.setattr(publication_module, "send2trash", fake_trash)
+    second = publish_subject(
+        config=second_config,
+        subject=subject,
+        preparation={"preparation_identity": "prep"},
+        seed_results={
+            "lh/Seed": _seed_result(tmp_path / "second", target_id="Other")
+        },
+        run_provenance=RUN_PROVENANCE,
+    )
+    replacement = stale.with_name("Other.tck")
+    assert second["retired_artifacts"] == 1
+    assert not stale.exists()
+    assert replacement.is_file()
+    assert len(trashed) == 1
+    assert "rollback" in trashed[0]
+
+
+def test_stale_target_is_restored_when_new_publication_validation_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    document = minimal_document(tmp_path)
+    document["subjects"][0]["subject_dir"] = str(tmp_path / "sub-001")
+    first_config = resolve_config(document, source_path=tmp_path / "first.yaml")
+    subject = _resolved_subject(tmp_path / "sub-001")
+    publish_subject(
+        config=first_config,
+        subject=subject,
+        preparation={"preparation_identity": "prep"},
+        seed_results={"lh/Seed": _seed_result(tmp_path / "first")},
+        run_provenance=RUN_PROVENANCE,
+    )
+    stale = (
+        subject.output_root
+        / "tractograms"
+        / "lh"
+        / "Seed"
+        / "targets"
+        / "lh"
+        / "Target.tck"
+    )
+    stale_hash = file_sha256(stale)
+
+    second_document = minimal_document(tmp_path)
+    second_document["subjects"][0]["subject_dir"] = str(tmp_path / "sub-001")
+    second_document["atlas"]["seeds"][0]["targets"][0]["id"] = "Other"
+    second_config = resolve_config(
+        second_document, source_path=tmp_path / "second.yaml"
+    )
+    replacement = stale.with_name("Other.tck")
+    real_sha256 = publication_module.file_sha256
+
+    def fail_final_validation(path: Path | str) -> str:
+        if Path(path) == replacement:
+            raise OSError("injected final validation failure")
+        return real_sha256(path)
+
+    monkeypatch.setattr(publication_module, "file_sha256", fail_final_validation)
+    with pytest.raises(PublicationError, match="publication failed"):
+        publish_subject(
+            config=second_config,
+            subject=subject,
+            preparation={"preparation_identity": "prep"},
+            seed_results={
+                "lh/Seed": _seed_result(tmp_path / "second", target_id="Other")
+            },
+            run_provenance=RUN_PROVENANCE,
+        )
+    assert stale.is_file()
+    assert file_sha256(stale) == stale_hash
+    assert not replacement.exists()

@@ -287,9 +287,11 @@ classification, scheduling, state, and publication.
 
 ### FOD Preparation
 
-The subject DWI is converted with its bvec/bval gradient table. Brain and
-tracking masks are converted to MRtrix format on the DWI grid. The fixed
-response/FOD methods are:
+The subject DWI is converted with its bvec/bval gradient table. The brain mask
+is converted to MRtrix format for response/FOD estimation. The resolved source
+tracking-mask NIfTI must be binary, nonempty, and on the exact native-DWI
+grid; `tckgen -mask` consumes that validated NIfTI directly. A redundant
+second MIF conversion is not used. The fixed response/FOD methods are:
 
 ```text
 dwi2response tournier
@@ -373,7 +375,6 @@ Every subject writes directly below its Lead-DBS directory:
 │   ├── state.json
 │   ├── dwi.mif
 │   ├── brainmask.mif
-│   ├── trackingmask.mif
 │   ├── response_wm.txt
 │   ├── wm_fod.mif
 │   ├── rois/
@@ -455,6 +456,13 @@ still matches the recorded tool-owned hash. Displaced tool-owned files are
 kept in rollback until successful validation, then moved to the platform Trash
 rather than permanently deleted. Trash failure leaves `cleanup_pending`
 without invalidating a successfully published result.
+
+When a new valid configuration no longer desires a previously published
+tool-owned TCK, that stale artifact is retired within the same subject
+transaction. Its current hash must still match the prior ownership record; it
+is first moved to rollback, restored on any transaction failure, and sent to
+the platform Trash only after all desired artifacts validate. Unknown or
+ownership-mismatched files are never treated as stale tool-owned artifacts.
 
 Publication is transactional per subject: both configured seed sides and all
 their targets must reach valid staged completion before any changed public TCK
@@ -578,13 +586,13 @@ MATLAB preparation helper at
 `my_helper/fiber/core/tracking/mh_fiber_prepare_mrtrix_seed_target_subject.m`.
 
 The final pre-formal gate used code identity
-`e3fd2b06f5b282360617decf873dfdfcb830dc38cc1c2460344f94af11a857b7`
+`0cc923d01ec7308b79bd0e7257c21d67836d331284b81c467f0eecc223ffe873`
 and explicitly recorded both the current Lead-DBS Git HEAD and the layered
 content hashes. The content hashes remain authoritative when the worktree is
 dirty.
 Its automated results were:
 
-- 23 focused Python tests passed;
+- 29 focused Python tests passed;
 - 77 existing normative-connectivity tests passed, one was skipped, and 27
   subtests passed;
 - Python compilation and `git diff --check` passed.
@@ -593,10 +601,10 @@ The final real-data test run completed all four subject-side units:
 
 | Subject | Seed | Mother | GPi | PPN | Minimum |
 |---|---|---:|---:|---:|---:|
-| `sub-SNr003` | `lh/STNSNrplus` | 50,000 | 13,658 | 5,387 | 5,387 |
-| `sub-SNr003` | `rh/STNSNrplus` | 50,000 | 14,294 | 2,926 | 2,926 |
-| `sub-SNr007` | `lh/STNSNrplus` | 50,000 | 12,873 | 5,922 | 5,922 |
-| `sub-SNr007` | `rh/STNSNrplus` | 50,000 | 17,226 | 8,175 | 8,175 |
+| `sub-SNr003` | `lh/STNSNrplus` | 50,000 | 13,583 | 5,438 | 5,438 |
+| `sub-SNr003` | `rh/STNSNrplus` | 50,000 | 14,096 | 2,890 | 2,890 |
+| `sub-SNr007` | `lh/STNSNrplus` | 50,000 | 12,884 | 5,974 | 5,974 |
+| `sub-SNr007` | `rh/STNSNrplus` | 50,000 | 17,161 | 8,078 | 8,078 |
 
 All twelve public files were structurally valid TCKs whose counts and hashes
 matched state. Every transformed seed and cleaned target was binary, nonempty,
@@ -607,6 +615,25 @@ seed-wide units, and all twelve public artifacts as reused; it generated zero
 public artifacts and left every public SHA-256, byte size, and nanosecond mtime
 unchanged. Therefore the real-test gate is passed and formal validation is
 authorized as the next step.
+
+The first formal attempt exposed an external-volume conversion failure in
+which nonempty binary `trackingmask.nii` inputs for `sub-SNr012` and
+`sub-SNr014` produced all-zero redundant `trackingmask.mif` files, while the
+same source data and the corresponding `brainmask.mif` remained nonempty.
+That attempt was safely interrupted after four complete subjects. The fix is
+the source-NIfTI tracking-mask contract above plus explicit binary/nonempty
+input validation. Automated and real-data gates were repeated successfully
+under the new preparation/tracking content identity before formal execution
+was authorized to resume.
+The subsequent reduced test configuration also exposed stale tool-owned
+formal target TCKs that were not part of the reduced desired set. Publication
+must therefore apply the transactional stale-artifact retirement rule above;
+the gate additionally requires the public file set to equal the current
+state's desired paths exactly. The 64 files left by the pre-fix attempt were
+each matched uniquely by path and SHA-256 to a completed seed-state output,
+then moved to the platform Trash. The repaired reduced test published exactly
+six TCKs per subject and its second unchanged run preserved every hash, byte
+size, and nanosecond mtime.
 
 After all automated and real-data test gates pass, execute:
 
