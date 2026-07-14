@@ -58,7 +58,7 @@ backing-file signatures prevent incompatible reuse; direct calls without an
 exact head-model identity remain uncached. Transform-only repair remains
 independent of FEM reconstruction geometry. The complete solver-free MATLAB
 fiber suite passes 121 tests, the Python VTA pipeline/benchmark suite passes
-184 tests, and Code Analyzer reports zero findings.
+187 tests, and Code Analyzer reports zero findings.
 
 The representative paired performance harness now provides an atomically
 claimed single-use validation root, compatibility-per-task and

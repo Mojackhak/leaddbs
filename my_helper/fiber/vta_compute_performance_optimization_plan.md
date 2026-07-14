@@ -37,7 +37,7 @@ now uses one persistent MATLAB process per active subject while preserving the
 per-task compatibility runner. Process-local transform/subject context,
 validated head-model, native-anchor, and export-geometry caches are implemented
 and solver-free verified. The complete MATLAB fiber suite passes 121 tests, the
-Python VTA pipeline/benchmark suite passes 184 tests, and Code Analyzer reports
+Python VTA pipeline/benchmark suite passes 187 tests, and Code Analyzer reports
 zero findings. FEM reuse, real-FEM performance acceptance, and post-reuse
 numerical acceptance remain planned work.
 

@@ -1,6 +1,6 @@
 # VTA Representative Paired Performance Gate Implementation Plan
 
-**Status:** paired_execution_implemented_case_filtered_prepare_pending
+**Status:** implementation_complete_solver_free_verified_real_fem_pending
 
 **Parent design:**
 `docs/superpowers/specs/2026-07-13-vta-performance-optimization-design.md`
@@ -22,14 +22,14 @@ the entire declared benchmark suite.
 
 The paired execution path was implemented on 2026-07-14 in the test-only
 benchmark harness. The focused
-benchmark tests pass 30 tests, and the combined Python VTA pipeline/benchmark
-suite passes 184 tests. Live validation resolves 9 cases and 13 semantic tasks.
+benchmark tests pass 33 tests, and the combined Python VTA pipeline/benchmark
+suite passes 187 tests. Live validation resolves 9 cases and 13 semantic tasks.
 Three review passes closed failure accounting, atomic single-use root claiming,
 protected-root ordering, immutable per-run working paths, and partial telemetry
-coverage. Case-filtered preparation and explicit warm-donor validation are the
-remaining harness changes before the real run. No MATLAB or production CLI file
-changed. The 16-FEM real run has not started, so no performance result is
-claimed yet.
+coverage. Case-filtered preparation and explicit warm-donor validation are
+implemented; restored snapshots revalidate all recorded donor/context hashes
+before MATLAB starts. No MATLAB or production CLI file changed. The 16-FEM real
+run has not started, so no performance result is claimed yet.
 
 ## Selected Case
 
