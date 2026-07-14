@@ -65,13 +65,16 @@ importer_source_access_read_only
 confirmed_snr015_source_correction_applied_before_acceptance
 manual_scale_direction_curation_selected
 scale_registry_automation_rejected
+manual_scale_direction_curation_complete
+final_scale_directions_27_lower_1_higher
+se_adl_unit_percent_confirmed
 current_model_outputs_unchanged
 ```
 
 ## Last Updated
 
 ```text
-2026-07-11
+2026-07-14
 ```
 
 ## Goal And Success Criteria
