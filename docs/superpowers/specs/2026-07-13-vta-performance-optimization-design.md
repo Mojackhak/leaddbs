@@ -95,7 +95,8 @@ Python planner
             -> emit timing and outcome events
        -> emit subject summary
   -> Python aggregates outcomes and peak process-tree RSS
-  -> CLI emits one final JSON summary and returns nonzero if any task failed
+  -> CLI emits one final JSON summary and returns nonzero if any task or
+     subject process failed
 ```
 
 Python continues to run subjects through a `ThreadPoolExecutor`. The default is
@@ -115,7 +116,11 @@ rename such fields.
   "subject_id": "SNr003",
   "tasks": [
     {
-      "task": {"task_id": "...", "canonical_payload": "..."},
+      "task": {
+        "task_id": "...",
+        "kind": "continuous_joint",
+        "...": "remaining existing canonical VtaTask fields"
+      },
       "output_leaves": {
         "native": "...",
         "MNI152NLin2009bAsym": "..."

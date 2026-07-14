@@ -288,7 +288,8 @@ The subject runner must:
 - preserve per-artifact atomic publication;
 - return task-level `generated`, `copied`, `skipped_existing`, `failed`, and
   `skipped_dependency` outcomes;
-- block only the failed task's dependents;
+- mark a downstream task `skipped_dependency` only when its currently
+  required upstream artifact remains absent;
 - continue independent tasks within the subject when possible;
 - let other subject workers continue after one subject failure; and
 - clear all process-local caches when the subject process exits.
