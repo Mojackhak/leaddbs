@@ -374,13 +374,18 @@ process = self._popen_factory(
     stderr=subprocess.STDOUT,
     text=True,
     bufsize=1,
+    start_new_session=True,
 )
 ```
 
 Register the root PID, stream lines through `EventStreamParser`, and forward
 only unprefixed lines to the diagnostic sink. On parser failure, terminate,
 wait with a bounded timeout, kill if still alive, reap, unregister, then
-reraise. On normal EOF, wait, unregister, and call `finish(returncode)`.
+reraise. On POSIX, termination targets the process group created for the
+MATLAB launch so child processes do not survive the failed root process. The
+original protocol/process exception remains primary if cleanup also reports an
+error. RSS unregister occurs only after successful process reaping. On normal
+EOF, wait, unregister, and call `finish(returncode)`.
 
 - [ ] **Step 4: Verify GREEN and commit**
 
