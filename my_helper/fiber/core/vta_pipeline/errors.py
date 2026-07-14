@@ -27,3 +27,11 @@ class RuntimeInputError(VtaPipelineError):
 
 class ExecutionUnavailableError(VtaPipelineError):
     """Raised while the execution bridge is intentionally disconnected."""
+
+
+class EventProtocolError(VtaPipelineError):
+    """Raised when framed MATLAB telemetry violates vta_event_v1."""
+
+
+class MatlabProcessError(VtaPipelineError):
+    """Raised when a MATLAB process exits unsuccessfully."""
