@@ -3,7 +3,7 @@
 ## Status
 
 ```text
-design_revision_pending_review
+design_approved
 implementation_not_started
 existing_outputs_unchanged
 ```
