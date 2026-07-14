@@ -21,6 +21,7 @@ current_factorization_real_fem_gate_complete
 post_reuse_representative_gate_complete
 three_worker_memory_gate_complete
 public_cli_default_workers_3_authorized_not_implemented
+documentation_updated_for_public_cli_default_workers_3
 current_outputs_unchanged
 ```
 

@@ -15,11 +15,11 @@ post_reuse_acceptance_complete
 pre_reuse_representative_gate_complete
 real_current_cache_hit_gate_complete
 post_reuse_representative_gate_complete
-three_worker_memory_gate_not_run
-public_cli_default_workers_1
+three_worker_memory_gate_complete
+public_cli_default_workers_3_authorized
 ```
 
-The remaining memory gate is specified in:
+The completed memory gate is specified in:
 
 ```text
 docs/superpowers/plans/2026-07-14-vta-three-worker-memory-gate.md
@@ -143,8 +143,8 @@ speedup there is not hidden or relabeled.
 Also run one bounded current-control repeated-return case that demonstrates a
 real factorization hit. Pre- and post-reuse voltage/current outputs must satisfy
 the existing numerical gates. Only after these pass may the separate
-three-worker memory gate run. The public CLI default remains one worker until
-that gate independently passes.
+three-worker memory gate run. That gate passed independently and authorizes the
+public CLI default of three subject workers.
 
 The real current cache-hit gate is intentionally bounded to two FEM solves. It
 uses one copied subject, one validated head model, one process-local subject

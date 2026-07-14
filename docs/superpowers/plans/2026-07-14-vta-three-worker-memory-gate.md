@@ -15,6 +15,7 @@ first_gate_instrumentation_failed
 corrected_gate_passed
 public_cli_default_workers_1
 public_cli_default_workers_3_authorized_not_implemented
+documentation_updated_for_public_cli_default_workers_3
 ```
 
 The post-reuse numerical/performance gate and bounded real-current cache-hit

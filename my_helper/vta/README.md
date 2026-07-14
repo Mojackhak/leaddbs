@@ -254,7 +254,9 @@ vta-model status   --study-base PATH --vta-model PATH (--subject ID ... | --all-
 Selectors are repeatable `--phase`, `--program`, `--electrode`, and
 `--frequency-group`. One of repeatable `--subject` or `--all-subjects` is
 required, and the two forms are mutually exclusive. `--workers` is a positive
-integer and parallelizes subjects only.
+integer and parallelizes subjects only. `run` defaults to three subject workers;
+pass an explicit value to use a different positive worker count. Tasks within
+one subject remain sequential even when multiple subjects run concurrently.
 
 `validate` requires one unlabelled preoperative anchor T1w, the forward native
 to MNI transform, the configured atlas index and template GM mask, and the
