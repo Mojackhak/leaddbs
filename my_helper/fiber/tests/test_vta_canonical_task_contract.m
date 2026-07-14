@@ -128,12 +128,13 @@ fileCleanup = onCleanup(@() fclose(fid));
 fwrite(fid, jsonencode(task), 'char');
 clear fileCleanup;
 
-resolved = mh_vta_run_canonical_task(taskPath, ...
-    'SolveFunction', @identity_task);
+output = evalc("resolved = mh_vta_run_canonical_task(taskPath, " + ...
+    "'SolveFunction', @identity_task);");
 
 verifyEqual(testCase, string(resolved.task_id), "task-001");
 verifyEqual(testCase, string(resolved.kind), "continuous_joint");
 verifyEqual(testCase, numel(resolved.solve_units), 1);
+verifyEqual(testCase, count_event_lines(output), 5);
 end
 
 function status = identity_task(task)
@@ -146,9 +147,9 @@ task = fixture_task('continuous_joint', 'continuous', ...
 taskPath = write_task_fixture(task);
 cleanup = onCleanup(@() delete_if_present(taskPath));
 
-status = mh_vta_run_canonical_task(taskPath, ...
-    'SolveFunction', @record_solve, ...
-    'DerivedFunction', @reject_unexpected_dispatch);
+evalc("status = mh_vta_run_canonical_task(taskPath, " + ...
+    "'SolveFunction', @record_solve, " + ...
+    "'DerivedFunction', @reject_unexpected_dispatch);");
 
 verifyEqual(testCase, string(status.execution), "solve");
 verifyEqual(testCase, string(status.task_id), "task-001");
@@ -161,9 +162,9 @@ task = fixture_task('alternating_group_peak', 'alternating', ...
 taskPath = write_task_fixture(task);
 cleanup = onCleanup(@() delete_if_present(taskPath));
 
-status = mh_vta_run_canonical_task(taskPath, ...
-    'SolveFunction', @reject_unexpected_dispatch, ...
-    'DerivedFunction', @record_derived);
+evalc("status = mh_vta_run_canonical_task(taskPath, " + ...
+    "'SolveFunction', @reject_unexpected_dispatch, " + ...
+    "'DerivedFunction', @record_derived);");
 
 verifyEqual(testCase, string(status.execution), "derived");
 verifyEqual(testCase, string(status.task_id), "task-001");
@@ -188,6 +189,21 @@ task = fixture_task('continuous_joint', 'continuous', ...
 status = mh_vta_execute_canonical_task(task);
 
 verifyEqual(testCase, string(status.execution), "canonical");
+verifyEqual(testCase, string(status.task_id), "task-001");
+end
+
+function testExecuteAcceptsEmitterWithoutChangingCustomCallbackSignature(testCase)
+task = fixture_task('continuous_joint', 'continuous', ...
+    fixture_source('source-1', 'voltage'));
+emit = @(eventType, fields) error( ...
+    'test_vta:UnexpectedDirectEmission', ...
+    'Execute must not emit runner-level event %s.', eventType);
+
+status = mh_vta_execute_canonical_task(task, ...
+    'SolveFunction', @record_solve, ...
+    'EventEmitter', emit);
+
+verifyEqual(testCase, string(status.execution), "solve");
 verifyEqual(testCase, string(status.task_id), "task-001");
 end
 
@@ -252,9 +268,8 @@ function status = record_derived(task)
 status = struct('execution', 'derived', 'task_id', task.task_id);
 end
 
-function status = reject_unexpected_dispatch(~)
+function status = reject_unexpected_dispatch(~) %#ok<STOUT>
 error('test_vta:UnexpectedDispatch', 'Unexpected execution path.');
-status = struct(); %#ok<UNRCH>
 end
 
 function model = fixture_model()
@@ -270,6 +285,11 @@ function delete_if_present(path)
 if isfile(path)
     delete(path);
 end
+end
+
+function count = count_event_lines(output)
+lines = splitlines(string(output));
+count = sum(startsWith(lines, "MH_VTA_EVENT "));
 end
 
 function write_backend_stub(stubDir, functionName, body)
