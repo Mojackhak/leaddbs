@@ -4,9 +4,23 @@
 
 ```text
 design_approved_for_execution
-implementation_not_started
+slice_1_telemetry_and_benchmark_harness_implemented
+solver_free_verification_complete
+real_fem_baseline_not_run
+slices_2_to_9_not_started
 current_outputs_unchanged
 ```
+
+The implemented first slice includes framed event parsing, synchronized
+process-tree RSS sampling, process-group-safe streaming MATLAB execution,
+canonical task/stage event emission, and the frozen benchmark fixture and
+harness. Solver-free Python and MATLAB acceptance suites pass, and live
+benchmark validation resolves 9 cases and 13 semantic tasks.
+
+This status does not claim a measured runtime improvement. The real FEM
+baseline, candidate comparison, and three-worker memory gate have not run.
+The production CLI default remains one worker until that gate passes. Slices 2
+through 9 remain implementation work.
 
 ## Purpose
 

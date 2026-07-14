@@ -4,9 +4,25 @@
 
 ```text
 design_documented
-implementation_not_started
+phase_0_telemetry_and_baseline_harness_implemented
+solver_free_verification_complete
+real_fem_baseline_not_run
+optimization_slices_2_to_9_not_started
 current_outputs_unchanged
 ```
+
+As of 2026-07-14, the first implementation slice is complete. The repository
+contains the framed telemetry parser, synchronized process-tree RSS monitor,
+streaming MATLAB bridge, canonical MATLAB event emitter, stage timing, and the
+frozen performance benchmark harness. The Python benchmark/pipeline suite and
+the solver-free MATLAB fiber suite pass. Live benchmark validation resolves 9
+cases and 13 semantic tasks from the current study configuration.
+
+No real FEM performance baseline has been executed in this slice. No runtime
+speedup, candidate performance bound, or three-worker memory-safety result is
+therefore claimed. The public CLI default remains one worker until the required
+memory gate passes. Bulk thresholding, bounded interpolation, persistent
+subject execution, runtime caches, and FEM reuse remain planned work.
 
 This document defines a performance optimization plan for the canonical
 VTA/E-field pipeline. It does not authorize a scientific model change, an
