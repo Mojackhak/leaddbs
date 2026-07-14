@@ -73,7 +73,7 @@ correlation = pearson_correlation(referenceValues, candidateValues);
 exactRepeatability = isequaln(referenceNii.img, candidateNii.img);
 
 equivalencePass = affineMaxAbs <= limits.affine_max_abs && ...
-    valueMaxAbs <= limits.value_max_abs && ...
+    within_upper_limit(valueMaxAbs, limits.value_max_abs) && ...
     relativeL2 <= limits.relative_l2 && ...
     correlation >= limits.correlation_min;
 repeatabilityPass = inputs.comparison ~= "repeatability" || exactRepeatability;
@@ -364,11 +364,12 @@ if inputs.comparison == "repeatability" && ~efieldRow.exact_repeatability
     error('mh_compare_single_source_backend_outputs:RepeatabilityMismatch', ...
         'Repeatability comparison requires voxel-identical E-fields.');
 end
-if ~(efieldRow.value_max_abs <= limits.value_max_abs)
+if ~within_upper_limit(efieldRow.value_max_abs, limits.value_max_abs)
     error('mh_compare_single_source_backend_outputs:ValueToleranceExceeded', ...
         'Value maximum absolute difference %.17g V/m exceeds %.17g V/m.', ...
         efieldRow.value_max_abs, limits.value_max_abs);
 end
+
 if ~(efieldRow.relative_l2 <= limits.relative_l2)
     error('mh_compare_single_source_backend_outputs:RelativeL2ToleranceExceeded', ...
         'Relative L2 error %.17g exceeds %.17g.', ...
@@ -404,6 +405,12 @@ if ~isempty(firstVolumeFailure)
         binaryRows.threshold_v_per_m(firstVolumeFailure), ...
         limits.relative_volume_diff_max);
 end
+end
+
+function passed = within_upper_limit(value, limit)
+% Admit only floating-point representation noise at an inclusive boundary.
+boundarySlack = 64 * eps(max(1, abs(limit)));
+passed = value <= limit + boundarySlack;
 end
 
 function value = voxel_volume(affine)
