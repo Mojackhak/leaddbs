@@ -12,6 +12,12 @@ This document defines a performance optimization plan for the canonical
 VTA/E-field pipeline. It does not authorize a scientific model change, an
 artifact-contract change, or a model rerun.
 
+The executable architecture and resolved audit decisions are defined in:
+
+```text
+docs/superpowers/specs/2026-07-13-vta-performance-optimization-design.md
+```
+
 ## Goal
 
 Reduce clean-run and incremental-run wall time while preserving:
@@ -49,6 +55,8 @@ Current implementation characteristics:
 - Every MATLAB invocation evaluates `addpath(genpath(repo_root))`.
 - `service.py` runs subjects concurrently but executes each subject DAG
   sequentially.
+- The current CLI default is one subject worker. The optimized CLI contract
+  changes this default to three only after the required memory-safety gate.
 - The current study configuration produces 208 planned task rows.
 - Existing same-subject reuse reduces these rows to approximately 105 FEM
   solves and 8 group-peak derivations on a clean run.
@@ -89,8 +97,9 @@ source-level native E-fields
 
 - Preserve complete native-anchor dimensions and affine.
 - Do not silently omit configured output spaces or artifacts.
-- Keep the default concurrency at three subject workers until measured memory
-  and timing results justify another value.
+- Change the final CLI default to three subject workers. Three-subject
+  memory-safety acceptance is mandatory; failure blocks release rather than
+  silently restoring a one-worker default.
 - Do not combine subject-level process parallelism with source-level process
   parallelism in the first optimization implementation.
 - A performance optimization must not relax the existing numerical acceptance
@@ -112,10 +121,15 @@ Python CLI and planner
   -> Python validates output-leaf completeness
 ```
 
-Three Python workers continue to execute different subjects concurrently.
+Three Python workers execute different subjects concurrently by default.
 Tasks within one subject initially remain sequential. This preserves simple DAG
 ordering, limits FEM memory consumption, and maximizes reuse of process-local
 state.
+
+Before each task, the MATLAB subject runner rechecks artifact existence,
+attempts ordered same-subject copy reuse supplied by Python, recomputes
+`missing_artifacts`, and only then selects skip, solve, or derived execution.
+This prevents stale manifest state when an earlier task creates a later donor.
 
 ## Phase 0: Measurement Baseline
 
@@ -141,6 +155,18 @@ artifact publication
 Timing records must be emitted to MATLAB standard output in a machine-readable
 form and aggregated by Python. Timing must not create a new file in an output
 leaf and must not become an authoritative input.
+
+Every machine-readable line uses the exact prefix `MH_VTA_EVENT ` followed by
+one compact `vta_event_v1` JSON object. Supported records are `subject_ready`,
+`task_started`, `stage_timing`, `task_outcome`, and `subject_summary`.
+Unprefixed output remains diagnostic text. Python samples the MATLAB process
+tree at 100 ms intervals for peak RSS and treats a malformed prefixed line as a
+protocol failure.
+
+Sequences begin at 1 and are contiguous. A successful process emits exactly
+one ready event, one started/outcome pair per selected task, and one summary
+whose counts match the outcomes. Exit zero with a missing or inconsistent
+protocol event is still a process failure.
 
 Measure at least these execution classes:
 
@@ -194,9 +220,11 @@ assume an axis-aligned identity affine.
 
 ### 3. Remove Duplicate Context and Head-Model Loads
 
-- Existing-head-model validation should inspect the MAT inventory once.
-- The backend should load the required variables once per subject/hemisphere
-  process context.
+- Centralize canonical MAT loading and coordinate-unit validation in one helper.
+- Preparation returns the validated head-model structure for reused and newly
+  built paths; the backend consumes that exact structure without a second load.
+- The load and mandatory unit guard remain one indivisible operation before
+  active-index calculation.
 - The already resolved Lead-DBS `options` structure should be passed to the MNI
   transformation path.
 - The output path must not call `ea_getptopts` again for each E-field.
@@ -230,15 +258,35 @@ Introduce one subject-manifest MATLAB entry point. Its input contains an ordered
 array of the existing canonical task payloads; it must not introduce a second
 task schema.
 
+The envelope is `vta_subject_manifest_v1`. Its `tasks` field is an array of
+objects containing one existing canonical task payload, that task's
+`output_leaves`, and ordered `reuse_candidate_ids`. Its separate
+`reuse_donors` array contains selected and unselected same-subject donor
+paths. Task IDs are never JSON object field names.
+
+Python remains authoritative for physical equivalence; MATLAB does not
+recreate the equivalence key. Donor candidates are read-only path probes, not
+dependency edges. A missing or failed donor never blocks a recipient: MATLAB
+tries the next donor and computes the recipient when none exists. Unselected
+donors are not executable tasks.
+
 The subject runner must:
 
-- validate each canonical task using the existing validator;
+- validate each canonical task with a static definition validator that does
+  not require `missing_artifacts`;
+- validate runtime context separately after a nonempty missing-artifact set is
+  resolved;
 - verify that every task belongs to the manifest subject;
 - execute tasks in planner-provided topological order;
-- retain existing source-to-group-peak dependency semantics;
+- recheck artifact existence and recompute `missing_artifacts` immediately
+  before every task;
+- perform eligible same-subject artifact copies atomically inside the subject
+  process;
+- resolve source-to-group-peak requirements per missing artifact rather than
+  blocking the whole task after any source outcome failure;
 - skip complete tasks before expensive context initialization;
 - preserve per-artifact atomic publication;
-- return task-level `generated`, `skipped_existing`, `failed`, and
+- return task-level `generated`, `copied`, `skipped_existing`, `failed`, and
   `skipped_dependency` outcomes;
 - block only the failed task's dependents;
 - continue independent tasks within the subject when possible;
@@ -249,6 +297,12 @@ Python changes from invoking `run_task()` repeatedly to invoking one
 `run_subject_manifest()` per active subject. A subject whose selected leaves are
 already complete must not start MATLAB.
 
+For group peak, source native E-fields are required only when the native
+group-peak E-field is missing. Native thresholds require the native group-peak
+E-field; MNI E-field requires the native group-peak E-field; MNI thresholds
+require the MNI E-field. Existing downstream E-fields therefore remain
+repairable after an unrelated source failure.
+
 ## Phase 3: Process-Local Cache Contracts
 
 Use explicit tuple keys rather than persistent artifact hashes:
@@ -258,13 +312,16 @@ subject context key:
   subject directory + reconstruction path
 
 head-model key:
-  subject + hemisphere + canonical head-model path
+  subject + hemisphere + canonical head-model path + atlas set
+  + gray/white conductivity + canonical meshing/model versions
 
 export-geometry key:
-  head-model key + electrode model
+  head-model key + reconstruction path + reconstruction lead
+  + electrode model + trajectory coordinates + lead diameter
 
 interpolation-geometry key:
-  head-model key + native-anchor dimensions + native-anchor affine
+  export-geometry key + native-anchor path + dimensions + affine
+  + finite-sample-support signature
 ```
 
 Caches are valid only inside one subject MATLAB process. They are never written
@@ -273,6 +330,9 @@ to disk and never replace path-existence-based resume logic.
 A later interpolation cache may precompute mesh-to-anchor interpolation
 geometry or barycentric mappings. It requires a dedicated equivalence test and
 is not part of the first implementation pass.
+
+Tasks sharing a head-model key must declare the same atlas, conductivity,
+meshing-version, and headmodel-version inputs or manifest validation fails.
 
 ## Phase 4: FEM Linear-System Reuse
 
@@ -284,13 +344,17 @@ following are identical:
 canonical head model
 control mode
 unipolar/bipolar return design
-exact Dirichlet/current boundary-node set
+exact constrained Dirichlet/return boundary-node set
 matrix assembly behavior
 solver tolerances and preconditioner options
 ```
 
-Amplitude or RHS changes alone may reuse a compatible matrix and
-preconditioner. A changed active-node set must produce a different cache entry.
+The cache retains the original symmetric stiffness or Dirichlet-coupling terms
+needed to rebuild the RHS, the conditioned matrix, and the `ichol`
+preconditioner. Current injection support and values remain per-solve RHS
+inputs, not matrix-key fields. Amplitude or RHS changes alone may reuse a
+compatible matrix and preconditioner. A changed constrained-node set must
+produce a different cache entry.
 
 Current-controlled unipolar case-return tasks are expected to offer the clearest
 reuse opportunity because the outer boundary-node set is stable. Voltage tasks
@@ -354,11 +418,21 @@ semantics.
 - Partial leaves request only their missing artifacts.
 - Threshold-only repair must not rerun FEM when the E-field exists.
 - Missing MNI output may reuse an existing native E-field.
-- A failed source blocks only group-peak tasks that depend on that source.
+- A failed source blocks group-peak work only when a currently missing
+  group-peak artifact requires that source's missing native E-field.
+- Reuse donors never block recipients and never become hard dependencies.
 - A failed task must not publish a partially written final artifact.
-- Python returns a nonzero final status when any selected task fails.
+- Before synthesizing outcomes after process failure, Python rechecks actual
+  artifacts and preserves completed work.
+- Manifest-write, force-reset, process-launch, parser, and fatal MATLAB
+  failures increment `subject_process_failed`; other subjects continue.
+- Python returns a nonzero final status when any selected task fails or any
+  subject process fails.
 - Existing successful outputs remain usable after another task fails.
-- `--force` behavior remains governed by the existing Trash-based leaf reset.
+- Path-existence resume is always enabled; `--resume` is a compatibility alias
+  for ordinary run behavior.
+- `--force` preflights Trash moves and restores prior moves on a later reset
+  failure when possible; incomplete rollback is reported explicitly.
 
 ## Numerical Acceptance
 
@@ -369,7 +443,8 @@ Every optimized path must preserve:
 - exact finite-mask agreement;
 - exact thresholded VTA arrays for derived-only optimizations;
 - exact alternating group-peak NaN-union semantics;
-- continuous E-field maximum absolute difference no greater than `1e-3 V/m`;
+- old-canonical versus optimized-canonical E-field maximum absolute difference
+  no greater than `1e-3 V/m`;
 - continuous E-field relative L2 error no greater than `1e-5`;
 - Pearson correlation at least `0.999999`;
 - VTA Dice at least `0.999`; and
@@ -383,6 +458,16 @@ my_helper/vta/test/run_voltage_backend_equivalence.m
 my_helper/vta/test/run_current_backend_equivalence.m
 ```
 
+Standard SimBio versus canonical backend equivalence retains its separate
+maximum absolute E-field tolerance of `0.05 V/m`. Derived-only threshold,
+group-peak, and interpolation operations require exact array and finite-mask
+agreement.
+
+Old-canonical versus optimized-canonical acceptance uses a dedicated
+`optimization_regression` comparator mode with the `1e-3 V/m` maximum-error
+gate. It must not reuse or silently change the standard-SimBio comparator's
+`0.05 V/m` contract.
+
 Bulk threshold and group-peak tests must use synthetic NIfTI fixtures covering:
 
 - finite values below, equal to, and above every threshold;
@@ -395,24 +480,43 @@ Bulk threshold and group-peak tests must use synthetic NIfTI fixtures covering:
 Bounding-box interpolation tests must compare the optimized implementation with
 the full-grid reference on:
 
-- identity and nonidentity affines;
+- identity, translated, rotated, sheared, reflected, and
+  negative-determinant affines;
 - mesh support touching an image boundary;
 - mesh support completely inside the image;
 - out-of-image mesh corners; and
 - finite-mask and value equality inside the reference convex hull.
+
+All bounding conversion uses Lead-DBS one-based
+`ea_mm2vox(points, anchor.mat)` semantics.
+
+The centralized head-model loader replaces the current source-string assertion
+that expects a literal backend `load(...)`. Runtime tests must prove that
+invalid reused and newly built models fail with the established error IDs
+before `ea_getactiveidx` and do not overwrite existing files.
 
 ## Performance Acceptance
 
 Benchmark a fixed representative suite:
 
 ```text
-existing-headmodel continuous single-source
-existing-headmodel continuous multi-source
-alternating multi-source plus group peak
-one missing-headmodel build case
-partial leaf with only thresholds missing
-fully complete resume case
+SNr003 T1/program 1/lead-R cold- and warm-headmodel continuous single-source
+SNr003 T2/program 2/lead-L alternating sources plus group peak
+SNr003 threshold-only repair and fully complete resume
+SNr006 T2/program 2/lead-L/group-1 SceneRay SR1200 alternating coverage
+SNr011 T2/program 2/lead-L/group-1 SceneRay SR1202 continuous coverage
+deterministic synthetic continuous multi-source fixture
+SNr003 right-sided single-cathode/case-return current fixture, seed 20260712
 ```
+
+The current cohort has no real continuous multi-source group, so that execution
+class is a deterministic synthetic FEM fixture rather than a hard-coded study
+row. Its complete payload is frozen in the versioned benchmark manifest. Run
+one warm-up and five measured repetitions. Every repetition restores selected
+and equivalent donor leaves from the same frozen snapshot; cold- and
+warm-headmodel fixtures are separate. Expected process, solve, derived, copy,
+and skip counts are asserted. The primary performance metric is the median
+total wall time of the complete fixed warm-headmodel suite.
 
 The optimized pipeline passes performance acceptance when:
 
@@ -424,13 +528,21 @@ The optimized pipeline passes performance acceptance when:
 - interpolation queries are restricted to the clamped mesh bounding box;
 - default three-worker execution completes without out-of-memory failure or
   uncontrolled nested process parallelism;
-- the warm-headmodel benchmark median wall time improves by at least 25%; and
+- aggregate three-worker process-tree peak RSS is no greater than 75% of
+  physical memory and no single subject process tree exceeds 50%;
+- the candidate fixed-suite median wall time is no greater than 75% of the
+  baseline fixed-suite median; and
 - no measured stage regresses by more than 10% without an explicit documented
   justification.
 
 Performance results must report wall time, process count, MATLAB startup count,
 peak resident memory, and stage timings. One unusually fast task must not be
 used to hide a regression in another execution class.
+
+Stage durations are summed by execution class and stage for each repetition,
+then compared by baseline/candidate medians. Spawn-to-`subject_ready` is a
+separate `startup_total` metric and is not added to internal MATLAB
+initialization stages.
 
 ## Planned File Changes
 
@@ -473,6 +585,8 @@ my_helper/fiber/tests/test_vta_common_grid_export.m
 my_helper/fiber/tests/test_vta_canonical_outputs.m
 my_helper/fiber/tests/test_vta_canonical_subject_manifest.m
 my_helper/fiber/tests/test_vta_fem_factorization_cache.m
+my_helper/vta/test/mh_compare_vta_optimization_outputs.m
+my_helper/vta/test/test_compare_vta_optimization_outputs.m
 my_helper/vta/test/test_run_voltage_backend_equivalence.m
 my_helper/vta/test/test_run_current_backend_equivalence.m
 ```
@@ -512,6 +626,6 @@ The optimization project is complete only when:
 - all resume and dependency-failure tests pass;
 - no subject, phase, program, frequency group, or electrode model is hard-coded;
 - the representative warm-headmodel benchmark improves by at least 25%;
-- default three-worker execution remains memory-safe; and
+- CLI default `--workers 3` execution remains memory-safe; and
 - documentation describes the measured implementation rather than planned
   behavior.
