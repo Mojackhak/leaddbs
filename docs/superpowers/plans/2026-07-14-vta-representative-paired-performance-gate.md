@@ -280,3 +280,29 @@ This slice is complete only when solver-free tests pass, one isolated real-FEM
 paired benchmark finishes within 16 FEM, all numerical gates pass, measurement
 artifacts are written, both parent documents record the exact validation root,
 and neither production outputs nor the MRtrix design document changed.
+
+Completed on 2026-07-14 using:
+
+```text
+replacement root:
+  /Volumes/VAL/STNSNr/validation/vta_performance_benchmark_20260714T113033575679Z
+
+credited failed root:
+  /Volumes/VAL/STNSNr/validation/vta_performance_benchmark_20260714T110925763267Z
+```
+
+The replacement performed `14/14` new FEM solves and the linked aggregate was
+`16/16`. The three measured compatibility wall times were `71.85518816695549`,
+`73.42287808400579`, and `74.33588633313775` seconds. The persistent-subject
+times were `44.65844920813106`, `44.89740841696039`, and
+`44.65828708303161` seconds. Their medians were `73.42287808400579` and
+`44.65844920813106` seconds, respectively; the ratio was
+`0.6082361570876547`, so the 25% reduction target passed.
+
+Every measured pair passed exact native and MNI comparison for source 1,
+source 2, and alternating group peak. All continuous E-fields had zero maximum
+difference, zero relative L2 error, correlation `1`, identical finite masks and
+affines, and all `180/200/220 V/m` masks had Dice `1` with zero discordant
+voxels. The largest recorded process-tree peak RSS was `9,166,995,456` bytes.
+Production outputs and the MRtrix design document were unchanged. The separate
+three-worker memory gate remains unmeasured.

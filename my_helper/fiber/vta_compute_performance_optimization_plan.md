@@ -14,7 +14,8 @@ slice_7_process_local_runtime_caches_implemented
 representative_paired_performance_harness_implemented
 solver_free_verification_complete
 real_fem_numerical_gate_refreshed
-real_fem_performance_baseline_not_run
+real_fem_performance_baseline_complete
+representative_pre_reuse_numerical_gate_complete
 fem_system_reuse_not_implemented
 current_outputs_unchanged
 ```
@@ -26,10 +27,10 @@ frozen performance benchmark harness. The Python benchmark/pipeline suite and
 the solver-free MATLAB fiber suite pass. Live benchmark validation resolves 9
 cases and 13 semantic tasks from the current study configuration.
 
-No real FEM performance baseline has been executed in this slice. No runtime
-speedup, candidate performance bound, or three-worker memory-safety result is
-therefore claimed. The public CLI default remains one worker until the required
-memory gate passes. Bulk threshold generation, bounded native interpolation,
+The representative real-FEM performance baseline has been executed and passed.
+The public CLI default remains one worker because the separate three-worker
+memory-safety gate has not run. Bulk threshold generation, bounded native
+interpolation,
 and context/headmodel load consolidation are implemented and solver-free
 verified. The deterministic subject manifest and path-based artifact state
 resolver are also implemented and solver-free verified. Production execution
@@ -37,9 +38,9 @@ now uses one persistent MATLAB process per active subject while preserving the
 per-task compatibility runner. Process-local transform/subject context,
 validated head-model, native-anchor, and export-geometry caches are implemented
 and solver-free verified. The complete MATLAB fiber suite passes 121 tests, the
-Python VTA pipeline/benchmark suite passes 187 tests, and Code Analyzer reports
-zero findings. FEM reuse, real-FEM performance acceptance, and post-reuse
-numerical acceptance remain planned work.
+Python VTA pipeline/benchmark suite passes 193 tests, and Code Analyzer reports
+zero findings. FEM reuse and post-reuse numerical/performance acceptance remain
+planned work.
 
 The post-cache numerical gate has since been refreshed. Historical bilateral
 voltage outputs passed zero-FEM re-comparison, and one fixed right-sided current
@@ -47,8 +48,7 @@ canonical candidate FEM passed against the retained standard SimBio reference:
 maximum native difference `0.04443359375 V/m`, relative L2
 `2.2273793323536e-6`, correlation `0.999999999996588`, and Dice `1.0` at all
 three thresholds. The MNI contract and production-tree safety gate passed.
-The real-FEM performance baseline, FEM reuse, and post-reuse acceptance remain
-planned work.
+FEM reuse and post-reuse acceptance remain planned work.
 
 The first representative paired attempt completed two compatibility warm-up
 FEM solves, then stopped at export because `native_anchor_load` was not in the
@@ -56,6 +56,24 @@ allowed timing-stage registry. This is an instrumentation registry defect, not
 a numerical FEM failure. The failed root is retained. After the registry repair,
 the linked recovery credits only those two verified warm-up solves and limits
 the new root to 14 FEM, preserving the aggregate 16-FEM acceptance bound.
+
+The linked recovery completed successfully at:
+
+```text
+/Volumes/VAL/STNSNr/validation/vta_performance_benchmark_20260714T113033575679Z
+```
+
+The replacement root completed `14/14` new FEM solves; together with the two
+credited solves, the linked aggregate was exactly `16/16`. Across three measured
+pairs, compatibility per-task median wall time was `73.42287808400579 s` and
+persistent-subject median wall time was `44.65844920813106 s`, giving a ratio of
+`0.6082361570876547` and a `39.18%` reduction. All three native/MNI comparisons
+for both source fields and the alternating group peak were exactly equal:
+maximum E-field difference `0 V/m`, relative L2 `0`, correlation `1`, affine
+difference `0`, and Dice `1` at `180/200/220 V/m`. The largest observed
+single-subject process-tree peak RSS was `9,166,995,456` bytes. This is a
+single-subject representative baseline and does not satisfy the three-worker
+memory gate.
 
 This document defines a performance optimization plan for the canonical
 VTA/E-field pipeline. It does not authorize a scientific model change, an

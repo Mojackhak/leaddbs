@@ -14,7 +14,8 @@ slice_7_process_local_runtime_caches_implemented
 representative_paired_performance_harness_implemented
 solver_free_verification_complete
 real_fem_numerical_gate_refreshed
-real_fem_performance_baseline_not_run
+real_fem_performance_baseline_complete
+representative_pre_reuse_numerical_gate_complete
 slices_8_to_9_not_started
 current_outputs_unchanged
 ```
@@ -58,13 +59,13 @@ backing-file signatures prevent incompatible reuse; direct calls without an
 exact head-model identity remain uncached. Transform-only repair remains
 independent of FEM reconstruction geometry. The complete solver-free MATLAB
 fiber suite passes 121 tests, the Python VTA pipeline/benchmark suite passes
-187 tests, and Code Analyzer reports zero findings.
+193 tests, and Code Analyzer reports zero findings.
 
 The representative paired performance harness now provides an atomically
 claimed single-use validation root, compatibility-per-task and
 persistent-subject paths, immutable per-run working copies, conservative failed
 FEM accounting, a 16-FEM bound, and semantic NIfTI comparison. Its solver-free
-tests pass; the real-FEM paired run remains pending.
+tests pass. The representative real-FEM paired run has completed successfully.
 
 Post-slice-7 numerical acceptance re-compared the historical bilateral voltage
 pair without FEM and passed. The fixed right-sided current candidate was then
@@ -72,8 +73,7 @@ rerun once against the retained standard SimBio reference and passed: maximum
 absolute native difference `0.04443359375 V/m`, relative L2
 `2.2273793323536e-6`, correlation `0.999999999996588`, and Dice `1.0` at 180,
 200, and 220 V/m. Its MNI contract passed and the production subject tree was
-unchanged during recovery. This is numerical evidence only; the paired real-FEM
-performance baseline remains unmeasured.
+unchanged during recovery.
 
 The first representative attempt completed two compatibility warm-up FEM
 solves before a missing `native_anchor_load` timing-stage registry entry stopped
@@ -81,10 +81,18 @@ export. The failed root is retained. A registry-only repair and tightly
 validated warm-up credit allow the linked replacement root to run at most 14
 additional FEM solves, preserving the aggregate 16-FEM bound.
 
-This status does not claim a measured runtime improvement. The real FEM
-baseline, candidate comparison, and three-worker memory gate have not run.
-The production CLI default remains one worker until that gate passes. Slices 8
-and 9 remain implementation work.
+The linked replacement completed at
+`/Volumes/VAL/STNSNr/validation/vta_performance_benchmark_20260714T113033575679Z`.
+It performed `14/14` new FEM solves and reached the linked `16/16` bound. The
+compatibility and persistent medians were `73.42287808400579 s` and
+`44.65844920813106 s`; their ratio was `0.6082361570876547`. Every native/MNI
+source and group-peak E-field comparison was exact, and every threshold mask
+had Dice `1`.
+
+This status claims only the measured representative single-subject improvement,
+not broad-suite or three-worker performance. The three-worker memory gate has
+not run. The production CLI default remains one worker until that gate passes.
+Slices 8 and 9 remain implementation work.
 
 The executable slice 6 plan is documented in
 `docs/superpowers/plans/2026-07-14-vta-persistent-subject-runner.md`.
