@@ -12,7 +12,8 @@ slice_5_subject_manifest_and_state_machine_implemented
 slice_6_persistent_subject_runner_implemented
 slice_7_process_local_runtime_caches_implemented
 solver_free_verification_complete
-real_fem_baseline_not_run
+real_fem_numerical_gate_refreshed
+real_fem_performance_baseline_not_run
 fem_system_reuse_not_implemented
 current_outputs_unchanged
 ```
@@ -36,7 +37,17 @@ per-task compatibility runner. Process-local transform/subject context,
 validated head-model, native-anchor, and export-geometry caches are implemented
 and solver-free verified. The complete MATLAB fiber suite passes 121 tests, the
 Python VTA pipeline/benchmark suite passes 171 tests, and Code Analyzer reports
-zero findings. FEM reuse and real-FEM acceptance remain planned work.
+zero findings. FEM reuse, real-FEM performance acceptance, and post-reuse
+numerical acceptance remain planned work.
+
+The post-cache numerical gate has since been refreshed. Historical bilateral
+voltage outputs passed zero-FEM re-comparison, and one fixed right-sided current
+canonical candidate FEM passed against the retained standard SimBio reference:
+maximum native difference `0.04443359375 V/m`, relative L2
+`2.2273793323536e-6`, correlation `0.999999999996588`, and Dice `1.0` at all
+three thresholds. The MNI contract and production-tree safety gate passed.
+The real-FEM performance baseline, FEM reuse, and post-reuse acceptance remain
+planned work.
 
 This document defines a performance optimization plan for the canonical
 VTA/E-field pipeline. It does not authorize a scientific model change, an

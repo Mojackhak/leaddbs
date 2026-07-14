@@ -12,7 +12,8 @@ slice_5_subject_manifest_state_machine_implemented
 slice_6_persistent_subject_runner_implemented
 slice_7_process_local_runtime_caches_implemented
 solver_free_verification_complete
-real_fem_baseline_not_run
+real_fem_numerical_gate_refreshed
+real_fem_performance_baseline_not_run
 slices_8_to_9_not_started
 current_outputs_unchanged
 ```
@@ -57,6 +58,15 @@ exact head-model identity remain uncached. Transform-only repair remains
 independent of FEM reconstruction geometry. The complete solver-free MATLAB
 fiber suite passes 121 tests, the Python VTA pipeline/benchmark suite passes
 171 tests, and Code Analyzer reports zero findings.
+
+Post-slice-7 numerical acceptance re-compared the historical bilateral voltage
+pair without FEM and passed. The fixed right-sided current candidate was then
+rerun once against the retained standard SimBio reference and passed: maximum
+absolute native difference `0.04443359375 V/m`, relative L2
+`2.2273793323536e-6`, correlation `0.999999999996588`, and Dice `1.0` at 180,
+200, and 220 V/m. Its MNI contract passed and the production subject tree was
+unchanged during recovery. This is numerical evidence only; the paired real-FEM
+performance baseline remains unmeasured.
 
 This status does not claim a measured runtime improvement. The real FEM
 baseline, candidate comparison, and three-worker memory gate have not run.

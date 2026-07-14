@@ -296,3 +296,12 @@ passed. Native maximum absolute difference was `0.04443359375 V/m`, relative L2
 error was `2.2273793323536e-6`, and correlation was
 `0.999999999996588`. Dice was `1.0` at 180, 200, and 220 V/m. The MNI transform
 contract passed and the production subject-tree hash was unchanged.
+
+After process-local runtime caches were implemented, the canonical current
+candidate was refreshed in the same frozen run on 2026-07-14. It reused the
+standard SimBio reference and executed exactly one additional FEM solve. The
+same native metrics and perfect three-threshold Dice passed, the MNI contract
+passed, and the current production subject tree was unchanged during recovery.
+The run now records three completed FEM solves in total and two recovery
+attempts; the first recovery attempt stopped during task validation before FEM
+and is not counted as a completed solve.
