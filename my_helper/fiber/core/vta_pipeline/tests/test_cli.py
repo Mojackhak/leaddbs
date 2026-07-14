@@ -7,7 +7,7 @@ import pytest
 
 from my_helper.fiber.core.vta_pipeline import cli as cli_module
 from my_helper.fiber.core.vta_pipeline.artifacts import expected_artifacts
-from my_helper.fiber.core.vta_pipeline.cli import main
+from my_helper.fiber.core.vta_pipeline.cli import build_parser, main
 from my_helper.fiber.core.vta_pipeline.paths import leaf_directory
 from my_helper.fiber.core.vta_pipeline.telemetry import (
     ProcessObservation,
@@ -68,6 +68,20 @@ def common_args(command: str, study_path: Path) -> list[str]:
         "--subject",
         "SNr003",
     ]
+
+
+def test_run_defaults_to_three_subject_workers(study_path: Path) -> None:
+    args = build_parser().parse_args(common_args("run", study_path))
+
+    assert args.workers == 3
+
+
+def test_run_accepts_explicit_worker_override(study_path: Path) -> None:
+    args = build_parser().parse_args(
+        common_args("run", study_path) + ["--workers", "2"]
+    )
+
+    assert args.workers == 2
 
 
 def test_subject_selection_is_required(study_path: Path) -> None:

@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
         command = commands.add_parser(name)
         _add_common_arguments(command)
         if name == "run":
-            command.add_argument("--workers", type=_positive_int, default=1)
+            command.add_argument("--workers", type=_positive_int, default=3)
             mode = command.add_mutually_exclusive_group()
             mode.add_argument("--resume", action="store_true")
             mode.add_argument("--force", action="store_true")
