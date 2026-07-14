@@ -10,7 +10,8 @@ semantics. Reuse is process-local to one persistent subject worker.
 
 ```text
 design_documented
-implementation_not_started
+implementation_complete
+post_reuse_acceptance_in_progress
 pre_reuse_representative_gate_complete
 three_worker_memory_gate_not_run
 public_cli_default_workers_1
@@ -136,3 +137,24 @@ real factorization hit. Pre- and post-reuse voltage/current outputs must satisfy
 the existing numerical gates. Only after these pass may the separate
 three-worker memory gate run. The public CLI default remains one worker until
 that gate independently passes.
+
+The real current cache-hit gate is intentionally bounded to two FEM solves. It
+uses one copied subject, one validated head model, one process-local subject
+runtime, and two output-isolated canonical tasks with the same deterministic
+current source and return design. The first task must report matrix and
+preconditioner `miss`; the second must report `hit`. Their native and MNI
+E-fields and all 180/200/220 V/m masks must pass the dedicated
+`optimization_regression` comparator. Exact task identity is repeated here so
+the output comparison proves that reuse changes neither the physical input nor
+the result; changed-injection and changed-amplitude correctness remain covered
+by the synthetic FEM cache suite. The gate must also prove that the runtime
+contains at most one factorization entry and that both output leaves are
+independent.
+
+The post-reuse voltage/performance gate uses a fresh isolated representative
+root and the existing bounded paired harness. Its completed pre-reuse root is
+read-only numerical evidence; it is never modified or relabeled. The
+representative alternating sources have distinct constrained-node sets, so
+their expected cache sequence is miss/miss. This gate validates the optimized
+production path and performance contract but is not presented as a
+factorization-hit case.
