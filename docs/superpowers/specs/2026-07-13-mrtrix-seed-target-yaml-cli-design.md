@@ -3,10 +3,17 @@
 ## Status
 
 ```text
-design_approved
+superseded
 implementation_not_started
 existing_outputs_unchanged
 ```
+
+This pairwise target-conditioned design is superseded by
+`my_helper/fiber/mrtrix_seedwide_target_coverage_goal.md`. The replacement
+keeps the YAML-only control plane and preparation/publication safety contracts,
+but changes the scientific algorithm to seed-wide generation with global
+per-target coverage stopping. This document remains as design history and must
+not be used as the implementation contract.
 
 ## Purpose
 
