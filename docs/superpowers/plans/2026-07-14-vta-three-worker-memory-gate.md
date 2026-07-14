@@ -10,8 +10,9 @@ to three. This is an isolated acceptance run, not a scientific rerun.
 
 ```text
 design_documented
-implementation_not_started
-three_worker_memory_gate_not_run
+implementation_complete
+first_gate_instrumentation_failed
+corrected_gate_pending
 public_cli_default_workers_1
 ```
 
@@ -105,6 +106,35 @@ Only after every gate above passes:
 
 If the memory gate fails, the public default remains one. The measured failure
 must be documented; workers may still be selected explicitly by the user.
+
+## First Measured Attempt
+
+The first measured attempt is retained at:
+
+```text
+/Volumes/VAL/STNSNr/validation/vta_three_worker_memory_gate_20260714T142745398955Z
+```
+
+The computational and memory gates passed:
+
+```text
+FEM solves: 5/5
+task outcomes: 7/7 generated
+three live roots sampled: passed
+aggregate peak RSS: 19,592,151,040 bytes (14.255%)
+maximum subject peak RSS: 10,228,760,576 bytes (7.442%)
+swap start/end/peak: 7,468,810,240 bytes (no increase)
+OOM/signal evidence: none
+all artifacts complete: passed
+```
+
+The attempt was correctly retained as failed because the nested-MATLAB
+classifier used a broad `startswith("matlab_")` rule. It counted each expected
+`matlab_helper` child as a nested MATLAB interpreter, producing a false count of
+three. The corrected classifier must match only known MATLAB interpreter
+executable names and exclude helper/service processes. Because the first run did
+not retain sampled child names, it cannot be retroactively relabeled as passed;
+the corrected gate must run again. The public CLI default remains one meanwhile.
 
 ## Non-Goals
 

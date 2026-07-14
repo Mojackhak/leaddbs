@@ -157,6 +157,13 @@ The three-worker memory gate contract is:
 docs/superpowers/plans/2026-07-14-vta-three-worker-memory-gate.md
 ```
 
+The first three-worker attempt completed all five FEM solves and seven tasks
+with aggregate peak RSS `19,592,151,040` bytes (`14.255%` of physical memory)
+and maximum subject RSS `10,228,760,576` bytes (`7.442%`). It remains a failed
+instrumentation attempt because `matlab_helper` children were overclassified as
+nested MATLAB interpreters. The corrected gate must be rerun before changing
+the public default.
+
 ## Goal
 
 Reduce clean-run and incremental-run wall time while preserving:
