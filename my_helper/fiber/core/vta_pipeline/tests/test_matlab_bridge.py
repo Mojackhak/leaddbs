@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import replace
+import io
 import json
 from pathlib import Path
+import subprocess
 import threading
 import time
 
@@ -15,6 +17,11 @@ from my_helper.fiber.core.vta_pipeline.matlab_bridge import (
     MatlabBridge,
     TaskRunContext,
 )
+from my_helper.fiber.core.vta_pipeline.errors import (
+    EventProtocolError,
+    MatlabProcessError,
+)
+from my_helper.fiber.core.vta_pipeline.telemetry import EVENT_PREFIX
 from my_helper.fiber.core.vta_pipeline.paths import leaf_directory
 from my_helper.fiber.core.vta_pipeline.planner import (
     Selection,
@@ -76,30 +83,234 @@ def task_context(task) -> TaskRunContext:
     )
 
 
+def telemetry_event(
+    payload: dict[str, object],
+    sequence: int,
+    event_type: str,
+    **fields: object,
+) -> str:
+    event = {
+        "schema_version": "vta_event_v1",
+        "event_type": event_type,
+        "sequence": sequence,
+        "run_id": payload["run_id"],
+        "subject_id": payload["subject_id"],
+        **fields,
+    }
+    return EVENT_PREFIX + json.dumps(event, separators=(",", ":")) + "\n"
+
+
+def complete_event_lines(payload: dict[str, object]) -> list[str]:
+    task_id = str(payload["task_id"])
+    return [
+        telemetry_event(payload, 1, "subject_ready"),
+        telemetry_event(payload, 2, "task_started", task_id=task_id),
+        telemetry_event(
+            payload,
+            3,
+            "task_outcome",
+            task_id=task_id,
+            status="generated",
+            copied_artifact_count=0,
+            generated_artifact_count=1,
+        ),
+        telemetry_event(
+            payload,
+            4,
+            "subject_summary",
+            generated=1,
+            copied=0,
+            skipped_existing=0,
+            recovered_complete=0,
+            failed=0,
+            skipped_dependency=0,
+            process_success=True,
+        ),
+    ]
+
+
+class FakePopen:
+    def __init__(
+        self,
+        command: list[str],
+        lines: list[str],
+        *,
+        returncode: int = 0,
+        timeout_once: bool = False,
+    ) -> None:
+        self.command = command
+        self.pid = 1234
+        self.stdout = io.StringIO("".join(lines))
+        self.returncode = returncode
+        self.timeout_once = timeout_once
+        self.terminated = False
+        self.killed = False
+        self.wait_calls = 0
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.wait_calls += 1
+        if timeout is not None and self.timeout_once:
+            self.timeout_once = False
+            raise subprocess.TimeoutExpired(self.command, timeout)
+        return self.returncode
+
+    def poll(self) -> int | None:
+        if self.terminated or self.killed or self.wait_calls:
+            return self.returncode
+        return None
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+class PopenFactory:
+    def __init__(
+        self,
+        line_factory=complete_event_lines,
+        *,
+        returncode: int = 0,
+        timeout_once: bool = False,
+    ) -> None:
+        self.line_factory = line_factory
+        self.returncode = returncode
+        self.timeout_once = timeout_once
+        self.process: FakePopen | None = None
+        self.payload: dict[str, object] | None = None
+        self.task_path: Path | None = None
+        self.kwargs: dict[str, object] | None = None
+
+    def __call__(self, command: list[str], **kwargs: object) -> FakePopen:
+        task_path = Path(command[-1].split("'")[1].replace("''", "'"))
+        payload = json.loads(task_path.read_text(encoding="utf-8"))
+        self.task_path = task_path
+        self.payload = payload
+        self.kwargs = kwargs
+        self.process = FakePopen(
+            command,
+            self.line_factory(payload),
+            returncode=self.returncode,
+            timeout_once=self.timeout_once,
+        )
+        return self.process
+
+
 def test_bridge_payload_contains_missing_paths_but_no_hash_or_provenance(
     subject_plan: SubjectPlan,
 ) -> None:
-    captured: dict[str, object] = {}
-
-    def runner(command, **kwargs):
-        task_path = Path(command[-1].split("'")[1].replace("''", "'"))
-        captured["command"] = command
-        captured["payload"] = json.loads(task_path.read_text(encoding="utf-8"))
-
+    factory = PopenFactory()
     task = subject_plan.tasks[0]
-    MatlabBridge(repo_root=REPO_ROOT, runner=runner).run_task(
+    result = MatlabBridge(repo_root=REPO_ROOT, popen_factory=factory).run_task(
         task,
         task_context(task),
     )
 
-    payload = captured["payload"]
+    assert result.outcomes[0].status == "generated"
+    assert factory.payload is not None
+    payload = factory.payload
     assert payload["task_id"] == task.task_id
     assert payload["missing_artifacts"]
     assert "input_hash" not in payload
     assert "implementation_sha256" not in payload
     assert "study_base_sha256" not in payload
     assert "provenance" not in json.dumps(payload).lower()
-    assert "mh_vta_run_canonical_task" in captured["command"][-1]
+    assert factory.process is not None
+    assert "mh_vta_run_canonical_task" in factory.process.command[-1]
+    assert factory.kwargs == {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "text": True,
+        "bufsize": 1,
+    }
+    assert factory.task_path is not None
+    assert not factory.task_path.exists()
+
+
+def test_bridge_forwards_only_unframed_diagnostics(
+    subject_plan: SubjectPlan,
+) -> None:
+    def lines(payload: dict[str, object]) -> list[str]:
+        framed = complete_event_lines(payload)
+        return ["diagnostic before\n", *framed, "diagnostic after\n"]
+
+    diagnostics: list[str] = []
+    task = subject_plan.tasks[0]
+    MatlabBridge(
+        repo_root=REPO_ROOT,
+        popen_factory=PopenFactory(lines),
+        diagnostic_sink=diagnostics.append,
+    ).run_task(task, task_context(task))
+
+    assert diagnostics == ["diagnostic before\n", "diagnostic after\n"]
+
+
+class RecordingMonitor:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, int]] = []
+
+    def register(self, subject_id: str, pid: int) -> None:
+        self.events.append(("register", subject_id, pid))
+
+    def unregister(self, subject_id: str, pid: int) -> None:
+        self.events.append(("unregister", subject_id, pid))
+
+
+def test_bridge_registers_monitor_and_unregisters_after_reaping(
+    subject_plan: SubjectPlan,
+) -> None:
+    monitor = RecordingMonitor()
+    factory = PopenFactory()
+    task = subject_plan.tasks[0]
+
+    MatlabBridge(
+        repo_root=REPO_ROOT,
+        popen_factory=factory,
+        memory_monitor=monitor,
+    ).run_task(task, task_context(task))
+
+    assert monitor.events == [
+        ("register", task.subject_id, 1234),
+        ("unregister", task.subject_id, 1234),
+    ]
+    assert factory.process is not None
+    assert factory.process.wait_calls == 1
+
+
+def test_bridge_terminates_reaps_and_unregisters_on_protocol_failure(
+    subject_plan: SubjectPlan,
+) -> None:
+    monitor = RecordingMonitor()
+    factory = PopenFactory(
+        lambda payload: [EVENT_PREFIX + "{malformed}\n"],
+        timeout_once=True,
+    )
+    task = subject_plan.tasks[0]
+
+    with pytest.raises(EventProtocolError):
+        MatlabBridge(
+            repo_root=REPO_ROOT,
+            popen_factory=factory,
+            memory_monitor=monitor,
+        ).run_task(task, task_context(task))
+
+    assert factory.process is not None
+    assert factory.process.terminated
+    assert factory.process.killed
+    assert factory.process.wait_calls == 2
+    assert monitor.events[-1][0] == "unregister"
+
+
+def test_bridge_rejects_nonzero_matlab_exit(subject_plan: SubjectPlan) -> None:
+    factory = PopenFactory(returncode=7)
+    task = subject_plan.tasks[0]
+
+    with pytest.raises(MatlabProcessError, match="7"):
+        MatlabBridge(
+            repo_root=REPO_ROOT,
+            popen_factory=factory,
+        ).run_task(task, task_context(task))
 
 
 class RecordingBridge:
