@@ -1,11 +1,24 @@
-function status = mh_vta_derive_canonical_group_peak(task)
+function status = mh_vta_derive_canonical_group_peak(task, varargin)
 % Derive an alternating group peak from completed source-level E-fields.
+
+parser = inputParser;
+parser.FunctionName = mfilename;
+parser.addParameter('EventEmitter', [], ...
+    @(value) isempty(value) || isa(value, 'function_handle'));
+parser.addParameter('TaskId', char(string(task.task_id)), ...
+    @(value) ischar(value) || (isstring(value) && isscalar(value)));
+parser.parse(varargin{:});
+emit = parser.Results.EventEmitter;
+taskId = char(string(parser.Results.TaskId));
 
 nativeLeaf = char(string(task.output_leaves.native));
 mniLeaf = char(string(task.output_leaves.MNI152NLin2009bAsym));
 nativeEfield = fullfile(nativeLeaf, 'efield.nii.gz');
 mniEfield = fullfile(mniLeaf, 'efield.nii.gz');
+stageTimer = tic;
 actions = mh_vta_resolve_output_actions(task);
+mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+    'task_runtime_resolution', 'executed', toc(stageTimer), '');
 
 if actions.solve_native_efield
     alternatingRoot = fileparts(fileparts(nativeLeaf));
@@ -21,11 +34,13 @@ if actions.solve_native_efield
         end
     end
     mh_vta_publish_atomic(nativeEfield, @(temporaryPath) ...
-        mh_vta_compose_group_peak(sourcePaths, temporaryPath));
+        compose_group_peak(sourcePaths, temporaryPath, emit, taskId), ...
+        'EventEmitter', emit, 'TaskId', taskId);
 end
 
 write_requested_thresholds(nativeEfield, nativeLeaf, ...
-    task.model.thresholds_v_per_m, actions.native_threshold_names);
+    task.model.thresholds_v_per_m, actions.native_threshold_names, ...
+    emit, taskId);
 
 if actions.transform_mni_efield
     require_file(nativeEfield, 'native group-peak E-field');
@@ -33,12 +48,14 @@ if actions.transform_mni_efield
     options.subj.recon.recon = char(string(task.reconstruction_path));
     mniReference = fullfile(ea_space(options), 't1.nii');
     mh_vta_publish_atomic(mniEfield, @(temporaryPath) ...
-        mh_vta_transform_efield_to_mni(nativeEfield, options, ...
-            mniReference, temporaryPath));
+        transform_to_mni(nativeEfield, options, mniReference, ...
+            temporaryPath, emit, taskId), ...
+        'EventEmitter', emit, 'TaskId', taskId);
 end
 
 write_requested_thresholds(mniEfield, mniLeaf, ...
-    task.model.thresholds_v_per_m, actions.mni_threshold_names);
+    task.model.thresholds_v_per_m, actions.mni_threshold_names, ...
+    emit, taskId);
 
 status = struct( ...
     'task_id', task.task_id, ...
@@ -47,7 +64,8 @@ status = struct( ...
     'mni_efield', mniEfield);
 end
 
-function write_requested_thresholds(efieldPath, leaf, thresholds, requestedNames)
+function write_requested_thresholds(efieldPath, leaf, thresholds, ...
+        requestedNames, emit, taskId)
 if isempty(requestedNames)
     return;
 end
@@ -60,8 +78,31 @@ for threshold = double(thresholds(:)')
     end
     output = fullfile(leaf, char(name));
     mh_vta_publish_atomic(output, @(temporaryPath) ...
-        mh_vta_threshold_efield(efieldPath, threshold, temporaryPath));
+        generate_threshold(efieldPath, threshold, temporaryPath, ...
+            emit, taskId), ...
+        'EventEmitter', emit, 'TaskId', taskId);
 end
+end
+
+function compose_group_peak(sourcePaths, outputPath, emit, taskId)
+stageTimer = tic;
+mh_vta_compose_group_peak(sourcePaths, outputPath);
+mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+    'group_peak_composition', 'executed', toc(stageTimer), '');
+end
+
+function generate_threshold(efieldPath, threshold, outputPath, emit, taskId)
+stageTimer = tic;
+mh_vta_threshold_efield(efieldPath, threshold, outputPath);
+mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+    'threshold_generation', 'executed', toc(stageTimer), '');
+end
+
+function transform_to_mni(efieldPath, options, reference, outputPath, emit, taskId)
+stageTimer = tic;
+mh_vta_transform_efield_to_mni(efieldPath, options, reference, outputPath);
+mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+    'native_to_mni_transform', 'executed', toc(stageTimer), '');
 end
 
 function require_file(path, label)

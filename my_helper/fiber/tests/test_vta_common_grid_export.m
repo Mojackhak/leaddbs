@@ -44,15 +44,25 @@ task = struct( ...
     'missing_artifacts', struct('native', ...
         {{'vta_threshold-0p20Vpermm.nii.gz'}}), ...
     'model', struct('thresholds_v_per_m', [180, 200, 220]));
+events = {};
 
 status = mh_vta_export_canonical_outputs(task, struct(), 1, ...
-    struct(), [], [], '', 'not_required');
+    struct(), [], [], '', 'not_required', ...
+    'EventEmitter', @collect_event, 'TaskId', task.task_id);
 
 output = fullfile(nativeLeaf, 'vta_threshold-0p20Vpermm.nii.gz');
 verifyTrue(testCase, isfile(output));
 verifyEqual(testCase, uint8(ea_load_nii(output).img), ...
     uint8(reshape([0, 0, 1], [3, 1, 1])));
 verifyEqual(testCase, string(status.execution), "solve");
+verifyEqual(testCase, string(cellfun( ...
+    @(event) event.stage, events, 'UniformOutput', false)), ...
+    ["threshold_generation", "artifact_publication"]);
+
+    function collect_event(eventType, fields)
+        verifyEqual(testCase, eventType, 'stage_timing');
+        events{end + 1} = fields;
+    end
 end
 
 function testExportMatchesAnchorGeometryAndPreservesOutsideNaN(testCase)
@@ -219,6 +229,30 @@ published = mh_vta_publish_atomic(outputPath, ...
 
 verifyTrue(testCase, published);
 verifyEqual(testCase, fileread(outputPath), 'generated');
+end
+
+function testAtomicPublisherEmitsPublicationAfterFinalFileExists(testCase)
+testRoot = tempname;
+mkdir(testRoot);
+cleanup = onCleanup(@() rmdir(testRoot, 's'));
+outputPath = fullfile(testRoot, 'efield.nii.gz');
+observed = struct();
+
+published = mh_vta_publish_atomic(outputPath, ...
+    @(path) write_text(path, 'generated'), ...
+    'EventEmitter', @collect_event, 'TaskId', 'task-001');
+
+verifyTrue(testCase, published);
+verifyTrue(testCase, isfile(outputPath));
+verifyEqual(testCase, string(observed.stage), "artifact_publication");
+verifyEqual(testCase, string(observed.task_id), "task-001");
+verifyGreaterThanOrEqual(testCase, observed.duration_seconds, 0);
+
+    function collect_event(eventType, fields)
+        verifyEqual(testCase, eventType, 'stage_timing');
+        verifyTrue(testCase, isfile(outputPath));
+        observed = fields;
+    end
 end
 
 function testHeadmodelBuildAndExistingStructurallyValidModelIsReused(testCase)

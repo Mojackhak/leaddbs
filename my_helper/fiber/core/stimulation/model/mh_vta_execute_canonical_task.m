@@ -27,10 +27,12 @@ else
 end
 end
 
-function status = default_solve(task, eventEmitter) %#ok<INUSD>
-status = mh_vta_backend_simbio_onesolve_canonical(task);
+function status = default_solve(task, eventEmitter)
+status = mh_vta_backend_simbio_onesolve_canonical(task, ...
+    'EventEmitter', eventEmitter, 'TaskId', task.task_id);
 end
 
-function status = default_derived(task, eventEmitter) %#ok<INUSD>
-status = mh_vta_derive_canonical_group_peak(task);
+function status = default_derived(task, eventEmitter)
+status = mh_vta_derive_canonical_group_peak(task, ...
+    'EventEmitter', eventEmitter, 'TaskId', task.task_id);
 end

@@ -5,9 +5,18 @@ parser = inputParser;
 parser.FunctionName = mfilename;
 parser.addParameter('NativeAnchorPath', '', ...
     @(value) ischar(value) || isstring(value));
+parser.addParameter('EventEmitter', [], ...
+    @(value) isempty(value) || isa(value, 'function_handle'));
+parser.addParameter('TaskId', char(string(task.task_id)), ...
+    @(value) ischar(value) || (isstring(value) && isscalar(value)));
 parser.parse(varargin{:});
 
+emit = parser.Results.EventEmitter;
+taskId = char(string(parser.Results.TaskId));
+stageTimer = tic;
 actions = mh_vta_resolve_output_actions(task);
+mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+    'task_runtime_resolution', 'executed', toc(stageTimer), '');
 headmodelState = 'not_required';
 options = struct();
 sideIndex = NaN;
@@ -17,30 +26,51 @@ activeNodeIndices = [];
 anchorPath = '';
 
 if actions.solve_native_efield
+    stageTimer = tic;
     [options, S, sideIndex, defaultAnchorPath] = build_context(task);
     anchorPath = mh_vta_resolve_native_anchor(defaultAnchorPath, ...
         parser.Results.NativeAnchorPath);
+    mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+        'subject_reconstruction_context', 'executed', toc(stageTimer), '');
+
     stimLabel = ['canonical-', task.task_id(1:12)];
+    stageTimer = tic;
     [headmodelPath, headmodelState] = mh_vta_prepare_canonical_headmodel( ...
         S, sideIndex, options, stimLabel);
     hm = load(headmodelPath, ...
         'vol', 'mesh', 'centroids', 'wmboundary', 'elfv', 'meshregions');
     mh_vta_validate_canonical_headmodel_units(hm.vol, hm.mesh);
+    if strcmp(headmodelState, 'reused')
+        cacheStatus = 'hit';
+    else
+        cacheStatus = 'miss';
+    end
+    mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+        'headmodel_build_or_load', 'executed', toc(stageTimer), cacheStatus);
+
+    stageTimer = tic;
     activeidx = ea_getactiveidx(S, sideIndex, hm.centroids, hm.mesh, ...
         hm.elfv, options.elspec, hm.meshregions);
     controlMode = lower(char(string(task.sources(1).control_mode)));
     boundary = mh_vta_assemble_boundary( ...
         task.sources, activeidx, controlMode);
+    mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+        'active_contact_boundary', 'executed', toc(stageTimer), '');
     potential = mh_vta_fem_apply_dbs( ...
         hm.vol, boundary.node_indices, boundary.values_and_groups, ...
-        boundary.unipolar, boundary.constvol, hm.wmboundary);
+        boundary.unipolar, boundary.constvol, hm.wmboundary, ...
+        'EventEmitter', emit, 'TaskId', taskId);
+    stageTimer = tic;
     gradient = mh_vta_fem_calc_gradient(hm.vol, potential);
+    mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+        'gradient_calculation', 'executed', toc(stageTimer), '');
     mesh = hm.mesh;
     activeNodeIndices = boundary.node_indices;
 end
 
 status = mh_vta_export_canonical_outputs(task, options, sideIndex, ...
-    mesh, gradient, activeNodeIndices, anchorPath, headmodelState);
+    mesh, gradient, activeNodeIndices, anchorPath, headmodelState, ...
+    'EventEmitter', emit, 'TaskId', taskId);
 end
 
 function [options, S, sideIndex, anchorPath] = build_context(task)

@@ -207,6 +207,39 @@ verifyEqual(testCase, string(status.execution), "solve");
 verifyEqual(testCase, string(status.task_id), "task-001");
 end
 
+function testDefaultSolveForwardsEmitterAndTaskId(testCase)
+stubDir = tempname;
+mkdir(stubDir);
+cleanup = onCleanup(@() cleanup_backend_stubs(stubDir));
+body = "assert(strcmp(varargin{1},'EventEmitter'));" + newline + ...
+    "assert(strcmp(varargin{3},'TaskId'));" + newline + ...
+    "assert(strcmp(varargin{4},task.task_id));" + newline + ...
+    "varargin{2}('stage_timing',struct('scope','task'," + ...
+    "'task_id',task.task_id,'stage','task_runtime_resolution'," + ...
+    "'stage_status','executed','duration_seconds',0));" + newline + ...
+    "status=struct('execution','canonical','task_id',task.task_id);";
+write_backend_stub(stubDir, ...
+    'mh_vta_backend_simbio_onesolve_canonical', body);
+addpath(stubDir, '-begin');
+clear mh_vta_backend_simbio_onesolve_canonical ...
+    mh_vta_execute_canonical_task;
+rehash;
+
+task = fixture_task('continuous_joint', 'continuous', ...
+    fixture_source('source-1', 'voltage')); %#ok<NASGU>
+emit = mh_vta_make_event_emitter('run-001', 'SNr003'); %#ok<NASGU>
+output = evalc("status = mh_vta_execute_canonical_task(task, " + ...
+    "'EventEmitter', emit);");
+
+verifyEqual(testCase, string(status.execution), "canonical");
+verifyEqual(testCase, count_event_lines(output), 1);
+line = splitlines(string(output));
+line = line(startsWith(line, "MH_VTA_EVENT "));
+event = jsondecode(extractAfter(line, strlength("MH_VTA_EVENT ")));
+verifyEqual(testCase, string(event.task_id), "task-001");
+verifyEqual(testCase, string(event.stage), "task_runtime_resolution");
+end
+
 function task = fixture_task(kind, deliveryMode, sources)
 task = struct( ...
     'task_id', 'task-001', ...
@@ -297,7 +330,7 @@ path = fullfile(stubDir, [functionName, '.m']);
 fid = fopen(path, 'w');
 assert(fid >= 0, 'Could not create backend stub.');
 cleanup = onCleanup(@() fclose(fid));
-fprintf(fid, 'function status = %s(task)\n%s\nend\n', ...
+fprintf(fid, 'function status = %s(task, varargin)\n%s\nend\n', ...
     functionName, char(body));
 end
 

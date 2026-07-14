@@ -1,5 +1,15 @@
-function published = mh_vta_publish_atomic(outputPath, producer)
+function published = mh_vta_publish_atomic(outputPath, producer, varargin)
 % Publish one missing output through a temporary file in its destination.
+
+parser = inputParser;
+parser.FunctionName = mfilename;
+parser.addParameter('EventEmitter', [], ...
+    @(value) isempty(value) || isa(value, 'function_handle'));
+parser.addParameter('TaskId', '', ...
+    @(value) ischar(value) || (isstring(value) && isscalar(value)));
+parser.parse(varargin{:});
+emit = parser.Results.EventEmitter;
+taskId = char(string(parser.Results.TaskId));
 
 outputPath = char(string(outputPath));
 if isfile(outputPath)
@@ -25,11 +35,14 @@ if isfile(outputPath)
     published = false;
     return;
 end
+stageTimer = tic;
 [ok, message] = movefile(temporaryPath, outputPath);
 if ~ok
     error('mh_vta_publish_atomic:PublishFailed', ...
         'Could not publish %s: %s', outputPath, message);
 end
+mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+    'artifact_publication', 'executed', toc(stageTimer), '');
 published = true;
 clear cleanup;
 end

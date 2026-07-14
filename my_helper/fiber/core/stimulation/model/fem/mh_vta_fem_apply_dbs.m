@@ -1,6 +1,18 @@
-function potential = mh_vta_fem_apply_dbs(vol, elec, val, unipolar, constvol, boundarynodes)
+function potential = mh_vta_fem_apply_dbs(vol, elec, val, unipolar, ...
+        constvol, boundarynodes, varargin)
 % Apply DBS boundary conditions and solve the FEM system.
 
+parser = inputParser;
+parser.FunctionName = mfilename;
+parser.addParameter('EventEmitter', [], ...
+    @(value) isempty(value) || isa(value, 'function_handle'));
+parser.addParameter('TaskId', '', ...
+    @(value) ischar(value) || (isstring(value) && isscalar(value)));
+parser.parse(varargin{:});
+emit = parser.Results.EventEmitter;
+taskId = char(string(parser.Results.TaskId));
+
+stageTimer = tic;
 if constvol
     if unipolar
         dirinodes = [boundarynodes, elec'];
@@ -19,7 +31,7 @@ else
     dirival = zeros(size(vol.pos, 1), 1);
     rhs = zeros(size(vol.pos, 1), 1);
     uvals = unique(val(:, 2));
-    if unipolar && numel(uvals) == 1
+    if unipolar && isscalar(uvals)
         elecCenterId = find_elec_center(elec, vol.pos);
         rhs(elecCenterId) = val(1, 1);
     else
@@ -32,7 +44,9 @@ else
 end
 
 [stiff, rhs] = dbs_matrix(vol.stiff, rhs, dirinodes, dirival);
-potential = sb_solve(stiff, rhs);
+mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+    'fem_matrix_preparation', 'executed', toc(stageTimer), '');
+potential = sb_solve(stiff, rhs, emit, taskId);
 end
 
 function centerId = find_elec_center(elec, pos)
@@ -54,12 +68,19 @@ stiff = stiff + spdiags(diagonal(:), 0, length(diagonal), length(diagonal));
 rhs(dirinodes) = dirival(dirinodes);
 end
 
-function x = sb_solve(sysmat, vecb)
+function x = sb_solve(sysmat, vecb, emit, taskId) %#ok<INUSD>
+stageTimer = tic;
 try
-    L = ichol(sysmat);
+    L = ichol(sysmat); %#ok<NASGU>
 catch
     alpha = max(sum(abs(sysmat), 2) ./ diag(sysmat)) - 2;
-    L = ichol(sysmat, struct('type', 'ict', 'droptol', 1e-3, 'diagcomp', alpha));
+    L = ichol(sysmat, struct( ...
+        'type', 'ict', 'droptol', 1e-3, 'diagcomp', alpha)); %#ok<NASGU>
 end
+mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+    'fem_preconditioner', 'executed', toc(stageTimer), '');
+stageTimer = tic;
 [~, x] = evalc('pcg(sysmat, vecb, 10e-10, 5000, L, L'', vecb)');
+mh_vta_emit_stage_timing(emit, 'task', taskId, ...
+    'fem_pcg_solve', 'executed', toc(stageTimer), '');
 end
