@@ -305,6 +305,28 @@ class StudyBaseImporterTests(unittest.TestCase):
         self.assertEqual(payload_a["study"]["provenance"]["created_at"], "2026-07-11T12:30:00Z")
         validate_study_base(payload_a)
 
+    def test_schema_accepts_manually_curated_scale_direction_and_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+        first, second = payload["study"]["scale_definitions"]
+        first["direction"] = "lower"
+        second["direction"] = "higher"
+        second["unit"] = "percent"
+
+        validate_study_base(payload)
+
+    def test_schema_rejects_invalid_scale_direction_or_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._build_fixture(Path(tmp))
+        payload["study"]["scale_definitions"][0]["direction"] = "decrease"
+        with self.assertRaisesRegex(StudyBaseImportError, "schema validation failed"):
+            validate_study_base(payload)
+
+        payload["study"]["scale_definitions"][0]["direction"] = "lower"
+        payload["study"]["scale_definitions"][0]["unit"] = "points"
+        with self.assertRaisesRegex(StudyBaseImportError, "schema validation failed"):
+            validate_study_base(payload)
+
     def test_default_code_commit_comes_from_importer_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
