@@ -20,8 +20,10 @@ fem_system_reuse_implemented
 current_factorization_real_fem_gate_complete
 post_reuse_representative_gate_complete
 three_worker_memory_gate_complete
-public_cli_default_workers_3_authorized_not_implemented
 documentation_updated_for_public_cli_default_workers_3
+public_cli_default_workers_3_implemented
+full_python_vta_suite_210_passed
+full_matlab_fiber_suite_130_passed
 current_outputs_unchanged
 ```
 
@@ -34,8 +36,8 @@ cases and 13 semantic tasks from the current study configuration.
 
 The representative real-FEM performance baseline and the corrected
 three-worker memory-safety gate have been executed and passed. The public CLI
-default remains one worker only until the authorized CLI/test update is
-committed. Bulk threshold generation, bounded native
+default is now three subject workers, with explicit positive overrides still
+supported. Bulk threshold generation, bounded native
 interpolation,
 and context/headmodel load consolidation are implemented and solver-free
 verified. The deterministic subject manifest and path-based artifact state
@@ -44,8 +46,9 @@ now uses one persistent MATLAB process per active subject while preserving the
 per-task compatibility runner. Process-local transform/subject context,
 validated head-model, native-anchor, and export-geometry caches are implemented
 and solver-free verified. The complete MATLAB fiber suite passes 130 tests, the
-Python VTA pipeline/benchmark suite passes 193 tests, and Code Analyzer reports
-zero findings. Guarded process-local FEM system/preconditioner reuse is
+Python VTA pipeline/benchmark suite passes 210 tests, and the prior MATLAB
+Code Analyzer gate reports zero findings. Guarded process-local FEM
+system/preconditioner reuse is
 implemented. Its bounded real-current cache-hit gate, fresh post-reuse
 representative gate, and corrected three-worker memory gate have passed.
 

@@ -16,7 +16,7 @@ pre_reuse_representative_gate_complete
 real_current_cache_hit_gate_complete
 post_reuse_representative_gate_complete
 three_worker_memory_gate_complete
-public_cli_default_workers_3_authorized
+public_cli_default_workers_3_implemented
 ```
 
 The completed memory gate is specified in:

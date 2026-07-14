@@ -13,9 +13,10 @@ design_documented
 implementation_complete
 first_gate_instrumentation_failed
 corrected_gate_passed
-public_cli_default_workers_1
-public_cli_default_workers_3_authorized_not_implemented
 documentation_updated_for_public_cli_default_workers_3
+public_cli_default_workers_3_implemented
+full_python_vta_suite_210_passed
+full_matlab_fiber_suite_130_passed
 ```
 
 The post-reuse numerical/performance gate and bounded real-current cache-hit
@@ -167,8 +168,8 @@ wall time: 68.499 s
 All acceptance gates passed. The corrected interpreter classifier observed
 only exact MATLAB interpreter executable names and did not count
 `matlab_helper` service processes. This result authorizes changing the public
-CLI default to three workers. The default remains one until the separately
-documented CLI and test update is committed.
+CLI default to three workers. The separately documented CLI and parser-test
+update is now committed, and the default is three.
 
 ## Non-Goals
 
