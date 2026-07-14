@@ -1,6 +1,6 @@
 # VTA Representative Paired Performance Gate Implementation Plan
 
-**Status:** implementation_complete_solver_free_verified_real_fem_pending
+**Status:** paired_execution_implemented_case_filtered_prepare_pending
 
 **Parent design:**
 `docs/superpowers/specs/2026-07-13-vta-performance-optimization-design.md`
@@ -20,13 +20,16 @@ This is the pre-FEM-reuse performance baseline. It does not prove three-worker
 memory safety, complete execution-class performance, or the final 25% goal for
 the entire declared benchmark suite.
 
-Implemented on 2026-07-14 in the test-only benchmark harness. The focused
+The paired execution path was implemented on 2026-07-14 in the test-only
+benchmark harness. The focused
 benchmark tests pass 30 tests, and the combined Python VTA pipeline/benchmark
 suite passes 184 tests. Live validation resolves 9 cases and 13 semantic tasks.
 Three review passes closed failure accounting, atomic single-use root claiming,
 protected-root ordering, immutable per-run working paths, and partial telemetry
-coverage. No MATLAB or production CLI file changed. The 16-FEM real run has not
-started, so no performance result is claimed yet.
+coverage. Case-filtered preparation and explicit warm-donor validation are the
+remaining harness changes before the real run. No MATLAB or production CLI file
+changed. The 16-FEM real run has not started, so no performance result is
+claimed yet.
 
 ## Selected Case
 
@@ -100,6 +103,37 @@ The warm head model is copied into the frozen snapshot. Every repetition starts
 with missing selected output leaves and identical head-model bytes. Baseline
 and candidate never share generated output leaves.
 
+Preparation accepts an explicit fixture `--case` selector and freezes only the
+selected case. This avoids requiring head models or artifacts from unrelated
+fixture cases and does not change semantic task resolution. The prepared
+fixture contains only the selected case; `run-paired` still verifies its exact
+documented case ID.
+
+If the authoritative subject tree does not contain the required warm head
+model, preparation may receive one explicit `--warm-headmodel-donor`. The donor
+is copied only into the frozen validation snapshot, never into the production
+subject tree. It is accepted only when exactly one warm case is selected, its
+canonical filename matches the selected hemisphere, and the donor subject
+tree's reconstruction and configured patient GM mask hashes equal the current
+source subject's files. The copied donor SHA-256 and context hashes are written
+to the snapshot manifest. The canonical MATLAB unit validator remains the
+authoritative pre-boundary guard when each benchmark path loads the model.
+
+For the 2026-07-14 gate, the explicit donor is:
+
+```text
+/Volumes/VAL/STNSNr/validation/
+  vta_pipeline_e2e_maskfix_20260713T172111Z/copied_dataset/
+  derivatives/leaddbs/sub-SNr003/headmodel/native/
+  sub-SNr003_desc-headmodel2.mat
+```
+
+It passed `mh_vta_validate_canonical_headmodel_units`. Its reconstruction hash
+is `e9e1273e7e7c2ebb60088891ca0e1a5e1c76ced6e6de7352e693d05912ac01`
+and its configured patient GM mask hash is
+`f1481029d1dede9a29400eb422f5b890eea7a39bf7c28d2520376bc34f93fa75`;
+both equal the current source subject files.
+
 ## Measurements And Expected Counts
 
 For every execution record wall time, process and FEM counts, derived/copy/skip
@@ -165,10 +199,22 @@ python my_helper/vta/test/run_vta_performance_benchmark.py run-paired \
   --case snr003_t2_p2_l_alternating
 ```
 
-`--case` is required and resolves exactly one declared fixture case. This gate
-rejects other case IDs. Existing `validate`, `prepare`, and `run-baseline`
-interfaces remain available; `run-baseline` is historical and is not used for
-this gate.
+Prepare this gate with:
+
+```bash
+python my_helper/vta/test/run_vta_performance_benchmark.py prepare \
+  --study-base <study-base.json> \
+  --vta-model <vta_model.yaml> \
+  --work-root <validation-root> \
+  --case snr003_t2_p2_l_alternating \
+  --warm-headmodel-donor <validated-headmodel2.mat>
+```
+
+`run-paired --case` is required and resolves exactly one declared fixture case.
+This gate rejects other case IDs. `prepare --case` is repeatable in the general
+harness, but the warm donor option requires exactly one selected warm case.
+Existing unfiltered `validate`, `prepare`, and `run-baseline` interfaces remain
+available; `run-baseline` is historical and is not used for this gate.
 
 ## Solver-Free Verification
 
