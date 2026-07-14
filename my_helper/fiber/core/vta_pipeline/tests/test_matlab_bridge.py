@@ -5,6 +5,7 @@ from dataclasses import replace
 import io
 import json
 from pathlib import Path
+import signal
 import subprocess
 import threading
 import time
@@ -137,10 +138,12 @@ class FakePopen:
         *,
         returncode: int = 0,
         timeout_once: bool = False,
+        lifecycle: list[str] | None = None,
     ) -> None:
         self.command = command
         self.pid = 1234
-        self.stdout = io.StringIO("".join(lines))
+        self.lifecycle = lifecycle if lifecycle is not None else []
+        self.stdout = RecordingStdout("".join(lines), self.lifecycle)
         self.returncode = returncode
         self.timeout_once = timeout_once
         self.terminated = False
@@ -148,6 +151,7 @@ class FakePopen:
         self.wait_calls = 0
 
     def wait(self, timeout: float | None = None) -> int:
+        self.lifecycle.append("wait")
         self.wait_calls += 1
         if timeout is not None and self.timeout_once:
             self.timeout_once = False
@@ -160,10 +164,22 @@ class FakePopen:
         return None
 
     def terminate(self) -> None:
+        self.lifecycle.append("terminate")
         self.terminated = True
 
     def kill(self) -> None:
+        self.lifecycle.append("kill")
         self.killed = True
+
+
+class RecordingStdout(io.StringIO):
+    def __init__(self, value: str, lifecycle: list[str]) -> None:
+        super().__init__(value)
+        self._lifecycle = lifecycle
+
+    def __iter__(self):
+        self._lifecycle.append("stdout")
+        return super().__iter__()
 
 
 class PopenFactory:
@@ -181,6 +197,7 @@ class PopenFactory:
         self.payload: dict[str, object] | None = None
         self.task_path: Path | None = None
         self.kwargs: dict[str, object] | None = None
+        self.lifecycle: list[str] = []
 
     def __call__(self, command: list[str], **kwargs: object) -> FakePopen:
         task_path = Path(command[-1].split("'")[1].replace("''", "'"))
@@ -193,6 +210,7 @@ class PopenFactory:
             self.line_factory(payload),
             returncode=self.returncode,
             timeout_once=self.timeout_once,
+            lifecycle=self.lifecycle,
         )
         return self.process
 
@@ -223,6 +241,7 @@ def test_bridge_payload_contains_missing_paths_but_no_hash_or_provenance(
         "stderr": subprocess.STDOUT,
         "text": True,
         "bufsize": 1,
+        "start_new_session": True,
     }
     assert factory.task_path is not None
     assert not factory.task_path.exists()
@@ -247,21 +266,24 @@ def test_bridge_forwards_only_unframed_diagnostics(
 
 
 class RecordingMonitor:
-    def __init__(self) -> None:
+    def __init__(self, lifecycle: list[str] | None = None) -> None:
         self.events: list[tuple[str, str, int]] = []
+        self.lifecycle = lifecycle if lifecycle is not None else []
 
     def register(self, subject_id: str, pid: int) -> None:
+        self.lifecycle.append("register")
         self.events.append(("register", subject_id, pid))
 
     def unregister(self, subject_id: str, pid: int) -> None:
+        self.lifecycle.append("unregister")
         self.events.append(("unregister", subject_id, pid))
 
 
 def test_bridge_registers_monitor_and_unregisters_after_reaping(
     subject_plan: SubjectPlan,
 ) -> None:
-    monitor = RecordingMonitor()
     factory = PopenFactory()
+    monitor = RecordingMonitor(factory.lifecycle)
     task = subject_plan.tasks[0]
 
     MatlabBridge(
@@ -276,16 +298,18 @@ def test_bridge_registers_monitor_and_unregisters_after_reaping(
     ]
     assert factory.process is not None
     assert factory.process.wait_calls == 1
+    assert factory.lifecycle == ["register", "stdout", "wait", "unregister"]
 
 
 def test_bridge_terminates_reaps_and_unregisters_on_protocol_failure(
     subject_plan: SubjectPlan,
 ) -> None:
-    monitor = RecordingMonitor()
     factory = PopenFactory(
         lambda payload: [EVENT_PREFIX + "{malformed}\n"],
         timeout_once=True,
     )
+    monitor = RecordingMonitor(factory.lifecycle)
+    group_signals: list[int] = []
     task = subject_plan.tasks[0]
 
     with pytest.raises(EventProtocolError):
@@ -293,13 +317,45 @@ def test_bridge_terminates_reaps_and_unregisters_on_protocol_failure(
             repo_root=REPO_ROOT,
             popen_factory=factory,
             memory_monitor=monitor,
+            process_group_signaler=lambda pid, requested: group_signals.append(
+                requested
+            ),
         ).run_task(task, task_context(task))
 
     assert factory.process is not None
-    assert factory.process.terminated
-    assert factory.process.killed
     assert factory.process.wait_calls == 2
+    assert group_signals == [signal.SIGTERM, signal.SIGKILL]
+    assert factory.lifecycle == [
+        "register",
+        "stdout",
+        "wait",
+        "wait",
+        "unregister",
+    ]
     assert monitor.events[-1][0] == "unregister"
+
+
+def test_bridge_preserves_protocol_error_when_cleanup_fails(
+    subject_plan: SubjectPlan,
+) -> None:
+    factory = PopenFactory(lambda payload: [EVENT_PREFIX + "{malformed}\n"])
+    monitor = RecordingMonitor(factory.lifecycle)
+    task = subject_plan.tasks[0]
+
+    def fail_signal(pid: int, requested: int) -> None:
+        raise PermissionError(f"cannot signal {pid} with {requested}")
+
+    with pytest.raises(EventProtocolError) as captured:
+        MatlabBridge(
+            repo_root=REPO_ROOT,
+            popen_factory=factory,
+            memory_monitor=monitor,
+            process_group_signaler=fail_signal,
+        ).run_task(task, task_context(task))
+
+    assert "process reaping also failed" in "\n".join(captured.value.__notes__)
+    assert factory.lifecycle == ["register", "stdout"]
+    assert monitor.events == [("register", task.subject_id, 1234)]
 
 
 def test_bridge_rejects_nonzero_matlab_exit(subject_plan: SubjectPlan) -> None:
