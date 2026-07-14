@@ -13,10 +13,18 @@ parser.addParameter('Seed', 20260712, @is_valid_seed);
 parser.addParameter('Mode', 'fem', @(x) ischar(x) || isstring(x));
 parser.addParameter('ExistingRunRoot', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('TrashRoot', '', @(x) ischar(x) || isstring(x));
+parser.addParameter('RecoveryReason', ...
+    'canonical_backend_post_runtime_cache_validation', ...
+    @(x) ischar(x) && isrow(x) || isstring(x) && isscalar(x));
 parser.addParameter('MniRepeatFunction', @generate_mni_repeat, ...
     @(x) isa(x, 'function_handle'));
 parser.parse(varargin{:});
 opts = parser.Results;
+recoveryReason = strtrim(char(string(opts.RecoveryReason)));
+if isempty(recoveryReason)
+    error('run_current_backend_equivalence:InvalidRecoveryReason', ...
+        'RecoveryReason must be nonempty scalar text.');
+end
 
 mode = lower(char(string(opts.Mode)));
 if ~ismember(mode, {'fem', 'fixture_only', 'compare_existing', ...
@@ -36,7 +44,7 @@ if ismember(mode, {'compare_existing', 'rerun_candidate'})
             opts.TrashRoot, opts.MniRepeatFunction);
     else
         result = rerun_existing_candidate(runRoot, opts.StudyBase, ...
-            opts.TrashRoot, opts.MniRepeatFunction);
+            opts.TrashRoot, opts.MniRepeatFunction, recoveryReason);
     end
     return;
 end
@@ -602,7 +610,7 @@ if isfield(summary, 'actual_fem_solve_count') && ...
         isfinite(summary.actual_fem_solve_count) && ...
         summary.actual_fem_solve_count >= 2
     actualFemSolveCounts(end + 1) = ...
-        double(summary.actual_fem_solve_count); %#ok<AGROW>
+        double(summary.actual_fem_solve_count);
 end
 if isfield(manifest, 'accumulated_fem_solve_count') && ...
         isnumeric(manifest.accumulated_fem_solve_count) && ...
@@ -610,7 +618,7 @@ if isfield(manifest, 'accumulated_fem_solve_count') && ...
         isfinite(manifest.accumulated_fem_solve_count) && ...
         manifest.accumulated_fem_solve_count >= 2
     actualFemSolveCounts(end + 1) = ...
-        double(manifest.accumulated_fem_solve_count); %#ok<AGROW>
+        double(manifest.accumulated_fem_solve_count);
 end
 summary.actual_fem_solve_count = max(actualFemSolveCounts);
 summary.comparison_fem_solve_count = 0;
@@ -632,7 +640,7 @@ result = struct( ...
 end
 
 function result = rerun_existing_candidate(runRoot, studyBasePath, trashRoot, ...
-        repeatFunction)
+        repeatFunction, recoveryReason)
 manifestPath = fullfile(runRoot, 'validation_manifest.json');
 manifest = jsondecode(fileread(must_be_file(manifestPath, ...
     'current acceptance manifest')));
@@ -715,8 +723,7 @@ summary.actual_fem_solve_count = manifest.accumulated_fem_solve_count;
 summary.recovery_attempt_count = recoveryAttempt;
 summary.latest_recovery_fem_solve_count = 1;
 summary.standard_reference_reused = true;
-summary.recovery_reason = ...
-    'candidate_export_full_electrode_removal_geometry_correction';
+summary.recovery_reason = char(string(recoveryReason));
 summary.production_subject_tree_unchanged = productionTreeUnchanged;
 summary.pass = summary.comparison_gates_passed && productionTreeUnchanged;
 replace_json_safely(fullfile(runRoot, 'acceptance_summary.json'), ...

@@ -105,6 +105,13 @@ verifyError(testCase, @() run_current_backend_equivalence( ...
     'run_current_backend_equivalence:MissingFolder');
 end
 
+function testRecoveryReasonMustBeNonempty(testCase)
+verifyError(testCase, @() run_current_backend_equivalence( ...
+    'Mode', 'fixture_only', 'RecoveryReason', '   ', ...
+    'WorkRoot', testCase.TestData.safeWorkRoot), ...
+    'run_current_backend_equivalence:InvalidRecoveryReason');
+end
+
 function testCompareExistingUsesNoFemAndRefreshesMetrics(testCase)
 runRoot = tempname;
 mkdir(runRoot);

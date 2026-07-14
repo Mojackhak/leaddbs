@@ -191,6 +191,12 @@ Existing versions of those untracked files are moved to the filesystem Trash
 before replacement. The refreshed overall result also preserves the original
 `production_subject_tree_unchanged` safety gate.
 
+To validate a changed canonical backend while reusing the fixed standard
+SimBio reference, use `Mode='rerun_candidate'`. This performs exactly one FEM
+solve and records an explicit `RecoveryReason`; the default reason is
+`canonical_backend_post_runtime_cache_validation`. The reason is provenance
+only and does not alter the numerical gate.
+
 Historical voltage outputs can likewise be re-compared without FEM:
 
 ```matlab
