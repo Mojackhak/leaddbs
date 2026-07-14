@@ -22,12 +22,13 @@ options = struct();
 sideIndex = NaN;
 mesh = struct();
 gradient = [];
-activeNodeIndices = [];
 anchorPath = '';
+trajectory = [];
 
 if actions.solve_native_efield
     stageTimer = tic;
-    [options, S, sideIndex, defaultAnchorPath] = build_context(task);
+    [options, S, sideIndex, defaultAnchorPath, trajectory] = ...
+        build_context(task);
     mh_vta_emit_stage_timing(emit, 'task', taskId, ...
         'subject_reconstruction_context', 'executed', toc(stageTimer), '');
     anchorPath = mh_vta_resolve_native_anchor(defaultAnchorPath, ...
@@ -35,11 +36,8 @@ if actions.solve_native_efield
 
     stimLabel = ['canonical-', task.task_id(1:12)];
     stageTimer = tic;
-    [headmodelPath, headmodelState] = mh_vta_prepare_canonical_headmodel( ...
+    [~, headmodelState, hm] = mh_vta_prepare_canonical_headmodel( ...
         S, sideIndex, options, stimLabel);
-    hm = load(headmodelPath, ...
-        'vol', 'mesh', 'centroids', 'wmboundary', 'elfv', 'meshregions');
-    mh_vta_validate_canonical_headmodel_units(hm.vol, hm.mesh);
     if strcmp(headmodelState, 'reused')
         cacheStatus = 'hit';
     else
@@ -65,15 +63,14 @@ if actions.solve_native_efield
     mh_vta_emit_stage_timing(emit, 'task', taskId, ...
         'gradient_calculation', 'executed', toc(stageTimer), '');
     mesh = hm.mesh;
-    activeNodeIndices = boundary.node_indices;
 end
 
 status = mh_vta_export_canonical_outputs(task, options, sideIndex, ...
-    mesh, gradient, activeNodeIndices, anchorPath, headmodelState, ...
+    mesh, gradient, trajectory, anchorPath, headmodelState, ...
     'EventEmitter', emit, 'TaskId', taskId);
 end
 
-function [options, S, sideIndex, anchorPath] = build_context(task)
+function [options, S, sideIndex, anchorPath, trajectory] = build_context(task)
 subjectDir = char(string(task.subject_dir));
 options = ea_getptopts(subjectDir, struct());
 options.root = [fileparts(subjectDir), filesep];
@@ -92,18 +89,27 @@ if double(task.reconstruction_lead_id) ~= sideIndex
         'reconstruction_lead_id does not match hemisphere %s.', ...
         char(string(task.hemisphere)));
 end
-verify_reconstruction_model(task, sideIndex);
+options.elside = sideIndex;
+try
+    [~, trajectory, ~, actualModel] = ea_load_reconstruction(options);
+catch ME
+    wrapped = MException('mh_vta:InvalidReconstruction', ...
+        'Could not load reconstruction lead %d.', sideIndex);
+    wrapped = addCause(wrapped, ME);
+    throw(wrapped);
+end
+if isempty(actualModel)
+    error('mh_vta:InvalidReconstruction', ...
+        'Reconstruction does not define an electrode model for lead %d.', ...
+        sideIndex);
+end
+verify_reconstruction_model(task, actualModel);
 S = geometry_stimulation(task, options, sideIndex);
 anchorPath = options.subj.preopAnat.(options.subj.AnchorModality).coreg;
 end
 
-function verify_reconstruction_model(task, sideIndex)
-loaded = load(char(string(task.reconstruction_path)), 'reco');
-if ~isfield(loaded, 'reco') || numel(loaded.reco.props) < sideIndex
-    error('mh_vta:InvalidReconstruction', ...
-        'Reconstruction does not contain lead %d.', sideIndex);
-end
-actual = char(string(loaded.reco.props(sideIndex).elmodel));
+function verify_reconstruction_model(task, actualModel)
+actual = char(string(actualModel));
 expected = char(string(task.electrode_model));
 if ~strcmp(actual, expected)
     error('mh_vta:ElectrodeModelMismatch', ...

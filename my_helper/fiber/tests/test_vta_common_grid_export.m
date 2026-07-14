@@ -322,16 +322,20 @@ clear mh_vta_run_horn_with_retry;
 rehash;
 
 options = fixture_options(subjectDir);
-[headmodelPath, state] = mh_vta_prepare_canonical_headmodel( ...
+[headmodelPath, state, builtHeadmodel] = mh_vta_prepare_canonical_headmodel( ...
     struct(), 1, options, 'fixture-stimulation');
 
 verifyEqual(testCase, state, 'built');
 verifyTrue(testCase, isfile(headmodelPath));
+verifyTrue(testCase, all(isfield(builtHeadmodel, ...
+    {'vol', 'mesh', 'centroids', 'wmboundary', 'elfv', 'meshregions'})));
 
-[reusedPath, reusedState] = mh_vta_prepare_canonical_headmodel( ...
+[reusedPath, reusedState, reusedHeadmodel] = ...
+    mh_vta_prepare_canonical_headmodel( ...
     struct(), 1, options, 'fixture-stimulation');
 verifyEqual(testCase, reusedPath, headmodelPath);
 verifyEqual(testCase, reusedState, 'reused');
+verifyEqual(testCase, reusedHeadmodel, builtHeadmodel);
 end
 
 function testUnreadableOrIncompleteHeadmodelIsRejectedWithoutOverwrite(testCase)

@@ -3,11 +3,21 @@
 ## Status
 
 ```text
-design_aligned
-implementation_not_started
+implemented
+solver_free_verification_complete
 real_fem_not_required_for_solver_free_contract_tests
 current_outputs_unchanged
 ```
+
+Implemented on 2026-07-14. Canonical headmodels now have one load-and-unit-guard
+path, preparation returns the validated structure, and the backend consumes it
+without reloading. Solve context reuses one reconstruction load and passes its
+trajectory and resolved options through export. All 91 solver-free MATLAB
+fiber tests and 115 Python VTA pipeline/benchmark tests pass. MATLAB Code
+Analyzer reports no findings in the touched files.
+
+This slice does not establish a whole-pipeline speedup. No real FEM or
+candidate performance benchmark was run.
 
 ## Goal
 
@@ -122,4 +132,3 @@ This slice is complete only when:
 - established error and non-overwrite behavior is preserved;
 - all focused and regression tests pass; and
 - no whole-pipeline speedup is claimed before the fixed benchmark runs.
-

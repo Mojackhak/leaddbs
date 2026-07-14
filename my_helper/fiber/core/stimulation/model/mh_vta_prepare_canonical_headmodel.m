@@ -1,4 +1,4 @@
-function [headmodelPath, state] = mh_vta_prepare_canonical_headmodel( ...
+function [headmodelPath, state, headmodel] = mh_vta_prepare_canonical_headmodel( ...
         S, sideIndex, options, stimulationLabel)
 % Build or reuse a canonical native head model by fixed path.
 
@@ -32,8 +32,7 @@ if isfile(headmodelPath)
             headmodelPath);
     end
     try
-        stored = load(headmodelPath, required{:});
-        mh_vta_validate_canonical_headmodel_units(stored.vol, stored.mesh);
+        headmodel = mh_vta_load_canonical_headmodel(headmodelPath);
     catch ME
         wrapped = MException( ...
             'mh_vta_prepare_canonical_headmodel:InvalidExistingHeadmodel', ...
@@ -63,4 +62,5 @@ if ~isfile(headmodelPath)
 end
 
 state = 'built';
+headmodel = mh_vta_load_canonical_headmodel(headmodelPath);
 end

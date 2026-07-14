@@ -1,5 +1,5 @@
 function status = mh_vta_export_canonical_outputs(task, options, sideIndex, ...
-        mesh, gradient, ~, nativeAnchorPath, headmodelState, ...
+        mesh, gradient, trajectory, nativeAnchorPath, headmodelState, ...
         varargin)
 % Publish canonical native/MNI E-fields and thresholded VTAs.
 
@@ -23,7 +23,6 @@ if actions.solve_native_efield
     fieldValues = sqrt(sum(double(gradient).^2, 2));
     meshPointsMm = tetrahedron_midpoints_mm(mesh);
     stageTimer = tic;
-    [~, trajectory] = ea_load_reconstruction(options);
     [meshPointsMm, fieldValues] = ...
         mh_vta_remove_electrode_export_samples(mesh, meshPointsMm, ...
             fieldValues, trajectory, sideIndex, options.elspec);
@@ -41,7 +40,7 @@ write_requested_thresholds(nativeEfield, nativeLeaf, ...
 
 if actions.transform_mni_efield
     require_file(nativeEfield, 'native E-field');
-    [transformOptions, mniReference] = transform_context(task);
+    [transformOptions, mniReference] = transform_context(task, options);
     mh_vta_publish_atomic(mniEfield, @(temporaryPath) ...
         transform_to_mni(nativeEfield, transformOptions, mniReference, ...
             temporaryPath, emit, taskId), ...
@@ -60,8 +59,11 @@ status = struct( ...
     'mni_efield', mniEfield);
 end
 
-function [options, mniReference] = transform_context(task)
-options = ea_getptopts(char(string(task.subject_dir)), struct());
+function [options, mniReference] = transform_context(task, options)
+if ~isstruct(options) || ~isfield(options, 'subj') || ...
+        ~isfield(options.subj, 'subjDir')
+    options = ea_getptopts(char(string(task.subject_dir)), struct());
+end
 options.subj.recon.recon = char(string(task.reconstruction_path));
 mniReference = fullfile(ea_space(options), 't1.nii');
 end

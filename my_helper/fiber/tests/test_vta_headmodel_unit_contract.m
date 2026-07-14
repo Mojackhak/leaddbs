@@ -129,16 +129,36 @@ verifyEqual(testCase, mh_fiber_file_sha256(headmodelPath), originalHash);
 end
 
 function testCanonicalBackendGuardsUnitsImmediatelyAfterLoad(testCase)
-source = fileread(which('mh_vta_backend_simbio_onesolve_canonical'));
-loadPosition = strfind(source, 'hm = load(headmodelPath');
-guardPosition = strfind(source, ...
-    'mh_vta_validate_canonical_headmodel_units(hm.vol, hm.mesh);');
-activeIndexPosition = strfind(source, 'activeidx = ea_getactiveidx');
+loaderSource = fileread(which('mh_vta_load_canonical_headmodel'));
+loadPosition = strfind(loaderSource, 'headmodel = load(headmodelPath');
+guardPosition = strfind(loaderSource, ...
+    'mh_vta_validate_canonical_headmodel_units(');
+backendSource = fileread(which('mh_vta_backend_simbio_onesolve_canonical'));
+preparePosition = strfind(backendSource, ...
+    '[~, headmodelState, hm] = mh_vta_prepare_canonical_headmodel(');
+activeIndexPosition = strfind(backendSource, 'activeidx = ea_getactiveidx');
 verifyEqual(testCase, numel(loadPosition), 1);
 verifyEqual(testCase, numel(guardPosition), 1);
+verifyEqual(testCase, numel(preparePosition), 1);
 verifyEqual(testCase, numel(activeIndexPosition), 1);
 verifyGreaterThan(testCase, guardPosition, loadPosition);
-verifyLessThan(testCase, guardPosition, activeIndexPosition);
+verifyLessThan(testCase, preparePosition, activeIndexPosition);
+verifyEmpty(testCase, strfind(backendSource, 'load(headmodelPath'));
+end
+
+function testCanonicalContextLoadSitesAreConsolidated(testCase)
+backendSource = fileread(which('mh_vta_backend_simbio_onesolve_canonical'));
+exportSource = fileread(which('mh_vta_export_canonical_outputs'));
+
+verifyEqual(testCase, numel(strfind( ...
+    backendSource, 'options = ea_getptopts(')), 1);
+verifyEqual(testCase, numel(strfind( ...
+    backendSource, 'ea_load_reconstruction(options)')), 1);
+verifyEmpty(testCase, strfind(exportSource, 'ea_load_reconstruction('));
+verifyEqual(testCase, numel(strfind( ...
+    exportSource, 'options = ea_getptopts(')), 1);
+verifyNotEmpty(testCase, strfind(backendSource, ...
+    'options.elside = sideIndex;'));
 end
 
 function testNewlyBuiltInvalidHeadmodelStopsBeforeActiveIndex(testCase)
@@ -222,6 +242,11 @@ write_stub(stubDir, 'ea_initializeS.m', ...
 write_stub(stubDir, 'ea_activecontacts.m', ...
     "function S = ea_activecontacts(S)" + newline + ...
     "end" + newline);
+write_stub(stubDir, 'ea_load_reconstruction.m', ...
+    "function [coords, trajectory, markers, elmodel] = ea_load_reconstruction(varargin)" + newline + ...
+    "coords = []; trajectory = []; markers = [];" + newline + ...
+    "elmodel = 'Fixture Electrode';" + newline + ...
+    "end" + newline);
 write_stub(stubDir, 'mh_vta_run_horn_with_retry.m', ...
     "function diagnostics = mh_vta_run_horn_with_retry(varargin)" + newline + ...
     "expectedPath = varargin{5};" + newline + ...
@@ -263,6 +288,7 @@ end
 
 function clear_backend_fixture_functions()
 clear ea_getptopts ea_resolve_elspec mh_vta_configure_canonical_options;
-clear ea_initializeS ea_activecontacts mh_vta_run_horn_with_retry;
+clear ea_initializeS ea_activecontacts ea_load_reconstruction;
+clear mh_vta_run_horn_with_retry;
 clear ea_getactiveidx mh_vta_backend_simbio_onesolve_canonical;
 end
