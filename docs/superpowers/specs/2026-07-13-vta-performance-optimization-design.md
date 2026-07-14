@@ -9,9 +9,10 @@ slice_2_bulk_threshold_generation_implemented
 slice_3_bounded_native_interpolation_implemented
 slice_4_context_headmodel_consolidation_implemented
 slice_5_subject_manifest_state_machine_implemented
+slice_6_persistent_subject_runner_implemented
 solver_free_verification_complete
 real_fem_baseline_not_run
-slices_6_to_9_not_started
+slices_7_to_9_not_started
 current_outputs_unchanged
 ```
 
@@ -42,9 +43,14 @@ separation, canonical path and headmodel-context guards, ordered same-subject
 artifact reuse, and artifact-specific dependency resolution. It does not yet
 replace the production per-task MATLAB bridge.
 
+Slice 6 connects that manifest to one canonical MATLAB process per active
+subject, keeps the per-task bridge as a compatibility path, adds partial event
+snapshots and fatal-process reconciliation, and makes force reset transactional
+per subject. Complete subjects launch no MATLAB process.
+
 This status does not claim a measured runtime improvement. The real FEM
 baseline, candidate comparison, and three-worker memory gate have not run.
-The production CLI default remains one worker until that gate passes. Slices 6
+The production CLI default remains one worker until that gate passes. Slices 7
 through 9 remain implementation work.
 
 The executable slice 6 plan is documented in

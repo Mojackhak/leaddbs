@@ -5,29 +5,32 @@ from __future__ import annotations
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
-from typing import Iterable
+import sys
+from typing import Callable, Iterable
 
 from .config import VtaModelConfig, load_vta_model
 from .errors import RuntimeInputError
 from .artifacts import (
-    atomic_copy_missing,
-    expected_artifacts,
     leaf_status,
     missing_artifacts,
     move_leaf_to_trash,
+    trash_root_for,
 )
-from .matlab_bridge import MatlabBridge, TaskRunContext
+from .matlab_bridge import MatlabBridge
 from .paths import canonical_head_model_path, leaf_directory
 from .planner import (
     Selection,
     SubjectPlan,
+    TaskKind,
     VtaTask,
     build_plan,
-    equivalent_task_key,
 )
 from .records import StudyBase
 from .study_base import load_study_base
+from .subject_manifest import build_subject_manifest
+from .telemetry import ProcessObservation
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -49,17 +52,25 @@ class RunSummary:
     generated: int = 0
     copied: int = 0
     skipped_existing: int = 0
+    recovered_complete: int = 0
     failed: int = 0
     skipped_dependency: int = 0
+    subject_process_failed: int = 0
 
     def __add__(self, other: "RunSummary") -> "RunSummary":
         return RunSummary(
             generated=self.generated + other.generated,
             copied=self.copied + other.copied,
             skipped_existing=self.skipped_existing + other.skipped_existing,
+            recovered_complete=(
+                self.recovered_complete + other.recovered_complete
+            ),
             failed=self.failed + other.failed,
             skipped_dependency=(
                 self.skipped_dependency + other.skipped_dependency
+            ),
+            subject_process_failed=(
+                self.subject_process_failed + other.subject_process_failed
             ),
         )
 
@@ -72,9 +83,11 @@ class RunService:
         bridge: MatlabBridge,
         *,
         run_id: str,
+        diagnostic_sink: Callable[[str], None] | None = None,
     ) -> None:
         self.bridge = bridge
         self.run_id = run_id
+        self._diagnostic_sink = diagnostic_sink or _write_diagnostic
 
     def run(
         self,
@@ -108,30 +121,28 @@ class RunService:
         *,
         force: bool,
     ) -> RunSummary:
-        summary = RunSummary()
-        blocked: set[str] = set()
-        reuse_owners: dict[tuple[object, ...], str] = {}
-        if force:
-            self._trash_selected_leaves(subject)
-        for task in subject.tasks:
-            reuse_key = equivalent_task_key(task)
-            owner_id = reuse_owners.setdefault(reuse_key, task.task_id)
-            if any(dependency in blocked for dependency in task.dependencies):
-                blocked.add(task.task_id)
-                summary += RunSummary(skipped_dependency=1)
-                continue
-            if owner_id in blocked and not self._task_is_complete(task):
-                blocked.add(task.task_id)
-                summary += RunSummary(skipped_dependency=1)
-                continue
-            try:
-                result = self._run_task(task, subject)
-            except Exception:
-                blocked.add(task.task_id)
-                summary += RunSummary(failed=1)
-                continue
-            summary += RunSummary(**{result: 1})
-        return summary
+        try:
+            build_subject_manifest(subject, self.run_id)
+            if force:
+                self._trash_selected_leaves_transactionally(subject)
+        except Exception as error:
+            self._report_subject_failure(subject, error)
+            return RunSummary(
+                failed=len(subject.tasks),
+                subject_process_failed=1,
+            )
+        if all(self._task_is_complete(task) for task in subject.tasks):
+            return RunSummary(skipped_existing=len(subject.tasks))
+        observation: ProcessObservation | None = None
+        try:
+            observation = self.bridge.run_subject_manifest(subject, self.run_id)
+            return self._summary_from_observation(subject, observation)
+        except Exception as error:
+            self._report_subject_failure(subject, error)
+            partial = getattr(error, "partial_observation", observation)
+            return self._reconcile_subject(subject, partial) + RunSummary(
+                subject_process_failed=1
+            )
 
     @staticmethod
     def _task_is_complete(task: VtaTask) -> bool:
@@ -143,86 +154,135 @@ class RunService:
             for space in task.model.spaces
         )
 
-    def _run_task(
+    def _summary_from_observation(
         self,
-        task: VtaTask,
         subject: SubjectPlan,
-    ) -> str:
-        leaves = {
-            space: leaf_directory(task, space) for space in task.model.spaces
-        }
-        if all(
-            leaf_status(leaf, task.model.thresholds_v_per_m).value == "complete"
-            for leaf in leaves.values()
-        ):
-            return "skipped_existing"
-        copied = self._copy_from_equivalent_groups(task, subject, leaves)
-        missing = {
-            space: tuple(
-                path.name
-                for path in missing_artifacts(
-                    leaf,
-                    task.model.thresholds_v_per_m,
+        observation: ProcessObservation,
+    ) -> RunSummary:
+        task_by_id = {task.task_id: task for task in subject.tasks}
+        summary = RunSummary()
+        for outcome in observation.outcomes:
+            task = task_by_id[outcome.task_id]
+            if outcome.status in {
+                "generated",
+                "copied",
+                "skipped_existing",
+                "recovered_complete",
+            } and not self._task_is_complete(task):
+                raise RuntimeInputError(
+                    f"MATLAB reported {outcome.status} for an incomplete task: "
+                    f"{task.task_id}"
                 )
-            )
-            for space, leaf in leaves.items()
-        }
-        missing = {space: names for space, names in missing.items() if names}
-        if not missing:
-            return "copied" if copied else "skipped_existing"
-        context = TaskRunContext(
-            run_id=self.run_id,
-            output_leaves=leaves,
-            missing_artifacts=missing,
-        )
-        self.bridge.run_task(task, context)
-        for leaf in leaves.values():
-            _validate_leaf_artifacts(task, leaf)
-        return "generated"
+            summary += RunSummary(**{outcome.status: 1})
+        return summary
 
-    def _copy_from_equivalent_groups(
+    def _reconcile_subject(
         self,
-        task: VtaTask,
         subject: SubjectPlan,
-        leaves: dict[str, Path],
-    ) -> bool:
-        copied = False
-        candidates = subject.reuse_candidates or subject.tasks
-        task_key = equivalent_task_key(task)
-        donors = tuple(
-            candidate
-            for candidate in candidates
-            if candidate.subject_id == task.subject_id
-            and candidate.task_id != task.task_id
-            and equivalent_task_key(candidate) == task_key
-        )
-        for space, leaf in leaves.items():
-            for destination in expected_artifacts(
-                leaf, task.model.thresholds_v_per_m
-            ):
-                if destination.is_file():
-                    continue
-                for donor in donors:
-                    source = leaf_directory(donor, space) / destination.name
-                    if not source.is_file():
-                        continue
-                    copied = (
-                        atomic_copy_missing(source, destination) == "copied"
-                        or copied
-                    )
-                    break
-        return copied
+        observation: ProcessObservation | None,
+    ) -> RunSummary:
+        parsed = {
+            outcome.task_id: outcome
+            for outcome in (() if observation is None else observation.outcomes)
+        }
+        summary = RunSummary()
+        for task in subject.tasks:
+            outcome = parsed.get(task.task_id)
+            if outcome is not None:
+                if outcome.status in {
+                    "generated",
+                    "copied",
+                    "skipped_existing",
+                    "recovered_complete",
+                } and not self._task_is_complete(task):
+                    summary += RunSummary(failed=1)
+                else:
+                    summary += RunSummary(**{outcome.status: 1})
+            elif self._task_is_complete(task):
+                summary += RunSummary(recovered_complete=1)
+            elif self._task_has_missing_required_dependency(task, subject):
+                summary += RunSummary(skipped_dependency=1)
+            else:
+                summary += RunSummary(failed=1)
+        return summary
+
+    def _report_subject_failure(
+        self,
+        subject: SubjectPlan,
+        error: Exception,
+    ) -> None:
+        lines = [
+            f"VTA subject process failed for {subject.subject_id}: "
+            f"{type(error).__name__}: {error}\n"
+        ]
+        lines.extend(f"{note}\n" for note in getattr(error, "__notes__", ()))
+        for line in lines:
+            self._diagnostic_sink(line)
 
     @staticmethod
-    def _trash_selected_leaves(subject: SubjectPlan) -> None:
-        leaves = {
-            leaf_directory(task, space)
-            for task in subject.tasks
-            for space in task.model.spaces
-        }
-        for leaf in sorted(leaves, key=str):
-            if leaf.exists():
-                move_leaf_to_trash(leaf)
+    def _task_has_missing_required_dependency(
+        task: VtaTask,
+        subject: SubjectPlan,
+    ) -> bool:
+        if task.kind is not TaskKind.ALTERNATING_GROUP_PEAK:
+            return False
+        native_leaf = leaf_directory(task, "native")
+        native_peak = native_leaf / "efield.nii.gz"
+        if native_peak.is_file():
+            return False
+        native_missing = missing_artifacts(
+            native_leaf,
+            task.model.thresholds_v_per_m,
+        )
+        mni_leaf = leaf_directory(task, "MNI152NLin2009bAsym")
+        mni_efield_missing = not (mni_leaf / "efield.nii.gz").is_file()
+        if not native_missing and not mni_efield_missing:
+            return False
+        tasks = {candidate.task_id: candidate for candidate in subject.tasks}
+        return any(
+            not (
+                leaf_directory(tasks[dependency], "native") / "efield.nii.gz"
+            ).is_file()
+            for dependency in task.dependencies
+        )
+
+    @staticmethod
+    def _trash_selected_leaves_transactionally(subject: SubjectPlan) -> None:
+        leaves = sorted(
+            {
+                leaf_directory(task, space)
+                for task in subject.tasks
+                for space in task.model.spaces
+            },
+            key=str,
+        )
+        existing = tuple(leaf for leaf in leaves if leaf.exists())
+        for root in {trash_root_for(leaf) for leaf in existing}:
+            root.mkdir(parents=True, exist_ok=True)
+            if not os.access(root, os.W_OK):
+                raise RuntimeInputError(f"Trash is not writable: {root}")
+        moved: list[tuple[Path, Path]] = []
+        try:
+            for leaf in existing:
+                moved.append((leaf, move_leaf_to_trash(leaf)))
+        except Exception as move_error:
+            rollback_errors: list[Exception] = []
+            for original, trashed in reversed(moved):
+                try:
+                    original.parent.mkdir(parents=True, exist_ok=True)
+                    if original.exists():
+                        raise RuntimeInputError(
+                            f"Cannot restore occupied leaf: {original}"
+                        )
+                    os.replace(trashed, original)
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+            for rollback_error in rollback_errors:
+                move_error.add_note(
+                    "VTA force rollback also failed: "
+                    f"{type(rollback_error).__name__}: {rollback_error}"
+                )
+            raise
 
 
 def prepare_plan(
@@ -351,8 +411,6 @@ def _require_file(path: Path, label: str) -> Path:
     return path
 
 
-def _validate_leaf_artifacts(task: VtaTask, leaf: Path) -> None:
-    required = expected_artifacts(leaf, task.model.thresholds_v_per_m)
-    missing = [path for path in required if not path.is_file()]
-    if missing:
-        raise RuntimeInputError(f"MATLAB did not create artifact: {missing[0]}")
+def _write_diagnostic(message: str) -> None:
+    sys.stderr.write(message)
+    sys.stderr.flush()

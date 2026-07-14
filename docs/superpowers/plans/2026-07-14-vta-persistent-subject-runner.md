@@ -4,9 +4,11 @@
 
 ```text
 design_aligned
-implementation_not_started
+implementation_complete
+solver_free_verification_complete
 subject_manifest_contract_available
-current_per_task_runner_remains_active
+production_subject_runner_active
+compatibility_per_task_runner_available
 current_outputs_unchanged
 ```
 
@@ -21,10 +23,20 @@ This is slice 6 of the approved VTA performance optimization design. It removes
 repeated MATLAB startup within one subject but does not yet introduce
 process-local geometry or FEM matrix caches.
 
+As implemented on 2026-07-14, production `run` orchestration launches at most
+one MATLAB batch process for each active subject and launches none for a fully
+complete subject. Python retains manifest construction, transactional force
+reset, process lifecycle, partial telemetry snapshots, fatal-process artifact
+reconciliation, and final exit status. MATLAB owns ordered runtime resolution,
+donor copies, dispatch, and task events. The complete Python VTA pipeline and
+benchmark suite passes 159 tests, the complete solver-free MATLAB fiber suite
+passes 114 tests, and Code Analyzer reports no findings in the new MATLAB
+runner or its tests. No real FEM performance claim is made by this slice.
+
 ## MATLAB Subject Runner
 
-Add `mh_vta_run_subject_manifest` as the only new production subject entry
-point. It must:
+Add `mh_vta_run_canonical_subject_manifest` as the only new production subject
+entry point. It must:
 
 1. decode and validate one manifest before execution;
 2. create one event emitter for the manifest run and subject;
@@ -36,9 +48,9 @@ point. It must:
 8. execute only `ready` tasks through `mh_vta_execute_canonical_task`;
 9. recompute all expected artifacts after execution;
 10. report `generated` when execution returns and the task is complete;
-11. report `recovered_complete` when execution raises after all expected
-    artifacts have nevertheless been atomically published;
-12. report `failed` when required artifacts remain absent;
+11. report `failed` for every caught task exception, including an exception
+    raised after artifacts were published;
+12. reserve `recovered_complete` for Python fatal-process reconciliation;
 13. catch task-level failures and continue later independent tasks; and
 14. emit one summary whose counts and `process_success` match the event
     protocol.
@@ -61,9 +73,13 @@ Extend `MatlabBridge` with `run_subject_manifest(subject, run_id)`:
 - build and atomically write the deterministic manifest in a temporary
   directory;
 - launch exactly one `matlab -batch` process invoking
-  `mh_vta_run_subject_manifest`;
-- initialize the repository MATLAB path once for that process;
+  `mh_vta_run_canonical_subject_manifest`;
+- bootstrap only the canonical model runner directory, then let the subject
+  runner time one full repository path initialization before manifest
+  validation and `subject_ready`;
 - parse the complete ordered task ID sequence with one `EventStreamParser`;
+- retain a partial parser snapshot when a process, stream, or protocol failure
+  occurs after one or more complete task outcomes;
 - register and unregister exactly one subject process tree with the shared RSS
   monitor;
 - terminate and reap the process group on parser or stream failure; and
@@ -108,10 +124,15 @@ If process launch, manifest I/O, event parsing, or fatal MATLAB execution
 fails, increment `subject_process_failed` and perform one final path-based
 reconciliation after the process has been reaped:
 
-- a task whose full artifact set exists becomes `recovered_complete`;
-- an incomplete alternating group peak whose currently required source native
+- a parsed successful task whose artifact set remains complete preserves its
+  parsed status;
+- a parsed successful task whose artifact set is incomplete becomes `failed`;
+- a parsed `failed` or `skipped_dependency` outcome preserves that status;
+- an unfinished task whose full artifact set exists becomes
+  `recovered_complete`;
+- an unfinished alternating group peak whose currently required source native
   E-field is absent becomes `skipped_dependency`;
-- any other incomplete selected task becomes `failed`.
+- any other unfinished task becomes `failed`.
 
 Other subjects continue. The overall CLI remains nonzero when `failed`,
 `skipped_dependency`, or `subject_process_failed` is nonzero. `--resume`
@@ -146,6 +167,7 @@ Add bridge and service tests for:
 - one MATLAB launch per active subject and no launch for complete subjects;
 - deterministic manifest creation and cleanup;
 - multi-task event parsing and RSS monitor lifecycle;
+- partial parser snapshots that preserve completed outcomes;
 - process termination/reaping on protocol failure;
 - aggregation of every task outcome status;
 - fatal-process artifact reconciliation;

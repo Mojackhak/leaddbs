@@ -114,6 +114,12 @@ def move_leaf_to_trash(
     return destination
 
 
+def trash_root_for(path: Path | str) -> Path:
+    """Return the persistent Trash root used for one artifact leaf."""
+
+    return _default_trash_root(Path(path))
+
+
 def _default_trash_root(path: Path) -> Path:
     resolved = path.resolve()
     volumes = Path("/Volumes")

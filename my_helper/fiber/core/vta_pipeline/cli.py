@@ -113,7 +113,11 @@ def _handle_run(args: argparse.Namespace) -> int:
         force=bool(args.force),
     )
     print(json.dumps(asdict(summary), sort_keys=True))
-    return 1 if summary.failed else 0
+    return 1 if (
+        summary.failed
+        or summary.skipped_dependency
+        or summary.subject_process_failed
+    ) else 0
 
 
 def _positive_int(value: str) -> int:

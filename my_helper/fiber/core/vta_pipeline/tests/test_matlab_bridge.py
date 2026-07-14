@@ -12,6 +12,7 @@ import time
 
 import pytest
 
+from my_helper.fiber.core.vta_pipeline import service as service_module
 from my_helper.fiber.core.vta_pipeline.artifacts import expected_artifacts
 from my_helper.fiber.core.vta_pipeline.config import load_vta_model
 from my_helper.fiber.core.vta_pipeline.matlab_bridge import (
@@ -22,13 +23,18 @@ from my_helper.fiber.core.vta_pipeline.errors import (
     EventProtocolError,
     MatlabProcessError,
 )
-from my_helper.fiber.core.vta_pipeline.telemetry import EVENT_PREFIX
+from my_helper.fiber.core.vta_pipeline.telemetry import (
+    EVENT_PREFIX,
+    ProcessObservation,
+    TaskOutcome,
+)
 from my_helper.fiber.core.vta_pipeline.paths import leaf_directory
 from my_helper.fiber.core.vta_pipeline.planner import (
     Selection,
     SubjectPlan,
     TaskKind,
     build_plan,
+    equivalent_task_key,
 )
 from my_helper.fiber.core.vta_pipeline.service import RunService
 from my_helper.fiber.core.vta_pipeline.study_base import load_study_base
@@ -128,6 +134,44 @@ def complete_event_lines(payload: dict[str, object]) -> list[str]:
             process_success=True,
         ),
     ]
+
+
+def complete_subject_event_lines(payload: dict[str, object]) -> list[str]:
+    lines = [telemetry_event(payload, 1, "subject_ready")]
+    sequence = 2
+    for entry in payload["tasks"]:
+        task_id = str(entry["task"]["task_id"])
+        lines.append(
+            telemetry_event(payload, sequence, "task_started", task_id=task_id)
+        )
+        sequence += 1
+        lines.append(
+            telemetry_event(
+                payload,
+                sequence,
+                "task_outcome",
+                task_id=task_id,
+                status="generated",
+                copied_artifact_count=0,
+                generated_artifact_count=1,
+            )
+        )
+        sequence += 1
+    lines.append(
+        telemetry_event(
+            payload,
+            sequence,
+            "subject_summary",
+            generated=len(payload["tasks"]),
+            copied=0,
+            skipped_existing=0,
+            recovered_complete=0,
+            failed=0,
+            skipped_dependency=0,
+            process_success=True,
+        )
+    )
+    return lines
 
 
 class FakePopen:
@@ -265,6 +309,67 @@ def test_bridge_forwards_only_unframed_diagnostics(
     assert diagnostics == ["diagnostic before\n", "diagnostic after\n"]
 
 
+def test_subject_bridge_launches_one_manifest_process_and_cleans_payload(
+    subject_plan: SubjectPlan,
+) -> None:
+    factory = PopenFactory(complete_subject_event_lines)
+    monitor = RecordingMonitor(factory.lifecycle)
+
+    observation = MatlabBridge(
+        repo_root=REPO_ROOT,
+        popen_factory=factory,
+        memory_monitor=monitor,
+    ).run_subject_manifest(subject_plan, "subject-run")
+
+    assert len(observation.outcomes) == len(subject_plan.tasks)
+    assert factory.payload is not None
+    assert factory.payload["schema_version"] == "vta_subject_manifest_v1"
+    assert [entry["task"]["task_id"] for entry in factory.payload["tasks"]] == [
+        task.task_id for task in subject_plan.tasks
+    ]
+    assert factory.process is not None
+    assert "mh_vta_run_canonical_subject_manifest" in factory.process.command[-1]
+    assert "genpath" not in factory.process.command[-1]
+    assert monitor.events == [
+        ("register", subject_plan.subject_id, 1234),
+        ("unregister", subject_plan.subject_id, 1234),
+    ]
+    assert factory.task_path is not None
+    assert not factory.task_path.exists()
+
+
+def test_subject_bridge_protocol_failure_exposes_completed_outcomes(
+    subject_plan: SubjectPlan,
+) -> None:
+    def partial_lines(payload: dict[str, object]) -> list[str]:
+        task_id = str(payload["tasks"][0]["task"]["task_id"])
+        return [
+            telemetry_event(payload, 1, "subject_ready"),
+            telemetry_event(payload, 2, "task_started", task_id=task_id),
+            telemetry_event(
+                payload,
+                3,
+                "task_outcome",
+                task_id=task_id,
+                status="generated",
+                copied_artifact_count=0,
+                generated_artifact_count=8,
+            ),
+            EVENT_PREFIX + "{malformed}\n",
+        ]
+
+    with pytest.raises(EventProtocolError) as captured:
+        MatlabBridge(
+            repo_root=REPO_ROOT,
+            popen_factory=PopenFactory(partial_lines),
+        ).run_subject_manifest(subject_plan, "subject-run")
+
+    assert [
+        outcome.task_id
+        for outcome in captured.value.partial_observation.outcomes
+    ] == [subject_plan.tasks[0].task_id]
+
+
 class RecordingMonitor:
     def __init__(self, lifecycle: list[str] | None = None) -> None:
         self.events: list[tuple[str, str, int]] = []
@@ -312,7 +417,7 @@ def test_bridge_terminates_reaps_and_unregisters_on_protocol_failure(
     group_signals: list[int] = []
     task = subject_plan.tasks[0]
 
-    with pytest.raises(EventProtocolError):
+    with pytest.raises(EventProtocolError) as captured:
         MatlabBridge(
             repo_root=REPO_ROOT,
             popen_factory=factory,
@@ -322,6 +427,8 @@ def test_bridge_terminates_reaps_and_unregisters_on_protocol_failure(
             ),
         ).run_task(task, task_context(task))
 
+    assert captured.value.partial_observation.protocol_complete is False
+    assert captured.value.partial_observation.outcomes == ()
     assert factory.process is not None
     assert factory.process.wait_calls == 2
     assert group_signals == [signal.SIGTERM, signal.SIGKILL]
@@ -373,24 +480,28 @@ class RecordingBridge:
     def __init__(self, *, fail_task_id: str | None = None):
         self.fail_task_id = fail_task_id
         self.calls: list[str] = []
-        self.contexts: list[TaskRunContext] = []
+        self.task_calls: list[str] = []
+        self.missing_at_dispatch: dict[str, tuple[str, ...]] = {}
         self._lock = threading.Lock()
         self._subject_inflight: dict[str, int] = {}
         self._subjects_inflight = 0
         self.maximum_inflight_per_subject = 0
         self.maximum_subjects_inflight = 0
 
-    def run_task(self, task, context: TaskRunContext) -> None:
+    def run_subject_manifest(
+        self,
+        subject: SubjectPlan,
+        run_id: str,
+    ) -> ProcessObservation:
         with self._lock:
-            self.calls.append(task.task_id)
-            self.contexts.append(context)
-            self._subject_inflight[task.subject_id] = (
-                self._subject_inflight.get(task.subject_id, 0) + 1
+            self.calls.append(subject.subject_id)
+            self._subject_inflight[subject.subject_id] = (
+                self._subject_inflight.get(subject.subject_id, 0) + 1
             )
             self._subjects_inflight += 1
             self.maximum_inflight_per_subject = max(
                 self.maximum_inflight_per_subject,
-                self._subject_inflight[task.subject_id],
+                self._subject_inflight[subject.subject_id],
             )
             self.maximum_subjects_inflight = max(
                 self.maximum_subjects_inflight,
@@ -398,17 +509,147 @@ class RecordingBridge:
             )
         try:
             time.sleep(0.005)
-            if task.task_id == self.fail_task_id:
-                raise RuntimeError("synthetic MATLAB failure")
-            for space, names in context.missing_artifacts.items():
-                leaf = context.output_leaves[space]
-                leaf.mkdir(parents=True, exist_ok=True)
-                for name in names:
-                    (leaf / name).write_bytes(f"{task.task_id}:{name}".encode("ascii"))
+            outcomes: list[TaskOutcome] = []
+            failed: set[str] = set()
+            for task in subject.tasks:
+                self.task_calls.append(task.task_id)
+                if (
+                    task.kind is TaskKind.ALTERNATING_GROUP_PEAK
+                    and any(dependency in failed for dependency in task.dependencies)
+                    and not (
+                        leaf_directory(task, "native") / "efield.nii.gz"
+                    ).is_file()
+                ):
+                    outcomes.append(task_outcome(task.task_id, "skipped_dependency"))
+                    continue
+                if task.task_id == self.fail_task_id:
+                    failed.add(task.task_id)
+                    outcomes.append(task_outcome(task.task_id, "failed"))
+                    continue
+                copied = copy_equivalent_artifacts(task, subject)
+                missing = tuple(
+                    artifact
+                    for space in task.model.spaces
+                    for artifact in expected_artifacts(
+                        leaf_directory(task, space), task.model.thresholds_v_per_m
+                    )
+                    if not artifact.is_file()
+                )
+                self.missing_at_dispatch[task.task_id] = tuple(
+                    path.name for path in missing
+                )
+                if not missing:
+                    outcomes.append(
+                        task_outcome(
+                            task.task_id,
+                            "copied" if copied else "skipped_existing",
+                            copied=copied,
+                        )
+                    )
+                    continue
+                for artifact in missing:
+                    artifact.parent.mkdir(parents=True, exist_ok=True)
+                    artifact.write_bytes(
+                        f"{task.task_id}:{artifact.name}".encode("ascii")
+                    )
+                outcomes.append(
+                    task_outcome(
+                        task.task_id,
+                        "generated",
+                        copied=copied,
+                        generated=len(missing),
+                    )
+                )
+            return ProcessObservation(
+                run_id=run_id,
+                subject_id=subject.subject_id,
+                outcomes=tuple(outcomes),
+                timings=(),
+                protocol_complete=True,
+                returncode=0,
+            )
         finally:
             with self._lock:
-                self._subject_inflight[task.subject_id] -= 1
+                self._subject_inflight[subject.subject_id] -= 1
                 self._subjects_inflight -= 1
+
+
+def task_outcome(
+    task_id: str,
+    status: str,
+    *,
+    copied: int | bool = 0,
+    generated: int = 0,
+) -> TaskOutcome:
+    return TaskOutcome(
+        task_id=task_id,
+        status=status,
+        copied_artifact_count=int(copied),
+        generated_artifact_count=generated,
+    )
+
+
+def copy_equivalent_artifacts(task, subject: SubjectPlan) -> int:
+    copied = 0
+    for donor in subject.reuse_candidates or subject.tasks:
+        if (
+            donor.task_id == task.task_id
+            or equivalent_task_key(donor) != equivalent_task_key(task)
+        ):
+            continue
+        for space in task.model.spaces:
+            destination_leaf = leaf_directory(task, space)
+            donor_leaf = leaf_directory(donor, space)
+            for destination in expected_artifacts(
+                destination_leaf, task.model.thresholds_v_per_m
+            ):
+                source = donor_leaf / destination.name
+                if destination.is_file() or not source.is_file():
+                    continue
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(source.read_bytes())
+                copied += 1
+    return copied
+
+
+def write_task_artifacts(task, content: bytes = b"artifact") -> None:
+    for space in task.model.spaces:
+        for artifact in expected_artifacts(
+            leaf_directory(task, space), task.model.thresholds_v_per_m
+        ):
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            artifact.write_bytes(content)
+
+
+class FatalSubjectBridge:
+    def __init__(self, *, parsed_success: bool) -> None:
+        self.parsed_success = parsed_success
+        self.calls = 0
+
+    def run_subject_manifest(
+        self,
+        subject: SubjectPlan,
+        run_id: str,
+    ) -> ProcessObservation:
+        self.calls += 1
+        first = subject.tasks[0]
+        write_task_artifacts(first)
+        outcomes = (
+            (task_outcome(first.task_id, "generated", generated=8),)
+            if self.parsed_success
+            else ()
+        )
+        observation = ProcessObservation(
+            run_id,
+            subject.subject_id,
+            outcomes,
+            (),
+            False,
+            -1,
+        )
+        error = RuntimeError("synthetic fatal subject process")
+        error.partial_observation = observation
+        raise error
 
 
 def clone_subject_plan(first: SubjectPlan, root: Path) -> SubjectPlan:
@@ -471,10 +712,10 @@ def test_failure_skips_only_dependency_descendants(
     assert summary.failed == 1
     assert summary.generated == 2
     assert summary.skipped_dependency == 1
-    assert len(bridge.calls) == 3
+    assert bridge.calls == ["SNr003"]
 
 
-def test_failed_reuse_owner_skips_still_dependent_recipient(
+def test_failed_reuse_donor_does_not_block_equivalent_recipient(
     tmp_path: Path,
 ) -> None:
     raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
@@ -499,9 +740,9 @@ def test_failed_reuse_owner_skips_still_dependent_recipient(
     )
 
     assert summary.failed == 1
-    assert summary.skipped_dependency == 1
-    assert summary.generated == 0
-    assert bridge.calls == [equivalent[0].task_id]
+    assert summary.skipped_dependency == 0
+    assert summary.generated == 1
+    assert bridge.task_calls == [task.task_id for task in equivalent]
 
 
 def test_existing_paths_are_skipped_without_hash_checks(
@@ -514,7 +755,157 @@ def test_existing_paths_are_skipped_without_hash_checks(
 
     assert first.generated == 4
     assert second.skipped_existing == 4
-    assert len(bridge.calls) == 4
+    assert bridge.calls == ["SNr003"]
+
+
+def test_fatal_process_preserves_parsed_success_and_reconciles_unfinished(
+    subject_plan: SubjectPlan,
+) -> None:
+    bridge = FatalSubjectBridge(parsed_success=True)
+    diagnostics: list[str] = []
+
+    summary = RunService(
+        bridge,
+        run_id="run",
+        diagnostic_sink=diagnostics.append,
+    ).run((subject_plan,), workers=1, resume=False, force=False)
+
+    assert summary.generated == 1
+    assert summary.recovered_complete == 0
+    assert summary.failed == 2
+    assert summary.skipped_dependency == 1
+    assert summary.subject_process_failed == 1
+    assert "synthetic fatal subject process" in "".join(diagnostics)
+
+
+def test_fatal_process_recovers_complete_unfinished_task(
+    subject_plan: SubjectPlan,
+) -> None:
+    bridge = FatalSubjectBridge(parsed_success=False)
+
+    summary = RunService(
+        bridge,
+        run_id="run",
+        diagnostic_sink=lambda _: None,
+    ).run((subject_plan,), workers=1, resume=False, force=False)
+
+    assert summary.generated == 0
+    assert summary.recovered_complete == 1
+    assert summary.failed == 2
+    assert summary.skipped_dependency == 1
+    assert summary.subject_process_failed == 1
+
+
+def test_dependency_reconciliation_uses_current_artifact_requirements(
+    subject_plan: SubjectPlan,
+) -> None:
+    group_peak = next(
+        task
+        for task in subject_plan.tasks
+        if task.kind is TaskKind.ALTERNATING_GROUP_PEAK
+    )
+    native_leaf = leaf_directory(group_peak, "native")
+    for artifact in expected_artifacts(
+        native_leaf,
+        group_peak.model.thresholds_v_per_m,
+    ):
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_bytes(b"existing-native-artifact")
+    mni_leaf = leaf_directory(group_peak, "MNI152NLin2009bAsym")
+    mni_efield = mni_leaf / "efield.nii.gz"
+    mni_efield.parent.mkdir(parents=True, exist_ok=True)
+    mni_efield.write_bytes(b"existing-mni-efield")
+
+    assert not RunService._task_has_missing_required_dependency(
+        group_peak,
+        subject_plan,
+    )
+
+    mni_efield.unlink()
+    assert not RunService._task_has_missing_required_dependency(
+        group_peak,
+        subject_plan,
+    )
+
+    (native_leaf / "efield.nii.gz").unlink()
+    assert RunService._task_has_missing_required_dependency(
+        group_peak,
+        subject_plan,
+    )
+
+
+def test_force_move_failure_rolls_back_and_does_not_launch_subject(
+    subject_plan: SubjectPlan,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for task in subject_plan.tasks:
+        write_task_artifacts(task)
+    bridge = RecordingBridge()
+    trash_root = tmp_path / "Trash"
+    moved: list[tuple[Path, Path]] = []
+
+    def fake_move(leaf: Path) -> Path:
+        if moved:
+            raise RuntimeError(f"synthetic move failure: {leaf}")
+        destination = trash_root / "first-leaf"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        leaf.replace(destination)
+        moved.append((leaf, destination))
+        return destination
+
+    monkeypatch.setattr(service_module, "trash_root_for", lambda _: trash_root)
+    monkeypatch.setattr(service_module, "move_leaf_to_trash", fake_move)
+
+    summary = RunService(
+        bridge,
+        run_id="run",
+        diagnostic_sink=lambda _: None,
+    ).run((subject_plan,), workers=1, resume=False, force=True)
+
+    assert summary.failed == len(subject_plan.tasks)
+    assert summary.subject_process_failed == 1
+    assert bridge.calls == []
+    assert moved[0][0].is_dir()
+    assert not moved[0][1].exists()
+
+
+def test_force_rollback_failure_is_reported(
+    subject_plan: SubjectPlan,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for task in subject_plan.tasks:
+        write_task_artifacts(task)
+    bridge = RecordingBridge()
+    trash_root = tmp_path / "Trash"
+    moved: list[tuple[Path, Path]] = []
+    diagnostics: list[str] = []
+
+    def fake_move(leaf: Path) -> Path:
+        if moved:
+            moved[0][0].mkdir(parents=True, exist_ok=True)
+            raise RuntimeError(f"synthetic move failure: {leaf}")
+        destination = trash_root / "first-leaf"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        leaf.replace(destination)
+        moved.append((leaf, destination))
+        return destination
+
+    monkeypatch.setattr(service_module, "trash_root_for", lambda _: trash_root)
+    monkeypatch.setattr(service_module, "move_leaf_to_trash", fake_move)
+
+    summary = RunService(
+        bridge,
+        run_id="run",
+        diagnostic_sink=diagnostics.append,
+    ).run((subject_plan,), workers=1, resume=False, force=True)
+
+    assert summary.failed == len(subject_plan.tasks)
+    assert summary.subject_process_failed == 1
+    assert bridge.calls == []
+    assert "rollback" in "".join(diagnostics).lower()
+    assert moved[0][1].exists()
 
 
 def test_partial_leaf_sends_only_missing_artifact_to_bridge(
@@ -534,9 +925,7 @@ def test_partial_leaf_sends_only_missing_artifact_to_bridge(
     assert first.generated == 4
     assert second.generated == 1
     assert second.skipped_existing == 3
-    assert bridge.contexts[-1].missing_artifacts == {
-        "native": (missing_path.name,)
-    }
+    assert bridge.missing_at_dispatch[task.task_id] == (missing_path.name,)
 
 
 def duplicate_phase(raw: dict) -> None:
@@ -586,7 +975,7 @@ def test_selected_group_reuses_unselected_same_subject_group(
 
     assert summary.copied == 4
     assert summary.generated == 0
-    assert bridge.calls == []
+    assert bridge.calls == ["SNr003"]
     for task in selected.tasks:
         for space in task.model.spaces:
             assert all(
@@ -617,4 +1006,4 @@ def test_equal_group_in_different_subject_is_not_a_donor(
 
     assert summary.generated == 4
     assert summary.copied == 0
-    assert len(bridge.calls) == 4
+    assert bridge.calls == ["different-subject"]

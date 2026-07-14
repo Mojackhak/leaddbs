@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 from my_helper.fiber.core.vta_pipeline import cli as cli_module
+from my_helper.fiber.core.vta_pipeline.artifacts import expected_artifacts
 from my_helper.fiber.core.vta_pipeline.cli import main
+from my_helper.fiber.core.vta_pipeline.paths import leaf_directory
+from my_helper.fiber.core.vta_pipeline.telemetry import (
+    ProcessObservation,
+    TaskOutcome,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -184,12 +190,25 @@ def test_run_uses_matlab_bridge_and_reports_summary(
         def __init__(self, **kwargs):
             pass
 
-        def run_task(self, task, context):
-            for space, names in context.missing_artifacts.items():
-                leaf = context.output_leaves[space]
-                leaf.mkdir(parents=True, exist_ok=True)
-                for name in names:
-                    (leaf / name).write_bytes(b"artifact")
+        def run_subject_manifest(self, subject, run_id):
+            outcomes = []
+            for task in subject.tasks:
+                for space in task.model.spaces:
+                    for artifact in expected_artifacts(
+                        leaf_directory(task, space),
+                        task.model.thresholds_v_per_m,
+                    ):
+                        artifact.parent.mkdir(parents=True, exist_ok=True)
+                        artifact.write_bytes(b"artifact")
+                outcomes.append(TaskOutcome(task.task_id, "generated", 0, 8))
+            return ProcessObservation(
+                run_id,
+                subject.subject_id,
+                tuple(outcomes),
+                (),
+                True,
+                0,
+            )
 
     monkeypatch.setattr(cli_module, "MatlabBridge", FakeBridge, raising=False)
 
@@ -200,8 +219,10 @@ def test_run_uses_matlab_bridge_and_reports_summary(
         "copied": 0,
         "failed": 0,
         "generated": 4,
+        "recovered_complete": 0,
         "skipped_existing": 0,
         "skipped_dependency": 0,
+        "subject_process_failed": 0,
     }
 
 

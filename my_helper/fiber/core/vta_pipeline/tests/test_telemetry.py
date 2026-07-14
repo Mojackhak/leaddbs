@@ -115,6 +115,30 @@ def test_rejects_malformed_prefixed_json() -> None:
         parser.feed_line(EVENT_PREFIX + "{not-json}")
 
 
+def test_partial_snapshot_preserves_completed_outcomes() -> None:
+    parser = EventStreamParser("run", "SNr003", ("task-1", "task-2"))
+    feed(parser, event(1, "subject_ready"))
+    feed(parser, event(2, "task_started", task_id="task-1"))
+    feed(
+        parser,
+        event(
+            3,
+            "task_outcome",
+            task_id="task-1",
+            status="generated",
+            copied_artifact_count=0,
+            generated_artifact_count=8,
+        ),
+    )
+    feed(parser, event(4, "task_started", task_id="task-2"))
+
+    snapshot = parser.snapshot(-1)
+
+    assert snapshot.protocol_complete is False
+    assert snapshot.returncode == -1
+    assert [outcome.task_id for outcome in snapshot.outcomes] == ["task-1"]
+
+
 def test_rejects_sequence_gap() -> None:
     parser = EventStreamParser("run", "SNr003", ("task-1",))
     feed(parser, event(1, "subject_ready"))

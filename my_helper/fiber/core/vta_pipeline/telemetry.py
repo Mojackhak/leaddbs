@@ -175,6 +175,18 @@ class EventStreamParser:
             returncode=returncode,
         )
 
+    def snapshot(self, returncode: int) -> ProcessObservation:
+        """Return completed outcomes parsed before an interrupted protocol."""
+
+        return ProcessObservation(
+            run_id=self._run_id,
+            subject_id=self._subject_id,
+            outcomes=tuple(self._outcomes),
+            timings=tuple(self._timings),
+            protocol_complete=False,
+            returncode=returncode,
+        )
+
     def _validate_common_fields(self, payload: dict[str, Any]) -> None:
         if payload.get("schema_version") != "vta_event_v1":
             raise EventProtocolError("Invalid schema_version for framed telemetry")

@@ -9,9 +9,10 @@ phase_1_bulk_threshold_generation_implemented
 phase_1_bounded_native_interpolation_implemented
 slice_4_context_and_headmodel_load_consolidation_implemented
 slice_5_subject_manifest_and_state_machine_implemented
+slice_6_persistent_subject_runner_implemented
 solver_free_verification_complete
 real_fem_baseline_not_run
-persistent_subject_runner_not_connected
+process_local_runtime_caches_not_implemented
 current_outputs_unchanged
 ```
 
@@ -28,8 +29,10 @@ therefore claimed. The public CLI default remains one worker until the required
 memory gate passes. Bulk threshold generation, bounded native interpolation,
 and context/headmodel load consolidation are implemented and solver-free
 verified. The deterministic subject manifest and path-based artifact state
-resolver are also implemented and solver-free verified. Persistent subject
-process integration, runtime caches, and FEM reuse remain planned work.
+resolver are also implemented and solver-free verified. Production execution
+now uses one persistent MATLAB process per active subject while preserving the
+per-task compatibility runner. Process-local runtime caches and FEM reuse
+remain planned work.
 
 This document defines a performance optimization plan for the canonical
 VTA/E-field pipeline. It does not authorize a scientific model change, an
@@ -64,9 +67,9 @@ The primary optimization target is repeated work across tasks. Increasing
 `--workers` beyond the current subject-level default is not the primary
 strategy.
 
-## Current Baseline
+## Pre-Optimization Baseline
 
-The current canonical execution path is:
+Before the persistent subject runner, the canonical execution path was:
 
 ```text
 Python CLI and planner
@@ -78,9 +81,9 @@ Python CLI and planner
   -> thresholded VTA outputs
 ```
 
-Current implementation characteristics:
+Recorded baseline characteristics were:
 
-- `matlab_bridge.py` starts one MATLAB process for each unresolved task.
+- `matlab_bridge.py` started one MATLAB process for each unresolved task.
 - Every MATLAB invocation evaluates `addpath(genpath(repo_root))`.
 - `service.py` runs subjects concurrently but executes each subject DAG
   sequentially.
@@ -89,7 +92,7 @@ Current implementation characteristics:
 - The current study configuration produces 208 planned task rows.
 - Existing same-subject reuse reduces these rows to approximately 105 FEM
   solves and 8 group-peak derivations on a clean run.
-- The current clean-run architecture can therefore start approximately 113
+- The baseline clean-run architecture could therefore start approximately 113
   MATLAB processes.
 - Native E-field interpolation evaluates the complete native anchor grid,
   including voxels outside the FEM mesh support.
