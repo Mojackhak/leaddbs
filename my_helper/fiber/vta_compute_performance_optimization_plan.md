@@ -11,6 +11,7 @@ slice_4_context_and_headmodel_load_consolidation_implemented
 slice_5_subject_manifest_and_state_machine_implemented
 slice_6_persistent_subject_runner_implemented
 slice_7_process_local_runtime_caches_implemented
+representative_paired_performance_harness_implemented
 solver_free_verification_complete
 real_fem_numerical_gate_refreshed
 real_fem_performance_baseline_not_run
@@ -36,7 +37,7 @@ now uses one persistent MATLAB process per active subject while preserving the
 per-task compatibility runner. Process-local transform/subject context,
 validated head-model, native-anchor, and export-geometry caches are implemented
 and solver-free verified. The complete MATLAB fiber suite passes 121 tests, the
-Python VTA pipeline/benchmark suite passes 171 tests, and Code Analyzer reports
+Python VTA pipeline/benchmark suite passes 184 tests, and Code Analyzer reports
 zero findings. FEM reuse, real-FEM performance acceptance, and post-reuse
 numerical acceptance remain planned work.
 
@@ -69,6 +70,12 @@ The slice 7 process-local runtime-cache implementation contract is:
 
 ```text
 docs/superpowers/plans/2026-07-14-vta-process-local-runtime-caches.md
+```
+
+The representative paired real-FEM gate contract is:
+
+```text
+docs/superpowers/plans/2026-07-14-vta-representative-paired-performance-gate.md
 ```
 
 ## Goal

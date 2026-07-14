@@ -11,6 +11,7 @@ slice_4_context_headmodel_consolidation_implemented
 slice_5_subject_manifest_state_machine_implemented
 slice_6_persistent_subject_runner_implemented
 slice_7_process_local_runtime_caches_implemented
+representative_paired_performance_harness_implemented
 solver_free_verification_complete
 real_fem_numerical_gate_refreshed
 real_fem_performance_baseline_not_run
@@ -57,7 +58,13 @@ backing-file signatures prevent incompatible reuse; direct calls without an
 exact head-model identity remain uncached. Transform-only repair remains
 independent of FEM reconstruction geometry. The complete solver-free MATLAB
 fiber suite passes 121 tests, the Python VTA pipeline/benchmark suite passes
-171 tests, and Code Analyzer reports zero findings.
+184 tests, and Code Analyzer reports zero findings.
+
+The representative paired performance harness now provides an atomically
+claimed single-use validation root, compatibility-per-task and
+persistent-subject paths, immutable per-run working copies, conservative failed
+FEM accounting, a 16-FEM bound, and semantic NIfTI comparison. Its solver-free
+tests pass; the real-FEM paired run remains pending.
 
 Post-slice-7 numerical acceptance re-compared the historical bilateral voltage
 pair without FEM and passed. The fixed right-sided current candidate was then
@@ -78,6 +85,9 @@ The executable slice 6 plan is documented in
 
 The executable slice 7 plan is documented in
 `docs/superpowers/plans/2026-07-14-vta-process-local-runtime-caches.md`.
+
+The executable representative paired-gate plan is documented in
+`docs/superpowers/plans/2026-07-14-vta-representative-paired-performance-gate.md`.
 
 ## Purpose
 

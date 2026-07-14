@@ -1,6 +1,6 @@
 # VTA Representative Paired Performance Gate Implementation Plan
 
-**Status:** implementation_not_started
+**Status:** implementation_complete_solver_free_verified_real_fem_pending
 
 **Parent design:**
 `docs/superpowers/specs/2026-07-13-vta-performance-optimization-design.md`
@@ -19,6 +19,14 @@ alternating group.
 This is the pre-FEM-reuse performance baseline. It does not prove three-worker
 memory safety, complete execution-class performance, or the final 25% goal for
 the entire declared benchmark suite.
+
+Implemented on 2026-07-14 in the test-only benchmark harness. The focused
+benchmark tests pass 30 tests, and the combined Python VTA pipeline/benchmark
+suite passes 184 tests. Live validation resolves 9 cases and 13 semantic tasks.
+Three review passes closed failure accounting, atomic single-use root claiming,
+protected-root ordering, immutable per-run working paths, and partial telemetry
+coverage. No MATLAB or production CLI file changed. The 16-FEM real run has not
+started, so no performance result is claimed yet.
 
 ## Selected Case
 
@@ -178,4 +186,3 @@ This slice is complete only when solver-free tests pass, one isolated real-FEM
 paired benchmark finishes within 16 FEM, all numerical gates pass, measurement
 artifacts are written, both parent documents record the exact validation root,
 and neither production outputs nor the MRtrix design document changed.
-
