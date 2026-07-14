@@ -401,7 +401,7 @@ git commit -m "feat: observe MATLAB VTA processes"
 - Modify the backend, FEM, export, group-peak, and atomic-publication files
   listed in the File Map.
 - Modify: `my_helper/fiber/tests/test_vta_event_protocol.m`
-- Modify: `my_helper/fiber/tests/test_vta_canonical_outputs.m`
+- Modify: `my_helper/fiber/tests/test_vta_common_grid_export.m`
 
 **Interfaces:**
 - Every modified MATLAB function accepts optional `EventEmitter` and
@@ -437,7 +437,7 @@ matrix. No stage may publish an event after task outcome.
 Run:
 
 ```bash
-conda run -n leaddbs matlab -batch +  "addpath(genpath('/Users/mojackhu/Github/leaddbs')); +   r=[testsuite('my_helper/fiber/tests/test_vta_event_protocol.m'), +      testsuite('my_helper/fiber/tests/test_vta_canonical_outputs.m')]; +   assertSuccess(run(r));"
+conda run -n leaddbs matlab -batch +  "addpath(genpath('/Users/mojackhu/Github/leaddbs')); +   r=[testsuite('my_helper/fiber/tests/test_vta_event_protocol.m'), +      testsuite('my_helper/fiber/tests/test_vta_common_grid_export.m')]; +   assertSuccess(run(r));"
 ```
 
 Expected: missing stage events.
@@ -588,7 +588,7 @@ git commit -m "test: add reproducible VTA performance benchmark"
 ```
 
 ```bash
-conda run -n leaddbs matlab -batch +  "addpath(genpath('/Users/mojackhu/Github/leaddbs')); +   r=[testsuite('my_helper/fiber/tests/test_vta_event_protocol.m'), +      testsuite('my_helper/fiber/tests/test_vta_canonical_task_contract.m'), +      testsuite('my_helper/fiber/tests/test_vta_canonical_outputs.m')]; +   assertSuccess(run(r));"
+conda run -n leaddbs matlab -batch +  "addpath(genpath('/Users/mojackhu/Github/leaddbs')); +   r=[testsuite('my_helper/fiber/tests/test_vta_event_protocol.m'), +      testsuite('my_helper/fiber/tests/test_vta_canonical_task_contract.m'), +      testsuite('my_helper/fiber/tests/test_vta_common_grid_export.m')]; +   assertSuccess(run(r));"
 ```
 
 - [ ] **Step 2: Validate the benchmark fixture without FEM**
