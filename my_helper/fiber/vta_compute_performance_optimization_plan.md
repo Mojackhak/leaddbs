@@ -41,6 +41,12 @@ The executable architecture and resolved audit decisions are defined in:
 docs/superpowers/specs/2026-07-13-vta-performance-optimization-design.md
 ```
 
+The slice 6 persistent-subject-runner implementation contract is:
+
+```text
+docs/superpowers/plans/2026-07-14-vta-persistent-subject-runner.md
+```
+
 ## Goal
 
 Reduce clean-run and incremental-run wall time while preserving:

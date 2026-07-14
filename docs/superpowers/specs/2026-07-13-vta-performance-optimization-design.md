@@ -47,6 +47,9 @@ baseline, candidate comparison, and three-worker memory gate have not run.
 The production CLI default remains one worker until that gate passes. Slices 6
 through 9 remain implementation work.
 
+The executable slice 6 plan is documented in
+`docs/superpowers/plans/2026-07-14-vta-persistent-subject-runner.md`.
+
 ## Purpose
 
 Reduce canonical VTA/E-field clean-run and incremental-run wall time while
