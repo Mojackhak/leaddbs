@@ -459,14 +459,15 @@ harness records:
 - task outcomes; and
 - output artifact inventory.
 
-The harness runs one warm-up and five measured repetitions. A fixed copied
-validation root prevents writes to authoritative subject trees. Every
-repetition starts from the same frozen prepared-input snapshot. Selected leaves
-and every equivalent donor leaf are restored to the fixture's declared initial
-state before each run; otherwise a warm-up would turn later repetitions into
-resume or donor-copy runs. Cold-headmodel and warm-headmodel fixtures are
-separate snapshots. Each fixture declares and asserts expected MATLAB startup,
-FEM solve, derived-task, copy, and skip counts for baseline and candidate.
+The broad fixture remains a solver-free coverage declaration. The real-FEM
+pre-reuse timing gate runs one warm-up per path and three measured pairs for the
+representative warm alternating case, bounded at 16 FEM solves. A fixed copied
+validation root prevents writes to authoritative subject trees. Every path
+execution starts from the same frozen prepared-input snapshot in a disjoint
+working directory; otherwise a warm-up would turn later executions into resume
+or donor-copy runs. Each path declares and asserts expected MATLAB startup, FEM
+solve, derived-task, copy, and skip counts. The three-worker memory gate is a
+separate later measurement.
 
 ## Low-Risk Output Optimizations
 
@@ -660,22 +661,27 @@ Comparator unit tests include a finite-mask-matched difference strictly between
 `1e-3` and `0.05 V/m`: the standard backend mode passes it and the optimization
 regression mode must fail it.
 
-Baseline and candidate both run with `--workers 3`. Each receives its own
-warm-up. The five measured pairs use the fixed order baseline/candidate,
-candidate/baseline, baseline/candidate, candidate/baseline,
-baseline/candidate; every member is restored from the same frozen snapshot and
-the report stratifies timing by run order. Temporary benchmark checksums are
-allowed only under the validation root. Repeated derived arrays are exactly
-equal, and repeated same-backend FEM arrays satisfy the existing exact
-repeatability contract.
+The nine-case declaration remains the solver-free contract and broad execution
+inventory. Real-FEM pre-reuse timing selects only
+`snr003_t2_p2_l_alternating`: two alternating FEM tasks followed by one derived
+group peak. Baseline and candidate each receive one warm-up. Three measured
+pairs use baseline/candidate, candidate/baseline, baseline/candidate order.
+This is bounded at 16 FEM solves. Every member is restored from the same frozen
+case snapshot into a disjoint path, and the report stratifies timing by run
+order. Temporary benchmark checksums are allowed only under the validation
+root. Repeated derived arrays are exactly equal, and paired FEM arrays satisfy
+the optimization-regression numerical contract.
 
-The performance metric is the median total wall time of the complete fixed
-warm-headmodel suite across five measured repetitions after one warm-up for
-each path. The candidate must satisfy:
+The performance metric is the median total wall time of this representative
+warm alternating case across three measured executions per path. It is not
+reported as a complete-suite median. The candidate target is:
 
 ```text
 candidate median <= 0.75 * baseline median
 ```
+
+The separate three-worker memory gate remains mandatory before changing the
+public CLI default. Its scope is not reduced by the representative timing gate.
 
 Task execution class is the fixed tuple `(headmodel_state, task_kind,
 control_mode, source_count_class, resolved_action)`. Subject-scope stages are

@@ -603,23 +603,29 @@ The current cohort has no real continuous multi-source group, so that execution
 class is a deterministic synthetic FEM fixture rather than a hard-coded study
 row. The manifest freezes all canonical selectors, task kinds, source IDs,
 synthetic/current payloads, spaces (`native`, `MNI152NLin2009bAsym`), thresholds
-(180/200/220 V/m), initial artifact inventory, and expected counts. Baseline
-and candidate both use `--workers 3` and receive separate warm-ups. Five
-measured pairs alternate fixed order baseline/candidate, candidate/baseline,
-baseline/candidate, candidate/baseline, baseline/candidate. Every member
-restores selected and donor leaves from the same frozen snapshot; cold- and
-warm-headmodel fixtures are separate. Expected process, solve, derived, copy,
-and skip counts are asserted. Temporary validation-root checksums enforce exact
-derived and same-backend repeatability without adding production provenance.
-The primary performance metric is the median total wall time of the complete
-fixed warm-headmodel suite.
+(180/200/220 V/m), initial artifact inventory, and expected counts.
+
+The nine-case declaration remains the solver-free contract and broad execution
+inventory. Real-FEM pre-reuse timing uses only the representative
+`snr003_t2_p2_l_alternating` warm-headmodel case. The compatibility per-task
+and persistent subject paths receive separate warm-ups followed by three
+measured pairs in fixed order: baseline/candidate, candidate/baseline,
+baseline/candidate. This performs at most 16 FEM solves. Every member restores
+the same frozen case snapshot into a disjoint path. Expected process, solve,
+derived, copy, and skip counts are asserted. Temporary validation-root
+checksums enforce exact derived and same-backend repeatability without adding
+production provenance.
+
+The representative median is a pre-reuse performance gate, not the median of
+the complete nine-case suite. The separate three-worker memory gate remains
+required before changing the public CLI default.
 
 The fixture stores stable semantic selector IDs. Canonical task IDs include
 absolute copied paths, so the harness resolves and records exact task IDs after
 each frozen snapshot is materialized rather than embedding production-root
 task IDs in the fixture.
 
-The optimized pipeline passes performance acceptance when:
+The representative path passes its performance target when:
 
 - MATLAB startup count is no greater than the number of active subjects;
 - a fully complete resume starts zero MATLAB processes;
@@ -632,8 +638,8 @@ The optimized pipeline passes performance acceptance when:
   uncontrolled nested process parallelism;
 - aggregate three-worker process-tree peak RSS is no greater than 75% of
   physical memory and no single subject process tree exceeds 50%;
-- the candidate fixed-suite median wall time is no greater than 75% of the
-  baseline fixed-suite median; and
+- the candidate representative-case median wall time is no greater than 75%
+  of the baseline representative-case median; and
 - no measured stage regresses by more than 10% without an explicit documented
   justification.
 
