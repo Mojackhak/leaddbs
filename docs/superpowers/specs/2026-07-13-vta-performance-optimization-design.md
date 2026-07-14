@@ -166,9 +166,10 @@ verifies that every donor listed for a task has the same resolved physical
 equivalence key before serialization.
 
 Selected writable leaves must be pairwise distinct and may not be ancestor or
-descendant directories of another selected writable leaf. Every donor path
-must remain read-only. A donor artifact maps only to the same output space and
-same canonical relative filename as the recipient
+descendant directories of another selected writable leaf. A selected donor
+leaf is writable only by its owning task and read-only when a recipient probes
+it. An unselected donor leaf is globally read-only. A donor artifact maps only
+to the same output space and same canonical relative filename as the recipient
 (`efield.nii.gz` or one configured threshold filename). Partial donor leaves
 are valid; each expected artifact is probed independently.
 
@@ -338,8 +339,10 @@ failure.
 A caught task failure is an ordinary `task_outcome` and does not terminate the
 subject process. A manifest-write, force-reset, process-launch, event-parser,
 or fatal MATLAB failure increments the separate `subject_process_failed`
-summary field. Before synthesizing unfinished task outcomes, Python rechecks
-the actual artifact paths:
+summary field. Python first terminates the MATLAB process tree when needed,
+waits for it to exit, reaps it, and stops the RSS sampler. Only then does it
+perform one final artifact reconciliation and synthesize unfinished task
+outcomes:
 
 ```text
 parsed successful task_outcome, expected artifacts complete
@@ -546,7 +549,7 @@ production.
 
 ## Benchmark And Acceptance Set
 
-The fixed representative set is stored at
+The first implementation slice creates
 `my_helper/vta/test/fixtures/vta_performance_benchmark_v1.json` using schema
 `vta_performance_benchmark_v1`. The file freezes the canonical selectors,
 task kind, source IDs, current and synthetic source payloads, output spaces,
@@ -556,10 +559,11 @@ threshold profile, initial artifact inventory, and expected execution counts:
   cold- and warm-headmodel continuous single source;
 - SNr003 T2/program 2/lead-L/group-1, alternating sources `source-1` and
   `source-2` plus `alternating_group_peak`;
-- the same copied SNr003 leaves with all native and MNI threshold files removed
-  but both E-fields retained: threshold-only repair;
-- the same copied SNr003 leaves with every expected file present: complete
-  resume;
+- the SNr003 T1/program 1/lead-R/group-1 continuous leaf with all native and
+  MNI threshold files removed but both E-fields retained: threshold-only
+  repair;
+- the same SNr003 T1/program 1/lead-R/group-1 continuous leaf with every
+  expected file present: complete resume;
 - SNr006 T2/program 2/lead-L/group-1, alternating sources `source-1` and
   `source-2` plus group peak: SceneRay SR1200 coverage;
 - SNr011 T2/program 2/lead-L/group-1, `continuous_joint`, source `source-1`:
@@ -573,6 +577,10 @@ threshold profile, initial artifact inventory, and expected execution counts:
 All cases use spaces `native` and `MNI152NLin2009bAsym` and thresholds 180,
 200, and 220 V/m. The synthetic and current payloads are serialized in the
 benchmark manifest; production code contains no study-row special case.
+The fixture stores stable semantic selector IDs. Because canonical task IDs
+include absolute copied paths, the harness resolves and records exact task IDs
+after materializing each frozen snapshot instead of hard-coding a production
+root into the fixture.
 Old-canonical versus optimized-canonical comparison uses a dedicated
 `optimization_regression` comparator mode with the `1e-3 V/m` contract. The
 existing standard-SimBio comparator retains its `0.05 V/m` backend gate.

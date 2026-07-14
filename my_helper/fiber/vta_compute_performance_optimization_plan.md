@@ -280,9 +280,10 @@ tries the next donor and computes the recipient when none exists. Unselected
 donors are not executable tasks.
 
 Selected writable leaves must be distinct and may not overlap by
-ancestor/descendant path. Donor copies map only the same output space and same
-canonical relative artifact filename; partial donor leaves are probed
-artifact-by-artifact.
+ancestor/descendant path. A selected donor is writable only by its owning task
+and read-only to recipients; an unselected donor is globally read-only. Donor
+copies map only the same output space and same canonical relative artifact
+filename; partial donor leaves are probed artifact-by-artifact.
 
 The subject runner must:
 
@@ -445,8 +446,9 @@ semantics.
   group-peak artifact requires that source's missing native E-field.
 - Reuse donors never block recipients and never become hard dependencies.
 - A failed task must not publish a partially written final artifact.
-- Before synthesizing outcomes after process failure, Python rechecks actual
-  artifacts and preserves completed work.
+- Before synthesizing outcomes after process failure, Python terminates and
+  reaps the MATLAB process tree, stops RSS sampling, then performs one final
+  artifact reconciliation and preserves completed work.
 - Manifest-write, force-reset, process-launch, parser, and fatal MATLAB
   failures increment `subject_process_failed`; other subjects continue.
 - Parsed successful outcomes are retained only after all expected files are
@@ -528,15 +530,15 @@ before `ea_getactiveidx` and do not overwrite existing files.
 
 ## Performance Acceptance
 
-Benchmark the suite declared by
+The first implementation slice creates the suite declaration at
 `my_helper/vta/test/fixtures/vta_performance_benchmark_v1.json`, schema
 `vta_performance_benchmark_v1`:
 
 ```text
 SNr003 T1/program 1/lead-R/group-1 continuous_joint source-1, cold and warm
 SNr003 T2/program 2/lead-L/group-1 alternating source-1/source-2 plus group peak
-SNr003 native/MNI threshold-only repair with both E-fields retained
-SNr003 fully complete resume
+SNr003 T1/program 1/lead-R/group-1 native/MNI threshold-only repair with both E-fields retained
+SNr003 T1/program 1/lead-R/group-1 fully complete resume
 SNr006 T2/program 2/lead-L/group-1 alternating source-1/source-2 plus group peak
 SNr011 T2/program 2/lead-L/group-1 continuous_joint source-1
 deterministic synthetic continuous multi-source fixture
@@ -557,6 +559,11 @@ and skip counts are asserted. Temporary validation-root checksums enforce exact
 derived and same-backend repeatability without adding production provenance.
 The primary performance metric is the median total wall time of the complete
 fixed warm-headmodel suite.
+
+The fixture stores stable semantic selector IDs. Canonical task IDs include
+absolute copied paths, so the harness resolves and records exact task IDs after
+each frozen snapshot is materialized rather than embedding production-root
+task IDs in the fixture.
 
 The optimized pipeline passes performance acceptance when:
 
@@ -635,6 +642,7 @@ my_helper/fiber/tests/test_vta_common_grid_export.m
 my_helper/fiber/tests/test_vta_canonical_outputs.m
 my_helper/fiber/tests/test_vta_canonical_subject_manifest.m
 my_helper/fiber/tests/test_vta_fem_factorization_cache.m
+my_helper/vta/test/fixtures/vta_performance_benchmark_v1.json
 my_helper/vta/test/mh_compare_vta_optimization_outputs.m
 my_helper/vta/test/test_compare_vta_optimization_outputs.m
 my_helper/vta/test/test_run_voltage_backend_equivalence.m
