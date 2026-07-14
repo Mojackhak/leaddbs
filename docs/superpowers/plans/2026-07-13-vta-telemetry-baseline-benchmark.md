@@ -568,6 +568,22 @@ untracked prior root; conflicting roots or files move to Trash. Validation and
 unit tests invoke no MATLAB. `run-baseline` is explicit and may start the
 fixed FEM suite only when the user runs that command.
 
+The baseline-only first slice records five baseline repetitions without
+assigning synthetic pair positions. The frozen B/C order is reported only as
+an unexecuted future schedule until a candidate runner is bound. Likewise,
+passing `--workers 3` to a one-subject case records requested capacity, not
+observed three-subject concurrency; the summary must state that the concurrency
+gate remains unmeasured.
+
+Process, FEM-solve, derived-task, copy, and skip counts must come from emitted
+runtime telemetry or an explicitly supplied test observation. The harness must
+not infer them from fixture ordering or expected counts. Snapshot manifests
+enumerate every equivalent donor leaf and its frozen present/absent state, and
+each restore verifies both selected and donor state before execution.
+
+Every public operation that can move or replace a path repeats the
+authoritative-derivatives guard; protection is not limited to `prepare`.
+
 - [ ] **Step 5: Verify GREEN and commit**
 
 ```bash
