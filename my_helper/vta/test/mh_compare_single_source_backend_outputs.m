@@ -6,16 +6,18 @@ function result = mh_compare_single_source_backend_outputs( ...
 %     candidatePath, 'Space', space, 'Side', side, ...
 %     'Comparison', comparison, 'ThrowOnFailure', throwOnFailure)
 %
-% comparison is either "equivalence" or "repeatability". Repeatability
-% applies all equivalence gates and additionally requires voxel-identical
-% image values. The returned struct contains efield_row (one-row table),
+% comparison is "equivalence", "repeatability", or
+% "optimization_regression". Repeatability applies all standard equivalence
+% gates and additionally requires voxel-identical image values. Optimization
+% regression uses the stricter old-canonical versus optimized-canonical
+% maximum E-field difference. The returned struct contains efield_row (one-row table),
 % binary_rows (one row for each 180/200/220 V/m mask), and pass (logical).
 % Tables can be written with writetable or converted for JSON with
 % table2struct. ThrowOnFailure defaults to true and raises deterministic
 % namespaced error IDs. Set it false to retain complete failed metrics.
 
-limits = acceptance_limits();
 inputs = parse_inputs(referencePath, candidatePath, varargin{:});
+limits = acceptance_limits(inputs.comparison);
 
 referenceNii = load_nii(inputs.reference_path, 'reference');
 candidateNii = load_nii(inputs.candidate_path, 'candidate');
@@ -94,10 +96,14 @@ if inputs.throw_on_failure && ~result.pass
 end
 end
 
-function limits = acceptance_limits()
+function limits = acceptance_limits(comparison)
+valueMaxAbs = 0.05;
+if comparison == "optimization_regression"
+    valueMaxAbs = 1e-3;
+end
 limits = struct( ...
     'affine_max_abs', 1e-12, ...
-    'value_max_abs', 0.05, ...
+    'value_max_abs', valueMaxAbs, ...
     'relative_l2', 1e-5, ...
     'correlation_min', 0.999999, ...
     'thresholds_v_per_m', [180 200 220], ...
@@ -136,14 +142,16 @@ if ~isscalar(inputs.reference_path) || ~isscalar(inputs.candidate_path) || ...
     error('mh_compare_single_source_backend_outputs:InvalidInput', ...
         'Paths and metadata values must be scalar text values.');
 end
-if ~any(inputs.comparison == ["equivalence" "repeatability"])
+if ~any(inputs.comparison == [ ...
+        "equivalence" "repeatability" "optimization_regression"])
     error('mh_compare_single_source_backend_outputs:InvalidComparison', ...
-        'Comparison must be "equivalence" or "repeatability".');
+        ['Comparison must be "equivalence", "repeatability", or ' ...
+        '"optimization_regression".']);
 end
 if inputs.resample_candidate_to_reference && ...
-        inputs.comparison == "repeatability"
+        any(inputs.comparison == ["repeatability" "optimization_regression"])
     error('mh_compare_single_source_backend_outputs:InvalidComparison', ...
-        'Repeatability comparison cannot resample either input.');
+        'Strict repeatability/optimization comparison cannot resample inputs.');
 end
 end
 
@@ -247,7 +255,7 @@ efieldRow = make_efield_row(inputs, referenceSize, originalCandidateSize, ...
     candidateSize, ...
     finiteVoxelCount, dimensionsMatch, finiteMaskMatch, NaN, NaN, NaN, ...
     NaN, false, finiteSignalPresent, false, false);
-limits = acceptance_limits();
+limits = acceptance_limits(inputs.comparison);
 binaryRows = failed_binary_rows(inputs, limits.thresholds_v_per_m);
 result = struct('efield_row', efieldRow, 'binary_rows', binaryRows, ...
     'pass', false);
