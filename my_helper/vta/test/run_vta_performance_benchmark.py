@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -327,6 +328,8 @@ def prepare_benchmark(
     work_root: Path | str,
     *,
     fixture_path: Path | str = FIXTURE_PATH,
+    case_ids: Sequence[str] = (),
+    warm_headmodel_donor: Path | str | None = None,
     now: Callable[[], datetime] | None = None,
     trash_root: Path | str | None = None,
 ) -> Path:
@@ -336,6 +339,19 @@ def prepare_benchmark(
         study_base_path, vta_model_path, fixture_path=fixture_path
     )
     fixture = validated["fixture"]
+    selected_cases = _select_prepare_cases(fixture, case_ids)
+    donor = (
+        None
+        if warm_headmodel_donor is None
+        else Path(warm_headmodel_donor).expanduser().resolve()
+    )
+    if donor is not None and (
+        len(selected_cases) != 1
+        or selected_cases[0].get("headmodel_state") != "warm"
+    ):
+        raise ValueError(
+            "A warm headmodel donor requires exactly one selected warm case"
+        )
     study_path = Path(study_base_path).expanduser().resolve()
     model_path = Path(vta_model_path).expanduser().resolve()
     raw = _read_json_object(study_path, "study base")
@@ -355,7 +371,7 @@ def prepare_benchmark(
         directory.mkdir(parents=True, exist_ok=True)
 
     resolved_cases: list[dict[str, Any]] = []
-    for case in fixture["cases"]:
+    for case in selected_cases:
         manifest = _prepare_case_snapshot(
             raw,
             study_path,
@@ -363,6 +379,7 @@ def prepare_benchmark(
             fixture,
             case,
             benchmark_root / "frozen_input" / case["case_id"],
+            warm_headmodel_donor=donor,
         )
         resolved_case = deepcopy(case)
         resolved_case["resolved_task_ids"] = manifest["resolved_task_ids"]
@@ -383,6 +400,9 @@ def prepare_benchmark(
         )
     ]
     resolved_fixture["cases"] = resolved_cases
+    resolved_fixture["prepared_case_ids"] = [
+        case["case_id"] for case in resolved_cases
+    ]
     _publish_json(
         benchmark_root / "fixture.json",
         resolved_fixture,
@@ -399,6 +419,22 @@ def prepare_benchmark(
         trash_root=trash_root,
     )
     return benchmark_root
+
+
+def _select_prepare_cases(
+    fixture: Mapping[str, Any], case_ids: Sequence[str]
+) -> tuple[Mapping[str, Any], ...]:
+    cases = tuple(fixture.get("cases", ()))
+    requested = tuple(case_ids)
+    if not requested:
+        return cases
+    if len(set(requested)) != len(requested):
+        raise ValueError("Prepare case selectors must be unique")
+    by_id = {str(case.get("case_id")): case for case in cases}
+    unknown = [case_id for case_id in requested if case_id not in by_id]
+    if unknown:
+        raise ValueError(f"Unknown prepare case selector: {unknown[0]}")
+    return tuple(by_id[case_id] for case_id in requested)
 
 
 def restore_snapshot(
@@ -1092,6 +1128,8 @@ def _prepare_case_snapshot(
     fixture: Mapping[str, Any],
     case: Mapping[str, Any],
     snapshot: Path,
+    *,
+    warm_headmodel_donor: Path | None = None,
 ) -> dict[str, Any]:
     selector = case["selector"]
     source_subject = _find_subject(source_raw, selector["subject_id"])
@@ -1155,6 +1193,16 @@ def _prepare_case_snapshot(
     copied_model = snapshot / "vta_model.yaml"
     plan = _resolve_case_subject_plan(copied_study, copied_model, case)
     resolved = resolve_case_tasks(copied_study, copied_model, case)
+    warm_headmodel_source = _prepare_warm_headmodel(
+        warm_headmodel_donor,
+        snapshot_root=snapshot,
+        source_subject_dir=source_subject_dir,
+        source_reconstruction=source_reconstruction,
+        copied_subject_dir=destination_subject,
+        copied_reconstruction=destination_subject / reconstruction_relative,
+        copied_model=copied_model,
+        resolved_tasks=resolved,
+    )
     _assert_headmodel_state(resolved, case["headmodel_state"])
     if case["initial_artifacts"] != "missing":
         source_tasks = resolve_case_tasks(source_study_path, source_model_path, case)
@@ -1176,9 +1224,135 @@ def _prepare_case_snapshot(
         "initial_artifacts": case["initial_artifacts"],
         "selected_artifacts": _frozen_artifact_state(snapshot, resolved),
         "donor_artifacts": _frozen_artifact_state(snapshot, donors),
+        "warm_headmodel_source": warm_headmodel_source,
     }
     _write_new_json(snapshot / "snapshot_manifest.json", manifest)
     return manifest
+
+
+def _prepare_warm_headmodel(
+    donor: Path | None,
+    *,
+    snapshot_root: Path,
+    source_subject_dir: Path,
+    source_reconstruction: Path,
+    copied_subject_dir: Path,
+    copied_reconstruction: Path,
+    copied_model: Path,
+    resolved_tasks: tuple[VtaTask, ...],
+) -> dict[str, Any]:
+    destinations = {
+        canonical_head_model_path(task).resolve() for task in resolved_tasks
+    }
+    if len(destinations) != 1:
+        raise ValueError("One benchmark case must resolve one canonical head model")
+    destination = next(iter(destinations))
+    if donor is None:
+        return {
+            "mode": "source_subject_tree",
+            "snapshot_files": _snapshot_hash_entries(
+                snapshot_root, (("headmodel", destination),)
+            ),
+        }
+    if not donor.is_file():
+        raise ValueError(f"Warm headmodel donor does not exist: {donor}")
+    if destination.is_file():
+        raise ValueError(
+            "Warm headmodel donor is unnecessary because the source snapshot "
+            "already contains the canonical head model"
+        )
+    if donor.name != destination.name:
+        raise ValueError(
+            "Warm headmodel donor filename does not match the selected hemisphere"
+        )
+    expected_subject_name = source_subject_dir.name
+    donor_subject_dir = next(
+        (parent for parent in donor.parents if parent.name == expected_subject_name),
+        None,
+    )
+    if donor_subject_dir is None:
+        raise ValueError(
+            "Warm headmodel donor must be inside the matching subject tree"
+        )
+    reconstruction_relative = source_reconstruction.relative_to(source_subject_dir)
+    donor_reconstruction = donor_subject_dir / reconstruction_relative
+    model = load_vta_model(copied_model)
+    mask_relative = Path("atlases") / model.atlas_set / "gm_mask.nii.gz"
+    source_mask = source_subject_dir / mask_relative
+    copied_mask = copied_subject_dir / mask_relative
+    donor_mask = donor_subject_dir / mask_relative
+    context_files = (
+        (
+            "reconstruction",
+            source_reconstruction,
+            copied_reconstruction,
+            donor_reconstruction,
+        ),
+        ("patient_gm_mask", source_mask, copied_mask, donor_mask),
+    )
+    context_hashes: dict[str, str] = {}
+    for label, source_path, copied_path, donor_path in context_files:
+        if (
+            not source_path.is_file()
+            or not copied_path.is_file()
+            or not donor_path.is_file()
+        ):
+            raise ValueError(f"Warm headmodel {label} context file is missing")
+        source_hash = _sha256_file(source_path)
+        copied_hash = _sha256_file(copied_path)
+        donor_hash = _sha256_file(donor_path)
+        if source_hash != copied_hash:
+            raise ValueError(
+                f"Warm headmodel frozen {label} differs from source during prepare"
+            )
+        if copied_hash != donor_hash:
+            raise ValueError(f"Warm headmodel donor {label} context differs")
+        context_hashes[f"{label}_sha256"] = copied_hash
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _clone_or_copy(donor, destination)
+    return {
+        "mode": "explicit_validated_donor",
+        "donor_path": str(donor),
+        "headmodel_sha256": _sha256_file(destination),
+        "snapshot_files": _snapshot_hash_entries(
+            snapshot_root,
+            (
+                ("headmodel", destination),
+                ("reconstruction", copied_reconstruction),
+                ("patient_gm_mask", copied_mask),
+            ),
+        ),
+        **context_hashes,
+    }
+
+
+def _snapshot_hash_entries(
+    snapshot_root: Path, files: Sequence[tuple[str, Path]]
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for role, path in files:
+        try:
+            relative = path.resolve().relative_to(snapshot_root.resolve())
+        except ValueError as error:
+            raise ValueError(f"Snapshot {role} escaped the snapshot root") from error
+        present = path.is_file()
+        entries.append(
+            {
+                "role": role,
+                "path": str(relative),
+                "present": present,
+                "sha256": _sha256_file(path) if present else None,
+            }
+        )
+    return entries
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _equivalent_donor_tasks(
@@ -1254,6 +1428,35 @@ def _verify_restored_artifact_state(snapshot_root: Path) -> None:
                     f"Restored artifact state mismatch for {path}: "
                     f"expected present={expected_present}"
                 )
+    warm_source = manifest.get("warm_headmodel_source")
+    if warm_source is None:
+        return
+    source = _mapping(warm_source, "warm_headmodel_source")
+    entries = source.get("snapshot_files")
+    if not isinstance(entries, list):
+        raise ValueError("Warm headmodel source is missing snapshot_files")
+    for entry in entries:
+        item = _mapping(entry, "warm snapshot file")
+        role = _nonempty_string(item.get("role"), "warm snapshot role")
+        path = (
+            snapshot_root
+            / _nonempty_string(item.get("path"), "warm snapshot path")
+        ).resolve()
+        if not _is_within(path, snapshot_root.resolve()):
+            raise ValueError(f"Warm snapshot file escaped restore root: {path}")
+        expected_present = item.get("present")
+        if not isinstance(expected_present, bool):
+            raise ValueError("Warm snapshot present state must be boolean")
+        if path.is_file() != expected_present:
+            raise ValueError(f"Warm snapshot {role} presence changed: {path}")
+        expected_hash = item.get("sha256")
+        if expected_present:
+            if not isinstance(expected_hash, str) or len(expected_hash) != 64:
+                raise ValueError(f"Warm snapshot {role} hash is invalid")
+            if _sha256_file(path) != expected_hash:
+                raise ValueError(f"Warm snapshot {role} hash changed: {path}")
+        elif expected_hash is not None:
+            raise ValueError(f"Absent warm snapshot {role} must have null hash")
 
 
 def _copy_initial_artifacts(
@@ -2218,6 +2421,9 @@ def _build_parser() -> argparse.ArgumentParser:
         command.add_argument("--fixture", type=Path, default=FIXTURE_PATH)
         if mode != "validate":
             command.add_argument("--work-root", type=Path, required=True)
+        if mode == "prepare":
+            command.add_argument("--case", action="append", dest="case_ids")
+            command.add_argument("--warm-headmodel-donor", type=Path)
     paired = commands.add_parser("run-paired")
     paired.add_argument("--benchmark-root", type=Path, required=True)
     paired.add_argument("--case", required=True)
@@ -2248,6 +2454,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.vta_model,
             args.work_root,
             fixture_path=args.fixture,
+            case_ids=tuple(getattr(args, "case_ids", ()) or ()),
+            warm_headmodel_donor=getattr(args, "warm_headmodel_donor", None),
         )
         if args.mode == "prepare":
             print(root)

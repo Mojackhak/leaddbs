@@ -279,6 +279,179 @@ def test_prepare_materializes_threshold_repair_and_complete_resume(
     assert not (working_continuous / donor_relative).exists()
 
 
+def test_prepare_filters_case_and_installs_context_matched_warm_donor(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    study_base, vta_model, dataset = fake_inputs
+    source_subject = dataset / "derivatives" / "leaddbs" / "sub-SNr003"
+    source_headmodel = (
+        source_subject
+        / "headmodel"
+        / "native"
+        / "sub-SNr003_desc-headmodel2.mat"
+    )
+    source_headmodel.unlink()
+    source_mask = (
+        source_subject
+        / "atlases"
+        / "Custom_Ewert_Zhang_Middlebrooks"
+        / "gm_mask.nii.gz"
+    )
+    source_mask.parent.mkdir(parents=True)
+    source_mask.write_bytes(b"matched patient mask")
+    source_reconstruction = (
+        source_subject
+        / "reconstruction"
+        / "sub-SNr003_desc-reconstruction.mat"
+    )
+
+    donor_subject = (
+        tmp_path / "donor" / "derivatives" / "leaddbs" / "sub-SNr003"
+    )
+    donor_reconstruction = (
+        donor_subject
+        / "reconstruction"
+        / "sub-SNr003_desc-reconstruction.mat"
+    )
+    donor_reconstruction.parent.mkdir(parents=True)
+    donor_reconstruction.write_bytes(source_reconstruction.read_bytes())
+    donor_mask = (
+        donor_subject
+        / "atlases"
+        / "Custom_Ewert_Zhang_Middlebrooks"
+        / "gm_mask.nii.gz"
+    )
+    donor_mask.parent.mkdir(parents=True)
+    donor_mask.write_bytes(source_mask.read_bytes())
+    donor_headmodel = (
+        donor_subject
+        / "headmodel"
+        / "native"
+        / "sub-SNr003_desc-headmodel2.mat"
+    )
+    donor_headmodel.parent.mkdir(parents=True)
+    donor_headmodel.write_bytes(b"validated warm headmodel")
+
+    root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "validation",
+        case_ids=(benchmark_module.REPRESENTATIVE_CASE_ID,),
+        warm_headmodel_donor=donor_headmodel,
+        now=lambda: datetime(2026, 7, 14, 0, 30, tzinfo=timezone.utc),
+        trash_root=tmp_path / "Trash",
+    )
+    resolved = json.loads(root.joinpath("fixture.json").read_text())
+    assert resolved["prepared_case_ids"] == [
+        benchmark_module.REPRESENTATIVE_CASE_ID
+    ]
+    assert [case["case_id"] for case in resolved["cases"]] == [
+        benchmark_module.REPRESENTATIVE_CASE_ID
+    ]
+    assert len(list(root.joinpath("frozen_input").iterdir())) == 1
+    snapshot = root / resolved["cases"][0]["snapshot"]
+    manifest = json.loads(
+        snapshot.joinpath("snapshot_manifest.json").read_text()
+    )
+    source = manifest["warm_headmodel_source"]
+    assert source["mode"] == "explicit_validated_donor"
+    assert source["donor_path"] == str(donor_headmodel)
+    headmodel_entry = next(
+        item for item in source["snapshot_files"] if item["role"] == "headmodel"
+    )
+    frozen_headmodel = snapshot / headmodel_entry["path"]
+    assert frozen_headmodel.read_bytes() == b"validated warm headmodel"
+    assert source["reconstruction_sha256"] == benchmark_module._sha256_file(
+        source_reconstruction
+    )
+    assert source["patient_gm_mask_sha256"] == benchmark_module._sha256_file(
+        source_mask
+    )
+
+    frozen_headmodel.write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="headmodel hash changed"):
+        benchmark_module.restore_snapshot(
+            snapshot,
+            tmp_path / "tampered-restore",
+            trash_root=tmp_path / "Trash",
+        )
+
+
+def test_prepare_rejects_warm_donor_context_mismatch(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    study_base, vta_model, dataset = fake_inputs
+    source_subject = dataset / "derivatives" / "leaddbs" / "sub-SNr003"
+    source_headmodel = (
+        source_subject
+        / "headmodel"
+        / "native"
+        / "sub-SNr003_desc-headmodel2.mat"
+    )
+    source_headmodel.unlink()
+    source_mask = (
+        source_subject
+        / "atlases"
+        / "Custom_Ewert_Zhang_Middlebrooks"
+        / "gm_mask.nii.gz"
+    )
+    source_mask.parent.mkdir(parents=True)
+    source_mask.write_bytes(b"source mask")
+    donor_subject = tmp_path / "donor" / "sub-SNr003"
+    donor_reconstruction = (
+        donor_subject
+        / "reconstruction"
+        / "sub-SNr003_desc-reconstruction.mat"
+    )
+    donor_reconstruction.parent.mkdir(parents=True)
+    donor_reconstruction.write_bytes(
+        source_subject.joinpath(
+            "reconstruction", "sub-SNr003_desc-reconstruction.mat"
+        ).read_bytes()
+    )
+    donor_mask = (
+        donor_subject
+        / "atlases"
+        / "Custom_Ewert_Zhang_Middlebrooks"
+        / "gm_mask.nii.gz"
+    )
+    donor_mask.parent.mkdir(parents=True)
+    donor_mask.write_bytes(b"different mask")
+    donor_headmodel = (
+        donor_subject
+        / "headmodel"
+        / "native"
+        / "sub-SNr003_desc-headmodel2.mat"
+    )
+    donor_headmodel.parent.mkdir(parents=True)
+    donor_headmodel.write_bytes(b"headmodel")
+
+    with pytest.raises(ValueError, match="patient_gm_mask context differs"):
+        benchmark_module.prepare_benchmark(
+            study_base,
+            vta_model,
+            tmp_path / "validation",
+            case_ids=(benchmark_module.REPRESENTATIVE_CASE_ID,),
+            warm_headmodel_donor=donor_headmodel,
+            now=lambda: datetime(2026, 7, 14, 0, 45, tzinfo=timezone.utc),
+            trash_root=tmp_path / "Trash",
+        )
+
+
+def test_prepare_case_selectors_reject_duplicates_and_unknown(
+    benchmark_module: ModuleType,
+) -> None:
+    fixture = benchmark_module.load_fixture(FIXTURE_PATH)
+    with pytest.raises(ValueError, match="must be unique"):
+        benchmark_module._select_prepare_cases(fixture, ("x", "x"))
+    with pytest.raises(ValueError, match="Unknown prepare case"):
+        benchmark_module._select_prepare_cases(fixture, ("unknown",))
+
+
 def test_restore_snapshot_moves_stale_tree_to_trash(
     benchmark_module: ModuleType,
     tmp_path: Path,
