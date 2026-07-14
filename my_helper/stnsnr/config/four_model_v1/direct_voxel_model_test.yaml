@@ -1,0 +1,67 @@
+schema_version: direct_voxel_model_v1 # Uses the same validator and runtime as production.
+profile_type: direct_voxel_model # Identifies the direct-voxel feature domain.
+model_set_id: dual_frequency_four_model_test_v1 # Keeps smoke artifacts separate from production.
+
+scales: # Two scales exercise multi-scale planning with minimal workload.
+  - mds_updrs_iii_score
+  - mds_updrs_iv
+
+endpoint_pair: # Keep the real production endpoint binding.
+  baseline:
+    phase_id: T0 # Exact baseline phase in study_base.json.
+    program_id: 0 # Exact unstimulated baseline program.
+  reference:
+    phase_id: T2 # Exact frequency-1 reference phase.
+    program_id: 1 # Exact reference stimulation program.
+  addon:
+    phase_id: T3 # Exact frequency-2 addon phase.
+    program_id: 2 # Exact combined stimulation program.
+
+frequency_classes: # Keep production frequency classification unchanged.
+  reference:
+    lower: 100 # Open lower frequency boundary in Hz.
+    lower_inclusive: false # A source at exactly 100 Hz is unclassified.
+    upper: null # Reference frequency has no finite upper boundary.
+    upper_inclusive: false # Unbounded limits cannot be inclusive.
+  addon:
+    lower: 0 # Stimulation frequencies must be positive.
+    lower_inclusive: false # A source at exactly 0 Hz is invalid, not add-on.
+    upper: 50 # Open upper frequency boundary in Hz.
+    upper_inclusive: false # A source at exactly 50 Hz is unclassified.
+
+shared: # Preserve production semantics while reducing workload.
+  source:
+    pre_specified:
+      tau_v_per_m: 200 # Keep the production pre-specified tau.
+      coverage_subjects_min: 5 # Keep the production pre-specified Coverage.
+    scan:
+      tau_v_per_m: [180, 200, 220] # Small grid that exercises both tau neighbors.
+      coverage_subjects_min: [5, 6] # Small grid that exercises a Coverage neighbor.
+    minimum_adjacent_passing_cells: 2 # Preserve the production stability rule.
+
+  hard_computability: # Do not weaken scientific computability requirements.
+    n_subjects_min: 12 # Minimum complete subjects per endpoint/branch.
+    n_voxels_full_min: 20 # Minimum valid full-sample scoring voxels.
+    fold_n_voxels_min: 10 # Minimum valid voxels in every LOOCV fold.
+
+  formal_resampling: # Minimal counts that still execute repeated formal loops.
+    seed: 42 # Keep deterministic child-seed behavior.
+    permutation_resamples: 5 # Smoke-only; never interpret the resulting p-value.
+    bootstrap_resamples: 5 # Smoke-only; never interpret stability estimates.
+    jitter_resamples: 2 # Exercises repeated jitter execution at minimal cost.
+    jitter_translation_fwhm_mm: 2.0 # Keep the production perturbation scale.
+
+  selected_source_sensitivity: # Keep selected-source sensitivity dispatch enabled.
+    tau_multipliers: [0.9, 1.1] # Exercise both proportional tau branches.
+
+addon: # Preserve production DeltaReferenceScore support classification.
+  delta_reference_support:
+    adequate:
+      cohort_median_out_support_max: 0.20 # Adequate median upper bound, inclusive.
+      subject_out_support_threshold: 0.50 # Count subjects strictly above this value.
+      subject_fraction_max: 0.25 # Adequate maximum fraction, inclusive.
+    invalid:
+      cohort_median_out_support_min_exclusive: 0.50 # Invalid when median is greater.
+      subject_out_support_threshold: 0.80 # Count subjects strictly above this value.
+      subject_fraction_min_exclusive: 0.25 # Invalid when the fraction is greater.
+      individual_out_support_min_exclusive: 0.95 # Any required case above this is invalid.

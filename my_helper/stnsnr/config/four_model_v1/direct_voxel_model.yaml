@@ -1,0 +1,93 @@
+schema_version: direct_voxel_model_v1 # Schema for the reference/addon direct-voxel models.
+profile_type: direct_voxel_model # Identifies the feature domain represented by this file.
+model_set_id: dual_frequency_four_model_v1 # Must match the production fiber model.
+
+scales: # Run exactly these study-defined scales in the declared order.
+  - adl
+  - bdi_score
+  - bradykinesia_subscore_med_off
+  - cccs
+  - dsfs
+  - eat_10
+  - ess
+  - fogq_score
+  - fss
+  - hama
+  - hamd
+  - kpps_score
+  - madrs_score
+  - maes
+  - mds_udprs_ii
+  - mds_updrs_i
+  - mds_updrs_iii_axial_score
+  - mds_updrs_iii_score
+  - mds_updrs_iv
+  - odq
+  - pdq39_score
+  - rbdsq
+  - rbdsq_hk
+  - rigidity_subscore_med_off
+  - scopa_aut
+  - sdq
+  - se_adl_score
+  - tremor_subscore_med_off
+
+endpoint_pair: # Explicit one-to-one clinical endpoint binding.
+  baseline:
+    phase_id: T0 # Exact baseline phase in study_base.json.
+    program_id: 0 # Exact unstimulated baseline program.
+  reference:
+    phase_id: T2 # Exact frequency-1 reference phase.
+    program_id: 1 # Exact reference stimulation program.
+  addon:
+    phase_id: T3 # Exact frequency-2 addon phase.
+    program_id: 2 # Exact combined stimulation program.
+
+frequency_classes: # Classify stimulation sources using frequency only.
+  reference:
+    lower: 100 # Open lower frequency boundary in Hz.
+    lower_inclusive: false # A source at exactly 100 Hz is unclassified.
+    upper: null # Reference frequency has no finite upper boundary.
+    upper_inclusive: false # Unbounded limits cannot be inclusive.
+  addon:
+    lower: 0 # Stimulation frequencies must be positive.
+    lower_inclusive: false # A source at exactly 0 Hz is invalid, not add-on.
+    upper: 50 # Open upper frequency boundary in Hz.
+    upper_inclusive: false # A source at exactly 50 Hz is unclassified.
+
+shared: # Public numeric parameters shared by reference and add-on models.
+  source:
+    pre_specified:
+      tau_v_per_m: 200 # First E-field threshold evaluated.
+      coverage_subjects_min: 5 # First subject-Coverage threshold evaluated.
+    scan:
+      tau_v_per_m: [100, 150, 180, 200, 220, 250, 300, 350, 400, 500] # Complete tau grid.
+      coverage_subjects_min: [5, 6, 7, 8, 10, 12] # Complete Coverage grid.
+    minimum_adjacent_passing_cells: 2 # Local grid support required for acceptance.
+
+  hard_computability: # Numeric endpoint/branch computability limits.
+    n_subjects_min: 12 # Minimum complete subjects after branch-specific exclusion.
+    n_voxels_full_min: 20 # Minimum valid full-sample scoring voxels.
+    fold_n_voxels_min: 10 # Minimum valid voxels in every LOOCV training fold.
+
+  formal_resampling: # Applied only to the unique realized final model.
+    seed: 42 # Root seed used to derive deterministic child seeds.
+    permutation_resamples: 10000 # Freedman-Lane permutation count.
+    bootstrap_resamples: 10000 # Subject-level bootstrap count.
+    jitter_resamples: 1000 # Spatial jitter repetition count.
+    jitter_translation_fwhm_mm: 2.0 # Isotropic translation uncertainty.
+
+  selected_source_sensitivity: # Observed sensitivity around the selected source.
+    tau_multipliers: [0.9, 1.1] # Lower and upper selected-tau multipliers.
+
+addon: # Public parameters specific to the add-on dependency.
+  delta_reference_support:
+    adequate:
+      cohort_median_out_support_max: 0.20 # Adequate median upper bound, inclusive.
+      subject_out_support_threshold: 0.50 # Count subjects strictly above this value.
+      subject_fraction_max: 0.25 # Adequate maximum fraction, inclusive.
+    invalid:
+      cohort_median_out_support_min_exclusive: 0.50 # Invalid when median is greater.
+      subject_out_support_threshold: 0.80 # Count subjects strictly above this value.
+      subject_fraction_min_exclusive: 0.25 # Invalid when the fraction is greater.
+      individual_out_support_min_exclusive: 0.95 # Any required case above this is invalid.
