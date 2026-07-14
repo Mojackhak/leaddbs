@@ -19,6 +19,8 @@ representative_pre_reuse_numerical_gate_complete
 fem_system_reuse_implemented
 current_factorization_real_fem_gate_complete
 post_reuse_representative_gate_complete
+three_worker_memory_gate_complete
+public_cli_default_workers_3_authorized_not_implemented
 current_outputs_unchanged
 ```
 
@@ -29,9 +31,10 @@ frozen performance benchmark harness. The Python benchmark/pipeline suite and
 the solver-free MATLAB fiber suite pass. Live benchmark validation resolves 9
 cases and 13 semantic tasks from the current study configuration.
 
-The representative real-FEM performance baseline has been executed and passed.
-The public CLI default remains one worker because the separate three-worker
-memory-safety gate has not run. Bulk threshold generation, bounded native
+The representative real-FEM performance baseline and the corrected
+three-worker memory-safety gate have been executed and passed. The public CLI
+default remains one worker only until the authorized CLI/test update is
+committed. Bulk threshold generation, bounded native
 interpolation,
 and context/headmodel load consolidation are implemented and solver-free
 verified. The deterministic subject manifest and path-based artifact state
@@ -42,8 +45,8 @@ validated head-model, native-anchor, and export-geometry caches are implemented
 and solver-free verified. The complete MATLAB fiber suite passes 130 tests, the
 Python VTA pipeline/benchmark suite passes 193 tests, and Code Analyzer reports
 zero findings. Guarded process-local FEM system/preconditioner reuse is
-implemented. Its bounded real-current cache-hit gate has passed; the fresh
-post-reuse representative gate and three-worker memory gate remain.
+implemented. Its bounded real-current cache-hit gate, fresh post-reuse
+representative gate, and corrected three-worker memory gate have passed.
 
 The post-cache numerical gate has since been refreshed. Historical bilateral
 voltage outputs passed zero-FEM re-comparison, and one fixed right-sided current
@@ -161,8 +164,22 @@ The first three-worker attempt completed all five FEM solves and seven tasks
 with aggregate peak RSS `19,592,151,040` bytes (`14.255%` of physical memory)
 and maximum subject RSS `10,228,760,576` bytes (`7.442%`). It remains a failed
 instrumentation attempt because `matlab_helper` children were overclassified as
-nested MATLAB interpreters. The corrected gate must be rerun before changing
-the public default.
+nested MATLAB interpreters. At that point, the corrected gate still had to run
+before changing the public default.
+
+The corrected three-worker gate passed at:
+
+```text
+/Volumes/VAL/STNSNr/validation/vta_three_worker_memory_gate_20260714T143046769646Z
+```
+
+It completed `5/5` FEM solves and generated all `7/7` tasks while sampling
+three simultaneous MATLAB subject roots. Aggregate peak RSS was
+`18,002,034,688` bytes (`13.098%` of physical memory); maximum subject-tree RSS
+was `9,692,545,024` bytes (`7.052%`). The 381 synchronized 100 ms samples showed
+no swap increase, nested MATLAB interpreter, OOM/signal evidence, failed task,
+or missing artifact. All memory and execution gates passed. This authorizes the
+separate public CLI default update from one to three workers.
 
 ## Goal
 
@@ -710,8 +727,9 @@ checksums enforce exact derived and same-backend repeatability without adding
 production provenance.
 
 The representative median is a pre-reuse performance gate, not the median of
-the complete nine-case suite. The separate three-worker memory gate remains
-required before changing the public CLI default.
+the complete nine-case suite. The separate three-worker memory gate has passed
+and authorizes changing the public CLI default after its documentation and
+parser/service tests are updated.
 
 The fixture stores stable semantic selector IDs. Canonical task IDs include
 absolute copied paths, so the harness resolves and records exact task IDs after

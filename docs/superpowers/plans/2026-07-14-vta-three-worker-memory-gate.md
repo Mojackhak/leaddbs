@@ -12,8 +12,9 @@ to three. This is an isolated acceptance run, not a scientific rerun.
 design_documented
 implementation_complete
 first_gate_instrumentation_failed
-corrected_gate_pending
+corrected_gate_passed
 public_cli_default_workers_1
+public_cli_default_workers_3_authorized_not_implemented
 ```
 
 The post-reuse numerical/performance gate and bounded real-current cache-hit
@@ -134,7 +135,39 @@ classifier used a broad `startswith("matlab_")` rule. It counted each expected
 three. The corrected classifier must match only known MATLAB interpreter
 executable names and exclude helper/service processes. Because the first run did
 not retain sampled child names, it cannot be retroactively relabeled as passed;
-the corrected gate must run again. The public CLI default remains one meanwhile.
+at that point, the corrected gate still had to run before changing the public
+CLI default.
+
+## Corrected Measured Attempt
+
+The corrected gate passed at:
+
+```text
+/Volumes/VAL/STNSNr/validation/vta_three_worker_memory_gate_20260714T143046769646Z
+```
+
+The production three-worker runner completed the bounded cold-subject workload:
+
+```text
+FEM solves: 5/5
+task outcomes: 7/7 generated
+three live roots sampled: passed (maximum 3)
+aggregate peak RSS: 18,002,034,688 bytes (13.098%)
+maximum subject peak RSS: 9,692,545,024 bytes (7.052%)
+minimum available memory: 63,403,884,544 bytes
+swap start/end/peak: 7,468,810,240 bytes (no increase)
+memory samples: 381 at 100 ms
+nested MATLAB interpreters: 0
+OOM/signal evidence: none
+all artifacts complete: passed
+wall time: 68.499 s
+```
+
+All acceptance gates passed. The corrected interpreter classifier observed
+only exact MATLAB interpreter executable names and did not count
+`matlab_helper` service processes. This result authorizes changing the public
+CLI default to three workers. The default remains one until the separately
+documented CLI and test update is committed.
 
 ## Non-Goals
 
