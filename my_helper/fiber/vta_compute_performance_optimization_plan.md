@@ -16,7 +16,9 @@ solver_free_verification_complete
 real_fem_numerical_gate_refreshed
 real_fem_performance_baseline_complete
 representative_pre_reuse_numerical_gate_complete
-fem_system_reuse_not_implemented
+fem_system_reuse_implemented
+current_factorization_real_fem_gate_complete
+post_reuse_representative_gate_pending
 current_outputs_unchanged
 ```
 
@@ -37,18 +39,21 @@ resolver are also implemented and solver-free verified. Production execution
 now uses one persistent MATLAB process per active subject while preserving the
 per-task compatibility runner. Process-local transform/subject context,
 validated head-model, native-anchor, and export-geometry caches are implemented
-and solver-free verified. The complete MATLAB fiber suite passes 121 tests, the
+and solver-free verified. The complete MATLAB fiber suite passes 130 tests, the
 Python VTA pipeline/benchmark suite passes 193 tests, and Code Analyzer reports
-zero findings. FEM reuse and post-reuse numerical/performance acceptance remain
-planned work.
+zero findings. Guarded process-local FEM system/preconditioner reuse is
+implemented. Its bounded real-current cache-hit gate has passed; the fresh
+post-reuse representative gate and three-worker memory gate remain.
 
 The post-cache numerical gate has since been refreshed. Historical bilateral
 voltage outputs passed zero-FEM re-comparison, and one fixed right-sided current
 canonical candidate FEM passed against the retained standard SimBio reference:
 maximum native difference `0.04443359375 V/m`, relative L2
 `2.2273793323536e-6`, correlation `0.999999999996588`, and Dice `1.0` at all
-three thresholds. The MNI contract and production-tree safety gate passed.
-FEM reuse and post-reuse acceptance remain planned work.
+three thresholds. The MNI contract and production-tree safety gate passed. The
+retained standard-SimBio comparison remains the backend-equivalence gate;
+optimization-regression comparisons use the independent `1e-3 V/m` maximum
+error contract.
 
 The first representative paired attempt completed two compatibility warm-up
 FEM solves, then stopped at export because `native_anchor_load` was not in the
@@ -74,6 +79,21 @@ difference `0`, and Dice `1` at `180/200/220 V/m`. The largest observed
 single-subject process-tree peak RSS was `9,166,995,456` bytes. This is a
 single-subject representative baseline and does not satisfy the three-worker
 memory gate.
+
+The bounded real-current factorization gate completed successfully at:
+
+```text
+/Volumes/VAL/STNSNr/validation/vta_current_factorization_cache_20260714_070153_462
+```
+
+It executed exactly two canonical current FEM solves in one copied-subject
+runtime. Matrix preparation and preconditioner status were `miss` then `hit`,
+and the runtime retained exactly one factorization entry. Native and MNI
+E-fields were voxel-identical (`0 V/m` maximum difference, relative L2 `0`,
+correlation `1`); all 180/200/220 V/m VTA comparisons had Dice `1` and zero
+volume difference. The two output leaves were independent. This proves a real
+cache hit without expanding the acceptance to the historical multi-case FEM
+suite.
 
 This document defines a performance optimization plan for the canonical
 VTA/E-field pipeline. It does not authorize a scientific model change, an

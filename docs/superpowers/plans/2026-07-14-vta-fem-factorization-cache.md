@@ -13,6 +13,7 @@ design_documented
 implementation_complete
 post_reuse_acceptance_in_progress
 pre_reuse_representative_gate_complete
+real_current_cache_hit_gate_complete
 three_worker_memory_gate_not_run
 public_cli_default_workers_1
 ```
@@ -158,3 +159,30 @@ representative alternating sources have distinct constrained-node sets, so
 their expected cache sequence is miss/miss. This gate validates the optimized
 production path and performance contract but is not presented as a
 factorization-hit case.
+
+## Measured Current Cache-Hit Evidence
+
+The bounded gate passed at:
+
+```text
+/Volumes/VAL/STNSNr/validation/vta_current_factorization_cache_20260714_070153_462
+```
+
+Measured evidence:
+
+```text
+planned/actual FEM solves: 2/2
+matrix cache sequence: miss -> hit
+preconditioner cache sequence: miss -> hit
+factorization entries after both solves: 1
+native maximum E-field difference: 0 V/m
+MNI maximum E-field difference: 0 V/m
+native/MNI relative L2: 0
+native/MNI correlation: 1
+VTA Dice at 180/200/220 V/m: 1
+relative VTA volume difference: 0
+independent output leaves: passed
+```
+
+The failed setup-only root ending in `070049_790` contains no FEM result and is
+not acceptance evidence. It is retained rather than overwritten or deleted.
