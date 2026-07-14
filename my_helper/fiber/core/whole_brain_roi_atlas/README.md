@@ -84,3 +84,25 @@ The ITK-SNAP source names are retained as provenance, while Lead-DBS outputs use
 expanded English canonical names with `_L` and `_R` suffixes. White-matter
 laterality continues to be resolved from MNI-space centroids rather than from
 the historically inverted suffixes in the old two-column table.
+
+## Verified Corrected Repository Build
+
+The label-only migration was published and independently verified on
+2026-07-14:
+
+- source ITK-SNAP label SHA-256:
+  `9f505bc5dd4492ecbcbadc2cee9975e3c7a766c57249f084bdee14dce666d466`;
+- corrected atlas build fingerprint:
+  `d48b6582596aa5cd98093b0b33d890b0bac1af8dab11a70dcbbd610e59deb5d0`;
+- corrected left result fingerprint:
+  `a86c42f427cf2b29839921b63939eee5375ce02ea8c229293f4a174a369130ec`;
+- corrected right result fingerprint:
+  `e0757a8e5b287ebb7e6bb10df2416246dd486262360dcd324693e24525ee795e`;
+- 198 labels, 150 ranking ROIs, and 48 white-matter QC ROIs;
+- exact per-label spatial reconstruction against `labels.nii.gz`;
+- 150 unique targets in each result and exact catalog/NPZ/statistics agreement;
+- identical target membership between the two seed-side results and the
+  migrated shared cache;
+- no connectome streamline geometry read during migration;
+- `atlas_index.mat` invalidated for regeneration by Lead-DBS, with the spatially
+  unchanged `gm_mask.nii.gz` retained.
