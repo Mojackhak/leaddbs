@@ -12,7 +12,6 @@ parser.parse(varargin{:});
 emit = parser.Results.EventEmitter;
 taskId = char(string(parser.Results.TaskId));
 
-stageTimer = tic;
 if constvol
     if unipolar
         dirinodes = [boundarynodes, elec'];
@@ -43,6 +42,7 @@ else
     end
 end
 
+stageTimer = tic;
 [stiff, rhs] = dbs_matrix(vol.stiff, rhs, dirinodes, dirival);
 mh_vta_emit_stage_timing(emit, 'task', taskId, ...
     'fem_matrix_preparation', 'executed', toc(stageTimer), '');

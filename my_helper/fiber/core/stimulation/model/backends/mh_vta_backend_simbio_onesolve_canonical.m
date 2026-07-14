@@ -28,10 +28,10 @@ anchorPath = '';
 if actions.solve_native_efield
     stageTimer = tic;
     [options, S, sideIndex, defaultAnchorPath] = build_context(task);
-    anchorPath = mh_vta_resolve_native_anchor(defaultAnchorPath, ...
-        parser.Results.NativeAnchorPath);
     mh_vta_emit_stage_timing(emit, 'task', taskId, ...
         'subject_reconstruction_context', 'executed', toc(stageTimer), '');
+    anchorPath = mh_vta_resolve_native_anchor(defaultAnchorPath, ...
+        parser.Results.NativeAnchorPath);
 
     stimLabel = ['canonical-', task.task_id(1:12)];
     stageTimer = tic;
