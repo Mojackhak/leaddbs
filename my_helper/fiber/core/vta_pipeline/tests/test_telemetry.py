@@ -99,6 +99,29 @@ def test_accepts_complete_one_task_protocol() -> None:
         result.protocol_complete = False
 
 
+def test_accepts_native_anchor_load_cache_timing() -> None:
+    parser = EventStreamParser("run", "SNr003", ())
+    feed(
+        parser,
+        event(
+            1,
+            "stage_timing",
+            scope="subject",
+            stage="native_anchor_load",
+            stage_status="executed",
+            cache_status="hit",
+            duration_seconds=0.01,
+        ),
+    )
+    feed(parser, event(2, "subject_ready"))
+    feed(parser, summary(3, generated=0))
+
+    result = parser.finish(returncode=0)
+
+    assert result.timings[0].stage == "native_anchor_load"
+    assert result.timings[0].cache_status == "hit"
+
+
 def test_ignores_unprefixed_diagnostic_lines() -> None:
     parser = EventStreamParser("run", "SNr003", ("task-1",))
 

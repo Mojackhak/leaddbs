@@ -627,6 +627,7 @@ def run_paired(
     *,
     command_runner: CommandRunner | None = None,
     artifact_comparator: ArtifactComparator | None = None,
+    credited_compatibility_warmup_root: Path | str | None = None,
     trash_root: Path | str | None = None,
 ) -> dict[str, Any]:
     """Run the bounded representative compatibility/candidate comparison."""
@@ -648,28 +649,68 @@ def run_paired(
     if len(matches) != 1:
         raise ValueError(f"Representative case must resolve exactly once: {case_id}")
     case = matches[0]
+    credited_warmup = (
+        None
+        if credited_compatibility_warmup_root is None
+        else _validate_credited_compatibility_warmup(
+            Path(credited_compatibility_warmup_root).expanduser().resolve(),
+            current_root=root,
+            case_id=case_id,
+        )
+    )
+    run_fem_limit = (
+        REPRESENTATIVE_FEM_LIMIT
+        - (0 if credited_warmup is None else credited_warmup["fem_solve_count"])
+    )
     protected_roots = tuple(
         Path(path).expanduser().resolve()
         for path in fixture.get("protected_roots", ())
     )
     _reject_protected_path(root, (AUTHORITATIVE_LEADDBS_ROOT, *protected_roots))
-    _claim_paired_root(root)
     runner = command_runner or _run_subprocess
     comparator = artifact_comparator or compare_case_outputs
     records: list[dict[str, Any]] = []
     fem_count = 0
     warmups: list[dict[str, Any]] = []
     pairs: list[dict[str, Any]] = []
-    _publish_paired_state(
-        root,
-        status="paired_in_progress",
-        case_id=case_id,
-        records=records,
-        fem_count=fem_count,
-        trash_root=trash_root,
-    )
+    root_claimed = False
     try:
-        for execution_path in EXECUTION_PATHS:
+        root_claim = _claim_paired_root(root)
+        root_claimed = True
+        _initialize_paired_root_claim(root, root_claim)
+        if credited_warmup is not None:
+            credited_warmup["credit_claim_path"] = str(
+                _claim_credited_warmup(
+                    Path(credited_warmup["source_root"]), current_root=root
+                )
+            )
+            post_claim_credit = _validate_credited_compatibility_warmup(
+                Path(credited_warmup["source_root"]),
+                current_root=root,
+                case_id=case_id,
+            )
+            if post_claim_credit != {
+                key: value
+                for key, value in credited_warmup.items()
+                if key != "credit_claim_path"
+            }:
+                raise ValueError("Warm-up credit evidence changed during claim")
+        _publish_paired_state(
+            root,
+            status="paired_in_progress",
+            case_id=case_id,
+            records=records,
+            fem_count=fem_count,
+            run_fem_limit=run_fem_limit,
+            credited_warmup=credited_warmup,
+            trash_root=trash_root,
+        )
+        warmup_paths = (
+            EXECUTION_PATHS
+            if credited_warmup is None
+            else ("persistent_subject",)
+        )
+        for execution_path in warmup_paths:
             record = _run_paired_path(
                 root,
                 fixture,
@@ -683,13 +724,15 @@ def run_paired(
             warmups.append(record)
             records.append(record)
             fem_count += record["counts"]["fem_solve_count"]
-            _assert_representative_fem_bound(fem_count)
+            _assert_representative_fem_bound(fem_count, run_fem_limit)
             _publish_paired_state(
                 root,
                 status="paired_in_progress",
                 case_id=case_id,
                 records=records,
                 fem_count=fem_count,
+                run_fem_limit=run_fem_limit,
+                credited_warmup=credited_warmup,
                 trash_root=trash_root,
             )
 
@@ -714,13 +757,15 @@ def run_paired(
                 by_path[execution_path] = record
                 records.append(record)
                 fem_count += record["counts"]["fem_solve_count"]
-                _assert_representative_fem_bound(fem_count)
+                _assert_representative_fem_bound(fem_count, run_fem_limit)
                 _publish_paired_state(
                     root,
                     status="paired_in_progress",
                     case_id=case_id,
                     records=records,
                     fem_count=fem_count,
+                    run_fem_limit=run_fem_limit,
+                    credited_warmup=credited_warmup,
                     trash_root=trash_root,
                 )
             try:
@@ -779,21 +824,26 @@ def run_paired(
             case_id=case_id,
             records=records,
             fem_count=fem_count,
+            run_fem_limit=run_fem_limit,
+            credited_warmup=credited_warmup,
             trash_root=trash_root,
             error=failure.cause,
         )
-        _assert_representative_fem_bound(fem_count)
+        _assert_representative_fem_bound(fem_count, run_fem_limit)
         raise failure.cause
     except BaseException as error:
-        _publish_paired_state(
-            root,
-            status="paired_failed",
-            case_id=case_id,
-            records=records,
-            fem_count=fem_count,
-            trash_root=trash_root,
-            error=error,
-        )
+        if root_claimed:
+            _publish_paired_state(
+                root,
+                status="paired_failed",
+                case_id=case_id,
+                records=records,
+                fem_count=fem_count,
+                run_fem_limit=run_fem_limit,
+                credited_warmup=credited_warmup,
+                trash_root=trash_root,
+                error=error,
+            )
         raise
 
     medians = {
@@ -812,9 +862,13 @@ def run_paired(
         "candidate_binding": "persistent_subject",
         "case_id": case_id,
         "warmups": warmups,
+        "credited_compatibility_warmup": credited_warmup,
         "measured_pairs": pairs,
         "completed_fem_solve_count": fem_count,
-        "completed_fem_solve_limit": REPRESENTATIVE_FEM_LIMIT,
+        "completed_fem_solve_limit": run_fem_limit,
+        "linked_aggregate_fem_solve_count": fem_count
+        + (0 if credited_warmup is None else credited_warmup["fem_solve_count"]),
+        "linked_aggregate_fem_solve_limit": REPRESENTATIVE_FEM_LIMIT,
         "median_wall_seconds": medians,
         "persistent_to_compatibility_ratio": ratio,
         "representative_25_percent_target_pass": ratio <= 0.75,
@@ -825,7 +879,304 @@ def run_paired(
     return summary
 
 
-def _claim_paired_root(root: Path) -> None:
+def _validate_credited_compatibility_warmup(
+    failed_root: Path,
+    *,
+    current_root: Path,
+    case_id: str,
+) -> dict[str, Any]:
+    if failed_root == current_root:
+        raise ValueError("A warm-up credit root must differ from the current root")
+    failed_fixture = _read_json_object(
+        failed_root / "fixture.json", "credited resolved fixture"
+    )
+    current_fixture = _read_json_object(
+        current_root / "fixture.json", "replacement resolved fixture"
+    )
+    failed_case = _one_case(failed_fixture, case_id, "credited fixture")
+    current_case = _one_case(current_fixture, case_id, "replacement fixture")
+    failed_identity = _warmup_credit_input_identity(
+        failed_root, failed_fixture, failed_case
+    )
+    current_identity = _warmup_credit_input_identity(
+        current_root, current_fixture, current_case
+    )
+    if failed_identity != current_identity:
+        raise ValueError("Warm-up credit frozen inputs do not match replacement root")
+    summary_path = failed_root / "benchmark_summary.json"
+    summary = _read_json_object(summary_path, "credited benchmark summary")
+    if summary.get("status") != "paired_failed" or summary.get("case_id") != case_id:
+        raise ValueError("Warm-up credit root has incompatible status or case")
+    if summary.get("completed_fem_solve_count") != 2:
+        raise ValueError("Warm-up credit root must record exactly two FEM solves")
+    records = summary.get("execution_records")
+    if not isinstance(records, list) or len(records) != 1:
+        raise ValueError("Warm-up credit root must contain exactly one execution")
+    record = _mapping(records[0], "credited execution record")
+    if (
+        record.get("path") != "compatibility_per_task"
+        or record.get("repetition_index") is not None
+        or record.get("status") != "failed"
+    ):
+        raise ValueError("Warm-up credit execution identity is invalid")
+    expected_counts = {
+        "matlab_process_count": 2,
+        "fem_solve_count": 2,
+        "derived_task_count": 0,
+        "copy_count": 0,
+        "skip_count": 0,
+    }
+    assert_expected_counts(
+        _mapping(record.get("counts"), "credited execution counts"),
+        expected_counts,
+    )
+    run_summary = _mapping(record.get("run_summary"), "credited run summary")
+    if (
+        run_summary.get("generated") != 0
+        or run_summary.get("failed") != 2
+        or run_summary.get("skipped_dependency") != 1
+    ):
+        raise ValueError("Warm-up credit task outcomes are invalid")
+    observations = record.get("process_observations")
+    if not isinstance(observations, list) or len(observations) != 2:
+        raise ValueError("Warm-up credit must contain two process observations")
+    working_root = Path(
+        _nonempty_string(record.get("working_root"), "credited working root")
+    ).resolve()
+    if not _is_within(working_root, failed_root):
+        raise ValueError("Warm-up credit working root escaped the failed root")
+    working_identity = _snapshot_input_identity(
+        working_root, failed_fixture, failed_case
+    )
+    if working_identity != failed_identity:
+        raise ValueError("Warm-up credit working inputs do not match frozen inputs")
+    failed_tasks = resolve_case_tasks(
+        working_root / "study_base.json",
+        working_root / "vta_model.yaml",
+        failed_case,
+    )
+    source_task_ids = {
+        task.task_id
+        for task in failed_tasks
+        if task.kind is TaskKind.ALTERNATING_SOURCE
+    }
+    group_tasks = tuple(
+        task
+        for task in failed_tasks
+        if task.kind is TaskKind.ALTERNATING_GROUP_PEAK
+    )
+    if len(source_task_ids) != 2 or len(group_tasks) != 1 or len(failed_tasks) != 3:
+        raise ValueError("Warm-up credit did not resolve the exact expected task set")
+    observed_task_ids: set[str] = set()
+    for observation in observations:
+        item = _mapping(observation, "credited process observation")
+        outcomes = item.get("outcomes")
+        timings = item.get("timings")
+        if not isinstance(outcomes, list) or len(outcomes) != 1:
+            raise ValueError("Warm-up credit process outcome is invalid")
+        outcome = _mapping(outcomes[0], "credited process outcome")
+        outcome_task_id = _nonempty_string(
+            outcome.get("task_id"), "credited outcome task_id"
+        )
+        observed_task_ids.add(outcome_task_id)
+        returncode = item.get("returncode")
+        if (
+            isinstance(returncode, bool)
+            or not isinstance(returncode, int)
+            or returncode == 0
+            or item.get("protocol_complete") is not False
+            or outcome.get("status") != "failed"
+            or outcome.get("error_identifier") != "mh_vta:InvalidTimingStage"
+            or outcome.get("error_message")
+            != "Unsupported VTA timing stage: native_anchor_load."
+            or outcome.get("copied_artifact_count") != 0
+            or outcome.get("generated_artifact_count") != 0
+        ):
+            raise ValueError("Warm-up credit failure reason is not eligible")
+        if not isinstance(timings, list):
+            raise ValueError("Warm-up credit timings are invalid")
+        solve_timings = [
+            timing
+            for timing in timings
+            if isinstance(timing, Mapping)
+            and timing.get("stage") == "fem_pcg_solve"
+            and timing.get("stage_status") == "executed"
+        ]
+        if len(solve_timings) != 1:
+            raise ValueError("Warm-up credit process must contain one FEM solve")
+        solve_timing = solve_timings[0]
+        if (
+            solve_timing.get("scope") != "task"
+            or solve_timing.get("task_id") != outcome_task_id
+        ):
+            raise ValueError("Warm-up credit FEM timing identity is invalid")
+    if observed_task_ids != source_task_ids:
+        raise ValueError("Warm-up credit outcomes do not match expected source tasks")
+    inventory = record.get("artifact_inventory")
+    if not isinstance(inventory, list) or not inventory:
+        raise ValueError("Warm-up credit artifact inventory is missing")
+    actual_inventory: set[tuple[str, str, str]] = set()
+    for artifact in inventory:
+        item = _mapping(artifact, "credited artifact")
+        if item.get("present") is not False:
+            raise ValueError("Warm-up credit cannot contain generated artifacts")
+        path = Path(_nonempty_string(item.get("path"), "credited artifact path"))
+        if path.exists():
+            raise ValueError("Warm-up credit artifact now exists unexpectedly")
+        actual_inventory.add(
+            (
+                _nonempty_string(item.get("task_id"), "credited artifact task_id"),
+                _nonempty_string(item.get("space"), "credited artifact space"),
+                str(path),
+            )
+        )
+    expected_inventory = {
+        (item["task_id"], item["space"], item["path"])
+        for item in _artifact_inventory(failed_tasks)
+    }
+    if actual_inventory != expected_inventory or len(inventory) != len(
+        expected_inventory
+    ):
+        raise ValueError("Warm-up credit artifact inventory is incomplete or unexpected")
+    return {
+        "source_root": str(failed_root),
+        "case_id": case_id,
+        "path": "compatibility_per_task",
+        "fem_solve_count": 2,
+        "failure_identifier": "mh_vta:InvalidTimingStage",
+        "failure_stage": "native_anchor_load",
+        "frozen_input_identity_sha256": _json_sha256(failed_identity),
+        "summary_sha256": _sha256_file(summary_path),
+    }
+
+
+def _one_case(
+    fixture: Mapping[str, Any], case_id: str, label: str
+) -> Mapping[str, Any]:
+    matches = [
+        case
+        for case in fixture.get("cases", ())
+        if case.get("case_id") == case_id
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"{label} must contain exactly one matching case")
+    return _mapping(matches[0], f"{label} case")
+
+
+def _warmup_credit_input_identity(
+    root: Path,
+    fixture: Mapping[str, Any],
+    case: Mapping[str, Any],
+) -> dict[str, Any]:
+    snapshot = root / _nonempty_string(case.get("snapshot"), "case snapshot")
+    if not snapshot.is_dir() or not _is_within(snapshot.resolve(), root):
+        raise ValueError("Warm-up credit snapshot is missing or escaped its root")
+    return _snapshot_input_identity(snapshot, fixture, case)
+
+
+def _snapshot_input_identity(
+    snapshot: Path,
+    fixture: Mapping[str, Any],
+    case: Mapping[str, Any],
+) -> dict[str, Any]:
+    _verify_restored_artifact_state(snapshot)
+    manifest = _read_json_object(
+        snapshot / "snapshot_manifest.json", "snapshot manifest"
+    )
+    warm_source = _mapping(
+        manifest.get("warm_headmodel_source"), "warm_headmodel_source"
+    )
+    snapshot_files = warm_source.get("snapshot_files")
+    if not isinstance(snapshot_files, list) or not snapshot_files:
+        raise ValueError("Warm-up credit snapshot files are missing")
+    artifact_state: dict[str, list[dict[str, Any]]] = {}
+    for field in ("selected_artifacts", "donor_artifacts"):
+        entries = manifest.get(field)
+        if not isinstance(entries, list):
+            raise ValueError(f"Warm-up credit snapshot is missing {field}")
+        artifact_state[field] = sorted(
+            [
+                {
+                    "path": _nonempty_string(item.get("path"), f"{field} path"),
+                    "space": _nonempty_string(item.get("space"), f"{field} space"),
+                    "present": item.get("present"),
+                }
+                for entry in entries
+                for item in (_mapping(entry, field),)
+            ],
+            key=lambda item: (item["path"], item["space"]),
+        )
+    return {
+        "benchmark": {
+            "schema_version": fixture.get("schema_version"),
+            "spaces": fixture.get("spaces"),
+            "thresholds_v_per_m": fixture.get("thresholds_v_per_m"),
+            "warmup_runs_per_path": fixture.get("warmup_runs_per_path"),
+        },
+        "case": {
+            key: case.get(key)
+            for key in (
+                "case_id",
+                "selector",
+                "tasks",
+                "expected_counts",
+                "headmodel_state",
+                "initial_artifacts",
+            )
+        },
+        "study_base_sha256": _sha256_file(snapshot / "study_base.json"),
+        "vta_model_sha256": _sha256_file(snapshot / "vta_model.yaml"),
+        "snapshot": {
+            "semantic_selector": manifest.get("semantic_selector"),
+            "headmodel_state": manifest.get("headmodel_state"),
+            "initial_artifacts": manifest.get("initial_artifacts"),
+            **artifact_state,
+            "warm_mode": warm_source.get("mode"),
+            "headmodel_sha256": warm_source.get("headmodel_sha256"),
+            "reconstruction_sha256": warm_source.get("reconstruction_sha256"),
+            "patient_gm_mask_sha256": warm_source.get("patient_gm_mask_sha256"),
+            "snapshot_files": sorted(
+                (
+                    {
+                        key: item.get(key)
+                        for key in ("role", "path", "present", "sha256")
+                    }
+                    for entry in snapshot_files
+                    for item in (_mapping(entry, "warm snapshot file"),)
+                ),
+                key=lambda item: (str(item["role"]), str(item["path"])),
+            ),
+        },
+    }
+
+
+def _json_sha256(value: Any) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _claim_credited_warmup(failed_root: Path, *, current_root: Path) -> Path:
+    claim = failed_root.parent / (
+        f".{failed_root.name}.compatibility-warmup-credit"
+    )
+    try:
+        claim.mkdir()
+    except FileExistsError as error:
+        raise ValueError("The compatibility warm-up credit is already claimed") from error
+    _write_new_json(
+        claim / "claim.json",
+        {
+            "schema_version": SCHEMA_VERSION,
+            "credited_root": str(failed_root),
+            "replacement_root": str(current_root),
+            "pid": os.getpid(),
+            "claimed_at_utc": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    return claim
+
+
+def _claim_paired_root(root: Path) -> Path:
     prior_summary = _read_json_object(
         root / "benchmark_summary.json", "benchmark summary"
     )
@@ -838,6 +1189,10 @@ def _claim_paired_root(root: Path) -> None:
         claim.mkdir()
     except FileExistsError as error:
         raise ValueError("The paired benchmark root is already claimed") from error
+    return claim
+
+
+def _initialize_paired_root_claim(root: Path, claim: Path) -> None:
     current_summary = _read_json_object(
         root / "benchmark_summary.json", "benchmark summary"
     )
@@ -887,6 +1242,8 @@ def _publish_paired_state(
     case_id: str,
     records: Sequence[Mapping[str, Any]],
     fem_count: int,
+    run_fem_limit: int,
+    credited_warmup: Mapping[str, Any] | None,
     trash_root: Path | str | None,
     error: BaseException | None = None,
 ) -> None:
@@ -896,7 +1253,11 @@ def _publish_paired_state(
         "candidate_binding": "persistent_subject",
         "case_id": case_id,
         "completed_fem_solve_count": fem_count,
-        "completed_fem_solve_limit": REPRESENTATIVE_FEM_LIMIT,
+        "completed_fem_solve_limit": run_fem_limit,
+        "credited_compatibility_warmup": credited_warmup,
+        "linked_aggregate_fem_solve_count": fem_count
+        + (0 if credited_warmup is None else int(credited_warmup["fem_solve_count"])),
+        "linked_aggregate_fem_solve_limit": REPRESENTATIVE_FEM_LIMIT,
         "execution_records": list(records),
         "three_worker_memory_gate": "not_measured",
     }
@@ -1034,11 +1395,13 @@ def _run_paired_path(
     return record
 
 
-def _assert_representative_fem_bound(completed_count: int) -> None:
-    if completed_count > REPRESENTATIVE_FEM_LIMIT:
+def _assert_representative_fem_bound(
+    completed_count: int, limit: int = REPRESENTATIVE_FEM_LIMIT
+) -> None:
+    if completed_count > limit:
         raise ValueError(
             "Representative benchmark exceeded the approved completed FEM "
-            f"limit: {completed_count} > {REPRESENTATIVE_FEM_LIMIT}"
+            f"limit: {completed_count} > {limit}"
         )
 
 
@@ -2427,6 +2790,7 @@ def _build_parser() -> argparse.ArgumentParser:
     paired = commands.add_parser("run-paired")
     paired.add_argument("--benchmark-root", type=Path, required=True)
     paired.add_argument("--case", required=True)
+    paired.add_argument("--credited-compatibility-warmup-root", type=Path)
     return parser
 
 
@@ -2434,7 +2798,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         if args.mode == "run-paired":
-            run_paired(args.benchmark_root, args.case)
+            run_paired(
+                args.benchmark_root,
+                args.case,
+                credited_compatibility_warmup_root=(
+                    args.credited_compatibility_warmup_root
+                ),
+            )
             print(args.benchmark_root / "benchmark_summary.json")
             return 0
         if args.mode == "validate":

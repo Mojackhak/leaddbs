@@ -37,6 +37,7 @@ STAGE_NAMES = frozenset(
         "fem_pcg_solve",
         "gradient_calculation",
         "electrode_removal_geometry",
+        "native_anchor_load",
         "native_grid_interpolation",
         "group_peak_composition",
         "threshold_generation",

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
@@ -1112,6 +1113,243 @@ def test_run_paired_charges_nonzero_process_fem_before_failure(
     assert summary["execution_records"][0]["counts"]["fem_solve_count"] == 2
 
 
+def test_run_paired_credits_exact_failed_compatibility_warmup(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    trash = tmp_path / "Trash"
+    root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "validation",
+        now=lambda: datetime(2026, 7, 14, 6, 30, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+    fixture = json.loads(root.joinpath("fixture.json").read_text())
+    case = _case(fixture, benchmark_module.REPRESENTATIVE_CASE_ID)
+    credit_root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "credit-validation",
+        now=lambda: datetime(2026, 7, 14, 6, 29, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+    _write_eligible_credit_root(
+        benchmark_module,
+        credit_root,
+        benchmark_module.REPRESENTATIVE_CASE_ID,
+    )
+    paths: list[str] = []
+
+    def fake_runner(command: tuple[str, ...]) -> dict[str, Any]:
+        path = command[command.index("--execution-path") + 1]
+        paths.append(path)
+        expected_key = "baseline" if path == "compatibility_per_task" else "candidate"
+        counts = case["expected_counts"][expected_key]
+        return {
+            "returncode": 0,
+            "stdout": json.dumps(
+                {
+                    "generated": 3,
+                    "copied": 0,
+                    "skipped_existing": 0,
+                    "failed": 0,
+                    "skipped_dependency": 0,
+                    "benchmark_counts": counts,
+                }
+            ),
+        }
+
+    summary = benchmark_module.run_paired(
+        root,
+        benchmark_module.REPRESENTATIVE_CASE_ID,
+        command_runner=fake_runner,
+        artifact_comparator=lambda *args: {"pass": True},
+        credited_compatibility_warmup_root=credit_root,
+        trash_root=trash,
+    )
+
+    assert paths == [
+        "persistent_subject",
+        "compatibility_per_task",
+        "persistent_subject",
+        "persistent_subject",
+        "compatibility_per_task",
+        "compatibility_per_task",
+        "persistent_subject",
+    ]
+    assert summary["completed_fem_solve_count"] == 14
+    assert summary["completed_fem_solve_limit"] == 14
+    assert summary["linked_aggregate_fem_solve_count"] == 16
+    assert summary["linked_aggregate_fem_solve_limit"] == 16
+    credit = summary["credited_compatibility_warmup"]
+    assert credit["fem_solve_count"] == 2
+    assert Path(credit["credit_claim_path"], "claim.json").is_file()
+    with pytest.raises(ValueError, match="already claimed"):
+        benchmark_module._claim_credited_warmup(
+            credit_root, current_root=tmp_path / "another-root"
+        )
+
+
+def test_warmup_credit_rejects_wrong_failure_stage(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    current_root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "validation",
+        now=lambda: datetime(2026, 7, 14, 6, 30, tzinfo=timezone.utc),
+        trash_root=tmp_path / "Trash",
+    )
+    root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "credit-validation",
+        now=lambda: datetime(2026, 7, 14, 6, 29, tzinfo=timezone.utc),
+        trash_root=tmp_path / "Trash",
+    )
+    _write_eligible_credit_root(
+        benchmark_module,
+        root,
+        benchmark_module.REPRESENTATIVE_CASE_ID,
+    )
+    summary_path = root / "benchmark_summary.json"
+    summary = json.loads(summary_path.read_text())
+    summary["execution_records"][0]["process_observations"][0]["outcomes"][0][
+        "error_message"
+    ] = "Unsupported VTA timing stage: another_stage."
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="failure reason is not eligible"):
+        benchmark_module._validate_credited_compatibility_warmup(
+            root,
+            current_root=current_root,
+            case_id=benchmark_module.REPRESENTATIVE_CASE_ID,
+        )
+
+    observation = summary["execution_records"][0]["process_observations"][0]
+    observation["outcomes"][0]["error_message"] = (
+        "Unsupported VTA timing stage: native_anchor_load."
+    )
+    observation["returncode"] = "1"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    with pytest.raises(ValueError, match="failure reason is not eligible"):
+        benchmark_module._validate_credited_compatibility_warmup(
+            root,
+            current_root=current_root,
+            case_id=benchmark_module.REPRESENTATIVE_CASE_ID,
+        )
+
+    observation["returncode"] = 1
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    working_root = Path(summary["execution_records"][0]["working_root"])
+    working_root.joinpath("vta_model.yaml").write_text(
+        working_root.joinpath("vta_model.yaml").read_text() + "\n# changed\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="working inputs do not match"):
+        benchmark_module._validate_credited_compatibility_warmup(
+            root,
+            current_root=current_root,
+            case_id=benchmark_module.REPRESENTATIVE_CASE_ID,
+        )
+
+
+def test_warmup_credit_rejects_changed_frozen_model(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    trash = tmp_path / "Trash"
+    current_root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "validation",
+        now=lambda: datetime(2026, 7, 14, 6, 30, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+    credit_root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "credit-validation",
+        now=lambda: datetime(2026, 7, 14, 6, 29, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+    _write_eligible_credit_root(
+        benchmark_module,
+        credit_root,
+        benchmark_module.REPRESENTATIVE_CASE_ID,
+    )
+    case = _case(
+        json.loads(current_root.joinpath("fixture.json").read_text()),
+        benchmark_module.REPRESENTATIVE_CASE_ID,
+    )
+    current_root.joinpath(case["snapshot"], "vta_model.yaml").write_text(
+        vta_model.read_text() + "\n# changed\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="frozen inputs do not match"):
+        benchmark_module._validate_credited_compatibility_warmup(
+            credit_root,
+            current_root=current_root,
+            case_id=benchmark_module.REPRESENTATIVE_CASE_ID,
+        )
+
+
+def test_credit_claim_conflict_persists_terminal_replacement_failure(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    trash = tmp_path / "Trash"
+    current_root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "validation",
+        now=lambda: datetime(2026, 7, 14, 6, 30, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+    credit_root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "credit-validation",
+        now=lambda: datetime(2026, 7, 14, 6, 29, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+    _write_eligible_credit_root(
+        benchmark_module,
+        credit_root,
+        benchmark_module.REPRESENTATIVE_CASE_ID,
+    )
+    benchmark_module._claim_credited_warmup(
+        credit_root,
+        current_root=tmp_path / "other-replacement",
+    )
+
+    with pytest.raises(ValueError, match="already claimed"):
+        benchmark_module.run_paired(
+            current_root,
+            benchmark_module.REPRESENTATIVE_CASE_ID,
+            credited_compatibility_warmup_root=credit_root,
+            trash_root=trash,
+        )
+
+    summary = json.loads(current_root.joinpath("benchmark_summary.json").read_text())
+    assert summary["status"] == "paired_failed"
+    assert summary["completed_fem_solve_count"] == 0
+    assert summary["linked_aggregate_fem_solve_count"] == 2
+    assert summary["error_type"] == "ValueError"
+    assert "already claimed" in summary["error"]
+
+
 def test_run_paired_conservatively_charges_malformed_failed_fem_count(
     benchmark_module: ModuleType,
     fake_inputs: tuple[Path, Path, Path],
@@ -1169,10 +1407,49 @@ def test_paired_root_claim_is_atomic_and_persistent(
     root.joinpath("benchmark_summary.json").write_text(
         json.dumps({"status": "prepared"}), encoding="utf-8"
     )
-    benchmark_module._claim_paired_root(root)
+    claim = benchmark_module._claim_paired_root(root)
+    benchmark_module._initialize_paired_root_claim(root, claim)
     assert root.joinpath(".paired_gate_claim", "claim.json").is_file()
     with pytest.raises(ValueError, match="already claimed"):
         benchmark_module._claim_paired_root(root)
+
+
+def test_claim_initialization_failure_persists_terminal_state(
+    benchmark_module: ModuleType,
+    fake_inputs: tuple[Path, Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    study_base, vta_model, _ = fake_inputs
+    trash = tmp_path / "Trash"
+    root = benchmark_module.prepare_benchmark(
+        study_base,
+        vta_model,
+        tmp_path / "validation",
+        now=lambda: datetime(2026, 7, 14, 6, 30, tzinfo=timezone.utc),
+        trash_root=trash,
+    )
+
+    def fail_initialization(*args: Any, **kwargs: Any) -> None:
+        raise OSError("claim metadata write failed")
+
+    monkeypatch.setattr(
+        benchmark_module,
+        "_initialize_paired_root_claim",
+        fail_initialization,
+    )
+    with pytest.raises(OSError, match="claim metadata write failed"):
+        benchmark_module.run_paired(
+            root,
+            benchmark_module.REPRESENTATIVE_CASE_ID,
+            trash_root=trash,
+        )
+
+    summary = json.loads(root.joinpath("benchmark_summary.json").read_text())
+    assert root.joinpath(".paired_gate_claim").is_dir()
+    assert summary["status"] == "paired_failed"
+    assert summary["completed_fem_solve_count"] == 0
+    assert summary["error_type"] == "OSError"
 
 
 def test_run_paired_rejects_protected_root_before_claim(
@@ -1276,6 +1553,92 @@ def test_compare_case_outputs_accepts_equal_arrays_and_rejects_drift(
         benchmark_module.compare_case_outputs(
             reference_root, candidate_root, {}, ("native",)
         )
+
+
+def _write_eligible_credit_root(
+    benchmark_module: ModuleType,
+    root: Path,
+    case_id: str,
+) -> Path:
+    fixture = json.loads(root.joinpath("fixture.json").read_text())
+    case = _case(fixture, case_id)
+    snapshot = root / case["snapshot"]
+    working_root = root / "working" / "credited-compatibility"
+    shutil.copytree(snapshot, working_root)
+    tasks = benchmark_module.resolve_case_tasks(
+        working_root / "study_base.json",
+        working_root / "vta_model.yaml",
+        case,
+    )
+    source_tasks = [
+        task
+        for task in tasks
+        if task.kind is benchmark_module.TaskKind.ALTERNATING_SOURCE
+    ]
+    assert len(source_tasks) == 2
+    counts = {
+        "matlab_process_count": 2,
+        "fem_solve_count": 2,
+        "derived_task_count": 0,
+        "copy_count": 0,
+        "skip_count": 0,
+    }
+    observations = []
+    for task in source_tasks:
+        observations.append(
+            {
+                "outcomes": [
+                    {
+                        "task_id": task.task_id,
+                        "status": "failed",
+                        "copied_artifact_count": 0,
+                        "generated_artifact_count": 0,
+                        "error_identifier": "mh_vta:InvalidTimingStage",
+                        "error_message": (
+                            "Unsupported VTA timing stage: native_anchor_load."
+                        ),
+                    }
+                ],
+                "timings": [
+                    {
+                        "scope": "task",
+                        "task_id": task.task_id,
+                        "stage": "fem_pcg_solve",
+                        "stage_status": "executed",
+                        "cache_status": None,
+                        "duration_seconds": 0.5,
+                    }
+                ],
+                "protocol_complete": False,
+                "returncode": 1,
+            }
+        )
+    record = {
+        "path": "compatibility_per_task",
+        "repetition_index": None,
+        "status": "failed",
+        "counts": counts,
+        "run_summary": {
+            "generated": 0,
+            "failed": 2,
+            "skipped_dependency": 1,
+        },
+        "process_observations": observations,
+        "artifact_inventory": benchmark_module._artifact_inventory(tasks),
+        "working_root": str(working_root),
+    }
+    root.joinpath("benchmark_summary.json").write_text(
+        json.dumps(
+            {
+                "status": "paired_failed",
+                "case_id": case_id,
+                "completed_fem_solve_count": 2,
+                "execution_records": [record],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return root
 
 
 def _subject(

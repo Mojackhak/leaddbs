@@ -108,6 +108,35 @@ runs the persistent warm-up and all three measured pairs, and therefore performs
 at most 14 new FEM solves. The linked aggregate remains the original 16-FEM
 bound. No other failure reason or partial solve can receive warm-up credit.
 
+Credit eligibility must also prove identical frozen physical inputs. The failed
+and replacement roots must match on the semantic case selector and task
+definitions, study-base and VTA-model bytes, and the recorded head-model,
+reconstruction, and patient-GM-mask hashes. The failed working root must resolve
+exactly the two distinct expected source tasks, and its recorded artifact
+inventory must equal the complete expected inventory derived from those source
+tasks plus their group-peak dependency. A caller-supplied partial inventory or a
+minimal fabricated summary is not eligible.
+
+The failed execution's restored working root must independently match its own
+frozen snapshot on the study/model bytes, recorded head-model, reconstruction,
+patient-GM-mask hashes, and frozen artifact state. Merely locating the working
+directory beneath the failed root is insufficient.
+
+Each credited process observation must have a non-boolean integer return code
+that is nonzero and be a protocol-incomplete
+failure for one distinct expected source task, with zero generated/copied
+artifacts and one task-scoped executed `fem_pcg_solve` timing carrying the same
+task ID. The error identifier and message must exactly identify
+`mh_vta:InvalidTimingStage` at `native_anchor_load`.
+
+The replacement-root claim, external credit claim, and first
+`paired_in_progress` publication form one failure-aware state transition. Once
+the replacement root is claimed, a credit conflict or claim/publication error
+must publish a terminal `paired_failed` summary with zero new FEM solves. It
+must never leave a claimed root reporting the stale `prepared` state.
+After the external credit claim is acquired, the harness must revalidate the
+failed root and reject any change since pre-claim validation.
+
 ## Snapshot And Isolation Contract
 
 The benchmark root is timestamped under the validation root. Before every path
