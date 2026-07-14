@@ -159,14 +159,20 @@ leaf and must not become an authoritative input.
 Every machine-readable line uses the exact prefix `MH_VTA_EVENT ` followed by
 one compact `vta_event_v1` JSON object. Supported records are `subject_ready`,
 `task_started`, `stage_timing`, `task_outcome`, and `subject_summary`.
-Unprefixed output remains diagnostic text. Python samples the MATLAB process
-tree at 100 ms intervals for peak RSS and treats a malformed prefixed line as a
-protocol failure.
+Unprefixed output remains diagnostic text. Python samples all live MATLAB
+process trees on one synchronized 100 ms clock, counting each PID once per
+tick, and treats a malformed prefixed line as a protocol failure.
 
 Sequences begin at 1 and are contiguous. A successful process emits exactly
 one ready event, one started/outcome pair per selected task, and one summary
 whose counts match the outcomes. Exit zero with a missing or inconsistent
 protocol event is still a process failure.
+
+The legal order is subject-scope initialization timings, `subject_ready`, then
+one ordered `task_started` / task-scope timings / `task_outcome` block per
+task, followed by `subject_summary`. No event follows the summary.
+Each stage event declares scope, stage status, duration, and cache status when
+applicable.
 
 Measure at least these execution classes:
 
@@ -207,16 +213,19 @@ single-threshold helper may remain as a compatibility wrapper.
 
 Continue to allocate the complete native-anchor array and initialize it with
 `NaN`. Transform the finite FEM sample-point bounding box into anchor voxel
-coordinates, add a one-voxel margin, clamp it to the anchor dimensions, and
-query `scatteredInterpolant` only within that box.
+coordinates, add a one-voxel margin, intersect it with the anchor dimensions,
+and query `scatteredInterpolant` only within a nonempty intersection.
 
 Do not crop the written NIfTI. Voxels outside the query box must remain `NaN`.
 This preserves the common-grid contract while avoiding point-location queries
 that are guaranteed to be outside FEM support.
 
-The implementation must handle rotated or sheared anchor affines by converting
-all eight physical bounding-box corners into voxel coordinates. It must not
-assume an axis-aligned identity affine.
+The implementation accepts FEM sample points in millimeters and handles
+rotated, sheared, reflected, or negative-determinant anchor affines by
+converting all eight physical bounding-box corners with one-based
+`ea_mm2vox(points_mm, anchor.mat)` semantics. It intersects the integer query
+range with `[1, dimensions]`; if any axis is empty, it returns the full-size
+all-`NaN` grid rather than clamping onto a boundary voxel.
 
 ### 3. Remove Duplicate Context and Head-Model Loads
 
@@ -270,6 +279,11 @@ dependency edges. A missing or failed donor never blocks a recipient: MATLAB
 tries the next donor and computes the recipient when none exists. Unselected
 donors are not executable tasks.
 
+Selected writable leaves must be distinct and may not overlap by
+ancestor/descendant path. Donor copies map only the same output space and same
+canonical relative artifact filename; partial donor leaves are probed
+artifact-by-artifact.
+
 The subject runner must:
 
 - validate each canonical task with a static definition validator that does
@@ -286,8 +300,8 @@ The subject runner must:
   blocking the whole task after any source outcome failure;
 - skip complete tasks before expensive context initialization;
 - preserve per-artifact atomic publication;
-- return task-level `generated`, `copied`, `skipped_existing`, `failed`, and
-  `skipped_dependency` outcomes;
+- return task-level `generated`, `copied`, `skipped_existing`,
+  `recovered_complete`, `failed`, and `skipped_dependency` outcomes;
 - mark a downstream task `skipped_dependency` only when its currently
   required upstream artifact remains absent;
 - continue independent tasks within the subject when possible;
@@ -297,6 +311,9 @@ The subject runner must:
 Python changes from invoking `run_task()` repeatedly to invoking one
 `run_subject_manifest()` per active subject. A subject whose selected leaves are
 already complete must not start MATLAB.
+
+When every selected task is complete, Python synthesizes one
+`skipped_existing` outcome per task without starting MATLAB.
 
 For group peak, source native E-fields are required only when the native
 group-peak E-field is missing. Native thresholds require the native group-peak
@@ -315,6 +332,8 @@ subject context key:
 head-model key:
   subject + hemisphere + canonical head-model path + atlas set
   + gray/white conductivity + canonical meshing/model versions
+  + electrode model + reconstruction lead + trajectory coordinates
+  + patient GM mask path/size/mtime
 
 export-geometry key:
   head-model key + reconstruction path + reconstruction lead
@@ -332,8 +351,11 @@ A later interpolation cache may precompute mesh-to-anchor interpolation
 geometry or barycentric mappings. It requires a dedicated equivalence test and
 is not part of the first implementation pass.
 
-Tasks sharing a head-model key must declare the same atlas, conductivity,
-meshing-version, and headmodel-version inputs or manifest validation fails.
+Tasks sharing a head-model path must declare the same atlas, conductivity,
+meshing-version, headmodel-version, electrode model, reconstruction lead,
+trajectory, and resolved patient GM geometry or manifest validation fails.
+Internal constants are `canonical_mask_surface_v1` and
+`simbio_onesolve_canonical_v1`; they are not public YAML fields.
 
 ## Phase 4: FEM Linear-System Reuse
 
@@ -427,8 +449,12 @@ semantics.
   artifacts and preserves completed work.
 - Manifest-write, force-reset, process-launch, parser, and fatal MATLAB
   failures increment `subject_process_failed`; other subjects continue.
-- Python returns a nonzero final status when any selected task fails or any
-  subject process fails.
+- Parsed successful outcomes are retained only after all expected files are
+  revalidated. A complete task with no final outcome after protocol failure is
+  `recovered_complete`, which does not claim whether execution, copy, or prior
+  state produced it.
+- Python returns a nonzero final status when any selected task fails, any task
+  is `skipped_dependency`, or any subject process fails.
 - Existing successful outputs remain usable after another task fails.
 - Path-existence resume is always enabled; `--resume` is a compatibility alias
   for ordinary run behavior.
@@ -444,9 +470,10 @@ Every optimized path must preserve:
 - exact finite-mask agreement;
 - exact thresholded VTA arrays for derived-only optimizations;
 - exact alternating group-peak NaN-union semantics;
-- old-canonical versus optimized-canonical E-field maximum absolute difference
-  no greater than `1e-3 V/m`;
-- continuous E-field relative L2 error no greater than `1e-5`;
+- old-canonical versus optimized-canonical FEM E-fields of every continuous,
+  alternating-source, voltage, and current class have exact dimensions and
+  finite masks and maximum absolute difference no greater than `1e-3 V/m`;
+- every such FEM E-field has relative L2 error no greater than `1e-5`;
 - Pearson correlation at least `0.999999`;
 - VTA Dice at least `0.999`; and
 - relative VTA volume difference no greater than `0.1%`.
@@ -468,6 +495,9 @@ Old-canonical versus optimized-canonical acceptance uses a dedicated
 `optimization_regression` comparator mode with the `1e-3 V/m` maximum-error
 gate. It must not reuse or silently change the standard-SimBio comparator's
 `0.05 V/m` contract.
+
+A negative comparator test uses a difference strictly between `1e-3` and
+`0.05 V/m`: standard backend mode passes and optimization mode fails.
 
 Bulk threshold and group-peak tests must use synthetic NIfTI fixtures covering:
 
@@ -498,26 +528,35 @@ before `ea_getactiveidx` and do not overwrite existing files.
 
 ## Performance Acceptance
 
-Benchmark a fixed representative suite:
+Benchmark the suite declared by
+`my_helper/vta/test/fixtures/vta_performance_benchmark_v1.json`, schema
+`vta_performance_benchmark_v1`:
 
 ```text
-SNr003 T1/program 1/lead-R cold- and warm-headmodel continuous single-source
-SNr003 T2/program 2/lead-L alternating sources plus group peak
-SNr003 threshold-only repair and fully complete resume
-SNr006 T2/program 2/lead-L/group-1 SceneRay SR1200 alternating coverage
-SNr011 T2/program 2/lead-L/group-1 SceneRay SR1202 continuous coverage
+SNr003 T1/program 1/lead-R/group-1 continuous_joint source-1, cold and warm
+SNr003 T2/program 2/lead-L/group-1 alternating source-1/source-2 plus group peak
+SNr003 native/MNI threshold-only repair with both E-fields retained
+SNr003 fully complete resume
+SNr006 T2/program 2/lead-L/group-1 alternating source-1/source-2 plus group peak
+SNr011 T2/program 2/lead-L/group-1 continuous_joint source-1
 deterministic synthetic continuous multi-source fixture
 SNr003 right-sided single-cathode/case-return current fixture, seed 20260712
 ```
 
 The current cohort has no real continuous multi-source group, so that execution
 class is a deterministic synthetic FEM fixture rather than a hard-coded study
-row. Its complete payload is frozen in the versioned benchmark manifest. Run
-one warm-up and five measured repetitions. Every repetition restores selected
-and equivalent donor leaves from the same frozen snapshot; cold- and
+row. The manifest freezes all canonical selectors, task kinds, source IDs,
+synthetic/current payloads, spaces (`native`, `MNI152NLin2009bAsym`), thresholds
+(180/200/220 V/m), initial artifact inventory, and expected counts. Baseline
+and candidate both use `--workers 3` and receive separate warm-ups. Five
+measured pairs alternate fixed order baseline/candidate, candidate/baseline,
+baseline/candidate, candidate/baseline, baseline/candidate. Every member
+restores selected and donor leaves from the same frozen snapshot; cold- and
 warm-headmodel fixtures are separate. Expected process, solve, derived, copy,
-and skip counts are asserted. The primary performance metric is the median
-total wall time of the complete fixed warm-headmodel suite.
+and skip counts are asserted. Temporary validation-root checksums enforce exact
+derived and same-backend repeatability without adding production provenance.
+The primary performance metric is the median total wall time of the complete
+fixed warm-headmodel suite.
 
 The optimized pipeline passes performance acceptance when:
 
@@ -526,7 +565,8 @@ The optimized pipeline passes performance acceptance when:
 - threshold-only repair performs zero FEM solves;
 - each E-field is loaded at most once per output space for all requested
   thresholds;
-- interpolation queries are restricted to the clamped mesh bounding box;
+- interpolation queries are restricted to the nonempty intersected mesh
+  bounding box;
 - default three-worker execution completes without out-of-memory failure or
   uncontrolled nested process parallelism;
 - aggregate three-worker process-tree peak RSS is no greater than 75% of
@@ -540,10 +580,19 @@ Performance results must report wall time, process count, MATLAB startup count,
 peak resident memory, and stage timings. One unusually fast task must not be
 used to hide a regression in another execution class.
 
-Stage durations are summed by execution class and stage for each repetition,
-then compared by baseline/candidate medians. Spawn-to-`subject_ready` is a
-separate `startup_total` metric and is not added to internal MATLAB
-initialization stages.
+RSS uses one synchronized 100 ms sampler: at each tick it unions PIDs across
+subject process trees, sums each live PID once, and takes the maximum over
+time. Physical memory comes from `psutil.virtual_memory().total`; minimum
+available memory, swap start/end/peak, signals, and OOM evidence are recorded.
+
+Task execution class is `(headmodel_state, task_kind, control_mode,
+source_count_class, resolved_action)`; subject-scope stages are separate. Stage
+durations are summed by class/stage for each repetition, then compared by
+baseline/candidate medians. Cache hits emit lookup duration with
+`cache_status=hit`; action-excluded stages are `not_applicable`; missing
+expected telemetry is a protocol failure. Spawn-to-`subject_ready` is a
+separate `startup_total` metric and is not added to internal initialization
+stages.
 
 ## Planned File Changes
 
