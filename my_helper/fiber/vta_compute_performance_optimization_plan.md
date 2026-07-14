@@ -151,6 +151,12 @@ The representative paired real-FEM gate contract is:
 docs/superpowers/plans/2026-07-14-vta-representative-paired-performance-gate.md
 ```
 
+The three-worker memory gate contract is:
+
+```text
+docs/superpowers/plans/2026-07-14-vta-three-worker-memory-gate.md
+```
+
 ## Goal
 
 Reduce clean-run and incremental-run wall time while preserving:

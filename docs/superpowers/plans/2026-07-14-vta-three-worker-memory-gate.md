@@ -1,0 +1,116 @@
+# VTA Three-Worker Memory Gate Plan
+
+## Purpose
+
+Prove that the production subject-level runner is memory-safe with three active
+workers before changing the public `vta-model run --workers` default from one
+to three. This is an isolated acceptance run, not a scientific rerun.
+
+## Current State
+
+```text
+design_documented
+implementation_not_started
+three_worker_memory_gate_not_run
+public_cli_default_workers_1
+```
+
+The post-reuse numerical/performance gate and bounded real-current cache-hit
+gate are complete. Their retained roots are read-only and are not reused as
+three-worker outputs.
+
+## Acceptance Workload
+
+The gate reads selectors from the versioned performance fixture rather than
+embedding protocol phase, program, electrode, or frequency-group values in
+code. The selected case IDs are:
+
+```text
+snr003_t2_p2_l_alternating
+snr006_t2_p2_l_alternating
+snr011_t2_p2_l_continuous
+```
+
+The harness must assert that these resolve to exactly three distinct subjects
+and share one phase/program/electrode/frequency-group selector tuple. It copies
+only those subjects into a new validation root, rewrites their study-base paths,
+and omits copied `headmodel` and `stimulations` directories. Production subject
+trees and completed validation roots remain unchanged.
+
+The measured run therefore exercises three concurrent cold subject workers:
+
+```text
+two alternating source tasks plus one group peak for subject 1
+two alternating source tasks plus one group peak for subject 2
+one continuous task for subject 3
+```
+
+This is five FEM solves and seven realized tasks. Cold head-model construction
+is intentionally included because the public default also applies when a
+subject has not yet been prepared. The canonical atlas-mask geometry fix must
+prevent the former overlapping-atlas Boolean explosion.
+
+## Execution Contract
+
+The harness uses the production components directly:
+
+```text
+prepare_plan
+ProcessTreeMemoryMonitor(sample_interval_seconds=0.1)
+MatlabBridge(memory_monitor=shared_monitor)
+RunService.run(workers=3, resume=false, force=false)
+```
+
+Exactly one persistent MATLAB root process is allowed per selected subject.
+The shared monitor registers all three roots, unions descendant PIDs at each
+sample, counts each live PID once, and reports synchronized aggregate and
+per-subject RSS. The run must demonstrate an interval in which all three
+subject roots are simultaneously registered; merely requesting three workers
+is insufficient evidence.
+
+No MATLAB task-level parallel pool is enabled. External meshing or transform
+children remain descendants of their owning subject process and are included
+in the process-tree measurement.
+
+## Acceptance Gates
+
+- exactly three selected subject plans and seven tasks resolve;
+- exactly five FEM solves are observed from timing events;
+- all seven task outcomes complete without failed or dependency-skipped tasks;
+- three subject MATLAB roots overlap in time;
+- no process signal, nonzero exit, OOM evidence, or uncontrolled nested MATLAB
+  roots occur;
+- aggregate process-tree peak RSS is no greater than 75% of physical memory;
+- each subject process-tree peak RSS is no greater than 50% of physical memory;
+- memory sample interval is 100 ms and sample count is positive;
+- swap start/end/peak and minimum available memory are reported; and
+- every configured native/MNI E-field and VTA artifact exists when the run
+  finishes.
+
+The gate writes an immutable validation directory containing the copied study
+input, copied model YAML, resolved selector/case inventory, run summary, memory
+observation, task outcome inventory, and acceptance summary. A failed directory
+is retained and never overwritten.
+
+## CLI Default Change
+
+Only after every gate above passes:
+
+1. update the public CLI default from `1` to `3`;
+2. update CLI/README/model documentation;
+3. add parser and service tests proving omitted `--workers` resolves to three
+   while an explicit positive value still overrides it; and
+4. rerun the complete Python VTA suite, complete MATLAB fiber suite, Code
+   Analyzer for touched MATLAB files, and `git diff --check`.
+
+If the memory gate fails, the public default remains one. The measured failure
+must be documented; workers may still be selected explicitly by the user.
+
+## Non-Goals
+
+- no production output migration or overwrite;
+- no hard-coded clinical meaning for the selected fixture phases;
+- no change to FEM physics, thresholds, artifact names, or resume semantics;
+- no full-cohort execution; and
+- no claim that three workers are safe on a host with less memory than the
+  measured machine without applying the same percentage gates.

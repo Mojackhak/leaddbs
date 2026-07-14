@@ -19,6 +19,12 @@ three_worker_memory_gate_not_run
 public_cli_default_workers_1
 ```
 
+The remaining memory gate is specified in:
+
+```text
+docs/superpowers/plans/2026-07-14-vta-three-worker-memory-gate.md
+```
+
 The pre-reuse paired gate completed at
 `/Volumes/VAL/STNSNr/validation/vta_performance_benchmark_20260714T113033575679Z`.
 Its compatibility and persistent medians were `73.42287808400579 s` and
