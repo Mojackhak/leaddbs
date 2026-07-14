@@ -6,9 +6,10 @@
 design_approved_for_execution
 slice_1_telemetry_and_benchmark_harness_implemented
 slice_2_bulk_threshold_generation_implemented
+slice_3_bounded_native_interpolation_implemented
 solver_free_verification_complete
 real_fem_baseline_not_run
-slices_3_to_9_not_started
+slices_4_to_9_not_started
 current_outputs_unchanged
 ```
 
@@ -23,9 +24,14 @@ alternating group-peak paths while preserving per-artifact atomic publication.
 Exact synthetic coverage includes threshold boundaries, nonfinite values,
 metadata, resume, failure, compatibility, load count, and event ordering.
 
+Slice 3 bounds native interpolation queries using all eight transformed
+physical sample-box corners while retaining the full anchor-sized output.
+Exact full-grid reference tests cover general affine geometry and internal,
+boundary, partially external, and fully external support.
+
 This status does not claim a measured runtime improvement. The real FEM
 baseline, candidate comparison, and three-worker memory gate have not run.
-The production CLI default remains one worker until that gate passes. Slices 3
+The production CLI default remains one worker until that gate passes. Slices 4
 through 9 remain implementation work.
 
 ## Purpose

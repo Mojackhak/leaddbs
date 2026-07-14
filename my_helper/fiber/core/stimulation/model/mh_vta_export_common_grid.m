@@ -30,13 +30,23 @@ interpolant = scatteredInterpolant( ...
 anchor = ea_load_nii(anchorPath);
 dimensions = double(anchor.dim(1:3));
 sampled = nan(dimensions, 'single');
-chunkSize = 250000;
-for first = 1:chunkSize:prod(dimensions)
-    last = min(prod(dimensions), first + chunkSize - 1);
-    indices = (first:last)';
-    [i, j, k] = ind2sub(dimensions, indices);
-    xyzMm = ea_vox2mm([i, j, k], anchor.mat);
-    sampled(indices) = single(interpolant(xyzMm(:, 1), xyzMm(:, 2), xyzMm(:, 3)));
+[lowerBound, upperBound] = mh_vta_native_query_bounds( ...
+    points, anchor.mat, dimensions);
+if ~isempty(lowerBound)
+    boxDimensions = upperBound - lowerBound + 1;
+    chunkSize = 250000;
+    for first = 1:chunkSize:prod(boxDimensions)
+        last = min(prod(boxDimensions), first + chunkSize - 1);
+        localIndices = (first:last)';
+        [i, j, k] = ind2sub(boxDimensions, localIndices);
+        i = i + lowerBound(1) - 1;
+        j = j + lowerBound(2) - 1;
+        k = k + lowerBound(3) - 1;
+        xyzMm = ea_vox2mm([i, j, k], anchor.mat);
+        outputIndices = sub2ind(dimensions, i, j, k);
+        sampled(outputIndices) = single(interpolant( ...
+            xyzMm(:, 1), xyzMm(:, 2), xyzMm(:, 3)));
+    end
 end
 
 output = anchor;

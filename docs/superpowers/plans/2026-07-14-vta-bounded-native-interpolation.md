@@ -3,11 +3,21 @@
 ## Status
 
 ```text
-design_aligned
-implementation_not_started
+implemented
+solver_free_verification_complete
 real_fem_not_required_for_this_slice
 current_outputs_unchanged
 ```
+
+Implemented on 2026-07-14. Six exact full-grid comparison tests cover identity,
+translated, rotated, sheared, reflected/negative-determinant, boundary,
+partially external, fully external, and nonfinite-sample cases. The complete
+90-test solver-free MATLAB fiber suite and all 115 Python VTA
+pipeline/benchmark tests pass. MATLAB Code Analyzer reports no findings in the
+touched files.
+
+This slice does not establish a whole-pipeline speedup. No real FEM or
+candidate performance benchmark was run.
 
 ## Goal
 
@@ -105,4 +115,3 @@ This slice is complete only when:
 - full-grid dimensions and affine remain unchanged;
 - all focused and regression tests pass; and
 - roadmap/design status is updated without claiming a whole-pipeline speedup.
-
