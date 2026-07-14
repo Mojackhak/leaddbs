@@ -29,7 +29,12 @@ class RepositoryConfigTests(unittest.TestCase):
         self.assertEqual(sum(item.hemisphere == "L" for item in main), 71)
         self.assertEqual(sum(item.hemisphere == "R" for item in main), 71)
         self.assertEqual(sum(item.hemisphere == "M" for item in main), 8)
-        self.assertEqual(sum(item.laterality_corrected for item in labels), 42)
+        self.assertEqual(sum(item.laterality_corrected for item in labels), 0)
+        by_id = {item.label_id: item.resolved_label_name for item in labels}
+        self.assertEqual(by_id[317], "Red_nucleus_L")
+        self.assertEqual(by_id[319], "Subthalamic_nucleus_L")
+        self.assertEqual(by_id[321], "Habenular_nucleus_L")
+        self.assertEqual(by_id[333], "Dentate_nucleus_L")
 
 
 if __name__ == "__main__":

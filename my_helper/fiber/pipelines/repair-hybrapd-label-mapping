@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Repair the local HybraPD label mapping and derived connectivity results."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from my_helper.fiber.core.whole_brain_roi_atlas.repair import repair_hybrapd_label_mapping
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--official-label-file", type=Path, required=True)
+    parser.add_argument("--atlas-config", type=Path, required=True)
+    parser.add_argument("--connectivity-config", type=Path, required=True)
+    arguments = parser.parse_args()
+    result = repair_hybrapd_label_mapping(
+        official_label_path=arguments.official_label_file,
+        atlas_config_path=arguments.atlas_config,
+        connectivity_config_path=arguments.connectivity_config,
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
