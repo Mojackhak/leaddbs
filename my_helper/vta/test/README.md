@@ -203,6 +203,19 @@ but historical drift does not block recovery. The mandatory safety gate is
 that the production tree hash immediately before and after the recovery is
 identical; recovery must not mutate the current production tree.
 
+The recovery candidate executes through the production canonical task
+validator and therefore writes first to the copied subject's canonical output
+leaf. After successful publication, the complete native and MNI leaves are
+copied to the acceptance run's `outputs/canonical/<case>/` index for comparison.
+The harness never weakens canonical-path validation to accommodate acceptance
+paths.
+
+Recovery attempt count and completed FEM solve count are separate. A failure
+before the canonical solve returns does not increment the completed solve
+count. A missing candidate directory after an interrupted attempt is a
+recoverable state: the next attempt rebuilds it from the frozen copied subject
+and retained standard reference.
+
 Historical voltage outputs can likewise be re-compared without FEM:
 
 ```matlab

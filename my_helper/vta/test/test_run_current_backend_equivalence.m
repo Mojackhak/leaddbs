@@ -122,6 +122,21 @@ verifyTrue(testCase, contains(source, ...
     'production_subject_tree_unchanged_during_recovery'));
 end
 
+function testRecoveryUsesCanonicalLeavesAndCountsCompletedSolves(testCase)
+source = fileread(which('run_current_backend_equivalence'));
+verifyTrue(testCase, contains(source, ...
+    "mh_vta_canonical_leaf_path(task, 'native')"));
+verifyTrue(testCase, contains(source, ...
+    'manifest.latest_recovery_fem_solve_count = 0'));
+verifyTrue(testCase, contains(source, ...
+    'manifest.latest_recovery_fem_solve_count = 1'));
+executePositions = strfind(source, ...
+    'execute_canonical_backend(copiedSubject, subject, oneCase');
+incrementPosition = strfind(source, ...
+    'manifest.accumulated_fem_solve_count = completedFemCount + 1');
+verifyLessThan(testCase, executePositions(end), incrementPosition);
+end
+
 function testCompareExistingUsesNoFemAndRefreshesMetrics(testCase)
 runRoot = tempname;
 mkdir(runRoot);
