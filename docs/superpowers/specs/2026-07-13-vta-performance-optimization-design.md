@@ -312,6 +312,7 @@ fem_pcg_solve
 gradient_calculation
 electrode_removal_geometry
 native_grid_interpolation
+group_peak_composition
 threshold_generation
 native_to_mni_transform
 artifact_publication

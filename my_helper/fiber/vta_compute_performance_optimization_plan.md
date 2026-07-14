@@ -147,6 +147,7 @@ PCG solve
 gradient calculation
 electrode-removal export geometry
 native-grid interpolation
+alternating group-peak composition
 NIfTI threshold generation
 native-to-MNI transformation
 artifact publication
