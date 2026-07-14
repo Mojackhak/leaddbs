@@ -202,6 +202,51 @@ run_voltage_backend_equivalence( ...
 This command remains an explicit maintenance action outside the lightweight
 test suite.
 
+## Frozen VTA Performance Baseline
+
+`run_vta_performance_benchmark.py` validates and materializes the frozen
+`vta_performance_benchmark_v1` fixture. Validation and preparation are
+solver-free. The only mode that may start MATLAB is the explicit baseline
+command:
+
+```bash
+/opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/vta/test/run_vta_performance_benchmark.py validate \
+  --study-base /path/to/study_base.json \
+  --vta-model /path/to/vta_model.yaml
+
+/opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/vta/test/run_vta_performance_benchmark.py prepare \
+  --study-base /path/to/study_base.json \
+  --vta-model /path/to/vta_model.yaml \
+  --work-root /path/to/copied-validation
+
+/opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/vta/test/run_vta_performance_benchmark.py run-baseline \
+  --study-base /path/to/study_base.json \
+  --vta-model /path/to/vta_model.yaml \
+  --work-root /path/to/copied-validation
+```
+
+The baseline command always requests three workers from the VTA pipeline, but
+each frozen case currently selects one subject. The first-slice report therefore
+labels three-subject concurrency as unmeasured. Candidate binding remains
+deferred until the persistent subject runner exists; five baseline repetitions
+are recorded without synthetic pair positions. The frozen B/C schedule is
+retained only as an unexecuted future contract.
+
+Each preparation creates
+`vta_performance_benchmark_<timestamp>/` below the copied validation root. It
+contains the resolved fixture, `frozen_input/`, independent baseline and future
+candidate working trees, per-run records under `runs/`, and
+`benchmark_summary.json`. Existing untracked benchmark paths are moved to the
+filesystem Trash instead of being overwritten. The harness rejects the
+authoritative Lead-DBS derivatives root and every path below it.
+Runtime process/solve/derived/copy/skip counts must be emitted by the executed
+case; the harness never derives them from expected fixture ordering. Snapshot
+manifests record selected and equivalent-donor artifact states, and every
+restore verifies those states before execution.
+
 ## Accepted Evidence
 
 The historical bilateral voltage outputs were refreshed without FEM at:

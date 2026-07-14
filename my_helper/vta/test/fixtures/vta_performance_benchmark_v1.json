@@ -1,0 +1,462 @@
+{
+  "schema_version": "vta_performance_benchmark_v1",
+  "benchmark_id": "canonical_vta_phase0_baseline",
+  "spaces": [
+    "native",
+    "MNI152NLin2009bAsym"
+  ],
+  "thresholds_v_per_m": [
+    180,
+    200,
+    220
+  ],
+  "workers": 3,
+  "warmup_runs_per_path": 1,
+  "measured_pair_order": [
+    [
+      "baseline",
+      "candidate"
+    ],
+    [
+      "candidate",
+      "baseline"
+    ],
+    [
+      "baseline",
+      "candidate"
+    ],
+    [
+      "candidate",
+      "baseline"
+    ],
+    [
+      "baseline",
+      "candidate"
+    ]
+  ],
+  "payloads": {
+    "synthetic_continuous_multi_source": {
+      "case_id": "synthetic_continuous_multi_source",
+      "hemisphere": "R",
+      "design": "continuous_multi_source",
+      "delivery_mode": "continuous",
+      "control_mode": "voltage",
+      "unit": "V",
+      "sources": [
+        {
+          "source_id": "source-1",
+          "frequency_hz": 130,
+          "amplitude_v": 2.0,
+          "pulse_width_us": 60,
+          "contacts": [
+            {
+              "contact": 1,
+              "polarity": "cathode",
+              "fraction": 1.0
+            },
+            {
+              "contact": "case",
+              "polarity": "anode",
+              "fraction": 1.0
+            }
+          ]
+        },
+        {
+          "source_id": "source-2",
+          "frequency_hz": 130,
+          "amplitude_v": 2.0,
+          "pulse_width_us": 60,
+          "contacts": [
+            {
+              "contact": 2,
+              "polarity": "cathode",
+              "fraction": 1.0
+            },
+            {
+              "contact": "case",
+              "polarity": "anode",
+              "fraction": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    "current_single_cathode_case_return": {
+      "case_id": "R_single_cathode_case_return",
+      "hemisphere": "R",
+      "design": "single_cathode_case_return",
+      "control_mode": "current",
+      "unit": "mA",
+      "amplitude_mA": 4.7761121690289734,
+      "pulse_width_us": 90,
+      "frequency_hz": 130,
+      "contacts": [
+        {
+          "contact": 4,
+          "polarity": "cathode",
+          "fraction": 1.0
+        },
+        {
+          "contact": "case",
+          "polarity": "anode",
+          "fraction": 1.0
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case_id": "snr003_t1_p1_r_continuous_cold",
+      "selector": {
+        "subject_id": "SNr003",
+        "phase_id": "T1",
+        "program_id": 1,
+        "electrode_id": "lead-R",
+        "frequency_group_id": "group-1"
+      },
+      "tasks": [
+        {
+          "task_kind": "continuous_joint",
+          "source_ids": [
+            "source-1"
+          ]
+        }
+      ],
+      "headmodel_state": "cold",
+      "initial_artifacts": "missing",
+      "expected_counts": {
+        "baseline": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 1,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        },
+        "candidate": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 1,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        }
+      }
+    },
+    {
+      "case_id": "snr003_t1_p1_r_continuous_warm",
+      "selector": {
+        "subject_id": "SNr003",
+        "phase_id": "T1",
+        "program_id": 1,
+        "electrode_id": "lead-R",
+        "frequency_group_id": "group-1"
+      },
+      "tasks": [
+        {
+          "task_kind": "continuous_joint",
+          "source_ids": [
+            "source-1"
+          ]
+        }
+      ],
+      "headmodel_state": "warm",
+      "initial_artifacts": "missing",
+      "expected_counts": {
+        "baseline": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 1,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        },
+        "candidate": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 1,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        }
+      }
+    },
+    {
+      "case_id": "snr003_t2_p2_l_alternating",
+      "selector": {
+        "subject_id": "SNr003",
+        "phase_id": "T2",
+        "program_id": 2,
+        "electrode_id": "lead-L",
+        "frequency_group_id": "group-1"
+      },
+      "tasks": [
+        {
+          "task_kind": "alternating_source",
+          "source_ids": [
+            "source-1"
+          ]
+        },
+        {
+          "task_kind": "alternating_source",
+          "source_ids": [
+            "source-2"
+          ]
+        },
+        {
+          "task_kind": "alternating_group_peak",
+          "source_ids": [
+            "source-1",
+            "source-2"
+          ]
+        }
+      ],
+      "headmodel_state": "warm",
+      "initial_artifacts": "missing",
+      "expected_counts": {
+        "baseline": {
+          "matlab_process_count": 3,
+          "fem_solve_count": 2,
+          "derived_task_count": 1,
+          "copy_count": 0,
+          "skip_count": 0
+        },
+        "candidate": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 2,
+          "derived_task_count": 1,
+          "copy_count": 0,
+          "skip_count": 0
+        }
+      }
+    },
+    {
+      "case_id": "snr003_t1_p1_r_threshold_repair",
+      "selector": {
+        "subject_id": "SNr003",
+        "phase_id": "T1",
+        "program_id": 1,
+        "electrode_id": "lead-R",
+        "frequency_group_id": "group-1"
+      },
+      "tasks": [
+        {
+          "task_kind": "continuous_joint",
+          "source_ids": [
+            "source-1"
+          ]
+        }
+      ],
+      "headmodel_state": "warm",
+      "initial_artifacts": "threshold_repair",
+      "expected_counts": {
+        "baseline": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 0,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        },
+        "candidate": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 0,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        }
+      }
+    },
+    {
+      "case_id": "snr003_t1_p1_r_complete_resume",
+      "selector": {
+        "subject_id": "SNr003",
+        "phase_id": "T1",
+        "program_id": 1,
+        "electrode_id": "lead-R",
+        "frequency_group_id": "group-1"
+      },
+      "tasks": [
+        {
+          "task_kind": "continuous_joint",
+          "source_ids": [
+            "source-1"
+          ]
+        }
+      ],
+      "headmodel_state": "warm",
+      "initial_artifacts": "complete",
+      "expected_counts": {
+        "baseline": {
+          "matlab_process_count": 0,
+          "fem_solve_count": 0,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 1
+        },
+        "candidate": {
+          "matlab_process_count": 0,
+          "fem_solve_count": 0,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 1
+        }
+      }
+    },
+    {
+      "case_id": "snr006_t2_p2_l_alternating",
+      "selector": {
+        "subject_id": "SNr006",
+        "phase_id": "T2",
+        "program_id": 2,
+        "electrode_id": "lead-L",
+        "frequency_group_id": "group-1"
+      },
+      "tasks": [
+        {
+          "task_kind": "alternating_source",
+          "source_ids": [
+            "source-1"
+          ]
+        },
+        {
+          "task_kind": "alternating_source",
+          "source_ids": [
+            "source-2"
+          ]
+        },
+        {
+          "task_kind": "alternating_group_peak",
+          "source_ids": [
+            "source-1",
+            "source-2"
+          ]
+        }
+      ],
+      "headmodel_state": "warm",
+      "initial_artifacts": "missing",
+      "expected_counts": {
+        "baseline": {
+          "matlab_process_count": 3,
+          "fem_solve_count": 2,
+          "derived_task_count": 1,
+          "copy_count": 0,
+          "skip_count": 0
+        },
+        "candidate": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 2,
+          "derived_task_count": 1,
+          "copy_count": 0,
+          "skip_count": 0
+        }
+      }
+    },
+    {
+      "case_id": "snr011_t2_p2_l_continuous",
+      "selector": {
+        "subject_id": "SNr011",
+        "phase_id": "T2",
+        "program_id": 2,
+        "electrode_id": "lead-L",
+        "frequency_group_id": "group-1"
+      },
+      "tasks": [
+        {
+          "task_kind": "continuous_joint",
+          "source_ids": [
+            "source-1"
+          ]
+        }
+      ],
+      "headmodel_state": "warm",
+      "initial_artifacts": "missing",
+      "expected_counts": {
+        "baseline": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 1,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        },
+        "candidate": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 1,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        }
+      }
+    },
+    {
+      "case_id": "synthetic_continuous_multi_source",
+      "payload_id": "synthetic_continuous_multi_source",
+      "selector": {
+        "subject_id": "SNr003",
+        "phase_id": "benchmark",
+        "program_id": 9001,
+        "electrode_id": "lead-R",
+        "frequency_group_id": "synthetic-continuous-multi-source"
+      },
+      "tasks": [
+        {
+          "task_kind": "continuous_joint",
+          "source_ids": [
+            "source-1",
+            "source-2"
+          ]
+        }
+      ],
+      "headmodel_state": "warm",
+      "initial_artifacts": "missing",
+      "expected_counts": {
+        "baseline": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 1,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        },
+        "candidate": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 1,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        }
+      }
+    },
+    {
+      "case_id": "snr003_current_single_cathode_case_return",
+      "payload_id": "current_single_cathode_case_return",
+      "selector": {
+        "subject_id": "SNr003",
+        "phase_id": "benchmark",
+        "program_id": 9002,
+        "electrode_id": "lead-R",
+        "frequency_group_id": "current-single-cathode-case-return"
+      },
+      "tasks": [
+        {
+          "task_kind": "continuous_joint",
+          "source_ids": [
+            "current-source-1"
+          ]
+        }
+      ],
+      "headmodel_state": "warm",
+      "initial_artifacts": "missing",
+      "expected_counts": {
+        "baseline": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 1,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        },
+        "candidate": {
+          "matlab_process_count": 1,
+          "fem_solve_count": 1,
+          "derived_task_count": 0,
+          "copy_count": 0,
+          "skip_count": 0
+        }
+      }
+    }
+  ]
+}
