@@ -3,7 +3,7 @@
 ## Status
 
 ```text
-design_approved
+design_revision_pending_review
 implementation_not_started
 existing_outputs_unchanged
 ```
@@ -122,12 +122,53 @@ fixed worker allocation:
 - `cpu_budget` is a hard global CPU-token ceiling;
 - a preparation consumes `preparation_threads_per_subject` CPU tokens;
 - a bundle consumes `mrtrix_threads_per_bundle` CPU tokens; and
-- `memory_budget_gb` pauses new dispatch when sampled aggregate child-process
-  RSS reaches 80 percent of the configured ceiling.
+- preparation and bundle tasks reserve their configured memory estimates
+  before process launch.
 
-Running tasks are not killed merely because observed RSS crosses the memory
-dispatch threshold. Their completion releases tokens. The final status reports
-the observed aggregate peak RSS.
+The soft memory dispatch capacity is:
+
+```text
+memory_budget_gb * memory_dispatch_fraction
+```
+
+For every active task, the scheduler charges the greater of its declared
+reservation and its latest sampled process-tree RSS. A new task is admitted
+only when its reservation fits alongside all current charges. Validation
+rejects a preparation or bundle reservation that cannot fit by itself. This
+prospective reservation prevents a burst of newly launched processes from
+crossing the dispatch threshold before RSS sampling reacts.
+
+`memory_budget_gb` is a soft dispatch budget, not a hard operating-system
+memory limit. A task may grow beyond its reservation after launch, so observed
+RSS may exceed the configured value. Crossing the threshold stops new dispatch
+but does not kill running tasks. The final status reports declared
+reservations, aggregate peak RSS, and every task whose observed RSS exceeded
+its reservation.
+
+Scheduling order is deterministic and completion-biased:
+
+1. Subjects enter the active set in YAML order, up to `subject_workers`. A
+   subject remains active from preparation dispatch through publication or
+   terminal failure.
+2. Preparation for an active unprepared subject has priority over dispatching
+   an additional bundle, provided its CPU and memory reservation fits.
+3. Bundle order within a subject follows the nested seed and target order in
+   the YAML.
+4. At the start of each scheduling round, every prepared active subject with
+   pending work is offered one admissible bundle in YAML order before any
+   subject receives a second newly dispatched bundle.
+5. Remaining capacity is assigned to the earliest active YAML-order subject,
+   up to `bundle_workers_per_subject`, so one subject reaches its transactional
+   publish point promptly. That subject remains the focus until it publishes or
+   fails terminally.
+6. If the next preferred task cannot fit, the scheduler scans later eligible
+   tasks and backfills the first one that fits. No admissible task is left idle
+   merely because an earlier task is temporarily blocked.
+
+This defines `fair backfill` operationally: every prepared active subject gets
+one dispatch opportunity per round, while surplus capacity is
+completion-biased. A newly admitted subject cannot have preparation starved by
+bundles from an already prepared peer.
 
 The default is one MRtrix thread per bundle. This maximizes bundle-level
 parallelism and gives the strongest repeatability when `MRTRIX_RNG_SEED` is
@@ -199,6 +240,9 @@ execution:
   mrtrix_threads_per_bundle: 1
   cpu_budget: 16
   memory_budget_gb: 48
+  memory_dispatch_fraction: 0.8
+  preparation_memory_reservation_gb: 8
+  bundle_memory_reservation_gb: 2
   matlab_executable: matlab
   mrtrix_path_prefix: /usr/local/bin
 ```
@@ -217,12 +261,30 @@ Tracking fields may be omitted individually. Their defaults are
 always written to each subject's `resolved_config.json`.
 
 The resource fields `subject_workers`, `preparation_threads_per_subject`,
-`bundle_workers_per_subject`, `cpu_budget`, and `memory_budget_gb` are required
-positive values. `mrtrix_threads_per_bundle` defaults to `1`.
-`matlab_executable` defaults to `matlab`; `mrtrix_path_prefix` defaults to an
-empty string and then relies on `PATH`. Validation requires every single task's
-CPU-token request to fit within `cpu_budget`; the global scheduler enforces the
-aggregate ceiling dynamically.
+`bundle_workers_per_subject`, `cpu_budget`, `memory_budget_gb`,
+`preparation_memory_reservation_gb`, and `bundle_memory_reservation_gb` are
+required positive values. `mrtrix_threads_per_bundle` defaults to `1` and
+`memory_dispatch_fraction` defaults to `0.8`, with an allowed interval of
+`(0, 1]`. `matlab_executable` defaults to `matlab`; `mrtrix_path_prefix`
+defaults to an empty string and then relies on `PATH`.
+
+Validation requires every task's CPU request to fit within `cpu_budget` and
+every task's memory reservation to fit within
+`memory_budget_gb * memory_dispatch_fraction`. The scheduler enforces both
+aggregate admission ceilings dynamically. Validation also emits structural
+concurrency warnings when any requested cap is unreachable, including:
+
+```text
+subject_workers * preparation_threads_per_subject > cpu_budget
+bundle_workers_per_subject * mrtrix_threads_per_bundle > cpu_budget
+subject_workers * bundle_workers_per_subject * mrtrix_threads_per_bundle
+  > cpu_budget
+```
+
+The warning reports the maximum concurrency actually attainable under the
+configured CPU tokens. Equivalent warnings are emitted when declared memory
+reservations make the requested preparation or per-subject bundle concurrency
+unreachable.
 
 ### Atlas and Pair Rules
 
@@ -246,8 +308,15 @@ aggregate ceiling dynamically.
 
 ### Subject Discovery and Overrides
 
-Every subject has a unique `id` and a Lead-DBS `subject_dir`. Standard discovery
-uses the existing Lead-DBS/BIDS conventions for:
+Every subject has a unique `id` and a Lead-DBS `subject_dir`. Duplicate subject
+IDs and duplicate resolved subject directories are hard validation errors. The
+output root is always created below the resolved `subject_dir`; `id` is the
+logical identifier used in status, identity, and RNG derivation. `id` need not
+equal the declared directory basename, but a mismatch emits a validation
+warning and both values are recorded. Changing `id` changes bundle identity
+even when `subject_dir` is unchanged.
+
+Standard discovery uses the existing Lead-DBS/BIDS conventions for:
 
 - DWI NIfTI;
 - bvec and bval;
@@ -274,6 +343,36 @@ anchor_to_dwi_transform
 
 An override replaces discovery only for that named input. All resolved files
 are validated before subject preparation begins.
+
+The transform direction is intentionally narrower than the legacy
+Fiber/VTA runner because this module publishes no native/MNI display export.
+MNI atlas masks are mapped to DWI in exactly two label-preserving stages:
+
+1. MNI to anchorNative uses the subject's inverse normalization, matching
+   `ea_apply_normalization_tofile(..., 1, 'GenericLabel', anchor_reference)`.
+   An explicit `mni_to_anchor_transform` must therefore be a direct
+   MNI-to-anchorNative deformation, not the forward anchorNative-to-MNI warp.
+2. anchorNative to DWI uses the direct anchorNative-to-b0 ANTs transform,
+   matching `ea_ants_apply_transforms(..., useinverse=0, b0_reference,
+   anchor_to_dwi_transform, 'GenericLabel')`.
+
+The standard Lead-DBS transform candidates are:
+
+```text
+normalization/transformations/<subject>_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants.nii.gz
+coregistration/dwi/<subject>_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w2<subject>_ses-preop_acq-iso_dwi_b0_ants1.mat
+coregistration/anat/<subject>_ses-preop_space-anchorNative_desc-preproc_acq-iso_T1w2<subject>_ses-preop_acq-iso_dwi_b0_ants1.mat
+```
+
+The first path is the direct inverse normalization. The latter two are ordered
+location candidates for the same direct anchorNative-to-DWI affine; discovery
+selects the first existing file and records which candidate was used.
+
+Discovery must not copy the legacy runner's requirements for
+DWI-to-anchorNative or anchorNative-to-MNI transforms; those directions are
+needed for display export, not for MNI ROI to DWI preparation. Preflight
+records the exact selected transform paths, directions, inversion flags, and
+reference images.
 
 ### Tracking Semantics
 
@@ -311,6 +410,29 @@ derived deterministically as:
 
 and is supplied through the `MRTRIX_RNG_SEED` environment variable.
 
+### Tool and Code Version Identity
+
+Version identity is captured before cache resolution because it directly
+controls invalidation:
+
+- Python executes `mrconvert -version`, `dwi2response -version`,
+  `dwi2fod -version`, `tckgen -version`, and `tckinfo -version` from the
+  resolved MRtrix path.
+- The MATLAB preflight returns `version` and `version('-release')`.
+- Python records the Lead-DBS Git commit when available and a SHA-256 content
+  hash of the relevant Python and MATLAB implementation files. The content hash
+  remains authoritative when the worktree is dirty.
+
+Each command's output is normalized into a JSON object containing the tool
+name, semantic/release version, and build identifier. Timestamps, terminal
+color codes, and absolute executable paths do not enter the normalized value.
+A missing command or unparsable version response is a validation error.
+
+FOD identity uses the preparation-command, MATLAB, and Lead-DBS identities.
+Bundle identity additionally uses the `tckgen` identity. TCK structural
+validation records the `tckinfo` identity without making a different
+`tckinfo` patch version alone invalidate a scientifically complete bundle.
+
 ## CLI Contract
 
 The executable exposes exactly these commands:
@@ -324,14 +446,19 @@ mrtrix-seed-target status --config CONFIG
 All scientific and execution parameters come from YAML. The CLI does not offer
 ROI, subject, tracking, output, `force`, or `resume` overrides.
 
-- `validate` is read-only. It performs strict Python validation and a bounded
-  MATLAB preflight for Lead-DBS transform resolution. It does not generate FOD
-  or tractograms.
+- `validate` is read-only. It completes all Python checks first, then launches
+  at most one MATLAB preflight process per unique configured subject. Total
+  MATLAB startups are therefore no greater than the number of subjects, and
+  concurrent preflights are bounded by `subject_workers`, CPU admission, and
+  memory admission. The preflight resolves Lead-DBS transforms and versions but
+  creates no subject directories, FODs, ROI derivatives, or tractograms.
 - `run` validates the complete batch before starting subject preparation,
   prepares unresolved subjects, globally schedules unresolved bundles, and
   publishes complete subject transactions.
 - `status` reads subject state and invokes `tckinfo` for existing final TCK
-  files. It does not start MATLAB.
+  files. For subjects in the current YAML it also reports removed-pair orphans,
+  incomplete attempts, and `cleanup_pending` rollback files. It does not start
+  MATLAB.
 
 Configuration errors return a distinct nonzero exit status before execution.
 Execution continues across independent subjects and reports a nonzero final
@@ -355,6 +482,8 @@ derivatives/leaddbs/sub-xxx/connectomics/dMRI/mrtrix_seed_target/
 │   ├── rois/
 │   ├── logs/
 │   ├── staging/
+│   │   ├── inflight/
+│   │   └── complete/
 │   └── rollback/
 └── tractograms/
     └── <seed_side>/
@@ -387,34 +516,98 @@ Automatic behavior replaces public `force` and `resume` modes:
 - matching identity plus a valid final TCK is reused;
 - missing, corrupt, or incomplete output is regenerated;
 - changed identity is regenerated into `work/staging`; and
-- matching valid staged output from an interrupted run is reused.
+- a matching staged output is reused only when `state.json` contains its
+  successful producer-completion record and the completed staged TCK passes
+  structural validation.
 
 Changing one target invalidates only bundles that reference that target.
 Changing a seed invalidates all targets nested under that seed. Changing FOD
 inputs invalidates every bundle for that subject.
 
+Removing a seed or target from a later YAML does not delete its prior output.
+For subjects still listed in the current YAML, `status` compares the current
+task set with tool-owned records and reports removed-pair TCK files as
+`orphaned_from_current_config`. `run` leaves these files untouched. If an
+entire subject is removed from the YAML, its directory is not inspected and
+all existing outputs remain out of scope. No cleanup command is added in schema
+version 1.
+
 ## Validation and Publication
 
-A staged TCK is valid when `tckinfo` reads its header and reports a
-nonnegative streamline count. A successful zero-streamline TCK is a valid
-scientific result. An empty transformed seed or target mask is an error and no
-tracking task is launched for it.
+`tckinfo` alone is not a producer-completion signal. A killed `tckgen` process
+may leave a readable header with a misleading zero count. Every bundle
+therefore uses this state machine:
+
+1. Before launch, `state.json` records the matching bundle identity as
+   `running`.
+2. `tckgen` writes only to
+   `work/staging/inflight/<bundle>.partial.tck`; the filename still ends in
+   `.tck` so MRtrix selects the correct format.
+3. A nonzero, signaled, or missing process exit status marks the attempt
+   incomplete. Its partial file is never reusable.
+4. Only after `tckgen` exits zero does Python run `tckinfo`, require a readable
+   header, and require a nonnegative actual streamline count.
+5. The validated inflight file is atomically renamed to
+   `work/staging/complete/<bundle>.tck`, and an atomically written state record
+   stores producer exit zero, bundle identity, actual count, TCK hash, and the
+   completed staged path.
+
+Reuse requires both the completed path and its matching successful state
+record. A crash between file rename and state update therefore causes safe
+regeneration rather than inferred success. Inflight files and completed files
+that retain only their pre-launch `running` ownership record are incomplete
+tool-owned attempts and are moved to Trash before regeneration; they are never
+promoted based on `tckinfo` alone. A file with no ownership record is
+non-tool-owned and is never touched.
+
+A successful zero-streamline or underfilled TCK is a valid scientific result
+when this full completion contract passes. An empty transformed seed or target
+mask is an error and no tracking task is launched for it. State and CLI output
+record `requested_streamlines`, `actual_streamlines`, and two independent
+status axes:
+
+```text
+action: generated | reused | failed | not_run
+yield_status: full | underfilled | zero | unknown
+```
+
+`underfilled` means `0 < actual_streamlines < requested_streamlines`, normally
+after the maximum seed-attempt budget is exhausted. `full` means equality,
+`zero` means `actual_streamlines == 0`, and a reported count greater than the
+requested count is a structural validation error rather than a fourth yield
+class.
 
 Publication is transactional per subject:
 
-1. Every changed bundle is staged and validated.
+Before expensive execution, every occupied final path is checked against
+`state.json`; a non-tool-owned collision fails that subject without touching
+the file. After this preflight:
+
+1. Every changed bundle completes the producer and staging contract above.
 2. Any bundle failure prevents publication of all changed bundles for that
    subject; unchanged final outputs remain untouched.
 3. Before replacement, each tool-owned old TCK is renamed into the subject's
    `work/rollback` directory on the same filesystem.
 4. Staged TCK files are renamed to final paths.
 5. A failed rename restores all rollback files.
-6. After successful final validation, replaced untracked TCK files are moved
-   to the platform Trash rather than permanently deleted.
+6. After successful final validation, the displaced old tool-owned TCK files
+   in `work/rollback` are moved to the platform Trash rather than permanently
+   deleted.
 
-The publisher refuses to overwrite an existing TCK that is not recorded as a
-tool-owned artifact in `state.json`. Independent subjects publish
-independently.
+`tool-owned` means that `state.json` records the exact canonical path and prior
+published artifact identity and that the current file still matches the
+recorded artifact hash. Git tracking status is irrelevant. A path-only state
+record or a content mismatch is treated as a non-tool-owned collision. The
+publisher only replaces tool-owned outputs. A non-tool-owned file is never
+overwritten, moved, or deleted.
+
+Rollback renames are atomic because `work` and `tractograms` share the subject
+filesystem. Moving rollback files to platform Trash is a post-publication
+cleanup operation and is not assumed atomic: on another volume it may become a
+slow copy-plus-delete. If Trash transfer fails, the newly published result
+remains valid, the old file remains safely in `work/rollback` with
+`cleanup_pending`, and the CLI returns a nonzero cleanup status so a later run
+can retry. Independent subjects publish independently.
 
 ## Failure and Interruption Semantics
 
@@ -424,9 +617,13 @@ independently.
   subject's transaction from publishing.
 - Successful staged bundles remain reusable after a sibling bundle fails.
 - On interruption, Python stops dispatching new work, terminates child
-  processes, preserves staging, and leaves prior final outputs unchanged.
-- The final CLI summary distinguishes generated, reused, zero-streamline,
-  failed, and not-run tasks.
+  processes, preserves only completion-recorded staging as reusable, and
+  leaves prior final outputs unchanged.
+- A Trash cleanup failure is reported separately from scientific publication;
+  published results remain valid while rollback files stay `cleanup_pending`.
+- The final CLI summary reports action and yield status separately, including
+  full, underfilled, and zero-streamline bundles plus requested and actual
+  aggregate streamline counts.
 
 ## Efficiency Contracts
 
@@ -454,11 +651,18 @@ Implementation follows documentation-first TDD.
 - required explicit seed and target sides;
 - nested per-seed target ownership and canonical identity;
 - safe IDs, common atlas root, binary/nonempty ROI validation;
+- duplicate subject-ID and duplicate resolved-subject-directory rejection;
+- subject ID/directory mismatch warning and output-root resolution;
 - subject discovery and every supported path override;
 - deterministic task expansion and RNG seed derivation;
+- normalized MRtrix, MATLAB, and Lead-DBS version/code identity;
 - FOD, ROI, and bundle invalidation boundaries;
-- CPU tokens, per-subject caps, memory dispatch threshold, and fair backfill;
-- state recovery, staged reuse, and status classification; and
+- single-task CPU/memory feasibility, structural cap warnings, prospective
+  memory reservations, RSS over-reservation, and soft dispatch threshold;
+- deterministic preparation priority, one-per-subject fairness rounds,
+  completion-biased focus, and admissible-task backfill;
+- producer exit-status gating, partial-file rejection, state recovery, staged
+  reuse, orphan classification, and action/yield status classification; and
 - transactional publication, rollback, Trash, and refusal to replace unknown
   files.
 
@@ -466,7 +670,8 @@ Implementation follows documentation-first TDD.
 
 - resolved subject JSON validation;
 - Lead-DBS input and transform discovery;
-- explicit transform override handling;
+- exact MNI-to-anchorNative-to-DWI direction, interpolation, and explicit
+  transform override handling;
 - one-time DWI/FOD preparation;
 - ROI transformation deduplication;
 - binary label-preserving resampling; and
@@ -475,10 +680,19 @@ Implementation follows documentation-first TDD.
 ### Integration and Acceptance Tests
 
 - fake MATLAB/MRtrix executables test CLI process orchestration and failures;
-- scheduler tests prove hard CPU and per-subject concurrency limits;
+- `validate` starts no more than one read-only MATLAB preflight per subject and
+  obeys configured concurrency and admission limits;
+- scheduler tests prove hard CPU and per-subject concurrency limits and exact
+  deterministic dispatch order;
 - command tests prove `-stop` is absent by default and present when enabled;
-- interruption tests preserve prior outputs and reusable staging;
+- interruption tests leave `.partial.tck` non-reusable even when fake
+  `tckinfo` reports count zero;
+- exit-zero underfilled and zero-streamline fixtures remain valid and report
+  requested versus actual counts;
 - simulated publish failure restores every prior subject TCK;
+- Trash failure preserves published output and records `cleanup_pending`;
+- removed targets are preserved and reported as orphans for configured
+  subjects;
 - the result tree contains only `.tck` files;
 - the legacy MATLAB seed-target runner retains its current behavior; and
 - a small real MRtrix acceptance run in Conda `leaddbs` validates discovery,
@@ -487,24 +701,45 @@ Implementation follows documentation-first TDD.
 ## Acceptance Criteria
 
 - One YAML validates and runs multiple subjects.
+- Duplicate subject IDs and duplicate resolved subject directories are
+  rejected.
 - Every seed side is a separate entry and owns its exact target list.
 - Every target has an explicit side and explicit path.
 - All ROIs belong to the configured atlas root.
 - The CLI exposes only `validate`, `run`, and `status` with YAML scientific
   input.
+- `validate` starts at most one read-only MATLAB preflight per configured
+  subject and obeys the same CPU/memory admission limits.
+- Tool identity uses normalized MRtrix/MATLAB versions plus Lead-DBS source
+  identity and drives the documented invalidation layers.
+- ROI preparation uses only the direct MNI-to-anchorNative and
+  anchorNative-to-DWI chain; display-only inverse directions are not required.
 - Python launches no more than the configured active-subject limit.
 - MATLAB starts no more than once per unresolved subject and launches no
   `parpool`.
 - The global scheduler never exceeds configured CPU-token or per-subject
   bundle limits.
+- Every dispatched task fits prospectively reserved memory capacity; actual
+  memory over-reservation pauses further dispatch and is reported.
+- Scheduler tests prove preparation priority, one opportunity per prepared
+  subject per round, completion-biased focus, and admissible backfill.
 - Each subject prepares one reusable FOD and one copy of each unique DWI-space
   ROI.
 - `stop_at_target: false` omits `-stop`; `true` appends it.
 - Final result directories contain only valid TCK files at the documented
   semantic paths.
+- No staged or final TCK is accepted without a matching producer exit-zero
+  completion record and structural validation.
+- Full, underfilled, and zero-streamline results report requested and actual
+  streamline counts separately from generated/reused action status.
 - Matching results are reused without rewriting.
 - Changed results stage completely and publish transactionally per subject.
-- Old untracked tool-owned outputs are moved to Trash after replacement.
+- Displaced old tool-owned outputs are moved from rollback to Trash after
+  replacement; non-tool-owned files are never touched.
+- A failed Trash transfer leaves the displaced file in rollback as
+  `cleanup_pending` without invalidating the newly published TCK.
+- Removing a configured pair preserves its prior TCK and reports it as an
+  orphan when that subject remains in the YAML.
 - Failure in one subject does not cancel independent subjects.
 - No VTA, e-field, display, density, CSV, ranking, SIFT, or connectome-statistic
   artifacts are produced.
