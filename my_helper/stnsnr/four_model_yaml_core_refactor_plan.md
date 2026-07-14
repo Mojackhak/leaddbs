@@ -127,6 +127,13 @@ Clinical reporting hierarchy is downstream metadata and cannot affect the
 catalog, DAG, resolver, branch role, final model, resampling, sensitivity,
 activation, or output generation.
 
+Every final study input must provide a resolved better-outcome direction for
+every scale: `lower` or `higher`. The STNSNr importer may emit `unknown` as a
+pre-curation placeholder, but catalog construction must reject it. Current
+STNSNr manual curation sets only `SE-ADL score (%)` to `higher`; all other
+scales are `lower`. This direction metadata changes outcome orientation only
+and never changes scale execution priority.
+
 ### Generic runtime interface boundary
 
 Production generic modules accept only validated, structured inputs:

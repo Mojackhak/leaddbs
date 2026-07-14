@@ -63,6 +63,8 @@ implementation_complete
 study_base_json_generated_and_validated
 importer_source_access_read_only
 confirmed_snr015_source_correction_applied_before_acceptance
+manual_scale_direction_curation_selected
+scale_registry_automation_rejected
 current_model_outputs_unchanged
 ```
 
@@ -179,8 +181,8 @@ descriptions and must not appear in the generated strict JSON.
         "scale_id": null,                       # Deterministic ID derived from Feature
         "label": null,                          # Exact source Feature label
         "value_type": "integer",               # Current source values are integers
-        "unit": "score",                       # Raw clinical score unit
-        "direction": "unknown",                # No direction is inferred by the importer
+        "unit": "score",                       # score, except manually curated SE-ADL percent
+        "direction": "unknown",                # Importer placeholder; final input must be lower/higher
         "subscales": [
           {
             "subscale_id": "total",            # Uniform child identifier for every Feature
@@ -437,6 +439,26 @@ direction = unknown
 Sanitization lowercases the NFKC-normalized label, replaces non-alphanumeric
 runs with `_`, trims `_`, and rejects collisions. The importer does not repair
 source spelling, merge related Features, or recognize special scale names.
+
+The importer intentionally retains `direction = unknown` and does not contain a
+clinical-scale registry or scale-name decision table. The accepted project
+`study_base.json` is manually curated after import without changing its field
+structure:
+
+```text
+SE-ADL score (%):
+  unit = percent
+  direction = higher
+
+all other current scales:
+  unit = score
+  direction = lower
+```
+
+`direction` states which raw-score direction represents a better clinical
+outcome. Manual curation must not change scale IDs, labels, observations,
+subject/program/stimulation content, ordering, or provenance. A final
+four-model input is invalid while any scale direction remains `unknown`.
 
 Condition mapping is fixed and explicit:
 
@@ -914,6 +936,7 @@ content hashing and cross-run cache identity
 4. Reconstruction side order follows Lead-DBS `R=1`, `L=2`.
 5. Current source control mode is voltage with case anode.
 6. Dates remain null until a separate authoritative date source is approved.
-7. Scale direction remains `unknown`; the importer does not infer clinical
-   improvement direction.
+7. The importer emits `unknown` and does not infer clinical semantics; the
+   accepted final project file is manually curated to `lower/higher`, with only
+   `SE-ADL score (%)` set to `higher` and unit `percent`.
 8. Existing E-field/VTA and model outputs remain read-only and are not imported.
