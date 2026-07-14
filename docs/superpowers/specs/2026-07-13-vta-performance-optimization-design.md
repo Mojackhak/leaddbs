@@ -5,9 +5,10 @@
 ```text
 design_approved_for_execution
 slice_1_telemetry_and_benchmark_harness_implemented
+slice_2_bulk_threshold_generation_implemented
 solver_free_verification_complete
 real_fem_baseline_not_run
-slices_2_to_9_not_started
+slices_3_to_9_not_started
 current_outputs_unchanged
 ```
 
@@ -17,9 +18,14 @@ canonical task/stage event emission, and the frozen benchmark fixture and
 harness. Solver-free Python and MATLAB acceptance suites pass, and live
 benchmark validation resolves 9 cases and 13 semantic tasks.
 
+Slice 2 adds one-load bulk threshold generation to both solve/export and
+alternating group-peak paths while preserving per-artifact atomic publication.
+Exact synthetic coverage includes threshold boundaries, nonfinite values,
+metadata, resume, failure, compatibility, load count, and event ordering.
+
 This status does not claim a measured runtime improvement. The real FEM
 baseline, candidate comparison, and three-worker memory gate have not run.
-The production CLI default remains one worker until that gate passes. Slices 2
+The production CLI default remains one worker until that gate passes. Slices 3
 through 9 remain implementation work.
 
 ## Purpose

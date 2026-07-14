@@ -24,7 +24,7 @@ outputDir = fileparts(outputPath);
 if ~isfolder(outputDir)
     mkdir(outputDir);
 end
-temporaryPath = [tempname(outputDir), '.nii.gz'];
+temporaryPath = [tempname(outputDir), nifti_suffix(outputPath)];
 cleanup = onCleanup(@() delete_if_present(temporaryPath));
 producer(temporaryPath);
 if ~isfile(temporaryPath)
@@ -45,6 +45,16 @@ mh_vta_emit_stage_timing(emit, 'task', taskId, ...
     'artifact_publication', 'executed', toc(stageTimer), '');
 published = true;
 clear cleanup;
+end
+
+function suffix = nifti_suffix(path)
+if endsWith(path, '.nii.gz', 'IgnoreCase', true)
+    suffix = '.nii.gz';
+elseif endsWith(path, '.nii', 'IgnoreCase', true)
+    suffix = '.nii';
+else
+    suffix = '.nii.gz';
+end
 end
 
 function delete_if_present(path)

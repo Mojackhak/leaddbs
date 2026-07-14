@@ -3,11 +3,20 @@
 ## Status
 
 ```text
-design_aligned
-implementation_not_started
+implemented
+solver_free_verification_complete
 real_fem_not_required_for_this_slice
 current_outputs_unchanged
 ```
+
+Implemented on 2026-07-14. Native/MNI solve exports and alternating group-peak
+exports now use one shared bulk helper. Seven focused bulk-threshold tests, the
+complete 84-test solver-free MATLAB fiber suite, and all 115 Python VTA
+pipeline/benchmark tests pass. MATLAB Code Analyzer reports no findings in the
+touched files.
+
+This slice does not establish a whole-pipeline speedup. No real FEM or
+candidate performance benchmark was run.
 
 ## Goal
 
@@ -64,6 +73,11 @@ of threshold timings includes the single source load.
 `mh_vta_threshold_efield` remains public compatibility surface and delegates
 to the bulk helper with one threshold/output pair.
 
+Atomic temporary paths must preserve the requested NIfTI suffix. A `.nii`
+target uses a `.nii` temporary file and a `.nii.gz` target uses a `.nii.gz`
+temporary file; compressed content must never be published under an
+uncompressed filename.
+
 Both canonical solve/export and alternating group-peak derivation must resolve
 their requested threshold/output pairs first, then invoke the shared bulk
 helper once per output space. No task, subject, phase, program, frequency
@@ -113,4 +127,3 @@ This slice is complete only when:
 - all focused and regression tests pass; and
 - the roadmap and design status record slice 2 as implemented without claiming
   a measured whole-pipeline speedup.
-

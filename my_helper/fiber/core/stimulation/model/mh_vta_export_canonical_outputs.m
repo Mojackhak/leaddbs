@@ -82,19 +82,25 @@ function write_requested_thresholds(efieldPath, leaf, thresholds, ...
 if isempty(requestedNames)
     return;
 end
-require_file(efieldPath, 'threshold source E-field');
-for threshold = double(thresholds(:)')
+thresholds = double(thresholds(:));
+requestedThresholds = zeros(numel(thresholds), 1);
+outputPaths = strings(numel(thresholds), 1);
+requestedCount = 0;
+for thresholdIndex = 1:numel(thresholds)
+    threshold = thresholds(thresholdIndex);
     token = strrep(sprintf('%.2f', threshold / 1000), '.', 'p');
     name = "vta_threshold-" + token + "Vpermm.nii.gz";
     if ~any(requestedNames == name)
         continue;
     end
-    output = fullfile(leaf, char(name));
-    mh_vta_publish_atomic(output, @(temporaryPath) ...
-        generate_threshold(efieldPath, threshold, temporaryPath, ...
-            emit, taskId), ...
-        'EventEmitter', emit, 'TaskId', taskId);
+    requestedCount = requestedCount + 1;
+    requestedThresholds(requestedCount) = threshold;
+    outputPaths(requestedCount) = string(fullfile(leaf, char(name)));
 end
+requestedThresholds = requestedThresholds(1:requestedCount);
+outputPaths = outputPaths(1:requestedCount);
+mh_vta_threshold_efields(efieldPath, requestedThresholds, outputPaths, ...
+    'EventEmitter', emit, 'TaskId', taskId);
 end
 
 function export_native_grid(points, values, anchorPath, outputPath, emit, taskId)
@@ -102,13 +108,6 @@ stageTimer = tic;
 mh_vta_export_common_grid(points, values, anchorPath, outputPath);
 mh_vta_emit_stage_timing(emit, 'task', taskId, ...
     'native_grid_interpolation', 'executed', toc(stageTimer), '');
-end
-
-function generate_threshold(efieldPath, threshold, outputPath, emit, taskId)
-stageTimer = tic;
-mh_vta_threshold_efield(efieldPath, threshold, outputPath);
-mh_vta_emit_stage_timing(emit, 'task', taskId, ...
-    'threshold_generation', 'executed', toc(stageTimer), '');
 end
 
 function transform_to_mni(efieldPath, options, reference, outputPath, emit, taskId)
