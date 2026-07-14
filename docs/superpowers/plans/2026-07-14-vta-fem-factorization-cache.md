@@ -1,0 +1,138 @@
+# VTA FEM Factorization Cache Implementation Plan
+
+## Purpose
+
+Implement Phase 4 of the canonical VTA performance plan without changing the
+scientific model, output contract, solver tolerances, or path-based resume
+semantics. Reuse is process-local to one persistent subject worker.
+
+## Current State
+
+```text
+design_documented
+implementation_not_started
+pre_reuse_representative_gate_complete
+three_worker_memory_gate_not_run
+public_cli_default_workers_1
+```
+
+The pre-reuse paired gate completed at
+`/Volumes/VAL/STNSNr/validation/vta_performance_benchmark_20260714T113033575679Z`.
+Its compatibility and persistent medians were `73.42287808400579 s` and
+`44.65844920813106 s`, and all paired native/MNI arrays were exactly equal.
+
+## Reuse Boundary
+
+Cache one conditioned FEM system and its incomplete-Cholesky preconditioner only
+when this complete key is identical:
+
+```text
+cache schema/version
+canonical head-model cache key
+control mode: voltage or current
+return design: unipolar or bipolar
+exact sorted unique constrained-node set
+matrix dimensions
+matrix assembly version
+PCG tolerance and maximum iterations
+ichol default/fallback options
+```
+
+Amplitude, signed boundary values, current-injection nodes, and RHS values are
+not key fields because they are rebuilt for every solve. Voltage tasks therefore
+reuse only when their exact electrode-plus-return constrained-node set matches.
+Current tasks may reuse when their return constrained-node set matches, while
+their current injection remains solve-specific.
+
+No factorization cache is allowed without a nonempty validated canonical
+head-model key and an explicit subject runtime. Different runtimes never share
+entries.
+
+## Memory Bound
+
+Each subject runtime holds at most one factorization entry. A key miss replaces
+the prior entry instead of accumulating large sparse matrices. The entry stores:
+
+```text
+symmetric unconditioned stiffness needed for solve-specific RHS conditioning
+conditioned sparse system matrix
+ichol preconditioner
+exact cache key
+```
+
+The validated head model remains owned by the existing head-model cache. No
+factorization or E-field is persisted to disk.
+
+## Execution And Telemetry
+
+Extend `mh_vta_fem_apply_dbs` with optional `SubjectRuntime`, `HeadmodelKey`, and
+`ControlMode` arguments. The canonical backend passes the existing subject
+runtime and validated head-model key.
+
+On a miss:
+
+1. Build the solve-specific RHS and Dirichlet values.
+2. Assemble the symmetric and conditioned matrices exactly as before.
+3. Build `ichol` with the existing default-then-ICT fallback.
+4. Replace the process-local factorization entry.
+5. Run PCG with the unchanged `1e-9` tolerance, `5000` iterations, and initial
+   vector equal to the RHS.
+
+On a hit:
+
+1. Rebuild the solve-specific RHS and Dirichlet values.
+2. Recondition the RHS using the cached symmetric stiffness.
+3. Reuse the exact conditioned matrix and preconditioner.
+4. Run the unchanged PCG solve.
+
+`fem_matrix_preparation` and `fem_preconditioner` emit `cache_status=miss` or
+`hit` when an exact cache identity is available. Direct uncached calls retain an
+empty cache status. `fem_pcg_solve` always remains `executed`.
+
+## File Scope
+
+```text
+my_helper/fiber/core/stimulation/model/mh_vta_create_subject_runtime.m
+my_helper/fiber/core/stimulation/model/fem/mh_vta_fem_apply_dbs.m
+my_helper/fiber/core/stimulation/model/backends/mh_vta_backend_simbio_onesolve_canonical.m
+my_helper/fiber/tests/test_vta_fem_factorization_cache.m
+my_helper/fiber/tests/test_vta_common_grid_export.m
+```
+
+No Python orchestration, YAML, output filename, scientific threshold, or public
+CLI default changes in this slice.
+
+## Solver-Free And Synthetic Acceptance
+
+Tests must prove:
+
+- same voltage constrained-node set with changed amplitude yields matrix and
+  preconditioner hits while rebuilding the RHS;
+- changed voltage constrained-node set misses and replaces the sole entry;
+- current unipolar solves with changed injection contacts reuse only the stable
+  return-conditioned matrix and remain numerically equal to uncached solves;
+- changed control mode or return design misses;
+- constrained-node ordering does not change identity;
+- different runtimes do not share entries;
+- missing head-model identity disables caching;
+- cached and uncached potentials agree within `1e-12` on deterministic fixtures;
+- matrix/preconditioner/PCG event order remains unchanged and cache statuses are
+  correct; and
+- the runtime factorization cache count never exceeds one.
+
+Run the complete MATLAB fiber suite, Python VTA suite, Code Analyzer, and
+`git diff --check` before committing.
+
+## Real-FEM Acceptance
+
+After implementation, prepare a fresh isolated representative root and repeat
+the paired numerical/performance gate without modifying the completed pre-reuse
+root. Because the representative alternating voltage sources use different
+constrained-node sets, no factorization hit is assumed for that case; lack of a
+speedup there is not hidden or relabeled.
+
+Also run one bounded current-control repeated-return case that demonstrates a
+real factorization hit. Pre- and post-reuse voltage/current outputs must satisfy
+the existing numerical gates. Only after these pass may the separate
+three-worker memory gate run. The public CLI default remains one worker until
+that gate independently passes.
