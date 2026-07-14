@@ -59,12 +59,21 @@ The builder must:
 - reject empty run/subject IDs, duplicate task/donor IDs, cross-subject tasks or
   donors, unknown or forward dependencies, unknown reuse references, duplicate
   writable leaves, and writable leaves with ancestor/descendant overlap;
-- reject output leaves that differ from the canonical path contract; and
+- reject output leaves that differ from the canonical path contract;
+- reject configured thresholds whose canonical two-decimal V/mm filenames
+  collide; and
 - atomically write deterministic UTF-8 JSON when requested.
 
-Unselected donor entries are read-only. Selected donor entries remain writable
-only by their owning task. Donor order follows the deterministic planner order.
-Donor candidates are path probes, not dependency edges.
+Every `donor_id` is the originating candidate task's `task_id`; this identity
+defines ownership without an additional owner field. Unselected donor entries
+are read-only. Selected donor entries remain writable only by their owning
+task. Donor order follows the deterministic planner order. Donor candidates
+are path probes, not dependency edges.
+
+Tasks resolving to one canonical headmodel path must have identical headmodel
+inputs: subject/reconstruction, hemisphere/lead, electrode model, atlas, and
+gray/white conductivities. A conflicting shared path is rejected before any
+execution.
 
 ## MATLAB Validation Contract
 
@@ -96,6 +105,10 @@ The manifest validator must independently reject:
 - selected leaf collisions or ancestor/descendant overlap; and
 - any selected output leaf that differs from the MATLAB canonical path
   reconstruction for the task and space.
+
+Path comparison resolves `.`/`..` and symlink aliases before containment or
+overlap checks. Platform case semantics are respected rather than relying on a
+raw string prefix.
 
 MATLAB does not reconstruct physical equivalence. That remains Python's
 authoritative responsibility.
@@ -136,12 +149,16 @@ Python tests must cover:
 - selected and unselected donor catalog construction;
 - physical-equivalence filtering and recipient exclusion;
 - all duplicate, cross-subject, dependency-order, unknown-reference, canonical
-  path, and writable-path-overlap rejections; and
+  path, writable-path-overlap, headmodel-context conflict, and
+  threshold-filename collision rejections; and
 - task IDs beginning with digits remaining array values.
 
 MATLAB tests must cover:
 
 - static/runtime validator separation and compatibility wrapper behavior;
+- complete static contact validation, including contact identifier, polarity,
+  positive finite fraction, duplicate contact/polarity pairs, and per-polarity
+  fraction normalization;
 - one-task and multi-task manifest decoding;
 - every manifest rejection listed above;
 - complete, copied, partial-copy-ready, ready-without-donor, and
@@ -167,4 +184,3 @@ This slice is complete only when:
 - the existing per-task runner remains compatible; and
 - documentation records that persistent subject-process integration remains
   pending.
-
