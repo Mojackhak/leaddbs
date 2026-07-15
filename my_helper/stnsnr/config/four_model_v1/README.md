@@ -75,11 +75,19 @@ The normative-fiber test scan uses tau `[600, 800, 1000]` and Coverage
 `[5, 6]`, with `minimum_adjacent_passing_cells: 1`. It preserves production
 exposure, scoring, branch-role, fallback, and connectome-role semantics.
 
-The existing `model.yaml`, `scales.yaml`, `study.yaml`, and `workflow.yaml`
-belong to the predecessor multi-profile runtime. They are not modified by this
-profile addition. The configured profiles are contracts for the upcoming
-loader/runner refactor and do not imply that the current legacy entrypoint
-already consumes them.
+`workflow.yaml` is the execution-policy profile for the new runtime. It
+references `direct_voxel_model.yaml` and `normative_fiber_model.yaml`, but does
+not declare default scales, endpoint phases, or connectome names. The model
+profiles remain the scientific source of configured scales, the locked
+endpoint pair, and connectome roles. CLI selection may narrow the configured
+scales or model families, but it cannot add values absent from the model
+profiles.
+
+The runtime reads the existing `study_base.json` supplied through the CLI. It
+does not create or consume an intermediate study bundle, copied clinical
+table, study index, or resolved-study manifest. This configuration contract is
+being implemented incrementally; current legacy outputs remain unchanged until
+the new runner passes its stated acceptance checks.
 
 ## Output Contract
 
