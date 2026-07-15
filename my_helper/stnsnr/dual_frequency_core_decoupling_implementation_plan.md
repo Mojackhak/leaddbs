@@ -64,6 +64,22 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
 - Public config never exposes direct-voxel candidate threshold or smoke counts.
 - Expensive producer cache misses require explicit authorization; acceptance
   never authorizes them.
+- During the current implementation phase, production YAML may be validated
+  and planned only. Do not execute its observed, formal, sensitivity, jitter,
+  activation, or report tasks and do not write its configured output root.
+  Runtime tests use deterministic synthetic fixtures or reviewed frozen
+  read-only acceptance artifacts.
+- Artifact-backed requests must match both shape and exact ordered axis hashes;
+  formal requests declare a subject axis and activation requests inherit the
+  realized final model's exact feature axis.
+- Relative paths in `study_base.json` resolve against the JSON parent directory.
+  Preserve and validate contact numbering/electrode order, contact ranges,
+  uniqueness, and polarity-fraction closure without using component labels for
+  frequency classification.
+- Keep `configuration_hash` for the complete effective run configuration and a
+  separate `scientific_configuration_hash` for task-content identity. Runtime
+  locations, workers, resume/force, retries, and scheduling order must not
+  alter scientific identity.
 - `/Volumes/VAL/STNSNr/summary` and configured run
   `20260711T034644Z_d318f177f7f2ac7d` are immutable.
 - Numerical parity covers only terminal completed, hash-valid scientific tasks

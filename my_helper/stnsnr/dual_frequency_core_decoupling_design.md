@@ -187,6 +187,14 @@ path or unresolved YAML, read raw project workbooks, infer meaning from
 directory names, search a `latest` directory, or discover another task's
 outputs implicitly.
 
+An artifact-backed request must prove axis identity, not only array shape.
+Outcome, baseline, nuisance, and exposure artifacts must carry the exact
+declared ordered subject-axis hash. Exposure artifacts must additionally carry
+the exact declared feature-axis hash. Formal and activation requests declare
+their subject axis explicitly; activation also inherits and must equal the
+realized final model's locked feature axis. Same-shaped arrays with different
+axis hashes are invalid inputs.
+
 Only the config loader, strict study-base loader, and artifact store may
 receive explicitly configured paths or URIs. Project paths and old output
 filenames are never generic-runtime constants.
@@ -203,6 +211,14 @@ program, component, source, and observation IDs. It records the source path and
 SHA-256 in the run manifest. Every external array `ArtifactRef` records
 kind/schema, explicit URI, SHA-256, dtype, shape, ordered axis references/
 hashes, units/space, and producer identity/version.
+
+Relative paths inside `study_base.json` are resolved against the directory
+containing that JSON file, never against the process working directory. The
+loader retains the declared contact-numbering convention and electrode order.
+It validates that every electrode appears exactly once in that order and that
+each stimulation source uses in-range, unique contacts with closed anode and
+cathode fractions. These checks validate raw stimulation structure only;
+component labels never participate in frequency classification.
 
 The generic runtime schema preserves the canonical study-base field structure
 but does not enumerate the current project's `T0`-`T3` phase IDs or
@@ -290,6 +306,21 @@ cache/run roots, workers, and expensive-producer authorization. It contains no
 default scale list and duplicates no scientific model parameter. CLI callers
 must provide either one or more `--scale` values or `--all-available`.
 Runtime scheduling parameters do not alter scientific cache identity.
+
+The resolved workflow exposes two different hashes:
+
+- `configuration_hash` covers the effective validated run configuration,
+  including selection, execution cutoff, failure policy, worker count, and
+  storage roots. Invocation-only `resume` and `force` flags are recorded but do
+  not change this hash.
+- `scientific_configuration_hash` covers only values that can change the
+  planned scientific task content. It excludes output/cache locations, worker
+  count, retry/order controls, and invocation-only flags. Artifact content
+  hashes later bind concrete study, transform, and connectome inputs.
+
+CLI overrides are validated with the same strict types and enums as YAML;
+coercion of strings to booleans, floats to integers, invalid phase cutoffs, or
+duplicate selectors is forbidden.
 
 ## Endpoint DAG
 
@@ -534,6 +565,16 @@ compatibility from array position.
 Production may create a missing expensive cache only after explicit
 `--allow-expensive-producers` authorization. Acceptance/smoke runs report
 `missing_acceptance_fixture` instead of silently starting an expensive build.
+
+## Current Implementation Execution Boundary
+
+The current refactor phase may load and validate the production profiles and
+may compile their endpoint catalog and DAG as a read-only structural check. It
+must not execute any production-YAML observed, formal, sensitivity, jitter,
+activation, or report task, and it must not write the configured production
+run root. Numerical execution in this phase is limited to deterministic unit
+fixtures, synthetic integration fixtures, and explicitly frozen read-only
+acceptance artifacts.
 
 ## Application And CLI Contract
 
