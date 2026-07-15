@@ -1,13 +1,8 @@
 # Dual-Frequency Core Decoupling Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use
-> `superpowers:subagent-driven-development` (recommended) or
-> `superpowers:executing-plans` to implement this plan task-by-task. Steps use
-> checkbox (`- [ ]`) syntax for tracking.
-
-If those skill identifiers are unavailable in the active Codex installation,
-use the available `test-driven-development` skill and execute the same checklist
-inline. Skill availability cannot change requirements or block implementation.
+> **For agentic workers:** Subagents may be used for disjoint implementation or
+> review tasks, but no local skill is required. Steps use checkbox (`- [ ]`)
+> syntax for tracking.
 
 **Goal:** Replace the STNSNr-oriented `four_model_v1` runtime adapters with a
 strict, reusable `dual_frequency_v1` four-model core that can run from a
@@ -35,8 +30,8 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
 - Before Task 1, require the authoritative `/goal` status
   `goal_review_passed`, verify `git status --short` is empty, and do not begin
   from an uncommitted documentation baseline.
-- Use test-driven development: failing test, minimal implementation, passing
-  focused tests, regression tests, then commit.
+- Add focused tests with each implementation phase and run relevant regression
+  tests before commit. Strict RED/GREEN ordering is not required.
 - All code, identifiers, comments, docstrings, schemas, and generated field
   names are English.
 - Runtime roles are `reference_component` and `addon_component`; generic code
