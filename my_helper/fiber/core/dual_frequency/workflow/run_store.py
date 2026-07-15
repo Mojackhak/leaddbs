@@ -88,6 +88,7 @@ class RunIdentity:
     configuration_hash: str
     scientific_configuration_hash: str
     plan_hash: str
+    parent_run_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "study_id", _token(self.study_id, "study_id"))
@@ -96,6 +97,10 @@ class RunIdentity:
         object.__setattr__(self, "code_identity", _token(self.code_identity, "code_identity"))
         for field in ("configuration_hash", "scientific_configuration_hash", "plan_hash"):
             object.__setattr__(self, field, _digest(getattr(self, field), field))
+        if self.parent_run_id is not None:
+            object.__setattr__(self, "parent_run_id", _token(self.parent_run_id, "parent_run_id"))
+            if self.parent_run_id == self.run_id:
+                raise RunStoreError("parent_run_id must differ from run_id")
 
 
 class RunStore:

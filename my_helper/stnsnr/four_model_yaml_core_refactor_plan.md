@@ -836,8 +836,12 @@ the canonical configured API.
 Run root:
 
 ```text
-<output_root>/dual_frequency_runs/<study_id>/<run_id>/
+<workflow.storage.run_root>/<study_id>/<run_id>/
 ```
+
+`model.output.root` remains the scientific artifact/report root. The workflow
+run store is independently rooted at the explicit `storage.run_root`; neither
+path is inferred from the other.
 
 Required run artifacts:
 

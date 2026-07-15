@@ -835,11 +835,14 @@ manifests include scientific identity and exclude runtime scheduler identity.
 
 - [ ] **Step 5: Implement generic run store and executor**
 
-Use run root:
+Use the explicitly configured run root:
 
 ```text
-<output_root>/dual_frequency_runs/<study_id>/<run_id>/
+<workflow.storage.run_root>/<study_id>/<run_id>/
 ```
+
+Do not derive it from `model.output.root`; that separate path owns scientific
+model artifacts and reports.
 
 Before task execution, atomically write `configuration_resolved.yaml` containing
 the canonical merged study/scale/model/workflow profiles and CLI overrides,
