@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leaddbs.org/schemas/dual_frequency_workflow_v1.schema.json",
+  "title": "Dual-frequency workflow profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile_type",
+    "model_profiles",
+    "selection",
+    "execution",
+    "storage"
+  ],
+  "properties": {
+    "schema_version": {"const": "dual_frequency_workflow_v1"},
+    "profile_type": {"const": "dual_frequency_workflow"},
+    "model_profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["direct_voxel", "normative_fiber"],
+      "properties": {
+        "direct_voxel": {"type": "string", "minLength": 1},
+        "normative_fiber": {"type": "string", "minLength": 1}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["models", "connectomes"],
+      "properties": {
+        "models": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "all",
+              "reference_voxel",
+              "reference_fiber",
+              "addon_voxel",
+              "addon_fiber"
+            ]
+          }
+        },
+        "connectomes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "through",
+        "resume",
+        "force",
+        "continue_on_endpoint_failure",
+        "allow_expensive_producers",
+        "workers"
+      ],
+      "properties": {
+        "through": {"enum": ["observed", "formal", "sensitivity", "report"]},
+        "resume": {"type": "boolean"},
+        "force": {"type": "boolean"},
+        "continue_on_endpoint_failure": {"type": "boolean"},
+        "allow_expensive_producers": {"type": "boolean"},
+        "workers": {"type": "integer", "minimum": 1}
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cache_root", "run_root"],
+      "properties": {
+        "cache_root": {"type": "string", "pattern": "^/", "minLength": 2},
+        "run_root": {"type": "string", "pattern": "^/", "minLength": 2}
+      }
+    }
+  }
+}

@@ -93,6 +93,7 @@ my_helper/fiber/core/dual_frequency/
     schemas/
       direct_voxel_model.schema.json
       normative_fiber_model.schema.json
+      study_base.schema.json
       workflow.schema.json
   catalog/
     __init__.py

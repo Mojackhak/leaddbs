@@ -1,18 +1,22 @@
-schema_version: four_model_v1
-profile_type: workflow
-study_profile: study.yaml
-scale_profile: scales.yaml
-model_profile: model.yaml
+schema_version: dual_frequency_workflow_v1 # Generic execution-policy schema.
+profile_type: dual_frequency_workflow # Identifies the configured runner workflow.
 
-selection:
-  # Acceptance selection only; this is not a privileged or default scale list.
-  scales: [mds_updrs_iii_score, mds_updrs_iv]
-  phases: [chronic, immediate]
-  models: [all]
-  connectomes: [ppmi, mgh, dtor]
+model_profiles: # Scientific profiles resolved relative to this file.
+  direct_voxel: direct_voxel_model.yaml # Reference/add-on direct-voxel contract.
+  normative_fiber: normative_fiber_model.yaml # Reference/add-on fiber contract.
 
-execution:
-  through: report
-  resume: false
-  force: false
-  continue_on_endpoint_failure: true
+selection: # Defaults may select model domains, but never clinical scales.
+  models: [all] # Run all four model families unless CLI narrows the set.
+  connectomes: [all] # Use every connectome declared by the fiber profile.
+
+execution: # Runtime controls do not change the scientific model definition.
+  through: report # Dependency-complete cutoff: observed, formal, sensitivity, or report.
+  resume: false # A run resumes only when the CLI explicitly requests it.
+  force: false # Forced execution creates a new lineage rather than overwriting a run.
+  continue_on_endpoint_failure: true # One failed scale does not stop independent scales.
+  allow_expensive_producers: false # OSS and other expensive cache misses require opt-in.
+  workers: 3 # Default endpoint-level worker count; CLI may override it later.
+
+storage: # Generic cache and immutable run-store roots.
+  cache_root: /Volumes/VAL/STNSNr/cache/dual_frequency
+  run_root: /Volumes/VAL/STNSNr/summary/spot/.runs
