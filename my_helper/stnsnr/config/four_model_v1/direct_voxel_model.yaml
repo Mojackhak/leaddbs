@@ -2,6 +2,9 @@ schema_version: direct_voxel_model_v1 # Schema for the reference/addon direct-vo
 profile_type: direct_voxel_model # Identifies the feature domain represented by this file.
 model_set_id: dual_frequency_four_model_v1 # Must match the production fiber model.
 
+output: # Storage-only settings; these do not change model classification.
+  root: /Volumes/VAL/STNSNr/summary/spot # Base directory for production publications.
+
 scales: # Run exactly these study-defined scales in the declared order.
   - adl
   - bdi_score

@@ -2,6 +2,9 @@ schema_version: direct_voxel_model_v1 # Uses the same validator and runtime as p
 profile_type: direct_voxel_model # Identifies the direct-voxel feature domain.
 model_set_id: dual_frequency_four_model_test_v1 # Keeps smoke artifacts separate from production.
 
+output: # Keep smoke publications outside the production summary tree.
+  root: /Volumes/VAL/STNSNr/validation/spot # Base directory for smoke-test publications.
+
 scales: # Two scales exercise multi-scale planning with minimal workload.
   - mds_updrs_iii_score
   - mds_updrs_iv

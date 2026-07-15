@@ -448,6 +448,13 @@ Intermediate audit outputs are retained, including right/flipped exposure produc
 
 ## Downstream Visualization And Outputs
 
+For the future configured `direct_voxel_model_v1` publisher, the authoritative
+stable layout, generic reference/add-on filenames, final-model references, and
+artifact schemas are defined in
+`../config/four_model_v1/direct_voxel_output_contract.md`. The paths and
+`direct_voxel_HF_*` filenames below document the current legacy executable
+layout only. They are not the configured publisher contract.
+
 Output root, one folder per scale, final source or neighborhood cell, and estimator:
 
 ```text

@@ -63,6 +63,28 @@ profile addition. The new direct-voxel profiles are configuration contracts for
 the upcoming loader/runner refactor and do not imply that the current legacy
 entrypoint already consumes them.
 
+## Output Contract
+
+The authoritative configured-run publication layout and artifact schemas are
+defined in `direct_voxel_output_contract.md`.
+
+Production publishes below:
+
+```text
+/Volumes/VAL/STNSNr/summary/spot/direct_voxel/<model_set_id>/<scale_id>/
+```
+
+The smoke profile publishes the identical artifact contract below:
+
+```text
+/Volumes/VAL/STNSNr/validation/spot/direct_voxel/<model_set_id>/<scale_id>/
+```
+
+Reference and add-on selected-source artifacts are stored once. A
+`final_model.json` record references the realized source or add-on branch; it
+does not duplicate maps, scores, predictions, or weights. ROI and atlas
+postprocessing are excluded from this output contract.
+
 ## Three-Layer Test Strategy
 
 The smoke profile is one of three complementary test layers. It cannot provide

@@ -974,6 +974,13 @@ seed: 42
 
 ## Downstream Visualization And Outputs
 
+For the future configured `direct_voxel_model_v1` publisher, the authoritative
+stable layout, generic reference/add-on filenames, final-branch references, and
+artifact schemas are defined in
+`../config/four_model_v1/direct_voxel_output_contract.md`. The paths and
+`direct_voxel_ULF_only_*` filenames below document the current legacy
+executable layout only. They are not the configured publisher contract.
+
 Output root:
 
 ```text

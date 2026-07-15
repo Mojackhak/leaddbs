@@ -836,6 +836,28 @@ space, environment, code provenance, row statuses, and content hashes.
 
 ## Artifact And Provenance Contract
 
+The internal execution run store and canonical downstream publication are
+separate boundaries. Task-local artifacts continue to use the run root below.
+Configured direct-voxel publication must materialize the stable, scale-equal
+layout defined by
+`config/four_model_v1/direct_voxel_output_contract.md` under:
+
+```text
+<direct_voxel_model.output.root>/direct_voxel/<model_set_id>/<scale_id>/
+```
+
+The publication path contains no `endpoint`, `endpoint_pair`, or run-ID
+directory. Endpoint binding remains explicit in the resolved model profile and
+`model_manifest.json`. Publication never copies a selected branch into a second
+final-model directory; `final_model.json` is an immutable relative-path
+reference.
+
+The configured direct-voxel implementation uses reference/add-on terminology
+internally, not only at publication. Legacy HF/ULF names must be removed from
+configured modules, typed records, state fields, artifact kinds, tests, and
+task identities. Compatibility-only legacy entrypoints are quarantined outside
+the canonical configured API.
+
 Run root:
 
 ```text

@@ -45,6 +45,20 @@ jsonschema Draft 2020-12, pandas/openpyxl, NumPy/SciPy, and Conda `leaddbs`.
 - Formal/sensitivity outputs never modify model classification.
 - Current `/Volumes/VAL/STNSNr/summary` outputs remain read-only. Configured runs
   use `<output_root>/configured_model_runs/<study_id>/<run_id>/`.
+- The configured run root is an internal execution store, not the stable
+  downstream interface. Direct-voxel publication must follow
+  `config/four_model_v1/direct_voxel_output_contract.md` and materialize under
+  `<direct_voxel_model.output.root>/direct_voxel/<model_set_id>/<scale_id>/`.
+- Direct-voxel publication stores selected-source and candidate-branch
+  artifacts once. `final_model.json` references the realized model and never
+  duplicates its maps, scores, predictions, or weights.
+- Configured direct-voxel internals must be renamed end to end from legacy
+  HF/ULF terminology to `reference`, `addon`, `no_delta_reference`,
+  `delta_reference_adjusted`, and `DeltaReferenceScore`. This applies to module
+  names, classes, functions, dataclasses, fields, status records, artifact
+  kinds, tests, and publisher paths. Boundary-only translation is prohibited.
+  Temporary legacy entrypoints may survive only in an isolated compatibility
+  package and cannot define configured internal state.
 - Every production change requires a failing focused test first. All existing
   `stnsnr_*_selftest.py` tests must remain green.
 
