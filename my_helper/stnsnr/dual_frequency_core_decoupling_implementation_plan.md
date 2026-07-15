@@ -720,8 +720,8 @@ git commit -m "feat: add dual-frequency final-model state machine"
 Assert:
 
 - all four families are planned;
-- add-on dependencies use explicit matched-reference endpoint IDs even when
-  reference and combined child binding IDs differ;
+- add-on dependencies use explicit matched-reference endpoint IDs while the
+  configured reference and add-on bindings remain distinct;
 - normative-fiber add-on dependencies require exact connectome identity;
 - sensitive connectomes stop at observed/formal-source-evaluation/report
   stages, emit `SensitiveRecord`, and have no final/formal/jitter/activation
@@ -729,7 +729,8 @@ Assert:
 - exactly one `formal` connectome is final-eligible;
 - formal/activation tasks use connectome roles, not names;
 - expensive activation producer tasks are statically visible;
-- missing child subscales produce terminal catalog/report tasks, not models;
+- unavailable or insufficient rows at the fixed add-on binding produce
+  terminal catalog/report tasks, not model tasks or endpoint substitution;
 - every scale receives the same task factory.
 
 - [ ] **Step 2: Run tests and verify RED**
