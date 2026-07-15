@@ -153,7 +153,7 @@ def synthetic_study(reverse_subjects: bool = False) -> StudyBaseRecord:
     )
 
 
-def test_workflow(overrides: WorkflowOverrides):
+def make_workflow(overrides: WorkflowOverrides):
     workflow = yaml.safe_load((CONFIG_ROOT / "workflow.yaml").read_text(encoding="utf-8"))
     workflow["selection"] = {"models": ["all"], "connectomes": ["all"]}
     direct = yaml.safe_load((CONFIG_ROOT / "direct_voxel_model_test.yaml").read_text(encoding="utf-8"))
@@ -182,7 +182,7 @@ def test_workflow(overrides: WorkflowOverrides):
 
 class CatalogTest(unittest.TestCase):
     def test_builds_all_four_families_with_connectome_roles(self) -> None:
-        config = test_workflow(WorkflowOverrides(all_available=True))
+        config = make_workflow(WorkflowOverrides(all_available=True))
         catalog = build_endpoint_catalog(config, synthetic_study())
         self.assertEqual(len(catalog), 12)
         self.assertEqual(
@@ -204,7 +204,7 @@ class CatalogTest(unittest.TestCase):
         self.assertTrue(all(item.final_eligible for item in formal))
 
     def test_subject_availability_is_endpoint_specific_not_scale_privilege(self) -> None:
-        config = test_workflow(WorkflowOverrides(all_available=True))
+        config = make_workflow(WorkflowOverrides(all_available=True))
         catalog = build_endpoint_catalog(config, synthetic_study())
         iii = tuple(item for item in catalog if item.key.scale_id == SCALE_IDS[0])
         iv = tuple(item for item in catalog if item.key.scale_id == SCALE_IDS[1])
@@ -226,7 +226,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual({len(item.subject_ids) for item in iii}, {14})
 
     def test_addon_selection_automatically_adds_exact_reference_dependency(self) -> None:
-        config = test_workflow(
+        config = make_workflow(
             WorkflowOverrides(
                 scales=SCALE_IDS,
                 models=("addon_voxel",),
@@ -243,7 +243,7 @@ class CatalogTest(unittest.TestCase):
             self.assertEqual(addon.matched_reference_endpoint_id, reference.endpoint_id)
 
     def test_fiber_dependencies_match_connectome_exactly(self) -> None:
-        config = test_workflow(
+        config = make_workflow(
             WorkflowOverrides(
                 scales=(SCALE_IDS[0],),
                 models=("addon_fiber",),
@@ -263,7 +263,7 @@ class CatalogTest(unittest.TestCase):
             )
 
     def test_endpoint_identity_is_stable_under_subject_reordering(self) -> None:
-        config = test_workflow(WorkflowOverrides(all_available=True))
+        config = make_workflow(WorkflowOverrides(all_available=True))
         first = build_endpoint_catalog(config, synthetic_study())
         second = build_endpoint_catalog(config, synthetic_study(reverse_subjects=True))
         self.assertEqual(

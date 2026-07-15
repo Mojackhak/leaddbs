@@ -15,6 +15,13 @@ from .state import (
     derive_branch_plan,
     realize_final,
 )
+from .planner import (
+    ExecutionPlan,
+    GateRequirement,
+    PlanningError,
+    TaskSpec,
+    compile_execution_plan,
+)
 
 __all__ = [
     "ACCEPTED",
@@ -25,4 +32,9 @@ __all__ = [
     "StateError",
     "derive_branch_plan",
     "realize_final",
+    "ExecutionPlan",
+    "GateRequirement",
+    "PlanningError",
+    "TaskSpec",
+    "compile_execution_plan",
 ]
