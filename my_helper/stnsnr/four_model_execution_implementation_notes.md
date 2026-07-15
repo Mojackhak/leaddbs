@@ -11,6 +11,8 @@ my_helper/stnsnr/four_model_yaml_core_refactor_plan.md
 my_helper/stnsnr/four_model_yaml_core_refactor_implementation_plan.md
 my_helper/stnsnr/normative_fiber_minimum_count_scoring_design.md
 my_helper/stnsnr/normative_fiber_minimum_count_scoring_implementation_plan.md
+my_helper/stnsnr/config/four_model_v1/direct_voxel_output_contract.md
+my_helper/stnsnr/config/four_model_v1/normative_fiber_output_contract.md
 ```
 
 Current status:
@@ -38,6 +40,12 @@ metadata. Normative fiber will not define a global candidate threshold.
 Optimized-versus-brute-force equivalence and smoke
 permutation/bootstrap/jitter remain internal-test parameters rather than public
 workflow inputs.
+
+The approved normative-fiber YAML profiles use PPMI/MGH as `sensitive` and
+dTOR as the unique production `formal` connectome. Sensitive connectomes run
+the complete observed grid but never assign canonical source/final status.
+Voxel and normative-fiber jitter remain independent executions; no shared
+cross-domain jitter schedule or exposure cache is part of the target contract.
 
 Implemented layers now include strict JSON Schemas and typed YAML loading,
 immutable endpoint/task/final identities, the profile-driven endpoint catalog,

@@ -554,33 +554,42 @@ tau_HF_overlap =
 HF_active_i(v, phase) =
   E_HF_component_i(v, phase) > tau_HF_overlap
 
-ULF_active_i(v, phase, tau_ULF_source) =
-  E_ULF_component_i(v, phase) > tau_ULF_source
-
-X_ULF_only_i(v, phase, tau_ULF_source) =
-  E_ULF_component_i(v, phase),
-    if ULF_active_i(v, phase, tau_ULF_source)
-    and not HF_active_i(v, phase)
-  0,                         otherwise
-
 Coverage_ULF_tau(v, phase) =
-  sum_i I[X_ULF_only_i(v, phase, tau_ULF_source) > tau_ULF_source]
+  sum_i I[
+    E_ULF_component_i(v, phase) > tau_ULF_source
+    and not HF_active_i(v, phase)
+  ]
 
 Omega_ULF_tau_coverage(phase) =
   {v in Candidate_ULF_phase : Coverage_ULF_tau(v, phase) >= coverage_threshold}
+
+X_ULF_only_i(v, phase, tau_ULF_source, coverage_threshold) =
+  E_ULF_component_i(v, phase),
+    if v in Omega_ULF_tau_coverage(phase)
+    and not HF_active_i(v, phase)
+  0, otherwise
 ```
 
-For ULF, `tau_ULF_source` is part of the ULF exposure definition. It defines ULF component activity, ULF-only zeroing, ULF coverage, and ULF QC. HF component activity for HF-overlap exclusion is not defined by the ULF source tau. If an HF source exists, HF activity uses the locked HF selected tau so every HF-component decision in the ULF model is aligned with the HF direct voxel source used to compute `DeltaHFScore`. If no HF source exists, `tau_HF_overlap = +Inf`, no HF-overlap voxels are excluded, and ULF-only exposure equals ULF exposure after ULF thresholding. Therefore, each ULF tau/Coverage grid cell rebuilds ULF-only exposure and HF-overlap exclusion using the current ULF tau and the fixed HF-overlap rule. Round 2 first evaluates the pre-specified `ULF tau=200 V/m, Coverage>=5` source, then evaluates the declared scan grid if the pre-specified source is not accepted. Round 7 tau sensitivity is centered on the selected ULF source, using `0.9 * selected_tau` and `1.1 * selected_tau` at `selected_coverage` when those thresholds are valid and supported.
+For both HF/reference and ULF/add-on direct voxel models, tau defines Coverage
+and Omega only. Once a voxel enters Omega, every non-overlap subject retains
+the continuous ULF E-field value even when that subject's value is at or below
+the current ULF tau. HF component activity for overlap exclusion is defined by
+the locked HF selected tau, not the ULF source tau. If no HF source exists,
+`tau_HF_overlap = +Inf`, no HF-overlap voxels are excluded, and ULF-only
+exposure equals continuous ULF exposure inside Omega. Round 2 first evaluates
+the pre-specified `ULF tau=200 V/m, Coverage>=5` source, then evaluates the
+declared scan grid if needed. Round 7 uses `0.9 * selected_tau` and
+`1.1 * selected_tau` at `selected_coverage`.
 
 Continuous `X_ULF_only_i(v, phase, tau)` values are used for modeling inside `Omega_ULF_tau_coverage`. Voxels with both HF and ULF activation are excluded from the primary ULF-only predictor and represented by HF-overlap outputs.
 
 ### HF-Overlap Exclusion Outputs
 
-HF-overlap is subject-specific, phase-specific, ULF-tau-specific, and HF-overlap-rule-specific:
+HF-overlap is subject-specific, phase-specific, Omega-specific, and HF-overlap-rule-specific:
 
 ```text
-HF_ULF_overlap_i(v, phase, tau_ULF_source, tau_HF_overlap) =
-  HF_active_i(v, phase) and ULF_active_i(v, phase, tau_ULF_source)
+HF_ULF_overlap_i(v, phase, tau_ULF_source, coverage_threshold, tau_HF_overlap) =
+  HF_active_i(v, phase) and v in Omega_ULF_tau_coverage(phase)
 ```
 
 When `tau_HF_overlap = +Inf`, the overlap mask is all false and the manifest must record `hf_overlap_rule = no_hf_source_no_overlap_exclusion`.

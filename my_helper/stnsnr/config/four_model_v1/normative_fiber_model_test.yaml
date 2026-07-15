@@ -1,0 +1,106 @@
+schema_version: normative_fiber_model_v1 # Uses the production schema and semantics.
+profile_type: normative_fiber_model # Identifies the normative-fiber domain.
+model_set_id: dual_frequency_four_model_test_v1 # Matches the configured direct-voxel test model set.
+
+output: # Test publications must remain outside the production summary tree.
+  root: /Volumes/VAL/STNSNr/validation/spot # Base directory for code-path acceptance.
+
+scales: # Two distinct scales verify equal endpoint handling.
+  - mds_updrs_iii_score # First scale-equality acceptance row.
+  - mds_updrs_iv # Second scale-equality acceptance row.
+
+endpoint_pair: # Keep the exact production clinical binding.
+  baseline:
+    phase_id: T0 # Exact baseline phase in study_base.json.
+    program_id: 0 # Exact unstimulated baseline program.
+  reference:
+    phase_id: T2 # Exact frequency-1 reference phase.
+    program_id: 1 # Exact reference stimulation program.
+  addon:
+    phase_id: T3 # Exact frequency-2 add-on phase.
+    program_id: 2 # Exact combined stimulation program.
+
+frequency_classes: # Keep the exact production frequency classification.
+  reference:
+    lower: 100 # Open lower frequency boundary in Hz.
+    lower_inclusive: false # Exactly 100 Hz is unclassified.
+    upper: null # Reference frequency has no finite upper boundary.
+    upper_inclusive: false # Unbounded limits cannot be inclusive.
+  addon:
+    lower: 0 # Stimulation frequencies must be positive.
+    lower_inclusive: false # Exactly 0 Hz is invalid, not add-on.
+    upper: 50 # Open upper frequency boundary in Hz.
+    upper_inclusive: false # Exactly 50 Hz is unclassified.
+
+connectomes: # Small real connectomes exercise both allowed roles quickly.
+  entries:
+    - connectome_id: ppmi_85_ewert_2017
+      label: PPMI 85 (Ewert 2017) # Human-readable connectome label.
+      path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/PPMI 85 (Ewert 2017)/data.mat # Lead-DBS data.mat input.
+      role: formal # Tests resolver/final/formal dispatch without dTOR cost.
+      fold_candidate_fibers_min: 100 # Fold-level hard computability minimum.
+
+    - connectome_id: mgh_usc_hcp_32_horn_2017
+      label: MGH-USC HCP 32 (Horn 2017) # Human-readable connectome label.
+      path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/MGH-USC HCP 32 (Horn 2017)/data.mat # Lead-DBS data.mat input.
+      role: sensitive # Tests full-grid sensitive behavior and no-final boundary.
+      fold_candidate_fibers_min: 100 # Fold-level hard computability minimum.
+
+source: # Reduced grid retains the pre-specified source and adjacent cells.
+  pre_specified:
+    tau_v_per_m: 800 # First source evaluated by the formal connectome.
+    coverage_subjects_min: 5 # Minimum subjects with suprathreshold fiber exposure.
+  scan:
+    tau_v_per_m: [600, 800, 1000] # Reduced source grid.
+    coverage_subjects_min: [5, 6] # Reduced Coverage grid.
+  minimum_adjacent_passing_cells: 1 # Minimal local support for code-path acceptance.
+
+hard_computability: # Keep the production subject requirement.
+  n_subjects_min: 12 # Minimum complete subjects after branch-specific exclusion.
+
+score: # Keep production score semantics unchanged.
+  sweet_fraction: 0.01 # Requested positive outer-library fraction.
+  sour_fraction: 0.005 # Requested negative outer-library fraction.
+  weighted_peak_fraction: 0.05 # Requested patient-level weighted-peak fraction.
+  sweet_selected_min_count: 200 # Positive outer-library minimum.
+  sour_selected_min_count: 100 # Negative outer-library minimum.
+  weighted_peak_min_count: 20 # Peak-mean minimum.
+
+formal_resampling: # Minimal counts exercise loops without inferential meaning.
+  seed: 42 # Root seed used to derive deterministic child seeds.
+  permutation_resamples: 5 # Minimal Freedman-Lane loop count.
+  bootstrap_resamples: 5 # Minimal subject-bootstrap loop count.
+  jitter_resamples: 2 # Minimal independent fiber-jitter loop count.
+  jitter_translation_fwhm_mm: 2.0 # Keep the production perturbation scale.
+
+sensitivity: # Keep scientific sensitivity definitions unchanged.
+  selected_source_tau_multipliers: [0.9, 1.1] # Keep production neighborhood semantics.
+  high_threshold:
+    tau_v_per_m: 1500 # Keep the production high-threshold definition.
+    coverage_subjects_min: 5 # Keep the production high-threshold Coverage.
+  fixed_outer_library:
+    sweet_count: 1500 # Keep the production fixed positive count.
+    sour_count: 500 # Keep the production fixed negative count.
+
+oss: # Minimal inference count; model and pPAM semantics remain production-identical.
+  model: OSS-DBSv2 # Biophysical activation backend.
+  activation_model: pPAM # Probabilistic pathway activation model.
+  fiber_diameter_um:
+    minimum: 1.0 # Smallest modeled axon diameter.
+    maximum: 4.0 # Largest modeled axon diameter.
+    samples: 10 # Keep production pPAM sampling.
+    sampling: equidistant # Deterministic diameter sampling rule.
+  fitting_probability_threshold: 0.5 # Binary fitting exposure is I[p(A) >= 0.5].
+  permutation_resamples: 2 # Minimal OSS inference loop count.
+
+addon: # Keep production DeltaReferenceScore support thresholds unchanged.
+  delta_reference_support:
+    adequate:
+      cohort_median_out_support_max: 0.20 # Adequate median upper bound, inclusive.
+      subject_out_support_threshold: 0.50 # Count subjects strictly above this value.
+      subject_fraction_max: 0.25 # Adequate maximum fraction, inclusive.
+    invalid:
+      cohort_median_out_support_min_exclusive: 0.50 # Invalid when median is greater.
+      subject_out_support_threshold: 0.80 # Count subjects strictly above this value.
+      subject_fraction_min_exclusive: 0.25 # Invalid when the fraction is greater.
+      individual_out_support_min_exclusive: 0.95 # Any required case above this is invalid.

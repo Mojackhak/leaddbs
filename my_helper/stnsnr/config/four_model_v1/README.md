@@ -1,7 +1,7 @@
-# Direct-Voxel YAML Profiles
+# Four-Model YAML Profiles
 
-This directory contains the approved direct-voxel model profiles for the
-dual-frequency four-model refactor.
+This directory contains the approved direct-voxel and normative-fiber model
+profiles for the dual-frequency four-model refactor.
 
 ## Profiles
 
@@ -12,6 +12,12 @@ dual-frequency four-model refactor.
   selects two scales, uses the smallest scan grid that still exercises the
   pre-specified source and two-neighbor resolver, and uses minimal resampling
   counts.
+- `normative_fiber_model.yaml` is the production reference/add-on
+  normative-fiber profile. It uses dTOR as the unique `formal` connectome and
+  PPMI/MGH as `sensitive` connectomes.
+- `normative_fiber_model_test.yaml` is a lightweight normative-fiber code-path
+  profile. It uses PPMI as `formal`, MGH as `sensitive`, two scales, a reduced
+  grid, and minimal resampling counts.
 
 The test profile is not an inferential model. Its permutation p-values,
 bootstrap summaries, jitter summaries, source classification, prediction
@@ -22,7 +28,7 @@ sensitivity dispatch, and artifact writing execute successfully.
 
 ## Shared Contract
 
-Both profiles:
+All four profiles:
 
 - read scale definitions and observations from `study_base.json`;
 - require every configured `scale_id` to match
@@ -35,8 +41,16 @@ Both profiles:
 - apply the same hard-computability and DeltaReferenceScore support rules; and
 - treat every configured scale as an equal engineering execution unit.
 
+The normative-fiber profiles additionally require exactly one `formal`
+connectome. Every configured connectome runs the complete observed grid, but
+only `formal` assigns source/prediction status, realizes a final model, and
+receives formal resampling, OSS, and jitter. Reference and add-on tau define
+Coverage/candidate fibers only; continuous peak E-field remains in the score.
+Add-on exposure retains reference-active overlap exclusion.
+
 Fixed spatial aggregation, estimator, LOOCV, branch-role, fallback, reporting,
-and smoke/equivalence behavior is defined by `direct_voxel_model_v1` and is not
+and smoke/equivalence behavior is defined by the corresponding
+`direct_voxel_model_v1` or `normative_fiber_model_v1` schema and is not
 configurable through these YAML files.
 
 ## Test Reductions
@@ -57,27 +71,34 @@ pre-specified `tau=200/Coverage=5` cell remains in the grid and has enough
 horizontal, vertical, and diagonal neighbors to exercise
 `minimum_adjacent_passing_cells: 2`.
 
+The normative-fiber test scan uses tau `[600, 800, 1000]` and Coverage
+`[5, 6]`, with `minimum_adjacent_passing_cells: 1`. It preserves production
+exposure, scoring, branch-role, fallback, and connectome-role semantics.
+
 The existing `model.yaml`, `scales.yaml`, `study.yaml`, and `workflow.yaml`
 belong to the predecessor multi-profile runtime. They are not modified by this
-profile addition. The new direct-voxel profiles are configuration contracts for
-the upcoming loader/runner refactor and do not imply that the current legacy
-entrypoint already consumes them.
+profile addition. The configured profiles are contracts for the upcoming
+loader/runner refactor and do not imply that the current legacy entrypoint
+already consumes them.
 
 ## Output Contract
 
 The authoritative configured-run publication layout and artifact schemas are
-defined in `direct_voxel_output_contract.md`.
+defined in `direct_voxel_output_contract.md` and
+`normative_fiber_output_contract.md`.
 
 Production publishes below:
 
 ```text
 /Volumes/VAL/STNSNr/summary/spot/direct_voxel/<model_set_id>/<scale_id>/
+/Volumes/VAL/STNSNr/summary/spot/normative_fiber/<model_set_id>/<scale_id>/
 ```
 
 The smoke profile publishes the identical artifact contract below:
 
 ```text
 /Volumes/VAL/STNSNr/validation/spot/direct_voxel/<model_set_id>/<scale_id>/
+/Volumes/VAL/STNSNr/validation/spot/normative_fiber/<model_set_id>/<scale_id>/
 ```
 
 Reference and add-on selected-source artifacts are stored once. A

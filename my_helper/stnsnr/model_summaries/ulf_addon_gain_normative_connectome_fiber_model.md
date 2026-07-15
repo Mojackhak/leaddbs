@@ -5,7 +5,7 @@ Scope: ULF add-on normative connectome fiber-level model, aligned to `hf_3m_norm
 
 ---
 
-## YAML Core Interface (Predecessor Implemented; Acceptance Paused)
+## Configured YAML Contract (Design Approved; Implementation Pending)
 
 The configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
@@ -27,11 +27,15 @@ acceptance. The approved strict dual-frequency successor is documented in
 All configured ULF/frequency-2 endpoint scales are engineering-equivalent within
 their applicable endpoint families. Chronic, immediate, total, axial, and other
 configured scales use the same task factories and status fields.
-Public YAML provides the shared `four_model_v1` model/formal/sensitivity
-parameters. Normative fiber has no global candidate-threshold parameter;
-candidate fibers are `internal-derived` by tau/Coverage cell and training fold.
-Equivalence and smoke parameters are `internal-test`; matched HF status,
-branch statuses, the unique final model, and artifact paths are `runtime output`.
+Connectome role is restricted to `formal` or `sensitive`, with exactly one
+`formal` connectome. PPMI and MGH are configured as `sensitive`; dTOR is
+configured as `formal`. Every configured scale with a realized formal-connectome
+final model receives formal resampling without a separate reporting-selection
+gate. Normative fiber has no global candidate-threshold parameter; candidate
+fibers are `internal-derived` by tau/Coverage cell and training fold.
+Equivalence and script-smoke parameters are `internal-test`; matched reference
+status, branch statuses, the unique final model, and artifact paths are
+`runtime output`.
 
 The core statistical domain remains the configured whole connectome before
 stimulation tau/Coverage filtering. Anatomical ROI restriction, VTA/ROI
@@ -280,19 +284,24 @@ hf_norm_fiber_source_status = scan_fallback_accepted
 
 A scan-fallback HF source may define the model-family-matched `DeltaHFScore` source when tau800/Coverage>=5 is not accepted. The manifest must record `hf_norm_fiber_threshold_source = scan_fallback`, selected tau/Coverage, and adjacent support.
 
-Connectome-matched rule:
+Connectome-role rule:
 
 ```text
-ULF/PPMI uses HF/PPMI DeltaHFScore
-ULF/MGH  uses HF/MGH  DeltaHFScore
-ULF/dTOR uses HF/dTOR DeltaHFScore
+the unique formal connectome determines the reference source/prediction status,
+the intended add-on branch, and the only final-model eligibility
+
+formal dTOR add-on uses formal dTOR DeltaReferenceScore
+sensitive PPMI add-on uses the PPMI reference map evaluated at the numeric
+formal-selected tau/Coverage
+sensitive MGH add-on uses the MGH reference map evaluated at the numeric
+formal-selected tau/Coverage
 ```
 
-A shared dTOR-HF adjustment across all ULF connectomes may be reported only as a sensitivity:
-
-```text
-shared_dTOR_HF_adjustment_sensitivity
-```
+Sensitive-connectome DeltaReferenceScore inputs are cross-connectome
+sensitivity inputs only. Sensitive connectomes run the complete observed grid,
+do not assign canonical source/prediction/final status, and cannot rescue a
+missing formal source. If a sensitive adjusted input is unavailable, only that
+sensitivity branch records input failure.
 
 Required HF source fields:
 
@@ -424,7 +433,12 @@ Exposure is not scaled by frequency or pulse width in the peak E-field branch. F
 
 ## 6. ULF-Only Exposure And Candidate Fibers
 
-ULF-only exposure is tau-specific because tau defines ULF component activity, ULF-only zeroing, ULF coverage, and ULF QC. HF component activity for HF-overlap exclusion is not defined by the ULF source tau.
+ULF/add-on exposure follows the same continuous-dose rule as the reference
+normative-fiber model: tau defines Coverage and the candidate fiber universe,
+but it does not zero a patient's subthreshold add-on value after a fiber enters
+that universe. Reference-active overlap exclusion remains patient- and
+fiber-specific and is defined by the selected reference-source tau, not the
+add-on source tau.
 
 Pre-specified ULF source:
 
@@ -459,33 +473,40 @@ tau_HF_overlap =
   +Inf,
     if hf_norm_fiber_source_status is absent_no_stable_grid
 
-ULF_touched_i(l,tau_ULF_source) =
-  X_ULF_component_i(l) > tau_ULF_source
-
-HF_touched_i(l) =
+Reference_active_i(l) =
   X_HF_component_i(l) > tau_HF_overlap
 
-X_ULF_only_i(l,tau_ULF_source) =
-  X_ULF_component_i(l), if ULF_touched_i(l,tau_ULF_source) and not HF_touched_i(l)
-  0,                   otherwise
+Coverage_ULF_tau(l) =
+  sum_i I[
+    X_ULF_component_i(l) > tau_ULF_source
+    and not Reference_active_i(l)
+  ]
+
+F_candidate_ULF_tau_cov =
+  {l: Coverage_ULF_tau(l) >= coverage_min}
+
+X_ULF_only_i(l,tau_ULF_source,coverage_min) =
+  X_ULF_component_i(l),
+    if l in F_candidate_ULF_tau_cov and not Reference_active_i(l)
+  0,
+    otherwise
 ```
 
-If an HF source exists, HF-overlap exclusion uses the locked HF selected tau so every HF-component decision in the ULF model is aligned with the HF normative fiber source used to compute `DeltaHFScore`. If no HF source exists, `tau_HF_overlap = +Inf`, no HF-overlap streamlines are excluded, and ULF-only exposure equals ULF exposure after ULF thresholding.
-
-Candidate rule:
-
-```text
-Coverage_ULF_tau(l) = sum_i I[X_ULF_only_i(l,tau) > tau]
-F_candidate_ULF_tau_cov = {l: Coverage_ULF_tau(l) >= coverage_min}
-```
+If an HF source exists, HF-overlap exclusion uses the locked HF selected tau so every HF-component decision in the ULF model is aligned with the HF normative fiber source used to compute `DeltaHFScore`. If no HF source exists, `tau_HF_overlap = +Inf`, no HF-overlap streamlines are excluded, and ULF-only exposure equals continuous ULF exposure inside the tau/Coverage-defined candidate universe.
+The final clause is continuous-dose: when no reference source exists,
+candidate fibers use the unthresholded continuous ULF component exposure after
+the candidate universe has been defined. For any candidate fiber, a subject
+whose add-on exposure is at or below tau still contributes that continuous
+value unless reference-active overlap exclusion sets it to zero.
 
 The candidate universe is the full public connectome, not target-restricted seed-target tracts.
 
 Important interpretation rule:
 
 ```text
-For ULF, tau is part of the biological exposure definition.
-It is not merely a candidate coverage threshold.
+For both reference and add-on normative-fiber models, tau defines Coverage and
+the candidate universe only. Continuous peak E-field is retained inside that
+universe. Add-on additionally applies reference-active overlap exclusion.
 ```
 
 Therefore a scan-fallback ULF source is interpreted as:
@@ -938,14 +959,28 @@ Missing-data rule: missing `Y_post`, missing `Y_HF_ref`, or failed e-field avail
 
 ### 9.4 ULF Normative Fiber Source And Endpoint Resolver
 
-The HF-derived intended branch role decides which branches are attempted and which branch is intended primary. The branch-specific ULF source resolver then evaluates each executable branch independently. Each branch may select a different tau/Coverage source because `delta_hf_adjusted` and `no_delta_hf` have different nuisance designs and may produce different valid ULF scoring supports. ULF source or prediction status must not change the HF-derived intended primary branch; it determines whether that intended branch is realized as a stable ULF model or whether the endpoint is reported as input-failed, absent, predictive, or nonpredictive.
+The HF-derived intended branch role decides which branches are attempted and
+which branch is intended primary. On the unique `formal` connectome, the
+branch-specific ULF source resolver evaluates each executable branch
+independently. Each branch may select a different tau/Coverage source because
+their nuisance designs may produce different valid ULF scoring supports. ULF
+source or prediction status must not change the HF-derived intended primary
+branch; it determines whether that intended branch is realized as a stable ULF
+model or reported as input-failed, absent, predictive, or nonpredictive.
+
+Every `sensitive` connectome runs the complete observed grid for every
+input-valid branch. It records cell-level computability and prediction metrics
+and evaluates the numeric tau/Coverage selected for the corresponding formal
+branch. Sensitive connectomes do not assign canonical source, prediction,
+endpoint, or final-model status and cannot trigger fallback or rescue the
+formal final model.
 
 The hard computability filter for each executable endpoint, phase, branch, and tau/Coverage grid cell is:
 
 ```text
 n_subjects >= 12
-fold_n_candidate_fibers_min >= 1000 for dTOR
-fold_n_candidate_fibers_min >= 100 for PPMI/MGH observed robustness
+fold_n_candidate_fibers_min >= 1000 for the configured formal dTOR connectome
+fold_n_candidate_fibers_min >= 100 for configured sensitive PPMI/MGH connectomes
 selected fiber pools are computable
 NetULFFiberScore is non-constant in every LOOCV fold
 branch nuisance design is valid
@@ -976,7 +1011,7 @@ Coverage:
   5, 6, 7, 8, 10, 12
 ```
 
-Define ULF normative fiber source status for every executable endpoint, phase, and branch:
+Define ULF normative fiber source status for every executable formal-connectome endpoint, phase, and branch:
 
 ```text
 ulf_norm_fiber_source_status = pre_specified_accepted
@@ -1153,11 +1188,10 @@ Run the scan independently for every executable branch. `delta_hf_adjusted` and 
 Each grid cell reruns:
 
 ```text
-ULF_touched / HF_touched
-HF-overlap exclusion
-X_ULF_only
+reference-active overlap from the locked reference selected tau
 Coverage_ULF_tau_cov
 F_candidate_ULF_tau_cov
+continuous X_ULF_only inside the candidate universe
 rho_ULF
 M_ULF
 F+_ULF / F-_ULF
@@ -1222,7 +1256,7 @@ ulf_total_exposure_tau800_cov5_sensitivity
 
 This branch is not primary. If total ULF exposure is positive but ULF-only exposure is negative or null, interpretation should state that the hard-exclusion definition may have removed co-modulated ULF effects.
 
-### 10.5 Tau1500 ULF-only exposure-definition sensitivity
+### 10.5 Tau1500 ULF Candidate-Definition Sensitivity
 
 Branch:
 
@@ -1230,7 +1264,10 @@ Branch:
 ulf_peak_efield_tau1500_cov5_sensitivity
 ```
 
-This is not merely a high-threshold robustness check. It changes ULF touched status, HF touched status, HF-overlap exclusion, `X_ULF_only`, candidate fibers, and patient scores.
+This sensitivity changes add-on Coverage and the candidate fiber universe. It
+does not change the selected reference tau, the reference-active overlap rule,
+or truncate patient-level add-on exposure inside the resulting candidate
+universe. Patient scores may change because the candidate support changes.
 
 ### 10.6 Top1500/top500 selected-fiber sensitivity
 
@@ -1451,14 +1488,14 @@ Within each training fold:
 ```text
 1. Read the matched HF normative source status and source threshold metadata.
 2. If the branch uses DeltaHFScore, fit or retrieve the matched training-fold HF normative fiber model and compute fold-specific DeltaHFScore for training patients and the held-out patient.
-3. Compute fold-specific X_ULF_only_i(l,tau) using the branch tau.
-4. Define F_candidate_ULF_tau_cov using training-patient Coverage_ULF_tau(l) >= coverage_min.
-5. Estimate branch-specific rho_ULF(l) and M_ULF(l) using training patients only.
-6. Select fold-specific F+_ULF and F-_ULF.
-7. Compute branch-specific NetULFFiberScore for training patients and the held-out patient.
-8. Fit the branch-specific prediction model on training patients.
-9. Predict held-out Y_post.
-10. Compare against the branch-specific nuisance-only baseline.
+3. Compute fold-specific reference-active overlap using the locked reference selected tau.
+4. Define F_candidate_ULF_tau_cov using training-patient suprathreshold add-on Coverage among non-overlap fibers.
+5. Retain continuous X_ULF_only_i(l) inside that fold-specific candidate universe, zeroing only reference-active overlap.
+6. Estimate branch-specific rho_ULF(l) and M_ULF(l) using training patients only.
+7. Select fold-specific F+_ULF and F-_ULF.
+8. Compute branch-specific NetULFFiberScore for training patients and the held-out patient.
+9. Fit the branch-specific prediction model on training patients.
+10. Predict held-out Y_post and compare against the branch-specific nuisance-only baseline.
 ```
 
 For the OSS sensitivity branch, steps 3-7 inherit the realized primary branch's selected-source candidate universe and HF-overlap exclusion rule, replace `X_ULF_only` with `X_ULF_only_OSS`, and recompute `M_ULF_OSS`, `F+_ULF_OSS`, `F-_ULF_OSS`, `SweetPeak5_ULF_OSS`, `SourPeak5_ULF_OSS`, and `NetULFFiberScore_OSS` within the training fold.
@@ -1488,17 +1525,23 @@ always run when inputs permit:
   ulf_peak_efield_tau800_cov5_no_delta_hf
 ```
 
-The branch-role resolver records the intended primary branch before ULF source resolution. Formal resampling follows the final model's accepted source. A separately declared co-primary endpoint may receive its own automatically selected final model, but a sensitivity branch does not replace the final model.
+The branch-role resolver records the intended primary branch before ULF source
+resolution. Formal resampling follows the final model's accepted source. Every
+configured scale with a realized formal-connectome final model receives formal
+resampling; there is no separate clinical reporting-selection gate. A
+sensitivity branch does not replace the final model.
 
 
 ## 12. Permutation, Bootstrap, And Threshold-Scan Inference
 
 ### 12.1 Freedman-Lane permutation
 
-Formal permutation is restricted to the dTOR final model's accepted source for each endpoint included in formal reporting.
+Formal permutation is restricted to the accepted final source of the unique
+`formal` connectome for every configured scale that realizes a final model.
 
 ```text
-connectome = dTOR
+connectome_role = formal
+configured production formal connectome = dTOR
 branch = ulf_final_model_branch at its accepted final source
 formal B = 10000
 smoke B = 1000
@@ -1542,7 +1585,8 @@ Therefore, within a fixed outer fold and fixed HF model cache, `DeltaHFScore` ma
 
 ### 12.2 Subject-level bootstrap
 
-Formal bootstrap is restricted to the dTOR final model's accepted source for each endpoint included in formal reporting.
+Formal bootstrap is restricted to the accepted final source of the unique
+`formal` connectome for every configured scale that realizes a final model.
 
 ```text
 formal B = 10000
@@ -1619,11 +1663,11 @@ Plain control models are branch-specific. When the final model is no-DeltaHF, om
 For each patient:
 
 ```text
-Touched_ULF_only_i(l) = I[X_ULF_only_i(l,tau) > tau]
+Touched_ULF_only_i(l) = I[l in F_candidate_ULF_tau_cov and not Reference_active_i(l)]
 
 PlainULFOnlyTouchedCount_i = sum_l Touched_ULF_only_i(l)
-PlainULFOnlyExposureSum_i  = sum_l X_ULF_only_i(l,tau)
-PlainULFOnlyExposureTop5_i = mean top 5% X_ULF_only_i(l,tau) among touched candidate fibers
+PlainULFOnlyExposureSum_i  = sum_l X_ULF_only_i(l)
+PlainULFOnlyExposureTop5_i = mean top 5% X_ULF_only_i(l) among candidate non-overlap fibers
 ```
 
 Compare for DeltaHF-adjusted branches:
@@ -1715,7 +1759,13 @@ Collinearity flags:
 
 ---
 
-## 14. Outputs
+## 14. Legacy Output Inventory
+
+The filenames and paths in this section describe current/legacy outputs only.
+They are not the configured publisher contract. New configured runs follow
+`my_helper/stnsnr/config/four_model_v1/normative_fiber_output_contract.md`, use
+generic reference/add-on naming, keep a unique formal-connectome final model,
+and exclude ROI/anatomical enrichment postprocessing from the core output.
 
 Output root:
 
@@ -2069,9 +2119,9 @@ control:
 Connectome roles:
 
 ```text
-PPMI 85                 observed robustness
-MGH-USC HCP 32          observed robustness
-dTOR-985 Full           primary formal analysis
+PPMI 85                 sensitive
+MGH-USC HCP 32          sensitive
+dTOR-985 Full           formal
 ```
 
 ### Round 0: Version, input, HF source, and manifest freeze
@@ -2192,7 +2242,7 @@ assign ulf_norm_fiber_prediction_status after a source exists
 realize ulf_norm_fiber_endpoint_model_status from the intended primary branch
 ```
 
-Round 2 records the following for each requested endpoint row before any downstream formal reporting:
+Round 2 records the following for each requested endpoint row before downstream formal resampling:
 
 ```text
 endpoint row is joined by ID, or records missing clinical data
@@ -2339,7 +2389,7 @@ dTOR realized-primary final branch observed LOOCV
 dTOR smoke Freedman-Lane permutation B=1000
 ```
 
-PPMI and MGH remain peak-E-field observed cross-connectome robustness branches.
+PPMI and MGH remain peak-E-field `sensitive` connectomes.
 Required OSS sidecars are limited to the final dTOR branch unless a future model document explicitly promotes cross-connectome OSS sensitivity.
 
 Write:

@@ -329,20 +329,20 @@ scientific cache root
 run output root
 ```
 
-Connectome roles are:
+Normative-fiber connectome roles are restricted to:
 
 ```text
-observed_robustness
-primary_formal
-activation_sensitivity_enabled
+formal
+sensitive
 ```
 
-Each normative-fiber model profile resolves exactly one
-`primary_formal` connectome. Zero or more `observed_robustness` connectomes may
-run observed source/prediction resolution, controls, and reporting, but they
-emit `RobustnessRecord` values and never produce a `FinalModelRecord`. The
-`activation_sensitivity_enabled` role must be attached to the same
-`primary_formal` connectome because activation consumes a realized final.
+Each normative-fiber model profile declares exactly one `formal` connectome and
+zero or more `sensitive` connectomes. Every connectome runs the complete
+observed tau/Coverage grid. Only `formal` assigns source/prediction status,
+realizes a final model, and schedules formal resampling, OSS, jitter, and
+final-linked sensitivity. `Sensitive` connectomes evaluate the numeric
+tau/Coverage selected by `formal`, emit cross-connectome sensitivity records,
+and can never rescue or replace the formal final model.
 
 The runtime never tests for PPMI, MGH, or dTOR names.
 
@@ -512,12 +512,11 @@ final model identity =
   endpoint model identity + realized branch + selected source identity
 ```
 
-Every combined endpoint catalog record stores an explicit
-`matched_reference_endpoint_id` resolved from
-`matched_reference_binding_id`. Reference and combined phase IDs may differ.
-Multiple combined subscale endpoints may resolve to the same reference
-endpoint ID, forming a one-to-many dependency fan-out without rerunning the
-reference model.
+Each configured model profile locks exactly one explicit baseline/reference/
+add-on `endpoint_pair` by phase and program. Reference and add-on phase IDs may
+differ. Every configured scale instantiates that same binding structure, but
+the catalog does not automatically select another reference, discover an
+additional add-on endpoint, or create one-to-many endpoint fan-out.
 Normative-fiber dependencies additionally require the same configured
 `connectome_id`; no connectome is selected by name or nearest match.
 
@@ -618,16 +617,19 @@ reference dependency failure:
 
 ### Connectome role and final realization
 
-For normative-fiber endpoints, source and prediction resolution run separately
-for every configured connectome. Connectome role then controls output type:
+For normative-fiber endpoints, the complete observed grid runs separately for
+every configured connectome. Connectome role controls selection and output:
 
 ```text
-observed_robustness:
-  emit source/prediction/control/RobustnessRecord outputs
+sensitive:
+  emit cell-level computability/prediction metrics and formal-source-cell
+  sensitivity outputs
+  do not assign canonical source/prediction/final status
   never emit FinalModelRecord
   never schedule formal, jitter, activation, or final-model sensitivity
 
-primary_formal:
+formal:
+  assign source/prediction status
   apply intended-branch and one-way-fallback realization
   emit exactly one FinalModelRecord or a closed terminal state
 ```
@@ -726,13 +728,13 @@ runtime output   resolver/status/artifact value, never a selector
 |---|---|---|
 | 0 Input/manifest freeze | bundle/workflow | Immutable endpoint/connectome identity. |
 | 1 Sidecar/equivalence | scientific cache/internal-test | Exact subject and feature identity. |
-| 2 All-endpoint observed | catalog/connectome roles | Equal factory for every scale; robustness connectomes emit robustness records only. |
+| 2 All-endpoint observed | catalog/connectome roles | Equal factory for every scale; every connectome runs the complete observed grid. |
 | 3 Plain control | model controls | Interpretation QC only. |
-| 4 Primary-connectome smoke | internal-test | Technical qualification only. |
+| 4 Formal-connectome internal smoke | internal-test | Technical qualification only; parameters are not public YAML. |
 | 5 Cheap observed sensitivity | model/connectome roles | No hidden defaults or classification feedback. |
-| 5.5 Source/prediction resolver | grid/hard filters | Endpoint/connectome source status; only primary-formal is final-eligible. |
-| 6 Formal resampling | primary-formal role final | Selected source only. |
-| 7 Activation sensitivity | activation-enabled role final | Cannot replace final model. |
+| 5.5 Source/prediction resolver | grid/hard filters | Only the formal connectome assigns status and is final-eligible. |
+| 6 Formal resampling | formal role final | Every configured scale with a realized final; selected source only. |
+| 7 Activation sensitivity | formal role final | Cannot replace final model. |
 | 8 Jitter | final | Robustness only. |
 | 9 Numeric/report | reporting/runtime | Downstream numeric summaries and artifact index. |
 
@@ -742,14 +744,14 @@ runtime output   resolver/status/artifact value, never a selector
 |---|---|---|
 | 0 Input/reference lock | explicit matched-reference/connectome record | Same scale and connectome, explicit binding, valid reference input; phase IDs may differ. |
 | 1 Sidecar/support/equivalence | bundle/cache/internal-test | Branch-specific inputs and support. |
-| 2 Observed/resolver/realization | model/state machine/connectome role | Robustness records for robustness connectomes; one primary/fallback final or closed absence for primary-formal. |
+| 2 Observed/resolver/realization | model/state machine/connectome role | Full observed grids for all connectomes; one primary/fallback final or closed absence for formal. |
 | 2b Additional phase observed | endpoint binding | No phase hierarchy in engineering. |
 | 3 Plain/burden controls | model controls | Interpretation QC only. |
-| 4 Primary-connectome smoke | internal-test | Final-source qualification. |
+| 4 Formal-connectome internal smoke | internal-test | Final-source code-path qualification. |
 | 5 Cheap observed sensitivity | model profile | Comparison and exposure sensitivities. |
 | 6 Selected-source neighborhood | selected source | Observed sensitivity only. |
-| 7 Formal resampling | primary-formal role final | Exactly one final. |
-| 8 Activation sensitivity | activation-enabled role final | Component/frequency identity required. |
+| 7 Formal resampling | formal role final | Exactly one final per configured scale. |
+| 8 Activation sensitivity | formal role final | Component/frequency identity required. |
 | 9 Jitter | final | Rebuild exposure, overlap, DeltaReferenceScore, and model. |
 | 10 Numeric/report | reporting/runtime | Cannot alter classification. |
 
@@ -778,18 +780,20 @@ peak aggregation from training subjects only.
 
 ## Activation And OSS Contract
 
-Activation sensitivity runs only for a realized normative-fiber final whose
-connectome has `activation_sensitivity_enabled`. It does not participate in
-source resolution or final realization.
+Activation sensitivity runs only for a realized normative-fiber final on the
+unique `formal` connectome. It does not participate in source resolution or
+final realization.
 
-The shared activation universe is scale- and endpoint-independent:
+The activation universe is inherited from the endpoint final source:
 
 ```text
-F_activation = F_coverage(tau_min, coverage_min)
+F_activation = final.valid_feature_axis at selected tau/Coverage
 ```
 
-Do not apply endpoint weights, signed-fiber selection, or reference-overlap
-exclusion while constructing this universe. Endpoint final axes are subsets.
+OSS must not rescan tau/Coverage, add noncandidate fibers, or restrict the
+candidate universe using activation. Add-on OSS retains the final branch's
+reference-active overlap rule. Endpoint weights, signs, and selected sweet/sour
+fibers are re-estimated within each OSS training fold.
 
 For the default OSS backend:
 
@@ -846,14 +850,25 @@ layout defined by
 <direct_voxel_model.output.root>/direct_voxel/<model_set_id>/<scale_id>/
 ```
 
+Configured normative-fiber publication follows
+`config/four_model_v1/normative_fiber_output_contract.md` under:
+
+```text
+<normative_fiber_model.output.root>/normative_fiber/<model_set_id>/<scale_id>/
+```
+
+The normative-fiber profile is `normative_fiber_model.yaml`; its lightweight
+acceptance profile is `normative_fiber_model_test.yaml`. Both enforce exactly
+one `formal` connectome and zero or more `sensitive` connectomes.
+
 The publication path contains no `endpoint`, `endpoint_pair`, or run-ID
 directory. Endpoint binding remains explicit in the resolved model profile and
 `model_manifest.json`. Publication never copies a selected branch into a second
 final-model directory; `final_model.json` is an immutable relative-path
 reference.
 
-The configured direct-voxel implementation uses reference/add-on terminology
-internally, not only at publication. Legacy HF/ULF names must be removed from
+The configured direct-voxel and normative-fiber implementations use
+reference/add-on terminology internally, not only at publication. Legacy HF/ULF names must be removed from
 configured modules, typed records, state fields, artifact kinds, tests, and
 task identities. Compatibility-only legacy entrypoints are quarantined outside
 the canonical configured API.
@@ -984,7 +999,7 @@ evidence covers:
    neighborhood sensitivity, and report;
 2. MDS-UPDRS III reference dTOR fiber through final, formal, OSS, complete
    jitter, and report;
-3. MDS-UPDRS III reference MGH/PPMI fiber observed robustness through resolver
+3. MDS-UPDRS III reference MGH/PPMI predecessor sensitivity evidence through resolver
    and report; predecessor final-like records are converted to target
    `RobustnessRecord` evidence, never target `FinalModelRecord`; and
 4. the first completed MDS-UPDRS III combined child add-on dTOR fiber through preprocessing, resolver,
@@ -1088,7 +1103,7 @@ Five documentation review passes completed on 2026-07-11:
 | 1. Target vs historical | PASS | `four_model_execution_plan.md` is historical only; this file is the sole current `/goal`; target status remains `implementation_not_started`. |
 | 2. Scale equality and endpoint identity | PASS | No default/privileged scale; combined endpoints use explicit matched-reference bindings and may have different phase IDs. |
 | 3. Dependency and fallback | PASS | Reference dependency failure is distinct from ready input with no source; invalid DeltaReferenceScore still runs no-delta; fallback remains one-way. |
-| 4. Round, cache, activation, and interface | PASS | All nondeferred Rounds, including add-on direct Round 9, are mapped; robustness connectomes cannot become final; generic runtime accepts structured inputs and has no project reverse dependency. |
+| 4. Round, cache, activation, and interface | PASS | All nondeferred Rounds, including add-on direct Round 9, are mapped; sensitive connectomes cannot become final; generic runtime accepts structured inputs and has no project reverse dependency. |
 | 5. Numerical acceptance and wording | PASS | Frozen counts were verified; exact reviewed task allowlist is required; unfinished/failed/partial predecessor paths have no numerical parity requirement. |
 
 The linked implementation plan maps every target requirement to a task. This

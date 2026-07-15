@@ -3,27 +3,28 @@
 Version: 2026-07-06 threshold-scan and downstream-status specification
 Scope: HF-only 3m normative connectome fiber-level model; provides source-model status and DeltaHFScore eligibility for ULF add-on fiber models.
 
-## YAML Core Interface (Implemented; Real Acceptance Pending)
+## Configured YAML Contract (Design Approved; Implementation Pending)
 
-The future configuration/orchestration contract is documented in
+The configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
 remains authoritative for connectome roles, exposure, source resolution,
-formal resampling, controls, OSS, jitter, and numeric reporting. Shared profile,
-identity, catalog, state, run-store, configured model service, final-model
-resolver, formal/sensitivity adapters, OSS producer/consumer, and numeric
-reporting are implemented. The configured-core regression currently passes
-300 tests, and the related HF/ULF/statistics selftests pass. Real MDS-UPDRS
-III/IV execution and artifact acceptance remain pending; existing legacy output
-trees are unchanged until that run completes.
+formal resampling, controls, OSS, jitter, and numeric reporting. Predecessor
+`four_model_v1` profile, catalog, state, service, resolver, formal/sensitivity,
+OSS, and reporting code exists and has regression coverage. The new
+`normative_fiber_model_v1` loader, publisher, and end-to-end acceptance remain
+unimplemented. Existing legacy output trees are unchanged until the configured
+runner is implemented and accepted.
 
 All configured HF/frequency-1 endpoint scales are engineering-equivalent.
-PPMI, MGH, and dTOR roles may differ as declared below, but scale identity does
-not change execution or resolver rules. Public YAML provides the shared
-`four_model_v1` model/formal/sensitivity parameters. Normative fiber has no
-global candidate-threshold parameter; candidates are `internal-derived` for
-each tau/Coverage cell and training fold. Equivalence and smoke parameters are
-`internal-test`; selected source/status fields and artifact paths are
-`runtime output`.
+Connectome role is restricted to `formal` or `sensitive`, with exactly one
+`formal` connectome. PPMI and MGH are configured as `sensitive`; dTOR is
+configured as `formal`. Scale identity does not change execution or resolver
+rules. Every configured scale with a realized final model receives formal
+resampling; there is no separate reporting-selection gate. Normative fiber has
+no global candidate-threshold parameter; candidates are `internal-derived` for
+each tau/Coverage cell and training fold. Equivalence and script-smoke
+parameters are `internal-test`; selected source/status fields and artifact
+paths are `runtime output`.
 
 The core statistical domain remains the configured whole connectome before
 stimulation tau/Coverage filtering. Anatomical ROI restriction, VTA/ROI
@@ -83,9 +84,9 @@ Rows are joined by `ID` (`SNr003`, `SNr006`, etc.). The improvement-rate table i
 - Public Lead-DBS structural connectomes:
 
   ```text
-  PPMI 85 (Ewert 2017)          observed robustness
-  MGH-USC HCP 32 (Horn 2017)    observed robustness
-  dTOR-985 Full (Elias 2024)    primary analysis
+  PPMI 85 (Ewert 2017)          sensitive
+  MGH-USC HCP 32 (Horn 2017)    sensitive
+  dTOR-985 Full (Elias 2024)    formal
   ```
 
 - Right canonical streamline features from each connectome `data.mat`.
@@ -311,12 +312,19 @@ Define `Q2` against the covariate-only clinical baseline:
 Q2 = 1 - SSE_NetFiberScore_model / SSE_YBase_only
 ```
 
-- Formal Freedman-Lane permutation: `B=10000`, seed `42`, dTOR final-source branch for endpoint rows with an accepted HF final source.
-- Subject-level bootstrap: `B=10000`, seed `42`, dTOR final-source branch for endpoint rows with an accepted HF final source.
+- Formal Freedman-Lane permutation: `B=10000`, seed `42`, unique formal-connectome final-source branch for every configured endpoint row with an accepted HF final source.
+- Subject-level bootstrap: `B=10000`, seed `42`, unique formal-connectome final-source branch for every configured endpoint row with an accepted HF final source.
 - Smoke permutation/bootstrap: `B=1000`, seed `42`.
 - Optional OLS ANCOVA is documented for future sensitivity analysis but is not run in the current execution.
 
-PPMI, MGH, and dTOR all produce observed robustness outputs. dTOR additionally carries formal permutation, bootstrap, jitter QC, and the default FDR/enrichment figure-cache path when those caches are generated for selected final branches. OSS activation sensitivity is tracked separately. The Nature paper 5-fold/10-fold CV settings are documented in the reference checklist only; LOOCV is the executable validation design for this `n=16` cohort.
+Every configured connectome runs the complete observed tau/Coverage grid.
+Only the unique `formal` connectome assigns source, prediction, and final-model
+status. `Sensitive` connectomes retain cell-level computability and prediction
+metrics and evaluate the numeric tau/Coverage selected by the formal
+connectome, but they never create or replace a final model. Formal permutation,
+bootstrap, OSS, and jitter attach only to the formal final model. The Nature
+paper 5-fold/10-fold CV settings are documented in the reference checklist
+only; LOOCV is the executable validation design for this `n=16` cohort.
 
 
 ### HF Normative Fiber Source And Prediction Resolver
@@ -327,8 +335,8 @@ The hard computability filter for each scale, connectome, and tau/Coverage grid 
 
 ```text
 n_subjects >= 12
-fold_n_candidate_fibers_min >= 1000 for dTOR
-fold_n_candidate_fibers_min >= 100 for PPMI/MGH observed robustness
+fold_n_candidate_fibers_min >= 1000 for the configured formal dTOR connectome
+fold_n_candidate_fibers_min >= 100 for configured sensitive PPMI/MGH connectomes
 selected fiber pools are computable
 NetFiberScore is non-constant in every LOOCV fold
 Y_base nuisance design is valid in the full sample and every LOOCV fold
@@ -355,7 +363,7 @@ Coverage:
   5, 6, 7, 8, 10, 12
 ```
 
-Define HF normative fiber source status:
+Define HF normative fiber source status for the formal connectome only:
 
 ```text
 hf_norm_fiber_source_status = pre_specified_accepted
@@ -557,18 +565,18 @@ Hard computability filter for a source grid cell:
 
 ```text
 n_subjects >= 12
-fold_n_candidate_fibers_min >= 1000 for dTOR
-fold_n_candidate_fibers_min >= 100 for PPMI/MGH observed robustness
+fold_n_candidate_fibers_min >= 1000 for formal dTOR
+fold_n_candidate_fibers_min >= 100 for sensitive PPMI/MGH
 selected fiber pools are computable
 NetFiberScore non-constant in every fold
 Y_base nuisance design is valid in every fold
 all held-out predictions finite
 ```
 
-Source selection rule:
+Formal-connectome source selection rule:
 
 ```text
-selection_connectome = dTOR
+formal_connectome = the unique connectome with role = formal
 pre_specified_accepted:
   tau800/Coverage>=5 passes the hard computability filter
   and at least 2 adjacent tau/Coverage cells also pass
@@ -591,7 +599,25 @@ For `scan_fallback_accepted`, choose the fallback cell without using `Q2`, rho, 
 5. prefer higher tau
 ```
 
-PPMI and MGH are not used to select the source. They provide observed cross-connectome robustness for the dTOR-selected and neighboring cells.
+Every `sensitive` connectome runs the complete observed grid but does not assign
+`hf_norm_fiber_source_status`, `hf_norm_fiber_prediction_status`, or a final
+model. After the formal connectome resolves its source, each sensitive
+connectome evaluates the same numeric selected tau/Coverage using its own
+streamline universe and records:
+
+```text
+sensitive_connectome_status
+formal_source_cell_computability
+formal_source_cell_prediction_metrics
+score_direction_comparison
+spatial_density_similarity
+```
+
+Fiber IDs are connectome-local and are never compared directly across
+connectomes. If the formal connectome has no stable source, sensitive observed
+grids remain reportable but `formal_source_cell_computability` is
+`not_applicable_no_formal_source`; no sensitive connectome may be promoted to
+formal or final.
 
 If a selected source is to be described as threshold-scan significant, run max-stat permutation over the full tau x Coverage family:
 
@@ -817,7 +843,13 @@ jitter_level_1_selected_display = selected/display fibers only
 jitter_level_2_model_density    = model-density robustness over candidate fibers or feasible subset
 ```
 
-## Outputs
+## Legacy Output Inventory
+
+The filenames and paths in this section describe current/legacy outputs only.
+They are not the configured publisher contract. New configured runs follow
+`my_helper/stnsnr/config/four_model_v1/normative_fiber_output_contract.md`, use
+generic reference/add-on naming, store one final reference record per scale,
+and exclude ROI/anatomical enrichment postprocessing from the core output.
 
 Output root:
 
@@ -861,7 +893,7 @@ fdr_thresholded_negative_density_q10.nii.gz
 
 For continuous/statistical NIfTI outputs, non-covered or non-modeled voxels are written as `NaN`, not `0`. This applies to weighted density, positive/negative weighted density, `-log(p)` density, FDR-thresholded density, stability density, jitter density, plain touched density, and display-smoothed density maps outside the density support or model candidate support. `0` is reserved for a true zero contribution inside support. Count/binary masks, if emitted, remain `0` outside support because their semantics are count/false.
 
-dTOR primary branch additionally writes:
+dTOR formal branch additionally writes:
 
 ```text
 normative_HF_fiber_permutation_summary.csv
@@ -1410,9 +1442,9 @@ control:
 Current connectome roles:
 
 ```text
-PPMI 85 (Ewert 2017)          observed robustness
-MGH-USC HCP 32 (Horn 2017)    observed robustness
-dTOR-985 Full (Elias 2024)    primary analysis
+PPMI 85 (Ewert 2017)          sensitive
+MGH-USC HCP 32 (Horn 2017)    sensitive
+dTOR-985 Full (Elias 2024)    formal
 ```
 
 Use the current document version as the only executable specification:
@@ -1701,7 +1733,7 @@ connectome = dTOR
 branch = candidate source branch under smoke validation
 initial candidate branch = peak_efield_tau800_cov5_primary
 final-source confirmation = repeat or reuse only when the selected source matches the smoked candidate
-endpoint rows = computable endpoint/source rows that may enter formal reporting
+endpoint rows = all configured computable endpoint/source rows
 Freedman-Lane smoke permutation B=1000
 subject-level smoke bootstrap B=1000
 seed = 42
@@ -1869,9 +1901,10 @@ If no stable source exists, record `hf_norm_fiber_source_status = absent_no_stab
 Source scan:
 
 ```text
-run dTOR full tau x Coverage scan
-run PPMI/MGH observed robustness for selected and neighboring dTOR cells
-assign source status, prediction status, selected tau/Coverage, and adjacent support
+run the complete tau x Coverage grid for formal dTOR and sensitive PPMI/MGH
+assign source status, prediction status, selected tau/Coverage, and adjacent
+support from formal dTOR only
+evaluate the formal-selected numeric tau/Coverage in each sensitive connectome
 ```
 
 Proceed to max-stat permutation or nested/adaptive validation only for the selected source when a stronger source-robustness claim is needed. These analyses do not override the resolver status.
@@ -1993,7 +2026,7 @@ dTOR / OSS smoke permutation B=1000
 OSS plain activation control
 ```
 
-PPMI and MGH remain peak-E-field observed cross-connectome robustness branches.
+PPMI and MGH remain peak-E-field `sensitive` connectomes.
 Required OSS sidecars are limited to the final dTOR branch unless a future model document explicitly promotes cross-connectome OSS sensitivity.
 
 Write:
@@ -2035,7 +2068,7 @@ If OSS activation is all zero or mostly tied, mark `hf_oss_sensitivity_status = 
 
 ### Round 8: dTOR Jitter QC
 
-Purpose: test dTOR primary spatial robustness.
+Purpose: test the dTOR formal final model's spatial robustness.
 
 Run only:
 
@@ -2170,9 +2203,9 @@ display files derive only from finalized numeric outputs
 FDR / enrichment / label / display outputs stay outside resolver decisions
 FDR and enrichment caches follow the canonical cache definition document
 enrichment background is the selected-source tau/Coverage candidate fiber universe
-observed-robustness rows without promoted figure-grade status may stop at density and label outputs
-PPMI/MGH manifests record observed_only_connectome_robustness
-dTOR primary manifest records formal permutation/bootstrap status
+ sensitive rows may stop at numeric observed and formal-source-cell evaluation outputs
+PPMI/MGH manifests record connectome_role = sensitive
+dTOR manifest records connectome_role = formal and formal permutation/bootstrap status
 OSS manifest/status records smoke-only status when run, or an explicit not-run reason
 unrun branches record explicit not-run reason
 ```
@@ -2187,13 +2220,13 @@ The most resource-conscious path that still covers the mainline and planned sens
 
 2. Round 2:
    all available HF-only 3-month endpoint rows, tau800 primary observed
-   PPMI -> MGH -> dTOR
+   PPMI sensitive -> MGH sensitive -> dTOR formal
 
 3. Round 3:
    plain connected-streamline control
 
 4. Round 4:
-   dTOR selected endpoint rows, tau800 primary smoke permutation/bootstrap B=1000
+   internal-test resampling for configured formal-connectome code paths only
 
 5. Round 5:
    tau1500 sensitivity + top1500/top500 sensitivity observed
@@ -2218,6 +2251,6 @@ The core principle is to process all available endpoint rows equivalently,
 evaluate the pre-specified `peak_efield_tau800_cov5_primary` source first, let
 the endpoint-wise resolver choose either the pre-specified source or a stable
 tau/Coverage fallback, use plain control to separate outcome-filtered fibers
-from stimulation burden, select endpoint rows for formal dTOR reporting as a
-reporting/resource decision, and only then invest in OSS, jitter, and
-display-layer outputs.
+from stimulation burden, run formal resampling for every configured scale with
+a realized dTOR final model, and only then run final-linked OSS, jitter, and
+numeric report outputs.

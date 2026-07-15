@@ -49,10 +49,14 @@ jsonschema Draft 2020-12, pandas/openpyxl, NumPy/SciPy, and Conda `leaddbs`.
   downstream interface. Direct-voxel publication must follow
   `config/four_model_v1/direct_voxel_output_contract.md` and materialize under
   `<direct_voxel_model.output.root>/direct_voxel/<model_set_id>/<scale_id>/`.
+- Normative-fiber publication must follow
+  `config/four_model_v1/normative_fiber_output_contract.md` and materialize
+  under
+  `<normative_fiber_model.output.root>/normative_fiber/<model_set_id>/<scale_id>/`.
 - Direct-voxel publication stores selected-source and candidate-branch
   artifacts once. `final_model.json` references the realized model and never
   duplicates its maps, scores, predictions, or weights.
-- Configured direct-voxel internals must be renamed end to end from legacy
+- Configured direct-voxel and normative-fiber internals must be renamed end to end from legacy
   HF/ULF terminology to `reference`, `addon`, `no_delta_reference`,
   `delta_reference_adjusted`, and `DeltaReferenceScore`. This applies to module
   names, classes, functions, dataclasses, fields, status records, artifact
@@ -472,8 +476,9 @@ source/prediction/final classification fields.
 
 - [ ] RED: targets use immutable final records, selected tau/Coverage, final
   branch manifest, and branch-specific nuisance columns including DeltaHFScore.
-- [ ] Assert one formal target per endpoint, PPMI/MGH robustness-only, local
-  failures, and no classification feedback.
+- [ ] Assert one formal target per configured scale, PPMI/MGH `sensitive`
+  connectomes never become final, local failures, and no classification
+  feedback.
 - [ ] GREEN: parameterize target factories and reuse per-target permutation/
   bootstrap kernels after exact equivalence; commit
   `refactor: make formal targets endpoint aware`.
@@ -515,14 +520,18 @@ Every reporting, OSS, jitter, FDR, density, and label artifact must carry the
 same `final_model_id` and final-record hash as its request. Recursive filename
 matches, branch substrings, and global model IDs are invalid provenance.
 
-`jitter_resamples` and `seed` come from the public formal profile. The enabled
+`jitter_resamples`, `jitter_translation_fwhm_mm`, and `seed` come from each
+public model profile. The enabled
 ULF analysis tuple is derived from the public sensitivity switches. Artifact
 references and matched records are immutable runtime inputs with validated
 hashes. `jitter_input_manifest` is mandatory for jitter; ULF jitter also
 requires the matched HF final record and branch-specific `Y_base`. The selected
 HF-overlap tau is carried explicitly whenever ULF exposure must be rebuilt.
-The jitter FWHM remains a fixed internal 2.0 mm method constant and is written
-to the technical manifest.
+Voxel and normative-fiber jitter remain independent executions. They may use
+the same numeric seed, resample count, and FWHM, but the implementation does
+not create a shared cross-domain perturbation schedule or exposure cache.
+Within each model family, scale-independent source geometry and checkpoint
+state may still be reused when scientific identity and subject order match.
 
 The run-local jitter manifest uses one of two strict geometry schemas. Direct
 voxel tasks declare `builder = direct_efield_resample_v1`, the final candidate

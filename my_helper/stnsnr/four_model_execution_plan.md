@@ -71,6 +71,21 @@ are not public configuration. None of these target interfaces is available in
 the current code, and none of the historical results below was generated
 through `dual_frequency_v1`.
 
+The approved domain profiles and publication contracts are:
+
+```text
+my_helper/stnsnr/config/four_model_v1/direct_voxel_model.yaml
+my_helper/stnsnr/config/four_model_v1/direct_voxel_output_contract.md
+my_helper/stnsnr/config/four_model_v1/normative_fiber_model.yaml
+my_helper/stnsnr/config/four_model_v1/normative_fiber_output_contract.md
+```
+
+Normative fiber uses exactly one `formal` connectome and zero or more
+`sensitive` connectomes. Every connectome runs the complete observed grid;
+only formal is final-eligible. Both reference and add-on retain continuous
+peak E-field inside tau/Coverage-defined support, while add-on retains
+reference-active overlap exclusion.
+
 ## Pause Checkpoint
 
 2026-07-07 post-pause refresh: final-reporting readiness now requires separate

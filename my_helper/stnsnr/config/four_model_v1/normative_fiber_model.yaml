@@ -1,0 +1,138 @@
+schema_version: normative_fiber_model_v1 # Schema for reference/add-on normative-fiber models.
+profile_type: normative_fiber_model # Identifies the feature domain represented by this file.
+model_set_id: dual_frequency_four_model_v1 # Must match the configured direct-voxel model.
+
+output: # Storage-only settings; these do not change scientific classification.
+  root: /Volumes/VAL/STNSNr/summary/spot # Base directory for production publications.
+
+scales: # Run exactly these study-defined scales in the declared order.
+  - adl
+  - bdi_score
+  - bradykinesia_subscore_med_off
+  - cccs
+  - dsfs
+  - eat_10
+  - ess
+  - fogq_score
+  - fss
+  - hama
+  - hamd
+  - kpps_score
+  - madrs_score
+  - maes
+  - mds_udprs_ii
+  - mds_updrs_i
+  - mds_updrs_iii_axial_score
+  - mds_updrs_iii_score
+  - mds_updrs_iv
+  - odq
+  - pdq39_score
+  - rbdsq
+  - rbdsq_hk
+  - rigidity_subscore_med_off
+  - scopa_aut
+  - sdq
+  - se_adl_score
+  - tremor_subscore_med_off
+
+endpoint_pair: # Explicit one-to-one clinical endpoint binding.
+  baseline:
+    phase_id: T0 # Exact baseline phase in study_base.json.
+    program_id: 0 # Exact unstimulated baseline program.
+  reference:
+    phase_id: T2 # Exact frequency-1 reference phase.
+    program_id: 1 # Exact reference stimulation program.
+  addon:
+    phase_id: T3 # Exact frequency-2 add-on phase.
+    program_id: 2 # Exact combined stimulation program.
+
+frequency_classes: # Classify stimulation sources using frequency only.
+  reference:
+    lower: 100 # Open lower frequency boundary in Hz.
+    lower_inclusive: false # Exactly 100 Hz is unclassified.
+    upper: null # Reference frequency has no finite upper boundary.
+    upper_inclusive: false # Unbounded limits cannot be inclusive.
+  addon:
+    lower: 0 # Stimulation frequencies must be positive.
+    lower_inclusive: false # Exactly 0 Hz is invalid, not add-on.
+    upper: 50 # Open upper frequency boundary in Hz.
+    upper_inclusive: false # Exactly 50 Hz is unclassified.
+
+connectomes: # Every entry runs the complete observed tau/Coverage grid.
+  entries:
+    - connectome_id: ppmi_85_ewert_2017 # Stable manifest and output identity.
+      label: PPMI 85 (Ewert 2017) # Human-readable connectome label.
+      path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/PPMI 85 (Ewert 2017)/data.mat # Lead-DBS data.mat input.
+      role: sensitive # Cross-connectome sensitivity only; never final.
+      fold_candidate_fibers_min: 100 # Fold-level hard computability minimum.
+
+    - connectome_id: mgh_usc_hcp_32_horn_2017
+      label: MGH-USC HCP 32 (Horn 2017) # Human-readable connectome label.
+      path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/MGH-USC HCP 32 (Horn 2017)/data.mat # Lead-DBS data.mat input.
+      role: sensitive # Cross-connectome sensitivity only; never final.
+      fold_candidate_fibers_min: 100 # Fold-level hard computability minimum.
+
+    - connectome_id: dtor_985_full_elias_2024
+      label: dTOR-985 Full (Elias 2024) # Human-readable connectome label.
+      path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/dTOR-985 Full (Elias 2024)/data.mat # Lead-DBS data.mat input.
+      role: formal # Unique source resolver, final, formal, OSS and jitter connectome.
+      fold_candidate_fibers_min: 1000 # Fold-level hard computability minimum.
+
+source: # Tau defines Coverage/candidate fibers only; scoring exposure remains continuous.
+  pre_specified:
+    tau_v_per_m: 800 # First source evaluated by the formal connectome.
+    coverage_subjects_min: 5 # Minimum subjects with suprathreshold fiber exposure.
+  scan:
+    tau_v_per_m: [400, 600, 800, 1000, 1200, 1500, 2000] # Complete source grid.
+    coverage_subjects_min: [5, 6, 7, 8, 10, 12] # Complete Coverage grid.
+  minimum_adjacent_passing_cells: 2 # Local grid support required for acceptance.
+
+hard_computability: # Other hard rules are fixed by normative_fiber_model_v1.
+  n_subjects_min: 12 # Minimum complete subjects after branch-specific exclusion.
+
+score: # Fixed signed outer-library and patient-level weighted-peak rules.
+  sweet_fraction: 0.01 # Requested positive outer-library fraction.
+  sour_fraction: 0.005 # Requested negative outer-library fraction.
+  weighted_peak_fraction: 0.05 # Requested patient-level weighted-peak fraction.
+  sweet_selected_min_count: 200 # Positive outer-library minimum before clipping to availability.
+  sour_selected_min_count: 100 # Negative outer-library minimum before clipping to availability.
+  weighted_peak_min_count: 20 # Peak-mean minimum before clipping to selected availability.
+
+formal_resampling: # Applied to every realized final model on the formal connectome.
+  seed: 42 # Root seed used to derive deterministic child seeds.
+  permutation_resamples: 10000 # Freedman-Lane permutation count.
+  bootstrap_resamples: 10000 # Subject-level bootstrap count.
+  jitter_resamples: 1000 # Independent normative-fiber spatial-jitter count.
+  jitter_translation_fwhm_mm: 2.0 # Isotropic Gaussian translation uncertainty.
+
+sensitivity: # Required observed sensitivities; presence is not an enable switch.
+  selected_source_tau_multipliers: [0.9, 1.1] # Final-source exposure-neighborhood sensitivity.
+  high_threshold:
+    tau_v_per_m: 1500 # Predeclared candidate-definition sensitivity.
+    coverage_subjects_min: 5 # Predeclared high-threshold Coverage.
+  fixed_outer_library:
+    sweet_count: 1500 # Fixed positive-library sensitivity count.
+    sour_count: 500 # Fixed negative-library sensitivity count.
+
+oss: # Final-linked formal-connectome activation sensitivity.
+  model: OSS-DBSv2 # Biophysical activation backend.
+  activation_model: pPAM # Probabilistic pathway activation model.
+  fiber_diameter_um:
+    minimum: 1.0 # Smallest modeled axon diameter.
+    maximum: 4.0 # Largest modeled axon diameter.
+    samples: 10 # Number of complete equidistant pPAM samples.
+    sampling: equidistant # Deterministic diameter sampling rule.
+  fitting_probability_threshold: 0.5 # Binary fitting exposure is I[p(A) >= 0.5].
+  permutation_resamples: 1000 # OSS activation-sensitivity permutation count.
+
+addon: # Public parameters specific to the add-on dependency.
+  delta_reference_support:
+    adequate:
+      cohort_median_out_support_max: 0.20 # Adequate median upper bound, inclusive.
+      subject_out_support_threshold: 0.50 # Count subjects strictly above this value.
+      subject_fraction_max: 0.25 # Adequate maximum fraction, inclusive.
+    invalid:
+      cohort_median_out_support_min_exclusive: 0.50 # Invalid when median is greater.
+      subject_out_support_threshold: 0.80 # Count subjects strictly above this value.
+      subject_fraction_min_exclusive: 0.25 # Invalid when the fraction is greater.
+      individual_out_support_min_exclusive: 0.95 # Any required case above this is invalid.

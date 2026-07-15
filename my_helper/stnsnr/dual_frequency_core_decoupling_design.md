@@ -262,20 +262,19 @@ conditions:
 Connectome scheduling is role-based:
 
 ```text
-observed_robustness
-primary_formal
-activation_sensitivity_enabled
+formal
+sensitive
 ```
 
-Each normative-fiber model profile has exactly one `primary_formal`
-connectome. `observed_robustness` connectomes produce resolver, control, and
-`RobustnessRecord` outputs but never a `FinalModelRecord`. The
-`activation_sensitivity_enabled` role is valid only on the same primary-formal
-connectome because activation consumes a realized final.
+Each normative-fiber model profile has exactly one `formal` connectome and zero
+or more `sensitive` connectomes. Every connectome runs the complete observed
+grid. Sensitive connectomes produce cell-level metrics and formal-source-cell
+`RobustnessRecord` outputs but never a `FinalModelRecord`. OSS, jitter, and
+formal inference are derived from a realized final on the formal connectome;
+they do not require a third connectome role.
 
 The core never tests for PPMI, MGH, or dTOR names. The default STNSNr profile
-may continue to assign PPMI/MGH to observed robustness and dTOR to primary
-formal plus activation sensitivity.
+assigns PPMI/MGH to `sensitive` and dTOR to `formal`.
 
 ### Scale profile
 
@@ -447,10 +446,11 @@ the endpoint records `no_final_model`. Technical execution failures never
 trigger fallback. Formal, sensitivity, OSS, and reporting results never change
 source, prediction, branch-role, or final-model status.
 
-For normative fiber, every configured connectome may produce source/prediction
-and control records. Only the exactly one `primary_formal` connectome applies
-final realization. Robustness connectomes terminate with `RobustnessRecord` and
-cannot schedule formal, jitter, activation, or final-model sensitivity.
+For normative fiber, every configured connectome runs the complete observed
+grid. Only the exactly one `formal` connectome assigns canonical
+source/prediction status and applies final realization. Sensitive connectomes
+terminate with `RobustnessRecord` and cannot schedule formal, jitter,
+activation, or final-model sensitivity.
 
 ## Final States
 
@@ -486,24 +486,23 @@ OSS/pPAM sensitivity.
 
 ## OSS / pPAM Activation Sensitivity
 
-OSS participates only as activation sensitivity for a realized final
-normative-fiber model whose connectome has the
-`activation_sensitivity_enabled` role. It does not run for direct voxel, select
-tau/Coverage, replace the observed final model, or feed back into classification.
+OSS participates only as activation sensitivity for a realized normative-fiber
+final on the unique `formal` connectome. It does not run for direct voxel,
+select tau/Coverage, replace the observed final model, or feed back into
+classification.
 
 ### Activation universe
 
 Do not run expensive OSS simulation for every fiber in the whole connectome.
-Build a scale- and endpoint-independent universe from the most permissive
-formal tau/Coverage boundary:
+Use the endpoint final model's locked valid feature axis:
 
 ```text
-F_OSS_universe = F_coverage(tau_min, coverage_min)
+F_OSS = final.valid_feature_axis at selected tau/Coverage
 ```
 
-Endpoint final fibers must be a subset of this universe. Endpoint weights,
-signed-fiber selection, and reference-overlap exclusion are not applied when
-the universe is generated.
+OSS does not rescan tau/Coverage or add fibers. Endpoint weights, signs, and
+selected sweet/sour IDs are re-estimated in each OSS training fold. Add-on OSS
+retains the final branch's reference-active overlap rule.
 
 ### Canonical representation
 
@@ -521,9 +520,9 @@ The model sensitivity uses:
 X_OSS_i,f = 1[p(A_i,f) >= 0.5]
 ```
 
-Each endpoint subsets the cached universe by its final valid feature axis and
-refits training-fold weights and signed-fiber rankings. The final fit uses the
-same normative-fiber scoring policy as the non-OSS model.
+Each endpoint uses the exact final valid feature axis and refits training-fold
+weights and signed-fiber rankings. The final fit uses the same normative-fiber
+scoring policy as the non-OSS model.
 
 ### Cache granularity
 
@@ -869,10 +868,11 @@ The design is implemented only when:
 4. all configured scales receive equal DAG and output treatment;
 5. connectome scheduling is role-based;
 6. expensive caches are scientifically keyed and reusable across scales/runs;
-7. OSS uses the shared activation universe and final-axis subset;
-8. robustness connectomes emit no final model, while exactly one final model or
+7. OSS uses the realized final model's exact valid feature axis and never
+   rescans tau/Coverage or adds noncandidate fibers;
+8. sensitive connectomes emit no final model, while exactly one final model or
    an explicit closed terminal state exists per endpoint/model family after
-   primary-formal role filtering;
+   `formal` role filtering;
 9. migration/acceptance tools remain non-runtime dependencies;
 10. bounded numerical parity passes for every eligible completed predecessor
     artifact and is not claimed for unfinished predecessor paths; and

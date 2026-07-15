@@ -55,9 +55,9 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
 - All configured scales are engineering-equivalent and no default scale exists.
 - Every combined endpoint uses an explicit matched-reference binding; reference
   and combined phase IDs are not required to match.
-- Normative-fiber robustness connectomes emit `RobustnessRecord` only. Exactly
-  one `primary_formal` connectome is final-eligible, and activation role must be
-  attached to that connectome.
+- Normative-fiber `sensitive` connectomes emit `RobustnessRecord` only. Exactly
+  one `formal` connectome is final-eligible; formal resampling, OSS, and jitter
+  derive from its realized final without a third connectome role.
 - Direct voxel and normative fiber are the only model families.
 - ROI/VTA postprocessing, regional heatmaps, GUI, HTTP, and upstream imaging/
   electrode reconstruction are out of scope.
@@ -591,10 +591,11 @@ workflow selections, not defaults. Give every endpoint binding a stable
 `endpoint_binding_id`; every combined binding must name its
 `matched_reference_binding_id`, even when reference and combined child IDs
 differ. Model period-specific outcomes as child subscale bindings under one
-parent scale and one shared `combined` condition. One reference endpoint is reused by
-all matched downstream bindings. Assign exactly one primary-formal connectome,
-zero or more robustness connectomes, and activation role only to the
-primary-formal connectome.
+parent scale and one shared `combined` condition. The configured profile locks
+one reference endpoint to one add-on endpoint. Assign exactly one `formal`
+connectome and zero or more `sensitive` connectomes. Formal resampling, OSS,
+and jitter derive from the realized final on the formal connectome; there is no
+third activation role.
 
 - [ ] **Step 7: Run tests and real read-only import validation**
 
@@ -629,20 +630,19 @@ git commit -m "feat: add canonical dual-frequency study bundle"
 
 - [ ] **Step 1: Write failing catalog tests**
 
-Cover all four model families, multiple connectome roles, multiple child subscales,
-minimum subjects, unavailable rows, and scale equality. Assert the synthetic
-profile has no project-frequency names in serialized catalog rows. Include a
-reference binding and two differently named combined child subscales; assert
-both resolve the same configured reference endpoint ID without source-period
-equality and that the reference endpoint is planned only once. Assert
-robustness connectomes are `final_eligible = false` and the sole primary-formal
+Cover all four model families, multiple connectome roles, multiple configured
+scales, minimum subjects, unavailable rows, and scale equality. Assert the
+synthetic profile has no project-frequency names in serialized catalog rows.
+Include one explicit reference/add-on endpoint pair whose phases differ and
+assert every configured scale uses that pair without automatic endpoint
+discovery or fan-out. Assert
+sensitive connectomes are `final_eligible = false` and the sole `formal`
 connectome is `final_eligible = true`.
 
 - [ ] **Step 2: Add the named III/IV structural fixture**
 
-Assert the second MDS-UPDRS III child subscale is executable and the analogous
-MDS-UPDRS IV child subscale is `not_configured`, with no scale-name conditional
-in the builder.
+Assert MDS-UPDRS III and IV are both executable through the same configured
+endpoint-pair factory, with no scale-name conditional in the builder.
 
 - [ ] **Step 3: Run tests and verify RED**
 
@@ -775,9 +775,10 @@ Assert:
 - add-on dependencies use explicit matched-reference endpoint IDs even when
   reference and combined child binding IDs differ;
 - normative-fiber add-on dependencies require exact connectome identity;
-- robustness connectomes stop at resolver/control/report stages, emit
-  `RobustnessRecord`, and have no final/formal/jitter/activation tasks;
-- exactly one primary-formal connectome is final-eligible;
+- sensitive connectomes stop at observed/formal-source-evaluation/report
+  stages, emit `RobustnessRecord`, and have no final/formal/jitter/activation
+  tasks;
+- exactly one `formal` connectome is final-eligible;
 - formal/activation tasks use connectome roles, not names;
 - expensive activation producer tasks are statically visible;
 - missing child subscales produce terminal catalog/report tasks, not models;
@@ -805,7 +806,8 @@ terminal skipped records; they do not remove tasks from the plan.
 Reference dependency failure creates an explicit add-on dependency-failure
 record and closes all add-on branches. Ready reference input with
 `absent_no_stable_grid` creates no-delta-only tasks. Connectome-role filtering
-occurs before final realization so robustness records cannot become finals.
+occurs before final realization so sensitive-connectome records cannot become
+finals.
 
 - [ ] **Step 4: Compare the scientific task inventory with the `/goal` matrix**
 
@@ -1045,15 +1047,15 @@ prevention.
 
 - [ ] **Step 2: Write failing source/resolver and connectome-role tests**
 
-Use generic connectome IDs. Verify robustness and primary-formal behavior comes
-from roles. Assert robustness connectomes emit `RobustnessRecord`, never
+Use generic connectome IDs. Verify `sensitive` and `formal` behavior comes from
+roles. Assert sensitive connectomes emit `RobustnessRecord`, never
 `FinalModelRecord`, and do not schedule formal/jitter/activation tasks.
 
 - [ ] **Step 3: Write bounded golden tests**
 
 Compare completed dTOR full outputs and MGH/PPMI observed/resolver outputs only.
-Convert predecessor MGH/PPMI final-like records to target robustness evidence;
-do not create target finals or invent formal/OSS parity for robustness
+Convert predecessor MGH/PPMI final-like records to target sensitivity evidence;
+do not create target finals or invent formal/OSS parity for sensitive
 connectomes.
 
 - [ ] **Step 4: Extract generic coverage, weights, resolver, and score kernels**
@@ -1146,8 +1148,8 @@ git commit -m "feat: extract add-on direct-voxel backend"
 
 Cover matched reference feature identity, reference-component support,
 overlap exclusion after candidate creation, branch-specific nuisance weights,
-and the shared `200/100/20` score. Assert robustness connectomes produce branch
-resolver/robustness records but cannot realize a final or fallback final.
+and the shared `200/100/20` score. Assert sensitive connectomes produce branch
+resolver/sensitivity records but cannot realize a final or fallback final.
 
 - [ ] **Step 2: Write failing bounded parity tests**
 
@@ -1193,12 +1195,12 @@ git commit -m "feat: extract add-on normative-fiber backend"
 **Interfaces:**
 - Produces: `FormalBackend.run(FinalModelRecord, FormalRequest) -> FormalResult`
 - Produces: explicit sensitivity strategy implementations.
-- Consumes only a primary-formal/direct-voxel realized final plus typed
-  arrays/artifact references; robustness records are rejected.
+- Consumes only a formal-connectome/direct-voxel realized final plus typed
+  arrays/artifact references; sensitive-connectome records are rejected.
 
 - [ ] **Step 1: Write failing final-only and no-feedback tests**
 
-Reject non-final branches, robustness records, missing final axes, and outputs
+Reject non-final branches, sensitive-connectome records, missing final axes, and outputs
 that attempt to write classification fields.
 
 - [ ] **Step 2: Write bounded-prefix parity tests**
@@ -1271,8 +1273,8 @@ one minimal subject/component solver smoke. Never generate the full universe.
 
 - [ ] **Step 4: Implement generic OSS orchestration**
 
-Remove dTOR name checks. Require the `activation_sensitivity_enabled` role,
-explicit OSS backend/version, exact subject-side frequency maps, row checkpoints,
+Remove dTOR name checks. Require a realized final on the unique `formal`
+connectome, explicit OSS backend/version, exact subject-side frequency maps, row checkpoints,
 three default row workers, and deterministic merge order. Before scheduling,
 validate each exact scientific row key and skip every already completed,
 hash-valid row; never use nearest-key matching.
@@ -1317,9 +1319,9 @@ git commit -m "feat: add reusable dual-frequency activation backend"
 - [ ] **Step 1: Write failing generic-report tests**
 
 Reports must contain reference/add-on fields and reject HF/ULF compatibility
-aliases, filename discovery, and old summary roots. Robustness connectomes emit
-explicit robustness rows without final IDs; only primary-formal/direct-voxel
-realized finals appear in final-model reports.
+aliases, filename discovery, and old summary roots. Sensitive connectomes emit
+explicit sensitivity rows without final IDs; only formal-connectome/direct-
+voxel realized finals appear in final-model reports.
 
 - [ ] **Step 2: Write failing runtime import-isolation test**
 
@@ -1403,13 +1405,13 @@ git commit -m "feat: switch to generic dual-frequency runtime"
 Use component/condition/connectome IDs that contain none of the forbidden
 project terms. Run all four families through report with deterministic arrays
 and a fake activation backend while the entire `projects.stnsnr` namespace is
-blocked. Assert robustness connectomes have no finals and each direct/primary-
-formal endpoint has one final or closed state.
+blocked. Assert sensitive connectomes have no finals and each direct/formal
+endpoint has one final or closed state.
 
 - [ ] **Step 2: Add the named III/IV lightweight smoke**
 
-Use the new STNSNr bundle/profile and existing exact caches. MDS-UPDRS III and
-IV traverse ordinary catalog/DAG paths; the second IV child subscale is `not_configured`.
+Use the new STNSNr input/profile and existing exact caches. MDS-UPDRS III and
+IV traverse the same ordinary endpoint-pair catalog/DAG path.
 Use only internal-test permutation/bootstrap/jitter counts and block expensive
 misses. Invoke the standalone importer first; then remove/block the project
 namespace before starting `WorkflowService`, proving the generic runtime uses
@@ -1522,10 +1524,11 @@ until implementation evidence exists.
 - [ ] One-way fallback truth table passes exactly.
 - [ ] Generic runtime has no predecessor/migration/acceptance imports.
 - [ ] Connectome behavior is role-based.
-- [ ] Robustness connectomes emit no final; exactly one primary-formal
-  connectome is final-eligible.
+- [ ] Sensitive connectomes emit no final; exactly one `formal` connectome is
+  final-eligible.
 - [ ] Scientific caches exclude scale/run/scheduler identity.
-- [ ] OSS activation universe is shared and endpoint-independent.
+- [ ] OSS inherits the realized final model's exact `valid_feature_axis`, does
+  not rescan tau/Coverage, and does not add noncandidate fibers.
 - [ ] Formal/sensitivity/activation consume only one realized final.
 - [ ] Generic reports contain no HF/ULF compatibility aliases.
 - [ ] Bounded parity includes only exact IDs in the reviewed allowlist that are
