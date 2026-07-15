@@ -6,7 +6,7 @@
 design_approved
 implementation_complete
 real_data_test_gate_passed
-formal_execution_reschedule_in_progress
+formal_execution_resumed_seven_subject_batch_running
 ```
 
 This document is the authoritative implementation and execution contract for
@@ -712,6 +712,34 @@ After all seven subjects reach explicit terminal states, the complete
 16-subject formal YAML must be run again. That reconciliation run must reuse
 valid completed subjects and chunks, finish any incomplete units, update the
 full-batch provenance, and produce the authoritative final status report.
+
+The seven-subject configuration passed structural comparison against the
+formal YAML and full CLI validation without warnings. Its batch configuration
+hash is
+`7fd139107c0904e49b9c69071b28b2be1001f191f52ec72e28ad61aacfc80bb0`.
+The managed run started at `2026-07-15 01:31:41 -0700` under PID `31264`; its
+append-only log is:
+
+```text
+/Volumes/VAL/STNSNr/config/run_logs/mrtrix_seed_target_remaining7_20260715T013141-0700.log
+```
+
+Startup verification confirmed that the first four subject locks belonged to
+`sub-SNr020`, `sub-SNr026`, `sub-SNr024`, and `sub-SNr029`. The latter two
+completed both seed sides with one 50,000-streamline chunk, were published,
+and released their slots; `sub-SNr030` then completed in the same way and the
+remaining subjects entered in configured order. Most importantly, the four
+interrupted units resumed at their exact committed boundaries:
+
+```text
+sub-SNr020 lh: chunk 465
+sub-SNr020 rh: chunk 400
+sub-SNr026 lh: chunk 392
+sub-SNr026 rh: chunk 409
+```
+
+No interrupted unit restarted at chunk zero. Monitoring is attached to the
+active run at the approved 30-minute interval.
 
 ## Final Acceptance Criteria
 
