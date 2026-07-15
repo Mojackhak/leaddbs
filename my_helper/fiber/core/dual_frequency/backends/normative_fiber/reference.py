@@ -23,6 +23,7 @@ from ...contracts import (
     canonical_hash,
 )
 from ...contracts.requests import ScientificInput
+from ..nuisance import NuisancePlan
 from ..protocols import ArtifactPublisher
 from ..source_resolver import SourceResolution, resolve_source
 from ..statistics import (
@@ -314,12 +315,20 @@ def _fiber_ids(value: np.ndarray, count: int) -> np.ndarray:
     return output
 
 
-def _baseline_design_valid_all_folds(baseline: np.ndarray) -> bool:
-    for indices in (
-        np.arange(baseline.size),
-        *(np.delete(np.arange(baseline.size), heldout) for heldout in range(baseline.size)),
-    ):
-        design = np.column_stack([np.ones(indices.size), baseline[indices]])
+def _nuisance_design_valid_all_folds(nuisance_plan: NuisancePlan) -> bool:
+    n_subjects = nuisance_plan.full_covariates.shape[0]
+    for heldout in range(-1, n_subjects):
+        indices = (
+            np.arange(n_subjects)
+            if heldout < 0
+            else np.delete(np.arange(n_subjects), heldout)
+        )
+        covariates = (
+            nuisance_plan.full_covariates
+            if heldout < 0
+            else nuisance_plan.fold_covariates[heldout]
+        )
+        design = np.column_stack([np.ones(indices.size), covariates[indices]])
         if indices.size <= design.shape[1] or np.linalg.matrix_rank(design) != design.shape[1]:
             return False
     return True
@@ -329,7 +338,7 @@ def _write_weight_row(
     destination: np.ndarray,
     exposure: np.ndarray,
     outcome: np.ndarray,
-    baseline: np.ndarray,
+    nuisance_covariates: np.ndarray,
     subject_indices: np.ndarray,
     eligible: np.ndarray,
     outcome_direction: str,
@@ -346,7 +355,7 @@ def _write_weight_row(
         coefficients = partial_spearman_weights(
             outcome[subject_indices],
             block[:, local],
-            baseline[subject_indices, None],
+            nuisance_covariates[subject_indices],
         )
         positions = start + np.flatnonzero(local)
         destination[positions] = benefit_oriented_weights(
@@ -358,7 +367,7 @@ def _write_weight_row(
 def _build_weight_cache(
     exposure: np.ndarray,
     outcome: np.ndarray,
-    baseline: np.ndarray,
+    nuisance_plan: NuisancePlan,
     request: ObservedRequest,
     work_root: Path,
     *,
@@ -385,7 +394,7 @@ def _build_weight_cache(
         full,
         exposure,
         outcome,
-        baseline,
+        nuisance_plan.full_covariates,
         all_subjects,
         full_eligible,
         request.outcome_direction,
@@ -405,7 +414,7 @@ def _build_weight_cache(
             folds[heldout],
             exposure,
             outcome,
-            baseline,
+            nuisance_plan.fold_covariates[heldout],
             train,
             fold_eligible,
             request.outcome_direction,
@@ -468,7 +477,7 @@ def _prediction_metrics(
 def _evaluate_cell(
     exposure: np.ndarray,
     outcome: np.ndarray,
-    baseline: np.ndarray,
+    nuisance_plan: NuisancePlan,
     fiber_ids: np.ndarray,
     request: ObservedRequest,
     cache: _WeightCache,
@@ -541,23 +550,23 @@ def _evaluate_cell(
         model_prediction, _ = linear_prediction(
             outcome[train],
             train_score,
-            baseline[train, None],
+            nuisance_plan.fold_covariates[heldout, train],
             fold_score.net_score[[heldout]],
-            baseline[[heldout], None],
+            nuisance_plan.fold_covariates[heldout, [heldout]],
         )
         baseline_prediction, _ = linear_prediction(
             outcome[train],
             None,
-            baseline[train, None],
+            nuisance_plan.fold_covariates[heldout, train],
             None,
-            baseline[[heldout], None],
+            nuisance_plan.fold_covariates[heldout, [heldout]],
         )
         predictions[heldout] = model_prediction[0]
         baseline_predictions[heldout] = baseline_prediction[0]
 
     fold_candidates = np.asarray(fold_candidate_counts, dtype=np.int64)
     fold_valid = np.asarray(fold_valid_counts, dtype=np.int64)
-    baseline_design_valid = _baseline_design_valid_all_folds(baseline)
+    baseline_design_valid = _nuisance_design_valid_all_folds(nuisance_plan)
     all_predictions_finite = bool(
         np.all(np.isfinite(predictions)) and np.all(np.isfinite(baseline_predictions))
     )
@@ -607,12 +616,12 @@ def _evaluate_cell(
         failure_reasons.append("nonfinite_predictions")
     full_score_baseline_pearson, _ = safe_correlation(
         full_score.net_score,
-        baseline,
+        nuisance_plan.full_covariates[:, 0],
         method="pearson",
     )
     full_score_baseline_spearman, _ = safe_correlation(
         full_score.net_score,
-        baseline,
+        nuisance_plan.full_covariates[:, 0],
         method="spearman",
     )
     metrics = FiberGridCellMetrics(
@@ -702,7 +711,7 @@ class _FiberWorkspace:
         self,
         exposure: np.ndarray,
         outcome: np.ndarray,
-        baseline: np.ndarray,
+        nuisance_plan: NuisancePlan,
         fiber_ids: np.ndarray,
         request: ObservedRequest,
         *,
@@ -710,7 +719,7 @@ class _FiberWorkspace:
     ) -> None:
         self.exposure = exposure
         self.outcome = outcome
-        self.baseline = baseline
+        self.nuisance_plan = nuisance_plan
         self.fiber_ids = fiber_ids
         self.request = request
         self.chunk_size = chunk_size
@@ -722,7 +731,7 @@ class _FiberWorkspace:
         self.cache = _build_weight_cache(
             self.exposure,
             self.outcome,
-            self.baseline,
+            self.nuisance_plan,
             self.request,
             Path(self._temporary.name),
             chunk_size=self.chunk_size,
@@ -752,7 +761,7 @@ class _FiberWorkspace:
                     _evaluate_cell(
                         self.exposure,
                         self.outcome,
-                        self.baseline,
+                        self.nuisance_plan,
                         self.fiber_ids,
                         self.request,
                         self.cache,
@@ -782,7 +791,7 @@ class _FiberWorkspace:
         return _evaluate_cell(
             self.exposure,
             self.outcome,
-            self.baseline,
+            self.nuisance_plan,
             self.fiber_ids,
             self.request,
             self.cache,
@@ -817,7 +826,7 @@ class ReferenceFiberBackend:
     def _inputs(
         self,
         request: ObservedRequest,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, NuisancePlan, np.ndarray]:
         if request.endpoint.model_family != "reference_fiber":
             raise ReferenceFiberBackendError(
                 "ReferenceFiberBackend requires a reference_fiber endpoint"
@@ -891,10 +900,28 @@ class ReferenceFiberBackend:
             request.feature_axis.count,
         ):
             raise ReferenceFiberBackendError("exposure shape changed after validation")
+        outcome_vector = _finite_vector(outcome, "outcome", request.subject_axis.count)
+        baseline_vector = _finite_vector(
+            baseline,
+            "baseline",
+            request.subject_axis.count,
+        )
+        full_covariates = baseline_vector[:, None]
+        nuisance_plan = NuisancePlan(
+            full_covariates=full_covariates,
+            fold_covariates=np.broadcast_to(
+                full_covariates,
+                (
+                    request.subject_axis.count,
+                    request.subject_axis.count,
+                    1,
+                ),
+            ),
+        )
         return (
             exposure,
-            _finite_vector(outcome, "outcome", request.subject_axis.count),
-            _finite_vector(baseline, "baseline", request.subject_axis.count),
+            outcome_vector,
+            nuisance_plan,
             _fiber_ids(feature_ids, request.feature_axis.count),
         )
 
@@ -903,11 +930,11 @@ class ReferenceFiberBackend:
 
         if not isinstance(request, ObservedRequest):
             raise TypeError("request must be an ObservedRequest")
-        exposure, outcome, baseline, fiber_ids = self._inputs(request)
+        exposure, outcome, nuisance_plan, fiber_ids = self._inputs(request)
         with _FiberWorkspace(
             exposure,
             outcome,
-            baseline,
+            nuisance_plan,
             fiber_ids,
             request,
             chunk_size=self.feature_chunk_size,
@@ -917,6 +944,7 @@ class ReferenceFiberBackend:
                 "grid_metrics.json",
                 {
                     "endpoint_id": request.endpoint.identifier,
+                    "branch": request.branch,
                     "connectome_role": request.connectome_role,
                     "cells": [cell.as_json_dict() for cell in grid_metrics],
                 },
@@ -1025,11 +1053,11 @@ class ReferenceFiberBackend:
                 "formal numeric tau/Coverage is outside the sensitive declared grid"
             )
 
-        exposure, outcome, baseline, fiber_ids = self._inputs(request)
+        exposure, outcome, nuisance_plan, fiber_ids = self._inputs(request)
         with _FiberWorkspace(
             exposure,
             outcome,
-            baseline,
+            nuisance_plan,
             fiber_ids,
             request,
             chunk_size=self.feature_chunk_size,

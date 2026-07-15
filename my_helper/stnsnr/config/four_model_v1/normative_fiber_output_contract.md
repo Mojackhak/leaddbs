@@ -452,6 +452,41 @@ delta_reference_support_status.json
 `[n_subjects, n_subjects]`; row `h` stores the fold-`h` score operator applied
 to the ordered cohort, and `[h,h]` is the held-out score.
 
+The matched reference operator is connectome-local. Formal add-on uses the
+accepted formal reference source; sensitive add-on uses the same sensitive
+connectome's computable reference evidence evaluated at the formal numeric
+tau/Coverage. Endpoint ID, connectome ID, parent fiber-axis hash, and artifact
+axes must all match. Fiber IDs and weights are never borrowed across
+connectomes.
+
+For each full-sample or fold operator, DeltaReferenceScore support is the
+selected-source Coverage-passing set intersected with finite reference
+weights. The full-sample finite set does not restrict a fold. DeltaReferenceScore
+reapplies the configured signed-library and weighted-peak policy to each
+operator and is defined as:
+
+```text
+NetFiberScore(add-on-condition reference component; locked operator)
+- NetFiberScore(reference-condition exposure; locked operator)
+```
+
+Support QC uses the inclusive normative-fiber threshold
+`reference_component_exposure >= selected_reference_tau` on the complete
+parent fiber axis. For every subject and required full/fold operator:
+
+```text
+out_support_fraction =
+  n_suprathreshold_fibers_outside_finite_valid_support
+  / n_suprathreshold_fibers_total
+```
+
+A zero denominator is `invalid_no_reference_component_exposure`. `adequate`
+requires cohort median `<= 0.20` and at most `25%` of subjects above `0.50`.
+`invalid_extreme_out_of_support` applies when cohort median is `> 0.50`, more
+than `25%` of subjects are above `0.80`, or any required full/fold value is
+strictly `> 0.95`. All remaining nonzero cases are `limited`. Both `adequate`
+and `limited` remain valid adjusted-branch inputs.
+
 ## Final Model Reference
 
 Reference and add-on each create exactly one `final_model.json` terminal

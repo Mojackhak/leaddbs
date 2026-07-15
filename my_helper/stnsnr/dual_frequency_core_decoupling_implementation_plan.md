@@ -1384,6 +1384,10 @@ git commit -m "feat: extract add-on direct-voxel backend"
 ### Task 12: Extract Add-On Normative-Fiber Backend
 
 **Files:**
+- Create: `my_helper/fiber/core/dual_frequency/backends/nuisance.py`
+- Modify: `my_helper/fiber/core/dual_frequency/backends/direct_voxel/kernel.py`
+- Modify: `my_helper/fiber/core/dual_frequency/backends/direct_voxel/addon.py`
+- Modify: `my_helper/fiber/core/dual_frequency/backends/normative_fiber/reference.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/delta_reference/normative_fiber.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/normative_fiber/addon.py`
 - Create: `my_helper/fiber/core/dual_frequency/tests/test_delta_reference_fiber.py`
@@ -1395,32 +1399,139 @@ git commit -m "feat: extract add-on direct-voxel backend"
 - Produces: `AddonFiberBackend.run(ObservedRequest) -> ObservedResult`
 - Consumes exact matched-reference endpoint/connectome IDs and explicit
   arrays/artifact references only.
+- `DeltaReferenceBundle` remains an immutable run-scoped dependency record. It
+  does not create a directory, derived study file, or intermediate study
+  bundle.
+- The formal add-on branch consumes the accepted formal reference
+  `SourceRecord`. A sensitive add-on branch consumes only the computable local
+  reference `SensitiveRecord` evaluated at the formal numeric tau/Coverage.
+  The local matched-reference endpoint ID, connectome ID, parent fiber-axis
+  hash, and artifact axes must all agree; a sensitive connectome never borrows
+  a formal-connectome fiber axis or fiber weights.
+- The locked reference operator is reconstructed from the selected reference
+  full/fold weights on the deterministic parent-order valid-feature union.
+  For each full sample or fold, valid support is the selected-source
+  Coverage-passing set intersected with finite weights. The full-sample finite
+  set must not restrict any fold.
+- Full and fold DeltaReferenceScore use the same signed-library and weighted-
+  peak operator as the reference model:
 
-- [ ] **Step 1: Write failing support/overlap tests**
+  ```text
+  DeltaReferenceScore_i =
+      NetFiberScore(reference_component_addon_i; locked reference operator)
+      - NetFiberScore(reference_condition_i; locked reference operator)
+  ```
+
+  Fiber ranking, sign, `K+`, `K-`, `H+`, and `H-` are recomputed from the
+  corresponding full/fold weights with the configured `200/100/20` policy.
+  Continuous exposure values enter the score after the locked valid support is
+  established.
+- DeltaReferenceScore support QC uses the add-on condition's reference-
+  component suprathreshold fiber range on the complete parent axis and the
+  inclusive normative-fiber rule `E >= selected_reference_tau`. For each
+  subject and each required full/fold operator:
+
+  ```text
+  out_support_fraction =
+      count(suprathreshold fibers outside that operator's finite valid support)
+      / count(all suprathreshold reference-component fibers)
+  ```
+
+  A zero denominator is `invalid_no_reference_component_exposure`. Support is
+  `adequate` when the cohort median is `<= 0.20` and no more than `25%` of
+  subjects exceed `0.50`; it is `invalid_extreme_out_of_support` when the
+  cohort median is `> 0.50`, more than `25%` of subjects exceed `0.80`, or any
+  required full/fold value is strictly `> 0.95`; all other nonzero cases are
+  `limited`. `adequate` and `limited` are valid adjusted inputs.
+- Reference-active overlap is applied before add-on Coverage and candidate
+  construction. An accepted local reference model uses its exact selected
+  tau; an absent formal reference source uses `+Inf`, so the formal no-delta
+  branch sees raw continuous add-on exposure and the adjusted branch is not
+  attempted. For each fold, overlap and add-on Coverage are rebuilt from that
+  fold's training inputs. No full-sample overlap or candidate mask is reused.
+- Reference-overlap preparation operates in bounded fiber chunks. Synthetic
+  tests may allocate a small in-memory destination; production preparation
+  writes into caller-provided array/memmap destinations already owned by the
+  run-scoped artifact layer and never materializes a complete dTOR copy or
+  accepts a raw output path.
+- The add-on source tau defines Coverage/candidate fibers only. Within the
+  resulting candidate universe, continuous add-on peak E-field remains in the
+  score except where reference-active overlap sets the patient-fiber value to
+  zero.
+- The direct-voxel and normative-fiber add-on backends share one generic
+  full/fold nuisance-plan implementation. `no_delta_reference` uses
+  `[Y_reference]`; `delta_reference_adjusted` uses
+  `[Y_reference, z(DeltaReferenceScore)]`, with z-scaling learned independently
+  inside every training fold. A DeltaReferenceScore failure invalidates only
+  the adjusted branch.
+- Formal connectomes evaluate the complete branch grid and may resolve a
+  source. Sensitive connectomes evaluate the complete branch grid, then only
+  evaluate the matching formal branch's numeric selected tau/Coverage; they
+  emit sensitivity evidence only and cannot assign source, primary, fallback,
+  or final status.
+- The branch numerical backend never decides intended role or final role.
+  Existing state-machine code applies the one-way no-delta fallback only after
+  independent branch results exist; technical execution failure cannot trigger
+  fallback.
+- Production normative-fiber YAML remains parse/validate/plan-only in this
+  task. Tests use deterministic arrays and hash-validated completed fixtures
+  only; no production observed, formal, sensitivity, jitter, OSS, or report
+  task may run or write beneath the production output root.
+
+**Frozen bounded evidence for Task 12:**
+
+- Acceptance run: `20260711T034644Z_d318f177f7f2ac7d`.
+- Endpoint: `endpoint_0e489d4dae7d51a3fa0c`, MDS-UPDRS III score,
+  chronic add-on, dTOR `formal`, 16 subjects.
+- This endpoint is used only because it is the sole completed allowlisted
+  add-on-fiber child. It has no engineering priority; every configured scale
+  uses the same backend, resolver, classification, and artifact contract.
+- The approved allowlist is exact. Relevant terminal tasks are
+  `task_49c57915a31c57add0ee` (Delta/support sidecars),
+  `task_294db6b85fcc19c9ff25` (no-delta observed resolver),
+  `task_f2761adf6686800a83da` (final realization),
+  `task_05fb8da14057db04bcd0` (controls),
+  `task_4c0176441302daf11384` (formal summaries),
+  `task_737a02e8a551e383ceb5` (cheap sensitivity), and
+  `task_3791e85acf027faa4e68` (source neighborhood).
+- The frozen Delta input is invalid-extreme (`tau=800`, `Coverage=5`); the
+  adjusted task was gate-skipped. The completed no-delta source is a scan
+  fallback at `tau=400`, `Coverage=5`, classified `error_predictive`, and is
+  the realized final. Legacy filenames that contain `tau800` do not override
+  the resolver metadata.
+- Failed OSS, partial `388/1000` jitter, unstarted report, and completed but
+  non-allowlisted tasks are excluded. The fixture has no fold weights or
+  deterministic full/fold valid-feature union, so it cannot prove adjusted,
+  sensitive-role, fold-operator, OSS, jitter, or full resampling parity.
+  Those target contracts are tested synthetically; bounded parity is limited
+  to hashes, completed status transitions, support QC, selected `400/5`
+  no-delta evidence, and terminal summary artifacts.
+
+- [x] **Step 1: Write failing support/overlap tests**
 
 Cover matched reference feature identity, reference-component support,
-overlap exclusion after candidate creation, branch-specific nuisance weights,
+overlap exclusion before add-on Coverage/candidate creation, branch-specific nuisance weights,
 and the shared `200/100/20` score. Assert sensitive connectomes produce branch
 resolver/sensitivity records but cannot realize a final or fallback final.
 
-- [ ] **Step 2: Write failing bounded parity tests**
+- [x] **Step 2: Write failing bounded parity tests**
 
 Compare only completed first combined-child dTOR preprocessing, resolver, final, controls,
 formal inputs, cheap sensitivity inputs, and neighborhood artifacts. Exclude
 failed OSS and partial jitter.
 
-- [ ] **Step 3: Extract generic kernels**
+- [x] **Step 3: Extract generic kernels**
 
 Do not import `legacy_ulf_fiber.py` or
 `stnsnr_ulf_normative_fiber_observed.py`. Use explicit connectome and artifact
 references.
 
-- [ ] **Step 4: Run focused, bounded, and one-way fallback tests**
+- [x] **Step 4: Run focused, bounded, and one-way fallback tests**
 
 Expected: completed-scope parity passes; uncompleted paths run synthetic smoke
 only.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/backends/delta_reference/normative_fiber.py \
@@ -1429,6 +1540,21 @@ git add my_helper/fiber/core/dual_frequency/backends/delta_reference/normative_f
   my_helper/fiber/core/dual_frequency/tests/test_addon_fiber.py
 git commit -m "feat: extract add-on normative-fiber backend"
 ```
+
+**Verification completed 2026-07-15:**
+
+- Generic `dual_frequency` suite: `171 tests` passed.
+- Focused add-on-fiber, DeltaReferenceScore, shared-nuisance, reference-fiber,
+  scoring, record, and state suite: `69 tests` passed.
+- Legacy HF/add-on normative-fiber observed, immediate, sensitive, shared
+  statistics, and smoke self-tests all reported `PASS`.
+- Python compilation and `git diff --check` passed; production YAML/JSON was
+  unchanged, no task wrote beneath the production `summary/spot` root, and no
+  intermediate study bundle was created.
+- The frozen completed add-on-fiber fixture passed its exact task allowlist,
+  manifest/artifact hash, invalid Delta-support, selected `400/5` no-delta,
+  and realized-final assertions. Missing historical fold/operator evidence was
+  covered only by deterministic synthetic tests, as required.
 
 ---
 

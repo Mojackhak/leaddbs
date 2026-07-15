@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 from ...contracts import HardComputabilityLimits
+from ..nuisance import NuisancePlan
 from ..statistics import (
     average_rank,
     benefit_oriented_weights,
@@ -169,33 +170,6 @@ class GridCellComputation:
 
     metrics: GridCellMetrics
     arrays: GridCellArrays | None
-
-
-@dataclass(frozen=True)
-class NuisancePlan:
-    """Full-sample and fold-specific nuisance covariates for one endpoint."""
-
-    full_covariates: np.ndarray
-    fold_covariates: np.ndarray
-
-    def __post_init__(self) -> None:
-        full = np.array(self.full_covariates, dtype=np.float64, copy=True)
-        folds = np.array(self.fold_covariates, dtype=np.float64, copy=True)
-        if full.ndim != 2 or not all(dimension > 0 for dimension in full.shape):
-            raise DirectVoxelKernelError(
-                "full nuisance covariates must be a nonempty subject-by-covariate matrix"
-            )
-        expected = (full.shape[0], full.shape[0], full.shape[1])
-        if folds.shape != expected:
-            raise DirectVoxelKernelError(
-                "fold nuisance covariates must have shape fold-by-subject-by-covariate"
-            )
-        if not np.all(np.isfinite(full)) or not np.all(np.isfinite(folds)):
-            raise DirectVoxelKernelError("nuisance covariates must contain only finite values")
-        full.flags.writeable = False
-        folds.flags.writeable = False
-        object.__setattr__(self, "full_covariates", full)
-        object.__setattr__(self, "fold_covariates", folds)
 
 
 def _json_safe(value: Any) -> Any:

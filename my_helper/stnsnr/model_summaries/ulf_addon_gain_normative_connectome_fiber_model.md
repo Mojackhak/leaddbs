@@ -647,46 +647,43 @@ where `S_HF_norm_fiber` uses only `F_HF_score_fold` from the locked HF source.
 
 ### 8.3 Required support QC metrics
 
-For each subject, endpoint, connectome, ULF branch, HF source branch, and LOOCV fold, compute support QC using the HF source tau:
+For each subject, endpoint, connectome, ULF branch, HF source branch, and
+required full/fold operator, compute support QC using the locked HF source tau.
+The operator support is the source-Coverage set intersected with finite HF
+weights; a full-sample finite-weight set must not restrict a fold-specific
+operator.
 
 ```text
-HF_component_total_touched_count_source_tau
-HF_component_total_exposure_sum_source_tau
-HF_component_total_exposure_top5_source_tau
+HF_component_suprathreshold_i(l) =
+  X_HF_component_i(l) >= hf_source_tau_v_per_m
 
-HF_component_in_HF_candidate_count_source_tau
-HF_component_in_HF_candidate_sum_source_tau
-HF_component_in_HF_candidate_top5_source_tau
+F_HF_valid_operator =
+  F_HF_candidate_operator intersect finite HF weights for that operator
 
-HF_component_in_HF_valid_count_source_tau
-HF_component_in_HF_valid_sum_source_tau
-HF_component_in_HF_valid_top5_source_tau
+HF_component_total_touched_count_source_tau =
+  count(HF_component_suprathreshold_i)
 
-HF_component_in_HF_selected_count_source_tau
-HF_component_in_HF_selected_sum_source_tau
-HF_component_in_HF_selected_top5_source_tau
+HF_component_in_valid_count_source_tau =
+  count(HF_component_suprathreshold_i intersect F_HF_valid_operator)
 
-HF_component_out_HF_candidate_count_source_tau
-HF_component_out_HF_candidate_sum_source_tau
-HF_component_out_HF_candidate_top5_source_tau
+HF_component_out_valid_count_source_tau =
+  HF_component_total_touched_count_source_tau
+  - HF_component_in_valid_count_source_tau
 
-HF_component_out_HF_selected_count_source_tau
-HF_component_out_HF_selected_sum_source_tau
-HF_component_out_HF_selected_top5_source_tau
-
-HF_out_candidate_fraction_source_tau =
-  HF_component_out_HF_candidate_sum_source_tau
-  / HF_component_total_exposure_sum_source_tau
-
-HF_out_selected_fraction_source_tau =
-  HF_component_out_HF_selected_sum_source_tau
-  / HF_component_total_exposure_sum_source_tau
+HF_out_valid_fraction_source_tau =
+  HF_component_out_valid_count_source_tau
+  / HF_component_total_touched_count_source_tau
 ```
 
-If `HF_component_total_touched_count_source_tau = 0` or `HF_component_total_exposure_sum_source_tau <= 0` for any required subject or fold, set:
+This is a fiber-range coverage fraction, not an exposure-amplitude fraction.
+Continuous exposure values still enter DeltaHFScore after the finite valid
+support has been fixed.
+
+If `HF_component_total_touched_count_source_tau = 0` for any required subject
+or full/fold operator, set:
 
 ```text
-delta_hfscore_support_status = invalid_no_hfcomponent_exposure
+delta_hfscore_support_status = invalid_no_reference_component_exposure
 ```
 
 Do not compute support fractions by adding an epsilon denominator in that case, and do not classify the branch as `adequate`.
@@ -699,35 +696,27 @@ normative_ULF_fiber_delta_hf_support_qc.json
 normative_ULF_fiber_sensitivity_readiness_status.json
 ```
 
-For backward compatibility, tau800-specific aliases may be emitted when the selected HF source is tau800/Coverage>=5:
-
-```text
-HF_out_candidate_fraction_tau800
-HF_out_selected_fraction_tau800
-```
-
 ### 8.4 DeltaHFScore support status for out-of-support exposure
 
 Default support-status thresholds:
 
 ```text
 delta_hfscore_support_status = adequate
-  if cohort median HF_out_candidate_fraction_source_tau <= 0.20
-  and no more than 25% of subjects have HF_out_candidate_fraction_source_tau > 0.50
+  if cohort median HF_out_valid_fraction_source_tau <= 0.20
+  and no more than 25% of subjects have HF_out_valid_fraction_source_tau > 0.50
 
 delta_hfscore_support_status = limited
   if support is worse than adequate
   but does not meet invalid_extreme_out_of_support
 
 delta_hfscore_support_status = invalid_extreme_out_of_support
-  if cohort median HF_out_candidate_fraction_source_tau > 0.50
-  or more than 25% of subjects have HF_out_candidate_fraction_source_tau > 0.80
+  if cohort median HF_out_valid_fraction_source_tau > 0.50
+  or more than 25% of subjects have HF_out_valid_fraction_source_tau > 0.80
   or any required subject or LOOCV fold has
-     HF_out_candidate_fraction_source_tau > 0.95
+     HF_out_valid_fraction_source_tau > 0.95
 
-delta_hfscore_support_status = invalid_no_hfcomponent_exposure
-  if a required subject/fold has no suprathreshold HF-component exposure
-  or nonpositive total HF-component exposure under the locked HF source tau
+delta_hfscore_support_status = invalid_no_reference_component_exposure
+  if a required subject/full/fold operator has no suprathreshold HF-component fibers
 ```
 
 `Nearly completely outside` is therefore a fixed numeric rule (`> 0.95`), not
@@ -749,7 +738,7 @@ invalid_extreme_out_of_support:
   If the DeltaHF-adjusted branch is the intended primary branch,
   record ulf_norm_fiber_endpoint_model_status = primary_branch_input_failure.
 
-invalid_no_hfcomponent_exposure:
+invalid_no_reference_component_exposure:
   DeltaHFScore inputs are invalid because the HF-component projection
   cannot be interpreted for at least one required subject/fold.
   If the DeltaHF-adjusted branch is the intended primary branch,
@@ -1899,8 +1888,10 @@ PlainULFTotalExposureTop5
 PlainHFComponentExposureTop5
 PlainHFOverlapExposureTop5
 PlainHFOutSupportTop5
-HF_out_candidate_fraction_source_tau
-HF_out_selected_fraction_source_tau
+HF_component_total_touched_count_source_tau
+HF_component_in_valid_count_source_tau
+HF_component_out_valid_count_source_tau
+HF_out_valid_fraction_source_tau
 n_candidate_fibers
 n_sweet_selected_fibers
 n_sour_selected_fibers
@@ -1932,7 +1923,7 @@ NetULFFiberScore_OSS_LOOCV
 Y_HF_ref
 DeltaHFScore_LOOCV
 DeltaHFScore_z_LOOCV
-HF_out_candidate_fraction_source_tau_LOOCV
+HF_out_valid_fraction_source_tau_LOOCV
 residual_ULF_model
 residual_nuisance_only
 ```
