@@ -20,7 +20,7 @@ FlipBackend = Callable[..., tuple[dict[str, list[Path]], dict[str, Any]]]
 
 
 def _load_analysis_module():
-    analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+    analysis_root = Path(__file__).resolve().parents[5] / "core" / "analysis"
     if str(analysis_root) not in sys.path:
         sys.path.insert(0, str(analysis_root))
     return importlib.import_module("stnsnr_hf_direct_voxel_posthoc_threshold_scan")

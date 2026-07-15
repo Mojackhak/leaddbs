@@ -145,7 +145,7 @@ def _code_provenance(workspace: Path) -> dict[str, Any]:
 
 
 def _provenance(config: ResolvedWorkflow) -> dict[str, Any]:
-    workspace = Path(__file__).resolve().parents[4]
+    workspace = Path(__file__).resolve().parents[6]
     input_hashes = {
         "clinical_table": _file_hash(config.study.paths.clinical_table),
         "stimulation_table": _file_hash(config.study.paths.stimulation_table),

@@ -2551,7 +2551,7 @@ no-final states without fabricating numerical outputs. Emit exactly one
 Register every generic backend explicitly. Remove dynamic import dispatch. An
 empty registry remains test injection only.
 
-- [ ] **Step 6: Move the complete predecessor runtime outside the core path**
+- [x] **Step 6: Move the complete predecessor runtime outside the core path**
 
 After generic regression passes, use `git mv` to move the complete predecessor
 `outcome_models` package and its tests into
@@ -2561,11 +2561,39 @@ Do not move unrelated DWI/VTA scripts. No production module may import the moved
 namespace. The move is archival isolation outside the generic core namespace;
 the legacy package remains auditable but is never registered by production.
 
-- [ ] **Step 7: Run import-isolation and full generic tests**
+The moved manual entrypoint adds only its own `legacy` directory and the
+existing generic `fiber/core/analysis` directory needed by predecessor adapters.
+It does not recreate an `outcome_models` wrapper, symlink, or compatibility
+package under `fiber/core`. The moved `cli.py` derives the repository root from
+its new project path for legacy provenance. Historical tests move with the
+package and may be run only with an explicit legacy `PYTHONPATH`; they are not
+part of generic production discovery. Ignored `.DS_Store` and `__pycache__`
+files are neither staged nor deleted as part of the tracked Git move.
+
+- [x] **Step 7: Run import-isolation and full generic tests**
 
 Expected: all generic tests pass with project migration/acceptance/legacy paths
 blocked; predecessor historical tests may be archived rather than required by
 the production package.
+
+Completion evidence, 2026-07-15:
+
+- `fiber/core/outcome_models` is absent and the complete tracked predecessor
+  package, tests, and manual entrypoint retain Git history under
+  `fiber/projects/stnsnr/legacy`.
+- The generic suite passed all 387 tests with an explicit `PYTHONPATH` limited
+  to generic `fiber/core` and `fiber` roots. The public generic entrypoint and
+  the relocated manual legacy entrypoint both returned `--help` successfully
+  without an inherited `PYTHONPATH`.
+- The archived predecessor suite was also audited with an explicit legacy
+  `PYTHONPATH`: 331 of 334 tests passed. The only three errors are the archived
+  `test_two_scale_acceptance` cases reading the current generic workflow YAML
+  through the predecessor schema, which intentionally does not accept the new
+  `model_profiles`/`storage` contract. They are not production discovery or
+  generic acceptance failures.
+- Production code/config scans contain no fixed subject IDs or project-specific
+  subject allowlist. Subject inclusion remains data-, configuration-, and
+  readiness-driven.
 
 - [ ] **Step 8: Commit**
 

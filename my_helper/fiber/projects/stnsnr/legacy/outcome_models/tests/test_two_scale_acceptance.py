@@ -12,7 +12,7 @@ from outcome_models.config import WorkflowOverrides, load_resolved_workflow
 from outcome_models.planner import compile_execution_plan
 
 
-_REPO_ROOT = Path(__file__).resolve().parents[5]
+_REPO_ROOT = Path(__file__).resolve().parents[7]
 _WORKFLOW = _REPO_ROOT / "my_helper/stnsnr/config/four_model_v1/workflow.yaml"
 _CLINICAL = Path("/Users/mojackhu/Research/STNSNr/summary/cohort/subj/subject_effect_origin.xlsx")
 
@@ -33,7 +33,9 @@ class TwoScaleProfileAcceptanceTests(unittest.TestCase):
 
         production_sources = [
             path
-            for path in (_REPO_ROOT / "my_helper/fiber/core/outcome_models").glob("*.py")
+            for path in (
+                _REPO_ROOT / "my_helper/fiber/projects/stnsnr/legacy/outcome_models"
+            ).glob("*.py")
             if path.name not in {"__init__.py"}
         ]
         production_text = "\n".join(path.read_text(encoding="utf-8") for path in production_sources)

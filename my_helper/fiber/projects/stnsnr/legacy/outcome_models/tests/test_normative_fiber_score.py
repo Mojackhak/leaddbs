@@ -10,7 +10,7 @@ import unittest
 import numpy as np
 
 
-ANALYSIS_ROOT = Path(__file__).resolve().parents[2] / "analysis"
+ANALYSIS_ROOT = Path(__file__).resolve().parents[5] / "core" / "analysis"
 if str(ANALYSIS_ROOT) not in sys.path:
     sys.path.insert(0, str(ANALYSIS_ROOT))
 

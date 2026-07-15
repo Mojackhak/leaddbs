@@ -353,7 +353,7 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
         self.assertEqual(target.score_config.weighted_peak_min_count, 2)
 
     def test_ulf_fiber_sensitivity_applies_configured_minima_in_full_and_folds(self) -> None:
-        analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+        analysis_root = Path(__file__).resolve().parents[5] / "core" / "analysis"
         if str(analysis_root) not in sys.path:
             sys.path.insert(0, str(analysis_root))
         module = importlib.import_module(
@@ -417,7 +417,7 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
             target = build_configured_sensitivity_target(
                 self._request(root, task, final, delta=delta)
             )
-            analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+            analysis_root = Path(__file__).resolve().parents[5] / "core" / "analysis"
             if str(analysis_root) not in sys.path:
                 sys.path.insert(0, str(analysis_root))
             module = importlib.import_module(
@@ -527,7 +527,7 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
                             "fold_out_support_fraction_max": fold_maximum,
                         }
                     )
-            analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+            analysis_root = Path(__file__).resolve().parents[5] / "core" / "analysis"
             if str(analysis_root) not in sys.path:
                 sys.path.insert(0, str(analysis_root))
             module = importlib.import_module(
@@ -569,7 +569,7 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
                             "maximum_fold_out_candidate_fraction": fold_maximum,
                         }
                     )
-            analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+            analysis_root = Path(__file__).resolve().parents[5] / "core" / "analysis"
             if str(analysis_root) not in sys.path:
                 sys.path.insert(0, str(analysis_root))
             module = importlib.import_module(
@@ -801,7 +801,7 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
             final = self._final(root, task)
             request = self._request(root, task, final, jitter=True)
             calls = {"geometry": 0, "delta": 0, "branch": 0}
-            analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+            analysis_root = Path(__file__).resolve().parents[5] / "core" / "analysis"
             if str(analysis_root) not in sys.path:
                 sys.path.insert(0, str(analysis_root))
             module = importlib.import_module("stnsnr_direct_voxel_formal_jitter")
@@ -857,7 +857,7 @@ class ConfiguredSensitivityBackendTests(unittest.TestCase):
             final = self._final(root, task)
             request = self._request(root, task, final, jitter=True)
             calls = {"geometry": 0, "delta": 0, "branch": 0}
-            analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+            analysis_root = Path(__file__).resolve().parents[5] / "core" / "analysis"
             if str(analysis_root) not in sys.path:
                 sys.path.insert(0, str(analysis_root))
             module = importlib.import_module("stnsnr_normative_fiber_formal_jitter")

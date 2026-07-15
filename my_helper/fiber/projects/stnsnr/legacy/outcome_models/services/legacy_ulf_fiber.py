@@ -156,7 +156,7 @@ class ULFNormativeFiberDeltaExposureConfig:
 
 
 def _import_legacy_analysis() -> ModuleType:
-    analysis_dir = Path(__file__).resolve().parents[2] / "analysis"
+    analysis_dir = Path(__file__).resolve().parents[5] / "core" / "analysis"
     path_token = str(analysis_dir)
     if path_token not in sys.path:
         sys.path.insert(0, path_token)

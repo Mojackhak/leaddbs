@@ -194,7 +194,7 @@ def assess_delta_hf_voxel_support(
 
 
 def _load_analysis_module():
-    analysis_root = Path(__file__).resolve().parents[2] / "analysis"
+    analysis_root = Path(__file__).resolve().parents[5] / "core" / "analysis"
     if str(analysis_root) not in sys.path:
         sys.path.insert(0, str(analysis_root))
     return importlib.import_module("stnsnr_ulf_direct_voxel_observed")

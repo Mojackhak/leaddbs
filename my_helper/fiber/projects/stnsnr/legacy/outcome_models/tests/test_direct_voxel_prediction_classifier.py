@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 
-CORE_ROOT = Path(__file__).resolve().parents[2]
+CORE_ROOT = Path(__file__).resolve().parents[5] / "core"
 ANALYSIS_ROOT = CORE_ROOT / "analysis"
 if str(ANALYSIS_ROOT) not in sys.path:
     sys.path.insert(0, str(ANALYSIS_ROOT))

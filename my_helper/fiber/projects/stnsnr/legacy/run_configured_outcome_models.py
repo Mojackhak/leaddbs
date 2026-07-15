@@ -7,9 +7,11 @@ import sys
 from pathlib import Path
 
 
-CORE_ROOT = Path(__file__).resolve().parents[1] / "core"
-if str(CORE_ROOT) not in sys.path:
-    sys.path.insert(0, str(CORE_ROOT))
+LEGACY_ROOT = Path(__file__).resolve().parent
+ANALYSIS_ROOT = Path(__file__).resolve().parents[3] / "core" / "analysis"
+for import_root in (ANALYSIS_ROOT, LEGACY_ROOT):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
 
 from outcome_models.cli import main
 
