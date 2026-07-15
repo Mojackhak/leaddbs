@@ -307,7 +307,7 @@ class RunScopedArtifactPublisherTest(unittest.TestCase):
                 space="synthetic",
             )
             (publisher.root / "values.npy.artifact.json").unlink()
-            with self.assertRaisesRegex(ArtifactPublicationError, "missing.*sidecar"):
+            with self.assertRaisesRegex(ArtifactPublicationError, "incomplete"):
                 publisher.array(
                     "values.npy",
                     array,
@@ -316,6 +316,16 @@ class RunScopedArtifactPublisherTest(unittest.TestCase):
                     units="score",
                     space="synthetic",
                 )
+
+    def test_orphaned_publication_lock_is_not_removed_or_bypassed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            publisher = RunScopedArtifactPublisher(Path(temporary), "test", "1")
+            lock = publisher.root / ".record.json.publish.lock"
+            lock.write_text("pid=stale\n", encoding="utf-8")
+            with self.assertRaisesRegex(ArtifactPublicationError, "lock already exists"):
+                publisher.document("record.json", {"status": "complete"}, kind="record")
+            self.assertTrue(lock.is_file())
+            self.assertFalse((publisher.root / "record.json").exists())
 
 
 class ArtifactStoreTest(unittest.TestCase):

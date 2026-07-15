@@ -800,9 +800,12 @@ The model-set directory is immutable with respect to scientific identity.
 - Same-byte reuse is allowed only when the metadata sidecar is present and
   exactly matches the requested artifact semantics. A missing sidecar or any
   metadata difference is a collision error.
-- Payload and metadata publication use atomic create-if-absent operations; a
-  concurrent writer cannot replace an artifact that appeared after the initial
-  existence check.
+- Payload and metadata publication use an exFAT-compatible same-directory
+  exclusive lock and atomic rename. The publisher does not depend on hard
+  links or platform-specific advisory locking. A concurrent
+  writer cannot replace an artifact that appeared after the initial check. An
+  orphaned lock or incomplete payload/sidecar pair is an explicit failure and
+  is not cleaned up or adopted automatically.
 
 Changing endpoint bindings or scientific model parameters requires a new
 `model_set_id` or explicit archival of the old model-set directory outside this

@@ -984,8 +984,11 @@ the production `output.root`.
 - Every published array/document has a persistent immutable metadata sidecar.
   Reuse requires byte identity and exact equality of kind, schema, ordered
   axes, units, space, producer ID, and producer version. Publication uses an
-  atomic create-if-absent operation; a same-name collision, missing sidecar, or
-  metadata mismatch is an error even when payload bytes are identical.
+  exFAT-compatible same-directory exclusive publication lock followed by
+  atomic rename. The implementation must not require hard links or
+  platform-specific advisory locking. A same-name collision,
+  orphaned lock, missing sidecar, or metadata mismatch is an error even when
+  payload bytes are identical; stale state is never adopted automatically.
 - The selected-source feature axis is the deterministic union of full-sample
   valid features and every fold-specific valid feature. Full and fold weights
   are projected onto that one axis with `NaN` where a feature is invalid for a
@@ -996,12 +999,12 @@ the production `output.root`.
   is grid-step distance, adjacent passing support, fold feature minimum,
   stricter Coverage, then higher tau.
 
-- [ ] **Step 1: Write failing synthetic kernel tests**
+- [x] **Step 1: Write failing synthetic kernel tests**
 
 Cover hard computability, fold leakage, finite predictions, MAE/RMSE status, Q2/
 rho report-only behavior, pre-specified acceptance, and scan fallback ordering.
 
-- [ ] **Step 2: Write failing bounded golden tests**
+- [x] **Step 2: Write failing bounded golden tests**
 
 Load only the completed MDS-UPDRS III reference-direct task named in the frozen
 bounded-fixture manifest. Validate the exact task ID and every consumed
@@ -1009,11 +1012,11 @@ artifact hash before reading it. Assert exact identity/source/tau/Coverage/
 masks and allclose weights/scores/predictions. Direct reads from mutable legacy
 summary paths do not count as bounded parity.
 
-- [ ] **Step 3: Run tests and verify RED**
+- [x] **Step 3: Run tests and verify RED**
 
 Expected: backend missing.
 
-- [ ] **Step 4: Extract generic numerical functions**
+- [x] **Step 4: Extract generic numerical functions**
 
 Move mathematics out of
 `stnsnr_hf_direct_voxel_posthoc_threshold_scan.py`; do not import that module.
@@ -1024,11 +1027,15 @@ the conjunction of its declared hard checks, prediction status is applicable
 only after hard computability passes, and finite/nonconstant flags cannot
 contradict their underlying status fields.
 
-- [ ] **Step 5: Run focused, bounded parity, and predecessor selftests**
+- [x] **Step 5: Run focused, bounded parity, and predecessor selftests**
 
 No ULF or MDS-UPDRS IV numeric parity is required in this task.
+Any predecessor resolver fixture used here must contain enough declared
+neighbor cells to exercise the current minimum of two adjacent passing cells;
+a sparse fixture that cannot satisfy the stability rule is not a valid
+selection-priority test.
 
-- [ ] **Step 6: Export the backend and commit**
+- [x] **Step 6: Export the backend and commit**
 
 The backend is exported from the generic backend package in this task. Its DAG
 service adapter and production default-registry registration are completed in
@@ -1041,6 +1048,21 @@ git add my_helper/fiber/core/dual_frequency/backends \
   my_helper/fiber/core/dual_frequency/tests/test_reference_direct_voxel.py
 git commit -m "feat: extract reference direct-voxel backend"
 ```
+
+**Task 9 completion evidence (2026-07-15):**
+
+- Generic dual-frequency suite: `115 passed, 57 subtests passed`.
+- Focused records/cache/reference-direct suite: `44 passed, 13 subtests
+  passed`.
+- Frozen bounded parity task:
+  `task_7a3ba9216fb910e53750` from run
+  `20260711T034644Z_d318f177f7f2ac7d`; every consumed artifact hash was
+  verified before read.
+- Legacy reference-direct scan and shared resolver self-tests: PASS.
+- `compileall`, `git diff --check`, generic hardcoding scan, and production
+  output-root freshness check: PASS.
+- No production YAML task was executed and no intermediate study bundle was
+  created.
 
 ---
 

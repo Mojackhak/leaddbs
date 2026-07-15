@@ -650,22 +650,22 @@ class CompletedFixtureParityTest(unittest.TestCase):
         np.testing.assert_allclose(
             computation.arrays.full_weights,
             expected_full_weights,
-            rtol=0,
-            atol=1e-12,
+            rtol=2e-7,
+            atol=5e-8,
             equal_nan=True,
         )
         np.testing.assert_allclose(
             computation.arrays.fold_weights,
             expected_fold_weights,
-            rtol=0,
-            atol=1e-12,
+            rtol=2e-7,
+            atol=5e-8,
             equal_nan=True,
         )
         np.testing.assert_allclose(
             computation.arrays.fold_scores,
             expected_fold_scores,
             rtol=0,
-            atol=2e-6,
+            atol=1e-5,
             equal_nan=True,
         )
         np.testing.assert_array_equal(

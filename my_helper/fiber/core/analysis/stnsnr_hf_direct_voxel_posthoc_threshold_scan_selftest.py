@@ -88,6 +88,21 @@ def test_selection_priority() -> None:
             "rmse_baseline": 12.0,
         },
         {
+            "tau": 220,
+            "coverage": 12,
+            "n_subjects": 16,
+            "n_voxels_full": 21,
+            "fold_n_voxels_min": 10,
+            "hfscore_nonconstant_all_folds": True,
+            "all_predictions_finite": True,
+            "loocv_spearman_rho": 0.1,
+            "q2": -0.1,
+            "mae_model": 11.0,
+            "mae_baseline": 10.0,
+            "rmse_model": 13.0,
+            "rmse_baseline": 12.0,
+        },
+        {
             "tau": 200,
             "coverage": 5,
             "n_subjects": 11,
@@ -110,7 +125,14 @@ def test_selection_priority() -> None:
 
 def test_primary_distance_tie_break() -> None:
     rows = []
-    for tau, coverage in [(180, 6), (220, 6)]:
+    for tau, coverage in [
+        (180, 6),
+        (220, 6),
+        (150, 5),
+        (150, 7),
+        (250, 5),
+        (250, 7),
+    ]:
         rows.append(
             {
                 "tau": tau,

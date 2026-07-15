@@ -687,15 +687,6 @@ class RunScopedArtifactPublisher:
     ) -> None:
         expected_payload_hash = str(metadata["payload_sha256"])
         metadata_target = target.with_name(f"{target.name}.artifact.json")
-        payload_created = self._install_or_validate(
-            temporary,
-            target,
-            expected_payload_hash,
-        )
-        if not payload_created and not os.path.lexists(metadata_target):
-            raise ArtifactPublicationError(
-                f"existing artifact is missing its metadata sidecar: {target}"
-            )
         metadata_temporary = self._temporary(metadata_target)
         try:
             metadata_temporary.write_text(
@@ -709,29 +700,53 @@ class RunScopedArtifactPublisher:
                 + "\n",
                 encoding="utf-8",
             )
-            self._install_or_validate(
-                metadata_temporary,
-                metadata_target,
-                sha256_file(metadata_temporary),
-            )
+            expected_metadata_hash = sha256_file(metadata_temporary)
+            lock = target.with_name(f".{target.name}.publish.lock")
+            descriptor = self._acquire_publication_lock(lock)
+            try:
+                payload_exists = os.path.lexists(target)
+                metadata_exists = os.path.lexists(metadata_target)
+                if payload_exists:
+                    self._validate_existing(target, expected_payload_hash)
+                if metadata_exists:
+                    self._validate_existing(metadata_target, expected_metadata_hash)
+                if payload_exists != metadata_exists:
+                    raise ArtifactPublicationError(
+                        f"artifact payload and metadata sidecar are incomplete: {target}"
+                    )
+                if payload_exists:
+                    return
+                os.replace(temporary, target)
+                os.replace(metadata_temporary, metadata_target)
+            finally:
+                os.close(descriptor)
+                lock.unlink(missing_ok=True)
         finally:
             metadata_temporary.unlink(missing_ok=True)
 
     @staticmethod
-    def _install_or_validate(
-        temporary: Path,
-        target: Path,
-        expected_hash: str,
-    ) -> bool:
+    def _acquire_publication_lock(lock: Path) -> int:
         try:
-            os.link(temporary, target)
-            return True
+            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
-            pass
+            raise ArtifactPublicationError(
+                f"artifact publication lock already exists: {lock}"
+            ) from None
         except OSError as exc:
             raise ArtifactPublicationError(
-                f"cannot publish artifact with create-only semantics: {target}"
+                f"cannot acquire artifact publication lock: {lock}"
             ) from exc
+        try:
+            os.write(descriptor, f"pid={os.getpid()}\n".encode("ascii"))
+            os.fsync(descriptor)
+        except OSError:
+            os.close(descriptor)
+            lock.unlink(missing_ok=True)
+            raise
+        return descriptor
+
+    @staticmethod
+    def _validate_existing(target: Path, expected_hash: str) -> None:
         if (
             target.is_symlink()
             or not target.is_file()
@@ -740,4 +755,3 @@ class RunScopedArtifactPublisher:
             raise ArtifactPublicationError(
                 f"refusing to overwrite a different artifact: {target}"
             )
-        return False
