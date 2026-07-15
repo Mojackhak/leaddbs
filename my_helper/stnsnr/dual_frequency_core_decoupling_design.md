@@ -10,8 +10,9 @@
 > **Target schema.** `dual_frequency_v1`
 > **Current branch.** `stnvop`
 > **Status.** `design_approved`; `goal_review_passed`;
-> `implementation_in_progress`;
-> `legacy_runtime_still_active`; `partial_numeric_baseline_available`.
+> `implementation_complete`; `generic_runtime_active`;
+> `predecessor_runtime_archived`; `bounded_numeric_evidence_verified`;
+> `production_rerun_not_started`.
 > **Last updated.** 2026-07-15
 
 ---
@@ -604,15 +605,15 @@ Production may create a missing expensive cache only after explicit
 `--allow-expensive-producers` authorization. Acceptance/smoke runs report
 `missing_acceptance_fixture` instead of silently starting an expensive build.
 
-## Current Implementation Execution Boundary
+## Accepted Implementation Execution Boundary
 
-The current refactor phase may load and validate the production profiles and
-may compile their endpoint catalog and DAG as a read-only structural check. It
-must not execute any production-YAML observed, formal, sensitivity, jitter,
-activation, or report task, and it must not write the configured production
-run root. Numerical execution in this phase is limited to deterministic unit
-fixtures, synthetic integration fixtures, and explicitly frozen read-only
-acceptance artifacts.
+The generic runtime implementation is accepted. Acceptance loaded and validated
+the production profiles and compiled their endpoint catalog and DAG as a
+read-only structural check. It did not execute production-YAML observed,
+formal, sensitivity, jitter, activation, or report tasks and did not write the
+configured production run root. Numerical evidence remains limited to
+deterministic unit fixtures, project-neutral synthetic integration fixtures,
+and explicitly frozen read-only acceptance artifacts.
 
 ## Application And CLI Contract
 
@@ -691,11 +692,11 @@ activation sensitivity results
 artifact index and provenance
 ```
 
-## Legacy Bridge Replacement
+## Completed Legacy Bridge Replacement
 
 The eight current adapters are replaced as follows:
 
-| Current adapter | Generic replacement |
+| Predecessor adapter | Generic replacement |
 |---|---|
 | `legacy_hf_direct.py` | `direct_voxel/reference.py`, `kernel.py`, `source_resolver.py` |
 | `legacy_hf_fiber.py` | `normative_fiber/reference.py`, `coverage.py`, `scoring.py` |
@@ -706,11 +707,10 @@ The eight current adapters are replaced as follows:
 | `legacy_oss.py` | `activation/ossdbs.py`, `canonical_mapping.py`, `ppam.py` |
 | `legacy_reporting.py` | generic endpoint summary, artifact index, and run report backends |
 
-Each replacement is switched independently after its applicable tests pass.
-After a switch, no legacy fallback is permitted. When all replacements pass,
-remove the eight adapters from the default runtime registry and move the old
-STNSNr analysis entrypoints to the project-level legacy namespace outside the
-production Python path.
+All replacements passed their applicable tests and are registered in the
+generic production runtime. No legacy fallback is permitted. The complete
+predecessor package and old STNSNr analysis entrypoint now live under the
+project-level legacy namespace outside the production Python path.
 
 ## Migration And Acceptance Tools
 
@@ -897,6 +897,10 @@ Each phase is test-first and independently committed. A parity failure stops
 that backend migration. No phase overwrites `/Volumes/VAL/STNSNr/summary` or
 the immutable configured run.
 
+All ten migration stages completed on 2026-07-15. This completion concerns the
+generic implementation and bounded acceptance only; no production scientific
+rerun or output migration was performed.
+
 ## Success Criteria
 
 The design is implemented only when:
@@ -920,6 +924,13 @@ The design is implemented only when:
 10. bounded numerical parity passes for every eligible completed predecessor
     artifact and is not claimed for unfinished predecessor paths; and
 11. synthetic, smoke, import-isolation, cache, provenance, and report tests pass.
+
+These criteria are satisfied by the 397-test generic suite, the
+project-namespace-blocked synthetic report-through run, the equal III/IV
+read-only 136-task plan, the 32-task/137-file bounded fixture audit, the public
+CLI/compile/diff checks, and zero-hit production coupling/hardcoding scans.
+Real subject IDs used to inspect project data are not runtime or configuration
+constants; model participation remains data- and readiness-driven.
 
 ## Deferred Work
 

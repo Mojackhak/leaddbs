@@ -2,7 +2,7 @@
 
 This note records executable implementation layers for `four_model_execution_plan.md`.
 
-## YAML Core Refactor: Implementation In Progress
+## YAML Core Refactor: Implementation Complete
 
 The future configuration and orchestration contract is documented in:
 
@@ -19,9 +19,11 @@ Current status:
 
 ```text
 design_documented
-implementation_in_progress
+implementation_complete
 current_outputs_unchanged
-current_legacy_entrypoints_remain_active
+generic_runtime_active
+predecessor_runtime_archived
+production_rerun_not_started
 ```
 
 The successor runtime reads the existing validated `study_base.json` directly
@@ -31,14 +33,14 @@ Parquet study copy, study index, or resolved study manifest. The existing
 STNSNr importer remains an upstream study-base producer and is never imported
 or invoked by the model runtime.
 
-The legacy/current production drivers and consolidated status/formal layers
-still contain single-scale defaults, total/axial default lists, chronic-total
-path assumptions, or global A/B status rows. The configured YAML pipeline now
-isolates those compatibility entrypoints behind an endpoint catalog, composite
-task identities, matched A-to-C and connectome-specific B-to-D dependencies,
-and endpoint-aware final/formal/reporting artifacts. All configured scales use
-the same task factories and status fields; no clinical reporting hierarchy
-changes execution.
+The predecessor production drivers and consolidated status/formal layers that
+contained single-scale defaults, total/axial lists, period-specific path
+assumptions, or global status rows are archived under
+`my_helper/fiber/projects/stnsnr/legacy`. The generic YAML runtime uses an
+endpoint catalog, composite task identities, matched reference-to-addon and
+connectome-specific dependencies, and endpoint-aware final/formal/reporting
+artifacts. All configured scales use the same task factories and status fields;
+no clinical reporting hierarchy changes execution.
 
 The configured public YAML and CLI do not accept
 `candidate_threshold_v_per_m`. Direct-voxel preprocessing will derive it as
@@ -62,9 +64,10 @@ services, final-model realization, formal and sensitivity adapters, the
 final-record-bound OSS producer/consumer, and endpoint-aware numeric reporting.
 They include typed dependency gates, endpoint-local continuation, resume/force
 lineage, artifact identity checks, and legacy-root write protection. Legacy
-wrappers remain explicit compatibility entrypoints; output migration is not
-performed. The real two-scale acceptance run remains pending. ROI/VTA
-postprocessing and GUI remain outside this core refactor.
+wrappers remain archived manual evidence only; output migration is not
+performed. The lightweight two-scale structural acceptance is complete; a
+production scientific rerun remains deferred. ROI/VTA postprocessing and GUI
+remain outside this core refactor.
 
 The configured DAG interface uses operation-specific task stages, logical workflow
 phases, typed dependency requirements (`terminal`, `success`,
@@ -73,8 +76,8 @@ required so an absent/failed HF dependency can release `no_delta_hf`, while
 adjusted, formal, OSS, and jitter tasks retain stricter input/final-state
 requirements without changing task identity.
 
-Final implementation acceptance is now required to run the ordinary generic
-pipeline with both `mds_updrs_iii_score` (`MDS-UPDRS III score`) and
+Final implementation acceptance uses the ordinary generic pipeline contract
+with both `mds_updrs_iii_score` (`MDS-UPDRS III score`) and
 `mds_updrs_iv` (`MDS-UPDRS IV`) in one profile. This pair is an acceptance
 fixture, not a default or privileged scale list. The current clinical source has
 chronic rows for both scales and immediate rows for MDS-UPDRS III only; the
@@ -82,8 +85,10 @@ endpoint catalog represents the missing MDS-UPDRS IV immediate family explicitly
 without cross-scale substitution. The read-only catalog acceptance for the
 frozen clinical workbook is implemented and confirms 16 chronic subjects for
 both scales, 16 immediate pairs for MDS-UPDRS III, and no configured MDS-UPDRS
-IV immediate endpoint. The full two-scale model execution and report acceptance
-remain pending.
+IV immediate endpoint. The production profiles validate and plan 16 available
+endpoints and 136 tasks, split equally as 68 per scale. The complete numerical
+execution path is covered by the project-neutral synthetic report-through test;
+the real production two-scale model rerun remains intentionally unstarted.
 
 The first real report-through attempt, run
 `20260710T143933Z_6b8054589fd9e59b`, exposed an acceptance-only interface gap:
@@ -144,6 +149,40 @@ normative-fiber FDR/enrichment caches for the formal final targets, final
 reporting/readiness summaries, and shared resolver utilities. Optional
 observed-robustness-row FDR/enrichment display outputs remain deferred until
 those rows are explicitly promoted and their required caches exist.
+
+## 2026-07-15 Generic Core Acceptance
+
+The `dual_frequency_v1` implementation acceptance is complete:
+
+```text
+generic unittest suite: 397/397 passed
+direct application CLI tests: 4/4 passed
+project-neutral synthetic run: all tasks completed, exit code 0
+real-data III/IV read-only plan: 16 available endpoints, 136 tasks
+task equality: 68 tasks per selected scale
+bounded reviewed evidence: 32 tasks, 137 hash-valid files
+production coupling scan: zero hits
+real-subject hardcoding scan: zero hits
+```
+
+The synthetic run ID is `project-neutral-synthetic-e2e` and exists only inside
+its test temporary directory. It executes all four model families through
+report, gives sensitive connectomes no final, realizes at most one final model
+per eligible endpoint, and checks task, final-decision, report, artifact-index,
+resolved-configuration, and source-hash consistency. Its activation backend is
+deterministic and fake; it does not invoke OSS-DBS.
+
+The MDS-UPDRS III/IV check uses the real `study_base.json` and production
+profiles for read-only validation and planning only. These scale IDs are named
+acceptance inputs, not runtime defaults. Likewise, subject IDs discussed while
+verifying project data are not encoded in code, YAML, documentation rules, or
+test allowlists. A subject participates in reference or add-on modeling only
+when the configured endpoint data, frequency-derived sources, branch inputs,
+and minimum-subject rules make that row ready.
+
+Existing STNSNr output trees remain unchanged. No production observed, formal,
+sensitivity, jitter, OSS, or report task was run as part of this final
+implementation acceptance.
 
 ## Pause Checkpoint
 
@@ -1863,9 +1902,10 @@ The bounded-scheduler RED/GREEN tests verify a default peak of three active
 rows, deterministic row-index ordering despite out-of-order completion,
 preflight/activation bypass for an exact prior-run checkpoint, same-hash prior
 run discovery, and scientific-identity stability across scheduler-only changes.
-The focused OSS suite passes 33 tests and the complete configured-core suite
-passes 309 tests. Python compilation and `git diff --check` pass. Real
-clean-provenance checkpoint-import acceptance remains pending.
+The focused OSS suite passed 33 tests and the complete configured-core suite
+passed 309 tests. Python compilation and `git diff --check` passed. Real
+clean-provenance checkpoint-import acceptance was still pending at this
+historical checkpoint.
 
 The first real three-worker acceptance reached OSS and exposed one checkpoint
 import defect before any row completed: `configured_oss_row_v1` included

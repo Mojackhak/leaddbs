@@ -15,9 +15,9 @@
 > **Current branch.** `stnvop`
 > **Target schema.** `dual_frequency_v1`
 > **Status.** `design_approved`; `goal_review_passed`;
-> `implementation_in_progress`;
-> `predecessor_implementation_paused`; `partial_numeric_evidence_frozen`;
-> `legacy_runtime_still_active`.
+> `implementation_complete`; `generic_runtime_active`;
+> `predecessor_runtime_archived`; `bounded_numeric_evidence_verified`;
+> `production_outputs_unchanged`; `production_rerun_not_started`.
 > **Last updated.** 2026-07-15
 
 ---
@@ -47,12 +47,11 @@ the configured model profile: HF is `frequency_hz > 100`, ULF is
 `frequency_hz < 50`, and the inclusive interval `50..100` is unclassified.
 Target identity never changes the frequency class.
 
-The implemented `four_model_v1` catalog/DAG/executor is a predecessor
-foundation. It remains paused and its scientific services still use eight
-STNSNr-oriented bridge modules. The target implementation extracts reusable
-numerical backends, reads the existing canonical `study_base.json` directly,
-moves expensive artifacts into scientifically keyed caches, and removes all
-legacy runtime imports.
+The `four_model_v1` catalog/DAG/executor is retained as predecessor evidence in
+the project-level legacy namespace. The completed `dual_frequency_v1` runtime
+uses reusable numerical backends, reads canonical `study_base.json` directly,
+uses scientifically keyed caches, and imports no predecessor, migration,
+acceptance, or STNSNr analysis module.
 
 The predecessor real-data acceptance run did not finish. Numeric equivalence is
 therefore bounded to its terminal completed, hash-valid scientific artifacts.
@@ -284,10 +283,10 @@ reporting. A legitimate absence of a stable model is therefore not represented
 as a runtime exception, while formal and sensitivity work remains strictly
 gated on the one realized final model.
 
-Implementation order is fixed: complete generic formal/sensitivity backends,
-then add the explicit runtime input provider, service adapters, and typed record
-codec, and only then switch the production registry and attach post-executor
-report aggregation. An empty registry remains test injection only.
+Implementation followed this fixed order: generic formal/sensitivity backends,
+then the explicit runtime input provider, service adapters, and typed record
+codec, followed by the production registry switch and post-executor report
+aggregation. An empty registry remains test injection only.
 
 ## Canonical Study Base
 
@@ -1321,9 +1320,9 @@ IDs, masks, binary pPAM, branch roles, and selected fibers. Floating weights,
 scores, and predictions use `rtol=1e-8`, `atol=1e-10`; sampled continuous OSS
 probability uses `rtol=1e-6`, `atol=1e-8`.
 
-## Implementation Entry
+## Implementation Record
 
-The executable next-stage plan is:
+The completed implementation record is:
 
 ```text
 my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md
@@ -1334,9 +1333,9 @@ The predecessor
 the implemented foundation. It is not an instruction source for new runtime
 interfaces.
 
-Subagents are permitted for bounded, disjoint tasks. The main implementation
-thread owns dependency ordering, integration review, complete tests, acceptance,
-documentation-first updates, and final requirement audit.
+Subagents were permitted for bounded, disjoint tasks. The main implementation
+thread retained dependency ordering, integration review, complete tests,
+acceptance, documentation-first updates, and the final requirement audit.
 
 ## Historical Four-Model V1 Checkpoint
 
@@ -1344,8 +1343,8 @@ The predecessor state is retained only for provenance:
 
 ```text
 schema: four_model_v1
-package: my_helper/fiber/core/outcome_models
-entrypoint: my_helper/fiber/pipelines/run_configured_outcome_models.py
+archived package: my_helper/fiber/projects/stnsnr/legacy/outcome_models
+archived entrypoint: my_helper/fiber/projects/stnsnr/legacy/run_configured_outcome_models.py
 status: implementation_paused
 legacy bridge modules: 8
 configured acceptance run: partial
@@ -1365,6 +1364,31 @@ All detailed `four_model_v1` field names, HF/ULF branch records, prior CLI
 examples, and old run commands belong to Git history and the predecessor
 implementation notes. They are not duplicated as target requirements here.
 
+## Completion Evidence
+
+Implementation acceptance completed on 2026-07-15 without running production
+models or modifying existing output trees:
+
+- the complete generic suite passes 397/397 tests;
+- the project-neutral synthetic workflow executes all four model families
+  through report with the project namespace blocked and all tasks terminal;
+- MDS-UPDRS III and IV traverse the same read-only real-data catalog and DAG,
+  producing 16 available endpoints and 136 planned tasks, 68 per scale;
+- the reviewed bounded manifest contains 32 eligible tasks and 137 hash-valid
+  task/artifact files, with manifest SHA-256
+  `50c29f7fc95e94e49128be40a69a509e02bdfdb3db32174d913a90bebbfa5def`;
+- resolved configuration, all four source hashes, run manifest, final decisions,
+  task states, report, and artifact index agree in the synthetic acceptance;
+- the public CLI, compilation, diff validation, runtime import isolation, and
+  production hardcoding scans pass; and
+- no production source/profile contains the real subject IDs used during data
+  verification. Subject inclusion is derived only from configured endpoint data,
+  classified source availability, branch readiness, and minimum-subject rules.
+
+This completes the generic core implementation contract. It does not claim a
+new scientific result, a full expensive all-scale rerun, or migration of any
+existing STNSNr output.
+
 ## Deferred Work
 
 ```text
@@ -1381,16 +1405,17 @@ new estimators or revised classification rules
 
 ## Documentation Review Record
 
-Five documentation review passes completed on 2026-07-11:
+Five documentation review passes were repeated after implementation acceptance
+on 2026-07-15:
 
 | Pass | Result | Verified closure |
 |---|---|---|
-| 1. Target vs historical | PASS | `four_model_execution_plan.md` is historical only; this file is the sole current `/goal`; target implementation is in progress. |
+| 1. Target vs historical | PASS | `four_model_execution_plan.md` is historical only; this file is the sole current `/goal`; generic implementation is complete while production rerun remains deferred. |
 | 2. Scale equality and endpoint identity | PASS | No default/privileged scale; combined endpoints use explicit matched-reference bindings and may have different phase IDs. |
 | 3. Dependency and fallback | PASS | Reference dependency failure is distinct from ready input with no source; invalid DeltaReferenceScore still runs no-delta; fallback remains one-way. |
 | 4. Round, cache, activation, and interface | PASS | All nondeferred Rounds, including add-on direct Round 9, are mapped; sensitive connectomes cannot become final; generic runtime accepts structured inputs and has no project reverse dependency. |
 | 5. Numerical acceptance and wording | PASS | Frozen counts were verified; exact reviewed task allowlist is required; unfinished/failed/partial predecessor paths have no numerical parity requirement. |
 
-The linked implementation plan maps every target requirement to a task. This
-PASS record approves the documents for implementation; it does not claim that
-schemas, Python modules, CLI, tests, caches, or model outputs already exist.
+The linked implementation plan maps every target requirement to completed code
+and acceptance evidence. This PASS record confirms implementation completion;
+it does not claim that production model outputs were regenerated.

@@ -1073,6 +1073,12 @@ def _addon_exposure_sensitivity(request: TaskExecutionRequest) -> ServiceResult:
             branch=opposite,
             delta_reference=delta,
         )
+        nonfinal_request = replace(
+            nonfinal_request,
+            exposure=observed.exposure,
+            feature_axis=observed.feature_axis,
+            feature_ids=observed.feature_ids,
+        )
 
     baseline = _materialize(request, endpoint_input.baseline)
     outcome = _materialize(request, endpoint_input.outcome)
@@ -1090,9 +1096,21 @@ def _addon_exposure_sensitivity(request: TaskExecutionRequest) -> ServiceResult:
         space=None,
     )
     gain_request = replace(observed, outcome=gain_artifact, outcome_direction="higher")
-    # The strategy defines total exposure by disabling overlap-mask application
-    # while retaining the exact realized request identity.
-    total_request = observed
+    total_request = None
+    if prepared.total_exposure is not None:
+        selected_indices = _selected_feature_indices(request, final, prepared)
+        parent_total_exposure = np.asarray(
+            _materialize(request, prepared.total_exposure)
+        )
+        selected_total_exposure = publisher.array(
+            "selected_total_exposure.npy",
+            parent_total_exposure[:, selected_indices],
+            kind=prepared.total_exposure.kind,
+            axes=(prepared.subject_axis, final.valid_feature_axis.axis),
+            units=prepared.total_exposure.units,
+            space=prepared.total_exposure.space,
+        )
+        total_request = replace(observed, exposure=selected_total_exposure)
 
     support_input = None
     if delta is not None and delta.support_rows is not None:

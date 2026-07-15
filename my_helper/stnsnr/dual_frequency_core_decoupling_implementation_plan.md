@@ -233,7 +233,7 @@ argument parsing, output discovery, and project naming.
 - Produces: `convert_profiles(source_workflow: Path, mapping_path: Path, output_dir: Path) -> Path`
 - Constraint: tools are manually invoked and never imported by runtime code.
 
-- [ ] **Step 1: Document the frozen task/artifact eligibility rule**
+- [x] **Step 1: Document the frozen task/artifact eligibility rule**
 
 Add an implementation-note section naming the immutable run and stating:
 
@@ -248,7 +248,7 @@ excluded = task_id not in approved_task_allowlist
            or partial/failed/skipped/pending/unstarted tasks
 ```
 
-- [ ] **Step 2: Write failing fixture-manifest tests**
+- [x] **Step 2: Write failing fixture-manifest tests**
 
 Create a temporary run with two completed scientific tasks, one completed
 failure-report task, one failed task, and one missing artifact. Put only the
@@ -264,7 +264,7 @@ self.assertIn("task_completed_but_not_allowed", payload["excluded_tasks"])
 self.assertIn("task_missing", payload["excluded_tasks"])
 ```
 
-- [ ] **Step 3: Run the failing tests**
+- [x] **Step 3: Run the failing tests**
 
 Run:
 
@@ -276,7 +276,7 @@ conda run -n leaddbs env PYTHONPATH=my_helper/fiber \
 
 Expected: FAIL because the acceptance modules do not exist.
 
-- [ ] **Step 4: Implement deterministic manifest construction**
+- [x] **Step 4: Implement deterministic manifest construction**
 
 Read the static reviewed allowlist first, then `task_status.csv`; require the
 immutable run identity from `run_manifest.json`, load only allowlisted task
@@ -298,13 +298,13 @@ The result schema is:
 }
 ```
 
-- [ ] **Step 5: Add the read-only comparison helper**
+- [x] **Step 5: Add the read-only comparison helper**
 
 Implement exact comparisons for IDs/status/masks and `numpy.testing.assert_allclose`
 for configured floating arrays. Return a structured result; never modify either
 fixture.
 
-- [ ] **Step 6: Add old-YAML migration tests and implementation**
+- [x] **Step 6: Add old-YAML migration tests and implementation**
 
 The converter uses an explicit project migration mapping. Python does not
 hard-code predecessor period labels. Component roles, condition roles,
@@ -335,7 +335,7 @@ data and conversion-report evidence; target profiles contain no period field.
 It writes draft `dual_frequency_v1` files plus a conversion report. Unknown
 fields fail with `MigrationError`; the production loader is not imported.
 
-- [ ] **Step 7: Run focused tests and generate the frozen manifest**
+- [x] **Step 7: Run focused tests and generate the frozen manifest**
 
 Run the two test modules. Build and review
 `approved_task_allowlist.json` from the immutable execution plan using only the
@@ -352,7 +352,7 @@ Expected: only explicitly allowlisted, hash-valid completed scientific tasks are
 eligible; every other terminal task has an exclusion reason; no process matching
 `run_configured_outcome_models.py` starts.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add my_helper/fiber/projects my_helper/stnsnr/four_model_execution_implementation_notes.md
@@ -392,7 +392,7 @@ git commit -m "test: freeze bounded dual-frequency fixtures"
   `ReportingBackend` protocols. Sensitivity strategies expose only their own
   typed `run(...)` contracts; there is no generic `SensitivityBackend` alias.
 
-- [ ] **Step 1: Write failing schema tests**
+- [x] **Step 1: Write failing schema tests**
 
 Tests must accept generic roles and reject:
 
@@ -406,7 +406,7 @@ unknown scale fields
 missing --scale/all-available selection
 ```
 
-- [ ] **Step 2: Write failing immutable-record tests**
+- [x] **Step 2: Write failing immutable-record tests**
 
 Use this interface:
 
@@ -429,7 +429,7 @@ Also assert an array `ArtifactRef` is rejected unless it declares `kind`,
 version. Typed scientific requests must reject raw `Path` fields and accept only
 arrays or artifact references for scientific inputs.
 
-- [ ] **Step 3: Run tests and verify RED**
+- [x] **Step 3: Run tests and verify RED**
 
 ```bash
 conda run -n leaddbs env PYTHONPATH=my_helper/fiber/core \
@@ -440,7 +440,7 @@ conda run -n leaddbs env PYTHONPATH=my_helper/fiber/core \
 
 Expected: import failure for `dual_frequency`.
 
-- [ ] **Step 4: Implement strict typed contracts**
+- [x] **Step 4: Implement strict typed contracts**
 
 Use frozen dataclasses and canonical SHA-256 identities. Generic field names are
 mandatory:
@@ -486,7 +486,7 @@ contains a raw project path, legacy filename, or unresolved YAML field. Define
 backend protocols in the same task so planner, registry, and application code
 cannot invent looser callable signatures before scientific extraction.
 
-- [ ] **Step 5: Implement three JSON Schemas and loader**
+- [x] **Step 5: Implement three JSON Schemas and loader**
 
 All schemas use `additionalProperties: false`. Cross-profile validation checks
 scale order, endpoint pairs, frequency classes, connectome roles, minimum
@@ -498,12 +498,12 @@ direct_candidate_threshold_v_per_m = min(direct_voxel.source.scan.tau_v_per_m)
 
 Do not include the derived field in public serialized YAML.
 
-- [ ] **Step 6: Run focused and predecessor regression tests**
+- [x] **Step 6: Run focused and predecessor regression tests**
 
 Run new config/record tests and the predecessor config/identity/record tests.
 Expected: both suites pass; no predecessor file changes.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency
@@ -527,7 +527,7 @@ git commit -m "feat: define dual-frequency contracts"
 - Consumes the existing `dual_frequency_study_v1` JSON directly and never
   writes a transformed study artifact.
 
-- [ ] **Step 1: Write failing study-base loader tests**
+- [x] **Step 1: Write failing study-base loader tests**
 
 Create minimal generic JSON fixtures with two subjects and two scales. Test
 schema rejection, duplicate IDs, invalid directions, nonfinite observations,
@@ -535,7 +535,7 @@ invalid phase/program references, invalid source frequencies, and deterministic
 subject/scale order. Assert the loader records the source SHA-256 and returns
 immutable records without writing another file.
 
-- [ ] **Step 2: Write failing cross-profile validation tests**
+- [x] **Step 2: Write failing cross-profile validation tests**
 
 Assert direct-voxel and normative-fiber profiles have identical model-set ID,
 output root, scale order, endpoint pair, frequency classes, minimum subjects,
@@ -543,32 +543,32 @@ and DeltaReferenceScore support thresholds. Every configured scale must exist
 in the study base. Assert exactly one normative-fiber `formal` connectome and
 zero or more `sensitive` connectomes.
 
-- [ ] **Step 3: Run tests and verify RED**
+- [x] **Step 3: Run tests and verify RED**
 
 Run the study-base and config modules. Expected: missing generic study-base
 loader and workflow schema support.
 
-- [ ] **Step 4: Implement read-only loading and semantic validation**
+- [x] **Step 4: Implement read-only loading and semantic validation**
 
 Validate schema, uniqueness, foreign keys, finite values, explicit order,
 frequency-group closure, and scale directions. Load only the existing JSON;
 do not create Parquet, a bundle directory, a study index, or a resolved study
 manifest. The run manifest records the input path and SHA-256.
 
-- [ ] **Step 5: Finalize the three configured profiles**
+- [x] **Step 5: Finalize the three configured profiles**
 
 Preserve the approved direct-voxel and normative-fiber scientific values.
 Update `workflow.yaml` to reference those two profiles, expose no scale
 defaults, and define execution/failure policy only. Keep MDS-UPDRS III and IV
 as ordinary test selections in the test model profiles, not workflow defaults.
 
-- [ ] **Step 6: Run real read-only validation**
+- [x] **Step 6: Run real read-only validation**
 
 Validate `/Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json` and both
 production/test profile pairs without running a model or modifying source
 files. Verify 16 subjects, 28 scales, and the configured endpoint pair.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/contracts \
@@ -595,7 +595,7 @@ git commit -m "feat: load canonical dual-frequency study base"
   `matched_reference_endpoint_id`; every normative-fiber record contains a
   validated connectome role.
 
-- [ ] **Step 1: Write failing catalog tests**
+- [x] **Step 1: Write failing catalog tests**
 
 Cover all four model families, multiple connectome roles, multiple configured
 scales, minimum subjects, unavailable rows, and scale equality. Assert the
@@ -606,16 +606,16 @@ discovery or fan-out. Assert
 sensitive connectomes are `final_eligible = false` and the sole `formal`
 connectome is `final_eligible = true`.
 
-- [ ] **Step 2: Add the named III/IV structural fixture**
+- [x] **Step 2: Add the named III/IV structural fixture**
 
 Assert MDS-UPDRS III and IV are both executable through the same configured
 endpoint-pair factory, with no scale-name conditional in the builder.
 
-- [ ] **Step 3: Run tests and verify RED**
+- [x] **Step 3: Run tests and verify RED**
 
 Expected: missing catalog module.
 
-- [ ] **Step 4: Implement study-base-driven catalog construction**
+- [x] **Step 4: Implement study-base-driven catalog construction**
 
 The builder filters canonical clinical rows by stable endpoint binding and
 intersects explicit subject IDs. Combined dependencies resolve only through
@@ -629,12 +629,12 @@ class CatalogStatus(str, Enum):
     INSUFFICIENT_SUBJECTS = "insufficient_subjects"
 ```
 
-- [ ] **Step 5: Run focused tests and identity regression**
+- [x] **Step 5: Run focused tests and identity regression**
 
 Expected: deterministic endpoint ordering and IDs under repeated builds;
 reordering equivalent study-base rows does not change endpoint IDs.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/catalog \
@@ -656,7 +656,7 @@ git commit -m "feat: build generic dual-frequency endpoint catalog"
 - Produces: `derive_branch_plan(reference: ReferenceDependencyRecord, delta_status: str) -> BranchPlan`
 - Produces: `realize_final(branch_plan: BranchPlan, branches: Mapping[str, BranchRecord]) -> FinalDecision`
 
-- [ ] **Step 1: Write the exhaustive failing truth-table tests**
+- [x] **Step 1: Write the exhaustive failing truth-table tests**
 
 Include:
 
@@ -677,11 +677,11 @@ intended technical failure + accepted alternate -> execution_failure
 accepted intended + alternate technical failure -> intended remains final
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Expected: missing state module.
 
-- [ ] **Step 3: Implement pure state transitions**
+- [x] **Step 3: Implement pure state transitions**
 
 Use no filesystem or NumPy dependency. `ReferenceDependencyRecord` separates
 `dependency_status` (`ready`, `not_configured`, `input_failure`,
@@ -709,12 +709,12 @@ if (
     return FinalDecision("no_delta_reference", "fallback_final", ...)
 ```
 
-- [ ] **Step 4: Run tests and mutation-style negative assertions**
+- [x] **Step 4: Run tests and mutation-style negative assertions**
 
 Temporarily assert that adjusted would become fallback after failed intended
 no-delta and confirm the assertion fails; restore the correct test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/workflow/state.py \
@@ -734,7 +734,7 @@ git commit -m "feat: add dual-frequency final-model state machine"
 - Produces: `compile_execution_plan(config, catalog) -> ExecutionPlan`
 - Consumes: endpoint catalog and connectome roles.
 
-- [ ] **Step 1: Write failing DAG tests**
+- [x] **Step 1: Write failing DAG tests**
 
 Assert:
 
@@ -754,11 +754,11 @@ Assert:
   assessment period requires another explicit endpoint-pair configuration;
 - every scale receives the same task factory.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Expected: missing planner module.
 
-- [ ] **Step 3: Implement typed tasks, gates, and topological ordering**
+- [x] **Step 3: Implement typed tasks, gates, and topological ordering**
 
 Use generic model families:
 
@@ -779,13 +779,13 @@ record and closes all add-on branches. Ready reference input with
 occurs before final realization so sensitive-connectome records cannot become
 finals.
 
-- [ ] **Step 4: Compare the scientific task inventory with the `/goal` matrix**
+- [x] **Step 4: Compare the scientific task inventory with the `/goal` matrix**
 
 Add a parameterized test asserting every non-deferred Round has at least one
 task stage and no optional future Round appears. Include add-on direct Round 9
 display/final-manifest generation explicitly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/workflow/planner.py \
@@ -812,31 +812,31 @@ git commit -m "feat: compile dual-frequency workflow DAG"
   `ArtifactStore`, `ServiceRegistry`, and
   `execute_plan(plan, context) -> RunResult`.
 
-- [ ] **Step 1: Write failing scientific-identity tests**
+- [x] **Step 1: Write failing scientific-identity tests**
 
 Assert scale, endpoint, run, workers, and retry changes do not alter an OSS row
 key, while geometry, stimulation, component, transform, connectome, backend, or
 scientific parameter changes do.
 
-- [ ] **Step 2: Write failing cache validation/reindex tests**
+- [x] **Step 2: Write failing cache validation/reindex tests**
 
 Exact IDs in different order may produce a view manifest after per-item hashes
 validate. Changed/duplicate/missing IDs raise `CacheIdentityMismatch`. Assert
 `ArtifactStore.materialize(ref)` validates hash, dtype, shape, axes, units, and
 space before returning an array; a bare path is rejected.
 
-- [ ] **Step 3: Write failing executor tests**
+- [x] **Step 3: Write failing executor tests**
 
 Cover resume identity, endpoint isolation, false gates, required artifacts,
 nonzero exit aggregation, and `ExpensiveProducerNotAuthorized` without invoking
 a producer.
 
-- [ ] **Step 4: Implement atomic content-addressed cache publication**
+- [x] **Step 4: Implement atomic content-addressed cache publication**
 
 Write to a temporary sibling, hash every file, then atomically publish. Cache
 manifests include scientific identity and exclude runtime scheduler identity.
 
-- [ ] **Step 5: Implement generic run store and executor**
+- [x] **Step 5: Implement generic run store and executor**
 
 Use the explicitly configured run root:
 
@@ -855,11 +855,11 @@ configuration hash from the resolved snapshot, not source file locations.
 Validate every completed service result against declared artifact kinds and
 keep all task outputs within run/cache roots.
 
-- [ ] **Step 6: Run focused and predecessor executor regressions**
+- [x] **Step 6: Run focused and predecessor executor regressions**
 
 Expected: generic tests pass; predecessor run store/executor tests still pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/cache \
@@ -887,7 +887,7 @@ git commit -m "feat: execute cached dual-frequency workflows"
   `--normative-fiber-model`, and `--workflow-profile`.
 - `status/artifacts` require exact `--run-root`; no `latest` discovery.
 
-- [ ] **Step 1: Write failing service/CLI tests**
+- [x] **Step 1: Write failing service/CLI tests**
 
 Test `--scale` repeatability, `--all-available` exclusivity, required selection,
 dependency-complete `--through`, exact resume, force lineage, and explicit
@@ -896,17 +896,17 @@ with `PYTHONPATH` removed and assert `--help` and explicit-profile `validate`
 import successfully. Assert every missing study/model/workflow flag fails and
 `status/artifacts` reject a nonexact or inferred run selector.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Expected: missing application package and entrypoint.
 
-- [ ] **Step 3: Implement WorkflowService**
+- [x] **Step 3: Implement WorkflowService**
 
 The service owns study-base/profile validation, catalog, planning, run-store
 creation, registry construction, execution, and artifact lookup. CLI performs
 argument parsing only.
 
-- [ ] **Step 4: Implement the thin entrypoint**
+- [x] **Step 4: Implement the thin entrypoint**
 
 ```python
 #!/usr/bin/env python3
@@ -929,13 +929,13 @@ if __name__ == "__main__":
 The bootstrap adds only the generic `core` directory. It must not add
 `projects/stnsnr`, migration, acceptance, or legacy paths.
 
-- [ ] **Step 5: Run CLI smoke with an in-memory deterministic registry**
+- [x] **Step 5: Run CLI smoke with an in-memory deterministic registry**
 
 Execute `validate`, `plan`, and `run --through report` on a synthetic study base.
 Run the public script directly with caller `PYTHONPATH` unset. Expected: generic
 reports, no project/legacy imports, and no expensive process.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/application \
@@ -2022,18 +2022,19 @@ git commit -m "feat: add reusable dual-frequency activation backend"
 **Interfaces:**
 - Produces generic endpoint/run reports and the production-only generic registry.
 
-**Clarification-gated boundary, 2026-07-15:**
+**Historical clarification gate, resolved 2026-07-15:**
 
-- The current executor request does not carry validated study/configuration/
-  catalog inputs, no production service-adapter layer exists, persisted
+- At that checkpoint, the executor request did not carry validated
+  study/configuration/catalog inputs, no production service-adapter layer
+  existed, persisted
   `ServiceResult` values do not restore typed scientific records, and Task 13
-  formal/sensitivity backends are not complete. Therefore a production default
-  registry cannot be switched by registering the current kernels directly.
+  formal/sensitivity backends were not complete. Therefore a production default
+  registry could not be switched by registering those kernels directly.
 - Endpoint/run report orchestration, a typed realized/fallback/no-final decision
   record, and the ordering of Task 13 versus the input-provider/service-adapter
   phase require explicit confirmation before implementation.
-- While those choices remain open, only architecture-independent prerequisites
-  may proceed: a pure artifact index over exact current-run `ArtifactRef` values,
+- While those choices were open, only architecture-independent prerequisites
+  could proceed: a pure artifact index over exact current-run `ArtifactRef` values,
   runtime import/dependency isolation tests, and read-only legacy move auditing.
   Do not implement an implicit input provider, retain an empty registry as a
   production default, move the predecessor package, or choose a report
@@ -2055,10 +2056,10 @@ git commit -m "feat: add reusable dual-frequency activation backend"
 - The seven focused artifact-index/isolation tests passed; the complete generic
   suite passed `214/214` in the `leaddbs` Conda environment. Python compilation
   for all five new modules and `git diff --check` also passed.
-- These prerequisites do not satisfy Steps 1, 3, or 4 below. Endpoint/run
+- At that checkpoint these prerequisites did not satisfy Steps 1, 3, or 4 below. Endpoint/run
   reporting, typed terminal decisions, input-provider/service adapters, record
-  restoration, and the production registry remain clarification-gated. The
-  predecessor package and entrypoint have not been moved.
+  restoration, and the production registry remained clarification-gated. The
+  predecessor package and entrypoint had not yet been moved.
 
 **Architecture decisions confirmed, 2026-07-15:**
 
@@ -2071,9 +2072,9 @@ git commit -m "feat: add reusable dual-frequency activation backend"
 - Implementation order is Task 13 formal/sensitivity backends, then the
   `RuntimeInputProvider`, service adapters, and typed codec, followed by the
   production registry switch and post-executor reporting integration.
-- These decisions release the architecture gate. They do not retroactively
+- These decisions released the architecture gate. They did not retroactively
   mark any Task 15 step complete; each implementation and acceptance gate below
-  remains required.
+  remained required until its own evidence was recorded.
 
 **Runtime and terminal contract confirmed for implementation:**
 
@@ -2491,7 +2492,7 @@ irrelevant to frequency classification and scientific cache identity.
 - This checkpoint did not run FEM, OSS-DBSv2 simulation, formal resampling, a
   production YAML workflow, or a scientific model rerun.
 
-- [ ] **Step 1: Write failing runtime-provider, codec, and generic-report tests**
+- [x] **Step 1: Write failing runtime-provider, codec, and generic-report tests**
 
 Reports must contain reference/add-on fields and reject HF/ULF compatibility
 aliases, filename discovery, and old summary roots. Sensitive connectomes emit
@@ -2504,7 +2505,7 @@ adapter tests must prove that endpoint subjects and binding identities come
 from the validated catalog/configuration and that scientific backends receive
 typed arrays/artifacts only.
 
-- [ ] **Step 2: Write failing runtime import-isolation test**
+- [x] **Step 2: Write failing runtime import-isolation test**
 
 Install an import blocker for names matching:
 
@@ -2529,7 +2530,7 @@ output filename templates. Also reject scientific backend public signatures
 whose annotated fields include raw `Path` rather than typed request/artifact
 contracts.
 
-- [ ] **Step 3: Implement runtime provider, service adapters, and typed codec**
+- [x] **Step 3: Implement runtime provider, service adapters, and typed codec**
 
 Thread one explicit provider through `ExecutionContext` and
 `TaskExecutionRequest`. Restore typed dependency records before adapter
@@ -2539,14 +2540,14 @@ the same codec contract during resume. The provider must publish
 validated binding/frequency/path rules above; no subject-specific exception is
 permitted.
 
-- [ ] **Step 4: Implement record-driven terminal aggregation and reporting**
+- [x] **Step 4: Implement record-driven terminal aggregation and reporting**
 
 Generate endpoint summary, artifact index, and run report only from exact
 current-run records/artifact references. Report failure, skip, fallback, and
 no-final states without fabricating numerical outputs. Emit exactly one
 `FinalDecisionRecord` for every requested endpoint before finalizing the run.
 
-- [ ] **Step 5: Build the generic default registry**
+- [x] **Step 5: Build the generic default registry**
 
 Register every generic backend explicitly. Remove dynamic import dispatch. An
 empty registry remains test injection only.
@@ -2595,7 +2596,7 @@ Completion evidence, 2026-07-15:
   subject allowlist. Subject inclusion remains data-, configuration-, and
   readiness-driven.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency \
@@ -2603,6 +2604,10 @@ git add my_helper/fiber/core/dual_frequency \
   my_helper/fiber/pipelines
 git commit -m "feat: switch to generic dual-frequency runtime"
 ```
+
+The archival-isolation checkpoint was committed as `71cfa52ec` with the more
+specific message `feat: isolate legacy outcome model runtime`. No remote push
+was performed.
 
 ---
 
@@ -2620,7 +2625,7 @@ git commit -m "feat: switch to generic dual-frequency runtime"
 **Interfaces:**
 - Produces final requirement-by-requirement evidence and completion status.
 
-- [ ] **Step 1: Add a project-neutral synthetic end-to-end test**
+- [x] **Step 1: Add a project-neutral synthetic end-to-end test**
 
 Use component/condition/connectome IDs that contain none of the forbidden
 project terms. Run all four families through report with deterministic arrays
@@ -2628,7 +2633,36 @@ and a fake activation backend while the entire `projects.stnsnr` namespace is
 blocked. Assert sensitive connectomes have no finals and each direct/formal
 endpoint has one final or closed state.
 
-- [ ] **Step 2: Add the named III/IV lightweight smoke**
+Synthetic RED evidence, 2026-07-15: the first complete executor pass exposed a
+generic add-on sensitivity adapter defect. The realized branch was correctly
+restricted to `final.valid_feature_axis`, but the independently constructed
+non-final comparison branch retained the full prepared feature axis. The
+strategy therefore rejected the comparison before fitting. The repair must
+reuse the realized branch's selected exposure/feature identity for the
+non-final branch while preserving that branch's own nuisance design. It must
+not rerun the source resolver, change branch role, or promote the non-final
+branch. Three additional RED outcomes were synthetic-fixture contract errors:
+jitter artifacts outside the configured output/cache roots and parent fiber IDs
+without `fiber_id` units. Those fixture errors are corrected only in the
+project-neutral test provider.
+
+The next RED pass exposed a second generic adapter defect in the same add-on
+sensitivity task: `total_exposure_request` reused the realized overlap-excluded
+exposure even though its declared analysis requires the raw add-on component.
+The repair selects `PreparedExposureRecord.total_exposure` on the already
+realized final feature indices, preserves the raw artifact kind/units/space,
+and changes no source or final identity. The synthetic parent fiber-ID fixture
+also follows the production provider contract by using no units metadata;
+`fiber_id` is an artifact kind/axis identity here, not a physical unit.
+
+GREEN evidence: the project-neutral workflow executes all four families through
+report in one temporary run with the project namespace blocked. It produces one
+terminal final decision per catalog endpoint, gives sensitive connectomes no
+final, makes exactly two fake activation calls for the two formal fiber finals,
+and completes with exit code zero. The test contains no real subject, phase, or
+program identifiers.
+
+- [x] **Step 2: Add the named III/IV lightweight smoke**
 
 Use the new STNSNr input/profile and existing exact caches. MDS-UPDRS III and
 IV traverse the same ordinary endpoint-pair catalog/DAG path.
@@ -2637,13 +2671,47 @@ misses. Start `WorkflowService` directly from the existing `study_base.json`
 while the project namespace is blocked, proving the runtime does not invoke the
 importer.
 
-- [ ] **Step 3: Run the bounded numerical fixture suite**
+GREEN evidence: the read-only smoke validates the current STNSNr
+`study_base.json`, MDS-UPDRS III/IV test profiles, ordinary catalog, complete
+report-through DAG, and endpoint readiness with project imports and expensive
+cache misses blocked. A separate public-CLI `validate`/`plan` audit using the
+production profiles reports 16 available endpoints and 136 tasks: each named
+scale receives the same 68-task distribution (`reference_voxel=9`,
+`reference_fiber=19`, `addon_voxel=12`, `addon_fiber=28`). The two named scales
+are acceptance inputs only; no subject ID is fixed or special-cased.
+
+- [x] **Step 3: Run the bounded numerical fixture suite**
 
 Compare only the manifest allowlist. Assert the test suite fails if any excluded
 task is added to numerical parity or if a missing fixture tries to start a
 producer.
 
-- [ ] **Step 4: Run the complete test matrix**
+Pre-implementation read-only audit, 2026-07-15: the frozen reviewed manifest
+contains 32 eligible tasks and 137 task/artifact files. Every file exists and
+matches its recorded SHA-256. The retained 12-test acceptance-tool suite also
+passes without starting a producer. This evidence does not complete Step 3
+until the generic goal-acceptance test enforces the same boundary.
+
+GREEN evidence: the new eight-test goal acceptance enforces exact allowlist
+membership, rejects excluded-task expansion, proves an unauthorized miss calls
+no producer, revalidates every task/artifact size and SHA-256, blocks project
+imports, and detects literal subject allowlists. The retained 12-test bounded
+tool suite also passes. No numerical parity scope was added.
+
+Final-matrix RED evidence, 2026-07-15: after adding the goal-level guard, the
+retained tool suite correctly rejected its module-level import of
+`projects.stnsnr.acceptance` from the generic test tree. Production runtime was
+already isolated, but the stricter retained-tool contract applies to every
+Python file under `fiber/core`, including tests. The repair invokes the
+read-only comparator in an isolated subprocess by explicit script path; no
+generic module imports or registers the project tool, and the comparator remains
+outside the runtime Python path.
+
+GREEN evidence: the isolated comparator path passes all eight goal-acceptance
+tests and all 12 retained-tool tests. The final complete generic rerun passes
+397/397 in 27.929 seconds.
+
+- [x] **Step 4: Run the complete test matrix**
 
 ```bash
 conda run -n leaddbs env PYTHONPATH=my_helper/fiber/core:my_helper/fiber \
@@ -2664,16 +2732,21 @@ Then run:
 env -u PYTHONPATH conda run -n leaddbs \
   python my_helper/fiber/pipelines/run_dual_frequency_models.py --help
 
-env -u PYTHONPATH conda run -n leaddbs \
-  python -m unittest \
-  my_helper.fiber.core.dual_frequency.tests.test_application_cli.DirectEntrypointTests -v
+env PYTHONPATH=my_helper/fiber/core:my_helper/fiber \
+  conda run -n leaddbs python -m unittest \
+  dual_frequency.tests.test_application_cli.ApplicationCliTest -v
 ```
 
 The second test creates temporary explicit study/model/workflow inputs and launches
 the public script's `validate` subcommand. Expected: all tests pass, direct CLI
 import succeeds, compile succeeds, and diff check is empty.
 
-- [ ] **Step 5: Run runtime isolation scans**
+GREEN evidence, 2026-07-15: the final complete generic suite passes 397/397 in
+27.929 seconds. The four direct application-CLI tests pass independently, the
+public script displays `validate/plan/run/status/artifacts` with caller
+`PYTHONPATH` unset, `compileall` succeeds, and `git diff --check` is empty.
+
+- [x] **Step 5: Run runtime isolation scans**
 
 ```bash
 rg -n "projects\\.stnsnr|my_helper\\.fiber\\.projects\\.stnsnr|legacy_|stnsnr_|run_stnsnr|frequency_1_reference|frequency_2_addon|/Volumes/VAL/STNSNr|/Users/mojackhu/Research/STNSNr|four_model_execution|\\bHF\\b|\\bULF\\b|\\bSTN\\b|\\bSNr\\b|\\bdTOR\\b" \
@@ -2687,7 +2760,14 @@ negative assertions or isolated predecessor-acceptance modules. Run
 `test_runtime_dependency_boundary.py` and the full import-blocked synthetic
 workflow in addition to this text scan; text scanning alone is not acceptance.
 
-- [ ] **Step 6: Audit artifacts and process state**
+GREEN evidence, 2026-07-15: the production-only text scan has zero hits. The
+runtime import-isolation test and complete project-namespace-blocked synthetic
+workflow pass. A separate scan for the three real subject IDs discussed during
+data verification also has zero production-code/profile hits. Those IDs remain
+data observations only; no real subject ID is an inclusion, exclusion, or test
+allowlist constant.
+
+- [x] **Step 6: Audit artifacts and process state**
 
 Confirm every smoke task has a terminal record, every realized final has at most
 one final ID, no sensitivity record has a final ID, `configuration_resolved.yaml`
@@ -2695,11 +2775,30 @@ and `configuration_sources.json` reproduce the configuration hash,
 report/index/manifests agree, old output trees are unchanged, and no Lead-DBS/
 OSS/model process remains active.
 
-- [ ] **Step 7: Update documentation status with exact evidence**
+GREEN evidence, 2026-07-15: the project-neutral temporary run records every
+task as `completed`, one terminal decision per endpoint, no final ID for any
+sensitive connectome, and exactly two activation calls for the two formal fiber
+finals. The test reloads the profiles, reproduces both configuration hashes,
+recomputes all four source-file SHA-256 values, and checks agreement among the
+run manifest, resolved configuration, task states, final decisions, report, and
+artifact index. The bounded fixture audit revalidates all 137 hashed files.
+Only temporary output roots were written; existing STNSNr outputs were not
+modified, and the final process scan found no model, OSS, or MATLAB task.
+
+- [x] **Step 7: Update documentation status with exact evidence**
 
 Mark tasks complete only with test counts, run IDs, fixture hashes, and artifact
 paths. Keep any nonpassing requirement open; do not use partial evidence to mark
 the `/goal` complete.
+
+The completion evidence is recorded in this implementation plan, the sole
+`/goal`, the approved design, and the implementation notes. The synthetic run
+ID is `project-neutral-synthetic-e2e` inside a disposable temporary root. The
+read-only real-data audit has configuration hash
+`6020d0ca803ed3bdba95792d4271901a11ecff047d25d41e24ccd53485ee8163`
+and plans 136 tasks across 16 available endpoints. The tracked bounded manifest
+SHA-256 remains
+`50c29f7fc95e94e49128be40a69a509e02bdfdb3db32174d913a90bebbfa5def`.
 
 - [ ] **Step 8: Commit final acceptance documentation**
 
@@ -2712,7 +2811,7 @@ git commit -m "docs: record dual-frequency core acceptance"
 
 ## Plan Self-Review Record
 
-Five plan review passes completed on 2026-07-11:
+Five plan review passes were repeated after final acceptance on 2026-07-15:
 
 | Pass | Result | Implementation mapping |
 |---|---|---|
@@ -2722,44 +2821,45 @@ Five plan review passes completed on 2026-07-11:
 | 4. Round/interface/provenance | PASS | Tasks 2, 6-8, and 13-16 cover every Round, typed requests/arrays/artifacts, project import isolation, standalone CLI, connectome roles, and resolved configuration artifacts. |
 | 5. Bounded acceptance | PASS | Task 1 requires an exact reviewed task allowlist; Tasks 9-14 use only applicable completed fixtures; Task 16 blocks expensive misses and parity expansion. |
 
-This record validates plan completeness only. All task checkboxes remain open
-until implementation evidence exists.
+This record validates both plan closure and its linked implementation evidence.
+Only the final documentation-commit checkbox remains open until that commit is
+created successfully.
 
 ---
 
 ## Final Acceptance Checklist
 
-- [ ] `dual_frequency_v1` is the only production schema.
-- [ ] `four_model_yaml_core_refactor_plan.md` is the sole current `/goal`; the
+- [x] `dual_frequency_v1` is the only production schema.
+- [x] `four_model_yaml_core_refactor_plan.md` is the sole current `/goal`; the
   predecessor execution plan is historical only.
-- [ ] Production starts directly from a validated `study_base.json` and creates
+- [x] Production starts directly from a validated `study_base.json` and creates
   no intermediate study bundle.
-- [ ] Generic runtime imports no `projects.stnsnr` module and scientific
+- [x] Generic runtime imports no `projects.stnsnr` module and scientific
   backends accept only typed requests, arrays, and artifact references.
-- [ ] All scales use identical task factories and status fields.
-- [ ] Combined endpoints use explicit matched-reference IDs; cross-phase binding
+- [x] All scales use identical task factories and status fields.
+- [x] Combined endpoints use explicit matched-reference IDs; cross-phase binding
   never depends on source-period equality.
-- [ ] Reference dependency failure is distinct from ready input with no stable
+- [x] Reference dependency failure is distinct from ready input with no stable
   source.
-- [ ] Four model families and all non-deferred Rounds are represented.
-- [ ] One-way fallback truth table passes exactly.
-- [ ] Generic runtime has no predecessor/migration/acceptance imports.
-- [ ] Connectome behavior is role-based.
-- [ ] Sensitive connectomes emit no final; exactly one `formal` connectome is
+- [x] Four model families and all non-deferred Rounds are represented.
+- [x] One-way fallback truth table passes exactly.
+- [x] Generic runtime has no predecessor/migration/acceptance imports.
+- [x] Connectome behavior is role-based.
+- [x] Sensitive connectomes emit no final; exactly one `formal` connectome is
   final-eligible.
-- [ ] Scientific caches exclude scale/run/scheduler identity.
-- [ ] OSS inherits the realized final model's exact `valid_feature_axis`, does
+- [x] Scientific caches exclude scale/run/scheduler identity.
+- [x] OSS inherits the realized final model's exact `valid_feature_axis`, does
   not rescan tau/Coverage, and does not add noncandidate fibers.
-- [ ] Formal/sensitivity/activation consume only one realized final.
-- [ ] Generic reports contain no HF/ULF compatibility aliases.
-- [ ] Bounded parity includes only exact IDs in the reviewed allowlist that are
+- [x] Formal/sensitivity/activation consume only one realized final.
+- [x] Generic reports contain no HF/ULF compatibility aliases.
+- [x] Bounded parity includes only exact IDs in the reviewed allowlist that are
   also frozen completed, hash-valid scientific tasks.
-- [ ] No unfinished predecessor task is assigned numerical parity.
-- [ ] No expensive producer starts during acceptance without authorization.
-- [ ] Old outputs and the paused run remain immutable.
-- [ ] Resolved study-base/model/workflow configuration and source hashes are
+- [x] No unfinished predecessor task is assigned numerical parity.
+- [x] No expensive producer starts during acceptance without authorization.
+- [x] Old outputs and the paused run remain immutable.
+- [x] Resolved study-base/model/workflow configuration and source hashes are
   persisted and reproduce the configuration hash.
-- [ ] Public CLI runs directly with caller `PYTHONPATH` unset and never discovers
+- [x] Public CLI runs directly with caller `PYTHONPATH` unset and never discovers
   a default profile, study input, run, or legacy output.
-- [ ] Synthetic, two-scale smoke, bounded parity, import isolation, compile, and
+- [x] Synthetic, two-scale smoke, bounded parity, import isolation, compile, and
   documentation checks all pass.
