@@ -1677,6 +1677,10 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   final peak-E-field score, and `passed_activation_model_dependent` for any
   other technically valid correlation. None of these statuses may alter the
   source, prediction, branch-role, endpoint, or final-model record.
+- The same task emits plain binary-activation count, sum, top-5% exposure, and
+  nuisance-adjusted in-sample comparisons for nuisance-only, plain-top-5,
+  OSS NetFiberScore, and their joint model. These are burden/placement QC only
+  and cannot be interpreted as a causal decomposition or classification gate.
 
 - [x] **Step 1: Write failing universe and identity tests**
 
