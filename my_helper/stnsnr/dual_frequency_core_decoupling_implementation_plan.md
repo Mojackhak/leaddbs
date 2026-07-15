@@ -945,6 +945,14 @@ git commit -m "feat: expose dual-frequency workflow service"
 
 ### Task 9: Extract Reference Direct-Voxel Backend
 
+**Current-phase execution boundary:** the production
+`config/four_model_v1/direct_voxel_model.yaml` may be parsed, validated, and
+planned, but it must not be executed in this task. Numerical verification is
+restricted to deterministic synthetic arrays and explicitly frozen, bounded
+reference-direct fixtures. The task must not launch production observed,
+formal, sensitivity, jitter, OSS, or reporting work and must not write beneath
+the production `output.root`.
+
 **Files:**
 - Modify: `my_helper/fiber/core/dual_frequency/backends/protocols.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/direct_voxel/kernel.py`
@@ -956,8 +964,37 @@ git commit -m "feat: expose dual-frequency workflow service"
 **Interfaces:**
 - Produces: `ReferenceDirectVoxelBackend.run(ObservedRequest) -> ObservedResult`
 - Produces pure LOOCV/grid/source functions with array inputs.
+- `ObservedRequest` explicitly carries the endpoint outcome direction and the
+  configured domain-appropriate hard-computability limits. Feature-count
+  limits are optional at the shared request-contract level because voxel and
+  fiber domains have different rules; the direct-voxel backend requires its
+  full-sample and fold feature limits explicitly. No backend may infer these
+  values from a scale name or replace YAML values with internal defaults.
+- `ObservedRequest` also carries the expected exposure units and coordinate
+  space. The reference direct-voxel backend requires continuous E-field
+  magnitude in `V/m`, requires the exact declared feature-axis identity and
+  coordinate space, and rejects any additional nuisance input: its only
+  nuisance covariate is the separately declared baseline vector.
 - Consumes scientific inputs only as request arrays or materialized
   `ArtifactRef` values through injected `ArtifactStore`; no path/glob argument.
+- The backend receives an injected `ArtifactPublisher` that has already been
+  scoped to the task output directory by the workflow service. Scientific
+  backend public signatures do not receive raw output paths, and no backend
+  discovers a project directory convention.
+- Every published array/document has a persistent immutable metadata sidecar.
+  Reuse requires byte identity and exact equality of kind, schema, ordered
+  axes, units, space, producer ID, and producer version. Publication uses an
+  atomic create-if-absent operation; a same-name collision, missing sidecar, or
+  metadata mismatch is an error even when payload bytes are identical.
+- The selected-source feature axis is the deterministic union of full-sample
+  valid features and every fold-specific valid feature. Full and fold weights
+  are projected onto that one axis with `NaN` where a feature is invalid for a
+  particular fit. This preserves complete fold operators without using the
+  full-sample outcome-derived validity mask to restrict any training fold.
+- Fallback distance is Manhattan distance in declared grid-index steps, not a
+  sum of values with incompatible tau and Coverage units. The complete order
+  is grid-step distance, adjacent passing support, fold feature minimum,
+  stricter Coverage, then higher tau.
 
 - [ ] **Step 1: Write failing synthetic kernel tests**
 
@@ -966,8 +1003,11 @@ rho report-only behavior, pre-specified acceptance, and scan fallback ordering.
 
 - [ ] **Step 2: Write failing bounded golden tests**
 
-Load only the completed MDS-UPDRS III reference-direct fixture. Assert exact
-identity/source/tau/Coverage/masks and allclose weights/scores/predictions.
+Load only the completed MDS-UPDRS III reference-direct task named in the frozen
+bounded-fixture manifest. Validate the exact task ID and every consumed
+artifact hash before reading it. Assert exact identity/source/tau/Coverage/
+masks and allclose weights/scores/predictions. Direct reads from mutable legacy
+summary paths do not count as bounded parity.
 
 - [ ] **Step 3: Run tests and verify RED**
 
@@ -979,12 +1019,22 @@ Move mathematics out of
 `stnsnr_hf_direct_voxel_posthoc_threshold_scan.py`; do not import that module.
 Inputs include arrays, subject order, grid, model direction, and random settings.
 Outputs are generic records and explicit artifacts.
+Grid-cell records enforce internal invariants: hard-computability status equals
+the conjunction of its declared hard checks, prediction status is applicable
+only after hard computability passes, and finite/nonconstant flags cannot
+contradict their underlying status fields.
 
 - [ ] **Step 5: Run focused, bounded parity, and predecessor selftests**
 
 No ULF or MDS-UPDRS IV numeric parity is required in this task.
 
-- [ ] **Step 6: Register the backend in the generic registry and commit**
+- [ ] **Step 6: Export the backend and commit**
+
+The backend is exported from the generic backend package in this task. Its DAG
+service adapter and production default-registry registration are completed in
+Task 15, after the input-readiness and exposure-preparation services can build
+an `ObservedRequest` entirely from typed dependency records. Do not register a
+partial service that discovers inputs or YAML paths by itself.
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/backends \

@@ -121,6 +121,23 @@ class SourceGrid:
 
 
 @dataclass(frozen=True)
+class HardComputabilityLimits:
+    """Configured observed-model computability limits."""
+
+    n_subjects_min: int
+    n_features_full_min: int | None
+    fold_n_features_min: int | None
+
+    def __post_init__(self) -> None:
+        if type(self.n_subjects_min) is not int or self.n_subjects_min < 1:
+            raise RequestError("n_subjects_min must be a positive integer")
+        for field in ("n_features_full_min", "fold_n_features_min"):
+            value = getattr(self, field)
+            if value is not None and (type(value) is not int or value < 1):
+                raise RequestError(f"{field} must be null or a positive integer")
+
+
+@dataclass(frozen=True)
 class ObservedRequest:
     """Observed LOOCV request for one endpoint and candidate branch."""
 
@@ -133,6 +150,10 @@ class ObservedRequest:
     subject_axis: AxisRef
     feature_axis: AxisRef
     source_grid: SourceGrid
+    exposure_units: str
+    exposure_space: str
+    outcome_direction: str
+    hard_computability: HardComputabilityLimits
 
     def __post_init__(self) -> None:
         if not isinstance(self.endpoint, EndpointKey):
@@ -147,7 +168,24 @@ class ObservedRequest:
             raise RequestError("subject_axis and feature_axis must be AxisRef values")
         if not isinstance(self.source_grid, SourceGrid):
             raise RequestError("source_grid must be a SourceGrid")
+        exposure_units = str(self.exposure_units).strip()
+        exposure_space = str(self.exposure_space).strip()
+        if not exposure_units or not exposure_space:
+            raise RequestError("exposure_units and exposure_space must be nonempty")
+        object.__setattr__(self, "exposure_units", exposure_units)
+        object.__setattr__(self, "exposure_space", exposure_space)
+        direction = str(self.outcome_direction).strip().lower()
+        if direction not in {"lower", "higher"}:
+            raise RequestError("outcome_direction must be 'lower' or 'higher'")
+        object.__setattr__(self, "outcome_direction", direction)
+        if not isinstance(self.hard_computability, HardComputabilityLimits):
+            raise RequestError("hard_computability must be HardComputabilityLimits")
         _validate_exposure(self.exposure, "exposure", self.subject_axis, self.feature_axis)
+        if isinstance(self.exposure, ArtifactRef):
+            if self.exposure.units != self.exposure_units:
+                raise RequestError("exposure artifact units do not match exposure_units")
+            if self.exposure.space != self.exposure_space:
+                raise RequestError("exposure artifact space does not match exposure_space")
         _validate_vector(self.outcome, "outcome", self.subject_axis)
         _validate_vector(self.baseline, "baseline", self.subject_axis)
         for index, value in enumerate(self.nuisance_inputs):

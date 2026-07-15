@@ -2,6 +2,7 @@
 
 from .protocols import (
     ActivationBackend,
+    ArtifactPublisher,
     FormalBackend,
     ObservedBackend,
     ReportingBackend,
@@ -10,6 +11,7 @@ from .protocols import (
 
 __all__ = [
     "ActivationBackend",
+    "ArtifactPublisher",
     "FormalBackend",
     "ObservedBackend",
     "ReportingBackend",

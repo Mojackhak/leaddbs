@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 from urllib.parse import unquote, urlsplit
 
 import numpy as np
@@ -34,6 +34,10 @@ class CacheCorruption(CacheIdentityMismatch):
 
 class ArtifactValidationError(CacheError):
     """Raised when an artifact is unsafe or violates expected array semantics."""
+
+
+class ArtifactPublicationError(CacheError):
+    """Raised when a run-scoped artifact cannot be published without overwrite."""
 
 
 def _token(value: str, field: str) -> str:
@@ -477,3 +481,263 @@ class ArtifactStore:
         except ValueError:
             return False
         return True
+
+
+@dataclass(frozen=True)
+class RunScopedArtifactPublisher:
+    """Publish immutable arrays and JSON documents beneath one exact task root."""
+
+    root: Path
+    producer_id: str
+    producer_version: str
+
+    def __post_init__(self) -> None:
+        root = Path(self.root).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        if not root.is_dir():
+            raise ArtifactPublicationError(f"artifact root is not a directory: {root}")
+        object.__setattr__(self, "root", root)
+        object.__setattr__(self, "producer_id", _token(self.producer_id, "producer_id"))
+        object.__setattr__(
+            self,
+            "producer_version",
+            _token(self.producer_version, "producer_version"),
+        )
+
+    def array(
+        self,
+        filename: str,
+        value: np.ndarray,
+        *,
+        kind: str,
+        axes: tuple[AxisRef, ...],
+        units: str | None,
+        space: str | None,
+    ) -> ArtifactRef:
+        array = np.asarray(value)
+        kind = self._publication_token(kind, "kind")
+        units = self._optional_publication_token(units, "units")
+        space = self._optional_publication_token(space, "space")
+        if (
+            array.dtype == object
+            or not array.shape
+            or any(dimension < 1 for dimension in array.shape)
+        ):
+            raise ArtifactPublicationError(
+                "published arrays must be nonempty and non-object"
+            )
+        if tuple(axis.count for axis in axes) != array.shape:
+            raise ArtifactPublicationError(
+                "published array shape does not match its axes"
+            )
+        target = self._target(filename, ".npy")
+        temporary = self._temporary(target)
+        try:
+            with temporary.open("wb") as stream:
+                np.save(stream, array, allow_pickle=False)
+            payload_hash = sha256_file(temporary)
+            metadata = self._metadata_payload(
+                target=target,
+                payload_sha256=payload_hash,
+                kind=kind,
+                schema_version="dual_frequency_array_v1",
+                dtype=np.dtype(array.dtype).name,
+                shape=tuple(int(dimension) for dimension in array.shape),
+                axes=axes,
+                units=units,
+                space=space,
+            )
+            self._publish_with_metadata(temporary, target, metadata)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return ArtifactRef(
+            kind=kind,
+            schema_version="dual_frequency_array_v1",
+            uri=target.as_uri(),
+            sha256=payload_hash,
+            dtype=np.dtype(array.dtype).name,
+            shape=tuple(int(dimension) for dimension in array.shape),
+            axis_refs=axes,
+            axis_hashes=tuple(axis.sha256 for axis in axes),
+            units=units,
+            space=space,
+            producer_id=self.producer_id,
+            producer_version=self.producer_version,
+        )
+
+    def document(
+        self,
+        filename: str,
+        payload: dict[str, Any],
+        *,
+        kind: str,
+    ) -> ArtifactRef:
+        kind = self._publication_token(kind, "kind")
+        target = self._target(filename, ".json")
+        temporary = self._temporary(target)
+        try:
+            temporary.write_text(
+                json.dumps(
+                    payload,
+                    sort_keys=True,
+                    indent=2,
+                    ensure_ascii=True,
+                    allow_nan=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            payload_hash = sha256_file(temporary)
+            metadata = self._metadata_payload(
+                target=target,
+                payload_sha256=payload_hash,
+                kind=kind,
+                schema_version="dual_frequency_document_v1",
+                dtype=None,
+                shape=None,
+                axes=(),
+                units=None,
+                space=None,
+            )
+            self._publish_with_metadata(temporary, target, metadata)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return ArtifactRef(
+            kind=kind,
+            schema_version="dual_frequency_document_v1",
+            uri=target.as_uri(),
+            sha256=payload_hash,
+            dtype=None,
+            shape=None,
+            axis_refs=(),
+            axis_hashes=(),
+            units=None,
+            space=None,
+            producer_id=self.producer_id,
+            producer_version=self.producer_version,
+        )
+
+    def _target(self, filename: str, suffix: str) -> Path:
+        if Path(filename).name != filename or not filename.endswith(suffix):
+            raise ArtifactPublicationError(f"unsafe artifact filename: {filename!r}")
+        return self.root / filename
+
+    def _temporary(self, target: Path) -> Path:
+        descriptor, path = tempfile.mkstemp(prefix=f".{target.name}.", dir=self.root)
+        os.close(descriptor)
+        return Path(path)
+
+    @staticmethod
+    def _publication_token(value: str, field: str) -> str:
+        token = str(value).strip()
+        if not token:
+            raise ArtifactPublicationError(f"{field} must be nonempty")
+        return token
+
+    @classmethod
+    def _optional_publication_token(
+        cls,
+        value: str | None,
+        field: str,
+    ) -> str | None:
+        return None if value is None else cls._publication_token(value, field)
+
+    def _metadata_payload(
+        self,
+        *,
+        target: Path,
+        payload_sha256: str,
+        kind: str,
+        schema_version: str,
+        dtype: str | None,
+        shape: tuple[int, ...] | None,
+        axes: tuple[AxisRef, ...],
+        units: str | None,
+        space: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "dual_frequency_artifact_metadata_v1",
+            "filename": target.name,
+            "payload_sha256": payload_sha256,
+            "artifact": {
+                "kind": str(kind),
+                "schema_version": schema_version,
+                "dtype": dtype,
+                "shape": list(shape) if shape is not None else None,
+                "axes": [
+                    {
+                        "axis_id": axis.axis_id,
+                        "count": axis.count,
+                        "sha256": axis.sha256,
+                    }
+                    for axis in axes
+                ],
+                "units": units,
+                "space": space,
+                "producer_id": self.producer_id,
+                "producer_version": self.producer_version,
+            },
+        }
+
+    def _publish_with_metadata(
+        self,
+        temporary: Path,
+        target: Path,
+        metadata: dict[str, Any],
+    ) -> None:
+        expected_payload_hash = str(metadata["payload_sha256"])
+        metadata_target = target.with_name(f"{target.name}.artifact.json")
+        payload_created = self._install_or_validate(
+            temporary,
+            target,
+            expected_payload_hash,
+        )
+        if not payload_created and not os.path.lexists(metadata_target):
+            raise ArtifactPublicationError(
+                f"existing artifact is missing its metadata sidecar: {target}"
+            )
+        metadata_temporary = self._temporary(metadata_target)
+        try:
+            metadata_temporary.write_text(
+                json.dumps(
+                    metadata,
+                    sort_keys=True,
+                    indent=2,
+                    ensure_ascii=True,
+                    allow_nan=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self._install_or_validate(
+                metadata_temporary,
+                metadata_target,
+                sha256_file(metadata_temporary),
+            )
+        finally:
+            metadata_temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _install_or_validate(
+        temporary: Path,
+        target: Path,
+        expected_hash: str,
+    ) -> bool:
+        try:
+            os.link(temporary, target)
+            return True
+        except FileExistsError:
+            pass
+        except OSError as exc:
+            raise ArtifactPublicationError(
+                f"cannot publish artifact with create-only semantics: {target}"
+            ) from exc
+        if (
+            target.is_symlink()
+            or not target.is_file()
+            or sha256_file(target) != expected_hash
+        ):
+            raise ArtifactPublicationError(
+                f"refusing to overwrite a different artifact: {target}"
+            )
+        return False

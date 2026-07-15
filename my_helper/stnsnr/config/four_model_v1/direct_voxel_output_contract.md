@@ -341,7 +341,7 @@ scores, predictions, or weight arrays.
 
 ## Selected-Source Array Contract
 
-For `n` subjects and `v` valid selected-source voxels:
+For `n` subjects and `v` voxels in the selected-source feature union:
 
 ```text
 subject_order.csv          rows = n; columns = fold_index, subject_id
@@ -351,10 +351,14 @@ fold_weights.npy           dtype = float32; shape = [n, v]
 ```
 
 Voxel IDs are zero-based NumPy C-order flat indices into the configured
-right-canonical NIfTI grid. Every weight-array column uses exactly this order.
-Row `h` of `fold_weights.npy` is estimated without subject `h`. No full-sample
-weight, sign, support, or ranking may replace a fold-specific value. A voxel
-outside fold `h` support is `NaN` in row `h`, not zero.
+right-canonical NIfTI grid. The feature union is the deterministic sorted union
+of full-sample valid voxels and all fold-specific valid voxels. Every
+weight-array column uses exactly this order. `full_weights.npy` is `NaN` for a
+union voxel without a valid full-sample weight. Row `h` of `fold_weights.npy`
+is estimated without subject `h` and is `NaN` for a union voxel invalid in that
+fold. No full-sample weight, sign, support, or ranking may restrict or replace a
+fold-specific value. This union representation therefore preserves the exact
+leakage-safe fold operators while exposing one realized feature axis.
 
 ## Selected-Source NIfTI Contract
 
@@ -790,6 +794,15 @@ The model-set directory is immutable with respect to scientific identity.
 - Changing only `output.root` does not change scientific identity.
 - Existing files are never silently overwritten by a different artifact.
 - File existence alone is never sufficient for resume or reuse.
+- Each array or JSON document has an immutable adjacent metadata sidecar. The
+  sidecar binds payload SHA-256, artifact kind and schema, ordered axis hashes,
+  units, space, producer ID, and producer version.
+- Same-byte reuse is allowed only when the metadata sidecar is present and
+  exactly matches the requested artifact semantics. A missing sidecar or any
+  metadata difference is a collision error.
+- Payload and metadata publication use atomic create-if-absent operations; a
+  concurrent writer cannot replace an artifact that appeared after the initial
+  existence check.
 
 Changing endpoint bindings or scientific model parameters requires a new
 `model_set_id` or explicit archival of the old model-set directory outside this

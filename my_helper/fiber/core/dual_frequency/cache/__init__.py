@@ -2,6 +2,7 @@
 
 from .identity import CacheIdentityError, ScientificCacheKey, sha256_file
 from .store import (
+    ArtifactPublicationError,
     ArtifactStore,
     ArtifactValidationError,
     CacheCorruption,
@@ -12,9 +13,11 @@ from .store import (
     CachedFile,
     ContentAddressedCache,
     ReindexedView,
+    RunScopedArtifactPublisher,
 )
 
 __all__ = [
+    "ArtifactPublicationError",
     "ArtifactStore",
     "ArtifactValidationError",
     "CacheCorruption",
@@ -26,6 +29,7 @@ __all__ = [
     "CachedFile",
     "ContentAddressedCache",
     "ReindexedView",
+    "RunScopedArtifactPublisher",
     "ScientificCacheKey",
     "sha256_file",
 ]

@@ -19,6 +19,7 @@ from dual_frequency.contracts import (
     FinalModelKey,
     FinalModelRecord,
     FormalRequest,
+    HardComputabilityLimits,
     ObservedRequest,
     RecordError,
     RequestError,
@@ -28,6 +29,13 @@ from dual_frequency.contracts import (
 
 
 class RecordTest(unittest.TestCase):
+    def test_hard_computability_limits_allow_domain_specific_feature_rules(self) -> None:
+        limits = HardComputabilityLimits(12, None, None)
+        self.assertIsNone(limits.n_features_full_min)
+        self.assertIsNone(limits.fold_n_features_min)
+        with self.assertRaises(RequestError):
+            HardComputabilityLimits(12, 0, None)
+
     @staticmethod
     def _feature_artifact(axis: AxisRef) -> ArtifactRef:
         return ArtifactRef(
@@ -148,6 +156,7 @@ class RecordTest(unittest.TestCase):
         subject_axis = AxisRef("subjects", 2, "a" * 64)
         feature_axis = AxisRef("voxels", 3, "b" * 64)
         grid = SourceGrid(200, 5, (180, 200, 220), (5, 6), 2)
+        limits = HardComputabilityLimits(12, 20, 10)
         with self.assertRaises(RequestError):
             ObservedRequest(
                 endpoint=endpoint,
@@ -159,6 +168,10 @@ class RecordTest(unittest.TestCase):
                 subject_axis=subject_axis,
                 feature_axis=feature_axis,
                 source_grid=grid,
+                exposure_units="V/m",
+                exposure_space="MNI152NLin2009bAsym",
+                outcome_direction="lower",
+                hard_computability=limits,
             )
         request = ObservedRequest(
             endpoint=endpoint,
@@ -170,6 +183,10 @@ class RecordTest(unittest.TestCase):
             subject_axis=subject_axis,
             feature_axis=feature_axis,
             source_grid=grid,
+            exposure_units="V/m",
+            exposure_space="MNI152NLin2009bAsym",
+            outcome_direction="lower",
+            hard_computability=limits,
         )
         self.assertEqual(request.exposure.shape, (2, 3))
 
@@ -179,17 +196,63 @@ class RecordTest(unittest.TestCase):
         other_subjects = AxisRef("other_subjects", 2, "c" * 64)
         features = AxisRef("voxels", 3, "b" * 64)
         grid = SourceGrid(200, 5, (180, 200, 220), (5, 6), 2)
+        limits = HardComputabilityLimits(12, 20, 10)
         with self.assertRaisesRegex(RequestError, "artifact axes"):
             ObservedRequest(
                 endpoint=endpoint,
                 branch="reference",
-                exposure=self._array_artifact("exposure", (other_subjects, features)),
+                exposure=self._array_artifact(
+                    "exposure",
+                    (other_subjects, features),
+                    units="V/m",
+                ),
                 outcome=self._array_artifact("outcome", (subjects,)),
                 baseline=self._array_artifact("baseline", (subjects,)),
                 nuisance_inputs=(),
                 subject_axis=subjects,
                 feature_axis=features,
                 source_grid=grid,
+                exposure_units="V/m",
+                exposure_space="synthetic",
+                outcome_direction="lower",
+                hard_computability=limits,
+            )
+
+    def test_observed_request_binds_exposure_units_and_space(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        subjects = AxisRef("subjects", 2, "a" * 64)
+        features = AxisRef("voxels", 3, "b" * 64)
+        grid = SourceGrid(200, 5, (180, 200, 220), (5, 6), 2)
+        limits = HardComputabilityLimits(12, 20, 10)
+        exposure = self._array_artifact(
+            "exposure",
+            (subjects, features),
+            units="V/m",
+        )
+        common = {
+            "endpoint": endpoint,
+            "branch": "reference",
+            "outcome": self._array_artifact("outcome", (subjects,)),
+            "baseline": self._array_artifact("baseline", (subjects,)),
+            "nuisance_inputs": (),
+            "subject_axis": subjects,
+            "feature_axis": features,
+            "source_grid": grid,
+            "exposure_units": "V/m",
+            "exposure_space": "synthetic",
+            "outcome_direction": "lower",
+            "hard_computability": limits,
+        }
+        ObservedRequest(exposure=exposure, **common)
+        with self.assertRaisesRegex(RequestError, "units"):
+            ObservedRequest(
+                exposure=dataclasses.replace(exposure, units="V/mm"),
+                **common,
+            )
+        with self.assertRaisesRegex(RequestError, "space"):
+            ObservedRequest(
+                exposure=dataclasses.replace(exposure, space="other_space"),
+                **common,
             )
 
     def test_final_record_supports_reference_source_and_addon_branch(self) -> None:

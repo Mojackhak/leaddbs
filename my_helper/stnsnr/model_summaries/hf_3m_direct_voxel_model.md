@@ -305,7 +305,7 @@ hf_voxel_source_status = absent_no_stable_grid
 For `scan_fallback_accepted`, choose the fallback grid without using outcome-performance metrics:
 
 ```text
-1. minimize grid distance from tau200/Coverage>=5
+1. minimize Manhattan distance in declared tau/Coverage grid-index steps from tau200/Coverage>=5
 2. maximize adjacent passing grid cells
 3. maximize fold_n_voxels_min
 4. prefer stricter Coverage
@@ -313,6 +313,8 @@ For `scan_fallback_accepted`, choose the fallback grid without using outcome-per
 ```
 
 Adjacent grid cells are defined on the declared tau/Coverage grid; horizontal, vertical, and diagonal one-step neighbors all count.
+Tau and Coverage have different physical units, so fallback distance must not
+be calculated by directly adding their numeric value differences.
 
 Define the HF voxel prediction status only after a source exists:
 

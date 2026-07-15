@@ -12,6 +12,7 @@ from unittest import mock
 import numpy as np
 
 from dual_frequency.cache import (
+    ArtifactPublicationError,
     ArtifactStore,
     ArtifactValidationError,
     CacheCorruption,
@@ -19,6 +20,7 @@ from dual_frequency.cache import (
     CacheIdentityMismatch,
     CacheItem,
     ContentAddressedCache,
+    RunScopedArtifactPublisher,
     ScientificCacheKey,
     sha256_file,
 )
@@ -217,6 +219,103 @@ class ContentAddressedCacheTest(unittest.TestCase):
                 {"artifact.bin": source},
                 items=(CacheItem("same", "a" * 64), CacheItem("same", "a" * 64)),
             )
+
+
+class RunScopedArtifactPublisherTest(unittest.TestCase):
+    def test_exact_reuse_and_symlink_targets_are_handled_safely(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            publisher = RunScopedArtifactPublisher(root / "output", "test", "1")
+            axis = AxisRef("items", 2, "a" * 64)
+            array = np.array([1.0, 2.0])
+            first = publisher.array(
+                "values.npy",
+                array,
+                kind="values",
+                axes=(axis,),
+                units=None,
+                space=None,
+            )
+            second = publisher.array(
+                "values.npy",
+                array.copy(),
+                kind="values",
+                axes=(axis,),
+                units=None,
+                space=None,
+            )
+            self.assertEqual(first.sha256, second.sha256)
+            metadata_path = publisher.root / "values.npy.artifact.json"
+            self.assertTrue(metadata_path.is_file())
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(metadata["payload_sha256"], first.sha256)
+            self.assertEqual(metadata["artifact"]["axes"][0]["sha256"], axis.sha256)
+
+            semantic_changes = (
+                {
+                    "kind": "different_semantics",
+                    "axes": (axis,),
+                    "units": None,
+                    "space": None,
+                },
+                {
+                    "kind": "values",
+                    "axes": (AxisRef("other_items", 2, "b" * 64),),
+                    "units": None,
+                    "space": None,
+                },
+                {
+                    "kind": "values",
+                    "axes": (axis,),
+                    "units": "score",
+                    "space": None,
+                },
+            )
+            for changes in semantic_changes:
+                with self.subTest(changes=changes), self.assertRaisesRegex(
+                    ArtifactPublicationError,
+                    "overwrite",
+                ):
+                    publisher.array("values.npy", array, **changes)
+
+            outside = root / "outside.npy"
+            np.save(outside, array, allow_pickle=False)
+            target = publisher.root / "linked.npy"
+            target.symlink_to(outside)
+            with self.assertRaisesRegex(ArtifactPublicationError, "overwrite"):
+                publisher.array(
+                    "linked.npy",
+                    array,
+                    kind="values",
+                    axes=(axis,),
+                    units=None,
+                    space=None,
+                )
+            np.testing.assert_array_equal(np.load(outside), array)
+
+    def test_existing_payload_without_metadata_is_not_adopted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            publisher = RunScopedArtifactPublisher(Path(temporary), "test", "1")
+            axis = AxisRef("items", 2, "a" * 64)
+            array = np.array([1.0, 2.0])
+            publisher.array(
+                "values.npy",
+                array,
+                kind="values",
+                axes=(axis,),
+                units="score",
+                space="synthetic",
+            )
+            (publisher.root / "values.npy.artifact.json").unlink()
+            with self.assertRaisesRegex(ArtifactPublicationError, "missing.*sidecar"):
+                publisher.array(
+                    "values.npy",
+                    array,
+                    kind="values",
+                    axes=(axis,),
+                    units="score",
+                    space="synthetic",
+                )
 
 
 class ArtifactStoreTest(unittest.TestCase):

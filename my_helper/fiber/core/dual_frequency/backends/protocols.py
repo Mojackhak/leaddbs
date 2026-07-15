@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol, runtime_checkable
 
-from ..contracts.records import ArtifactRef, FinalModelRecord
+import numpy as np
+
+from ..contracts.records import ArtifactRef, AxisRef, FinalModelRecord
 from ..contracts.requests import (
     ActivationArtifact,
     ActivationRequest,
@@ -17,8 +19,32 @@ from ..contracts.requests import (
 )
 
 
+@runtime_checkable
+class ArtifactPublisher(Protocol):
+    """Publish immutable run-scoped artifacts without exposing paths to backends."""
+
+    def array(
+        self,
+        filename: str,
+        value: np.ndarray,
+        *,
+        kind: str,
+        axes: tuple[AxisRef, ...],
+        units: str | None,
+        space: str | None,
+    ) -> ArtifactRef: ...
+
+    def document(
+        self,
+        filename: str,
+        payload: dict[str, Any],
+        *,
+        kind: str,
+    ) -> ArtifactRef: ...
+
+
 class ObservedBackend(Protocol):
-    def run_observed(self, request: ObservedRequest) -> ObservedResult: ...
+    def run(self, request: ObservedRequest) -> ObservedResult: ...
 
 
 class FormalBackend(Protocol):
