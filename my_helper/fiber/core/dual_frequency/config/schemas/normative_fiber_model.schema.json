@@ -116,20 +116,20 @@
         "permutation_resamples"
       ],
       "properties": {
-        "model": {"type": "string", "minLength": 1},
-        "activation_model": {"type": "string", "minLength": 1},
+        "model": {"const": "OSS-DBSv2"},
+        "activation_model": {"const": "pPAM"},
         "fiber_diameter_um": {
           "type": "object",
           "additionalProperties": false,
           "required": ["minimum", "maximum", "samples", "sampling"],
           "properties": {
-            "minimum": {"type": "number", "exclusiveMinimum": 0},
-            "maximum": {"type": "number", "exclusiveMinimum": 0},
-            "samples": {"type": "integer", "minimum": 1},
+            "minimum": {"const": 1.0},
+            "maximum": {"const": 4.0},
+            "samples": {"const": 10},
             "sampling": {"const": "equidistant"}
           }
         },
-        "fitting_probability_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "fitting_probability_threshold": {"const": 0.5},
         "permutation_resamples": {"type": "integer", "minimum": 1}
       }
     },

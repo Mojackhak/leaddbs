@@ -49,6 +49,13 @@ class TaskSpec:
     gates: tuple[GateRequirement, ...]
     output_record_type: str
     expensive_producer: bool = False
+    cache_first_expensive: bool = False
+
+    def __post_init__(self) -> None:
+        if self.cache_first_expensive and not self.expensive_producer:
+            raise PlanningError(
+                "cache_first_expensive requires expensive_producer=True"
+            )
 
     @property
     def task_id(self) -> str:
@@ -105,6 +112,7 @@ class _TaskFactory:
         output_record_type: str,
         branch: str = "none",
         expensive_producer: bool = False,
+        cache_first_expensive: bool = False,
     ) -> str | None:
         if not self.includes(phase):
             return None
@@ -132,6 +140,7 @@ class _TaskFactory:
             gates=gates,
             output_record_type=output_record_type,
             expensive_producer=expensive_producer,
+            cache_first_expensive=cache_first_expensive,
         )
         self.tasks.append(task)
         self.stage_ids[(endpoint.endpoint_id, stage)] = task.task_id
@@ -389,10 +398,11 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         round_id="round_7",
         phase="sensitivity",
         service_id="run_reference_fiber_activation",
-        dependencies=(formal_permutation, formal_bootstrap),
+        dependencies=(final, formal_permutation, formal_bootstrap),
         gates=(FINAL_REALIZED, FORMAL_COMPLETE),
         output_record_type="ActivationArtifact",
         expensive_producer=True,
+        cache_first_expensive=True,
     )
     factory.add(
         endpoint,
@@ -738,10 +748,11 @@ def _plan_addon_fiber_formal(
         round_id="round_8",
         phase="sensitivity",
         service_id="run_addon_fiber_activation",
-        dependencies=(formal_permutation, formal_bootstrap),
+        dependencies=(final, formal_permutation, formal_bootstrap),
         gates=(FINAL_REALIZED, FORMAL_COMPLETE),
         output_record_type="ActivationArtifact",
         expensive_producer=True,
+        cache_first_expensive=True,
     )
     factory.add(
         endpoint,

@@ -35,6 +35,7 @@ def _task(
     gates: tuple[GateRequirement, ...] = (),
     output_record_type: str = "EndpointInputRecord",
     expensive: bool = False,
+    cache_first_expensive: bool = False,
 ) -> TaskSpec:
     key = TaskKey(endpoint.identifier, stage, parameter_identity=SCIENTIFIC_HASH)
     return TaskSpec(
@@ -50,6 +51,7 @@ def _task(
         gates=gates,
         output_record_type=output_record_type,
         expensive_producer=expensive,
+        cache_first_expensive=cache_first_expensive,
     )
 
 
@@ -191,6 +193,64 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(result.exit_code, 1)
         self.assertIn("ExpensiveProducerNotAuthorized", result.outcomes[0].reason)
+
+    def test_cache_first_expensive_task_can_probe_cache_without_authorization(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal-connectome",
+        )
+        task = _task(
+            endpoint,
+            "activation",
+            "cache_first",
+            expensive=True,
+            cache_first_expensive=True,
+        )
+        plan = self._plan((task,))
+        calls: list[tuple[bool, int]] = []
+
+        def cache_first(request):
+            calls.append((request.allow_expensive_producers, request.workers))
+            return _result(request)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            store = self._store(Path(temporary_directory) / "run", plan)
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=store,
+                    registry=ServiceRegistry(
+                        (RegisteredService("cache_first", cache_first),)
+                    ),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=3,
+                    scientific_cache=object(),
+                ),
+            )
+        self.assertEqual(calls, [(False, 3)])
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(result.outcomes[0].status, "completed")
+
+    def test_cache_first_requires_expensive_producer_flag(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal-connectome",
+        )
+        with self.assertRaisesRegex(ValueError, "requires expensive_producer"):
+            _task(
+                endpoint,
+                "activation",
+                "invalid",
+                cache_first_expensive=True,
+            )
 
     def test_declared_artifact_output_cannot_complete_without_artifact(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")

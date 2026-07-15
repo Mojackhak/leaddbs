@@ -502,6 +502,17 @@ OSS does not rescan tau/Coverage or add fibers. Endpoint weights, signs, and
 selected sweet/sour IDs are re-estimated in each OSS training fold. Add-on OSS
 retains the final branch's reference-active overlap rule.
 
+The exact ordered final-axis hash is part of every producer-row scientific
+identity. Scale, endpoint, branch role, final-model ID, run ID, worker count,
+and task order are not. Consequently, two endpoints with the same scientific
+inputs and exact ordered final axis may reuse completed rows, while different
+axes require different exact cache identities. Approximate, nearest-axis, or
+whole-connectome substitution is forbidden.
+
+The runtime passes typed row records and artifacts directly between tasks. It
+does not create an `OSSSidecarBundle`, `DualFrequencyStudyBundle`, or another
+intermediate study/bundle authority.
+
 ### Canonical representation
 
 Cache continuous activation probability. Map left stimulation geometry to the
@@ -518,9 +529,36 @@ The model sensitivity uses:
 X_OSS_i,f = 1[p(A_i,f) >= 0.5]
 ```
 
+For `normative_fiber_model_v1`, the public OSS settings are fixed and validated:
+
+```text
+model = OSS-DBSv2
+activation model = pPAM
+fiber diameter = 1.0..4.0 micrometers
+samples = 10, equidistant
+fitting threshold = 0.5 inclusive
+```
+
+Different values require a future schema version rather than a silent v1
+parameter override.
+
 Each endpoint uses the exact final valid feature axis and refits training-fold
 weights and signed-fiber rankings. The final fit uses the same normative-fiber
 scoring policy as the non-OSS model.
+
+All exact row identities are validated before an expensive producer may start.
+When expensive producers are disabled, any missing row yields
+`missing_acceptance_fixture` before the first external process is launched.
+Acceptance uses reviewed completed artifacts plus deterministic synthetic row
+and L/R-union fixtures; it never fills a cache miss by starting OSS-DBS.
+
+The activation workflow task depends directly on the immutable realized final
+record as well as its formal-completion tasks. The executor must permit this
+cache-first service to inspect exact rows even when expensive production is not
+authorized. Authorization is checked inside the activation service only after
+all cache probes complete and before scheduling the first missing row. Other
+expensive services retain the executor-level guard unless they implement the
+same explicit cache-first contract.
 
 ### Cache granularity
 

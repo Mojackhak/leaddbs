@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..cache import ArtifactStore
+from ..cache import ArtifactStore, ContentAddressedCache
 from ..catalog import CatalogStatus, EndpointRecord, build_endpoint_catalog
 from ..config import (
     ConfigurationError,
@@ -200,6 +200,7 @@ class WorkflowService:
             resume=execution.resume,
         )
         artifact_store = ArtifactStore((store.root, output_root, cache_root))
+        scientific_cache = ContentAddressedCache(cache_root)
         endpoint_facts = {
             endpoint.endpoint_id: {
                 "catalog_data_available": endpoint.status == CatalogStatus.DATA_AVAILABLE,
@@ -214,6 +215,7 @@ class WorkflowService:
             continue_on_endpoint_failure=configuration.workflow.execution.continue_on_endpoint_failure,
             workers=configuration.workflow.execution.workers,
             artifact_store=artifact_store,
+            scientific_cache=scientific_cache,
             resume=execution.resume,
         )
         return execute_plan(bundle.plan, context)

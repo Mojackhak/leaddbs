@@ -768,6 +768,22 @@ X_OSS_i,f = 1[p(A_i,f) >= 0.5]
 Cache continuous probability and derive the binary analysis matrix. Endpoint
 fits use the final valid feature axis and refit training-fold weights/ranks.
 
+The exact ordered final-axis hash participates in the producer-row cache key,
+but scale, endpoint, branch role, final-model ID, run identity, and worker count
+do not. This permits exact reuse when scientific inputs and the ordered axis are
+identical without expanding OSS to a whole-connectome universe. A different
+axis is a different cache identity and cannot be served by nearest-key matching.
+
+Activation tasks exchange typed records and artifact references directly. They
+must not create a `DualFrequencyStudyBundle`, `OSSSidecarBundle`, or another
+intermediate bundle authority.
+
+Each activation task directly consumes its immutable realized final record and
+completed formal dependencies. Cache lookup remains available when expensive
+producers are disabled. A cache miss is rejected inside the activation service
+as `missing_acceptance_fixture` before any OSS process starts; a complete exact
+cache hit does not require expensive-producer authorization.
+
 ## Content-Addressed Cache Contract
 
 Run-independent expensive artifacts are stored under scientific identities:

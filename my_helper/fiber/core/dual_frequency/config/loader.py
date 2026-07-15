@@ -377,8 +377,19 @@ def _validate_profiles(
     if sum(item.role == "formal" for item in fiber.connectomes) != 1:
         raise ConfigurationError("normative-fiber profile requires exactly one formal connectome")
     diameter = fiber.oss.fiber_diameter_um
-    if diameter.maximum < diameter.minimum:
-        raise ConfigurationError("OSS maximum fiber diameter must be at least the minimum")
+    if (
+        fiber.oss.model != "OSS-DBSv2"
+        or fiber.oss.activation_model != "pPAM"
+        or diameter.minimum != 1.0
+        or diameter.maximum != 4.0
+        or diameter.samples != 10
+        or diameter.sampling != "equidistant"
+        or fiber.oss.fitting_probability_threshold != 0.5
+    ):
+        raise ConfigurationError(
+            "normative_fiber_model_v1 requires OSS-DBSv2 pPAM with "
+            "1-4 um, 10 equidistant samples, and threshold 0.5"
+        )
 
 
 def _validate_override_selection(overrides: WorkflowOverrides) -> None:

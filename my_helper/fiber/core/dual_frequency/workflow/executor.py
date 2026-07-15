@@ -217,6 +217,9 @@ class TaskExecutionRequest:
     run_id: str
     output_dir: Path
     artifact_store: object | None
+    scientific_cache: object | None
+    allow_expensive_producers: bool
+    workers: int
 
 
 @dataclass(frozen=True)
@@ -230,6 +233,7 @@ class ExecutionContext:
     continue_on_endpoint_failure: bool
     workers: int
     artifact_store: object | None = None
+    scientific_cache: object | None = None
     resume: bool = False
 
     def __post_init__(self) -> None:
@@ -383,6 +387,9 @@ def _run_task(task: TaskSpec, context: ExecutionContext, outcomes: Mapping[str, 
             run_id=context.run_store.run_id,
             output_dir=output_dir,
             artifact_store=context.artifact_store,
+            scientific_cache=context.scientific_cache,
+            allow_expensive_producers=context.allow_expensive_producers,
+            workers=context.workers,
         )
         result = _validate_service_result(task, service(request))
         context.run_store.record_artifacts(result.artifacts)
@@ -519,7 +526,11 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                     context.run_store,
                 )
                 continue
-            if task.expensive_producer and not context.allow_expensive_producers:
+            if (
+                task.expensive_producer
+                and not task.cache_first_expensive
+                and not context.allow_expensive_producers
+            ):
                 error = ExpensiveProducerNotAuthorized(
                     f"expensive producer {task.service_id!r} is not authorized"
                 )

@@ -1613,6 +1613,10 @@ git commit -m "feat: extract generic formal and sensitivity backends"
 ### Task 14: Implement Shared Activation Universe And Generic OSS Backend
 
 **Files:**
+- Modify: `my_helper/fiber/core/dual_frequency/contracts/requests.py`
+- Modify: `my_helper/fiber/core/dual_frequency/backends/protocols.py`
+- Modify: `my_helper/fiber/core/dual_frequency/config/schemas/normative_fiber_model.schema.json`
+- Modify: `my_helper/fiber/core/dual_frequency/config/loader.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/activation/canonical_mapping.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/activation/ppam.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/activation/ossdbs.py`
@@ -1620,17 +1624,33 @@ git commit -m "feat: extract generic formal and sensitivity backends"
 - Create: `my_helper/fiber/core/dual_frequency/tests/test_oss_backend.py`
 
 **Interfaces:**
-- Produces: `ActivationBackend.materialize(ActivationRequest) -> ActivationArtifact`
-- Produces: reusable canonical pPAM cache independent of scale/endpoint/final.
+- Produces: `OSSRowBackend.materialize(OSSRowBatchRequest) -> OSSRowBatchArtifact`.
+- Produces: `ActivationBackend.run_activation(ActivationRequest) -> ActivationArtifact`.
+- The requested producer fiber axis is exactly
+  `final.valid_feature_axis`; there is no whole-connectome or minimum-tau
+  producer universe and no intermediate sidecar bundle.
+- A producer cache key excludes scale, endpoint, final-model ID, run ID, worker
+  count, and task order, but includes the exact ordered requested fiber-axis
+  hash. Exact matching axes can therefore reuse rows across endpoints; different
+  axes cannot use nearest-key or superset guessing.
 - Consumes subject/component/condition/connectome/transform/solver inputs only as
   typed metadata and exact artifact references; solver paths come from validated
   backend configuration.
+- The activation task has the realized final-model task as a direct dependency
+  in addition to completed formal tasks. A transitive dependency is not a
+  substitute for a typed direct final-record input.
+- `expensive_producer` identifies a service that may produce expensive rows; it
+  must not block service invocation before exact cache lookup. The activation
+  service probes all row keys first and checks expensive authorization only when
+  at least one valid row is absent.
 
 - [ ] **Step 1: Write failing universe and identity tests**
 
-Assert the universe is derived from minimum formal tau/Coverage before weights,
-signs, final-axis subset, or reference-overlap exclusion. Scale/final changes do
-not alter the producer key.
+Assert the analysis universe equals the realized final model's exact ordered
+`valid_feature_axis` at selected tau/Coverage. Weights, signs, and selected
+sweet/sour IDs do not restrict that axis. Scale/final identifiers do not enter
+the producer key, while a changed ordered fiber-axis hash does. Require the
+unique configured `formal` connectome role without checking a connectome name.
 
 - [ ] **Step 2: Write failing mapping and threshold tests**
 
@@ -1642,32 +1662,60 @@ binary = (merged >= 0.5).astype(np.float32)
 ```
 
 Require exact canonical fiber IDs and deterministic endpoint subsetting.
+Freeze the public v1 OSS contract to `OSS-DBSv2`, `pPAM`, fiber diameters
+`1.0..4.0` micrometers, exactly 10 equidistant samples, and inclusive fitting
+threshold `0.5`. Schema and semantic validation reject any other values.
 
 - [ ] **Step 3: Write bounded OSS acceptance tests**
 
-Validate all completed HF dTOR cache metadata/hashes, replay mapping/union/
-threshold/subset, compare 48 stratified fibers across three subjects, and run
-one minimal subject/component solver smoke. Never generate the full universe.
+Validate the completed allowlisted reference-fiber OSS matrix, fiber IDs,
+metadata, and sensitivity-result hashes. Replay exact ordered subsetting and
+the inclusive `p(A) >= 0.5` threshold over 48 stratified fibers across three
+subjects. Because the reviewed frozen fixture contains only the already-merged
+branch matrix and not raw left/right rows, test `max_probability_union` with a
+deterministic synthetic L/R fixture. Exercise row scheduling with an injected
+synthetic producer; do not launch OSS-DBS or generate any real row during this
+acceptance task.
 
 - [ ] **Step 4: Implement generic OSS orchestration**
 
 Remove dTOR name checks. Require a realized final on the unique `formal`
-connectome, explicit OSS backend/version, exact subject-side frequency maps, row checkpoints,
-three default row workers, and deterministic merge order. Before scheduling,
-validate each exact scientific row key and skip every already completed,
-hash-valid row; never use nearest-key matching.
+connectome, explicit OSS backend/version, exact subject-side frequency maps,
+row checkpoints, three default row workers, and deterministic merge order.
+Before scheduling, validate every requested row and exact scientific cache key.
+Skip each already completed hash-valid row; never use nearest-key matching.
+Map left stimulation geometry to right canonical space before OSS modeling,
+require exact L/R rows for every final subject, merge by elementwise maximum,
+cache continuous probability, and derive binary fitting exposure with
+`p(A) >= 0.5`. Refit weights, signed selections, and the `200/100/20` score in
+each training fold without changing source, prediction, branch-role, or final
+classification.
+
+Update planner/executor wiring so activation directly receives the final record
+and cache hits remain usable with expensive producers disabled. Preserve the
+global pre-service expensive guard for services that cannot prove cache-first
+behavior; activation explicitly declares cache-first authorization handling.
 
 - [ ] **Step 5: Verify expensive-miss blocking**
 
-Delete only a temporary synthetic cache row and run acceptance mode. Expected:
-`missing_acceptance_fixture`; no OSS process starts.
+Delete only a temporary synthetic cache row and run acceptance mode with
+expensive producers disabled. Expected: `missing_acceptance_fixture`; the
+injected producer invocation count remains zero and no OSS process starts.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add my_helper/fiber/core/dual_frequency/backends/activation \
+git add my_helper/fiber/core/dual_frequency/contracts/requests.py \
+  my_helper/fiber/core/dual_frequency/backends/protocols.py \
+  my_helper/fiber/core/dual_frequency/config/schemas/normative_fiber_model.schema.json \
+  my_helper/fiber/core/dual_frequency/config/loader.py \
+  my_helper/fiber/core/dual_frequency/backends/activation \
+  my_helper/fiber/core/dual_frequency/workflow/planner.py \
+  my_helper/fiber/core/dual_frequency/workflow/executor.py \
   my_helper/fiber/core/dual_frequency/tests/test_activation_universe.py \
-  my_helper/fiber/core/dual_frequency/tests/test_oss_backend.py
+  my_helper/fiber/core/dual_frequency/tests/test_oss_backend.py \
+  my_helper/fiber/core/dual_frequency/tests/test_executor.py \
+  my_helper/fiber/core/dual_frequency/tests/test_planner.py
 git commit -m "feat: add reusable dual-frequency activation backend"
 ```
 

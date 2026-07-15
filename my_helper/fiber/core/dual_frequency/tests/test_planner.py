@@ -66,6 +66,16 @@ class PlannerTest(unittest.TestCase):
         self.assertTrue(all(task.stage == "activation_sensitivity" for task in expensive))
         self.assertTrue(all(task.model_family.endswith("fiber") for task in expensive))
         self.assertTrue(all(roles[task.endpoint_id] == "formal" for task in expensive))
+        self.assertTrue(all(task.cache_first_expensive for task in expensive))
+        for task in expensive:
+            endpoint_tasks = {
+                candidate.stage: candidate
+                for candidate in plan.for_endpoint(task.endpoint_id)
+            }
+            self.assertIn(
+                endpoint_tasks["final_realization"].task_id,
+                task.dependencies,
+            )
 
     def test_unavailable_endpoint_is_closed_without_blocking_other_scales(self) -> None:
         _config, catalog, plan = self._plan()

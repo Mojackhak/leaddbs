@@ -126,6 +126,24 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ConfigurationError, "smoke_permutations"):
             self._load_modified_profiles(direct=direct)
 
+    def test_rejects_changes_to_fixed_v1_oss_scientific_contract(self) -> None:
+        mutations = (
+            (("oss", "model"), "other"),
+            (("oss", "activation_model"), "deterministic"),
+            (("oss", "fiber_diameter_um", "minimum"), 1.5),
+            (("oss", "fiber_diameter_um", "maximum"), 5.0),
+            (("oss", "fiber_diameter_um", "samples"), 11),
+            (("oss", "fitting_probability_threshold"), 0.6),
+        )
+        for keys, replacement in mutations:
+            fiber = self._yaml_document(CONFIG_ROOT / "normative_fiber_model.yaml")
+            target = fiber
+            for key in keys[:-1]:
+                target = target[key]
+            target[keys[-1]] = replacement
+            with self.subTest(keys=keys), self.assertRaises(ConfigurationError):
+                self._load_modified_profiles(fiber=fiber)
+
     def test_rejects_legacy_schema_and_project_role_aliases(self) -> None:
         workflow = self._workflow_document()
         workflow["schema_version"] = "four_model_v1"
