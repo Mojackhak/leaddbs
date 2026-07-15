@@ -2041,6 +2041,46 @@ tasks, failed add-on OSS, skipped/unstarted tasks, and MDS-UPDRS IV numerical
 paths are excluded. Any future allowlist change requires a separate explicit
 documentation decision.
 
+### Task 1 Retained-Tool Boundary
+
+The authoritative goal records `goal_review_passed`. Task 1 keeps acceptance
+and migration code under `my_helper/fiber/projects/stnsnr` as manual project
+tools only. Production continues to receive an existing validated
+`study_base.json` directly, together with `direct_voxel_model.yaml`,
+`normative_fiber_model.yaml`, and `workflow.yaml`. It creates no study bundle,
+study copy, study index, or resolved study manifest and imports neither retained
+tool namespace.
+
+Fixture construction is write-isolated from the immutable source run. The
+builder rejects an output location inside that run and does not replace an
+existing frozen manifest. A fresh review writes to a new destination, validates
+the allowlist identity and every selected artifact hash, and is compared with
+the tracked manifest before any evidence update is considered.
+
+The retained predecessor-YAML converter may read the old study, scale, model,
+and workflow profiles as migration evidence. It writes only review-required
+drafts named `direct_voxel_model.yaml`, `normative_fiber_model.yaml`, and
+`workflow.yaml`, plus `conversion_report.json`. It never creates, copies, or
+rewrites `study_base.json`, `study.yaml`, `scales.yaml`, or a bundle directory.
+Source condition/subscale labels and import mappings remain conversion-report
+evidence; they are not runtime profile fields. The drafts are not loaded or
+validated by the production configuration loader during migration.
+
+The 2026-07-15 Task 1 review rebuilt the bounded manifest in a new temporary
+directory and matched the tracked manifest byte for byte. Its SHA-256 is
+`50c29f7fc95e94e49128be40a69a509e02bdfdb3db32174d913a90bebbfa5def`.
+The manifest contains 32 eligible tasks, 105 reviewed scientific artifacts,
+and 137 hashed files when task manifests are included. No allowlisted artifact
+is missing or hash-invalid, and no configured-model producer process ran.
+
+Immutable evidence remains unavailable for the two failed add-on direct-voxel
+preprocessing tasks, the failed chronic add-on dTOR OSS preparation task, the
+nonterminal chronic add-on dTOR jitter task stopped at checkpoint 388/1000, and
+all 80 planned MDS-UPDRS IV tasks, which are nonterminal. These paths remain
+excluded rather than inferred, resumed, repaired, or recomputed. Eighteen other
+completed tasks are also excluded because completed status alone does not add a
+task to the reviewed allowlist.
+
 Run the D PPMI source resolver:
 
 ```bash

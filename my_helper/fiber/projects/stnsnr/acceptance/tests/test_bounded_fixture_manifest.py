@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import csv
 import hashlib
 import json
@@ -50,7 +51,11 @@ class BoundedFixtureManifestTests(unittest.TestCase):
         }
         artifact_rows: list[dict[str, str]] = []
         for task_id, status in statuses.items():
-            stage = "endpoint_report" if task_id == "task_failure_report" else "observed_source_resolver"
+            stage = (
+                "endpoint_report"
+                if task_id == "task_failure_report"
+                else "observed_source_resolver"
+            )
             expected = ["task_manifest", "endpoint_report"] if stage == "endpoint_report" else [
                 "task_manifest",
                 "scientific_array",
@@ -265,6 +270,16 @@ class BoundedFixtureManifestTests(unittest.TestCase):
             with self.assertRaisesRegex(FixtureManifestError, "unknown"):
                 build_fixture_manifest(run_root, allowlist_path, root / "unknown")
 
+            payload["scopes"][0]["tasks"] = [{**task, "task_id": "task_failed"}]
+            allowlist_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(FixtureManifestError, "not completed"):
+                build_fixture_manifest(run_root, allowlist_path, root / "failed")
+
+            payload["scopes"][0]["tasks"] = [{**task, "task_id": "task_missing"}]
+            allowlist_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(FixtureManifestError, "missing"):
+                build_fixture_manifest(run_root, allowlist_path, root / "missing")
+
             payload["scopes"][0]["tasks"] = [{**task, "task_id": "task_science"}]
             allowlist_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
             array = run_root / "tasks" / "task_science" / "weights.npy"
@@ -281,12 +296,28 @@ class BoundedFixtureManifestTests(unittest.TestCase):
             for row in rows:
                 if row["task_id"] == "task_science" and row["kind"] == "scientific_array":
                     row["relative_path"] = "../outside.npy"
-            with (run_root / "artifact_index.csv").open("w", newline="", encoding="utf-8") as handle:
+            with (run_root / "artifact_index.csv").open(
+                "w", newline="", encoding="utf-8"
+            ) as handle:
                 writer = csv.DictWriter(handle, fieldnames=rows[0].keys())
                 writer.writeheader()
                 writer.writerows(rows)
             with self.assertRaisesRegex(FixtureManifestError, "outside"):
                 build_fixture_manifest(run_root, allowlist_path, root / "escaped")
+
+    def test_fixture_output_cannot_modify_source_run_or_replace_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_root, allowlist_path = self._write_run(root)
+            with self.assertRaisesRegex(FixtureManifestError, "outside"):
+                build_fixture_manifest(run_root, allowlist_path, run_root / "acceptance")
+
+            output_root = root / "fixture"
+            manifest = build_fixture_manifest(run_root, allowlist_path, output_root)
+            original = manifest.read_bytes()
+            with self.assertRaisesRegex(FixtureManifestError, "replace"):
+                build_fixture_manifest(run_root, allowlist_path, output_root)
+            self.assertEqual(manifest.read_bytes(), original)
 
     def test_paused_source_status_dirty_state_and_provenance_are_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -332,6 +363,7 @@ class BoundedFixtureManifestTests(unittest.TestCase):
                 "eligible_tasks": [
                     {
                         "task_id": "task_science",
+                        "parent_scale_id": "scale_a",
                         "artifacts": [
                             {
                                 "kind": "weights",
@@ -353,6 +385,12 @@ class BoundedFixtureManifestTests(unittest.TestCase):
             observed.write_text(json.dumps(changed) + "\n", encoding="utf-8")
             self.assertFalse(compare_fixture(expected, observed).passed)
 
+            changed["eligible_tasks"][0]["task_id"] = "task_science"
+            changed["eligible_tasks"][0]["parent_scale_id"] = "scale_b"
+            observed.write_text(json.dumps(changed) + "\n", encoding="utf-8")
+            result = compare_fixture(expected, observed)
+            self.assertTrue(any("parent_scale_id" in item for item in result.differences))
+
     def test_comparison_keeps_integer_masks_exact_and_compares_mixed_csv_by_type(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -362,10 +400,18 @@ class BoundedFixtureManifestTests(unittest.TestCase):
             np.save(observed_mask, np.array([1, 1, 1], dtype=np.uint8))
             expected_csv = root / "expected.csv"
             observed_csv = root / "observed.csv"
-            pd.DataFrame({"ID": ["a", "b"], "score": [1.0, 2.0], "note": [None, "ok"]}).to_csv(expected_csv, index=False)
-            pd.DataFrame({"ID": ["a", "b"], "score": [1.0 + 1e-11, 2.0], "note": [None, "ok"]}).to_csv(
-                observed_csv, index=False
+            expected_rows = pd.DataFrame(
+                {"ID": ["a", "b"], "score": [1.0, 2.0], "note": [None, "ok"]}
             )
+            observed_rows = pd.DataFrame(
+                {
+                    "ID": ["a", "b"],
+                    "score": [1.0 + 1e-11, 2.0],
+                    "note": [None, "ok"],
+                }
+            )
+            expected_rows.to_csv(expected_csv, index=False)
+            observed_rows.to_csv(observed_csv, index=False)
             expected = root / "expected.json"
             observed = root / "observed.json"
             expected.write_text(
@@ -409,6 +455,59 @@ class BoundedFixtureManifestTests(unittest.TestCase):
         self.assertFalse(any(":scores:score" in difference for difference in result.differences))
         self.assertFalse(any(":scores:note" in difference for difference in result.differences))
 
+    def test_comparison_applies_reviewed_artifact_kind_conversions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            expected_record = root / "expected_record.json"
+            observed_record = root / "observed_record.json"
+            expected_record.write_text('{"status": "accepted"}\n', encoding="utf-8")
+            observed_record.write_text('{"status": "accepted"}\n', encoding="utf-8")
+            expected = root / "expected.json"
+            observed = root / "observed.json"
+            expected.write_text(
+                json.dumps(
+                    {
+                        "eligible_tasks": [
+                            {
+                                "task_id": "task_science",
+                                "artifact_kind_conversions": {
+                                    "final_model_record": "robustness_record"
+                                },
+                                "artifacts": [
+                                    {
+                                        "kind": "final_model_record",
+                                        "path": str(expected_record),
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            observed.write_text(
+                json.dumps(
+                    {
+                        "eligible_tasks": [
+                            {
+                                "task_id": "task_science",
+                                "artifacts": [
+                                    {
+                                        "kind": "robustness_record",
+                                        "path": str(observed_record),
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(compare_fixture(expected, observed).passed)
+
     def test_comparison_uses_oss_probability_tolerance_and_exact_json_tokens(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -443,6 +542,64 @@ class BoundedFixtureManifestTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertFalse(any("oss_activation_probabilities" in item for item in result.differences))
         self.assertTrue(any("metadata" in item for item in result.differences))
+
+    def test_comparison_is_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            expected_artifact = root / "expected.npy"
+            observed_artifact = root / "observed.npy"
+            np.save(expected_artifact, np.array([1.0], dtype=np.float64))
+            np.save(observed_artifact, np.array([1.0], dtype=np.float64))
+            expected = root / "expected.json"
+            observed = root / "observed.json"
+            payload = lambda artifact: {
+                "eligible_tasks": [
+                    {
+                        "task_id": "task_science",
+                        "artifacts": [{"kind": "weights", "path": str(artifact)}],
+                    }
+                ]
+            }
+            expected.write_text(json.dumps(payload(expected_artifact)) + "\n", encoding="utf-8")
+            observed.write_text(json.dumps(payload(observed_artifact)) + "\n", encoding="utf-8")
+            before = {
+                path: (path.read_bytes(), path.stat().st_mtime_ns)
+                for path in (expected, observed, expected_artifact, observed_artifact)
+            }
+
+            self.assertTrue(compare_fixture(expected, observed).passed)
+
+            after = {
+                path: (path.read_bytes(), path.stat().st_mtime_ns)
+                for path in before
+            }
+            self.assertEqual(after, before)
+
+    def test_runtime_roots_do_not_import_retained_tools(self) -> None:
+        repository_root = Path(__file__).resolve().parents[6]
+        forbidden = (
+            "projects.stnsnr.acceptance",
+            "projects.stnsnr.migration",
+            "my_helper.fiber.projects.stnsnr.acceptance",
+            "my_helper.fiber.projects.stnsnr.migration",
+        )
+        violations: list[str] = []
+        for runtime_root in (
+            repository_root / "my_helper" / "fiber" / "core",
+            repository_root / "my_helper" / "fiber" / "pipelines",
+        ):
+            for path in runtime_root.rglob("*.py"):
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                imported: list[str] = []
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        imported.extend(alias.name for alias in node.names)
+                    elif isinstance(node, ast.ImportFrom):
+                        module = node.module or ""
+                        imported.extend(f"{module}.{alias.name}" for alias in node.names)
+                if any(name.startswith(forbidden) for name in imported):
+                    violations.append(str(path.relative_to(repository_root)))
+        self.assertEqual(violations, [])
 
 
 if __name__ == "__main__":

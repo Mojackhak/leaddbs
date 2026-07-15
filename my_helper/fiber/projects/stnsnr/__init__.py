@@ -1,1 +1,1 @@
-"""STNSNr project boundary for the generic dual-frequency core."""
+"""Manual STNSNr project tools outside the generic dual-frequency runtime."""

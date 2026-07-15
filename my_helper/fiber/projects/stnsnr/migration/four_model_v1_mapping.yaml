@@ -1,4 +1,31 @@
 schema_version: dual_frequency_migration_mapping_v1
+target_model_set_id: dual_frequency_four_model_v1
+
+target_endpoint_pair:
+  baseline:
+    phase_id: T0
+    program_id: 0
+  reference:
+    source_condition_id: frequency_1_reference
+    phase_id: T2
+    program_id: 1
+  addon:
+    source_condition_id: frequency_2_addon_chronic
+    phase_id: T3
+    program_id: 2
+
+target_frequency_classes:
+  reference:
+    lower: 100
+    lower_inclusive: false
+    upper: null
+    upper_inclusive: false
+  addon:
+    lower: 0
+    lower_inclusive: false
+    upper: 50
+    upper_inclusive: false
+
 source_subscale_field: phase
 source_subscale_selection_field: phases
 

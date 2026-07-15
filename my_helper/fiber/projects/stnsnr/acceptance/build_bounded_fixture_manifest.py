@@ -40,6 +40,30 @@ def _load_csv(path: Path, label: str) -> list[dict[str, str]]:
         raise FixtureManifestError(f"cannot read {label}: {path}") from exc
 
 
+def _write_text_new(path: Path, content: str) -> None:
+    """Publish a new file atomically without replacing reviewed evidence."""
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    created = False
+    try:
+        try:
+            with temporary.open("x", encoding="utf-8") as handle:
+                created = True
+                handle.write(content)
+        except FileExistsError as exc:
+            raise FixtureManifestError(
+                f"refusing to replace existing temporary fixture file: {temporary}"
+            ) from exc
+        try:
+            os.link(temporary, path)
+        except FileExistsError as exc:
+            raise FixtureManifestError(
+                f"refusing to replace existing fixture manifest: {path}"
+            ) from exc
+    finally:
+        if created:
+            temporary.unlink(missing_ok=True)
+
+
 def _unique_by(rows: list[dict[str, Any]], key: str, label: str) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -59,7 +83,9 @@ def _inside_run(run_root: Path, relative_path: str) -> Path:
     try:
         path.relative_to(run_root)
     except ValueError as exc:
-        raise FixtureManifestError(f"artifact path is outside the frozen run: {relative_path}") from exc
+        raise FixtureManifestError(
+            f"artifact path is outside the frozen run: {relative_path}"
+        ) from exc
     return path
 
 
@@ -179,7 +205,9 @@ def _flatten_scopes(allowlist: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
                 str(endpoint["connectome_id"]).strip(),
             )
             if not all(pair) or pair in source_endpoint_pairs:
-                raise FixtureManifestError(f"duplicate or empty source endpoint in scope {scope_id}")
+                raise FixtureManifestError(
+                    f"duplicate or empty source endpoint in scope {scope_id}"
+                )
             source_endpoint_pairs.add(pair)
         scope["_source_endpoint_pairs"] = source_endpoint_pairs
         target_roles = scope["target_connectome_roles"]
@@ -199,7 +227,9 @@ def _flatten_scopes(allowlist: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
             if not task_id:
                 raise FixtureManifestError(f"allowlist scope {scope_id} task has no task_id")
             if task_id in allowed_by_id:
-                raise FixtureManifestError(f"duplicate task_id in approved task allowlist: {task_id}")
+                raise FixtureManifestError(
+                    f"duplicate task_id in approved task allowlist: {task_id}"
+                )
             allowed_by_id[task_id] = {**task, "_scope": scope}
     return allowed_by_id
 
@@ -213,12 +243,19 @@ def build_fixture_manifest(
     run_root = Path(run_root).expanduser().resolve()
     allowlist_path = Path(allowlist_path).expanduser().resolve()
     output_root = Path(output_root).expanduser().resolve()
-    run_manifest = _load_json(run_root / "run_manifest.json", "run manifest")
-    execution_plan = _load_json(run_root / "execution_plan.json", "execution plan")
     allowlist = _load_json(allowlist_path, "approved task allowlist")
     if allowlist.get("schema_version") != "dual_frequency_approved_task_allowlist_v1":
         raise FixtureManifestError("unsupported approved task allowlist schema")
+    run_manifest = _load_json(run_root / "run_manifest.json", "run manifest")
+    execution_plan = _load_json(run_root / "execution_plan.json", "execution plan")
     _validate_allowlist_identity(allowlist, run_manifest)
+
+    try:
+        output_root.relative_to(run_root)
+    except ValueError:
+        pass
+    else:
+        raise FixtureManifestError("fixture output must be outside the immutable source run")
 
     plan_rows = execution_plan.get("tasks")
     if not isinstance(plan_rows, list):
@@ -306,7 +343,9 @@ def build_fixture_manifest(
         for kind in sorted(str(kind) for kind in kinds):
             matching = [row for row in indexed if row.get("kind") == kind]
             if not matching:
-                raise FixtureManifestError(f"allowlisted artifact kind is missing: {task_id}:{kind}")
+                raise FixtureManifestError(
+                    f"allowlisted artifact kind is missing: {task_id}:{kind}"
+                )
             scientific_artifacts.extend(
                 _validate_artifact(run_root, row, task_id=task_id)
                 for row in sorted(matching, key=lambda item: item.get("relative_path", ""))
@@ -367,7 +406,5 @@ def build_fixture_manifest(
     }
     output_root.mkdir(parents=True, exist_ok=True)
     destination = output_root / "bounded_fixture_manifest.json"
-    temporary = destination.with_name(f".{destination.name}.tmp-{os.getpid()}")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, destination)
+    _write_text_new(destination, json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return destination

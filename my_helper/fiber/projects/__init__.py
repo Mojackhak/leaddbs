@@ -1,1 +1,1 @@
-"""Project-specific import, migration, and acceptance boundaries."""
+"""Project-only helpers that are excluded from production runtime imports."""

@@ -43,14 +43,34 @@ def _task_map(payload: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
 
 
 def _artifact_map(task: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    conversions = task.get("artifact_kind_conversions", {})
+    if not isinstance(conversions, Mapping) or any(
+        not isinstance(source, str)
+        or not source
+        or not isinstance(target, str)
+        or not target
+        for source, target in conversions.items()
+    ):
+        raise ValueError("artifact_kind_conversions must map non-empty strings")
+    rows = task.get("artifacts", [])
+    if not isinstance(rows, list):
+        raise ValueError("artifacts must be a list")
     result: dict[str, Mapping[str, Any]] = {}
-    for row in task.get("artifacts", []):
+    source_kinds: set[str] = set()
+    for row in rows:
         if not isinstance(row, Mapping):
             raise ValueError("artifact row must be a mapping")
-        kind = str(row.get("kind", ""))
+        source_kind = str(row.get("kind", ""))
+        source_kinds.add(source_kind)
+        kind = str(conversions.get(source_kind, source_kind))
         if not kind or kind in result:
             raise ValueError(f"invalid or duplicate fixture artifact kind: {kind}")
         result[kind] = row
+    unknown_conversions = sorted(set(conversions) - source_kinds)
+    if unknown_conversions:
+        raise ValueError(
+            f"artifact kind conversions reference missing kinds: {unknown_conversions}"
+        )
     return result
 
 
@@ -80,10 +100,21 @@ def _compare_values(
     )
     if comparison == "floating" or (comparison == "auto" and is_floating):
         rtol, atol = _tolerances(kind, expected_artifact)
-        if not np.allclose(expected_values, observed_values, rtol=rtol, atol=atol, equal_nan=True):
+        try:
+            np.testing.assert_allclose(
+                expected_values,
+                observed_values,
+                rtol=rtol,
+                atol=atol,
+                equal_nan=True,
+            )
+        except AssertionError:
             differences.append(f"{label}: floating array mismatch")
-    elif not np.array_equal(expected_values, observed_values):
-        differences.append(f"{label}: exact array mismatch")
+    else:
+        try:
+            np.testing.assert_array_equal(expected_values, observed_values)
+        except AssertionError:
+            differences.append(f"{label}: exact array mismatch")
 
 
 def _compare_array(
@@ -156,16 +187,33 @@ def _compare_csv(
         differences.append(f"{label}: CSV shape differs")
         return
     for column in expected_rows.columns:
-        left = expected_rows[column].to_numpy()
-        right = observed_rows[column].to_numpy()
-        _compare_values(
-            left,
-            right,
-            kind=kind,
-            expected_artifact=expected,
-            differences=differences,
-            label=f"{label}:{column}",
-        )
+        expected_column = expected_rows[column]
+        observed_column = observed_rows[column]
+        column_label = f"{label}:{column}"
+        if pd.api.types.is_numeric_dtype(expected_column.dtype) and pd.api.types.is_numeric_dtype(
+            observed_column.dtype
+        ):
+            _compare_values(
+                expected_column.to_numpy(),
+                observed_column.to_numpy(),
+                kind=kind,
+                expected_artifact=expected,
+                differences=differences,
+                label=column_label,
+            )
+            continue
+        expected_missing = expected_column.isna().to_numpy()
+        observed_missing = observed_column.isna().to_numpy()
+        if not np.array_equal(expected_missing, observed_missing):
+            differences.append(f"{column_label}: missing-value mask differs")
+            continue
+        try:
+            np.testing.assert_array_equal(
+                expected_column.to_numpy()[~expected_missing],
+                observed_column.to_numpy()[~observed_missing],
+            )
+        except AssertionError:
+            differences.append(f"{column_label}: exact array mismatch")
 
 
 def _compare_json_value(
@@ -207,7 +255,15 @@ def _compare_json_value(
         return
     if isinstance(expected, float) and isinstance(observed, (int, float)):
         rtol, atol = _tolerances(kind, artifact)
-        if not np.isclose(expected, observed, rtol=rtol, atol=atol, equal_nan=True):
+        try:
+            np.testing.assert_allclose(
+                expected,
+                observed,
+                rtol=rtol,
+                atol=atol,
+                equal_nan=True,
+            )
+        except AssertionError:
             differences.append(f"{label}: JSON floating value differs")
         return
     if type(expected) is not type(observed) or expected != observed:
@@ -260,7 +316,9 @@ def _compare_nifti(
         differences=differences,
         label=label,
     )
-    if not np.allclose(left.affine, right.affine, rtol=0.0, atol=1e-12):
+    try:
+        np.testing.assert_allclose(left.affine, right.affine, rtol=0.0, atol=1e-12)
+    except AssertionError:
         differences.append(f"{label}: NIfTI affine differs")
 
 
@@ -269,6 +327,15 @@ def compare_fixture(expected: Path, observed: Path) -> ComparisonResult:
     expected_payload = _load(expected)
     observed_payload = _load(observed)
     differences: list[str] = []
+    if (
+        "schema_version" in expected_payload
+        and expected_payload.get("schema_version") != observed_payload.get("schema_version")
+    ):
+        differences.append(
+            "schema_version mismatch "
+            f"{expected_payload.get('schema_version')!r} != "
+            f"{observed_payload.get('schema_version')!r}"
+        )
     expected_tasks = _task_map(expected_payload)
     observed_tasks = _task_map(observed_payload)
     if set(expected_tasks) != set(observed_tasks):
@@ -279,7 +346,16 @@ def compare_fixture(expected: Path, observed: Path) -> ComparisonResult:
         return ComparisonResult(False, tuple(differences))
     exact_task_fields = (
         "task_id",
+        "scope_id",
+        "endpoint_model_id",
+        "parent_scale_id",
         "model_family",
+        "source_binding_role",
+        "connectome_id",
+        "source_connectome_role",
+        "target_connectome_roles",
+        "branch",
+        # Retained aliases keep the comparator useful for early synthetic drafts.
         "scale_id",
         "connectome",
         "execution_stage",
@@ -289,7 +365,9 @@ def compare_fixture(expected: Path, observed: Path) -> ComparisonResult:
         expected_task = expected_tasks[task_id]
         observed_task = observed_tasks[task_id]
         for field in exact_task_fields:
-            if field in expected_task and expected_task.get(field) != observed_task.get(field):
+            if field in expected_task and (
+                field not in observed_task or expected_task.get(field) != observed_task.get(field)
+            ):
                 differences.append(
                     f"{task_id}: {field} mismatch "
                     f"{expected_task.get(field)!r} != {observed_task.get(field)!r}"
@@ -313,6 +391,10 @@ def compare_fixture(expected: Path, observed: Path) -> ComparisonResult:
                 _compare_json(expected_artifact, observed_artifact, differences, label, kind)
             elif expected_path.name.endswith((".nii", ".nii.gz")):
                 _compare_nifti(expected_artifact, observed_artifact, differences, label, kind)
-            elif expected_path.read_bytes() != observed_path.read_bytes():
-                differences.append(f"{label}: exact file mismatch")
+            else:
+                try:
+                    if expected_path.read_bytes() != observed_path.read_bytes():
+                        differences.append(f"{label}: exact file mismatch")
+                except OSError as exc:
+                    differences.append(f"{label}: cannot read file ({exc})")
     return ComparisonResult(not differences, tuple(differences))

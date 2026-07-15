@@ -19,18 +19,8 @@ def _write_yaml(path: Path, payload: object) -> None:
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
 
-def _forbidden_target_keys(value: object) -> set[str]:
-    forbidden: set[str] = set()
-    if isinstance(value, dict):
-        for key, item in value.items():
-            token = str(key).lower()
-            if any(part in token for part in ("chronic", "immediate", "phase")):
-                forbidden.add(str(key))
-            forbidden.update(_forbidden_target_keys(item))
-    elif isinstance(value, list):
-        for item in value:
-            forbidden.update(_forbidden_target_keys(item))
-    return forbidden
+def _serialized_yaml(payload: object) -> str:
+    return yaml.safe_dump(payload, sort_keys=True)
 
 
 class FourModelMigrationTests(unittest.TestCase):
@@ -143,6 +133,34 @@ class FourModelMigrationTests(unittest.TestCase):
             _write_yaml(root / name, payload)
         mapping = {
             "schema_version": "dual_frequency_migration_mapping_v1",
+            "target_model_set_id": "dual_frequency_test",
+            "target_endpoint_pair": {
+                "baseline": {"phase_id": "T0", "program_id": 0},
+                "reference": {
+                    "source_condition_id": "legacy_reference",
+                    "phase_id": "T2",
+                    "program_id": 1,
+                },
+                "addon": {
+                    "source_condition_id": "legacy_addon_a",
+                    "phase_id": "T3",
+                    "program_id": 2,
+                },
+            },
+            "target_frequency_classes": {
+                "reference": {
+                    "lower": 100,
+                    "lower_inclusive": False,
+                    "upper": None,
+                    "upper_inclusive": False,
+                },
+                "addon": {
+                    "lower": 0,
+                    "lower_inclusive": False,
+                    "upper": 50,
+                    "upper_inclusive": False,
+                },
+            },
             "source_subscale_field": "visit",
             "source_subscale_selection_field": "phases",
             "component_roles": {
@@ -199,28 +217,79 @@ class FourModelMigrationTests(unittest.TestCase):
         _write_yaml(mapping_path, mapping)
         return root / "workflow.yaml", mapping_path
 
-    def test_conversion_creates_one_combined_condition_and_multiple_child_bindings(self) -> None:
+    def test_conversion_writes_three_review_drafts_without_a_study_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             workflow, mapping = self._fixture(root)
-            report_path = convert_profiles(workflow, mapping, root / "converted")
-            target_study = yaml.safe_load((root / "converted" / "study.yaml").read_text())
-            target_scales = yaml.safe_load((root / "converted" / "scales.yaml").read_text())
-            target_workflow = yaml.safe_load((root / "converted" / "workflow.yaml").read_text())
+            output_dir = root / "converted"
+            report_path = convert_profiles(workflow, mapping, output_dir)
+            target_direct = yaml.safe_load(
+                (output_dir / "direct_voxel_model.yaml").read_text(encoding="utf-8")
+            )
+            target_normative = yaml.safe_load(
+                (output_dir / "normative_fiber_model.yaml").read_text(encoding="utf-8")
+            )
+            target_workflow = yaml.safe_load(
+                (output_dir / "workflow.yaml").read_text(encoding="utf-8")
+            )
             report = json.loads(report_path.read_text(encoding="utf-8"))
+            output_names = {path.name for path in output_dir.iterdir()}
 
-        self.assertEqual(set(target_study["conditions"]), {"reference_only", "combined"})
-        bindings = target_scales["scales"][0]["endpoint_bindings"]
-        self.assertEqual(len(bindings), 3)
-        reference = next(row for row in bindings if row["condition_id"] == "reference_only")
-        combined = [row for row in bindings if row["condition_id"] == "combined"]
-        self.assertEqual(len(combined), 2)
-        self.assertEqual({row["matched_reference_binding_id"] for row in combined}, {reference["endpoint_binding_id"]})
-        self.assertEqual(target_workflow["selection"]["subscales"], ["combined_a", "combined_b"])
-        self.assertFalse(_forbidden_target_keys(target_study))
-        self.assertFalse(_forbidden_target_keys(target_scales))
-        self.assertFalse(_forbidden_target_keys(target_workflow))
+        self.assertEqual(
+            output_names,
+            {
+                "conversion_report.json",
+                "direct_voxel_model.yaml",
+                "normative_fiber_model.yaml",
+                "workflow.yaml",
+            },
+        )
+        self.assertEqual(target_direct["profile_type"], "direct_voxel_model")
+        self.assertEqual(target_normative["profile_type"], "normative_fiber_model")
+        self.assertEqual(target_direct["scales"], ["scale_a"])
+        self.assertEqual(target_normative["endpoint_pair"], target_direct["endpoint_pair"])
+        self.assertEqual(
+            [row["role"] for row in target_normative["connectomes"]["entries"]],
+            ["sensitive", "formal"],
+        )
+        self.assertNotIn("scales", target_workflow["selection"])
+        self.assertNotIn("subscales", target_workflow["selection"])
+        self.assertEqual(target_workflow["direct_voxel_profile"], "direct_voxel_model.yaml")
+        self.assertEqual(
+            target_workflow["normative_fiber_profile"],
+            "normative_fiber_model.yaml",
+        )
+        for payload in (target_direct, target_normative, target_workflow):
+            serialized = _serialized_yaml(payload)
+            self.assertNotIn("legacy_", serialized)
         self.assertEqual(report["status"], "draft_requires_review")
+        self.assertFalse(report["production_loader_imported"])
+        self.assertEqual(
+            report["study_base"],
+            {
+                "required_external_input": True,
+                "generated": False,
+                "source_study_id": "study_a",
+            },
+        )
+        self.assertEqual(
+            report["target_profiles"],
+            ["direct_voxel_model.yaml", "normative_fiber_model.yaml", "workflow.yaml"],
+        )
+        self.assertEqual(
+            report["source_selection_evidence"]["unrepresented_source_subscale_values"],
+            ["legacy_period_b"],
+        )
+        self.assertEqual(set(report["target_condition_evidence"]), {"reference_only", "combined"})
+        bindings = report["binding_conversions"]
+        reference = next(row for row in bindings if row["target_condition_id"] == "reference_only")
+        combined = [row for row in bindings if row["target_condition_id"] == "combined"]
+        self.assertEqual(len(combined), 2)
+        self.assertEqual(
+            {row["target_endpoint_binding_id"] for row in combined},
+            {"scale_a__combined_a", "scale_a__combined_b"},
+        )
+        self.assertEqual(reference["target_endpoint_binding_id"], "scale_a__reference")
 
     def test_unknown_source_field_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -242,6 +311,19 @@ class FourModelMigrationTests(unittest.TestCase):
             _write_yaml(study_path, payload)
             with self.assertRaisesRegex(MigrationError, "combined.*conflict"):
                 convert_profiles(workflow, mapping, root / "converted")
+
+    def test_conversion_refuses_to_replace_existing_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow, mapping = self._fixture(root)
+            output_dir = root / "converted"
+            report_path = convert_profiles(workflow, mapping, output_dir)
+            original = report_path.read_bytes()
+
+            with self.assertRaisesRegex(MigrationError, "replace"):
+                convert_profiles(workflow, mapping, output_dir)
+
+            self.assertEqual(report_path.read_bytes(), original)
 
 
 if __name__ == "__main__":

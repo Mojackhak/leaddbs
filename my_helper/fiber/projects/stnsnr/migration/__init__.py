@@ -1,1 +1,1 @@
-"""Manual migration tools for predecessor STNSNr configuration."""
+"""Manual review-only migration tools excluded from production imports."""
