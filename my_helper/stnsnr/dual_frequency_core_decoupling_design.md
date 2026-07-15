@@ -210,39 +210,42 @@ project can provide the same study-base schema without modifying the core.
 
 ## YAML Profiles
 
-The public configuration remains split into:
+The public configuration consists of three strict YAML profiles:
 
 ```text
-study.yaml
-scales.yaml
-model.yaml
+direct_voxel_model.yaml
+normative_fiber_model.yaml
 workflow.yaml
 ```
 
-### Study profile
+`study_base.json` is a required CLI input, not a fourth YAML profile. Scale
+definitions, clinical observations, phases, programs, stimulation components,
+and source frequencies come only from that file. The model profiles may select
+only scale IDs present in the study base; they cannot redefine scale metadata.
 
-The study profile defines component and condition roles, spatial resources,
-connectomes, and external data assets. Labels are descriptive only:
+### Model profiles
 
-```yaml
-schema_version: dual_frequency_v1
+The direct-voxel and normative-fiber profiles share:
 
-components:
-  reference_component:
-    label: high_frequency
-    frequency_source: stimulation_metadata
-  addon_component:
-    label: ultra_low_frequency
-    frequency_source: stimulation_metadata
-
-conditions:
-  reference_only:
-    components: [reference_component]
-  combined:
-    components: [reference_component, addon_component]
+```text
+model-set ID and output root
+ordered configured scale IDs
+one explicit baseline/reference/add-on endpoint pair
+reference/add-on frequency intervals
+minimum-subject and DeltaReferenceScore support rules
 ```
 
-Connectome scheduling is role-based:
+The endpoint pair is fixed cohort-wide by exact `phase_id` and `program_id`.
+There is no automatic endpoint discovery, period matching, substitution, or
+one-to-many fan-out. A subject missing one member of the fixed pair is excluded
+from that endpoint without changing the configured pair for other subjects.
+
+The direct-voxel profile additionally contains its tau/Coverage resolver,
+computability, formal-resampling, and selected-source sensitivity parameters.
+The normative-fiber profile contains its connectomes, tau/Coverage resolver,
+signed-fiber score, formal inference, sensitivity, and OSS parameters.
+
+Connectome scheduling is role-based and limited to:
 
 ```text
 formal
@@ -256,55 +259,21 @@ grid. Sensitive connectomes produce cell-level metrics and formal-source-cell
 formal inference are derived from a realized final on the formal connectome;
 they do not require a third connectome role.
 
-The core never tests for PPMI, MGH, or dTOR names. The default STNSNr profile
-assigns PPMI/MGH to `sensitive` and dTOR to `formal`.
+The core never tests for PPMI, MGH, or dTOR names. The configured STNSNr
+production profile assigns PPMI/MGH to `sensitive` and dTOR to `formal`.
 
-### Scale profile
-
-Each scale defines only:
-
-```text
-scale_id
-label
-direction
-minimum subjects
-stable endpoint binding IDs
-exactly one reference-only binding
-zero or more combined bindings
-explicit matched-reference binding ID for every combined binding
-```
-
-There is no default scale. Missing child bindings produce explicit catalog
-states and do not trigger substitution. Dependency matching uses only the
-explicit binding relation and never source-period equality. `scale_id` is the parent clinical scale and each
-period-specific child subscale is identified by `endpoint_binding_id`. Parent
-scale selection includes every configured child binding. Multiple combined
-children may share one reference binding and one `combined` condition, so the
-reference endpoint/model is executed once and reused by all downstream
-branches.
-
-### Model profile
-
-The model profile contains scientific parameters for:
-
-- direct-voxel pre-specified tau, scan grid, computability, formal inference,
-  and sensitivity;
-- normative-fiber tau/Coverage, signed-fiber score, controls, formal inference,
-  and sensitivity;
-- DeltaReferenceScore support and branch realization;
-- activation sensitivity and pPAM scoring.
-
-The profile does not expose the direct-voxel candidate threshold. The runtime
-derives it from the minimum formal tau grid value. Smoke/equivalence iteration
-counts are internal tests, not study parameters. The schema rejects hidden test
-fields and project-specific aliases.
+The direct-voxel candidate threshold is not public configuration. The runtime
+derives it from the minimum direct-voxel tau scan value. Script-level smoke and
+equivalence controls remain internal tests and are rejected by public schemas.
 
 ### Workflow profile
 
-The workflow selects parent scales, child subscales, model families, connectome roles, and the
-execution cutoff. It also controls resume, force, endpoint failure policy,
-workers, and expensive-producer authorization. Runtime scheduling parameters
-do not alter scientific cache identity.
+The workflow references both model profiles and declares model/connectome
+selection, execution cutoff, resume/force policy, endpoint failure policy,
+cache/run roots, workers, and expensive-producer authorization. It contains no
+default scale list and duplicates no scientific model parameter. CLI callers
+must provide either one or more `--scale` values or `--all-available`.
+Runtime scheduling parameters do not alter scientific cache identity.
 
 ## Endpoint DAG
 
@@ -313,15 +282,14 @@ Each scale independently expands into:
 ```text
 A = reference direct voxel
 B = reference normative fiber x configured connectomes
-C = add-on direct voxel x configured combined child subscales
-D = add-on normative fiber x configured child subscales/connectomes
+C = add-on direct voxel
+D = add-on normative fiber x configured connectomes
 ```
 
 Every combined endpoint record stores an explicit
-`matched_reference_endpoint_id` resolved from configuration. Reference and
-combined child binding IDs need not match. Normative-fiber dependencies also
-require the same configured connectome ID; no name or approximate matching is
-allowed.
+`matched_reference_endpoint_id` resolved from the one configured endpoint
+pair. Normative-fiber dependencies also require the same configured connectome
+ID; no name or approximate matching is allowed.
 
 Each executable endpoint follows:
 
