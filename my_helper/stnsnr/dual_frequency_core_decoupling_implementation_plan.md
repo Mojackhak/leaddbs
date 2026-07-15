@@ -1619,6 +1619,7 @@ git commit -m "feat: extract generic formal and sensitivity backends"
 - Modify: `my_helper/fiber/core/dual_frequency/config/loader.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/activation/canonical_mapping.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/activation/ppam.py`
+- Create: `my_helper/fiber/core/dual_frequency/backends/activation/fitting.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/activation/ossdbs.py`
 - Create: `my_helper/fiber/core/dual_frequency/tests/test_activation_universe.py`
 - Create: `my_helper/fiber/core/dual_frequency/tests/test_oss_backend.py`
@@ -1626,6 +1627,10 @@ git commit -m "feat: extract generic formal and sensitivity backends"
 **Interfaces:**
 - Produces: `OSSRowBackend.materialize(OSSRowBatchRequest) -> OSSRowBatchArtifact`.
 - Produces: `ActivationBackend.run_activation(ActivationRequest) -> ActivationArtifact`.
+- `ppam.py` owns only probability validation, canonical maximum union, and the
+  inclusive binary threshold. `fitting.py` owns endpoint nuisance design,
+  fold-local weights/scoring, Freedman-Lane smoke permutation, technical
+  status, and run-scoped artifact publication.
 - The requested producer fiber axis is exactly
   `final.valid_feature_axis`; there is no whole-connectome or minimum-tau
   producer universe and no intermediate sidecar bundle.
@@ -1649,6 +1654,14 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   hard-computability limits, signed fiber-score settings, permutation count,
   and seed. The backend must not infer these inputs from filenames or hidden
   final-record artifacts.
+- Adjusted activation nuisance inputs are exactly
+  `delta_full_scores[subject]` and `delta_fold_scores[fold, subject]`, with
+  axes `(subject_axis,)` and `(subject_axis, subject_axis)`. Other shapes or
+  orders are branch-local input failures.
+- `OSSRowBatchArtifact` exposes a named canonical `feature_ids` artifact.
+  Endpoint fitting verifies its int64 values and order against the request and
+  `final.valid_feature_axis`; IDs cannot be inferred from another artifact or
+  silently subset/reordered.
 - `final.valid_feature_axis` is the complete OSS candidate universe for the
   endpoint. OSS never reapplies peak-E-field tau/Coverage in full-sample,
   LOOCV, or permutation fits. Within that locked axis, full-sample and each
