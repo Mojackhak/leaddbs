@@ -63,6 +63,26 @@ class ConfigTest(unittest.TestCase):
                 WorkflowOverrides(all_available=True, workers=0),
             )
 
+    def test_fiber_selection_requires_the_formal_connectome(self) -> None:
+        with self.assertRaisesRegex(ConfigurationError, "must include the configured formal"):
+            load_workflow(
+                CONFIG_ROOT / "workflow.yaml",
+                WorkflowOverrides(
+                    all_available=True,
+                    models=("reference_fiber",),
+                    connectomes=("ppmi_85_ewert_2017",),
+                ),
+            )
+        voxel_only = load_workflow(
+            CONFIG_ROOT / "workflow.yaml",
+            WorkflowOverrides(
+                all_available=True,
+                models=("reference_voxel",),
+                connectomes=("ppmi_85_ewert_2017",),
+            ),
+        )
+        self.assertEqual(voxel_only.selected_connectomes, ("ppmi_85_ewert_2017",))
+
     def test_test_profiles_share_the_same_cross_profile_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             workflow = self._workflow_document()

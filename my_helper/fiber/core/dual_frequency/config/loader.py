@@ -457,6 +457,12 @@ def load_workflow(
     selected_models = _resolve_selector(requested_models, MODEL_FAMILIES, "model families")
     connectome_ids = tuple(item.connectome_id for item in fiber.connectomes)
     selected_connectomes = _resolve_selector(requested_connectomes, connectome_ids, "connectomes")
+    if any(model_family.endswith("fiber") for model_family in selected_models):
+        formal_connectome_id = fiber.formal_connectome.connectome_id
+        if formal_connectome_id not in selected_connectomes:
+            raise ConfigurationError(
+                "fiber model selection must include the configured formal connectome"
+            )
 
     execution_payload = deepcopy(workflow_payload["execution"])
     for key in ("through", "resume", "force", "allow_expensive_producers", "workers"):
