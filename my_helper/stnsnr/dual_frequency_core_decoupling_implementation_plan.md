@@ -1648,8 +1648,13 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   canonical fiber IDs, outcome direction, hard-computability limits, signed
   fiber-score settings, permutation count, and seed. The backend must not infer
   these inputs from filenames or hidden final-record artifacts.
+- `final.valid_feature_axis` is the complete OSS candidate universe for the
+  endpoint. OSS never reapplies peak-E-field tau/Coverage in full-sample,
+  LOOCV, or permutation fits. Within that locked axis, full-sample and each
+  training fold independently intersect finite OSS weights, reselect signed
+  fibers, and recompute the configured weighted-peak score.
 
-- [ ] **Step 1: Write failing universe and identity tests**
+- [x] **Step 1: Write failing universe and identity tests**
 
 Assert the analysis universe equals the realized final model's exact ordered
 `valid_feature_axis` at selected tau/Coverage. Weights, signs, and selected
@@ -1657,7 +1662,7 @@ sweet/sour IDs do not restrict that axis. Scale/final identifiers do not enter
 the producer key, while a changed ordered fiber-axis hash does. Require the
 unique configured `formal` connectome role without checking a connectome name.
 
-- [ ] **Step 2: Write failing mapping and threshold tests**
+- [x] **Step 2: Write failing mapping and threshold tests**
 
 Assert:
 
@@ -1671,7 +1676,7 @@ Freeze the public v1 OSS contract to `OSS-DBSv2`, `pPAM`, fiber diameters
 `1.0..4.0` micrometers, exactly 10 equidistant samples, and inclusive fitting
 threshold `0.5`. Schema and semantic validation reject any other values.
 
-- [ ] **Step 3: Write bounded OSS acceptance tests**
+- [x] **Step 3: Write bounded OSS acceptance tests**
 
 Validate the completed allowlisted reference-fiber OSS matrix, fiber IDs,
 metadata, and sensitivity-result hashes. Replay exact ordered subsetting and
@@ -1701,7 +1706,7 @@ and cache hits remain usable with expensive producers disabled. Preserve the
 global pre-service expensive guard for services that cannot prove cache-first
 behavior; activation explicitly declares cache-first authorization handling.
 
-- [ ] **Step 5: Verify expensive-miss blocking**
+- [x] **Step 5: Verify expensive-miss blocking**
 
 Delete only a temporary synthetic cache row and run acceptance mode with
 expensive producers disabled. Expected: `missing_acceptance_fixture`; the

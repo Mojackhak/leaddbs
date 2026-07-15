@@ -753,16 +753,19 @@ test  = patient h
 
 The fold workflow is:
 
-1. Use training patients only to compute peak E-field `Coverage_selected_tau_fold_h`.
-2. Define `F_candidate_selected_fold_h = {l: Coverage_selected_tau_fold_h(l) >= selected_Coverage}`.
-3. Read training and held-out `X_HF_OSS` values from the OSS sidecar for those candidate fibers.
-4. Estimate `rho_HF_OSS(l)` on training patients only.
-5. Convert to `M_HF_OSS(l)`.
-6. Select fold-specific `F+_OSS` and `F-_OSS`.
-7. Compute training and held-out `NetFiberScore_OSS`.
-8. Fit `Y_post ~ NetFiberScore_OSS + Y_base` on training patients only.
-9. Predict held-out `Y_post`.
-10. Write the held-out row to `normative_HF_fiber_oss_loocv_predictions.csv`.
+1. Use the realized final model's locked, ordered `final.valid_feature_axis`.
+2. Read training and held-out `X_HF_OSS` values on that exact axis.
+3. Estimate `rho_HF_OSS(l)` on training patients only.
+4. Convert to `M_HF_OSS(l)` and intersect the axis with finite fold weights.
+5. Select fold-specific `F+_OSS` and `F-_OSS`.
+6. Compute training and held-out `NetFiberScore_OSS`.
+7. Fit `Y_post ~ NetFiberScore_OSS + Y_base` on training patients only.
+8. Predict held-out `Y_post`.
+9. Write the held-out row to `normative_HF_fiber_oss_loocv_predictions.csv`.
+
+OSS does not recompute peak-E-field Coverage and does not rescan tau/Coverage.
+The final valid axis is fixed before OSS; only OSS weights, finite support,
+signed selections, scores, and predictions are fold-local.
 
 Fold-level prohibitions:
 
@@ -770,7 +773,6 @@ Fold-level prohibitions:
 no full-sample ranks
 no full-sample M_HF_OSS
 no full-sample F+_OSS or F-_OSS
-no held-out patient in candidate definition
 no held-out patient in prediction model fitting
 ```
 
@@ -787,7 +789,10 @@ It uses Freedman-Lane residual permutation:
 2. Extract residuals `e_i`.
 3. Permute residuals to `e_perm_i`.
 4. Reconstruct `Y*_i = fitted_Y_base_i + e_perm_i`.
-5. For each permutation, rerun the full OSS LOOCV workflow, including candidate definition, `rho_HF_OSS`, `M_HF_OSS`, `F+_OSS`/`F-_OSS`, `NetFiberScore_OSS`, held-out prediction, and LOOCV Spearman rho.
+5. For each permutation, rerun the full OSS LOOCV workflow on the locked
+   `final.valid_feature_axis`, including `rho_HF_OSS`, `M_HF_OSS`, finite-weight
+   support, `F+_OSS`/`F-_OSS`, `NetFiberScore_OSS`, held-out prediction, and
+   LOOCV Spearman rho.
 
 Permutation p value:
 
@@ -1051,7 +1056,8 @@ plain-activation file may be written as a QC/display/plain-burden control. The
 stored probability sidecar remains the provenance input and is not overwritten
 by the task-local binary fitting matrix.
 
-For LOOCV fold `h`, derive training-fold selected-source coverage by subtraction:
+For the peak-E-field branch only, LOOCV fold `h` derives training-fold
+selected-source coverage by subtraction:
 
 ```text
 S_selected_tau(l, i) = I[X_HF_i(l) >= selected_tau]
@@ -1059,6 +1065,10 @@ Coverage_selected_tau_all(l) = sum_i S_selected_tau(l, i)
 Coverage_selected_tau_fold_h(l) = Coverage_selected_tau_all(l) - S_selected_tau(l, h)
 F_candidate_selected_fold_h = {l : Coverage_selected_tau_fold_h(l) >= selected_Coverage}
 ```
+
+The OSS branch does not repeat this calculation. It inherits the already
+realized ordered `final.valid_feature_axis` and performs only fold-local OSS
+weighting and scoring on that locked axis.
 
 Optimization must not change the estimand: ranks are computed within training folds, full-sample ranks are prohibited, `F+`/`F-` are reselected in each fold/permutation/bootstrap, and formal resampling counts are not reduced for speed. Streaming top-k reducers should be used for dTOR `SweetPeak5` and `SourPeak5`; formal loops must not write full per-permutation or per-bootstrap fiber-weight tables unless debug output is explicitly enabled.
 

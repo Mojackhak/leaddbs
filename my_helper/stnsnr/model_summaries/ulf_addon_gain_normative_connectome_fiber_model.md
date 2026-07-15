@@ -1506,6 +1506,11 @@ no threshold selected using the held-out patient's outcome in nested/adaptive va
 no OSS activation-defined candidate set
 ```
 
+The full-sample candidate-mask prohibition above applies to the peak-E-field
+source model. The OSS sensitivity does not recompute a candidate mask: it uses
+the realized final branch's locked `final.valid_feature_axis`, while OSS
+weights, finite support, signed selections, and scores remain fold-local.
+
 Core observed stage:
 
 ```text
