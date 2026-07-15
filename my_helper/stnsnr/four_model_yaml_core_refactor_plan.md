@@ -248,6 +248,37 @@ are not production dependencies.
 `WorkflowService` is the single application API used by CLI, tests, and a
 future GUI. The CLI cannot contain a second orchestration implementation.
 
+### Confirmed terminal and reporting architecture
+
+The scientific DAG executes endpoint-local observed, resolver, final, formal,
+sensitivity, and activation work. Reporting is not an ordinary DAG task whose
+dependency failure can hide another terminal state. After executor completion,
+a post-executor aggregator receives the complete current-run task outcomes and
+typed records, then writes endpoint summaries, the artifact index, and the run
+report. It may describe failed, skipped, fallback, and no-final endpoints but
+must not fabricate missing numerical artifacts.
+
+`FinalDecisionRecord` is the typed terminal authority for every requested
+endpoint/model family. It represents exactly one of:
+
+```text
+realized_primary
+realized_fallback
+no_final_model
+dependency_failure
+execution_failure
+```
+
+A realized decision references exactly one `FinalModelRecord`; a non-realized
+decision cannot carry a final-model reference. Persisted service results must
+restore these records through an explicit typed codec rather than untyped fact
+dictionaries.
+
+Implementation order is fixed: complete generic formal/sensitivity backends,
+then add the explicit runtime input provider, service adapters, and typed record
+codec, and only then switch the production registry and attach post-executor
+report aggregation. An empty registry remains test injection only.
+
 ## Canonical Study Base
 
 The core consumes the existing validated `study_base.json` directly. It does
@@ -625,7 +656,9 @@ technical backend execution failure:
 
 Prediction status of an accepted add-on branch is reported but does not change
 its primary/fallback role. At most one final model enters downstream formal,
-sensitivity, activation, and reporting tasks.
+sensitivity, and activation tasks. Post-executor reporting receives the single
+typed final decision plus every terminal task outcome; it does not select a
+model or feed classification back into the DAG.
 
 ### Batch behavior
 

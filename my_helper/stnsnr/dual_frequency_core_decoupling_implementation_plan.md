@@ -1869,6 +1869,21 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   restoration, and the production registry remain clarification-gated. The
   predecessor package and entrypoint have not been moved.
 
+**Architecture decisions confirmed, 2026-07-15:**
+
+- Reporting uses a post-executor terminal aggregator over the complete
+  current-run outcomes and typed records. Ordinary report DAG tasks will not be
+  used to infer terminal states through dependency/skip propagation.
+- Add `FinalDecisionRecord` as the typed authority for realized primary,
+  realized fallback, `no_final_model`, dependency failure, and execution
+  failure. Persisted records must round-trip through an explicit typed codec.
+- Implementation order is Task 13 formal/sensitivity backends, then the
+  `RuntimeInputProvider`, service adapters, and typed codec, followed by the
+  production registry switch and post-executor reporting integration.
+- These decisions release the architecture gate. They do not retroactively
+  mark any Task 15 step complete; each implementation and acceptance gate below
+  remains required.
+
 - [ ] **Step 1: Write failing generic-report tests**
 
 Reports must contain reference/add-on fields and reject HF/ULF compatibility
