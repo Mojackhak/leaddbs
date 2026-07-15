@@ -2336,6 +2336,34 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   probability matrix and the same endpoint inputs, and invoke pPAM fitting.
   A row-materialization artifact is not itself a completed endpoint sensitivity.
 
+The default authorized-miss producer is project-neutral and consumes only the
+typed row request plus internally resolved Lead-DBS/OSS dependencies. It must:
+
+1. restore every geometry, stimulation-parameter, and locator document from its
+   verified `ArtifactRef`;
+2. require all sources in one continuous group to share reconstruction,
+   electrode lead, frequency, control mode, and pulse width, and reject
+   overlapping active contact identities instead of silently changing the
+   simultaneous boundary;
+3. construct one summed simultaneous contact boundary for a continuous group,
+   or one single-source boundary for each alternating row;
+4. map left reconstruction/contact geometry with the exact transform declared
+   by `study_base.json`; calling a helper that rediscovers another template
+   transform is forbidden;
+5. prepare the configured formal connectome, restrict its local axon allocation
+   to the exact ordered `final.valid_feature_axis`, and preserve an explicit
+   local-axon-to-final-fiber mapping;
+6. run the fixed ten equidistant 1--4 micrometer pPAM samples with the internally
+   resolved official `OSS-DBSv2` environment, aggregate activated counts as
+   `count / 10`, and return one `OSSRowProduct` on the requested fiber axis; and
+7. use an isolated scientific-identity work directory and atomically publish
+   only through `ContentAddressedCache`.
+
+Neither the toolchain nor its tests may contain a subject, phase, program,
+scale, target, or endpoint allowlist. Endpoint membership is already closed by
+`EndpointInputRecord.included_subject_ids`; Target/component labels remain
+irrelevant to frequency classification and scientific cache identity.
+
 - [ ] **Step 1: Write failing runtime-provider, codec, and generic-report tests**
 
 Reports must contain reference/add-on fields and reject HF/ULF compatibility

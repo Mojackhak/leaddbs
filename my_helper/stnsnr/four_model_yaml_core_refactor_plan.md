@@ -944,6 +944,17 @@ official Lead-DBS `OSS-DBSv2` environment internally and may invoke the declared
 producer. OSS executable or environment paths are internal runtime dependencies;
 they are not public model-YAML fields.
 
+The default producer rebuilds its row exclusively from verified run-scoped
+geometry/source locator artifacts and the configured formal connectome. A
+continuous frequency group is accepted as one simultaneous row only when its
+sources share reconstruction lead, frequency, control mode, and pulse width and
+do not reuse an active contact identity; its contact boundary is then summed
+before OSS. Alternating rows remain one source each. Left geometry is mapped
+with the exact study-base transform before axon allocation. The ten pPAM samples
+are restricted to the immutable final fiber axis and return exact activated
+counts divided by ten. No subject, phase, program, target, or scale allowlist is
+permitted in this producer path.
+
 ## Spatial-Jitter Contract
 
 Spatial jitter is final-linked robustness evidence and cannot alter source,
