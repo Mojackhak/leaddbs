@@ -254,4 +254,5 @@ class ResolvedWorkflow:
     selected_models: tuple[str, ...]
     selected_connectomes: tuple[str, ...]
     configuration_hash: str
+    scientific_configuration_hash: str
     source_paths: tuple[Path, ...]

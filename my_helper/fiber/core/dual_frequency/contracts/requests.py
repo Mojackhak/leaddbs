@@ -50,6 +50,42 @@ def _shape(value: ScientificInput, field: str) -> tuple[int, ...]:
     return tuple(int(dimension) for dimension in shape)
 
 
+def _require_artifact_axes(
+    value: ScientificInput,
+    field: str,
+    expected_axes: tuple[AxisRef, ...],
+) -> None:
+    if isinstance(value, ArtifactRef) and value.axis_refs != expected_axes:
+        raise RequestError(f"{field} artifact axes do not match the declared request axes")
+
+
+def _validate_vector(value: ScientificInput, field: str, subject_axis: AxisRef) -> None:
+    expected_shape = (subject_axis.count,)
+    if _shape(value, field) != expected_shape:
+        raise RequestError(f"{field} shape must be {expected_shape}")
+    _require_artifact_axes(value, field, (subject_axis,))
+
+
+def _validate_exposure(
+    value: ScientificInput,
+    field: str,
+    subject_axis: AxisRef,
+    feature_axis: AxisRef,
+) -> None:
+    expected_shape = (subject_axis.count, feature_axis.count)
+    if _shape(value, field) != expected_shape:
+        raise RequestError(f"{field} shape must be {expected_shape}")
+    _require_artifact_axes(value, field, (subject_axis, feature_axis))
+
+
+def _validate_nuisance(value: ScientificInput, field: str, subject_axis: AxisRef) -> None:
+    shape = _shape(value, field)
+    if not shape or shape[0] != subject_axis.count or len(shape) > 2:
+        raise RequestError(f"{field} must be subject-major and one- or two-dimensional")
+    if isinstance(value, ArtifactRef) and value.axis_refs[0] != subject_axis:
+        raise RequestError(f"{field} artifact subject axis does not match the declared request axis")
+
+
 @dataclass(frozen=True)
 class SourceGrid:
     """Observed tau/Coverage resolver grid."""
@@ -111,18 +147,11 @@ class ObservedRequest:
             raise RequestError("subject_axis and feature_axis must be AxisRef values")
         if not isinstance(self.source_grid, SourceGrid):
             raise RequestError("source_grid must be a SourceGrid")
-        expected_exposure_shape = (self.subject_axis.count, self.feature_axis.count)
-        if _shape(self.exposure, "exposure") != expected_exposure_shape:
-            raise RequestError(f"exposure shape must be {expected_exposure_shape}")
-        expected_outcome_shape = (self.subject_axis.count,)
-        if _shape(self.outcome, "outcome") != expected_outcome_shape:
-            raise RequestError(f"outcome shape must be {expected_outcome_shape}")
-        if _shape(self.baseline, "baseline") != expected_outcome_shape:
-            raise RequestError(f"baseline shape must be {expected_outcome_shape}")
+        _validate_exposure(self.exposure, "exposure", self.subject_axis, self.feature_axis)
+        _validate_vector(self.outcome, "outcome", self.subject_axis)
+        _validate_vector(self.baseline, "baseline", self.subject_axis)
         for index, value in enumerate(self.nuisance_inputs):
-            shape = _shape(value, f"nuisance_inputs[{index}]")
-            if not shape or shape[0] != self.subject_axis.count or len(shape) > 2:
-                raise RequestError("each nuisance input must be subject-major and one- or two-dimensional")
+            _validate_nuisance(value, f"nuisance_inputs[{index}]", self.subject_axis)
 
 
 @dataclass(frozen=True)
@@ -149,6 +178,7 @@ class FormalRequest:
     outcome: ScientificInput
     baseline: ScientificInput
     nuisance_inputs: tuple[ScientificInput, ...]
+    subject_axis: AxisRef
     permutation_resamples: int
     bootstrap_resamples: int
     seed: int
@@ -161,6 +191,12 @@ class FormalRequest:
         _scientific_input(self.outcome, "outcome")
         _scientific_input(self.baseline, "baseline")
         object.__setattr__(self, "nuisance_inputs", _inputs(self.nuisance_inputs, "nuisance_inputs"))
+        if not isinstance(self.subject_axis, AxisRef):
+            raise RequestError("subject_axis must be an AxisRef")
+        _validate_vector(self.outcome, "outcome", self.subject_axis)
+        _validate_vector(self.baseline, "baseline", self.subject_axis)
+        for index, value in enumerate(self.nuisance_inputs):
+            _validate_nuisance(value, f"nuisance_inputs[{index}]", self.subject_axis)
         for field in ("permutation_resamples", "bootstrap_resamples"):
             value = int(getattr(self, field))
             if value < 1:
@@ -192,6 +228,8 @@ class SensitivityRequest:
     sensitivity_kind: str
     exposure: ScientificInput
     parameter_values: tuple[float, ...]
+    subject_axis: AxisRef
+    feature_axis: AxisRef
     final_model: FinalModelRecord | None = None
     sensitive_record: SensitiveRecord | None = None
 
@@ -199,6 +237,9 @@ class SensitivityRequest:
         if not str(self.sensitivity_kind).strip():
             raise RequestError("sensitivity_kind must be nonempty")
         _scientific_input(self.exposure, "exposure")
+        if not isinstance(self.subject_axis, AxisRef) or not isinstance(self.feature_axis, AxisRef):
+            raise RequestError("subject_axis and feature_axis must be AxisRef values")
+        _validate_exposure(self.exposure, "exposure", self.subject_axis, self.feature_axis)
         values = tuple(float(value) for value in self.parameter_values)
         if any(not math.isfinite(value) for value in values):
             raise RequestError("parameter_values must be finite")
@@ -210,6 +251,8 @@ class SensitivityRequest:
             "fallback_final_realized",
         }:
             raise RequestError("final-linked sensitivity requires a realized final model")
+        if self.final_model is not None and self.feature_axis != self.final_model.feature_axis.axis:
+            raise RequestError("final-linked sensitivity must inherit the final model feature axis")
 
 
 @dataclass(frozen=True)
@@ -235,6 +278,7 @@ class ActivationRequest:
 
     final_model: FinalModelRecord
     activation_probability: ScientificInput
+    subject_axis: AxisRef
     feature_axis: AxisRef
     fitting_probability_threshold: float
     permutation_resamples: int
@@ -247,8 +291,16 @@ class ActivationRequest:
         if self.final_model.final_status not in {"final_model_realized", "fallback_final_realized"}:
             raise RequestError("activation sensitivity requires a realized final model")
         _scientific_input(self.activation_probability, "activation_probability")
-        if not isinstance(self.feature_axis, AxisRef):
-            raise RequestError("feature_axis must be an AxisRef")
+        if not isinstance(self.subject_axis, AxisRef) or not isinstance(self.feature_axis, AxisRef):
+            raise RequestError("subject_axis and feature_axis must be AxisRef values")
+        if self.feature_axis != self.final_model.feature_axis.axis:
+            raise RequestError("activation sensitivity must inherit the final model feature axis")
+        _validate_exposure(
+            self.activation_probability,
+            "activation_probability",
+            self.subject_axis,
+            self.feature_axis,
+        )
         threshold = float(self.fitting_probability_threshold)
         if not math.isfinite(threshold) or not 0 <= threshold <= 1:
             raise RequestError("fitting_probability_threshold must be in [0, 1]")

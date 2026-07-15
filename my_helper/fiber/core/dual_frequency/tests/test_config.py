@@ -27,6 +27,8 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(resolved.direct_voxel.direct_candidate_threshold_v_per_m, 100.0)
         self.assertEqual(resolved.normative_fiber.formal_connectome.role, "formal")
         self.assertEqual(resolved.workflow.execution.workers, 3)
+        self.assertEqual(len(resolved.configuration_hash), 64)
+        self.assertEqual(len(resolved.scientific_configuration_hash), 64)
         with self.assertRaises(FrozenInstanceError):
             resolved.selected_scales = ()
 
@@ -62,6 +64,23 @@ class ConfigTest(unittest.TestCase):
                 CONFIG_ROOT / "workflow.yaml",
                 WorkflowOverrides(all_available=True, workers=0),
             )
+
+    def test_override_types_and_selector_uniqueness_are_strict(self) -> None:
+        invalid_overrides = (
+            (WorkflowOverrides(all_available=True, through="bogus"), "override through"),
+            (WorkflowOverrides(all_available=True, resume="false"), "resume must be boolean"),
+            (WorkflowOverrides(all_available=True, workers=1.9), "workers must be an integer"),
+            (
+                WorkflowOverrides(
+                    all_available=True,
+                    models=("reference_voxel", "reference_voxel"),
+                ),
+                "models values must be unique",
+            ),
+        )
+        for overrides, message in invalid_overrides:
+            with self.subTest(message=message), self.assertRaisesRegex(ConfigurationError, message):
+                load_workflow(CONFIG_ROOT / "workflow.yaml", overrides)
 
     def test_fiber_selection_requires_the_formal_connectome(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "must include the configured formal"):
@@ -161,6 +180,46 @@ class ConfigTest(unittest.TestCase):
         direct["shared"]["source"]["scan"]["tau_v_per_m"][0] = 100.0
         equivalent = self._load_modified_profiles(direct=direct)
         self.assertEqual(original.configuration_hash, equivalent.configuration_hash)
+        self.assertEqual(
+            original.scientific_configuration_hash,
+            equivalent.scientific_configuration_hash,
+        )
+
+    def test_run_and_scientific_configuration_hashes_have_distinct_boundaries(self) -> None:
+        original = load_workflow(
+            CONFIG_ROOT / "workflow.yaml",
+            WorkflowOverrides(all_available=True),
+        )
+        different_workers = load_workflow(
+            CONFIG_ROOT / "workflow.yaml",
+            WorkflowOverrides(all_available=True, workers=2),
+        )
+        self.assertNotEqual(original.configuration_hash, different_workers.configuration_hash)
+        self.assertEqual(
+            original.scientific_configuration_hash,
+            different_workers.scientific_configuration_hash,
+        )
+
+        resume_only = load_workflow(
+            CONFIG_ROOT / "workflow.yaml",
+            WorkflowOverrides(all_available=True, resume=True),
+        )
+        self.assertEqual(original.configuration_hash, resume_only.configuration_hash)
+        self.assertEqual(
+            original.scientific_configuration_hash,
+            resume_only.scientific_configuration_hash,
+        )
+
+        direct = self._yaml_document(CONFIG_ROOT / "direct_voxel_model.yaml")
+        fiber = self._yaml_document(CONFIG_ROOT / "normative_fiber_model.yaml")
+        direct["output"]["root"] = "/tmp/alternate-output"
+        fiber["output"]["root"] = "/tmp/alternate-output"
+        different_output = self._load_modified_profiles(direct=direct, fiber=fiber)
+        self.assertNotEqual(original.configuration_hash, different_output.configuration_hash)
+        self.assertEqual(
+            original.scientific_configuration_hash,
+            different_output.scientific_configuration_hash,
+        )
 
     def test_rejects_overlapping_frequency_boundary_and_reused_binding(self) -> None:
         direct = self._yaml_document(CONFIG_ROOT / "direct_voxel_model.yaml")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from copy import deepcopy
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -49,6 +50,7 @@ MODEL_FAMILIES = (
     "addon_voxel",
     "addon_fiber",
 )
+THROUGH_PHASES = frozenset({"observed", "formal", "sensitivity", "report"})
 
 
 class ConfigurationError(ValueError):
@@ -380,6 +382,30 @@ def _validate_profiles(
 
 
 def _validate_override_selection(overrides: WorkflowOverrides) -> None:
+    if not isinstance(overrides, WorkflowOverrides):
+        raise ConfigurationError("overrides must be a WorkflowOverrides value")
+    for field in ("scales", "models", "connectomes"):
+        values = getattr(overrides, field)
+        if not isinstance(values, tuple):
+            raise ConfigurationError(f"override {field} must be a tuple")
+        if any(not isinstance(value, str) or not value.strip() for value in values):
+            raise ConfigurationError(f"override {field} must contain nonempty strings")
+        if len(set(values)) != len(values):
+            raise ConfigurationError(f"override {field} values must be unique")
+    if type(overrides.all_available) is not bool:
+        raise ConfigurationError("override all_available must be boolean")
+    if overrides.through is not None:
+        if not isinstance(overrides.through, str) or overrides.through not in THROUGH_PHASES:
+            raise ConfigurationError("override through must be observed, formal, sensitivity, or report")
+    for field in ("resume", "force", "allow_expensive_producers"):
+        value = getattr(overrides, field)
+        if value is not None and type(value) is not bool:
+            raise ConfigurationError(f"override {field} must be boolean")
+    if overrides.workers is not None:
+        if type(overrides.workers) is not int:
+            raise ConfigurationError("override workers must be an integer")
+        if overrides.workers < 1:
+            raise ConfigurationError("workers must be positive")
     if overrides.scales and overrides.all_available:
         raise ConfigurationError("--scale and --all-available are mutually exclusive")
     if not overrides.scales and not overrides.all_available:
@@ -389,6 +415,10 @@ def _validate_override_selection(overrides: WorkflowOverrides) -> None:
 
 
 def _resolve_selector(values: tuple[str, ...], available: tuple[str, ...], label: str) -> tuple[str, ...]:
+    if not values:
+        raise ConfigurationError(f"{label} selector cannot be empty")
+    if len(set(values)) != len(values):
+        raise ConfigurationError(f"{label} selector values must be unique")
     if "all" in values:
         if len(values) != 1:
             raise ConfigurationError(f"{label} selector 'all' cannot be combined with named values")
@@ -399,7 +429,22 @@ def _resolve_selector(values: tuple[str, ...], available: tuple[str, ...], label
     return values
 
 
-def _configuration_hash(
+def _scientific_profile_payload(profile: object) -> dict[str, object]:
+    payload = asdict(profile)
+    payload.pop("schema_version", None)
+    payload.pop("model_set_id", None)
+    payload.pop("output", None)
+    payload.pop("scales", None)
+    connectomes = payload.get("connectomes")
+    if isinstance(connectomes, (list, tuple)):
+        for connectome in connectomes:
+            if isinstance(connectome, dict):
+                connectome.pop("label", None)
+                connectome.pop("path", None)
+    return payload
+
+
+def _scientific_configuration_hash(
     direct: DirectVoxelModelProfile,
     fiber: NormativeFiberModelProfile,
     selected_scales: tuple[str, ...],
@@ -408,11 +453,38 @@ def _configuration_hash(
 ) -> str:
     return canonical_hash(
         {
-        "direct_voxel": direct,
-        "normative_fiber": fiber,
-        "selected_scales": selected_scales,
-        "selected_models": selected_models,
-        "selected_connectomes": selected_connectomes,
+            "direct_voxel": _scientific_profile_payload(direct),
+            "normative_fiber": _scientific_profile_payload(fiber),
+            "selected_scales": selected_scales,
+            "selected_models": selected_models,
+            "selected_connectomes": selected_connectomes,
+        }
+    )
+
+
+def _configuration_hash(
+    direct: DirectVoxelModelProfile,
+    fiber: NormativeFiberModelProfile,
+    workflow: WorkflowProfile,
+    selected_scales: tuple[str, ...],
+    selected_models: tuple[str, ...],
+    selected_connectomes: tuple[str, ...],
+) -> str:
+    execution = workflow.execution
+    return canonical_hash(
+        {
+            "direct_voxel": direct,
+            "normative_fiber": fiber,
+            "selected_scales": selected_scales,
+            "selected_models": selected_models,
+            "selected_connectomes": selected_connectomes,
+            "execution": {
+                "through": execution.through,
+                "continue_on_endpoint_failure": execution.continue_on_endpoint_failure,
+                "allow_expensive_producers": execution.allow_expensive_producers,
+                "workers": execution.workers,
+            },
+            "storage": workflow.storage,
         }
     )
 
@@ -471,7 +543,7 @@ def load_workflow(
             execution_payload[key] = value
     if execution_payload["resume"] and execution_payload["force"]:
         raise ConfigurationError("resume and force cannot both be enabled")
-    if int(execution_payload["workers"]) < 1:
+    if execution_payload["workers"] < 1:
         raise ConfigurationError("workers must be positive")
 
     workflow = WorkflowProfile(
@@ -482,12 +554,12 @@ def load_workflow(
             connectomes=tuple(workflow_selection["connectomes"]),
         ),
         execution=ExecutionProfile(
-            through=str(execution_payload["through"]),
-            resume=bool(execution_payload["resume"]),
-            force=bool(execution_payload["force"]),
-            continue_on_endpoint_failure=bool(execution_payload["continue_on_endpoint_failure"]),
-            allow_expensive_producers=bool(execution_payload["allow_expensive_producers"]),
-            workers=int(execution_payload["workers"]),
+            through=execution_payload["through"],
+            resume=execution_payload["resume"],
+            force=execution_payload["force"],
+            continue_on_endpoint_failure=execution_payload["continue_on_endpoint_failure"],
+            allow_expensive_producers=execution_payload["allow_expensive_producers"],
+            workers=execution_payload["workers"],
         ),
         storage=StorageProfile(
             cache_root=Path(workflow_payload["storage"]["cache_root"]).expanduser().resolve(),
@@ -502,6 +574,14 @@ def load_workflow(
         selected_models=selected_models,
         selected_connectomes=selected_connectomes,
         configuration_hash=_configuration_hash(
+            direct,
+            fiber,
+            workflow,
+            selected_scales,
+            selected_models,
+            selected_connectomes,
+        ),
+        scientific_configuration_hash=_scientific_configuration_hash(
             direct,
             fiber,
             selected_scales,

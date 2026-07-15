@@ -12,6 +12,34 @@ from .identity import EndpointKey, FinalModelKey, canonical_hash
 ACCEPTED_SOURCE_STATUSES = frozenset({"pre_specified_accepted", "scan_fallback_accepted"})
 PREDICTION_STATUSES = frozenset({"error_predictive", "error_nonpredictive"})
 SOURCE_STATUSES = ACCEPTED_SOURCE_STATUSES | {"absent_no_stable_grid"}
+SOURCE_INPUT_STATUSES = frozenset({"valid", "input_failure", "execution_failure"})
+THRESHOLD_SOURCES = frozenset({"pre_specified", "scan_fallback", "none"})
+DELTA_INPUT_STATUSES = frozenset({"valid", "invalid", "input_failure", "execution_failure"})
+DELTA_SUPPORT_STATUSES = frozenset(
+    {
+        "adequate",
+        "limited",
+        "invalid_extreme_out_of_support",
+        "invalid_no_reference_component_exposure",
+        "invalid_no_reference_component_coverage",
+        "not_applicable",
+    }
+)
+DEPENDENCY_STATUSES = frozenset(
+    {"ready", "not_configured", "input_failure", "design_failure", "execution_failure"}
+)
+BRANCH_ROLES = frozenset({"primary", "comparison", "fallback_eligible"})
+BRANCH_INPUT_STATUSES = frozenset({"valid", "input_failure", "execution_failure", "not_attempted"})
+NUISANCE_DESIGN_STATUSES = frozenset(
+    {
+        "valid",
+        "design_failure",
+        "invalid_delta_reference_scaling",
+        "invalid_nuisance_design",
+        "execution_failure",
+        "not_attempted",
+    }
+)
 
 
 class RecordError(ValueError):
@@ -144,8 +172,12 @@ class SourceRecord:
             raise RecordError("endpoint must be an EndpointKey")
         for field in ("input_status", "source_status", "prediction_status", "threshold_source"):
             object.__setattr__(self, field, _token(getattr(self, field), field))
+        if self.input_status not in SOURCE_INPUT_STATUSES:
+            raise RecordError(f"unsupported source input_status {self.input_status!r}")
         if self.source_status not in SOURCE_STATUSES:
             raise RecordError(f"unsupported source_status {self.source_status!r}")
+        if self.threshold_source not in THRESHOLD_SOURCES:
+            raise RecordError(f"unsupported threshold_source {self.threshold_source!r}")
         artifacts = tuple(self.artifacts)
         if not all(isinstance(item, ArtifactRef) for item in artifacts):
             raise RecordError("artifacts must contain only ArtifactRef values")
@@ -210,6 +242,10 @@ class DeltaReferenceBundle:
     def __post_init__(self) -> None:
         for field in ("input_status", "support_status", "failure_stage", "failure_detail"):
             object.__setattr__(self, field, _token(getattr(self, field), field))
+        if self.input_status not in DELTA_INPUT_STATUSES:
+            raise RecordError(f"unsupported DeltaReferenceScore input_status {self.input_status!r}")
+        if self.support_status not in DELTA_SUPPORT_STATUSES:
+            raise RecordError(f"unsupported DeltaReferenceScore support_status {self.support_status!r}")
         if self.selected_reference_tau is not None:
             tau = float(self.selected_reference_tau)
             if not math.isfinite(tau) or tau <= 0:
@@ -227,6 +263,8 @@ class DeltaReferenceBundle:
         if self.input_status == "valid" and self.support_status in {"adequate", "limited"}:
             if not self._valid_payload():
                 raise RecordError("valid DeltaReferenceScore input requires aligned full/fold/support artifacts")
+        elif self.input_status == "valid":
+            raise RecordError("valid DeltaReferenceScore input requires adequate or limited support")
 
     def _valid_payload(self) -> bool:
         if self.selected_reference_tau is None or self.selected_reference_coverage is None:
@@ -277,6 +315,8 @@ class ReferenceDependencyRecord:
             _token(self.matched_reference_endpoint_id, "matched_reference_endpoint_id"),
         )
         object.__setattr__(self, "dependency_status", _token(self.dependency_status, "dependency_status"))
+        if self.dependency_status not in DEPENDENCY_STATUSES:
+            raise RecordError(f"unsupported dependency_status {self.dependency_status!r}")
         if self.reference_source is not None and not isinstance(self.reference_source, SourceRecord):
             raise RecordError("reference_source must be a SourceRecord or None")
         if self.delta_reference is not None and not isinstance(self.delta_reference, DeltaReferenceBundle):
@@ -326,6 +366,14 @@ class BranchRecord:
             object.__setattr__(self, field, _token(getattr(self, field), field))
         if self.branch not in {"no_delta_reference", "delta_reference_adjusted"}:
             raise RecordError(f"unsupported add-on branch {self.branch!r}")
+        if self.intended_role not in BRANCH_ROLES:
+            raise RecordError(f"unsupported intended_role {self.intended_role!r}")
+        if self.input_status not in BRANCH_INPUT_STATUSES:
+            raise RecordError(f"unsupported branch input_status {self.input_status!r}")
+        if self.nuisance_design_status not in NUISANCE_DESIGN_STATUSES:
+            raise RecordError(
+                f"unsupported nuisance_design_status {self.nuisance_design_status!r}"
+            )
         if self.source is not None and self.source.endpoint != self.endpoint:
             raise RecordError("branch source endpoint does not match branch endpoint")
         artifacts = tuple(self.artifacts)
@@ -380,6 +428,10 @@ class FinalModelRecord:
                 raise RecordError("selected source endpoint does not match final record endpoint")
             if self.selected_source.source_status not in ACCEPTED_SOURCE_STATUSES:
                 raise RecordError("reference final requires an accepted source")
+            self._validate_final_key(
+                branch="reference",
+                source=self.selected_source,
+            )
         else:
             if self.selected_branch is None or self.selected_source is not None:
                 raise RecordError("add-on final requires only a selected branch")
@@ -390,6 +442,30 @@ class FinalModelRecord:
                 or self.selected_branch.source.source_status not in ACCEPTED_SOURCE_STATUSES
             ):
                 raise RecordError("add-on final requires an accepted branch source")
+            self._validate_final_key(
+                branch=self.selected_branch.branch,
+                source=self.selected_branch.source,
+            )
+
+    def _validate_final_key(self, *, branch: str, source: SourceRecord) -> None:
+        if self.final_key is None:
+            raise RecordError("realized final requires a final key")
+        if self.final_key.final_branch != branch:
+            raise RecordError("final key branch does not match the selected source or branch")
+        if self.final_key.selected_tau != source.selected_tau:
+            raise RecordError("final key tau does not match the selected source")
+        if self.final_key.selected_coverage != source.selected_coverage:
+            raise RecordError("final key coverage does not match the selected source")
+
+    @property
+    def feature_axis(self) -> FeatureAxisRef:
+        """Return the locked feature axis inherited by all final-linked tasks."""
+        source = self.selected_source
+        if source is None and self.selected_branch is not None:
+            source = self.selected_branch.source
+        if source is None or source.feature_axis is None:
+            raise RecordError("realized final model has no selected feature axis")
+        return source.feature_axis
 
     @property
     def identifier(self) -> str:
@@ -416,6 +492,15 @@ class SensitiveRecord:
         object.__setattr__(self, "input_status", _token(self.input_status, "input_status"))
         object.__setattr__(self, "source_status", _token(self.source_status, "source_status"))
         object.__setattr__(self, "prediction_status", _token(self.prediction_status, "prediction_status"))
+        if self.input_status not in SOURCE_INPUT_STATUSES:
+            raise RecordError(f"unsupported sensitive input_status {self.input_status!r}")
+        if self.source_status not in SOURCE_STATUSES:
+            raise RecordError(f"unsupported sensitive source_status {self.source_status!r}")
+        if self.source_status in ACCEPTED_SOURCE_STATUSES:
+            if self.input_status != "valid" or self.prediction_status not in PREDICTION_STATUSES:
+                raise RecordError("accepted sensitive source requires valid input and prediction status")
+        elif self.prediction_status != "not_applicable":
+            raise RecordError("absent sensitive source requires prediction_status='not_applicable'")
         tau = float(self.evaluated_tau)
         coverage = int(self.evaluated_coverage)
         if not math.isfinite(tau) or tau <= 0 or coverage < 1:

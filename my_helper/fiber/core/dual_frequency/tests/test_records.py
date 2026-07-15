@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from dual_frequency.contracts import (
+    ActivationRequest,
     ArtifactRef,
     AxisRef,
     BranchRecord,
@@ -17,6 +18,7 @@ from dual_frequency.contracts import (
     FeatureAxisRef,
     FinalModelKey,
     FinalModelRecord,
+    FormalRequest,
     ObservedRequest,
     RecordError,
     RequestError,
@@ -39,6 +41,28 @@ class RecordTest(unittest.TestCase):
             axis_hashes=(axis.sha256,),
             units="coefficient",
             space="MNI152NLin2009bAsym",
+            producer_id="synthetic_fixture",
+            producer_version="1",
+        )
+
+    @staticmethod
+    def _array_artifact(
+        kind: str,
+        axes: tuple[AxisRef, ...],
+        *,
+        units: str = "score",
+    ) -> ArtifactRef:
+        return ArtifactRef(
+            kind=kind,
+            schema_version="array_v1",
+            uri=f"file:///tmp/{kind}.npy",
+            sha256=(kind[0].encode("ascii").hex()[0] if kind else "a") * 64,
+            dtype="float64",
+            shape=tuple(axis.count for axis in axes),
+            axis_refs=axes,
+            axis_hashes=tuple(axis.sha256 for axis in axes),
+            units=units,
+            space="synthetic",
             producer_id="synthetic_fixture",
             producer_version="1",
         )
@@ -149,6 +173,25 @@ class RecordTest(unittest.TestCase):
         )
         self.assertEqual(request.exposure.shape, (2, 3))
 
+    def test_artifact_backed_request_requires_exact_axis_identity(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        subjects = AxisRef("subjects", 2, "a" * 64)
+        other_subjects = AxisRef("other_subjects", 2, "c" * 64)
+        features = AxisRef("voxels", 3, "b" * 64)
+        grid = SourceGrid(200, 5, (180, 200, 220), (5, 6), 2)
+        with self.assertRaisesRegex(RequestError, "artifact axes"):
+            ObservedRequest(
+                endpoint=endpoint,
+                branch="reference",
+                exposure=self._array_artifact("exposure", (other_subjects, features)),
+                outcome=self._array_artifact("outcome", (subjects,)),
+                baseline=self._array_artifact("baseline", (subjects,)),
+                nuisance_inputs=(),
+                subject_axis=subjects,
+                feature_axis=features,
+                source_grid=grid,
+            )
+
     def test_final_record_supports_reference_source_and_addon_branch(self) -> None:
         axis = AxisRef("voxels", 20, "d" * 64)
         artifact = self._feature_artifact(axis)
@@ -208,6 +251,96 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(addon_final.selected_branch, branch)
         with self.assertRaises(RecordError):
             dataclasses.replace(addon_final, final_status="fallback_final_realized")
+        with self.assertRaisesRegex(RecordError, "tau"):
+            dataclasses.replace(
+                reference_final,
+                final_key=dataclasses.replace(reference_final.final_key, selected_tau=999),
+            )
+        with self.assertRaisesRegex(RecordError, "branch"):
+            dataclasses.replace(
+                addon_final,
+                final_key=dataclasses.replace(addon_final.final_key, final_branch="delta_reference_adjusted"),
+            )
+        self.assertEqual(reference_final.feature_axis.axis, axis)
+
+    def test_formal_and_activation_requests_bind_declared_axes(self) -> None:
+        subjects = AxisRef("subjects", 2, "a" * 64)
+        other_subjects = AxisRef("other_subjects", 2, "c" * 64)
+        fibers = AxisRef("fibers", 3, "b" * 64)
+        endpoint = EndpointKey("study", "scale", "reference", "reference_fiber", "formal_connectome")
+        source = SourceRecord(
+            endpoint=endpoint,
+            input_status="valid",
+            source_status="pre_specified_accepted",
+            prediction_status="error_predictive",
+            threshold_source="pre_specified",
+            selected_tau=800,
+            selected_coverage=5,
+            adjacent_support=2,
+            feature_axis=FeatureAxisRef(fibers, "connectome_fiber_ids"),
+            artifacts=(self._feature_artifact(fibers),),
+        )
+        final = FinalModelRecord(
+            endpoint=endpoint,
+            final_status="final_model_realized",
+            realization_role="primary",
+            final_key=FinalModelKey(endpoint.identifier, "reference", 800, 5, "weighted_peak"),
+            selected_source=source,
+            selected_branch=None,
+        )
+        outcome = self._array_artifact("outcome", (subjects,))
+        baseline = self._array_artifact("baseline", (subjects,))
+        formal = FormalRequest(
+            final_model=final,
+            outcome=outcome,
+            baseline=baseline,
+            nuisance_inputs=(),
+            subject_axis=subjects,
+            permutation_resamples=10,
+            bootstrap_resamples=10,
+            seed=1,
+        )
+        self.assertEqual(formal.subject_axis, subjects)
+        with self.assertRaisesRegex(RequestError, "artifact axes"):
+            dataclasses.replace(formal, subject_axis=other_subjects)
+
+        activation = ActivationRequest(
+            final_model=final,
+            activation_probability=self._array_artifact("activation", (subjects, fibers)),
+            subject_axis=subjects,
+            feature_axis=fibers,
+            fitting_probability_threshold=0.5,
+            permutation_resamples=10,
+        )
+        self.assertEqual(activation.feature_axis, fibers)
+        wrong_fibers = AxisRef("other_fibers", 3, "d" * 64)
+        with self.assertRaisesRegex(RequestError, "inherit"):
+            dataclasses.replace(
+                activation,
+                feature_axis=wrong_fibers,
+                activation_probability=self._array_artifact(
+                    "other_activation",
+                    (subjects, wrong_fibers),
+                ),
+            )
+
+    def test_status_tokens_reject_unknown_values(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        absent = SourceRecord(
+            endpoint=endpoint,
+            input_status="valid",
+            source_status="absent_no_stable_grid",
+            prediction_status="not_applicable",
+            threshold_source="none",
+            selected_tau=None,
+            selected_coverage=None,
+            adjacent_support=None,
+            feature_axis=None,
+        )
+        with self.assertRaisesRegex(RecordError, "input_status"):
+            dataclasses.replace(absent, input_status="typo")
+        with self.assertRaisesRegex(RecordError, "threshold_source"):
+            dataclasses.replace(absent, threshold_source="typo")
 
     def test_delta_reference_bundle_requires_identical_subject_axes(self) -> None:
         subjects = AxisRef("subjects", 2, "a" * 64)
