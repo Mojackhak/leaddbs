@@ -158,11 +158,11 @@ class WorkflowService:
         bundle = self.plan(request)
         validated = bundle.validated
         configuration = validated.configuration
-        invocation = request.overrides
+        execution = configuration.workflow.execution
         requested_run_id = run_id or f"{_utc_stamp()}_{configuration.configuration_hash[:10]}"
         if not requested_run_id.strip() or "/" in requested_run_id or "\\" in requested_run_id:
             raise ApplicationError("run_id must be a nonempty path-safe token")
-        if invocation.resume and run_id is None:
+        if execution.resume and run_id is None:
             raise ApplicationError("resume requires an explicit run_id")
 
         run_parent = configuration.workflow.storage.run_root / validated.study.study_id
@@ -170,7 +170,7 @@ class WorkflowService:
         target = run_parent / requested_run_id
         parent_run_id: str | None = None
         effective_run_id = requested_run_id
-        if target.exists() and invocation.force:
+        if target.exists() and execution.force:
             parent_run_id = requested_run_id
             effective_run_id = self._force_run_id(run_parent, requested_run_id)
             target = run_parent / effective_run_id
@@ -197,7 +197,7 @@ class WorkflowService:
             resolved_configuration=snapshot,
             configuration_sources=sources,
             allowed_artifact_roots=(output_root, cache_root),
-            resume=invocation.resume,
+            resume=execution.resume,
         )
         artifact_store = ArtifactStore((store.root, output_root, cache_root))
         endpoint_facts = {
@@ -214,7 +214,7 @@ class WorkflowService:
             continue_on_endpoint_failure=configuration.workflow.execution.continue_on_endpoint_failure,
             workers=configuration.workflow.execution.workers,
             artifact_store=artifact_store,
-            resume=invocation.resume,
+            resume=execution.resume,
         )
         return execute_plan(bundle.plan, context)
 
