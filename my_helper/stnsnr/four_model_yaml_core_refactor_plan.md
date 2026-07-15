@@ -15,10 +15,10 @@
 > **Current branch.** `stnvop`
 > **Target schema.** `dual_frequency_v1`
 > **Status.** `design_approved`; `goal_review_passed`;
-> `implementation_not_started`;
+> `implementation_in_progress`;
 > `predecessor_implementation_paused`; `partial_numeric_evidence_frozen`;
 > `legacy_runtime_still_active`.
-> **Last updated.** 2026-07-11
+> **Last updated.** 2026-07-15
 
 ---
 
@@ -41,7 +41,7 @@ add-on direct voxel
 add-on normative fiber
 ```
 
-The STNSNr study bundle preserves raw `target_stn` and `target_snr` component
+The STNSNr `study_base.json` preserves raw `target_stn` and `target_snr` component
 identity. HF/ULF classes are derived exclusively from source frequency using
 the configured model profile: HF is `frequency_hz > 100`, ULF is
 `frequency_hz < 50`, and the inclusive interval `50..100` is unclassified.
@@ -50,9 +50,9 @@ Target identity never changes the frequency class.
 The implemented `four_model_v1` catalog/DAG/executor is a predecessor
 foundation. It remains paused and its scientific services still use eight
 STNSNr-oriented bridge modules. The target implementation extracts reusable
-numerical backends, introduces a canonical `DualFrequencyStudyBundle`, moves
-expensive artifacts into scientifically keyed caches, and removes all legacy
-runtime imports.
+numerical backends, reads the existing canonical `study_base.json` directly,
+moves expensive artifacts into scientifically keyed caches, and removes all
+legacy runtime imports.
 
 The predecessor real-data acceptance run did not finish. Numeric equivalence is
 therefore bounded to its terminal completed, hash-valid scientific artifacts.
@@ -63,7 +63,7 @@ do not require comparison with nonexistent predecessor results.
 
 The goal is complete only when one public library/CLI can:
 
-1. validate a `dual_frequency_v1` configuration and canonical study bundle;
+1. validate `study_base.json`, both model profiles, and the workflow profile;
 2. select arbitrary configured scales or all available scales without defaults;
 3. resolve matched reference-only and combined endpoint rows by stable IDs;
 4. compile the complete four-model dependency DAG for each endpoint;
@@ -80,9 +80,9 @@ The goal is complete only when one public library/CLI can:
 
 Implementation is not complete while any production path imports a
 `legacy_*`, `stnsnr_*`, `run_stnsnr_*`, or
-`my_helper.fiber.projects.stnsnr` module. The project importer is a separate
-pre-core producer; the generic CLI, service, workflow, backends, cache, and
-reporting packages never import it.
+`my_helper.fiber.projects.stnsnr` module. The existing study-base importer is
+an upstream producer only; the generic CLI, service, workflow, backends, cache,
+and reporting packages never import it.
 
 ## Governing Invariants
 
@@ -93,9 +93,9 @@ reference_component
 addon_component
 ```
 
-Raw stimulation components and frequency classes are separate axes. The study
-bundle stores raw components and source frequencies; `spot_model.yaml` stores
-the complete, non-overlapping frequency intervals. Runtime model inputs use HF
+Raw stimulation components and frequency classes are separate axes.
+`study_base.json` stores raw components and source frequencies; each model YAML
+stores the complete, non-overlapping frequency intervals. Runtime model inputs use HF
 sources from the reference/combined conditions and ULF sources from the
 combined condition. Unclassified sources remain in QC but enter neither model.
 
@@ -106,12 +106,10 @@ reference_only = reference_component
 combined       = reference_component + addon_component
 ```
 
-There is exactly one core `combined` stimulation condition. Period-specific
-clinical measurements are not separate stimulation conditions; they are
-separate downstream subscale endpoint bindings under the same parent scale.
-One reference binding may therefore fan out to any number of combined
-subscale bindings. The reference endpoint/model is realized once and each
-downstream binding reuses its exact `matched_reference_binding_id`.
+There is exactly one configured `combined` stimulation condition. Each model
+profile explicitly locks one baseline/reference/add-on endpoint pair by phase
+and program. The runtime does not discover additional endpoint pairs or create
+one-to-many endpoint fan-out.
 
 `addon_only` and N-frequency interaction models are outside
 `dual_frequency_v1`.
@@ -139,8 +137,7 @@ and never changes scale execution priority.
 Production generic modules accept only validated, structured inputs:
 
 ```text
-ResolvedWorkflow and typed configuration records
-DualFrequencyStudyBundle or StudyBundleRef
+ResolvedWorkflow, StudyBaseRecord, and typed configuration records
 typed backend request/result records
 explicit NumPy/table arrays with declared axes
 ArtifactRef and FeatureAxisRef records
@@ -153,16 +150,15 @@ using explicit `ArtifactRef` values. They cannot accept an untyped project path,
 search a directory, infer an artifact from a filename, inspect a `latest`
 folder, or read a raw project workbook.
 
-Only config loading, bundle loading, artifact-store implementations, and the
-standalone project importer may receive an explicitly supplied `Path` or URI.
-Every STNSNr importer path comes from validated `ImportConfig`; no project path,
-condition name, component name, connectome name, scale name, or legacy output
-filename is a code constant in the generic runtime.
+Only configuration loading, the strict study-base loader, and artifact-store
+implementations may receive an explicitly supplied `Path` or URI. No project
+path, condition name, component name, connectome name, scale name, or legacy
+output filename is a code constant in the generic runtime.
 
 Dependency direction is one-way:
 
 ```text
-project importer -> generic bundle contracts
+upstream importer -> study_base.json
 generic CLI/service -> generic core
 generic core -X-> projects/stnsnr
 ```
@@ -238,53 +234,42 @@ The project boundary is separate:
 
 ```text
 my_helper/fiber/projects/stnsnr/
-  importer/
-  profiles/
   migration/
   acceptance/
   legacy/
 ```
 
-Only the standalone `importer` and validated project profiles participate
-before the canonical bundle boundary. The importer may depend on generic bundle
-contracts; no generic runtime package may depend on any
-`projects/stnsnr` module. `migration`, `acceptance`, and `legacy` are retained
-manual tools/evidence but are not production dependencies.
+The existing project importer remains an upstream utility that creates the
+canonical `study_base.json`; it is not part of the model runtime or this target
+package. No generic runtime package may depend on any `projects/stnsnr` module.
+`migration`, `acceptance`, and `legacy` are retained manual tools/evidence but
+are not production dependencies.
 
 `WorkflowService` is the single application API used by CLI, tests, and a
 future GUI. The CLI cannot contain a second orchestration implementation.
 
-## Canonical Study Bundle
+## Canonical Study Base
 
-The core consumes a validated `DualFrequencyStudyBundle`, not project-specific
-Excel layouts or Lead-DBS path conventions. The bundle contains at least:
-
-```text
-subjects.parquet
-clinical_endpoints.parquet
-stimulation_conditions.parquet
-component_exposure_index.parquet
-connectome_registry.json
-spatial_manifest.json
-bundle_manifest.json
-```
+The core consumes the existing validated `study_base.json` directly. It does
+not create an intermediate bundle, Parquet copy, index document, or resolved
+study manifest. Project-specific Excel layouts are outside the runtime.
 
 Required guarantees:
 
 - stable subject, endpoint, condition, component, and connectome IDs;
 - explicit subject and feature order;
 - units and coordinate-space identity;
-- project importer version and input hashes;
+- study-base schema validity and input hash;
 - no semantic inference from filenames;
 - no silent clinical-row or scale substitution; and
-- immutable bundle content after validation.
+- immutable study-base content during a run.
 
 Every externally stored array is referenced by a structured `ArtifactRef` that
 records at least:
 
 ```text
 artifact kind and schema version
-explicit URI supplied by bundle/config or produced by a task
+explicit URI supplied by study base/config or produced by a task
 SHA-256 content hash
 dtype and shape
 ordered axis references and axis hashes
@@ -292,42 +277,33 @@ units and coordinate space where applicable
 producer/backend identity and version
 ```
 
-The STNSNr importer may read explicitly configured current clinical/stimulation
-workbooks and Lead-DBS derivatives, but it cannot contain fixed STNSNr paths or
-infer inputs from legacy output names. It must emit this generic contract before
-the model core runs.
+The existing STNSNr importer may continue to create `study_base.json`, but the
+model core neither invokes nor imports it. Full model execution starts from an
+already generated study-base file.
 
 ## YAML Contract
 
-The public configuration uses four strict profiles:
+The public configuration uses three strict inputs:
 
 ```text
-study.yaml
-scales.yaml
-model.yaml
+direct_voxel_model.yaml
+normative_fiber_model.yaml
 workflow.yaml
 ```
 
-All profiles use:
-
-```yaml
-schema_version: dual_frequency_v1
-```
-
-### Study profile
-
-Declares:
+The two model profiles declare:
 
 ```text
-study ID and bundle/import inputs
-reference/add-on component metadata sources
-exactly one reference-only and one combined condition ID
-canonical space, hemisphere, and transform
-brainmask
-connectomes and role sets
-scientific cache root
-run output root
+configured scale IDs
+one explicit baseline/reference/add-on endpoint pair
+reference/add-on frequency intervals
+model-specific source, resolver, formal, sensitivity, and output parameters
+normative-fiber connectomes and role sets
 ```
+
+`workflow.yaml` declares model selection, execution phase, resume/force policy,
+failure policy, scientific cache root, and run-store root. It does not contain
+a default scale list or duplicate scientific model parameters.
 
 Normative-fiber connectome roles are restricted to:
 
@@ -346,35 +322,14 @@ and can never rescue or replace the formal final model.
 
 The runtime never tests for PPMI, MGH, or dTOR names.
 
-### Scale profile
+### Model profiles
 
-Each scale declares:
+Each model profile selects an ordered list of `scale_id` values. Every ID must
+exist in `study_base.json`; label, direction, value type, unit, and observations
+come only from that study base. Unknown, duplicate, or unavailable scale IDs
+fail validation. No scale is inferred or substituted.
 
-```text
-scale_id
-label
-direction
-minimum_subjects
-one or more endpoint bindings with stable endpoint_binding_id
-exactly one reference_only binding for dual_frequency_v1
-zero or more combined bindings
-matched_reference_binding_id on every combined binding
-```
-
-`scale_id` identifies the parent clinical scale. Each period-specific outcome
-is a child subscale identified by its stable `endpoint_binding_id`. Multiple
-combined child bindings may share the same `combined` condition and the same matched reference binding. Selecting a parent
-scale selects all of its configured child bindings; no period receives special
-engineering status.
-
-Missing child subscale bindings become explicit `not_configured` catalog rows.
-They are not copied from another scale. Matching is performed only through the
-explicit binding relation; source-period labels are never equated or inferred.
-The canonical runtime has no `phase_id` or `endpoint_phase` field.
-
-### Model profile
-
-Declares shared scientific parameters for:
+The profiles declare scientific parameters for:
 
 ```text
 direct-voxel pre-specified tau and scan grid
@@ -389,6 +344,10 @@ normative-fiber controls and numeric reporting
 activation sensitivity
 ```
 
+The direct-voxel and normative-fiber profiles must agree exactly on
+`model_set_id`, output root, configured scale order, endpoint pair, frequency
+classes, minimum subjects, and DeltaReferenceScore support thresholds.
+
 The direct-voxel candidate threshold is not public. It is derived as
 `min(tau_grid_v_per_m)` and written only to technical provenance. Smoke and
 equivalence counts are fixed internal-test parameters. Schema validation rejects
@@ -399,7 +358,7 @@ both fields if supplied through YAML or CLI.
 Declares:
 
 ```text
-parent-scale/subscale/model/connectome-role selection
+model/connectome selection
 through stage
 resume/force policy
 endpoint failure policy
@@ -411,10 +370,11 @@ Workers and retry order do not enter scientific cache identity.
 
 ### Old configuration handling
 
-The production runtime accepts only `dual_frequency_v1`. A retained manual
-migration tool may convert `four_model_v1` into a new profile for review. It is
-never imported by the production config loader and no invalid new document is
-silently reinterpreted as old YAML.
+The production runtime contract is `dual_frequency_v1` and accepts only the
+approved direct-voxel, normative-fiber, and workflow profile schemas. A
+retained manual migration tool may convert predecessor configuration for
+review. It is never imported by the production config loader and no invalid
+document is silently reinterpreted as old YAML.
 
 ## CLI And Application Contract
 
@@ -440,21 +400,20 @@ status
 artifacts
 ```
 
-Configuration inputs are explicit; the CLI never discovers a profile or bundle:
+Configuration inputs are explicit; the CLI never discovers a profile or study:
 
 ```text
 validate/plan/run:
-  --study-profile PATH
-  --scales-profile PATH
-  --model-profile PATH
+  --study-base PATH
+  --direct-voxel-model PATH
+  --normative-fiber-model PATH
   --workflow-profile PATH
-  --study-bundle PATH
 
 status/artifacts:
   --run-root PATH
 ```
 
-All five `validate/plan/run` inputs are required. `status` and `artifacts`
+All four `validate/plan/run` inputs are required. `status` and `artifacts`
 require an exact run root and never search for `latest` or infer a run ID from a
 directory name.
 
@@ -464,7 +423,6 @@ Selection and execution rules:
 --scale              repeatable
 --all-available      mutually exclusive with --scale
 --models             reference-voxel,reference-fiber,addon-voxel,addon-fiber,all
---subscale           repeatable child `endpoint_binding_id` selector
 --connectomes
 --through            observed|formal|sensitivity|report
 --resume --run-id
@@ -474,7 +432,7 @@ Selection and execution rules:
 
 Omitting both `--scale` and `--all-available` is an error. Selecting an add-on
 endpoint automatically adds its matched reference dependency. `--resume`
-requires exact resolved configuration, bundle, code, and scientific identity.
+requires exact resolved configuration, study-base hash, code, and scientific identity.
 `--force` creates a new lineage and never edits an old task record.
 
 `plan` reports exact cache hits/misses and blocked expensive producers. A cache
@@ -696,7 +654,7 @@ runtime output   resolver/status/artifact value, never a selector
 
 | Round | Target source | Required behavior |
 |---|---|---|
-| 0 Input readiness/environment | bundle, scale, workflow | Endpoint failure remains local; no scale substitution. |
+| 0 Input readiness/environment | study base, model profiles, workflow | Endpoint failure remains local; no scale substitution. |
 | 1 Sidecars/minimal QC | YAML plus internal-derived candidate threshold | Candidate threshold equals minimum formal tau. |
 | 2 Observed LOOCV/resolver | model grid/hard filters | Endpoint-specific source and prediction status. |
 | 3 Equivalence/smoke | internal-test | Technical qualification only. |
@@ -711,7 +669,7 @@ runtime output   resolver/status/artifact value, never a selector
 | Round | Target source | Required behavior |
 |---|---|---|
 | 0 Readiness/reference lock | explicit matched-reference endpoint ID | Same scale, explicit binding, valid reference clinical input; phase IDs may differ. |
-| 1 Sidecars/overlap/support | bundle, matched source | Branch-specific readiness and support. |
+| 1 Sidecars/overlap/support | study base, matched source | Branch-specific readiness and support. |
 | 2 Observed/resolver/realization | model profile/state machine | Independent branch resolvers; one final or closed absence. |
 | 2b Additional phase observed | endpoint binding | Same engineering status as every phase. |
 | 3 Equivalence/smoke | internal-test | Technical qualification only. |
@@ -726,7 +684,7 @@ runtime output   resolver/status/artifact value, never a selector
 
 | Round | Target source | Required behavior |
 |---|---|---|
-| 0 Input/manifest freeze | bundle/workflow | Immutable endpoint/connectome identity. |
+| 0 Input/manifest freeze | study base/workflow | Immutable endpoint/connectome identity. |
 | 1 Sidecar/equivalence | scientific cache/internal-test | Exact subject and feature identity. |
 | 2 All-endpoint observed | catalog/connectome roles | Equal factory for every scale; every connectome runs the complete observed grid. |
 | 3 Plain control | model controls | Interpretation QC only. |
@@ -743,7 +701,7 @@ runtime output   resolver/status/artifact value, never a selector
 | Round | Target source | Required behavior |
 |---|---|---|
 | 0 Input/reference lock | explicit matched-reference/connectome record | Same scale and connectome, explicit binding, valid reference input; phase IDs may differ. |
-| 1 Sidecar/support/equivalence | bundle/cache/internal-test | Branch-specific inputs and support. |
+| 1 Sidecar/support/equivalence | study base/cache/internal-test | Branch-specific inputs and support. |
 | 2 Observed/resolver/realization | model/state machine/connectome role | Full observed grids for all connectomes; one primary/fallback final or closed absence for formal. |
 | 2b Additional phase observed | endpoint binding | No phase hierarchy in engineering. |
 | 3 Plain/burden controls | model controls | Interpretation QC only. |
@@ -811,10 +769,8 @@ fits use the final valid feature axis and refit training-fold weights/ranks.
 Run-independent expensive artifacts are stored under scientific identities:
 
 ```text
-study bundles
 voxel exposures
 fiber exposures
-activation universes
 OSS rows
 ```
 
@@ -884,7 +840,6 @@ Required run artifacts:
 ```text
 configuration_resolved.yaml
 configuration_sources.json
-study_bundle_ref.json
 endpoint_catalog.csv
 execution_plan.json
 task_status.csv
@@ -898,7 +853,7 @@ study, scale, model, and workflow profiles after defaults and CLI overrides.
 The configuration hash is computed from the canonical resolved snapshot; a run
 must not depend on source YAML remaining at its original location.
 
-Every task records endpoint/task/final identities, dependencies, bundle/config
+Every task records endpoint/task/final identities, dependencies, study-base/config
 hashes, subject/feature order, selected source, statuses, random parameters,
 code/environment provenance, cache references, outputs, and terminal status.
 
@@ -931,9 +886,9 @@ project-level legacy namespace outside the generic core namespace.
 
 Manual migration/fixture conversion/parity tools remain available under the
 project boundary for auditability. The generic runtime cannot import any module
-under `my_helper.fiber.projects.stnsnr`, including importer, profiles,
-migration, acceptance, and legacy. The standalone importer is invoked before
-the generic runtime and writes a validated bundle reference.
+under `my_helper.fiber.projects.stnsnr`, including importer, migration,
+acceptance, and legacy. The model runtime receives an existing validated
+`study_base.json`; it never invokes the importer.
 
 ## Acceptance Contract
 
@@ -941,7 +896,7 @@ the generic runtime and writes a validated bundle reference.
 
 All target paths require:
 
-- schema and StudyBundle validation tests;
+- schema and study-base validation tests;
 - typed request, array-axis, `ArtifactRef`, and materialization-boundary tests;
 - generic profile tests containing no STNSNr/HF/ULF/STN/dTOR names;
 - all-scale catalog and DAG equality tests;
@@ -953,7 +908,7 @@ All target paths require:
 - deterministic predictive/nonpredictive LOOCV fixtures and branch-specific
   nuisance fixtures, including `invalid_delta_reference_scaling` versus
   `invalid_nuisance_design`;
-- robustness-record versus primary-final connectome-role tests;
+- sensitive-record versus formal-final connectome-role tests;
 - backend contract and artifact validation tests;
 - cache hit/miss/reindex and expensive-producer authorization tests;
 - CLI and `WorkflowService` tests;
@@ -966,8 +921,8 @@ All target paths require:
 - documentation, compile, and diff checks.
 
 MDS-UPDRS III score and MDS-UPDRS IV remain ordinary named real-data smoke
-fixtures. The unconfigured second MDS-UPDRS IV child subscale remains explicit
-`not_configured`; this is not a scale-specific code branch.
+fixtures. Both traverse the same configured endpoint-pair factory; neither is
+a default or scale-specific code branch.
 
 Direct-voxel acceptance is explicitly three-layered: the two-scale real-data
 smoke checks end-to-end dispatch, pure state-machine tests cover every mutually
@@ -1100,7 +1055,7 @@ Five documentation review passes completed on 2026-07-11:
 
 | Pass | Result | Verified closure |
 |---|---|---|
-| 1. Target vs historical | PASS | `four_model_execution_plan.md` is historical only; this file is the sole current `/goal`; target status remains `implementation_not_started`. |
+| 1. Target vs historical | PASS | `four_model_execution_plan.md` is historical only; this file is the sole current `/goal`; target implementation is in progress. |
 | 2. Scale equality and endpoint identity | PASS | No default/privileged scale; combined endpoints use explicit matched-reference bindings and may have different phase IDs. |
 | 3. Dependency and fallback | PASS | Reference dependency failure is distinct from ready input with no source; invalid DeltaReferenceScore still runs no-delta; fallback remains one-way. |
 | 4. Round, cache, activation, and interface | PASS | All nondeferred Rounds, including add-on direct Round 9, are mapped; sensitive connectomes cannot become final; generic runtime accepts structured inputs and has no project reverse dependency. |

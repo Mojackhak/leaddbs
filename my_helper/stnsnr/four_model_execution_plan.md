@@ -15,7 +15,7 @@
 > Explicit user decisions and the current authoritative `/goal` govern target
 > implementation conflicts.
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
-> **Last updated.** 2026-07-11
+> **Last updated.** 2026-07-15
 
 ---
 
@@ -38,7 +38,7 @@ Its target status is strictly:
 ```text
 design_approved
 goal_review_passed
-implementation_not_started
+implementation_in_progress
 predecessor_implementation_paused
 partial_numeric_evidence_frozen
 ```

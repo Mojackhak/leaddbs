@@ -24,6 +24,13 @@ current_outputs_unchanged
 current_legacy_entrypoints_remain_active
 ```
 
+The successor runtime reads the existing validated `study_base.json` directly
+with `direct_voxel_model.yaml`, `normative_fiber_model.yaml`, and
+`workflow.yaml`. It does not create or consume an intermediate study bundle,
+Parquet study copy, study index, or resolved study manifest. The existing
+STNSNr importer remains an upstream study-base producer and is never imported
+or invoked by the model runtime.
+
 The legacy/current production drivers and consolidated status/formal layers
 still contain single-scale defaults, total/axial default lists, chronic-total
 path assumptions, or global A/B status rows. The configured YAML pipeline now

@@ -10,9 +10,9 @@
 > **Target schema.** `dual_frequency_v1`
 > **Current branch.** `stnvop`
 > **Status.** `design_approved`; `goal_review_passed`;
-> `implementation_not_started`;
+> `implementation_in_progress`;
 > `legacy_runtime_still_active`; `partial_numeric_baseline_available`.
-> **Last updated.** 2026-07-11
+> **Last updated.** 2026-07-15
 
 ---
 
@@ -67,11 +67,10 @@ combined       = reference_component + addon_component
 ```
 
 `addon_only` is not required and is not modeled by the four-model core.
-There is one `combined` stimulation condition. Period-specific clinical
-measurements are child subscale endpoint bindings, not different core
-conditions. A single reference binding may feed multiple downstream combined
-subscale branches; source-period labels remain importer data and never become
-runtime fields or code branches.
+There is one configured `combined` stimulation condition. Each model profile
+locks one explicit baseline/reference/add-on endpoint pair by phase and
+program. The runtime does not discover additional endpoint pairs or create
+one-to-many downstream branches.
 
 ### Statistical model families
 
@@ -99,7 +98,7 @@ inference, sensitivity, activation analysis, or artifact generation.
 
 Use incremental contract-driven replacement:
 
-1. define the generic schema, study bundle, records, and backend protocols;
+1. define the generic schema, strict study-base loader, records, and backend protocols;
 2. preserve existing numerical kernels long enough to build bounded golden
    fixtures;
 3. extract one generic numerical backend at a time;
@@ -154,26 +153,23 @@ The project boundary is separate:
 
 ```text
 my_helper/fiber/projects/stnsnr/
-  importer/
-  profiles/
   migration/
   acceptance/
   legacy/
 ```
 
-The standalone project importer may depend on generic bundle contracts, but the
-dependency cannot point back from generic code into the project namespace. The
-default registry, production CLI, application service, DAG, scientific
-backends, cache, and reports must not import any module under
-`my_helper.fiber.projects.stnsnr`, including importer, profiles, migration,
-acceptance, and legacy.
+The existing study-base importer is an upstream producer and is not part of the
+model runtime. The default registry, production CLI, application service, DAG,
+scientific backends, cache, and reports must not import any module under
+`my_helper.fiber.projects.stnsnr`, including importer, migration, acceptance,
+and legacy.
 
 ## Stable Interfaces
 
 The target service contracts are conceptually:
 
 ```python
-StudyImporter.build_bundle(...) -> DualFrequencyStudyBundle
+StudyBaseLoader.load(path) -> StudyBaseRecord
 ObservedBackend.run(request) -> ObservedResult
 SourceResolver.resolve(grid_results) -> SourceRecord
 FinalModelResolver.realize(branch_records) -> FinalModelRecord
@@ -191,39 +187,26 @@ path or unresolved YAML, read raw project workbooks, infer meaning from
 directory names, search a `latest` directory, or discover another task's
 outputs implicitly.
 
-Only the config loader, bundle loader, artifact store, and standalone project
-importer may receive explicitly configured paths or URIs. Project paths and old
-output filenames are never generic-runtime constants.
+Only the config loader, strict study-base loader, and artifact store may
+receive explicitly configured paths or URIs. Project paths and old output
+filenames are never generic-runtime constants.
 
 ## Canonical Study Input
 
-Project-specific raw data first becomes a validated
-`DualFrequencyStudyBundle`. The model core does not read project-specific Excel
-layouts or Lead-DBS naming conventions directly.
+The model core reads an existing validated `study_base.json` directly. It does
+not create an intermediate bundle, Parquet copy, index, or resolved study
+manifest, and it does not read project workbooks.
 
-The bundle contains at least:
+The strict loader validates the repository study-base schema and converts the
+document into immutable generic records with stable subject, scale, phase,
+program, component, source, and observation IDs. It records the source path and
+SHA-256 in the run manifest. Every external array `ArtifactRef` records
+kind/schema, explicit URI, SHA-256, dtype, shape, ordered axis references/
+hashes, units/space, and producer identity/version.
 
-```text
-subjects.parquet
-clinical_endpoints.parquet
-stimulation_conditions.parquet
-component_exposure_index.parquet
-connectome_registry.json
-spatial_manifest.json
-bundle_manifest.json
-```
-
-All relations use stable IDs. The bundle manifest records schema version,
-input hashes, subject order, units, spatial identity, importer version, and
-provenance. Every array `ArtifactRef` records kind/schema, explicit URI,
-SHA-256, dtype, shape, ordered axis references/hashes, units/space, and producer
-identity/version.
-
-The STNSNr importer is project-specific by necessity, but it is a data-ingest
-boundary rather than a scientific model adapter. Every input path is supplied
-through validated `ImportConfig`; the importer contains no fixed STNSNr path or
-legacy-output filename inference. Another project may implement a different
-importer and produce the same bundle contract without modifying the core.
+The existing STNSNr importer remains an upstream utility that may regenerate
+`study_base.json`; the generic runtime neither invokes nor imports it. Another
+project can provide the same study-base schema without modifying the core.
 
 ## YAML Profiles
 
@@ -537,10 +520,8 @@ Expensive run-independent artifacts live outside endpoint run roots:
 
 ```text
 cache/
-  study_bundles/
   voxel_exposures/
   fiber_exposures/
-  activation_universes/
   oss_rows/
 ```
 
@@ -585,10 +566,10 @@ status
 artifacts
 ```
 
-`validate`, `plan`, and `run` require explicit study/scale/model/workflow profile
-paths and an exact StudyBundle path. `status` and `artifacts` require an exact
-run root. No command searches for a default profile, `latest` run, or inferred
-bundle.
+`validate`, `plan`, and `run` require an explicit study-base path, direct-voxel
+model profile, normative-fiber model profile, and workflow profile. `status`
+and `artifacts` require an exact run root. No command searches for a default
+profile, `latest` run, or inferred study input.
 
 The repository script bootstraps only `my_helper/fiber/core` and imports
 `dual_frequency.application.cli`. It must run directly from the workspace
@@ -610,7 +591,7 @@ Rules:
 
 ```text
 configuration_error
-bundle_validation_error
+study_base_validation_error
 endpoint_input_failure
 branch_input_failure
 branch_design_failure
@@ -620,7 +601,7 @@ no_final_model
 backend_execution_failure
 ```
 
-Configuration and bundle errors reject the run. Endpoint and branch failures
+Configuration and study-base errors reject the run. Endpoint and branch failures
 remain local. `no_final_model` is a closed scientific state, not an unhandled
 exception. Backend execution failures preserve checkpoints and provenance,
 allow independent endpoints to continue, and contribute to the final process
@@ -789,11 +770,11 @@ constants, not public model parameters or reportable scientific results.
 OSS acceptance additionally performs full lightweight metadata/mapping/union/
 threshold/subset replay and a deterministic stratified numerical sample of 48
 fibers across three representative subjects. One minimal subject/component OSS
-solver smoke proves execution without regenerating the full activation universe.
+solver smoke proves execution without regenerating the full real OSS result set.
 
 ## Test Matrix
 
-1. schema, bundle, identity, catalog, planner, state, cache, and report unit
+1. schema, study-base, identity, catalog, planner, state, cache, and report unit
    tests;
 2. a synthetic profile with no STNSNr/HF/ULF/STN/dTOR names;
 3. all-scale equality and missing-phase catalog tests;
@@ -815,9 +796,8 @@ solver smoke proves execution without regenerating the full activation universe.
 A production full rerun from validated project inputs must follow:
 
 ```text
-raw project inputs
--> new project importer
--> DualFrequencyStudyBundle
+validated study_base.json
+plus direct-voxel/normative-fiber/workflow YAML
 -> dual_frequency_v1 validation
 -> generic catalog and DAG
 -> generic numerical backends
@@ -827,8 +807,8 @@ raw project inputs
 
 It must succeed with the migration, acceptance, and legacy directories removed
 from the Python path. It cannot import `run_stnsnr_*`, `legacy_*`, or
-`stnsnr_*` analysis modules, cannot import the project namespace after bundle
-creation, and cannot read old output trees. Lead-DBS,
+`stnsnr_*` analysis modules, cannot import the project namespace, and cannot
+read old output trees. Lead-DBS,
 OSS-DBS, NIfTI, and connectome libraries remain external scientific engines,
 accessed through generic provider/backend contracts.
 
@@ -840,7 +820,7 @@ processing remain upstream external production stages.
 
 1. freeze existing completed artifacts and write the bounded fixture manifest;
 2. implement `dual_frequency_v1` schemas and typed contracts;
-3. implement the STNSNr importer and canonical StudyBundle;
+3. implement the strict study-base loader and approved model/workflow profiles;
 4. move orchestration into the new generic package;
 5. replace reference direct-voxel and normative-fiber backends;
 6. replace DeltaReferenceScore and add-on backends;
@@ -858,8 +838,8 @@ the immutable configured run.
 
 The design is implemented only when:
 
-1. the production runtime accepts only `dual_frequency_v1` and validated study
-   bundles;
+1. the production runtime accepts only the approved `dual_frequency_v1`
+   runtime contract and a validated `study_base.json`;
 2. no generic runtime module imports `projects.stnsnr` or contains STNSNr, HF,
    ULF, STN, STN+SNr, dTOR, fixed-project-path, legacy-filename, or scale-name
    dispatch semantics;

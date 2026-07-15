@@ -11,7 +11,7 @@ inline. Skill availability cannot change requirements or block implementation.
 
 **Goal:** Replace the STNSNr-oriented `four_model_v1` runtime adapters with a
 strict, reusable `dual_frequency_v1` four-model core that can run from a
-canonical study bundle without legacy or migration imports.
+validated `study_base.json` without legacy or migration imports.
 
 **Architecture:** Build a new `my_helper/fiber/core/dual_frequency` package next
 to the predecessor package, migrate contracts and orchestration first, then
@@ -20,7 +20,7 @@ immutable, use bounded golden fixtures only for completed predecessor tasks, and
 switch the production registry only after generic backends pass structural,
 smoke, and applicable parity tests.
 
-**Tech Stack:** Python 3.11, NumPy, SciPy, pandas, PyArrow, scikit-learn,
+**Tech Stack:** Python 3.11, NumPy, SciPy, pandas, scikit-learn,
 statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
 
 ## Global Constraints
@@ -42,14 +42,13 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
 - Runtime roles are `reference_component` and `addon_component`; generic code
   must not dispatch on STNSNr, HF, ULF, STN, STN+SNr, dTOR, or scale names.
 - Generic CLI, service, workflow, backends, cache, and reporting must not import
-  any module under `my_helper.fiber.projects.stnsnr`. The standalone importer
-  may depend on generic bundle contracts; reverse dependency is forbidden.
+  any module under `my_helper.fiber.projects.stnsnr`. The existing importer is
+  an upstream `study_base.json` producer only.
 - Scientific backends accept only typed requests, explicit arrays with declared
   axes, and `ArtifactRef` values. They must not accept untyped project paths,
   search directories, infer legacy filenames, or load raw project tables.
-- Only config/bundle/artifact-store boundaries and the standalone importer may
-  receive explicitly supplied paths. Importer paths must come from validated
-  `ImportConfig`; no fixed STNSNr path is permitted.
+- Only config/study-base/artifact-store boundaries may receive explicitly
+  supplied paths. No fixed STNSNr path is permitted.
 - The core supports exactly reference-only and combined dual-frequency states;
   no add-on-only or N-frequency modeling.
 - All configured scales are engineering-equivalent and no default scale exists.
@@ -91,15 +90,14 @@ my_helper/fiber/core/dual_frequency/
     identity.py
     records.py
     requests.py
-    study_bundle.py
+    study_base.py
   config/
     __init__.py
     loader.py
     models.py
     schemas/
-      study_profile.schema.json
-      scale_profile.schema.json
-      model_profile.schema.json
+      direct_voxel_model.schema.json
+      normative_fiber_model.schema.json
       workflow.schema.json
   catalog/
     __init__.py
@@ -158,9 +156,6 @@ my_helper/fiber/core/dual_frequency/
 
 my_helper/fiber/projects/stnsnr/
   __init__.py
-  importer/
-    __init__.py
-    build_bundle.py
   migration/
     __init__.py
     convert_four_model_v1.py
@@ -171,10 +166,11 @@ my_helper/fiber/projects/stnsnr/
   legacy/
 
 my_helper/fiber/pipelines/run_dual_frequency_models.py
-my_helper/stnsnr/config/dual_frequency_v1/
-  study.yaml
-  scales.yaml
-  model.yaml
+my_helper/stnsnr/config/four_model_v1/
+  direct_voxel_model.yaml
+  direct_voxel_model_test.yaml
+  normative_fiber_model.yaml
+  normative_fiber_model_test.yaml
   workflow.yaml
 ```
 
@@ -353,10 +349,9 @@ git commit -m "test: freeze bounded dual-frequency fixtures"
 
 ---
 
-### Task 2: Add Parquet Dependency, Generic Contracts, And Strict Schemas
+### Task 2: Add Generic Contracts And Strict Schemas
 
 **Files:**
-- Modify: `my_helper/env/environment-leaddbs.yml`
 - Create: `my_helper/fiber/core/dual_frequency/__init__.py`
 - Create: `my_helper/fiber/core/dual_frequency/contracts/__init__.py`
 - Create: `my_helper/fiber/core/dual_frequency/contracts/identity.py`
@@ -377,25 +372,14 @@ git commit -m "test: freeze bounded dual-frequency fixtures"
 - Produces: immutable `EndpointKey`, `TaskKey`, `FinalModelKey`, `ArtifactRef`,
   `AxisRef`, `FeatureAxisRef`, `SourceRecord`, `ReferenceDependencyRecord`,
   `BranchRecord`, `FinalModelRecord`, `RobustnessRecord`,
-  `DeltaReferenceBundle`, and `StudyBundleRef`.
+  `DeltaReferenceBundle`, and `StudyBaseRecord`.
 - Produces request/result contracts: `ObservedRequest`, `ObservedResult`,
   `FormalRequest`, `FormalResult`, `SensitivityRequest`, `SensitivityResult`,
   `ActivationRequest`, and `ActivationArtifact`.
 - Produces array/artifact-only `ObservedBackend`, `FormalBackend`,
   `SensitivityBackend`, `ActivationBackend`, and `ReportingBackend` protocols.
 
-- [ ] **Step 1: Add `pyarrow` to the environment definition**
-
-Add `pyarrow` after `pandas` in `my_helper/env/environment-leaddbs.yml` and run:
-
-```bash
-conda env update -n leaddbs -f my_helper/env/environment-leaddbs.yml
-conda run -n leaddbs python -c "import pyarrow; print(pyarrow.__version__)"
-```
-
-Expected: a finite version string; do not use `--prune`.
-
-- [ ] **Step 2: Write failing schema tests**
+- [ ] **Step 1: Write failing schema tests**
 
 Tests must accept generic roles and reject:
 
@@ -409,7 +393,7 @@ unknown scale fields
 missing --scale/all-available selection
 ```
 
-- [ ] **Step 3: Write failing immutable-record tests**
+- [ ] **Step 2: Write failing immutable-record tests**
 
 Use this interface:
 
@@ -432,7 +416,7 @@ Also assert an array `ArtifactRef` is rejected unless it declares `kind`,
 version. Typed scientific requests must reject raw `Path` fields and accept only
 arrays or artifact references for scientific inputs.
 
-- [ ] **Step 4: Run tests and verify RED**
+- [ ] **Step 3: Run tests and verify RED**
 
 ```bash
 conda run -n leaddbs env PYTHONPATH=my_helper/fiber/core \
@@ -443,7 +427,7 @@ conda run -n leaddbs env PYTHONPATH=my_helper/fiber/core \
 
 Expected: import failure for `dual_frequency`.
 
-- [ ] **Step 5: Implement strict typed contracts**
+- [ ] **Step 4: Implement strict typed contracts**
 
 Use frozen dataclasses and canonical SHA-256 identities. Generic field names are
 mandatory:
@@ -487,128 +471,96 @@ they contain no raw project path, legacy filename, or unresolved YAML field.
 Define backend protocols in the same task so planner, registry, and application
 code cannot invent looser callable signatures before scientific extraction.
 
-- [ ] **Step 6: Implement four JSON Schemas and loader**
+- [ ] **Step 5: Implement three JSON Schemas and loader**
 
 All schemas use `additionalProperties: false`. Cross-profile validation checks
-component roles, condition membership, scale bindings, connectome roles,
-minimum subjects, model grids, and required scale selection. Derive:
+scale order, endpoint pairs, frequency classes, connectome roles, minimum
+subjects, model grids, output identity, and workflow selection. Derive:
 
 ```python
-direct_candidate_threshold_v_per_m = min(model.direct_voxel.tau_grid_v_per_m)
+direct_candidate_threshold_v_per_m = min(direct_voxel.source.scan.tau_v_per_m)
 ```
 
 Do not include the derived field in public serialized YAML.
 
-- [ ] **Step 7: Run focused and predecessor regression tests**
+- [ ] **Step 6: Run focused and predecessor regression tests**
 
 Run new config/record tests and the predecessor config/identity/record tests.
 Expected: both suites pass; no predecessor file changes.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add my_helper/env/environment-leaddbs.yml my_helper/fiber/core/dual_frequency
+git add my_helper/fiber/core/dual_frequency
 git commit -m "feat: define dual-frequency contracts"
 ```
 
 ---
 
-### Task 3: Implement Canonical StudyBundle And STNSNr Importer
+### Task 3: Implement Strict Study-Base Loading And Approved Profiles
 
 **Files:**
-- Create: `my_helper/fiber/core/dual_frequency/contracts/study_bundle.py`
-- Create: `my_helper/fiber/core/dual_frequency/tests/test_study_bundle.py`
-- Create: `my_helper/fiber/projects/stnsnr/importer/__init__.py`
-- Create: `my_helper/fiber/projects/stnsnr/importer/tests/__init__.py`
-- Create: `my_helper/fiber/projects/stnsnr/importer/build_bundle.py`
-- Create: `my_helper/fiber/projects/stnsnr/importer/tests/test_build_bundle.py`
-- Create: `my_helper/stnsnr/config/dual_frequency_v1/study.yaml`
-- Create: `my_helper/stnsnr/config/dual_frequency_v1/scales.yaml`
-- Create: `my_helper/stnsnr/config/dual_frequency_v1/model.yaml`
-- Create: `my_helper/stnsnr/config/dual_frequency_v1/workflow.yaml`
+- Create: `my_helper/fiber/core/dual_frequency/contracts/study_base.py`
+- Create: `my_helper/fiber/core/dual_frequency/config/schemas/study_base.schema.json`
+- Create: `my_helper/fiber/core/dual_frequency/tests/test_study_base.py`
+- Modify: `my_helper/stnsnr/config/four_model_v1/workflow.yaml`
+- Modify: `my_helper/stnsnr/config/four_model_v1/README.md`
 
 **Interfaces:**
-- Produces: `write_bundle(bundle: DualFrequencyStudyBundle, root: Path) -> StudyBundleRef`
-- Produces: `load_bundle(root: Path) -> DualFrequencyStudyBundle`
-- Produces: `build_stnsnr_bundle(config: ImportConfig, output_root: Path) -> StudyBundleRef`
-- `ImportConfig` contains every workbook, derivative, spatial, and output input
-  as an explicit configured URI/path plus expected hash; it has no implicit
-  project root.
+- Produces: `load_study_base(path: Path) -> StudyBaseRecord`
+- Produces: `validate_study_base(payload: Mapping[str, object]) -> None`
+- Consumes the existing `dual_frequency_study_v1` JSON directly and never
+  writes a transformed study artifact.
 
-- [ ] **Step 1: Write failing bundle round-trip tests**
+- [ ] **Step 1: Write failing study-base loader tests**
 
-Create two subjects, two scales, one reference-only condition, and one combined
-condition. Write/load all required Parquet/JSON files and assert stable hashes,
-orders, units, and role IDs.
+Create minimal generic JSON fixtures with two subjects and two scales. Test
+schema rejection, duplicate IDs, invalid directions, nonfinite observations,
+invalid phase/program references, invalid source frequencies, and deterministic
+subject/scale order. Assert the loader records the source SHA-256 and returns
+immutable records without writing another file.
 
-- [ ] **Step 2: Write failing importer tests with synthetic Excel files**
+- [ ] **Step 2: Write failing cross-profile validation tests**
 
-The synthetic test workbook columns are exactly:
-
-```text
-ID, Scale, Protocol, Subscale, Value, Baseline
-```
-
-Assert the importer maps project labels through configuration and emits only
-generic role IDs. A missing configured MDS-UPDRS IV child row must remain absent
-rather than copied from another scale. The real STNSNr import configuration may
-map an explicitly named source column to `endpoint_binding_id`, but the
-canonical bundle has no period field. Run from a randomized temporary root and assert
-that changing only configured paths relocates every read; monkeypatch filesystem
-access to fail on `/Volumes/VAL/STNSNr`, `/Users/mojackhu/Research/STNSNr`, and
-known legacy summary roots.
+Assert direct-voxel and normative-fiber profiles have identical model-set ID,
+output root, scale order, endpoint pair, frequency classes, minimum subjects,
+and DeltaReferenceScore support thresholds. Every configured scale must exist
+in the study base. Assert exactly one normative-fiber `formal` connectome and
+zero or more `sensitive` connectomes.
 
 - [ ] **Step 3: Run tests and verify RED**
 
-Run the two new test modules. Expected: missing bundle/importer modules.
+Run the study-base and config modules. Expected: missing generic study-base
+loader and workflow schema support.
 
-- [ ] **Step 4: Implement bundle validation and atomic writes**
+- [ ] **Step 4: Implement read-only loading and semantic validation**
 
-Validate uniqueness, foreign keys, finite clinical values, explicit orders,
-units, space, and artifact hashes before publishing `bundle_manifest.json`.
-Write to a temporary sibling directory and atomically rename only after every
-file validates.
+Validate schema, uniqueness, foreign keys, finite values, explicit order,
+frequency-group closure, and scale directions. Load only the existing JSON;
+do not create Parquet, a bundle directory, a study index, or a resolved study
+manifest. The run manifest records the input path and SHA-256.
 
-- [ ] **Step 5: Implement the STNSNr importer**
+- [ ] **Step 5: Finalize the three configured profiles**
 
-The importer may know STNSNr workbook/path labels. It must output canonical
-tables with these role columns:
+Preserve the approved direct-voxel and normative-fiber scientific values.
+Update `workflow.yaml` to reference those two profiles, expose no scale
+defaults, and define execution/failure policy only. Keep MDS-UPDRS III and IV
+as ordinary test selections in the test model profiles, not workflow defaults.
 
-```text
-component_role: reference_component | addon_component
-condition_role: reference_only | combined
-```
+- [ ] **Step 6: Run real read-only validation**
 
-All paths come from `ImportConfig`; do not embed a default STNSNr root, glob a
-legacy output name, or import any outcome-model service. Publish only after
-expected input hashes validate.
+Validate `/Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json` and both
+production/test profile pairs without running a model or modifying source
+files. Verify 16 subjects, 28 scales, and the configured endpoint pair.
 
-- [ ] **Step 6: Author the four STNSNr `dual_frequency_v1` profiles**
-
-Preserve current scientific grids and parameters. Assign current connectomes by
-roles rather than runtime name checks. Keep MDS-UPDRS III score and IV as normal
-workflow selections, not defaults. Give every endpoint binding a stable
-`endpoint_binding_id`; every combined binding must name its
-`matched_reference_binding_id`, even when reference and combined child IDs
-differ. Model period-specific outcomes as child subscale bindings under one
-parent scale and one shared `combined` condition. The configured profile locks
-one reference endpoint to one add-on endpoint. Assign exactly one `formal`
-connectome and zero or more `sensitive` connectomes. Formal resampling, OSS,
-and jitter derive from the realized final on the formal connectome; there is no
-third activation role.
-
-- [ ] **Step 7: Run tests and real read-only import validation**
-
-Build a bundle into a new namespaced temporary output. Verify current input
-hashes and endpoint counts without running a model or modifying source files.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/contracts \
-  my_helper/fiber/projects/stnsnr/importer \
-  my_helper/stnsnr/config/dual_frequency_v1
-git commit -m "feat: add canonical dual-frequency study bundle"
+  my_helper/fiber/core/dual_frequency/config/schemas \
+  my_helper/fiber/core/dual_frequency/tests/test_study_base.py \
+  my_helper/stnsnr/config/four_model_v1
+git commit -m "feat: load canonical dual-frequency study base"
 ```
 
 ---
@@ -622,8 +574,8 @@ git commit -m "feat: add canonical dual-frequency study bundle"
 - Modify: `my_helper/fiber/core/dual_frequency/contracts/identity.py`
 
 **Interfaces:**
-- Produces: `build_endpoint_catalog(config, bundle) -> tuple[EndpointRecord, ...]`
-- Consumes: `ResolvedWorkflow`, `DualFrequencyStudyBundle`
+- Produces: `build_endpoint_catalog(config, study) -> tuple[EndpointRecord, ...]`
+- Consumes: `ResolvedWorkflow`, `StudyBaseRecord`
 - Every combined `EndpointRecord` contains exact
   `matched_reference_endpoint_id`; every normative-fiber record contains a
   validated connectome role.
@@ -648,7 +600,7 @@ endpoint-pair factory, with no scale-name conditional in the builder.
 
 Expected: missing catalog module.
 
-- [ ] **Step 4: Implement bundle-driven catalog construction**
+- [ ] **Step 4: Implement study-base-driven catalog construction**
 
 The builder filters canonical clinical rows by stable endpoint binding and
 intersects explicit subject IDs. Combined dependencies resolve only through
@@ -665,7 +617,7 @@ class CatalogStatus(str, Enum):
 - [ ] **Step 5: Run focused tests and identity regression**
 
 Expected: deterministic endpoint ordering and IDs under repeated builds;
-reordering bundle rows does not change endpoint IDs.
+reordering equivalent study-base rows does not change endpoint IDs.
 
 - [ ] **Step 6: Commit**
 
@@ -910,8 +862,8 @@ git commit -m "feat: execute cached dual-frequency workflows"
 **Interfaces:**
 - Produces: `WorkflowService.validate/plan/run/status/artifacts`
 - Produces: CLI `main(argv: Sequence[str] | None = None) -> int`.
-- `validate/plan/run` require `--study-profile`, `--scales-profile`,
-  `--model-profile`, `--workflow-profile`, and `--study-bundle`.
+- `validate/plan/run` require `--study-base`, `--direct-voxel-model`,
+  `--normative-fiber-model`, and `--workflow-profile`.
 - `status/artifacts` require exact `--run-root`; no `latest` discovery.
 
 - [ ] **Step 1: Write failing service/CLI tests**
@@ -920,7 +872,7 @@ Test `--scale` repeatability, `--all-available` exclusivity, required selection,
 dependency-complete `--through`, exact resume, force lineage, and explicit
 `--allow-expensive-producers`. Execute the repository script in a subprocess
 with `PYTHONPATH` removed and assert `--help` and explicit-profile `validate`
-import successfully. Assert every missing profile/bundle flag fails and
+import successfully. Assert every missing study/model/workflow flag fails and
 `status/artifacts` reject a nonexact or inferred run selector.
 
 - [ ] **Step 2: Run tests and verify RED**
@@ -929,7 +881,7 @@ Expected: missing application package and entrypoint.
 
 - [ ] **Step 3: Implement WorkflowService**
 
-The service owns loading, bundle validation, catalog, planning, run-store
+The service owns study-base/profile validation, catalog, planning, run-store
 creation, registry construction, execution, and artifact lookup. CLI performs
 argument parsing only.
 
@@ -958,7 +910,7 @@ The bootstrap adds only the generic `core` directory. It must not add
 
 - [ ] **Step 5: Run CLI smoke with an in-memory deterministic registry**
 
-Execute `validate`, `plan`, and `run --through report` on a synthetic bundle.
+Execute `validate`, `plan`, and `run --through report` on a synthetic study base.
 Run the public script directly with caller `PYTHONPATH` unset. Expected: generic
 reports, no project/legacy imports, and no expensive process.
 
@@ -1413,9 +1365,9 @@ endpoint has one final or closed state.
 Use the new STNSNr input/profile and existing exact caches. MDS-UPDRS III and
 IV traverse the same ordinary endpoint-pair catalog/DAG path.
 Use only internal-test permutation/bootstrap/jitter counts and block expensive
-misses. Invoke the standalone importer first; then remove/block the project
-namespace before starting `WorkflowService`, proving the generic runtime uses
-only the resulting bundle reference.
+misses. Start `WorkflowService` directly from the existing `study_base.json`
+while the project namespace is blocked, proving the runtime does not invoke the
+importer.
 
 - [ ] **Step 3: Run the bounded numerical fixture suite**
 
@@ -1449,7 +1401,7 @@ env -u PYTHONPATH conda run -n leaddbs \
   my_helper.fiber.core.dual_frequency.tests.test_application_cli.DirectEntrypointTests -v
 ```
 
-The second test creates temporary explicit profile/bundle inputs and launches
+The second test creates temporary explicit study/model/workflow inputs and launches
 the public script's `validate` subcommand. Expected: all tests pass, direct CLI
 import succeeds, compile succeeds, and diff check is empty.
 
@@ -1512,7 +1464,8 @@ until implementation evidence exists.
 - [ ] `dual_frequency_v1` is the only production schema.
 - [ ] `four_model_yaml_core_refactor_plan.md` is the sole current `/goal`; the
   predecessor execution plan is historical only.
-- [ ] Production starts from a validated `DualFrequencyStudyBundle`.
+- [ ] Production starts directly from a validated `study_base.json` and creates
+  no intermediate study bundle.
 - [ ] Generic runtime imports no `projects.stnsnr` module and scientific
   backends accept only typed requests, arrays, and artifact references.
 - [ ] All scales use identical task factories and status fields.
@@ -1536,9 +1489,9 @@ until implementation evidence exists.
 - [ ] No unfinished predecessor task is assigned numerical parity.
 - [ ] No expensive producer starts during acceptance without authorization.
 - [ ] Old outputs and the paused run remain immutable.
-- [ ] Resolved study/scale/model/workflow configuration and source hashes are
+- [ ] Resolved study-base/model/workflow configuration and source hashes are
   persisted and reproduce the configuration hash.
 - [ ] Public CLI runs directly with caller `PYTHONPATH` unset and never discovers
-  a default profile, bundle, run, or legacy output.
+  a default profile, study input, run, or legacy output.
 - [ ] Synthetic, two-scale smoke, bounded parity, import isolation, compile, and
   documentation checks all pass.
