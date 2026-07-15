@@ -747,6 +747,8 @@ Assert:
 - expensive activation producer tasks are statically visible;
 - unavailable or insufficient rows at the fixed add-on binding produce
   terminal catalog/report tasks, not model tasks or endpoint substitution;
+- no implicit additional-period or `Round 2b` task is generated; another
+  assessment period requires another explicit endpoint-pair configuration;
 - every scale receives the same task factory.
 
 - [ ] **Step 2: Run tests and verify RED**

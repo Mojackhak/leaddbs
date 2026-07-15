@@ -2256,26 +2256,16 @@ ulf_primary_branch is recorded in the manifest
 ulf_norm_fiber_endpoint_model_status is recorded in the manifest
 ```
 
-Proceed to Round 2b after every requested chronic endpoint row either completes observed outputs or records an endpoint-level technical/input failure.
+Proceed to Round 3 after every requested endpoint row either completes
+observed outputs or records an endpoint-level technical/input failure.
 
-### Round 2b: Same-Day Immediate Observed LOOCV
+### Alternate Assessment Periods
 
-The same-day immediate endpoint family uses the same Round 2 resolver. Any secondary or co-primary status is reporting hierarchy only, must be declared before formal resampling, and does not change resolver classification, branch role, prediction-status assignment, endpoint realization, or output generation. Its branch-specific covariates are:
-
-```text
-endpoint = same-day immediate HF+ULF score
-delta_hf_adjusted nuisance baseline = Y_post_immediate ~ Y_HF_ref + DeltaHFScore_immediate
-no_delta_hf nuisance baseline       = Y_post_immediate ~ Y_HF_ref
-```
-
-The same-day gain sensitivity can be run only after the same-day immediate selected-source resolver is complete:
-
-```text
-Gain_immediate ~ NetULFFiberScore_deltaHF + DeltaHFScore_immediate
-Gain_immediate ~ NetULFFiberScore_noDeltaHF
-```
-
-Proceed to Round 3 after every requested same-day immediate endpoint row either completes observed outputs or records an endpoint-level technical/input failure. If no same-day immediate rows are requested or complete, record that fact and proceed to Round 3.
+This is not a separate executable round. The generic runtime resolves exactly
+one YAML-configured reference/add-on phase-and-program pair. A different
+assessment period must be supplied through another explicit endpoint-pair
+configuration and then uses the same Round 2 resolver and task factory. The
+core does not define `chronic` or `immediate` endpoint classes or fields.
 
 ### Round 3: Plain controls and burden diagnostics
 

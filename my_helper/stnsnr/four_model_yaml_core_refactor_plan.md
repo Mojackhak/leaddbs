@@ -671,7 +671,6 @@ runtime output   resolver/status/artifact value, never a selector
 | 0 Readiness/reference lock | explicit matched-reference endpoint ID | Same scale, explicit binding, valid reference clinical input; phase IDs may differ. |
 | 1 Sidecars/overlap/support | study base, matched source | Branch-specific readiness and support. |
 | 2 Observed/resolver/realization | model profile/state machine | Independent branch resolvers; one final or closed absence. |
-| 2b Additional phase observed | endpoint binding | Same engineering status as every phase. |
 | 3 Equivalence/smoke | internal-test | Technical qualification only. |
 | 4 Formal permutation | realized final | Primary or permitted fallback final only. |
 | 5 Formal bootstrap | realized final | Primary or permitted fallback final only. |
@@ -703,7 +702,6 @@ runtime output   resolver/status/artifact value, never a selector
 | 0 Input/reference lock | explicit matched-reference/connectome record | Same scale and connectome, explicit binding, valid reference input; phase IDs may differ. |
 | 1 Sidecar/support/equivalence | study base/cache/internal-test | Branch-specific inputs and support. |
 | 2 Observed/resolver/realization | model/state machine/connectome role | Full observed grids for all connectomes; one primary/fallback final or closed absence for formal. |
-| 2b Additional phase observed | endpoint binding | No phase hierarchy in engineering. |
 | 3 Plain/burden controls | model controls | Interpretation QC only. |
 | 4 Formal-connectome internal smoke | internal-test | Final-source code-path qualification. |
 | 5 Cheap observed sensitivity | model profile | Comparison and exposure sensitivities. |
@@ -712,6 +710,12 @@ runtime output   resolver/status/artifact value, never a selector
 | 8 Activation sensitivity | formal role final | Component/frequency identity required. |
 | 9 Jitter | final | Rebuild exposure, overlap, DeltaReferenceScore, and model. |
 | 10 Numeric/report | reporting/runtime | Cannot alter classification. |
+
+Each resolved model profile contains exactly one explicit baseline/reference/
+add-on endpoint pair. An additional assessment period is not an implicit
+`Round 2b`, child endpoint, or `chronic`/`immediate` runtime class. It requires
+another explicit endpoint-pair configuration and receives the same task factory
+as every other configured scale/period row.
 
 ## Normative-Fiber Scoring Contract
 

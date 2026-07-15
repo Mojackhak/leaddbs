@@ -1619,23 +1619,13 @@ Permutation p values, LOOCV rho, `Q2`, bootstrap stability, and jitter stability
 
 If Round 2 assigns `absent_no_stable_grid` to the intended primary branch and no permitted fallback final model exists, skip Round 3 through Round 7 for that endpoint/branch and proceed directly to Round 8 summary/manifest reporting. If intended `delta_hf_adjusted` has `primary_branch_input_failure` or `absent_no_stable_ulf_grid`, use accepted `no_delta_hf` as the final unique fallback model for downstream formal reporting.
 
-### Round 2b: Same-Day Immediate Observed LOOCV
+### Alternate Assessment Periods
 
-The same-day immediate endpoint uses the same Round 2 resolver. Any secondary or co-primary status is reporting hierarchy only, must be declared before formal resampling, and does not change resolver classification or output generation. Its branch-specific covariates are:
-
-```text
-endpoint = same-day immediate HF+ULF score
-delta_hf_adjusted nuisance baseline = Y_post_immediate ~ Y_HF_ref + DeltaHFScore_immediate
-no_delta_hf nuisance baseline       = Y_post_immediate ~ Y_HF_ref
-```
-
-The same-day gain sensitivity can be run only after the same-day immediate selected-source resolver is complete:
-
-```text
-endpoint = Gain_immediate
-source = selected ULF source from the same-day immediate resolver
-branch = partial_spearman_gain_endpoint
-```
+This is not a separate executable round. The generic runtime resolves exactly
+one YAML-configured reference/add-on phase-and-program pair. A different
+assessment period must be supplied through another explicit endpoint-pair
+configuration and then uses the same Round 2 resolver and task factory. The
+core does not define `chronic` or `immediate` endpoint classes or fields.
 
 ### Round 3: Equivalence And Smoke Reporting
 
@@ -1802,8 +1792,7 @@ The first practical run should cover:
 ```text
 Round 0
 Round 1
-Round 2 chronic observed LOOCV and source resolver
-Round 2b immediate observed LOOCV and source resolver, if same-day immediate data are complete
+Round 2 configured add-on observed LOOCV and source resolver
 Round 3 smoke only for accepted final models
 ```
 
