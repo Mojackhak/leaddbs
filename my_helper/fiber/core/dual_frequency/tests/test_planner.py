@@ -155,6 +155,41 @@ class PlannerTest(unittest.TestCase):
             }
         self.assertEqual(stages_by_scale[SCALE_IDS[0]], stages_by_scale[SCALE_IDS[1]])
 
+    def test_every_non_deferred_round_is_represented_without_implicit_round_2b(self) -> None:
+        _config, catalog, plan = self._plan()
+        expected = {
+            "reference_voxel": {
+                "round_0", "round_1", "round_2", "round_3", "round_4",
+                "round_5", "round_6", "round_7", "round_8",
+            },
+            "addon_voxel": {
+                "round_0", "round_1", "round_2", "round_3", "round_4",
+                "round_5", "round_6", "round_7", "round_8", "round_9",
+            },
+            "reference_fiber": {
+                "round_0", "round_1", "round_2", "round_3", "round_4",
+                "round_5", "round_5_5", "round_6", "round_7", "round_8",
+                "round_9",
+            },
+            "addon_fiber": {
+                "round_0", "round_1", "round_2", "round_3", "round_4",
+                "round_5", "round_6", "round_7", "round_8", "round_9",
+                "round_10",
+            },
+        }
+        for family, expected_rounds in expected.items():
+            endpoint = next(
+                item
+                for item in catalog
+                if item.key.scale_id == SCALE_IDS[0]
+                and item.key.model_family == family
+                and item.connectome_role in {"none", "formal"}
+            )
+            actual = {task.round_id for task in plan.for_endpoint(endpoint.endpoint_id)}
+            self.assertEqual(actual, expected_rounds)
+        self.assertFalse(any(task.round_id == "round_2b" for task in plan.tasks))
+        self.assertFalse(any("optional" in task.round_id for task in plan.tasks))
+
 
 if __name__ == "__main__":
     unittest.main()

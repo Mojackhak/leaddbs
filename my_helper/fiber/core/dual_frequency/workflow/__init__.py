@@ -22,6 +22,26 @@ from .planner import (
     TaskSpec,
     compile_execution_plan,
 )
+from .executor import (
+    DependencyState,
+    ExecutionContext,
+    ExecutionError,
+    ExpensiveProducerNotAuthorized,
+    RunResult,
+    RuntimeFact,
+    ServiceResult,
+    TaskExecutionRequest,
+    TaskOutcome,
+    execute_plan,
+    plan_hash,
+)
+from .registry import RegisteredService, RegistryError, ServiceRegistry
+from .run_store import (
+    ConfigurationSource,
+    RunIdentity,
+    RunStore,
+    RunStoreError,
+)
 
 __all__ = [
     "ACCEPTED",
@@ -37,4 +57,22 @@ __all__ = [
     "PlanningError",
     "TaskSpec",
     "compile_execution_plan",
+    "DependencyState",
+    "ExecutionContext",
+    "ExecutionError",
+    "ExpensiveProducerNotAuthorized",
+    "RunResult",
+    "RuntimeFact",
+    "ServiceResult",
+    "TaskExecutionRequest",
+    "TaskOutcome",
+    "execute_plan",
+    "plan_hash",
+    "RegisteredService",
+    "RegistryError",
+    "ServiceRegistry",
+    "ConfigurationSource",
+    "RunIdentity",
+    "RunStore",
+    "RunStoreError",
 ]
