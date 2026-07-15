@@ -1636,8 +1636,10 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   producer universe and no intermediate sidecar bundle.
 - A producer cache key excludes scale, endpoint, final-model ID, run ID, worker
   count, and task order, but includes the exact ordered requested fiber-axis
-  hash. Exact matching axes can therefore reuse rows across endpoints; different
-  axes cannot use nearest-key or superset guessing.
+  hash computed from the verified `feature_ids` values and order. A caller-supplied
+  connectome hash cannot substitute for this axis hash. Exact matching axes can
+  therefore reuse rows across endpoints; different axes cannot use nearest-key,
+  superset guessing, or the same cache entry.
 - Consumes subject/component/condition/connectome/transform/solver inputs only as
   typed metadata and exact artifact references; solver paths come from validated
   backend configuration.
@@ -1669,14 +1671,35 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   LOOCV, or permutation fits. Within that locked axis, full-sample and each
   training fold independently intersect finite OSS weights, reselect signed
   fibers, and recompute the configured weighted-peak score.
+- Reference OSS uses an all-false overlap mask. Add-on OSS additionally receives
+  the realized branch's patient-by-feature HF-overlap mask on the same ordered
+  final axis. It applies that mask after inclusive pPAM thresholding and before
+  weights, signed scoring, plain-activation QC, LOOCV, or permutation. The mask
+  cannot change the final axis, and add-on OSS cannot reintroduce an HF-touched
+  patient-fiber exposure.
 - Endpoint fitting emits only sensitivity status and artifacts. The status is
   `failed_activation_degenerate` for all-zero/non-estimable activation or an
   absent/constant signed score, `failed_oss_design_or_prediction` for invalid
   nuisance/prediction/permutation execution, `passed_activation_consistent`
   for a technically valid score with positive correlation to the explicit
   final peak-E-field score, and `passed_activation_model_dependent` for any
-  other technically valid correlation. None of these statuses may alter the
-  source, prediction, branch-role, endpoint, or final-model record.
+  other finite technically valid correlation. A nonfinite or constant final
+  peak-E-field score, or a nonfinite cross-model correlation, is
+  `failed_oss_design_or_prediction`; it can never receive a passed status. None
+  of these statuses may alter the source, prediction, branch-role, endpoint, or
+  final-model record.
+- Continuous pPAM rows must be exact `activated_count / 10` probabilities from
+  the frozen ten-sample contract. The publication boundary rejects values that
+  are outside `[0, 1]` or do not lie on the 0.1 probability lattice within
+  floating-point tolerance.
+- A smoke permutation P value is emitted only when all requested permutations
+  complete with finite statistics. Incomplete null distributions retain the
+  explicit failure/completion status and emit a null P value; they cannot use a
+  reduced finite denominator.
+- The backend materializes and validates every input, ordered ID binding,
+  overlap mask, nuisance design, and fit result before publishing any immutable
+  run-scoped artifact. A rejected request therefore leaves no partial artifact
+  tree that could block an exact retry.
 - The same task emits plain binary-activation count, sum, top-5% exposure, and
   nuisance-adjusted in-sample comparisons for nuisance-only, plain-top-5,
   OSS NetFiberScore, and their joint model. These are burden/placement QC only
@@ -1702,7 +1725,9 @@ binary = (merged >= 0.5).astype(np.float32)
 Require exact canonical fiber IDs and deterministic endpoint subsetting.
 Freeze the public v1 OSS contract to `OSS-DBSv2`, `pPAM`, fiber diameters
 `1.0..4.0` micrometers, exactly 10 equidistant samples, and inclusive fitting
-threshold `0.5`. Schema and semantic validation reject any other values.
+threshold `0.5`. Schema and semantic validation reject any other values, and
+the row publication boundary verifies that every probability equals an integer
+activation count divided by ten.
 
 - [x] **Step 3: Write bounded OSS acceptance tests**
 
@@ -1727,7 +1752,12 @@ require exact L/R rows for every final subject, merge by elementwise maximum,
 cache continuous probability, and derive binary fitting exposure with
 `p(A) >= 0.5`. Refit weights, signed selections, and the `200/100/20` score in
 each training fold without changing source, prediction, branch-role, or final
-classification.
+classification. For add-on rows, apply the inherited patient-by-feature
+HF-overlap mask before every fitting and QC calculation. Test adjusted
+fold-specific DeltaReferenceScore with non-affine subject-specific fold changes
+that cannot disappear under standardization. Reject incomplete permutation
+P values, invalid final-score correlations, non-lattice pPAM rows, and any
+request that would publish artifacts before all validation succeeds.
 
 Update planner/executor wiring so activation directly receives the final record
 and cache hits remain usable with expensive producers disabled. Preserve the
