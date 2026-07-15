@@ -11,6 +11,7 @@ import unittest
 
 import numpy as np
 
+from dual_frequency.backends.direct_voxel import kernel as direct_kernel
 from dual_frequency.backends.direct_voxel import (
     ReferenceDirectVoxelBackend,
     ReferenceDirectVoxelBackendError,
@@ -20,6 +21,24 @@ from dual_frequency.backends.direct_voxel import (
     resolve_source,
 )
 from dual_frequency.backends.direct_voxel.kernel import continuous_mean_score
+from dual_frequency.backends.direct_voxel.source_resolver import (
+    resolve_source as resolve_direct_source,
+)
+from dual_frequency.backends.source_resolver import (
+    GridCellMetric,
+    resolve_source as resolve_shared_source,
+)
+from dual_frequency.backends.statistics import (
+    average_rank,
+    benefit_oriented_weights,
+    linear_prediction,
+    partial_spearman_weights,
+    pearson_columns,
+    rank_columns,
+    residualize,
+    safe_correlation,
+    classify_prediction_status as shared_classify_prediction_status,
+)
 from dual_frequency.cache import (
     ArtifactPublicationError,
     ArtifactStore,
@@ -121,6 +140,9 @@ def _request(
         ),
         outcome_direction="lower",
         hard_computability=_limits(),
+        connectome_role="none",
+        feature_ids=None,
+        fiber_score_settings=None,
     )
 
 
@@ -130,6 +152,201 @@ def _publisher(root: Path) -> RunScopedArtifactPublisher:
         producer_id="reference_direct_voxel_backend",
         producer_version="1",
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class _SyntheticFiberMetric:
+    """Fiber-like metric that satisfies the shared resolver protocol structurally."""
+
+    tau: float
+    coverage: int
+    fold_n_features_min: int
+    passes_hard_computability: bool
+    prediction_status: str
+    mae_model: float
+    mae_baseline: float
+    rmse_model: float
+    rmse_baseline: float
+
+
+def _synthetic_fiber_cells(
+    grid: SourceGrid,
+    passing_fold_minima: dict[tuple[float, int], int],
+) -> tuple[_SyntheticFiberMetric, ...]:
+    cells = []
+    for tau in grid.tau_values:
+        for coverage in grid.coverage_values:
+            key = (float(tau), int(coverage))
+            passes = key in passing_fold_minima
+            cells.append(
+                _SyntheticFiberMetric(
+                    tau=float(tau),
+                    coverage=int(coverage),
+                    fold_n_features_min=passing_fold_minima.get(key, 0),
+                    passes_hard_computability=passes,
+                    prediction_status=(
+                        "error_predictive" if passes else "not_applicable"
+                    ),
+                    mae_model=1.0,
+                    mae_baseline=2.0,
+                    rmse_model=1.5,
+                    rmse_baseline=2.5,
+                )
+            )
+    return tuple(cells)
+
+
+class SharedStatisticsTest(unittest.TestCase):
+    def test_model_statistics_are_direct_reexports_with_identical_numerics(self) -> None:
+        self.assertIs(
+            direct_kernel.partial_spearman_weights,
+            partial_spearman_weights,
+        )
+        self.assertIs(
+            direct_kernel.benefit_oriented_weights,
+            benefit_oriented_weights,
+        )
+        self.assertIs(
+            direct_kernel.classify_prediction_status,
+            shared_classify_prediction_status,
+        )
+
+        outcome = np.arange(1.0, 7.0)
+        exposure = np.column_stack([outcome, outcome[::-1]])
+        nuisance = np.array([[0.0], [1.0], [0.0], [1.0], [0.0], [1.0]])
+        coefficients = partial_spearman_weights(outcome, exposure, nuisance)
+        np.testing.assert_allclose(coefficients, np.array([1.0, -1.0]))
+        np.testing.assert_allclose(
+            benefit_oriented_weights(coefficients, "lower"),
+            np.array([-1.0, 1.0]),
+        )
+        np.testing.assert_allclose(
+            benefit_oriented_weights(coefficients, "higher"),
+            np.array([1.0, -1.0]),
+        )
+        self.assertEqual(
+            shared_classify_prediction_status(0.8, 1.0, 1.0, 1.2),
+            "error_predictive",
+        )
+        self.assertEqual(
+            shared_classify_prediction_status(0.8, 1.0, 1.3, 1.2),
+            "error_nonpredictive",
+        )
+
+    def test_rank_residual_and_column_correlation_numerics(self) -> None:
+        np.testing.assert_allclose(
+            average_rank(np.array([3.0, np.nan, 1.0, 3.0])),
+            np.array([2.5, np.nan, 1.0, 2.5]),
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            rank_columns(
+                np.array(
+                    [
+                        [2.0, 10.0],
+                        [1.0, 20.0],
+                        [2.0, 20.0],
+                    ]
+                )
+            ),
+            np.array(
+                [
+                    [2.5, 1.0],
+                    [1.0, 2.5],
+                    [2.5, 2.5],
+                ]
+            ),
+        )
+        np.testing.assert_allclose(
+            residualize(
+                np.array([1.0, 3.0, 2.0, 5.0]),
+                np.array([[0.0], [1.0], [2.0], [3.0]]),
+            ),
+            np.array([-0.1, 0.8, -1.3, 0.6]),
+            atol=1e-12,
+        )
+        correlations = pearson_columns(
+            np.array([1.0, 2.0, 3.0, 4.0]),
+            np.column_stack(
+                [
+                    np.array([1.0, 2.0, 3.0, 4.0]),
+                    np.array([4.0, 3.0, 2.0, 1.0]),
+                    np.ones(4),
+                ]
+            ),
+        )
+        np.testing.assert_allclose(correlations[:2], np.array([1.0, -1.0]))
+        self.assertTrue(np.isnan(correlations[2]))
+
+    def test_safe_correlation_and_linear_prediction_numerics(self) -> None:
+        first = np.array([1.0, 2.0, 3.0, 4.0])
+        second = np.array([1.0, 4.0, 2.0, 3.0])
+        pearson = safe_correlation(first, second, method="pearson")
+        spearman = safe_correlation(first, second, method="spearman")
+        self.assertAlmostEqual(pearson[0], 0.4)
+        self.assertAlmostEqual(spearman[0], 0.4)
+        self.assertTrue(all(np.isfinite(value) for value in (*pearson, *spearman)))
+
+        prediction, coefficients = linear_prediction(
+            np.array([1.0, 3.0, 4.0, 6.0]),
+            np.array([0.0, 1.0, 0.0, 1.0]),
+            np.array([[0.0], [0.0], [1.0], [1.0]]),
+            np.array([2.0]),
+            np.array([[2.0]]),
+        )
+        np.testing.assert_allclose(prediction, np.array([11.0]), atol=1e-12)
+        np.testing.assert_allclose(
+            coefficients,
+            np.array([1.0, 2.0, 3.0]),
+            atol=1e-12,
+        )
+
+
+class SharedSourceResolverTest(unittest.TestCase):
+    def test_direct_resolver_path_is_a_compatibility_reexport(self) -> None:
+        self.assertIs(resolve_source, resolve_shared_source)
+        self.assertIs(resolve_direct_source, resolve_shared_source)
+
+    def test_structural_fiber_metrics_preserve_fallback_priority(self) -> None:
+        grid = SourceGrid(200, 6, (180, 200, 220), (5, 6, 7), 0)
+        cases = (
+            (
+                "grid_index_manhattan_distance",
+                {(200.0, 5): 10, (180.0, 5): 10},
+                (200.0, 5),
+            ),
+            (
+                "adjacent_support",
+                {(180.0, 6): 10, (200.0, 5): 10, (180.0, 7): 10},
+                (180.0, 6),
+            ),
+            (
+                "fold_minimum",
+                {(180.0, 6): 20, (200.0, 5): 30},
+                (200.0, 5),
+            ),
+            (
+                "stricter_coverage",
+                {(200.0, 5): 10, (200.0, 7): 10},
+                (200.0, 7),
+            ),
+            (
+                "higher_tau",
+                {(180.0, 6): 10, (220.0, 6): 10},
+                (220.0, 6),
+            ),
+        )
+        for name, passing, expected in cases:
+            with self.subTest(priority=name):
+                cells = _synthetic_fiber_cells(grid, passing)
+                self.assertTrue(isinstance(cells[0], GridCellMetric))
+                resolution = resolve_shared_source(cells, grid)
+                self.assertEqual(resolution.source_status, "scan_fallback_accepted")
+                self.assertIsInstance(resolution.selected, _SyntheticFiberMetric)
+                self.assertEqual(
+                    (resolution.selected.tau, resolution.selected.coverage),
+                    expected,
+                )
 
 
 class DirectVoxelKernelTest(unittest.TestCase):

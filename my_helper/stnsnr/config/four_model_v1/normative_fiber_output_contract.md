@@ -319,18 +319,27 @@ resolver/loocv_predictions.csv
 resolver/fiber_score_support.csv
 ```
 
+`selected_sweet_fiber_ids.npy` and `selected_sour_fiber_ids.npy` are emitted
+only for nonempty signed sides. A permitted one-sided score does not publish a
+zero-length placeholder array; the missing side is represented by its support
+status, selected count `0`, and deterministic empty-ID hash.
+
 Array contracts:
 
 ```text
-candidate_fiber_ids.npy: int64, shape [n_candidate]
-valid_fiber_ids.npy: int64, shape [n_valid], coverage intersect finite weights
-full_weights.npy: float32, shape [n_valid]
-fold_weights.npy: float32, shape [n_subjects, n_valid], NaN where fold-invalid
+candidate_fiber_ids.npy: int64, shape [n_candidate_full]
+valid_fiber_ids.npy: int64, shape [n_union], full/fold valid-feature union
+full_weights.npy: float32, shape [n_union], NaN where full-sample-invalid
+fold_weights.npy: float32, shape [n_subjects, n_union], NaN where fold-invalid
 ```
 
 Fiber IDs use the connectome's validated `data.mat:idx` identity. Full-sample
 and fold-specific selection use deterministic weight ordering with canonical
-fiber ID ascending as the tie-breaker.
+fiber ID ascending as the tie-breaker. `n_union` is the deterministic
+parent-axis-order union of the full-sample valid set and every fold-specific
+valid set. This representation preserves every leakage-safe fold operator;
+full-sample finite weights never restrict a training-fold candidate or signed
+pool.
 
 `source_selection.json` records:
 
@@ -397,22 +406,34 @@ formal_source_evaluation/formal_source_cell.json
 formal_source_evaluation/candidate_fiber_ids.npy
 formal_source_evaluation/valid_fiber_ids.npy
 formal_source_evaluation/full_weights.npy
+formal_source_evaluation/fold_weights.npy
 formal_source_evaluation/scores.csv
 formal_source_evaluation/loocv_predictions.csv
 formal_source_evaluation/fiber_score_support.csv
 ```
 
-These artifacts are sensitivity evidence and never define canonical source,
-prediction, branch-role, fallback, or final status. If formal has no source,
-the directory contains status only with
-`not_run_no_formal_source`.
+For a computable formal-source cell, the array contracts match the formal
+resolver artifact set: `candidate_fiber_ids.npy` is the full-sample candidate axis,
+`valid_fiber_ids.npy` is the parent-order full/fold-valid union,
+`full_weights.npy` has shape `[n_union]`, and `fold_weights.npy` has shape
+`[n_subjects, n_union]`; invalid full/fold positions are `NaN`. A
+noncomputable cell may omit weight/score arrays but must retain status, cell
+metrics, failure reasons, and any support diagnostics that were computable.
+
+The run-scoped `SensitiveRecord` contains `input_status`,
+`cell_computability_status`, `prediction_status`, evaluated numeric
+tau/Coverage, and the optional valid feature axis. It has no `source_status`,
+threshold source, branch role, fallback role, or final-model status. These
+artifacts are sensitivity evidence only. If formal has no source, the
+directory contains status only with `not_run_no_formal_source` and no
+`SensitiveRecord` is emitted.
 
 ## Continuous Exposure And Add-On Overlap
 
 Reference and add-on tau both define Coverage and candidate fibers only.
 Continuous peak E-field remains in the score after a fiber enters the
 candidate universe. Add-on additionally zeros patient-fiber exposure where the
-reference component exceeds the selected reference tau.
+reference component reaches or exceeds the selected reference tau.
 
 For each fold, candidate Coverage and overlap are rebuilt from training inputs.
 No full-sample candidate mask, overlap mask, fiber ranking, sign, or selected

@@ -401,11 +401,14 @@ class ArtifactStore:
         expected_axes: tuple[AxisRef, ...],
         expected_units: str | None,
         expected_space: str | None,
+        mmap_mode: str | None = None,
     ) -> np.ndarray:
         """Load one array only after metadata, path, and content verification."""
 
         if not isinstance(artifact, ArtifactRef):
             raise TypeError("artifact must be an ArtifactRef; bare paths are forbidden")
+        if mmap_mode not in {None, "r"}:
+            raise ArtifactValidationError("mmap_mode must be None or read-only 'r'")
         expected_shape = tuple(int(value) for value in expected_shape)
         expected_axes = tuple(expected_axes)
         if not all(isinstance(axis, AxisRef) for axis in expected_axes):
@@ -436,8 +439,11 @@ class ArtifactStore:
                     raise ArtifactValidationError(
                         "artifact file SHA-256 does not match ArtifactRef"
                     )
-                handle.seek(0)
-                array = np.load(handle, allow_pickle=False)
+                if mmap_mode is None:
+                    handle.seek(0)
+                    array = np.load(handle, allow_pickle=False)
+                else:
+                    array = np.load(path, allow_pickle=False, mmap_mode=mmap_mode)
         except ArtifactValidationError:
             raise
         except (OSError, ValueError) as exc:

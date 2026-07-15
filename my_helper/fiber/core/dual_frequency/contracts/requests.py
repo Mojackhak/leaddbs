@@ -138,6 +138,33 @@ class HardComputabilityLimits:
 
 
 @dataclass(frozen=True)
+class NormativeFiberScoreSettings:
+    """Explicit signed-library and weighted-peak score parameters."""
+
+    sweet_fraction: float
+    sour_fraction: float
+    weighted_peak_fraction: float
+    sweet_selected_min_count: int
+    sour_selected_min_count: int
+    weighted_peak_min_count: int
+
+    def __post_init__(self) -> None:
+        for field in ("sweet_fraction", "sour_fraction", "weighted_peak_fraction"):
+            value = float(getattr(self, field))
+            if not math.isfinite(value) or not 0.0 < value <= 1.0:
+                raise RequestError(f"{field} must be finite and in (0, 1]")
+            object.__setattr__(self, field, value)
+        for field in (
+            "sweet_selected_min_count",
+            "sour_selected_min_count",
+            "weighted_peak_min_count",
+        ):
+            value = getattr(self, field)
+            if type(value) is not int or value < 1:
+                raise RequestError(f"{field} must be a positive integer")
+
+
+@dataclass(frozen=True)
 class ObservedRequest:
     """Observed LOOCV request for one endpoint and candidate branch."""
 
@@ -154,6 +181,9 @@ class ObservedRequest:
     exposure_space: str
     outcome_direction: str
     hard_computability: HardComputabilityLimits
+    connectome_role: str
+    feature_ids: ScientificInput | None
+    fiber_score_settings: NormativeFiberScoreSettings | None
 
     def __post_init__(self) -> None:
         if not isinstance(self.endpoint, EndpointKey):
@@ -180,6 +210,10 @@ class ObservedRequest:
         object.__setattr__(self, "outcome_direction", direction)
         if not isinstance(self.hard_computability, HardComputabilityLimits):
             raise RequestError("hard_computability must be HardComputabilityLimits")
+        role = str(self.connectome_role).strip().lower()
+        if role not in {"none", "formal", "sensitive"}:
+            raise RequestError("connectome_role must be 'none', 'formal', or 'sensitive'")
+        object.__setattr__(self, "connectome_role", role)
         _validate_exposure(self.exposure, "exposure", self.subject_axis, self.feature_axis)
         if isinstance(self.exposure, ArtifactRef):
             if self.exposure.units != self.exposure_units:
@@ -191,19 +225,59 @@ class ObservedRequest:
         for index, value in enumerate(self.nuisance_inputs):
             _validate_nuisance(value, f"nuisance_inputs[{index}]", self.subject_axis)
 
+        if self.endpoint.model_family.endswith("voxel"):
+            if role != "none":
+                raise RequestError("direct-voxel requests require connectome_role='none'")
+            if self.feature_ids is not None or self.fiber_score_settings is not None:
+                raise RequestError(
+                    "direct-voxel requests cannot declare fiber IDs or score settings"
+                )
+            if (
+                self.hard_computability.n_features_full_min is None
+                or self.hard_computability.fold_n_features_min is None
+            ):
+                raise RequestError(
+                    "direct-voxel requests require full and fold feature minima"
+                )
+            return
+
+        if role not in {"formal", "sensitive"}:
+            raise RequestError("normative-fiber requests require a connectome role")
+        if self.exposure_units != "V/m":
+            raise RequestError("normative-fiber exposure_units must be 'V/m'")
+        if self.feature_ids is None:
+            raise RequestError("normative-fiber requests require canonical feature_ids")
+        _scientific_input(self.feature_ids, "feature_ids")
+        expected_feature_shape = (self.feature_axis.count,)
+        if _shape(self.feature_ids, "feature_ids") != expected_feature_shape:
+            raise RequestError(f"feature_ids shape must be {expected_feature_shape}")
+        _require_artifact_axes(self.feature_ids, "feature_ids", (self.feature_axis,))
+        if not isinstance(self.fiber_score_settings, NormativeFiberScoreSettings):
+            raise RequestError(
+                "normative-fiber requests require NormativeFiberScoreSettings"
+            )
+        if self.hard_computability.n_features_full_min is not None:
+            raise RequestError(
+                "normative-fiber requests cannot add a full-sample fiber-count gate"
+            )
+        if self.hard_computability.fold_n_features_min is None:
+            raise RequestError(
+                "normative-fiber requests require a fold candidate-fiber minimum"
+            )
+
 
 @dataclass(frozen=True)
 class ObservedResult:
-    """Observed backend result and immutable source classification."""
+    """Observed artifacts plus an optional formal source classification."""
 
-    source: SourceRecord
+    source: SourceRecord | None
     artifacts: tuple[ArtifactRef, ...]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.source, SourceRecord):
-            raise RequestError("source must be a SourceRecord")
+        if self.source is not None and not isinstance(self.source, SourceRecord):
+            raise RequestError("source must be a SourceRecord or None")
         artifacts = tuple(self.artifacts)
-        if not all(isinstance(item, ArtifactRef) for item in artifacts):
+        if not artifacts or not all(isinstance(item, ArtifactRef) for item in artifacts):
             raise RequestError("observed artifacts must contain only ArtifactRef values")
         object.__setattr__(self, "artifacts", artifacts)
 

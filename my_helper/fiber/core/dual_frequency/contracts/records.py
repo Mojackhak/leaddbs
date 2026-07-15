@@ -40,6 +40,7 @@ NUISANCE_DESIGN_STATUSES = frozenset(
         "not_attempted",
     }
 )
+SENSITIVE_CELL_COMPUTABILITY_STATUSES = frozenset({"computable", "not_computable"})
 
 
 class RecordError(ValueError):
@@ -474,15 +475,16 @@ class FinalModelRecord:
 
 @dataclass(frozen=True)
 class SensitiveRecord:
-    """Observed cross-connectome evidence that can never realize a final model."""
+    """Evidence at the formal source cell for a sensitive connectome."""
 
     endpoint: EndpointKey
     formal_endpoint_id: str
     evaluated_tau: float
     evaluated_coverage: int
     input_status: str
-    source_status: str
+    cell_computability_status: str
     prediction_status: str
+    feature_axis: FeatureAxisRef | None
     artifacts: tuple[ArtifactRef, ...] = ()
 
     def __post_init__(self) -> None:
@@ -490,17 +492,35 @@ class SensitiveRecord:
             raise RecordError("sensitivity evidence requires a normative-fiber endpoint")
         object.__setattr__(self, "formal_endpoint_id", _token(self.formal_endpoint_id, "formal_endpoint_id"))
         object.__setattr__(self, "input_status", _token(self.input_status, "input_status"))
-        object.__setattr__(self, "source_status", _token(self.source_status, "source_status"))
+        object.__setattr__(
+            self,
+            "cell_computability_status",
+            _token(self.cell_computability_status, "cell_computability_status"),
+        )
         object.__setattr__(self, "prediction_status", _token(self.prediction_status, "prediction_status"))
         if self.input_status not in SOURCE_INPUT_STATUSES:
             raise RecordError(f"unsupported sensitive input_status {self.input_status!r}")
-        if self.source_status not in SOURCE_STATUSES:
-            raise RecordError(f"unsupported sensitive source_status {self.source_status!r}")
-        if self.source_status in ACCEPTED_SOURCE_STATUSES:
-            if self.input_status != "valid" or self.prediction_status not in PREDICTION_STATUSES:
-                raise RecordError("accepted sensitive source requires valid input and prediction status")
+        if self.cell_computability_status not in SENSITIVE_CELL_COMPUTABILITY_STATUSES:
+            raise RecordError(
+                "cell_computability_status must be 'computable' or 'not_computable'"
+            )
+        if self.cell_computability_status == "computable":
+            if self.input_status != "valid":
+                raise RecordError("computable sensitive evidence requires valid input")
+            if self.prediction_status not in PREDICTION_STATUSES:
+                raise RecordError(
+                    "computable sensitive evidence requires an error-prediction classification"
+                )
+            if not isinstance(self.feature_axis, FeatureAxisRef):
+                raise RecordError("computable sensitive evidence requires a feature axis")
         elif self.prediction_status != "not_applicable":
-            raise RecordError("absent sensitive source requires prediction_status='not_applicable'")
+            raise RecordError(
+                "noncomputable sensitive evidence requires prediction_status='not_applicable'"
+            )
+        if self.feature_axis is not None and not isinstance(self.feature_axis, FeatureAxisRef):
+            raise RecordError("feature_axis must be a FeatureAxisRef or None")
+        if self.input_status != "valid" and self.feature_axis is not None:
+            raise RecordError("invalid sensitive input cannot declare a feature axis")
         tau = float(self.evaluated_tau)
         coverage = int(self.evaluated_coverage)
         if not math.isfinite(tau) or tau <= 0 or coverage < 1:

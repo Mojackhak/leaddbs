@@ -1068,7 +1068,21 @@ git commit -m "feat: extract reference direct-voxel backend"
 
 ### Task 10: Extract Reference Normative-Fiber Backend And Shared Score
 
+**Current-phase execution boundary:** production normative-fiber YAML may be
+parsed, validated, and planned only. Task 10 uses deterministic synthetic
+arrays and frozen hash-validated completed fixtures. It must not launch a
+production observed grid, formal resampling, jitter, OSS, report task, or
+expensive cache miss, must not write the production output root, and must not
+create an intermediate study bundle.
+
 **Files:**
+- Create: `my_helper/fiber/core/dual_frequency/backends/statistics.py`
+- Create: `my_helper/fiber/core/dual_frequency/backends/source_resolver.py`
+- Modify: `my_helper/fiber/core/dual_frequency/backends/direct_voxel/kernel.py`
+- Modify: `my_helper/fiber/core/dual_frequency/backends/direct_voxel/source_resolver.py`
+- Modify: `my_helper/fiber/core/dual_frequency/contracts/requests.py`
+- Modify: `my_helper/fiber/core/dual_frequency/contracts/records.py`
+- Modify: `my_helper/fiber/core/dual_frequency/cache/store.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/normative_fiber/coverage.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/normative_fiber/scoring.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/normative_fiber/reference.py`
@@ -1078,41 +1092,130 @@ git commit -m "feat: extract reference direct-voxel backend"
 
 **Interfaces:**
 - Produces: `ReferenceFiberBackend.run(ObservedRequest) -> ObservedResult`
-- Produces: `score_signed_fibers(exposure, weights, fiber_ids, settings) -> FiberScoreResult`
+- Produces:
+  `score_signed_fibers(exposure, weights, fiber_ids, settings, candidate_mask=None) -> FiberScoreResult`.
+  When supplied, `candidate_mask` is intersected with finite weights before
+  signed selection. Omitting it is valid only when noncandidate weights are
+  already `NaN` or the complete feature axis is intentionally eligible.
 - Consumes explicit arrays/axes or validated `ArtifactRef` values only.
+- `ObservedRequest` carries `connectome_role`, canonical `feature_ids`, and
+  typed normative-fiber score settings. Direct-voxel requests require role
+  `none` and no feature-ID/score payload; normative-fiber requests require role
+  `formal` or `sensitive`, exact canonical fiber IDs, exposure units `V/m`, and
+  the configured connectome-specific fold candidate minimum.
+- `formal` `run` evaluates the complete observed grid, resolves the unique
+  source, and returns a `SourceRecord`. `sensitive` `run` evaluates and
+  publishes the complete observed grid but returns no source/final
+  classification. Only a later
+  `evaluate_sensitive_at_formal_source(request, formal_source)` call may emit a
+  `SensitiveRecord`, using the exact numeric tau/Coverage selected by the
+  matching formal endpoint. This preserves the already compiled DAG order.
+- `SensitiveRecord` reports formal-source-cell computability and prediction
+  evidence; it does not contain or assign a sensitive-connectome
+  `source_status`, threshold source, branch role, or final-model status.
+- Shared rank residualization, correlations, baseline/model prediction, and
+  outcome-performance-independent tau/Coverage selection live in generic
+  backend modules and are reused by direct voxel and normative fiber. Fallback
+  distance is Manhattan distance in declared grid-index steps, followed by
+  adjacent support, fold feature minimum, stricter Coverage, and higher tau.
+- The realized formal fiber axis is the deterministic parent-order union of
+  full-sample valid fibers and every fold-specific valid fiber. Full/fold
+  weights project onto this exact axis with `NaN` where invalid. A full-sample
+  finite-weight mask must never restrict a training fold.
+- One-sided support is computable and remains QC-limited. Only
+  `absent_no_valid_signed_fibers`, invalid baseline nuisance design,
+  nonconstant-score failure, insufficient subjects/fold candidates, or
+  nonfinite predictions fails hard computability.
+- Artifact-backed exposure matrices are hash/axis/unit/space validated and
+  opened read-only with memory mapping. Coverage, partial-Spearman weights, and
+  selected-fiber scoring operate in bounded feature chunks; the backend must
+  not materialize a complete dTOR exposure or candidate-by-subject weighted
+  matrix in RAM.
 
-- [ ] **Step 1: Write failing score-policy tests**
+- [x] **Step 1: Write failing score-policy tests**
 
 Test finite-weight intersection, deterministic fiber-ID tie breaking,
 `200/100/20`, one-sided status, full/fold recomputation, and held-out leakage
 prevention.
 
-- [ ] **Step 2: Write failing source/resolver and connectome-role tests**
+- [x] **Step 2: Write failing source/resolver and connectome-role tests**
 
 Use generic connectome IDs. Verify `sensitive` and `formal` behavior comes from
-roles. Assert sensitive connectomes emit `SensitiveRecord`, never
-`FinalModelRecord`, and do not schedule formal/jitter/activation tasks.
+roles. Assert the sensitive observed-grid stage assigns no source, the later
+formal-source evaluation emits `SensitiveRecord`, and sensitive connectomes
+never emit `FinalModelRecord` or schedule formal/jitter/activation tasks.
 
-- [ ] **Step 3: Write bounded golden tests**
+- [x] **Step 3: Write bounded golden tests**
 
-Compare completed dTOR full outputs and MGH/PPMI observed/resolver outputs only.
-Convert predecessor MGH/PPMI final-like records to target sensitivity evidence;
-do not create target finals or invent formal/OSS parity for sensitive
-connectomes.
+Load only exact completed tasks from the frozen bounded-fixture manifest and
+verify every consumed hash before read. Compare completed dTOR full outputs and
+MGH/PPMI observed/formal-source evaluation outputs only. Convert predecessor
+MGH/PPMI final-like records to target sensitivity evidence; do not create
+target finals, read mutable legacy summary paths directly, or invent formal/
+OSS parity for sensitive connectomes.
 
-- [ ] **Step 4: Extract generic coverage, weights, resolver, and score kernels**
+The frozen Task 10 allowlist does not contain the complete parent canonical
+fiber-ID axis required to reconstruct an `ObservedRequest`. Therefore bounded
+golden acceptance must not follow the legacy selected manifest's indirect
+`ids_path` or rerun the target backend from an unallowlisted input. It verifies
+all consumed frozen hashes, task and endpoint identities,
+source/tau/Coverage/prediction semantics, selected score/prediction artifact
+identity, and count/shape relationships that do not require the missing parent
+ID axis. It must not claim parent-weight projection parity or instantiate a
+target `SensitiveRecord` from a legacy full-sample-only selected axis. Complete
+parent-axis, full/fold-valid-union, sensitive-record, and leakage behavior is
+proven by deterministic synthetic tests.
+
+The authoritative target uses inclusive suprathreshold classification
+`E >= tau`; the frozen predecessor used strict `E > tau`. Bounded fixtures are
+therefore historical semantic evidence, not an exact proof of the revised
+threshold-boundary implementation. Inclusive-boundary behavior is covered by
+an explicit synthetic equality-at-tau test. These are bounded-fixture
+limitations, not permission for a transitive production read or a silent
+fallback to legacy rules.
+
+- [x] **Step 4: Extract generic coverage, weights, resolver, and score kernels**
 
 Do not import `stnsnr_hf_normative_fiber_smoke` or
 `stnsnr_normative_fiber_score`.
 
-- [ ] **Step 5: Run focused and bounded tests; commit**
+- [x] **Step 5: Run focused and bounded tests; commit**
 
 ```bash
-git add my_helper/fiber/core/dual_frequency/backends/normative_fiber \
+git add my_helper/fiber/core/dual_frequency/backends \
+  my_helper/fiber/core/dual_frequency/cache/store.py \
+  my_helper/fiber/core/dual_frequency/contracts \
+  my_helper/fiber/core/dual_frequency/tests/test_cache.py \
+  my_helper/fiber/core/dual_frequency/tests/test_records.py \
+  my_helper/fiber/core/dual_frequency/tests/test_reference_direct_voxel.py \
   my_helper/fiber/core/dual_frequency/tests/test_fiber_scoring.py \
-  my_helper/fiber/core/dual_frequency/tests/test_reference_fiber.py
+  my_helper/fiber/core/dual_frequency/tests/test_reference_fiber.py \
+  my_helper/stnsnr/config/four_model_v1/normative_fiber_output_contract.md \
+  my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md \
+  my_helper/stnsnr/model_summaries/hf_3m_normative_connectome_fiber_model.md \
+  my_helper/stnsnr/model_summaries/ulf_addon_gain_normative_connectome_fiber_model.md
 git commit -m "feat: extract reference normative-fiber backend"
 ```
+
+**Task 10 completion evidence (2026-07-15):**
+
+- Generic dual-frequency suite: `139 tests` passed.
+- Focused records/cache/direct-reference/fiber-reference suite: `68 tests`
+  passed; reference normative-fiber suite: `8 tests` passed.
+- Legacy normative-fiber score suite: `16 tests` passed; legacy shared
+  statistics self-test passed with partial-Spearman maximum difference `0.0`.
+- Frozen bounded evidence used only the six allowlisted completed dTOR, MGH,
+  and PPMI observed/resolver tasks. Every consumed artifact hash was verified
+  before read; the documented missing-parent-axis and legacy strict-threshold
+  limitations were preserved rather than bypassed.
+- Synthetic tests cover inclusive `E >= tau`, parent-order full/fold-valid
+  union, fold-only fitting, formal/sensitive role separation, scan fallback,
+  noncomputable sensitive evidence, one-sided support, and read-only memory
+  mapping.
+- `compileall`, `git diff --check`, generic hardcoding scan, and production
+  YAML diff check passed.
+- No production YAML task was executed, no production output was written, and
+  no intermediate study bundle was created.
 
 ---
 

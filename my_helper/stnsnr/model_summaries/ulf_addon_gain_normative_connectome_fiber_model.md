@@ -474,11 +474,11 @@ tau_HF_overlap =
     if hf_norm_fiber_source_status is absent_no_stable_grid
 
 Reference_active_i(l) =
-  X_HF_component_i(l) > tau_HF_overlap
+  X_HF_component_i(l) >= tau_HF_overlap
 
 Coverage_ULF_tau(l) =
   sum_i I[
-    X_ULF_component_i(l) > tau_ULF_source
+    X_ULF_component_i(l) >= tau_ULF_source
     and not Reference_active_i(l)
   ]
 
@@ -1380,7 +1380,7 @@ HF-overlap exclusion remains the same peak-E-field rule used by the realized pri
 
 ```text
 HF_touched_i(l) =
-  X_HF_component_i(l) > hf_norm_fiber_selected_tau_v_per_m,
+  X_HF_component_i(l) >= hf_norm_fiber_selected_tau_v_per_m,
     if matched HF source exists
   false,
     if matched HF source is absent_no_stable_grid

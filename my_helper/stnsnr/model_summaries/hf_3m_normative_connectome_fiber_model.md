@@ -160,7 +160,7 @@ Primary candidate rule:
 ```text
 tau_primary = 800 V/m
 coverage_primary = Coverage>=5
-Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
+Coverage_tau(l) = sum_i I[X_HF_i(l) >= tau]
 F_candidate_tau = {l: Coverage_tau(l) >= coverage_min}
 ```
 
@@ -381,7 +381,7 @@ hf_norm_fiber_source_status = absent_no_stable_grid
 For `scan_fallback_accepted`, choose the fallback grid without using outcome-performance metrics:
 
 ```text
-1. minimize grid distance from tau800/Coverage>=5
+1. minimize Manhattan distance in declared tau/Coverage grid-index steps from tau800/Coverage>=5
 2. maximize adjacent passing grid cells
 3. maximize fold_n_candidate_fibers_min
 4. prefer stricter Coverage
@@ -389,6 +389,8 @@ For `scan_fallback_accepted`, choose the fallback grid without using outcome-per
 ```
 
 Adjacent grid cells are defined on the declared HF source scan grid; horizontal, vertical, and diagonal one-step neighbors all count. The scan table must contain all declared grid cells needed to assign `pre_specified_accepted`, `scan_fallback_accepted`, or `absent_no_stable_grid`.
+Tau and Coverage have different physical units, so fallback distance must not
+be calculated by directly adding their numeric value differences.
 
 Define HF normative fiber prediction status only after a source exists:
 
@@ -541,7 +543,7 @@ coverage_grid    = [5, 6, 7, 8, 10, 12]
 For each grid cell:
 
 ```text
-Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
+Coverage_tau(l) = sum_i I[X_HF_i(l) >= tau]
 F_candidate_tau_cov = {l: Coverage_tau(l) >= coverage_min}
 ```
 
@@ -592,7 +594,7 @@ absent_no_stable_grid:
 For `scan_fallback_accepted`, choose the fallback cell without using `Q2`, rho, nominal p value, MAE, or RMSE:
 
 ```text
-1. minimize grid distance from tau800/Coverage>=5
+1. minimize Manhattan distance in declared tau/Coverage grid-index steps from tau800/Coverage>=5
 2. maximize adjacent passing grid cells
 3. maximize fold_n_candidate_fibers_min
 4. prefer stricter Coverage
@@ -684,7 +686,7 @@ E-field branch. It must use the endpoint row's resolved selected tau and
 Coverage, not a hard-coded tau800/Coverage>=5 rule:
 
 ```text
-Coverage_selected_tau(l) = sum_i I[X_HF_i(l) > selected_tau]
+Coverage_selected_tau(l) = sum_i I[X_HF_i(l) >= selected_tau]
 F_candidate_selected = {l: Coverage_selected_tau(l) >= selected_Coverage}
 selected_tau = endpoint-specific selected source tau
 selected_Coverage = endpoint-specific selected source Coverage
@@ -818,7 +820,7 @@ The OSS joint model is QC only for this `n=16` cohort and is not interpreted as 
 Plain connected-streamline control intentionally does not use clinical outcome, `rho_HF(l)`, `M_HF(l)`, or sweet/sour weights:
 
 ```text
-Touched_i(l) = I[X_HF_i(l) > tau]
+Touched_i(l) = I[X_HF_i(l) >= tau]
 PlainCoverage(l) = sum_i Touched_i(l)
 PlainTouchedCount_i = sum_l Touched_i(l)
 PlainExposureSum_i  = sum_l X_HF_i(l)
@@ -1052,7 +1054,7 @@ by the task-local binary fitting matrix.
 For LOOCV fold `h`, derive training-fold selected-source coverage by subtraction:
 
 ```text
-S_selected_tau(l, i) = I[X_HF_i(l) > selected_tau]
+S_selected_tau(l, i) = I[X_HF_i(l) >= selected_tau]
 Coverage_selected_tau_all(l) = sum_i S_selected_tau(l, i)
 Coverage_selected_tau_fold_h(l) = Coverage_selected_tau_all(l) - S_selected_tau(l, h)
 F_candidate_selected_fold_h = {l : Coverage_selected_tau_fold_h(l) >= selected_Coverage}
@@ -1156,7 +1158,7 @@ Every sidecar and intermediate cache records a deterministic cache key:
     "efield_file_hashes": null,
     "left_to_right_transform_hash": null,
     "tau_values": [400, 600, 800, 1000, 1200, 1500, 2000],
-    "coverage_rule": "Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]; Coverage >= 5",
+    "coverage_rule": "Coverage_tau(l) = sum_i I[X_HF_i(l) >= tau]; Coverage >= 5",
     "candidate_rule": "fold-specific candidate masks by training-subject coverage",
     "branch": null,
     "oss_parameter_manifest_hash": null,
@@ -1455,7 +1457,7 @@ coverage_primary = Coverage>=5
 tau_sensitivity = 1500 V/m
 threshold_scan_tau_grid_v_per_m = [400, 600, 800, 1000, 1200, 1500, 2000]
 threshold_scan_coverage_grid = [5, 6, 7, 8, 10, 12]
-Coverage_tau(l) = sum_i I[X_HF_i(l) > tau]
+Coverage_tau(l) = sum_i I[X_HF_i(l) >= tau]
 F_candidate_tau = {l: Coverage_tau(l) >= coverage_min}
 ```
 
@@ -1662,7 +1664,7 @@ Run for endpoint rows and connectomes with computable observed outputs:
 
 ```text
 branch = plain_connected_streamline_control
-Touched_i(l) = I[X_HF_i(l) > tau]
+Touched_i(l) = I[X_HF_i(l) >= tau]
 PlainTouchedCount_i
 PlainExposureSum_i
 PlainExposureTop5_i

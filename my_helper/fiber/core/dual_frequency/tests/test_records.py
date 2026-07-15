@@ -20,9 +20,11 @@ from dual_frequency.contracts import (
     FinalModelRecord,
     FormalRequest,
     HardComputabilityLimits,
+    NormativeFiberScoreSettings,
     ObservedRequest,
     RecordError,
     RequestError,
+    SensitiveRecord,
     SourceGrid,
     SourceRecord,
 )
@@ -172,6 +174,9 @@ class RecordTest(unittest.TestCase):
                 exposure_space="MNI152NLin2009bAsym",
                 outcome_direction="lower",
                 hard_computability=limits,
+                connectome_role="none",
+                feature_ids=None,
+                fiber_score_settings=None,
             )
         request = ObservedRequest(
             endpoint=endpoint,
@@ -187,6 +192,9 @@ class RecordTest(unittest.TestCase):
             exposure_space="MNI152NLin2009bAsym",
             outcome_direction="lower",
             hard_computability=limits,
+            connectome_role="none",
+            feature_ids=None,
+            fiber_score_settings=None,
         )
         self.assertEqual(request.exposure.shape, (2, 3))
 
@@ -216,6 +224,9 @@ class RecordTest(unittest.TestCase):
                 exposure_space="synthetic",
                 outcome_direction="lower",
                 hard_computability=limits,
+                connectome_role="none",
+                feature_ids=None,
+                fiber_score_settings=None,
             )
 
     def test_observed_request_binds_exposure_units_and_space(self) -> None:
@@ -242,6 +253,9 @@ class RecordTest(unittest.TestCase):
             "exposure_space": "synthetic",
             "outcome_direction": "lower",
             "hard_computability": limits,
+            "connectome_role": "none",
+            "feature_ids": None,
+            "fiber_score_settings": None,
         }
         ObservedRequest(exposure=exposure, **common)
         with self.assertRaisesRegex(RequestError, "units"):
@@ -254,6 +268,81 @@ class RecordTest(unittest.TestCase):
                 exposure=dataclasses.replace(exposure, space="other_space"),
                 **common,
             )
+
+    def test_normative_fiber_request_requires_role_ids_and_score_settings(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "connectome_formal",
+        )
+        subjects = AxisRef("subjects", 12, "a" * 64)
+        fibers = AxisRef("fibers", 24, "b" * 64)
+        settings = NormativeFiberScoreSettings(0.01, 0.005, 0.05, 200, 100, 20)
+        common = {
+            "endpoint": endpoint,
+            "branch": "reference",
+            "exposure": np.ones((12, 24)),
+            "outcome": np.arange(12, dtype=float),
+            "baseline": np.linspace(0.0, 1.0, 12),
+            "nuisance_inputs": (),
+            "subject_axis": subjects,
+            "feature_axis": fibers,
+            "source_grid": SourceGrid(800, 5, (400, 800, 1200), (5, 6), 2),
+            "exposure_units": "V/m",
+            "exposure_space": "MNI152NLin2009bAsym",
+            "outcome_direction": "lower",
+            "hard_computability": HardComputabilityLimits(12, None, 1000),
+            "connectome_role": "formal",
+            "feature_ids": np.arange(24, dtype=np.int64),
+            "fiber_score_settings": settings,
+        }
+        request = ObservedRequest(**common)
+        self.assertEqual(request.connectome_role, "formal")
+        with self.assertRaisesRegex(RequestError, "connectome role"):
+            ObservedRequest(**{**common, "connectome_role": "none"})
+        with self.assertRaisesRegex(RequestError, "canonical feature_ids"):
+            ObservedRequest(**{**common, "feature_ids": None})
+        with self.assertRaisesRegex(RequestError, "full-sample fiber-count"):
+            ObservedRequest(
+                **{
+                    **common,
+                    "hard_computability": HardComputabilityLimits(12, 20, 1000),
+                }
+            )
+
+    def test_sensitive_record_describes_formal_cell_without_source_status(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "connectome_sensitive",
+        )
+        fibers = AxisRef("fibers", 24, "b" * 64)
+        feature_axis = FeatureAxisRef(fibers, "canonical_connectome_fiber_ids")
+        evidence = SensitiveRecord(
+            endpoint=endpoint,
+            formal_endpoint_id="endpoint_formal",
+            evaluated_tau=800,
+            evaluated_coverage=5,
+            input_status="valid",
+            cell_computability_status="computable",
+            prediction_status="error_nonpredictive",
+            feature_axis=feature_axis,
+        )
+        self.assertEqual(evidence.cell_computability_status, "computable")
+        self.assertFalse(hasattr(evidence, "source_status"))
+        with self.assertRaisesRegex(RecordError, "error-prediction"):
+            dataclasses.replace(evidence, prediction_status="not_applicable")
+        noncomputable = dataclasses.replace(
+            evidence,
+            cell_computability_status="not_computable",
+            prediction_status="not_applicable",
+            feature_axis=None,
+        )
+        self.assertEqual(noncomputable.prediction_status, "not_applicable")
 
     def test_final_record_supports_reference_source_and_addon_branch(self) -> None:
         axis = AxisRef("voxels", 20, "d" * 64)

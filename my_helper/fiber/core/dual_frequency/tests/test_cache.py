@@ -393,6 +393,14 @@ class ArtifactStoreTest(unittest.TestCase):
         self.assertEqual(output.dtype, np.dtype("float64"))
         self.assertFalse(output.flags.writeable)
 
+    def test_materializes_verified_array_as_read_only_memory_map(self) -> None:
+        output = self._materialize(mmap_mode="r")
+        self.assertIsInstance(output, np.memmap)
+        np.testing.assert_array_equal(output, self.array)
+        self.assertFalse(output.flags.writeable)
+        with self.assertRaisesRegex(ArtifactValidationError, "read-only"):
+            self._materialize(mmap_mode="r+")
+
     def test_rejects_bare_paths_network_uris_and_out_of_root_files(self) -> None:
         with self.assertRaises(TypeError):
             self._materialize(self.path)
