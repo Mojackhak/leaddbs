@@ -14,6 +14,10 @@ from jsonschema import Draft202012Validator, FormatChecker
 from .identity import canonical_hash
 
 
+_CONTACT_NUMBERING_CONVENTION = "bilateral_contiguous_zero_based"
+_POLARITY_FRACTION_ABSOLUTE_TOLERANCE = 1e-9
+
+
 class StudyBaseError(ValueError):
     """Raised when study-base schema or semantic validation fails."""
 
@@ -149,6 +153,8 @@ class SubjectRecord:
     electrode_reconstruction: Path
     electrodes: tuple[ElectrodeDefinition, ...]
     programs: tuple[ProgramRecord, ...]
+    contact_numbering_convention: str = ""
+    electrode_order: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -217,6 +223,73 @@ def _finite(value: object, label: str) -> float:
     return numeric
 
 
+def _contact_ranges(
+    subject_id: str,
+    electrode_order: list[str],
+    electrodes: Mapping[str, Mapping[str, object]],
+) -> dict[str, range]:
+    offset = 0
+    ranges: dict[str, range] = {}
+    for electrode_id in electrode_order:
+        contact_count = int(electrodes[electrode_id]["contact_count"])
+        ranges[electrode_id] = range(offset, offset + contact_count)
+        offset += contact_count
+    if not ranges:
+        raise StudyBaseError(f"{subject_id} must declare at least one electrode")
+    return ranges
+
+
+def _validate_source_contacts(
+    *,
+    source: Mapping[str, object],
+    source_context: str,
+    electrode_id: str,
+    valid_contacts: range,
+) -> None:
+    source_id = str(source["source_id"])
+    contacts = source["contacts"]
+    assert isinstance(contacts, list)
+    contact_tokens = [contact["contact"] for contact in contacts]
+    if len(contact_tokens) != len(set(contact_tokens)):
+        raise StudyBaseError(f"{source_context} source {source_id!r} has duplicate contacts")
+
+    polarity_fractions: dict[str, list[float]] = {"anode": [], "cathode": []}
+    for contact in contacts:
+        token = contact["contact"]
+        if isinstance(token, int) and token not in valid_contacts:
+            raise StudyBaseError(
+                f"{source_context} source {source_id!r} contact {token} is outside "
+                f"the {electrode_id!r} range "
+                f"[{valid_contacts.start}, {valid_contacts.stop - 1}]"
+            )
+        fraction = _finite(
+            contact["fraction"],
+            f"{source_context} source {source_id} contact fraction",
+        )
+        polarity_fractions[str(contact["polarity"])].append(fraction)
+
+    missing_polarities = [
+        polarity for polarity, fractions in polarity_fractions.items() if not fractions
+    ]
+    if missing_polarities:
+        raise StudyBaseError(
+            f"{source_context} source {source_id!r} must include at least one "
+            "anode and cathode"
+        )
+    for polarity, fractions in polarity_fractions.items():
+        total = math.fsum(fractions)
+        if not math.isclose(
+            total,
+            1.0,
+            rel_tol=0.0,
+            abs_tol=_POLARITY_FRACTION_ABSOLUTE_TOLERANCE,
+        ):
+            raise StudyBaseError(
+                f"{source_context} source {source_id!r} {polarity} fractions "
+                f"must sum to 1; got {total:.17g}"
+            )
+
+
 def validate_study_base(payload: Mapping[str, object]) -> None:
     """Validate the repository schema plus generic runtime semantics."""
     if not isinstance(payload, Mapping):
@@ -251,6 +324,31 @@ def validate_study_base(payload: Mapping[str, object]) -> None:
         subject_id = str(subject["subject_id"])
         electrode_ids = [str(item["electrode_id"]) for item in subject["electrodes"]]
         _unique(electrode_ids, f"electrode_id for {subject_id}")
+        contact_numbering = subject["contact_numbering"]
+        convention = str(contact_numbering["convention"])
+        if convention != _CONTACT_NUMBERING_CONVENTION:
+            raise StudyBaseError(
+                f"{subject_id} contact numbering convention {convention!r} is unsupported"
+            )
+        electrode_order = [str(item) for item in contact_numbering["electrode_order"]]
+        _unique(electrode_order, f"electrode_order for {subject_id}")
+        if len(electrode_order) != len(electrode_ids) or set(electrode_order) != set(
+            electrode_ids
+        ):
+            missing = sorted(set(electrode_ids) - set(electrode_order))
+            extra = sorted(set(electrode_order) - set(electrode_ids))
+            raise StudyBaseError(
+                f"{subject_id} electrode_order must contain every declared electrode "
+                f"exactly once; missing={missing}, extra={extra}"
+            )
+        electrode_definitions = {
+            str(item["electrode_id"]): item for item in subject["electrodes"]
+        }
+        contact_ranges = _contact_ranges(
+            subject_id,
+            electrode_order,
+            electrode_definitions,
+        )
         phase_ids = [str(item["phase_id"]) for item in subject["phases"]]
         _unique(phase_ids, f"phase_id for {subject_id}")
         for phase in subject["phases"]:
@@ -327,14 +425,24 @@ def validate_study_base(payload: Mapping[str, object]) -> None:
                                 raise StudyBaseError(f"source {source_id!r} label does not match component")
                             _finite(source["amplitude"], f"source {source_id} amplitude")
                             _finite(source["pulse_width_us"], f"source {source_id} pulse_width_us")
-                            for contact in source["contacts"]:
-                                _finite(contact["fraction"], f"source {source_id} contact fraction")
+                            _validate_source_contacts(
+                                source=source,
+                                source_context=(
+                                    f"{subject_id}/{phase_id}/{program_id}/"
+                                    f"{electrode_id}/{group['frequency_group_id']}"
+                                ),
+                                electrode_id=electrode_id,
+                                valid_contacts=contact_ranges[electrode_id],
+                            )
 
     _unique(observation_ids, "observation_id")
 
 
-def _path(value: object) -> Path:
-    return Path(str(value)).expanduser().resolve()
+def _path(value: object, base_directory: Path) -> Path:
+    path = Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = base_directory / path
+    return path.resolve()
 
 
 def _program_record(subject_id: str, phase: Mapping[str, Any], program: Mapping[str, Any]) -> ProgramRecord:
@@ -405,20 +513,24 @@ def _program_record(subject_id: str, phase: Mapping[str, Any], program: Mapping[
 def _study_record(payload: Mapping[str, Any], source_path: Path, source_sha256: str) -> StudyBaseRecord:
     study = payload["study"]
     spot = study["spot_model_sources"]
+    base_directory = source_path.parent
     spatial = SpatialDefinition(
         canonical_space=str(spot["canonical_space"]),
         canonical_hemisphere=str(spot["hemisphere_mapping"]["canonical_hemisphere"]),
-        left_to_right_transform=_path(spot["hemisphere_mapping"]["left_to_right_transform"]["path"]),
+        left_to_right_transform=_path(
+            spot["hemisphere_mapping"]["left_to_right_transform"]["path"],
+            base_directory,
+        ),
         brainmask_id=str(spot["brainmask"]["brainmask_id"]),
-        brainmask_path=_path(spot["brainmask"]["path"]),
+        brainmask_path=_path(spot["brainmask"]["path"], base_directory),
         connectomes=tuple(
             ConnectomeDefinition(
                 connectome_id=str(item["connectome_id"]),
                 label=str(item["label"]),
                 space=str(item["space"]),
-                streamlines_path=_path(item["streamlines"]["path"]),
+                streamlines_path=_path(item["streamlines"]["path"], base_directory),
                 metadata_path=(
-                    _path(item["metadata"]["path"])
+                    _path(item["metadata"]["path"], base_directory)
                     if item["metadata"]["path"] is not None
                     else None
                 ),
@@ -430,9 +542,13 @@ def _study_record(payload: Mapping[str, Any], source_path: Path, source_sha256: 
         SubjectRecord(
             subject_id=str(subject["subject_id"]),
             subject_label=str(subject["subject_label"]),
-            leaddbs_subject_dir=_path(subject["subject_sources"]["leaddbs_subject_dir"]),
+            leaddbs_subject_dir=_path(
+                subject["subject_sources"]["leaddbs_subject_dir"],
+                base_directory,
+            ),
             electrode_reconstruction=_path(
-                subject["subject_sources"]["electrode_reconstruction"]["path"]
+                subject["subject_sources"]["electrode_reconstruction"]["path"],
+                base_directory,
             ),
             electrodes=tuple(
                 ElectrodeDefinition(
@@ -448,6 +564,10 @@ def _study_record(payload: Mapping[str, Any], source_path: Path, source_sha256: 
                 _program_record(str(subject["subject_id"]), phase, program)
                 for phase in subject["phases"]
                 for program in phase["programs"]
+            ),
+            contact_numbering_convention=str(subject["contact_numbering"]["convention"]),
+            electrode_order=tuple(
+                str(item) for item in subject["contact_numbering"]["electrode_order"]
             ),
         )
         for subject in study["subjects"]

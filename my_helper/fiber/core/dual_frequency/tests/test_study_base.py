@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import os
 import tempfile
 import unittest
 from collections import Counter
@@ -47,7 +48,7 @@ def _source(source_id: str, component_id: str, frequency_hz: float) -> dict[str,
         "amplitude": 2.0,
         "pulse_width_us": 60.0,
         "contacts": [
-            {"contact": 0, "polarity": "cathode", "fraction": 1.0},
+            {"contact": 4, "polarity": "cathode", "fraction": 1.0},
             {"contact": "case", "polarity": "anode", "fraction": 1.0},
         ],
     }
@@ -253,6 +254,11 @@ class StudyBaseTest(unittest.TestCase):
         self.assertEqual(first.subject_ids, ("subject-2", "subject-1"))
         self.assertEqual(first.scale_ids, ("scale_a", "scale_b"))
         self.assertEqual(first.source_sha256, second.source_sha256)
+        self.assertEqual(
+            first.subjects[0].contact_numbering_convention,
+            "bilateral_contiguous_zero_based",
+        )
+        self.assertEqual(first.subjects[0].electrode_order, ("lead-L", "lead-R"))
         self.assertEqual(before, after)
         self.assertEqual(len({item.identifier for item in first.stimulation_sources}), 6)
         with self.assertRaises(dataclasses.FrozenInstanceError):
@@ -268,6 +274,106 @@ class StudyBaseTest(unittest.TestCase):
         payload["study"]["scale_definitions"][0]["direction"] = "unknown"
         with self.assertRaisesRegex(StudyBaseError, "direction"):
             validate_study_base(payload)
+
+    def test_rejects_invalid_electrode_order(self) -> None:
+        payload = study_payload()
+        payload["study"]["subjects"][0]["contact_numbering"]["electrode_order"] = [
+            "lead-L",
+            "lead-L",
+        ]
+        with self.assertRaisesRegex(StudyBaseError, "electrode_order"):
+            validate_study_base(payload)
+
+        payload = study_payload()
+        payload["study"]["subjects"][0]["contact_numbering"]["electrode_order"] = [
+            "lead-L"
+        ]
+        with self.assertRaisesRegex(StudyBaseError, "every declared electrode exactly once"):
+            validate_study_base(payload)
+
+    def test_rejects_out_of_range_and_duplicate_contacts(self) -> None:
+        payload = study_payload()
+        source = payload["study"]["subjects"][0]["phases"][1]["programs"][0][
+            "electrode_programs"
+        ][0]["frequency_groups"][0]["sources"][0]
+        source["contacts"][0]["contact"] = 999
+        with self.assertRaisesRegex(StudyBaseError, "outside.*lead-R.*range"):
+            validate_study_base(payload)
+
+        payload = study_payload()
+        source = payload["study"]["subjects"][0]["phases"][1]["programs"][0][
+            "electrode_programs"
+        ][0]["frequency_groups"][0]["sources"][0]
+        source["contacts"].append(copy.deepcopy(source["contacts"][0]))
+        with self.assertRaisesRegex(StudyBaseError, "duplicate contacts"):
+            validate_study_base(payload)
+
+    def test_rejects_missing_polarity_and_fraction_closure(self) -> None:
+        payload = study_payload()
+        source = payload["study"]["subjects"][0]["phases"][1]["programs"][0][
+            "electrode_programs"
+        ][0]["frequency_groups"][0]["sources"][0]
+        source["contacts"][1]["polarity"] = "cathode"
+        with self.assertRaisesRegex(StudyBaseError, "at least one anode and cathode"):
+            validate_study_base(payload)
+
+        payload = study_payload()
+        source = payload["study"]["subjects"][0]["phases"][1]["programs"][0][
+            "electrode_programs"
+        ][0]["frequency_groups"][0]["sources"][0]
+        source["contacts"][0]["fraction"] = 0.5
+        with self.assertRaisesRegex(StudyBaseError, "cathode fractions must sum to 1"):
+            validate_study_base(payload)
+
+    def test_relative_paths_resolve_from_study_parent_not_cwd(self) -> None:
+        payload = study_payload()
+        spot = payload["study"]["spot_model_sources"]
+        spot["hemisphere_mapping"]["left_to_right_transform"]["path"] = "assets/flip.mat"
+        spot["brainmask"]["path"] = "assets/mask.nii.gz"
+        spot["connectomes"][0]["streamlines"]["path"] = "connectomes/data.mat"
+        spot["connectomes"][0]["metadata"]["path"] = "connectomes/metadata.json"
+        for subject in payload["study"]["subjects"]:
+            subject_id = subject["subject_id"]
+            subject["subject_sources"]["leaddbs_subject_dir"] = f"subjects/{subject_id}"
+            subject["subject_sources"]["electrode_reconstruction"][
+                "path"
+            ] = f"subjects/{subject_id}/reconstruction.mat"
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            study_directory = root / "study"
+            other_directory = root / "other"
+            study_directory.mkdir()
+            other_directory.mkdir()
+            path = study_directory / "study_base.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(other_directory)
+                study = load_study_base(path)
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertEqual(
+            study.spatial.left_to_right_transform,
+            (study_directory / "assets/flip.mat").resolve(),
+        )
+        self.assertEqual(
+            study.spatial.brainmask_path,
+            (study_directory / "assets/mask.nii.gz").resolve(),
+        )
+        self.assertEqual(
+            study.spatial.connectomes[0].streamlines_path,
+            (study_directory / "connectomes/data.mat").resolve(),
+        )
+        self.assertEqual(
+            study.spatial.connectomes[0].metadata_path,
+            (study_directory / "connectomes/metadata.json").resolve(),
+        )
+        self.assertEqual(
+            study.subjects[0].leaddbs_subject_dir,
+            (study_directory / "subjects/subject-2").resolve(),
+        )
 
     def test_rejects_nonfinite_values_and_group_inconsistency(self) -> None:
         payload = study_payload()
