@@ -1615,6 +1615,42 @@ git commit -m "feat: extract add-on normative-fiber backend"
   technical status, and immutable artifacts; it exposes no classification
   mutation fields.
 
+**Sensitivity sub-contract confirmed for implementation:**
+
+- Final-linked tau-neighborhood, spatial-jitter, add-on exposure, and final
+  fiber-control strategies accept only a realized `FinalModelRecord` and its
+  exact locked feature axis. They reject `SensitiveRecord`, non-final branches,
+  sensitive connectomes, unresolved paths, and mismatched subject/feature IDs.
+- Reference-fiber plain and cheap controls that execute before source
+  resolution are a separate `ObservedFiberControlStrategy`. They consume typed
+  observed inputs/results and emit diagnostic evidence only; they cannot be
+  represented as, or promoted to, final-linked sensitivity.
+- Tau-neighborhood uses the selected coverage and absolute tau values derived
+  from `0.9 * selected_tau` and `1.1 * selected_tau`. It evaluates those cells
+  without invoking the source resolver and omits source/prediction/final status
+  from its output.
+- Tau continues to define Coverage/Omega only. For both direct voxel and
+  normative fiber, all continuous E-field values inside the selected candidate
+  support enter scoring. Add-on sensitivity may zero only the declared
+  reference-overlap exposure; it must not zero add-on exposure merely because
+  its value is below tau.
+- Spatial jitter receives settings plus an injected typed replicate provider.
+  Each replicate provider rebuilds perturbed exposure and, for add-on models,
+  overlap exclusion, DeltaReferenceScore, support QC, and branch nuisance
+  inputs before returning a complete typed observed request. The numerical
+  strategy never discovers geometry or files by name.
+- Add-on analyses are independently identified and independently terminal:
+  nonfinal-branch comparison, gain endpoint, total exposure, support, and
+  collinearity. Failure or non-applicability of DeltaReferenceScore-dependent
+  analyses cannot suppress an executable total-exposure or no-delta analysis.
+- Fiber controls report plain exposure/burden, signed-score increment, support,
+  and collinearity diagnostics. A burden-dominated or one-sided result remains
+  interpretation QC and cannot change the resolver or final decision.
+- Every strategy returns only technical status, numeric metrics/QC, and
+  immutable artifacts. Result construction rejects classification mutation
+  keys, including source, prediction, branch-role, endpoint, or final-model
+  status fields.
+
 - [ ] **Step 1: Write failing final-only and no-feedback tests**
 
 Reject non-final branches, sensitive-connectome records, missing final axes, and outputs
