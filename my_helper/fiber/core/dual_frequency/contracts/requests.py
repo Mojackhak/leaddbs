@@ -390,12 +390,15 @@ class ActivationRequest:
 
     final_model: FinalModelRecord
     activation_probability: ScientificInput
+    reference_overlap_mask: ScientificInput | None
     outcome: ScientificInput
     baseline: ScientificInput
+    peak_final_score: ScientificInput
     nuisance_inputs: tuple[ScientificInput, ...]
     subject_axis: AxisRef
     feature_axis: AxisRef
     feature_ids: ScientificInput
+    activation_feature_ids: ScientificInput
     outcome_direction: str
     hard_computability: HardComputabilityLimits
     connectome_role: str
@@ -414,6 +417,7 @@ class ActivationRequest:
         _scientific_input(self.activation_probability, "activation_probability")
         _scientific_input(self.outcome, "outcome")
         _scientific_input(self.baseline, "baseline")
+        _scientific_input(self.peak_final_score, "peak_final_score")
         object.__setattr__(
             self,
             "nuisance_inputs",
@@ -429,14 +433,78 @@ class ActivationRequest:
             self.subject_axis,
             self.feature_axis,
         )
+        is_reference = self.final_model.endpoint.model_family.startswith("reference_")
+        if is_reference:
+            if self.reference_overlap_mask is not None:
+                raise RequestError(
+                    "reference activation cannot receive a reference_overlap_mask"
+                )
+        else:
+            if self.reference_overlap_mask is None:
+                raise RequestError(
+                    "add-on activation requires a reference_overlap_mask"
+                )
+            _scientific_input(self.reference_overlap_mask, "reference_overlap_mask")
+            _validate_exposure(
+                self.reference_overlap_mask,
+                "reference_overlap_mask",
+                self.subject_axis,
+                self.feature_axis,
+            )
+            if isinstance(self.reference_overlap_mask, np.ndarray):
+                if self.reference_overlap_mask.dtype != np.dtype(bool):
+                    raise RequestError("reference_overlap_mask must use boolean dtype")
+            elif (
+                np.dtype(self.reference_overlap_mask.dtype) != np.dtype(bool)
+                or self.reference_overlap_mask.units != "binary"
+                or self.reference_overlap_mask.space != "right_canonical"
+            ):
+                raise RequestError(
+                    "reference_overlap_mask artifact must be boolean binary data "
+                    "in right_canonical space"
+                )
         _validate_vector(self.outcome, "outcome", self.subject_axis)
         _validate_vector(self.baseline, "baseline", self.subject_axis)
+        _validate_vector(self.peak_final_score, "peak_final_score", self.subject_axis)
+        if isinstance(self.activation_probability, ArtifactRef) and (
+            self.activation_probability.units != "probability"
+            or self.activation_probability.space != "right_canonical"
+        ):
+            raise RequestError(
+                "activation_probability artifact must use probability units in right_canonical space"
+            )
         for index, value in enumerate(self.nuisance_inputs):
             _validate_nuisance(value, f"nuisance_inputs[{index}]", self.subject_axis)
         _scientific_input(self.feature_ids, "feature_ids")
         if _shape(self.feature_ids, "feature_ids") != (self.feature_axis.count,):
             raise RequestError("feature_ids must match the final feature axis")
         _require_artifact_axes(self.feature_ids, "feature_ids", (self.feature_axis,))
+        if isinstance(self.feature_ids, ArtifactRef) and (
+            np.dtype(self.feature_ids.dtype) != np.dtype(np.int64)
+            or self.feature_ids.units != "fiber_id"
+            or self.feature_ids.space != "right_canonical"
+        ):
+            raise RequestError(
+                "feature_ids artifact must be int64 fiber_id data in right_canonical space"
+            )
+        _scientific_input(self.activation_feature_ids, "activation_feature_ids")
+        if _shape(self.activation_feature_ids, "activation_feature_ids") != (
+            self.feature_axis.count,
+        ):
+            raise RequestError("activation_feature_ids must match the final feature axis")
+        _require_artifact_axes(
+            self.activation_feature_ids,
+            "activation_feature_ids",
+            (self.feature_axis,),
+        )
+        if isinstance(self.activation_feature_ids, ArtifactRef) and (
+            np.dtype(self.activation_feature_ids.dtype) != np.dtype(np.int64)
+            or self.activation_feature_ids.units != "fiber_id"
+            or self.activation_feature_ids.space != "right_canonical"
+        ):
+            raise RequestError(
+                "activation_feature_ids artifact must be int64 fiber_id data in right_canonical space"
+            )
         direction = str(self.outcome_direction).strip().lower()
         if direction not in {"lower", "higher"}:
             raise RequestError("outcome_direction must be 'lower' or 'higher'")
@@ -458,7 +526,7 @@ class ActivationRequest:
                 "activation sensitivity requires NormativeFiberScoreSettings"
             )
         branch = self.final_model.final_key.final_branch
-        if self.final_model.endpoint.model_family.startswith("reference_"):
+        if is_reference:
             if self.nuisance_inputs:
                 raise RequestError("reference activation cannot receive nuisance_inputs")
         elif branch == "no_delta_reference":
@@ -469,6 +537,29 @@ class ActivationRequest:
                 raise RequestError(
                     "adjusted activation requires full and fold DeltaReferenceScore inputs"
                 )
+            if _shape(self.nuisance_inputs[0], "nuisance_inputs[0]") != (
+                self.subject_axis.count,
+            ):
+                raise RequestError(
+                    "adjusted activation full DeltaReferenceScore must be a subject vector"
+                )
+            if _shape(self.nuisance_inputs[1], "nuisance_inputs[1]") != (
+                self.subject_axis.count,
+                self.subject_axis.count,
+            ):
+                raise RequestError(
+                    "adjusted activation fold DeltaReferenceScore must be fold-by-subject"
+                )
+            _require_artifact_axes(
+                self.nuisance_inputs[0],
+                "nuisance_inputs[0]",
+                (self.subject_axis,),
+            )
+            _require_artifact_axes(
+                self.nuisance_inputs[1],
+                "nuisance_inputs[1]",
+                (self.subject_axis, self.subject_axis),
+            )
         else:
             raise RequestError(f"unsupported activation final branch {branch!r}")
         threshold = float(self.fitting_probability_threshold)

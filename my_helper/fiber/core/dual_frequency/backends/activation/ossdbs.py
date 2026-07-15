@@ -6,6 +6,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -20,7 +21,11 @@ from .canonical_mapping import (
     activation_universe,
     merge_right_canonical_probabilities,
 )
-from .ppam import binary_activation, max_probability_union, validate_probabilities
+from .ppam import (
+    binary_activation,
+    max_probability_union,
+    validate_ten_sample_probabilities,
+)
 
 
 DEFAULT_ROW_WORKERS = 3
@@ -134,6 +139,8 @@ def build_oss_row_cache_key(
 
     if not isinstance(row, OSSRowInput) or not isinstance(settings, OSSScientificSettings):
         raise TypeError("row and settings must be typed OSS values")
+    ordered_ids = np.asarray(row.feature_ids, dtype="<i8", order="C")
+    ordered_axis_hash = hashlib.sha256(ordered_ids.tobytes(order="C")).hexdigest()
     return ScientificCacheKey(
         geometry_hash=row.geometry_hash,
         stimulation_hash=row.stimulation_hash,
@@ -142,7 +149,10 @@ def build_oss_row_cache_key(
         connectome_feature_hash=row.connectome_feature_hash,
         backend_name="OSS-DBSv2-pPAM",
         backend_version=settings.backend_version,
-        scientific_parameter_hashes=(("oss_ppam_v1", settings.parameter_hash),),
+        scientific_parameter_hashes=(
+            ("ordered_feature_axis", ordered_axis_hash),
+            ("oss_ppam_v1", settings.parameter_hash),
+        ),
     )
 
 
@@ -155,7 +165,7 @@ class OSSRowProduct:
 
     def __post_init__(self) -> None:
         ids = activation_universe(self.feature_ids)
-        probabilities = validate_probabilities(self.probabilities)
+        probabilities = validate_ten_sample_probabilities(self.probabilities)
         if probabilities.ndim != 1 or probabilities.shape != (ids.size,):
             raise OSSBackendError("row probabilities must be one-dimensional on feature_ids")
         object.__setattr__(self, "feature_ids", ids)
@@ -171,6 +181,7 @@ class OSSRowBatchArtifact:
 
     final_model_id: str
     feature_axis: AxisRef
+    feature_ids: ArtifactRef
     activation_probability: ArtifactRef
     binary_exposure: ArtifactRef
     artifacts: tuple[ArtifactRef, ...]
@@ -179,6 +190,16 @@ class OSSRowBatchArtifact:
         object.__setattr__(self, "final_model_id", _token(self.final_model_id, "final_model_id"))
         if not isinstance(self.feature_axis, AxisRef):
             raise OSSBackendError("feature_axis must be an AxisRef")
+        if (
+            not isinstance(self.feature_ids, ArtifactRef)
+            or self.feature_ids.axis_refs != (self.feature_axis,)
+            or np.dtype(self.feature_ids.dtype) != np.dtype(np.int64)
+            or self.feature_ids.units != "fiber_id"
+            or self.feature_ids.space != "right_canonical"
+        ):
+            raise OSSBackendError(
+                "row batch feature_ids must be ordered int64 right-canonical fiber IDs"
+            )
         for artifact in (self.activation_probability, self.binary_exposure):
             if not isinstance(artifact, ArtifactRef) or not artifact.axis_refs:
                 raise OSSBackendError("row batch outputs require array ArtifactRef values")
@@ -341,7 +362,7 @@ class OSSRowMaterializer:
             request.feature_ids,
             kind="oss_fiber_ids",
             axes=(request.feature_axis,),
-            units=None,
+            units="fiber_id",
             space="right_canonical",
         )
         status_ref = self.publisher.document(
@@ -364,6 +385,7 @@ class OSSRowMaterializer:
         return OSSRowBatchArtifact(
             final_model_id=request.final_model.identifier,
             feature_axis=request.feature_axis,
+            feature_ids=fiber_ids_ref,
             activation_probability=probability_ref,
             binary_exposure=binary_ref,
             artifacts=(fiber_ids_ref, status_ref),
@@ -453,7 +475,7 @@ class OSSRowMaterializer:
             raise OSSBackendError("validated OSS cache entry lacks required row arrays")
         try:
             ids = activation_universe(np.load(ids_path, allow_pickle=False))
-            probabilities = validate_probabilities(
+            probabilities = validate_ten_sample_probabilities(
                 np.load(probabilities_path, allow_pickle=False)
             )
         except (OSError, ValueError) as exc:

@@ -1,7 +1,9 @@
 """Pure probability operations for pPAM activation sensitivity.
 
-Continuous probabilities are validated on the closed unit interval. Binary
-fitting exposure uses the fixed inclusive threshold ``p(A) >= 0.5``.
+Continuous probabilities are validated on the closed unit interval. The v1
+producer contract additionally requires integer activation counts over ten
+samples. Binary fitting exposure uses the fixed inclusive threshold
+``p(A) >= 0.5``.
 """
 
 from __future__ import annotations
@@ -10,6 +12,8 @@ import numpy as np
 
 
 FITTING_PROBABILITY_THRESHOLD = 0.5
+PPAM_SAMPLE_COUNT = 10
+PPAM_LATTICE_ABSOLUTE_TOLERANCE = 1e-5
 
 
 class PPAMError(ValueError):
@@ -42,6 +46,30 @@ def validate_probabilities(
     output = np.array(array, dtype=np.float32, order="C", copy=True)
     output.flags.writeable = False
     return output
+
+
+def validate_ten_sample_probabilities(
+    probabilities: np.ndarray,
+    *,
+    name: str = "probabilities",
+) -> np.ndarray:
+    """Validate probabilities produced as integer activation counts over ten samples."""
+
+    validated = validate_probabilities(probabilities, name=name)
+    scaled = validated.astype(np.float64) * PPAM_SAMPLE_COUNT
+    if not np.all(
+        np.isclose(
+            scaled,
+            np.rint(scaled),
+            rtol=0.0,
+            atol=PPAM_LATTICE_ABSOLUTE_TOLERANCE,
+        )
+    ):
+        raise PPAMError(
+            f"{name} must equal an integer activation count divided by "
+            f"{PPAM_SAMPLE_COUNT}"
+        )
+    return validated
 
 
 def max_probability_union(

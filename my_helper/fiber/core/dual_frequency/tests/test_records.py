@@ -61,18 +61,20 @@ class RecordTest(unittest.TestCase):
         axes: tuple[AxisRef, ...],
         *,
         units: str = "score",
+        dtype: str = "float64",
+        space: str = "synthetic",
     ) -> ArtifactRef:
         return ArtifactRef(
             kind=kind,
             schema_version="array_v1",
             uri=f"file:///tmp/{kind}.npy",
             sha256=(kind[0].encode("ascii").hex()[0] if kind else "a") * 64,
-            dtype="float64",
+            dtype=dtype,
             shape=tuple(axis.count for axis in axes),
             axis_refs=axes,
             axis_hashes=tuple(axis.sha256 for axis in axes),
             units=units,
-            space="synthetic",
+            space=space,
             producer_id="synthetic_fixture",
             producer_version="1",
         )
@@ -456,15 +458,30 @@ class RecordTest(unittest.TestCase):
         with self.assertRaisesRegex(RequestError, "artifact axes"):
             dataclasses.replace(formal, subject_axis=other_subjects)
 
+        activation_ids = self._array_artifact(
+            "fiber_ids",
+            (fibers,),
+            units="fiber_id",
+            dtype="int64",
+            space="right_canonical",
+        )
         activation = ActivationRequest(
             final_model=final,
-            activation_probability=self._array_artifact("activation", (subjects, fibers)),
+            activation_probability=self._array_artifact(
+                "activation",
+                (subjects, fibers),
+                units="probability",
+                space="right_canonical",
+            ),
+            reference_overlap_mask=None,
             outcome=outcome,
             baseline=baseline,
+            peak_final_score=self._array_artifact("peak_score", (subjects,)),
             nuisance_inputs=(),
             subject_axis=subjects,
             feature_axis=fibers,
-            feature_ids=self._array_artifact("fiber_ids", (fibers,), units="fiber_id"),
+            feature_ids=activation_ids,
+            activation_feature_ids=activation_ids,
             outcome_direction="lower",
             hard_computability=HardComputabilityLimits(12, None, 20),
             connectome_role="formal",
@@ -490,6 +507,8 @@ class RecordTest(unittest.TestCase):
                 activation_probability=self._array_artifact(
                     "other_activation",
                     (subjects, wrong_fibers),
+                    units="probability",
+                    space="right_canonical",
                 ),
             )
 
