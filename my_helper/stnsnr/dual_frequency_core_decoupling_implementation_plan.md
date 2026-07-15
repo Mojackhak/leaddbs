@@ -1698,12 +1698,14 @@ git commit -m "feat: extract add-on normative-fiber backend"
   must use `outcome_direction=higher` regardless of the source scale direction.
 - Only `nonfinal_request` may use the non-realized branch. Gain and total-
   exposure requests inherit the realized final branch and branch-specific
-  nuisance inputs. All three analyses reuse the target's exact exposure
-  artifact; total exposure is obtained solely by omitting the target overlap
-  mask, not by substituting another exposure array. Nonfinal and total-exposure
+  nuisance inputs. Nonfinal and gain analyses reuse the target's exact
+  overlap-excluded exposure artifact. Total-exposure sensitivity instead uses
+  the same `PreparedExposureRecord`'s axis-identical
+  `raw_addon_component_exposure` artifact and omits the target overlap mask;
+  no other exposure substitution is permitted. Nonfinal and total-exposure
   requests retain the target outcome and baseline artifacts. Gain retains the
-  target baseline and exposure while replacing only outcome with the dedicated
-  normalized-gain artifact.
+  target baseline and overlap-excluded exposure while replacing only outcome
+  with the dedicated normalized-gain artifact.
 - `ObservedRequest` accepts only the branch vocabulary of its model family:
   `reference` for reference models and exactly `no_delta_reference` or
   `delta_reference_adjusted` for add-on models. A nonfinal sensitivity request
@@ -2146,6 +2148,194 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   publish the run's final `completed` or `failed` status. Resume reuses typed
   completed task records and deterministically rebuilds the aggregate files.
 
+**Task 15 implementation refinement, 2026-07-15:**
+
+- The three subject IDs discussed during data verification are not model
+  configuration and must never appear in generic runtime logic. Candidate
+  subjects always come from `EndpointRecord.subject_ids`; scientific inclusion
+  is recalculated per endpoint from the configured binding, frequency class,
+  required group-level E-field leaves, and minimum-subject rule. Missing add-on
+  input excludes only that subject from that add-on endpoint and does not alter
+  an otherwise valid reference endpoint.
+- Existing canonical E-fields use the separately approved path-existence
+  contract. The provider derives each exact leaf from the validated study
+  record and binding; it does not scan directories and does not require a
+  bundle, a VTA provenance sidecar, or `vta_model.yaml` as a downstream model
+  input. It hashes every consumed file while publishing typed run/cache
+  artifacts. This hash proves the bytes consumed by the model, not the upstream
+  FEM provenance that produced those bytes.
+- The provider reuses the generic Lead-DBS HDF5 connectome adapter. Its package
+  entrypoint must expose existing public symbols lazily so importing the narrow
+  connectome module does not eagerly import unrelated traversal/pipeline or
+  optional JIT dependencies. This is an import-boundary change only; the
+  connectome adapter and the package's public API remain unchanged.
+- A continuous group consumes
+  `delivery-continuous/joint/efield.nii.gz`; an alternating group consumes
+  `delivery-alternating/derived/group-peak/efield.nii.gz`. All matching groups
+  in the requested frequency class are included. `component_id`, target label,
+  subject ID, phase label, and assessment-period names never classify a source.
+- Add `PreparedExposureRecord` rather than overloading a single `ArtifactRef`.
+  It carries the endpoint and exact subject/feature axes, the primary prepared
+  exposure, canonical feature IDs, and the add-on-only auxiliary
+  arrays required by DeltaReferenceScore, overlap exclusion, gain/total-
+  exposure sensitivity, formal inference, jitter, and activation. Its artifact
+  closure is complete and resume-safe. Direct voxel uses deterministic
+  canonical-brainmask voxel IDs; normative fiber uses canonical connectome
+  fiber IDs. Backend requests may omit direct-voxel IDs when the numerical
+  kernel does not consume them, but the prepared record must retain them for
+  map export, jitter, reporting, and exact resume identity.
+- Add-on prepared exposure records carry an explicit DeltaReferenceScore input
+  readiness status and reason. Missing reference-condition or add-on reference-
+  component exposure invalidates only the adjusted branch; it does not remove
+  an otherwise ready subject from the no-delta branch. Shape-preserving
+  auxiliary arrays cannot be interpreted as proof that those inputs were
+  observed.
+- Add `EndpointInputRecord` with the clinical candidate IDs, scientifically
+  included IDs, reason-coded per-subject exclusions, exact subject axis,
+  baseline/outcome artifacts, and readiness status. A separate
+  `SubjectExclusionRecord` uses generic reason codes only. The minimum-subject
+  rule is applied to the included axis, not the catalog candidate count.
+- `ReferenceDependencyRecord.reference_record` accepts the exact matched
+  `SourceRecord` for final-eligible endpoints or `SensitiveRecord` for a
+  sensitive-connectome endpoint. A noncomputable sensitive reference cell is
+  treated like locally absent reference evidence: the no-delta branch remains
+  eligible, while DeltaReferenceScore and the adjusted branch are unavailable.
+  No sensitive endpoint can realize a final model.
+- Remove both ordinary report tasks and synthetic catalog-terminal tasks from
+  the DAG. Catalog-unavailable requested endpoints have no scientific tasks and
+  receive their sole terminal decision from the post-executor aggregator.
+  `through=report` still includes every selected scientific phase before the
+  aggregator runs.
+- Add the input-readiness record as an explicit dependency of observed and
+  branch services. Add the reference dependency and Delta task state as direct
+  dependencies of add-on final realization so `derive_branch_plan` can be
+  evaluated from typed direct dependencies rather than implicit ancestor facts.
+- Add `FinalSelectionRecord` as the typed output of every final-realization
+  task. It is distinct from the aggregate-only `FinalDecisionRecord`:
+  `FinalSelectionRecord` records the endpoint-local scientific state-machine
+  result and therefore may contain either one realized `FinalModelRecord` or a
+  closed `no_final_model`/dependency/execution state with deterministic reason
+  codes. This avoids misclassifying a legitimate absence of a stable source as
+  a task execution failure. Formal, sensitivity, jitter, and activation tasks
+  consume only `FinalSelectionRecord.final_model` when the selection status is
+  realized. The post-executor aggregator combines this selection with all
+  endpoint task outcomes to produce the terminal `FinalDecisionRecord`.
+- The v1 record codec root allowlist is exact:
+  `EndpointInputRecord`, `PreparedExposureRecord`, `ArtifactRef`,
+  `ObservedResult`, `SourceRecord`, `ReferenceDependencyRecord`,
+  `DeltaReferenceBundle`, `BranchRecord`, `FinalModelRecord`,
+  `FinalSelectionRecord`, `SensitiveRecord`, `FormalResult`,
+  `SensitivityResult`, and `ActivationArtifact`.
+  `FinalDecisionRecord` is aggregate-only. Endpoint/final/axis records are
+  nested-only. Unknown roots, extra/missing fields, type-name mismatch,
+  identifier mismatch, incomplete artifact closure, and malformed nested axes
+  fail closed during initial execution and resume.
+- Service adapters receive codec-restored direct dependencies, use the provider
+  only for endpoint-scoped scientific inputs, call exactly one generic backend
+  or pure state transition, and return `ServiceResult.from_record(...)`.
+  Runtime facts are derived from the returned typed record; callers cannot
+  supply contradictory type, identifier, payload, or artifact lists.
+- Every downstream numerical task declares the typed input records it actually
+  consumes as direct dependencies. A final-selection record alone is not an
+  exposure or clinical-input container: formal, sensitivity, jitter, and
+  activation adapters also receive the exact `EndpointInputRecord` and
+  `PreparedExposureRecord`, plus the Delta bundle when an adjusted add-on final
+  is possible. Adapters may slice the locked selected feature axis from these
+  records but may not rediscover files or silently rebuild a second endpoint
+  cohort.
+- `execute_plan` returns task outcomes without finalizing the run. The
+  application layer writes `final_decisions.json`, `endpoint_summary.json`,
+  `run_report.json`, and `artifact_index.json` through a staged reporting
+  directory and publishes them before the one final `RunStore.finalize` call.
+  Aggregation is deterministic and is rebuilt on resume.
+
+**Task 15 provider audit closure requirements, 2026-07-15:**
+
+- A missing add-on-condition reference-component group or E-field is auxiliary
+  DeltaReferenceScore unavailability only. It must not remove a subject whose
+  clinical outcome and add-on-frequency exposure are otherwise ready from the
+  no-delta add-on cohort.
+- Add-on and matched-reference cohorts are joined by stable subject identity,
+  not by positional equality. The add-on subject axis may be a strict subset of
+  the ready reference axis. For each add-on held-out subject, select the matched
+  reference LOOCV operator that excluded that same subject while retaining all
+  other reference-ready training subjects, including reference-only subjects.
+  Missing identity membership invalidates only the affected adjusted input; no
+  subject ID may appear as a code or configuration exception.
+- Normative-fiber bilateral exposure is computed as the arithmetic mean of the
+  two hemisphere-specific fiber peaks after left-to-canonical mapping. Pointwise
+  hemisphere averaging before the per-fiber peak is forbidden because the two
+  homologous peak locations need not be the same point along a fiber.
+- Full-connectome preparation must be bounded-memory. Production fiber matrices
+  are written through temporary memory maps or an equivalent chunked
+  publisher-owned destination; preparation must not retain all reference,
+  add-on, auxiliary, and overlap matrices as independent in-memory arrays.
+- Every add-on preparation validates the exact add-on endpoint, configured
+  matched-reference endpoint ID, connectome, and ready dependency state before
+  using reference evidence. Formal and final-linked requests likewise require
+  exact endpoint, subject-axis, parent-feature-axis, and selected-axis identity.
+- Direct selected indices and fiber IDs must retain their declared integer
+  dtype, be ordered, unique, and in bounds. The selected feature axis is
+  recomputed from the canonical parent axis, ordered selected positions or IDs,
+  branch, selected tau, and selected Coverage; count equality alone is not
+  sufficient.
+- Adjusted observed/formal requests require both a valid
+  `DeltaReferenceBundle` and
+  `PreparedExposureRecord.delta_reference_input_status=ready`. A valid bundle
+  cannot override auxiliary-readiness failure.
+- The configured left-to-canonical transform must be the transform actually
+  consumed by the mapping operation. A cache identity that hashes one file
+  while MATLAB silently chooses another active-space transform is invalid.
+  Every consumed left/right E-field, brainmask, connectome, and transform is
+  content-bound; cached transformed output is published atomically under an
+  interprocess lock and verified before reuse.
+- Provider acceptance tests cover asymmetric bilateral fiber peaks, missing
+  Delta-only auxiliaries, dependency/endpoint mismatch, adjusted readiness,
+  formal slicing, malformed selected axes, bounded preparation, transform
+  selection, and concurrent cache reuse. Production-runtime import isolation
+  is tested with the actual default registry, not only an injected empty test
+  registry.
+- Equivalence and smoke qualification are fixed internal test-suite gates, not
+  endpoint-scoped production DAG tasks. Their parameters remain absent from
+  public YAML/CLI, and production reports must not contain a completed
+  `SensitivityResult` whose numerical work was actually `not_run`.
+- Add-on normative-fiber plain/burden controls consume the realized final model
+  and use the shared `FinalFiberControlStrategy`. Its separate cheap/exposure
+  sensitivity stage uses the shared add-on comparison, direction-normalized
+  gain, raw total-exposure, support, and collinearity strategy. These stages
+  may not be replaced by typed placeholder documents.
+- Adjusted add-on spatial jitter always perturbs and rebuilds the matched
+  reference exposure/operator as well as the add-on reference component,
+  overlap mask, support QC, and full/fold DeltaReferenceScore. It applies the
+  same subject-ID cohort join described above; reusing original reference fold
+  weights or restricting reference training to the add-on cohort is forbidden.
+- Spatial-jitter settings include `translation_fwhm_mm`; runtime sampling derives
+  `translation_sigma_mm = translation_fwhm_mm / 2.354820045`. A deterministic
+  vector is keyed by replicate, condition/component, subject ID, and hemisphere,
+  and shared by every leaf in the same stimulation group and side. Replicates
+  use linear interpolation with zero outside the source grid, start from the
+  realized final's selected axis, and release task-scoped temporary resources.
+  Invalid or not-applicable DeltaReferenceScore support blocks only an adjusted
+  replicate; no-delta jitter still executes and records that support state as QC.
+- The generic OSS producer treats a continuous frequency group as one jointly
+  modeled simultaneous row and treats an alternating frequency group as
+  independently modeled source rows merged by elementwise maximum probability.
+  Left stimulation/electrode geometry is mapped to right-canonical space before
+  OSS is evaluated on the locked final axis. Cache hits require no toolchain;
+  an authorized miss resolves the official Lead-DBS `OSS-DBSv2` environment
+  internally, while public YAML remains free of executable/environment paths.
+- Cache lookup does not need to materialize transformed electrode geometry. Its
+  canonical-geometry identity is derived from the exact reconstruction bytes,
+  reconstruction lead, source parameters, declared canonicalization method,
+  and configured transform bytes. On an authorized miss, the producer must
+  materialize that declared mapping before invoking OSS; modeling native-left
+  geometry and mapping only the resulting activation values is forbidden.
+- The production activation adapter performs one closed sequence: build the
+  typed final-linked row request, resolve or produce every exact row through the
+  scientific cache, construct one `ActivationRequest` from the materialized
+  probability matrix and the same endpoint inputs, and invoke pPAM fitting.
+  A row-materialization artifact is not itself a completed endpoint sensitivity.
+
 - [ ] **Step 1: Write failing runtime-provider, codec, and generic-report tests**
 
 Reports must contain reference/add-on fields and reject HF/ULF compatibility
@@ -2189,7 +2379,10 @@ contracts.
 Thread one explicit provider through `ExecutionContext` and
 `TaskExecutionRequest`. Restore typed dependency records before adapter
 dispatch, construct backend requests without filename discovery, and preserve
-the same codec contract during resume.
+the same codec contract during resume. The provider must publish
+`EndpointInputRecord` and `PreparedExposureRecord` values and must use only the
+validated binding/frequency/path rules above; no subject-specific exception is
+permitted.
 
 - [ ] **Step 4: Implement record-driven terminal aggregation and reporting**
 

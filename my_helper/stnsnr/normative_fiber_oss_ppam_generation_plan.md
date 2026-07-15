@@ -5,6 +5,11 @@
 > **Parent goal.** `my_helper/stnsnr/four_model_execution_plan.md`
 > **Reference model descriptions.** `my_helper/stnsnr/model_summaries/`; explicit user decisions govern conflicts.
 > **Status.** Input audit/worklist, parameter preflight, and row-level activation harness implemented; full B_DTOR/D_DTOR parameter preflight passes 64/64 rows; full B_DTOR/D_DTOR row-level activation reaches `pathway_activation_complete` for 64/64 rows; no final branch OSS sidecars have been merged yet.
+>
+> **Scope note.** This file records the historical STNSNr sidecar workflow and
+> its completed-output evidence. It is not the runtime contract for the generic
+> YAML core. For new execution, `four_model_yaml_core_refactor_plan.md` and
+> `dual_frequency_core_decoupling_implementation_plan.md` are authoritative.
 
 ---
 
@@ -553,7 +558,11 @@ p(A^R_{i,f})
 
 is already expressed on right-canonical fiber \(f\).
 
-Left-side stimulation is first modeled in the real left hemisphere, then mapped to the right-canonical homologous fiber:
+The historical sidecar represented a native-left OSS result on homologous
+right-canonical fiber IDs. The generic YAML core supersedes that producer rule:
+it first maps left stimulation/electrode geometry into right-canonical space and
+then evaluates OSS directly on the locked right-canonical final fiber axis. The
+resulting left-derived activation is denoted:
 
 \[
 p(A^{L \rightarrow R}_{i,f})
@@ -575,9 +584,9 @@ This is the accepted `max_probability_union` rule.
 Interpretation:
 
 ```text
-Left stimulation is not moved anatomically to the right side.
-Left activation is computed in the left hemisphere first.
-The resulting left fiber activation is then represented on the right-canonical homologous fiber id.
+For the generic YAML core, left geometry is mapped before OSS and no post-hoc
+native-left activation-to-fiber remapping is permitted. The historical files
+described elsewhere in this document retain their original provenance.
 If either side activates the homologous fiber, the subject-level canonical value keeps the larger p(A).
 ```
 

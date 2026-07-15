@@ -436,6 +436,19 @@ def _gain_request(observed: ObservedRequest) -> ObservedRequest:
     )
 
 
+def _total_exposure_request(observed: ObservedRequest) -> ObservedRequest:
+    return replace(
+        observed,
+        exposure=_array_artifact(
+            "raw_addon_component_exposure",
+            _fixture_array(observed.exposure),
+            (observed.subject_axis, observed.feature_axis),
+            units=observed.exposure.units,
+            space=observed.exposure.space,
+        ),
+    )
+
+
 def _json_artifact(result) -> ArtifactRef:
     matches = [artifact for artifact in result.artifacts if artifact.shape is None]
     if len(matches) != 1:
@@ -728,6 +741,10 @@ class DeterministicProvider:
 
 
 class SpatialJitterTest(unittest.TestCase):
+    def test_settings_convert_fwhm_to_gaussian_sigma(self) -> None:
+        settings = SpatialJitterSettings(2, 7, 2.354820045)
+        self.assertAlmostEqual(settings.translation_sigma_mm, 1.0)
+
     def test_injected_provider_and_aggregation_are_deterministic(self) -> None:
         target = _target("reference_voxel")
         payloads = []
@@ -742,7 +759,11 @@ class SpatialJitterTest(unittest.TestCase):
                 ).run(
                     SpatialJitterRequest(
                         target,
-                        SpatialJitterSettings(replicates=5, seed=20260715),
+                        SpatialJitterSettings(
+                            replicates=5,
+                            seed=20260715,
+                            translation_fwhm_mm=2.0,
+                        ),
                         provider,
                     )
                 )
@@ -787,7 +808,7 @@ class SpatialJitterTest(unittest.TestCase):
                 ).run(
                     SpatialJitterRequest(
                         target,
-                        SpatialJitterSettings(1, 1),
+                        SpatialJitterSettings(1, 1, 2.0),
                         WrongAxisProvider(),
                     )
                 )
@@ -822,7 +843,7 @@ class SpatialJitterTest(unittest.TestCase):
                 ).run(
                     SpatialJitterRequest(
                         target,
-                        SpatialJitterSettings(1, 3),
+                        SpatialJitterSettings(1, 3, 2.0),
                         ReorderedFiberProvider(),
                     )
                 )
@@ -981,7 +1002,7 @@ class AddonSpatialJitterEvidenceTest(unittest.TestCase):
                 ).run(
                     SpatialJitterRequest(
                         target,
-                        SpatialJitterSettings(1, 4),
+                        SpatialJitterSettings(1, 4, 2.0),
                         Provider(),
                     )
                 )
@@ -1003,7 +1024,7 @@ class AddonSpatialJitterEvidenceTest(unittest.TestCase):
             ).run(
                 SpatialJitterRequest(
                     target,
-                    SpatialJitterSettings(1, 4),
+                    SpatialJitterSettings(1, 4, 2.0),
                     Provider(),
                 )
             )
@@ -1255,7 +1276,7 @@ class AddonSpatialJitterEvidenceTest(unittest.TestCase):
                 ).run(
                     SpatialJitterRequest(
                         target,
-                        SpatialJitterSettings(1, 2),
+                        SpatialJitterSettings(1, 2, 2.0),
                         WrongSubjectProvider(),
                     )
                 )
@@ -1347,7 +1368,7 @@ class AddonIndependenceTest(unittest.TestCase):
             target=target,
             nonfinal_request=nonfinal,
             gain_request=_gain_request(observed),
-            total_exposure_request=observed,
+            total_exposure_request=_total_exposure_request(observed),
         )
         with tempfile.TemporaryDirectory() as temporary:
             result = AddonExposureSensitivityStrategy(
@@ -1515,7 +1536,7 @@ class AddonIndependenceTest(unittest.TestCase):
             AddonExposureSensitivityRequest(
                 target=target,
                 total_exposure_request=replace(
-                    observed,
+                    _total_exposure_request(observed),
                     branch="delta_reference_adjusted",
                     nuisance_inputs=adjusted_nuisance,
                 ),
@@ -1536,7 +1557,10 @@ class AddonIndependenceTest(unittest.TestCase):
                     exposure=substituted_exposure,
                 ),
             )
-        with self.assertRaisesRegex(SensitivityStrategyError, "final exposure artifact"):
+        with self.assertRaisesRegex(
+            SensitivityStrategyError,
+            "raw_addon_component_exposure",
+        ):
             AddonExposureSensitivityRequest(
                 target=target,
                 total_exposure_request=replace(
@@ -1556,7 +1580,7 @@ class AddonIndependenceTest(unittest.TestCase):
             AddonExposureSensitivityRequest(
                 target=target,
                 total_exposure_request=replace(
-                    observed,
+                    _total_exposure_request(observed),
                     outcome=substituted_outcome,
                 ),
             )
@@ -1575,7 +1599,10 @@ class AddonIndependenceTest(unittest.TestCase):
             ),
             (
                 "total_exposure_request",
-                replace(observed, baseline=substituted_baseline),
+                replace(
+                    _total_exposure_request(observed),
+                    baseline=substituted_baseline,
+                ),
             ),
         ):
             with self.subTest(substituted_field=field):
@@ -1615,7 +1642,7 @@ class AddonIndependenceTest(unittest.TestCase):
             (
                 "total_exposure_request",
                 replace(
-                    adjusted_observed,
+                    _total_exposure_request(adjusted_observed),
                     nuisance_inputs=substituted_nuisance,
                 ),
             ),
@@ -1708,7 +1735,7 @@ class AddonIndependenceTest(unittest.TestCase):
         request = AddonExposureSensitivityRequest(
             target=target,
             nonfinal_request=nonfinal,
-            total_exposure_request=observed,
+            total_exposure_request=_total_exposure_request(observed),
         )
         with tempfile.TemporaryDirectory() as temporary:
             result = AddonExposureSensitivityStrategy(

@@ -18,6 +18,7 @@ from ...contracts import (
 )
 from ...contracts.records import ACCEPTED_SOURCE_STATUSES
 from ..protocols import ArtifactPublisher
+from .cohort import DeltaReferenceCohortError, reference_fold_indices
 
 
 ScientificArray: TypeAlias = np.ndarray | ArtifactRef
@@ -315,6 +316,9 @@ def build_delta_reference_voxel(
     reference_condition_exposure: ScientificArray,
     addon_reference_component_exposure: ScientificArray,
     subject_axis: AxisRef,
+    reference_subject_axis: AxisRef,
+    addon_subject_ids: tuple[str, ...],
+    reference_subject_ids: tuple[str, ...],
     parent_feature_axis: AxisRef,
     support_profile: DeltaReferenceSupportProfile,
     publisher: ArtifactPublisher,
@@ -322,8 +326,14 @@ def build_delta_reference_voxel(
 ) -> DeltaReferenceBundle:
     """Build immutable full/fold DeltaReferenceScore artifacts without refitting."""
 
-    if not isinstance(subject_axis, AxisRef) or not isinstance(parent_feature_axis, AxisRef):
-        raise TypeError("subject_axis and parent_feature_axis must be AxisRef values")
+    if (
+        not isinstance(subject_axis, AxisRef)
+        or not isinstance(reference_subject_axis, AxisRef)
+        or not isinstance(parent_feature_axis, AxisRef)
+    ):
+        raise TypeError(
+            "subject_axis, reference_subject_axis, and parent_feature_axis must be AxisRef values"
+        )
     if not isinstance(publisher, ArtifactPublisher):
         raise TypeError("publisher must implement ArtifactPublisher")
     if artifact_store is not None and not isinstance(artifact_store, ArtifactStore):
@@ -345,6 +355,15 @@ def build_delta_reference_voxel(
             "DeltaReferenceScore construction requires a selected feature axis"
         )
     selected_axis = reference_source.feature_axis.axis
+    try:
+        fold_indices = reference_fold_indices(
+            addon_subject_ids=addon_subject_ids,
+            reference_subject_ids=reference_subject_ids,
+            addon_subject_axis=subject_axis,
+            reference_subject_axis=reference_subject_axis,
+        )
+    except DeltaReferenceCohortError as error:
+        raise DeltaReferenceDirectVoxelError(str(error)) from error
 
     for value, name in (
         (selected_feature_indices, "selected_feature_indices"),
@@ -380,7 +399,7 @@ def build_delta_reference_voxel(
         _materialize(
             fold_weights,
             name="fold_weights",
-            expected_axes=(subject_axis, selected_axis),
+            expected_axes=(reference_subject_axis, selected_axis),
             expected_units="coefficient",
             artifact_store=artifact_store,
         ),
@@ -420,10 +439,14 @@ def build_delta_reference_voxel(
         )
     if full_weight_array.shape != (selected_axis.count,):
         raise DeltaReferenceDirectVoxelError("full_weights do not match the selected axis")
-    if fold_weight_array.shape != (subject_axis.count, selected_axis.count):
+    if fold_weight_array.shape != (
+        reference_subject_axis.count,
+        selected_axis.count,
+    ):
         raise DeltaReferenceDirectVoxelError(
-            "fold_weights do not match the subject and selected feature axes"
+            "fold_weights do not match the reference-subject and selected feature axes"
         )
+    addon_fold_weights = fold_weight_array[fold_indices]
 
     selected_delta = (
         addon_reference_exposure[:, indices] - reference_exposure[:, indices]
@@ -431,7 +454,7 @@ def build_delta_reference_voxel(
     full_scores, fold_scores, full_valid, fold_valid = _continuous_scores(
         selected_delta,
         full_weight_array,
-        fold_weight_array,
+        addon_fold_weights,
     )
     support_rows, total, full_out_fraction, support_labels = _support_rows(
         addon_reference_exposure,

@@ -59,11 +59,13 @@ class RuntimeImportIsolationTest(unittest.TestCase):
                 imported.append(module.name)
 
             from dual_frequency.application import WorkflowService
-            from dual_frequency.workflow import ServiceRegistry
-
-            service = WorkflowService(ServiceRegistry())
-            assert service.registry.service_ids == ()
-            print(f"isolated_runtime_imports={len(imported)}")
+            service = WorkflowService()
+            registry = service._default_registry()
+            assert registry.service_ids
+            print(
+                f"isolated_runtime_imports={len(imported)} "
+                f"production_services={len(registry.service_ids)}"
+            )
             """
         )
         environment = dict(os.environ)
@@ -84,6 +86,7 @@ class RuntimeImportIsolationTest(unittest.TestCase):
             msg=f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
         )
         self.assertRegex(completed.stdout, r"isolated_runtime_imports=\d+")
+        self.assertRegex(completed.stdout, r"production_services=\d+")
         self.assertNotIn("blocked project namespace import", completed.stderr)
 
 

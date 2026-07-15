@@ -31,6 +31,7 @@ ANALYSIS_NAMES = (
     "collinearity",
 )
 GAIN_OUTCOME_ARTIFACT_KIND = "direction_normalized_addon_gain"
+TOTAL_EXPOSURE_ARTIFACT_KIND = "raw_addon_component_exposure"
 
 
 def _require_subject_artifact(
@@ -130,10 +131,24 @@ class AddonExposureSensitivityRequest:
                     target_request,
                     observed,
                 )
-                if observed.exposure != target_request.exposure:
+                if (
+                    field != "total_exposure_request"
+                    and observed.exposure != target_request.exposure
+                ):
                     raise SensitivityStrategyError(
                         f"{field} must reuse the realized final exposure artifact"
                     )
+                if field == "total_exposure_request":
+                    total_exposure = observed.exposure
+                    if not isinstance(total_exposure, ArtifactRef):
+                        raise SensitivityStrategyError(
+                            "total_exposure_request must use an immutable exposure artifact"
+                        )
+                    if total_exposure.kind != TOTAL_EXPOSURE_ARTIFACT_KIND:
+                        raise SensitivityStrategyError(
+                            "total_exposure_request.exposure must use artifact kind "
+                            f"{TOTAL_EXPOSURE_ARTIFACT_KIND!r}"
+                        )
                 if observed.baseline != target_request.baseline:
                     raise SensitivityStrategyError(
                         f"{field} must reuse the realized final baseline artifact"

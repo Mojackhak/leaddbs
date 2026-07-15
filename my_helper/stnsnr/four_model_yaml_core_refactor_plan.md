@@ -274,6 +274,16 @@ decision cannot carry a final-model reference. Persisted service results must
 restore these records through an explicit typed codec rather than untyped fact
 dictionaries.
 
+Every endpoint-local final-realization task first emits a typed
+`FinalSelectionRecord`. A realized selection contains exactly one
+`FinalModelRecord`; a closed selection instead records `no_final_model`,
+dependency failure, or execution failure with deterministic reason codes. This
+scientific selection is separate from the post-executor
+`FinalDecisionRecord`, which incorporates the complete task outcome state for
+reporting. A legitimate absence of a stable model is therefore not represented
+as a runtime exception, while formal and sensitivity work remains strictly
+gated on the one realized final model.
+
 Implementation order is fixed: complete generic formal/sensitivity backends,
 then add the explicit runtime input provider, service adapters, and typed record
 codec, and only then switch the production registry and attach post-executor
@@ -311,6 +321,93 @@ producer/backend identity and version
 The existing STNSNr importer may continue to create `study_base.json`, but the
 model core neither invokes nor imports it. Full model execution starts from an
 already generated study-base file.
+
+### Runtime scientific-readiness boundary
+
+`EndpointRecord.subject_ids` is the ordered clinical candidate cohort. It is
+not automatically the fitted cohort. For every endpoint, the runtime provider
+preserves that order while independently checking the exact configured program,
+frequency-derived source class, required canonical group-level E-field leaf,
+and model-specific input artifacts. It publishes candidate, included, and
+reason-coded excluded subjects in `EndpointInputRecord` and reapplies the
+minimum-subject rule to the included axis.
+
+There are no subject-specific inclusion or exclusion lists. In particular,
+subject IDs mentioned while checking the current project data are observations
+about that snapshot, not configuration or runtime rules. A missing add-on-class
+source excludes that subject only from the corresponding add-on endpoint; it
+does not remove the subject from a valid reference endpoint.
+
+The ordered add-on subject axis may therefore be a strict subset of the matched
+reference subject axis. DeltaReferenceScore construction must join those axes by
+stable `subject_id`; it must never require equal cohort cardinality or positional
+identity. For each held-out add-on subject, use the matched reference fold that
+excluded that same subject while retaining every other reference-ready subject,
+including subjects that are not eligible for the add-on endpoint. Every add-on
+subject must be present exactly once on the matched-reference axis. If any member
+is absent or duplicated, the adjusted branch is an endpoint-level input failure;
+the no-delta branch retains the unchanged add-on cohort. The runtime must not
+silently create a third, smaller adjusted cohort or encode a subject-specific
+exception.
+
+The upstream VTA pipeline intentionally uses a path-existence completion
+contract. The core therefore derives, rather than searches for, each exact
+group-level input beneath the subject's configured Lead-DBS directory:
+
+```text
+stimulations/<canonical-space>/phase-<phase-id>/program-<program-id>/
+  electrode-<electrode-id>/frequency-group-<group-id>/
+    delivery-continuous/joint/efield.nii.gz
+
+or
+
+    delivery-alternating/derived/group-peak/efield.nii.gz
+```
+
+This is a fixed artifact-path contract, not semantic filename discovery: every
+path segment comes from the validated study/configuration record and delivery
+mode, and directory scanning or `latest` selection is forbidden. The provider
+hashes the exact bytes it consumes when publishing typed artifacts. No bundle,
+standalone VTA resolved manifest, or `vta_model.yaml` input is added to the
+downstream four-model interface; upstream FEM provenance remains outside this
+core contract.
+
+Exposure preparation publishes two typed records:
+
+```text
+EndpointInputRecord
+  -> candidate/included/excluded subjects
+  -> exact subject axis
+  -> aligned baseline and outcome artifacts
+
+PreparedExposureRecord
+  -> exact subject and feature axes
+  -> prepared primary exposure
+  -> canonical feature IDs
+  -> branch-specific reference/add-on auxiliary exposures and overlap mask
+```
+
+Direct voxel retains deterministic IDs for the configured right-canonical
+brainmask voxels; normative fiber retains canonical connectome fiber IDs. A
+numerical direct-voxel request may omit IDs that its kernel does not consume,
+but the prepared record preserves them for exact map export, jitter, reporting,
+and resume identity.
+
+Add-on records also carry an explicit DeltaReferenceScore input-readiness
+status and reason. Missing reference-condition or add-on reference-component
+exposure invalidates only the adjusted branch; a shape-compatible zero-filled
+auxiliary array cannot be treated as proof that the input was observed. The
+no-delta branch remains eligible when its own clinical and add-on exposure
+inputs are ready.
+
+These records, rather than mutable provider-local filenames, are the resume and
+downstream dependency authority.
+
+Accordingly, final-linked formal, sensitivity, jitter, and activation tasks
+declare the relevant endpoint-input and prepared-exposure records as direct
+dependencies in addition to the final selection. They may derive the locked
+selected-axis view from those immutable records, but they cannot rediscover
+files or rebuild a different subject cohort.
 
 ## YAML Contract
 
@@ -569,7 +666,10 @@ matched reference input ready and source accepted:
 The no-delta branch still requires valid `Y_reference`; source absence never
 means reference clinical-input absence. If a reference source exists, build each
 held-out DeltaReferenceScore using a reference model trained without that
-subject.
+subject. The matched reference training cohort is not truncated to the add-on
+cohort: reference-only subjects remain valid training observations. Full-sample
+reference weights use the complete ready reference cohort; fold weights are
+selected by stable subject identity for each add-on held-out row.
 
 DeltaReferenceScore support:
 
@@ -690,7 +790,7 @@ runtime output   resolver/status/artifact value, never a selector
 | 0 Input readiness/environment | study base, model profiles, workflow | Endpoint failure remains local; no scale substitution. |
 | 1 Sidecars/minimal QC | YAML plus internal-derived candidate threshold | Candidate threshold equals minimum formal tau. |
 | 2 Observed LOOCV/resolver | model grid/hard filters | Endpoint-specific source and prediction status. |
-| 3 Equivalence/smoke | internal-test | Technical qualification only. |
+| 3 Equivalence/smoke | internal-test | Fixed test-suite qualification only; not an endpoint production task. |
 | 4 Formal permutation | realized final | Cannot change classification. |
 | 5 Formal bootstrap | realized final | Final source only. |
 | 6 Spatial jitter | realized final | Robustness only. |
@@ -704,7 +804,7 @@ runtime output   resolver/status/artifact value, never a selector
 | 0 Readiness/reference lock | explicit matched-reference endpoint ID | Same scale, explicit binding, valid reference clinical input; phase IDs may differ. |
 | 1 Sidecars/overlap/support | study base, matched source | Branch-specific readiness and support. |
 | 2 Observed/resolver/realization | model profile/state machine | Independent branch resolvers; one final or closed absence. |
-| 3 Equivalence/smoke | internal-test | Technical qualification only. |
+| 3 Equivalence/smoke | internal-test | Fixed test-suite qualification only; not an endpoint production task. |
 | 4 Formal permutation | realized final | Primary or permitted fallback final only. |
 | 5 Formal bootstrap | realized final | Primary or permitted fallback final only. |
 | 6 Spatial jitter | realized final | Rebuild geometry, overlap, and DeltaReferenceScore. |
@@ -720,7 +820,7 @@ runtime output   resolver/status/artifact value, never a selector
 | 1 Sidecar/equivalence | scientific cache/internal-test | Exact subject and feature identity. |
 | 2 All-endpoint observed | catalog/connectome roles | Equal factory for every scale; every connectome runs the complete observed grid. |
 | 3 Plain control | model controls | Interpretation QC only. |
-| 4 Formal-connectome internal smoke | internal-test | Technical qualification only; parameters are not public YAML. |
+| 4 Formal-connectome internal smoke | internal-test | Fixed test-suite qualification only; not an endpoint production task and parameters are not public YAML. |
 | 5 Cheap observed sensitivity | model/connectome roles | No hidden defaults or classification feedback. |
 | 5.5 Source/prediction resolver | grid/hard filters | Only the formal connectome assigns status and is final-eligible. |
 | 6 Formal resampling | formal role final | Every configured scale with a realized final; selected source only. |
@@ -736,7 +836,7 @@ runtime output   resolver/status/artifact value, never a selector
 | 1 Sidecar/support/equivalence | study base/cache/internal-test | Branch-specific inputs and support. |
 | 2 Observed/resolver/realization | model/state machine/connectome role | Full observed grids for all connectomes; one primary/fallback final or closed absence for formal. |
 | 3 Plain/burden controls | model controls | Interpretation QC only. |
-| 4 Formal-connectome internal smoke | internal-test | Final-source code-path qualification. |
+| 4 Formal-connectome internal smoke | internal-test | Fixed test-suite final-source qualification; not an endpoint production task. |
 | 5 Cheap observed sensitivity | model profile | Comparison and exposure sensitivities. |
 | 6 Selected-source neighborhood | selected source | Observed sensitivity only. |
 | 7 Formal resampling | formal role final | Exactly one final per configured scale. |
@@ -798,6 +898,29 @@ p(A_i,f) = max(p(A_right_i,f), p(A_left_to_right_i,f))
 X_OSS_i,f = 1[p(A_i,f) >= 0.5]
 ```
 
+The runtime derives OSS rows from frequency-group delivery semantics rather than
+from endpoint names:
+
+```text
+continuous frequency group:
+  model all simultaneously active sources as one OSS row
+
+alternating frequency group:
+  model each source independently and merge source probabilities by elementwise max
+```
+
+For both delivery modes, left stimulation/electrode geometry is first mapped to
+the configured right-canonical space and OSS is then evaluated on the exact
+`final.valid_feature_axis`. The runtime must not model a left native row and map
+only its activation values afterward.
+
+Exact cache lookup may derive the canonical-geometry identity from the source
+reconstruction, reconstruction lead, stimulation parameters, mapping method,
+and configured transform without executing the transform. An authorized cache
+miss must materialize the identified right-canonical geometry before OSS starts.
+This distinction preserves cache-first execution without weakening the mapping
+contract.
+
 Cache continuous probability and derive the binary analysis matrix. Endpoint
 fits use the final valid feature axis and refit training-fold weights/ranks.
 
@@ -813,9 +936,47 @@ intermediate bundle authority.
 
 Each activation task directly consumes its immutable realized final record and
 completed formal dependencies. Cache lookup remains available when expensive
-producers are disabled. A cache miss is rejected inside the activation service
-as `missing_acceptance_fixture` before any OSS process starts; a complete exact
-cache hit does not require expensive-producer authorization.
+producers are disabled, and a complete exact cache hit does not require producer
+authorization. On an exact cache miss, acceptance mode or a run without
+`--allow-expensive-producers` fails closed as `missing_acceptance_fixture` before
+any OSS process starts. An explicitly authorized production miss resolves the
+official Lead-DBS `OSS-DBSv2` environment internally and may invoke the declared
+producer. OSS executable or environment paths are internal runtime dependencies;
+they are not public model-YAML fields.
+
+## Spatial-Jitter Contract
+
+Spatial jitter is final-linked robustness evidence and cannot alter source,
+prediction, branch-role, endpoint, or final-model status. The public model
+profile supplies `replicates`, `seed`, and `translation_fwhm_mm`; the runtime
+derives the Gaussian standard deviation as:
+
+```text
+translation_sigma_mm = translation_fwhm_mm / 2.354820045
+```
+
+For each replicate, the provider derives one deterministic translation vector
+per `(replicate, condition/component, subject_id, hemisphere)`. Every leaf in
+the same stimulation group and hemisphere receives that same vector. Exposure
+is sampled on the existing canonical grid with linear interpolation and
+out-of-domain values set to zero. Direct-voxel and normative-fiber aggregation,
+bilateral mapping, and frequency-group semantics remain identical to the
+observed model.
+
+Every replicate starts from the realized final's exact selected feature axis;
+it must not restart from the parent candidate axis or invoke the source resolver.
+Reference jitter refits the selected model. Add-on jitter also rebuilds the
+add-on reference component, reference-overlap exclusion, support QC, and, for an
+adjusted final, the matched-reference operator and full/fold DeltaReferenceScore
+using the subject-ID cohort join above. Replicate resources are task-scoped and
+released after each task; temporary arrays or mappings may not accumulate across
+endpoints.
+
+Support readiness remains branch-specific during jitter. An invalid rebuilt
+DeltaReferenceScore support state makes an adjusted replicate not computable,
+but it does not suppress a no-delta replicate. A no-delta final remains
+evaluable when matched-reference support is invalid or not applicable; the
+support state is retained as QC only.
 
 ## Content-Addressed Cache Contract
 

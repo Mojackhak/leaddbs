@@ -12,6 +12,7 @@ from dual_frequency.contracts import (
     EndpointKey,
     FeatureAxisRef,
     ReferenceDependencyRecord,
+    SensitiveRecord,
     SourceRecord,
 )
 from dual_frequency.workflow.state import (
@@ -27,6 +28,27 @@ from dual_frequency.workflow.state import (
 
 REFERENCE_ENDPOINT = EndpointKey("study", "scale", "reference", "reference_voxel")
 ADDON_ENDPOINT = EndpointKey("study", "scale", "addon", "addon_voxel")
+SENSITIVE_REFERENCE_ENDPOINT = EndpointKey(
+    "study",
+    "scale",
+    "reference",
+    "reference_fiber",
+    "sensitive_connectome",
+)
+SENSITIVE_ADDON_ENDPOINT = EndpointKey(
+    "study",
+    "scale",
+    "addon",
+    "addon_fiber",
+    "sensitive_connectome",
+)
+FORMAL_REFERENCE_ENDPOINT = EndpointKey(
+    "study",
+    "scale",
+    "reference",
+    "reference_fiber",
+    "formal_connectome",
+)
 ACCEPTED_SOURCE_STATUSES = ("pre_specified_accepted", "scan_fallback_accepted")
 
 
@@ -88,6 +110,36 @@ def _dependency(
         matched_reference_endpoint_id=REFERENCE_ENDPOINT.identifier,
         dependency_status=dependency_status,
         reference_source=reference_source,
+        delta_reference=None,
+    )
+
+
+def _sensitive_dependency(
+    *,
+    computability_status: str,
+    prediction_status: str,
+) -> ReferenceDependencyRecord:
+    axis = AxisRef("features", 3, "c" * 64)
+    feature_axis = (
+        FeatureAxisRef(axis, "synthetic_sensitive_features")
+        if computability_status == "computable"
+        else None
+    )
+    evidence = SensitiveRecord(
+        endpoint=SENSITIVE_REFERENCE_ENDPOINT,
+        formal_endpoint_id=FORMAL_REFERENCE_ENDPOINT.identifier,
+        evaluated_tau=200,
+        evaluated_coverage=2,
+        input_status="valid",
+        cell_computability_status=computability_status,
+        prediction_status=prediction_status,
+        feature_axis=feature_axis,
+    )
+    return ReferenceDependencyRecord(
+        addon_endpoint=SENSITIVE_ADDON_ENDPOINT,
+        matched_reference_endpoint_id=SENSITIVE_REFERENCE_ENDPOINT.identifier,
+        dependency_status="ready",
+        reference_record=evidence,
         delta_reference=None,
     )
 
@@ -233,6 +285,41 @@ class BranchPlanTruthTableTest(unittest.TestCase):
                     self.assertEqual(first.attempted_branches, attempted_branches)
                     self.assertEqual(first.intended_status, intended_status)
                     self.assertEqual(first.fallback_eligible, fallback_eligible)
+
+    def test_computable_sensitive_reference_uses_prediction_status(self) -> None:
+        predictive = derive_branch_plan(
+            _sensitive_dependency(
+                computability_status="computable",
+                prediction_status="error_predictive",
+            ),
+            "valid",
+        )
+        self.assertEqual(predictive.intended_branch, ADJUSTED_BRANCH)
+        self.assertEqual(predictive.attempted_branches, (NO_DELTA_BRANCH, ADJUSTED_BRANCH))
+
+        nonpredictive = derive_branch_plan(
+            _sensitive_dependency(
+                computability_status="computable",
+                prediction_status="error_nonpredictive",
+            ),
+            "valid",
+        )
+        self.assertEqual(nonpredictive.intended_branch, NO_DELTA_BRANCH)
+        self.assertEqual(nonpredictive.attempted_branches, (NO_DELTA_BRANCH, ADJUSTED_BRANCH))
+
+    def test_noncomputable_sensitive_reference_runs_no_delta_only(self) -> None:
+        plan = derive_branch_plan(
+            _sensitive_dependency(
+                computability_status="not_computable",
+                prediction_status="not_applicable",
+            ),
+            "valid",
+        )
+        self.assertEqual(plan.status, "ready")
+        self.assertEqual(plan.intended_branch, NO_DELTA_BRANCH)
+        self.assertEqual(plan.attempted_branches, (NO_DELTA_BRANCH,))
+        self.assertEqual(plan.intended_status, "pending")
+        self.assertFalse(plan.fallback_eligible)
 
     def test_blank_delta_status_is_rejected(self) -> None:
         reference = _accepted_source(REFERENCE_ENDPOINT)

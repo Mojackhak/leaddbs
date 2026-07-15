@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import io
 import json
 import os
@@ -13,17 +12,20 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
-import numpy as np
 import yaml
 
+from dual_frequency.application import service as service_module
 from dual_frequency.application.cli import main
 from dual_frequency.application.service import WorkflowRequest, WorkflowService
-from dual_frequency.contracts import ArtifactRef, AxisRef
 from dual_frequency.config import WorkflowOverrides
-from dual_frequency.workflow import RegisteredService, ServiceRegistry, ServiceResult
+from dual_frequency.workflow import RunResult, ServiceRegistry
 
-from test_study_base import _subject, study_payload
+try:
+    from .test_study_base import _subject, study_payload
+except ImportError:  # unittest discovery loads this module without a package name
+    from test_study_base import _subject, study_payload
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
@@ -81,68 +83,6 @@ def _write_fixture(root: Path) -> WorkflowRequest:
     )
 
 
-def _service_result(request, calls: list[str]) -> ServiceResult:
-    calls.append(request.task.task_id)
-    facts: dict[str, bool] = {}
-    if request.task.stage == "source_resolver":
-        facts.update(
-            source_accepted=True,
-            reference_source_accepted=True,
-            formal_source_available=True,
-        )
-    if request.task.stage == "reference_dependency":
-        facts["reference_dependency_ready"] = True
-    if request.task.stage == "delta_reference_input":
-        facts["delta_inputs_valid"] = True
-    if request.task.stage == "formal_source_evaluation":
-        facts.update(
-            reference_source_accepted=True,
-            delta_inputs_valid=True,
-            formal_source_available=True,
-        )
-    if request.task.stage == "final_realization":
-        facts["final_model_realized"] = True
-
-    artifacts: tuple[ArtifactRef, ...] = ()
-    if request.task.output_record_type in {"ArtifactRef", "ObservedResult"}:
-        path = request.output_dir / "synthetic.npy"
-        np.save(path, np.arange(4, dtype=np.float64))
-        axis = AxisRef("synthetic_features", 4, "e" * 64)
-        artifacts = (
-            ArtifactRef(
-                kind="synthetic_array",
-                schema_version="array_v1",
-                uri=path.resolve().as_uri(),
-                sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-                dtype="float64",
-                shape=(4,),
-                axis_refs=(axis,),
-                axis_hashes=(axis.sha256,),
-                units="arbitrary",
-                space="synthetic",
-                producer_id="application_test",
-                producer_version="1",
-            ),
-        )
-    return ServiceResult.create(
-        request.task.output_record_type,
-        f"record:{request.task.task_id}",
-        {"stage": request.task.stage},
-        artifacts=artifacts,
-        facts=facts,
-    )
-
-
-def _registry_for_plan(plan, calls: list[str]) -> ServiceRegistry:
-    registry = ServiceRegistry()
-    for service_id in sorted({task.service_id for task in plan.tasks}):
-        registry.register(
-            service_id,
-            lambda request, calls=calls: _service_result(request, calls),
-        )
-    return registry
-
-
 class ApplicationCliTest(unittest.TestCase):
     def test_validate_and_plan_build_two_scale_four_model_dag(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -164,15 +104,29 @@ class ApplicationCliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             request = _write_fixture(root)
-            planning_service = WorkflowService()
-            plan = planning_service.plan(request).plan
             calls: list[str] = []
-            service = WorkflowService(registry=_registry_for_plan(plan, calls))
-            first = service.run(request, run_id="synthetic-run")
-            first_call_count = len(calls)
-            run_root = root / "runs" / "synthetic" / "synthetic-run"
-            status = service.status(run_root)
-            artifacts = service.artifacts(run_root)
+            report_calls: list[str] = []
+            service = WorkflowService(registry=ServiceRegistry(), provider=object())
+
+            def execute(plan, context):
+                if not context.resume:
+                    calls.append(context.run_store.run_id)
+                return RunResult(context.run_store.run_id, (), 0)
+
+            def reports(plan, catalog, result, records):
+                report_calls.append(result.run_id)
+                return {
+                    "final_decisions.json": {
+                        "schema_version": "dual_frequency_final_decisions_v1",
+                        "run_id": result.run_id,
+                        "decisions": [],
+                    },
+                    "artifact_index.json": {
+                        "schema_version": "dual_frequency_artifact_index_v2",
+                        "run_id": result.run_id,
+                        "artifacts": [{"artifact_id": "synthetic"}],
+                    },
+                }
 
             resumed_request = WorkflowRequest(
                 study_base=request.study_base,
@@ -185,8 +139,6 @@ class ApplicationCliTest(unittest.TestCase):
                     resume=True,
                 ),
             )
-            resumed = service.run(resumed_request, run_id="synthetic-run")
-
             forced_request = WorkflowRequest(
                 study_base=request.study_base,
                 direct_voxel_model=request.direct_voxel_model,
@@ -198,7 +150,21 @@ class ApplicationCliTest(unittest.TestCase):
                     force=True,
                 ),
             )
-            forced = service.run(forced_request, run_id="synthetic-run")
+            with (
+                patch.object(service_module, "execute_plan", side_effect=execute),
+                patch.object(
+                    service_module,
+                    "build_report_documents",
+                    side_effect=reports,
+                ),
+            ):
+                first = service.run(request, run_id="synthetic-run")
+                first_call_count = len(calls)
+                run_root = root / "runs" / "synthetic" / "synthetic-run"
+                status = service.status(run_root)
+                artifacts = service.artifacts(run_root)
+                resumed = service.run(resumed_request, run_id="synthetic-run")
+                forced = service.run(forced_request, run_id="synthetic-run")
             forced_root = root / "runs" / "synthetic" / forced.run_id
             forced_manifest = json.loads(
                 (forced_root / "run_manifest.json").read_text(encoding="utf-8")
@@ -207,6 +173,10 @@ class ApplicationCliTest(unittest.TestCase):
         self.assertEqual(first.exit_code, 0)
         self.assertEqual(resumed.exit_code, 0)
         self.assertEqual(len(calls), first_call_count * 2)
+        self.assertEqual(
+            report_calls,
+            ["synthetic-run", "synthetic-run", forced.run_id],
+        )
         self.assertEqual(status["run_manifest"]["final_status"], "completed")
         self.assertTrue(artifacts["artifacts"])
         self.assertNotEqual(forced.run_id, "synthetic-run")

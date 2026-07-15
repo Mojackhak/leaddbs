@@ -35,7 +35,12 @@ from .executor import (
     execute_plan,
     plan_hash,
 )
-from .registry import RegisteredService, RegistryError, ServiceRegistry
+from .registry import (
+    RegisteredService,
+    RegistryError,
+    ServiceRegistry,
+    build_default_registry,
+)
 from .run_store import (
     ConfigurationSource,
     RunIdentity,
@@ -71,6 +76,7 @@ __all__ = [
     "RegisteredService",
     "RegistryError",
     "ServiceRegistry",
+    "build_default_registry",
     "ConfigurationSource",
     "RunIdentity",
     "RunStore",

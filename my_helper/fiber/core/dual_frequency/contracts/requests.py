@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypeAlias
 
 import numpy as np
 
-from .identity import EndpointKey
+from .identity import EndpointKey, canonical_hash
 from .records import (
     ArtifactRef,
     AxisRef,
@@ -352,6 +352,10 @@ class ObservedResult:
         if not artifacts or not all(isinstance(item, ArtifactRef) for item in artifacts):
             raise RequestError("observed artifacts must contain only ArtifactRef values")
         object.__setattr__(self, "artifacts", artifacts)
+
+    @property
+    def identifier(self) -> str:
+        return f"observed_result_{canonical_hash(asdict(self), length=20)}"
 
 
 @dataclass(frozen=True)
@@ -738,8 +742,11 @@ class FormalResult:
     artifacts: tuple[ArtifactRef, ...]
 
     def __post_init__(self) -> None:
-        if not str(self.final_model_id).strip():
-            raise RequestError("final_model_id must be nonempty")
+        object.__setattr__(
+            self,
+            "final_model_id",
+            _request_token(self.final_model_id, "final_model_id"),
+        )
         kind = str(self.resampling_kind).strip().lower()
         if kind not in {"permutation", "bootstrap"}:
             raise RequestError("formal result has an unsupported resampling_kind")
@@ -753,6 +760,10 @@ class FormalResult:
             raise RequestError("formal result requires ArtifactRef values")
         object.__setattr__(self, "artifacts", artifacts)
 
+    @property
+    def identifier(self) -> str:
+        return f"formal_result_{canonical_hash(asdict(self), length=20)}"
+
 
 @dataclass(frozen=True)
 class SensitivityResult:
@@ -763,12 +774,24 @@ class SensitivityResult:
     artifacts: tuple[ArtifactRef, ...]
 
     def __post_init__(self) -> None:
-        if not str(self.target_id).strip() or not str(self.sensitivity_kind).strip():
-            raise RequestError("target_id and sensitivity_kind must be nonempty")
+        object.__setattr__(
+            self,
+            "target_id",
+            _request_token(self.target_id, "target_id"),
+        )
+        object.__setattr__(
+            self,
+            "sensitivity_kind",
+            _request_token(self.sensitivity_kind, "sensitivity_kind"),
+        )
         artifacts = tuple(self.artifacts)
         if not all(isinstance(item, ArtifactRef) for item in artifacts):
             raise RequestError("sensitivity artifacts must contain only ArtifactRef values")
         object.__setattr__(self, "artifacts", artifacts)
+
+    @property
+    def identifier(self) -> str:
+        return f"sensitivity_result_{canonical_hash(asdict(self), length=20)}"
 
 
 @dataclass(frozen=True)
@@ -971,8 +994,11 @@ class ActivationArtifact:
     artifacts: tuple[ArtifactRef, ...]
 
     def __post_init__(self) -> None:
-        if not str(self.final_model_id).strip():
-            raise RequestError("final_model_id must be nonempty")
+        object.__setattr__(
+            self,
+            "final_model_id",
+            _request_token(self.final_model_id, "final_model_id"),
+        )
         if (
             not isinstance(self.feature_axis, AxisRef)
             or not isinstance(self.activation_probability, ArtifactRef)
@@ -990,3 +1016,7 @@ class ActivationArtifact:
         if not all(isinstance(item, ArtifactRef) for item in artifacts):
             raise RequestError("activation artifacts must contain only ArtifactRef values")
         object.__setattr__(self, "artifacts", artifacts)
+
+    @property
+    def identifier(self) -> str:
+        return f"activation_artifact_{canonical_hash(asdict(self), length=20)}"

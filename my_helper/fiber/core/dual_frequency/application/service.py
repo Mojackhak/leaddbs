@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
+import tempfile
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -20,6 +23,7 @@ from ..config import (
     validate_study_compatibility,
 )
 from ..contracts import StudyBaseRecord, load_study_base
+from ..reporting import build_report_documents
 from ..workflow import (
     ConfigurationSource,
     ExecutionContext,
@@ -29,6 +33,7 @@ from ..workflow import (
     RunStore,
     RunStoreError,
     ServiceRegistry,
+    build_default_registry,
     compile_execution_plan,
     execute_plan,
     plan_hash,
@@ -139,9 +144,13 @@ class WorkflowService:
         self,
         registry: ServiceRegistry | None = None,
         *,
+        provider: object | None = None,
         code_root: Path | None = None,
     ) -> None:
-        self.registry = registry or ServiceRegistry()
+        if registry is not None and not isinstance(registry, ServiceRegistry):
+            raise TypeError("registry must be a ServiceRegistry or None")
+        self.registry = registry
+        self.provider = provider
         self.code_root = (code_root or Path(__file__).resolve().parents[1]).resolve()
 
     def validate(self, request: WorkflowRequest) -> ValidationSummary:
@@ -199,26 +208,82 @@ class WorkflowService:
             allowed_artifact_roots=(output_root, cache_root),
             resume=execution.resume,
         )
-        artifact_store = ArtifactStore((store.root, output_root, cache_root))
-        scientific_cache = ContentAddressedCache(cache_root)
-        endpoint_facts = {
-            endpoint.endpoint_id: {
-                "catalog_data_available": endpoint.status == CatalogStatus.DATA_AVAILABLE,
+        result: RunResult | None = None
+        failure: Exception | None = None
+        final_status = "failed"
+        try:
+            artifact_store = ArtifactStore((store.root, output_root, cache_root))
+            scientific_cache = ContentAddressedCache(cache_root)
+            registry = (
+                self.registry if self.registry is not None else self._default_registry()
+            )
+            provider = (
+                self.provider
+                if self.provider is not None
+                else self._default_provider(
+                    validated,
+                    work_root=store.root / "runtime_work",
+                    artifact_store=artifact_store,
+                )
+            )
+            endpoint_facts = {
+                endpoint.endpoint_id: {
+                    "catalog_data_available": endpoint.status
+                    == CatalogStatus.DATA_AVAILABLE,
+                }
+                for endpoint in validated.catalog
             }
-            for endpoint in validated.catalog
-        }
-        context = ExecutionContext(
-            run_store=store,
-            registry=self.registry,
-            endpoint_facts=endpoint_facts,
-            allow_expensive_producers=configuration.workflow.execution.allow_expensive_producers,
-            continue_on_endpoint_failure=configuration.workflow.execution.continue_on_endpoint_failure,
-            workers=configuration.workflow.execution.workers,
-            artifact_store=artifact_store,
-            scientific_cache=scientific_cache,
-            resume=execution.resume,
-        )
-        return execute_plan(bundle.plan, context)
+            context = ExecutionContext(
+                run_store=store,
+                registry=registry,
+                provider=provider,
+                endpoint_facts=endpoint_facts,
+                allow_expensive_producers=(
+                    configuration.workflow.execution.allow_expensive_producers
+                ),
+                continue_on_endpoint_failure=(
+                    configuration.workflow.execution.continue_on_endpoint_failure
+                ),
+                workers=configuration.workflow.execution.workers,
+                artifact_store=artifact_store,
+                scientific_cache=scientific_cache,
+                resume=execution.resume,
+            )
+            result = execute_plan(bundle.plan, context)
+            typed_records = self._typed_records(result)
+            documents = build_report_documents(
+                bundle.plan,
+                validated.catalog,
+                result,
+                typed_records,
+            )
+            self._publish_reporting_documents(
+                store.root,
+                documents,
+                through=bundle.plan.through,
+            )
+            final_status = "completed" if result.exit_code == 0 else "failed"
+        except Exception as exc:  # Finalization must also close failed aggregation runs.
+            failure = exc
+
+        try:
+            store.finalize(final_status)
+        except Exception as exc:
+            if failure is None:
+                failure = exc
+            else:
+                failure = ApplicationError(
+                    "run orchestration failed before finalization "
+                    f"({failure}); finalization also failed ({exc})"
+                )
+
+        if failure is not None:
+            if isinstance(failure, ApplicationError):
+                raise failure
+            raise ApplicationError(f"run orchestration failed: {failure}") from failure
+        if result is None:  # Defensive: the success path always assigns a RunResult.
+            raise ApplicationError("run orchestration completed without a RunResult")
+        return result
 
     def status(self, run_root: Path) -> dict[str, Any]:
         root = self._exact_run_root(run_root)
@@ -235,6 +300,126 @@ class WorkflowService:
         if not path.is_file():
             raise ApplicationError(f"artifact index is missing from exact run root: {root}")
         return json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _default_registry() -> ServiceRegistry:
+        """Build the production registry without importing it during validation."""
+
+        try:
+            registry = build_default_registry()
+        except (ImportError, AttributeError) as exc:
+            raise ApplicationError(
+                "the production dual-frequency service registry is unavailable"
+            ) from exc
+        if not isinstance(registry, ServiceRegistry):
+            raise ApplicationError(
+                "build_default_registry must return a ServiceRegistry"
+            )
+        return registry
+
+    @staticmethod
+    def _default_provider(
+        validated: ValidatedWorkflow,
+        *,
+        work_root: Path,
+        artifact_store: ArtifactStore,
+    ) -> object:
+        """Construct the production provider from validated current-run inputs."""
+
+        try:
+            from ..runtime.input_provider import StudyRuntimeInputProvider
+        except ImportError as exc:
+            raise ApplicationError(
+                "the production dual-frequency input provider is unavailable"
+            ) from exc
+        return StudyRuntimeInputProvider(
+            validated.study,
+            validated.configuration,
+            validated.catalog,
+            work_root=work_root,
+            artifact_store=artifact_store,
+        )
+
+    @staticmethod
+    def _typed_records(result: RunResult) -> dict[str, object]:
+        """Restore exactly one typed root for every completed task."""
+
+        records: dict[str, object] = {}
+        for outcome in result.outcomes:
+            if outcome.status != "completed":
+                continue
+            if outcome.result is None:
+                raise ApplicationError(
+                    f"completed task {outcome.task_id!r} has no service result"
+                )
+            if outcome.task_id in records:
+                raise ApplicationError(
+                    f"duplicate completed task outcome {outcome.task_id!r}"
+                )
+            records[outcome.task_id] = outcome.result.decode_record()
+        return records
+
+    @staticmethod
+    def _publish_reporting_documents(
+        run_root: Path,
+        documents: Mapping[str, Mapping[str, Any]],
+        *,
+        through: str,
+    ) -> None:
+        """Stage complete reporting documents and atomically replace each target."""
+
+        required = {"final_decisions.json", "artifact_index.json"}
+        if through == "report":
+            required.update({"endpoint_summary.json", "run_report.json"})
+        actual = set(documents)
+        if actual != required:
+            raise ApplicationError(
+                "reporting document set does not match the execution cutoff; "
+                f"expected={sorted(required)}, actual={sorted(actual)}"
+            )
+
+        root = Path(run_root).resolve()
+        staging = Path(tempfile.mkdtemp(prefix=".reporting-stage-", dir=root))
+        backup_root = staging / "backups"
+        backup_root.mkdir()
+        previous: dict[str, bool] = {}
+        published: list[str] = []
+        try:
+            for name in sorted(required):
+                document = documents[name]
+                if not isinstance(document, Mapping):
+                    raise ApplicationError(f"reporting document {name!r} must be a mapping")
+                text = json.dumps(
+                    dict(document),
+                    indent=2,
+                    sort_keys=True,
+                    allow_nan=False,
+                ) + "\n"
+                staged = staging / name
+                with staged.open("w", encoding="utf-8") as stream:
+                    stream.write(text)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+
+                target = root / name
+                previous[name] = target.is_file()
+                if previous[name]:
+                    shutil.copy2(target, backup_root / name)
+
+            for name in sorted(required):
+                os.replace(staging / name, root / name)
+                published.append(name)
+        except Exception:
+            for name in reversed(published):
+                target = root / name
+                backup = backup_root / name
+                if previous.get(name, False) and backup.is_file():
+                    os.replace(backup, target)
+                elif target.exists():
+                    target.unlink()
+            raise
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
 
     def _load(self, request: WorkflowRequest) -> ValidatedWorkflow:
         try:

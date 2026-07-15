@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import asdict, dataclass
 from urllib.parse import urlparse
 
@@ -41,6 +42,31 @@ NUISANCE_DESIGN_STATUSES = frozenset(
     }
 )
 SENSITIVE_CELL_COMPUTABILITY_STATUSES = frozenset({"computable", "not_computable"})
+ENDPOINT_READINESS_STATUSES = frozenset(
+    {"ready", "insufficient_subjects", "input_failure"}
+)
+DELTA_REFERENCE_INPUT_STATUSES = frozenset(
+    {"ready", "input_failure", "not_applicable"}
+)
+FINAL_DECISION_STATUSES = frozenset(
+    {
+        "realized_primary",
+        "realized_fallback",
+        "no_final_model",
+        "dependency_failure",
+        "execution_failure",
+    }
+)
+FINAL_SELECTION_STATUSES = frozenset(
+    {
+        "final_model_realized",
+        "fallback_final_realized",
+        "no_final_model",
+        "dependency_failure",
+        "execution_failure",
+    }
+)
+_REASON_CODE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class RecordError(ValueError):
@@ -151,6 +177,235 @@ class ArtifactRef:
     @property
     def identifier(self) -> str:
         return f"artifact_{canonical_hash(asdict(self), length=20)}"
+
+
+def _artifact_with_axes(
+    value: ArtifactRef,
+    field: str,
+    expected_axes: tuple[AxisRef, ...],
+) -> ArtifactRef:
+    if not isinstance(value, ArtifactRef):
+        raise RecordError(f"{field} must be an ArtifactRef")
+    if value.shape != tuple(axis.count for axis in expected_axes):
+        raise RecordError(f"{field} must use the exact subject and feature axes")
+    if value.axis_refs != expected_axes:
+        raise RecordError(f"{field} must use the exact subject and feature axes")
+    return value
+
+
+@dataclass(frozen=True, order=True)
+class SubjectExclusionRecord:
+    """Generic reason-coded exclusion from one endpoint's fitted cohort."""
+
+    subject_id: str
+    reason_code: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "subject_id", _token(self.subject_id, "subject_id"))
+        reason_code = _token(self.reason_code, "reason_code")
+        if _REASON_CODE.fullmatch(reason_code) is None:
+            raise RecordError("reason_code must be a generic lower_snake_case token")
+        object.__setattr__(self, "reason_code", reason_code)
+
+
+@dataclass(frozen=True)
+class EndpointInputRecord:
+    """Endpoint-local clinical candidates and exact scientific-ready inputs."""
+
+    endpoint: EndpointKey
+    readiness_status: str
+    candidate_subject_ids: tuple[str, ...]
+    included_subject_ids: tuple[str, ...]
+    exclusions: tuple[SubjectExclusionRecord, ...]
+    minimum_subjects: int
+    subject_axis: AxisRef | None
+    baseline: ArtifactRef | None
+    outcome: ArtifactRef | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.endpoint, EndpointKey):
+            raise RecordError("endpoint must be an EndpointKey")
+        readiness = _token(self.readiness_status, "readiness_status")
+        if readiness not in ENDPOINT_READINESS_STATUSES:
+            raise RecordError(f"unsupported readiness_status {readiness!r}")
+        object.__setattr__(self, "readiness_status", readiness)
+
+        candidates = tuple(
+            _token(value, "candidate subject ID")
+            for value in self.candidate_subject_ids
+        )
+        included = tuple(
+            _token(value, "included subject ID")
+            for value in self.included_subject_ids
+        )
+        if not candidates:
+            raise RecordError("candidate_subject_ids must be nonempty")
+        if len(set(candidates)) != len(candidates):
+            raise RecordError("candidate subject IDs must be unique")
+        if len(set(included)) != len(included):
+            raise RecordError("included subject IDs must be unique")
+        included_set = set(included)
+        if tuple(value for value in candidates if value in included_set) != included:
+            raise RecordError("included subjects must preserve candidate order")
+        object.__setattr__(self, "candidate_subject_ids", candidates)
+        object.__setattr__(self, "included_subject_ids", included)
+
+        exclusions = tuple(self.exclusions)
+        if not all(isinstance(value, SubjectExclusionRecord) for value in exclusions):
+            raise RecordError("exclusions must contain only SubjectExclusionRecord values")
+        excluded_ids = tuple(value.subject_id for value in exclusions)
+        expected_excluded_ids = tuple(
+            value for value in candidates if value not in included_set
+        )
+        if excluded_ids != expected_excluded_ids:
+            raise RecordError(
+                "excluded subjects must exactly cover non-included candidates in candidate order"
+            )
+        object.__setattr__(self, "exclusions", exclusions)
+
+        if type(self.minimum_subjects) is not int or self.minimum_subjects < 1:
+            raise RecordError("minimum_subjects must be a positive integer")
+        if readiness == "ready" and len(included) < self.minimum_subjects:
+            raise RecordError(
+                "ready endpoint inputs require included count to meet minimum_subjects"
+            )
+        if (
+            readiness == "insufficient_subjects"
+            and len(included) >= self.minimum_subjects
+        ):
+            raise RecordError(
+                "insufficient_subjects requires included count below minimum_subjects"
+            )
+        if readiness == "input_failure" and included:
+            raise RecordError("input_failure endpoint inputs cannot include fitted subjects")
+
+        aligned_values = (self.subject_axis, self.baseline, self.outcome)
+        if not included:
+            if any(value is not None for value in aligned_values):
+                raise RecordError(
+                    "endpoint inputs without included subjects cannot declare aligned artifacts"
+                )
+            return
+        if not isinstance(self.subject_axis, AxisRef):
+            raise RecordError("included endpoint inputs require a subject_axis")
+        if self.subject_axis.count != len(included):
+            raise RecordError("subject_axis count must match included_subject_ids")
+        if self.baseline is None or self.outcome is None:
+            raise RecordError(
+                "included endpoint inputs require baseline and outcome artifacts"
+            )
+        _artifact_with_axes(self.baseline, "baseline", (self.subject_axis,))
+        _artifact_with_axes(self.outcome, "outcome", (self.subject_axis,))
+
+    @property
+    def identifier(self) -> str:
+        return f"endpoint_input_{canonical_hash(asdict(self), length=20)}"
+
+
+@dataclass(frozen=True)
+class PreparedExposureRecord:
+    """Prepared endpoint exposure and its complete resume-safe auxiliaries."""
+
+    endpoint: EndpointKey
+    subject_axis: AxisRef
+    feature_axis: AxisRef
+    exposure: ArtifactRef
+    feature_ids: ArtifactRef
+    delta_reference_input_status: str
+    delta_reference_reason_code: str
+    auxiliary_readiness: ArtifactRef | None
+    reference_condition_exposure: ArtifactRef | None
+    addon_reference_component_exposure: ArtifactRef | None
+    reference_overlap_mask: ArtifactRef | None
+    total_exposure: ArtifactRef | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.endpoint, EndpointKey):
+            raise RecordError("endpoint must be an EndpointKey")
+        if not isinstance(self.subject_axis, AxisRef) or not isinstance(
+            self.feature_axis,
+            AxisRef,
+        ):
+            raise RecordError("subject_axis and feature_axis must be AxisRef values")
+        axes = (self.subject_axis, self.feature_axis)
+        _artifact_with_axes(self.exposure, "exposure", axes)
+        _artifact_with_axes(self.feature_ids, "feature_ids", (self.feature_axis,))
+        if self.feature_ids.dtype != "int64":
+            raise RecordError("canonical feature_ids must use int64 dtype")
+
+        delta_status = _token(
+            self.delta_reference_input_status,
+            "delta_reference_input_status",
+        )
+        if delta_status not in DELTA_REFERENCE_INPUT_STATUSES:
+            raise RecordError(
+                f"unsupported delta_reference_input_status {delta_status!r}"
+            )
+        object.__setattr__(self, "delta_reference_input_status", delta_status)
+        reason_code = _token(
+            self.delta_reference_reason_code,
+            "delta_reference_reason_code",
+        )
+        if _REASON_CODE.fullmatch(reason_code) is None:
+            raise RecordError(
+                "delta_reference_reason_code must be a lower_snake_case token"
+            )
+        object.__setattr__(self, "delta_reference_reason_code", reason_code)
+        if self.auxiliary_readiness is not None:
+            if not isinstance(self.auxiliary_readiness, ArtifactRef):
+                raise RecordError("auxiliary_readiness must be an ArtifactRef or None")
+            if self.auxiliary_readiness.shape is not None:
+                raise RecordError("auxiliary_readiness must be a document artifact")
+
+        auxiliary_fields = (
+            "reference_condition_exposure",
+            "addon_reference_component_exposure",
+            "reference_overlap_mask",
+            "total_exposure",
+        )
+        delta_reference_fields = (
+            "reference_condition_exposure",
+            "addon_reference_component_exposure",
+        )
+        if self.endpoint.model_family.startswith("reference_"):
+            if delta_status != "not_applicable":
+                raise RecordError(
+                    "reference exposure requires delta_reference_input_status='not_applicable'"
+                )
+            if self.auxiliary_readiness is not None:
+                raise RecordError("reference exposure cannot declare auxiliary_readiness")
+            if any(getattr(self, field) is not None for field in auxiliary_fields):
+                raise RecordError("reference exposure cannot declare add-on auxiliaries")
+        else:
+            if self.auxiliary_readiness is None:
+                raise RecordError("add-on exposure requires auxiliary_readiness evidence")
+            missing = tuple(
+                field
+                for field in delta_reference_fields
+                if getattr(self, field) is None
+            )
+            if delta_status == "ready" and missing:
+                raise RecordError(
+                    "Delta-ready add-on exposure requires both Delta input artifacts"
+                )
+            for field in auxiliary_fields:
+                value = getattr(self, field)
+                if value is not None:
+                    _artifact_with_axes(value, field, axes)
+            if self.reference_overlap_mask is not None:
+                if self.reference_overlap_mask.dtype != "bool":
+                    raise RecordError("reference_overlap_mask must use bool dtype")
+                if self.reference_overlap_mask.units != "binary":
+                    raise RecordError("reference_overlap_mask must use binary units")
+
+    @property
+    def primary_exposure(self) -> ArtifactRef:
+        """Return the prepared primary exposure used by observed and formal fits."""
+        return self.exposure
+
+    @property
+    def identifier(self) -> str:
+        return f"prepared_exposure_{canonical_hash(asdict(self), length=20)}"
 
 
 @dataclass(frozen=True)
@@ -307,44 +562,115 @@ class DeltaReferenceBundle:
         return f"delta_reference_{canonical_hash(asdict(self), length=20)}"
 
 
-@dataclass(frozen=True)
+_REFERENCE_SOURCE_UNSET = object()
+
+
+@dataclass(frozen=True, init=False)
 class ReferenceDependencyRecord:
     """Explicit add-on dependency on one matched reference endpoint."""
 
     addon_endpoint: EndpointKey
     matched_reference_endpoint_id: str
     dependency_status: str
-    reference_source: SourceRecord | None
+    reference_record: SourceRecord | SensitiveRecord | None
     delta_reference: DeltaReferenceBundle | None
 
+    def __init__(
+        self,
+        addon_endpoint: EndpointKey,
+        matched_reference_endpoint_id: str,
+        dependency_status: str,
+        reference_record: SourceRecord | SensitiveRecord | None = None,
+        delta_reference: DeltaReferenceBundle | None = None,
+        *,
+        reference_source: SourceRecord | None | object = _REFERENCE_SOURCE_UNSET,
+    ) -> None:
+        if reference_source is not _REFERENCE_SOURCE_UNSET:
+            if reference_source is not None and not isinstance(
+                reference_source,
+                SourceRecord,
+            ):
+                raise RecordError(
+                    "legacy reference_source must be a SourceRecord or None"
+                )
+            if reference_record is not None:
+                raise RecordError(
+                    "reference_record and legacy reference_source cannot both be supplied"
+                )
+            reference_record = reference_source
+        object.__setattr__(self, "addon_endpoint", addon_endpoint)
+        object.__setattr__(
+            self,
+            "matched_reference_endpoint_id",
+            matched_reference_endpoint_id,
+        )
+        object.__setattr__(self, "dependency_status", dependency_status)
+        object.__setattr__(self, "reference_record", reference_record)
+        object.__setattr__(self, "delta_reference", delta_reference)
+        self.__post_init__()
+
     def __post_init__(self) -> None:
-        if not isinstance(self.addon_endpoint, EndpointKey) or not self.addon_endpoint.model_family.startswith(
-            "addon_"
-        ):
+        if not isinstance(
+            self.addon_endpoint,
+            EndpointKey,
+        ) or not self.addon_endpoint.model_family.startswith("addon_"):
             raise RecordError("addon_endpoint must identify an add-on model")
         object.__setattr__(
             self,
             "matched_reference_endpoint_id",
-            _token(self.matched_reference_endpoint_id, "matched_reference_endpoint_id"),
+            _token(
+                self.matched_reference_endpoint_id,
+                "matched_reference_endpoint_id",
+            ),
         )
-        object.__setattr__(self, "dependency_status", _token(self.dependency_status, "dependency_status"))
+        object.__setattr__(
+            self,
+            "dependency_status",
+            _token(self.dependency_status, "dependency_status"),
+        )
         if self.dependency_status not in DEPENDENCY_STATUSES:
             raise RecordError(f"unsupported dependency_status {self.dependency_status!r}")
-        if self.reference_source is not None and not isinstance(self.reference_source, SourceRecord):
-            raise RecordError("reference_source must be a SourceRecord or None")
-        if self.delta_reference is not None and not isinstance(self.delta_reference, DeltaReferenceBundle):
+        if self.reference_record is not None and not isinstance(
+            self.reference_record,
+            (SourceRecord, SensitiveRecord),
+        ):
+            raise RecordError(
+                "reference_record must be a SourceRecord, SensitiveRecord, or None"
+            )
+        if self.delta_reference is not None and not isinstance(
+            self.delta_reference,
+            DeltaReferenceBundle,
+        ):
             raise RecordError("delta_reference must be a DeltaReferenceBundle or None")
-        if self.reference_source is not None:
-            reference_endpoint = self.reference_source.endpoint
-            expected_family = self.addon_endpoint.model_family.replace("addon_", "reference_", 1)
+        if self.reference_record is not None:
+            reference_endpoint = self.reference_record.endpoint
+            expected_family = self.addon_endpoint.model_family.replace(
+                "addon_",
+                "reference_",
+                1,
+            )
             if reference_endpoint.identifier != self.matched_reference_endpoint_id:
-                raise RecordError("reference source does not match the declared endpoint dependency")
+                raise RecordError(
+                    "reference record does not match the declared endpoint dependency"
+                )
             if reference_endpoint.scale_id != self.addon_endpoint.scale_id:
                 raise RecordError("reference and add-on dependency scale IDs must match")
             if reference_endpoint.model_family != expected_family:
                 raise RecordError("reference and add-on dependency model families must match")
             if reference_endpoint.connectome_id != self.addon_endpoint.connectome_id:
                 raise RecordError("reference and add-on dependency connectomes must match")
+            if isinstance(
+                self.reference_record,
+                SensitiveRecord,
+            ) and not expected_family.endswith("fiber"):
+                raise RecordError(
+                    "SensitiveRecord dependencies are valid only for normative-fiber endpoints"
+                )
+
+    @property
+    def reference_source(self) -> SourceRecord | SensitiveRecord | None:
+        """Return the former dependency attribute for transitional callers."""
+        return self.reference_record
 
     @property
     def identifier(self) -> str:
@@ -488,6 +814,121 @@ class FinalModelRecord:
     @property
     def identifier(self) -> str:
         return f"final_record_{canonical_hash(asdict(self), length=20)}"
+
+
+def _reason_codes(values: tuple[str, ...], field: str) -> tuple[str, ...]:
+    output = tuple(_token(value, field) for value in values)
+    if not output:
+        raise RecordError(f"{field} must be nonempty")
+    if any(_REASON_CODE.fullmatch(value) is None for value in output):
+        raise RecordError(f"{field} must contain lower_snake_case tokens")
+    if len(set(output)) != len(output):
+        raise RecordError(f"{field} must be unique")
+    return tuple(sorted(output))
+
+
+def _causal_task_ids(values: tuple[str, ...]) -> tuple[str, ...]:
+    output = tuple(_token(value, "causal task ID") for value in values)
+    if len(set(output)) != len(output):
+        raise RecordError("causal_task_ids must be unique")
+    return tuple(sorted(output))
+
+
+@dataclass(frozen=True)
+class FinalSelectionRecord:
+    """Scientific final-selection output, including valid no-model states."""
+
+    endpoint: EndpointKey
+    selection_status: str
+    final_model: FinalModelRecord | None
+    reason_codes: tuple[str, ...]
+    causal_task_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.endpoint, EndpointKey):
+            raise RecordError("endpoint must be an EndpointKey")
+        status = _token(self.selection_status, "selection_status")
+        if status not in FINAL_SELECTION_STATUSES:
+            raise RecordError(f"unsupported selection_status {status!r}")
+        object.__setattr__(self, "selection_status", status)
+        object.__setattr__(
+            self,
+            "reason_codes",
+            _reason_codes(tuple(self.reason_codes), "reason_codes"),
+        )
+        object.__setattr__(
+            self,
+            "causal_task_ids",
+            _causal_task_ids(tuple(self.causal_task_ids)),
+        )
+
+        realized_statuses = {
+            "final_model_realized": "final_model_realized",
+            "fallback_final_realized": "fallback_final_realized",
+        }
+        if status in realized_statuses:
+            if not isinstance(self.final_model, FinalModelRecord):
+                raise RecordError(f"{status} requires a final_model")
+            if self.final_model.endpoint != self.endpoint:
+                raise RecordError("final selection endpoint must match final_model endpoint")
+            if self.final_model.final_status != realized_statuses[status]:
+                raise RecordError(
+                    "final selection status must agree with final_model final_status"
+                )
+        elif self.final_model is not None:
+            raise RecordError(f"{status} forbids a final_model")
+
+    @property
+    def identifier(self) -> str:
+        return f"final_selection_{canonical_hash(asdict(self), length=20)}"
+
+
+@dataclass(frozen=True)
+class FinalDecisionRecord:
+    """Aggregate-only terminal authority for one requested endpoint."""
+
+    endpoint: EndpointKey
+    decision_status: str
+    final_model: FinalModelRecord | None
+    reason_code: str
+    causal_task_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.endpoint, EndpointKey):
+            raise RecordError("endpoint must be an EndpointKey")
+        status = _token(self.decision_status, "decision_status")
+        if status not in FINAL_DECISION_STATUSES:
+            raise RecordError(f"unsupported decision_status {status!r}")
+        object.__setattr__(self, "decision_status", status)
+        reason_code = _token(self.reason_code, "reason_code")
+        if _REASON_CODE.fullmatch(reason_code) is None:
+            raise RecordError("reason_code must be a lower_snake_case token")
+        object.__setattr__(self, "reason_code", reason_code)
+        object.__setattr__(
+            self,
+            "causal_task_ids",
+            _causal_task_ids(tuple(self.causal_task_ids)),
+        )
+
+        realized_statuses = {
+            "realized_primary": "final_model_realized",
+            "realized_fallback": "fallback_final_realized",
+        }
+        if status in realized_statuses:
+            if not isinstance(self.final_model, FinalModelRecord):
+                raise RecordError(f"{status} requires a final_model")
+            if self.final_model.endpoint != self.endpoint:
+                raise RecordError("final decision endpoint must match final_model endpoint")
+            if self.final_model.final_status != realized_statuses[status]:
+                raise RecordError(
+                    "final decision status must agree with final_model final_status"
+                )
+        elif self.final_model is not None:
+            raise RecordError(f"{status} decisions forbid a final_model")
+
+    @property
+    def identifier(self) -> str:
+        return f"final_decision_{canonical_hash(asdict(self), length=20)}"
 
 
 @dataclass(frozen=True)

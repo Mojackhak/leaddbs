@@ -30,6 +30,7 @@ _VALID_ADDON_SUPPORT_STATUSES = frozenset(
         "invalid_extreme_out_of_support",
         "invalid_no_reference_component_exposure",
         "invalid_no_reference_component_coverage",
+        "not_applicable",
     }
 )
 _COMPUTABLE_ADDON_SUPPORT_STATUSES = frozenset({"adequate", "limited"})
@@ -37,16 +38,27 @@ _COMPUTABLE_ADDON_SUPPORT_STATUSES = frozenset({"adequate", "limited"})
 
 @dataclass(frozen=True, slots=True)
 class SpatialJitterSettings:
-    """Deterministic replicate count and root seed."""
+    """Deterministic replicate count, root seed, and translation uncertainty."""
 
     replicates: int
     seed: int
+    translation_fwhm_mm: float
 
     def __post_init__(self) -> None:
         if type(self.replicates) is not int or self.replicates < 1:
             raise SensitivityStrategyError("jitter replicates must be positive")
         if type(self.seed) is not int or self.seed < 0:
             raise SensitivityStrategyError("jitter seed must be a nonnegative integer")
+        fwhm = float(self.translation_fwhm_mm)
+        if not math.isfinite(fwhm) or fwhm <= 0.0:
+            raise SensitivityStrategyError(
+                "jitter translation_fwhm_mm must be finite and positive"
+            )
+        object.__setattr__(self, "translation_fwhm_mm", fwhm)
+
+    @property
+    def translation_sigma_mm(self) -> float:
+        return self.translation_fwhm_mm / 2.354820045
 
 
 def jitter_rebuild_identity(
@@ -420,6 +432,20 @@ def _validate_replicate_evidence(
             "add-on jitter requires nonempty rebuilt support QC"
         )
 
+    if (
+        observed.branch == "delta_reference_adjusted"
+        and evidence.support_status not in _COMPUTABLE_ADDON_SUPPORT_STATUSES
+    ):
+        if observed.nuisance_inputs != original.nuisance_inputs:
+            raise SensitivityStrategyError(
+                "support-invalid adjusted jitter must retain unused original nuisance inputs"
+            )
+        if evidence.delta_rebuild_identity is not None:
+            raise SensitivityStrategyError(
+                "support-invalid adjusted jitter cannot claim a completed DeltaReferenceScore rebuild"
+            )
+        return
+
     if observed.branch == "delta_reference_adjusted":
         if (
             len(original.nuisance_inputs) != 2
@@ -528,9 +554,8 @@ class SpatialJitterStrategy:
                 str(key): value for key, value in replicate.support_qc
             }
             if (
-                replicate.support_status
-                not in _COMPUTABLE_ADDON_SUPPORT_STATUSES
-                and replicate.support_status != "not_applicable"
+                replicate.observed_request.branch == "delta_reference_adjusted"
+                and replicate.support_status not in _COMPUTABLE_ADDON_SUPPORT_STATUSES
             ):
                 replicate_rows.append(
                     {
@@ -570,6 +595,8 @@ class SpatialJitterStrategy:
             "selected_tau": tau,
             "selected_coverage": coverage,
             "root_seed": request.settings.seed,
+            "translation_fwhm_mm": request.settings.translation_fwhm_mm,
+            "translation_sigma_mm": request.settings.translation_sigma_mm,
             "requested_replicates": request.settings.replicates,
             "completed_replicates": len(completed_metrics),
             "replicates": replicate_rows,

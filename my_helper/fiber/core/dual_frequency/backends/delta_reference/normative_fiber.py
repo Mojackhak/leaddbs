@@ -23,6 +23,7 @@ from ...contracts import (
 from ...contracts.records import ACCEPTED_SOURCE_STATUSES
 from ..normative_fiber.scoring import FiberScoreError, score_signed_fibers
 from ..protocols import ArtifactPublisher
+from .cohort import DeltaReferenceCohortError, reference_fold_indices
 
 
 ScientificArray: TypeAlias = np.ndarray | ArtifactRef
@@ -549,6 +550,9 @@ def build_delta_reference_fiber(
     reference_condition_exposure: ScientificArray,
     addon_reference_component_exposure: ScientificArray,
     subject_axis: AxisRef,
+    reference_subject_axis: AxisRef,
+    addon_subject_ids: tuple[str, ...],
+    reference_subject_ids: tuple[str, ...],
     parent_fiber_axis: AxisRef,
     fiber_score_settings: NormativeFiberScoreSettings,
     support_profile: DeltaReferenceSupportProfile,
@@ -557,11 +561,14 @@ def build_delta_reference_fiber(
 ) -> DeltaReferenceBundle:
     """Build full/fold fiber DeltaReferenceScore artifacts without refitting."""
 
-    if not isinstance(subject_axis, AxisRef) or not isinstance(
-        parent_fiber_axis,
-        AxisRef,
+    if (
+        not isinstance(subject_axis, AxisRef)
+        or not isinstance(reference_subject_axis, AxisRef)
+        or not isinstance(parent_fiber_axis, AxisRef)
     ):
-        raise TypeError("subject_axis and parent_fiber_axis must be AxisRef values")
+        raise TypeError(
+            "subject_axis, reference_subject_axis, and parent_fiber_axis must be AxisRef values"
+        )
     if not isinstance(fiber_score_settings, NormativeFiberScoreSettings):
         raise TypeError(
             "fiber_score_settings must be a NormativeFiberScoreSettings"
@@ -576,6 +583,15 @@ def build_delta_reference_fiber(
         matched_reference_endpoint_id=matched_reference_endpoint_id,
         matched_reference_connectome_id=matched_reference_connectome_id,
     )
+    try:
+        fold_indices = reference_fold_indices(
+            addon_subject_ids=addon_subject_ids,
+            reference_subject_ids=reference_subject_ids,
+            addon_subject_axis=subject_axis,
+            reference_subject_axis=reference_subject_axis,
+        )
+    except DeltaReferenceCohortError as error:
+        raise DeltaReferenceFiberError(str(error)) from error
 
     for value, name, kind in (
         (
@@ -657,7 +673,7 @@ def build_delta_reference_fiber(
             _materialize(
                 fold_weights,
                 name="fold_weights",
-                expected_axes=(subject_axis, locked.selected_axis),
+                expected_axes=(reference_subject_axis, locked.selected_axis),
                 expected_units="coefficient",
                 artifact_store=artifact_store,
             ),
@@ -670,7 +686,7 @@ def build_delta_reference_fiber(
         _materialize(
             fold_valid_masks,
             name="fold_valid_masks",
-            expected_axes=(subject_axis, locked.selected_axis),
+            expected_axes=(reference_subject_axis, locked.selected_axis),
             expected_units=None,
             artifact_store=artifact_store,
         ),
@@ -678,18 +694,21 @@ def build_delta_reference_fiber(
         2,
     )
     expected_full_shape = (locked.selected_axis.count,)
-    expected_fold_shape = (subject_axis.count, locked.selected_axis.count)
+    expected_fold_shape = (
+        reference_subject_axis.count,
+        locked.selected_axis.count,
+    )
     if full_weight_array.shape != expected_full_shape:
         raise DeltaReferenceFiberError(
             "full_weights do not match the valid-union fiber axis"
         )
     if fold_weight_array.shape != expected_fold_shape:
         raise DeltaReferenceFiberError(
-            "fold_weights do not match the subject and valid-union axes"
+            "fold_weights do not match the reference-subject and valid-union axes"
         )
     if fold_mask_array.shape != expected_fold_shape:
         raise DeltaReferenceFiberError(
-            "fold_valid_masks do not match the subject and valid-union axes"
+            "fold_valid_masks do not match the reference-subject and valid-union axes"
         )
     if np.any(np.isinf(full_weight_array)) or np.any(
         np.isinf(fold_weight_array)
@@ -701,6 +720,8 @@ def build_delta_reference_fiber(
         raise DeltaReferenceFiberError(
             "fold_valid_masks must exactly match finite fold weight support"
         )
+    addon_fold_weights = fold_weight_array[fold_indices]
+    addon_fold_masks = fold_mask_array[fold_indices]
 
     reference_exposure = _real_array(
         _materialize(
@@ -746,7 +767,7 @@ def build_delta_reference_fiber(
         selected_parent_positions,
     ]
     full_valid = np.isfinite(full_weight_array)
-    fold_valid = fold_mask_array
+    fold_valid = addon_fold_masks
     if not np.any(full_valid):
         raise DeltaReferenceFiberError(
             "full-sample reference weights have no finite valid support"
@@ -885,8 +906,8 @@ def build_delta_reference_fiber(
         selected_addon_exposure,
         selected_reference_exposure,
         full_weight_array,
-        fold_weight_array,
-        fold_mask_array,
+        addon_fold_weights,
+        addon_fold_masks,
         valid_ids,
         fiber_score_settings,
     )

@@ -17,16 +17,6 @@ from .run_store import RunStore
 
 
 TERMINAL_STATUSES = frozenset({"completed", "skipped", "failed"})
-ARTIFACT_REQUIRED_OUTPUTS = frozenset(
-    {
-        "ArtifactRef",
-        "ObservedResult",
-        "FormalResult",
-        "SensitivityResult",
-        "ActivationArtifact",
-        "ReportArtifact",
-    }
-)
 
 
 class ExecutionError(RuntimeError):
@@ -39,6 +29,12 @@ class ExpensiveProducerNotAuthorized(ExecutionError):
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _load_record_codec() -> object:
+    from ..runtime import record_codec
+
+    return record_codec
 
 
 @dataclass(frozen=True, order=True)
@@ -57,7 +53,7 @@ class RuntimeFact:
 
 @dataclass(frozen=True)
 class ServiceResult:
-    """Persistable service output envelope."""
+    """Persistable envelope whose scientific fields are derived by the codec."""
 
     output_record_type: str
     record_id: str
@@ -95,26 +91,36 @@ class ServiceResult:
         object.__setattr__(self, "facts", facts)
 
     @classmethod
-    def create(
+    def from_record(
         cls,
-        output_record_type: str,
-        record_id: str,
-        payload: Mapping[str, Any],
+        record: object,
         *,
-        artifacts: tuple[ArtifactRef, ...] = (),
         facts: Mapping[str, bool] | tuple[RuntimeFact, ...] = (),
     ) -> "ServiceResult":
+        """Encode one allowlisted typed record without caller-supplied metadata."""
+        codec = _load_record_codec()
+        try:
+            payload = codec.encode_record(record)
+            record_id = codec.record_identifier(record)
+            artifacts = tuple(codec.record_artifacts(record))
+        except Exception as exc:
+            raise ExecutionError(f"record codec rejected service output: {exc}") from exc
+        if not isinstance(payload, Mapping):
+            raise ExecutionError("record codec encode_record must return a mapping")
+        output_record_type = type(record).__name__
         if isinstance(facts, Mapping):
             fact_values = tuple(RuntimeFact(name, value) for name, value in facts.items())
         else:
             fact_values = tuple(facts)
-        return cls(
+        result = cls(
             output_record_type=output_record_type,
             record_id=record_id,
-            payload_json=json.dumps(dict(payload), allow_nan=False),
-            artifacts=tuple(artifacts),
+            payload_json=json.dumps(payload, allow_nan=False),
+            artifacts=artifacts,
             facts=fact_values,
         )
+        result.decode_record()
+        return result
 
     @property
     def payload(self) -> dict[str, Any]:
@@ -124,32 +130,88 @@ class ServiceResult:
     def fact_values(self) -> dict[str, bool]:
         return {fact.name: fact.value for fact in self.facts}
 
+    def decode_record(self) -> object:
+        """Decode and validate the complete persisted record envelope."""
+        codec = _load_record_codec()
+        try:
+            record = codec.decode_record(
+                self.output_record_type,
+                self.payload,
+                record_id=self.record_id,
+                artifacts=self.artifacts,
+            )
+            record_id = codec.record_identifier(record)
+            artifacts = tuple(codec.record_artifacts(record))
+        except Exception as exc:
+            raise ExecutionError(f"record codec rejected persisted service output: {exc}") from exc
+        decoded_type = type(record).__name__
+        if decoded_type != self.output_record_type:
+            raise ExecutionError(
+                f"service record type mismatch: envelope declares {self.output_record_type!r}, "
+                f"codec decoded {decoded_type!r}"
+            )
+        if record_id != self.record_id:
+            raise ExecutionError(
+                f"service record identifier mismatch: envelope declares {self.record_id!r}, "
+                f"codec computed {record_id!r}"
+            )
+        if artifacts != self.artifacts:
+            raise ExecutionError("service record artifact closure does not match the codec")
+        return record
+
     def as_dict(self) -> dict[str, Any]:
+        codec = _load_record_codec()
+        try:
+            artifacts = [codec.encode_record(artifact) for artifact in self.artifacts]
+        except Exception as exc:
+            raise ExecutionError(f"record codec rejected service artifacts: {exc}") from exc
         return {
             "output_record_type": self.output_record_type,
             "record_id": self.record_id,
             "payload": self.payload,
-            "artifacts": [asdict(artifact) for artifact in self.artifacts],
+            "artifacts": artifacts,
             "facts": self.fact_values,
         }
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ServiceResult":
-        artifacts: list[ArtifactRef] = []
-        for item in payload.get("artifacts", []):
-            item = dict(item)
-            item["axis_refs"] = tuple(AxisRef(**axis) for axis in item.get("axis_refs", []))
-            item["axis_hashes"] = tuple(item.get("axis_hashes", []))
-            if item.get("shape") is not None:
-                item["shape"] = tuple(item["shape"])
-            artifacts.append(ArtifactRef(**item))
-        return cls.create(
-            str(payload["output_record_type"]),
-            str(payload["record_id"]),
-            payload.get("payload", {}),
-            artifacts=tuple(artifacts),
-            facts={str(key): value for key, value in payload.get("facts", {}).items()},
+        codec = _load_record_codec()
+        try:
+            artifacts: list[ArtifactRef] = []
+            for encoded in payload.get("artifacts", ()):
+                item = dict(encoded)
+                item["axis_refs"] = tuple(
+                    AxisRef(**axis) for axis in item.get("axis_refs", ())
+                )
+                item["axis_hashes"] = tuple(item.get("axis_hashes", ()))
+                if item.get("shape") is not None:
+                    item["shape"] = tuple(item["shape"])
+                candidate = ArtifactRef(**item)
+                artifact = codec.decode_record(
+                    "ArtifactRef",
+                    encoded,
+                    record_id=codec.record_identifier(candidate),
+                    artifacts=tuple(codec.record_artifacts(candidate)),
+                )
+                if not isinstance(artifact, ArtifactRef):
+                    raise ExecutionError(
+                        "persisted service artifact did not decode to ArtifactRef"
+                    )
+                artifacts.append(artifact)
+        except Exception as exc:
+            raise ExecutionError(f"record codec rejected persisted artifacts: {exc}") from exc
+        fact_values = tuple(
+            RuntimeFact(str(key), value) for key, value in payload.get("facts", {}).items()
         )
+        result = cls(
+            output_record_type=str(payload["output_record_type"]),
+            record_id=str(payload["record_id"]),
+            payload_json=json.dumps(payload.get("payload", {}), allow_nan=False),
+            artifacts=tuple(artifacts),
+            facts=fact_values,
+        )
+        result.decode_record()
+        return result
 
 
 @dataclass(frozen=True)
@@ -201,11 +263,11 @@ class TaskOutcome:
 
 @dataclass(frozen=True)
 class DependencyState:
-    """Direct dependency state supplied to a service."""
+    """Direct dependency state with its codec-restored typed record."""
 
     status: str
     reason: str
-    result: ServiceResult | None
+    record: object | None
 
 
 @dataclass(frozen=True)
@@ -216,6 +278,7 @@ class TaskExecutionRequest:
     dependencies: Mapping[str, DependencyState]
     run_id: str
     output_dir: Path
+    provider: object
     artifact_store: object | None
     scientific_cache: object | None
     allow_expensive_producers: bool
@@ -228,6 +291,7 @@ class ExecutionContext:
 
     run_store: RunStore
     registry: ServiceRegistry
+    provider: object
     endpoint_facts: Mapping[str, Mapping[str, bool]]
     allow_expensive_producers: bool
     continue_on_endpoint_failure: bool
@@ -241,6 +305,8 @@ class ExecutionContext:
             raise ExecutionError("run_store must be a RunStore")
         if not isinstance(self.registry, ServiceRegistry):
             raise ExecutionError("registry must be a ServiceRegistry")
+        if self.provider is None:
+            raise ExecutionError("provider must be supplied explicitly")
         for field in ("allow_expensive_producers", "continue_on_endpoint_failure", "resume"):
             if type(getattr(self, field)) is not bool:
                 raise ExecutionError(f"{field} must be boolean")
@@ -290,8 +356,14 @@ def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[st
         if payload is None:
             continue
         outcome = TaskOutcome.from_dict(payload)
-        if outcome.endpoint_id != task.endpoint_id or outcome.service_id != task.service_id:
+        if (
+            outcome.task_id != task.task_id
+            or outcome.endpoint_id != task.endpoint_id
+            or outcome.service_id != task.service_id
+        ):
             raise ExecutionError(f"resume task identity mismatch for {task.task_id}")
+        if outcome.status == "completed":
+            _validate_service_result(task, outcome.result)
         if outcome.status in {"completed", "skipped"}:
             output[task.task_id] = outcome
     return output
@@ -342,23 +414,45 @@ def _dependency_states(
         dependency_id: DependencyState(
             status=outcomes[dependency_id].status,
             reason=outcomes[dependency_id].reason,
-            result=outcomes[dependency_id].result,
+            record=(
+                outcomes[dependency_id].result.decode_record()
+                if outcomes[dependency_id].result is not None
+                else None
+            ),
         )
         for dependency_id in task.dependencies
     }
 
 
+def _record_endpoint_id(record: object) -> str | None:
+    endpoint = getattr(record, "endpoint", None)
+    if type(record).__name__ == "ReferenceDependencyRecord":
+        endpoint = getattr(record, "addon_endpoint", None)
+    if endpoint is None and type(record).__name__ == "ObservedResult":
+        source = getattr(record, "source", None)
+        endpoint = getattr(source, "endpoint", None)
+    if endpoint is None:
+        return None
+    endpoint_id = getattr(endpoint, "identifier", None)
+    if not isinstance(endpoint_id, str) or not endpoint_id.strip():
+        raise ExecutionError("service record endpoint has no valid identifier")
+    return endpoint_id
+
+
 def _validate_service_result(task: TaskSpec, result: object) -> ServiceResult:
     if not isinstance(result, ServiceResult):
         raise ExecutionError(f"service {task.service_id!r} did not return ServiceResult")
+    record = result.decode_record()
     if result.output_record_type != task.output_record_type:
         raise ExecutionError(
             f"service {task.service_id!r} returned {result.output_record_type!r}; "
             f"expected {task.output_record_type!r}"
         )
-    if task.output_record_type in ARTIFACT_REQUIRED_OUTPUTS and not result.artifacts:
+    record_endpoint_id = _record_endpoint_id(record)
+    if record_endpoint_id is not None and record_endpoint_id != task.endpoint_id:
         raise ExecutionError(
-            f"task {task.task_id} requires at least one declared artifact"
+            f"service {task.service_id!r} returned endpoint {record_endpoint_id!r}; "
+            f"expected {task.endpoint_id!r}"
         )
     return result
 
@@ -386,6 +480,7 @@ def _run_task(task: TaskSpec, context: ExecutionContext, outcomes: Mapping[str, 
             dependencies=_dependency_states(task, outcomes),
             run_id=context.run_store.run_id,
             output_dir=output_dir,
+            provider=context.provider,
             artifact_store=context.artifact_store,
             scientific_cache=context.scientific_cache,
             allow_expensive_producers=context.allow_expensive_producers,
@@ -559,5 +654,4 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
 
     ordered = tuple(outcomes[task.task_id] for task in plan.tasks)
     exit_code = 1 if any(outcome.status == "failed" for outcome in ordered) else 0
-    context.run_store.finalize("failed" if exit_code else "completed")
     return RunResult(context.run_store.run_id, ordered, exit_code)

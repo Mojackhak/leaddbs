@@ -154,6 +154,10 @@ class _TaskFactory:
 
 
 CATALOG_AVAILABLE = GateRequirement("catalog_data_available", "not_run_catalog_unavailable")
+ENDPOINT_INPUT_READY = GateRequirement(
+    "endpoint_input_ready",
+    "not_run_endpoint_input_not_ready",
+)
 REFERENCE_DEPENDENCY_READY = GateRequirement(
     "reference_dependency_ready",
     "not_run_reference_dependency_failure",
@@ -169,26 +173,6 @@ FORMAL_SOURCE_AVAILABLE = GateRequirement(
     "formal_source_available",
     "not_run_formal_source_unavailable",
 )
-
-
-def _plan_terminal(factory: _TaskFactory, endpoint: EndpointRecord) -> None:
-    terminal = factory.add(
-        endpoint,
-        stage="catalog_terminal",
-        round_id="catalog",
-        phase="observed",
-        service_id="record_catalog_terminal",
-        output_record_type="EndpointTerminalRecord",
-    )
-    factory.add(
-        endpoint,
-        stage="terminal_report",
-        round_id="report",
-        phase="report",
-        service_id="report_terminal_endpoint",
-        dependencies=(terminal,),
-        output_record_type="ReportArtifact",
-    )
 
 
 def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> None:
@@ -208,7 +192,8 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         phase="observed",
         service_id="prepare_reference_voxel_exposure",
         dependencies=(readiness,),
-        output_record_type="ArtifactRef",
+        gates=(ENDPOINT_INPUT_READY,),
+        output_record_type="PreparedExposureRecord",
     )
     observed = factory.add(
         endpoint,
@@ -216,7 +201,8 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         round_id="round_2",
         phase="observed",
         service_id="run_reference_voxel_observed_grid",
-        dependencies=(prepare,),
+        dependencies=(readiness, prepare),
+        gates=(ENDPOINT_INPUT_READY,),
         output_record_type="ObservedResult",
     )
     resolver = factory.add(
@@ -226,6 +212,7 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         phase="observed",
         service_id="resolve_reference_voxel_source",
         dependencies=(observed,),
+        gates=(ENDPOINT_INPUT_READY,),
         output_record_type="SourceRecord",
     )
     final = factory.add(
@@ -234,9 +221,8 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         round_id="round_2",
         phase="observed",
         service_id="realize_reference_final",
-        dependencies=(resolver,),
-        gates=(GateRequirement("source_accepted", "no_final_model"),),
-        output_record_type="FinalModelRecord",
+        dependencies=(readiness, resolver),
+        output_record_type="FinalSelectionRecord",
     )
     factory.add(
         endpoint,
@@ -244,7 +230,7 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         round_id="round_4",
         phase="formal",
         service_id="run_reference_voxel_formal_permutation",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, final),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -254,18 +240,9 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         round_id="round_5",
         phase="formal",
         service_id="run_reference_voxel_formal_bootstrap",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, final),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
-    )
-    factory.add(
-        endpoint,
-        stage="equivalence_smoke_qc",
-        round_id="round_3",
-        phase="sensitivity",
-        service_id="run_reference_voxel_equivalence_qc",
-        dependencies=(prepare,),
-        output_record_type="SensitivityResult",
     )
     factory.add(
         endpoint,
@@ -273,7 +250,7 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         round_id="round_6",
         phase="sensitivity",
         service_id="run_reference_voxel_jitter",
-        dependencies=(formal_bootstrap,),
+        dependencies=(readiness, prepare, final, formal_bootstrap),
         gates=(FINAL_REALIZED, FORMAL_COMPLETE),
         output_record_type="SensitivityResult",
     )
@@ -283,18 +260,9 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         round_id="round_7",
         phase="sensitivity",
         service_id="run_reference_voxel_source_neighborhood",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, final),
         gates=(FINAL_REALIZED,),
         output_record_type="SensitivityResult",
-    )
-    factory.add(
-        endpoint,
-        stage="report",
-        round_id="round_8",
-        phase="report",
-        service_id="report_reference_voxel",
-        dependencies=(resolver,),
-        output_record_type="ReportArtifact",
     )
 
 
@@ -315,7 +283,8 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         phase="observed",
         service_id="prepare_reference_fiber_sidecar",
         dependencies=(readiness,),
-        output_record_type="ArtifactRef",
+        gates=(ENDPOINT_INPUT_READY,),
+        output_record_type="PreparedExposureRecord",
     )
     observed = factory.add(
         endpoint,
@@ -323,7 +292,8 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         round_id="round_2",
         phase="observed",
         service_id="run_reference_fiber_observed_grid",
-        dependencies=(prepare,),
+        dependencies=(readiness, prepare),
+        gates=(ENDPOINT_INPUT_READY,),
         output_record_type="ObservedResult",
     )
     resolver = factory.add(
@@ -333,6 +303,7 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         phase="observed",
         service_id="resolve_reference_fiber_source",
         dependencies=(observed,),
+        gates=(ENDPOINT_INPUT_READY,),
         output_record_type="SourceRecord",
     )
     final = factory.add(
@@ -341,9 +312,8 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         round_id="round_5_5",
         phase="observed",
         service_id="realize_reference_final",
-        dependencies=(resolver,),
-        gates=(GateRequirement("source_accepted", "no_final_model"),),
-        output_record_type="FinalModelRecord",
+        dependencies=(readiness, resolver),
+        output_record_type="FinalSelectionRecord",
     )
     formal_permutation = factory.add(
         endpoint,
@@ -351,7 +321,7 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         round_id="round_6",
         phase="formal",
         service_id="run_reference_fiber_formal_permutation",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, final),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -361,7 +331,7 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         round_id="round_6",
         phase="formal",
         service_id="run_reference_fiber_formal_bootstrap",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, final),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -371,16 +341,8 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         round_id="round_3",
         phase="sensitivity",
         service_id="run_reference_fiber_plain_control",
-        dependencies=(observed,),
-        output_record_type="SensitivityResult",
-    )
-    factory.add(
-        endpoint,
-        stage="candidate_source_smoke",
-        round_id="round_4",
-        phase="sensitivity",
-        service_id="run_reference_fiber_smoke_resampling",
-        dependencies=(observed,),
+        dependencies=(readiness, prepare, observed),
+        gates=(ENDPOINT_INPUT_READY,),
         output_record_type="SensitivityResult",
     )
     factory.add(
@@ -389,7 +351,8 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         round_id="round_5",
         phase="sensitivity",
         service_id="run_reference_fiber_cheap_sensitivity",
-        dependencies=(observed,),
+        dependencies=(readiness, prepare, observed),
+        gates=(ENDPOINT_INPUT_READY,),
         output_record_type="SensitivityResult",
     )
     factory.add(
@@ -398,7 +361,7 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         round_id="round_7",
         phase="sensitivity",
         service_id="run_reference_fiber_activation",
-        dependencies=(final, formal_permutation, formal_bootstrap),
+        dependencies=(readiness, prepare, final, formal_permutation, formal_bootstrap),
         gates=(FINAL_REALIZED, FORMAL_COMPLETE),
         output_record_type="ActivationArtifact",
         expensive_producer=True,
@@ -410,18 +373,15 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         round_id="round_8",
         phase="sensitivity",
         service_id="run_reference_fiber_jitter",
-        dependencies=(formal_permutation, formal_bootstrap),
+        dependencies=(
+            readiness,
+            prepare,
+            final,
+            formal_permutation,
+            formal_bootstrap,
+        ),
         gates=(FINAL_REALIZED, FORMAL_COMPLETE),
         output_record_type="SensitivityResult",
-    )
-    factory.add(
-        endpoint,
-        stage="report",
-        round_id="round_9",
-        phase="report",
-        service_id="report_reference_fiber",
-        dependencies=(resolver,),
-        output_record_type="ReportArtifact",
     )
 
 
@@ -446,7 +406,8 @@ def _plan_reference_fiber_sensitive(
         phase="observed",
         service_id="prepare_reference_fiber_sidecar",
         dependencies=(readiness,),
-        output_record_type="ArtifactRef",
+        gates=(ENDPOINT_INPUT_READY,),
+        output_record_type="PreparedExposureRecord",
     )
     observed = factory.add(
         endpoint,
@@ -454,28 +415,20 @@ def _plan_reference_fiber_sensitive(
         round_id="round_2",
         phase="observed",
         service_id="run_reference_fiber_observed_grid",
-        dependencies=(prepare,),
+        dependencies=(readiness, prepare),
+        gates=(ENDPOINT_INPUT_READY,),
         output_record_type="ObservedResult",
     )
     formal_source = factory.stage(formal_endpoint.endpoint_id, "source_resolver")
-    evaluation = factory.add(
+    factory.add(
         endpoint,
         stage="formal_source_evaluation",
         round_id="round_5_5",
         phase="observed",
         service_id="evaluate_sensitive_connectome_at_formal_source",
-        dependencies=(observed, formal_source),
-        gates=(FORMAL_SOURCE_AVAILABLE,),
+        dependencies=(readiness, prepare, observed, formal_source),
+        gates=(ENDPOINT_INPUT_READY, FORMAL_SOURCE_AVAILABLE),
         output_record_type="SensitiveRecord",
-    )
-    factory.add(
-        endpoint,
-        stage="report",
-        round_id="round_9",
-        phase="report",
-        service_id="report_sensitive_reference_fiber",
-        dependencies=(evaluation,),
-        output_record_type="ReportArtifact",
     )
 
 
@@ -485,6 +438,19 @@ def _plan_addon_voxel(
     reference_endpoint: EndpointRecord,
 ) -> None:
     reference_source = factory.stage(reference_endpoint.endpoint_id, "source_resolver")
+    reference_readiness = factory.stage(
+        reference_endpoint.endpoint_id,
+        "input_readiness",
+    )
+    readiness = factory.add(
+        endpoint,
+        stage="input_readiness",
+        round_id="round_0",
+        phase="observed",
+        service_id="validate_addon_voxel_input",
+        gates=(CATALOG_AVAILABLE,),
+        output_record_type="EndpointInputRecord",
+    )
     dependency = factory.add(
         endpoint,
         stage="reference_dependency",
@@ -500,9 +466,9 @@ def _plan_addon_voxel(
         round_id="round_1",
         phase="observed",
         service_id="prepare_addon_voxel_exposure",
-        dependencies=(dependency,),
-        gates=(REFERENCE_DEPENDENCY_READY,),
-        output_record_type="ArtifactRef",
+        dependencies=(readiness, dependency),
+        gates=(ENDPOINT_INPUT_READY, REFERENCE_DEPENDENCY_READY),
+        output_record_type="PreparedExposureRecord",
     )
     delta = factory.add(
         endpoint,
@@ -510,8 +476,18 @@ def _plan_addon_voxel(
         round_id="round_1",
         phase="observed",
         service_id="build_voxel_delta_reference_input",
-        dependencies=(prepare, reference_source),
-        gates=(REFERENCE_SOURCE_ACCEPTED,),
+        dependencies=(
+            readiness,
+            reference_readiness,
+            dependency,
+            prepare,
+            reference_source,
+        ),
+        gates=(
+            ENDPOINT_INPUT_READY,
+            REFERENCE_DEPENDENCY_READY,
+            REFERENCE_SOURCE_ACCEPTED,
+        ),
         output_record_type="DeltaReferenceBundle",
     )
     no_delta = factory.add(
@@ -520,8 +496,8 @@ def _plan_addon_voxel(
         round_id="round_2",
         phase="observed",
         service_id="run_addon_voxel_branch",
-        dependencies=(prepare,),
-        gates=(REFERENCE_DEPENDENCY_READY,),
+        dependencies=(readiness, dependency, prepare),
+        gates=(ENDPOINT_INPUT_READY, REFERENCE_DEPENDENCY_READY),
         output_record_type="BranchRecord",
         branch="no_delta_reference",
     )
@@ -531,8 +507,13 @@ def _plan_addon_voxel(
         round_id="round_2",
         phase="observed",
         service_id="run_addon_voxel_branch",
-        dependencies=(prepare, delta),
-        gates=(REFERENCE_SOURCE_ACCEPTED, DELTA_INPUTS_VALID),
+        dependencies=(readiness, dependency, prepare, delta),
+        gates=(
+            ENDPOINT_INPUT_READY,
+            REFERENCE_DEPENDENCY_READY,
+            REFERENCE_SOURCE_ACCEPTED,
+            DELTA_INPUTS_VALID,
+        ),
         output_record_type="BranchRecord",
         branch="delta_reference_adjusted",
     )
@@ -542,9 +523,8 @@ def _plan_addon_voxel(
         round_id="round_2",
         phase="observed",
         service_id="realize_addon_final",
-        dependencies=(no_delta, adjusted),
-        gates=(REFERENCE_DEPENDENCY_READY,),
-        output_record_type="FinalModelRecord",
+        dependencies=(readiness, dependency, delta, no_delta, adjusted),
+        output_record_type="FinalSelectionRecord",
     )
     factory.add(
         endpoint,
@@ -552,7 +532,7 @@ def _plan_addon_voxel(
         round_id="round_4",
         phase="formal",
         service_id="run_addon_voxel_formal_permutation",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, delta, final),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -562,18 +542,9 @@ def _plan_addon_voxel(
         round_id="round_5",
         phase="formal",
         service_id="run_addon_voxel_formal_bootstrap",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, delta, final),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
-    )
-    factory.add(
-        endpoint,
-        stage="equivalence_smoke_qc",
-        round_id="round_3",
-        phase="sensitivity",
-        service_id="run_addon_voxel_equivalence_qc",
-        dependencies=(prepare,),
-        output_record_type="SensitivityResult",
     )
     factory.add(
         endpoint,
@@ -581,7 +552,15 @@ def _plan_addon_voxel(
         round_id="round_6",
         phase="sensitivity",
         service_id="run_addon_voxel_jitter",
-        dependencies=(formal_bootstrap,),
+        dependencies=(
+            readiness,
+            reference_readiness,
+            dependency,
+            prepare,
+            delta,
+            final,
+            formal_bootstrap,
+        ),
         gates=(FINAL_REALIZED, FORMAL_COMPLETE),
         output_record_type="SensitivityResult",
     )
@@ -591,7 +570,7 @@ def _plan_addon_voxel(
         round_id="round_7",
         phase="sensitivity",
         service_id="run_addon_voxel_source_neighborhood",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, delta, final),
         gates=(FINAL_REALIZED,),
         output_record_type="SensitivityResult",
     )
@@ -601,18 +580,9 @@ def _plan_addon_voxel(
         round_id="round_8",
         phase="sensitivity",
         service_id="run_addon_voxel_additional_sensitivities",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, delta, final),
         gates=(FINAL_REALIZED,),
         output_record_type="SensitivityResult",
-    )
-    factory.add(
-        endpoint,
-        stage="report",
-        round_id="round_9",
-        phase="report",
-        service_id="report_addon_voxel",
-        dependencies=(final,),
-        output_record_type="ReportArtifact",
     )
 
 
@@ -622,6 +592,19 @@ def _plan_addon_fiber_formal(
     reference_endpoint: EndpointRecord,
 ) -> None:
     reference_source = factory.stage(reference_endpoint.endpoint_id, "source_resolver")
+    reference_readiness = factory.stage(
+        reference_endpoint.endpoint_id,
+        "input_readiness",
+    )
+    readiness = factory.add(
+        endpoint,
+        stage="input_readiness",
+        round_id="round_0",
+        phase="observed",
+        service_id="validate_addon_fiber_input",
+        gates=(CATALOG_AVAILABLE,),
+        output_record_type="EndpointInputRecord",
+    )
     dependency = factory.add(
         endpoint,
         stage="reference_dependency",
@@ -637,9 +620,9 @@ def _plan_addon_fiber_formal(
         round_id="round_1",
         phase="observed",
         service_id="prepare_addon_fiber_sidecars",
-        dependencies=(dependency,),
-        gates=(REFERENCE_DEPENDENCY_READY,),
-        output_record_type="ArtifactRef",
+        dependencies=(readiness, dependency),
+        gates=(ENDPOINT_INPUT_READY, REFERENCE_DEPENDENCY_READY),
+        output_record_type="PreparedExposureRecord",
     )
     delta = factory.add(
         endpoint,
@@ -647,8 +630,18 @@ def _plan_addon_fiber_formal(
         round_id="round_1",
         phase="observed",
         service_id="build_fiber_delta_reference_input",
-        dependencies=(prepare, reference_source),
-        gates=(REFERENCE_SOURCE_ACCEPTED,),
+        dependencies=(
+            readiness,
+            reference_readiness,
+            dependency,
+            prepare,
+            reference_source,
+        ),
+        gates=(
+            ENDPOINT_INPUT_READY,
+            REFERENCE_DEPENDENCY_READY,
+            REFERENCE_SOURCE_ACCEPTED,
+        ),
         output_record_type="DeltaReferenceBundle",
     )
     no_delta = factory.add(
@@ -657,8 +650,8 @@ def _plan_addon_fiber_formal(
         round_id="round_2",
         phase="observed",
         service_id="run_addon_fiber_branch",
-        dependencies=(prepare,),
-        gates=(REFERENCE_DEPENDENCY_READY,),
+        dependencies=(readiness, dependency, prepare),
+        gates=(ENDPOINT_INPUT_READY, REFERENCE_DEPENDENCY_READY),
         output_record_type="BranchRecord",
         branch="no_delta_reference",
     )
@@ -668,8 +661,13 @@ def _plan_addon_fiber_formal(
         round_id="round_2",
         phase="observed",
         service_id="run_addon_fiber_branch",
-        dependencies=(prepare, delta),
-        gates=(REFERENCE_SOURCE_ACCEPTED, DELTA_INPUTS_VALID),
+        dependencies=(readiness, dependency, prepare, delta),
+        gates=(
+            ENDPOINT_INPUT_READY,
+            REFERENCE_DEPENDENCY_READY,
+            REFERENCE_SOURCE_ACCEPTED,
+            DELTA_INPUTS_VALID,
+        ),
         output_record_type="BranchRecord",
         branch="delta_reference_adjusted",
     )
@@ -679,9 +677,8 @@ def _plan_addon_fiber_formal(
         round_id="round_2",
         phase="observed",
         service_id="realize_addon_final",
-        dependencies=(no_delta, adjusted),
-        gates=(REFERENCE_DEPENDENCY_READY,),
-        output_record_type="FinalModelRecord",
+        dependencies=(readiness, dependency, delta, no_delta, adjusted),
+        output_record_type="FinalSelectionRecord",
     )
     formal_permutation = factory.add(
         endpoint,
@@ -689,7 +686,7 @@ def _plan_addon_fiber_formal(
         round_id="round_7",
         phase="formal",
         service_id="run_addon_fiber_formal_permutation",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, delta, final),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -699,7 +696,7 @@ def _plan_addon_fiber_formal(
         round_id="round_7",
         phase="formal",
         service_id="run_addon_fiber_formal_bootstrap",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, delta, final),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -709,16 +706,7 @@ def _plan_addon_fiber_formal(
         round_id="round_3",
         phase="sensitivity",
         service_id="run_addon_fiber_plain_burden_controls",
-        dependencies=(no_delta, adjusted),
-        output_record_type="SensitivityResult",
-    )
-    factory.add(
-        endpoint,
-        stage="realized_source_smoke",
-        round_id="round_4",
-        phase="sensitivity",
-        service_id="run_addon_fiber_smoke_resampling",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, delta, final),
         gates=(FINAL_REALIZED,),
         output_record_type="SensitivityResult",
     )
@@ -728,7 +716,7 @@ def _plan_addon_fiber_formal(
         round_id="round_5",
         phase="sensitivity",
         service_id="run_addon_fiber_cheap_sensitivity",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, delta, final),
         gates=(FINAL_REALIZED,),
         output_record_type="SensitivityResult",
     )
@@ -738,7 +726,7 @@ def _plan_addon_fiber_formal(
         round_id="round_6",
         phase="sensitivity",
         service_id="run_addon_fiber_source_neighborhood",
-        dependencies=(final,),
+        dependencies=(readiness, prepare, delta, final),
         gates=(FINAL_REALIZED,),
         output_record_type="SensitivityResult",
     )
@@ -748,7 +736,14 @@ def _plan_addon_fiber_formal(
         round_id="round_8",
         phase="sensitivity",
         service_id="run_addon_fiber_activation",
-        dependencies=(final, formal_permutation, formal_bootstrap),
+        dependencies=(
+            readiness,
+            prepare,
+            delta,
+            final,
+            formal_permutation,
+            formal_bootstrap,
+        ),
         gates=(FINAL_REALIZED, FORMAL_COMPLETE),
         output_record_type="ActivationArtifact",
         expensive_producer=True,
@@ -760,18 +755,18 @@ def _plan_addon_fiber_formal(
         round_id="round_9",
         phase="sensitivity",
         service_id="run_addon_fiber_jitter",
-        dependencies=(formal_permutation, formal_bootstrap),
+        dependencies=(
+            readiness,
+            reference_readiness,
+            dependency,
+            prepare,
+            delta,
+            final,
+            formal_permutation,
+            formal_bootstrap,
+        ),
         gates=(FINAL_REALIZED, FORMAL_COMPLETE),
         output_record_type="SensitivityResult",
-    )
-    factory.add(
-        endpoint,
-        stage="report",
-        round_id="round_10",
-        phase="report",
-        service_id="report_addon_fiber",
-        dependencies=(final,),
-        output_record_type="ReportArtifact",
     )
 
 
@@ -782,7 +777,20 @@ def _plan_addon_fiber_sensitive(
     formal_addon_endpoint: EndpointRecord,
 ) -> None:
     reference_evaluation = factory.stage(reference_endpoint.endpoint_id, "formal_source_evaluation")
+    reference_readiness = factory.stage(
+        reference_endpoint.endpoint_id,
+        "input_readiness",
+    )
     formal_final = factory.stage(formal_addon_endpoint.endpoint_id, "final_realization")
+    readiness = factory.add(
+        endpoint,
+        stage="input_readiness",
+        round_id="round_0",
+        phase="observed",
+        service_id="validate_addon_fiber_input",
+        gates=(CATALOG_AVAILABLE,),
+        output_record_type="EndpointInputRecord",
+    )
     dependency = factory.add(
         endpoint,
         stage="reference_dependency",
@@ -798,9 +806,29 @@ def _plan_addon_fiber_sensitive(
         round_id="round_1",
         phase="observed",
         service_id="prepare_addon_fiber_sidecars",
-        dependencies=(dependency,),
-        gates=(REFERENCE_DEPENDENCY_READY,),
-        output_record_type="ArtifactRef",
+        dependencies=(readiness, dependency),
+        gates=(ENDPOINT_INPUT_READY, REFERENCE_DEPENDENCY_READY),
+        output_record_type="PreparedExposureRecord",
+    )
+    delta = factory.add(
+        endpoint,
+        stage="delta_reference_input",
+        round_id="round_1",
+        phase="observed",
+        service_id="build_fiber_delta_reference_input",
+        dependencies=(
+            readiness,
+            reference_readiness,
+            dependency,
+            prepare,
+            reference_evaluation,
+        ),
+        gates=(
+            ENDPOINT_INPUT_READY,
+            REFERENCE_DEPENDENCY_READY,
+            REFERENCE_SOURCE_ACCEPTED,
+        ),
+        output_record_type="DeltaReferenceBundle",
     )
     no_delta = factory.add(
         endpoint,
@@ -808,8 +836,8 @@ def _plan_addon_fiber_sensitive(
         round_id="round_2",
         phase="observed",
         service_id="run_sensitive_addon_fiber_branch",
-        dependencies=(prepare,),
-        gates=(REFERENCE_DEPENDENCY_READY,),
+        dependencies=(readiness, dependency, prepare),
+        gates=(ENDPOINT_INPUT_READY, REFERENCE_DEPENDENCY_READY),
         output_record_type="BranchRecord",
         branch="no_delta_reference",
     )
@@ -819,29 +847,29 @@ def _plan_addon_fiber_sensitive(
         round_id="round_2",
         phase="observed",
         service_id="run_sensitive_addon_fiber_branch",
-        dependencies=(prepare, reference_evaluation),
-        gates=(REFERENCE_SOURCE_ACCEPTED, DELTA_INPUTS_VALID),
+        dependencies=(readiness, dependency, prepare, delta),
+        gates=(
+            ENDPOINT_INPUT_READY,
+            REFERENCE_DEPENDENCY_READY,
+            REFERENCE_SOURCE_ACCEPTED,
+            DELTA_INPUTS_VALID,
+        ),
         output_record_type="BranchRecord",
         branch="delta_reference_adjusted",
     )
-    evaluation = factory.add(
+    factory.add(
         endpoint,
         stage="formal_source_evaluation",
         round_id="round_2",
         phase="observed",
         service_id="evaluate_sensitive_addon_at_formal_final",
-        dependencies=(no_delta, adjusted, formal_final),
-        gates=(FORMAL_SOURCE_AVAILABLE,),
+        dependencies=(readiness, prepare, delta, no_delta, adjusted, formal_final),
+        gates=(
+            ENDPOINT_INPUT_READY,
+            REFERENCE_DEPENDENCY_READY,
+            FORMAL_SOURCE_AVAILABLE,
+        ),
         output_record_type="SensitiveRecord",
-    )
-    factory.add(
-        endpoint,
-        stage="report",
-        round_id="round_10",
-        phase="report",
-        service_id="report_sensitive_addon_fiber",
-        dependencies=(evaluation,),
-        output_record_type="ReportArtifact",
     )
 
 
@@ -890,10 +918,6 @@ def compile_execution_plan(
         config.workflow.execution.through,
     )
 
-    unavailable = tuple(item for item in catalog if item.status != CatalogStatus.DATA_AVAILABLE)
-    for endpoint in unavailable:
-        _plan_terminal(factory, endpoint)
-
     available = tuple(item for item in catalog if item.status == CatalogStatus.DATA_AVAILABLE)
     reference_voxel = tuple(item for item in available if item.key.model_family == "reference_voxel")
     reference_fiber_formal = _records_by_role(available, "reference_fiber", "formal")
@@ -916,7 +940,6 @@ def compile_execution_plan(
                 f"missing formal reference-fiber endpoint for {endpoint.key.scale_id!r}"
             ) from exc
         if formal_endpoint.status != CatalogStatus.DATA_AVAILABLE:
-            _plan_terminal(factory, endpoint)
             continue
         _plan_reference_fiber_sensitive(factory, endpoint, formal_endpoint)
 
@@ -926,7 +949,6 @@ def compile_execution_plan(
             raise PlanningError(f"missing reference endpoint for {endpoint.endpoint_id}")
         reference_endpoint = endpoint_index[reference_id]
         if reference_endpoint.status != CatalogStatus.DATA_AVAILABLE:
-            _plan_terminal(factory, endpoint)
             continue
         _plan_addon_voxel(factory, endpoint, reference_endpoint)
 
@@ -936,7 +958,6 @@ def compile_execution_plan(
             raise PlanningError(f"missing reference endpoint for {endpoint.endpoint_id}")
         reference_endpoint = endpoint_index[reference_id]
         if reference_endpoint.status != CatalogStatus.DATA_AVAILABLE:
-            _plan_terminal(factory, endpoint)
             continue
         _plan_addon_fiber_formal(factory, endpoint, reference_endpoint)
 
@@ -949,13 +970,10 @@ def compile_execution_plan(
         try:
             formal_endpoint = formal_addon_by_scale[endpoint.key.scale_id]
         except KeyError:
-            _plan_terminal(factory, endpoint)
             continue
         if formal_endpoint.status != CatalogStatus.DATA_AVAILABLE:
-            _plan_terminal(factory, endpoint)
             continue
         if reference_endpoint.status != CatalogStatus.DATA_AVAILABLE:
-            _plan_terminal(factory, endpoint)
             continue
         _plan_addon_fiber_sensitive(factory, endpoint, reference_endpoint, formal_endpoint)
 

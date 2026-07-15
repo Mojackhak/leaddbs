@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from ..contracts.identity import EndpointKey
-from ..contracts.records import BranchRecord, ReferenceDependencyRecord
+from ..contracts.records import (
+    BranchRecord,
+    ReferenceDependencyRecord,
+    SensitiveRecord,
+    SourceRecord,
+)
 
 
 NO_DELTA_BRANCH = "no_delta_reference"
@@ -134,27 +139,50 @@ def derive_branch_plan(reference: ReferenceDependencyRecord, delta_status: str) 
             reference,
             f"reference_dependency:{reference.dependency_status}",
         )
-    if reference.reference_source is None:
-        return _dependency_failure(reference, "reference_dependency:missing_reference_source")
+    reference_record = reference.reference_record
+    if reference_record is None:
+        return _dependency_failure(reference, "reference_dependency:missing_reference_record")
 
-    source = reference.reference_source
-    if source.source_status == "absent_no_stable_grid":
-        return BranchPlan(
-            endpoint=reference.addon_endpoint,
-            status="ready",
-            intended_branch=NO_DELTA_BRANCH,
-            attempted_branches=(NO_DELTA_BRANCH,),
-            intended_status="pending",
-            fallback_eligible=False,
-        )
-    if source.source_status not in ACCEPTED:
-        raise StateError(f"ready reference has unsupported source_status {source.source_status!r}")
+    if isinstance(reference_record, SourceRecord):
+        if reference_record.source_status == "absent_no_stable_grid":
+            return BranchPlan(
+                endpoint=reference.addon_endpoint,
+                status="ready",
+                intended_branch=NO_DELTA_BRANCH,
+                attempted_branches=(NO_DELTA_BRANCH,),
+                intended_status="pending",
+                fallback_eligible=False,
+            )
+        if reference_record.source_status not in ACCEPTED:
+            raise StateError(
+                "ready reference has unsupported source_status "
+                f"{reference_record.source_status!r}"
+            )
+        prediction_status = reference_record.prediction_status
+    elif isinstance(reference_record, SensitiveRecord):
+        if reference_record.cell_computability_status == "not_computable":
+            return BranchPlan(
+                endpoint=reference.addon_endpoint,
+                status="ready",
+                intended_branch=NO_DELTA_BRANCH,
+                attempted_branches=(NO_DELTA_BRANCH,),
+                intended_status="pending",
+                fallback_eligible=False,
+            )
+        if reference_record.cell_computability_status != "computable":
+            raise StateError(
+                "ready sensitive reference has unsupported cell_computability_status "
+                f"{reference_record.cell_computability_status!r}"
+            )
+        prediction_status = reference_record.prediction_status
+    else:  # pragma: no cover - guarded by ReferenceDependencyRecord
+        raise StateError("ready reference contains an unsupported record type")
 
     normalized_delta_status = str(delta_status).strip()
     if not normalized_delta_status:
         raise StateError("delta_status must be nonempty")
     delta_valid = normalized_delta_status == "valid"
-    if source.prediction_status == "error_predictive":
+    if prediction_status == "error_predictive":
         if delta_valid:
             return BranchPlan(
                 endpoint=reference.addon_endpoint,
@@ -173,7 +201,7 @@ def derive_branch_plan(reference: ReferenceDependencyRecord, delta_status: str) 
             fallback_eligible=True,
             failure_reasons=(f"{ADJUSTED_BRANCH}:delta_status={normalized_delta_status}",),
         )
-    if source.prediction_status == "error_nonpredictive":
+    if prediction_status == "error_nonpredictive":
         attempted = _BRANCH_ORDER if delta_valid else (NO_DELTA_BRANCH,)
         return BranchPlan(
             endpoint=reference.addon_endpoint,
@@ -184,7 +212,8 @@ def derive_branch_plan(reference: ReferenceDependencyRecord, delta_status: str) 
             fallback_eligible=False,
         )
     raise StateError(
-        "accepted reference source requires error_predictive or error_nonpredictive prediction_status"
+        "computable reference evidence requires error_predictive or "
+        "error_nonpredictive prediction_status"
     )
 
 

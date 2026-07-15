@@ -80,6 +80,10 @@ def _synthetic_artifact(axis: AxisRef) -> ArtifactRef:
     )
 
 
+def _subject_ids(axis: AxisRef) -> tuple[str, ...]:
+    return tuple(f"subject-{index:02d}" for index in range(axis.count))
+
+
 def _source(selected_axis: AxisRef, *, accepted: bool = True) -> SourceRecord:
     endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
     if accepted:
@@ -138,6 +142,9 @@ class DeltaReferenceDirectVoxelTest(unittest.TestCase):
             reference_condition_exposure=reference_exposure,
             addon_reference_component_exposure=addon_reference_exposure,
             subject_axis=subjects,
+            reference_subject_axis=subjects,
+            addon_subject_ids=_subject_ids(subjects),
+            reference_subject_ids=_subject_ids(subjects),
             parent_feature_axis=parent,
             support_profile=_support_profile(),
             publisher=RunScopedArtifactPublisher(root, "delta_test", "1"),
@@ -300,6 +307,101 @@ class DeltaReferenceDirectVoxelTest(unittest.TestCase):
             )
             np.testing.assert_array_equal(first_fold, second_fold)
 
+    def test_addon_subset_selects_reference_folds_by_subject_identity(self) -> None:
+        indices = np.arange(8, dtype=np.int64)
+        addon_axis, parent, selected = _axes(indices, n_subjects=3)
+        reference_axis = AxisRef("reference-subjects", 5, "d" * 64)
+        addon_ids = ("subject-a", "subject-c", "subject-e")
+        reference_ids = (
+            "subject-a",
+            "subject-b",
+            "subject-c",
+            "subject-d",
+            "subject-e",
+        )
+        fold_weights = np.vstack(
+            [np.full(indices.size, factor) for factor in (1.0, 2.0, 3.0, 4.0, 5.0)]
+        )
+        reference_exposure = np.full((3, 10), 100.0)
+        addon_reference = np.full((3, 10), 150.0)
+        addon_reference[:, :8] = 250.0
+        source = _source(selected)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = build_delta_reference_voxel(
+                matched_reference_endpoint_id=source.endpoint.identifier,
+                reference_source=source,
+                selected_feature_indices=indices,
+                full_weights=np.ones(indices.size),
+                fold_weights=fold_weights,
+                reference_condition_exposure=reference_exposure,
+                addon_reference_component_exposure=addon_reference,
+                subject_axis=addon_axis,
+                reference_subject_axis=reference_axis,
+                addon_subject_ids=addon_ids,
+                reference_subject_ids=reference_ids,
+                parent_feature_axis=parent,
+                support_profile=_support_profile(),
+                publisher=RunScopedArtifactPublisher(root, "delta_subset", "1"),
+            )
+            self.assertTrue(bundle.valid)
+            assert bundle.fold_scores is not None
+            folds = ArtifactStore([root]).materialize(
+                bundle.fold_scores,
+                expected_dtype="float64",
+                expected_shape=(3, 3),
+                expected_axes=(addon_axis, addon_axis),
+                expected_units="V/m",
+                expected_space=None,
+            )
+            np.testing.assert_allclose(
+                folds,
+                np.asarray(
+                    (
+                        (150.0, 150.0, 150.0),
+                        (450.0, 450.0, 450.0),
+                        (750.0, 750.0, 750.0),
+                    )
+                ),
+            )
+
+    def test_missing_addon_subject_rejects_adjusted_cohort(self) -> None:
+        indices = np.arange(8, dtype=np.int64)
+        addon_axis, parent, selected = _axes(indices, n_subjects=3)
+        reference_axis = AxisRef("reference-subjects", 4, "d" * 64)
+        source = _source(selected)
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(
+                DeltaReferenceDirectVoxelError,
+                "every add-on subject",
+            ):
+                build_delta_reference_voxel(
+                    matched_reference_endpoint_id=source.endpoint.identifier,
+                    reference_source=source,
+                    selected_feature_indices=indices,
+                    full_weights=np.ones(indices.size),
+                    fold_weights=np.ones((4, indices.size)),
+                    reference_condition_exposure=np.full((3, 10), 100.0),
+                    addon_reference_component_exposure=np.full((3, 10), 250.0),
+                    subject_axis=addon_axis,
+                    reference_subject_axis=reference_axis,
+                    addon_subject_ids=("subject-a", "subject-c", "subject-missing"),
+                    reference_subject_ids=(
+                        "subject-a",
+                        "subject-b",
+                        "subject-c",
+                        "subject-d",
+                    ),
+                    parent_feature_axis=parent,
+                    support_profile=_support_profile(),
+                    publisher=RunScopedArtifactPublisher(
+                        Path(temporary),
+                        "delta_missing",
+                        "1",
+                    ),
+                )
+
     def test_selected_parent_axis_identity_is_validated(self) -> None:
         indices = np.arange(8, dtype=np.int64)
         subjects, parent, selected = _axes(indices)
@@ -320,6 +422,9 @@ class DeltaReferenceDirectVoxelTest(unittest.TestCase):
                     reference_condition_exposure=np.full((4, 10), 100.0),
                     addon_reference_component_exposure=np.full((4, 10), 250.0),
                     subject_axis=subjects,
+                    reference_subject_axis=subjects,
+                    addon_subject_ids=_subject_ids(subjects),
+                    reference_subject_ids=_subject_ids(subjects),
                     parent_feature_axis=parent,
                     support_profile=_support_profile(),
                     publisher=RunScopedArtifactPublisher(
@@ -343,6 +448,9 @@ class DeltaReferenceDirectVoxelTest(unittest.TestCase):
                     reference_condition_exposure=np.full((4, 10), 100.0),
                     addon_reference_component_exposure=np.full((4, 10), 250.0),
                     subject_axis=subjects,
+                    reference_subject_axis=subjects,
+                    addon_subject_ids=_subject_ids(subjects),
+                    reference_subject_ids=_subject_ids(subjects),
                     parent_feature_axis=parent,
                     support_profile=_support_profile(),
                     publisher=RunScopedArtifactPublisher(
@@ -413,6 +521,9 @@ class DeltaReferenceDirectVoxelTest(unittest.TestCase):
                 reference_condition_exposure=reference_ref,
                 addon_reference_component_exposure=addon_ref,
                 subject_axis=subjects,
+                reference_subject_axis=subjects,
+                addon_subject_ids=_subject_ids(subjects),
+                reference_subject_ids=_subject_ids(subjects),
                 parent_feature_axis=parent,
                 support_profile=_support_profile(),
                 publisher=RunScopedArtifactPublisher(root / "output", "delta_test", "1"),

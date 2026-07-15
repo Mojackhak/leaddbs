@@ -9,7 +9,10 @@ from dual_frequency.catalog import CatalogStatus, build_endpoint_catalog
 from dual_frequency.config import WorkflowOverrides
 from dual_frequency.workflow import compile_execution_plan
 
-from test_catalog import SCALE_IDS, make_workflow, synthetic_study
+try:
+    from .test_catalog import SCALE_IDS, make_workflow, synthetic_study
+except ImportError:  # unittest discovery loads this module without a package name
+    from test_catalog import SCALE_IDS, make_workflow, synthetic_study
 
 
 class PlannerTest(unittest.TestCase):
@@ -55,7 +58,7 @@ class PlannerTest(unittest.TestCase):
         for endpoint_id in sensitive_ids:
             stages = {task.stage for task in plan.for_endpoint(endpoint_id)}
             self.assertTrue(stages.isdisjoint(forbidden))
-            if "catalog_terminal" not in stages:
+            if stages:
                 self.assertIn("formal_source_evaluation", stages)
 
     def test_only_formal_fiber_finals_schedule_activation_as_expensive(self) -> None:
@@ -77,7 +80,7 @@ class PlannerTest(unittest.TestCase):
                 task.dependencies,
             )
 
-    def test_unavailable_endpoint_is_closed_without_blocking_other_scales(self) -> None:
+    def test_unavailable_endpoint_has_no_tasks_without_blocking_other_scales(self) -> None:
         _config, catalog, plan = self._plan()
         unavailable = {
             endpoint.endpoint_id
@@ -86,10 +89,7 @@ class PlannerTest(unittest.TestCase):
         }
         self.assertTrue(unavailable)
         for endpoint_id in unavailable:
-            self.assertEqual(
-                {task.stage for task in plan.for_endpoint(endpoint_id)},
-                {"catalog_terminal", "terminal_report"},
-            )
+            self.assertEqual(plan.for_endpoint(endpoint_id), ())
         available_scale_tasks = {
             task.stage
             for endpoint in catalog
@@ -126,6 +126,157 @@ class PlannerTest(unittest.TestCase):
             self.assertEqual(upstream.endpoint_id, endpoint.matched_reference_endpoint_id)
             self.assertIn(upstream.stage, {"source_resolver", "formal_source_evaluation"})
 
+    def test_scientific_tasks_use_explicit_input_and_prepared_exposure_records(self) -> None:
+        _config, catalog, plan = self._plan()
+        for endpoint in catalog:
+            endpoint_tasks = {
+                task.stage: task for task in plan.for_endpoint(endpoint.endpoint_id)
+            }
+            if not endpoint_tasks:
+                continue
+            readiness = endpoint_tasks["input_readiness"]
+            prepare = endpoint_tasks["prepare_exposure"]
+            self.assertEqual(readiness.output_record_type, "EndpointInputRecord")
+            self.assertEqual(prepare.output_record_type, "PreparedExposureRecord")
+            self.assertIn("endpoint_input_ready", {gate.fact for gate in prepare.gates})
+            for task in endpoint_tasks.values():
+                if task.stage == "observed_grid" or task.stage.startswith("branch_"):
+                    self.assertIn(readiness.task_id, task.dependencies)
+                    self.assertIn(
+                        "endpoint_input_ready",
+                        {gate.fact for gate in task.gates},
+                    )
+                if task.stage == "branch_no_delta_observed":
+                    gate_facts = {gate.fact for gate in task.gates}
+                    self.assertEqual(
+                        gate_facts,
+                        {"endpoint_input_ready", "reference_dependency_ready"},
+                    )
+
+            if endpoint.key.model_family.startswith("addon_"):
+                delta = endpoint_tasks["delta_reference_input"]
+                no_delta = endpoint_tasks["branch_no_delta_observed"]
+                self.assertNotIn(delta.task_id, no_delta.dependencies)
+                self.assertTrue(
+                    {
+                        readiness.task_id,
+                        endpoint_tasks["reference_dependency"].task_id,
+                        prepare.task_id,
+                    }
+                    <= set(delta.dependencies)
+                )
+                self.assertEqual(
+                    {gate.fact for gate in delta.gates},
+                    {
+                        "endpoint_input_ready",
+                        "reference_dependency_ready",
+                        "reference_source_accepted",
+                    },
+                )
+
+    def test_addon_final_receives_reference_delta_and_both_branch_states(self) -> None:
+        _config, catalog, plan = self._plan()
+        for endpoint in catalog:
+            if endpoint.connectome_role == "sensitive":
+                continue
+            endpoint_tasks = {
+                task.stage: task for task in plan.for_endpoint(endpoint.endpoint_id)
+            }
+            if "final_realization" not in endpoint_tasks or not endpoint.key.model_family.startswith(
+                "addon_"
+            ):
+                continue
+            final = endpoint_tasks["final_realization"]
+            self.assertEqual(final.output_record_type, "FinalSelectionRecord")
+            self.assertEqual(final.gates, ())
+            required_stages = {
+                "input_readiness",
+                "reference_dependency",
+                "delta_reference_input",
+                "branch_no_delta_observed",
+                "branch_delta_adjusted_observed",
+            }
+            self.assertEqual(
+                set(final.dependencies),
+                {endpoint_tasks[stage].task_id for stage in required_stages},
+            )
+
+    def test_downstream_scientific_tasks_receive_direct_typed_input_closure(self) -> None:
+        _config, catalog, plan = self._plan()
+        final_linked_stages = {
+            "formal_permutation",
+            "formal_bootstrap",
+            "spatial_jitter",
+            "selected_source_neighborhood",
+            "activation_sensitivity",
+        }
+        for endpoint in catalog:
+            endpoint_tasks = {
+                task.stage: task for task in plan.for_endpoint(endpoint.endpoint_id)
+            }
+            if not endpoint_tasks:
+                continue
+            readiness = endpoint_tasks["input_readiness"]
+            prepare = endpoint_tasks["prepare_exposure"]
+            downstream = tuple(
+                task
+                for task in endpoint_tasks.values()
+                if task.phase in {"formal", "sensitivity"}
+                or task.stage == "formal_source_evaluation"
+            )
+            self.assertTrue(downstream)
+            for task in downstream:
+                with self.subTest(endpoint=endpoint.endpoint_id, stage=task.stage):
+                    self.assertTrue(
+                        {readiness.task_id, prepare.task_id}
+                        <= set(task.dependencies)
+                    )
+                    if endpoint.key.model_family.startswith("addon_"):
+                        self.assertIn(
+                            endpoint_tasks["delta_reference_input"].task_id,
+                            task.dependencies,
+                        )
+                    if task.stage in final_linked_stages:
+                        self.assertIn(
+                            endpoint_tasks["final_realization"].task_id,
+                            task.dependencies,
+                        )
+                    if (
+                        endpoint.key.model_family.startswith("addon_")
+                        and task.stage
+                        in {
+                            "cheap_observed_sensitivity",
+                            "additional_sensitivities",
+                        }
+                    ):
+                        self.assertIn(
+                            endpoint_tasks["final_realization"].task_id,
+                            task.dependencies,
+                        )
+
+    def test_all_final_realization_tasks_return_typed_selection_records(self) -> None:
+        _config, _catalog, plan = self._plan()
+        finals = tuple(task for task in plan.tasks if task.stage == "final_realization")
+        self.assertTrue(finals)
+        self.assertTrue(
+            all(task.output_record_type == "FinalSelectionRecord" for task in finals)
+        )
+        self.assertTrue(all(not task.gates for task in finals))
+        self.assertFalse(
+            any(task.output_record_type == "FinalModelRecord" for task in plan.tasks)
+        )
+
+    def test_report_cutoff_schedules_no_report_or_catalog_terminal_tasks(self) -> None:
+        _config, _catalog, plan = self._plan(through="report")
+        self.assertTrue(plan.tasks)
+        self.assertFalse(any(task.phase == "report" for task in plan.tasks))
+        self.assertFalse(
+            any(task.stage in {"report", "terminal_report", "catalog_terminal"} for task in plan.tasks)
+        )
+        self.assertFalse(
+            any(task.output_record_type in {"ReportArtifact", "EndpointTerminalRecord"} for task in plan.tasks)
+        )
+
     def test_missing_formal_source_closes_sensitive_endpoint_instead_of_raising(self) -> None:
         config = make_workflow(
             WorkflowOverrides(
@@ -147,10 +298,7 @@ class PlannerTest(unittest.TestCase):
             for endpoint in catalog
         )
         plan = compile_execution_plan(config, modified)
-        self.assertEqual(
-            {task.stage for task in plan.for_endpoint(sensitive.endpoint_id)},
-            {"catalog_terminal", "terminal_report"},
-        )
+        self.assertEqual(plan.for_endpoint(sensitive.endpoint_id), ())
 
     def test_reference_scale_rows_receive_identical_stage_classes(self) -> None:
         _config, catalog, plan = self._plan()
@@ -169,22 +317,20 @@ class PlannerTest(unittest.TestCase):
         _config, catalog, plan = self._plan()
         expected = {
             "reference_voxel": {
-                "round_0", "round_1", "round_2", "round_3", "round_4",
-                "round_5", "round_6", "round_7", "round_8",
+                "round_0", "round_1", "round_2", "round_4",
+                "round_5", "round_6", "round_7",
             },
             "addon_voxel": {
-                "round_0", "round_1", "round_2", "round_3", "round_4",
-                "round_5", "round_6", "round_7", "round_8", "round_9",
+                "round_0", "round_1", "round_2", "round_4",
+                "round_5", "round_6", "round_7", "round_8",
             },
             "reference_fiber": {
-                "round_0", "round_1", "round_2", "round_3", "round_4",
+                "round_0", "round_1", "round_2", "round_3",
                 "round_5", "round_5_5", "round_6", "round_7", "round_8",
-                "round_9",
             },
             "addon_fiber": {
-                "round_0", "round_1", "round_2", "round_3", "round_4",
+                "round_0", "round_1", "round_2", "round_3",
                 "round_5", "round_6", "round_7", "round_8", "round_9",
-                "round_10",
             },
         }
         for family, expected_rounds in expected.items():
@@ -199,6 +345,12 @@ class PlannerTest(unittest.TestCase):
             self.assertEqual(actual, expected_rounds)
         self.assertFalse(any(task.round_id == "round_2b" for task in plan.tasks))
         self.assertFalse(any("optional" in task.round_id for task in plan.tasks))
+        self.assertFalse(
+            any(
+                "equivalence" in task.service_id or "smoke_resampling" in task.service_id
+                for task in plan.tasks
+            )
+        )
 
 
 if __name__ == "__main__":

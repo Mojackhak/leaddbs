@@ -173,6 +173,10 @@ def _materialize(artifact: ArtifactRef, root: Path) -> np.ndarray:
     )
 
 
+def _subject_ids(axis: AxisRef) -> tuple[str, ...]:
+    return tuple(f"subject-{index:02d}" for index in range(axis.count))
+
+
 class DeltaReferenceFiberTest(unittest.TestCase):
     def _build(
         self,
@@ -220,6 +224,9 @@ class DeltaReferenceFiberTest(unittest.TestCase):
             reference_condition_exposure=reference_exposure,
             addon_reference_component_exposure=addon_reference_exposure,
             subject_axis=subject_axis,
+            reference_subject_axis=subject_axis,
+            addon_subject_ids=_subject_ids(subject_axis),
+            reference_subject_ids=_subject_ids(subject_axis),
             parent_fiber_axis=parent_axis,
             fiber_score_settings=_score_settings(),
             support_profile=_support_profile(),
@@ -335,6 +342,85 @@ class DeltaReferenceFiberTest(unittest.TestCase):
             np.testing.assert_allclose(fold_scores[0], expected_fold_zero)
             np.testing.assert_allclose(fold_scores[0], 500.0)
 
+    def test_addon_subset_selects_fiber_reference_folds_by_subject_identity(self) -> None:
+        parent_ids = np.arange(25_000, 25_320, dtype=np.int64)
+        valid_ids = parent_ids[:300]
+        addon_axis, parent_axis, selected_axis = _axes(
+            parent_ids,
+            valid_ids,
+            connectome_id="formal_connectome",
+            n_subjects=3,
+        )
+        reference_axis = AxisRef(
+            "reference-subjects",
+            5,
+            canonical_hash({"subject_ids": ["a", "b", "c", "d", "e"]}),
+        )
+        base_weights = np.concatenate((np.ones(200), -np.ones(100)))
+        fold_weights = np.vstack(
+            [base_weights * factor for factor in (1.0, 2.0, 3.0, 4.0, 5.0)]
+        )
+        fold_masks = np.isfinite(fold_weights)
+        reference = np.zeros((3, 320), dtype=np.float64)
+        addon = np.zeros((3, 320), dtype=np.float64)
+        reference[:, :200] = 100.0
+        reference[:, 200:300] = 50.0
+        addon[:, :200] = 400.0
+        addon[:, 200:300] = 200.0
+        evidence = _reference_record(selected_axis, connectome_id="formal_connectome")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = build_delta_reference_fiber(
+                matched_reference_endpoint_id=evidence.endpoint.identifier,
+                matched_reference_connectome_id="formal_connectome",
+                reference_record=evidence,
+                parent_fiber_ids=parent_ids,
+                valid_fiber_ids=valid_ids,
+                full_weights=base_weights,
+                fold_weights=fold_weights,
+                fold_valid_masks=fold_masks,
+                reference_condition_exposure=reference,
+                addon_reference_component_exposure=addon,
+                subject_axis=addon_axis,
+                reference_subject_axis=reference_axis,
+                addon_subject_ids=("subject-a", "subject-c", "subject-e"),
+                reference_subject_ids=(
+                    "subject-a",
+                    "subject-b",
+                    "subject-c",
+                    "subject-d",
+                    "subject-e",
+                ),
+                parent_fiber_axis=parent_axis,
+                fiber_score_settings=_score_settings(),
+                support_profile=_support_profile(),
+                publisher=RunScopedArtifactPublisher(root, "delta_subset", "1"),
+            )
+            self.assertTrue(bundle.valid)
+            assert bundle.fold_scores is not None
+            folds = _materialize(bundle.fold_scores, root)
+            expected_rows = []
+            for index in (0, 2, 4):
+                weights = fold_weights[index]
+                expected_rows.append(
+                    score_signed_fibers(
+                        addon[:, :300],
+                        weights,
+                        valid_ids,
+                        _score_settings(),
+                        candidate_mask=np.ones(300, dtype=bool),
+                    ).net_score
+                    - score_signed_fibers(
+                        reference[:, :300],
+                        weights,
+                        valid_ids,
+                        _score_settings(),
+                        candidate_mask=np.ones(300, dtype=bool),
+                    ).net_score
+                )
+            np.testing.assert_allclose(folds, np.vstack(expected_rows))
+
     def test_sensitive_record_requires_local_endpoint_connectome_and_parent_axis(self) -> None:
         connectome_id = "sensitive_connectome"
         parent_ids = np.arange(30_000, 30_200, dtype=np.int64)
@@ -388,6 +474,9 @@ class DeltaReferenceFiberTest(unittest.TestCase):
                     reference_condition_exposure=reference,
                     addon_reference_component_exposure=addon,
                     subject_axis=subjects,
+                    reference_subject_axis=subjects,
+                    addon_subject_ids=_subject_ids(subjects),
+                    reference_subject_ids=_subject_ids(subjects),
                     parent_fiber_axis=parent_axis,
                     fiber_score_settings=_score_settings(),
                     support_profile=_support_profile(),

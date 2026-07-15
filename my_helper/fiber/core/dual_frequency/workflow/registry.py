@@ -64,3 +64,20 @@ class ServiceRegistry:
     def service_ids(self) -> tuple[str, ...]:
         with self._lock:
             return tuple(sorted(self._services))
+
+
+def build_default_registry() -> ServiceRegistry:
+    """Build the complete project-neutral production service registry."""
+
+    from ..runtime.service_adapters import production_registered_services
+
+    return ServiceRegistry(production_registered_services())
+
+
+__all__ = [
+    "RegisteredService",
+    "RegistryError",
+    "ServiceCallable",
+    "ServiceRegistry",
+    "build_default_registry",
+]
