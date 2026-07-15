@@ -1659,9 +1659,11 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   axes `(subject_axis,)` and `(subject_axis, subject_axis)`. Other shapes or
   orders are branch-local input failures.
 - `OSSRowBatchArtifact` exposes a named canonical `feature_ids` artifact.
-  Endpoint fitting verifies its int64 values and order against the request and
-  `final.valid_feature_axis`; IDs cannot be inferred from another artifact or
-  silently subset/reordered.
+  `ActivationRequest.feature_ids` carries the final-axis ID authority and
+  `ActivationRequest.activation_feature_ids` carries the OSS matrix column-ID
+  authority. Endpoint fitting requires their int64 values and order to be
+  exactly equal and bound to `final.valid_feature_axis`; IDs cannot be inferred
+  from another artifact or silently subset/reordered.
 - `final.valid_feature_axis` is the complete OSS candidate universe for the
   endpoint. OSS never reapplies peak-E-field tau/Coverage in full-sample,
   LOOCV, or permutation fits. Within that locked axis, full-sample and each

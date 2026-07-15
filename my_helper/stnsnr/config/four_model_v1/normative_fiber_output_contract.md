@@ -559,6 +559,11 @@ explicit subject-axis input. It is used only for the report-only
 activation-consistency correlation; the backend must not discover that score
 through a filename, directory, or hidden final-record artifact.
 
+The request also carries two explicit ordered ID inputs on the same feature
+axis: final-model `feature_ids` and OSS-row `activation_feature_ids`. They must
+be elementwise equal int64 arrays. Shape/axis metadata alone is insufficient;
+any value or order mismatch fails before endpoint fitting.
+
 Jitter writes:
 
 ```text
