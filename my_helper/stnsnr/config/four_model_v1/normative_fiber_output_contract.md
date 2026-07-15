@@ -554,6 +554,11 @@ OSS inherits `final.valid_feature_axis`, does not rescan tau/Coverage, and uses
 `I[p(A) >= 0.5]` for fitting. Continuous p(A) remains a sidecar/QC value. OSS
 uses the same 200/100/20 score rules and fold-local refitting.
 
+The activation request receives the matched final peak-E-field score as an
+explicit subject-axis input. It is used only for the report-only
+activation-consistency correlation; the backend must not discover that score
+through a filename, directory, or hidden final-record artifact.
+
 Jitter writes:
 
 ```text

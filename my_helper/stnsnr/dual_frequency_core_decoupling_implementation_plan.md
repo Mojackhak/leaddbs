@@ -1645,14 +1645,23 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   at least one valid row is absent.
 - `ActivationRequest` explicitly carries outcome, branch-specific baseline,
   optional full/fold DeltaReferenceScore inputs, ordered subject/fiber axes,
-  canonical fiber IDs, outcome direction, hard-computability limits, signed
-  fiber-score settings, permutation count, and seed. The backend must not infer
-  these inputs from filenames or hidden final-record artifacts.
+  canonical fiber IDs, the matched final peak-E-field score, outcome direction,
+  hard-computability limits, signed fiber-score settings, permutation count,
+  and seed. The backend must not infer these inputs from filenames or hidden
+  final-record artifacts.
 - `final.valid_feature_axis` is the complete OSS candidate universe for the
   endpoint. OSS never reapplies peak-E-field tau/Coverage in full-sample,
   LOOCV, or permutation fits. Within that locked axis, full-sample and each
   training fold independently intersect finite OSS weights, reselect signed
   fibers, and recompute the configured weighted-peak score.
+- Endpoint fitting emits only sensitivity status and artifacts. The status is
+  `failed_activation_degenerate` for all-zero/non-estimable activation or an
+  absent/constant signed score, `failed_oss_design_or_prediction` for invalid
+  nuisance/prediction/permutation execution, `passed_activation_consistent`
+  for a technically valid score with positive correlation to the explicit
+  final peak-E-field score, and `passed_activation_model_dependent` for any
+  other technically valid correlation. None of these statuses may alter the
+  source, prediction, branch-role, endpoint, or final-model record.
 
 - [x] **Step 1: Write failing universe and identity tests**
 
