@@ -1848,6 +1848,27 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   production default, move the predecessor package, or choose a report
   orchestration model before confirmation.
 
+**Architecture-independent prerequisite verification, 2026-07-15:**
+
+- `reporting/artifact_index.py` now builds a deterministic JSON-safe index only
+  from one typed current-run `RunResult` and its exact `ArtifactRef` values. It
+  performs no filename or directory discovery, groups repeated references to
+  the same immutable artifact, and emits no artifact for failed or skipped
+  tasks.
+- A clean subprocess imported every non-test generic runtime module and
+  constructed `WorkflowService` with an explicitly injected empty test
+  registry while all STNSNr/legacy project namespace patterns were blocked.
+  This does not make the empty registry a valid production default.
+- An AST boundary test rejects project imports, fixed STNSNr or legacy output
+  strings, and raw `Path` annotations in public scientific backend signatures.
+- The seven focused artifact-index/isolation tests passed; the complete generic
+  suite passed `214/214` in the `leaddbs` Conda environment. Python compilation
+  for all five new modules and `git diff --check` also passed.
+- These prerequisites do not satisfy Steps 1, 3, or 4 below. Endpoint/run
+  reporting, typed terminal decisions, input-provider/service adapters, record
+  restoration, and the production registry remain clarification-gated. The
+  predecessor package and entrypoint have not been moved.
+
 - [ ] **Step 1: Write failing generic-report tests**
 
 Reports must contain reference/add-on fields and reject HF/ULF compatibility
