@@ -237,6 +237,7 @@ class DeltaReferenceBundle:
     full_scores: ArtifactRef | None
     fold_scores: ArtifactRef | None
     support_rows: ArtifactRef | None
+    support_qc: ArtifactRef | None = None
     failure_stage: str = "none"
     failure_detail: str = "none"
 
@@ -257,7 +258,7 @@ class DeltaReferenceBundle:
             if coverage < 1:
                 raise RecordError("selected_reference_coverage must be positive")
             object.__setattr__(self, "selected_reference_coverage", coverage)
-        for field in ("full_scores", "fold_scores", "support_rows"):
+        for field in ("full_scores", "fold_scores", "support_rows", "support_qc"):
             value = getattr(self, field)
             if value is not None and not isinstance(value, ArtifactRef):
                 raise RecordError(f"{field} must be an ArtifactRef or None")
@@ -266,11 +267,22 @@ class DeltaReferenceBundle:
                 raise RecordError("valid DeltaReferenceScore input requires aligned full/fold/support artifacts")
         elif self.input_status == "valid":
             raise RecordError("valid DeltaReferenceScore input requires adequate or limited support")
+        elif self.support_status.startswith("invalid_") and (
+            self.support_rows is None or self.support_qc is None
+        ):
+            raise RecordError(
+                "support-invalid DeltaReferenceScore input requires support rows and QC"
+            )
 
     def _valid_payload(self) -> bool:
         if self.selected_reference_tau is None or self.selected_reference_coverage is None:
             return False
-        if self.full_scores is None or self.fold_scores is None or self.support_rows is None:
+        if (
+            self.full_scores is None
+            or self.fold_scores is None
+            or self.support_rows is None
+            or self.support_qc is None
+        ):
             return False
         if self.full_scores.shape is None or self.fold_scores.shape is None or self.support_rows.shape is None:
             return False

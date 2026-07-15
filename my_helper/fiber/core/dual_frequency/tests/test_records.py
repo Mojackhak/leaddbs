@@ -517,6 +517,20 @@ class RecordTest(unittest.TestCase):
         full = artifact("full", (2,), (subjects,))
         fold = artifact("fold", (2, 2), (subjects, subjects))
         support = artifact("support", (2,), (subjects,))
+        support_qc = ArtifactRef(
+            kind="support_qc",
+            schema_version="document_v1",
+            uri="file:///tmp/support_qc.json",
+            sha256="4" * 64,
+            dtype=None,
+            shape=None,
+            axis_refs=(),
+            axis_hashes=(),
+            units=None,
+            space=None,
+            producer_id="synthetic_fixture",
+            producer_version="1",
+        )
         bundle = DeltaReferenceBundle(
             input_status="valid",
             support_status="limited",
@@ -525,6 +539,7 @@ class RecordTest(unittest.TestCase):
             full_scores=full,
             fold_scores=fold,
             support_rows=support,
+            support_qc=support_qc,
         )
         self.assertTrue(bundle.valid)
         mismatched_fold = artifact("fold", (2, 2), (subjects, other_subjects))

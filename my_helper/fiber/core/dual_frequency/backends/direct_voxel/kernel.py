@@ -171,6 +171,33 @@ class GridCellComputation:
     arrays: GridCellArrays | None
 
 
+@dataclass(frozen=True)
+class NuisancePlan:
+    """Full-sample and fold-specific nuisance covariates for one endpoint."""
+
+    full_covariates: np.ndarray
+    fold_covariates: np.ndarray
+
+    def __post_init__(self) -> None:
+        full = np.array(self.full_covariates, dtype=np.float64, copy=True)
+        folds = np.array(self.fold_covariates, dtype=np.float64, copy=True)
+        if full.ndim != 2 or not all(dimension > 0 for dimension in full.shape):
+            raise DirectVoxelKernelError(
+                "full nuisance covariates must be a nonempty subject-by-covariate matrix"
+            )
+        expected = (full.shape[0], full.shape[0], full.shape[1])
+        if folds.shape != expected:
+            raise DirectVoxelKernelError(
+                "fold nuisance covariates must have shape fold-by-subject-by-covariate"
+            )
+        if not np.all(np.isfinite(full)) or not np.all(np.isfinite(folds)):
+            raise DirectVoxelKernelError("nuisance covariates must contain only finite values")
+        full.flags.writeable = False
+        folds.flags.writeable = False
+        object.__setattr__(self, "full_covariates", full)
+        object.__setattr__(self, "fold_covariates", folds)
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(key): _json_safe(item) for key, item in value.items()}
@@ -280,11 +307,10 @@ def _empty_metrics(
     )
 
 
-def evaluate_grid_cell(
+def evaluate_grid_cell_with_nuisance_plan(
     exposure: np.ndarray,
     outcome: np.ndarray,
-    baseline: np.ndarray,
-    nuisance_inputs: tuple[np.ndarray, ...],
+    nuisance_plan: NuisancePlan,
     outcome_direction: str,
     tau: float,
     coverage: int,
@@ -292,7 +318,7 @@ def evaluate_grid_cell(
     *,
     retain_arrays: bool = False,
 ) -> GridCellComputation:
-    """Evaluate one source cell using leakage-safe LOOCV."""
+    """Evaluate one source cell with explicit full and fold nuisance designs."""
 
     x = _real_array(exposure, "exposure", 2)
     y = _real_array(outcome, "outcome", 1)
@@ -310,7 +336,11 @@ def evaluate_grid_cell(
         raise DirectVoxelKernelError("tau must be finite and positive")
     if type(coverage) is not int or coverage < 1:
         raise DirectVoxelKernelError("coverage must be a positive integer")
-    nuisance = _covariate_matrix(baseline, nuisance_inputs, y.size)
+    if not isinstance(nuisance_plan, NuisancePlan):
+        raise DirectVoxelKernelError("nuisance_plan must be a NuisancePlan")
+    nuisance = nuisance_plan.full_covariates
+    if nuisance.shape[0] != y.size:
+        raise DirectVoxelKernelError("nuisance plan does not match the subject axis")
     benefit_oriented_weights(np.array([0.0]), outcome_direction)
 
     n_subjects, n_features = x.shape
@@ -368,7 +398,7 @@ def evaluate_grid_cell(
         fold_coefficients = partial_spearman_weights(
             y[train_mask],
             x[train_mask][:, fold_support],
-            nuisance[train_mask],
+            nuisance_plan.fold_covariates[heldout, train_mask],
         )
         local_weights = benefit_oriented_weights(fold_coefficients, outcome_direction)
         weights = np.full(n_features, np.nan, dtype=np.float64)
@@ -394,16 +424,16 @@ def evaluate_grid_cell(
         baseline_prediction, _ = linear_prediction(
             y[train_mask],
             None,
-            nuisance[train_mask],
+            nuisance_plan.fold_covariates[heldout, train_mask],
             None,
-            nuisance[[heldout]],
+            nuisance_plan.fold_covariates[heldout, [heldout]],
         )
         model_prediction, beta = linear_prediction(
             y[train_mask],
             scores[train_mask],
-            nuisance[train_mask],
+            nuisance_plan.fold_covariates[heldout, train_mask],
             scores[[heldout]],
-            nuisance[[heldout]],
+            nuisance_plan.fold_covariates[heldout, [heldout]],
         )
         baseline_predictions[heldout] = baseline_prediction[0]
         heldout_predictions[heldout] = model_prediction[0]
@@ -444,8 +474,9 @@ def evaluate_grid_cell(
     sse_model = float(np.sum((y[finite_q2] - heldout_predictions[finite_q2]) ** 2))
     sse_baseline = float(np.sum((y[finite_q2] - baseline_predictions[finite_q2]) ** 2))
     q2 = 1.0 - sse_model / sse_baseline if sse_baseline > 0 else math.nan
-    full_pearson, _ = safe_correlation(full_scores, baseline, method="pearson")
-    full_spearman, _ = safe_correlation(full_scores, baseline, method="spearman")
+    reference_covariate = nuisance[:, 0]
+    full_pearson, _ = safe_correlation(full_scores, reference_covariate, method="pearson")
+    full_spearman, _ = safe_correlation(full_scores, reference_covariate, method="spearman")
 
     passes_subjects = n_subjects >= limits.n_subjects_min
     passes_full = n_features_full >= limits.n_features_full_min
@@ -516,6 +547,41 @@ def evaluate_grid_cell(
             score_slopes=score_slopes,
         )
     return GridCellComputation(metrics=metrics, arrays=arrays)
+
+
+def evaluate_grid_cell(
+    exposure: np.ndarray,
+    outcome: np.ndarray,
+    baseline: np.ndarray,
+    nuisance_inputs: tuple[np.ndarray, ...],
+    outcome_direction: str,
+    tau: float,
+    coverage: int,
+    limits: HardComputabilityLimits,
+    *,
+    retain_arrays: bool = False,
+) -> GridCellComputation:
+    """Evaluate one source cell using a shared nuisance design in every fold."""
+
+    y = _real_array(outcome, "outcome", 1)
+    nuisance = _covariate_matrix(baseline, nuisance_inputs, y.size)
+    plan = NuisancePlan(
+        full_covariates=nuisance,
+        fold_covariates=np.broadcast_to(
+            nuisance,
+            (y.size, nuisance.shape[0], nuisance.shape[1]),
+        ),
+    )
+    return evaluate_grid_cell_with_nuisance_plan(
+        exposure,
+        y,
+        plan,
+        outcome_direction,
+        tau,
+        coverage,
+        limits,
+        retain_arrays=retain_arrays,
+    )
 
 
 def evaluate_grid(
