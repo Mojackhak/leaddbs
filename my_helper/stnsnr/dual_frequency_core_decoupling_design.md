@@ -204,6 +204,12 @@ SHA-256 in the run manifest. Every external array `ArtifactRef` records
 kind/schema, explicit URI, SHA-256, dtype, shape, ordered axis references/
 hashes, units/space, and producer identity/version.
 
+`source_id` is scoped to its frequency group and is not assumed to be globally
+unique. The canonical stimulation-source identity is the ordered composite of
+`subject_id`, `phase_id`, `program_id`, `electrode_id`,
+`frequency_group_id`, and `source_id`; duplicate `source_id` values in
+different groups or programs are therefore valid.
+
 The existing STNSNr importer remains an upstream utility that may regenerate
 `study_base.json`; the generic runtime neither invokes nor imports it. Another
 project can provide the same study-base schema without modifying the core.
