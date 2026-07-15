@@ -471,14 +471,19 @@ class FinalModelRecord:
             raise RecordError("final key coverage does not match the selected source")
 
     @property
-    def feature_axis(self) -> FeatureAxisRef:
-        """Return the locked feature axis inherited by all final-linked tasks."""
+    def valid_feature_axis(self) -> FeatureAxisRef:
+        """Return the locked valid axis inherited by all final-linked tasks."""
         source = self.selected_source
         if source is None and self.selected_branch is not None:
             source = self.selected_branch.source
         if source is None or source.feature_axis is None:
             raise RecordError("realized final model has no selected feature axis")
         return source.feature_axis
+
+    @property
+    def feature_axis(self) -> FeatureAxisRef:
+        """Backward-compatible alias for the locked valid feature axis."""
+        return self.valid_feature_axis
 
     @property
     def identifier(self) -> str:

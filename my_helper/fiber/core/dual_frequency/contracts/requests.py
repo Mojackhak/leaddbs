@@ -390,10 +390,19 @@ class ActivationRequest:
 
     final_model: FinalModelRecord
     activation_probability: ScientificInput
+    outcome: ScientificInput
+    baseline: ScientificInput
+    nuisance_inputs: tuple[ScientificInput, ...]
     subject_axis: AxisRef
     feature_axis: AxisRef
+    feature_ids: ScientificInput
+    outcome_direction: str
+    hard_computability: HardComputabilityLimits
+    connectome_role: str
+    fiber_score_settings: NormativeFiberScoreSettings
     fitting_probability_threshold: float
     permutation_resamples: int
+    seed: int
 
     def __post_init__(self) -> None:
         if not isinstance(self.final_model, FinalModelRecord):
@@ -403,9 +412,16 @@ class ActivationRequest:
         if self.final_model.final_status not in {"final_model_realized", "fallback_final_realized"}:
             raise RequestError("activation sensitivity requires a realized final model")
         _scientific_input(self.activation_probability, "activation_probability")
+        _scientific_input(self.outcome, "outcome")
+        _scientific_input(self.baseline, "baseline")
+        object.__setattr__(
+            self,
+            "nuisance_inputs",
+            _inputs(self.nuisance_inputs, "nuisance_inputs"),
+        )
         if not isinstance(self.subject_axis, AxisRef) or not isinstance(self.feature_axis, AxisRef):
             raise RequestError("subject_axis and feature_axis must be AxisRef values")
-        if self.feature_axis != self.final_model.feature_axis.axis:
+        if self.feature_axis != self.final_model.valid_feature_axis.axis:
             raise RequestError("activation sensitivity must inherit the final model feature axis")
         _validate_exposure(
             self.activation_probability,
@@ -413,13 +429,57 @@ class ActivationRequest:
             self.subject_axis,
             self.feature_axis,
         )
+        _validate_vector(self.outcome, "outcome", self.subject_axis)
+        _validate_vector(self.baseline, "baseline", self.subject_axis)
+        for index, value in enumerate(self.nuisance_inputs):
+            _validate_nuisance(value, f"nuisance_inputs[{index}]", self.subject_axis)
+        _scientific_input(self.feature_ids, "feature_ids")
+        if _shape(self.feature_ids, "feature_ids") != (self.feature_axis.count,):
+            raise RequestError("feature_ids must match the final feature axis")
+        _require_artifact_axes(self.feature_ids, "feature_ids", (self.feature_axis,))
+        direction = str(self.outcome_direction).strip().lower()
+        if direction not in {"lower", "higher"}:
+            raise RequestError("outcome_direction must be 'lower' or 'higher'")
+        object.__setattr__(self, "outcome_direction", direction)
+        if not isinstance(self.hard_computability, HardComputabilityLimits):
+            raise RequestError("hard_computability must be HardComputabilityLimits")
+        if (
+            self.hard_computability.n_features_full_min is not None
+            or self.hard_computability.fold_n_features_min is None
+        ):
+            raise RequestError(
+                "activation sensitivity requires normative-fiber hard limits"
+            )
+        if str(self.connectome_role).strip().lower() != "formal":
+            raise RequestError("activation sensitivity requires connectome_role='formal'")
+        object.__setattr__(self, "connectome_role", "formal")
+        if not isinstance(self.fiber_score_settings, NormativeFiberScoreSettings):
+            raise RequestError(
+                "activation sensitivity requires NormativeFiberScoreSettings"
+            )
+        branch = self.final_model.final_key.final_branch
+        if self.final_model.endpoint.model_family.startswith("reference_"):
+            if self.nuisance_inputs:
+                raise RequestError("reference activation cannot receive nuisance_inputs")
+        elif branch == "no_delta_reference":
+            if self.nuisance_inputs:
+                raise RequestError("no-delta activation cannot receive nuisance_inputs")
+        elif branch == "delta_reference_adjusted":
+            if len(self.nuisance_inputs) != 2:
+                raise RequestError(
+                    "adjusted activation requires full and fold DeltaReferenceScore inputs"
+                )
+        else:
+            raise RequestError(f"unsupported activation final branch {branch!r}")
         threshold = float(self.fitting_probability_threshold)
-        if not math.isfinite(threshold) or not 0 <= threshold <= 1:
-            raise RequestError("fitting_probability_threshold must be in [0, 1]")
+        if threshold != 0.5:
+            raise RequestError("v1 fitting_probability_threshold must equal 0.5")
         object.__setattr__(self, "fitting_probability_threshold", threshold)
         object.__setattr__(self, "permutation_resamples", int(self.permutation_resamples))
         if self.permutation_resamples < 1:
             raise RequestError("permutation_resamples must be positive")
+        if type(self.seed) is not int or self.seed < 0:
+            raise RequestError("seed must be a nonnegative integer")
 
 
 @dataclass(frozen=True)
@@ -428,14 +488,26 @@ class ActivationArtifact:
 
     final_model_id: str
     feature_axis: AxisRef
+    activation_probability: ArtifactRef
     binary_exposure: ArtifactRef
     artifacts: tuple[ArtifactRef, ...]
 
     def __post_init__(self) -> None:
         if not str(self.final_model_id).strip():
             raise RequestError("final_model_id must be nonempty")
-        if not isinstance(self.feature_axis, AxisRef) or not isinstance(self.binary_exposure, ArtifactRef):
-            raise RequestError("activation output requires an axis and binary ArtifactRef")
+        if (
+            not isinstance(self.feature_axis, AxisRef)
+            or not isinstance(self.activation_probability, ArtifactRef)
+            or not isinstance(self.binary_exposure, ArtifactRef)
+        ):
+            raise RequestError(
+                "activation output requires an axis, probability, and binary ArtifactRef"
+            )
+        for artifact in (self.activation_probability, self.binary_exposure):
+            if not artifact.axis_refs or artifact.axis_refs[-1] != self.feature_axis:
+                raise RequestError("activation output artifacts must use the final feature axis")
+        if self.activation_probability.axis_refs != self.binary_exposure.axis_refs:
+            raise RequestError("probability and binary activation axes must match")
         artifacts = tuple(self.artifacts)
         if not all(isinstance(item, ArtifactRef) for item in artifacts):
             raise RequestError("activation artifacts must contain only ArtifactRef values")

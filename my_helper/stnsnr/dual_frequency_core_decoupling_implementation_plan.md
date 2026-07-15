@@ -1643,6 +1643,11 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   must not block service invocation before exact cache lookup. The activation
   service probes all row keys first and checks expensive authorization only when
   at least one valid row is absent.
+- `ActivationRequest` explicitly carries outcome, branch-specific baseline,
+  optional full/fold DeltaReferenceScore inputs, ordered subject/fiber axes,
+  canonical fiber IDs, outcome direction, hard-computability limits, signed
+  fiber-score settings, permutation count, and seed. The backend must not infer
+  these inputs from filenames or hidden final-record artifacts.
 
 - [ ] **Step 1: Write failing universe and identity tests**
 
@@ -1706,6 +1711,7 @@ injected producer invocation count remains zero and no OSS process starts.
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/contracts/requests.py \
+  my_helper/fiber/core/dual_frequency/contracts/records.py \
   my_helper/fiber/core/dual_frequency/backends/protocols.py \
   my_helper/fiber/core/dual_frequency/config/schemas/normative_fiber_model.schema.json \
   my_helper/fiber/core/dual_frequency/config/loader.py \

@@ -459,11 +459,28 @@ class RecordTest(unittest.TestCase):
         activation = ActivationRequest(
             final_model=final,
             activation_probability=self._array_artifact("activation", (subjects, fibers)),
+            outcome=outcome,
+            baseline=baseline,
+            nuisance_inputs=(),
             subject_axis=subjects,
             feature_axis=fibers,
+            feature_ids=self._array_artifact("fiber_ids", (fibers,), units="fiber_id"),
+            outcome_direction="lower",
+            hard_computability=HardComputabilityLimits(12, None, 20),
+            connectome_role="formal",
+            fiber_score_settings=NormativeFiberScoreSettings(
+                sweet_fraction=0.1,
+                sour_fraction=0.1,
+                weighted_peak_fraction=0.1,
+                sweet_selected_min_count=2,
+                sour_selected_min_count=2,
+                weighted_peak_min_count=1,
+            ),
             fitting_probability_threshold=0.5,
             permutation_resamples=10,
+            seed=1,
         )
+        self.assertEqual(final.valid_feature_axis, final.feature_axis)
         self.assertEqual(activation.feature_axis, fibers)
         wrong_fibers = AxisRef("other_fibers", 3, "d" * 64)
         with self.assertRaisesRegex(RequestError, "inherit"):
