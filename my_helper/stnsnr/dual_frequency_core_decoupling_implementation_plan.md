@@ -1740,7 +1740,7 @@ deterministic synthetic L/R fixture. Exercise row scheduling with an injected
 synthetic producer; do not launch OSS-DBS or generate any real row during this
 acceptance task.
 
-- [ ] **Step 4: Implement generic OSS orchestration**
+- [x] **Step 4: Implement generic OSS orchestration**
 
 Remove dTOR name checks. Require a realized final on the unique `formal`
 connectome, explicit OSS backend/version, exact subject-side frequency maps,
@@ -1770,7 +1770,7 @@ Delete only a temporary synthetic cache row and run acceptance mode with
 expensive producers disabled. Expected: `missing_acceptance_fixture`; the
 injected producer invocation count remains zero and no OSS process starts.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/contracts/requests.py \
@@ -1787,6 +1787,26 @@ git add my_helper/fiber/core/dual_frequency/contracts/requests.py \
   my_helper/fiber/core/dual_frequency/tests/test_planner.py
 git commit -m "feat: add reusable dual-frequency activation backend"
 ```
+
+**Task 14 verification, 2026-07-15:**
+
+- Cache-first row materialization was committed as `d4d40b39b`; fixed-axis
+  pPAM endpoint fitting was committed as `15d2461c2`. The acceptance hardening
+  contract was documented first in `12c420fc9`.
+- Focused request/universe/OSS coverage passed `46/46`; the complete generic
+  dual-frequency suite passed `207/207` in the `leaddbs` Conda environment.
+- Python compilation for every touched Task 14 module and `git diff --check`
+  passed.
+- The mounted allowlisted OSS fixture passed hash, ordered-axis, and inclusive
+  threshold replay. Synthetic tests covered exact ordered-axis cache identity,
+  three-worker deterministic production, cache-first blocked misses, ten-sample
+  probability lattice enforcement, add-on overlap exclusion, fold-local
+  nuisance inputs, incomplete permutation handling, and prepublication input
+  rejection.
+- A second read-only review reported no remaining P1/P2 findings across the
+  seven targeted acceptance gaps.
+- No production YAML, OSS-DBS, FEM, formal model, or project output was run or
+  written, and no bundle authority was created.
 
 ---
 
