@@ -49,7 +49,7 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
 - All configured scales are engineering-equivalent and no default scale exists.
 - Every combined endpoint uses an explicit matched-reference binding; reference
   and combined phase IDs are not required to match.
-- Normative-fiber `sensitive` connectomes emit `RobustnessRecord` only. Exactly
+- Normative-fiber `sensitive` connectomes emit `SensitiveRecord` only. Exactly
   one `formal` connectome is final-eligible; formal resampling, OSS, and jitter
   derive from its realized final without a third connectome role.
 - Direct voxel and normative fiber are the only model families.
@@ -366,7 +366,7 @@ git commit -m "test: freeze bounded dual-frequency fixtures"
 - Produces: `load_workflow(path: Path, overrides: WorkflowOverrides) -> ResolvedWorkflow`
 - Produces: immutable `EndpointKey`, `TaskKey`, `FinalModelKey`, `ArtifactRef`,
   `AxisRef`, `FeatureAxisRef`, `SourceRecord`, `ReferenceDependencyRecord`,
-  `BranchRecord`, `FinalModelRecord`, `RobustnessRecord`,
+  `BranchRecord`, `FinalModelRecord`, `SensitiveRecord`,
   `DeltaReferenceBundle`, and `StudyBaseRecord`.
 - Produces request/result contracts: `ObservedRequest`, `ObservedResult`,
   `FormalRequest`, `FormalResult`, `SensitivityRequest`, `SensitivityResult`,
@@ -723,7 +723,7 @@ Assert:
   reference and combined child binding IDs differ;
 - normative-fiber add-on dependencies require exact connectome identity;
 - sensitive connectomes stop at observed/formal-source-evaluation/report
-  stages, emit `RobustnessRecord`, and have no final/formal/jitter/activation
+  stages, emit `SensitiveRecord`, and have no final/formal/jitter/activation
   tasks;
 - exactly one `formal` connectome is final-eligible;
 - formal/activation tasks use connectome roles, not names;
@@ -995,7 +995,7 @@ prevention.
 - [ ] **Step 2: Write failing source/resolver and connectome-role tests**
 
 Use generic connectome IDs. Verify `sensitive` and `formal` behavior comes from
-roles. Assert sensitive connectomes emit `RobustnessRecord`, never
+roles. Assert sensitive connectomes emit `SensitiveRecord`, never
 `FinalModelRecord`, and do not schedule formal/jitter/activation tasks.
 
 - [ ] **Step 3: Write bounded golden tests**
@@ -1417,7 +1417,7 @@ workflow in addition to this text scan; text scanning alone is not acceptance.
 - [ ] **Step 6: Audit artifacts and process state**
 
 Confirm every smoke task has a terminal record, every realized final has at most
-one final ID, no robustness record has a final ID, `configuration_resolved.yaml`
+one final ID, no sensitivity record has a final ID, `configuration_resolved.yaml`
 and `configuration_sources.json` reproduce the configuration hash,
 report/index/manifests agree, old output trees are unchanged, and no Lead-DBS/
 OSS/model process remains active.

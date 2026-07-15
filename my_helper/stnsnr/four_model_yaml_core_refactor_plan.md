@@ -956,7 +956,7 @@ evidence covers:
    jitter, and report;
 3. MDS-UPDRS III reference MGH/PPMI predecessor sensitivity evidence through resolver
    and report; predecessor final-like records are converted to target
-   `RobustnessRecord` evidence, never target `FinalModelRecord`; and
+   `SensitiveRecord` evidence, never target `FinalModelRecord`; and
 4. the first completed MDS-UPDRS III combined child add-on dTOR fiber through preprocessing, resolver,
    final, controls, formal, cheap sensitivity, and neighborhood sensitivity.
 

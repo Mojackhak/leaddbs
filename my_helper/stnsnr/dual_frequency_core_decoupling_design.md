@@ -252,7 +252,7 @@ sensitive
 Each normative-fiber model profile has exactly one `formal` connectome and zero
 or more `sensitive` connectomes. Every connectome runs the complete observed
 grid. Sensitive connectomes produce cell-level metrics and formal-source-cell
-`RobustnessRecord` outputs but never a `FinalModelRecord`. OSS, jitter, and
+`SensitiveRecord` outputs but never a `FinalModelRecord`. OSS, jitter, and
 formal inference are derived from a realized final on the formal connectome;
 they do not require a third connectome role.
 
@@ -432,7 +432,7 @@ source, prediction, branch-role, or final-model status.
 For normative fiber, every configured connectome runs the complete observed
 grid. Only the exactly one `formal` connectome assigns canonical
 source/prediction status and applies final realization. Sensitive connectomes
-terminate with `RobustnessRecord` and cannot schedule formal, jitter,
+terminate with `SensitiveRecord` and cannot schedule formal, jitter,
 activation, or final-model sensitivity.
 
 ## Final States
