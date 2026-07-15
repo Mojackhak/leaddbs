@@ -1576,6 +1576,45 @@ git commit -m "feat: extract add-on normative-fiber backend"
 - Consumes only a formal-connectome/direct-voxel realized final plus typed
   arrays/artifact references; sensitive-connectome records are rejected.
 
+**Formal sub-contract confirmed for implementation:**
+
+- Every `FormalRequest` declares exactly one `resampling_kind`:
+  `permutation` or `bootstrap`. Separate planner tasks remain separate and
+  cannot silently execute the other resampling family.
+- The request carries the realized `FinalModelRecord`, exposure, outcome,
+  branch-specific baseline and optional full/fold DeltaReferenceScore inputs,
+  exact subject and locked final feature axes, outcome direction, hard
+  computability limits, resample counts, and seed. Normative-fiber requests
+  additionally carry exact ordered fiber IDs and the signed score settings.
+- Direct-voxel requests require `connectome_role=none`; normative-fiber formal
+  requests require the unique `connectome_role=formal`. A sensitive-connectome
+  record, non-realized final, mismatched axis, raw path, or filename is rejected
+  before publication.
+- Reference and no-delta requests have no additional nuisance inputs. Adjusted
+  requests require one full subject vector and one fold-by-subject
+  DeltaReferenceScore matrix. Formal permutation may reuse these fixed
+  fold-local inputs because the stimulation/reference inputs are unchanged by
+  outcome permutation.
+- Adjusted subject bootstrap cannot resample the original full/fold
+  DeltaReferenceScore values. It requires an injected
+  `BootstrapNuisanceProvider` that rebuilds the matched reference score,
+  support QC, standardization, and branch nuisance plan for each sampled
+  subject-multiplicity vector. A missing provider is an explicit input failure;
+  no-delta/reference bootstrap does not require one.
+- All formal calculations stay on `final.valid_feature_axis`; no backend may
+  rediscover a parent feature universe from paths. Fold-specific coverage,
+  finite weights, signed fiber selection, and patient scores are recomputed
+  within that locked axis.
+- Freedman-Lane permutation uses the branch-specific nuisance-only model and
+  the observed LOOCV Spearman rho as the two-sided plus-one test statistic.
+  Q2, Pearson correlation, MAE, and RMSE are emitted as report fields only and
+  never alter source, prediction, branch-role, endpoint, or final status.
+- Subject bootstrap emits finite replicate counts, candidate/support counts,
+  weight mean/SE and applicable fiber sign/selection stability. It is a
+  robustness output only. `FormalResult` contains final ID, resampling kind,
+  technical status, and immutable artifacts; it exposes no classification
+  mutation fields.
+
 - [ ] **Step 1: Write failing final-only and no-feedback tests**
 
 Reject non-final branches, sensitive-connectome records, missing final axes, and outputs
