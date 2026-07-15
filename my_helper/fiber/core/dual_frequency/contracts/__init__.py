@@ -16,6 +16,8 @@ from .records import (
 from .requests import (
     ActivationArtifact,
     ActivationRequest,
+    BootstrapNuisanceEvidence,
+    BootstrapRebuildProvenance,
     FormalRequest,
     FormalResult,
     HardComputabilityLimits,
@@ -23,7 +25,6 @@ from .requests import (
     ObservedRequest,
     ObservedResult,
     RequestError,
-    SensitivityRequest,
     SensitivityResult,
     SourceGrid,
 )
@@ -45,6 +46,8 @@ __all__ = [
     "ArtifactRef",
     "AxisRef",
     "BranchRecord",
+    "BootstrapNuisanceEvidence",
+    "BootstrapRebuildProvenance",
     "ClinicalObservation",
     "DeltaReferenceBundle",
     "EndpointKey",
@@ -63,7 +66,6 @@ __all__ = [
     "RequestError",
     "ScaleDefinition",
     "SensitiveRecord",
-    "SensitivityRequest",
     "SensitivityResult",
     "SourceGrid",
     "SourceRecord",

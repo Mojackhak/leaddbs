@@ -6,7 +6,6 @@ from .protocols import (
     FormalBackend,
     ObservedBackend,
     ReportingBackend,
-    SensitivityBackend,
 )
 
 __all__ = [
@@ -15,5 +14,4 @@ __all__ = [
     "FormalBackend",
     "ObservedBackend",
     "ReportingBackend",
-    "SensitivityBackend",
 ]

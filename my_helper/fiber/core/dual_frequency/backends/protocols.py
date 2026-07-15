@@ -10,12 +10,11 @@ from ..contracts.records import ArtifactRef, AxisRef, FinalModelRecord
 from ..contracts.requests import (
     ActivationArtifact,
     ActivationRequest,
+    BootstrapNuisanceEvidence,
     FormalRequest,
     FormalResult,
     ObservedRequest,
     ObservedResult,
-    SensitivityRequest,
-    SensitivityResult,
 )
 
 
@@ -51,8 +50,15 @@ class FormalBackend(Protocol):
     def run_formal(self, request: FormalRequest) -> FormalResult: ...
 
 
-class SensitivityBackend(Protocol):
-    def run_sensitivity(self, request: SensitivityRequest) -> SensitivityResult: ...
+@runtime_checkable
+class BootstrapNuisanceProvider(Protocol):
+    """Rebuild raw adjusted reference scores and provenance for one sample."""
+
+    def build_bootstrap_nuisance(
+        self,
+        request: FormalRequest,
+        sample_indices: np.ndarray,
+    ) -> BootstrapNuisanceEvidence: ...
 
 
 class ActivationBackend(Protocol):

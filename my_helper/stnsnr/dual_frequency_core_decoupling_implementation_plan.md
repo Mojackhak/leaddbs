@@ -386,10 +386,11 @@ git commit -m "test: freeze bounded dual-frequency fixtures"
   `BranchRecord`, `FinalModelRecord`, `SensitiveRecord`,
   `DeltaReferenceBundle`, and `StudyBaseRecord`.
 - Produces request/result contracts: `ObservedRequest`, `ObservedResult`,
-  `FormalRequest`, `FormalResult`, `SensitivityRequest`, `SensitivityResult`,
-  `ActivationRequest`, and `ActivationArtifact`.
-- Produces array/artifact-only `ObservedBackend`, `FormalBackend`,
-  `SensitivityBackend`, `ActivationBackend`, and `ReportingBackend` protocols.
+  `FormalRequest`, `FormalResult`, explicit strategy-specific sensitivity
+  requests, `SensitivityResult`, `ActivationRequest`, and `ActivationArtifact`.
+- Produces narrow `ObservedBackend`, `FormalBackend`, `ActivationBackend`, and
+  `ReportingBackend` protocols. Sensitivity strategies expose only their own
+  typed `run(...)` contracts; there is no generic `SensitivityBackend` alias.
 
 - [ ] **Step 1: Write failing schema tests**
 
@@ -477,11 +478,13 @@ class ArtifactRef:
     producer_version: str
 ```
 
-`ObservedRequest`, `FormalRequest`, `SensitivityRequest`, and
-`ActivationRequest` contain typed records, arrays, and `ArtifactRef` values;
-they contain no raw project path, legacy filename, or unresolved YAML field.
-Define backend protocols in the same task so planner, registry, and application
-code cannot invent looser callable signatures before scientific extraction.
+`ObservedRequest` and pre-final numerical kernels may contain typed records,
+arrays, and `ArtifactRef` values. Final-linked `FormalRequest`, explicit
+sensitivity-strategy requests, and `ActivationRequest` use immutable
+identity-bearing artifacts where scientific order must be locked. No request
+contains a raw project path, legacy filename, or unresolved YAML field. Define
+backend protocols in the same task so planner, registry, and application code
+cannot invent looser callable signatures before scientific extraction.
 
 - [ ] **Step 5: Implement three JSON Schemas and loader**
 
@@ -1561,6 +1564,7 @@ git commit -m "feat: extract add-on normative-fiber backend"
 ### Task 13: Extract Formal And Sensitivity Backends
 
 **Files:**
+- Create: `my_helper/fiber/core/dual_frequency/contracts/validation.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/formal/direct_voxel.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/formal/normative_fiber.py`
 - Create: `my_helper/fiber/core/dual_frequency/backends/sensitivity/tau_neighborhood.py`
@@ -1586,6 +1590,11 @@ git commit -m "feat: extract add-on normative-fiber backend"
   exact subject and locked final feature axes, outcome direction, hard
   computability limits, resample counts, and seed. Normative-fiber requests
   additionally carry exact ordered fiber IDs and the signed score settings.
+- Final-linked formal scientific inputs are immutable `ArtifactRef` values with
+  exact ordered axis identities. Bare NumPy arrays remain permitted in
+  pre-final observed numerical APIs and synthetic kernel tests only; they are
+  not accepted by `FormalRequest` because shape alone cannot prove subject or
+  feature order and a frozen dataclass does not freeze an array payload.
 - Direct-voxel requests require `connectome_role=none`; normative-fiber formal
   requests require the unique `connectome_role=formal`. A sensitive-connectome
   record, non-realized final, mismatched axis, raw path, or filename is rejected
@@ -1598,15 +1607,34 @@ git commit -m "feat: extract add-on normative-fiber backend"
 - Adjusted subject bootstrap cannot resample the original full/fold
   DeltaReferenceScore values. It requires an injected
   `BootstrapNuisanceProvider` that rebuilds the matched reference score,
-  support QC, standardization, and branch nuisance plan for each sampled
-  subject-multiplicity vector. A missing provider is an explicit input failure;
-  no-delta/reference bootstrap does not require one.
+  support QC, and fold-local DeltaReferenceScore values for each sampled
+  subject-multiplicity vector. The provider returns typed rebuilt-score evidence
+  and structured support/provenance fields, not an arbitrary nuisance design.
+  The formal backend itself standardizes those rebuilt scores and constructs the
+  branch nuisance plan. A missing or identity-inconsistent provider result is an
+  explicit input failure; no-delta/reference bootstrap does not require one.
+  Rebuild provenance binds the exact ordered sample-index vector, not only its
+  multiplicities. For a non-identity sample, unchanged original full/fold Delta
+  payloads and direct sample/reindex views of the original full/fold Delta
+  payloads are rejected as stale rather than accepted under self-attested new
+  provenance. A provider must return scores from a newly fitted matched-
+  reference bootstrap model; indexing or permuting the original scores is not a
+  rebuild.
 - All formal calculations stay on `final.valid_feature_axis`; no backend may
   rediscover a parent feature universe from paths. Fold-specific coverage,
   finite weights, signed fiber selection, and patient scores are recomputed
   within that locked axis.
+- A normative-fiber request's ordered fiber IDs must be the exact immutable ID
+  artifact carried by the selected final source/branch, not merely an array with
+  the same length. Subject axes and ordered feature identities are compared by
+  full scientific identity before any resampling starts.
 - Freedman-Lane permutation uses the branch-specific nuisance-only model and
   the observed LOOCV Spearman rho as the two-sided plus-one test statistic.
+  A null replicate contributes a statistic only when every held-out prediction
+  is finite; partial finite-pair correlations remain `NaN` and cannot enter the
+  null distribution. An inferential permutation p value is published only when
+  every requested null replicate is finite. Any null attrition is reported with
+  technical status and counts but has no inferential p value.
   Q2, Pearson correlation, MAE, and RMSE are emitted as report fields only and
   never alter source, prediction, branch-role, endpoint, or final status.
 - Subject bootstrap emits finite replicate counts, candidate/support counts,
@@ -1619,8 +1647,11 @@ git commit -m "feat: extract add-on normative-fiber backend"
 
 - Final-linked tau-neighborhood, spatial-jitter, add-on exposure, and final
   fiber-control strategies accept only a realized `FinalModelRecord` and its
-  exact locked feature axis. They reject `SensitiveRecord`, non-final branches,
-  sensitive connectomes, unresolved paths, and mismatched subject/feature IDs.
+  exact locked feature axis. Their scientific inputs are immutable
+  axis-bearing `ArtifactRef` values; bare mutable arrays are restricted to
+  pre-final observed/kernel tests. They reject `SensitiveRecord`, non-final
+  branches, sensitive connectomes, unresolved paths, and mismatched
+  subject/feature IDs.
 - Reference-fiber plain and cheap controls that execute before source
   resolution are a separate `ObservedFiberControlStrategy`. They consume typed
   observed inputs/results and emit diagnostic evidence only; they cannot be
@@ -1629,59 +1660,139 @@ git commit -m "feat: extract add-on normative-fiber backend"
   from `0.9 * selected_tau` and `1.1 * selected_tau`. It evaluates those cells
   without invoking the source resolver and omits source/prediction/final status
   from its output.
-- Tau continues to define Coverage/Omega only. For both direct voxel and
-  normative fiber, all continuous E-field values inside the selected candidate
-  support enter scoring. Add-on sensitivity may zero only the declared
-  reference-overlap exposure; it must not zero add-on exposure merely because
-  its value is below tau.
+- Tau continues to define Coverage/Omega only. Direct voxel coverage uses the
+  authoritative strict boundary `E > tau`; normative-fiber coverage uses the
+  authoritative inclusive boundary `E >= tau`. For both families, all
+  continuous E-field values inside the selected candidate support enter
+  scoring. Add-on sensitivity may zero only the declared reference-overlap
+  exposure; it must not zero add-on exposure merely because its value is below
+  tau.
 - Spatial jitter receives settings plus an injected typed replicate provider.
   Each replicate provider rebuilds perturbed exposure and, for add-on models,
   overlap exclusion, DeltaReferenceScore, support QC, and branch nuisance
-  inputs before returning a complete typed observed request. The numerical
-  strategy never discovers geometry or files by name.
+  inputs before returning a complete typed observed request plus structured
+  replicate evidence. The result must retain the exact subject axis and ordered
+  feature identity of the final target. Adjusted replicates must prove a new
+  DeltaReferenceScore/support rebuild for that replicate; a stale original
+  adjusted input is rejected. Replicate provenance is content-bound to the
+  perturbed exposure, rebuilt overlap mask, support status/QC, and applicable
+  rebuilt DeltaReferenceScore payloads; copying unchanged original arrays under
+  a new object or token is rejected. Outcome, baseline, branch, grid, limits,
+  direction, units/space, score settings, and every nuisance input not declared
+  rebuildable must remain scientifically identical to the final target. The
+  numerical strategy never discovers geometry or files by name.
 - Add-on analyses are independently identified and independently terminal:
   nonfinal-branch comparison, gain endpoint, total exposure, support, and
   collinearity. Failure or non-applicability of DeltaReferenceScore-dependent
   analyses cannot suppress an executable total-exposure or no-delta analysis.
+- Nonfinal-branch and gain analyses use the same reference-overlap exclusion as
+  the corresponding add-on model. Total-exposure sensitivity is the explicit
+  exception and intentionally retains total exposure. Gain nuisance is
+  branch-specific: no-delta gain uses an intercept only, while adjusted gain
+  uses intercept plus rebuilt DeltaReferenceScore; neither gain branch includes
+  the reference outcome as nuisance.
+- A gain analysis requires an axis-bound artifact with the dedicated
+  `direction_normalized_addon_gain` kind. An ordinary post-score outcome cannot
+  be relabeled as gain merely by placing its `ObservedRequest` in a field named
+  `gain_request`. Positive normalized gain always means benefit, so its request
+  must use `outcome_direction=higher` regardless of the source scale direction.
+- Only `nonfinal_request` may use the non-realized branch. Gain and total-
+  exposure requests inherit the realized final branch and branch-specific
+  nuisance inputs. All three analyses reuse the target's exact exposure
+  artifact; total exposure is obtained solely by omitting the target overlap
+  mask, not by substituting another exposure array. Nonfinal and total-exposure
+  requests retain the target outcome and baseline artifacts. Gain retains the
+  target baseline and exposure while replacing only outcome with the dedicated
+  normalized-gain artifact.
+- `ObservedRequest` accepts only the branch vocabulary of its model family:
+  `reference` for reference models and exactly `no_delta_reference` or
+  `delta_reference_adjusted` for add-on models. A nonfinal sensitivity request
+  must use the one canonical add-on branch opposite the realized final; an
+  arbitrary third branch is an input-contract failure, not a not-computable
+  analysis result.
 - Fiber controls report plain exposure/burden, signed-score increment, support,
-  and collinearity diagnostics. A burden-dominated or one-sided result remains
+  and collinearity diagnostics. Plain peak summaries aggregate continuous
+  exposure across the locked candidate axis; tau is retained only for coverage
+  and touched-count QC. Final-branch controls retain the branch's overlap-
+  excluded exposure. A burden-dominated or one-sided result remains
   interpretation QC and cannot change the resolver or final decision.
 - Every strategy returns only technical status, numeric metrics/QC, and
   immutable artifacts. Result construction rejects classification mutation
   keys, including source, prediction, branch-role, endpoint, or final-model
   status fields.
+- Formal bootstrap support QC and all sensitivity payloads use one shared,
+  recursive classification-feedback validator. Provider-supplied QC cannot
+  publish classification keys or classification-status values through a nested
+  evidence artifact.
+- Remove the generic `SensitivityRequest` and `SensitivityBackend` API. Only
+  the explicit typed strategy requests and their `run(...)` methods are public;
+  a `SensitiveRecord` is never accepted by a final-linked strategy.
 
-- [ ] **Step 1: Write failing final-only and no-feedback tests**
+- [x] **Step 1: Write failing final-only and no-feedback tests**
 
 Reject non-final branches, sensitive-connectome records, missing final axes, and outputs
 that attempt to write classification fields.
 
-- [ ] **Step 2: Write bounded-prefix parity tests**
+- [x] **Step 2: Write bounded deterministic and frozen-evidence tests**
 
-Replay exactly ten permutations, ten bootstraps, and five jitter replicates from
-fixture prefixes. Validate full predecessor artifacts by hash only. Exclude the
-partial add-on dTOR jitter.
+Run exactly ten deterministic synthetic permutations, ten deterministic
+synthetic bootstraps, and five deterministic synthetic jitter replicates through
+the extracted strategies. The frozen predecessor stores only completed
+10,000-resample summaries, not the first ten numerical vectors; therefore do not
+claim unavailable historical-prefix numerical replay. Validate the complete
+predecessor formal summaries by hash, and validate the first five rows plus full
+artifact hash for each completed allowlisted jitter artifact. Exclude the partial
+add-on dTOR jitter.
 
-- [ ] **Step 3: Extract generic numerical code**
+- [x] **Step 3: Extract generic numerical code**
 
 Move math from the relevant `stnsnr_*formal*`, `*jitter*`, and sensitivity
 modules. Strategy selection is based on model-family capabilities, not module
 name strings.
 
-- [ ] **Step 4: Run focused tests and completed-scope parity**
+- [x] **Step 4: Run focused tests and completed-scope parity**
 
 Expected: reference direct/fiber completed prefixes and completed add-on fiber
 formal/cheap/neighborhood fixtures pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency/backends/formal \
   my_helper/fiber/core/dual_frequency/backends/sensitivity \
+  my_helper/fiber/core/dual_frequency/backends/__init__.py \
+  my_helper/fiber/core/dual_frequency/backends/direct_voxel/kernel.py \
+  my_helper/fiber/core/dual_frequency/backends/nuisance.py \
+  my_helper/fiber/core/dual_frequency/backends/protocols.py \
+  my_helper/fiber/core/dual_frequency/contracts/__init__.py \
+  my_helper/fiber/core/dual_frequency/contracts/requests.py \
+  my_helper/fiber/core/dual_frequency/contracts/validation.py \
   my_helper/fiber/core/dual_frequency/tests/test_formal.py \
-  my_helper/fiber/core/dual_frequency/tests/test_sensitivity.py
+  my_helper/fiber/core/dual_frequency/tests/test_records.py \
+  my_helper/fiber/core/dual_frequency/tests/test_sensitivity.py \
+  my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md
 git commit -m "feat: extract generic formal and sensitivity backends"
 ```
+
+**Verification completed 2026-07-15:**
+
+- Formal backend suite: `24 tests` passed; sensitivity strategy suite:
+  `33 tests` passed.
+- Complete generic `dual_frequency` suite: `271 tests` passed.
+- Deterministic synthetic tests covered ten permutations, ten bootstraps, five
+  jitter replicates, direct strict and fiber inclusive tau boundaries, exact
+  final-axis identity, branch-specific nuisance, and classification-feedback
+  rejection. Frozen predecessor evidence remained allowlisted and hash-bound.
+- Independent review findings were closed with regression tests: normalized
+  gain requires `outcome_direction=higher`; gain/total reuse the realized final
+  branch and exact exposure/baseline/nuisance artifacts; nonfinal accepts only
+  the canonical opposite branch; adjusted bootstrap rejects unchanged and
+  directly reindexed stale DeltaReferenceScore values; formal support QC cannot
+  publish classification fields.
+- `compileall`, protocol type-hint resolution, `git diff --check`, obsolete API
+  scan, and generic hardcoding scan passed. No production YAML, study data,
+  output root, bundle, FEM, OSS, formal production run, or subject-specific
+  runtime rule was created or modified.
 
 ---
 
@@ -1888,6 +1999,9 @@ git commit -m "feat: add reusable dual-frequency activation backend"
 ### Task 15: Implement Generic Reporting, Switch Registry, And Isolate Legacy
 
 **Files:**
+- Create: `my_helper/fiber/core/dual_frequency/runtime/input_provider.py`
+- Create: `my_helper/fiber/core/dual_frequency/runtime/record_codec.py`
+- Create: `my_helper/fiber/core/dual_frequency/runtime/service_adapters.py`
 - Create: `my_helper/fiber/core/dual_frequency/reporting/endpoint_summary.py`
 - Create: `my_helper/fiber/core/dual_frequency/reporting/artifact_index.py`
 - Create: `my_helper/fiber/core/dual_frequency/reporting/run_report.py`
@@ -1959,12 +2073,91 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   mark any Task 15 step complete; each implementation and acceptance gate below
   remains required.
 
-- [ ] **Step 1: Write failing generic-report tests**
+**Runtime and terminal contract confirmed for implementation:**
+
+- `RuntimeInputProvider` is constructed from the already validated
+  `StudyBaseRecord`, `ResolvedWorkflow`, endpoint catalog, and current-run
+  artifact/cache services. It resolves exact endpoint subjects, clinical
+  vectors, frequency-class exposure artifacts, connectome inputs, and
+  replicate inputs. It never performs source resolution, prediction
+  classification, final selection, formal statistics, or reporting.
+- Cohort readiness is endpoint-local and frequency-derived. A subject with a
+  valid configured reference endpoint but no source in the configured add-on
+  frequency interval remains in the reference cohort and is excluded only from
+  the corresponding add-on design. Runtime code must not hard-code subject IDs,
+  phase IDs, or program IDs; it follows the validated endpoint binding and
+  frequency-class configuration.
+- `EndpointRecord.subject_ids` remains the clinically complete candidate cohort.
+  The provider derives a separate ordered scientific-ready subject axis after
+  source-frequency and artifact readiness checks. Reports expose candidate,
+  included, and reason-coded excluded counts; they must not describe the
+  clinical candidate list as the fitted cohort.
+- Scientific services receive no project paths or mutable project namespace.
+  Explicit service adapters decode typed dependency records, ask the provider
+  for the remaining scientific inputs, construct the backend's typed request,
+  invoke exactly one backend/strategy, and encode exactly one typed result.
+- `ServiceResult` persistence uses an explicit allowlisted typed codec. The
+  declared `output_record_type`, decoded dataclass type, and `record_id` must
+  agree during initial execution and resume. Generic untyped JSON cannot stand
+  in for `SourceRecord`, `BranchRecord`, `FinalModelRecord`, `FormalResult`,
+  `SensitivityResult`, or `ActivationArtifact`.
+- The planner no longer creates ordinary endpoint report tasks. The `report`
+  cutoff means all selected scientific phases run first and the post-executor
+  aggregator then writes endpoint/run reports. Lower cutoffs still write the
+  technical terminal-decision and artifact-index documents for the stages that
+  actually ran, but do not fabricate unrequested numerical report artifacts.
+- The post-executor aggregator consumes the complete `ExecutionPlan`, endpoint
+  catalog, `RunResult`, and codec-restored typed records. It performs no path or
+  filename discovery and cannot invoke a scientific backend.
+- Every requested endpoint receives exactly one `FinalDecisionRecord` using
+  this precedence: a decoded realized final records primary or fallback;
+  otherwise an endpoint-local failed task records `execution_failure`;
+  otherwise a matched/cross-endpoint dependency failure records
+  `dependency_failure`; otherwise the endpoint records `no_final_model` with a
+  typed reason. A sensitive connectome deterministically uses
+  `no_final_model` with reason `not_final_eligible_sensitive_connectome` and is
+  reported as sensitivity evidence without a final ID.
+- `FinalDecisionRecord` is a frozen generic contract with this minimum shape:
+
+  ```python
+  @dataclass(frozen=True)
+  class FinalDecisionRecord:
+      endpoint: EndpointKey
+      decision_status: str
+      final_model: FinalModelRecord | None
+      reason_code: str
+      causal_task_ids: tuple[str, ...]
+  ```
+
+  `decision_status` is exactly one of `realized_primary`,
+  `realized_fallback`, `no_final_model`, `dependency_failure`, or
+  `execution_failure`. Realized decisions require a same-endpoint
+  `FinalModelRecord` whose own status and realization role agree; non-realized
+  decisions forbid one. `reason_code` is always nonempty and causal task IDs are
+  unique, deterministic, and refer only to the current plan. The record's
+  identifier is a canonical hash of the complete typed payload.
+- Final, formal, sensitivity, jitter, activation, and reporting artifacts never
+  revise a previously decoded source, prediction, branch-role, or final
+  decision. Aggregator failure changes the run's technical final status to
+  failed but does not rewrite scientific classifications.
+- Executor task completion is collected before run finalization. The service
+  then builds decisions, endpoint summaries, run report, and current-run
+  artifact index atomically; only after those steps succeed does `RunStore`
+  publish the run's final `completed` or `failed` status. Resume reuses typed
+  completed task records and deterministically rebuilds the aggregate files.
+
+- [ ] **Step 1: Write failing runtime-provider, codec, and generic-report tests**
 
 Reports must contain reference/add-on fields and reject HF/ULF compatibility
 aliases, filename discovery, and old summary roots. Sensitive connectomes emit
 explicit sensitivity rows without final IDs; only formal-connectome/direct-
 voxel realized finals appear in final-model reports.
+
+Codec tests must reject an unknown record type, a type/name mismatch, a record
+ID mismatch, and malformed nested `ArtifactRef`/axis identities. Provider and
+adapter tests must prove that endpoint subjects and binding identities come
+from the validated catalog/configuration and that scientific backends receive
+typed arrays/artifacts only.
 
 - [ ] **Step 2: Write failing runtime import-isolation test**
 
@@ -1991,18 +2184,26 @@ output filename templates. Also reject scientific backend public signatures
 whose annotated fields include raw `Path` rather than typed request/artifact
 contracts.
 
-- [ ] **Step 3: Implement record-driven reporting**
+- [ ] **Step 3: Implement runtime provider, service adapters, and typed codec**
+
+Thread one explicit provider through `ExecutionContext` and
+`TaskExecutionRequest`. Restore typed dependency records before adapter
+dispatch, construct backend requests without filename discovery, and preserve
+the same codec contract during resume.
+
+- [ ] **Step 4: Implement record-driven terminal aggregation and reporting**
 
 Generate endpoint summary, artifact index, and run report only from exact
 current-run records/artifact references. Report failure, skip, fallback, and
-no-final states without fabricating numerical outputs.
+no-final states without fabricating numerical outputs. Emit exactly one
+`FinalDecisionRecord` for every requested endpoint before finalizing the run.
 
-- [ ] **Step 4: Build the generic default registry**
+- [ ] **Step 5: Build the generic default registry**
 
 Register every generic backend explicitly. Remove dynamic import dispatch. An
 empty registry remains test injection only.
 
-- [ ] **Step 5: Move the complete predecessor runtime outside the core path**
+- [ ] **Step 6: Move the complete predecessor runtime outside the core path**
 
 After generic regression passes, use `git mv` to move the complete predecessor
 `outcome_models` package and its tests into
@@ -2012,13 +2213,13 @@ Do not move unrelated DWI/VTA scripts. No production module may import the moved
 namespace. The move is archival isolation outside the generic core namespace;
 the legacy package remains auditable but is never registered by production.
 
-- [ ] **Step 6: Run import-isolation and full generic tests**
+- [ ] **Step 7: Run import-isolation and full generic tests**
 
 Expected: all generic tests pass with project migration/acceptance/legacy paths
 blocked; predecessor historical tests may be archived rather than required by
 the production package.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add my_helper/fiber/core/dual_frequency \

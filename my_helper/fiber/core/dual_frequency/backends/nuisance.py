@@ -30,10 +30,10 @@ class NuisancePlan:
     def __post_init__(self) -> None:
         full = np.array(self.full_covariates, dtype=np.float64, copy=True)
         folds = np.array(self.fold_covariates, dtype=np.float64, copy=True)
-        if full.ndim != 2 or not all(dimension > 0 for dimension in full.shape):
+        if full.ndim != 2 or full.shape[0] < 1:
             raise NuisancePlanError(
                 "invalid_nuisance_design",
-                "full nuisance covariates must be a nonempty subject-by-covariate matrix",
+                "full nuisance covariates must be a subject-by-covariate matrix",
             )
         expected = (full.shape[0], full.shape[0], full.shape[1])
         if folds.shape != expected:
@@ -161,10 +161,79 @@ def build_addon_nuisance_plan(
     return NuisancePlan(full_covariates=full, fold_covariates=folds)
 
 
+def build_gain_nuisance_plan(
+    n_subjects: int,
+    branch: str,
+    *,
+    delta_full_scores: np.ndarray | None = None,
+    delta_fold_scores: np.ndarray | None = None,
+) -> NuisancePlan:
+    """Build a gain-endpoint nuisance plan without reference-outcome adjustment."""
+
+    if type(n_subjects) is not int or n_subjects < 3:
+        raise NuisancePlanError(
+            "invalid_nuisance_design",
+            "gain nuisance design requires at least three subjects",
+        )
+    all_rows = np.arange(n_subjects)
+
+    if branch == NO_DELTA_BRANCH:
+        if delta_full_scores is not None or delta_fold_scores is not None:
+            raise NuisancePlanError(
+                "invalid_nuisance_design",
+                "no-delta gain branch cannot receive DeltaReferenceScore inputs",
+            )
+        full = np.empty((n_subjects, 0), dtype=np.float64)
+        folds = np.empty((n_subjects, n_subjects, 0), dtype=np.float64)
+    elif branch == ADJUSTED_BRANCH:
+        if delta_full_scores is None or delta_fold_scores is None:
+            raise NuisancePlanError(
+                "invalid_delta_reference_scaling",
+                "adjusted gain branch requires full and fold DeltaReferenceScore inputs",
+            )
+        delta_full = _finite_vector(delta_full_scores, "delta_full_scores", n_subjects)
+        delta_folds = np.asarray(delta_fold_scores, dtype=np.float64)
+        if delta_folds.shape != (n_subjects, n_subjects) or not np.all(
+            np.isfinite(delta_folds)
+        ):
+            raise NuisancePlanError(
+                "invalid_delta_reference_scaling",
+                "delta_fold_scores must be a finite fold-by-subject matrix",
+            )
+        full = _standardize(delta_full, all_rows)[:, None]
+        folds = np.empty((n_subjects, n_subjects, 1), dtype=np.float64)
+        for heldout in range(n_subjects):
+            training = np.delete(all_rows, heldout)
+            folds[heldout, :, 0] = _standardize(
+                delta_folds[heldout],
+                training,
+            )
+    else:
+        raise NuisancePlanError(
+            "invalid_nuisance_design",
+            f"unsupported add-on branch {branch!r}",
+        )
+
+    if not _design_is_valid(full, all_rows):
+        raise NuisancePlanError(
+            "invalid_nuisance_design",
+            "full-sample gain nuisance design is rank deficient",
+        )
+    for heldout in range(n_subjects):
+        training = np.delete(all_rows, heldout)
+        if not _design_is_valid(folds[heldout], training):
+            raise NuisancePlanError(
+                "invalid_nuisance_design",
+                f"gain nuisance design is rank deficient for held-out index {heldout}",
+            )
+    return NuisancePlan(full_covariates=full, fold_covariates=folds)
+
+
 __all__ = [
     "ADJUSTED_BRANCH",
     "NO_DELTA_BRANCH",
     "NuisancePlan",
     "NuisancePlanError",
     "build_addon_nuisance_plan",
+    "build_gain_nuisance_plan",
 ]

@@ -448,9 +448,21 @@ def evaluate_grid_cell_with_nuisance_plan(
     sse_model = float(np.sum((y[finite_q2] - heldout_predictions[finite_q2]) ** 2))
     sse_baseline = float(np.sum((y[finite_q2] - baseline_predictions[finite_q2]) ** 2))
     q2 = 1.0 - sse_model / sse_baseline if sse_baseline > 0 else math.nan
-    reference_covariate = nuisance[:, 0]
-    full_pearson, _ = safe_correlation(full_scores, reference_covariate, method="pearson")
-    full_spearman, _ = safe_correlation(full_scores, reference_covariate, method="spearman")
+    if nuisance.shape[1]:
+        reference_covariate = nuisance[:, 0]
+        full_pearson, _ = safe_correlation(
+            full_scores,
+            reference_covariate,
+            method="pearson",
+        )
+        full_spearman, _ = safe_correlation(
+            full_scores,
+            reference_covariate,
+            method="spearman",
+        )
+    else:
+        full_pearson = math.nan
+        full_spearman = math.nan
 
     passes_subjects = n_subjects >= limits.n_subjects_min
     passes_full = n_features_full >= limits.n_features_full_min

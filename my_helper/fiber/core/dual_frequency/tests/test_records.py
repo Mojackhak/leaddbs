@@ -422,6 +422,13 @@ class RecordTest(unittest.TestCase):
         other_subjects = AxisRef("other_subjects", 2, "c" * 64)
         fibers = AxisRef("fibers", 3, "b" * 64)
         endpoint = EndpointKey("study", "scale", "reference", "reference_fiber", "formal_connectome")
+        feature_ids = self._array_artifact(
+            "normative_fiber_valid_union_ids",
+            (fibers,),
+            units="fiber_id",
+            dtype="int64",
+            space="right_canonical",
+        )
         source = SourceRecord(
             endpoint=endpoint,
             input_status="valid",
@@ -432,7 +439,7 @@ class RecordTest(unittest.TestCase):
             selected_coverage=5,
             adjacent_support=2,
             feature_axis=FeatureAxisRef(fibers, "connectome_fiber_ids"),
-            artifacts=(self._feature_artifact(fibers),),
+            artifacts=(self._feature_artifact(fibers), feature_ids),
         )
         final = FinalModelRecord(
             endpoint=endpoint,
@@ -444,17 +451,42 @@ class RecordTest(unittest.TestCase):
         )
         outcome = self._array_artifact("outcome", (subjects,))
         baseline = self._array_artifact("baseline", (subjects,))
+        exposure = self._array_artifact(
+            "fiber_exposure",
+            (subjects, fibers),
+            units="V/m",
+            space="right_canonical",
+        )
         formal = FormalRequest(
             final_model=final,
+            resampling_kind="permutation",
+            exposure=exposure,
             outcome=outcome,
             baseline=baseline,
-            nuisance_inputs=(),
+            delta_reference_full=None,
+            delta_reference_folds=None,
             subject_axis=subjects,
-            permutation_resamples=10,
-            bootstrap_resamples=10,
+            feature_axis=fibers,
+            exposure_units="V/m",
+            exposure_space="right_canonical",
+            outcome_direction="lower",
+            hard_computability=HardComputabilityLimits(2, None, 1),
+            connectome_role="formal",
+            feature_ids=feature_ids,
+            fiber_score_settings=NormativeFiberScoreSettings(
+                sweet_fraction=0.1,
+                sour_fraction=0.1,
+                weighted_peak_fraction=0.1,
+                sweet_selected_min_count=2,
+                sour_selected_min_count=2,
+                weighted_peak_min_count=1,
+            ),
+            resamples=10,
             seed=1,
         )
         self.assertEqual(formal.subject_axis, subjects)
+        with self.assertRaisesRegex(RequestError, "ArtifactRef"):
+            dataclasses.replace(formal, outcome=np.ones(subjects.count))
         with self.assertRaisesRegex(RequestError, "artifact axes"):
             dataclasses.replace(formal, subject_axis=other_subjects)
 
