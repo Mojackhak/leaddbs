@@ -2800,12 +2800,16 @@ and plans 136 tasks across 16 available endpoints. The tracked bounded manifest
 SHA-256 remains
 `50c29f7fc95e94e49128be40a69a509e02bdfdb3db32174d913a90bebbfa5def`.
 
-- [ ] **Step 8: Commit final acceptance documentation**
+- [x] **Step 8: Commit final acceptance documentation**
 
 ```bash
 git add my_helper/stnsnr my_helper/fiber/core/dual_frequency/tests
 git commit -m "docs: record dual-frequency core acceptance"
 ```
+
+The complete implementation, acceptance tests, and final documentation evidence
+were committed on `stnvop` as `a2c6ab37d` (`fix: close dual-frequency
+acceptance gaps`). No remote push was performed.
 
 ---
 
