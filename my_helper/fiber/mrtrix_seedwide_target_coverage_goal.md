@@ -4,8 +4,9 @@
 
 ```text
 design_approved
-implementation_pending
-formal_execution_blocked_by_test_gate
+implementation_complete
+real_data_test_gate_passed
+formal_execution_reschedule_in_progress
 ```
 
 This document is the authoritative implementation and execution contract for
@@ -654,10 +655,63 @@ conda run -n leaddbs python \
 ```
 
 During the long formal execution, inspect scheduler/run state no more often
-than once every 10 minutes unless a process exits or an error event occurs.
+than once every 30 minutes unless a process exits or an error event occurs.
 The CLI must continue automatically until all subjects finish, fail, or the
 user interrupts it. A 100,000,000-streamline cap applies independently to each
 subject and seed side.
+
+### Controlled Seven-Subject Resume Record (2026-07-15)
+
+At the user's request, the first 16-subject formal process, PID `91324`, was
+terminated with `SIGTERM` so that its active work could be rescheduled without
+discarding valid chunks. The process exited normally within four seconds, all
+four active `tckgen` process groups exited, and the `sub-SNr020` and
+`sub-SNr026` subject locks were released. The final committed resume
+boundaries were:
+
+| Subject | Seed | Complete chunks | Mother streamlines | Next chunk index |
+|---|---|---:|---:|---:|
+| `sub-SNr020` | `lh/STNSNrplus` | 465 | 23,250,000 | 465 |
+| `sub-SNr020` | `rh/STNSNrplus` | 400 | 20,000,000 | 400 |
+| `sub-SNr026` | `lh/STNSNrplus` | 392 | 19,600,000 | 392 |
+| `sub-SNr026` | `rh/STNSNrplus` | 409 | 20,450,000 | 409 |
+
+Incomplete files below each `inflight/` directory are not members of the
+committed chunk list and are not eligible for reuse. A resumed unit must verify
+every committed TCK, membership artifact, target chunk, identity, and hash
+before continuing at the recorded next chunk index.
+
+The authorized resume configuration is:
+
+```text
+/Volumes/VAL/STNSNr/config/mrtrix_seed_target_remaining7.yaml
+```
+
+It contains these subjects in exact scheduling order:
+
+```text
+sub-SNr020
+sub-SNr026
+sub-SNr024
+sub-SNr029
+sub-SNr030
+sub-SNr017
+sub-SNr015
+```
+
+The resume configuration changes only the batch subject list, its ordering,
+and `execution.subject_workers`, which is set to `4`. Atlas, ROI, subject
+inputs, tracking parameters, generation chunk size, per-side maximum,
+MRtrix thread count, and tool paths remain identical to the formal
+configuration. The stored and current preparation and tracking implementation
+hashes matched before rescheduling. Consequently, `sub-SNr020` and
+`sub-SNr026` retain their preparation and seed-wide scientific identities even
+though the batch-level configuration hash changes.
+
+After all seven subjects reach explicit terminal states, the complete
+16-subject formal YAML must be run again. That reconciliation run must reuse
+valid completed subjects and chunks, finish any incomplete units, update the
+full-batch provenance, and produce the authoritative final status report.
 
 ## Final Acceptance Criteria
 
