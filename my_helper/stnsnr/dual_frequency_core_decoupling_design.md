@@ -204,6 +204,12 @@ SHA-256 in the run manifest. Every external array `ArtifactRef` records
 kind/schema, explicit URI, SHA-256, dtype, shape, ordered axis references/
 hashes, units/space, and producer identity/version.
 
+The generic runtime schema preserves the canonical study-base field structure
+but does not enumerate the current project's `T0`-`T3` phase IDs or
+`target_stn`/`target_snr` component IDs. Those are valid data values in the
+STNSNr instance, not generic code constants. The exact baseline, reference,
+and add-on phase/program IDs are declared only by the two model profiles.
+
 `source_id` is scoped to its frequency group and is not assumed to be globally
 unique. The canonical stimulation-source identity is the ordered composite of
 `subject_id`, `phase_id`, `program_id`, `electrode_id`,
@@ -240,6 +246,10 @@ one explicit baseline/reference/add-on endpoint pair
 reference/add-on frequency intervals
 minimum-subject and DeltaReferenceScore support rules
 ```
+
+Their domain-specific tau grids, formal-resampling counts, jitter settings, and
+sensitivity parameters are validated independently and are not required to be
+numerically equal.
 
 The endpoint pair is fixed cohort-wide by exact `phase_id` and `program_id`.
 There is no automatic endpoint discovery, period matching, substitution, or
