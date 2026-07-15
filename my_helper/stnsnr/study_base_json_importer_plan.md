@@ -201,7 +201,7 @@ descriptions and must not appear in the generated strict JSON.
       "hemisphere_mapping": {
         "canonical_hemisphere": "R",           # Right-canonical model representation
         "left_to_right_transform": {
-          "path": "/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/fliplr/Composite.nii.gz" # Left-to-right transform
+          "path": "/Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/fliplr/Composite.nii.gz" # Forward image transform; the OSS provider requires and hashes sibling InverseComposite.nii.gz for point coordinates.
         }
       },
 

@@ -55,7 +55,7 @@ def _sha256(value: str, field_name: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class OSSScientificSettings:
-    """Fixed v1 pPAM settings plus the explicit solver backend version."""
+    """Fixed v1 OSS/pPAM settings plus the explicit toolchain version."""
 
     backend_version: str
     model: str = "OSS-DBSv2"
@@ -65,6 +65,15 @@ class OSSScientificSettings:
     diameter_samples: int = 10
     sampling: str = "equidistant"
     fitting_probability_threshold: float = 0.5
+    tissue_space: str = "MNI152NLin2009bAsym"
+    conductivity_model: str = "ColeCole4"
+    conductivity_mode: str = "isotropic"
+    patient_dti_enabled: bool = False
+    axon_model: str = "McNeal1976"
+    axon_length_mm: float = 10.0
+    waveform: str = "rectangular"
+    relative_phase: str = "zero"
+    producer_contract: str = "dual_frequency_oss_producer_v1"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "backend_version", _token(self.backend_version, "backend_version"))
@@ -77,10 +86,22 @@ class OSSScientificSettings:
             or self.diameter_samples != 10
             or self.sampling != "equidistant"
             or float(self.fitting_probability_threshold) != 0.5
+            or self.tissue_space != "MNI152NLin2009bAsym"
+            or self.conductivity_model != "ColeCole4"
+            or self.conductivity_mode != "isotropic"
+            or type(self.patient_dti_enabled) is not bool
+            or self.patient_dti_enabled
+            or self.axon_model != "McNeal1976"
+            or float(self.axon_length_mm) != 10.0
+            or self.waveform != "rectangular"
+            or self.relative_phase != "zero"
+            or self.producer_contract != "dual_frequency_oss_producer_v1"
         ):
             raise OSSBackendError(
                 "v1 OSS settings require OSS-DBSv2 pPAM, 1-4 um, "
-                "10 equidistant samples, and threshold 0.5"
+                "10 equidistant samples, threshold 0.5, template ColeCole4 "
+                "isotropic tissue, disabled patient DTI, McNeal1976 10 mm "
+                "axons, and a zero-phase rectangular waveform"
             )
 
     @property

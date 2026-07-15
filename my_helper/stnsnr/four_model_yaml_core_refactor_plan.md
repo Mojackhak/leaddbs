@@ -929,6 +929,20 @@ but scale, endpoint, branch role, final-model ID, run identity, and worker count
 do not. This permits exact reuse when scientific inputs and the ordered axis are
 identical without expanding OSS to a whole-connectome universe. A different
 axis is a different cache identity and cannot be served by nearest-key matching.
+The filtered Lead-DBS connectome renumbers this exact axis locally as `1..K`,
+writes `idx` for those `K` fibers, and sets `origNum = K`. The parent connectome
+count is retained only in the local-to-final mapping metadata; it must not be
+used as the OSS denominator for the filtered candidate universe. Standard
+Lead-DBS `4xN`/`5xN` and transposed `Nx4`/`Nx5` point layouts are both accepted;
+neither orientation may reorder the inherited final axis.
+The filtered artifact is always one flattened internal pathway even when the
+parent connectome's human-readable label contains `Multi-Tract`; the parent
+label remains provenance and must not select a different allocator parser.
+Filtered HDF5 creation uses an exclusive no-overwrite open rather than a
+check-then-truncate sequence.
+This filesystem materialization belongs to runtime producer infrastructure,
+not to the scientific activation backend API; backend call signatures remain
+typed-record/artifact based and do not accept raw filesystem paths.
 
 Activation tasks exchange typed records and artifact references directly. They
 must not create a `DualFrequencyStudyBundle`, `OSSSidecarBundle`, or another
@@ -949,11 +963,98 @@ geometry/source locator artifacts and the configured formal connectome. A
 continuous frequency group is accepted as one simultaneous row only when its
 sources share reconstruction lead, frequency, control mode, and pulse width and
 do not reuse an active contact identity; its contact boundary is then summed
-before OSS. Alternating rows remain one source each. Left geometry is mapped
-with the exact study-base transform before axon allocation. The ten pPAM samples
+before OSS. The v1 waveform is rectangular with zero relative phase. A
+continuous voltage group must use one consistent return topology; mixing
+case-return and electrode-return sources is rejected because the MAT converter
+cannot preserve that boundary exactly. Every active voltage contact has
+`fraction = 1.0`; current fractions close independently within each polarity;
+`case`, when present, is the sole anode in both modes. Alternating rows remain
+one source each. The configured `Composite.nii.gz` remains the forward image
+transform. For left point geometry, the provider deterministically requires and
+hashes its sibling `InverseComposite.nii.gz`; MATLAB receives that exact path,
+mirrors RAS x, converts the points to LPS, applies the already selected inverse
+field directly through the locked platform `antsApplyTransformsToPoints`
+binary with no additional inversion, converts the result back to RAS, and
+thereby matches `ea_flip_lr_nonlinear` without an SPM/NIfTI affine round trip.
+The ten pPAM samples
 are restricted to the immutable final fiber axis and return exact activated
 counts divided by ten. No subject, phase, program, target, or scale allowlist is
 permitted in this producer path.
+
+The MATLAB producer bridge loads the exact reconstruction MAT supplied by the
+typed row request and rejects reconstruction-lead, electrode-model, and contact-
+count mismatches. It also retains the standard Lead-DBS rejection of a
+directional lead implanted perfectly along the x axis. It must not initialize
+patient options or scientific settings through `ea_getptopts`, mutable GUI
+preferences, or subject-directory discovery.
+
+The v1 producer also freezes the previously effective internal OSS scientific
+defaults instead of inheriting mutable Lead-DBS GUI preferences:
+
+```text
+template tissue segmentation = MNI152NLin2009bAsym/segmask.nii
+conductivity model = ColeCole4 isotropic
+patient DTI conductivity = disabled
+axon model = McNeal1976
+axon length = 10 mm
+```
+
+The v7.3 MAT serializes disabled DTI as the pinned converter's supported
+`no dti` sentinel. The converter must normalize that value to an empty
+`DTIPath` with `DiffusionTensorActive = false`; a MATLAB empty character array
+is not an equivalent serialized representation.
+
+The template segmentation bytes, fixed settings, OSS environment definition,
+producer/bridge code, reconstruction, configured transform, stimulation
+parameters, formal connectome, and exact ordered final fiber axis all
+participate in the cache identity. A cache hit remains possible without an
+installed OSS environment, but an authorized miss must resolve and validate the
+official environment before starting an external process.
+
+The producer re-derives source hashes and the complete row cache key from the
+verified documents and fixed settings before execution. Nested paths must stay
+inside validated study subject roots or the repository root, and captured input
+signatures must remain unchanged through publication. Subject roots are keyed
+by subject ID, so one subject's locator cannot resolve through another subject's
+root. The producer recomputes its implementation attestation before execution
+and before return and requires equality with the backend version in the cache
+key. `OSS-DBSv2.yml` pins the accepted upstream commit, deterministic hashes
+for all non-generated installed OSS/Lead-DBS-interface package resources
+(including HOC/MOD scientific assets), normalized entrypoints, complete
+Conda/Python environment hashes, and exact MATLAB runtime identity. The local
+implementation attestation includes the transitive Lead-DBS/MATLAB bridge and
+coordinate helpers as well as the top-level producer, and the platform ANTs
+point-transform binary is part of that attestation. Authorized misses verify
+every installed lock immediately before and after each produced row; only
+executable paths may be cached.
+The converted OSS
+JSON must explicitly confirm the exact segmentation, `ColeCole4`, inactive DTI,
+rectangular zero-phase waveform, requested control/frequency/pulse width, and
+active pathway calculation. The pinned converter itself is the final electrode-
+model compatibility authority; a broader Lead-DBS GUI/model registry cannot
+pre-approve a model that the converter does not implement.
+All OSS console scripts are launched through the validated
+`environment_root/bin/python`; executable shebang text cannot select a second,
+unvalidated interpreter.
+
+Every external producer stage streams stdout/stderr to its work-directory log,
+records its new process-group ID immediately after `Popen`, uses a fixed
+internal deadline, and terminates the entire process group with a
+bounded TERM-to-KILL sequence on timeout. The original process-group ID is kept
+and receives SIGKILL after the grace period even if the group leader exits
+after SIGTERM, so resistant descendants cannot escape. These lifecycle values
+are internal producer safeguards and remain absent from public YAML and CLI.
+
+The generic producer checkpoint on 2026-07-15 passed the complete
+`dual_frequency` Python suite (`387 tests`, `224 subtests`), all 15 MATLAB OSS
+bridge/mapping/boundary/converter tests, and installed `ossdbsv2` lock
+resolution twice consecutively. Regression coverage includes non-Python OSS
+package resources, complete core Python producer-module attestation, pre/post-
+row environment validation, validated-environment entrypoint binding, and a
+SIGTERM-resistant descendant whose group leader exits first. The converter
+test runs only the bounded MAT-to-JSON conversion;
+no FEM, OSS simulation, formal model, or production YAML workflow was launched,
+and the overall `/goal` remains in progress.
 
 ## Spatial-Jitter Contract
 

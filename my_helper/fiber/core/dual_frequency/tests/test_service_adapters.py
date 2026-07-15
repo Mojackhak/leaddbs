@@ -410,6 +410,7 @@ class _ActivationProvider:
         self.sources = sources
         self.toolchain = toolchain
         self.fitting_calls = 0
+        self.toolchain_resolution_calls = 0
 
     def activation_runtime_request(
         self,
@@ -439,6 +440,7 @@ class _ActivationProvider:
         )
 
     def oss_producer_toolchain(self) -> _ActivationToolchain:
+        self.toolchain_resolution_calls += 1
         return self.toolchain
 
     def activation_fitting_request(
@@ -753,6 +755,7 @@ class ServiceAdapterTest(unittest.TestCase):
 
         self.assertEqual(len(seed_toolchain.calls), len(subject_ids) * 2)
         self.assertEqual(service_toolchain.calls, [])
+        self.assertEqual(provider.toolchain_resolution_calls, 0)
         self.assertEqual(provider.fitting_calls, 1)
         self.assertIsInstance(record, ActivationArtifact)
         self.assertEqual(record.final_model_id, final.identifier)
@@ -798,6 +801,7 @@ class ServiceAdapterTest(unittest.TestCase):
             record = result.decode_record()
 
         self.assertEqual(len(toolchain.calls), len(subject_ids) * 2)
+        self.assertEqual(provider.toolchain_resolution_calls, 1)
         self.assertEqual(provider.fitting_calls, 1)
         self.assertIsInstance(record, ActivationArtifact)
         self.assertEqual(record.final_model_id, final.identifier)
@@ -846,6 +850,7 @@ class ServiceAdapterTest(unittest.TestCase):
                 )(request)
 
         self.assertEqual(toolchain.calls, [])
+        self.assertEqual(provider.toolchain_resolution_calls, 0)
         self.assertEqual(provider.fitting_calls, 0)
 
     def test_missing_upstream_source_is_a_typed_dependency_state(self) -> None:

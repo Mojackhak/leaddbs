@@ -2346,23 +2346,150 @@ typed row request plus internally resolved Lead-DBS/OSS dependencies. It must:
    overlapping active contact identities instead of silently changing the
    simultaneous boundary;
 3. construct one summed simultaneous contact boundary for a continuous group,
-   or one single-source boundary for each alternating row;
+   or one single-source boundary for each alternating row; use the fixed
+   rectangular, zero-relative-phase waveform and reject a continuous voltage
+   group that mixes case-return and electrode-return sources because the MAT
+   converter cannot preserve that boundary exactly; every active voltage
+   contact has `fraction = 1.0`, current fractions sum to one independently
+   within each polarity, and `case` is the sole anode in either control mode;
 4. map left reconstruction/contact geometry with the exact transform declared
-   by `study_base.json`; calling a helper that rediscovers another template
-   transform is forbidden;
+   by `study_base.json`; the declared `Composite.nii.gz` remains the forward
+   image transform, while the provider deterministically requires, hashes, and
+   publishes its sibling `InverseComposite.nii.gz` as the exact point-coordinate
+   transform after x reflection, matching `ea_flip_lr_nonlinear`; MATLAB must
+   convert mirrored RAS coordinates to LPS, call the locked platform
+   `antsApplyTransformsToPoints` binary directly with the already selected
+   inverse field and no additional inversion, and convert the mapped
+   coordinates back to RAS. It may not rediscover another transform or
+   introduce an SPM/NIfTI affine round trip into this template-to-template
+   mapping;
+   the MATLAB bridge must load the exact request-supplied reconstruction MAT
+   directly and reject reconstruction-lead, electrode-model, or contact-count
+   mismatches, and must reject a directional lead implanted perfectly along the
+   x axis using the same geometry guard as the standard Lead-DBS OSS path; it
+   must not initialize patient options or scientific settings from
+   `ea_getptopts`, mutable GUI preferences, or directory discovery;
 5. prepare the configured formal connectome, restrict its local axon allocation
    to the exact ordered `final.valid_feature_axis`, and preserve an explicit
-   local-axon-to-final-fiber mapping;
+   local-axon-to-final-fiber mapping; the filtered Lead-DBS file uses contiguous
+   local IDs `1..K`, writes `idx` for those `K` fibers, and sets `origNum = K`
+   so OSS percentages use the realized candidate universe rather than the
+   parent connectome size; the parent fiber count remains mapping metadata only;
+   both standard Lead-DBS point layouts (`4xN`/`5xN` and `Nx4`/`Nx5`) are
+   accepted without changing the requested final-axis order; regardless of the
+   parent connectome label, this flattened filtered artifact is presented to
+   the OSS axon allocator as one internal pathway and must not trigger a
+   multi-tract parser;
+   creation of the filtered HDF5 file is exclusive at the filesystem open
+   operation, so a concurrent file cannot be truncated or overwritten; this
+   path-based materialization is runtime producer infrastructure and must not
+   widen the typed scientific-backend API to accept raw filesystem paths;
 6. run the fixed ten equidistant 1--4 micrometer pPAM samples with the internally
    resolved official `OSS-DBSv2` environment, aggregate activated counts as
    `count / 10`, and return one `OSSRowProduct` on the requested fiber axis; and
 7. use an isolated scientific-identity work directory and atomically publish
    only through `ContentAddressedCache`.
 
+Before any external process starts, the producer re-derives every per-source
+geometry, stimulation, frequency, and transform hash from the verified source
+documents, re-derives the aggregate row key from the exact scientific settings,
+and rejects any mismatch with the requested cache identity. Embedded subject,
+reconstruction, transform, and segmentation paths are confined to the
+validated study subject roots or repository root as appropriate. Source-file
+signatures are captured before execution and rechecked before publication so a
+concurrent replacement or mutation cannot be published under an older identity.
+Subject roots are keyed by `subject_id`; a locator for one subject cannot use a
+different configured subject's directory even when every embedded hash is
+self-consistent. The producer also recomputes its complete implementation
+attestation immediately before external execution and again before returning;
+that attestation must equal `settings.backend_version` used by the cache key.
+
+The producer must not inherit scientific values from mutable Lead-DBS GUI
+preferences. It freezes the currently verified template-space contract:
+
+```text
+template tissue segmentation = MNI152NLin2009bAsym/segmask.nii
+conductivity model = ColeCole4 isotropic
+patient DTI conductivity = disabled
+axon model = McNeal1976
+axon length = 10 mm
+```
+
+The serialized v7.3 MAT uses the converter-supported literal `no dti`; the
+pinned converter normalizes that sentinel to an empty `DTIPath` and
+`DiffusionTensorActive = false`. A MATLAB empty char array is forbidden because
+the converter can decode its zero dimensions as nonempty NUL characters.
+
+Hash the template segmentation, fixed settings, environment definition,
+producer/bridge implementation, reconstruction, configured transform,
+stimulation parameters, formal connectome, and exact ordered final fiber axis
+into the scientific identity. Cache lookup itself remains environment-free;
+only an authorized miss resolves and validates the installed OSS toolchain.
+`OSS-DBSv2.yml` pins the exact upstream commit and records deterministic hashes
+for every non-generated file in the installed `ossdbs` and
+`leaddbsinterface` package trees, including Python, HOC, MOD, session, and
+other packaged scientific resources. It also records normalized-entrypoint,
+complete Conda explicit-package, and complete Python-distribution hashes, plus
+the exact MATLAB version/release/architecture. The local producer attestation
+includes the complete executed Python producer modules and the transitive
+Lead-DBS/MATLAB coordinate, electrode-specification, and bridge helpers rather
+than only the top-level bridge. The consumed platform-specific ANTs
+point-transform executable is included as well. The pinned definition
+participates in the cache identity; an authorized miss verifies every installed
+lock and the MATLAB runtime immediately before and after every produced row.
+Cached command paths may be reused, but cached validation results may not. The
+converted JSON is also checked for template-space
+segmentation, `ColeCole4`, inactive diffusion tensors, rectangular zero-phase
+stimulation, requested frequency/pulse width/control mode, and active pathway
+modeling before OSS starts. Electrode support is accepted only when the pinned
+installed converter successfully resolves the exact reconstruction model; a
+separate broader Lead-DBS model list is not treated as converter authority.
+Every OSS console entrypoint is invoked explicitly through the validated
+`environment_root/bin/python`; its mutable script shebang is never allowed to
+select an unvalidated interpreter.
+
+External producer stages write stdout/stderr directly to bounded work-directory
+logs instead of retaining process output in memory. Each internal stage records
+its new process-group ID immediately after `Popen` and has a fixed non-public
+deadline; timeout uses that preserved ID, sends
+TERM to that complete group, waits a bounded grace interval, and then sends
+KILL to the same group even if the group leader has already exited. These
+operational limits are not exposed through model YAML or CLI and do not alter a
+successful scientific result.
+
 Neither the toolchain nor its tests may contain a subject, phase, program,
 scale, target, or endpoint allowlist. Endpoint membership is already closed by
 `EndpointInputRecord.included_subject_ids`; Target/component labels remain
 irrelevant to frequency classification and scientific cache identity.
+
+**Generic OSS producer checkpoint, 2026-07-15:**
+
+- The provider, content-addressed row materializer, runtime connectome subset
+  writer, installed-toolchain verifier, MATLAB canonical-row bridge, boundary
+  assembler, and explicit inverse-coordinate mapper are implemented without a
+  project subject/phase/program allowlist.
+- The complete generic Python suite passed `387 tests` and `224 subtests` in
+  the `leaddbs` Conda environment. The runtime dependency guard confirms that
+  path-based filtered-connectome materialization remains outside the public
+  scientific backend API. Regression coverage includes non-Python OSS package
+  resources, all core Python producer modules, pre/post-row environment
+  validation, validated-environment entrypoint binding, and a SIGTERM-resistant
+  descendant whose group leader exits before cleanup.
+- MATLAB contract tests passed `15 tests`: ten voltage/current boundary cases,
+  one exact-transform unit test, two parameter-preparation cases including the
+  directional x-axis rejection, one real asymmetric-coordinate integration
+  comparison against `ea_flip_lr_nonlinear` using the explicit
+  `InverseComposite.nii.gz` field, and one real pinned-converter MAT-to-JSON
+  smoke proving DTI is disabled and waveform settings are preserved.
+- The pinned installed environment resolved and validated
+  `prepareaxonmodel`, `leaddbs2ossdbs`, `ossdbs`, and
+  `run_pathway_activation` under `/opt/anaconda3/envs/ossdbsv2`. Converter JSON
+  validation tests cover both voltage and current modes and reject DTI or
+  control-mode drift before an external solver can start. Two consecutive live
+  validations passed, demonstrating that executable paths are reused without
+  caching the lock-validation result.
+- This checkpoint did not run FEM, OSS-DBSv2 simulation, formal resampling, a
+  production YAML workflow, or a scientific model rerun.
 
 - [ ] **Step 1: Write failing runtime-provider, codec, and generic-report tests**
 

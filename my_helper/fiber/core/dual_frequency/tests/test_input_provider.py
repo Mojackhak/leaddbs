@@ -19,7 +19,7 @@ from unittest import mock
 import nibabel as nib
 import numpy as np
 
-from dual_frequency.cache import ArtifactStore, RunScopedArtifactPublisher
+from dual_frequency.cache import ArtifactStore, RunScopedArtifactPublisher, sha256_file
 from dual_frequency.catalog import build_endpoint_catalog
 from dual_frequency.config import WorkflowOverrides, load_workflow
 from dual_frequency.contracts import (
@@ -122,6 +122,7 @@ def _source(
     delivery_mode: str,
     frequency_hz: float,
 ) -> StimulationSource:
+    first_global_contact = 0 if electrode_id == "lead-L" else 4
     return StimulationSource(
         subject_id=subject_id,
         phase_id=phase_id,
@@ -136,7 +137,10 @@ def _source(
         control_mode="voltage",
         amplitude=2.0,
         pulse_width_us=60.0,
-        contacts=(ContactRecord("case", "anode", 1.0), ContactRecord(0, "cathode", 1.0)),
+        contacts=(
+            ContactRecord("case", "anode", 1.0),
+            ContactRecord(first_global_contact, "cathode", 1.0),
+        ),
     )
 
 
@@ -282,6 +286,8 @@ class InputProviderTest(unittest.TestCase):
         )
         self.transform = self.root / "Composite.nii.gz"
         self.transform.write_bytes(b"synthetic-transform")
+        self.inverse_transform = self.root / "InverseComposite.nii.gz"
+        self.inverse_transform.write_bytes(b"synthetic-inverse-transform")
         self.configuration = load_workflow(
             WORKFLOW_PATH,
             WorkflowOverrides(
@@ -305,8 +311,8 @@ class InputProviderTest(unittest.TestCase):
             subject_id = f"participant-{index + 1:02d}"
             subject_dir = self.root / subject_id
             electrodes = (
-                ElectrodeDefinition("lead-L", "L", "Synthetic", 4, 1),
-                ElectrodeDefinition("lead-R", "R", "Synthetic", 4, 2),
+                ElectrodeDefinition("lead-L", "L", "Synthetic", 4, 2),
+                ElectrodeDefinition("lead-R", "R", "Synthetic", 4, 1),
             )
             reference_sources: list[StimulationSource] = []
             addon_sources: list[StimulationSource] = []
@@ -378,6 +384,7 @@ class InputProviderTest(unittest.TestCase):
                         _program(subject_id, "T2", 1, tuple(reference_sources), 30),
                         _program(subject_id, "T3", 2, tuple(addon_sources), 20),
                     ),
+                    electrode_order=("lead-L", "lead-R"),
                 )
             )
         return StudyBaseRecord(
@@ -451,6 +458,9 @@ class InputProviderTest(unittest.TestCase):
                     else:
                         expanded: list[StimulationSource] = []
                         for source in sources:
+                            second_global_contact = (
+                                1 if source.electrode_id == "lead-L" else 5
+                            )
                             expanded.extend(
                                 (
                                     dataclasses.replace(
@@ -465,7 +475,11 @@ class InputProviderTest(unittest.TestCase):
                                         component_id="target_stn",
                                         contacts=(
                                             ContactRecord("case", "anode", 1.0),
-                                            ContactRecord(1, "cathode", 1.0),
+                                            ContactRecord(
+                                                second_global_contact,
+                                                "cathode",
+                                                1.0,
+                                            ),
                                         ),
                                     ),
                                     dataclasses.replace(
@@ -485,7 +499,11 @@ class InputProviderTest(unittest.TestCase):
                                         component_id="target_stn",
                                         contacts=(
                                             ContactRecord("case", "anode", 1.0),
-                                            ContactRecord(1, "cathode", 1.0),
+                                            ContactRecord(
+                                                second_global_contact,
+                                                "cathode",
+                                                1.0,
+                                            ),
                                         ),
                                     ),
                                     dataclasses.replace(
@@ -998,7 +1016,7 @@ class InputProviderTest(unittest.TestCase):
     def test_activation_sources_use_frequency_and_expand_dynamic_groups(self) -> None:
         study = self._activation_study()
         configuration = self._activation_configuration((SCALE_ID,))
-        provider, catalog, _store, artifact_root = self._provider(
+        provider, catalog, artifact_store, artifact_root = self._provider(
             study,
             configuration=configuration,
         )
@@ -1064,6 +1082,82 @@ class InputProviderTest(unittest.TestCase):
         }
         self.assertEqual(selected_components, {"target_stn", "target_snr"})
 
+        primary_sources = tuple(
+            source
+            for source in request.sources
+            if source.subject_id == endpoint_input.included_subject_ids[0]
+            and source.frequency_group_id == "reference-group"
+            and source.source_id == "reference-group-source"
+        )
+        self.assertEqual({source.side for source in primary_sources}, {"L", "R"})
+        for canonical_source in primary_sources:
+            geometry = artifact_store.materialize_document(
+                canonical_source.geometry,
+                expected_kind="oss_stimulation_geometry_recipe",
+            )
+            parameters_ref = next(
+                artifact
+                for artifact in canonical_source.input_artifacts
+                if artifact.kind == "oss_stimulation_source_parameters"
+            )
+            locator_ref = next(
+                artifact
+                for artifact in canonical_source.input_artifacts
+                if artifact.kind == "oss_stimulation_source_locator"
+            )
+            parameters = artifact_store.materialize_document(
+                parameters_ref,
+                expected_kind="oss_stimulation_source_parameters",
+            )
+            locator = artifact_store.materialize_document(
+                locator_ref,
+                expected_kind="oss_stimulation_source_locator",
+            )
+            self.assertEqual(geometry["contact_count"], 4)
+            self.assertEqual(
+                geometry["reconstruction_lead_id"],
+                2 if canonical_source.side == "L" else 1,
+            )
+            self.assertEqual(
+                geometry["template_segmask_uri"],
+                (
+                    REPOSITORY_ROOT
+                    / "templates"
+                    / "space"
+                    / "MNI152NLin2009bAsym"
+                    / "segmask.nii"
+                ).as_uri(),
+            )
+            self.assertEqual(parameters["source_id"], canonical_source.source_id)
+            self.assertEqual(
+                parameters["contacts"],
+                [
+                    {"contact": "case", "polarity": "anode", "fraction": 1.0},
+                    {"contact": 1, "polarity": "cathode", "fraction": 1.0},
+                ],
+            )
+            self.assertEqual(
+                locator["subject_dir_uri"],
+                provider._subjects[canonical_source.subject_id].leaddbs_subject_dir.as_uri(),
+            )
+            if canonical_source.side == "L":
+                self.assertEqual(
+                    locator["transform_uri"],
+                    self.inverse_transform.resolve().as_uri(),
+                )
+                self.assertEqual(
+                    locator["transform_sha256"],
+                    sha256_file(self.inverse_transform),
+                )
+                self.assertEqual(
+                    canonical_source.transform_hash,
+                    sha256_file(self.inverse_transform),
+                )
+            else:
+                self.assertIsNone(locator["transform_uri"])
+            self.assertNotIn("component_id", parameters)
+            self.assertNotIn("source_label", parameters)
+
         relabeled_subjects = tuple(
             dataclasses.replace(
                 subject,
@@ -1104,6 +1198,27 @@ class InputProviderTest(unittest.TestCase):
             self._activation_source_signature(request),
             self._activation_source_signature(relabeled_request),
         )
+
+    def test_activation_requires_explicit_inverse_coordinate_transform(self) -> None:
+        self.inverse_transform.unlink()
+        study = self._activation_study()
+        configuration = self._activation_configuration((SCALE_ID,))
+        provider, catalog, _artifact_store, artifact_root = self._provider(
+            study,
+            configuration=configuration,
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeInputProviderError,
+            "requires the sibling InverseComposite.nii.gz",
+        ):
+            self._activation_request_for_scale(
+                provider,
+                catalog,
+                artifact_root,
+                SCALE_ID,
+                "missing-inverse-transform",
+            )
 
     def test_activation_identity_is_scale_neutral_and_final_axis_locked(self) -> None:
         study = self._activation_study()

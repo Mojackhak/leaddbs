@@ -61,6 +61,7 @@ from .activation_provider import (
     CanonicalStimulationSource,
     OSSActivationRuntimeRequest,
 )
+from .oss_toolchain import LeadDBSOSSProducerToolchain, oss_backend_version
 
 
 _ACTIVE_INPUT_HASHES: ContextVar[dict[str, str] | None] = ContextVar(
@@ -625,14 +626,92 @@ class StudyRuntimeInputProvider:
         return GroupResolution(tuple(selected), None)
 
     def _oss_backend_version(self) -> str:
-        environment = (
-            Path(__file__).resolve().parents[5]
-            / "classes"
-            / "conda_utils"
-            / "environments"
-            / "OSS-DBSv2.yml"
+        repository_root = Path(__file__).resolve().parents[5]
+        return oss_backend_version(
+            repository_root,
+            file_hasher=self._path_hash,
         )
-        return f"environment-sha256-{self._path_hash(environment)}"
+
+    def oss_producer_toolchain(self) -> LeadDBSOSSProducerToolchain:
+        """Return the project-neutral producer used only for authorized OSS misses."""
+
+        if self._artifact_store is None:
+            raise RuntimeInputProviderError(
+                "artifact_store is required to construct the OSS producer toolchain"
+            )
+        repository_root = Path(__file__).resolve().parents[5]
+        formal = self.configuration.normative_fiber.formal_connectome
+        return LeadDBSOSSProducerToolchain(
+            artifact_store=self._artifact_store,
+            connectome_path=formal.path,
+            connectome_label=formal.label,
+            work_root=self._work_root / "oss-producer",
+            repository_root=repository_root,
+            environment_file=(
+                repository_root
+                / "classes"
+                / "conda_utils"
+                / "environments"
+                / "OSS-DBSv2.yml"
+            ),
+            subject_roots={
+                subject.subject_id: subject.leaddbs_subject_dir
+                for subject in self.study.subjects
+            },
+        )
+
+    @staticmethod
+    def _side_local_contact(
+        subject: SubjectRecord,
+        electrode_id: str,
+        contact: int | str,
+    ) -> int | str:
+        if isinstance(contact, str):
+            if contact.strip().lower() != "case":
+                raise RuntimeInputProviderError(
+                    "stimulation contact must be a global integer or case"
+                )
+            return "case"
+        if isinstance(contact, bool):
+            raise RuntimeInputProviderError("stimulation contact cannot be boolean")
+        electrode_by_id = {item.electrode_id: item for item in subject.electrodes}
+        offset = 0
+        for candidate_id in subject.electrode_order:
+            try:
+                candidate = electrode_by_id[candidate_id]
+            except KeyError as exc:
+                raise RuntimeInputProviderError(
+                    "subject electrode order differs from its electrode definitions"
+                ) from exc
+            if candidate_id == electrode_id:
+                local_zero_based = int(contact) - offset
+                if not 0 <= local_zero_based < candidate.contact_count:
+                    raise RuntimeInputProviderError(
+                        "global stimulation contact is outside its declared electrode"
+                    )
+                return local_zero_based + 1
+            offset += candidate.contact_count
+        raise RuntimeInputProviderError(
+            f"electrode {electrode_id!r} is absent from subject electrode order"
+        )
+
+    @staticmethod
+    def _oss_coordinate_transform_path(forward_image_transform: Path) -> Path:
+        """Resolve the explicit Lead-DBS inverse field used for point coordinates."""
+
+        forward = Path(forward_image_transform).expanduser().resolve()
+        if forward.name != "Composite.nii.gz":
+            raise RuntimeInputProviderError(
+                "OSS coordinate mapping requires a Lead-DBS Composite.nii.gz "
+                "image transform"
+            )
+        inverse = forward.with_name("InverseComposite.nii.gz")
+        if not inverse.is_file():
+            raise RuntimeInputProviderError(
+                "OSS coordinate mapping requires the sibling "
+                f"InverseComposite.nii.gz: {inverse}"
+            )
+        return inverse.resolve()
 
     def _activation_sources(
         self,
@@ -651,8 +730,19 @@ class StudyRuntimeInputProvider:
             else "addon"
         )
         profile = self._profile(endpoint)
-        transform_path = Path(self.study.spatial.left_to_right_transform).resolve()
-        transform_hash = self._path_hash(transform_path)
+        repository_root = Path(__file__).resolve().parents[5]
+        template_segmask = (
+            repository_root
+            / "templates"
+            / "space"
+            / self.study.spatial.canonical_space
+            / "segmask.nii"
+        ).resolve()
+        template_segmask_hash = self._path_hash(template_segmask)
+        coordinate_transform_path = self._oss_coordinate_transform_path(
+            self.study.spatial.left_to_right_transform
+        )
+        coordinate_transform_hash = self._path_hash(coordinate_transform_path)
         identity_transform_hash = canonical_hash(
             {"contract": "dual_frequency_oss_identity_transform_v1"}
         )
@@ -698,7 +788,7 @@ class StudyRuntimeInputProvider:
                 reconstruction_hash = self._path_hash(subject.electrode_reconstruction)
                 canonicalization = "left_to_right" if side == "L" else "identity"
                 source_transform_hash = (
-                    transform_hash if side == "L" else identity_transform_hash
+                    coordinate_transform_hash if side == "L" else identity_transform_hash
                 )
 
                 for source in sorted(group_sources, key=lambda item: str(item.source_id)):
@@ -718,7 +808,10 @@ class StudyRuntimeInputProvider:
                             "schema_version": "dual_frequency_oss_geometry_recipe_v1",
                             "electrode_model": electrode.electrode_model,
                             "reconstruction_lead_id": electrode.reconstruction_lead_id,
+                            "contact_count": electrode.contact_count,
                             "reconstruction_sha256": reconstruction_hash,
+                            "template_segmask_uri": template_segmask.as_uri(),
+                            "template_segmask_sha256": template_segmask_hash,
                         },
                         kind="oss_stimulation_geometry_recipe",
                     )
@@ -726,13 +819,18 @@ class StudyRuntimeInputProvider:
                         f"oss_source_parameters_{source_identity}.json",
                         {
                             "schema_version": "dual_frequency_oss_source_parameters_v1",
+                            "source_id": source.source_id,
                             "control_mode": source.control_mode,
                             "amplitude": float(source.amplitude),
                             "pulse_width_us": float(source.pulse_width_us),
                             "frequency_hz": float(source.frequency_hz),
                             "contacts": [
                                 {
-                                    "contact": contact.contact,
+                                    "contact": self._side_local_contact(
+                                        subject,
+                                        electrode_id,
+                                        contact.contact,
+                                    ),
                                     "polarity": contact.polarity,
                                     "fraction": float(contact.fraction),
                                 }
@@ -751,10 +849,13 @@ class StudyRuntimeInputProvider:
                             "electrode_id": electrode_id,
                             "frequency_group_id": group_id,
                             "source_id": source.source_id,
+                            "subject_dir_uri": subject.leaddbs_subject_dir.as_uri(),
                             "reconstruction_uri": subject.electrode_reconstruction.as_uri(),
                             "reconstruction_sha256": reconstruction_hash,
                             "transform_uri": (
-                                transform_path.as_uri() if side == "L" else None
+                                coordinate_transform_path.as_uri()
+                                if side == "L"
+                                else None
                             ),
                             "transform_sha256": source_transform_hash,
                             "canonicalization": canonicalization,

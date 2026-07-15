@@ -7,7 +7,18 @@ dependencies:
   - python=3.11
   - pip=23.3.1
   - pip:
-    - git+https://github.com/SFB-ELAINE/OSS-DBSv2.git
+    - git+https://github.com/SFB-ELAINE/OSS-DBSv2.git@992062905cdfde044b3f480892dbcd1e31fff164
 
 variables:
-  env_version: '20260430'
+  env_version: '20260715'
+  ossdbs_commit: '992062905cdfde044b3f480892dbcd1e31fff164'
+  ossdbs_source_tree_sha256: 'e7af7099ee114782a06cc4fd687cb32ff24da91f2b7482cba904eb3a6d764e6c'
+  ossdbs_entrypoints_sha256: '62a99bd5f3e3386bb190ba160c0718879c7c8cbedceb6adfbd044623b3504332'
+  ossdbs_conda_explicit_sha256: '2f3e71236bac38d8d86d84acb0b241a193ced6cc8d33f494579414f3590a12cc'
+  ossdbs_conda_explicit_count: '18'
+  ossdbs_pip_freeze_sha256: 'cca3de8211466ea5e5c02b5af2e9e29fec31ec92f065c390066bad53a4f864b5'
+  ossdbs_pip_freeze_count: '37'
+  matlab_version: '24.2.0.2863752 (R2024b) Update 5'
+  matlab_release: '2024b'
+  matlab_computer: 'MACA64'
+  ants_apply_transforms_to_points_sha256: 'a454b72cadc833e8438880d2cc09c5c3063691156efa0e0a74e9c3f521e62daf'

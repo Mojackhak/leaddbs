@@ -1257,7 +1257,11 @@ def _run_activation(request: TaskExecutionRequest) -> ServiceResult:
             "activation_runtime_request must return OSSActivationRuntimeRequest"
         )
     toolchain_method = getattr(request.provider, "oss_producer_toolchain", None)
-    toolchain = toolchain_method() if callable(toolchain_method) else None
+    toolchain = (
+        toolchain_method()
+        if request.allow_expensive_producers and callable(toolchain_method)
+        else None
+    )
     materialized_rows = OSSActivationProvider(
         request.scientific_cache,
         producer_toolchain=toolchain,

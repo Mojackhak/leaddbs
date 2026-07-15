@@ -342,6 +342,17 @@ class ArtifactStoreTest(unittest.TestCase):
         self.path = self.allowed / "array.npy"
         np.save(self.path, self.array, allow_pickle=False)
         self.artifact = self._artifact(self.path)
+        self.document_payload = {
+            "nested": {"enabled": True, "value": None},
+            "sequence": [3, 1, 2],
+            "status": "complete",
+        }
+        self.document_path = self.allowed / "document.json"
+        self.document_path.write_text(
+            json.dumps(self.document_payload, sort_keys=True),
+            encoding="utf-8",
+        )
+        self.document_artifact = self._document_artifact(self.document_path)
         self.store = ArtifactStore((self.allowed,))
 
     def tearDown(self) -> None:
@@ -361,6 +372,33 @@ class ArtifactStoreTest(unittest.TestCase):
         return ArtifactRef(
             kind="exposure_matrix",
             schema_version="array_v1",
+            uri=path.as_uri(),
+            sha256=sha256_file(path),
+            dtype=dtype,
+            shape=shape,
+            axis_refs=axes,
+            axis_hashes=tuple(axis.sha256 for axis in axes),
+            units=units,
+            space=space,
+            producer_id="cache_test",
+            producer_version="1",
+        )
+
+    def _document_artifact(
+        self,
+        path: Path,
+        *,
+        kind: str = "run_record",
+        schema_version: str = "dual_frequency_document_v1",
+        dtype: str | None = None,
+        shape: tuple[int, ...] | None = None,
+        axes: tuple[AxisRef, ...] = (),
+        units: str | None = None,
+        space: str | None = None,
+    ) -> ArtifactRef:
+        return ArtifactRef(
+            kind=kind,
+            schema_version=schema_version,
             uri=path.as_uri(),
             sha256=sha256_file(path),
             dtype=dtype,
@@ -457,6 +495,92 @@ class ArtifactStoreTest(unittest.TestCase):
         )
         with self.assertRaises(ArtifactValidationError):
             self._materialize(dishonest)
+
+    def test_materializes_verified_json_document_without_mutation(self) -> None:
+        original_bytes = self.document_path.read_bytes()
+
+        output = self.store.materialize_document(
+            self.document_artifact,
+            expected_kind="run_record",
+        )
+
+        self.assertEqual(output, self.document_payload)
+        self.assertIsInstance(output, dict)
+        self.assertEqual(self.document_path.read_bytes(), original_bytes)
+
+    def test_document_rejects_non_artifact_and_wrong_schema(self) -> None:
+        with self.assertRaises(TypeError):
+            self.store.materialize_document(
+                self.document_path,
+                expected_kind="run_record",
+            )
+
+        wrong_schema = dataclasses.replace(
+            self.document_artifact,
+            schema_version="dual_frequency_document_v2",
+        )
+        with self.assertRaises(ArtifactValidationError):
+            self.store.materialize_document(wrong_schema, expected_kind="run_record")
+
+    def test_document_rejects_wrong_kind(self) -> None:
+        with self.assertRaises(ArtifactValidationError):
+            self.store.materialize_document(
+                self.document_artifact,
+                expected_kind="different_record",
+            )
+
+    def test_document_rejects_forbidden_metadata(self) -> None:
+        item_axis = AxisRef("items", 1, "c" * 64)
+        cases = (
+            dataclasses.replace(
+                self.document_artifact,
+                dtype="float64",
+                shape=(1,),
+                axis_refs=(item_axis,),
+                axis_hashes=(item_axis.sha256,),
+            ),
+            dataclasses.replace(self.document_artifact, units="score"),
+            dataclasses.replace(self.document_artifact, space="native"),
+        )
+        for artifact in cases:
+            with self.subTest(artifact=artifact), self.assertRaises(
+                ArtifactValidationError
+            ):
+                self.store.materialize_document(artifact, expected_kind="run_record")
+
+    def test_document_rejects_hash_corruption(self) -> None:
+        corrupted_ref = dataclasses.replace(self.document_artifact, sha256="f" * 64)
+        with self.assertRaises(ArtifactValidationError):
+            self.store.materialize_document(corrupted_ref, expected_kind="run_record")
+
+    def test_document_rejects_out_of_root_file(self) -> None:
+        outside_path = self.outside / "document.json"
+        outside_path.write_text('{"status":"complete"}', encoding="utf-8")
+        outside_artifact = self._document_artifact(outside_path)
+
+        with self.assertRaises(ArtifactValidationError):
+            self.store.materialize_document(outside_artifact, expected_kind="run_record")
+
+    def test_document_rejects_non_object_json(self) -> None:
+        path = self.allowed / "array.json"
+        path.write_text('["not", "an", "object"]', encoding="utf-8")
+        artifact = self._document_artifact(path)
+
+        with self.assertRaises(ArtifactValidationError):
+            self.store.materialize_document(artifact, expected_kind="run_record")
+
+    def test_document_rejects_invalid_utf8_and_json(self) -> None:
+        cases = {
+            "invalid-utf8.json": b'{"value":"\xff"}',
+            "invalid-json.json": b'{"status":',
+        }
+        for filename, content in cases.items():
+            with self.subTest(filename=filename):
+                path = self.allowed / filename
+                path.write_bytes(content)
+                artifact = self._document_artifact(path)
+                with self.assertRaises(ArtifactValidationError):
+                    self.store.materialize_document(artifact, expected_kind="run_record")
 
 
 if __name__ == "__main__":

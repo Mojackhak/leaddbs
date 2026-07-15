@@ -380,7 +380,7 @@ class ContentAddressedCache:
 
 
 class ArtifactStore:
-    """Materialize verified NumPy ArtifactRef arrays from configured roots."""
+    """Materialize verified ArtifactRef payloads from configured roots."""
 
     def __init__(self, allowed_roots: Sequence[str | Path]) -> None:
         roots = tuple(Path(root).expanduser().resolve() for root in allowed_roots)
@@ -457,6 +457,54 @@ class ArtifactStore:
             raise ArtifactValidationError("materialized array metadata differs from ArtifactRef")
         array.flags.writeable = False
         return array
+
+    def materialize_document(
+        self,
+        artifact: ArtifactRef,
+        *,
+        expected_kind: str,
+    ) -> dict[str, Any]:
+        """Load one JSON object only after metadata, path, and content verification."""
+
+        if not isinstance(artifact, ArtifactRef):
+            raise TypeError("artifact must be an ArtifactRef; bare paths are forbidden")
+        if artifact.schema_version != "dual_frequency_document_v1":
+            raise ArtifactValidationError("unsupported document artifact schema")
+        if artifact.kind != expected_kind:
+            raise ArtifactValidationError("artifact kind does not match the explicit requirement")
+        if (
+            artifact.dtype is not None
+            or artifact.shape is not None
+            or artifact.axis_refs
+            or artifact.axis_hashes
+            or artifact.units is not None
+            or artifact.space is not None
+        ):
+            raise ArtifactValidationError(
+                "document artifacts cannot declare dtype, shape, axes, units, or space"
+            )
+
+        path = self._safe_file_path(artifact.uri)
+        if path.suffix != ".json":
+            raise ArtifactValidationError("ArtifactStore supports only .json document artifacts")
+        try:
+            with path.open("rb") as handle:
+                digest = sha256_stream(handle)
+                if digest != artifact.sha256:
+                    raise ArtifactValidationError(
+                        "artifact file SHA-256 does not match ArtifactRef"
+                    )
+                handle.seek(0)
+                payload = json.loads(handle.read().decode("utf-8"))
+        except ArtifactValidationError:
+            raise
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ArtifactValidationError(
+                f"artifact document cannot be loaded as UTF-8 JSON: {path}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise ArtifactValidationError("artifact document must contain one JSON object")
+        return payload
 
     def _safe_file_path(self, uri: str) -> Path:
         parsed = urlsplit(uri)

@@ -278,6 +278,7 @@ class OSSProducerRequest:
     frequency_group_id: str
     delivery_mode: str
     sources: tuple[CanonicalStimulationSource, ...]
+    settings: OSSScientificSettings
     canonical_space: str = RIGHT_CANONICAL_SPACE
 
     def __post_init__(self) -> None:
@@ -321,6 +322,44 @@ class OSSProducerRequest:
                 "producer sources must match the row subject, side, group, and mode"
             )
         object.__setattr__(self, "sources", sources)
+        if not isinstance(self.settings, OSSScientificSettings):
+            raise ActivationProviderError(
+                "producer settings must be OSSScientificSettings"
+            )
+        expected_hashes = {
+            "geometry_hash": _aggregate_hash(
+                "geometry",
+                delivery_mode,
+                sources,
+                tuple(source.geometry_hash for source in sources),
+            ),
+            "stimulation_hash": _aggregate_hash(
+                "stimulation",
+                delivery_mode,
+                sources,
+                tuple(source.stimulation_hash for source in sources),
+            ),
+            "component_frequency_hash": _aggregate_hash(
+                "component_frequency",
+                delivery_mode,
+                sources,
+                tuple(source.component_frequency_hash for source in sources),
+            ),
+            "transform_hash": _aggregate_hash(
+                "transform",
+                delivery_mode,
+                sources,
+                tuple(source.transform_hash for source in sources),
+            ),
+        }
+        if any(getattr(self.row, field) != expected for field, expected in expected_hashes.items()):
+            raise ActivationProviderError(
+                "producer row hashes differ from its exact source artifacts"
+            )
+        if build_oss_row_cache_key(self.row, self.settings).digest != self.scientific_identity:
+            raise ActivationProviderError(
+                "producer scientific_identity differs from the complete row cache key"
+            )
         if self.canonical_space != RIGHT_CANONICAL_SPACE:
             raise ActivationProviderError(
                 "OSS producer requests must use right_canonical space"
@@ -542,6 +581,7 @@ class OSSActivationProvider:
                         frequency_group_id=source_batch[0].frequency_group_id,
                         delivery_mode=delivery_mode,
                         sources=source_batch,
+                        settings=request.settings,
                     )
                 )
         return tuple(output)

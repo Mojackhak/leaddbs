@@ -17,6 +17,7 @@ import numpy as np
 import dual_frequency.backends.activation.fitting as ppam_fitting
 from dual_frequency.backends.activation import (
     MissingAcceptanceFixture,
+    OSSBackendError,
     OSSRowBatchRequest,
     OSSRowInput,
     OSSRowMaterializer,
@@ -214,6 +215,20 @@ def _addon_final(
 
 
 class OSSRowIdentityTest(unittest.TestCase):
+    def test_v1_settings_reject_mutable_scientific_defaults(self) -> None:
+        invalid_settings = (
+            {"conductivity_model": "Constant"},
+            {"conductivity_mode": "anisotropic"},
+            {"patient_dti_enabled": True},
+            {"axon_model": "MRG2002"},
+            {"axon_length_mm": 20.0},
+            {"waveform": "sine"},
+            {"relative_phase": "variable"},
+        )
+        for changes in invalid_settings:
+            with self.subTest(changes=changes), self.assertRaises(OSSBackendError):
+                OSSScientificSettings(backend_version="2.2.0", **changes)
+
     def test_key_excludes_endpoint_and_execution_identity_by_construction(self) -> None:
         fibers = AxisRef("fibers", 3, "a" * 64)
         row = _rows(("sub-01",), fibers, np.arange(3, dtype=np.int64))[0]
