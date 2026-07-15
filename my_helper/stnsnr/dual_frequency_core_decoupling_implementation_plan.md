@@ -1831,6 +1831,23 @@ git commit -m "feat: add reusable dual-frequency activation backend"
 **Interfaces:**
 - Produces generic endpoint/run reports and the production-only generic registry.
 
+**Clarification-gated boundary, 2026-07-15:**
+
+- The current executor request does not carry validated study/configuration/
+  catalog inputs, no production service-adapter layer exists, persisted
+  `ServiceResult` values do not restore typed scientific records, and Task 13
+  formal/sensitivity backends are not complete. Therefore a production default
+  registry cannot be switched by registering the current kernels directly.
+- Endpoint/run report orchestration, a typed realized/fallback/no-final decision
+  record, and the ordering of Task 13 versus the input-provider/service-adapter
+  phase require explicit confirmation before implementation.
+- While those choices remain open, only architecture-independent prerequisites
+  may proceed: a pure artifact index over exact current-run `ArtifactRef` values,
+  runtime import/dependency isolation tests, and read-only legacy move auditing.
+  Do not implement an implicit input provider, retain an empty registry as a
+  production default, move the predecessor package, or choose a report
+  orchestration model before confirmation.
+
 - [ ] **Step 1: Write failing generic-report tests**
 
 Reports must contain reference/add-on fields and reject HF/ULF compatibility
