@@ -1,0 +1,479 @@
+"""Atomic scientific-cache publication and strict array materialization."""
+
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+import shutil
+import tempfile
+from typing import Mapping, Sequence
+from urllib.parse import unquote, urlsplit
+
+import numpy as np
+
+from ..contracts.records import ArtifactRef, AxisRef
+from .identity import CacheIdentityError, ScientificCacheKey, sha256_file, sha256_stream
+
+
+MANIFEST_NAME = "manifest.json"
+
+
+class CacheError(RuntimeError):
+    """Base error for cache publication and materialization failures."""
+
+
+class CacheIdentityMismatch(CacheError):
+    """Raised when an occupied cache identity contains different content."""
+
+
+class CacheCorruption(CacheIdentityMismatch):
+    """Raised when persisted cache content does not match its manifest."""
+
+
+class ArtifactValidationError(CacheError):
+    """Raised when an artifact is unsafe or violates expected array semantics."""
+
+
+def _token(value: str, field: str) -> str:
+    token = str(value).strip()
+    if not token:
+        raise CacheIdentityMismatch(f"{field} must be nonempty")
+    return token
+
+
+def _sha256(value: str, field: str) -> str:
+    digest = str(value).strip().lower()
+    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        raise CacheIdentityMismatch(f"{field} must be a 64-character SHA-256 digest")
+    return digest
+
+
+def _relative_path(value: str) -> str:
+    text = _token(value, "cache relative path")
+    path = PurePosixPath(text)
+    if (
+        path.is_absolute()
+        or "\\" in text
+        or text != path.as_posix()
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise CacheIdentityMismatch(f"unsafe cache relative path {value!r}")
+    if path.as_posix() == MANIFEST_NAME:
+        raise CacheIdentityMismatch(f"{MANIFEST_NAME} is reserved")
+    return path.as_posix()
+
+
+@dataclass(frozen=True, order=True, slots=True)
+class CacheItem:
+    """One stable item identity inside an ordered cache axis."""
+
+    item_id: str
+    sha256: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "item_id", _token(self.item_id, "item_id"))
+        object.__setattr__(self, "sha256", _sha256(self.sha256, "item sha256"))
+
+    def as_dict(self) -> dict[str, str]:
+        return {"item_id": self.item_id, "sha256": self.sha256}
+
+
+@dataclass(frozen=True, order=True, slots=True)
+class CachedFile:
+    """One file covered by a complete cache manifest."""
+
+    relative_path: str
+    sha256: str
+    size_bytes: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "relative_path", _relative_path(self.relative_path))
+        object.__setattr__(self, "sha256", _sha256(self.sha256, "file sha256"))
+        object.__setattr__(self, "size_bytes", int(self.size_bytes))
+        if self.size_bytes < 0:
+            raise CacheIdentityMismatch("file size_bytes must be nonnegative")
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "relative_path": self.relative_path,
+            "sha256": self.sha256,
+            "size_bytes": self.size_bytes,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CacheEntry:
+    """Validated cache entry returned by publication or lookup."""
+
+    path: Path
+    key: ScientificCacheKey
+    files: tuple[CachedFile, ...]
+    items: tuple[CacheItem, ...]
+    reused: bool
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.path / MANIFEST_NAME
+
+    def file_path(self, relative_path: str) -> Path:
+        normalized = _relative_path(relative_path)
+        if normalized not in {item.relative_path for item in self.files}:
+            raise KeyError(normalized)
+        return self.path / normalized
+
+
+@dataclass(frozen=True, slots=True)
+class ReindexedView:
+    """A deterministic reordering over an otherwise identical item axis."""
+
+    scientific_identity: str
+    source_items: tuple[CacheItem, ...]
+    view_items: tuple[CacheItem, ...]
+    source_indices: tuple[int, ...]
+
+    def as_manifest(self) -> dict[str, object]:
+        return {
+            "schema_version": "scientific_cache_reindexed_view_v1",
+            "scientific_identity": self.scientific_identity,
+            "source_items": [item.as_dict() for item in self.source_items],
+            "view_items": [item.as_dict() for item in self.view_items],
+            "source_indices": list(self.source_indices),
+        }
+
+
+def _cache_items(values: Sequence[CacheItem | tuple[str, str]]) -> tuple[CacheItem, ...]:
+    items = tuple(value if isinstance(value, CacheItem) else CacheItem(*value) for value in values)
+    identifiers = tuple(item.item_id for item in items)
+    if len(set(identifiers)) != len(identifiers):
+        raise CacheIdentityMismatch("cache item IDs must be unique")
+    return items
+
+
+def _write_json(path: Path, payload: Mapping[str, object]) -> None:
+    path.write_text(
+        json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+class ContentAddressedCache:
+    """Publish and validate immutable cache entries by scientific identity."""
+
+    def __init__(self, root: str | Path) -> None:
+        self.root = Path(root).expanduser().resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
+        if not self.root.is_dir():
+            raise CacheError(f"cache root is not a directory: {self.root}")
+
+    def entry_path(self, key: ScientificCacheKey) -> Path:
+        if not isinstance(key, ScientificCacheKey):
+            raise TypeError("key must be a ScientificCacheKey")
+        return self.root / key.digest[:2] / key.digest
+
+    def publish(
+        self,
+        key: ScientificCacheKey,
+        files: Mapping[str, str | Path],
+        *,
+        items: Sequence[CacheItem | tuple[str, str]] = (),
+    ) -> CacheEntry:
+        """Atomically publish files or reuse an exact existing entry."""
+
+        if not isinstance(key, ScientificCacheKey):
+            raise TypeError("key must be a ScientificCacheKey")
+        if not isinstance(files, Mapping) or not files:
+            raise CacheIdentityMismatch("files must be a nonempty relative-path mapping")
+        normalized_sources: dict[str, Path] = {}
+        for relative_path, source in files.items():
+            normalized = _relative_path(relative_path)
+            if normalized in normalized_sources:
+                raise CacheIdentityMismatch("cache file paths must be unique")
+            source_path = Path(source).expanduser().resolve()
+            if not source_path.is_file():
+                raise CacheIdentityMismatch(f"cache source is not a file: {source_path}")
+            normalized_sources[normalized] = source_path
+        normalized_items = _cache_items(items)
+
+        destination = self.entry_path(key)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(
+            tempfile.mkdtemp(prefix=f".{key.digest}.tmp-", dir=destination.parent)
+        )
+        try:
+            cached_files: list[CachedFile] = []
+            for relative_path, source in sorted(normalized_sources.items()):
+                target = staging / relative_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                cached_files.append(
+                    CachedFile(relative_path, sha256_file(target), target.stat().st_size)
+                )
+            expected_files = tuple(cached_files)
+            payload = self._manifest_payload(key, expected_files, normalized_items)
+            _write_json(staging / MANIFEST_NAME, payload)
+
+            if destination.exists():
+                existing = self._load_entry(destination, expected_key=key, reused=True)
+                self._require_exact_publication(existing, expected_files, normalized_items)
+                return existing
+
+            try:
+                os.replace(staging, destination)
+            except OSError:
+                if not destination.exists():
+                    raise
+                existing = self._load_entry(destination, expected_key=key, reused=True)
+                self._require_exact_publication(existing, expected_files, normalized_items)
+                return existing
+            return self._load_entry(destination, expected_key=key, reused=False)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+
+    def resolve(self, key: ScientificCacheKey) -> CacheEntry | None:
+        """Return a validated cache entry, or None when it is absent."""
+
+        destination = self.entry_path(key)
+        if not destination.exists():
+            return None
+        return self._load_entry(destination, expected_key=key, reused=True)
+
+    def reindexed_view(
+        self,
+        key: ScientificCacheKey,
+        ordered_items: Sequence[CacheItem | tuple[str, str]],
+    ) -> ReindexedView:
+        """Build an exact full-axis reordering without copying scientific data."""
+
+        entry = self.resolve(key)
+        if entry is None:
+            raise CacheIdentityMismatch(f"cache entry does not exist: {key.digest}")
+        requested = _cache_items(ordered_items)
+        source_by_id = {
+            item.item_id: (index, item.sha256) for index, item in enumerate(entry.items)
+        }
+        requested_ids = {item.item_id for item in requested}
+        source_ids = set(source_by_id)
+        if requested_ids != source_ids or len(requested) != len(entry.items):
+            missing = sorted(source_ids - requested_ids)
+            extra = sorted(requested_ids - source_ids)
+            raise CacheIdentityMismatch(
+                f"reindexed item set mismatch: missing={missing!r}, extra={extra!r}"
+            )
+        indices: list[int] = []
+        for item in requested:
+            source_index, source_hash = source_by_id[item.item_id]
+            if item.sha256 != source_hash:
+                raise CacheIdentityMismatch(f"item hash changed for {item.item_id!r}")
+            indices.append(source_index)
+        return ReindexedView(key.digest, entry.items, requested, tuple(indices))
+
+    @staticmethod
+    def _manifest_payload(
+        key: ScientificCacheKey,
+        files: tuple[CachedFile, ...],
+        items: tuple[CacheItem, ...],
+    ) -> dict[str, object]:
+        return {
+            "schema_version": "scientific_cache_entry_v1",
+            "scientific_identity": key.digest,
+            "scientific_cache_key": key.as_dict(),
+            "files": [item.as_dict() for item in files],
+            "items": [item.as_dict() for item in items],
+        }
+
+    @staticmethod
+    def _require_exact_publication(
+        entry: CacheEntry,
+        files: tuple[CachedFile, ...],
+        items: tuple[CacheItem, ...],
+    ) -> None:
+        if entry.files != files or entry.items != items:
+            raise CacheIdentityMismatch(
+                "existing scientific identity contains different files or item metadata"
+            )
+
+    def _load_entry(
+        self,
+        path: Path,
+        *,
+        expected_key: ScientificCacheKey,
+        reused: bool,
+    ) -> CacheEntry:
+        manifest_path = path / MANIFEST_NAME
+        if path.is_symlink() or not path.is_dir():
+            raise CacheCorruption(f"cache entry is not a physical directory: {path}")
+        if manifest_path.is_symlink():
+            raise CacheCorruption(f"cache manifest cannot be a symbolic link: {manifest_path}")
+        if not manifest_path.is_file():
+            raise CacheCorruption(f"cache manifest is missing: {manifest_path}")
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CacheCorruption(f"cache manifest is unreadable: {manifest_path}") from exc
+        expected_fields = {
+            "schema_version",
+            "scientific_identity",
+            "scientific_cache_key",
+            "files",
+            "items",
+        }
+        if not isinstance(payload, dict) or set(payload) != expected_fields:
+            raise CacheCorruption("cache manifest has unexpected fields")
+        if payload["schema_version"] != "scientific_cache_entry_v1":
+            raise CacheCorruption("unsupported cache manifest schema")
+        try:
+            actual_key = ScientificCacheKey.from_dict(payload["scientific_cache_key"])
+        except CacheIdentityError as exc:
+            raise CacheCorruption("cache manifest contains an invalid scientific key") from exc
+        if actual_key != expected_key or payload["scientific_identity"] != expected_key.digest:
+            raise CacheIdentityMismatch(
+                "cache manifest scientific identity does not match the request"
+            )
+        if actual_key.digest != payload["scientific_identity"]:
+            raise CacheCorruption("cache manifest scientific identity digest is inconsistent")
+
+        try:
+            files = tuple(
+                CachedFile(item["relative_path"], item["sha256"], item["size_bytes"])
+                for item in payload["files"]
+            )
+            items = _cache_items(
+                tuple((item["item_id"], item["sha256"]) for item in payload["items"])
+            )
+        except (CacheIdentityMismatch, KeyError, TypeError) as exc:
+            raise CacheCorruption("cache manifest file or item records are invalid") from exc
+        if tuple(sorted(files, key=lambda item: item.relative_path)) != files:
+            raise CacheCorruption("cache manifest files must be unique and sorted")
+        file_names = tuple(item.relative_path for item in files)
+        if len(set(file_names)) != len(file_names):
+            raise CacheCorruption("cache manifest file paths must be unique")
+        declared = set(file_names)
+        actual = {
+            file.relative_to(path).as_posix()
+            for file in path.rglob("*")
+            if file.is_file() and file != manifest_path
+        }
+        if actual != declared:
+            raise CacheCorruption(
+                f"cache manifest is incomplete: missing={sorted(declared - actual)!r}, "
+                f"extra={sorted(actual - declared)!r}"
+            )
+        for record in files:
+            file_path = path / record.relative_path
+            if file_path.is_symlink():
+                raise CacheCorruption(
+                    f"cache file cannot be a symbolic link: {record.relative_path}"
+                )
+            if (
+                file_path.stat().st_size != record.size_bytes
+                or sha256_file(file_path) != record.sha256
+            ):
+                raise CacheCorruption(f"cache file failed verification: {record.relative_path}")
+        return CacheEntry(path, actual_key, files, items, reused)
+
+
+class ArtifactStore:
+    """Materialize verified NumPy ArtifactRef arrays from configured roots."""
+
+    def __init__(self, allowed_roots: Sequence[str | Path]) -> None:
+        roots = tuple(Path(root).expanduser().resolve() for root in allowed_roots)
+        if not roots:
+            raise ArtifactValidationError("at least one allowed artifact root is required")
+        if any(not root.is_dir() for root in roots):
+            raise ArtifactValidationError(
+                "every allowed artifact root must be an existing directory"
+            )
+        self.allowed_roots = roots
+
+    def materialize(
+        self,
+        artifact: ArtifactRef,
+        *,
+        expected_dtype: str | np.dtype,
+        expected_shape: tuple[int, ...],
+        expected_axes: tuple[AxisRef, ...],
+        expected_units: str | None,
+        expected_space: str | None,
+    ) -> np.ndarray:
+        """Load one array only after metadata, path, and content verification."""
+
+        if not isinstance(artifact, ArtifactRef):
+            raise TypeError("artifact must be an ArtifactRef; bare paths are forbidden")
+        expected_shape = tuple(int(value) for value in expected_shape)
+        expected_axes = tuple(expected_axes)
+        if not all(isinstance(axis, AxisRef) for axis in expected_axes):
+            raise TypeError("expected_axes must contain only AxisRef values")
+        expected_dtype_value = np.dtype(expected_dtype)
+        if artifact.shape != expected_shape:
+            raise ArtifactValidationError("artifact shape does not match the explicit requirement")
+        if np.dtype(artifact.dtype) != expected_dtype_value:
+            raise ArtifactValidationError("artifact dtype does not match the explicit requirement")
+        if artifact.axis_refs != expected_axes or artifact.axis_hashes != tuple(
+            axis.sha256 for axis in expected_axes
+        ):
+            raise ArtifactValidationError(
+                "artifact ordered axes do not match the explicit requirement"
+            )
+        if artifact.units != expected_units:
+            raise ArtifactValidationError("artifact units do not match the explicit requirement")
+        if artifact.space != expected_space:
+            raise ArtifactValidationError("artifact space does not match the explicit requirement")
+
+        path = self._safe_file_path(artifact.uri)
+        if path.suffix != ".npy":
+            raise ArtifactValidationError("ArtifactStore supports only .npy array artifacts")
+        try:
+            with path.open("rb") as handle:
+                digest = sha256_stream(handle)
+                if digest != artifact.sha256:
+                    raise ArtifactValidationError(
+                        "artifact file SHA-256 does not match ArtifactRef"
+                    )
+                handle.seek(0)
+                array = np.load(handle, allow_pickle=False)
+        except ArtifactValidationError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise ArtifactValidationError(f"artifact array cannot be loaded: {path}") from exc
+        if not isinstance(array, np.ndarray):
+            close = getattr(array, "close", None)
+            if callable(close):
+                close()
+            raise ArtifactValidationError("artifact did not materialize as one NumPy array")
+        if array.shape != expected_shape or array.dtype != expected_dtype_value:
+            raise ArtifactValidationError("materialized array metadata differs from ArtifactRef")
+        array.flags.writeable = False
+        return array
+
+    def _safe_file_path(self, uri: str) -> Path:
+        parsed = urlsplit(uri)
+        if (
+            parsed.scheme != "file"
+            or parsed.netloc
+            or parsed.query
+            or parsed.fragment
+            or not parsed.path.startswith("/")
+        ):
+            raise ArtifactValidationError("artifact URI must be a local absolute file URI")
+        try:
+            path = Path(unquote(parsed.path)).resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise ArtifactValidationError(
+                "artifact URI does not resolve to an existing file"
+            ) from exc
+        if not path.is_file():
+            raise ArtifactValidationError("artifact URI does not resolve to a file")
+        if not any(self._is_within(path, root) for root in self.allowed_roots):
+            raise ArtifactValidationError("artifact path is outside configured roots")
+        return path
+
+    @staticmethod
+    def _is_within(path: Path, root: Path) -> bool:
+        try:
+            path.relative_to(root)
+        except ValueError:
+            return False
+        return True
