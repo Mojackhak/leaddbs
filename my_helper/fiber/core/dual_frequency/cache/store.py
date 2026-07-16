@@ -429,6 +429,8 @@ class ContentAddressedCache:
             except FileExistsError:
                 if self._quarantine_stale_lock(lock):
                     continue
+                if self._producer_is_alive(lock) is True:
+                    deadline = time.monotonic() + float(timeout_seconds)
                 if time.monotonic() > deadline:
                     raise CacheError(f"timed out waiting for cache producer lease: {lock}")
                 time.sleep(0.05)
@@ -446,26 +448,32 @@ class ContentAddressedCache:
                 lock.unlink(missing_ok=True)
 
     @staticmethod
-    def _quarantine_stale_lock(lock: Path) -> bool:
+    def _producer_is_alive(lock: Path) -> bool | None:
         try:
             text = lock.read_text(encoding="ascii").strip()
             pid = int(text.removeprefix("pid="))
         except (OSError, UnicodeDecodeError, ValueError):
-            return False
+            return None
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    @classmethod
+    def _quarantine_stale_lock(cls, lock: Path) -> bool:
+        if cls._producer_is_alive(lock) is not False:
+            return False
+        try:
             quarantine = lock.with_name(
                 f"{lock.name}.stale-{time.time_ns()}"
             )
-            try:
-                os.replace(lock, quarantine)
-            except FileNotFoundError:
-                pass
-            return True
-        except PermissionError:
-            return False
-        return False
+            os.replace(lock, quarantine)
+        except FileNotFoundError:
+            pass
+        return True
 
     def reindexed_view(
         self,

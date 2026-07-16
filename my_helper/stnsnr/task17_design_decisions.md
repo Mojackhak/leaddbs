@@ -197,3 +197,11 @@ minutes inside one MATLAB transformation. The transformer therefore runs in a
 dedicated process group with a bounded timeout. Timeout termination preserves
 the semantic producer identity, leaves no published cache entry, and causes the
 task to fail so a new lineage or eligible resume can retry it safely.
+
+## Decision 13: Do Not Time Out a Live Semantic Producer
+
+The first all-scale run showed that a valid cold physical producer can exceed
+the former fixed lease wait. A waiter now refreshes its wait deadline whenever
+the lock still names a live producer PID. A dead PID is quarantined immediately;
+an unreadable lock still has a bounded timeout. Producer-specific MATLAB and
+external-tool timeouts remain responsible for terminating stalled children.

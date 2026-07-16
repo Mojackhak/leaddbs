@@ -5,9 +5,11 @@ from __future__ import annotations
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -377,6 +379,28 @@ class ContentAddressedCacheTest(unittest.TestCase):
             self.assertTrue(owner)
         self.assertFalse(lock.exists())
         self.assertEqual(len(tuple(destination.parent.glob(f"{lock.name}.stale-*"))), 1)
+
+    def test_live_producer_refreshes_wait_deadline_until_publication(self) -> None:
+        cache = ContentAddressedCache(self.root / "live-cache")
+        source = self._source("live-artifact.bin", b"content")
+        key = _key(kind="voxel_exposures")
+        destination = cache.entry_path(key)
+        destination.parent.mkdir(parents=True)
+        lock = destination.parent / f".{key.digest}.produce.lock"
+        lock.write_text(f"pid={os.getpid()}\n", encoding="ascii")
+
+        def delayed_publish() -> None:
+            time.sleep(0.05)
+            ContentAddressedCache(self.root / "live-cache").publish(
+                key,
+                {"artifact.bin": source},
+            )
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(delayed_publish)
+            with cache.producer_lease(key, timeout_seconds=0.01) as owner:
+                self.assertFalse(owner)
+            future.result()
 
     def test_duplicate_source_items_are_rejected(self) -> None:
         source = self._source("artifact.bin", b"content")
