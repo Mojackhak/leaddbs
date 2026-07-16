@@ -1197,11 +1197,10 @@ target `SensitiveRecord` from a legacy full-sample-only selected axis. Complete
 parent-axis, full/fold-valid-union, sensitive-record, and leakage behavior is
 proven by deterministic synthetic tests.
 
-The Task 10 implementation accepted equality at tau. The current target,
-superseded by Task 17 under the user's strict-comparison rule, uses `E > tau`
-and excludes equality. Bounded fixtures remain historical semantic evidence;
-the reopened strict boundary requires an explicit equality-at-tau exclusion
-test. These are bounded-fixture limitations, not permission for a transitive
+The Task 10 implementation accepted equality at tau. Task 17 preserves this
+inclusive `E >= tau` rule and adds an explicit equality-at-tau inclusion test.
+Bounded fixtures remain historical semantic evidence. These are bounded-fixture
+limitations, not permission for a transitive
 production read or a silent fallback to the superseded rule.
 
 - [x] **Step 4: Extract generic coverage, weights, resolver, and score kernels**
@@ -1696,8 +1695,8 @@ git commit -m "feat: extract add-on normative-fiber backend"
   from its output.
 - Tau continues to define Coverage/Omega only. Historical Task 13 used strict
   direct-voxel exposure comparison and treated normative-fiber values exactly at
-  tau as active. Task 17 reopens the fiber comparator and the Coverage-count
-  comparator so both families use `E > tau` and `count > Coverage`. For both
+  tau as active. Task 17 reopens the direct-voxel comparator so both families use
+  `E >= tau` and `count >= Coverage`. For both
   families, all
   continuous E-field values inside the selected candidate support enter
   scoring. Add-on sensitivity may zero only the declared reference-overlap
@@ -2874,7 +2873,7 @@ acceptance gaps`). No remote push was performed.
 ### Task 17: Implement Two-Layer Shared Physical Preparation And Parallel Runtime
 
 **Status:** `design_documented`; `code_audit_complete`;
-`literature_review_complete`; `strict_threshold_change_authorized`;
+`literature_review_complete`; `threshold_policy_change_authorized`;
 `implementation_not_started`.
 
 **Authority:**
@@ -2885,10 +2884,10 @@ thread-pool wave scheduler, and model-specific jitter preparation implemented
 in Tasks 7-15. It reopens the final-axis-only OSS producer but replaces it only
 if the bounded axis-equivalence gate passes. It does not reopen the scientific
 resolver, classifier, fallback, or continuous-dose scoring definitions. It does
-reopen the user-authorized threshold comparator: voxel/fiber E-field/tau,
-Coverage and overlap, support-QC cutoffs, and pPAM activation use strict
-`>`/`<`, with
-equality excluded. Formal null-tail counting, hard minimum sample/feature
+reopen the user-authorized threshold comparator: voxel/fiber E-field/tau uses
+`E >= tau`, Coverage uses `count >= Coverage`, and equality is included for both
+predicates. Overlap, support-QC cutoffs, and pPAM activation remain strict
+`>`/`<`, with equality excluded. Formal null-tail counting, hard minimum sample/feature
 counts, identity checks, bounds, and numerical tolerances are not reopened.
 
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
@@ -2896,8 +2895,9 @@ counts, identity checks, bounds, and numerical tolerances are not reopened.
 Preserve deterministic brute-force direct-voxel, normative-fiber, jitter, OSS,
 formal, pPAM, and sensitivity fixtures before implementation. Profile each stage
 at `execution.workers = 1` and the current configured value `3`. Preserve the
-historical equality-accepting fixtures as migration evidence and add strict
-target fixtures in which exact tau/`0.5` values are excluded; only enumerated
+historical equality-accepting fixtures as migration evidence and add target
+fixtures in which exact tau and Coverage values are included while exact overlap,
+support-QC, and `0.5` pPAM values are excluded; only enumerated
 boundary rows may differ from the historical result.
 
 Record wall time, aggregate CPU time, effective cores, peak RSS, swap, source
@@ -2947,7 +2947,7 @@ Bind cache identity per artifact. Raw physical exposure includes the ordered
 physical-row identity, model domain, canonical grid/connectome, run-local
 source signatures, and producer version. Tau/Coverage support and `Omega_max`
 also include the exact ordered eligible cohort, exact ordered tau and Coverage
-grids, and `strict_threshold_v1`. PASS-branch OSS includes the selected
+grids, and `threshold_policy_v2`. PASS-branch OSS includes the selected
 `Omega_max` axis and solver/toolchain producer identity; FAIL retains the
 historical final-axis identity. A bounded descriptor digest may select the path
 but cannot replace any semantic field or validate the payload.
@@ -2974,9 +2974,10 @@ row simultaneously. Optionally canonicalize compressed NIfTI to a versioned
 read-only float32 memmap.
 
 Produce one bilateral direct-voxel row per physical unit and group only exact
-grid identities. Direct-voxel thresholding uses strict `E > tau`,
-`count > Coverage`, and `reference > selected_tau`; equality is excluded for
-all three predicates. Preserve the voxel sampling rule independently from the fiber
+grid identities. Direct-voxel thresholding uses inclusive `E >= tau` and
+`count >= Coverage`, plus strict `reference > selected_tau`. Equality is
+included for E-field/tau and Coverage and excluded for overlap. Preserve the
+voxel sampling rule independently from the fiber
 sampling rule.
 Endpoint inputs are ordered row/column views; scale, outcome, worker count, and
 run identity do not enter physical paths.
@@ -2999,8 +3000,9 @@ point bytes. Ranges never split a fiber and minimize partially shared HDF5
 boundary chunks; logical point coverage and raw chunk overlap are measured
 separately. While a range is
 resident, evaluate every physical row using side-specific maxima followed by
-their mean. Normative-fiber thresholding also uses strict `E > tau`,
-`count > Coverage`, and `reference > selected_tau`; equality is excluded.
+their mean. Normative-fiber thresholding also uses inclusive `E >= tau` and
+`count >= Coverage`, plus strict `reference > selected_tau`. Equality is
+included for E-field/tau and Coverage and excluded for overlap.
 Retain exact
 `Omega_max`, publish continuous values once, and prove
 that no full/fold cell loses a candidate. Endpoint, scale, branch, grid, and fold
@@ -3176,8 +3178,8 @@ work count `< 1`, payload-checksum bytes `< 1`, endpoint-selected payload-copy
 count `< 1`, fault-free pool-generation count `> 0` and `< 2`, untracked nested
 pool count `< 1`, bounded HDF5/solver/BLAS concurrency, parent-only persistence,
 and `swap_delta_bytes < 1`. Exact-threshold fixtures must prove that equality is
-excluded for voxel/fiber E-field/tau, Coverage, reference overlap, support-QC
-cutoffs, and pPAM activation.
+included for voxel/fiber E-field/tau and Coverage, and excluded for reference
+overlap, support-QC cutoffs, and pPAM activation.
 
 On current 28-scale data, reduce 1540 endpoint-derived row evaluations per
 connectome to 42 physical rows in the shared pass. For the 12-worker benchmark,
@@ -3212,7 +3214,7 @@ performance-contract review was added on 2026-07-16:
 | 3. Dependency/fallback | PASS | Task 5 defines the exhaustive readiness/source/Delta/fallback truth table; Tasks 11-12 integrate it without bidirectional fallback. |
 | 4. Round/interface/provenance | PASS | Tasks 2, 6-8, and 13-16 cover every Round, typed requests/arrays/artifacts, project import isolation, standalone CLI, connectome roles, and resolved configuration artifacts. |
 | 5. Bounded acceptance | PASS | Task 1 requires an exact reviewed task allowlist; Tasks 9-14 use only applicable completed fixtures; Task 16 blocks expensive misses and parity expansion. |
-| 6. Shared physical preparation and resources | DESIGN PASS / IMPLEMENTATION OPEN | Code audit plus primary literature/official runtime guidance now map Task 17 to strict-threshold distinct voxel/fiber preparation, exact `Omega_max`, single-write no-payload-reread caches, bounded semantic identity, a persistent spawn-safe resource scheduler, parity-preserving RNG blocks, vectorized kernels, resume correctness, and measured performance gates. |
+| 6. Shared physical preparation and resources | DESIGN PASS / IMPLEMENTATION OPEN | Code audit plus primary literature/official runtime guidance now map Task 17 to the authorized mixed threshold policy, distinct voxel/fiber preparation, exact `Omega_max`, single-write no-payload-reread caches, bounded semantic identity, a persistent spawn-safe resource scheduler, parity-preserving RNG blocks, vectorized kernels, resume correctness, and measured performance gates. |
 
 This record validates closure of the generic-core implementation and design
 closure of the performance refactor. Task 17 remains open; no current status or
@@ -3275,9 +3277,10 @@ test count implies that the new execution architecture is implemented.
 - [ ] Managed RAM is the smaller of 48 GiB and available RAM after the larger of
   a 16-GiB or 20%-physical reserve; expected solver RSS is charged and swap
   satisfies `swap_delta_bytes < 1`.
-- [ ] Voxel/fiber thresholds use `E > tau`, `count > Coverage`, and
+- [ ] Voxel/fiber thresholds use `E >= tau`, `count >= Coverage`, and
   `reference > selected_tau`; support-QC uses its documented strict direction;
-  pPAM uses `p(A) > 0.5`. Boundary fixtures are excluded.
+  pPAM uses `p(A) > 0.5`. E-field/tau and Coverage boundary fixtures are
+  included; overlap, support-QC, and pPAM boundary fixtures are excluded.
 - [x] Formal/sensitivity/activation consume only one realized final.
 - [x] Generic reports contain no HF/ULF compatibility aliases.
 - [x] Bounded parity includes only exact IDs in the reviewed allowlist that are

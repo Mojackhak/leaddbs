@@ -34,12 +34,11 @@ predecessor evidence only. When they conflict with this target contract, do not
 preserve the conflict as compatibility behavior.
 
 The linked performance-refactor contract supersedes every earlier target rule
-that requires a cryptographic checksum, content-addressed identity, or
-endpoint-specific physical exposure. The target runtime uses deterministic
-paths, stable semantic IDs, a final file or atomic generation manifest,
-lightweight structural validation, explicit versions, and `--force`. Checksum
-fields found in historical artifacts are inert predecessor data and are not
-target inputs, reuse gates, provenance requirements, or acceptance gates.
+that requires endpoint-specific physical exposure or repeated payload hashing.
+The target cache is portable and deliberately small: canonical semantic JSON,
+one `semantic_sha256`, one `payload_sha256` per file, one `manifest.json`, and
+same-parent atomic directory publication. Device, inode, mtime, absolute path,
+scale, endpoint, run, and worker identity never enter a portable cache key.
 
 ## Summary
 
@@ -63,12 +62,13 @@ Target identity never changes the frequency class.
 The `four_model_v1` catalog/DAG/executor is retained as predecessor evidence in
 the project-level legacy namespace. The completed `dual_frequency_v1` runtime
 uses reusable numerical backends, reads canonical `study_base.json` directly,
-uses deterministic existence-based caches, and imports no predecessor, migration,
+uses deterministic portable manifest caches, and imports no predecessor, migration,
 acceptance, or STNSNr analysis module.
 
 The predecessor real-data acceptance run did not finish. Numeric equivalence is
 therefore bounded to its terminal completed scientific artifacts in the frozen
-allowlist. Historical checksums are not part of the target acceptance contract.
+allowlist. Historical cache files require one explicit verified import before
+the target runtime can reuse them.
 Unfinished paths require contract, synthetic, and lightweight smoke tests but
 do not require comparison with nonexistent predecessor results.
 
@@ -96,9 +96,8 @@ The goal is complete only when one public library/CLI can:
    attached statistics;
 9. isolate endpoint-local failures while continuing independent tasks;
 10. produce generic manifests, artifact indexes, statuses, and reports;
-11. reuse deterministic, structurally valid exposure and activation artifacts
-    only when a final file or atomic generation manifest has matching semantic
-    identity across scales and runs; and
+11. reuse portable exposure and activation entries only when their canonical
+    manifest has the requested `semantic_sha256` and valid installed files; and
 12. run from validated project inputs without importing any predecessor,
     migration, acceptance, or STNSNr analysis module.
 
@@ -1171,10 +1170,10 @@ but it does not suppress a no-delta replicate. A no-delta final remains
 evaluable when matched-reference support is invalid or not applicable; the
 support state is retained as QC only.
 
-## Deterministic Existence-Based Cache Contract
+## Portable SHA-Manifest Cache Contract
 
 Run-independent expensive artifacts are stored under versioned deterministic
-paths built from stable semantic IDs:
+paths built from one portable canonical descriptor:
 
 ```text
 voxel exposures
@@ -1182,38 +1181,37 @@ fiber exposures
 OSS rows
 ```
 
-Path identity includes:
+The descriptor includes:
 
 ```text
 study and physical stimulation-unit IDs
 component/frequency class and delivery-mode IDs
-spatial transform ID and version
-connectome and ordered feature-axis IDs
+spatial transform content SHA and version
+connectome content SHA and ordered feature-axis IDs
 backend and scientific-version IDs
 scientific parameter profile ID
 ```
 
-It excludes scale, endpoint, branch role, run ID, worker count, retry count, and
-completion order. A present final file or atomic shard-generation manifest with
-a valid schema, dtype, shape,
-ordered axis IDs, units, space, and terminal status is reusable across scales
-and runs. Different semantic IDs use different paths and cannot be
-approximately reused. Identical IDs in a different order may produce a
-deterministic reindex view only after uniqueness and exact ID membership are
-validated.
+Canonical JSON SHA-256 produces `semantic_sha256`; the cache path is
+`<cache_root>/shared_exposure_v2/<kind>/<semantic_sha256>/`. It excludes device,
+inode, mtime, absolute paths, scale, endpoint, branch role, run ID, worker count,
+retry count, and completion order. Every source content SHA is portable across
+machines.
 
-No target cache generates or rereads a full-payload cryptographic checksum as a
-reuse or acceptance gate. Bounded canonical-descriptor, inline ordered-axis,
-and one-time toolchain digests remain permitted but cannot serve as payload-
-integrity evidence. Each cache lookup recomputes the source
-`(device, inode, size, mtime_ns)` signature outside the hot loop; a changed
-signature selects a new semantic identity. A content replacement that preserves
-that complete signature requires explicit `--force` or a cache schema/version
-change, because it cannot be detected without rereading the payload. The parent
-revalidates the selected signature before publication. Publication uses a
-temporary sibling plus atomic rename or isolated shards plus an atomic
-generation manifest; temporary, orphaned, or structurally invalid files never
-authorize reuse.
+One `manifest.json` stores the complete canonical descriptor plus each relative
+file path, byte count, `payload_sha256`, schema, dtype, shape, ordered axes,
+units, space, producer version, and completed status. The producer calculates
+`payload_sha256` while writing final bytes. An importer verifies every payload
+SHA once in a same-parent staging directory. Producer and importer both publish
+the complete entry with one atomic directory rename. Normal cache hit and
+resume validate manifest identity, file presence/size, and structural headers
+without rereading payload SHA. Explicit integrity audit may reread it.
+
+Manual copying directly into the final cache path is invalid. Temporary,
+partial, unverified-import, or structurally invalid directories never authorize
+reuse. Identical ordered IDs may be reused across machines; a different order
+may produce a deterministic reindex view only after exact ID membership and
+uniqueness validation.
 
 ## Artifact And Provenance Contract
 
@@ -1512,7 +1510,7 @@ on 2026-07-15. A sixth performance-contract pass was added on 2026-07-16:
 | 3. Dependency and fallback | PASS | Reference dependency failure is distinct from ready input with no source; invalid DeltaReferenceScore still runs no-delta; fallback remains one-way. |
 | 4. Round, cache, activation, and interface | PASS | All nondeferred Rounds, including add-on direct Round 9, are mapped; sensitive connectomes cannot become final; generic runtime accepts structured inputs and has no project reverse dependency. |
 | 5. Numerical acceptance and wording | PASS | Frozen counts were verified; exact reviewed task allowlist is required; unfinished/failed/partial predecessor paths have no numerical parity requirement. |
-| 6. Shared physical preparation and resources | DESIGN PASS / IMPLEMENTATION OPEN | Scale-independent base/jitter preparation, conditional PASS-branch OSS reuse on exact `Omega_max`, FAIL-branch final-axis retention, coarse RAM-adaptive ranges, process scheduling, and no-payload-checksum rereads are specified by the linked performance contract and Task 17. |
+| 6. Shared physical preparation and resources | DESIGN PASS / IMPLEMENTATION OPEN | Scale-independent base/jitter preparation, conditional PASS-branch OSS reuse on exact `Omega_max`, FAIL-branch final-axis retention, portable SHA manifests, coarse RAM-adaptive ranges, and process scheduling are specified by the linked performance contract and Task 17. |
 
 The linked implementation plan maps the accepted generic-core requirements to
 completed code and evidence. Task 17 maps the new performance requirements to

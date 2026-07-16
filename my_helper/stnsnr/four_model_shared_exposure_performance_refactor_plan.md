@@ -12,7 +12,7 @@
 > **Scientific specifications.** `my_helper/stnsnr/model_summaries/`
 > **Current branch.** `stnvop`
 > **Status.** `design_documented`; `code_audit_complete`;
-> `literature_review_complete`; `strict_threshold_change_authorized`;
+> `literature_review_complete`; `threshold_policy_change_authorized`;
 > `implementation_not_started`;
 > `current_outputs_unchanged`; `active_runs_not_modified`.
 > **Last updated.** 2026-07-16
@@ -29,21 +29,30 @@ prediction classifier, branch-role state machine, final-model realization, or
 inferential definitions.
 
 One scientific boundary is explicitly reopened by the user's 2026-07-16
-instruction: all E-field/tau, Coverage, reference-overlap, support-QC, and pPAM
-activation threshold decisions use strict `>` or `<` and never include equality. This
-authority supersedes equality-accepting normative-fiber and pPAM statements in
-earlier plans. The current code is not yet changed; Task 17 must update code,
-tests, schemas/output-contract wording, and model summaries before completion.
+instruction. Direct-voxel and normative-fiber E-field/tau decisions use
+`X >= tau`, and their Coverage decisions use `count >= Coverage`; equality is
+included for both predicates in both model families. Reference-active overlap
+remains strict `reference > selected_tau`, support-QC retains its documented
+strict `<` direction, and pPAM activation uses strict `p(A) > 0.5`; equality is
+excluded for those three predicates. The current code is not yet changed;
+Task 17 must update code, tests, schemas/output-contract wording, and model
+summaries before completion.
 
-This strict rule is limited to the enumerated model-threshold comparators. It
+This comparator policy is limited to the enumerated model-threshold comparators. It
 does not alter formal null-tail counting, hard minimum sample/feature counts,
 identity checks, array bounds, or numerical-tolerance validation.
 
-The semantic token `strict_threshold_v1` is recorded in scientific provenance
+The user's 2026-07-16 portability decision also replaces the earlier local-
+filesystem-signature and checksum-free cache proposal. The target uses one
+portable SHA-manifest format for locally produced and cross-machine imported
+entries. This simplification changes cache identity and integrity mechanics but
+does not change scientific arrays.
+
+The semantic token `threshold_policy_v2` is recorded in scientific provenance
 and every derived support, overlap, candidate, or binary-activation cache path.
 Comparator-independent raw physical exposure may be reused, but an artifact
-created under an equality-accepting rule cannot authorize a strict derived
-artifact or resume segment.
+created under a different comparator policy cannot authorize a derived artifact
+or resume segment.
 
 The refactor covers:
 
@@ -73,7 +82,7 @@ Implementation must read the documents in this order:
    overall scope, success criteria, and completion status.
 2. `dual_frequency_core_decoupling_design.md` owns the approved generic-core
    architecture, scientific state machine, and package boundaries.
-3. This document owns the reopened shared-exposure, strict-threshold, cache,
+3. This document owns the reopened shared-exposure, threshold-policy, cache,
    scheduling, memory, storage, and performance contract.
 4. `dual_frequency_core_decoupling_implementation_plan.md`, specifically open
    Task 17, is the ordered code-and-acceptance checklist that implements this
@@ -470,7 +479,7 @@ kernel:
 | Natural work unit | Physical row and exact-grid voxel tile | Connectome point-count/byte range containing complete fiber boundaries |
 | Dominant reusable state | Decompressed float32 NIfTI, grid identity, affine/interpolation lookup | Point offsets, implicit canonical axis, chunk-aware geometry range, side-specific running peaks |
 | Candidate reduction | Voxel support on the configured direct-voxel grid | Exact `Omega_max` derived from normative-fiber tau/Coverage grids |
-| Threshold rule | Exposure uses `X > tau`, candidate count uses `count > Coverage`, and overlap uses `reference > selected_tau` | Exposure uses `X > tau`, candidate count uses `count > Coverage`, and overlap uses `reference > selected_tau` |
+| Threshold rule | Exposure uses `X >= tau`, candidate count uses `count >= Coverage`, and overlap uses `reference > selected_tau` | Exposure uses `X >= tau`, candidate count uses `count >= Coverage`, and overlap uses `reference > selected_tau` |
 | Main I/O risk | Repeated `.nii.gz` decompression and full-volume validation | Repeated gzip HDF5 chunk decompression and geometry/ID validation |
 
 The pre-Task-17 code baseline is intentionally recorded without treating the
@@ -478,14 +487,15 @@ two models as interchangeable:
 
 | Path | Current implementation | Authorized target |
 |---|---|---|
-| Direct voxel | E-field exposure already uses `X > tau`; Coverage currently admits the configured boundary count | `X > tau`; `count > Coverage` |
-| Normative fiber | E-field exposure currently admits the configured tau boundary; Coverage currently admits the configured boundary count | `X > tau`; `count > Coverage` |
+| Direct voxel | E-field exposure uses `X > tau`; Coverage currently admits the configured boundary count | `X >= tau`; `count >= Coverage` |
+| Normative fiber | E-field exposure and Coverage currently admit their configured boundaries | `X >= tau`; `count >= Coverage` |
 | Reference-active overlap | `reference > selected_tau` for the shared interaction path | `reference > selected_tau` |
 | pPAM binary activation | The current implementation admits the probability boundary at `0.5` | `p(A) > 0.5` |
 
 These current-state statements are migration evidence, not target operators.
-Task 17 replaces every enumerated target threshold with the strict operator in
-the right column and adds boundary-exclusion fixtures.
+Task 17 changes direct-voxel E-field/tau to include equality, preserves the
+already inclusive Coverage and normative-fiber boundaries, and adds explicit
+boundary fixtures for every predicate in the right column.
 
 The voxel path groups only E-fields with exactly matching shape and affine. It
 may reuse base world-to-voxel coordinates and interpolation neighbors within
@@ -497,13 +507,11 @@ The currently documented `tau_min = 400 V/m` and `Coverage_min = 5` below are
 normative-fiber profile values. They do not define the direct-voxel model, whose
 grid and support remain independently configured.
 
-Exact-threshold values are scientific boundary fixtures. The target for both model families
-use strict `X > tau`, `count > Coverage`, and `reference > selected_tau`;
-equality at either configured threshold is excluded.
-This user-authorized target supersedes the current normative-fiber implementation
-where it accepts equality. Strict `<` is used for inverse-direction threshold
-tests. No scientific threshold comparison introduced by this refactor contains
-an equality boundary.
+Exact-threshold values are scientific boundary fixtures. Both model families
+use inclusive `X >= tau` and `count >= Coverage`, while reference-active overlap
+uses strict `reference > selected_tau`. Equality at tau and Coverage is included;
+equality at the overlap threshold is excluded. Strict `<` remains in use for
+inverse-direction support-QC threshold tests.
 
 ## Shared Physical Stimulation Units
 
@@ -547,8 +555,8 @@ For the current normative-fiber profile only:
 C_{\min}=5.
 \]
 
-Under the strict Coverage comparator, this profile requires a suprathreshold
-count greater than 5; a count of exactly 5 is excluded.
+Under the inclusive Coverage comparator, this profile accepts a suprathreshold
+count of 5; the configured boundary is included.
 
 For a connectome and physical exposure family, define the maximal candidate
 union over the maximal eligible physical subject cohort:
@@ -559,8 +567,8 @@ union over the maximal eligible physical subject cohort:
 \left\{
 f:
 \sum_i
-\mathbf{1}\!\left[X_{i,f}>\tau_{\min}\right]
-> C_{\min}
+\mathbf{1}\!\left[X_{i,f}\geq\tau_{\min}\right]
+\geq C_{\min}
 \right\}.
 \]
 
@@ -595,7 +603,7 @@ An endpoint's exact subject cohort is an indexed view of the shared exposure.
 For each tau, calculate full-cohort counts once:
 
 \[
-n_f(\tau)=\sum_i\mathbf{1}[X_{i,f}>\tau].
+n_f(\tau)=\sum_i\mathbf{1}[X_{i,f}\geq\tau].
 \]
 
 For LOOCV held-out subject `h`, derive training Coverage by subtraction:
@@ -605,10 +613,10 @@ n_{f,-h}(\tau)
 =
 n_f(\tau)
 -
-\mathbf{1}[X_{h,f}>\tau].
+\mathbf{1}[X_{h,f}\geq\tau].
 \]
 
-All Coverage-grid masks use strict `count > Coverage`. Fold-specific candidate
+All Coverage-grid masks use inclusive `count >= Coverage`. Fold-specific candidate
 support remains exact, but no fold reopens the connectome or resamples an
 E-field.
 
@@ -882,12 +890,12 @@ never cached as invariants or reused across replicates.
 
 Before a voxel tile or fiber range starts, the provider builds an immutable
 `SamplingPlan` containing canonical E-field paths, sampler descriptors, shape,
-affine/grid identity, translations, frequency-group maximum rules, and a
-run-local `(device, inode, size, mtime_ns)` source-signature snapshot. A worker
-checks the signature once when opening its source; the parent checks it again
-before publishing the completed producer. A mismatch fails and quarantines the
-temporary output without requiring a payload digest. Inside the connectome
-range/chunk loop, the following operations are forbidden:
+affine/grid identity, translations, frequency-group maximum rules, and portable
+source content SHA values from the validated source manifest. Device, inode,
+mtime, and absolute path are runtime locators only and never enter scientific
+identity. Source SHA is verified once before local production or cross-machine
+import; the hot loop does not repeat it. Inside the connectome range/chunk loop,
+the following operations are forbidden:
 
 ```text
 Path.resolve, stat, or payload hash
@@ -907,8 +915,8 @@ through the explicit producer state machine.
 
 ### Connectome fast-path and canonical axis
 
-For each `(connectome semantic ID, resolved source path, cache generation/schema,
-run-local source-signature snapshot)`, a cold full-audit path validates `idx`,
+For each `(connectome semantic ID, source content SHA, cache schema)`, a cold
+full-audit path validates `idx`,
 the fourth fiber row, point boundaries, canonical IDs, dtype, chunk layout, and
 compression. Audit state from one connectome cannot authorize another. After
 that audit, the exposure hot path materializes only coordinate rows `0:3` into
@@ -933,11 +941,13 @@ boundaries.
 
 ### Single-write publication
 
-Large-array producers request either a publisher-owned temporary NPY sibling or
-a final-format range shard, write the final dtype/shape directly, flush and
-close exactly once, then atomically publish the file or ordered shard manifest.
-They do not write a work memmap and pass it through a second `np.save()`/merge
-copy. A cache hit is decided before allocating a full staging payload.
+Large-array producers write final-format files or range shards into one unique
+same-parent staging directory. A hashing writer calculates each
+`payload_sha256` while writing final bytes. After flush, close, and structural
+validation, the producer writes one `manifest.json` and atomically renames the
+complete directory to its semantic path. It does not write a work memmap and
+pass it through a second `np.save()`/merge copy. A cache hit is decided before
+allocating a full staging payload.
 
 Endpoint/final selection is an immutable logical `IndexedArrayView` containing
 a shared parent/shard path, axis identity, and ordered row/column indexes. It is
@@ -950,114 +960,69 @@ and axis. The parent process is the only RunStore writer; it maintains an append
 journal or in-memory index with periodic atomic snapshots instead of parsing
 and rewriting the complete JSON index for every task.
 
-Normal execution performs structural header/schema checks only. An explicit
-offline verification mode may perform a complete structural/numerical scan but
-does not generate or compare a cryptographic payload digest. It is not part of
-cache-hit materialization or the measured hot path. This paragraph applies to
-published cache/artifact payloads; it does not disable the mandatory one-time
-cold audit of each connectome source identity before its fast path is trusted.
+Normal local cache hit performs manifest, file presence/size, and structural
+header checks only. Cross-machine import and explicit `--verify-integrity`
+verify every declared payload SHA. Imported bytes are trusted only after that
+one verification and atomic installation.
 
-## Exposure Cache Contract
+## Portable Cache Contract
 
-### Existence-based reuse
+### One entry, one manifest
 
-No target cache or run artifact rereads a large scientific payload to calculate
-a cryptographic checksum as its reuse or acceptance gate. The shared-exposure
-state machine is:
+The complete cache state machine is:
 
 ```text
-required final file or shard-generation manifest absent
+local miss
   -> acquire one-producer lock
-  -> recheck authoritative final/manifest
-  -> compute into a temporary sibling or isolated generation shards
-  -> flush, close, and structurally validate
-  -> atomically rename the final file or publish the generation manifest
+  -> write final files into same-parent staging while calculating payload SHA
+  -> write manifest last
+  -> structurally validate
+  -> atomically rename the complete directory
 
-candidate source inputs resolved
-  -> recompute source stat signatures once outside the hot loop
-  -> select the semantic cache identity and authoritative path
+local installed hit
+  -> validate semantic SHA, manifest, file presence/size, and structural headers
+  -> reuse without rereading payload SHA
 
-authoritative final file or generation manifest present
-  -> validate NPY/shard headers, dtype, dimensions, and declared axes
-  -> reuse without rescanning source payloads or checksumming the payload
+cross-machine import
+  -> copy entry into same-parent staging
+  -> validate semantic SHA and every payload SHA once
+  -> structurally validate
+  -> atomically rename the complete directory
 ```
 
-Only the atomic generation manifest authorizes a shard set. Every manifest
-names one unique generation, and every listed shard must exist in that
-generation. Shard axis intervals must be strictly ordered, nonoverlapping, and
-cover the declared logical axis with missing-range count `< 1`; duplicate,
-foreign-generation, reordered, overlapping, missing, or undeclared shards fail
-closed. Temporary files and orphan shards left by a parent crash before
-manifest publication never authorize reuse; recovery ignores or quarantines
-them before a new generation. Acceptance corrupts each invariant separately
-and includes crash-before-manifest followed by resume.
+There is no device/inode/mtime identity, no separate generation ID, no
+checksum-free mode, and no manual final-path copy. One `manifest.json`
+authorizes the complete entry. For shards, it lists strictly ordered,
+nonoverlapping axis intervals with missing-range count `< 1`; duplicate,
+reordered, overlapping, missing, or undeclared files fail closed. A crash leaves
+only an untrusted staging directory, which resume ignores or quarantines.
 
-The public `--force` control explicitly rebuilds the selected physical cache.
-Every cache lookup recomputes `(device, inode, size, mtime_ns)` once and includes
-that source signature in the descriptor/path identity. A changed tuple selects
-a cache miss and new identity; the parent revalidates the same tuple before
-publication. A content replacement that preserves the complete tuple cannot be
-detected without rereading the payload, so it requires `--force` or a cache
-schema/version change. Transforms and scientific exposure-definition changes
-must likewise select a new declared semantic identity.
-
-### Deterministic path identity
-
-The shared cache root is versioned:
+### Portable identity and layout
 
 ```text
-<cache_root>/shared_exposure_v2/
+<cache_root>/shared_exposure_v2/<kind>/<semantic_sha256>/
+  manifest.json
+  data.npy or ordered shard files
 ```
 
-Paths are derived from stable study/configuration IDs, physical stimulation
-binding, frequency class, canonical space, connectome ID where applicable, and
-cache schema version. They do not contain scale, endpoint, outcome, run,
-workers, or task order.
+Canonical JSON binds stable study/configuration IDs, physical-row identity,
+frequency class, model domain, canonical grid/connectome content SHA, ordered
+axis IDs, source content SHA values, producer/version, and scientific parameter
+profile. Tau/Coverage support and `Omega_max` also bind the ordered cohort,
+exact grids, and `threshold_policy_v2`. PASS OSS binds `Omega_max`; FAIL OSS
+binds the historical final axis. Device, inode, mtime, absolute paths, scale,
+endpoint, outcome, run, workers, and task order are excluded.
 
-Each derived artifact binds the semantic inputs that can change its bytes. Raw
-physical exposure binds the ordered physical-row identity, model domain,
-canonical grid/connectome identity, source signatures, and producer version.
-Tau/Coverage support and `Omega_max` additionally bind the exact ordered
-eligible physical cohort, exact ordered tau and Coverage grids, and
-`strict_threshold_v1`. PASS-branch OSS binds the exact selected `Omega_max`
-axis and solver/toolchain producer identity; FAIL-branch OSS retains the
-historical final-axis identity. A descriptor digest may encode those fields for
-path selection under the bounded-digest rule below, but omitting a semantic
-field cannot be repaired by payload inspection.
+SHA-256 of that canonical JSON is `semantic_sha256`. The manifest stores the
+canonical JSON and each relative file's byte count, `payload_sha256`, schema,
+dtype, shape, ordered axes, units, space, producer version, and completed
+status. Absolute source locations may appear only as provenance and cannot
+change `semantic_sha256`.
 
-The cache uses atomic data files or final shard sets with a compact ordered
-manifest and axis/index descriptors. The manifest is structural, not a payload-
-checksum list. Endpoint task directories do not duplicate full matrices.
-
-### No repeated payload-checksum boundary
-
-Physical exposure, OSS probability arrays, run artifacts, publication,
-materialization, resume, and acceptance do not perform a separate full-payload
-digest pass and do not require a payload digest for cache reuse. These
-boundaries use deterministic paths, schema versions, file existence,
-structural metadata, explicit status, run-local source signatures, and
-numerical comparison where applicable.
-
-This rule does not remove scientific identity or toolchain provenance. The
-runtime may use a cryptographic digest for:
-
-```text
-a small canonical semantic descriptor
-an ordered selected-axis identity generated inline while IDs are already resident
-a toolchain/source-version attestation calculated once per immutable environment
-```
-
-Such a digest may select/bind the semantic cache path, but it cannot serve as
-payload-integrity evidence or the sole reuse-validity gate, cannot trigger a
-cache-hit payload reread, and cannot be recalculated per endpoint/row/
-materialization.
-Complete one-based axes use a range descriptor and need no full-axis digest.
-Any semantic-digest input bytes are reported separately from forbidden payload-
-checksum reread bytes.
-
-Historical runs may contain payload-checksum fields because they were produced
-by an older implementation. Those fields are inert historical data: the new
-runtime does not regenerate, compare, or require them for reuse.
+The public `--force` control rebuilds into a new staging directory and replaces
+only through the same atomic-install contract. Historical cache entries are not
+adopted automatically: an explicit importer converts their descriptor, verifies
+payload SHA once, and installs the portable entry, or the producer rebuilds it.
 
 ## Parallel Execution And Resource Scheduling
 
@@ -1240,6 +1205,10 @@ Resume restores completed tasks and re-evaluates skips. In particular,
 `dependency_failure:*` and `not_run_batch_aborted` are never treated as stable
 terminal facts after the failed dependency is eligible to run again. A stable
 gate skip may be reused only with a causal fingerprint that still matches.
+
+A completed task may reference only an installed portable cache entry. Normal
+resume does not repeat payload hashing. An entry copied from another machine is
+invisible until the importer verifies it in staging and atomically installs it.
 
 After worker-count invariance is proven, CPU, memory, I/O, solver, and scratch
 limits are execution provenance rather than scientific identity. A resume may
@@ -1495,8 +1464,8 @@ second-stage optimizations.
 2. Record current scan counts, wall time, CPU, RSS, I/O, and output arrays.
 3. Add counters for pool creations, nested executors, E-field/NIfTI opens,
    sampler builds/evictions, hot-loop path/lock operations, connectome coordinate
-   and fourth-row bytes, raw chunk overlap, range skew, full-payload read/write/
-   checksum-reread bytes, semantic-digest input bytes, memmap flushes, selected-
+   and fourth-row bytes, raw chunk overlap, range skew, full-payload read/write,
+   inline SHA, import-verification bytes, memmap flushes, selected-
    exposure copies, artifact-index rewrites, queue/resource waits, token
    occupancy, and worker idle fraction.
 4. Profile statistics, scoring, formal, pPAM, jitter, sensitivity, and OSS
@@ -1510,24 +1479,26 @@ second-stage optimizations.
 3. Produce one bilateral voxel row per physical unit through a direct final-NPY
    writer.
 4. Replace endpoint matrices with ordered row views.
-5. Apply strict `E > tau`, `count > Coverage`, and
-   `reference > selected_tau` with boundary-exclusion fixtures.
+5. Apply inclusive `E >= tau` and `count >= Coverage`, plus strict
+   `reference > selected_tau`; fixtures include E-field/Coverage boundary values
+   and exclude the overlap boundary.
 6. Keep all direct-voxel numerical outputs equivalent outside the authorized
    threshold-boundary change.
 
 ### Phase 2: One-pass reduced fiber exposure
 
-1. Cold-audit each connectome semantic ID/path/generation/run-signature identity;
+1. Cold-audit each connectome semantic ID/source-content-SHA/cache-schema identity;
    construct reusable point offsets and an implicit one-based canonical axis.
 2. Introduce disjoint ranges balanced by point bytes that never split fibers and
    minimize partially shared raw chunks.
 3. Materialize only coordinate rows into application memory on the audited hot
    path and evaluate all unique physical rows per resident range.
 4. Apply exact minimum-grid `Omega_max` filtering.
-5. Apply strict `E > tau`, `count > Coverage`, and
-   `reference > selected_tau` with boundary-exclusion fixtures.
+5. Apply inclusive `E >= tau` and `count >= Coverage`, plus strict
+   `reference > selected_tau`; fixtures include E-field/Coverage boundary values
+   and exclude the overlap boundary.
 6. Publish canonical reduced fiber IDs and continuous exposure as final shards
-   written once plus an atomic ordered manifest.
+   plus one portable SHA manifest through atomic directory rename.
 7. Prove no configured cell or fold loses a candidate.
 
 ### Phase 3: Shared jitter and gated OSS/pPAM preparation
@@ -1582,12 +1553,12 @@ second-stage optimizations.
 ### Phase 6: Publication and cleanup
 
 1. Stop copying shared exposure into endpoint task roots.
-2. Add publisher-owned direct NPY/final-shard writers, logical block-gathering
-   indexed views, and a parent-only journal/snapshot artifact index.
-3. Remove repeated full-payload checksum generation/validation and reuse gates;
-   retain bounded semantic/axis/toolchain identity digests without rereads.
-4. Retain atomic publication, quick structural validation, explicit digest-free
-   offline structural/numerical audit, and `--force`.
+2. Add publisher-owned direct NPY/final-shard writers that calculate payload SHA
+   inline, logical block-gathering indexed views, and a parent-only artifact
+   index.
+3. Add one canonical portable manifest and one explicit verified importer.
+4. Retain atomic directory publication, quick warm-hit structural validation,
+   explicit integrity audit, and `--force`.
 5. Delete no historical outputs; retire old cache producers only after parity.
 
 ## Planned Code Boundaries
@@ -1640,14 +1611,15 @@ behavioral contracts above must remain intact.
 - Normative-fiber optimized exposure equals side-specific peak followed by
   arithmetic mean; the forbidden mean-before-peak formula is tested to ensure
   it is not substituted.
-- Direct-voxel and normative-fiber exposure use `X > tau`, candidate selection
-  uses `count > Coverage`, overlap uses `reference > selected_tau`, support-QC
-  uses its documented strict direction, and pPAM uses `p(A) > 0.5`. Equality is
-  excluded in fixtures for this reopened comparator set. Formal null-tail tests,
+- Direct-voxel and normative-fiber exposure use `X >= tau`, candidate selection
+  uses `count >= Coverage`, overlap uses `reference > selected_tau`, support-QC
+  uses its documented strict direction, and pPAM uses `p(A) > 0.5`. Fixtures
+  include equality for E-field/tau and Coverage and exclude equality for overlap,
+  support-QC, and pPAM. Formal null-tail tests,
   hard minimum counts, and tolerance checks retain their existing definitions.
-- Historical parity is required everywhere except values exactly on the
-  user-authorized comparator boundary. Brute-force references are updated to the
-  strict target before optimized-kernel comparison; any production-output
+- Historical parity is required everywhere except values exactly on a
+  user-authorized changed comparator boundary. Brute-force references are updated
+  to the target policy before optimized-kernel comparison; any production-output
   difference must be attributable to an enumerated equality case.
 - Brute-force and reduced-connectome outputs match for all retained features.
 - Every feature entering any production tau/Coverage cell appears in
@@ -1716,9 +1688,10 @@ behavioral contracts above must remain intact.
   produces a raw-physical-exposure cache hit. PASS-branch OSS also hits when its
   exact simulation-axis identity is unchanged. FAIL-branch OSS hits only when
   its exact historical final-axis identity is unchanged.
-- Existing final cache files are reused without a payload checksum read.
-- Missing files are produced once under a lock and atomically published.
-- Partial temporary files are never accepted.
+- Locally installed entries are reused without repeating payload SHA.
+- Cross-machine entries verify every declared payload SHA once before install.
+- Missing files are produced once under a lock and atomically installed.
+- Partial staging directories and manual final-path copies are never accepted.
 - `--force` rebuilds the selected cache explicitly.
 
 ### Performance behavior
@@ -1747,19 +1720,18 @@ behavioral contracts above must remain intact.
   termination and lease invalidation. For each integer resource class, peak
   Python processes, BLAS threads, simultaneous HDF5 readers, and OSS solver
   threads satisfy `observed_count < granted_count + 1`.
-- Large-array cache misses write one final payload or final shard set plus
-  bounded metadata; cache hits perform no full-payload read/write, and measured
-  `payload_checksum_reread_bytes < 1`. Inline semantic/axis/toolchain digest
-  input bytes are reported separately. No selected exposure is copied solely
-  to rename its endpoint.
+- Large-array cache misses write one final payload or shard set while calculating
+  payload SHA inline. Warm local hits have `payload_hash_read_bytes < 1`;
+  cross-machine import reports its one verification read separately. No selected
+  exposure is copied solely to rename its endpoint.
 - The finite statistics fast path performs block-level multi-RHS solves rather
   than one `lstsq` call per feature. Null loops require
   `retained_null_N_by_F_output_count < 1`, and adding workers does not linearly
   duplicate shared fold operators.
 - `left_transform_resolve_count`, `nifti_open_count`, sampler build/rebuild/
-  eviction counts, hot-loop stat/hash/lock counts, connectome row-4 audit passes,
-  axis digest passes, filtered-connectome builds, toolchain attestations,
-  memmap flushes, artifact-index snapshots, payload read/write/checksum-reread
+  eviction counts, hot-loop path/hash/lock counts, connectome row-4 audit passes,
+  portable imports, filtered-connectome builds, toolchain versions,
+  memmap flushes, artifact-index snapshots, payload read/write/hash
   bytes, ready-queue depth, dependency/resource wait by class, token occupancy,
   worker idle fraction, and cancellation/timeout/retry counts are included in
   acceptance evidence.
@@ -1830,20 +1802,18 @@ The second command must be empty for this documentation-only pass.
 Contract searches:
 
 ```bash
-rg -n "shared_exposure_v2|Omega_max|36.7|ThreadPoolExecutor|ProcessPoolExecutor|file existence|side-specific peak" \
+rg -n "shared_exposure_v2|semantic_sha256|payload_sha256|Omega_max|ThreadPoolExecutor|ProcessPoolExecutor|side-specific peak" \
   my_helper/stnsnr -g '*.md'
 
-rg -n "File existence alone never authorizes reuse|content-addressed exposure|SHA-256|hash-valid" \
+rg -n "device, inode|mtime_ns|generation manifest|checksum-free|digest-free" \
   my_helper/stnsnr/four_model_yaml_core_refactor_plan.md \
   my_helper/stnsnr/dual_frequency_core_decoupling_design.md \
   my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md
 ```
 
 Any remaining old statement must be marked as historical/current
-implementation and non-authoritative. No target cache, run, resume, activation,
-or acceptance path may reintroduce full-payload checksum rereads. Small semantic
-identity and one-time toolchain-attestation digests remain permitted only under
-the boundary above.
+implementation and non-authoritative. The target has only the portable
+SHA-manifest contract above; normal warm resume does not repeat payload hashing.
 
 ## Closed Decisions
 
@@ -1854,13 +1824,15 @@ normative fiber peaks each side first and averages the two peaks second
 minimum tau and Coverage define an exact maximal fiber candidate union
 retained fiber values remain continuous
 raw add-on exposure defines only an upper bound before overlap exclusion
-cache reuse requires a final file or atomic generation manifest plus quick structural validation
-no cache, artifact, resume, OSS, or acceptance path rereads a large payload for a checksum
-small semantic axis and one-time toolchain attestation digests remain allowed
+cache identity uses portable canonical JSON and semantic SHA
+each file records payload SHA calculated while writing or verified once on import
+one manifest and one atomic directory rename authorize a cache entry
+device inode mtime and absolute path never enter portable identity
+normal warm resume does not repeat payload hashing
 CPU-heavy preparation uses processes and disjoint work units
 execution.workers is the sole public n_jobs-like global CPU ceiling
 voxel and fiber retain distinct sampling, partitioning, and candidate contracts
-E/tau, Coverage, overlap, support-QC, and pPAM thresholds use strict comparisons
+E/tau and Coverage include equality; overlap, support-QC, and pPAM use strict comparisons
 one persistent event-driven pool replaces per-wave and nested executors
 the parent process alone owns scheduler and RunStore mutation
 large producers write final-format payloads or shards once and endpoints consume logical indexed views

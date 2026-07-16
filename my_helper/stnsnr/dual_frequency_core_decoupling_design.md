@@ -26,11 +26,10 @@ code, and generated results are evidence, not independent authority. Stop for
 clarification if a later implementation discovers a conflict that this design
 does not resolve.
 
-The performance-refactor contract supersedes all checksum/content-addressed
-cache rules in this design. The target uses deterministic semantic paths, a
-final file or atomic generation manifest, structural validation, declared
-versions, and explicit `--force`. Historical checksum fields are inert
-predecessor data.
+The performance-refactor contract supersedes repeated payload-hash and local
+filesystem-signature cache rules in this design. The target uses portable
+canonical semantic JSON, one semantic SHA, one payload SHA per file, one
+manifest, and same-parent atomic directory publication.
 
 ## Goal
 
@@ -174,7 +173,7 @@ Responsibilities:
 - `workflow`: dependency planning, state transitions, execution, resume, and
   endpoint failure isolation;
 - `backends`: scientific array-in/record-out implementations;
-- `cache`: deterministic semantic paths and existence-based artifacts;
+- `cache`: portable semantic SHA paths and manifest-backed artifacts;
 - `reporting`: generic endpoint, artifact, and run reports;
 - `application`: `WorkflowService`, shared by CLI, tests, and a future GUI.
 
@@ -618,7 +617,7 @@ connectome/fiber semantic identity, spatial transform ID, OSS parameters, and
 backend version. It does not include scale, endpoint, final branch, worker
 count, run ID, or task order.
 
-## Deterministic Existence-Based Cache
+## Portable SHA-Manifest Cache
 
 Expensive run-independent artifacts live outside endpoint run roots:
 
@@ -642,28 +641,24 @@ backend name and version
 scientific parameter profile ID
 ```
 
-Scale IDs, endpoint IDs, run IDs, workers, retries, and scheduling order are
-excluded. A present final file or atomic shard-generation manifest with matching
-schema, dtype, shape, ordered IDs, units, space, and terminal status is reused
-automatically. Different semantic
-content uses a different deterministic path and cannot be used as an
-approximate substitute.
+Scale IDs, endpoint IDs, run IDs, workers, retries, scheduling order, device,
+inode, mtime, and absolute paths are excluded. Canonical JSON SHA-256 produces
+one `semantic_sha256` and selects
+`<cache_root>/shared_exposure_v2/<kind>/<semantic_sha256>/`. Different semantic
+content uses a different path and cannot be an approximate substitute.
 
 Different array order may create a deterministic reindexed view only when
 unique subject/fiber IDs prove exact membership. Never infer compatibility from
 array position.
 
-No target cache generates or rereads a full-payload cryptographic checksum as a
-reuse or acceptance gate. Bounded canonical-descriptor, inline ordered-axis,
-and one-time toolchain digests remain permitted but cannot serve as payload-
-integrity evidence. Each lookup recomputes the source
-`(device, inode, size, mtime_ns)` signature outside the hot loop; a changed
-signature selects a new semantic identity. A content replacement that preserves
-that complete signature requires explicit `--force` or a schema/version change,
-because it cannot be detected without rereading the payload. The parent
-revalidates the selected signature before publication. Publication uses a
-temporary sibling plus atomic rename or isolated shards plus an atomic
-generation manifest.
+One `manifest.json` stores the canonical descriptor and each relative file's
+byte count, `payload_sha256`, structural metadata, producer version, and
+completed status. Source content SHA values, not local filesystem metadata,
+bind portable input identity. Producer hashes final bytes while writing. A
+cross-machine importer verifies every payload SHA once in a same-parent staging
+directory. Producer and importer publish the complete directory with one atomic
+rename. Normal cache hit and resume perform manifest, presence/size, and header
+checks without repeating payload hashing; explicit integrity audit may rehash.
 
 Production may create a missing expensive cache only after explicit
 `--allow-expensive-producers` authorization. Acceptance/smoke runs report
@@ -978,11 +973,10 @@ The design is implemented only when:
 4. all configured scales receive equal DAG and output treatment;
 5. connectome scheduling is role-based;
 6. scale-independent physical exposure and jitter resources, plus PASS-branch
-   shared activation resources, are prepared before endpoint fan-out, use
-   deterministic semantic paths and a final file or atomic generation manifest
-   without payload-checksum rereads, and are reused only under matching
-   semantic identity across scales/runs; FAIL retains the historical final-
-   linked activation producer;
+   shared activation resources, are prepared before endpoint fan-out, use one
+   portable SHA manifest per cache entry, and are reused only under matching
+   semantic identity across machines/scales/runs; FAIL retains the historical
+   final-linked activation producer;
 7. PASS-branch OSS physical preparation uses the formal-connectome minimum-grid
    `Omega_max`, and each endpoint selects its realized final valid feature axis
    as an exact canonical-ID subset; FAIL preserves per-final-axis production;
