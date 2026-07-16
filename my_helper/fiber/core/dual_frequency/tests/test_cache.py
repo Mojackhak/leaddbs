@@ -255,6 +255,8 @@ class ContentAddressedCacheTest(unittest.TestCase):
         destination = copied_cache.entry_path(key)
         destination.parent.mkdir(parents=True)
         shutil.copytree(source_entry.path, destination)
+        (destination / "._artifact.bin").write_bytes(b"appledouble-metadata")
+        (destination / "._manifest.json").write_bytes(b"appledouble-metadata")
         with mock.patch(
             "dual_frequency.cache.store.sha256_file",
             wraps=sha256_file,

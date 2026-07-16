@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -1616,27 +1617,55 @@ class InputProviderTest(unittest.TestCase):
         configured = self.root / "configured-forward-transform.nii.gz"
         _write_field(source, 1.0, self.affine)
         configured.write_bytes(b"configured-transform")
-        commands: list[tuple[str, ...]] = []
+        process = mock.Mock()
+        process.returncode = 0
 
-        def fake_run(command, **_kwargs):
-            commands.append(tuple(command))
+        def communicate(*, timeout):
+            self.assertEqual(timeout, MatlabLeftToCanonicalTransformer.TIMEOUT_SECONDS)
             shutil.copyfile(source, destination)
-            return subprocess.CompletedProcess(command, 0, "", "")
+            return "", ""
+
+        process.communicate.side_effect = communicate
 
         transformer = MatlabLeftToCanonicalTransformer(
             repository_root=REPOSITORY_ROOT,
         )
         with mock.patch(
-            "dual_frequency.runtime.input_provider.subprocess.run",
-            side_effect=fake_run,
-        ):
+            "dual_frequency.runtime.input_provider.subprocess.Popen",
+            return_value=process,
+        ) as popen:
             transformed = transformer.transform(source, destination, configured)
         self.assertEqual(transformed, destination.resolve())
-        self.assertEqual(len(commands), 1)
-        script = commands[0][2]
+        self.assertEqual(popen.call_count, 1)
+        script = popen.call_args.args[0][2]
         self.assertIn(str(configured.resolve()), script)
         self.assertIn("ea_ants_apply_transforms", script)
         self.assertNotIn("ea_flip_lr_nonlinear", script)
+
+    def test_matlab_transform_timeout_terminates_its_process_group(self) -> None:
+        source = self.root / "timeout-left-source.nii.gz"
+        destination = self.root / "timeout-left-canonical.nii.gz"
+        configured = self.root / "timeout-transform.nii.gz"
+        _write_field(source, 1.0, self.affine)
+        configured.write_bytes(b"configured-transform")
+        process = mock.Mock()
+        process.pid = 12345
+        process.communicate.side_effect = (
+            subprocess.TimeoutExpired("matlab", 300.0),
+            ("", ""),
+        )
+        transformer = MatlabLeftToCanonicalTransformer(
+            repository_root=REPOSITORY_ROOT,
+        )
+        with mock.patch(
+            "dual_frequency.runtime.input_provider.subprocess.Popen",
+            return_value=process,
+        ), mock.patch(
+            "dual_frequency.runtime.input_provider.os.killpg"
+        ) as killpg:
+            with self.assertRaisesRegex(RuntimeInputProviderError, "timed out"):
+                transformer.transform(source, destination, configured)
+        killpg.assert_called_once_with(12345, signal.SIGTERM)
 
     def test_left_transform_cache_is_atomic_under_concurrent_reuse(self) -> None:
         transformer = _CopyTransformer(delay_seconds=0.05)
@@ -1665,6 +1694,41 @@ class InputProviderTest(unittest.TestCase):
             "cache metadata does not match",
         ):
             provider._canonical_left_path(source)
+
+    def test_left_transform_is_shared_across_provider_process_roots(self) -> None:
+        study = self._study(missing_addon_for_last_subject=False)
+        first_transformer = _CopyTransformer()
+        provider, catalog, artifact_store, _artifact_root = self._provider(
+            study,
+            transformer=first_transformer,
+            shared_cache=True,
+        )
+        endpoint = self._endpoint(catalog, "reference_voxel")
+        subject = provider._subjects[endpoint.subject_ids[0]]
+        source = _leaf(
+            subject.leaddbs_subject_dir,
+            "T2",
+            1,
+            "lead-L",
+            "reference-group",
+            "continuous",
+        )
+        first = provider._canonical_left_path(source)
+        second_transformer = _CopyTransformer()
+        second_provider = StudyRuntimeInputProvider(
+            study,
+            provider.configuration,
+            catalog,
+            work_root=self.root / "second-provider-work",
+            artifact_store=artifact_store,
+            scientific_cache=ContentAddressedCache(self.root / "scientific-cache"),
+            left_transformer=second_transformer,
+        )
+        second = second_provider._canonical_left_path(source)
+        self.assertEqual(first_transformer.calls, 1)
+        self.assertEqual(second_transformer.calls, 0)
+        self.assertEqual(first, second)
+        self.assertIn("shared_exposure_v2/transformed_efields", first.as_posix())
 
     def test_formal_request_requires_exact_endpoint_and_selected_axis(self) -> None:
         provider, catalog, _store, artifact_root = self._provider(

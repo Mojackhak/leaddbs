@@ -73,6 +73,11 @@ localization-jitter exposure, and OSS/pPAM activation. Statistical analysis
 includes clinical joins, weights, scores, source/final resolution, formal
 resampling, sensitivity statistics, and reports.
 
+Canonicalized left E-fields are themselves shared v2 physical-cache entries.
+They are not worker-local durable state; their semantic identity binds source,
+transform, interpolation, canonical space, and producer version so voxel and
+fiber workers do not repeat the same MATLAB transform.
+
 No currently running process is interrupted or migrated. Existing production
 outputs remain read-only. Implementation status and remaining gates are stated
 explicitly below.
@@ -1762,7 +1767,9 @@ behavioral contracts above must remain intact.
   repeating payload SHA.
 - Missing files are produced once under a lock and atomically installed.
 - Complete entries may be copied directly to final semantic paths; partial or
-  corrupt copies fail closed and remain untouched.
+  corrupt copies fail closed and remain untouched. Platform-generated
+  AppleDouble `._*` sidecars are filesystem metadata and are excluded from the
+  scientific inventory; ordinary undeclared files remain corruption.
 - `--force` rebuilds the selected cache explicitly.
 - A complete sensitivity checkpoint supports a later extension process without
   rerunning observed, resolver, or final-model work.

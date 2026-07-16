@@ -71,6 +71,12 @@ def _relative_path(value: str) -> str:
     return path.as_posix()
 
 
+def _is_platform_sidecar(path: Path) -> bool:
+    """Return whether a descendant is macOS AppleDouble filesystem metadata."""
+
+    return any(part.startswith("._") for part in path.parts)
+
+
 @dataclass(frozen=True, order=True, slots=True)
 class CacheItem:
     """One stable item identity inside an ordered cache axis."""
@@ -739,12 +745,18 @@ class ContentAddressedCache:
             raise CacheCorruption("cache manifest file paths must be unique")
         declared = set(file_names)
         descendants = tuple(path.rglob("*"))
-        if any(descendant.is_symlink() for descendant in descendants):
+        if any(
+            descendant.is_symlink()
+            for descendant in descendants
+            if not _is_platform_sidecar(descendant.relative_to(path))
+        ):
             raise CacheCorruption("cache entries cannot contain symbolic links")
         actual = {
             file.relative_to(path).as_posix()
             for file in descendants
-            if file.is_file() and file != manifest_path
+            if file.is_file()
+            and file != manifest_path
+            and not _is_platform_sidecar(file.relative_to(path))
         }
         if actual != declared:
             raise CacheCorruption(

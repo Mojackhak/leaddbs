@@ -50,6 +50,12 @@ directory, calculate payload SHA while writing, write the manifest last, and
 publish with an atomic directory rename. A directly copied partial or corrupt
 entry fails closed but is neither deleted nor adopted automatically.
 
+On the production external volume, macOS represents extended attributes as
+AppleDouble `._*` sidecars. These sidecars are filesystem metadata rather than
+cache payloads, so exact payload inventory ignores them. Every declared
+scientific file remains mandatory and every other ordinary extra file still
+fails validation.
+
 ## Decision 3: One manifest and bounded axis metadata
 
 Each entry has one `manifest.json`, one `semantic_sha256`, and one
@@ -164,3 +170,25 @@ scales, 224 available endpoints, and 1288 tasks through final realization. The
 remaining completion evidence is the production rerun plus measured resource,
 worker-recovery, source-absent cache reuse, single-write payload, and authorized
 OSS axis-equivalence gates.
+
+## Decision 11: Share Canonicalized Left E-Fields
+
+Production spawn smoke showed that a worker-local left-to-canonical directory
+causes the same MATLAB transformation to be repeated by voxel and fiber workers.
+Canonicalized left E-fields therefore use the same v2 semantic cache authority
+as other physical inputs. Their identity binds source content SHA, transform
+content SHA, interpolation, canonical space, and producer version while
+excluding worker, run, scale, endpoint, and scratch paths.
+
+The first producer holds the semantic producer lease, writes one transformed
+NIfTI, validates it, and publishes it atomically. Other processes validate the
+copied cache entry once and reuse the NIfTI directly. Worker scratch remains a
+temporary producer location only and cannot be referenced by a completed task.
+
+## Decision 12: Bound MATLAB Transform Stalls
+
+The first production smoke produced no CPU activity or output for several
+minutes inside one MATLAB transformation. The transformer therefore runs in a
+dedicated process group with a bounded timeout. Timeout termination preserves
+the semantic producer identity, leaves no published cache entry, and causes the
+task to fail so a new lineage or eligible resume can retry it safely.

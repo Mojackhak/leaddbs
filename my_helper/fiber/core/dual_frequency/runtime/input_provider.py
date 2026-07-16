@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import signal
 import shutil
 import subprocess
 import uuid
@@ -93,6 +94,9 @@ class LeftToCanonicalTransformer(Protocol):
 class MatlabLeftToCanonicalTransformer:
     """Run the Lead-DBS nonlinear left-to-right helper with explicit paths."""
 
+    TIMEOUT_SECONDS = 300.0
+    TERMINATION_GRACE_SECONDS = 5.0
+
     def __init__(
         self,
         *,
@@ -140,14 +144,33 @@ class MatlabLeftToCanonicalTransformer:
             "ea_ants_apply_transforms(struct(),{dst},{dst},0,dst,xfm,4);"
         )
         executable = shutil.which(self._command) or self._command
-        result = subprocess.run(
+        process = subprocess.Popen(
             (executable, "-batch", script),
-            check=False,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
+            start_new_session=True,
         )
-        if result.returncode != 0 or not destination.is_file():
-            detail = (result.stderr or result.stdout or "unknown MATLAB failure").strip()
+        try:
+            stdout, stderr = process.communicate(timeout=self.TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.communicate(timeout=self.TERMINATION_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.communicate()
+            raise RuntimeInputProviderError(
+                "left-to-canonical MATLAB transformation timed out"
+            ) from exc
+        if process.returncode != 0 or not destination.is_file():
+            detail = (stderr or stdout or "unknown MATLAB failure").strip()
             raise RuntimeInputProviderError(
                 f"left-to-canonical transform failed for {source.name}: {detail}"
             )
@@ -998,6 +1021,69 @@ class StudyRuntimeInputProvider:
         transform = Path(self.study.spatial.left_to_right_transform).resolve()
         source_hash = self._path_hash(source)
         transform_hash = self._path_hash(transform)
+        key = ScientificCacheKey(
+            geometry_hash=source_hash,
+            stimulation_hash=source_hash,
+            component_frequency_hash=canonical_hash(
+                {"artifact": "left_to_canonical_efield"}
+            ),
+            transform_hash=transform_hash,
+            connectome_feature_hash=canonical_hash(
+                {"canonical_space": self.study.spatial.canonical_space}
+            ),
+            backend_name="lead_dbs_left_to_canonical_efield",
+            backend_version="1",
+            scientific_parameter_hashes=(
+                ("interpolation", canonical_hash({"interpolation": 4})),
+                (
+                    "canonical_space",
+                    canonical_hash(
+                        {"canonical_space": self.study.spatial.canonical_space}
+                    ),
+                ),
+            ),
+            kind="transformed_efields",
+        )
+        if self._scientific_cache is None:
+            return self._produce_canonical_left_path(
+                source,
+                transform,
+                source_hash,
+                transform_hash,
+            )
+        entry = self._scientific_cache.resolve(key)
+        if entry is None:
+            with self._scientific_cache.producer_lease(key) as producer:
+                if producer:
+                    produced = self._produce_canonical_left_path(
+                        source,
+                        transform,
+                        source_hash,
+                        transform_hash,
+                    )
+                    entry = self._scientific_cache.publish(
+                        key,
+                        {"field.nii.gz": produced},
+                    )
+                else:
+                    entry = self._scientific_cache.resolve(key)
+                    if entry is None:
+                        raise RuntimeInputProviderError(
+                            "left E-field producer lease ended without a cache entry"
+                        )
+        cached = entry.file_path("field.nii.gz")
+        self._validate_nifti(cached)
+        return cached
+
+    def _produce_canonical_left_path(
+        self,
+        source: Path,
+        transform: Path,
+        source_hash: str,
+        transform_hash: str,
+    ) -> Path:
+        """Produce one worker-local transformed source before atomic cache publication."""
+
         identity = canonical_hash(
             {
                 "source_sha256": source_hash,
@@ -1078,7 +1164,7 @@ class StudyRuntimeInputProvider:
             )
             os.replace(temporary, destination)
             os.replace(metadata_temporary, metadata_path)
-            if self._path_hash(destination, force=True) != output_hash:
+            if self._path_hash(destination, force=True, record=False) != output_hash:
                 raise RuntimeInputProviderError(
                     f"transformed E-field changed during atomic publication: {destination}"
                 )
