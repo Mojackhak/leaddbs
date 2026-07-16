@@ -7,6 +7,7 @@ output_contract_documented
 direct_voxel_design_frozen
 publisher_implementation_not_started
 current_legacy_outputs_unchanged
+configured_production_outputs_missing
 ```
 
 This document is the authoritative publication contract for the configured
@@ -102,6 +103,7 @@ That binding is stored in `model_manifest.json`; it is not repeated as an
     |   |-- observed/
     |   |-- resolver/
     |   |-- final_model.json
+    |   |-- sensitivity_base.json
     |   |-- formal/
     |   |-- sensitivity/
     |   |-- report/
@@ -117,6 +119,7 @@ That binding is stored in `model_manifest.json`; it is not repeated as an
     |   |       |-- resolver/
     |   |
     |   |-- final_model.json
+    |   |-- sensitivity_base.json
     |   |-- formal/
     |   |-- sensitivity/
     |   |-- report/
@@ -754,6 +757,31 @@ state.
 No sweet/sour threshold masks or anatomical summaries are produced. Positive
 and negative associations remain encoded by the sign of the continuous
 `benefit_map`.
+
+## Sensitivity Checkpoint And Extensions
+
+Every realized reference or add-on final writes `sensitivity_base.json` next to
+`final_model.json`. It binds the parent run/model identity, selected source,
+subject and voxel axes, base exposure semantic SHA, final artifacts, E-field and
+transform source-content identities, producer/schema versions, and RNG schedule
+identity. It contains no scratch URI.
+
+A later process may publish jitter or other final-linked direct-voxel
+sensitivity below:
+
+```text
+<output.root>/direct_voxel/<model_set_id>/extensions/<extension_id>/
+├── extension_manifest.json
+├── artifact_index.csv
+└── <scale_id>/
+    ├── reference/sensitivity/
+    └── addon/sensitivity/
+```
+
+With a complete checkpoint, observed, resolver, and final-model rerun count is
+`< 1`. Missing parent artifacts trigger explicit rebuild into a new parent
+lineage before extension; the publisher never repairs or mutates the deleted or
+partial lineage. Extension files never overwrite main-run files.
 
 ## Conditional Materialization
 

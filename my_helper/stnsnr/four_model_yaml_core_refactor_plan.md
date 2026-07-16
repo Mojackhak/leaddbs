@@ -13,6 +13,8 @@
 > `my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md`
 > **Performance refactor contract.**
 > `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`
+> **Task 17 decision record.**
+> `my_helper/stnsnr/task17_design_decisions.md`
 > **Scientific model specifications.** `my_helper/stnsnr/model_summaries/`
 > **Current branch.** `stnvop`
 > **Target schema.** `dual_frequency_v1`
@@ -21,7 +23,7 @@
 > `predecessor_runtime_archived`; `bounded_numeric_evidence_verified`;
 > `performance_refactor_design_documented`;
 > `performance_refactor_implementation_not_started`;
-> `production_outputs_unchanged`; `production_rerun_not_started`.
+> `configured_production_outputs_missing`; `production_rerun_required`.
 > **Last updated.** 2026-07-16
 
 ---
@@ -34,11 +36,13 @@ predecessor evidence only. When they conflict with this target contract, do not
 preserve the conflict as compatibility behavior.
 
 The linked performance-refactor contract supersedes every earlier target rule
-that requires endpoint-specific physical exposure or repeated payload hashing.
-The target cache is portable and deliberately small: canonical semantic JSON,
-one `semantic_sha256`, one `payload_sha256` per file, one `manifest.json`, and
-same-parent atomic directory publication. Device, inode, mtime, absolute path,
-scale, endpoint, run, and worker identity never enter a portable cache key.
+that requires endpoint-specific physical exposure or repeated within-process
+payload hashing. The target cache is portable and deliberately small:
+canonical semantic JSON, one `semantic_sha256`, one `payload_sha256` per file,
+one `manifest.json`, same-parent atomic directory publication for local
+producers, and direct-copy reuse after first-use verification in each process.
+Device, inode, mtime, absolute path, scale, endpoint, run, and worker identity
+never enter a portable cache key.
 
 ## Summary
 
@@ -67,8 +71,9 @@ acceptance, or STNSNr analysis module.
 
 The predecessor real-data acceptance run did not finish. Numeric equivalence is
 therefore bounded to its terminal completed scientific artifacts in the frozen
-allowlist. Historical cache files require one explicit verified import before
-the target runtime can reuse them.
+allowlist. Historical cache files require conversion to the portable entry
+schema before reuse; converted and native portable entries may be copied
+directly to their final semantic directory.
 Unfinished paths require contract, synthetic, and lightweight smoke tests but
 do not require comparison with nonexistent predecessor results.
 
@@ -96,10 +101,14 @@ The goal is complete only when one public library/CLI can:
    attached statistics;
 9. isolate endpoint-local failures while continuing independent tasks;
 10. produce generic manifests, artifact indexes, statuses, and reports;
-11. reuse portable exposure and activation entries only when their canonical
-    manifest has the requested `semantic_sha256` and valid installed files; and
+11. reuse portable exposure and activation entries only after the current
+    process verifies their canonical manifest, requested `semantic_sha256`,
+    payload SHA values, and structural metadata; and
 12. run from validated project inputs without importing any predecessor,
-    migration, acceptance, or STNSNr analysis module.
+    migration, acceptance, or STNSNr analysis module; and
+13. create or rebuild an immutable main-run sensitivity checkpoint, then run
+    selected jitter, OSS, or other final-linked sensitivity work in a separate
+    process and lineage without mutating valid parent artifacts.
 
 Implementation is not complete while any production path imports a
 `legacy_*`, `stnsnr_*`, `run_stnsnr_*`, or
@@ -1178,6 +1187,7 @@ paths built from one portable canonical descriptor:
 ```text
 voxel exposures
 fiber exposures
+jitter exposures
 OSS rows
 ```
 
@@ -1201,17 +1211,92 @@ machines.
 One `manifest.json` stores the complete canonical descriptor plus each relative
 file path, byte count, `payload_sha256`, schema, dtype, shape, ordered axes,
 units, space, producer version, and completed status. The producer calculates
-`payload_sha256` while writing final bytes. An importer verifies every payload
-SHA once in a same-parent staging directory. Producer and importer both publish
-the complete entry with one atomic directory rename. Normal cache hit and
-resume validate manifest identity, file presence/size, and structural headers
-without rereading payload SHA. Explicit integrity audit may reread it.
+`payload_sha256` while writing final bytes. A complete entry may be copied
+directly into its final semantic directory. On first use in every process, the
+runtime recomputes the semantic SHA, verifies every declared payload SHA, and
+validates file presence/size plus structural headers before adding the entry to
+a process-local verified set. Later consumers in that process do not repeat
+payload hashing; a new process, including resume or sensitivity extension,
+verifies the entry again.
 
-Manual copying directly into the final cache path is invalid. Temporary,
-partial, unverified-import, or structurally invalid directories never authorize
-reuse. Identical ordered IDs may be reused across machines; a different order
-may produce a deterministic reindex view only after exact ID membership and
-uniqueness validation.
+Temporary, partial, corrupt, or structurally invalid directories never
+authorize reuse and are not deleted automatically. Identical ordered IDs may
+be reused across machines; a different order may produce a deterministic
+reindex view only after exact ID membership and uniqueness validation.
+
+## Sensitivity Checkpoint And Extension Contract
+
+Main-run completion is an immutable checkpoint, not the end of future
+sensitivity work. Every realized direct-voxel or normative-fiber final writes a
+durable `sensitivity_base.json` containing:
+
+```text
+base run and model-set IDs
+scale, model family, final branch, and final role
+selected tau and Coverage
+subject, voxel, and fiber axis references as applicable
+outcome and nuisance artifact references
+base exposure semantic SHA
+final-model artifact references
+source E-field, transform, and connectome content identities
+Omega_max reference and OSS axis-gate status as applicable
+producer/schema versions and RNG schedule identity
+```
+
+Every reference is durable. Scratch URIs are forbidden.
+
+A later process may execute:
+
+```text
+run_dual_frequency_models.py sensitivity
+  --base-run PATH
+  --analyses jitter,oss
+  --run-id ID
+  --workers N
+```
+
+The extension process validates the parent checkpoint and every used cache
+entry, compiles only requested final-linked sensitivity tasks, and writes a new
+run lineage. A complete parent causes observed, resolver, and final-model rerun
+count `< 1`.
+
+When the parent run or any required observed, resolver, final-model, or
+sensitivity-base artifact is missing, explicit rebuild mode uses supplied
+study-base and model/workflow profiles to create a new parent run through final
+realization before starting the extension. It does not repair or mutate the
+deleted or partial lineage. If `study_base.json` is missing, the project-owned
+upstream converter runs explicitly before the generic runtime; generic core
+code never imports that converter.
+
+Base exposure alone cannot create a new physical jitter realization or OSS row.
+The required E-field/transform/connectome/toolchain sources or corresponding
+prepared sensitivity cache must remain available. Missing sources with no
+prepared cache produce `missing_sensitivity_source`.
+
+Extension run root:
+
+```text
+<workflow.storage.run_root>/<study_id>/<extension_run_id>/
+  run_manifest.json
+  base_run_reference.json
+  configuration_resolved.yaml
+  sensitivity_plan.json
+  artifact_index.json
+  artifact_index.csv
+  tasks/
+  work/
+  sensitivity_results/
+```
+
+Canonical extension publication is isolated below:
+
+```text
+<model.output.root>/<model_type>/<model_set_id>/extensions/<extension_id>/
+```
+
+No extension overwrites a main-run artifact. Extension resume restores valid
+completed sensitivity tasks, reruns failed/running/missing tasks, and
+re-evaluates dependency-derived skips.
 
 ## Artifact And Provenance Contract
 

@@ -8,6 +8,8 @@
 > `my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md`
 > **Performance refactor contract.**
 > `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`
+> **Task 17 decision record.**
+> `my_helper/stnsnr/task17_design_decisions.md`
 > **Predecessor schema.** `four_model_v1`
 > **Target schema.** `dual_frequency_v1`
 > **Current branch.** `stnvop`
@@ -16,20 +18,21 @@
 > `predecessor_runtime_archived`; `bounded_numeric_evidence_verified`;
 > `performance_refactor_design_documented`;
 > `performance_refactor_implementation_not_started`;
-> `production_rerun_not_started`.
+> `configured_production_outputs_missing`; `production_rerun_required`.
 > **Last updated.** 2026-07-16
 
 ---
 
 Explicit user decisions are authoritative for this design. Existing Markdown,
-code, and generated results are evidence, not independent authority. Stop for
-clarification if a later implementation discovers a conflict that this design
-does not resolve.
+code, and generated results are evidence, not independent authority. Resolve a
+later implementation conflict conservatively and record the choice in the Task
+17 decision record.
 
-The performance-refactor contract supersedes repeated payload-hash and local
-filesystem-signature cache rules in this design. The target uses portable
-canonical semantic JSON, one semantic SHA, one payload SHA per file, one
-manifest, and same-parent atomic directory publication.
+The performance-refactor contract supersedes repeated within-process
+payload-hash and local filesystem-signature cache rules in this design. The
+target uses portable canonical semantic JSON, one semantic SHA, one payload SHA
+per file, one manifest, same-parent atomic directory publication for local
+producers, and direct-copy reuse after first-use verification in each process.
 
 ## Goal
 
@@ -625,6 +628,7 @@ Expensive run-independent artifacts live outside endpoint run roots:
 cache/
   voxel_exposures/
   fiber_exposures/
+  jitter_exposures/
   oss_rows/
 ```
 
@@ -654,15 +658,47 @@ array position.
 One `manifest.json` stores the canonical descriptor and each relative file's
 byte count, `payload_sha256`, structural metadata, producer version, and
 completed status. Source content SHA values, not local filesystem metadata,
-bind portable input identity. Producer hashes final bytes while writing. A
-cross-machine importer verifies every payload SHA once in a same-parent staging
-directory. Producer and importer publish the complete directory with one atomic
-rename. Normal cache hit and resume perform manifest, presence/size, and header
-checks without repeating payload hashing; explicit integrity audit may rehash.
+bind portable input identity. Producer hashes final bytes while writing and
+publishes through a same-parent atomic directory rename. A complete portable
+entry may also be copied directly to the final semantic path. Every process
+verifies semantic identity, all payload SHA values, file presence/size, and
+structural headers on first use, then memoizes the verified semantic ID for the
+remainder of that process.
 
 Production may create a missing expensive cache only after explicit
 `--allow-expensive-producers` authorization. Acceptance/smoke runs report
 `missing_acceptance_fixture` instead of silently starting an expensive build.
+
+## Sensitivity Extension Boundary
+
+Each realized final publishes a small durable `sensitivity_base.json`. It binds
+the parent run/model identity, final branch and role, selected source,
+subject/outcome/nuisance axes, shared exposure cache identity, final artifact
+references, source-content identities, `Omega_max` and OSS axis-gate state when
+applicable, producer/schema versions, and RNG schedule identity. It contains no
+scratch path.
+
+A separate `sensitivity` application command validates that checkpoint and
+builds an extension-only DAG for requested jitter, OSS, or other final-linked
+sensitivity work. The extension receives a new run ID and immutable parent
+reference. It never mutates valid parent files.
+
+When the parent checkpoint is absent or incomplete, explicit rebuild mode
+accepts the complete normal-run inputs and creates a new parent lineage through
+final realization before compiling the extension DAG. It does not repair a
+partially deleted historical run. A missing upstream `study_base.json` is
+rebuilt only by the explicitly invoked project converter; the generic runtime
+does not import that converter.
+
+Extension artifacts live in their own run root and publish below
+`<model_set_id>/extensions/<extension_id>/`. A complete parent has observed,
+resolver, and final-model rerun count `< 1`. A rebuilt parent runs only the
+main-chain work required to create a valid checkpoint.
+
+Physical jitter generation requires its E-field and transform sources unless a
+prepared jitter cache exists. OSS generation requires connectome/toolchain
+sources unless the requested OSS cache exists. Missing source and missing
+prepared cache fail as `missing_sensitivity_source`.
 
 ## Accepted Implementation Execution Boundary
 

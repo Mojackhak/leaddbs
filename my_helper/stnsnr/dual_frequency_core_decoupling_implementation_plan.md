@@ -16,9 +16,11 @@ validated `study_base.json` without legacy or migration imports.
 
 **Performance refactor contract:**
 `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
+**Task 17 decision record:**
+`my_helper/stnsnr/task17_design_decisions.md`.
 The generic core implementation below is complete, but the shared-exposure,
-one-pass connectome, process-scheduler, and no-checksum performance refactor is
-`implementation_not_started`.
+one-pass connectome, process-scheduler, direct-copy SHA cache, sensitivity
+extension, and missing-parent rebuild are `implementation_not_started`.
 
 **Architecture:** Build a new `my_helper/fiber/core/dual_frequency` package next
 to the predecessor package, migrate contracts and orchestration first, then
@@ -858,9 +860,9 @@ a producer.
 - [x] **Step 4: Historical atomic cache publication (superseded by Task 17)**
 
 The historical implementation wrote a temporary sibling and atomically
-published it with legacy integrity metadata. Task 17 removes cryptographic
-checksums and uses deterministic semantic paths plus a final file or atomic
-generation manifest.
+published it with legacy integrity metadata. Task 17 retains portable payload
+SHA, uses deterministic semantic paths plus one manifest, permits direct copy,
+and verifies every used entry once per process.
 
 - [x] **Step 5: Implement generic run store and executor**
 
@@ -1197,9 +1199,9 @@ target `SensitiveRecord` from a legacy full-sample-only selected axis. Complete
 parent-axis, full/fold-valid-union, sensitive-record, and leakage behavior is
 proven by deterministic synthetic tests.
 
-The Task 10 implementation accepted equality at tau. Task 17 preserves this
-inclusive `E >= tau` rule and adds an explicit equality-at-tau inclusion test.
-Bounded fixtures remain historical semantic evidence. These are bounded-fixture
+The Task 10 implementation accepted equality at tau. Task 17 supersedes this
+with strict `E > tau` and adds an explicit boundary-exclusion test. Bounded
+fixtures remain historical semantic evidence. These are bounded-fixture
 limitations, not permission for a transitive
 production read or a silent fallback to the superseded rule.
 
@@ -1695,8 +1697,8 @@ git commit -m "feat: extract add-on normative-fiber backend"
   from its output.
 - Tau continues to define Coverage/Omega only. Historical Task 13 used strict
   direct-voxel exposure comparison and treated normative-fiber values exactly at
-  tau as active. Task 17 reopens the direct-voxel comparator so both families use
-  `E >= tau` and `count >= Coverage`. For both
+  tau as active. Task 17 reopens both comparators so both families use
+  `E > tau` and `count > Coverage`. For both
   families, all
   continuous E-field values inside the selected candidate support enter
   scoring. Add-on sensitivity may zero only the declared reference-overlap
@@ -2885,9 +2887,10 @@ in Tasks 7-15. It reopens the final-axis-only OSS producer but replaces it only
 if the bounded axis-equivalence gate passes. It does not reopen the scientific
 resolver, classifier, fallback, or continuous-dose scoring definitions. It does
 reopen the user-authorized threshold comparator: voxel/fiber E-field/tau uses
-`E >= tau`, Coverage uses `count >= Coverage`, and equality is included for both
-predicates. Overlap, support-QC cutoffs, and pPAM activation remain strict
-`>`/`<`, with equality excluded. Formal null-tail counting, hard minimum sample/feature
+`E > tau`, Coverage uses `count > Coverage`, overlap uses
+`reference > selected_tau`, support-QC retains its documented strict direction,
+and pPAM uses `p(A) > 0.5`. Every reopened boundary is excluded. Formal
+null-tail counting, hard minimum sample/feature
 counts, identity checks, bounds, and numerical tolerances are not reopened.
 
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
@@ -2896,8 +2899,8 @@ Preserve deterministic brute-force direct-voxel, normative-fiber, jitter, OSS,
 formal, pPAM, and sensitivity fixtures before implementation. Profile each stage
 at `execution.workers = 1` and the current configured value `3`. Preserve the
 historical equality-accepting fixtures as migration evidence and add target
-fixtures in which exact tau and Coverage values are included while exact overlap,
-support-QC, and `0.5` pPAM values are excluded; only enumerated
+fixtures in which exact tau, Coverage, overlap, support-QC, and `0.5` pPAM
+values are excluded; only enumerated
 boundary rows may differ from the historical result.
 
 Record wall time, aggregate CPU time, effective cores, peak RSS, swap, source
@@ -2911,18 +2914,23 @@ cancel/timeout/retry counts,
 formal-operator bytes, null `N x F` allocations, filtered-connectome builds,
 toolchain attestations, and active solver threads.
 
-- [ ] **Step 2: Establish semantic cache and single-write publication**
+- [ ] **Step 2: Establish directly copyable SHA cache and single-write publication**
 
-Remove separate full-payload checksum generation, validation, and reuse
-dependencies from target cache, artifact materialization, RunStore, resume, OSS
-payloads, and acceptance. Use stable semantic IDs, schema versions,
-deterministic paths, structural headers, terminal status, one-producer locks,
-temporary siblings, atomic publication, and explicit `--force`. Small canonical
-semantic descriptors, inline ordered-axis identity, and one-time immutable
-toolchain attestation may retain digests and select/bind a semantic cache path,
-but they may not reread large payloads, serve as payload-integrity evidence, or
-be the sole reuse-validity gate. The offline integrity audit is a complete structural/
-numerical scan and does not generate or compare a payload digest.
+Implement `<cache_root>/shared_exposure_v2/<kind>/<semantic_sha256>/` with one
+canonical `manifest.json`, one payload SHA per final file or shard, strict
+structural metadata, and a process-local verified set. Complete entries may be
+copied directly into their final semantic directory. There is no importer,
+incoming area, installation marker, machine identity, cache-instance identity,
+generation ID, or persistent verification database.
+
+At first lookup in every process, reconstruct and validate semantic SHA,
+manifest schema/completed state, exact file set, every payload SHA, byte count,
+dtype, shape, ordered axes, units, space, and ordered shard intervals. Add the
+semantic ID to the process-local verified set only after every check passes.
+Later consumers in that process do not repeat payload hashing. A new main,
+resume, or sensitivity-extension process verifies each used entry again.
+Partial or corrupt direct copies fail closed but are not deleted, moved, or
+adopted automatically.
 
 Add publisher-owned final-format NPY writers or final range shards so a producer
 writes, flushes, and closes each large byte once. The parent publishes an
@@ -2934,58 +2942,47 @@ contiguous external-tool boundary must be explicit and metered. Use a parent-
 only artifact journal/snapshot writer; endpoint/final tasks may not copy a
 payload merely to give it a new task-local name.
 
-Only an atomically published generation manifest authorizes a shard set.
-It binds one unique generation, requires every listed shard to exist in that
-generation, and requires strictly ordered, nonoverlapping intervals with
+One manifest describes the complete shard set. It requires every listed shard
+to exist and requires strictly ordered, nonoverlapping intervals with
 missing-range count `< 1` over the declared logical axis. Duplicate,
-foreign-generation, reordered, overlapping, missing, and undeclared shards
-fail closed. Orphan shards from a parent crash before manifest publication are
-ignored or quarantined; add one corruption fixture per invariant plus
-crash-before-manifest then resume acceptance.
+reordered, overlapping, missing, and undeclared shards fail closed. Orphan
+producer staging directories are ignored; add one corruption fixture per
+invariant plus crash-before-manifest and partial-direct-copy acceptance.
 
 Bind cache identity per artifact. Raw physical exposure includes the ordered
-physical-row identity, model domain, canonical grid/connectome, run-local
-source signatures, and producer version. Tau/Coverage support and `Omega_max`
+physical-row identity, model domain, canonical grid/connectome content SHA,
+source content SHA values, and producer version. Tau/Coverage support and `Omega_max`
 also include the exact ordered eligible cohort, exact ordered tau and Coverage
-grids, and `threshold_policy_v2`. PASS-branch OSS includes the selected
+grids, and `strict_threshold_v1`. PASS-branch OSS includes the selected
 `Omega_max` axis and solver/toolchain producer identity; FAIL retains the
-historical final-axis identity. A bounded descriptor digest may select the path
-but cannot replace any semantic field or validate the payload.
-
-At every cache lookup, recompute `(device, inode, size, mtime_ns)` once outside
-the hot loop before selecting the semantic cache path. A changed tuple produces
-a cache miss and new identity. Revalidate the selected tuple before publication.
-A content replacement that preserves the complete tuple cannot be detected
-without rereading the payload and therefore requires explicit `--force` or a
-schema/version change. Add acceptance for changed-signature invalidation,
-publication-time mutation quarantine, and documented stat-preserving
-replacement handling.
+historical final-axis identity. Canonical JSON SHA selects the path; payload SHA
+and structural checks validate copied bytes. Device, inode, mtime, and absolute
+path are runtime locators or provenance only and never enter identity.
 
 - [ ] **Step 3: Implement distinct voxel sampling and shared physical rows**
 
 Resolve unique physical subject/program/frequency-component units before
 endpoint fan-out. Bind an immutable `SamplingPlan` before the voxel/fiber hot
 loop. Canonical paths, left transforms, shape/affine, sampler descriptor/cache
-key, translation, and frequency grouping are resolved once and bound to a run-local
-`(device, inode, size, mtime_ns)` signature. Workers validate once on open and
-the parent validates again before publication. Replace global sampler clears
+key, translation, frequency grouping, and source content SHA values are resolved
+once. Workers validate structural source requirements once on open and the
+parent validates final payloads before publication. Replace global sampler clears
 with byte-bounded row-batch leases; never pin private samplers for every physical
 row simultaneously. Optionally canonicalize compressed NIfTI to a versioned
 read-only float32 memmap.
 
 Produce one bilateral direct-voxel row per physical unit and group only exact
-grid identities. Direct-voxel thresholding uses inclusive `E >= tau` and
-`count >= Coverage`, plus strict `reference > selected_tau`. Equality is
-included for E-field/tau and Coverage and excluded for overlap. Preserve the
-voxel sampling rule independently from the fiber
+grid identities. Direct-voxel thresholding uses strict `E > tau`,
+`count > Coverage`, and `reference > selected_tau`. Every reopened boundary is
+excluded. Preserve the voxel sampling rule independently from the fiber
 sampling rule.
 Endpoint inputs are ordered row/column views; scale, outcome, worker count, and
 run identity do not enter physical paths.
 
 - [ ] **Step 4: Implement audited, point-balanced one-pass `Omega_max` fiber preparation**
 
-Cold-audit each `(semantic connectome ID, resolved path, cache generation/schema,
-run-local source signature)` once, including `idx`, fourth-row IDs, point
+Cold-audit each `(semantic connectome ID, source content SHA, cache schema)`
+once, including `idx`, fourth-row IDs, point
 boundaries, dtype, chunks, and compression. Construct point offsets once
 and represent the complete `1..N` axis implicitly. The audited hot path reads
 the compressed source as required but materializes only coordinate rows into
@@ -3000,9 +2997,9 @@ point bytes. Ranges never split a fiber and minimize partially shared HDF5
 boundary chunks; logical point coverage and raw chunk overlap are measured
 separately. While a range is
 resident, evaluate every physical row using side-specific maxima followed by
-their mean. Normative-fiber thresholding also uses inclusive `E >= tau` and
-`count >= Coverage`, plus strict `reference > selected_tau`. Equality is
-included for E-field/tau and Coverage and excluded for overlap.
+their mean. Normative-fiber thresholding also uses strict `E > tau`,
+`count > Coverage`, and `reference > selected_tau`. Every reopened boundary is
+excluded.
 Retain exact
 `Omega_max`, publish continuous values once, and prove
 that no full/fold cell loses a candidate. Endpoint, scale, branch, grid, and fold
@@ -3050,7 +3047,37 @@ guard. Endpoint analysis applies add-on overlap at the existing boundary and
 refits all outcome-dependent statistics. Binary pPAM activation uses strict
 `p(A) > 0.5`; equality at `0.5` is inactive.
 
-- [ ] **Step 6: Implement one persistent spawned scheduler and global resource ledger**
+- [ ] **Step 6: Implement sensitivity checkpoints, extension runs, and missing-parent rebuild**
+
+Publish one durable `sensitivity_base.json` for every realized final. It binds
+the parent run/model identity, scale, final branch/role, selected source,
+subject/outcome/nuisance axes, shared exposure semantic ID, final artifact
+references, E-field/transform/connectome source-content identity, `Omega_max`
+and OSS gate state when applicable, producer/schema versions, and RNG schedule
+identity. Reject every scratch URI.
+
+Add an application command with explicit `--base-run`, `--analyses`, `--run-id`,
+and resource controls. With a complete parent checkpoint, compile only requested
+jitter, OSS, or other final-linked sensitivity tasks and write a separate child
+run. Publish canonical extension results below a unique
+`extensions/<extension_id>/` path. Observed, resolver, and final-model rerun
+count for this path is `< 1`.
+
+Add explicit rebuild mode with complete normal-run study-base and profile
+inputs. If the parent run or any required observed, resolver, final-model, or
+sensitivity-base artifact is absent, create a new parent lineage, execute the
+missing main chain through final realization, publish a new checkpoint, and
+then start the extension. Never repair or mutate a partially deleted lineage.
+If `study_base.json` is missing, require the explicit project-owned upstream
+converter command before the generic runtime; do not import project code.
+
+Permit statistics from an exact prepared jitter or OSS cache when physical
+sources are absent. Require source E-fields/transforms/connectome/toolchain for
+new physical production. Missing source and missing prepared cache fail as
+`missing_sensitivity_source`. Extension resume restores only valid completed
+extension tasks and re-evaluates dependency-derived skips.
+
+- [ ] **Step 7: Implement one persistent spawned scheduler and global resource ledger**
 
 Introduce an importable worker entry point and pure-data `WorkerCommand` with
 only direct dependency envelopes, paths, small configuration, and granted
@@ -3109,7 +3136,7 @@ Completed outcomes never reference scratch URIs. A changed/missing scratch root
 deterministically rebuilds incomplete fold/interpolation workspaces from durable
 artifacts before downstream resume; test this path.
 
-- [ ] **Step 7: Vectorize grid, statistics, and fiber-scoring kernels**
+- [ ] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
 
 Cache compact/block-streamed tau exceedance and Coverage operators by exact
 axis and derive training-fold counts by held-out subtraction. Fit baseline-only
@@ -3131,7 +3158,7 @@ Update support-QC classification to strict cutoffs only, including cohort
 median `< 0.20` and subject fraction `< 0.25` for `adequate`; add exact-cutoff
 fixtures so equality is not silently included in either class.
 
-- [ ] **Step 8: Shard formal, bootstrap, pPAM, jitter, and sensitivity safely**
+- [ ] **Step 9: Shard formal, bootstrap, pPAM, jitter, and sensitivity safely**
 
 Shard direct/fiber permutation and bootstrap, pPAM permutation, and spatial
 jitter by fixed replicate-index blocks independent of worker count. Jitter keeps
@@ -3162,7 +3189,7 @@ and nuisance operators; apply overlap in chunks/views and release each jitter
 block after durable publication. Do not cache replicate-specific overlap,
 nuisance, support, or Delta state as invariant.
 
-- [ ] **Step 9: Run numerical, reuse, resume, and resource acceptance**
+- [ ] **Step 10: Run numerical, reuse, resume, deletion-rebuild, and resource acceptance**
 
 Run cold/warm benchmarks for voxel, every connectome, formal, bootstrap, jitter,
 and pPAM at `workers = 1, 3, 6, 12`. A skipped row records preflight evidence
@@ -3174,12 +3201,13 @@ Require the
 authority document's complete acceptance contract: brute-force and optimized
 numerical equivalence, worker-count determinism, candidate false-negative count
 `< 1`, producer count per physical identity `> 0` and `< 2`, hot-loop metadata
-work count `< 1`, payload-checksum bytes `< 1`, endpoint-selected payload-copy
-count `< 1`, fault-free pool-generation count `> 0` and `< 2`, untracked nested
+work count `< 1`, full cache-verification count per used entry and process
+`> 0` and `< 2`, within-process repeat verification count `< 1`,
+endpoint-selected payload-copy count `< 1`, fault-free pool-generation count
+`> 0` and `< 2`, untracked nested
 pool count `< 1`, bounded HDF5/solver/BLAS concurrency, parent-only persistence,
-and `swap_delta_bytes < 1`. Exact-threshold fixtures must prove that equality is
-included for voxel/fiber E-field/tau and Coverage, and excluded for reference
-overlap, support-QC cutoffs, and pPAM activation.
+and `swap_delta_bytes < 1`. Exact-threshold fixtures must exclude voxel/fiber
+E-field/tau, Coverage, reference overlap, support-QC, and pPAM boundaries.
 
 On current 28-scale data, reduce 1540 endpoint-derived row evaluations per
 connectome to 42 physical rows in the shared pass. For the 12-worker benchmark,
@@ -3191,8 +3219,13 @@ windows retain their measured I/O classification. Require
 `swap_delta_bytes < 1`. Test
 fail-once resume so formerly dependency-skipped descendants run after recovery,
 and verify that resource-only resume overrides preserve scientific artifacts.
+Run main-through-final followed by new-process jitter, OSS, and combined
+extensions. Delete required parent artifacts and prove rebuild mode creates a
+new main lineage before sensitivity. Direct-copy portable entries and inject
+payload, shard, and axis corruption before extension startup. Compare extension
+outputs with one-shot outputs under the existing numerical tolerances.
 
-- [ ] **Step 10: Update current status and commit**
+- [ ] **Step 11: Update current status and commit**
 
 Only after all acceptance gates pass, mark the performance refactor complete in
 the goal/design/plan, update every current threshold/output-contract/model-
@@ -3254,8 +3287,8 @@ test count implies that the new execution architecture is implemented.
 - [ ] OSS/pPAM moves to formal-connectome `Omega_max` only after exact final-axis
   ten-state/count/probability equivalence; every endpoint final axis is an exact
   canonical-ID subset.
-- [ ] Target cache, artifact, resume, OSS, and acceptance paths perform no large-
-  payload checksum reread; bounded semantic/axis/toolchain digests remain
+- [ ] Target cache verifies each used entry once per process and performs no
+  within-process payload checksum reread; bounded semantic/axis/toolchain digests remain
   permitted under the authority contract.
 - [ ] CPU-heavy work uses spawned processes, large disjoint work units, and a
   persistent event-driven ready queue; `execution.workers` is the one public
@@ -3277,10 +3310,9 @@ test count implies that the new execution architecture is implemented.
 - [ ] Managed RAM is the smaller of 48 GiB and available RAM after the larger of
   a 16-GiB or 20%-physical reserve; expected solver RSS is charged and swap
   satisfies `swap_delta_bytes < 1`.
-- [ ] Voxel/fiber thresholds use `E >= tau`, `count >= Coverage`, and
+- [ ] Voxel/fiber thresholds use `E > tau`, `count > Coverage`, and
   `reference > selected_tau`; support-QC uses its documented strict direction;
-  pPAM uses `p(A) > 0.5`. E-field/tau and Coverage boundary fixtures are
-  included; overlap, support-QC, and pPAM boundary fixtures are excluded.
+  pPAM uses `p(A) > 0.5`. Every reopened boundary fixture is excluded.
 - [x] Formal/sensitivity/activation consume only one realized final.
 - [x] Generic reports contain no HF/ULF compatibility aliases.
 - [x] Bounded parity includes only exact IDs in the reviewed allowlist that are

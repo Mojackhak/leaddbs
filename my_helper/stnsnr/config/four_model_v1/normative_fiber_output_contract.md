@@ -7,6 +7,7 @@ output_contract_documented
 normative_fiber_design_frozen
 publisher_implementation_not_started
 current_legacy_outputs_unchanged
+configured_production_outputs_missing
 ```
 
 This document is the authoritative publication contract for the configured
@@ -90,6 +91,7 @@ lower paths; YAML cannot configure artifact filenames or subdirectory names.
     |   |       |-- formal_source_evaluation/
     |   |
     |   |-- final_model.json
+    |   |-- sensitivity_base.json
     |   |-- cross_connectome/
     |   |-- formal/
     |   |-- sensitivity/
@@ -121,6 +123,7 @@ lower paths; YAML cannot configure artifact filenames or subdirectory names.
     |   |               |-- formal_source_evaluation/
     |   |
     |   |-- final_model.json
+    |   |-- sensitivity_base.json
     |   |-- cross_connectome/
     |   |-- formal/
     |   |-- sensitivity/
@@ -470,8 +473,8 @@ NetFiberScore(add-on-condition reference component; locked operator)
 - NetFiberScore(reference-condition exposure; locked operator)
 ```
 
-Support QC uses the inclusive normative-fiber threshold
-`reference_component_exposure >= selected_reference_tau` on the complete
+Support QC uses the strict normative-fiber threshold
+`reference_component_exposure > selected_reference_tau` on the complete
 parent fiber axis. For every subject and required full/fold operator:
 
 ```text
@@ -481,7 +484,7 @@ out_support_fraction =
 ```
 
 A zero denominator is `invalid_no_reference_component_exposure`. `adequate`
-requires cohort median `<= 0.20` and at most `25%` of subjects above `0.50`.
+requires cohort median `< 0.20` and subject fraction `< 0.25` above `0.50`.
 `invalid_extreme_out_of_support` applies when cohort median is `> 0.50`, more
 than `25%` of subjects are above `0.80`, or any required full/fold value is
 strictly `> 0.95`. All remaining nonzero cases are `limited`. Both `adequate`
@@ -551,7 +554,7 @@ permutation_null.npy
 ```
 
 OSS inherits `final.valid_feature_axis`, does not rescan tau/Coverage, and uses
-`I[p(A) >= 0.5]` for fitting. Continuous p(A) remains a sidecar/QC value. OSS
+`I[p(A) > 0.5]` for fitting. Continuous p(A) remains a sidecar/QC value. OSS
 uses the same 200/100/20 score rules and fold-local refitting.
 
 The activation request receives the matched final peak-E-field score as an
@@ -613,6 +616,32 @@ not part of this contract.
 
 If there is no final model, report contains status and summary only; HTML and
 density outputs are not generated.
+
+## Sensitivity Checkpoint And Extensions
+
+Every realized reference or add-on final writes `sensitivity_base.json` next to
+`final_model.json`. It binds parent run/model identity, selected source,
+subject/fiber axes, shared exposure semantic SHA, final artifacts, E-field,
+transform, connectome, `Omega_max`, and OSS gate identities, producer/schema
+versions, and RNG schedule identity. It contains no scratch URI.
+
+A later process may publish jitter, OSS, or other final-linked fiber sensitivity
+below:
+
+```text
+<output.root>/normative_fiber/<model_set_id>/extensions/<extension_id>/
+├── extension_manifest.json
+├── artifact_index.csv
+└── <scale_id>/
+    ├── reference/sensitivity/
+    └── addon/sensitivity/
+```
+
+With a complete checkpoint, observed, resolver, and final-model rerun count is
+`< 1`. Missing parent artifacts trigger explicit rebuild into a new parent
+lineage before extension. An exact prepared OSS or jitter cache may support
+statistics without original sources; new physical production requires its
+declared sources and toolchain. Extension files never overwrite main-run files.
 
 ## Reuse And Collision Rules
 
