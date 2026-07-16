@@ -10,6 +10,7 @@ import signal
 import shutil
 import subprocess
 import uuid
+from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -289,6 +290,10 @@ class _NiftiSampler:
         self._data = data
         self._inverse_affine = np.linalg.inv(image.affine)
 
+    @property
+    def nbytes(self) -> int:
+        return int(self._data.nbytes)
+
     def sample(
         self,
         coordinates_mm: np.ndarray,
@@ -368,6 +373,7 @@ class StudyRuntimeInputProvider:
         scientific_cache: ContentAddressedCache | None = None,
         left_transformer: LeftToCanonicalTransformer | None = None,
         fiber_chunk_size: int = 65_536,
+        sampler_cache_bytes: int = 2 * 1024**3,
     ) -> None:
         if not isinstance(study, StudyBaseRecord):
             raise TypeError("study must be a StudyBaseRecord")
@@ -384,6 +390,10 @@ class StudyRuntimeInputProvider:
             raise TypeError("scientific_cache must be a ContentAddressedCache or None")
         if type(fiber_chunk_size) is not int or fiber_chunk_size < 1:
             raise RuntimeInputProviderError("fiber_chunk_size must be a positive integer")
+        if type(sampler_cache_bytes) is not int or sampler_cache_bytes < 1:
+            raise RuntimeInputProviderError(
+                "sampler_cache_bytes must be a positive integer"
+            )
         endpoints = {item.endpoint_id: item for item in catalog}
         if len(endpoints) != len(catalog):
             raise RuntimeInputProviderError("catalog endpoint IDs must be unique")
@@ -402,8 +412,13 @@ class StudyRuntimeInputProvider:
         self._work_root.mkdir(parents=True, exist_ok=True)
         self._left_transformer = left_transformer or MatlabLeftToCanonicalTransformer()
         self._fiber_chunk_size = fiber_chunk_size
+        self._sampler_cache_bytes = sampler_cache_bytes
+        self._sampler_bytes = 0
         self._lock = RLock()
-        self._samplers: dict[Path, tuple[_FileDigest, _NiftiSampler]] = {}
+        self._samplers: OrderedDict[
+            Path,
+            tuple[_FileDigest, _NiftiSampler],
+        ] = OrderedDict()
         self._hashes: dict[Path, _FileDigest] = {}
         self._feature_spaces: dict[tuple[str, str], _FeatureSpace] = {}
         self._shared_preparation_locks: dict[str, RLock] = {}
@@ -1184,6 +1199,7 @@ class StudyRuntimeInputProvider:
         with self._lock:
             cached = self._samplers.get(resolved)
             if cached is not None and cached[0] == _FileDigest(signature, digest):
+                self._samplers.move_to_end(resolved)
                 return cached[1]
         sampler = _NiftiSampler(resolved)
         if self._file_signature(resolved) != signature:
@@ -1195,7 +1211,19 @@ class StudyRuntimeInputProvider:
                 f"E-field content changed while it was being loaded: {resolved}"
             )
         with self._lock:
+            previous = self._samplers.pop(resolved, None)
+            if previous is not None:
+                self._sampler_bytes -= previous[1].nbytes
             self._samplers[resolved] = (_FileDigest(signature, digest), sampler)
+            self._sampler_bytes += sampler.nbytes
+            while (
+                self._sampler_bytes > self._sampler_cache_bytes
+                and len(self._samplers) > 1
+            ):
+                _evicted_path, (_evicted_digest, evicted) = self._samplers.popitem(
+                    last=False
+                )
+                self._sampler_bytes -= evicted.nbytes
         return sampler
 
     def _sample_group_resolution(

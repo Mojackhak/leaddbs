@@ -616,6 +616,7 @@ class InputProviderTest(unittest.TestCase):
         transformer: _CopyTransformer | None = None,
         configuration=None,
         shared_cache: bool = False,
+        sampler_cache_bytes: int = 2 * 1024**3,
     ):
         selected_configuration = configuration or self.configuration
         catalog = build_endpoint_catalog(selected_configuration, study)
@@ -635,6 +636,7 @@ class InputProviderTest(unittest.TestCase):
                 else None
             ),
             left_transformer=selected_transformer,
+            sampler_cache_bytes=sampler_cache_bytes,
         )
         return provider, catalog, artifact_store, artifact_root
 
@@ -1694,6 +1696,20 @@ class InputProviderTest(unittest.TestCase):
             "cache metadata does not match",
         ):
             provider._canonical_left_path(source)
+
+    def test_sampler_cache_evicts_decoded_fields_by_bytes(self) -> None:
+        provider, _catalog, _store, _artifact_root = self._provider(
+            self._study(missing_addon_for_last_subject=False),
+            sampler_cache_bytes=128,
+        )
+        first = self.root / "sampler-first.nii.gz"
+        second = self.root / "sampler-second.nii.gz"
+        _write_field(first, 1.0, self.affine)
+        _write_field(second, 2.0, self.affine)
+        provider._sampler(first)
+        provider._sampler(second)
+        self.assertEqual(tuple(provider._samplers), (second.resolve(),))
+        self.assertLessEqual(provider._sampler_bytes, 128)
 
     def test_left_transform_is_shared_across_provider_process_roots(self) -> None:
         study = self._study(missing_addon_for_last_subject=False)

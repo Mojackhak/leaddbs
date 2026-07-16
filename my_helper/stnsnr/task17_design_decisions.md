@@ -185,6 +185,11 @@ NIfTI, validates it, and publishes it atomically. Other processes validate the
 copied cache entry once and reuse the NIfTI directly. Worker scratch remains a
 temporary producer location only and cannot be referenced by a completed task.
 
+Worker-local NIfTI samplers use a byte-bounded least-recently-used cache. The
+durable transformed entry remains shared, while decoded arrays are evicted
+before sequential subjects multiply one worker's resident memory without
+bound.
+
 ## Decision 12: Bound MATLAB Transform Stalls
 
 The first production smoke produced no CPU activity or output for several
