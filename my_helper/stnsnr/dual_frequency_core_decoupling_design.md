@@ -27,9 +27,10 @@ clarification if a later implementation discovers a conflict that this design
 does not resolve.
 
 The performance-refactor contract supersedes all checksum/content-addressed
-cache rules in this design. The target uses deterministic semantic paths,
-final-file existence, structural validation, declared versions, and explicit
-`--force`. Historical checksum fields are inert predecessor data.
+cache rules in this design. The target uses deterministic semantic paths, a
+final file or atomic generation manifest, structural validation, declared
+versions, and explicit `--force`. Historical checksum fields are inert
+predecessor data.
 
 ## Goal
 
@@ -124,11 +125,21 @@ except for the explicit 2026-07-11 clarification that intended adjusted
 `absent_no_stable_grid` permits one-way accepted no-delta fallback. No other
 final-model rule changes.
 
+Task 17 separately reopens the enumerated threshold boundaries: direct voxel
+and normative fiber use `X > tau`, `count > Coverage`, and
+`reference > selected_tau`; support-QC retains its strict documented direction;
+pPAM uses `p(A) > 0.5`. Boundary equality is excluded and derived artifacts
+bind `strict_threshold_v1`; this target is not implemented in current code.
+
 Execution is split into two layers. Scale-independent physical preparation
 produces canonical E-fields, bilateral voxel/fiber exposure, minimum-grid
-`Omega_max`, requested jittered exposure, and requested OSS/pPAM rows.
-Scale-dependent analysis consumes indexed subject/feature subsets and performs
-all outcome-dependent fitting, classification, resampling, and reporting. This
+`Omega_max`, requested jittered exposure, and shared OSS/pPAM rows only for
+allocator-relevant classes covered by exact axis-equivalence decisions. An
+unproven or failed class retains the historical per-final-axis OSS producer in
+the scale-dependent and final-linked layer.
+That second layer consumes indexed subject/feature subsets and performs all
+outcome-dependent fitting, classification, resampling, and reporting; the
+explicit FAIL producer is its only retained physical producer. This
 separation changes neither the direct-voxel bilateral formula nor the
 normative-fiber rule of peaking each side before averaging the two peaks.
 
@@ -302,8 +313,8 @@ formal
 sensitive
 ```
 
-Each normative-fiber model profile has exactly one `formal` connectome and zero
-or more `sensitive` connectomes. Every connectome runs the complete observed
+Each normative-fiber model profile has `formal` connectome count `> 0` and
+`< 2`; its `sensitive` connectome list is optional. Every connectome runs the complete observed
 grid. Sensitive connectomes produce cell-level metrics and formal-source-cell
 `SensitiveRecord` outputs but never a `FinalModelRecord`. OSS, jitter, and
 formal inference are derived from a realized final on the formal connectome;
@@ -322,7 +333,7 @@ The workflow references both model profiles and declares model/connectome
 selection, execution cutoff, resume/force policy, endpoint failure policy,
 cache/run roots, workers, and expensive-producer authorization. It contains no
 default scale list and duplicates no scientific model parameter. CLI callers
-must provide either one or more `--scale` values or `--all-available`.
+must provide `--scale` argument count `> 0` or `--all-available`.
 Runtime scheduling parameters do not alter scientific cache paths.
 
 The resolved workflow exposes two stable semantic identifiers:
@@ -496,7 +507,7 @@ execution_failure
 robustness_complete
 ```
 
-At most one model is realized as final. Comparison branches and robustness
+The realized final-model count is `< 2`. Comparison branches and robustness
 connectomes do not become additional final models unless the configured role
 and state machine explicitly realize them.
 
@@ -516,16 +527,19 @@ OSS/pPAM sensitivity.
 
 OSS endpoint statistics participate only as activation sensitivity for a
 realized normative-fiber final on the unique `formal` connectome. When the
-workflow requests activation sensitivity, scale-independent OSS/pPAM physical
-rows are prepared before endpoint analysis. OSS does not run for direct voxel,
+workflow requests activation sensitivity, OSS/pPAM physical rows are prepared
+before endpoint analysis only for allocator-relevant classes covered by exact
+axis-equivalence PASS decisions; an unproven or failed class retains the
+historical per-final-axis producer after realization.
+OSS does not run for direct voxel,
 select tau/Coverage, replace the observed final model, or feed back into
 classification.
 
 ### Activation universe
 
 Do not run expensive OSS simulation for every fiber in the whole connectome.
-Use the minimum-grid maximal candidate union for the corresponding formal-
-connectome physical exposure family:
+In the PASS branch, use the minimum-grid maximal candidate union for the
+corresponding formal-connectome physical exposure family:
 
 ```text
 F_OSS_prepare = Omega_max at min(tau grid)/min(Coverage grid)
@@ -538,12 +552,13 @@ weights, signs, and selected sweet/sour IDs are re-estimated in each OSS
 training fold. Add-on reference-active overlap is applied after raw activation
 preparation using the endpoint's selected reference source.
 
-The exact ordered `Omega_max` semantic ID and canonical fiber-ID file are part
+In the PASS branch, the exact ordered `Omega_max` semantic ID and canonical fiber-ID file are part
 of every producer-row deterministic path. Scale, endpoint, branch role,
 final-model ID, run ID, worker count, and task order are not. Consequently, all
 scales using the same physical input reuse completed rows and later select
 their exact final-axis subset. Different prepared axes require different paths.
-Approximate, nearest-axis, or whole-connectome substitution is forbidden.
+Approximate, nearest-axis, or whole-connectome substitution is forbidden. FAIL
+retains the historical final-axis request, cache, artifact, and path identity.
 
 The runtime passes typed row records and artifacts directly between tasks. It
 does not create an `OSSSidecarBundle`, `DualFrequencyStudyBundle`, or another
@@ -562,7 +577,7 @@ p(A_i,f) = max(p(A_right_i,f), p(A_left_to_right_i,f))
 The model sensitivity uses:
 
 ```text
-X_OSS_i,f = 1[p(A_i,f) >= 0.5]
+X_OSS_i,f = 1[p(A_i,f) > 0.5]
 ```
 
 For `normative_fiber_model_v1`, the public OSS settings are fixed and validated:
@@ -572,7 +587,7 @@ model = OSS-DBSv2
 activation model = pPAM
 fiber diameter = 1.0..4.0 micrometers
 samples = 10, equidistant
-fitting threshold = 0.5 inclusive
+fitting threshold predicate: p(A) > 0.5; boundary inactive
 ```
 
 Different values require a future schema version rather than a silent v1
@@ -628,8 +643,9 @@ scientific parameter profile ID
 ```
 
 Scale IDs, endpoint IDs, run IDs, workers, retries, and scheduling order are
-excluded. A present final file with matching schema, dtype, shape, ordered IDs,
-units, space, and terminal status is reused automatically. Different semantic
+excluded. A present final file or atomic shard-generation manifest with matching
+schema, dtype, shape, ordered IDs, units, space, and terminal status is reused
+automatically. Different semantic
 content uses a different deterministic path and cannot be used as an
 approximate substitute.
 
@@ -637,9 +653,17 @@ Different array order may create a deterministic reindexed view only when
 unique subject/fiber IDs prove exact membership. Never infer compatibility from
 array position.
 
-No target cache generates or validates a cryptographic checksum. Publication
-uses a temporary sibling and atomic rename. Same-path upstream replacement
-requires explicit `--force` or a schema/version change.
+No target cache generates or rereads a full-payload cryptographic checksum as a
+reuse or acceptance gate. Bounded canonical-descriptor, inline ordered-axis,
+and one-time toolchain digests remain permitted but cannot serve as payload-
+integrity evidence. Each lookup recomputes the source
+`(device, inode, size, mtime_ns)` signature outside the hot loop; a changed
+signature selects a new semantic identity. A content replacement that preserves
+that complete signature requires explicit `--force` or a schema/version change,
+because it cannot be detected without rereading the payload. The parent
+revalidates the selected signature before publication. Publication uses a
+temporary sibling plus atomic rename or isolated shards plus an atomic
+generation manifest.
 
 Production may create a missing expensive cache only after explicit
 `--allow-expensive-producers` authorization. Acceptance/smoke runs report
@@ -953,13 +977,15 @@ The design is implemented only when:
    intact;
 4. all configured scales receive equal DAG and output treatment;
 5. connectome scheduling is role-based;
-6. scale-independent physical exposure, jitter, and activation resources are
-   prepared before endpoint fan-out, use deterministic semantic paths and
-   final-file existence without cryptographic checksums, and are reused across
-   scales/runs;
-7. OSS physical preparation uses the formal-connectome minimum-grid
-   `Omega_max`; each endpoint selects its realized final valid feature axis as
-   an exact canonical-ID subset without rerunning OSS or adding fibers;
+6. scale-independent physical exposure and jitter resources, plus PASS-branch
+   shared activation resources, are prepared before endpoint fan-out, use
+   deterministic semantic paths and a final file or atomic generation manifest
+   without payload-checksum rereads, and are reused only under matching
+   semantic identity across scales/runs; FAIL retains the historical final-
+   linked activation producer;
+7. PASS-branch OSS physical preparation uses the formal-connectome minimum-grid
+   `Omega_max`, and each endpoint selects its realized final valid feature axis
+   as an exact canonical-ID subset; FAIL preserves per-final-axis production;
 8. sensitive connectomes emit no final model, while exactly one final model or
    an explicit closed terminal state exists per endpoint/model family after
    `formal` role filtering;

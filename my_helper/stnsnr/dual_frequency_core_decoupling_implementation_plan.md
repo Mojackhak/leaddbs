@@ -8,6 +8,12 @@
 strict, reusable `dual_frequency_v1` four-model core that can run from a
 validated `study_base.json` without legacy or migration imports.
 
+**Sole current `/goal`:**
+`my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`.
+
+**Approved architecture:**
+`my_helper/stnsnr/dual_frequency_core_decoupling_design.md`.
+
 **Performance refactor contract:**
 `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
 The generic core implementation below is complete, but the shared-exposure,
@@ -56,8 +62,10 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
 - Every combined endpoint uses an explicit matched-reference binding; reference
   and combined phase IDs are not required to match.
 - Normative-fiber `sensitive` connectomes emit `SensitiveRecord` only. Exactly
-  one `formal` connectome is final-eligible; formal resampling, OSS, and jitter
-  derive from its realized final without a third connectome role.
+  one `formal` connectome is final-eligible; formal resampling, jitter, and
+  endpoint OSS statistics derive from its realized final without a third
+  connectome role. Raw OSS rows move before final realization only in Task 17's
+  accepted `Omega_max` PASS branch; FAIL retains the final-linked producer.
 - Direct voxel and normative fiber are the only model families.
 - ROI/VTA postprocessing, regional heatmaps, GUI, HTTP, and upstream imaging/
   electrode reconstruction are out of scope.
@@ -68,8 +76,10 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
 - Formal, sensitivity, jitter, activation, and reporting cannot feed back into
   source, prediction, branch, or final-model classification.
 - Public config never exposes direct-voxel candidate threshold or smoke counts.
-- Expensive producer cache misses require explicit authorization; acceptance
-  never authorizes them.
+- Expensive producer cache misses require explicit authorization; routine
+  acceptance never implicitly authorizes them. Task 17's bounded real-OSS axis-
+  equivalence decision matrix is a separate precondition, and each cold class
+  may run only after its own explicit authorization.
 - During the current implementation phase, production YAML may be validated
   and planned only. Do not execute its observed, formal, sensitivity, jitter,
   activation, or report tasks and do not write its configured output root.
@@ -244,10 +254,11 @@ argument parsing, output discovery, and project naming.
 Add an implementation-note section naming the immutable run and stating:
 
 ```text
-eligible = task_id in approved_task_allowlist
-           and status == completed
-           and task has scientific artifacts
-           and every artifact exists and passes structural validation
+eligible when:
+  task_id in approved_task_allowlist
+  status in {completed}
+  task has scientific artifacts
+  every artifact exists and passes structural validation
 
 excluded = task_id not in approved_task_allowlist
            or reports that only summarize failure
@@ -546,8 +557,8 @@ and returns immutable records without writing another file.
 Assert direct-voxel and normative-fiber profiles have identical model-set ID,
 output root, scale order, endpoint pair, frequency classes, minimum subjects,
 and DeltaReferenceScore support thresholds. Every configured scale must exist
-in the study base. Assert exactly one normative-fiber `formal` connectome and
-zero or more `sensitive` connectomes.
+in the study base. Assert normative-fiber `formal` connectome count `> 0` and
+`< 2`; the `sensitive` connectome list is optional.
 
 - [x] **Step 3: Run tests and verify RED**
 
@@ -608,9 +619,8 @@ scales, minimum subjects, unavailable rows, and scale equality. Assert the
 synthetic profile has no project-frequency names in serialized catalog rows.
 Include one explicit reference/add-on endpoint pair whose phases differ and
 assert every configured scale uses that pair without automatic endpoint
-discovery or fan-out. Assert
-sensitive connectomes are `final_eligible = false` and the sole `formal`
-connectome is `final_eligible = true`.
+discovery or fan-out. Assert sensitive connectomes declare `final_eligible`
+false and the sole `formal` connectome declares `final_eligible` true.
 
 - [x] **Step 2: Add the named III/IV structural fixture**
 
@@ -692,15 +702,15 @@ Expected: missing state module.
 Use no filesystem or NumPy dependency. `ReferenceDependencyRecord` separates
 `dependency_status` (`ready`, `not_configured`, `input_failure`,
 `design_failure`, `execution_failure`) from `source_status`. Only
-`dependency_status == "ready"` can produce a branch plan. Accepted sources are
+Only `dependency_status` in `{"ready"}` can produce a branch plan. Accepted sources are
 exactly:
 
 ```python
 ACCEPTED = frozenset({"pre_specified_accepted", "scan_fallback_accepted"})
 ```
 
-`dependency_status == "ready"` with `source_status ==
-"absent_no_stable_grid"` produces no-delta-only. Any nonready dependency
+`dependency_status` in `{"ready"}` with `source_status` in
+`{"absent_no_stable_grid"}` produces no-delta-only. Any nonready dependency
 produces a terminal `dependency_failure` and no intended branch; it must never
 be reinterpreted as source absence.
 
@@ -708,7 +718,7 @@ Fallback code must explicitly require:
 
 ```python
 if (
-    plan.intended_branch == "delta_reference_adjusted"
+    plan.intended_branch in {"delta_reference_adjusted"}
     and intended.status in {"input_failure", "design_failure", "absent_no_stable_grid"}
     and alternate.source_status in ACCEPTED
 ):
@@ -787,8 +797,8 @@ finals.
 
 - [x] **Step 4: Compare the scientific task inventory with the `/goal` matrix**
 
-Add a parameterized test asserting every non-deferred Round has at least one
-task stage and no optional future Round appears. Include add-on direct Round 9
+Add a parameterized test asserting every non-deferred Round has
+`task_stage_count > 0` and no optional future Round appears. Include add-on direct Round 9
 display/final-manifest generation explicitly.
 
 - [x] **Step 5: Commit**
@@ -849,7 +859,8 @@ a producer.
 
 The historical implementation wrote a temporary sibling and atomically
 published it with legacy integrity metadata. Task 17 removes cryptographic
-checksums and uses deterministic semantic paths plus final-file existence.
+checksums and uses deterministic semantic paths plus a final file or atomic
+generation manifest.
 
 - [x] **Step 5: Implement generic run store and executor**
 
@@ -938,8 +949,9 @@ if str(CORE_ROOT) not in sys.path:
 
 from dual_frequency.application.cli import main
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+match __name__:
+    case "__main__":
+        raise SystemExit(main())
 ```
 
 The bootstrap adds only the generic `core` directory. It must not add
@@ -1049,8 +1061,8 @@ contradict their underlying status fields.
 - [x] **Step 5: Run focused, bounded parity, and predecessor selftests**
 
 No ULF or MDS-UPDRS IV numeric parity is required in this task.
-Any predecessor resolver fixture used here must contain enough declared
-neighbor cells to exercise the current minimum of two adjacent passing cells;
+Any predecessor resolver fixture used here must contain adjacent passing-cell
+count `> 1` to exercise the current stability rule;
 a sparse fixture that cannot satisfy the stability rule is not a valid
 selection-priority test.
 
@@ -1185,13 +1197,12 @@ target `SensitiveRecord` from a legacy full-sample-only selected axis. Complete
 parent-axis, full/fold-valid-union, sensitive-record, and leakage behavior is
 proven by deterministic synthetic tests.
 
-The authoritative target uses inclusive suprathreshold classification
-`E >= tau`; the frozen predecessor used strict `E > tau`. Bounded fixtures are
-therefore historical semantic evidence, not an exact proof of the revised
-threshold-boundary implementation. Inclusive-boundary behavior is covered by
-an explicit synthetic equality-at-tau test. These are bounded-fixture
-limitations, not permission for a transitive production read or a silent
-fallback to legacy rules.
+The Task 10 implementation accepted equality at tau. The current target,
+superseded by Task 17 under the user's strict-comparison rule, uses `E > tau`
+and excludes equality. Bounded fixtures remain historical semantic evidence;
+the reopened strict boundary requires an explicit equality-at-tau exclusion
+test. These are bounded-fixture limitations, not permission for a transitive
+production read or a silent fallback to the superseded rule.
 
 - [x] **Step 4: Extract generic coverage, weights, resolver, and score kernels**
 
@@ -1228,10 +1239,10 @@ git commit -m "feat: extract reference normative-fiber backend"
   structure, and axis identity were verified before read; the documented
   missing-parent-axis and legacy strict-threshold
   limitations were preserved rather than bypassed.
-- Synthetic tests cover inclusive `E >= tau`, parent-order full/fold-valid
-  union, fold-only fitting, formal/sensitive role separation, scan fallback,
-  noncomputable sensitive evidence, one-sided support, and read-only memory
-  mapping.
+- Historical synthetic tests covered the then-current equality-accepting tau
+  rule, parent-order full/fold-valid union, fold-only fitting, formal/sensitive
+  role separation, scan fallback, noncomputable sensitive evidence, one-sided
+  support, and read-only memory mapping. Task 17 reopens the tau-boundary test.
 - `compileall`, `git diff --check`, generic hardcoding scan, and production
   YAML diff check passed.
 - No production YAML task was executed, no production output was written, and
@@ -1285,14 +1296,17 @@ git commit -m "feat: extract reference normative-fiber backend"
   exposure values inside the locked finite map support enter the score.
 - Support QC uses the add-on condition's reference-component suprathreshold
   voxel range on the complete parent feature axis and strict direct-voxel
-  thresholding `E > selected_reference_tau`. Total suprathreshold count zero
-  for any required subject is
+  thresholding `E > selected_reference_tau`. A required subject with
+  `suprathreshold_count < 1` is
   `invalid_no_reference_component_coverage`, never `adequate`.
-- Support classification is deterministic:
-  `adequate` requires cohort median out-support fraction `<= 0.20` and no more
-  than `25%` of subjects above `0.50`; `invalid_extreme_out_of_support` applies
-  when cohort median is `> 0.50`, more than `25%` of subjects are above `0.80`,
-  or any required full/fold value is `> 0.95`; all remaining nonzero cases are
+- Historical Task 11 support classification is deterministic: `adequate`
+  included a cohort median exactly at `0.20` and a subject fraction exactly at
+  `25%`. Task 17 reopens those boundaries; its strict target requires median
+  `< 0.20` and subject fraction `< 0.25`. `invalid_extreme_out_of_support` applies
+  when cohort median is `> 0.50`, `subject_fraction > 0.25` for values
+  `> 0.80`,
+  or any required full/fold value is `> 0.95`; remaining cases with
+  `suprathreshold_count > 0` are
   `limited`. Both `adequate` and `limited` are valid adjusted inputs.
 - The immutable DeltaReference dependency record carries axis-bound full
   scores, fold-by-subject scores, numeric support rows, and a small support-QC
@@ -1448,7 +1462,8 @@ git commit -m "feat: extract add-on direct-voxel backend"
   established.
 - DeltaReferenceScore support QC uses the add-on condition's reference-
   component suprathreshold fiber range on the complete parent axis and the
-  inclusive normative-fiber rule `E >= selected_reference_tau`. For each
+  strict normative-fiber rule `E > selected_reference_tau`. Equality at the
+  selected reference tau is excluded. For each
   subject and each required full/fold operator:
 
   ```text
@@ -1457,11 +1472,13 @@ git commit -m "feat: extract add-on direct-voxel backend"
       / count(all suprathreshold reference-component fibers)
   ```
 
-  A zero denominator is `invalid_no_reference_component_exposure`. Support is
-  `adequate` when the cohort median is `<= 0.20` and no more than `25%` of
-  subjects exceed `0.50`; it is `invalid_extreme_out_of_support` when the
-  cohort median is `> 0.50`, more than `25%` of subjects exceed `0.80`, or any
-  required full/fold value is strictly `> 0.95`; all other nonzero cases are
+  A `denominator_count < 1` is `invalid_no_reference_component_exposure`. Historical
+  Task 12 classified median exactly `0.20` and subject fraction exactly `25%`
+  as `adequate`; Task 17 reopens them with strict median `< 0.20` and fraction
+  `< 0.25`. `invalid_extreme_out_of_support` applies when the
+  cohort median is `> 0.50`, `subject_fraction > 0.25` for values `> 0.80`, or any
+  required full/fold value is strictly `> 0.95`; all other cases with
+  `denominator_count > 0` are
   `limited`. `adequate` and `limited` are valid adjusted inputs.
 - Reference-active overlap is applied before add-on Coverage and candidate
   construction. An accepted local reference model uses its exact selected
@@ -1612,8 +1629,8 @@ git commit -m "feat: extract add-on normative-fiber backend"
   pre-final observed numerical APIs and synthetic kernel tests only; they are
   not accepted by `FormalRequest` because shape alone cannot prove subject or
   feature order and a frozen dataclass does not freeze an array payload.
-- Direct-voxel requests require `connectome_role=none`; normative-fiber formal
-  requests require the unique `connectome_role=formal`. A sensitive-connectome
+- Direct-voxel requests require connectome-role state `none`; normative-fiber
+  formal requests require the unique connectome-role state `formal`. A sensitive-connectome
   record, non-realized final, mismatched axis, raw path, or filename is rejected
   before publication.
 - Reference and no-delta requests have no additional nuisance inputs. Adjusted
@@ -1677,9 +1694,11 @@ git commit -m "feat: extract add-on normative-fiber backend"
   from `0.9 * selected_tau` and `1.1 * selected_tau`. It evaluates those cells
   without invoking the source resolver and omits source/prediction/final status
   from its output.
-- Tau continues to define Coverage/Omega only. Direct voxel coverage uses the
-  authoritative strict boundary `E > tau`; normative-fiber coverage uses the
-  authoritative inclusive boundary `E >= tau`. For both families, all
+- Tau continues to define Coverage/Omega only. Historical Task 13 used strict
+  direct-voxel exposure comparison and treated normative-fiber values exactly at
+  tau as active. Task 17 reopens the fiber comparator and the Coverage-count
+  comparator so both families use `E > tau` and `count > Coverage`. For both
+  families, all
   continuous E-field values inside the selected candidate support enter
   scoring. Add-on sensitivity may zero only the declared reference-overlap
   exposure; it must not zero add-on exposure merely because its value is below
@@ -1712,7 +1731,7 @@ git commit -m "feat: extract add-on normative-fiber backend"
   `direction_normalized_addon_gain` kind. An ordinary post-score outcome cannot
   be relabeled as gain merely by placing its `ObservedRequest` in a field named
   `gain_request`. Positive normalized gain always means benefit, so its request
-  must use `outcome_direction=higher` regardless of the source scale direction.
+  must use outcome-direction state `higher` regardless of the source scale direction.
 - Only `nonfinal_request` may use the non-realized branch. Gain and total-
   exposure requests inherit the realized final branch and branch-specific
   nuisance inputs. Nonfinal and gain analyses reuse the target's exact
@@ -1800,11 +1819,12 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   `33 tests` passed.
 - Complete generic `dual_frequency` suite: `271 tests` passed.
 - Deterministic synthetic tests covered ten permutations, ten bootstraps, five
-  jitter replicates, direct strict and fiber inclusive tau boundaries, exact
+  jitter replicates, direct strict and the then-current equality-accepting fiber
+  tau boundary, exact
   final-axis identity, branch-specific nuisance, and classification-feedback
   rejection. Frozen predecessor evidence remained restricted to the allowlist.
 - Independent review findings were closed with regression tests: normalized
-  gain requires `outcome_direction=higher`; gain/total reuse the realized final
+  gain requires outcome-direction state `higher`; gain/total reuse the realized final
   branch and exact exposure/baseline/nuisance artifacts; nonfinal accepts only
   the canonical opposite branch; adjusted bootstrap rejects unchanged and
   directly reindexed stale DeltaReferenceScore values; formal support QC cannot
@@ -1819,11 +1839,12 @@ git commit -m "feat: extract generic formal and sensitivity backends"
 ### Task 14: Implement Shared Activation Universe And Generic OSS Backend
 
 **Historical completion record, producer universe superseded.** The generic OSS
-backend was completed on an endpoint-final axis. The confirmed target now
-prepares scale-independent OSS/pPAM rows on the formal connectome's exact
-minimum-grid `Omega_max` axis and lets endpoint analysis select final columns.
-Task 17 reopens the producer/planner/cache work; checked boxes below do not mark
-that migration complete.
+backend was completed on an endpoint-final axis. Task 17's PASS branch proposes
+scale-independent OSS/pPAM rows on the formal connectome's exact minimum-grid
+`Omega_max` axis and lets endpoint analysis select final columns; its FAIL
+branch retains this completed endpoint-final producer. Task 17 reopens the
+producer/planner/cache work; checked boxes below do not mark that conditional
+migration complete.
 
 **Files:**
 - Modify: `my_helper/fiber/core/dual_frequency/contracts/requests.py`
@@ -1841,17 +1862,20 @@ that migration complete.
 - Produces: `OSSRowBackend.materialize(OSSRowBatchRequest) -> OSSRowBatchArtifact`.
 - Produces: `ActivationBackend.run_activation(ActivationRequest) -> ActivationArtifact`.
 - `ppam.py` owns only probability validation, canonical maximum union, and the
-  inclusive binary threshold. `fitting.py` owns endpoint nuisance design,
+  binary threshold. The Task 14 implementation accepted equality at `0.5`;
+  Task 17 reopens it for the strict target. `fitting.py` owns endpoint nuisance design,
   fold-local weights/scoring, Freedman-Lane smoke permutation, technical
   status, and run-scoped artifact publication.
-- The target producer fiber axis is the formal-connectome physical exposure
+- The PASS-only target producer fiber axis is the formal-connectome physical exposure
   family's exact `Omega_max` at minimum configured tau/Coverage. It is not the
-  whole connectome and has no intermediate sidecar bundle.
-- A producer deterministic path excludes scale, endpoint, final-model ID, run
+  whole connectome and has no intermediate sidecar bundle. FAIL retains the
+  historical endpoint-final axis.
+- A PASS-branch producer deterministic path excludes scale, endpoint, final-model ID, run
   ID, worker count, and task order, but includes the exact ordered `Omega_max`
   semantic axis ID and canonical `feature_ids` file. Exact matching physical
   inputs reuse rows across endpoints; different axes cannot use nearest-key,
-  superset guessing, or the same cache path.
+  superset guessing, or the same cache path. The FAIL path retains the
+  historical final-axis identity.
 - Consumes subject/component/condition/connectome/transform/solver inputs only as
   typed metadata and exact artifact references; solver paths come from validated
   backend configuration.
@@ -1860,8 +1884,8 @@ that migration complete.
   substitute for a typed direct final-record input.
 - `expensive_producer` identifies a service that may produce expensive rows; it
   must not block service invocation before exact cache lookup. The activation
-  service probes all row keys first and checks expensive authorization only when
-  at least one valid row is absent.
+service probes all row keys first and checks expensive authorization only when
+  `missing_valid_row_count > 0`.
 - `ActivationRequest` explicitly carries outcome, branch-specific baseline,
   optional full/fold DeltaReferenceScore inputs, ordered subject/fiber axes,
   canonical fiber IDs, the matched final peak-E-field score, outcome direction,
@@ -1872,7 +1896,7 @@ that migration complete.
   `delta_full_scores[subject]` and `delta_fold_scores[fold, subject]`, with
   axes `(subject_axis,)` and `(subject_axis, subject_axis)`. Other shapes or
   orders are branch-local input failures.
-- The target `OSSRowBatchArtifact` exposes the prepared `Omega_max` canonical
+- In the PASS branch, `OSSRowBatchArtifact` exposes the prepared `Omega_max` canonical
   `feature_ids` artifact. Endpoint analysis creates an explicit ordered view:
   `ActivationRequest.feature_ids` carries the final-axis ID authority and
   `ActivationRequest.activation_feature_ids` carries the already-subset OSS
@@ -1880,7 +1904,7 @@ that migration complete.
   to be exactly equal and bound to `final.valid_feature_axis`; IDs cannot be
   inferred, silently reordered, or selected by position without canonical-ID
   validation.
-- `final.valid_feature_axis` must be an exact canonical-ID subset of the
+- In the PASS branch, `final.valid_feature_axis` must be an exact canonical-ID subset of the
   prepared `Omega_max` OSS axis. OSS never reapplies peak-E-field tau/Coverage
   in full-sample, LOOCV, or permutation fits. Within the selected final axis, full-sample and each
   training fold independently intersect finite OSS weights, reselect signed
@@ -1888,12 +1912,12 @@ that migration complete.
 - Reference OSS uses an all-false overlap mask. Add-on physical OSS preparation
   stores raw activation; endpoint analysis additionally receives the realized
   branch's patient-by-feature reference-overlap mask on the selected ordered
-  final axis. It applies that mask after inclusive pPAM thresholding and before
+  final axis. It applies that mask after strict pPAM thresholding and before
   weights, signed scoring, plain-activation QC, LOOCV, or permutation. The mask
   cannot change the final axis, and add-on OSS cannot reintroduce an HF-touched
   patient-fiber exposure.
 - Endpoint fitting emits only sensitivity status and artifacts. The status is
-  `failed_activation_degenerate` for all-zero/non-estimable activation or an
+  `failed_activation_degenerate` for `active_feature_count < 1`, non-estimable activation, or an
   absent/constant signed score, `failed_oss_design_or_prediction` for invalid
   nuisance/prediction/permutation execution, `passed_activation_consistent`
   for a technically valid score with positive correlation to the explicit
@@ -1930,17 +1954,14 @@ unique configured `formal` connectome role without checking a connectome name.
 
 - [x] **Step 2: Write failing mapping and threshold tests**
 
-Assert:
-
-```python
-merged = np.maximum(probability_right, probability_left_to_right)
-binary = (merged >= 0.5).astype(np.float32)
-```
-
-Require exact canonical fiber IDs and deterministic endpoint subsetting.
+Assert elementwise-maximum L/R merging and the historical Task 14 binary rule,
+which classified probability exactly `0.5` as active. Task 17 reopens only that
+boundary and defines its strict replacement. Require exact canonical fiber IDs
+and deterministic endpoint subsetting.
 Freeze the public v1 OSS contract to `OSS-DBSv2`, `pPAM`, fiber diameters
-`1.0..4.0` micrometers, exactly 10 equidistant samples, and inclusive fitting
-threshold `0.5`. Schema and semantic validation reject any other values, and
+`1.0..4.0` micrometers, exactly 10 equidistant samples, and the historical
+equality-accepting fitting threshold `0.5`. Schema and semantic validation reject
+any other values, and
 the row publication boundary verifies that every probability equals an integer
 activation count divided by ten.
 
@@ -1948,8 +1969,8 @@ activation count divided by ten.
 
 Validate the completed allowlisted reference-fiber OSS matrix, fiber IDs,
 metadata, and sensitivity-result structure. Replay exact ordered subsetting and
-the inclusive `p(A) >= 0.5` threshold over 48 stratified fibers across three
-subjects. Because the reviewed frozen fixture contains only the already-merged
+the historical boundary that treats `p(A)` exactly at `0.5` as active over 48
+stratified fibers across three subjects. Because the reviewed frozen fixture contains only the already-merged
 branch matrix and not raw left/right rows, test `max_probability_union` with a
 deterministic synthetic L/R fixture. Exercise row scheduling with an injected
 synthetic producer; do not launch OSS-DBS or generate any real row during this
@@ -1965,7 +1986,8 @@ Skip each already present structurally valid final row; never use nearest-key ma
 Map left stimulation geometry to right canonical space before OSS modeling,
 require exact L/R rows for every final subject, merge by elementwise maximum,
 cache continuous probability, and derive binary fitting exposure with
-`p(A) >= 0.5`. Refit weights, signed selections, and the `200/100/20` score in
+the historical equality-accepting `0.5` boundary. Refit weights, signed
+selections, and the `200/100/20` score in
 each training fold without changing source, prediction, branch-role, or final
 classification. For add-on rows, apply the inherited patient-by-feature
 HF-overlap mask before every fitting and QC calculation. Test adjusted
@@ -2012,8 +2034,9 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   dual-frequency suite passed `207/207` in the `leaddbs` Conda environment.
 - Python compilation for every touched Task 14 module and `git diff --check`
   passed.
-- The mounted allowlisted OSS fixture passed structural, ordered-axis, and inclusive
-  threshold replay. Synthetic tests covered exact ordered-axis cache identity,
+- The mounted allowlisted OSS fixture passed structural, ordered-axis, and the
+  then-current equality-accepting threshold replay. Task 17 reopens the `0.5`
+  boundary for strict comparison. Synthetic tests covered exact ordered-axis cache identity,
   three-worker deterministic production, cache-first blocked misses, ten-sample
   probability lattice enforcement, add-on overlap exclusion, fold-local
   nuisance inputs, incomplete permutation handling, and prepublication input
@@ -2309,8 +2332,8 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   branch, selected tau, and selected Coverage; count equality alone is not
   sufficient.
 - Adjusted observed/formal requests require both a valid
-  `DeltaReferenceBundle` and
-  `PreparedExposureRecord.delta_reference_input_status=ready`. A valid bundle
+  `DeltaReferenceBundle` and a `PreparedExposureRecord` whose
+  `delta_reference_input_status` state is `ready`. A valid bundle
   cannot override auxiliary-readiness failure.
 - The configured left-to-canonical transform must be the transform actually
   consumed by the mapping operation. MATLAB may not silently choose another
@@ -2349,9 +2372,11 @@ git commit -m "feat: add reusable dual-frequency activation backend"
 - The generic OSS producer treats a continuous frequency group as one jointly
   modeled simultaneous row and treats an alternating frequency group as
   independently modeled source rows merged by elementwise maximum probability.
-  Left stimulation/electrode geometry is mapped to right-canonical space before
-  physical OSS is evaluated once on the scale-independent `Omega_max` axis.
-  Endpoint analysis then selects the locked final-axis view by canonical ID.
+  In Task 17's PASS branch, left stimulation/electrode geometry is mapped to
+  right-canonical space before physical OSS is evaluated once on the
+  scale-independent `Omega_max` axis, and endpoint analysis selects the locked
+  final-axis view by canonical ID. FAIL retains the completed per-final-axis
+  producer.
   Cache hits require no toolchain; an authorized miss resolves the official
   Lead-DBS `OSS-DBSv2` environment internally, while public YAML remains free
   of executable/environment paths.
@@ -2367,8 +2392,11 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   probability matrix and the same endpoint inputs, and invoke pPAM fitting.
   A row-materialization artifact is not itself a completed endpoint sensitivity.
 
-The default authorized-miss producer is project-neutral and consumes only the
-typed row request plus internally resolved Lead-DBS/OSS dependencies. It must:
+The following default authorized-miss producer steps describe the proposed
+PASS branch. They replace the historical final-axis preparation only after the
+Task 17 gate passes; FAIL retains the completed producer contract. The producer
+is project-neutral and consumes only the typed row request plus internally
+resolved Lead-DBS/OSS dependencies. It must:
 
 1. restore every geometry, stimulation-parameter, and locator document from its
    verified `ArtifactRef`;
@@ -2453,10 +2481,11 @@ pinned converter normalizes that sentinel to an empty `DTIPath` and
 `DiffusionTensorActive = false`. A MATLAB empty char array is forbidden because
 the converter can decode its zero dimensions as nonempty NUL characters.
 
-Encode the template-segmentation ID, fixed-settings version, environment ID,
+In the PASS branch, encode the template-segmentation ID, fixed-settings version, environment ID,
 producer/bridge version, reconstruction ID, configured transform ID,
 stimulation-unit ID, formal-connectome ID, and exact ordered `Omega_max` axis ID
 in the deterministic scientific path. Cache lookup itself remains environment-free;
+the FAIL branch retains the historical final-axis path identity.
 only an authorized miss resolves and validates the installed OSS toolchain.
 `OSS-DBSv2.yml` pins the upstream release/commit identifier and records the
 declared installed-file inventory for `ossdbs` and `leaddbsinterface`, including
@@ -2800,8 +2829,8 @@ allowlist constant.
 
 - [x] **Step 6: Audit artifacts and process state**
 
-Confirm every smoke task has a terminal record, every realized final has at most
-one final ID, no sensitivity record has a final ID, `configuration_resolved.yaml`
+Confirm every smoke task has a terminal record, every realized final has
+`final_id_count < 2`, no sensitivity record has a final ID, `configuration_resolved.yaml`
 and `configuration_sources.json` reproduce the configuration IDs and source paths,
 report/index/manifests agree, old output trees are unchanged, and no Lead-DBS/
 OSS/model process remains active.
@@ -2844,98 +2873,330 @@ acceptance gaps`). No remote push was performed.
 
 ### Task 17: Implement Two-Layer Shared Physical Preparation And Parallel Runtime
 
-**Status:** `design_documented`; `implementation_not_started`.
+**Status:** `design_documented`; `code_audit_complete`;
+`literature_review_complete`; `strict_threshold_change_authorized`;
+`implementation_not_started`.
 
 **Authority:**
 `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
 
-This task supersedes the endpoint-specific exposure, checksum cache, thread-
-pool wave scheduler, final-axis-only OSS producer, and model-specific jitter
-preparation implemented in Tasks 7-15. It does not reopen the scientific
-resolver, classifier, fallback, or scoring definitions.
+This task supersedes the endpoint-specific exposure, payload-checksum cache,
+thread-pool wave scheduler, and model-specific jitter preparation implemented
+in Tasks 7-15. It reopens the final-axis-only OSS producer but replaces it only
+if the bounded axis-equivalence gate passes. It does not reopen the scientific
+resolver, classifier, fallback, or continuous-dose scoring definitions. It does
+reopen the user-authorized threshold comparator: voxel/fiber E-field/tau,
+Coverage and overlap, support-QC cutoffs, and pPAM activation use strict
+`>`/`<`, with
+equality excluded. Formal null-tail counting, hard minimum sample/feature
+counts, identity checks, bounds, and numerical tolerances are not reopened.
 
-- [ ] **Step 1: Characterize the current implementation**
+- [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 
-Record E-field opens, sampler rebuilds, full-connectome range reads, physical
-rows evaluated, temporary matrix count, wall time, CPU, peak RSS, swap, and
-bytes read/written. Preserve deterministic small brute-force direct/fiber,
-jitter, and OSS fixtures.
+Preserve deterministic brute-force direct-voxel, normative-fiber, jitter, OSS,
+formal, pPAM, and sensitivity fixtures before implementation. Profile each stage
+at `execution.workers = 1` and the current configured value `3`. Preserve the
+historical equality-accepting fixtures as migration evidence and add strict
+target fixtures in which exact tau/`0.5` values are excluded; only enumerated
+boundary rows may differ from the historical result.
 
-- [ ] **Step 2: Replace checksum identities with semantic paths**
+Record wall time, aggregate CPU time, effective cores, peak RSS, swap, source
+and scratch bytes, E-field/NIfTI opens, sampler builds/rebuilds/evictions,
+hot-loop path/stat/hash/lock calls, connectome coordinate/fourth-row bytes,
+point-range skew, pool and nested-executor creations, full-payload read/write/
+checksum-reread bytes, inline semantic-digest input bytes, memmap flushes,
+selected-exposure copies, artifact-index rewrites, ready-queue depth,
+dependency/CPU/memory/I/O/solver wait, token occupancy, worker idle fraction,
+cancel/timeout/retry counts,
+formal-operator bytes, null `N x F` allocations, filtered-connectome builds,
+toolchain attestations, and active solver threads.
 
-Remove cryptographic checksum fields, generation, validation, and cache-key
-dependencies from contracts, artifact publication/materialization, run store,
-resume, configuration records, OSS rows, provenance, and acceptance tools.
-Use stable semantic IDs, schema versions, deterministic paths, final-file
-existence, structural validation, terminal status, temporary siblings, atomic
-rename, one-producer locks, and explicit `--force`.
+- [ ] **Step 2: Establish semantic cache and single-write publication**
 
-- [ ] **Step 3: Move physical preparation before endpoint fan-out**
+Remove separate full-payload checksum generation, validation, and reuse
+dependencies from target cache, artifact materialization, RunStore, resume, OSS
+payloads, and acceptance. Use stable semantic IDs, schema versions,
+deterministic paths, structural headers, terminal status, one-producer locks,
+temporary siblings, atomic publication, and explicit `--force`. Small canonical
+semantic descriptors, inline ordered-axis identity, and one-time immutable
+toolchain attestation may retain digests and select/bind a semantic cache path,
+but they may not reread large payloads, serve as payload-integrity evidence, or
+be the sole reuse-validity gate. The offline integrity audit is a complete structural/
+numerical scan and does not generate or compare a payload digest.
 
-Resolve unique physical subject/program/frequency-component units once. Produce
-one bilateral direct-voxel row per unit. Preserve normative fiber's exact
-side-specific peak followed by arithmetic mean. Build endpoint inputs as
-ordered row/column views; scale or outcome identity must not enter physical
-paths.
+Add publisher-owned final-format NPY writers or final range shards so a producer
+writes, flushes, and closes each large byte once. The parent publishes an
+ordered shard manifest rather than merging into a second monolith. Cache hits
+are resolved before full staging allocation. Add logical
+`IndexedArrayView(parent, rows, columns)` records whose kernels gather bounded
+blocks; full `np.asarray()` and implicit fancy-index copies are forbidden. A
+contiguous external-tool boundary must be explicit and metered. Use a parent-
+only artifact journal/snapshot writer; endpoint/final tasks may not copy a
+payload merely to give it a new task-local name.
 
-- [ ] **Step 4: Implement one-pass `Omega_max` fiber preparation**
+Only an atomically published generation manifest authorizes a shard set.
+It binds one unique generation, requires every listed shard to exist in that
+generation, and requires strictly ordered, nonoverlapping intervals with
+missing-range count `< 1` over the declared logical axis. Duplicate,
+foreign-generation, reordered, overlapping, missing, and undeclared shards
+fail closed. Orphan shards from a parent crash before manifest publication are
+ignored or quarantined; add one corruption fixture per invariant plus
+crash-before-manifest then resume acceptance.
 
-Derive minimum tau/Coverage from the profile. Load complete connectome geometry
-once into shared read-only memory when it fits; otherwise use large sequential
-point-count-sized ranges. Select the fewest, largest safe ranges rather than
-creating small chunks to fill worker slots. Evaluate every unique physical row
-and all scale-independent minimum-grid indicators while each range is resident,
-retain exact `Omega_max`, write continuous values and canonical fiber IDs as one
-contiguous range result, and prove no full/fold grid cell loses a candidate.
-Endpoint, scale, grid-cell, branch, and fold work may not reopen raw connectome
-geometry.
+Bind cache identity per artifact. Raw physical exposure includes the ordered
+physical-row identity, model domain, canonical grid/connectome, run-local
+source signatures, and producer version. Tau/Coverage support and `Omega_max`
+also include the exact ordered eligible cohort, exact ordered tau and Coverage
+grids, and `strict_threshold_v1`. PASS-branch OSS includes the selected
+`Omega_max` axis and solver/toolchain producer identity; FAIL retains the
+historical final-axis identity. A bounded descriptor digest may select the path
+but cannot replace any semantic field or validate the payload.
 
-- [ ] **Step 5: Move jitter and OSS/pPAM physical work into Layer 1**
+At every cache lookup, recompute `(device, inode, size, mtime_ns)` once outside
+the hot loop before selecting the semantic cache path. A changed tuple produces
+a cache miss and new identity. Revalidate the selected tuple before publication.
+A content replacement that preserves the complete tuple cannot be detected
+without rereading the payload and therefore requires explicit `--force` or a
+schema/version change. Add acceptance for changed-signature invalidation,
+publication-time mutation quarantine, and documented stat-preserving
+replacement handling.
 
-Generate one scale-independent jitter schedule and jittered voxel/fiber
-exposure set per physical identity. Prepare OSS/pPAM rows on the formal-
-connectome `Omega_max` axis rather than endpoint final axes. Endpoint analysis
-must select `final.valid_feature_axis` by canonical IDs, apply add-on reference
-overlap after raw activation preparation, and independently refit all
-outcome-dependent statistics.
+- [ ] **Step 3: Implement distinct voxel sampling and shared physical rows**
 
-- [ ] **Step 6: Implement process-parallel resource scheduling**
+Resolve unique physical subject/program/frequency-component units before
+endpoint fan-out. Bind an immutable `SamplingPlan` before the voxel/fiber hot
+loop. Canonical paths, left transforms, shape/affine, sampler descriptor/cache
+key, translation, and frequency grouping are resolved once and bound to a run-local
+`(device, inode, size, mtime_ns)` signature. Workers validate once on open and
+the parent validates again before publication. Replace global sampler clears
+with byte-bounded row-batch leases; never pin private samplers for every physical
+row simultaneously. Optionally canonicalize compressed NIfTI to a versioned
+read-only float32 memmap.
 
-Replace CPU/HDF5-heavy threads with spawned processes and a persistent
-dependency-ready queue. Shard connectome work by disjoint large fiber ranges,
-jitter by subject/replicate blocks, OSS by physical rows, endpoints by model
-task, and formal inference by deterministic replicate blocks. Set numerical
-library threads to one per process and reduce outputs in canonical order.
+Produce one bilateral direct-voxel row per physical unit and group only exact
+grid identities. Direct-voxel thresholding uses strict `E > tau`,
+`count > Coverage`, and `reference > selected_tau`; equality is excluded for
+all three predicates. Preserve the voxel sampling rule independently from the fiber
+sampling rule.
+Endpoint inputs are ordered row/column views; scale, outcome, worker count, and
+run identity do not enter physical paths.
 
-Use one global resource ledger for CPU, memory, connectome I/O, and external
-solver slots. When preflight reports at least 64 GiB currently available, use a
-48-GiB normal managed budget with at least 16 GiB reserved. Large arrays are
-read-only memmaps/shared-memory resources; spawned workers may not receive full
-arrays through pickle. Jitter remains block-streamed.
+- [ ] **Step 4: Implement audited, point-balanced one-pass `Omega_max` fiber preparation**
 
-- [ ] **Step 7: Share exposure-only grid operators**
+Cold-audit each `(semantic connectome ID, resolved path, cache generation/schema,
+run-local source signature)` once, including `idx`, fourth-row IDs, point
+boundaries, dtype, chunks, and compression. Construct point offsets once
+and represent the complete `1..N` axis implicitly. The audited hot path reads
+the compressed source as required but materializes only coordinate rows into
+application memory, allocates no point-sized expected-ID vector, and performs no
+NIfTI/path/transform-lock operation inside the range loop. Raw chunk reads and
+decompression are measured separately.
 
-Cache tau exceedance and Coverage tensors by exact subject/exposure axis. Derive
-LOOCV training counts by subtracting the held-out indicator. Compute one set of
-outcome-dependent feature weights per endpoint/fold on maximal valid support,
-then apply exact tau/Coverage masks. Preserve fold-only fitting and finite-weight
-intersection.
+Derive normative-fiber minimum tau/Coverage from its profile; these values do
+not define the voxel model. Load geometry into shared read-only storage when
+`geometry_bytes < shared_resident_budget`; otherwise use the fewest safe sequential ranges balanced by cumulative
+point bytes. Ranges never split a fiber and minimize partially shared HDF5
+boundary chunks; logical point coverage and raw chunk overlap are measured
+separately. While a range is
+resident, evaluate every physical row using side-specific maxima followed by
+their mean. Normative-fiber thresholding also uses strict `E > tau`,
+`count > Coverage`, and `reference > selected_tau`; equality is excluded.
+Retain exact
+`Omega_max`, publish continuous values once, and prove
+that no full/fold cell loses a candidate. Endpoint, scale, branch, grid, and fold
+work may not reopen raw geometry.
 
-- [ ] **Step 8: Run numerical, reuse, and performance acceptance**
+- [ ] **Step 5: Move jitter into Layer 1 and gate shared OSS/pPAM preparation**
 
-Require exact brute-force equivalence, worker-count determinism, zero candidate
-false negatives, one producer per physical identity, no payload checksum work,
-no endpoint matrix copies, no swap, and no full-connectome reread by scale. On
-the current 28-scale data, reduce 1540 endpoint-derived row evaluations per
-connectome to 42 unique physical rows in the shared pass. With `workers=12`,
-sustain at least six effective CPU cores through most compute-bound fiber
-preparation unless measured storage throughput is the documented limiter.
+Generate one scale-independent jitter schedule per physical identity while
+preserving the current exact key: `binding_id + frequency_class + subject_id +
+hemisphere + replicate_index + replicate_seed`. Worker and completion order do
+not enter it. Publish bounded physical-exposure blocks that reference invariant
+axes and base exposure but contain no clinical data. Downstream Layer-2 tasks
+load their endpoint clinical workspace once. Every replicate retains immutable
+logical exposure/overlap/support evidence and, when adjusted, its own Delta
+rebuild identity; block storage removes copies but not scientific evidence.
 
-- [ ] **Step 9: Update current status and commit**
+Before replacing the historical final-axis solver, run an explicitly authorized
+bounded decision matrix. For every distinct allocator-relevant equivalence
+class used by the run, final-axis and `Omega_max` inputs for the same physical
+row must produce ten-sample axon-state/count mismatch count `< 1` and
+probability `absolute_difference < accepted_probability_tolerance` for every
+shared fiber. If allocator/RNG behavior depends on axis size/order, retain the
+per-final-axis producer for that class until a separately accepted fiber-keyed
+correction passes. Every real-OSS miss requires explicit expensive-producer
+authorization.
+
+Persist one immutable `OSSAxisEquivalenceDecision` per exact class, keyed by
+allocator and solver/toolchain versions, connectome and cache schema, tested
+final/`Omega_max` axis pair, physical-row identity, RNG contract, comparison
+fields, and accepted probability tolerance. One decision authorizes only its
+exact class. Global PASS scheduling requires durable decisions covering every
+distinct class used by the run. An absent or changed identity returns that
+class to unproven and retains FAIL behavior until its newly authorized proof
+passes.
+
+On PASS, prepare OSS/pPAM rows on formal-connectome `Omega_max`, build one
+filtered connectome/mapping per `(connectome, axis, schema)`, and let endpoints
+select final columns by canonical ID. On FAIL, keep the existing per-final-axis
+request/cache/artifact producer and record why shared simulation is unsafe. In
+both branches, coalesce consecutive selected fibers into HDF5 point ranges, use
+one `CanonicalFiberAxis` descriptor per batch, keep row manifests O(1) in fiber
+count, and avoid repeated `fiber_ids.npy` or per-fiber cache items. Attest the
+immutable toolchain once, retain semantic provenance, and use a lightweight row
+guard. Endpoint analysis applies add-on overlap at the existing boundary and
+refits all outcome-dependent statistics. Binary pPAM activation uses strict
+`p(A) > 0.5`; equality at `0.5` is inactive.
+
+- [ ] **Step 6: Implement one persistent spawned scheduler and global resource ledger**
+
+Introduce an importable worker entry point and pure-data `WorkerCommand` with
+only direct dependency envelopes, paths, small configuration, and granted
+resources. Reconstruct worker-local providers/registries in an initializer;
+keep scheduler, gates, retries, RunStore, and artifact-index mutation in the
+parent. Large arrays are reopened as read-only memmaps/shared resources and are
+never passed through pickle.
+
+Replace per-wave threads with one persistent macOS `spawn` pool generation in a
+fault-free run. Compile
+indegree/reverse edges once; use a bounded event-driven ready queue that admits
+newly unlocked work immediately and favors critical prerequisites plus current
+connectome/grid grouping. With a standard process pool, affinity relies only on
+shared memmap/page cache and worker-local hits are best effort; actor queues
+require separate acceptance. Fail-fast cancels queued work. Add heartbeat/
+timeout and retry only for declared idempotent transient-safe tasks. A timed-out
+producer releases tokens only after worker/subprocess termination, lease
+revocation, and temporary-output quarantine; test stale-lock/orphan recovery.
+For Python/h5py hard timeouts, recycle the complete pool generation and classify
+every in-flight lease. Only a separately supervised external subprocess may be
+terminated without necessarily replacing a healthy Python pool.
+Hard exit or `BrokenProcessPool` ends the generation; after invalidating old
+leases, a supervisor may create a recorded replacement and requeue only declared
+idempotent/transient-safe work. Add hard-exit/generation-restart acceptance.
+
+Keep `execution.workers` as the sole public n_jobs-like CPU ceiling. Its current
+default remains `3`; `12` is a benchmark scenario, not a default and not a list
+of CPU core IDs. Give every task CPU, memory, connectome-I/O, external-solver,
+and internal-parallelism requirements. Remove nested executors outside this
+ledger. Set numerical-library limits before worker imports, verify actual BLAS/
+OpenMP threads, and keep every Python worker at one numerical-library thread for
+its lifetime. Give OSS/MATLAB subprocesses explicit tokens and thread
+limits. The sum of Python baseline, extra BLAS/OpenMP, and solver CPU tokens must
+remain `< execution.workers + 1`; solver-instance slots grant no extra CPU.
+A compiled GIL-releasing kernel may use a separately declared thread resource
+class only after measured parity, utilization, and oversubscription acceptance;
+h5py-call-heavy and Python-bytecode-heavy preparation stays process-based.
+Define `reserve = max(16 GiB, 20% physical RAM)` and
+`managed = min(48 GiB, max(0, currently_available - reserve))`. Charge expected
+MATLAB/OSS RSS and per-reader HDF5 raw chunk caches to task memory rather than
+the reserve. Normal admission requires `task_memory_bytes < managed` and
+`projected_available_after_admission > reserve`. Otherwise the task remains
+pending or runs alone under an explicit measured override that still preserves
+the reserve and `swap_delta_bytes < 1`. Periodically reconcile live process-tree
+RSS, available memory, shared-memory charges, child RSS, and outstanding grants,
+pausing new admission when the strict reserve predicate fails.
+
+Resume restores completed work but re-evaluates dependency-derived and
+batch-aborted skips. After invariance is proven, the only resource overrides are
+workers, CPU/BLAS/solver stage caps within that ceiling, memory/I/O/solver
+admission, heartbeat/timeout, and scratch root. Append a separate execution-
+segment manifest while preserving task IDs and scientific plan hash. Reject
+`through`, `force`, producer authorization, scientific paths/thresholds/grids,
+seeds, replicate counts, schemas, and producer semantics as resource overrides.
+Completed outcomes never reference scratch URIs. A changed/missing scratch root
+deterministically rebuilds incomplete fold/interpolation workspaces from durable
+artifacts before downstream resume; test this path.
+
+- [ ] **Step 7: Vectorize grid, statistics, and fiber-scoring kernels**
+
+Cache compact/block-streamed tau exceedance and Coverage operators by exact
+axis and derive training-fold counts by held-out subtraction. Fit baseline-only
+LOOCV once per endpoint/fold. Apply exact cell masks to endpoint/fold weights on
+maximal valid support; sensitive fixed-cell work computes only requested cells.
+
+Add a finite-data partial-Spearman fast path with exact average-tie ranking,
+rank-aware multi-RHS residualization, and block correlation, while retaining
+the scalar nonfinite fallback. Add a prevalidated fiber-score workspace that
+reuses only ordered axes, invariant exposure-finiteness validation, and top-k
+scratch. Candidate masks,
+finite-weight masks, and signed weights/order are recomputed for every outcome,
+replicate, and fold; observed state may not leak into null or held-out work. Observed results
+retain complete IDs/metadata; null calls return only required scores and support
+state. Preserve fold-only fitting, tie order, continuous values, signed
+selection, and finite-weight intersection.
+
+Update support-QC classification to strict cutoffs only, including cohort
+median `< 0.20` and subject fraction `< 0.25` for `adequate`; add exact-cutoff
+fixtures so equality is not silently included in either class.
+
+- [ ] **Step 8: Shard formal, bootstrap, pPAM, jitter, and sensitivity safely**
+
+Shard direct/fiber permutation and bootstrap, pPAM permutation, and spatial
+jitter by fixed replicate-index blocks independent of worker count. Jitter keeps
+its existing keyed streams. Formal/bootstrap/pPAM preserve the historical single
+continuous `default_rng(seed)` stream by reproducing the historical method-call
+sequence and argument shapes, then lending parent-pregenerated slices or saving
+BitGenerator state at exact historical call boundaries. A generic draw-count
+split is invalid. Advance/jump is allowed only with the historical BitGenerator
+and with NumPy version, BitGenerator class, build/environment/platform
+fingerprint, and call-plan schema pinned in provenance, plus full-call-pattern
+byte mismatch count `< 1`. A cross-environment resume reruns parity before
+claiming byte identity; new
+per-replicate streams are not allowed. Candidate/sign/selection/exceedance
+mismatch count is `< 1`. Float moments use a fixed reduction tree independent
+of assignment and satisfy `absolute_difference < existing_serial_tolerance`;
+any field requiring bitwise history retains serial replicate
+accumulation order. Bootstrap still refits each replicate, and adjusted add-on
+inference refits its matched reference.
+
+Create read-only fold operators once as parent-managed run-scoped scratch
+memmaps, not permanent scientific artifacts. Account for their bytes and block
+scratch in admission, reopen them by descriptor, and provide crash-recoverable
+cleanup so worker count does not multiply them.
+
+Add statistics-only null paths that do not allocate retained `N x F` outputs.
+Use task-scoped sensitivity workspaces for exposure, outcomes, baseline, axes,
+and nuisance operators; apply overlap in chunks/views and release each jitter
+block after durable publication. Do not cache replicate-specific overlap,
+nuisance, support, or Delta state as invariant.
+
+- [ ] **Step 9: Run numerical, reuse, resume, and resource acceptance**
+
+Run cold/warm benchmarks for voxel, every connectome, formal, bootstrap, jitter,
+and pPAM at `workers = 1, 3, 6, 12`. A skipped row records preflight evidence
+and cannot support a performance/default claim. Run the complete OSS matrix with
+an injected solver and real cache-hit reuse separately. Incorporate Step 5's
+separately authorized bounded real-OSS decisions for every exact class used by
+the run; do not let the routine acceptance suite launch a cold solver miss.
+Require the
+authority document's complete acceptance contract: brute-force and optimized
+numerical equivalence, worker-count determinism, candidate false-negative count
+`< 1`, producer count per physical identity `> 0` and `< 2`, hot-loop metadata
+work count `< 1`, payload-checksum bytes `< 1`, endpoint-selected payload-copy
+count `< 1`, fault-free pool-generation count `> 0` and `< 2`, untracked nested
+pool count `< 1`, bounded HDF5/solver/BLAS concurrency, parent-only persistence,
+and `swap_delta_bytes < 1`. Exact-threshold fixtures must prove that equality is
+excluded for voxel/fiber E-field/tau, Coverage, reference overlap, support-QC
+cutoffs, and pPAM activation.
+
+On current 28-scale data, reduce 1540 endpoint-derived row evaluations per
+connectome to 42 physical rows in the shared pass. For the 12-worker benchmark,
+define `effective_cores = aggregate process CPU time / wall time` in five-second
+windows. Eligible windows have `runnable_cpu_slots > 5` and no measured
+admission block; require
+`fraction(effective_cores > 6 among eligible windows) > 0.80`. Storage-limited
+windows retain their measured I/O classification. Require
+`swap_delta_bytes < 1`. Test
+fail-once resume so formerly dependency-skipped descendants run after recovery,
+and verify that resource-only resume overrides preserve scientific artifacts.
+
+- [ ] **Step 10: Update current status and commit**
 
 Only after all acceptance gates pass, mark the performance refactor complete in
-the goal/design/plan, record benchmark evidence, and commit without modifying
-or deleting existing scientific output trees.
+the goal/design/plan, update every current threshold/output-contract/model-
+summary statement to the strict rule, record the complete benchmark matrix and
+chosen defaults, and commit without modifying, migrating, or deleting existing
+scientific output trees.
 
 ---
 
@@ -2951,7 +3212,7 @@ performance-contract review was added on 2026-07-16:
 | 3. Dependency/fallback | PASS | Task 5 defines the exhaustive readiness/source/Delta/fallback truth table; Tasks 11-12 integrate it without bidirectional fallback. |
 | 4. Round/interface/provenance | PASS | Tasks 2, 6-8, and 13-16 cover every Round, typed requests/arrays/artifacts, project import isolation, standalone CLI, connectome roles, and resolved configuration artifacts. |
 | 5. Bounded acceptance | PASS | Task 1 requires an exact reviewed task allowlist; Tasks 9-14 use only applicable completed fixtures; Task 16 blocks expensive misses and parity expansion. |
-| 6. Shared physical preparation and resources | DESIGN PASS / IMPLEMENTATION OPEN | Task 17 defines scale-independent base/jitter/OSS preparation, exact `Omega_max`, no-SHA existence caches, process sharding, 64-GiB RAM use, and performance gates. |
+| 6. Shared physical preparation and resources | DESIGN PASS / IMPLEMENTATION OPEN | Code audit plus primary literature/official runtime guidance now map Task 17 to strict-threshold distinct voxel/fiber preparation, exact `Omega_max`, single-write no-payload-reread caches, bounded semantic identity, a persistent spawn-safe resource scheduler, parity-preserving RNG blocks, vectorized kernels, resume correctness, and measured performance gates. |
 
 This record validates closure of the generic-core implementation and design
 closure of the performance refactor. Task 17 remains open; no current status or
@@ -2983,18 +3244,40 @@ test count implies that the new execution architecture is implemented.
 - [ ] Physical preparation occurs once before endpoint/scale fan-out.
 - [ ] Direct voxel and normative fiber reuse their respective bilateral
   exposure rows across all scales without changing either bilateral formula.
-- [ ] Each connectome is read once in aggregate per preparation version and
-  filtered exactly to minimum-grid `Omega_max`.
+- [ ] Logical connectome points are covered once per preparation generation;
+  bounded raw-chunk boundary overlap is measured separately, and filtering uses
+  exact minimum-grid `Omega_max`.
 - [ ] Jitter schedules and physical exposure are scale-independent Layer-1
   resources; endpoint jitter statistics remain Layer 2.
-- [ ] OSS/pPAM is prepared on formal-connectome `Omega_max`; every endpoint
-  final axis is selected as an exact canonical-ID subset.
-- [ ] Target cache, artifact, resume, provenance, OSS, and acceptance paths use
-  no cryptographic checksum.
+- [ ] OSS/pPAM moves to formal-connectome `Omega_max` only after exact final-axis
+  ten-state/count/probability equivalence; every endpoint final axis is an exact
+  canonical-ID subset.
+- [ ] Target cache, artifact, resume, OSS, and acceptance paths perform no large-
+  payload checksum reread; bounded semantic/axis/toolchain digests remain
+  permitted under the authority contract.
 - [ ] CPU-heavy work uses spawned processes, large disjoint work units, and a
-  persistent ready queue.
-- [ ] A confirmed 64-GiB available-memory state uses a 48-GiB managed budget
-  while preserving at least 16 GiB and zero swap.
+  persistent event-driven ready queue; `execution.workers` is the one public
+  global CPU ceiling and nested pools cannot bypass it.
+- [ ] Spawned workers receive pure-data commands and read-only shared artifacts;
+  only the parent mutates RunStore, gates, retries, and artifact indexes.
+- [ ] Fiber hot loops perform no path/NIfTI/transform-lock work, materialize only
+  audited coordinate rows, and partition by point bytes without splitting a
+  fiber while minimizing raw-chunk overlap.
+- [ ] Large payloads are written once and endpoint/final consumers use immutable
+  row/column views; complete one-based fiber axes are not duplicated.
+- [ ] Vectorized statistics/scoring and null fast paths pass scalar parity and
+  do not duplicate fold operators or allocate unused retained `N x F` arrays.
+- [ ] Parallel formal/bootstrap/pPAM preserve their historical continuous RNG
+  schedules; jitter preserves its existing replicate-keyed identity, and all are
+  invariant to worker count and scheduling order.
+- [ ] Resume re-evaluates dependency-derived skips and permits only accepted
+  resource-provenance overrides without changing scientific identity.
+- [ ] Managed RAM is the smaller of 48 GiB and available RAM after the larger of
+  a 16-GiB or 20%-physical reserve; expected solver RSS is charged and swap
+  satisfies `swap_delta_bytes < 1`.
+- [ ] Voxel/fiber thresholds use `E > tau`, `count > Coverage`, and
+  `reference > selected_tau`; support-QC uses its documented strict direction;
+  pPAM uses `p(A) > 0.5`. Boundary fixtures are excluded.
 - [x] Formal/sensitivity/activation consume only one realized final.
 - [x] Generic reports contain no HF/ULF compatibility aliases.
 - [x] Bounded parity includes only exact IDs in the reviewed allowlist that are
