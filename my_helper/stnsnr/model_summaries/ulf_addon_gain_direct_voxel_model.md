@@ -1,19 +1,23 @@
 # HF-Status-Resolved ULF-Only Add-On Gain Direct Voxel-Level Model
 
-## YAML Core Interface (Predecessor Implemented; Acceptance Paused)
+## Configured Core Interface (Generic Core Active; Performance Refactor Pending)
 
-The predecessor configuration/orchestration contract is documented in
+The configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
 remains authoritative for ULF branch inputs, HF-derived intended branch role,
 branch-specific source resolution, fallback-final realization, formal
-resampling, and sensitivities. The `four_model_v1` profile, identity, catalog,
-state, run store, configured service, and DAG executor exist. The paused
-MDS-UPDRS III/IV acceptance run reached the ULF direct path, but its two ULF
-direct tasks ended in an adapter execution failure; the adapter repair has not
-received a new immutable real-run acceptance lineage. The approved strict dual-
-frequency successor is documented in
-`my_helper/stnsnr/dual_frequency_core_decoupling_design.md` and has status
-`implementation_not_started`. Current outputs remain read-only.
+resampling, and sensitivities. The generic `dual_frequency_v1` core is active.
+The scale-independent physical-preparation and parallel-execution refactor is
+documented in
+`my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md` and
+has status `implementation_not_started`. Current outputs remain read-only.
+
+Direct-voxel physical preparation reuses bilateral reference, combined-
+reference, and add-on voxel exposure across scales. Endpoint analysis selects
+subject/voxel views, applies reference-active overlap and branch-specific
+nuisance design, and remains outcome-dependent. Jitter physical exposure is
+prepared once per physical identity and reused without sharing endpoint maps or
+classification.
 
 All configured ULF/frequency-2 endpoint scales are engineering-equivalent within
 their applicable endpoint families. Chronic, immediate, total, axial, and other
@@ -981,6 +985,11 @@ Python jobs: 14
 seed: 42
 ```
 
+These values describe the legacy/current path. The target configured runtime
+uses one global spawned-process scheduler, shared read-only physical exposure,
+a 48-GiB managed budget when at least 64 GiB is available, and a 16-GiB minimum
+reserve as defined in the shared-exposure performance plan.
+
 ## Downstream Visualization And Outputs
 
 For the future configured `direct_voxel_model_v1` publisher, the authoritative
@@ -1102,7 +1111,11 @@ Empty images, all-NaN images, non-finite values, missing paths, and obvious path
 
 ## Spatial Jitter QC Sensitivity
 
-Spatial jitter is a robustness stress test applied to accepted e-field inputs. It is not an automatic localization/normalization QC procedure and is not an input-validity gate. It is run only for the selected final model unless an endpoint is explicitly promoted to co-primary.
+Spatial jitter is a robustness stress test applied to accepted e-field inputs.
+It is not an automatic localization/normalization QC procedure and is not an
+input-validity gate. Physical perturbation schedules and jittered HF/ULF voxel
+rows are prepared once per physical identity when requested; endpoint
+statistics run only for the selected final model.
 
 ```text
 formal jitter resamples: B = 1000
@@ -1112,7 +1125,12 @@ FWHM: 2 mm
 sigma: 2 / 2.355 = 0.849 mm
 ```
 
-For each jitter iteration, draw an independent 3D translation vector for each subject-side HF and ULF component e-field. Apply translation-only e-field resampling with linear interpolation and outside fill value `0`. Then rebuild ULF-only exposure, HF-overlap exclusion, `Omega_ULF_tau_coverage`, `DeltaHFScore`, DeltaHFScore delta-support QC, full-sample map, ULF scores, and LOOCV validation metrics.
+For each jitter iteration, draw an independent 3D translation vector for each
+subject-side HF and ULF component e-field. Layer 1 applies translation-only
+resampling with linear interpolation and outside fill value `0`, then stores
+the physical bilateral component rows. Layer 2 rebuilds ULF-only exposure,
+HF-overlap exclusion, `Omega_ULF_tau_coverage`, `DeltaHFScore`, DeltaHFScore
+support QC, full-sample map, ULF scores, and LOOCV validation metrics.
 
 Do not save every jittered NIfTI map. Save a summary table, map correlation/stability summary, and voxel-wise jitter standard deviation map.
 
@@ -1284,7 +1302,11 @@ Subject-level bootstrap remains a full-process map stability analysis for the ac
 
 ### Spatial Jitter Efficiency
 
-Jitter changes e-field geometry. Primary `X`-derived caches are invalid under jitter and must not be reused as if exposure were unchanged. Each jitter iteration must rebuild HF component exposure, ULF component exposure, HF-overlap exclusion, ULF-only exposure, candidate mask, `Omega_ULF_tau_coverage`, `DeltaHFScore`, HF support QC, map, scores, and LOOCV metrics.
+Jitter changes e-field geometry. Primary `X` rows must not replace jittered
+rows. Layer 1 prepares jittered HF/ULF physical component exposure once across
+scales. Each endpoint iteration rebuilds HF-overlap exclusion, ULF-only
+exposure, candidate mask, `Omega_ULF_tau_coverage`, `DeltaHFScore`, HF support
+QC, map, scores, and LOOCV metrics.
 
 ### Prohibited Speed Shortcuts
 
@@ -1670,6 +1692,10 @@ Bootstrap finite counts, core sign stability, and empty-map frequency are robust
 ### Round 6: Formal Spatial Jitter
 
 Run only for the final model's accepted source:
+
+Round 6 consumes the scale-independent physical jitter cache and does not rerun
+E-field resampling for each scale. All overlap, DeltaReferenceScore, weights,
+scores, predictions, and robustness summaries remain endpoint-specific.
 
 ```text
 source = ulf_voxel_selected_tau_v_per_m / ulf_voxel_selected_coverage

@@ -5,24 +5,24 @@ Scope: ULF add-on normative connectome fiber-level model, aligned to `hf_3m_norm
 
 ---
 
-## Configured YAML Contract (Design Approved; Implementation Pending)
+## Configured Core Contract (Generic Core Active; Performance Refactor Pending)
 
 The configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
 records matched-HF dependency, branch-specific exposure and nuisance design,
 endpoint realization, fallback-final selection, formal resampling, controls,
 OSS, jitter, and numeric reporting. Explicit user decisions govern when this
-record conflicts with code, results, or another document. Shared profile,
-identity, catalog, state, run store, configured branch services, final-model
-realization, formal/sensitivity adapters, OSS producer/consumer, and numeric
-reporting exist under `four_model_v1`. The paused acceptance run completed the
-MDS-UPDRS III chronic dTOR branch through final realization, formal inference,
-cheap sensitivity, and selected-source neighborhood, then stopped with OSS
-source wiring failed and jitter checkpointed at `388/1000`. MDS-UPDRS IV paths
-did not complete. These artifacts are bounded evidence, not complete
-acceptance. The approved strict dual-frequency successor is documented in
-`my_helper/stnsnr/dual_frequency_core_decoupling_design.md` and remains
-`implementation_not_started`. Existing output trees remain read-only.
+record conflicts with code, results, or another document. The generic
+`dual_frequency_v1` core is active. The shared physical-preparation and
+parallel-execution refactor is documented in
+`my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md` and
+has status `implementation_not_started`. Existing output trees remain read-only.
+
+Normative-fiber physical preparation preserves side-specific fiber peaks
+followed by their arithmetic mean. Raw add-on fiber exposure, jittered physical
+exposure, and OSS/pPAM activation are prepared without scale/outcome input;
+endpoint analysis selects exact subject/fiber subsets and applies matched-
+reference overlap, nuisance design, weights, classification, and statistics.
 
 All configured ULF/frequency-2 endpoint scales are engineering-equivalent within
 their applicable endpoint families. Chronic, immediate, total, axial, and other
@@ -884,7 +884,7 @@ if a selected set is non-empty but a patient has zero exposure to all selected f
 mean an unconstrained 5% score. Full sample and every fold record
 `adequate_two_sign`, `limited_two_sign`, `limited_positive_only`,
 `limited_negative_only`, or `absent_no_valid_signed_fibers`, plus requested and
-actual K/H counts, minimum-dominated flags, and selected-ID hashes. These
+actual K/H counts, minimum-dominated flags, and ordered selected-ID artifact references. These
 support labels do not alter branch source, prediction, endpoint, or final role.
 
 ### 9.3 Final prediction models
@@ -1320,16 +1320,21 @@ ulf_norm_fiber_endpoint_model_status
 DeltaHFScore source definition
 ```
 
-Candidate inheritance:
+Scale-independent physical preparation and endpoint candidate inheritance:
 
 ```text
+F_OSS_prepare = raw add-on Omega_max at min(tau grid)/min(Coverage grid)
 oss_candidate_source_branch = ulf_final_model_id
 oss_inherited_tau_v_per_m = realized_primary_selected_tau_v_per_m
 oss_inherited_coverage = realized_primary_selected_coverage
 F_candidate_ULF_OSS = F_candidate_ULF_selected_tau_selected_coverage
+F_candidate_ULF_OSS is an exact subset of F_OSS_prepare
 ```
 
-OSS activation must not redefine candidate fibers and must not participate in tau/Coverage threshold selection.
+OSS/pPAM is generated once per physical subject/program row on
+`F_OSS_prepare`. Endpoint analysis selects `F_candidate_ULF_OSS` by canonical
+fiber ID. OSS activation must not redefine candidate fibers and must not
+participate in tau/Coverage threshold selection.
 
 For each subject and fiber:
 
@@ -1337,17 +1342,16 @@ For each subject and fiber:
 A_ULF_OSS_i(l) = pPAM activation probability for the ULF component along fiber l
 ```
 
-The canonical OSS sidecar is `X_oss_float32_fiber_major.npy`. Its columns are
-the realized primary ULF branch selected-source tau/Coverage candidate fiber id
-order, not the whole connectome atlas and not a parent raw `fiber_ids.npy` when
-that file stores the full exposure universe. OSS does not redefine, shrink,
-expand, or rescan candidate fibers. The actual OSS column order is recorded as
-`oss_fiber_ids.npy` or an equivalent sidecar manifest field.
+The shared canonical OSS sidecar is `X_oss_float32_fiber_major.npy`. Its
+columns are the raw add-on `Omega_max` canonical fiber-ID order, not the whole
+connectome atlas and not a scale-specific final axis. OSS does not redefine,
+shrink, expand, or rescan that prepared universe by scale. The actual prepared
+column order is recorded as `oss_fiber_ids.npy` or an equivalent axis artifact.
 
 OSS activation uses the right-canonical feature space. Right-sided activation
 uses the native right geometry. Left electrode/stimulation geometry and
 reconstruction coordinates are transformed with `ea_flip_lr_nonlinear`, and
-OSS is run directly on the same ordered `final.valid_feature_axis`; native
+OSS is run directly on the same ordered `F_OSS_prepare` axis; native
 left/right local fiber-ID equality is never assumed. Left-transformed and
 right probabilities are merged by `max_probability_union`, and the
 0.5-thresholded binary form is used for fitting:
@@ -1508,7 +1512,8 @@ no OSS activation-defined candidate set
 
 The full-sample candidate-mask prohibition above applies to the peak-E-field
 source model. The OSS sensitivity does not recompute a candidate mask: it uses
-the realized final branch's locked `final.valid_feature_axis`, while OSS
+the realized final branch's locked `final.valid_feature_axis` selected by
+canonical fiber ID from the prepared `F_OSS_prepare` matrix, while OSS
 weights, finite support, signed selections, and scores remain fold-local.
 
 Core observed stage:
@@ -1990,8 +1995,8 @@ S{tau}_ULF_total_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
 HF_overlap_ulf_tau{tau}_hf_overlap_rule_bool.npy for tau in [400,600,800,1000,1200,1500,2000]
 fiber_id.npy
 candidate_fiber_metadata.json
-X_oss_float32_fiber_major.npy, pPAM activation probability for inherited selected-source candidates if OSS is run
-OSS_ULFActivated_bool.npy, for inherited selected-source candidates if OSS is run
+X_oss_float32_fiber_major.npy, shared pPAM probability on raw add-on Omega_max if OSS is requested
+OSS_ULFActivated_bool.npy, shared thresholded activation on raw add-on Omega_max if OSS is requested
 oss_parameter_manifest.json, if OSS is run
 oss_activation_sidecar_metadata.json, if OSS is run
 ```
@@ -2007,8 +2012,8 @@ chunks/
   S{tau}_ULF_only_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
   S_HF_component_hf_overlap_rule_bool_chunk-*.npy
   HF_overlap_ulf_tau{tau}_hf_overlap_rule_bool_chunk-*.npy for tau in [400,600,800,1000,1200,1500,2000]
-  X_oss_float32_fiber_major_chunk-*.npy, pPAM activation probability for inherited selected-source candidates if OSS is run
-  OSS_ULFActivated_bool_chunk-*.npy, for inherited selected-source candidates if OSS is run
+  X_oss_float32_fiber_major_chunk-*.npy, shared pPAM probability on raw add-on Omega_max if OSS is requested
+  OSS_ULFActivated_bool_chunk-*.npy, shared thresholded activation on raw add-on Omega_max if OSS is requested
   fiber_id_chunk-*.npy
 fiber_chunk_manifest.json
 candidate_fiber_metadata.json
@@ -2016,11 +2021,16 @@ oss_parameter_manifest.json, if OSS is run
 oss_activation_sidecar_metadata.json, if OSS is run
 ```
 
-Loading all dTOR streamlines or all dTOR exposure values into memory is invalid.
+Complete dTOR geometry may be loaded once into read-only shared memory only when
+preflight proves it fits the global 48-GiB managed budget while preserving the
+16-GiB reserve. Otherwise use large point-count-sized ranges. Independent full
+exposure copies per scale, endpoint, or worker remain invalid.
 
-### 15.2 Outcome-independent caches
+### 15.2 Outcome-independent prepared resources
 
-May be reused across scales and endpoint families when cache keys match:
+Use deterministic paths, final-file existence, structural validation, and
+indexed views. No cryptographic checksum is generated or validated. These may
+be reused across scales and endpoint families when their semantic IDs match:
 
 ```text
 raw component exposure sidecars
@@ -2031,7 +2041,8 @@ candidate fiber metadata
 endpoint label lookup
 density lookup
 HF support lookup for locked HF model
-OSS activation sidecars for a fixed OSS parameter set and inherited candidate source
+OSS activation sidecars for a fixed OSS parameter set on raw add-on Omega_max
+localization-jitter schedules and physical exposure rows
 ```
 
 ### 15.3 Outcome-dependent objects
@@ -2360,13 +2371,20 @@ resampling_status = formal_complete
 
 Run after the dTOR realized-primary model has completed formal resampling for the endpoint row. If the endpoint row has no completed formal realized-primary model, record `ulf_oss_sensitivity_status = not_run_no_formal_realized_primary`.
 
+Round 8 is the scale-dependent analysis consumer. When OSS is requested, raw
+ULF pPAM rows have already been prepared once in Layer 1 on raw add-on
+`Omega_max`. Round 8 selects the final columns, applies the endpoint's
+reference-active overlap mask, and performs branch-specific fitting. It does
+not rerun OSS for each scale.
+
 OSS is activation-model robustness evidence and does not alter the final model, ULF source status, prediction status, endpoint status, or DeltaHFScore source.
 
 Run:
 
 ```text
 oss_model_set = primary_locked
-candidate source = realized primary selected-source candidate universe
+prepared source = raw add-on Omega_max on formal connectome
+analysis candidate source = realized primary selected-source candidate universe
 exposure replacement = pPAM X_ULF_only_OSS derived from X_oss_float32_fiber_major.npy
 activation probability subtype = exact activated_count/10 over 10 pPAM samples
 nuisance design = realized primary branch nuisance design
@@ -2376,7 +2394,9 @@ dTOR smoke Freedman-Lane permutation B=1000
 ```
 
 PPMI and MGH remain peak-E-field `sensitive` connectomes.
-Required OSS sidecars are limited to the final dTOR branch unless a future model document explicitly promotes cross-connectome OSS sensitivity.
+Required OSS sidecars are limited to the formal dTOR physical preparation
+unless a future model document explicitly promotes cross-connectome OSS
+sensitivity. They are shared across all configured scales.
 
 Write:
 
@@ -2393,7 +2413,8 @@ OSS technical-pass criteria:
 
 ```text
 OSS parameter manifest is locked
-OSS activation sidecars align with inherited selected-source candidate fiber ids
+OSS activation sidecars align with raw add-on Omega_max fiber IDs
+endpoint final fiber IDs are an exact subset in canonical order
 OSS activation sidecars store exact ten-sample float32 p(A), and fitting uses I[p(A) >= 0.5]
 OSS frequency is modeled and verified
 OSS hemisphere/source merge rule is max_probability_union
@@ -2414,12 +2435,16 @@ If required OSS activation files, component labels, or locked OSS parameter meta
 
 Run only for dTOR branches with completed formal realized-primary results.
 
-Jitter changes HF and ULF component geometry, so each jitter iteration must rebuild:
+When jitter is requested, Layer 1 has already generated one shared perturbation
+schedule and jittered physical HF, ULF, and HF-only-reference fiber exposure per
+subject/program/replicate on `Omega_max`. It preserves side-specific peaks
+followed by their mean. Round 9 selects the endpoint's rows and final columns;
+it does not rerun geometry, E-field sampling, or connectome scanning by scale.
+
+For each endpoint and jitter replicate, Round 9 must rebuild the derived
+statistical inputs:
 
 ```text
-HF component exposure
-ULF component exposure
-HF-only reference exposure if jitter is applied to reference phase
 HF-overlap exclusion
 ULF-only exposure
 DeltaHFScore, if used by the branch

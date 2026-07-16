@@ -1,5 +1,14 @@
 # Four-Model YAML Core Refactor Implementation Plan
 
+> **Historical predecessor only.** The authoritative implementation plan is
+> `my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md` and
+> the current performance contract is
+> `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
+> Every checksum/content-addressed cache, endpoint-specific physical exposure,
+> thread-pool scheduling, final-axis-only OSS, or model-specific jitter rule in
+> this file is superseded. Do not implement or validate the current target from
+> this historical plan.
+
 ## Study-Base Frequency Migration Addendum
 
 The configured runner must use `study_base.json` as its only project data

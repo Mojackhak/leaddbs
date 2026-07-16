@@ -11,14 +11,18 @@
 > `my_helper/stnsnr/dual_frequency_core_decoupling_design.md`
 > **Implementation plan.**
 > `my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md`
+> **Performance refactor contract.**
+> `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`
 > **Scientific model specifications.** `my_helper/stnsnr/model_summaries/`
 > **Current branch.** `stnvop`
 > **Target schema.** `dual_frequency_v1`
 > **Status.** `design_approved`; `goal_review_passed`;
 > `implementation_complete`; `generic_runtime_active`;
 > `predecessor_runtime_archived`; `bounded_numeric_evidence_verified`;
+> `performance_refactor_design_documented`;
+> `performance_refactor_implementation_not_started`;
 > `production_outputs_unchanged`; `production_rerun_not_started`.
-> **Last updated.** 2026-07-15
+> **Last updated.** 2026-07-16
 
 ---
 
@@ -28,6 +32,14 @@ implementation scope and acceptance. `four_model_execution_plan.md`, existing
 code, other `four_model_v1` documents, legacy scripts, and generated outputs are
 predecessor evidence only. When they conflict with this target contract, do not
 preserve the conflict as compatibility behavior.
+
+The linked performance-refactor contract supersedes every earlier target rule
+that requires a cryptographic checksum, content-addressed identity, or
+endpoint-specific physical exposure. The target runtime uses deterministic
+paths, stable semantic IDs, final-file existence, lightweight structural
+validation, explicit versions, and `--force`. Checksum fields found in
+historical artifacts are inert predecessor data and are not target inputs,
+reuse gates, provenance requirements, or acceptance gates.
 
 ## Summary
 
@@ -50,11 +62,12 @@ Target identity never changes the frequency class.
 The `four_model_v1` catalog/DAG/executor is retained as predecessor evidence in
 the project-level legacy namespace. The completed `dual_frequency_v1` runtime
 uses reusable numerical backends, reads canonical `study_base.json` directly,
-uses scientifically keyed caches, and imports no predecessor, migration,
+uses deterministic existence-based caches, and imports no predecessor, migration,
 acceptance, or STNSNr analysis module.
 
 The predecessor real-data acceptance run did not finish. Numeric equivalence is
-therefore bounded to its terminal completed, hash-valid scientific artifacts.
+therefore bounded to its terminal completed scientific artifacts in the frozen
+allowlist. Historical checksums are not part of the target acceptance contract.
 Unfinished paths require contract, synthetic, and lightweight smoke tests but
 do not require comparison with nonexistent predecessor results.
 
@@ -72,8 +85,8 @@ The goal is complete only when one public library/CLI can:
 8. attach formal, sensitivity, jitter, and activation tasks only to that final;
 9. isolate endpoint-local failures while continuing independent tasks;
 10. produce generic manifests, artifact indexes, statuses, and reports;
-11. reuse exact content-addressed exposure and activation artifacts across
-    scales and runs; and
+11. reuse deterministic, structurally valid exposure and activation artifacts
+    by final-file existence across scales and runs; and
 12. run from validated project inputs without importing any predecessor,
     migration, acceptance, or STNSNr analysis module.
 
@@ -208,6 +221,30 @@ source, prediction, branch role, or final realization.
 
 ## Target Runtime Architecture
 
+Execution has two explicit layers:
+
+```text
+scale-independent physical preparation
+  -> canonical E-fields
+  -> bilateral voxel exposure
+  -> bilateral fiber peak exposure
+  -> minimum-grid Omega_max
+  -> requested jittered exposure
+  -> requested OSS/pPAM on Omega_max
+
+scale-dependent statistical analysis
+  -> endpoint subject/feature subset views
+  -> observed weights/scores/predictions
+  -> source/branch/final state
+  -> formal and sensitivity statistics
+  -> reports
+```
+
+The physical layer never receives scale or outcome data. The statistical layer
+must not rescan raw E-fields, full connectome geometry, localization jitter, or
+OSS simulation. The detailed cache, process-parallel, 64-GiB RAM, and large-
+range contracts are defined in the linked performance-refactor plan.
+
 The reusable runtime package is:
 
 ```text
@@ -299,7 +336,7 @@ Required guarantees:
 - stable subject, endpoint, condition, component, and connectome IDs;
 - explicit subject and feature order;
 - units and coordinate-space identity;
-- study-base schema validity and input hash;
+- study-base schema validity and a stable explicit input path;
 - no semantic inference from filenames;
 - no silent clinical-row or scale substitution; and
 - immutable study-base content during a run.
@@ -310,11 +347,11 @@ records at least:
 ```text
 artifact kind and schema version
 explicit URI supplied by study base/config or produced by a task
-SHA-256 content hash
 dtype and shape
-ordered axis references and axis hashes
+ordered axis references and stable semantic axis IDs
 units and coordinate space where applicable
 producer/backend identity and version
+terminal file status
 ```
 
 The existing STNSNr importer may continue to create `study_base.json`, but the
@@ -366,7 +403,8 @@ or
 This is a fixed artifact-path contract, not semantic filename discovery: every
 path segment comes from the validated study/configuration record and delivery
 mode, and directory scanning or `latest` selection is forbidden. The provider
-hashes the exact bytes it consumes when publishing typed artifacts. No bundle,
+validates the declared path, file type, dimensions, units, and finite content
+needed by the consumer. No bundle,
 standalone VTA resolved manifest, or `vta_model.yaml` input is added to the
 downstream four-model interface; upstream FEM provenance remains outside this
 core contract.
@@ -559,7 +597,8 @@ Selection and execution rules:
 
 Omitting both `--scale` and `--all-available` is an error. Selecting an add-on
 endpoint automatically adds its matched reference dependency. `--resume`
-requires exact resolved configuration, study-base hash, code, and scientific identity.
+requires the same run ID, resolved profile IDs, study-base path, code version,
+and scientific semantic identity.
 `--force` creates a new lineage and never edits an old task record.
 
 `plan` reports exact cache hits/misses and blocked expensive producers. A cache
@@ -874,20 +913,26 @@ peak aggregation from training subjects only.
 
 ## Activation And OSS Contract
 
-Activation sensitivity runs only for a realized normative-fiber final on the
-unique `formal` connectome. It does not participate in source resolution or
-final realization.
+OSS/pPAM physical preparation is scale-independent and runs only when the
+requested workflow includes activation sensitivity. Endpoint activation
+statistics still run only for a realized normative-fiber final on the unique
+`formal` connectome. They do not participate in source resolution or final
+realization.
 
-The activation universe is inherited from the endpoint final source:
+The prepared activation universe is the exact minimum-grid maximal candidate
+union for the corresponding physical exposure family:
 
 ```text
-F_activation = final.valid_feature_axis at selected tau/Coverage
+F_OSS_prepare = Omega_max at min(tau grid)/min(Coverage grid)
+final.valid_feature_axis is an exact subset of F_OSS_prepare
 ```
 
-OSS must not rescan tau/Coverage, add noncandidate fibers, or restrict the
-candidate universe using activation. Add-on OSS retains the final branch's
-reference-active overlap rule. Endpoint weights, signs, and selected sweet/sour
-fibers are re-estimated within each OSS training fold.
+OSS must not cover the complete connectome, rescan tau/Coverage per scale, add
+fibers outside `Omega_max`, or restrict the prepared universe using activation.
+Endpoint analysis selects final columns by canonical fiber ID. Add-on
+reference-active overlap is applied after physical OSS preparation using the
+endpoint's selected reference source. Endpoint weights, signs, and selected
+sweet/sour fibers are re-estimated within each OSS training fold.
 
 For the default OSS backend:
 
@@ -909,9 +954,9 @@ alternating frequency group:
 ```
 
 For both delivery modes, left stimulation/electrode geometry is first mapped to
-the configured right-canonical space and OSS is then evaluated on the exact
-`final.valid_feature_axis`. The runtime must not model a left native row and map
-only its activation values afterward.
+the configured right-canonical space and OSS is then evaluated on
+`F_OSS_prepare`. The runtime must not model a left native row and map only its
+activation values afterward.
 
 Exact cache lookup may derive the canonical-geometry identity from the source
 reconstruction, reconstruction lead, stimulation parameters, mapping method,
@@ -920,20 +965,23 @@ miss must materialize the identified right-canonical geometry before OSS starts.
 This distinction preserves cache-first execution without weakening the mapping
 contract.
 
-Cache continuous probability and derive the binary analysis matrix. Endpoint
-fits use the final valid feature axis and refit training-fold weights/ranks.
+Cache continuous probability on `F_OSS_prepare` and derive the binary analysis
+matrix. Endpoint fits select the exact final valid feature-axis columns and
+refit training-fold weights/ranks.
 
-The exact ordered final-axis hash participates in the producer-row cache key,
-but scale, endpoint, branch role, final-model ID, run identity, and worker count
-do not. This permits exact reuse when scientific inputs and the ordered axis are
-identical without expanding OSS to a whole-connectome universe. A different
-axis is a different cache identity and cannot be served by nearest-key matching.
+The exact ordered `Omega_max` semantic ID and canonical fiber-ID file
+participate in the producer-row deterministic path, but scale, endpoint,
+branch role, final-model ID, run identity, and worker count do not. This permits
+reuse across all scales without expanding OSS to a whole-connectome universe.
+A different prepared axis uses a different path and cannot be served by
+nearest-key matching.
 The filtered Lead-DBS connectome renumbers this exact axis locally as `1..K`,
 writes `idx` for those `K` fibers, and sets `origNum = K`. The parent connectome
-count is retained only in the local-to-final mapping metadata; it must not be
+count is retained only in the local-to-canonical prepared-axis mapping metadata;
+it must not be
 used as the OSS denominator for the filtered candidate universe. Standard
 Lead-DBS `4xN`/`5xN` and transposed `Nx4`/`Nx5` point layouts are both accepted;
-neither orientation may reorder the inherited final axis.
+neither orientation may reorder the prepared `Omega_max` axis.
 The filtered artifact is always one flattened internal pathway even when the
 parent connectome's human-readable label contains `Multi-Tract`; the parent
 label remains provenance and must not select a different allocator parser.
@@ -969,8 +1017,8 @@ cannot preserve that boundary exactly. Every active voltage contact has
 `fraction = 1.0`; current fractions close independently within each polarity;
 `case`, when present, is the sole anode in both modes. Alternating rows remain
 one source each. The configured `Composite.nii.gz` remains the forward image
-transform. For left point geometry, the provider deterministically requires and
-hashes its sibling `InverseComposite.nii.gz`; MATLAB receives that exact path,
+transform. For left point geometry, the provider deterministically requires its
+sibling `InverseComposite.nii.gz`; MATLAB receives that exact path,
 mirrors RAS x, converts the points to LPS, applies the already selected inverse
 field directly through the locked platform `antsApplyTransformsToPoints`
 binary with no additional inversion, converts the result back to RAS, and
@@ -1006,25 +1054,26 @@ is not an equivalent serialized representation.
 The template segmentation bytes, fixed settings, OSS environment definition,
 producer/bridge code, reconstruction, configured transform, stimulation
 parameters, formal connectome, and exact ordered final fiber axis all
-participate in the cache identity. A cache hit remains possible without an
+participate in the deterministic cache path and declared version. A cache hit
+remains possible without an
 installed OSS environment, but an authorized miss must resolve and validate the
 official environment before starting an external process.
 
-The producer re-derives source hashes and the complete row cache key from the
-verified documents and fixed settings before execution. Nested paths must stay
+The producer re-derives the complete semantic row path from the verified
+documents and fixed settings before execution. Nested paths must stay
 inside validated study subject roots or the repository root, and captured input
-signatures must remain unchanged through publication. Subject roots are keyed
+paths and structural metadata must remain unchanged through publication. Subject roots are keyed
 by subject ID, so one subject's locator cannot resolve through another subject's
 root. The producer recomputes its implementation attestation before execution
 and before return and requires equality with the backend version in the cache
-key. `OSS-DBSv2.yml` pins the accepted upstream commit, deterministic hashes
-for all non-generated installed OSS/Lead-DBS-interface package resources
-(including HOC/MOD scientific assets), normalized entrypoints, complete
-Conda/Python environment hashes, and exact MATLAB runtime identity. The local
+path. `OSS-DBSv2.yml` pins the accepted upstream commit, declared versions for
+installed OSS/Lead-DBS-interface package resources (including HOC/MOD
+scientific assets), normalized entrypoints, the Conda/Python environment
+inventory, and exact MATLAB runtime identity. The local
 implementation attestation includes the transitive Lead-DBS/MATLAB bridge and
 coordinate helpers as well as the top-level producer, and the platform ANTs
 point-transform binary is part of that attestation. Authorized misses verify
-every installed lock immediately before and after each produced row; only
+the declared installed-file inventory immediately before and after each produced row; only
 executable paths may be cached.
 The converted OSS
 JSON must explicitly confirm the exact segmentation, `ColeCole4`, inactive DTI,
@@ -1057,10 +1106,12 @@ and the overall `/goal` remains in progress.
 
 ## Spatial-Jitter Contract
 
-Spatial jitter is final-linked robustness evidence and cannot alter source,
-prediction, branch-role, endpoint, or final-model status. The public model
-profile supplies `replicates`, `seed`, and `translation_fwhm_mm`; the runtime
-derives the Gaussian standard deviation as:
+Spatial-jitter **statistics** are final-linked robustness evidence and cannot
+alter source, prediction, branch-role, endpoint, or final-model status.
+Scale-independent jitter geometry and physical exposure are prepared before
+endpoint fan-out whenever the requested workflow includes jitter. The public
+model profile supplies `replicates`, `seed`, and `translation_fwhm_mm`; the
+runtime derives the Gaussian standard deviation as:
 
 ```text
 translation_sigma_mm = translation_fwhm_mm / 2.354820045
@@ -1072,11 +1123,14 @@ the same stimulation group and hemisphere receives that same vector. Exposure
 is sampled on the existing canonical grid with linear interpolation and
 out-of-domain values set to zero. Direct-voxel and normative-fiber aggregation,
 bilateral mapping, and frequency-group semantics remain identical to the
-observed model.
+observed model. These vectors and physical exposure rows exclude scale,
+outcome, endpoint status, and final-model identity and are reused by all scales.
 
-Every replicate starts from the realized final's exact selected feature axis;
-it must not restart from the parent candidate axis or invoke the source resolver.
-Reference jitter refits the selected model. Add-on jitter also rebuilds the
+Physical direct-voxel jitter uses the canonical voxel domain; physical
+normative-fiber jitter uses the same `Omega_max` prepared fiber axis as the
+base exposure. After a final is realized, endpoint analysis selects its exact
+feature-axis subset from those prepared rows and must not invoke the source
+resolver. Reference jitter refits the selected model. Add-on jitter also rebuilds the
 add-on reference component, reference-overlap exclusion, support QC, and, for an
 adjusted final, the matched-reference operator and full/fold DeltaReferenceScore
 using the subject-ID cohort join above. Replicate resources are task-scoped and
@@ -1089,9 +1143,10 @@ but it does not suppress a no-delta replicate. A no-delta final remains
 evaluable when matched-reference support is invalid or not applicable; the
 support state is retained as QC only.
 
-## Content-Addressed Cache Contract
+## Deterministic Existence-Based Cache Contract
 
-Run-independent expensive artifacts are stored under scientific identities:
+Run-independent expensive artifacts are stored under versioned deterministic
+paths built from stable semantic IDs:
 
 ```text
 voxel exposures
@@ -1099,25 +1154,29 @@ fiber exposures
 OSS rows
 ```
 
-Scientific identity includes:
+Path identity includes:
 
 ```text
-input geometry and stimulation hashes
-component/frequency metadata hash
-spatial transform hash
-connectome/fiber identity hash
-backend and scientific-version hash
-scientific parameter hash
+study and physical stimulation-unit IDs
+component/frequency class and delivery-mode IDs
+spatial transform ID and version
+connectome and ordered feature-axis IDs
+backend and scientific-version IDs
+scientific parameter profile ID
 ```
 
 It excludes scale, endpoint, branch role, run ID, worker count, retry count, and
-completion order. Exact content is reusable across scales and runs. Different
-scientific content is `cache_identity_mismatch` and cannot be approximately
-reused. Identical IDs in a different order may produce a deterministic reindex
-view only after unique IDs and per-item hashes validate.
+completion order. A present final file with a valid schema, dtype, shape,
+ordered axis IDs, units, space, and terminal status is reusable across scales
+and runs. Different semantic IDs use different paths and cannot be
+approximately reused. Identical IDs in a different order may produce a
+deterministic reindex view only after uniqueness and exact ID membership are
+validated.
 
-Every cache artifact records schema/backend version, full inputs, orders, units,
-space, environment, code provenance, row statuses, and content hashes.
+No target cache generates or validates a cryptographic checksum. Same-path
+upstream replacement requires explicit `--force` or a cache schema/version
+change. Publication uses a temporary sibling and atomic rename; temporary or
+structurally invalid files never authorize reuse.
 
 ## Artifact And Provenance Contract
 
@@ -1178,16 +1237,19 @@ artifact_index.csv
 
 `configuration_resolved.yaml` is the canonical merged snapshot of the validated
 study, scale, model, and workflow profiles after defaults and CLI overrides.
-`configuration_sources.json` records every source profile URI and content hash.
-The configuration hash is computed from the canonical resolved snapshot; a run
-must not depend on source YAML remaining at its original location.
+`configuration_sources.json` records every source profile URI, semantic profile
+ID, and declared schema version. The resolved snapshot is copied into the run
+directory; a run must not depend on source YAML remaining at its original
+location.
 
-Every task records endpoint/task/final identities, dependencies, study-base/config
-hashes, subject/feature order, selected source, statuses, random parameters,
-code/environment provenance, cache references, outputs, and terminal status.
+Every task records endpoint/task/final identities, dependencies, study-base and
+configuration paths/versions, subject/feature order, selected source, statuses,
+random parameters, code/environment provenance, cache references, outputs, and
+terminal status.
 
-Resume reuses only exact task identity and hash-valid artifacts. Force creates a
-new lineage. No run modifies the predecessor configured run or
+Resume reuses only the same run/task identity and present structurally valid
+terminal artifacts. Force creates a new lineage. No run modifies the
+predecessor configured run or
 `/Volumes/VAL/STNSNr/summary`.
 
 Generic reports contain only reference/add-on fields. They do not emit HF/ULF
@@ -1266,8 +1328,6 @@ The only predecessor numerical source is:
 
 ```text
 run_id: 20260711T034644Z_d318f177f7f2ac7d
-run_commit: e3606e9ba57e83b61a18883b571ebe184029ebc0
-configuration_hash: e686212ba6658b2f4b8abf3a94305817555ec334ee9ba07262fbca9190f5f338
 planned_tasks: 205
 terminal_tasks: 73
 completed_tasks: 50
@@ -1275,7 +1335,7 @@ completed_tasks: 50
 
 Only task IDs in a reviewed, frozen allowlist may enter the golden fixture
 manifest. Every allowlisted task must also be terminal `completed`, scientific,
-complete, and hash-valid. Status-based discovery alone cannot enroll a task,
+complete, and structurally readable. Status-based discovery alone cannot enroll a task,
 and later outputs cannot extend the allowlist implicitly. Completed numerical
 evidence covers:
 
@@ -1304,14 +1364,14 @@ Do not resume or complete the predecessor run merely to enlarge the oracle.
 Excluded paths receive structural/synthetic/smoke acceptance, not numerical
 equivalence claims.
 
-Complete predecessor formal/jitter/OSS products receive hash/provenance
-validation. New backends replay only fixed internal-test slices, such as ten
+Complete predecessor formal/jitter/OSS products receive schema, status, axis,
+shape, and numerical validation. New backends replay only fixed internal-test slices, such as ten
 permutations, ten bootstraps, five jitter replicates, and OSS 48-fiber samples
 across three representative subjects. These are test constants, not scientific
 outputs. Missing acceptance fixtures never trigger expensive generation.
 
 The frozen fixture manifest records exact approved task IDs, artifact kinds,
-source hashes, converter version, and an exclusion reason for every other
+source paths, schema/converter versions, and an exclusion reason for every other
 terminal task. Any allowlist change requires an explicit future documentation
 decision.
 
@@ -1374,10 +1434,9 @@ models or modifying existing output trees:
   through report with the project namespace blocked and all tasks terminal;
 - MDS-UPDRS III and IV traverse the same read-only real-data catalog and DAG,
   producing 16 available endpoints and 136 planned tasks, 68 per scale;
-- the reviewed bounded manifest contains 32 eligible tasks and 137 hash-valid
-  task/artifact files, with manifest SHA-256
-  `50c29f7fc95e94e49128be40a69a509e02bdfdb3db32174d913a90bebbfa5def`;
-- resolved configuration, all four source hashes, run manifest, final decisions,
+- the reviewed bounded manifest contains 32 eligible tasks and 137 terminal,
+  structurally readable task/artifact files;
+- resolved configuration, all four source paths, run manifest, final decisions,
   task states, report, and artifact index agree in the synthetic acceptance;
 - the public CLI, compilation, diff validation, runtime import isolation, and
   production hardcoding scans pass; and
@@ -1405,8 +1464,8 @@ new estimators or revised classification rules
 
 ## Documentation Review Record
 
-Five documentation review passes were repeated after implementation acceptance
-on 2026-07-15:
+Five documentation review passes were repeated after generic-core acceptance
+on 2026-07-15. A sixth performance-contract pass was added on 2026-07-16:
 
 | Pass | Result | Verified closure |
 |---|---|---|
@@ -1415,7 +1474,11 @@ on 2026-07-15:
 | 3. Dependency and fallback | PASS | Reference dependency failure is distinct from ready input with no source; invalid DeltaReferenceScore still runs no-delta; fallback remains one-way. |
 | 4. Round, cache, activation, and interface | PASS | All nondeferred Rounds, including add-on direct Round 9, are mapped; sensitive connectomes cannot become final; generic runtime accepts structured inputs and has no project reverse dependency. |
 | 5. Numerical acceptance and wording | PASS | Frozen counts were verified; exact reviewed task allowlist is required; unfinished/failed/partial predecessor paths have no numerical parity requirement. |
+| 6. Shared physical preparation and resources | DESIGN PASS / IMPLEMENTATION OPEN | Scale-independent base/jitter/OSS preparation, exact `Omega_max`, coarse RAM-adaptive ranges, process scheduling, and no-checksum reuse are specified by the linked performance contract and Task 17. |
 
-The linked implementation plan maps every target requirement to completed code
-and acceptance evidence. This PASS record confirms implementation completion;
-it does not claim that production model outputs were regenerated.
+The linked implementation plan maps the accepted generic-core requirements to
+completed code and evidence. Task 17 maps the new performance requirements to
+unchecked implementation and acceptance steps. This record therefore confirms
+generic-core completion and performance-design closure only; it does not claim
+that shared physical preparation is implemented or that production model
+outputs were regenerated.

@@ -6,14 +6,18 @@
 > **Parent goal.** `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`
 > **Implementation plan.**
 > `my_helper/stnsnr/dual_frequency_core_decoupling_implementation_plan.md`
+> **Performance refactor contract.**
+> `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`
 > **Predecessor schema.** `four_model_v1`
 > **Target schema.** `dual_frequency_v1`
 > **Current branch.** `stnvop`
 > **Status.** `design_approved`; `goal_review_passed`;
 > `implementation_complete`; `generic_runtime_active`;
 > `predecessor_runtime_archived`; `bounded_numeric_evidence_verified`;
+> `performance_refactor_design_documented`;
+> `performance_refactor_implementation_not_started`;
 > `production_rerun_not_started`.
-> **Last updated.** 2026-07-15
+> **Last updated.** 2026-07-16
 
 ---
 
@@ -21,6 +25,11 @@ Explicit user decisions are authoritative for this design. Existing Markdown,
 code, and generated results are evidence, not independent authority. Stop for
 clarification if a later implementation discovers a conflict that this design
 does not resolve.
+
+The performance-refactor contract supersedes all checksum/content-addressed
+cache rules in this design. The target uses deterministic semantic paths,
+final-file existence, structural validation, declared versions, and explicit
+`--force`. Historical checksum fields are inert predecessor data.
 
 ## Goal
 
@@ -115,6 +124,14 @@ except for the explicit 2026-07-11 clarification that intended adjusted
 `absent_no_stable_grid` permits one-way accepted no-delta fallback. No other
 final-model rule changes.
 
+Execution is split into two layers. Scale-independent physical preparation
+produces canonical E-fields, bilateral voxel/fiber exposure, minimum-grid
+`Omega_max`, requested jittered exposure, and requested OSS/pPAM rows.
+Scale-dependent analysis consumes indexed subject/feature subsets and performs
+all outcome-dependent fitting, classification, resampling, and reporting. This
+separation changes neither the direct-voxel bilateral formula nor the
+normative-fiber rule of peaking each side before averaging the two peaks.
+
 ## Target Package Boundary
 
 ```text
@@ -146,7 +163,7 @@ Responsibilities:
 - `workflow`: dependency planning, state transitions, execution, resume, and
   endpoint failure isolation;
 - `backends`: scientific array-in/record-out implementations;
-- `cache`: scientific identities and content-addressed artifacts;
+- `cache`: deterministic semantic paths and existence-based artifacts;
 - `reporting`: generic endpoint, artifact, and run reports;
 - `application`: `WorkflowService`, shared by CLI, tests, and a future GUI.
 
@@ -189,12 +206,12 @@ directory names, search a `latest` directory, or discover another task's
 outputs implicitly.
 
 An artifact-backed request must prove axis identity, not only array shape.
-Outcome, baseline, nuisance, and exposure artifacts must carry the exact
-declared ordered subject-axis hash. Exposure artifacts must additionally carry
-the exact declared feature-axis hash. Formal and activation requests declare
-their subject axis explicitly; activation also inherits and must equal the
-realized final model's locked feature axis. Same-shaped arrays with different
-axis hashes are invalid inputs.
+Outcome, baseline, nuisance, and exposure artifacts carry the exact declared
+ordered subject-axis semantic ID and ordered ID file. Exposure artifacts also
+carry the exact declared feature-axis semantic ID and ordered ID file. Formal
+and activation requests declare their subject axis explicitly; activation also
+inherits and must equal the realized final model's locked feature axis.
+Same-shaped arrays with different ordered IDs are invalid inputs.
 
 Only the config loader, strict study-base loader, and artifact store may
 receive explicitly configured paths or URIs. Project paths and old output
@@ -209,9 +226,9 @@ manifest, and it does not read project workbooks.
 The strict loader validates the repository study-base schema and converts the
 document into immutable generic records with stable subject, scale, phase,
 program, component, source, and observation IDs. It records the source path and
-SHA-256 in the run manifest. Every external array `ArtifactRef` records
-kind/schema, explicit URI, SHA-256, dtype, shape, ordered axis references/
-hashes, units/space, and producer identity/version.
+schema version in the run manifest. Every external array `ArtifactRef` records
+kind/schema, explicit URI, dtype, shape, ordered axis references/IDs,
+units/space, producer identity/version, and terminal file status.
 
 Relative paths inside `study_base.json` are resolved against the directory
 containing that JSON file, never against the process working directory. The
@@ -306,18 +323,17 @@ selection, execution cutoff, resume/force policy, endpoint failure policy,
 cache/run roots, workers, and expensive-producer authorization. It contains no
 default scale list and duplicates no scientific model parameter. CLI callers
 must provide either one or more `--scale` values or `--all-available`.
-Runtime scheduling parameters do not alter scientific cache identity.
+Runtime scheduling parameters do not alter scientific cache paths.
 
-The resolved workflow exposes two different hashes:
+The resolved workflow exposes two stable semantic identifiers:
 
-- `configuration_hash` covers the effective validated run configuration,
-  including selection, execution cutoff, failure policy, worker count, and
-  storage roots. Invocation-only `resume` and `force` flags are recorded but do
-  not change this hash.
-- `scientific_configuration_hash` covers only values that can change the
-  planned scientific task content. It excludes output/cache locations, worker
-  count, retry/order controls, and invocation-only flags. Artifact content
-  hashes later bind concrete study, transform, and connectome inputs.
+- `configuration_id` names the effective validated run profile, including
+  selection, execution cutoff, failure policy, worker count, and storage roots.
+  Invocation-only `resume` and `force` flags are recorded separately.
+- `scientific_profile_id` names values that can change planned scientific task
+  content. It excludes output/cache locations, worker count, retry/order
+  controls, and invocation-only flags. Concrete study, transform, and
+  connectome inputs are bound by explicit paths, semantic IDs, and versions.
 
 CLI overrides are validated with the same strict types and enums as YAML;
 coercion of strings to booleans, floats to integers, invalid phase cutoffs, or
@@ -451,6 +467,19 @@ source/prediction status and applies final realization. Sensitive connectomes
 terminate with `SensitiveRecord` and cannot schedule formal, jitter,
 activation, or final-model sensitivity.
 
+### Scale-independent localization jitter
+
+When jitter sensitivity is requested, the physical layer generates one
+deterministic perturbation schedule and perturbed exposure set per physical
+subject/stimulation/side/replicate identity. Direct voxel derives bilateral
+voxel exposure; normative fiber preserves side-specific peak followed by the
+mean of the two peaks. These physical resources exclude scale and outcome.
+
+After final realization, each endpoint selects its final feature subset and
+independently refits jitter weights, scores, predictions, and robustness
+statistics. No outcome-dependent map, signed feature set, or classification is
+shared across scales.
+
 ## Final States
 
 Every endpoint/model family terminates in exactly one of:
@@ -485,30 +514,36 @@ OSS/pPAM sensitivity.
 
 ## OSS / pPAM Activation Sensitivity
 
-OSS participates only as activation sensitivity for a realized normative-fiber
-final on the unique `formal` connectome. It does not run for direct voxel,
+OSS endpoint statistics participate only as activation sensitivity for a
+realized normative-fiber final on the unique `formal` connectome. When the
+workflow requests activation sensitivity, scale-independent OSS/pPAM physical
+rows are prepared before endpoint analysis. OSS does not run for direct voxel,
 select tau/Coverage, replace the observed final model, or feed back into
 classification.
 
 ### Activation universe
 
 Do not run expensive OSS simulation for every fiber in the whole connectome.
-Use the endpoint final model's locked valid feature axis:
+Use the minimum-grid maximal candidate union for the corresponding formal-
+connectome physical exposure family:
 
 ```text
-F_OSS = final.valid_feature_axis at selected tau/Coverage
+F_OSS_prepare = Omega_max at min(tau grid)/min(Coverage grid)
+final.valid_feature_axis is an exact subset of F_OSS_prepare
 ```
 
-OSS does not rescan tau/Coverage or add fibers. Endpoint weights, signs, and
-selected sweet/sour IDs are re-estimated in each OSS training fold. Add-on OSS
-retains the final branch's reference-active overlap rule.
+OSS does not rescan tau/Coverage by scale or add fibers outside `Omega_max`.
+Endpoint analysis selects final columns by canonical fiber ID. Endpoint
+weights, signs, and selected sweet/sour IDs are re-estimated in each OSS
+training fold. Add-on reference-active overlap is applied after raw activation
+preparation using the endpoint's selected reference source.
 
-The exact ordered final-axis hash is part of every producer-row scientific
-identity. Scale, endpoint, branch role, final-model ID, run ID, worker count,
-and task order are not. Consequently, two endpoints with the same scientific
-inputs and exact ordered final axis may reuse completed rows, while different
-axes require different exact cache identities. Approximate, nearest-axis, or
-whole-connectome substitution is forbidden.
+The exact ordered `Omega_max` semantic ID and canonical fiber-ID file are part
+of every producer-row deterministic path. Scale, endpoint, branch role,
+final-model ID, run ID, worker count, and task order are not. Consequently, all
+scales using the same physical input reuse completed rows and later select
+their exact final-axis subset. Different prepared axes require different paths.
+Approximate, nearest-axis, or whole-connectome substitution is forbidden.
 
 The runtime passes typed row records and artifacts directly between tasks. It
 does not create an `OSSSidecarBundle`, `DualFrequencyStudyBundle`, or another
@@ -563,12 +598,12 @@ same explicit cache-first contract.
 
 ### Cache granularity
 
-OSS scientific identity is based on subject, stimulation condition, component,
-connectome/fiber identity, spatial transform, OSS parameters, backend version,
-and input hashes. It does not include scale, endpoint, final branch, worker
+OSS path identity is based on subject, stimulation condition, component,
+connectome/fiber semantic identity, spatial transform ID, OSS parameters, and
+backend version. It does not include scale, endpoint, final branch, worker
 count, run ID, or task order.
 
-## Content-Addressed Cache
+## Deterministic Existence-Based Cache
 
 Expensive run-independent artifacts live outside endpoint run roots:
 
@@ -579,27 +614,32 @@ cache/
   oss_rows/
 ```
 
-A scientific cache key contains only values that can change numerical content:
+A deterministic cache path contains only stable semantic values that can change
+numerical content:
 
 ```text
-input geometry hash
-stimulation settings hash
-component/frequency metadata hash
-spatial transform hash
-connectome/fiber identity hash
+input geometry and stimulation-unit IDs
+stimulation settings profile ID
+component/frequency metadata IDs
+spatial transform ID and version
+connectome/fiber-axis IDs
 backend name and version
-scientific parameter hash
+scientific parameter profile ID
 ```
 
 Scale IDs, endpoint IDs, run IDs, workers, retries, and scheduling order are
-excluded. Exact identity matches are reused automatically. A cache artifact
-with different scientific content is a `cache_identity_mismatch` and cannot be
-used as an approximate substitute.
+excluded. A present final file with matching schema, dtype, shape, ordered IDs,
+units, space, and terminal status is reused automatically. Different semantic
+content uses a different deterministic path and cannot be used as an
+approximate substitute.
 
-Different array order is not a scientific mismatch when unique subject/fiber
-IDs and per-item hashes prove identical content. In that case, create a
-deterministically reindexed view and record a new view manifest. Never infer
-compatibility from array position.
+Different array order may create a deterministic reindexed view only when
+unique subject/fiber IDs prove exact membership. Never infer compatibility from
+array position.
+
+No target cache generates or validates a cryptographic checksum. Publication
+uses a temporary sibling and atomic rename. Same-path upstream replacement
+requires explicit `--force` or a schema/version change.
 
 Production may create a missing expensive cache only after explicit
 `--allow-expensive-producers` authorization. Acceptance/smoke runs report
@@ -728,8 +768,8 @@ reporting cannot import them. New input validation never silently falls back to
 legacy interpretation.
 
 The fixture converter is read-only with respect to old results. It writes a new
-fixture manifest containing converter version, source paths, source hashes,
-output hashes, and conversion rules.
+fixture manifest containing converter version, source paths, output paths,
+schema/axis metadata, terminal status, and conversion rules.
 
 ## Bounded Numerical Acceptance
 
@@ -743,8 +783,6 @@ The only real-run numerical baseline is the immutable paused run:
 
 ```text
 run_id: 20260711T034644Z_d318f177f7f2ac7d
-run_commit: e3606e9ba57e83b61a18883b571ebe184029ebc0
-configuration_hash: e686212ba6658b2f4b8abf3a94305817555ec334ee9ba07262fbca9190f5f338
 planned_tasks: 205
 terminal_tasks: 73
 completed_tasks: 50
@@ -752,7 +790,7 @@ completed_tasks: 50
 
 Only exact task IDs in a reviewed frozen allowlist are eligible for numerical
 golden parity. Every allowlisted task must also be terminal `completed`,
-scientific, complete, and hash-valid. Status-based discovery cannot enroll a
+scientific, complete, and structurally readable. Status-based discovery cannot enroll a
 task automatically, and a later output cannot extend the allowlist implicitly.
 A completed reporting task that only summarizes an upstream failure is
 structural evidence, not a numerical model oracle.
@@ -775,7 +813,8 @@ The completed evidence currently covers:
    controls, candidate smoke, formal inference, cheap observed sensitivity,
    and selected-source neighborhood.
 
-The fixture manifest must enumerate exact task IDs and artifact hashes. It must
+The fixture manifest must enumerate exact task IDs, artifact paths, schemas,
+shapes, axes, and terminal statuses. It must
 not infer coverage from this prose alone.
 
 ### Explicit numerical exclusions
@@ -823,7 +862,7 @@ Where a completed golden artifact exists:
   prefix of the predecessor sampling order.
 
 Acceptance does not rerun full formal resampling or 1,000-replicate jitter.
-The fixture converter records hashes and provenance for complete predecessor
+The fixture converter records paths, schema/axis metadata, and provenance for complete predecessor
 outputs and extracts deterministic bounded slices needed by smoke parity. The
 new backend replays only fixed internal-test prefixes, for example ten
 permutations, ten bootstrap samples, and five jitter replicates, and compares
@@ -914,9 +953,13 @@ The design is implemented only when:
    intact;
 4. all configured scales receive equal DAG and output treatment;
 5. connectome scheduling is role-based;
-6. expensive caches are scientifically keyed and reusable across scales/runs;
-7. OSS uses the realized final model's exact valid feature axis and never
-   rescans tau/Coverage or adds noncandidate fibers;
+6. scale-independent physical exposure, jitter, and activation resources are
+   prepared before endpoint fan-out, use deterministic semantic paths and
+   final-file existence without cryptographic checksums, and are reused across
+   scales/runs;
+7. OSS physical preparation uses the formal-connectome minimum-grid
+   `Omega_max`; each endpoint selects its realized final valid feature axis as
+   an exact canonical-ID subset without rerunning OSS or adding fibers;
 8. sensitive connectomes emit no final model, while exactly one final model or
    an explicit closed terminal state exists per endpoint/model family after
    `formal` role filtering;
@@ -925,10 +968,13 @@ The design is implemented only when:
     artifact and is not claimed for unfinished predecessor paths; and
 11. synthetic, smoke, import-isolation, cache, provenance, and report tests pass.
 
-These criteria are satisfied by the 397-test generic suite, the
-project-namespace-blocked synthetic report-through run, the equal III/IV
-read-only 136-task plan, the 32-task/137-file bounded fixture audit, the public
-CLI/compile/diff checks, and zero-hit production coupling/hardcoding scans.
+The 397-test generic suite, project-namespace-blocked synthetic report-through
+run, equal III/IV read-only 136-task plan, 32-task/137-file bounded fixture
+audit, public CLI/compile/diff checks, and zero-hit production
+coupling/hardcoding scans satisfy the generic-core criteria. They do not
+satisfy the revised Criteria 6-7. Full design completion now additionally
+requires Task 17's numerical, reuse, I/O, process-concurrency, and RAM-budget
+acceptance; that implementation has not started.
 Real subject IDs used to inspect project data are not runtime or configuration
 constants; model participation remains data- and readiness-driven.
 

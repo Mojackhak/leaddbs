@@ -1,15 +1,21 @@
 # HF-Only Direct Voxel-Level Model
 
-## YAML Core Interface (Foundation In Progress)
+## Configured Core Interface (Generic Core Active; Performance Refactor Pending)
 
-The future configuration/orchestration contract is documented in
+The configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
 remains authoritative for the estimator, resolver, classification, formal, and
-sensitivity definitions. Shared profile, identity, catalog, state, and run-store
-foundations have status `implementation_in_progress`; this model's configured
-scientific service and result regeneration are not implemented. The generic DAG
-planner/executor exists but has not replaced this model's legacy driver. Current
-outputs and legacy/current entrypoints are unchanged.
+sensitivity definitions. The generic `dual_frequency_v1` core is active. The
+scale-independent physical-preparation and parallel-execution refactor is
+documented in
+`my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md` and
+has status `implementation_not_started`. Current outputs remain unchanged.
+
+Direct-voxel physical preparation averages right and transformed-left E-fields
+once on the canonical voxel grid and reuses that bilateral exposure across all
+scales. Endpoint analysis selects subject/voxel views and remains outcome-
+dependent. Jitter physical exposure follows the same scale-independent rule.
+This execution refactor does not change the bilateral formula below.
 
 All configured HF/frequency-1 endpoint scales are engineering-equivalent. The
 endpoint catalog and DAG must not assign total, axial, or any other scale
@@ -568,7 +574,11 @@ Empty maps, all-NaN maps, non-finite maps, or obvious path mismatches are input 
 
 ## Spatial Jitter QC Sensitivity
 
-Spatial jitter is an optional robustness stress test applied to the already accepted e-field inputs. It is not an automatic localization/normalization QC procedure and is not an input-validity gate. It is run only for endpoints with an accepted final source branch.
+Spatial jitter is an optional robustness stress test applied to the already
+accepted e-field inputs. It is not an automatic localization/normalization QC
+procedure and is not an input-validity gate. Physical perturbation schedules
+and bilateral jittered voxel rows are prepared once per physical identity when
+jitter is requested; endpoint statistics run only for accepted final sources.
 
 ```text
 formal jitter resamples: B = 1000
@@ -583,7 +593,12 @@ For each jitter iteration, draw an independent 3D translation vector for each su
 dx, dy, dz ~ Normal(0, sigma^2)
 ```
 
-Apply translation-only E-field resampling with linear interpolation and outside fill value `0`. Then rebuild the candidate mask, `Omega_HF_tau`, full-sample map, HF scores, and LOOCV validation metrics. Do not save every jittered NIfTI map. Save a summary table, map correlation/stability summary, and a voxel-wise jitter standard deviation map.
+Apply translation-only E-field resampling with linear interpolation and outside
+fill value `0` in the scale-independent preparation layer. Endpoint analysis
+then selects its physical rows and rebuilds the candidate mask, `Omega_HF_tau`,
+full-sample map, HF scores, and LOOCV validation metrics. Do not save every
+jittered NIfTI map. Save a summary table, map correlation/stability summary,
+and a voxel-wise jitter standard deviation map.
 
 ## Reference-Parameter Coverage
 
@@ -697,7 +712,7 @@ dtype
 array shape
 memory layout
 source MAT path
-source MAT hash if available
+source MAT path, size, and schema/version metadata
 sidecar creation time
 software version
 ```
@@ -928,7 +943,9 @@ formal jitter resamples = 1000
 smoke jitter resamples  = 100
 ```
 
-Jitter changes the e-field geometry. Therefore, primary `X`-derived caches are invalid under jitter and must not be reused as if the exposure matrix were unchanged.
+Jitter changes the e-field geometry. Therefore, primary `X` rows must not be
+substituted for jittered rows. Jittered physical exposure has its own
+scale-independent deterministic path and is reused across scales.
 
 The jitter implementation may reuse:
 
@@ -941,7 +958,10 @@ affine/header information
 preallocated arrays
 ```
 
-For each jitter iteration, it must rebuild the jittered exposure matrix, candidate mask, `Omega_HF_selected_tau_selected_coverage`, full-sample map, HF scores, and LOOCV validation metrics as defined in the Spatial Jitter QC Sensitivity section.
+For each jitter iteration, Layer 1 prepares the bilateral jittered exposure row
+once. Layer 2 must rebuild the candidate mask,
+`Omega_HF_selected_tau_selected_coverage`, full-sample map, HF scores, and LOOCV
+validation metrics as defined in the Spatial Jitter QC Sensitivity section.
 
 Do not save every jittered NIfTI map. Save only:
 
@@ -982,6 +1002,12 @@ export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 ```
+
+The target configured runtime uses spawned processes, a persistent ready queue,
+read-only shared memmaps, and memory-aware admission rather than an endpoint
+thread pool. With at least 64 GiB available it uses a 48-GiB normal managed
+budget and preserves at least 16 GiB. Detailed stage limits and performance
+acceptance are defined in the shared-exposure performance plan.
 
 The run manifest must record the effective worker count and BLAS thread settings.
 
@@ -1493,10 +1519,9 @@ sigma = 0.849 mm
 independent 3D translation per subject-side e-field
 ```
 
-Each jitter iteration must rebuild:
+Each endpoint jitter iteration consumes its prepared physical row and rebuilds:
 
 ```text
-jittered exposure matrix
 candidate mask
 Omega_HF_selected_tau_selected_coverage
 full-sample map

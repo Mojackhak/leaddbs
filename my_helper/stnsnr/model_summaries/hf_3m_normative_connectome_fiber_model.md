@@ -3,17 +3,21 @@
 Version: 2026-07-06 threshold-scan and downstream-status specification
 Scope: HF-only 3m normative connectome fiber-level model; provides source-model status and DeltaHFScore eligibility for ULF add-on fiber models.
 
-## Configured YAML Contract (Design Approved; Implementation Pending)
+## Configured Core Contract (Generic Core Active; Performance Refactor Pending)
 
 The configuration/orchestration contract is documented in
 `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`. This model summary
 remains authoritative for connectome roles, exposure, source resolution,
-formal resampling, controls, OSS, jitter, and numeric reporting. Predecessor
-`four_model_v1` profile, catalog, state, service, resolver, formal/sensitivity,
-OSS, and reporting code exists and has regression coverage. The new
-`normative_fiber_model_v1` loader, publisher, and end-to-end acceptance remain
-unimplemented. Existing legacy output trees are unchanged until the configured
-runner is implemented and accepted.
+formal resampling, controls, OSS, jitter, and numeric reporting. The generic
+`dual_frequency_v1` core is active. The shared physical-preparation and
+parallel-execution refactor is documented in
+`my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md` and
+has status `implementation_not_started`. Existing output trees are unchanged.
+
+Normative-fiber physical preparation preserves the existing formula: take the
+peak separately on right and transformed-left fibers, then average those two
+peak values. The resulting fiber exposure is reused across scales. It is
+forbidden to average voxel fields before taking the fiber peak.
 
 All configured HF/frequency-1 endpoint scales are engineering-equivalent.
 Connectome role is restricted to `formal` or `sensitive`, with exactly one
@@ -197,7 +201,12 @@ full tau x Coverage scan:
   otherwise reported as source-neighborhood robustness
 ```
 
-`X_HF_i(l)` is used for candidate definition, fiber-wise association, scoring, LOOCV, and prediction. dTOR exposure and candidate calculations must be chunked; loading the complete dTOR `fibers` matrix or all exposure values into memory is invalid.
+`X_HF_i(l)` is used for candidate definition, fiber-wise association, scoring,
+LOOCV, and prediction. dTOR preparation must obey the global memory budget.
+When preflight proves complete geometry fits the shared-resident allocation
+while preserving the 16-GiB reserve, it may be loaded once into read-only shared
+memory and reused. Otherwise use large point-count-sized ranges. Per-endpoint
+full exposure copies remain invalid.
 
 For the source resolver scan, only `tau` and `Coverage` vary. The score rule is fixed:
 
@@ -213,7 +222,10 @@ NetFiberScore = mean top-H+ positive weighted values
 
 Do not scan `top-k`, `top percentile`, `SweetPeak percentile`, `SourPeak percentile`, estimator family, connectome choice, or OSS-DBS activation variables inside the same threshold search. Top-count sensitivity remains a separate branch.
 
-The OSS-DBS branch inherits the peak E-field candidate universe from the branch being tested. `X_HF_OSS_i(l)` is introduced only after candidate selection and must not redefine, shrink, or expand `F_candidate_tau`.
+OSS/pPAM physical rows are prepared on minimum-grid `Omega_max`. The endpoint
+OSS analysis then inherits the peak-E-field final candidate universe from the
+branch being tested. `X_HF_OSS_i(l)` must not redefine, shrink, or expand that
+endpoint candidate set.
 
 ## Statistical Model
 
@@ -284,7 +296,7 @@ negative pools contribute `0` and are labeled one-sided. Full sample and every
 fold record `adequate_two_sign`, `limited_two_sign`,
 `limited_positive_only`, `limited_negative_only`, or
 `absent_no_valid_signed_fibers`, together with requested/actual K/H counts,
-minimum-dominated flags, and selected-ID hashes. These support labels do not
+minimum-dominated flags, and ordered selected-ID artifact references. These support labels do not
 change source or prediction classification.
 
 Final prediction model:
@@ -646,18 +658,19 @@ Only one selected HF source per endpoint/scale may generate a downstream ULF `De
 
 ### OSS-DBS Activation Sensitivity
 
-OSS-DBS replaces peak E-field exposure with pathway/axon activation after the peak E-field candidate set has been defined:
+OSS-DBS physical preparation replaces peak E-field exposure with pathway/axon
+activation on the scale-independent minimum-grid maximal candidate union:
 
 ```text
 X_HF_OSS_i(l) = pPAM activation probability for fiber l under subject i HF stimulation
 ```
 
-The sidecar column universe is the final selected-source tau/Coverage candidate
-fiber id order, not the whole dTOR connectome atlas, not a parent raw
-`fiber_ids.npy` when that file stores the full exposure universe, and not the
-top sweet/sour display fibers. OSS activation must not redefine, shrink,
-expand, or rescan the candidate fiber universe. The actual OSS column order is
-recorded as `oss_fiber_ids.npy` or an equivalent sidecar manifest field.
+The shared sidecar column universe is `Omega_max` at minimum configured
+tau/Coverage, not the whole dTOR connectome atlas and not the top sweet/sour
+display fibers. Every endpoint `final.valid_feature_axis` must be an exact
+canonical-ID subset. OSS activation must not redefine, shrink, expand, or
+rescan `Omega_max` by scale. The prepared column order is recorded explicitly
+in `oss_fiber_ids.npy` or an equivalent axis artifact.
 
 For alternating same-side HF subprograms, OSS activation is computed per subprogram and then max-reduced:
 
@@ -677,13 +690,14 @@ X_HF_OSS_i(l) = I[X_HF_OSS_probability_i(l) >= 0.5]
 `A_L_to_R_i(l)` is computed by transforming the left electrode/stimulation
 geometry and reconstruction coordinates into right-canonical space with
 `ea_flip_lr_nonlinear`, then running OSS directly on the same ordered
-`final.valid_feature_axis` used by the right side. No equality between native
+`Omega_max` axis used by the right side. No equality between native
 left and right local fiber IDs is assumed. The canonical OSS exposure uses
 `max_probability_union`; bilateral mean p(A) cannot replace it in fitting.
 
-The OSS branch uses the selected-source candidate rule from the locked peak
-E-field branch. It must use the endpoint row's resolved selected tau and
-Coverage, not a hard-coded tau800/Coverage>=5 rule:
+Endpoint OSS analysis uses the selected-source candidate rule from the locked
+peak-E-field branch. It selects those columns from the prepared `Omega_max`
+matrix using the endpoint row's resolved selected tau and Coverage, not a
+hard-coded tau800/Coverage>=5 rule:
 
 ```text
 Coverage_selected_tau(l) = sum_i I[X_HF_i(l) >= selected_tau]
@@ -753,8 +767,9 @@ test  = patient h
 
 The fold workflow is:
 
-1. Use the realized final model's locked, ordered `final.valid_feature_axis`.
-2. Read training and held-out `X_HF_OSS` values on that exact axis.
+1. Select the realized final model's locked, ordered
+   `final.valid_feature_axis` from the prepared `Omega_max` columns.
+2. Read training and held-out `X_HF_OSS` values on that exact endpoint view.
 3. Estimate `rho_HF_OSS(l)` on training patients only.
 4. Convert to `M_HF_OSS(l)` and intersect the axis with finite fold weights.
 5. Select fold-specific `F+_OSS` and `F-_OSS`.
@@ -971,7 +986,7 @@ normative_HF_fiber_threshold_scan_nested_validation_predictions.csv, if run
 Minimum table semantics:
 
 - `normative_HF_fiber_weights.csv`: `connectome`, `fiber_id`, `tau_v_per_m`, `coverage`, `rho_HF`, `p_uncorrected`, `q_fdr`, `M_HF`, `direction_class`, display/sensitivity flags, and target labels for QC.
-- `normative_HF_fiber_scores.csv`: `subject_id`, `score_map_source`, `connectome`, `branch`, compatibility fields `SweetPeak5`/`SourPeak5`, `NetFiberScore`, all requested/actual K/H counts, support status, dominated flags, selected-ID hashes, and `is_primary_score`.
+- `normative_HF_fiber_scores.csv`: `subject_id`, `score_map_source`, `connectome`, `branch`, compatibility fields `SweetPeak5`/`SourPeak5`, `NetFiberScore`, all requested/actual K/H counts, support status, dominated flags, ordered selected-ID artifact references, and `is_primary_score`.
 - `normative_HF_fiber_scores.csv` in the OSS branch additionally stores `SweetPeak5_OSS`, `SourPeak5_OSS`, and `NetFiberScore_OSS`.
 - `normative_HF_fiber_fdr_cache.csv`: canonical fiber-wise FDR cache defined in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`; it is a QC/display output and is not a source or prediction gate.
 - `normative_HF_fiber_enrichment_cache.csv`: canonical fiber-level anatomical/pathway enrichment cache defined in `my_helper/stnsnr/normative_fiber_fdr_enrichment_cache_definition.md`; its background is the selected-source tau/Coverage candidate fiber universe.
@@ -1037,8 +1052,10 @@ fiber_chunk_manifest.json
 candidate_fiber_metadata.json
 ```
 
-OSS activation sidecars are written after peak E-field candidate construction
-and use the same selected-source candidate fiber id order:
+When activation sensitivity is requested, OSS activation sidecars are written
+in scale-independent physical preparation after `Omega_max` construction and
+use that exact prepared canonical fiber-ID order. Endpoint finals consume
+indexed column views:
 
 ```text
 X_oss_float32_fiber_major.npy
@@ -1046,9 +1063,10 @@ oss_parameter_manifest.json
 oss_activation_sidecar_metadata.json
 ```
 
-`X_oss_float32_fiber_major.npy` stores pPAM activation probability
-with rows = final branch subjects and columns = selected-source candidate fiber
-ids. The configured producer stores exact ten-sample pPAM probabilities. For alternating HF subprograms, subprogram-level activation matrices may
+The shared `X_oss_float32_fiber_major.npy` stores pPAM activation probability
+with rows = physical subject/program rows and columns = prepared `Omega_max`
+fiber IDs. Endpoint analysis stores only row/column indexes or a read-only view,
+not another full matrix. The configured producer stores exact ten-sample pPAM probabilities. For alternating HF subprograms, subprogram-level activation matrices may
 be cached, but the executable analysis uses the max-reduced `A_side_i(l)` and
 `max_probability_union` probability variables documented above, then derives
 `X_HF_OSS_i(l) = I[p(A_i,l) >= 0.5]` for model fitting. A `p(A) >= 0.05`
@@ -1066,9 +1084,10 @@ Coverage_selected_tau_fold_h(l) = Coverage_selected_tau_all(l) - S_selected_tau(
 F_candidate_selected_fold_h = {l : Coverage_selected_tau_fold_h(l) >= selected_Coverage}
 ```
 
-The OSS branch does not repeat this calculation. It inherits the already
-realized ordered `final.valid_feature_axis` and performs only fold-local OSS
-weighting and scoring on that locked axis.
+The OSS branch does not repeat this calculation or rerun simulation. It selects
+the already realized ordered `final.valid_feature_axis` from the prepared
+`Omega_max` activation matrix and performs only fold-local OSS weighting and
+scoring on that locked endpoint axis.
 
 Optimization must not change the estimand: ranks are computed within training folds, full-sample ranks are prohibited, `F+`/`F-` are reselected in each fold/permutation/bootstrap, and formal resampling counts are not reduced for speed. Streaming top-k reducers should be used for dTOR `SweetPeak5` and `SourPeak5`; formal loops must not write full per-permutation or per-bootstrap fiber-weight tables unless debug output is explicitly enabled.
 
@@ -1114,7 +1133,8 @@ This section defines implementation-level acceleration rules only. These rules m
 
 ### Outcome-Independent Cache Boundary
 
-Outcome-independent artifacts may be reused across scales, folds, permutations, bootstraps, OSS branches, and display branches when their cache keys match:
+Outcome-independent artifacts are prepared before scale analysis and reused
+through deterministic semantic paths and indexed views:
 
 ```text
 fiber geometry
@@ -1130,7 +1150,8 @@ fold-specific candidate masks by subtraction
 endpoint labels
 subcortical crossing labels
 streamline-to-voxel density lookup
-OSS activation sidecars for a fixed OSS parameter set
+OSS activation rows on `Omega_max` for a fixed OSS parameter set
+localization-jitter schedules and physical exposure rows
 plain exposure and plain activation summaries
 ```
 
@@ -1151,33 +1172,33 @@ permutation statistic
 bootstrap map and stability summaries
 ```
 
-Exposure sidecars are connectome- and branch-specific, not scale-specific, unless scale-specific subject inclusion differs. When two scales use the same valid subjects, they reuse the same exposure sidecars, candidate masks, plain touched-streamline control sidecars, endpoint labels, density lookup tables, and OSS activation sidecars. If a scale has missing subjects, create a subject-subset view rather than resampling fibers.
+Exposure sidecars are connectome- and physical-stimulation-specific, not
+scale-specific. Every scale reuses the same physical rows. If a scale has
+missing subjects, create a subject-subset view rather than resampling fibers.
+Coverage/candidate masks may be reused by scales with the same ordered subject
+axis; a different subject axis derives its masks from the same physical rows.
 
-### Cache Keys And Invalidation
+### Deterministic Paths And Invalidation
 
-Every sidecar and intermediate cache records a deterministic cache key:
+Every sidecar uses a versioned deterministic path built from stable semantic
+IDs:
 
-```json
-{
-  "cache_key": {
-    "connectome_slug": null,
-    "connectome_path_hash": null,
-    "fiber_id_hash": null,
-    "subject_order_hash": null,
-    "efield_path_manifest_hash": null,
-    "efield_file_hashes": null,
-    "left_to_right_transform_hash": null,
-    "tau_values": [400, 600, 800, 1000, 1200, 1500, 2000],
-    "coverage_rule": "Coverage_tau(l) = sum_i I[X_HF_i(l) >= tau]; Coverage >= 5",
-    "candidate_rule": "fold-specific candidate masks by training-subject coverage",
-    "branch": null,
-    "oss_parameter_manifest_hash": null,
-    "software_version": null
-  }
-}
+```text
+cache schema version
+study and physical stimulation-unit IDs
+connectome and ordered canonical fiber-axis IDs
+frequency class and delivery mode
+left-to-right transform ID/version
+tau/Coverage profile ID
+producer/backend version
+OSS parameter profile ID when applicable
 ```
 
-A cache is invalid if any cache-key field changes. If only `Y_post` or `Y_base` changes, exposure sidecars remain valid. If only the scale changes and subject inclusion is identical, exposure sidecars and candidate masks remain valid. If only display settings change, statistical sidecars remain valid. If OSS parameters change, OSS activation sidecars are invalid but peak E-field sidecars remain valid.
+A present final file is reused after schema, dtype, shape, ordered IDs, units,
+space, and terminal-status checks. No cryptographic checksum is generated or
+validated. If upstream content is replaced at the same path, use explicit
+`--force` or increment the cache schema/version. Changing OSS parameters uses a
+different OSS path but does not invalidate peak-E-field rows.
 
 ### Fold-Level Rank Residual Cache
 
@@ -1249,7 +1270,8 @@ update global heap for F+
 update global heap for F-
 ```
 
-Pass 2 scores patients by rereading only chunks that contain selected `F+` or `F-` fibers:
+Pass 2 scores patients from the Layer-1 reduced continuous-exposure cache for
+the selected `F+` or `F-` fibers:
 
 ```text
 SweetWeighted_i(l) = X_i(l) * M_HF(l)
@@ -1260,6 +1282,13 @@ NetFiberScore_i    = SweetPeak5_i - SourPeak5_i
 ```
 
 Full candidate-weight tables are allowed only for observed small-connectome debug runs. dTOR formal runs must use two-pass streaming selected-fiber and patient-level top-k reducers.
+
+If the selected reduced cache fits the managed shared-RAM budget, Pass 2 uses
+the resident read-only data. Otherwise it performs at most one additional
+sequential read of the coarse reduced-cache ranges that contain selected
+fibers. Pass 2 must not reopen raw connectome geometry, reload E-fields, or
+repeat physical exposure sampling. A change of endpoint, scale, tau, Coverage,
+or LOOCV fold cannot trigger a raw-connectome scan.
 
 ### Coverage Bitmasks And Candidate Unions
 
@@ -1293,27 +1322,31 @@ candidate_tau{scan_tau}_cov{scan_coverage}_union_of_folds_bool
 
 ### OSS Candidate-First Activation
 
-OSS-DBS activation is computed only for the final selected-source candidate
-fiber ids required by the executable OSS branch:
+OSS-DBS physical activation is computed once for the formal connectome's exact
+minimum-grid maximal candidate union:
 
 ```text
-final selected-source candidate fiber id order
+F_OSS_prepare = Omega_max at min(tau grid)/min(Coverage grid)
 ```
 
-Non-candidate fibers are not used by `rho_HF_OSS`, `F+_OSS`, `F-_OSS`, `NetFiberScore_OSS`, LOOCV, or smoke permutation. Omitting their OSS activation does not change the OSS branch result.
+The endpoint final axis must be an exact canonical-ID subset of this prepared
+axis. Endpoint analysis takes that subset and then computes `rho_HF_OSS`,
+`F+_OSS`, `F-_OSS`, `NetFiberScore_OSS`, LOOCV, and smoke permutation.
+Whole-connectome fibers outside `Omega_max` are never simulated.
 
 OSS activation cache granularity:
 
 ```text
-connectome x subject x side x subprogram x oss_parameter_hash x candidate_union
+connectome x subject x side x subprogram x OSS parameter profile x Omega_max axis
 ```
 
-Reusable only when subject, side, subprogram, OSS parameter manifest, candidate fiber set, and connectome geometry match. Changing axon model, axon diameter, pulse width, amplitude, conductivity model, lead/e-field input, connectome geometry, or candidate fiber ids invalidates the cache.
+Reusable only when the deterministic path and structural metadata match.
+Scientific changes require a new semantic/version path or explicit `--force`.
 
 Recommended OSS cache manifests:
 
 ```text
-oss_activation_cache_key.json
+oss_activation_axis.json
 oss_subprogram_activation_manifest.csv
 oss_max_reduction_manifest.csv
 ```
@@ -1351,7 +1384,7 @@ permutation_indices_seed42.npy
 bootstrap_subject_counts_seed42.npy
 ```
 
-Resumed runs must reuse the same arrays and recorded hashes.
+Resumed runs must reuse the same present arrays and exact index order.
 
 ### Label, Density, Rank-Pattern, And Chunk Autotune Caches
 
@@ -1370,10 +1403,12 @@ Density maps are generated by joining selected fiber ids to the sparse voxel acc
 Exact rank-pattern caching is allowed, especially for binary or sparse OSS activation:
 
 ```text
-rank_pattern_key = hash(bytes(X_train_l) + train_subject_ids + dtype)
+rank_pattern_key = (prepared_exposure_id, ordered_subject_axis_id, fold_id, fiber_id, dtype)
 ```
 
-Only exact byte-identical exposure vectors may share rank-residual results. No rounding, binning, or approximate hashing is allowed in formal runs.
+Only the same prepared exposure row/column and exact ordered training-subject
+axis may share rank-residual results. No rounding, binning, or approximate
+matching is allowed in formal runs.
 
 Chunk-size autotuning may benchmark:
 
@@ -2081,6 +2116,13 @@ If OSS activation is all zero or mostly tied, mark `hf_oss_sensitivity_status = 
 ### Round 8: dTOR Jitter QC
 
 Purpose: test the dTOR formal final model's spatial robustness.
+
+This Round is the scale-dependent analysis consumer. When jitter is requested,
+the perturbation schedule and physical dTOR fiber exposure are prepared once in
+Layer 1 on `Omega_max`, using side-specific peaks followed by their mean.
+Round 8 selects the endpoint final fiber columns and independently refits its
+outcome-dependent maps, scores, predictions, and QC. It does not rerun E-field
+or connectome preparation for each scale.
 
 Run only:
 

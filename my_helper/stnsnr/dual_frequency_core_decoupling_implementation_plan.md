@@ -8,6 +8,12 @@
 strict, reusable `dual_frequency_v1` four-model core that can run from a
 validated `study_base.json` without legacy or migration imports.
 
+**Performance refactor contract:**
+`my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
+The generic core implementation below is complete, but the shared-exposure,
+one-pass connectome, process-scheduler, and no-checksum performance refactor is
+`implementation_not_started`.
+
 **Architecture:** Build a new `my_helper/fiber/core/dual_frequency` package next
 to the predecessor package, migrate contracts and orchestration first, then
 extract numerical backends one family at a time. Keep predecessor outputs
@@ -69,20 +75,20 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
   activation, or report tasks and do not write its configured output root.
   Runtime tests use deterministic synthetic fixtures or reviewed frozen
   read-only acceptance artifacts.
-- Artifact-backed requests must match both shape and exact ordered axis hashes;
-  formal requests declare a subject axis and activation requests inherit the
-  realized final model's exact feature axis.
+- Artifact-backed requests must match shape and exact ordered semantic axis IDs
+  plus ordered ID files; formal requests declare a subject axis and activation
+  requests inherit the realized final model's exact feature axis.
 - Relative paths in `study_base.json` resolve against the JSON parent directory.
   Preserve and validate contact numbering/electrode order, contact ranges,
   uniqueness, and polarity-fraction closure without using component labels for
   frequency classification.
-- Keep `configuration_hash` for the complete effective run configuration and a
-  separate `scientific_configuration_hash` for task-content identity. Runtime
-  locations, workers, resume/force, retries, and scheduling order must not
-  alter scientific identity.
+- Keep `configuration_id` for the complete effective run profile and a separate
+  `scientific_profile_id` for task-content identity. Runtime locations,
+  workers, resume/force, retries, and scheduling order must not alter
+  scientific identity.
 - `/Volumes/VAL/STNSNr/summary` and configured run
   `20260711T034644Z_d318f177f7f2ac7d` are immutable.
-- Numerical parity covers only terminal completed, hash-valid scientific tasks
+- Numerical parity covers only terminal completed, structurally readable scientific tasks
   from that run whose exact task IDs are in the reviewed frozen allowlist. Do
   not auto-enroll by status, resume the run, or compute unfinished paths for
   parity.
@@ -241,7 +247,7 @@ Add an implementation-note section naming the immutable run and stating:
 eligible = task_id in approved_task_allowlist
            and status == completed
            and task has scientific artifacts
-           and every artifact hash validates
+           and every artifact exists and passes structural validation
 
 excluded = task_id not in approved_task_allowlist
            or reports that only summarize failure
@@ -280,10 +286,10 @@ Expected: FAIL because the acceptance modules do not exist.
 
 Read the static reviewed allowlist first, then `task_status.csv`; require the
 immutable run identity from `run_manifest.json`, load only allowlisted task
-manifests, hash every referenced artifact, reject paths outside the run root,
-and write sorted JSON. Reject unknown, duplicate, noncompleted, or hash-invalid
-allowlist entries. Do not discover additional tasks, run a producer, or repair
-missing files.
+manifests, validate every referenced artifact's existence/schema/shape/axes,
+reject paths outside the run root, and write sorted JSON. Reject unknown,
+duplicate, noncompleted, missing, or structurally invalid allowlist entries. Do
+not discover additional tasks, run a producer, or repair missing files.
 
 The result schema is:
 
@@ -348,7 +354,7 @@ Then generate a manifest from:
 20260711T034644Z_d318f177f7f2ac7d
 ```
 
-Expected: only explicitly allowlisted, hash-valid completed scientific tasks are
+Expected: only explicitly allowlisted, structurally valid completed scientific tasks are
 eligible; every other terminal task has an exclusion reason; no process matching
 `run_configured_outcome_models.py` starts.
 
@@ -424,10 +430,10 @@ with self.assertRaises(dataclasses.FrozenInstanceError):
 ```
 
 Also assert an array `ArtifactRef` is rejected unless it declares `kind`,
-`schema_version`, explicit `uri`, `sha256`, `dtype`, `shape`, ordered
-`axis_refs`, `axis_hashes`, units/space where applicable, and producer identity/
-version. Typed scientific requests must reject raw `Path` fields and accept only
-arrays or artifact references for scientific inputs.
+`schema_version`, explicit `uri`, `dtype`, `shape`, ordered `axis_refs`, stable
+semantic `axis_ids`, units/space where applicable, producer identity/version,
+and terminal file status. Typed scientific requests must reject raw `Path`
+fields and accept only arrays or artifact references for scientific inputs.
 
 - [x] **Step 3: Run tests and verify RED**
 
@@ -442,8 +448,8 @@ Expected: import failure for `dual_frequency`.
 
 - [x] **Step 4: Implement strict typed contracts**
 
-Use frozen dataclasses and canonical SHA-256 identities. Generic field names are
-mandatory:
+Use frozen dataclasses and deterministic path-safe semantic identities. Generic
+field names are mandatory:
 
 ```python
 @dataclass(frozen=True)
@@ -467,15 +473,15 @@ class ArtifactRef:
     kind: str
     schema_version: str
     uri: str
-    sha256: str
     dtype: str | None
     shape: tuple[int, ...] | None
     axis_refs: tuple[AxisRef, ...]
-    axis_hashes: tuple[str, ...]
+    axis_ids: tuple[str, ...]
     units: str | None
     space: str | None
     producer_id: str
     producer_version: str
+    final_status: str
 ```
 
 `ObservedRequest` and pre-final numerical kernels may contain typed records,
@@ -532,8 +538,8 @@ git commit -m "feat: define dual-frequency contracts"
 Create minimal generic JSON fixtures with two subjects and two scales. Test
 schema rejection, duplicate IDs, invalid directions, nonfinite observations,
 invalid phase/program references, invalid source frequencies, and deterministic
-subject/scale order. Assert the loader records the source SHA-256 and returns
-immutable records without writing another file.
+subject/scale order. Assert the loader records the source path/schema version
+and returns immutable records without writing another file.
 
 - [x] **Step 2: Write failing cross-profile validation tests**
 
@@ -553,7 +559,7 @@ loader and workflow schema support.
 Validate schema, uniqueness, foreign keys, finite values, explicit order,
 frequency-group closure, and scale directions. Load only the existing JSON;
 do not create Parquet, a bundle directory, a study index, or a resolved study
-manifest. The run manifest records the input path and SHA-256.
+manifest. The run manifest records the input path and schema version.
 
 - [x] **Step 5: Finalize the three configured profiles**
 
@@ -797,6 +803,11 @@ git commit -m "feat: compile dual-frequency workflow DAG"
 
 ### Task 7: Implement Scientific Cache, Run Store, And Executor
 
+**Historical completion record.** The generic cache/executor was completed in
+Task 7, but its endpoint-specific exposure, checksum, thread-pool, and wave-
+barrier behavior is superseded and reopened by Task 17. Checked boxes in this
+section do not mark the performance refactor complete.
+
 **Files:**
 - Create: `my_helper/fiber/core/dual_frequency/cache/__init__.py`
 - Create: `my_helper/fiber/core/dual_frequency/cache/identity.py`
@@ -807,10 +818,12 @@ git commit -m "feat: compile dual-frequency workflow DAG"
 - Create: `my_helper/fiber/core/dual_frequency/tests/test_cache.py`
 - Create: `my_helper/fiber/core/dual_frequency/tests/test_executor.py`
 
-**Interfaces:**
+**Historical interfaces:**
 - Produces: `ScientificCacheKey`, `ContentAddressedCache`, `RunStore`,
   `ArtifactStore`, `ServiceRegistry`, and
   `execute_plan(plan, context) -> RunResult`.
+- Task 17 replaces the target cache boundary with deterministic paths and
+  existence/structural validation.
 
 - [x] **Step 1: Write failing scientific-identity tests**
 
@@ -820,10 +833,11 @@ scientific parameter changes do.
 
 - [x] **Step 2: Write failing cache validation/reindex tests**
 
-Exact IDs in different order may produce a view manifest after per-item hashes
-validate. Changed/duplicate/missing IDs raise `CacheIdentityMismatch`. Assert
-`ArtifactStore.materialize(ref)` validates hash, dtype, shape, axes, units, and
-space before returning an array; a bare path is rejected.
+Exact IDs in different order may produce a view manifest after exact membership
+validation. Changed/duplicate/missing IDs raise `CacheIdentityMismatch`.
+Task 17 changes `ArtifactStore.materialize(ref)` to validate final-file
+existence, dtype, shape, axes, units, space, and terminal status; a bare path
+remains rejected.
 
 - [x] **Step 3: Write failing executor tests**
 
@@ -831,10 +845,11 @@ Cover resume identity, endpoint isolation, false gates, required artifacts,
 nonzero exit aggregation, and `ExpensiveProducerNotAuthorized` without invoking
 a producer.
 
-- [x] **Step 4: Implement atomic content-addressed cache publication**
+- [x] **Step 4: Historical atomic cache publication (superseded by Task 17)**
 
-Write to a temporary sibling, hash every file, then atomically publish. Cache
-manifests include scientific identity and exclude runtime scheduler identity.
+The historical implementation wrote a temporary sibling and atomically
+published it with legacy integrity metadata. Task 17 removes cryptographic
+checksums and uses deterministic semantic paths plus final-file existence.
 
 - [x] **Step 5: Implement generic run store and executor**
 
@@ -849,8 +864,9 @@ model artifacts and reports.
 
 Before task execution, atomically write `configuration_resolved.yaml` containing
 the canonical merged study/scale/model/workflow profiles and CLI overrides,
-plus `configuration_sources.json` containing source URIs and hashes. Compute the
-configuration hash from the resolved snapshot, not source file locations.
+plus `configuration_sources.json` containing source URIs, semantic profile IDs,
+and schema versions. Task 17 removes configuration checksums; the resolved
+snapshot remains the run-local authority.
 
 Validate every completed service result against declared artifact kinds and
 keep all task outputs within run/cache roots.
@@ -1011,7 +1027,7 @@ rho report-only behavior, pre-specified acceptance, and scan fallback ordering.
 
 Load only the completed MDS-UPDRS III reference-direct task named in the frozen
 bounded-fixture manifest. Validate the exact task ID and every consumed
-artifact hash before reading it. Assert exact identity/source/tau/Coverage/
+artifact path/schema/shape/axis before reading it. Assert exact identity/source/tau/Coverage/
 masks and allclose weights/scores/predictions. Direct reads from mutable legacy
 summary paths do not count as bounded parity.
 
@@ -1059,8 +1075,8 @@ git commit -m "feat: extract reference direct-voxel backend"
   passed`.
 - Frozen bounded parity task:
   `task_7a3ba9216fb910e53750` from run
-  `20260711T034644Z_d318f177f7f2ac7d`; every consumed artifact hash was
-  verified before read.
+  `20260711T034644Z_d318f177f7f2ac7d`; every consumed artifact's existence,
+  structure, and axis identity were verified before read.
 - Legacy reference-direct scan and shared resolver self-tests: PASS.
 - `compileall`, `git diff --check`, generic hardcoding scan, and production
   output-root freshness check: PASS.
@@ -1073,7 +1089,7 @@ git commit -m "feat: extract reference direct-voxel backend"
 
 **Current-phase execution boundary:** production normative-fiber YAML may be
 parsed, validated, and planned only. Task 10 uses deterministic synthetic
-arrays and frozen hash-validated completed fixtures. It must not launch a
+arrays and frozen structurally validated completed fixtures. It must not launch a
 production observed grid, formal resampling, jitter, OSS, report task, or
 expensive cache miss, must not write the production output root, and must not
 create an intermediate study bundle.
@@ -1129,7 +1145,7 @@ create an intermediate study bundle.
   `absent_no_valid_signed_fibers`, invalid baseline nuisance design,
   nonconstant-score failure, insufficient subjects/fold candidates, or
   nonfinite predictions fails hard computability.
-- Artifact-backed exposure matrices are hash/axis/unit/space validated and
+- Artifact-backed exposure matrices are existence/axis/unit/space validated and
   opened read-only with memory mapping. Coverage, partial-Spearman weights, and
   selected-fiber scoring operate in bounded feature chunks; the backend must
   not materialize a complete dTOR exposure or candidate-by-subject weighted
@@ -1151,7 +1167,7 @@ never emit `FinalModelRecord` or schedule formal/jitter/activation tasks.
 - [x] **Step 3: Write bounded golden tests**
 
 Load only exact completed tasks from the frozen bounded-fixture manifest and
-verify every consumed hash before read. Compare completed dTOR full outputs and
+verify every consumed path/schema/shape/axis before read. Compare completed dTOR full outputs and
 MGH/PPMI observed/formal-source evaluation outputs only. Convert predecessor
 MGH/PPMI final-like records to target sensitivity evidence; do not create
 target finals, read mutable legacy summary paths directly, or invent formal/
@@ -1161,7 +1177,7 @@ The frozen Task 10 allowlist does not contain the complete parent canonical
 fiber-ID axis required to reconstruct an `ObservedRequest`. Therefore bounded
 golden acceptance must not follow the legacy selected manifest's indirect
 `ids_path` or rerun the target backend from an unallowlisted input. It verifies
-all consumed frozen hashes, task and endpoint identities,
+all consumed frozen artifacts' structural metadata, task and endpoint identities,
 source/tau/Coverage/prediction semantics, selected score/prediction artifact
 identity, and count/shape relationships that do not require the missing parent
 ID axis. It must not claim parent-weight projection parity or instantiate a
@@ -1208,8 +1224,9 @@ git commit -m "feat: extract reference normative-fiber backend"
 - Legacy normative-fiber score suite: `16 tests` passed; legacy shared
   statistics self-test passed with partial-Spearman maximum difference `0.0`.
 - Frozen bounded evidence used only the six allowlisted completed dTOR, MGH,
-  and PPMI observed/resolver tasks. Every consumed artifact hash was verified
-  before read; the documented missing-parent-axis and legacy strict-threshold
+  and PPMI observed/resolver tasks. Every consumed artifact's existence,
+  structure, and axis identity were verified before read; the documented
+  missing-parent-axis and legacy strict-threshold
   limitations were preserved rather than bypassed.
 - Synthetic tests cover inclusive `E >= tau`, parent-order full/fold-valid
   union, fold-only fitting, formal/sensitive role separation, scan fallback,
@@ -1246,7 +1263,7 @@ git commit -m "feat: extract reference normative-fiber backend"
   bundle. Its artifacts are published through the run-scoped injected
   publisher.
 - DeltaReferenceScore construction consumes only the accepted matched
-  reference `SourceRecord`, its hash/axis-validated selected-feature indices,
+  reference `SourceRecord`, its existence/axis-validated selected-feature indices,
   full and fold weights, the reference-condition exposure, the add-on
   condition reference-component exposure, the shared subject/parent-feature
   axes, and the configured support thresholds. It accepts no project path,
@@ -1409,7 +1426,7 @@ git commit -m "feat: extract add-on direct-voxel backend"
   `SourceRecord`. A sensitive add-on branch consumes only the computable local
   reference `SensitiveRecord` evaluated at the formal numeric tau/Coverage.
   The local matched-reference endpoint ID, connectome ID, parent fiber-axis
-  hash, and artifact axes must all agree; a sensitive connectome never borrows
+  semantic ID, and artifact axes must all agree; a sensitive connectome never borrows
   a formal-connectome fiber axis or fiber weights.
 - The locked reference operator is reconstructed from the selected reference
   full/fold weights on the deterministic parent-order valid-feature union.
@@ -1477,7 +1494,7 @@ git commit -m "feat: extract add-on direct-voxel backend"
   independent branch results exist; technical execution failure cannot trigger
   fallback.
 - Production normative-fiber YAML remains parse/validate/plan-only in this
-  task. Tests use deterministic arrays and hash-validated completed fixtures
+  task. Tests use deterministic arrays and structurally validated completed fixtures
   only; no production observed, formal, sensitivity, jitter, OSS, or report
   task may run or write beneath the production output root.
 
@@ -1507,7 +1524,7 @@ git commit -m "feat: extract add-on direct-voxel backend"
   deterministic full/fold valid-feature union, so it cannot prove adjusted,
   sensitive-role, fold-operator, OSS, jitter, or full resampling parity.
   Those target contracts are tested synthetically; bounded parity is limited
-  to hashes, completed status transitions, support QC, selected `400/5`
+  to structural artifact validation, completed status transitions, support QC, selected `400/5`
   no-delta evidence, and terminal summary artifacts.
 
 - [x] **Step 1: Write failing support/overlap tests**
@@ -1555,7 +1572,7 @@ git commit -m "feat: extract add-on normative-fiber backend"
   unchanged, no task wrote beneath the production `summary/spot` root, and no
   intermediate study bundle was created.
 - The frozen completed add-on-fiber fixture passed its exact task allowlist,
-  manifest/artifact hash, invalid Delta-support, selected `400/5` no-delta,
+  manifest/artifact structure, invalid Delta-support, selected `400/5` no-delta,
   and realized-final assertions. Missing historical fold/operator evidence was
   covered only by deterministic synthetic tests, as required.
 
@@ -1742,8 +1759,9 @@ synthetic bootstraps, and five deterministic synthetic jitter replicates through
 the extracted strategies. The frozen predecessor stores only completed
 10,000-resample summaries, not the first ten numerical vectors; therefore do not
 claim unavailable historical-prefix numerical replay. Validate the complete
-predecessor formal summaries by hash, and validate the first five rows plus full
-artifact hash for each completed allowlisted jitter artifact. Exclude the partial
+predecessor formal summaries by schema/shape/numerical checks, and validate the
+first five rows plus complete structure for each completed allowlisted jitter
+artifact. Exclude the partial
 add-on dTOR jitter.
 
 - [x] **Step 3: Extract generic numerical code**
@@ -1784,7 +1802,7 @@ git commit -m "feat: extract generic formal and sensitivity backends"
 - Deterministic synthetic tests covered ten permutations, ten bootstraps, five
   jitter replicates, direct strict and fiber inclusive tau boundaries, exact
   final-axis identity, branch-specific nuisance, and classification-feedback
-  rejection. Frozen predecessor evidence remained allowlisted and hash-bound.
+  rejection. Frozen predecessor evidence remained restricted to the allowlist.
 - Independent review findings were closed with regression tests: normalized
   gain requires `outcome_direction=higher`; gain/total reuse the realized final
   branch and exact exposure/baseline/nuisance artifacts; nonfinal accepts only
@@ -1799,6 +1817,13 @@ git commit -m "feat: extract generic formal and sensitivity backends"
 ---
 
 ### Task 14: Implement Shared Activation Universe And Generic OSS Backend
+
+**Historical completion record, producer universe superseded.** The generic OSS
+backend was completed on an endpoint-final axis. The confirmed target now
+prepares scale-independent OSS/pPAM rows on the formal connectome's exact
+minimum-grid `Omega_max` axis and lets endpoint analysis select final columns.
+Task 17 reopens the producer/planner/cache work; checked boxes below do not mark
+that migration complete.
 
 **Files:**
 - Modify: `my_helper/fiber/core/dual_frequency/contracts/requests.py`
@@ -1819,15 +1844,14 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   inclusive binary threshold. `fitting.py` owns endpoint nuisance design,
   fold-local weights/scoring, Freedman-Lane smoke permutation, technical
   status, and run-scoped artifact publication.
-- The requested producer fiber axis is exactly
-  `final.valid_feature_axis`; there is no whole-connectome or minimum-tau
-  producer universe and no intermediate sidecar bundle.
-- A producer cache key excludes scale, endpoint, final-model ID, run ID, worker
-  count, and task order, but includes the exact ordered requested fiber-axis
-  hash computed from the verified `feature_ids` values and order. A caller-supplied
-  connectome hash cannot substitute for this axis hash. Exact matching axes can
-  therefore reuse rows across endpoints; different axes cannot use nearest-key,
-  superset guessing, or the same cache entry.
+- The target producer fiber axis is the formal-connectome physical exposure
+  family's exact `Omega_max` at minimum configured tau/Coverage. It is not the
+  whole connectome and has no intermediate sidecar bundle.
+- A producer deterministic path excludes scale, endpoint, final-model ID, run
+  ID, worker count, and task order, but includes the exact ordered `Omega_max`
+  semantic axis ID and canonical `feature_ids` file. Exact matching physical
+  inputs reuse rows across endpoints; different axes cannot use nearest-key,
+  superset guessing, or the same cache path.
 - Consumes subject/component/condition/connectome/transform/solver inputs only as
   typed metadata and exact artifact references; solver paths come from validated
   backend configuration.
@@ -1848,19 +1872,22 @@ git commit -m "feat: extract generic formal and sensitivity backends"
   `delta_full_scores[subject]` and `delta_fold_scores[fold, subject]`, with
   axes `(subject_axis,)` and `(subject_axis, subject_axis)`. Other shapes or
   orders are branch-local input failures.
-- `OSSRowBatchArtifact` exposes a named canonical `feature_ids` artifact.
+- The target `OSSRowBatchArtifact` exposes the prepared `Omega_max` canonical
+  `feature_ids` artifact. Endpoint analysis creates an explicit ordered view:
   `ActivationRequest.feature_ids` carries the final-axis ID authority and
-  `ActivationRequest.activation_feature_ids` carries the OSS matrix column-ID
-  authority. Endpoint fitting requires their int64 values and order to be
-  exactly equal and bound to `final.valid_feature_axis`; IDs cannot be inferred
-  from another artifact or silently subset/reordered.
-- `final.valid_feature_axis` is the complete OSS candidate universe for the
-  endpoint. OSS never reapplies peak-E-field tau/Coverage in full-sample,
-  LOOCV, or permutation fits. Within that locked axis, full-sample and each
+  `ActivationRequest.activation_feature_ids` carries the already-subset OSS
+  matrix column-ID authority. Endpoint fitting requires those two int64 arrays
+  to be exactly equal and bound to `final.valid_feature_axis`; IDs cannot be
+  inferred, silently reordered, or selected by position without canonical-ID
+  validation.
+- `final.valid_feature_axis` must be an exact canonical-ID subset of the
+  prepared `Omega_max` OSS axis. OSS never reapplies peak-E-field tau/Coverage
+  in full-sample, LOOCV, or permutation fits. Within the selected final axis, full-sample and each
   training fold independently intersect finite OSS weights, reselect signed
   fibers, and recompute the configured weighted-peak score.
-- Reference OSS uses an all-false overlap mask. Add-on OSS additionally receives
-  the realized branch's patient-by-feature HF-overlap mask on the same ordered
+- Reference OSS uses an all-false overlap mask. Add-on physical OSS preparation
+  stores raw activation; endpoint analysis additionally receives the realized
+  branch's patient-by-feature reference-overlap mask on the selected ordered
   final axis. It applies that mask after inclusive pPAM thresholding and before
   weights, signed scoring, plain-activation QC, LOOCV, or permutation. The mask
   cannot change the final axis, and add-on OSS cannot reintroduce an HF-touched
@@ -1897,8 +1924,8 @@ git commit -m "feat: extract generic formal and sensitivity backends"
 
 Assert the analysis universe equals the realized final model's exact ordered
 `valid_feature_axis` at selected tau/Coverage. Weights, signs, and selected
-sweet/sour IDs do not restrict that axis. Scale/final identifiers do not enter
-the producer key, while a changed ordered fiber-axis hash does. Require the
+sweet/sour IDs do not restrict that endpoint subset. Scale/final identifiers do
+not enter the producer path, while a changed ordered `Omega_max` axis ID does. Require the
 unique configured `formal` connectome role without checking a connectome name.
 
 - [x] **Step 2: Write failing mapping and threshold tests**
@@ -1920,7 +1947,7 @@ activation count divided by ten.
 - [x] **Step 3: Write bounded OSS acceptance tests**
 
 Validate the completed allowlisted reference-fiber OSS matrix, fiber IDs,
-metadata, and sensitivity-result hashes. Replay exact ordered subsetting and
+metadata, and sensitivity-result structure. Replay exact ordered subsetting and
 the inclusive `p(A) >= 0.5` threshold over 48 stratified fibers across three
 subjects. Because the reviewed frozen fixture contains only the already-merged
 branch matrix and not raw left/right rows, test `max_probability_union` with a
@@ -1934,7 +1961,7 @@ Remove dTOR name checks. Require a realized final on the unique `formal`
 connectome, explicit OSS backend/version, exact subject-side frequency maps,
 row checkpoints, three default row workers, and deterministic merge order.
 Before scheduling, validate every requested row and exact scientific cache key.
-Skip each already completed hash-valid row; never use nearest-key matching.
+Skip each already present structurally valid final row; never use nearest-key matching.
 Map left stimulation geometry to right canonical space before OSS modeling,
 require exact L/R rows for every final subject, merge by elementwise maximum,
 cache continuous probability, and derive binary fitting exposure with
@@ -1985,7 +2012,7 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   dual-frequency suite passed `207/207` in the `leaddbs` Conda environment.
 - Python compilation for every touched Task 14 module and `git diff --check`
   passed.
-- The mounted allowlisted OSS fixture passed hash, ordered-axis, and inclusive
+- The mounted allowlisted OSS fixture passed structural, ordered-axis, and inclusive
   threshold replay. Synthetic tests covered exact ordered-axis cache identity,
   three-worker deterministic production, cache-first blocked misses, ten-sample
   probability lattice enforcement, add-on overlap exclusion, fold-local
@@ -2138,7 +2165,8 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   `FinalModelRecord` whose own status and realization role agree; non-realized
   decisions forbid one. `reason_code` is always nonempty and causal task IDs are
   unique, deterministic, and refer only to the current plan. The record's
-  identifier is a canonical hash of the complete typed payload.
+  identifier is a deterministic path-safe semantic ID from its typed identity
+  fields.
 - Final, formal, sensitivity, jitter, activation, and reporting artifacts never
   revise a previously decoded source, prediction, branch-role, or final
   decision. Aggregator failure changes the run's technical final status to
@@ -2162,9 +2190,9 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   contract. The provider derives each exact leaf from the validated study
   record and binding; it does not scan directories and does not require a
   bundle, a VTA provenance sidecar, or `vta_model.yaml` as a downstream model
-  input. It hashes every consumed file while publishing typed run/cache
-  artifacts. This hash proves the bytes consumed by the model, not the upstream
-  FEM provenance that produced those bytes.
+  input. It validates each declared file's existence and required structural
+  properties while publishing typed run/cache artifacts; it does not generate
+  or compare a cryptographic checksum.
 - The provider reuses the generic Lead-DBS HDF5 connectome adapter. Its package
   entrypoint must expose existing public symbols lazily so importing the narrow
   connectome module does not eagerly import unrelated traversal/pipeline or
@@ -2285,11 +2313,11 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   `PreparedExposureRecord.delta_reference_input_status=ready`. A valid bundle
   cannot override auxiliary-readiness failure.
 - The configured left-to-canonical transform must be the transform actually
-  consumed by the mapping operation. A cache identity that hashes one file
-  while MATLAB silently chooses another active-space transform is invalid.
-  Every consumed left/right E-field, brainmask, connectome, and transform is
-  content-bound; cached transformed output is published atomically under an
-  interprocess lock and verified before reuse.
+  consumed by the mapping operation. MATLAB may not silently choose another
+  active-space transform. Every consumed left/right E-field, brainmask,
+  connectome, and transform uses the explicit validated path; cached transformed
+  output is published atomically under an interprocess lock and structurally
+  verified before reuse.
 - Provider acceptance tests cover asymmetric bilateral fiber peaks, missing
   Delta-only auxiliaries, dependency/endpoint mismatch, adjusted readiness,
   formal slicing, malformed selected axes, bounded preparation, transform
@@ -2322,9 +2350,11 @@ git commit -m "feat: add reusable dual-frequency activation backend"
   modeled simultaneous row and treats an alternating frequency group as
   independently modeled source rows merged by elementwise maximum probability.
   Left stimulation/electrode geometry is mapped to right-canonical space before
-  OSS is evaluated on the locked final axis. Cache hits require no toolchain;
-  an authorized miss resolves the official Lead-DBS `OSS-DBSv2` environment
-  internally, while public YAML remains free of executable/environment paths.
+  physical OSS is evaluated once on the scale-independent `Omega_max` axis.
+  Endpoint analysis then selects the locked final-axis view by canonical ID.
+  Cache hits require no toolchain; an authorized miss resolves the official
+  Lead-DBS `OSS-DBSv2` environment internally, while public YAML remains free
+  of executable/environment paths.
 - Cache lookup does not need to materialize transformed electrode geometry. Its
   canonical-geometry identity is derived from the exact reconstruction bytes,
   reconstruction lead, source parameters, declared canonicalization method,
@@ -2355,8 +2385,8 @@ typed row request plus internally resolved Lead-DBS/OSS dependencies. It must:
    within each polarity, and `case` is the sole anode in either control mode;
 4. map left reconstruction/contact geometry with the exact transform declared
    by `study_base.json`; the declared `Composite.nii.gz` remains the forward
-   image transform, while the provider deterministically requires, hashes, and
-   publishes its sibling `InverseComposite.nii.gz` as the exact point-coordinate
+   image transform, while the provider deterministically requires and uses its
+   sibling `InverseComposite.nii.gz` as the exact point-coordinate
    transform after x reflection, matching `ea_flip_lr_nonlinear`; MATLAB must
    convert mirrored RAS coordinates to LPS, call the locked platform
    `antsApplyTransformsToPoints` binary directly with the already selected
@@ -2371,13 +2401,14 @@ typed row request plus internally resolved Lead-DBS/OSS dependencies. It must:
    must not initialize patient options or scientific settings from
    `ea_getptopts`, mutable GUI preferences, or directory discovery;
 5. prepare the configured formal connectome, restrict its local axon allocation
-   to the exact ordered `final.valid_feature_axis`, and preserve an explicit
-   local-axon-to-final-fiber mapping; the filtered Lead-DBS file uses contiguous
+   to the exact ordered scale-independent `Omega_max` axis, and preserve an
+   explicit local-axon-to-canonical-fiber mapping; the filtered Lead-DBS file
+   uses contiguous
    local IDs `1..K`, writes `idx` for those `K` fibers, and sets `origNum = K`
-   so OSS percentages use the realized candidate universe rather than the
+   so OSS percentages use the prepared maximal candidate universe rather than the
    parent connectome size; the parent fiber count remains mapping metadata only;
    both standard Lead-DBS point layouts (`4xN`/`5xN` and `Nx4`/`Nx5`) are
-   accepted without changing the requested final-axis order; regardless of the
+   accepted without changing the requested `Omega_max` axis order; regardless of the
    parent connectome label, this flattened filtered artifact is presented to
    the OSS axon allocator as one internal pathway and must not trigger a
    multi-tract parser;
@@ -2389,21 +2420,22 @@ typed row request plus internally resolved Lead-DBS/OSS dependencies. It must:
    resolved official `OSS-DBSv2` environment, aggregate activated counts as
    `count / 10`, and return one `OSSRowProduct` on the requested fiber axis; and
 7. use an isolated scientific-identity work directory and atomically publish
-   only through `ContentAddressedCache`.
+   only through the deterministic existence-based cache.
 
-Before any external process starts, the producer re-derives every per-source
-geometry, stimulation, frequency, and transform hash from the verified source
-documents, re-derives the aggregate row key from the exact scientific settings,
-and rejects any mismatch with the requested cache identity. Embedded subject,
+Before any external process starts, the producer validates every per-source
+geometry, stimulation, frequency, and transform path/semantic ID from the
+verified source documents, re-derives the aggregate deterministic row path from
+the exact scientific settings, and rejects any mismatch. Embedded subject,
 reconstruction, transform, and segmentation paths are confined to the
 validated study subject roots or repository root as appropriate. Source-file
-signatures are captured before execution and rechecked before publication so a
-concurrent replacement or mutation cannot be published under an older identity.
+paths, sizes, and structural metadata are captured before execution and
+rechecked before publication so a concurrent replacement is not accepted
+during the same producer call.
 Subject roots are keyed by `subject_id`; a locator for one subject cannot use a
-different configured subject's directory even when every embedded hash is
-self-consistent. The producer also recomputes its complete implementation
+different configured subject's directory. The producer also recomputes its
+complete implementation
 attestation immediately before external execution and again before returning;
-that attestation must equal `settings.backend_version` used by the cache key.
+that attestation must equal `settings.backend_version` used by the cache path.
 
 The producer must not inherit scientific values from mutable Lead-DBS GUI
 preferences. It freezes the currently verified template-space contract:
@@ -2421,17 +2453,16 @@ pinned converter normalizes that sentinel to an empty `DTIPath` and
 `DiffusionTensorActive = false`. A MATLAB empty char array is forbidden because
 the converter can decode its zero dimensions as nonempty NUL characters.
 
-Hash the template segmentation, fixed settings, environment definition,
-producer/bridge implementation, reconstruction, configured transform,
-stimulation parameters, formal connectome, and exact ordered final fiber axis
-into the scientific identity. Cache lookup itself remains environment-free;
+Encode the template-segmentation ID, fixed-settings version, environment ID,
+producer/bridge version, reconstruction ID, configured transform ID,
+stimulation-unit ID, formal-connectome ID, and exact ordered `Omega_max` axis ID
+in the deterministic scientific path. Cache lookup itself remains environment-free;
 only an authorized miss resolves and validates the installed OSS toolchain.
-`OSS-DBSv2.yml` pins the exact upstream commit and records deterministic hashes
-for every non-generated file in the installed `ossdbs` and
-`leaddbsinterface` package trees, including Python, HOC, MOD, session, and
-other packaged scientific resources. It also records normalized-entrypoint,
-complete Conda explicit-package, and complete Python-distribution hashes, plus
-the exact MATLAB version/release/architecture. The local producer attestation
+`OSS-DBSv2.yml` pins the upstream release/commit identifier and records the
+declared installed-file inventory for `ossdbs` and `leaddbsinterface`, including
+Python, HOC, MOD, session, and other packaged scientific resources. It also
+records normalized entrypoints, Conda package inventory, Python distribution
+inventory, and exact MATLAB version/release/architecture. The local producer attestation
 includes the complete executed Python producer modules and the transitive
 Lead-DBS/MATLAB coordinate, electrode-specification, and bridge helpers rather
 than only the top-level bridge. The consumed platform-specific ANTs
@@ -2465,7 +2496,7 @@ irrelevant to frequency classification and scientific cache identity.
 
 **Generic OSS producer checkpoint, 2026-07-15:**
 
-- The provider, content-addressed row materializer, runtime connectome subset
+- The provider, deterministic existence-based row materializer, runtime connectome subset
   writer, installed-toolchain verifier, MATLAB canonical-row bridge, boundary
   assembler, and explicit inverse-coordinate mapper are implemented without a
   project subject/phase/program allowlist.
@@ -2688,13 +2719,13 @@ producer.
 
 Pre-implementation read-only audit, 2026-07-15: the frozen reviewed manifest
 contains 32 eligible tasks and 137 task/artifact files. Every file exists and
-matches its recorded SHA-256. The retained 12-test acceptance-tool suite also
+passes its recorded structural/schema/axis checks. The retained 12-test acceptance-tool suite also
 passes without starting a producer. This evidence does not complete Step 3
 until the generic goal-acceptance test enforces the same boundary.
 
 GREEN evidence: the new eight-test goal acceptance enforces exact allowlist
 membership, rejects excluded-task expansion, proves an unauthorized miss calls
-no producer, revalidates every task/artifact size and SHA-256, blocks project
+no producer, revalidates every task/artifact path/schema/shape/axis, blocks project
 imports, and detects literal subject allowlists. The retained 12-test bounded
 tool suite also passes. No numerical parity scope was added.
 
@@ -2771,34 +2802,32 @@ allowlist constant.
 
 Confirm every smoke task has a terminal record, every realized final has at most
 one final ID, no sensitivity record has a final ID, `configuration_resolved.yaml`
-and `configuration_sources.json` reproduce the configuration hash,
+and `configuration_sources.json` reproduce the configuration IDs and source paths,
 report/index/manifests agree, old output trees are unchanged, and no Lead-DBS/
 OSS/model process remains active.
 
 GREEN evidence, 2026-07-15: the project-neutral temporary run records every
 task as `completed`, one terminal decision per endpoint, no final ID for any
 sensitive connectome, and exactly two activation calls for the two formal fiber
-finals. The test reloads the profiles, reproduces both configuration hashes,
-recomputes all four source-file SHA-256 values, and checks agreement among the
+finals. The test reloads the profiles, reproduces both configuration IDs,
+revalidates all four source paths, and checks agreement among the
 run manifest, resolved configuration, task states, final decisions, report, and
-artifact index. The bounded fixture audit revalidates all 137 hashed files.
+artifact index. The bounded fixture audit revalidates all 137 files structurally.
 Only temporary output roots were written; existing STNSNr outputs were not
 modified, and the final process scan found no model, OSS, or MATLAB task.
 
 - [x] **Step 7: Update documentation status with exact evidence**
 
-Mark tasks complete only with test counts, run IDs, fixture hashes, and artifact
+Mark tasks complete only with test counts, run IDs, fixture identities, and artifact
 paths. Keep any nonpassing requirement open; do not use partial evidence to mark
 the `/goal` complete.
 
 The completion evidence is recorded in this implementation plan, the sole
 `/goal`, the approved design, and the implementation notes. The synthetic run
 ID is `project-neutral-synthetic-e2e` inside a disposable temporary root. The
-read-only real-data audit has configuration hash
-`6020d0ca803ed3bdba95792d4271901a11ecff047d25d41e24ccd53485ee8163`
-and plans 136 tasks across 16 available endpoints. The tracked bounded manifest
-SHA-256 remains
-`50c29f7fc95e94e49128be40a69a509e02bdfdb3db32174d913a90bebbfa5def`.
+read-only real-data audit plans 136 tasks across 16 available endpoints. The
+tracked bounded manifest is identified by its reviewed path, schema version,
+exact task allowlist, and terminal file inventory.
 
 - [x] **Step 8: Commit final acceptance documentation**
 
@@ -2813,9 +2842,107 @@ acceptance gaps`). No remote push was performed.
 
 ---
 
+### Task 17: Implement Two-Layer Shared Physical Preparation And Parallel Runtime
+
+**Status:** `design_documented`; `implementation_not_started`.
+
+**Authority:**
+`my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
+
+This task supersedes the endpoint-specific exposure, checksum cache, thread-
+pool wave scheduler, final-axis-only OSS producer, and model-specific jitter
+preparation implemented in Tasks 7-15. It does not reopen the scientific
+resolver, classifier, fallback, or scoring definitions.
+
+- [ ] **Step 1: Characterize the current implementation**
+
+Record E-field opens, sampler rebuilds, full-connectome range reads, physical
+rows evaluated, temporary matrix count, wall time, CPU, peak RSS, swap, and
+bytes read/written. Preserve deterministic small brute-force direct/fiber,
+jitter, and OSS fixtures.
+
+- [ ] **Step 2: Replace checksum identities with semantic paths**
+
+Remove cryptographic checksum fields, generation, validation, and cache-key
+dependencies from contracts, artifact publication/materialization, run store,
+resume, configuration records, OSS rows, provenance, and acceptance tools.
+Use stable semantic IDs, schema versions, deterministic paths, final-file
+existence, structural validation, terminal status, temporary siblings, atomic
+rename, one-producer locks, and explicit `--force`.
+
+- [ ] **Step 3: Move physical preparation before endpoint fan-out**
+
+Resolve unique physical subject/program/frequency-component units once. Produce
+one bilateral direct-voxel row per unit. Preserve normative fiber's exact
+side-specific peak followed by arithmetic mean. Build endpoint inputs as
+ordered row/column views; scale or outcome identity must not enter physical
+paths.
+
+- [ ] **Step 4: Implement one-pass `Omega_max` fiber preparation**
+
+Derive minimum tau/Coverage from the profile. Load complete connectome geometry
+once into shared read-only memory when it fits; otherwise use large sequential
+point-count-sized ranges. Select the fewest, largest safe ranges rather than
+creating small chunks to fill worker slots. Evaluate every unique physical row
+and all scale-independent minimum-grid indicators while each range is resident,
+retain exact `Omega_max`, write continuous values and canonical fiber IDs as one
+contiguous range result, and prove no full/fold grid cell loses a candidate.
+Endpoint, scale, grid-cell, branch, and fold work may not reopen raw connectome
+geometry.
+
+- [ ] **Step 5: Move jitter and OSS/pPAM physical work into Layer 1**
+
+Generate one scale-independent jitter schedule and jittered voxel/fiber
+exposure set per physical identity. Prepare OSS/pPAM rows on the formal-
+connectome `Omega_max` axis rather than endpoint final axes. Endpoint analysis
+must select `final.valid_feature_axis` by canonical IDs, apply add-on reference
+overlap after raw activation preparation, and independently refit all
+outcome-dependent statistics.
+
+- [ ] **Step 6: Implement process-parallel resource scheduling**
+
+Replace CPU/HDF5-heavy threads with spawned processes and a persistent
+dependency-ready queue. Shard connectome work by disjoint large fiber ranges,
+jitter by subject/replicate blocks, OSS by physical rows, endpoints by model
+task, and formal inference by deterministic replicate blocks. Set numerical
+library threads to one per process and reduce outputs in canonical order.
+
+Use one global resource ledger for CPU, memory, connectome I/O, and external
+solver slots. When preflight reports at least 64 GiB currently available, use a
+48-GiB normal managed budget with at least 16 GiB reserved. Large arrays are
+read-only memmaps/shared-memory resources; spawned workers may not receive full
+arrays through pickle. Jitter remains block-streamed.
+
+- [ ] **Step 7: Share exposure-only grid operators**
+
+Cache tau exceedance and Coverage tensors by exact subject/exposure axis. Derive
+LOOCV training counts by subtracting the held-out indicator. Compute one set of
+outcome-dependent feature weights per endpoint/fold on maximal valid support,
+then apply exact tau/Coverage masks. Preserve fold-only fitting and finite-weight
+intersection.
+
+- [ ] **Step 8: Run numerical, reuse, and performance acceptance**
+
+Require exact brute-force equivalence, worker-count determinism, zero candidate
+false negatives, one producer per physical identity, no payload checksum work,
+no endpoint matrix copies, no swap, and no full-connectome reread by scale. On
+the current 28-scale data, reduce 1540 endpoint-derived row evaluations per
+connectome to 42 unique physical rows in the shared pass. With `workers=12`,
+sustain at least six effective CPU cores through most compute-bound fiber
+preparation unless measured storage throughput is the documented limiter.
+
+- [ ] **Step 9: Update current status and commit**
+
+Only after all acceptance gates pass, mark the performance refactor complete in
+the goal/design/plan, record benchmark evidence, and commit without modifying
+or deleting existing scientific output trees.
+
+---
+
 ## Plan Self-Review Record
 
-Five plan review passes were repeated after final acceptance on 2026-07-15:
+Five generic-core review passes were completed on 2026-07-15. A sixth
+performance-contract review was added on 2026-07-16:
 
 | Pass | Result | Implementation mapping |
 |---|---|---|
@@ -2824,14 +2951,15 @@ Five plan review passes were repeated after final acceptance on 2026-07-15:
 | 3. Dependency/fallback | PASS | Task 5 defines the exhaustive readiness/source/Delta/fallback truth table; Tasks 11-12 integrate it without bidirectional fallback. |
 | 4. Round/interface/provenance | PASS | Tasks 2, 6-8, and 13-16 cover every Round, typed requests/arrays/artifacts, project import isolation, standalone CLI, connectome roles, and resolved configuration artifacts. |
 | 5. Bounded acceptance | PASS | Task 1 requires an exact reviewed task allowlist; Tasks 9-14 use only applicable completed fixtures; Task 16 blocks expensive misses and parity expansion. |
+| 6. Shared physical preparation and resources | DESIGN PASS / IMPLEMENTATION OPEN | Task 17 defines scale-independent base/jitter/OSS preparation, exact `Omega_max`, no-SHA existence caches, process sharding, 64-GiB RAM use, and performance gates. |
 
-This record validates both plan closure and its linked implementation evidence.
-Only the final documentation-commit checkbox remains open until that commit is
-created successfully.
+This record validates closure of the generic-core implementation and design
+closure of the performance refactor. Task 17 remains open; no current status or
+test count implies that the new execution architecture is implemented.
 
 ---
 
-## Final Acceptance Checklist
+## Generic-Core Historical Acceptance And Current Target Checklist
 
 - [x] `dual_frequency_v1` is the only production schema.
 - [x] `four_model_yaml_core_refactor_plan.md` is the sole current `/goal`; the
@@ -2851,18 +2979,31 @@ created successfully.
 - [x] Connectome behavior is role-based.
 - [x] Sensitive connectomes emit no final; exactly one `formal` connectome is
   final-eligible.
-- [x] Scientific caches exclude scale/run/scheduler identity.
-- [x] OSS inherits the realized final model's exact `valid_feature_axis`, does
-  not rescan tau/Coverage, and does not add noncandidate fibers.
+- [x] Historical scientific caches exclude scale/run/scheduler identity.
+- [ ] Physical preparation occurs once before endpoint/scale fan-out.
+- [ ] Direct voxel and normative fiber reuse their respective bilateral
+  exposure rows across all scales without changing either bilateral formula.
+- [ ] Each connectome is read once in aggregate per preparation version and
+  filtered exactly to minimum-grid `Omega_max`.
+- [ ] Jitter schedules and physical exposure are scale-independent Layer-1
+  resources; endpoint jitter statistics remain Layer 2.
+- [ ] OSS/pPAM is prepared on formal-connectome `Omega_max`; every endpoint
+  final axis is selected as an exact canonical-ID subset.
+- [ ] Target cache, artifact, resume, provenance, OSS, and acceptance paths use
+  no cryptographic checksum.
+- [ ] CPU-heavy work uses spawned processes, large disjoint work units, and a
+  persistent ready queue.
+- [ ] A confirmed 64-GiB available-memory state uses a 48-GiB managed budget
+  while preserving at least 16 GiB and zero swap.
 - [x] Formal/sensitivity/activation consume only one realized final.
 - [x] Generic reports contain no HF/ULF compatibility aliases.
 - [x] Bounded parity includes only exact IDs in the reviewed allowlist that are
-  also frozen completed, hash-valid scientific tasks.
+  also frozen completed, structurally valid scientific tasks.
 - [x] No unfinished predecessor task is assigned numerical parity.
 - [x] No expensive producer starts during acceptance without authorization.
 - [x] Old outputs and the paused run remain immutable.
-- [x] Resolved study-base/model/workflow configuration and source hashes are
-  persisted and reproduce the configuration hash.
+- [x] Resolved study-base/model/workflow configuration IDs, source paths, and
+  schema versions are persisted and reproduce the run inputs.
 - [x] Public CLI runs directly with caller `PYTHONPATH` unset and never discovers
   a default profile, study input, run, or legacy output.
 - [x] Synthetic, two-scale smoke, bounded parity, import isolation, compile, and
