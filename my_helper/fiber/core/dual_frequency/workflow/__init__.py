@@ -47,6 +47,7 @@ from .run_store import (
     RunStore,
     RunStoreError,
 )
+from .process_worker import SpawnWorkerSpec, WorkerCommand
 
 __all__ = [
     "ACCEPTED",
@@ -81,4 +82,6 @@ __all__ = [
     "RunIdentity",
     "RunStore",
     "RunStoreError",
+    "SpawnWorkerSpec",
+    "WorkerCommand",
 ]

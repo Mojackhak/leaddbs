@@ -365,7 +365,7 @@ class OSSActivationProviderTest(unittest.TestCase):
         )
         np.testing.assert_array_equal(
             binary,
-            np.asarray([[1.0, 1.0, 1.0]], dtype=np.float32),
+            np.asarray([[1.0, 1.0, 0.0]], dtype=np.float32),
         )
 
     def test_alternating_group_produces_independent_rows_then_max_merges(self) -> None:

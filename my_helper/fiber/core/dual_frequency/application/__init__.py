@@ -3,6 +3,7 @@
 from .service import (
     ApplicationError,
     PlanBundle,
+    SensitivityExtensionRequest,
     ValidatedWorkflow,
     ValidationSummary,
     WorkflowRequest,
@@ -12,6 +13,7 @@ from .service import (
 __all__ = [
     "ApplicationError",
     "PlanBundle",
+    "SensitivityExtensionRequest",
     "ValidatedWorkflow",
     "ValidationSummary",
     "WorkflowRequest",

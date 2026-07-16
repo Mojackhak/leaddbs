@@ -647,7 +647,7 @@ class ContinuousDoseTest(unittest.TestCase):
         )
         self.assertEqual(evidence.metrics["n_features_full"], 1)
 
-    def test_fiber_support_is_inclusive_at_exact_tau(self) -> None:
+    def test_fiber_support_is_strict_at_exact_tau(self) -> None:
         exposure = np.zeros((12, 2), dtype=np.float64)
         exposure[:3, 0] = 200.0
         exposure[:, 1] = np.linspace(220.0, 260.0, 12)
@@ -669,7 +669,7 @@ class ContinuousDoseTest(unittest.TestCase):
             coverage=3,
             array_provider=_ARRAY_PROVIDER,
         )
-        self.assertEqual(evidence.metrics["n_candidate_full"], 2)
+        self.assertEqual(evidence.metrics["n_candidate_full"], 1)
 
     def test_tau_neighborhood_uses_absolute_0p9_and_1p1_values(self) -> None:
         target = _target("reference_voxel")

@@ -2,8 +2,7 @@
 
 Continuous probabilities are validated on the closed unit interval. The v1
 producer contract additionally requires integer activation counts over ten
-samples. Binary fitting exposure uses the fixed inclusive threshold
-``p(A) >= 0.5``.
+samples. Binary fitting exposure uses the fixed strict threshold above 0.5.
 """
 
 from __future__ import annotations
@@ -94,10 +93,10 @@ def max_probability_union(
 
 
 def binary_activation(probabilities: np.ndarray) -> np.ndarray:
-    """Return float32 exposure using the inclusive ``p(A) >= 0.5`` rule."""
+    """Return float32 exposure using the strict probability threshold."""
 
     validated = validate_probabilities(probabilities)
-    binary = (validated >= FITTING_PROBABILITY_THRESHOLD).astype(
+    binary = (validated > FITTING_PROBABILITY_THRESHOLD).astype(
         np.float32,
         copy=False,
     )

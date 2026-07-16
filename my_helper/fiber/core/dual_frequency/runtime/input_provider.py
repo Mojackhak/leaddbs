@@ -27,8 +27,8 @@ from ..backends.activation.ossdbs import OSSRowBatchArtifact, OSSScientificSetti
 from ..backends.interaction.reference_overlap import prepare_reference_overlap
 from ..backends.normative_fiber.addon import prepare_addon_fiber_exposure
 from ..backends.protocols import ArtifactPublisher
-from ..cache import ArtifactStore
-from ..cache.identity import sha256_file
+from ..cache import ArtifactStore, CacheFileMetadata, ContentAddressedCache
+from ..cache.identity import ScientificCacheKey, sha256_file
 from ..catalog import EndpointRecord
 from ..config import (
     DirectVoxelModelProfile,
@@ -66,6 +66,10 @@ from .oss_toolchain import LeadDBSOSSProducerToolchain, oss_backend_version
 
 _ACTIVE_INPUT_HASHES: ContextVar[dict[str, str] | None] = ContextVar(
     "dual_frequency_active_input_hashes",
+    default=None,
+)
+_ACTIVE_SHARED_EXPOSURES: ContextVar[list[dict[str, str]] | None] = ContextVar(
+    "dual_frequency_active_shared_exposures",
     default=None,
 )
 
@@ -244,6 +248,7 @@ class _FileDigest:
 class _TemporaryMatrix:
     array: np.memmap
     path: Path
+    delete_on_release: bool = True
 
 
 class _NiftiSampler:
@@ -337,6 +342,7 @@ class StudyRuntimeInputProvider:
         *,
         work_root: Path,
         artifact_store: ArtifactStore | None = None,
+        scientific_cache: ContentAddressedCache | None = None,
         left_transformer: LeftToCanonicalTransformer | None = None,
         fiber_chunk_size: int = 65_536,
     ) -> None:
@@ -348,6 +354,11 @@ class StudyRuntimeInputProvider:
             raise RuntimeInputProviderError("catalog must contain EndpointRecord values")
         if artifact_store is not None and not isinstance(artifact_store, ArtifactStore):
             raise TypeError("artifact_store must be an ArtifactStore or None")
+        if scientific_cache is not None and not isinstance(
+            scientific_cache,
+            ContentAddressedCache,
+        ):
+            raise TypeError("scientific_cache must be a ContentAddressedCache or None")
         if type(fiber_chunk_size) is not int or fiber_chunk_size < 1:
             raise RuntimeInputProviderError("fiber_chunk_size must be a positive integer")
         endpoints = {item.endpoint_id: item for item in catalog}
@@ -363,6 +374,7 @@ class StudyRuntimeInputProvider:
         self._endpoints = endpoints
         self._subjects = subjects
         self._artifact_store = artifact_store
+        self._scientific_cache = scientific_cache
         self._work_root = Path(work_root).expanduser().resolve()
         self._work_root.mkdir(parents=True, exist_ok=True)
         self._left_transformer = left_transformer or MatlabLeftToCanonicalTransformer()
@@ -371,6 +383,7 @@ class StudyRuntimeInputProvider:
         self._samplers: dict[Path, tuple[_FileDigest, _NiftiSampler]] = {}
         self._hashes: dict[Path, _FileDigest] = {}
         self._feature_spaces: dict[tuple[str, str], _FeatureSpace] = {}
+        self._shared_preparation_locks: dict[str, RLock] = {}
 
     @staticmethod
     def _file_signature(path: Path) -> tuple[int, int, int]:
@@ -386,10 +399,12 @@ class StudyRuntimeInputProvider:
     def _capture_input_hashes(self) -> Iterator[dict[str, str]]:
         captured: dict[str, str] = {}
         token = _ACTIVE_INPUT_HASHES.set(captured)
+        shared_token = _ACTIVE_SHARED_EXPOSURES.set([])
         try:
             yield captured
         finally:
             _ACTIVE_INPUT_HASHES.reset(token)
+            _ACTIVE_SHARED_EXPOSURES.reset(shared_token)
 
     def _path_hash(
         self,
@@ -447,7 +462,8 @@ class StudyRuntimeInputProvider:
             if mapping is not None:
                 mapping.close()
         finally:
-            value.path.unlink(missing_ok=True)
+            if value.delete_on_release:
+                value.path.unlink(missing_ok=True)
 
     @staticmethod
     def _validate_nifti(path: Path) -> None:
@@ -1323,6 +1339,7 @@ class StudyRuntimeInputProvider:
         allow_absent: bool,
         jitter_context: JitterTranslationContext | None = None,
     ) -> tuple[_TemporaryMatrix, tuple[str, ...]]:
+        physical_subject_ids = tuple(subject.subject_id for subject in self.study.subjects)
         resolutions = tuple(
             self._resolve_groups(
                 endpoint,
@@ -1331,13 +1348,290 @@ class StudyRuntimeInputProvider:
                 frequency_class,
                 require_bilateral=True,
             )
-            for subject_id in subject_ids
+            for subject_id in physical_subject_ids
         )
+        resolution_by_subject = dict(zip(physical_subject_ids, resolutions, strict=True))
         missing = tuple(
             subject_id
-            for subject_id, resolution in zip(subject_ids, resolutions, strict=True)
+            for subject_id in subject_ids
+            for resolution in (resolution_by_subject[subject_id],)
             if resolution.reason_code is not None
         )
+        if missing and not allow_absent:
+            raise RuntimeInputProviderError(
+                "required endpoint exposure is missing for included subjects: "
+                + ", ".join(missing)
+            )
+        key = self._shared_exposure_key(
+            subject_ids=physical_subject_ids,
+            binding=binding,
+            frequency_class=frequency_class,
+            feature_space=feature_space,
+            resolutions=resolutions,
+            jitter_context=jitter_context,
+        )
+        shared_entries = _ACTIVE_SHARED_EXPOSURES.get()
+        if shared_entries is not None:
+            value = {"kind": key.kind, "semantic_sha256": key.digest}
+            if value not in shared_entries:
+                shared_entries.append(value)
+        if self._scientific_cache is None:
+            physical = self._compute_binding_matrix(
+                endpoint=endpoint,
+                subject_ids=physical_subject_ids,
+                binding=binding,
+                frequency_class=frequency_class,
+                feature_space=feature_space,
+                resolutions=resolutions,
+                allow_absent=True,
+                jitter_context=jitter_context,
+            )
+            return (
+                self._select_subject_rows(
+                    physical,
+                    physical_subject_ids,
+                    subject_ids,
+                    f"{endpoint.endpoint_id}-{binding.identifier}-{frequency_class}-subjects",
+                ),
+                missing,
+            )
+
+        with self._lock:
+            preparation_lock = self._shared_preparation_locks.setdefault(
+                key.digest,
+                RLock(),
+            )
+        with preparation_lock:
+            entry = self._scientific_cache.resolve(key)
+            if entry is not None:
+                physical = self._open_shared_exposure(entry.file_path("exposure.npy"))
+                return (
+                    self._select_subject_rows(
+                        physical,
+                        physical_subject_ids,
+                        subject_ids,
+                        f"{endpoint.endpoint_id}-{binding.identifier}-{frequency_class}-subjects",
+                    ),
+                    missing,
+                )
+            with self._scientific_cache.producer_lease(key) as producer:
+                if not producer:
+                    entry = self._scientific_cache.resolve(key)
+                    if entry is None:
+                        raise RuntimeInputProviderError(
+                            "shared exposure producer lease ended without a cache entry"
+                        )
+                else:
+                    temporary = self._compute_binding_matrix(
+                        endpoint=endpoint,
+                        subject_ids=physical_subject_ids,
+                        binding=binding,
+                        frequency_class=frequency_class,
+                        feature_space=feature_space,
+                        resolutions=resolutions,
+                        allow_absent=True,
+                        jitter_context=jitter_context,
+                    )
+                    subject_axis = AxisRef(
+                        axis_id=(
+                            f"{self.study.study_id}:physical-subjects:"
+                            f"{canonical_hash(physical_subject_ids, length=12)}"
+                        ),
+                        count=len(physical_subject_ids),
+                        sha256=canonical_hash(
+                            {"ordered_subject_ids": physical_subject_ids}
+                        ),
+                    )
+                    try:
+                        entry = self._scientific_cache.publish(
+                            key,
+                            {"exposure.npy": temporary.path},
+                            metadata={
+                                "exposure.npy": CacheFileMetadata(
+                                    dtype="float32",
+                                    shape=(
+                                        len(physical_subject_ids),
+                                        feature_space.axis.count,
+                                    ),
+                                    axes=(subject_axis, feature_space.axis),
+                                    units="V/m",
+                                    space=self.study.spatial.canonical_space,
+                                )
+                            },
+                        )
+                    finally:
+                        self._release_temporary_matrix(temporary)
+            physical = self._open_shared_exposure(entry.file_path("exposure.npy"))
+            return (
+                self._select_subject_rows(
+                    physical,
+                    physical_subject_ids,
+                    subject_ids,
+                    f"{endpoint.endpoint_id}-{binding.identifier}-{frequency_class}-subjects",
+                ),
+                missing,
+            )
+
+    def _shared_exposure_key(
+        self,
+        *,
+        subject_ids: tuple[str, ...],
+        binding: EndpointBinding,
+        frequency_class: str,
+        feature_space: _FeatureSpace,
+        resolutions: tuple[GroupResolution, ...],
+        jitter_context: JitterTranslationContext | None,
+    ) -> ScientificCacheKey:
+        source_rows: list[dict[str, object]] = []
+        for subject_id, resolution in zip(subject_ids, resolutions, strict=True):
+            groups: list[dict[str, object]] = []
+            for group in resolution.groups:
+                if group.efield_path.is_file():
+                    content_sha = self._path_hash(group.efield_path)
+                else:
+                    content_sha = canonical_hash(
+                        {
+                            "missing": True,
+                            "subject_id": group.subject_id,
+                            "electrode_id": group.electrode_id,
+                            "frequency_group_id": group.frequency_group_id,
+                        }
+                    )
+                groups.append(
+                    {
+                        "hemisphere": group.hemisphere,
+                        "electrode_id": group.electrode_id,
+                        "frequency_group_id": group.frequency_group_id,
+                        "delivery_mode": group.delivery_mode,
+                        "content_sha256": content_sha,
+                    }
+                )
+            source_rows.append(
+                {
+                    "subject_id": subject_id,
+                    "reason_code": resolution.reason_code,
+                    "groups": groups,
+                }
+            )
+        geometry_hash = self._path_hash(feature_space.source_path)
+        transform_hash = self._path_hash(self.study.spatial.left_to_right_transform)
+        jitter_identity = canonical_hash(
+            {
+                "replicate_index": (
+                    None if jitter_context is None else jitter_context.replicate_index
+                ),
+                "replicate_seed": (
+                    None if jitter_context is None else jitter_context.replicate_seed
+                ),
+                "translation_sigma_mm": (
+                    None if jitter_context is None else jitter_context.translation_sigma_mm
+                ),
+            }
+        )
+        domain = "voxel" if feature_space.coordinates is not None else "fiber"
+        kind = (
+            "jitter_exposures"
+            if jitter_context is not None
+            else ("voxel_exposures" if domain == "voxel" else "fiber_exposures")
+        )
+        return ScientificCacheKey(
+            geometry_hash=geometry_hash,
+            stimulation_hash=canonical_hash({"physical_rows": source_rows}),
+            component_frequency_hash=canonical_hash(
+                {
+                    "binding_id": binding.identifier,
+                    "frequency_class": frequency_class,
+                }
+            ),
+            transform_hash=transform_hash,
+            connectome_feature_hash=feature_space.axis.sha256,
+            backend_name=f"shared_{domain}_physical_exposure",
+            backend_version="2",
+            scientific_parameter_hashes=(
+                ("jitter_schedule", jitter_identity),
+                ("ordered_subjects", canonical_hash({"subject_ids": subject_ids})),
+                (
+                    "physical_rule",
+                    canonical_hash(
+                        {
+                            "rule": (
+                                "canonical_grid_bilateral_mean_v1"
+                                if domain == "voxel"
+                                else "side_specific_fiber_peak_then_mean_v1"
+                            )
+                        }
+                    ),
+                ),
+            ),
+            kind=kind,
+        )
+
+    def _select_subject_rows(
+        self,
+        source: _TemporaryMatrix,
+        source_subject_ids: tuple[str, ...],
+        requested_subject_ids: tuple[str, ...],
+        label: str,
+    ) -> _TemporaryMatrix:
+        """Return the exact endpoint row subset while retaining one physical cache axis."""
+
+        if requested_subject_ids == source_subject_ids:
+            return source
+        position_by_id = {
+            subject_id: index for index, subject_id in enumerate(source_subject_ids)
+        }
+        try:
+            positions = np.asarray(
+                [position_by_id[subject_id] for subject_id in requested_subject_ids],
+                dtype=np.int64,
+            )
+        except KeyError as exc:
+            self._release_temporary_matrix(source)
+            raise RuntimeInputProviderError(
+                "endpoint subject axis is not a subset of the physical subject axis"
+            ) from exc
+        output = self._temporary_matrix(
+            label,
+            (len(requested_subject_ids), source.array.shape[1]),
+            source.array.dtype,
+        )
+        completed = False
+        try:
+            for start in range(0, source.array.shape[1], self._fiber_chunk_size):
+                stop = min(start + self._fiber_chunk_size, source.array.shape[1])
+                output.array[:, start:stop] = source.array[positions, start:stop]
+            output.array.flush()
+            completed = True
+            return output
+        finally:
+            self._release_temporary_matrix(source)
+            if not completed:
+                self._release_temporary_matrix(output)
+
+    @staticmethod
+    def _open_shared_exposure(path: Path) -> _TemporaryMatrix:
+        try:
+            array = np.load(path, allow_pickle=False, mmap_mode="r")
+        except (OSError, ValueError) as exc:
+            raise RuntimeInputProviderError(
+                f"shared exposure cache cannot be mapped: {path}"
+            ) from exc
+        if not isinstance(array, np.memmap) or array.dtype != np.dtype(np.float32):
+            raise RuntimeInputProviderError("shared exposure cache has an invalid array")
+        return _TemporaryMatrix(array, path, delete_on_release=False)
+
+    def _compute_binding_matrix(
+        self,
+        *,
+        endpoint: EndpointRecord,
+        subject_ids: tuple[str, ...],
+        binding: EndpointBinding,
+        frequency_class: str,
+        feature_space: _FeatureSpace,
+        resolutions: tuple[GroupResolution, ...],
+        allow_absent: bool,
+        jitter_context: JitterTranslationContext | None,
+    ) -> _TemporaryMatrix:
         temporary = self._temporary_matrix(
             f"{endpoint.endpoint_id}-{binding.identifier}-{frequency_class}",
             (len(subject_ids), feature_space.axis.count),
@@ -1369,47 +1663,45 @@ class StudyRuntimeInputProvider:
                         allow_absent=allow_absent,
                         translation_by_side=translations,
                     )
-                    with self._lock:
-                        self._samplers.clear()
                 matrix.flush()
                 completed = True
-                return temporary, missing
+                return temporary
 
             connectome = feature_space.connectome
             if connectome is None:
                 raise AssertionError("fiber feature space has no connectome")
             connectome_signature = self._file_signature(feature_space.source_path)
-            for subject_index, resolution in enumerate(resolutions):
-                subject_id = subject_ids[subject_index]
-                translations = (
-                    None
-                    if jitter_context is None
-                    else {
-                        side: jitter_context.vector(
-                            binding_id=binding.identifier,
-                            frequency_class=frequency_class,
-                            subject_id=subject_id,
-                            hemisphere=side,
-                        )
-                        for side in ("L", "R")
-                    }
-                )
-                expected_start = 0
-                for chunk in connectome.iter_chunks(self._fiber_chunk_size):
-                    chunk_ids = np.asarray(chunk.fiber_ids)
-                    if chunk_ids.dtype != np.dtype(np.int64) or chunk_ids.ndim != 1:
-                        raise RuntimeInputProviderError(
-                            "connectome chunk fiber IDs must be one-dimensional int64"
-                        )
-                    start = int(chunk_ids[0]) - 1
-                    stop = int(chunk_ids[-1])
-                    if start != expected_start or not np.array_equal(
-                        chunk_ids,
-                        np.arange(start + 1, stop + 1, dtype=np.int64),
-                    ):
-                        raise RuntimeInputProviderError(
-                            "connectome chunks must preserve contiguous canonical fiber IDs"
-                        )
+            expected_start = 0
+            for chunk in connectome.iter_chunks(self._fiber_chunk_size):
+                chunk_ids = np.asarray(chunk.fiber_ids)
+                if chunk_ids.dtype != np.dtype(np.int64) or chunk_ids.ndim != 1:
+                    raise RuntimeInputProviderError(
+                        "connectome chunk fiber IDs must be one-dimensional int64"
+                    )
+                start = int(chunk_ids[0]) - 1
+                stop = int(chunk_ids[-1])
+                if start != expected_start or not np.array_equal(
+                    chunk_ids,
+                    np.arange(start + 1, stop + 1, dtype=np.int64),
+                ):
+                    raise RuntimeInputProviderError(
+                        "connectome chunks must preserve contiguous canonical fiber IDs"
+                    )
+                for subject_index, resolution in enumerate(resolutions):
+                    subject_id = subject_ids[subject_index]
+                    translations = (
+                        None
+                        if jitter_context is None
+                        else {
+                            side: jitter_context.vector(
+                                binding_id=binding.identifier,
+                                frequency_class=frequency_class,
+                                subject_id=subject_id,
+                                hemisphere=side,
+                            )
+                            for side in ("L", "R")
+                        }
+                    )
                     fiber_values, _reason = self._sample_fiber_group_resolution(
                         resolution,
                         chunk.points,
@@ -1422,23 +1714,176 @@ class StudyRuntimeInputProvider:
                             "connectome chunk fiber IDs and point offsets disagree"
                         )
                     matrix[subject_index, start:stop] = fiber_values
-                    expected_start = stop
-                if expected_start != feature_space.axis.count:
-                    raise RuntimeInputProviderError(
-                        "connectome chunks do not cover the complete canonical fiber axis"
-                    )
-                with self._lock:
-                    self._samplers.clear()
+                expected_start = stop
+            if expected_start != feature_space.axis.count:
+                raise RuntimeInputProviderError(
+                    "connectome chunks do not cover the complete canonical fiber axis"
+                )
             if self._file_signature(feature_space.source_path) != connectome_signature:
                 raise RuntimeInputProviderError(
                     "connectome changed while fiber exposure was being prepared"
                 )
             matrix.flush()
             completed = True
-            return temporary, missing
+            return temporary
         finally:
             if not completed:
                 self._release_temporary_matrix(temporary)
+
+    def _omega_max_feature_space(
+        self,
+        parent: _FeatureSpace,
+        exposure: np.ndarray,
+        subject_ids: tuple[str, ...],
+        profile: DirectVoxelModelProfile | NormativeFiberModelProfile,
+    ) -> tuple[_FeatureSpace, np.ndarray | None]:
+        if not isinstance(profile, NormativeFiberModelProfile):
+            return parent, None
+        minimum_tau = min(profile.source.tau_values)
+        minimum_coverage = min(profile.source.coverage_values)
+        matrix = np.asanyarray(exposure)
+        counts = np.count_nonzero(matrix > minimum_tau, axis=0)
+        positions = np.flatnonzero(counts > minimum_coverage).astype(np.int64)
+        if positions.size == 0:
+            return parent, None
+        ids = np.asarray(parent.ids[positions], dtype=np.int64)
+        ids.flags.writeable = False
+        position_hash = hashlib.sha256(
+            np.ascontiguousarray(positions, dtype="<i8").tobytes()
+        ).hexdigest()
+        axis = AxisRef(
+            axis_id=f"{parent.axis.axis_id}:omega-max",
+            count=int(ids.size),
+            sha256=canonical_hash(
+                {
+                    "parent_axis_sha256": parent.axis.sha256,
+                    "ordered_subject_ids": subject_ids,
+                    "tau_values": profile.source.tau_values,
+                    "coverage_values": profile.source.coverage_values,
+                    "threshold_policy": "strict_threshold_v1",
+                    "ordered_parent_positions_sha256": position_hash,
+                }
+            ),
+        )
+        self._publish_omega_max_cache(
+            parent=parent,
+            axis=axis,
+            ids=ids,
+            subject_ids=subject_ids,
+            profile=profile,
+        )
+        return (
+            _FeatureSpace(
+                axis=axis,
+                ids=ids,
+                coordinates=None,
+                connectome=parent.connectome,
+                source_path=parent.source_path,
+            ),
+            None if positions.size == parent.axis.count else positions,
+        )
+
+    def _publish_omega_max_cache(
+        self,
+        *,
+        parent: _FeatureSpace,
+        axis: AxisRef,
+        ids: np.ndarray,
+        subject_ids: tuple[str, ...],
+        profile: NormativeFiberModelProfile,
+    ) -> None:
+        if self._scientific_cache is None:
+            return
+        shared_entries = _ACTIVE_SHARED_EXPOSURES.get()
+        physical_identity = (
+            parent.axis.sha256
+            if not shared_entries
+            else shared_entries[0]["semantic_sha256"]
+        )
+        key = ScientificCacheKey(
+            geometry_hash=self._path_hash(parent.source_path),
+            stimulation_hash=physical_identity,
+            component_frequency_hash=canonical_hash({"artifact": "omega_max"}),
+            transform_hash=self._path_hash(self.study.spatial.left_to_right_transform),
+            connectome_feature_hash=parent.axis.sha256,
+            backend_name="normative_fiber_omega_max",
+            backend_version="2",
+            scientific_parameter_hashes=(
+                ("eligible_cohort", canonical_hash({"subject_ids": subject_ids})),
+                (
+                    "threshold_grid",
+                    canonical_hash(
+                        {
+                            "tau_values": profile.source.tau_values,
+                            "coverage_values": profile.source.coverage_values,
+                        }
+                    ),
+                ),
+                ("threshold_policy", canonical_hash({"policy": "strict_threshold_v1"})),
+            ),
+            kind="fiber_exposures",
+        )
+        entry = self._scientific_cache.resolve(key)
+        if entry is None:
+            root = self._work_root / "omega-max-staging"
+            root.mkdir(parents=True, exist_ok=True)
+            path = root / f"{key.digest}.npy"
+            np.save(path, ids, allow_pickle=False)
+            try:
+                entry = self._scientific_cache.publish(
+                    key,
+                    {"fiber_ids.npy": path},
+                    metadata={
+                        "fiber_ids.npy": CacheFileMetadata(
+                            dtype="int64",
+                            shape=(axis.count,),
+                            axes=(axis,),
+                            units="fiber_id",
+                            space=self.study.spatial.canonical_space,
+                        )
+                    },
+                )
+            finally:
+                path.unlink(missing_ok=True)
+        cached_ids = np.load(entry.file_path("fiber_ids.npy"), allow_pickle=False)
+        if not np.array_equal(cached_ids, ids):
+            raise RuntimeInputProviderError("Omega_max cache differs from the exact candidate union")
+        if shared_entries is not None:
+            value = {"kind": key.kind, "semantic_sha256": key.digest}
+            if value not in shared_entries:
+                shared_entries.append(value)
+
+    def _subset_matrix(
+        self,
+        source: _TemporaryMatrix,
+        positions: np.ndarray,
+        label: str,
+    ) -> _TemporaryMatrix:
+        indices = np.asarray(positions, dtype=np.int64)
+        if (
+            indices.ndim != 1
+            or indices.size < 1
+            or indices[0] < 0
+            or indices[-1] >= source.array.shape[1]
+            or np.any(np.diff(indices) < 1)
+        ):
+            raise RuntimeInputProviderError("Omega_max positions must be ordered and unique")
+        output = self._temporary_matrix(
+            label,
+            (source.array.shape[0], int(indices.size)),
+            source.array.dtype,
+        )
+        completed = False
+        try:
+            for start in range(0, indices.size, self._fiber_chunk_size):
+                stop = min(start + self._fiber_chunk_size, indices.size)
+                output.array[:, start:stop] = source.array[:, indices[start:stop]]
+            output.array.flush()
+            completed = True
+            return output
+        finally:
+            if not completed:
+                self._release_temporary_matrix(output)
 
     @staticmethod
     def _publish_input_hash_manifest(
@@ -1449,12 +1894,13 @@ class StudyRuntimeInputProvider:
         return publisher.document(
             "input_hash_manifest.json",
             {
-                "schema_version": "dual_frequency_prepared_input_hashes_v1",
+                "schema_version": "dual_frequency_prepared_input_hashes_v2",
                 "endpoint_id": endpoint.endpoint_id,
                 "files": [
                     {"path": path, "sha256": digest}
                     for path, digest in sorted(input_hashes.items())
                 ],
+                "shared_exposures": list(_ACTIVE_SHARED_EXPOSURES.get() or ()),
             },
             kind="prepared_input_hash_manifest",
         )
@@ -1554,22 +2000,10 @@ class StudyRuntimeInputProvider:
         subject_ids = endpoint_input.included_subject_ids
         profile = self._profile(endpoint)
         pair = profile.endpoint_pair
-        feature_space = (
+        sampling_feature_space = (
             self._direct_feature_space()
             if endpoint.key.model_family.endswith("voxel")
             else self._fiber_feature_space(endpoint.key.connectome_id)
-        )
-        feature_ids = publisher.array(
-            "feature_ids.npy",
-            np.asarray(feature_space.ids, dtype=np.int64),
-            kind=(
-                "canonical_brainmask_voxel_ids"
-                if endpoint.key.model_family.endswith("voxel")
-                else "canonical_connectome_fiber_ids"
-            ),
-            axes=(feature_space.axis,),
-            units=None,
-            space=self.study.spatial.canonical_space,
         )
         is_reference = endpoint.key.model_family.startswith("reference_")
         primary_binding = pair.reference if is_reference else pair.addon
@@ -1579,12 +2013,40 @@ class StudyRuntimeInputProvider:
             subject_ids,
             primary_binding,
             primary_class,
-            feature_space,
+            sampling_feature_space,
             allow_absent=False,
             jitter_context=jitter_context,
         )
-        axes = (endpoint_input.subject_axis, feature_space.axis)
         temporaries = [raw_primary]
+        feature_space = sampling_feature_space
+        omega_positions: np.ndarray | None = None
+        if endpoint.key.model_family.endswith("fiber"):
+            feature_space, omega_positions = self._omega_max_feature_space(
+                sampling_feature_space,
+                raw_primary.array,
+                subject_ids,
+                profile,
+            )
+            if omega_positions is not None:
+                raw_primary = self._subset_matrix(
+                    raw_primary,
+                    omega_positions,
+                    f"{endpoint.endpoint_id}-primary-omega-max",
+                )
+                temporaries.append(raw_primary)
+        feature_ids = publisher.array(
+            "feature_ids.npy",
+            np.asarray(feature_space.ids, dtype=np.int64),
+            kind=(
+                "canonical_brainmask_voxel_ids"
+                if endpoint.key.model_family.endswith("voxel")
+                else "canonical_connectome_omega_max_fiber_ids"
+            ),
+            axes=(feature_space.axis,),
+            units=None,
+            space=self.study.spatial.canonical_space,
+        )
+        axes = (endpoint_input.subject_axis, feature_space.axis)
         try:
             if is_reference:
                 exposure = publisher.array(
@@ -1624,21 +2086,35 @@ class StudyRuntimeInputProvider:
                 subject_ids,
                 pair.reference,
                 "reference",
-                feature_space,
+                sampling_feature_space,
                 allow_absent=True,
                 jitter_context=jitter_context,
             )
             temporaries.append(reference_condition)
+            if omega_positions is not None:
+                reference_condition = self._subset_matrix(
+                    reference_condition,
+                    omega_positions,
+                    f"{endpoint.endpoint_id}-reference-condition-omega-max",
+                )
+                temporaries.append(reference_condition)
             addon_reference_component, missing_addon_reference = self._matrix_for_binding(
                 endpoint,
                 subject_ids,
                 pair.addon,
                 "reference",
-                feature_space,
+                sampling_feature_space,
                 allow_absent=True,
                 jitter_context=jitter_context,
             )
             temporaries.append(addon_reference_component)
+            if omega_positions is not None:
+                addon_reference_component = self._subset_matrix(
+                    addon_reference_component,
+                    omega_positions,
+                    f"{endpoint.endpoint_id}-addon-reference-omega-max",
+                )
+                temporaries.append(addon_reference_component)
             reference_accepted = (
                 isinstance(reference_record, SourceRecord)
                 and reference_record.source_status in ACCEPTED_SOURCE_STATUSES

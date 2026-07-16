@@ -750,7 +750,7 @@ class CompletedFixtureParityTest(unittest.TestCase):
         frozen_manifest.is_file(),
         "completed bounded reference-direct fixture is unavailable",
     )
-    def test_frozen_completed_reference_task_matches_source_and_arrays(self) -> None:
+    def test_frozen_inclusive_fixture_is_preserved_as_strict_migration_evidence(self) -> None:
         frozen = json.loads(self.frozen_manifest.read_text(encoding="utf-8"))
         self.assertEqual(frozen["source_run_id"], "20260711T034644Z_d318f177f7f2ac7d")
         task = next(
@@ -835,93 +835,17 @@ class CompletedFixtureParityTest(unittest.TestCase):
             retain_arrays=True,
         )
         metrics = computation.metrics
-        self.assertEqual(metrics.n_features_full, int(expected["n_voxels_full"]))
-        self.assertEqual(
+        self.assertLess(metrics.n_features_full, int(expected["n_voxels_full"]))
+        self.assertLess(
             metrics.n_valid_full_features,
             int(expected["n_valid_full_score_voxels"]),
         )
-        self.assertEqual(metrics.fold_n_features_min, int(expected["fold_n_voxels_min"]))
-        self.assertAlmostEqual(
-            metrics.loocv_spearman_rho,
-            float(expected["loocv_spearman_rho"]),
-            places=12,
-        )
-        self.assertAlmostEqual(metrics.q2, float(expected["q2"]), places=8)
-        self.assertAlmostEqual(metrics.mae_model, float(expected["mae_model"]), places=7)
-        self.assertAlmostEqual(metrics.rmse_model, float(expected["rmse_model"]), places=7)
+        self.assertLess(metrics.fold_n_features_min, int(expected["fold_n_voxels_min"]))
         self.assertTrue(metrics.passes_hard_computability)
         self.assertEqual(metrics.prediction_status, "error_nonpredictive")
-
-        expected_full_weights = np.load(
-            artifact_path("selected_full_weights"),
-            allow_pickle=False,
-        )
-        expected_fold_weights = np.load(
-            artifact_path("selected_fold_weights"),
-            allow_pickle=False,
-        )
-        expected_fold_scores = np.load(
-            artifact_path("selected_fold_scores"),
-            allow_pickle=False,
-        )
-        np.testing.assert_allclose(
-            computation.arrays.full_weights,
-            expected_full_weights,
-            rtol=2e-7,
-            atol=5e-8,
-            equal_nan=True,
-        )
-        np.testing.assert_allclose(
-            computation.arrays.fold_weights,
-            expected_fold_weights,
-            rtol=2e-7,
-            atol=5e-8,
-            equal_nan=True,
-        )
-        np.testing.assert_allclose(
-            computation.arrays.fold_scores,
-            expected_fold_scores,
-            rtol=0,
-            atol=1e-5,
-            equal_nan=True,
-        )
-        np.testing.assert_array_equal(
-            computation.arrays.full_valid_mask,
-            np.isfinite(expected_full_weights),
-        )
-        np.testing.assert_array_equal(
-            computation.arrays.fold_valid_masks,
-            np.isfinite(expected_fold_weights),
-        )
-
-        with artifact_path("selected_scores").open(newline="") as stream:
-            score_rows = list(csv.DictReader(stream))
-        with artifact_path("selected_loocv_predictions").open(newline="") as stream:
-            prediction_rows = list(csv.DictReader(stream))
-        np.testing.assert_allclose(
-            computation.arrays.full_scores,
-            np.array([float(row["HFScore_mean_main"]) for row in score_rows]),
-            rtol=0,
-            atol=2e-6,
-        )
-        np.testing.assert_allclose(
-            computation.arrays.heldout_scores,
-            np.array([float(row["HFScore_mean_main_LOOCV"]) for row in prediction_rows]),
-            rtol=0,
-            atol=2e-6,
-        )
-        np.testing.assert_allclose(
-            computation.arrays.heldout_predictions,
-            np.array([float(row["prediction_HFScore_model"]) for row in prediction_rows]),
-            rtol=0,
-            atol=2e-6,
-        )
-        np.testing.assert_allclose(
-            computation.arrays.baseline_predictions,
-            np.array([float(row["prediction_baseline_only"]) for row in prediction_rows]),
-            rtol=0,
-            atol=1e-12,
-        )
+        exact_coverage = np.count_nonzero(exposure > 200.0, axis=0)
+        self.assertGreater(np.count_nonzero(exact_coverage == 5), 0)
+        self.assertEqual(metrics.n_features_full, np.count_nonzero(exact_coverage > 5))
 
 
 if __name__ == "__main__":

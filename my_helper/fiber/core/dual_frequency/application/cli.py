@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Sequence
 
 from ..config import WorkflowOverrides
-from .service import ApplicationError, WorkflowRequest, WorkflowService
+from .service import (
+    ApplicationError,
+    SensitivityExtensionRequest,
+    WorkflowRequest,
+    WorkflowService,
+)
 
 
 def _workflow_arguments(parser: argparse.ArgumentParser, *, run: bool) -> None:
@@ -52,6 +57,33 @@ def build_parser() -> argparse.ArgumentParser:
     _workflow_arguments(subparsers.add_parser("validate"), run=False)
     _workflow_arguments(subparsers.add_parser("plan"), run=False)
     _workflow_arguments(subparsers.add_parser("run"), run=True)
+    sensitivity = subparsers.add_parser("sensitivity")
+    sensitivity.add_argument("--base-run", type=Path, required=True)
+    sensitivity.add_argument("--analyses", required=True)
+    sensitivity.add_argument("--run-id", required=True)
+    sensitivity.add_argument("--workers", type=int, default=3)
+    sensitivity.add_argument(
+        "--allow-expensive-producers",
+        action="store_true",
+        default=False,
+    )
+    sensitivity.add_argument("--resume", action="store_true", default=False)
+    sensitivity.add_argument("--rebuild", action="store_true", default=False)
+    sensitivity.add_argument("--rebuild-run-id")
+    sensitivity.add_argument("--study-base", type=Path)
+    sensitivity.add_argument("--direct-voxel-model", type=Path)
+    sensitivity.add_argument("--normative-fiber-model", type=Path)
+    sensitivity.add_argument("--workflow-profile", type=Path)
+    sensitivity_selection = sensitivity.add_mutually_exclusive_group()
+    sensitivity_selection.add_argument("--scale", action="append", default=[])
+    sensitivity_selection.add_argument("--all-available", action="store_true")
+    sensitivity.add_argument(
+        "--model",
+        action="append",
+        default=[],
+        choices=("reference_voxel", "reference_fiber", "addon_voxel", "addon_fiber"),
+    )
+    sensitivity.add_argument("--connectome", action="append", default=[])
     for command in ("status", "artifacts"):
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--run-root", type=Path, required=True)
@@ -100,6 +132,67 @@ def main(
             return 0
         if arguments.command == "run":
             result = workflow_service.run(_request(arguments), run_id=arguments.run_id)
+            _print_json(
+                {
+                    "run_id": result.run_id,
+                    "exit_code": result.exit_code,
+                    "failed_task_ids": list(result.failed_task_ids),
+                    "failed_endpoint_ids": list(result.failed_endpoint_ids),
+                }
+            )
+            return result.exit_code
+        if arguments.command == "sensitivity":
+            analyses = tuple(
+                item.strip()
+                for item in str(arguments.analyses).split(",")
+                if item.strip()
+            )
+            rebuild_request = None
+            if arguments.rebuild:
+                rebuild_paths = (
+                    arguments.study_base,
+                    arguments.direct_voxel_model,
+                    arguments.normative_fiber_model,
+                    arguments.workflow_profile,
+                )
+                if any(path is None for path in rebuild_paths):
+                    raise ApplicationError(
+                        "rebuild requires study-base and all three workflow profiles; "
+                        "run the project converter first if study_base.json was deleted"
+                    )
+                if not Path(arguments.study_base).expanduser().is_file():
+                    raise ApplicationError(
+                        "study_base.json is missing; run the explicit project-owned "
+                        "upstream converter before generic rebuild"
+                    )
+                if not arguments.all_available and not arguments.scale:
+                    raise ApplicationError("rebuild requires --scale or --all-available")
+                rebuild_request = WorkflowRequest(
+                    study_base=arguments.study_base,
+                    direct_voxel_model=arguments.direct_voxel_model,
+                    normative_fiber_model=arguments.normative_fiber_model,
+                    workflow_profile=arguments.workflow_profile,
+                    overrides=WorkflowOverrides(
+                        scales=tuple(arguments.scale),
+                        all_available=arguments.all_available,
+                        models=tuple(arguments.model),
+                        connectomes=tuple(arguments.connectome),
+                        through="observed",
+                        workers=arguments.workers,
+                    ),
+                )
+            result = workflow_service.sensitivity(
+                SensitivityExtensionRequest(
+                    base_run=arguments.base_run,
+                    analyses=analyses,
+                    run_id=arguments.run_id,
+                    workers=arguments.workers,
+                    allow_expensive_producers=arguments.allow_expensive_producers,
+                    resume=arguments.resume,
+                    rebuild_request=rebuild_request,
+                    rebuild_run_id=arguments.rebuild_run_id,
+                )
+            )
             _print_json(
                 {
                     "run_id": result.run_id,

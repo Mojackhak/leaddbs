@@ -299,8 +299,8 @@ def _classify_support(
         )
     )
     if (
-        median_out <= profile.adequate.cohort_median_out_support_max
-        and adequate_subject_fraction <= profile.adequate.subject_fraction_max
+        median_out < profile.adequate.cohort_median_out_support_max
+        and adequate_subject_fraction < profile.adequate.subject_fraction_max
     ):
         return "adequate"
     return "limited"

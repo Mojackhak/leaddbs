@@ -18,6 +18,7 @@ import numpy as np
 import yaml
 
 from dual_frequency.application.service import (
+    SensitivityExtensionRequest,
     WorkflowRequest,
     WorkflowService,
 )
@@ -697,7 +698,7 @@ class _SyntheticRuntimeProvider:
         if reference_dependency is None or reference_dependency.reference_record is None:
             raise AssertionError("add-on preparation requires reference evidence")
         tau = self._reference_tau(reference_dependency.reference_record)
-        overlap = reference_component >= tau
+        overlap = reference_component > tau
         overlap_excluded = np.where(overlap, 0.0, addon)
         axes = (endpoint_input.subject_axis, feature_axis)
         return PreparedExposureRecord(
@@ -1192,6 +1193,154 @@ def _registry_with_fake_activation(
 
 
 class SyntheticEndToEndTest(unittest.TestCase):
+    def test_missing_parent_rebuild_creates_a_new_lineage_before_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory).resolve()
+            complete_request = _write_profiles(root)
+            rebuild_request = WorkflowRequest(
+                study_base=complete_request.study_base,
+                direct_voxel_model=complete_request.direct_voxel_model,
+                normative_fiber_model=complete_request.normative_fiber_model,
+                workflow_profile=complete_request.workflow_profile,
+                overrides=WorkflowOverrides(all_available=True, through="observed"),
+            )
+            configuration = load_workflow(
+                rebuild_request.workflow_profile,
+                rebuild_request.overrides,
+            )
+            study = load_study_base(rebuild_request.study_base)
+            catalog = build_endpoint_catalog(configuration, study)
+            service = WorkflowService(
+                registry=_registry_with_fake_activation(_FakeActivationBackend()),
+                provider=_SyntheticRuntimeProvider(configuration, catalog, root),
+            )
+            result = service.sensitivity(
+                SensitivityExtensionRequest(
+                    base_run=root / "runs" / "project_neutral_study" / "deleted-parent",
+                    analyses=("jitter",),
+                    run_id="rebuilt-jitter-extension",
+                    workers=2,
+                    rebuild_request=rebuild_request,
+                    rebuild_run_id="rebuilt-parent",
+                )
+            )
+            parent_root = root / "runs" / "project_neutral_study" / "rebuilt-parent"
+            extension_root = (
+                root / "runs" / "project_neutral_study" / "rebuilt-jitter-extension"
+            )
+            parent_manifest = json.loads(
+                (parent_root / "run_manifest.json").read_text(encoding="utf-8")
+            )
+            extension_manifest = json.loads(
+                (extension_root / "run_manifest.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(parent_manifest["final_status"], "completed")
+        self.assertEqual(extension_manifest["parent_run_id"], "rebuilt-parent")
+        self.assertEqual(extension_manifest["run_type"], "sensitivity_extension")
+
+    def test_observed_parent_runs_jitter_and_oss_as_independent_extensions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory).resolve()
+            complete_request = _write_profiles(root)
+            main_request = WorkflowRequest(
+                study_base=complete_request.study_base,
+                direct_voxel_model=complete_request.direct_voxel_model,
+                normative_fiber_model=complete_request.normative_fiber_model,
+                workflow_profile=complete_request.workflow_profile,
+                overrides=WorkflowOverrides(all_available=True, through="observed"),
+            )
+            configuration = load_workflow(main_request.workflow_profile, main_request.overrides)
+            study = load_study_base(main_request.study_base)
+            catalog = build_endpoint_catalog(configuration, study)
+            provider = _SyntheticRuntimeProvider(configuration, catalog, root)
+            fake_activation = _FakeActivationBackend()
+            service = WorkflowService(
+                registry=_registry_with_fake_activation(fake_activation),
+                provider=provider,
+            )
+            main_result = service.run(main_request, run_id="checkpoint-parent")
+            parent_root = root / "runs" / "project_neutral_study" / "checkpoint-parent"
+            parent_manifest_before = hashlib.sha256(
+                (parent_root / "run_manifest.json").read_bytes()
+            ).hexdigest()
+            parent_observed_states = {
+                path.name: path.read_text(encoding="utf-8")
+                for path in (parent_root / "tasks").glob("*.json")
+            }
+
+            jitter = service.sensitivity(
+                SensitivityExtensionRequest(
+                    base_run=parent_root,
+                    analyses=("jitter",),
+                    run_id="jitter-extension",
+                    workers=2,
+                )
+            )
+            calls_after_jitter = len(fake_activation.calls)
+            oss = service.sensitivity(
+                SensitivityExtensionRequest(
+                    base_run=parent_root,
+                    analyses=("oss",),
+                    run_id="oss-extension",
+                    workers=2,
+                    allow_expensive_producers=True,
+                )
+            )
+            parent_manifest_after = hashlib.sha256(
+                (parent_root / "run_manifest.json").read_bytes()
+            ).hexdigest()
+            jitter_root = root / "runs" / "project_neutral_study" / "jitter-extension"
+            oss_root = root / "runs" / "project_neutral_study" / "oss-extension"
+            jitter_states = {
+                path.name: path.read_text(encoding="utf-8")
+                for path in (jitter_root / "tasks").glob("*.json")
+            }
+            restored_parent_states = {
+                name: jitter_states[name]
+                for name in parent_observed_states
+                if name in jitter_states
+            }
+            output_flags = {
+                "jitter_reference": (jitter_root / "base_run_reference.json").is_file(),
+                "jitter_tasks": (jitter_root / "task_status.csv").is_file(),
+                "oss_artifacts": (oss_root / "artifact_index.csv").is_file(),
+                "jitter_canonical": (
+                    root
+                    / "outputs"
+                    / "direct_voxel"
+                    / "project_neutral_synthetic_e2e_v1"
+                    / "extensions"
+                    / "jitter-extension"
+                    / "extension_manifest.json"
+                ).is_file(),
+                "oss_canonical": (
+                    root
+                    / "outputs"
+                    / "normative_fiber"
+                    / "project_neutral_synthetic_e2e_v1"
+                    / "extensions"
+                    / "oss-extension"
+                    / "extension_manifest.json"
+                ).is_file(),
+            }
+
+        self.assertEqual(main_result.exit_code, 0)
+        self.assertEqual(jitter.exit_code, 0)
+        self.assertEqual(oss.exit_code, 0)
+        self.assertEqual(calls_after_jitter, 0)
+        self.assertEqual(len(fake_activation.calls), 2)
+        self.assertEqual(parent_manifest_before, parent_manifest_after)
+        self.assertTrue(restored_parent_states)
+        self.assertTrue(
+            all(
+                content == parent_observed_states[name]
+                for name, content in restored_parent_states.items()
+            )
+        )
+        self.assertTrue(all(output_flags.values()), output_flags)
+
     def test_all_four_families_complete_through_report_without_project_imports(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory).resolve()

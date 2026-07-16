@@ -403,8 +403,7 @@ class OSSRowMaterializerTest(unittest.TestCase):
 
         self.assertEqual(calls_after_first, len(self.rows))
         self.assertEqual(len(calls), calls_after_first)
-        self.assertGreaterEqual(max_active, 2)
-        self.assertLessEqual(max_active, 3)
+        self.assertEqual(max_active, 1)
         np.testing.assert_array_equal(first_probability, second_probability)
         np.testing.assert_array_equal(first_binary, second_binary)
         np.testing.assert_array_equal(first_ids, self.fiber_ids)
@@ -569,9 +568,9 @@ class PPAMActivationBackendTest(unittest.TestCase):
         np.testing.assert_array_equal(first_null, second_null)
         np.testing.assert_array_equal(
             first_binary,
-            (probabilities >= 0.5).astype(np.float32),
+            (probabilities > 0.5).astype(np.float32),
         )
-        self.assertEqual(first_binary[0, 0], 1.0)
+        self.assertEqual(first_binary[0, 0], 0.0)
         expected_weights = benefit_oriented_weights(
             partial_spearman_weights(
                 self.outcome,
@@ -1162,7 +1161,7 @@ class CompletedOSSFixtureContractTest(unittest.TestCase):
         np.testing.assert_array_equal(observed, expected)
         np.testing.assert_array_equal(
             binary_activation(observed),
-            (expected >= 0.5).astype(np.float32),
+            (expected > 0.5).astype(np.float32),
         )
 
 

@@ -236,6 +236,23 @@ class RunStore:
     def read_manifest(self) -> dict[str, Any]:
         return json.loads((self.root / self.MANIFEST_NAME).read_text(encoding="utf-8"))
 
+    def annotate_manifest(self, values: Mapping[str, Any]) -> None:
+        """Atomically add immutable run-type metadata without changing identity fields."""
+
+        protected = {"schema_version", "final_status", *asdict(self.identity)}
+        if any(key in protected for key in values):
+            raise RunStoreError("manifest annotations cannot replace identity or status fields")
+        with self._lock:
+            manifest = self.read_manifest()
+            for key, value in values.items():
+                if key in manifest and manifest[key] != value:
+                    raise RunStoreError(f"run manifest annotation changed for {key}")
+                manifest[key] = value
+            _atomic_write_text(
+                self.root / self.MANIFEST_NAME,
+                json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            )
+
     def write_task_state(self, task_id: str, payload: Mapping[str, Any]) -> None:
         task_id = _token(task_id, "task_id")
         document = dict(payload)
@@ -257,6 +274,56 @@ class RunStore:
             json.loads(path.read_text(encoding="utf-8"))
             for path in sorted((self.root / "tasks").glob("task_*.json"))
         )
+
+    def begin_execution_segment(self, payload: Mapping[str, Any]) -> str:
+        """Append one parent-owned execution segment and return its stable ID."""
+
+        with self._lock:
+            root = self.root / "execution_segments"
+            root.mkdir(parents=True, exist_ok=True)
+            indexes = tuple(
+                int(path.stem.removeprefix("segment_"))
+                for path in root.glob("segment_*.json")
+                if path.stem.removeprefix("segment_").isdigit()
+            )
+            index = max(indexes, default=0) + 1
+            segment_id = f"segment_{index:04d}"
+            document = {
+                "schema_version": "dual_frequency_execution_segment_v1",
+                "segment_id": segment_id,
+                "status": "running",
+                **dict(payload),
+            }
+            _atomic_write_text(
+                root / f"{segment_id}.json",
+                json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            )
+            return segment_id
+
+    def finish_execution_segment(
+        self,
+        segment_id: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        """Atomically close one execution segment without changing its settings."""
+
+        segment_id = _token(segment_id, "execution segment ID")
+        path = self.root / "execution_segments" / f"{segment_id}.json"
+        with self._lock:
+            if not path.is_file():
+                raise RunStoreError(f"execution segment does not exist: {segment_id}")
+            document = json.loads(path.read_text(encoding="utf-8"))
+            if document.get("status") != "running":
+                raise RunStoreError(f"execution segment is already closed: {segment_id}")
+            additions = dict(payload)
+            if any(key in document for key in additions if key != "status"):
+                raise RunStoreError("execution segment completion cannot replace settings")
+            document.update(additions)
+            document["status"] = "finished"
+            _atomic_write_text(
+                path,
+                json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            )
 
     def record_artifacts(self, artifacts: tuple[ArtifactRef, ...]) -> None:
         if not artifacts:

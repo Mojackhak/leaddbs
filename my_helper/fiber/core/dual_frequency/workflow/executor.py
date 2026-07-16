@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import multiprocessing
+import os
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    wait,
+)
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -299,6 +306,7 @@ class ExecutionContext:
     artifact_store: object | None = None
     scientific_cache: object | None = None
     resume: bool = False
+    spawn_worker_spec: object | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_store, RunStore):
@@ -317,6 +325,103 @@ class ExecutionContext:
                 raise ExecutionError("endpoint_facts must map endpoint IDs to fact mappings")
             for name, value in facts.items():
                 RuntimeFact(str(name), value)
+
+
+@dataclass(frozen=True)
+class _ResourceGrant:
+    cpu: int
+    memory_bytes: int
+    connectome_io: int
+    solver: int
+
+
+class _ResourceLedger:
+    """Parent-owned admission ledger beneath the public worker ceiling."""
+
+    def __init__(self, workers: int) -> None:
+        self.workers = workers
+        self.cpu_used = 0
+        self.io_used = 0
+        self.solver_used = 0
+        self.io_limit = max(1, min(2, workers))
+        self.solver_limit = 1
+        self.memory_used = 0
+        self.total_memory, self.available_memory = self._memory_state()
+        self.reserve = max(16 * 1024**3, int(0.20 * self.total_memory))
+        self.managed = min(
+            48 * 1024**3,
+            max(0, self.available_memory - self.reserve),
+        )
+
+    @staticmethod
+    def _memory_state() -> tuple[int, int]:
+        try:
+            import psutil
+
+            memory = psutil.virtual_memory()
+            return int(memory.total), int(memory.available)
+        except ImportError:
+            page_size = int(os.sysconf("SC_PAGE_SIZE"))
+            total = int(os.sysconf("SC_PHYS_PAGES")) * page_size
+            available = int(os.sysconf("SC_AVPHYS_PAGES")) * page_size
+            return total, available
+
+    @staticmethod
+    def request(task: TaskSpec) -> _ResourceGrant:
+        if task.stage == "prepare_exposure":
+            return _ResourceGrant(1, 2 * 1024**3, 1, 0)
+        if task.stage == "activation_sensitivity":
+            return _ResourceGrant(1, 8 * 1024**3, 1, 1)
+        if task.stage in {"formal_permutation", "formal_bootstrap", "spatial_jitter"}:
+            return _ResourceGrant(1, 2 * 1024**3, 0, 0)
+        return _ResourceGrant(1, 512 * 1024**2, 0, 0)
+
+    def can_acquire(self, grant: _ResourceGrant, running_count: int) -> bool:
+        if self.cpu_used + grant.cpu > self.workers:
+            return False
+        if self.io_used + grant.connectome_io > self.io_limit:
+            return False
+        if self.solver_used + grant.solver > self.solver_limit:
+            return False
+        projected = self.available_memory - self.memory_used - grant.memory_bytes
+        normal = (
+            grant.memory_bytes < self.managed
+            and projected > self.reserve
+        )
+        return normal or (running_count < 1 and projected > self.reserve)
+
+    def acquire(self, grant: _ResourceGrant) -> None:
+        self.cpu_used += grant.cpu
+        self.memory_used += grant.memory_bytes
+        self.io_used += grant.connectome_io
+        self.solver_used += grant.solver
+
+    def release(self, grant: _ResourceGrant) -> None:
+        self.cpu_used -= grant.cpu
+        self.memory_used -= grant.memory_bytes
+        self.io_used -= grant.connectome_io
+        self.solver_used -= grant.solver
+
+    def settings(self) -> dict[str, int]:
+        """Return the effective non-scientific admission settings."""
+
+        return {
+            "workers": self.workers,
+            "managed_memory_bytes": self.managed,
+            "required_memory_reserve_bytes": self.reserve,
+            "connectome_io_slots": self.io_limit,
+            "external_solver_slots": self.solver_limit,
+            "blas_threads_per_worker": 1,
+        }
+
+
+def _swap_used_bytes() -> int:
+    try:
+        import psutil
+
+        return int(psutil.swap_memory().used)
+    except ImportError:
+        return 0
 
 
 @dataclass(frozen=True)
@@ -364,7 +469,7 @@ def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[st
             raise ExecutionError(f"resume task identity mismatch for {task.task_id}")
         if outcome.status == "completed":
             _validate_service_result(task, outcome.result)
-        if outcome.status in {"completed", "skipped"}:
+        if outcome.status == "completed":
             output[task.task_id] = outcome
     return output
 
@@ -455,6 +560,80 @@ def _validate_service_result(task: TaskSpec, result: object) -> ServiceResult:
             f"expected {task.endpoint_id!r}"
         )
     return result
+
+
+def _begin_task(task: TaskSpec, context: ExecutionContext) -> tuple[str, Path]:
+    started = _utc_now()
+    context.run_store.write_task_state(
+        task.task_id,
+        {
+            "endpoint_id": task.endpoint_id,
+            "service_id": task.service_id,
+            "status": "running",
+            "reason": "none",
+            "started_at": started,
+            "finished_at": None,
+            "result": None,
+        },
+    )
+    output_dir = context.run_store.root / "work" / task.task_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return started, output_dir
+
+
+def _invoke_local_service(
+    task: TaskSpec,
+    context: ExecutionContext,
+    dependencies: Mapping[str, DependencyState],
+    output_dir: Path,
+) -> ServiceResult:
+    service = context.registry.resolve(task.service_id)
+    request = TaskExecutionRequest(
+        task=task,
+        dependencies=dependencies,
+        run_id=context.run_store.run_id,
+        output_dir=output_dir,
+        provider=context.provider,
+        artifact_store=context.artifact_store,
+        scientific_cache=context.scientific_cache,
+        allow_expensive_producers=context.allow_expensive_producers,
+        workers=1,
+    )
+    return _validate_service_result(task, service(request))
+
+
+def _finish_future(
+    task: TaskSpec,
+    started: str,
+    future: object,
+    context: ExecutionContext,
+) -> TaskOutcome:
+    try:
+        result = _validate_service_result(task, future.result())
+        context.run_store.record_artifacts(result.artifacts)
+        outcome = TaskOutcome(
+            task_id=task.task_id,
+            endpoint_id=task.endpoint_id,
+            service_id=task.service_id,
+            status="completed",
+            reason="none",
+            result=result,
+            started_at=started,
+            finished_at=_utc_now(),
+        )
+    except Exception as exc:
+        outcome = TaskOutcome(
+            task_id=task.task_id,
+            endpoint_id=task.endpoint_id,
+            service_id=task.service_id,
+            status="failed",
+            reason=f"{type(exc).__name__}: {exc}",
+            result=None,
+            started_at=started,
+            finished_at=_utc_now(),
+        )
+    _write_outcome(context.run_store, outcome)
+    return outcome
 
 
 def _run_task(task: TaskSpec, context: ExecutionContext, outcomes: Mapping[str, TaskOutcome]) -> TaskOutcome:
@@ -564,93 +743,183 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     outcomes = _restore_outcomes(plan, context)
     pending = {task.task_id: task for task in plan.tasks if task.task_id not in outcomes}
     abort = False
+    ledger = _ResourceLedger(context.workers)
+    process_mode = context.spawn_worker_spec is not None
+    initial_swap = _swap_used_bytes()
+    segment_id = context.run_store.begin_execution_segment(
+        {
+            "started_at": _utc_now(),
+            "pool_mode": "spawn_process" if process_mode else "in_process_test",
+            "pool_generation_count": 1,
+            **ledger.settings(),
+        }
+    )
+    if process_mode:
+        from .process_worker import (
+            WorkerCommand,
+            execute_worker_command,
+            initialize_worker,
+        )
 
-    while pending:
-        ready = [
-            task
-            for task in plan.tasks
-            if task.task_id in pending and all(dependency in outcomes for dependency in task.dependencies)
-        ]
-        if not ready:
-            raise ExecutionError("executor reached a dependency deadlock")
+        pool = ProcessPoolExecutor(
+            max_workers=context.workers,
+            mp_context=multiprocessing.get_context("spawn"),
+            initializer=initialize_worker,
+            initargs=(context.spawn_worker_spec,),
+        )
+    else:
+        pool = ThreadPoolExecutor(max_workers=context.workers)
+    running: dict[object, tuple[TaskSpec, str, _ResourceGrant]] = {}
+    try:
+        while pending or running:
+            progressed = False
+            ready = [
+                task
+                for task in plan.tasks
+                if task.task_id in pending
+                and all(dependency in outcomes for dependency in task.dependencies)
+            ]
+            for task in ready:
+                if abort:
+                    pending.pop(task.task_id)
+                    outcomes[task.task_id] = _skipped(
+                        task,
+                        "not_run_batch_aborted",
+                        context.run_store,
+                    )
+                    progressed = True
+                    continue
+                dependency_outcomes = tuple(outcomes[item] for item in task.dependencies)
+                blocking = tuple(
+                    outcome
+                    for outcome in dependency_outcomes
+                    if outcome.status == "failed"
+                    or (
+                        outcome.status == "skipped"
+                        and outcome.reason.startswith("dependency_failure")
+                    )
+                )
+                if blocking:
+                    pending.pop(task.task_id)
+                    outcomes[task.task_id] = _skipped(
+                        task,
+                        "dependency_failure:" + ",".join(
+                            item.task_id for item in blocking
+                        ),
+                        context.run_store,
+                    )
+                    progressed = True
+                    continue
+                try:
+                    failed_gate = next(
+                        (
+                            gate
+                            for gate in task.gates
+                            if not _resolve_fact(
+                                task,
+                                gate.fact,
+                                task_index,
+                                outcomes,
+                                context.endpoint_facts,
+                            )
+                        ),
+                        None,
+                    )
+                except ExecutionError as exc:
+                    pending.pop(task.task_id)
+                    outcomes[task.task_id] = _failed(
+                        task,
+                        str(exc),
+                        context.run_store,
+                    )
+                    if not context.continue_on_endpoint_failure:
+                        abort = True
+                    progressed = True
+                    continue
+                if failed_gate is not None:
+                    pending.pop(task.task_id)
+                    outcomes[task.task_id] = _skipped(
+                        task,
+                        failed_gate.false_status,
+                        context.run_store,
+                    )
+                    progressed = True
+                    continue
+                if (
+                    task.expensive_producer
+                    and not task.cache_first_expensive
+                    and not context.allow_expensive_producers
+                ):
+                    pending.pop(task.task_id)
+                    error = ExpensiveProducerNotAuthorized(
+                        f"expensive producer {task.service_id!r} is not authorized"
+                    )
+                    outcomes[task.task_id] = _failed(
+                        task,
+                        f"{type(error).__name__}: {error}",
+                        context.run_store,
+                    )
+                    if not context.continue_on_endpoint_failure:
+                        abort = True
+                    progressed = True
+                    continue
+                if len(running) >= context.workers:
+                    break
+                grant = ledger.request(task)
+                if not ledger.can_acquire(grant, len(running)):
+                    continue
+                pending.pop(task.task_id)
+                started, output_dir = _begin_task(task, context)
+                dependencies = _dependency_states(task, outcomes)
+                if process_mode:
+                    command = WorkerCommand(
+                        task=task,
+                        dependencies=dependencies,
+                        run_id=context.run_store.run_id,
+                        output_dir=output_dir,
+                        allow_expensive_producers=context.allow_expensive_producers,
+                    )
+                    future = pool.submit(execute_worker_command, command)
+                else:
+                    future = pool.submit(
+                        _invoke_local_service,
+                        task,
+                        context,
+                        dependencies,
+                        output_dir,
+                    )
+                ledger.acquire(grant)
+                running[future] = (task, started, grant)
+                progressed = True
 
-        runnable: list[TaskSpec] = []
-        for task in ready:
-            pending.pop(task.task_id)
-            if abort:
-                outcomes[task.task_id] = _skipped(task, "not_run_batch_aborted", context.run_store)
+            if progressed and len(running) < context.workers:
                 continue
-            dependency_outcomes = tuple(outcomes[item] for item in task.dependencies)
-            blocking = tuple(
-                outcome
-                for outcome in dependency_outcomes
-                if outcome.status == "failed"
-                or (outcome.status == "skipped" and outcome.reason.startswith("dependency_failure"))
-            )
-            if blocking:
-                outcomes[task.task_id] = _skipped(
-                    task,
-                    "dependency_failure:" + ",".join(item.task_id for item in blocking),
-                    context.run_store,
+            if running:
+                completed, _pending_futures = wait(
+                    tuple(running),
+                    return_when=FIRST_COMPLETED,
                 )
-                continue
-            try:
-                failed_gate = next(
-                    (
-                        gate
-                        for gate in task.gates
-                        if not _resolve_fact(
-                            task,
-                            gate.fact,
-                            task_index,
-                            outcomes,
-                            context.endpoint_facts,
-                        )
-                    ),
-                    None,
-                )
-            except ExecutionError as exc:
-                outcomes[task.task_id] = _failed(task, str(exc), context.run_store)
-                if not context.continue_on_endpoint_failure:
-                    abort = True
-                continue
-            if failed_gate is not None:
-                outcomes[task.task_id] = _skipped(
-                    task,
-                    failed_gate.false_status,
-                    context.run_store,
-                )
-                continue
-            if (
-                task.expensive_producer
-                and not task.cache_first_expensive
-                and not context.allow_expensive_producers
-            ):
-                error = ExpensiveProducerNotAuthorized(
-                    f"expensive producer {task.service_id!r} is not authorized"
-                )
-                outcomes[task.task_id] = _failed(
-                    task,
-                    f"{type(error).__name__}: {error}",
-                    context.run_store,
-                )
-                if not context.continue_on_endpoint_failure:
-                    abort = True
-                continue
-            runnable.append(task)
-
-        if runnable:
-            snapshot = dict(outcomes)
-            with ThreadPoolExecutor(max_workers=context.workers) as pool:
-                futures = {
-                    pool.submit(_run_task, task, context, snapshot): task
-                    for task in runnable
-                }
-                for future in as_completed(futures):
-                    outcome = future.result()
+                for future in completed:
+                    task, started, grant = running.pop(future)
+                    ledger.release(grant)
+                    outcome = _finish_future(task, started, future, context)
                     outcomes[outcome.task_id] = outcome
                     if outcome.status == "failed" and not context.continue_on_endpoint_failure:
                         abort = True
+                continue
+            if pending:
+                raise ExecutionError(
+                    "executor reached a dependency or resource-admission deadlock"
+                )
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+        context.run_store.finish_execution_segment(
+            segment_id,
+            {
+                "finished_at": _utc_now(),
+                "swap_delta_bytes": max(0, _swap_used_bytes() - initial_swap),
+            },
+        )
 
     ordered = tuple(outcomes[task.task_id] for task in plan.tasks)
     exit_code = 1 if any(outcome.status == "failed" for outcome in ordered) else 0

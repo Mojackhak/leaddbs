@@ -65,7 +65,7 @@ def _build_fold_operators(
         raise FormalBackendInputError("direct-voxel formal limits are incomplete")
     suprathreshold = np.asarray(exposure > tau, dtype=bool)
     full_counts = np.count_nonzero(suprathreshold, axis=0).astype(np.int32)
-    if int(np.count_nonzero(full_counts >= coverage)) < full_minimum:
+    if int(np.count_nonzero(full_counts > coverage)) < full_minimum:
         raise FormalBackendInputError(
             "locked direct-voxel final axis fails its full-sample feature minimum"
         )
@@ -76,7 +76,7 @@ def _build_fold_operators(
     for heldout in subjects:
         train = np.delete(subjects, heldout)
         fold_counts = full_counts - suprathreshold[heldout].astype(np.int32)
-        candidate = fold_counts >= coverage
+        candidate = fold_counts > coverage
         candidate_count = int(np.count_nonzero(candidate))
         if candidate_count < fold_minimum:
             raise FormalBackendInputError(
@@ -295,7 +295,7 @@ def compute_direct_voxel_bootstrap(
         )
         sampled_exposure = np.asarray(exposure[sample], dtype=np.float64)
         sampled_outcome = outcome[sample]
-        candidate = np.count_nonzero(sampled_exposure > tau, axis=0) >= coverage
+        candidate = np.count_nonzero(sampled_exposure > tau, axis=0) > coverage
         replicate_weights = np.full(request.feature_axis.count, np.nan, dtype=np.float64)
         if not np.any(candidate):
             accumulator.update(

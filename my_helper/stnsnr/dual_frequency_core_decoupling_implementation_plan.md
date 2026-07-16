@@ -2876,7 +2876,8 @@ acceptance gaps`). No remote push was performed.
 
 **Status:** `design_documented`; `code_audit_complete`;
 `literature_review_complete`; `threshold_policy_change_authorized`;
-`implementation_not_started`.
+`implementation_in_progress`; `synthetic_acceptance_passed`;
+`production_configuration_validated`; `production_rerun_pending`.
 
 **Authority:**
 `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
@@ -2892,6 +2893,19 @@ reopen the user-authorized threshold comparator: voxel/fiber E-field/tau uses
 and pPAM uses `p(A) > 0.5`. Every reopened boundary is excluded. Formal
 null-tail counting, hard minimum sample/feature
 counts, identity checks, bounds, and numerical tolerances are not reopened.
+
+**Implementation checkpoint, 2026-07-16.** The v2 directly copyable cache,
+per-process verification set, strict array/shard metadata, cross-process
+producer lease, global physical-subject exposure axes, exact strict
+`Omega_max`, distinct voxel/fiber bilateral rules, sensitivity checkpoint and
+extension command, missing-parent rebuild, completed-only resume restoration,
+persistent event-driven spawn scheduler, parent-only persistence, resource
+ledger, execution-segment manifests, and strict threshold boundaries are
+implemented. The complete generic test suite passes. Production validation
+resolves 28 scales, 224 available endpoints, and 1288 tasks through final
+realization. The production rerun, measured resource matrix, hard-worker
+recovery, source-absent sensitivity-cache reuse, single-write large-payload
+conversion, and authorized OSS axis-equivalence decisions remain open.
 
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 

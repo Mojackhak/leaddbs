@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 import hashlib
 import json
@@ -13,7 +12,12 @@ import tempfile
 
 import numpy as np
 
-from ...cache import CacheItem, ContentAddressedCache, RunScopedArtifactPublisher
+from ...cache import (
+    CacheFileMetadata,
+    CacheItem,
+    ContentAddressedCache,
+    RunScopedArtifactPublisher,
+)
 from ...cache.identity import ScientificCacheKey
 from ...contracts import ArtifactRef, AxisRef, FinalModelRecord
 from ...contracts.identity import canonical_hash
@@ -174,6 +178,7 @@ def build_oss_row_cache_key(
             ("ordered_feature_axis", ordered_axis_hash),
             ("oss_ppam_v1", settings.parameter_hash),
         ),
+        kind="oss_rows",
     )
 
 
@@ -434,13 +439,9 @@ class OSSRowMaterializer:
         workers: int,
     ) -> None:
         assert self.producer is not None
-        with ThreadPoolExecutor(max_workers=min(workers, len(missing))) as pool:
-            futures = {
-                pool.submit(self._produce_one, row, key): key.digest
-                for row, key in missing
-            }
-            for future in as_completed(futures):
-                future.result()
+        del workers
+        for row, key in missing:
+            self._produce_one(row, key)
 
     def _produce_one(self, row: OSSRowInput, key: ScientificCacheKey) -> None:
         assert self.producer is not None
@@ -486,6 +487,22 @@ class OSSRowMaterializer:
                     "row_metadata.json": metadata_path,
                 },
                 items=items,
+                metadata={
+                    "fiber_ids.npy": CacheFileMetadata(
+                        dtype=product.feature_ids.dtype.name,
+                        shape=product.feature_ids.shape,
+                        axes=(row.feature_axis,),
+                        units="fiber_id",
+                        space="right_canonical",
+                    ),
+                    "probabilities.npy": CacheFileMetadata(
+                        dtype=product.probabilities.dtype.name,
+                        shape=product.probabilities.shape,
+                        axes=(row.feature_axis,),
+                        units="probability",
+                        space="right_canonical",
+                    ),
+                },
             )
 
     @staticmethod

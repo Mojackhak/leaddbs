@@ -307,7 +307,7 @@ class AddonExposureSensitivityStrategy:
         fraction_over_0p80 = float(np.mean(subject > 0.80))
         if median > 0.50 or fraction_over_0p80 > 0.25 or maximum > 0.95:
             category = "invalid_extreme_out_of_support"
-        elif median <= 0.20 and fraction_over_0p50 <= 0.25:
+        elif median < 0.20 and fraction_over_0p50 < 0.25:
             category = "adequate"
         else:
             category = "limited"

@@ -19,7 +19,12 @@ from unittest import mock
 import nibabel as nib
 import numpy as np
 
-from dual_frequency.cache import ArtifactStore, RunScopedArtifactPublisher, sha256_file
+from dual_frequency.cache import (
+    ArtifactStore,
+    ContentAddressedCache,
+    RunScopedArtifactPublisher,
+    sha256_file,
+)
 from dual_frequency.catalog import build_endpoint_catalog
 from dual_frequency.config import WorkflowOverrides, load_workflow
 from dual_frequency.contracts import (
@@ -192,8 +197,10 @@ class _FiberChunk:
 class _FakeConnectome:
     def __init__(self, chunk: _FiberChunk) -> None:
         self._chunk = chunk
+        self.iteration_count = 0
 
     def iter_chunks(self, _chunk_size: int):
+        self.iteration_count += 1
         yield self._chunk
 
 
@@ -607,6 +614,7 @@ class InputProviderTest(unittest.TestCase):
         *,
         transformer: _CopyTransformer | None = None,
         configuration=None,
+        shared_cache: bool = False,
     ):
         selected_configuration = configuration or self.configuration
         catalog = build_endpoint_catalog(selected_configuration, study)
@@ -620,6 +628,11 @@ class InputProviderTest(unittest.TestCase):
             catalog,
             work_root=self.root / "provider-work",
             artifact_store=artifact_store,
+            scientific_cache=(
+                ContentAddressedCache(self.root / "scientific-cache")
+                if shared_cache
+                else None
+            ),
             left_transformer=selected_transformer,
         )
         return provider, catalog, artifact_store, artifact_root
@@ -1295,6 +1308,142 @@ class InputProviderTest(unittest.TestCase):
             ("no_addon_frequency_group",),
         )
 
+    def test_physical_exposure_is_prepared_once_and_reused_from_v2_cache(self) -> None:
+        provider, catalog, artifact_store, artifact_root = self._provider(
+            self._study(missing_addon_for_last_subject=False),
+            shared_cache=True,
+        )
+        endpoint = self._endpoint(catalog, "reference_voxel")
+        endpoint_input = provider.publish_endpoint_input(
+            endpoint.endpoint_id,
+            RunScopedArtifactPublisher(
+                artifact_root / "shared-input",
+                "shared-input",
+                "1",
+            ),
+        )
+        with mock.patch.object(
+            provider,
+            "_compute_binding_matrix",
+            wraps=provider._compute_binding_matrix,
+        ) as producer:
+            first = provider.publish_prepared_exposure(
+                endpoint_input,
+                None,
+                RunScopedArtifactPublisher(
+                    artifact_root / "shared-first",
+                    "shared-first",
+                    "1",
+                ),
+            )
+            second = provider.publish_prepared_exposure(
+                endpoint_input,
+                None,
+                RunScopedArtifactPublisher(
+                    artifact_root / "shared-second",
+                    "shared-second",
+                    "1",
+                ),
+            )
+        self.assertEqual(producer.call_count, 1)
+        np.testing.assert_array_equal(
+            _materialize(artifact_store, first.exposure),
+            _materialize(artifact_store, second.exposure),
+        )
+        cache_entries = tuple(
+            (self.root / "scientific-cache" / "shared_exposure_v2" / "voxel_exposures").glob(
+                "*"
+            )
+        )
+        self.assertEqual(len(cache_entries), 1)
+
+    def test_different_endpoint_subject_subsets_reuse_one_physical_matrix(self) -> None:
+        provider, catalog, _artifact_store, _artifact_root = self._provider(
+            self._study(missing_addon_for_last_subject=False),
+            shared_cache=True,
+        )
+        endpoint = self._endpoint(catalog, "reference_voxel")
+        feature_space = provider._direct_feature_space()
+        binding = provider.configuration.direct_voxel.endpoint_pair.reference
+        first_subjects = tuple(endpoint.subject_ids[:8])
+        second_subjects = tuple(endpoint.subject_ids[2:11])
+        with mock.patch.object(
+            provider,
+            "_compute_binding_matrix",
+            wraps=provider._compute_binding_matrix,
+        ) as producer:
+            first, first_missing = provider._matrix_for_binding(
+                endpoint,
+                first_subjects,
+                binding,
+                "reference",
+                feature_space,
+                allow_absent=False,
+            )
+            second, second_missing = provider._matrix_for_binding(
+                endpoint,
+                second_subjects,
+                binding,
+                "reference",
+                feature_space,
+                allow_absent=False,
+            )
+        try:
+            self.assertEqual(producer.call_count, 1)
+            self.assertEqual(first_missing, ())
+            self.assertEqual(second_missing, ())
+            self.assertEqual(first.array.shape[0], len(first_subjects))
+            self.assertEqual(second.array.shape[0], len(second_subjects))
+            np.testing.assert_array_equal(first.array[2:], second.array[:6])
+        finally:
+            provider._release_temporary_matrix(first)
+            provider._release_temporary_matrix(second)
+
+    def test_omega_max_is_the_exact_strict_minimum_grid_candidate_union(self) -> None:
+        provider, _catalog, _artifact_store, _artifact_root = self._provider(
+            self._study(missing_addon_for_last_subject=False)
+        )
+        source = dataclasses.replace(
+            provider.configuration.normative_fiber.source,
+            tau_values=(100.0, 200.0),
+            coverage_values=(1, 2),
+        )
+        profile = dataclasses.replace(
+            provider.configuration.normative_fiber,
+            source=source,
+        )
+        parent = _FeatureSpace(
+            AxisRef("parent-fibers", 5, "d" * 64),
+            np.arange(1, 6, dtype=np.int64),
+            None,
+            None,
+            self.root / "synthetic-parent.mat",
+        )
+        exposure = np.array(
+            [
+                [101.0, 101.0, 100.0, 250.0, 201.0],
+                [101.0, 0.0, 100.0, 250.0, 101.0],
+                [0.0, 0.0, 100.0, 250.0, 0.0],
+                [0.0, 0.0, 100.0, 0.0, 0.0],
+            ],
+            dtype=np.float32,
+        )
+        omega, positions = provider._omega_max_feature_space(
+            parent,
+            exposure,
+            ("s1", "s2", "s3", "s4"),
+            profile,
+        )
+        assert positions is not None
+        np.testing.assert_array_equal(positions, np.array([0, 3, 4]))
+        np.testing.assert_array_equal(omega.ids, np.array([1, 4, 5]))
+        for tau in source.tau_values:
+            for coverage in source.coverage_values:
+                candidates = set(
+                    np.flatnonzero(np.count_nonzero(exposure > tau, axis=0) > coverage)
+                )
+                self.assertTrue(candidates.issubset(set(positions.tolist())))
+
     def test_missing_reference_component_preserves_no_delta_cohort(self) -> None:
         provider, catalog, _store, artifact_root = self._provider(
             self._study(
@@ -1435,16 +1584,18 @@ class InputProviderTest(unittest.TestCase):
             points=np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=np.float32),
             point_offsets=np.array([0, 2], dtype=np.int64),
         )
+        fake_connectome = _FakeConnectome(chunk)
         feature_space = _FeatureSpace(
             AxisRef("synthetic-fiber-axis", 1, "c" * 64),
             np.array([1], dtype=np.int64),
             None,
-            _FakeConnectome(chunk),
+            fake_connectome,
             connectome_path,
         )
+        physical_subjects = tuple(endpoint.subject_ids[:2])
         temporary, missing = provider._matrix_for_binding(
             endpoint,
-            (subject_id,),
+            physical_subjects,
             provider.configuration.direct_voxel.endpoint_pair.reference,
             "reference",
             feature_space,
@@ -1453,7 +1604,9 @@ class InputProviderTest(unittest.TestCase):
         try:
             self.assertIsInstance(temporary.array, np.memmap)
             self.assertEqual(missing, ())
+            self.assertEqual(temporary.array.shape, (2, 1))
             self.assertAlmostEqual(float(temporary.array[0, 0]), 10.0)
+            self.assertEqual(fake_connectome.iteration_count, 1)
         finally:
             provider._release_temporary_matrix(temporary)
 

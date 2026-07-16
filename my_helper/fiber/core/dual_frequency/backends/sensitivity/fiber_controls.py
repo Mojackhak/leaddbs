@@ -126,7 +126,7 @@ def _plain_summaries(
     if not np.any(candidate):
         raise SensitivityStrategyError("plain fiber control has an empty candidate set")
     selected = np.asarray(exposure[:, candidate], dtype=np.float64)
-    touched = selected >= float(tau)
+    touched = selected > float(tau)
     touched_count = np.count_nonzero(touched, axis=1).astype(np.int64)
     exposure_sum = np.sum(selected, axis=1, dtype=np.float64)
     peak_count = max(1, int(np.ceil(peak_fraction * selected.shape[1])))

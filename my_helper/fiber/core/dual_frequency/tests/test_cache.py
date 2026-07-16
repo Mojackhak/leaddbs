@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -16,9 +18,11 @@ from dual_frequency.cache import (
     ArtifactStore,
     ArtifactValidationError,
     CacheCorruption,
+    CacheFileMetadata,
     CacheIdentityError,
     CacheIdentityMismatch,
     CacheItem,
+    CacheShardInterval,
     ContentAddressedCache,
     RunScopedArtifactPublisher,
     ScientificCacheKey,
@@ -108,16 +112,33 @@ class ContentAddressedCacheTest(unittest.TestCase):
         path.write_bytes(content)
         return path
 
+    def _array_source(self, name: str, value: np.ndarray) -> Path:
+        path = self.sources / name
+        np.save(path, value, allow_pickle=False)
+        return path
+
     def test_atomic_publish_manifest_and_exact_reuse(self) -> None:
-        matrix = self._source("matrix.npy", b"matrix-content")
+        matrix_value = np.arange(6, dtype=np.float32).reshape(2, 3)
+        matrix = self._array_source("matrix.npy", matrix_value)
         axis = self._source("axis.json", b"axis-content")
         key = _key()
         items = (CacheItem("fiber-2", "b" * 64), CacheItem("fiber-1", "a" * 64))
+        rows = AxisRef("rows", 2, "c" * 64)
+        columns = AxisRef("columns", 3, "d" * 64)
 
         first = self.cache.publish(
             key,
             {"arrays/matrix.npy": matrix, "axes/axis.json": axis},
             items=items,
+            metadata={
+                "arrays/matrix.npy": CacheFileMetadata(
+                    dtype="float32",
+                    shape=(2, 3),
+                    axes=(rows, columns),
+                    units="V/m",
+                    space="canonical_grid",
+                )
+            },
         )
         self.assertFalse(first.reused)
         self.assertEqual(first.path, self.cache.entry_path(key))
@@ -138,6 +159,15 @@ class ContentAddressedCacheTest(unittest.TestCase):
             key,
             {"arrays/matrix.npy": matrix, "axes/axis.json": axis},
             items=items,
+            metadata={
+                "arrays/matrix.npy": CacheFileMetadata(
+                    dtype="float32",
+                    shape=(2, 3),
+                    axes=(rows, columns),
+                    units="V/m",
+                    space="canonical_grid",
+                )
+            },
         )
         self.assertTrue(second.reused)
         self.assertEqual(first.files, second.files)
@@ -157,7 +187,11 @@ class ContentAddressedCacheTest(unittest.TestCase):
     def test_partial_failure_leaves_no_entry_or_staging_directory(self) -> None:
         source = self._source("artifact.bin", b"content")
         key = _key(geometry_hash="8" * 64)
-        with mock.patch("dual_frequency.cache.store.shutil.copy2", side_effect=OSError("boom")):
+        with mock.patch.object(
+            ContentAddressedCache,
+            "_copy_and_hash",
+            side_effect=OSError("boom"),
+        ):
             with self.assertRaises(OSError):
                 self.cache.publish(key, {"artifact.bin": source})
         self.assertFalse(self.cache.entry_path(key).exists())
@@ -169,7 +203,7 @@ class ContentAddressedCacheTest(unittest.TestCase):
         entry = self.cache.publish(key, {"artifact.bin": source})
         entry.file_path("artifact.bin").write_bytes(b"corrupt")
         with self.assertRaises(CacheCorruption):
-            self.cache.resolve(key)
+            ContentAddressedCache(self.root / "cache").resolve(key)
 
         second_key = _key(geometry_hash="9" * 64)
         second = self.cache.publish(second_key, {"artifact.bin": source})
@@ -210,6 +244,137 @@ class ContentAddressedCacheTest(unittest.TestCase):
         for case in cases:
             with self.subTest(case=case), self.assertRaises(CacheIdentityMismatch):
                 self.cache.reindexed_view(key, case)
+
+    def test_direct_copy_is_verified_once_per_process_instance(self) -> None:
+        source = self._source("artifact.bin", b"portable-content")
+        key = _key(kind="fiber_exposures")
+        source_cache = ContentAddressedCache(self.root / "source-cache")
+        source_entry = source_cache.publish(key, {"artifact.bin": source})
+
+        copied_cache = ContentAddressedCache(self.root / "copied-cache")
+        destination = copied_cache.entry_path(key)
+        destination.parent.mkdir(parents=True)
+        shutil.copytree(source_entry.path, destination)
+        with mock.patch(
+            "dual_frequency.cache.store.sha256_file",
+            wraps=sha256_file,
+        ) as checksum:
+            first = copied_cache.resolve(key)
+            second = copied_cache.resolve(key)
+            portable = copied_cache.resolve_identity(key.kind, key.digest)
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertIsNotNone(portable)
+        self.assertEqual(portable.key, key)
+        self.assertEqual(checksum.call_count, 1)
+
+        with mock.patch(
+            "dual_frequency.cache.store.sha256_file",
+            wraps=sha256_file,
+        ) as checksum:
+            ContentAddressedCache(self.root / "copied-cache").resolve(key)
+        self.assertEqual(checksum.call_count, 1)
+
+    def test_partial_direct_copy_fails_closed_without_mutation(self) -> None:
+        source = self._source("artifact.bin", b"portable-content")
+        key = _key(kind="voxel_exposures")
+        source_entry = ContentAddressedCache(self.root / "source-cache").publish(
+            key,
+            {"artifact.bin": source},
+        )
+        copied_cache = ContentAddressedCache(self.root / "copied-cache")
+        destination = copied_cache.entry_path(key)
+        destination.mkdir(parents=True)
+        shutil.copy2(source_entry.manifest_path, destination / "manifest.json")
+        with self.assertRaises(CacheCorruption):
+            copied_cache.resolve(key)
+        self.assertTrue(destination.is_dir())
+        self.assertTrue((destination / "manifest.json").is_file())
+
+    def test_array_structure_and_complete_shard_intervals_are_verified(self) -> None:
+        key = _key(kind="jitter_exposures")
+        logical_axis = AxisRef("replicates", 4, "e" * 64)
+        first = self._array_source("part-000.npy", np.array([1.0, 2.0]))
+        second = self._array_source("part-001.npy", np.array([3.0, 4.0]))
+        metadata = {
+            "parts/part-000.npy": CacheFileMetadata(
+                dtype="float64",
+                shape=(2,),
+                axes=(logical_axis,),
+                units="V/m",
+                space="canonical_grid",
+                shard_interval=CacheShardInterval("exposure", "replicates", 0, 2),
+            ),
+            "parts/part-001.npy": CacheFileMetadata(
+                dtype="float64",
+                shape=(2,),
+                axes=(logical_axis,),
+                units="V/m",
+                space="canonical_grid",
+                shard_interval=CacheShardInterval("exposure", "replicates", 2, 4),
+            ),
+        }
+        entry = self.cache.publish(
+            key,
+            {"parts/part-000.npy": first, "parts/part-001.npy": second},
+            metadata=metadata,
+        )
+        self.assertEqual(entry.path, self.cache.entry_path(key))
+
+        payload = json.loads(entry.manifest_path.read_text(encoding="utf-8"))
+        payload["files"][1]["shard_interval"]["start"] = 3
+        entry.manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaises(CacheCorruption):
+            ContentAddressedCache(self.root / "cache").resolve(key)
+
+    def test_numpy_payload_requires_exact_declared_header(self) -> None:
+        array = self._array_source("values.npy", np.array([1.0, 2.0]))
+        axis = AxisRef("values", 2, "f" * 64)
+        with self.assertRaises(CacheIdentityMismatch):
+            self.cache.publish(_key(), {"values.npy": array})
+        with self.assertRaises(CacheCorruption):
+            self.cache.publish(
+                _key(),
+                {"values.npy": array},
+                metadata={
+                    "values.npy": CacheFileMetadata(
+                        dtype="float32",
+                        shape=(2,),
+                        axes=(axis,),
+                    )
+                },
+            )
+
+    def test_cross_instance_producer_lease_serializes_one_publication(self) -> None:
+        source = self._source("artifact.bin", b"content")
+        key = _key(kind="voxel_exposures")
+        produced: list[int] = []
+
+        def publish(index: int) -> bool:
+            cache = ContentAddressedCache(self.root / "lease-cache")
+            with cache.producer_lease(key, timeout_seconds=2.0) as owner:
+                if owner:
+                    produced.append(index)
+                    cache.publish(key, {"artifact.bin": source})
+                return owner
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            owners = tuple(pool.map(publish, (1, 2)))
+        self.assertEqual(sum(owners), 1)
+        self.assertEqual(len(produced), 1)
+        self.assertIsNotNone(ContentAddressedCache(self.root / "lease-cache").resolve(key))
+
+    def test_stale_producer_lock_is_quarantined_before_recovery(self) -> None:
+        cache = ContentAddressedCache(self.root / "stale-cache")
+        key = _key(kind="fiber_exposures")
+        destination = cache.entry_path(key)
+        destination.parent.mkdir(parents=True)
+        lock = destination.parent / f".{key.digest}.produce.lock"
+        lock.write_text("pid=999999999\n", encoding="ascii")
+        with cache.producer_lease(key, timeout_seconds=1.0) as owner:
+            self.assertTrue(owner)
+        self.assertFalse(lock.exists())
+        self.assertEqual(len(tuple(destination.parent.glob(f"{lock.name}.stale-*"))), 1)
 
     def test_duplicate_source_items_are_rejected(self) -> None:
         source = self._source("artifact.bin", b"content")

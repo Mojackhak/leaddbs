@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
+import time
 from typing import Any, Mapping, Sequence
 from urllib.parse import unquote, urlsplit
 
@@ -85,12 +87,121 @@ class CacheItem:
 
 
 @dataclass(frozen=True, order=True, slots=True)
+class CacheShardInterval:
+    """One half-open interval in a complete ordered shard set."""
+
+    set_id: str
+    axis_id: str
+    start: int
+    stop: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "set_id", _token(self.set_id, "shard set_id"))
+        object.__setattr__(self, "axis_id", _token(self.axis_id, "shard axis_id"))
+        object.__setattr__(self, "start", int(self.start))
+        object.__setattr__(self, "stop", int(self.stop))
+        if self.start < 0 or self.stop <= self.start:
+            raise CacheIdentityMismatch("shard interval must be nonempty and nonnegative")
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "set_id": self.set_id,
+            "axis_id": self.axis_id,
+            "start": self.start,
+            "stop": self.stop,
+        }
+
+
+@dataclass(frozen=True, order=True, slots=True)
+class CacheFileMetadata:
+    """Portable structural metadata for one cached payload."""
+
+    dtype: str | None = None
+    shape: tuple[int, ...] | None = None
+    axes: tuple[AxisRef, ...] = ()
+    units: str | None = None
+    space: str | None = None
+    shard_interval: CacheShardInterval | None = None
+
+    def __post_init__(self) -> None:
+        axes = tuple(self.axes)
+        if not all(isinstance(axis, AxisRef) for axis in axes):
+            raise CacheIdentityMismatch("cache file axes must contain only AxisRef values")
+        object.__setattr__(self, "axes", axes)
+        if self.dtype is None:
+            if self.shape is not None or axes or self.units is not None or self.space is not None:
+                raise CacheIdentityMismatch(
+                    "non-array cache files cannot declare array metadata"
+                )
+            if self.shard_interval is not None:
+                raise CacheIdentityMismatch("non-array cache files cannot be shards")
+            return
+        try:
+            object.__setattr__(self, "dtype", np.dtype(self.dtype).name)
+        except TypeError as exc:
+            raise CacheIdentityMismatch("cache file dtype is invalid") from exc
+        if np.dtype(self.dtype) == np.dtype(object):
+            raise CacheIdentityMismatch("object arrays are forbidden in the cache")
+        if self.shape is None:
+            raise CacheIdentityMismatch("array cache files require shape")
+        shape = tuple(int(value) for value in self.shape)
+        if not shape or any(value < 1 for value in shape):
+            raise CacheIdentityMismatch("array cache file shape must be nonempty and positive")
+        object.__setattr__(self, "shape", shape)
+        if len(axes) != len(shape):
+            raise CacheIdentityMismatch("array cache file axes must match shape rank")
+        interval = self.shard_interval
+        if interval is not None and not isinstance(interval, CacheShardInterval):
+            raise CacheIdentityMismatch("shard_interval must be a CacheShardInterval")
+        shard_matches = 0
+        for dimension, axis in zip(shape, axes, strict=True):
+            if interval is not None and axis.axis_id == interval.axis_id:
+                shard_matches += 1
+                if dimension != interval.stop - interval.start or interval.stop > axis.count:
+                    raise CacheIdentityMismatch("shard interval does not match array metadata")
+            elif dimension != axis.count:
+                raise CacheIdentityMismatch("array shape does not match ordered axes")
+        if interval is not None and shard_matches != 1:
+            raise CacheIdentityMismatch("shard axis must occur exactly once in ordered axes")
+        object.__setattr__(
+            self,
+            "units",
+            None if self.units is None else _token(self.units, "cache file units"),
+        )
+        object.__setattr__(
+            self,
+            "space",
+            None if self.space is None else _token(self.space, "cache file space"),
+        )
+
+    @property
+    def is_array(self) -> bool:
+        return self.dtype is not None
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "dtype": self.dtype,
+            "shape": None if self.shape is None else list(self.shape),
+            "axes": [
+                {"axis_id": axis.axis_id, "count": axis.count, "sha256": axis.sha256}
+                for axis in self.axes
+            ],
+            "units": self.units,
+            "space": self.space,
+            "shard_interval": (
+                None if self.shard_interval is None else self.shard_interval.as_dict()
+            ),
+        }
+
+
+@dataclass(frozen=True, order=True, slots=True)
 class CachedFile:
     """One file covered by a complete cache manifest."""
 
     relative_path: str
     sha256: str
     size_bytes: int
+    metadata: CacheFileMetadata = CacheFileMetadata()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "relative_path", _relative_path(self.relative_path))
@@ -98,13 +209,17 @@ class CachedFile:
         object.__setattr__(self, "size_bytes", int(self.size_bytes))
         if self.size_bytes < 0:
             raise CacheIdentityMismatch("file size_bytes must be nonnegative")
+        if not isinstance(self.metadata, CacheFileMetadata):
+            raise CacheIdentityMismatch("file metadata must be CacheFileMetadata")
 
     def as_dict(self) -> dict[str, object]:
-        return {
+        payload = {
             "relative_path": self.relative_path,
             "sha256": self.sha256,
             "size_bytes": self.size_bytes,
         }
+        payload.update(self.metadata.as_dict())
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,11 +285,15 @@ class ContentAddressedCache:
         self.root.mkdir(parents=True, exist_ok=True)
         if not self.root.is_dir():
             raise CacheError(f"cache root is not a directory: {self.root}")
+        self._verified_entries: set[tuple[str, str]] = set()
 
     def entry_path(self, key: ScientificCacheKey) -> Path:
         if not isinstance(key, ScientificCacheKey):
             raise TypeError("key must be a ScientificCacheKey")
-        return self.root / key.digest[:2] / key.digest
+        kind = _relative_path(key.kind)
+        if "/" in kind:
+            raise CacheIdentityMismatch("cache kind must be one path component")
+        return self.root / "shared_exposure_v2" / kind / key.digest
 
     def publish(
         self,
@@ -182,8 +301,9 @@ class ContentAddressedCache:
         files: Mapping[str, str | Path],
         *,
         items: Sequence[CacheItem | tuple[str, str]] = (),
+        metadata: Mapping[str, CacheFileMetadata] | None = None,
     ) -> CacheEntry:
-        """Atomically publish files or reuse an exact existing entry."""
+        """Atomically publish files while hashing the final bytes during the write."""
 
         if not isinstance(key, ScientificCacheKey):
             raise TypeError("key must be a ScientificCacheKey")
@@ -199,6 +319,7 @@ class ContentAddressedCache:
                 raise CacheIdentityMismatch(f"cache source is not a file: {source_path}")
             normalized_sources[normalized] = source_path
         normalized_items = _cache_items(items)
+        normalized_metadata = self._normalize_metadata(normalized_sources, metadata)
 
         destination = self.entry_path(key)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -210,11 +331,19 @@ class ContentAddressedCache:
             for relative_path, source in sorted(normalized_sources.items()):
                 target = staging / relative_path
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, target)
+                digest, size_bytes = self._copy_and_hash(source, target)
                 cached_files.append(
-                    CachedFile(relative_path, sha256_file(target), target.stat().st_size)
+                    CachedFile(
+                        relative_path,
+                        digest,
+                        size_bytes,
+                        normalized_metadata[relative_path],
+                    )
                 )
             expected_files = tuple(cached_files)
+            for record in expected_files:
+                self._validate_file_structure(staging / record.relative_path, record)
+            self._validate_shards(expected_files)
             payload = self._manifest_payload(key, expected_files, normalized_items)
             _write_json(staging / MANIFEST_NAME, payload)
 
@@ -231,7 +360,12 @@ class ContentAddressedCache:
                 existing = self._load_entry(destination, expected_key=key, reused=True)
                 self._require_exact_publication(existing, expected_files, normalized_items)
                 return existing
-            return self._load_entry(destination, expected_key=key, reused=False)
+            return self._load_entry(
+                destination,
+                expected_key=key,
+                reused=False,
+                trust_publisher_payloads=True,
+            )
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
@@ -243,6 +377,89 @@ class ContentAddressedCache:
         if not destination.exists():
             return None
         return self._load_entry(destination, expected_key=key, reused=True)
+
+    def resolve_identity(self, kind: str, semantic_sha256: str) -> CacheEntry | None:
+        """Validate a directly copied entry from only its portable identity."""
+
+        normalized_kind = _relative_path(kind)
+        if "/" in normalized_kind:
+            raise CacheIdentityMismatch("cache kind must be one path component")
+        digest = _sha256(semantic_sha256, "semantic_sha256")
+        destination = self.root / "shared_exposure_v2" / normalized_kind / digest
+        if not destination.exists():
+            return None
+        manifest_path = destination / MANIFEST_NAME
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            key = ScientificCacheKey.from_dict(payload["scientific_cache_key"])
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, CacheIdentityError) as exc:
+            raise CacheCorruption(f"cache manifest identity is unreadable: {manifest_path}") from exc
+        if key.kind != normalized_kind or key.digest != digest:
+            raise CacheIdentityMismatch("copied cache directory identity does not match manifest")
+        return self._load_entry(destination, expected_key=key, reused=True)
+
+    @contextmanager
+    def producer_lease(
+        self,
+        key: ScientificCacheKey,
+        *,
+        timeout_seconds: float = 600.0,
+    ):
+        """Serialize one cache miss across processes without hiding corrupt entries."""
+
+        if not isinstance(key, ScientificCacheKey):
+            raise TypeError("key must be a ScientificCacheKey")
+        destination = self.entry_path(key)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        lock = destination.parent / f".{key.digest}.produce.lock"
+        deadline = time.monotonic() + float(timeout_seconds)
+        owned = False
+        while True:
+            if destination.exists():
+                yield False
+                return
+            try:
+                descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            except FileExistsError:
+                if self._quarantine_stale_lock(lock):
+                    continue
+                if time.monotonic() > deadline:
+                    raise CacheError(f"timed out waiting for cache producer lease: {lock}")
+                time.sleep(0.05)
+                continue
+            with os.fdopen(descriptor, "w", encoding="ascii") as stream:
+                stream.write(f"pid={os.getpid()}\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            owned = True
+            break
+        try:
+            yield True
+        finally:
+            if owned:
+                lock.unlink(missing_ok=True)
+
+    @staticmethod
+    def _quarantine_stale_lock(lock: Path) -> bool:
+        try:
+            text = lock.read_text(encoding="ascii").strip()
+            pid = int(text.removeprefix("pid="))
+        except (OSError, UnicodeDecodeError, ValueError):
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            quarantine = lock.with_name(
+                f"{lock.name}.stale-{time.time_ns()}"
+            )
+            try:
+                os.replace(lock, quarantine)
+            except FileNotFoundError:
+                pass
+            return True
+        except PermissionError:
+            return False
+        return False
 
     def reindexed_view(
         self,
@@ -281,12 +498,177 @@ class ContentAddressedCache:
         items: tuple[CacheItem, ...],
     ) -> dict[str, object]:
         return {
-            "schema_version": "scientific_cache_entry_v1",
+            "schema_version": "scientific_cache_entry_v2",
+            "completed": True,
             "scientific_identity": key.digest,
             "scientific_cache_key": key.as_dict(),
             "files": [item.as_dict() for item in files],
             "items": [item.as_dict() for item in items],
         }
+
+    @staticmethod
+    def _cached_file_from_dict(value: object) -> CachedFile:
+        if not isinstance(value, dict):
+            raise CacheIdentityMismatch("cache file record must be an object")
+        expected = {
+            "relative_path",
+            "sha256",
+            "size_bytes",
+            "dtype",
+            "shape",
+            "axes",
+            "units",
+            "space",
+            "shard_interval",
+        }
+        if set(value) != expected:
+            raise CacheIdentityMismatch("cache file record has unexpected fields")
+        axes_value = value["axes"]
+        if not isinstance(axes_value, list):
+            raise CacheIdentityMismatch("cache file axes must be an array")
+        axes: list[AxisRef] = []
+        for axis in axes_value:
+            if not isinstance(axis, dict) or set(axis) != {"axis_id", "count", "sha256"}:
+                raise CacheIdentityMismatch("cache axis record is invalid")
+            axes.append(AxisRef(axis["axis_id"], axis["count"], axis["sha256"]))
+        shard_value = value["shard_interval"]
+        shard: CacheShardInterval | None = None
+        if shard_value is not None:
+            if not isinstance(shard_value, dict) or set(shard_value) != {
+                "set_id",
+                "axis_id",
+                "start",
+                "stop",
+            }:
+                raise CacheIdentityMismatch("cache shard interval record is invalid")
+            shard = CacheShardInterval(
+                shard_value["set_id"],
+                shard_value["axis_id"],
+                shard_value["start"],
+                shard_value["stop"],
+            )
+        shape_value = value["shape"]
+        if shape_value is not None and not isinstance(shape_value, list):
+            raise CacheIdentityMismatch("cache file shape must be an array or null")
+        metadata = CacheFileMetadata(
+            dtype=value["dtype"],
+            shape=None if shape_value is None else tuple(shape_value),
+            axes=tuple(axes),
+            units=value["units"],
+            space=value["space"],
+            shard_interval=shard,
+        )
+        return CachedFile(
+            value["relative_path"],
+            value["sha256"],
+            value["size_bytes"],
+            metadata,
+        )
+
+    @staticmethod
+    def _validate_file_structure(path: Path, record: CachedFile) -> None:
+        metadata = record.metadata
+        if not metadata.is_array:
+            return
+        if path.suffix != ".npy":
+            raise CacheCorruption(f"array cache file is not NPY: {record.relative_path}")
+        try:
+            array = np.load(path, allow_pickle=False, mmap_mode="r")
+        except (OSError, ValueError) as exc:
+            raise CacheCorruption(
+                f"cache array header is invalid: {record.relative_path}"
+            ) from exc
+        try:
+            if not isinstance(array, np.ndarray):
+                raise CacheCorruption(
+                    f"cache array did not materialize as ndarray: {record.relative_path}"
+                )
+            if array.dtype != np.dtype(metadata.dtype) or array.shape != metadata.shape:
+                raise CacheCorruption(
+                    f"cache array metadata mismatch: {record.relative_path}"
+                )
+        finally:
+            mmap = getattr(array, "_mmap", None)
+            if mmap is not None:
+                mmap.close()
+
+    @staticmethod
+    def _validate_shards(files: tuple[CachedFile, ...]) -> None:
+        groups: dict[str, list[tuple[CacheShardInterval, AxisRef]]] = {}
+        for record in files:
+            interval = record.metadata.shard_interval
+            if interval is None:
+                continue
+            matching = tuple(
+                axis for axis in record.metadata.axes if axis.axis_id == interval.axis_id
+            )
+            if len(matching) != 1:
+                raise CacheCorruption("cache shard axis metadata is inconsistent")
+            groups.setdefault(interval.set_id, []).append((interval, matching[0]))
+        for set_id, members in groups.items():
+            first_axis = members[0][1]
+            if any(axis != first_axis for _interval, axis in members):
+                raise CacheCorruption(f"cache shard axis changed within set {set_id!r}")
+            intervals = [interval for interval, _axis in members]
+            if intervals != sorted(intervals, key=lambda value: value.start):
+                raise CacheCorruption(f"cache shard intervals are reordered in set {set_id!r}")
+            expected_start = 0
+            for interval in intervals:
+                if interval.start != expected_start:
+                    raise CacheCorruption(
+                        f"cache shard intervals are missing or overlapping in set {set_id!r}"
+                    )
+                expected_start = interval.stop
+            if expected_start != first_axis.count:
+                raise CacheCorruption(f"cache shard set {set_id!r} is incomplete")
+
+    @staticmethod
+    def _normalize_metadata(
+        files: Mapping[str, Path],
+        metadata: Mapping[str, CacheFileMetadata] | None,
+    ) -> dict[str, CacheFileMetadata]:
+        supplied = {} if metadata is None else dict(metadata)
+        normalized: dict[str, CacheFileMetadata] = {}
+        for relative_path, value in supplied.items():
+            path = _relative_path(relative_path)
+            if path not in files:
+                raise CacheIdentityMismatch(
+                    f"cache metadata names an undeclared file: {path}"
+                )
+            if not isinstance(value, CacheFileMetadata):
+                raise CacheIdentityMismatch("cache metadata values must be CacheFileMetadata")
+            normalized[path] = value
+        for relative_path in files:
+            value = normalized.get(relative_path, CacheFileMetadata())
+            if relative_path.endswith(".npy") and not value.is_array:
+                raise CacheIdentityMismatch(
+                    f"NumPy cache payload requires structural metadata: {relative_path}"
+                )
+            if not relative_path.endswith(".npy") and value.is_array:
+                raise CacheIdentityMismatch(
+                    f"array cache payload must use the .npy format: {relative_path}"
+                )
+            normalized[relative_path] = value
+        return normalized
+
+    @staticmethod
+    def _copy_and_hash(source: Path, target: Path) -> tuple[str, int]:
+        import hashlib
+
+        digest = hashlib.sha256()
+        size_bytes = 0
+        with source.open("rb") as input_stream, target.open("xb") as output_stream:
+            while True:
+                chunk = input_stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                output_stream.write(chunk)
+                digest.update(chunk)
+                size_bytes += len(chunk)
+            output_stream.flush()
+            os.fsync(output_stream.fileno())
+        shutil.copystat(source, target, follow_symlinks=False)
+        return digest.hexdigest(), size_bytes
 
     @staticmethod
     def _require_exact_publication(
@@ -305,6 +687,7 @@ class ContentAddressedCache:
         *,
         expected_key: ScientificCacheKey,
         reused: bool,
+        trust_publisher_payloads: bool = False,
     ) -> CacheEntry:
         manifest_path = path / MANIFEST_NAME
         if path.is_symlink() or not path.is_dir():
@@ -319,6 +702,7 @@ class ContentAddressedCache:
             raise CacheCorruption(f"cache manifest is unreadable: {manifest_path}") from exc
         expected_fields = {
             "schema_version",
+            "completed",
             "scientific_identity",
             "scientific_cache_key",
             "files",
@@ -326,8 +710,10 @@ class ContentAddressedCache:
         }
         if not isinstance(payload, dict) or set(payload) != expected_fields:
             raise CacheCorruption("cache manifest has unexpected fields")
-        if payload["schema_version"] != "scientific_cache_entry_v1":
+        if payload["schema_version"] != "scientific_cache_entry_v2":
             raise CacheCorruption("unsupported cache manifest schema")
+        if payload["completed"] is not True:
+            raise CacheCorruption("cache manifest is not complete")
         try:
             actual_key = ScientificCacheKey.from_dict(payload["scientific_cache_key"])
         except CacheIdentityError as exc:
@@ -340,14 +726,11 @@ class ContentAddressedCache:
             raise CacheCorruption("cache manifest scientific identity digest is inconsistent")
 
         try:
-            files = tuple(
-                CachedFile(item["relative_path"], item["sha256"], item["size_bytes"])
-                for item in payload["files"]
-            )
+            files = tuple(self._cached_file_from_dict(item) for item in payload["files"])
             items = _cache_items(
                 tuple((item["item_id"], item["sha256"]) for item in payload["items"])
             )
-        except (CacheIdentityMismatch, KeyError, TypeError) as exc:
+        except (CacheIdentityMismatch, KeyError, TypeError, ValueError) as exc:
             raise CacheCorruption("cache manifest file or item records are invalid") from exc
         if tuple(sorted(files, key=lambda item: item.relative_path)) != files:
             raise CacheCorruption("cache manifest files must be unique and sorted")
@@ -355,9 +738,12 @@ class ContentAddressedCache:
         if len(set(file_names)) != len(file_names):
             raise CacheCorruption("cache manifest file paths must be unique")
         declared = set(file_names)
+        descendants = tuple(path.rglob("*"))
+        if any(descendant.is_symlink() for descendant in descendants):
+            raise CacheCorruption("cache entries cannot contain symbolic links")
         actual = {
             file.relative_to(path).as_posix()
-            for file in path.rglob("*")
+            for file in descendants
             if file.is_file() and file != manifest_path
         }
         if actual != declared:
@@ -365,17 +751,21 @@ class ContentAddressedCache:
                 f"cache manifest is incomplete: missing={sorted(declared - actual)!r}, "
                 f"extra={sorted(actual - declared)!r}"
             )
+        verified_key = (expected_key.kind, expected_key.digest)
+        verify_payloads = verified_key not in self._verified_entries
         for record in files:
             file_path = path / record.relative_path
-            if file_path.is_symlink():
-                raise CacheCorruption(
-                    f"cache file cannot be a symbolic link: {record.relative_path}"
-                )
+            if file_path.stat().st_size != record.size_bytes:
+                raise CacheCorruption(f"cache file failed verification: {record.relative_path}")
+            self._validate_file_structure(file_path, record)
             if (
-                file_path.stat().st_size != record.size_bytes
-                or sha256_file(file_path) != record.sha256
+                verify_payloads
+                and not trust_publisher_payloads
+                and sha256_file(file_path) != record.sha256
             ):
                 raise CacheCorruption(f"cache file failed verification: {record.relative_path}")
+        self._validate_shards(files)
+        self._verified_entries.add(verified_key)
         return CacheEntry(path, actual_key, files, items, reused)
 
 

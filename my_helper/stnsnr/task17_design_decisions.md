@@ -4,7 +4,9 @@
 
 ```text
 decision_record_active
-task17_implementation_open
+task17_implementation_in_progress
+synthetic_acceptance_passed
+production_configuration_validated
 production_outputs_missing
 production_rerun_required
 ```
@@ -139,3 +141,26 @@ extensions, missing-parent rebuild, shared physical preparation, persistent
 process scheduling, resource admission, resume correction, numerical parity,
 and resource acceptance are all required before completion. Implementing only
 the extension runner or only the cache contract cannot close Task 17.
+
+## Implementation Checkpoint
+
+The current implementation now provides:
+
+- strict voxel, fiber, overlap, support-QC, and pPAM boundaries;
+- scale-independent physical-subject exposure keys and endpoint row subsets;
+- exact strict `Omega_max` construction;
+- directly copyable v2 cache entries with complete first-use SHA and structural
+  validation in every process;
+- one cross-process producer lease per semantic entry;
+- main-run sensitivity checkpoints, isolated jitter/OSS extension runs,
+  extension resume, and missing-parent rebuild into a new lineage;
+- one persistent event-driven pool, macOS spawn workers for production,
+  numerical-library thread caps, parent-only RunStore updates, resource
+  admission, and one execution-segment record per invocation;
+- dependency-derived skip reevaluation on resume.
+
+The generic suite passes, and production configuration validation reports 28
+scales, 224 available endpoints, and 1288 tasks through final realization. The
+remaining completion evidence is the production rerun plus measured resource,
+worker-recovery, source-absent cache reuse, single-write payload, and authorized
+OSS axis-equivalence gates.

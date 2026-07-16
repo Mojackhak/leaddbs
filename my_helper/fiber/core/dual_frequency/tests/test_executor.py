@@ -177,6 +177,35 @@ class ExecutorTest(unittest.TestCase):
         self.assertTrue(by_id[a_second.task_id].reason.startswith("dependency_failure"))
         self.assertEqual(by_id[b_first.task_id].status, "completed")
 
+    def test_fault_free_execution_records_one_closed_pool_generation(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        first = _task(endpoint, "first", "ok")
+        second = _task(endpoint, "second", "ok", dependencies=(first.task_id,))
+        plan = self._plan((first, second))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            store = self._store(root, plan)
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=store,
+                    registry=ServiceRegistry((RegisteredService("ok", _result),)),
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=2,
+                ),
+            )
+            segments = tuple((root / "execution_segments").glob("segment_*.json"))
+            document = json.loads(segments[0].read_text(encoding="utf-8"))
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(document["status"], "finished")
+        self.assertEqual(document["pool_generation_count"], 1)
+        self.assertEqual(document["workers"], 2)
+        self.assertGreaterEqual(document["swap_delta_bytes"], 0)
+
     def test_false_gate_skips_without_invoking_service(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
         task = _task(
@@ -365,7 +394,7 @@ class ExecutorTest(unittest.TestCase):
                     scientific_cache=object(),
                 ),
             )
-        self.assertEqual(calls, [(False, 3)])
+        self.assertEqual(calls, [(False, 1)])
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(result.outcomes[0].status, "completed")
 

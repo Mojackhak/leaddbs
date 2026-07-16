@@ -194,7 +194,7 @@ class PPAMTests(unittest.TestCase):
                 with self.assertRaisesRegex(PPAMError, message):
                     max_probability_union(valid, probabilities)
 
-    def test_binary_activation_uses_inclusive_half_threshold(self) -> None:
+    def test_binary_activation_uses_strict_half_threshold(self) -> None:
         probabilities = np.asarray(
             [[0.0, 0.49999997, 0.5, 0.50000006, 1.0]],
             dtype=np.float32,
@@ -204,7 +204,7 @@ class PPAMTests(unittest.TestCase):
 
         np.testing.assert_array_equal(
             binary,
-            np.asarray([[0.0, 0.0, 1.0, 1.0, 1.0]], dtype=np.float32),
+            np.asarray([[0.0, 0.0, 0.0, 1.0, 1.0]], dtype=np.float32),
         )
         self.assertEqual(binary.dtype, np.dtype(np.float32))
         self.assertFalse(binary.flags.writeable)

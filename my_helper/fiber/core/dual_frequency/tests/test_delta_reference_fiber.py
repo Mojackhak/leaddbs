@@ -439,7 +439,7 @@ class DeltaReferenceFiberTest(unittest.TestCase):
         folds = np.tile(weights, (4, 1))
         masks = np.ones_like(folds, dtype=bool)
         reference = np.full((4, 200), 100.0)
-        addon = np.full((4, 200), 200.0)
+        addon = np.full((4, 200), 201.0)
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -555,21 +555,21 @@ class DeltaReferenceFiberTest(unittest.TestCase):
                 (root / "rejected" / "delta_reference_fold_scores.npy").exists()
             )
 
-    def test_inclusive_tau_finite_weight_intersection_and_zero_exposure(self) -> None:
+    def test_strict_tau_and_adequate_support_boundaries(self) -> None:
         parent_ids = np.arange(50_000, 50_100, dtype=np.int64)
         valid_ids = parent_ids.copy()
         weights = np.ones(100)
-        weights[80:] = np.nan
+        weights[81:] = np.nan
         folds = np.tile(weights, (4, 1))
         masks = np.isfinite(folds)
         reference = np.full((4, 100), 100.0)
-        addon = np.full((4, 100), 200.0)
-        addon[:, 80:] = 10_000.0
+        addon = np.full((4, 100), 201.0)
+        addon[:, 81:] = 10_000.0
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            inclusive = self._build(
-                root / "inclusive",
+            strict = self._build(
+                root / "strict",
                 parent_fiber_ids=parent_ids,
                 valid_fiber_ids=valid_ids,
                 full_weights=weights,
@@ -578,17 +578,34 @@ class DeltaReferenceFiberTest(unittest.TestCase):
                 reference_exposure=reference,
                 addon_reference_exposure=addon,
             )
-            self.assertTrue(inclusive.valid)
-            self.assertEqual(inclusive.support_status, "adequate")
-            assert inclusive.full_scores is not None and inclusive.support_rows is not None
-            np.testing.assert_allclose(_materialize(inclusive.full_scores, root), 100.0)
-            rows = _materialize(inclusive.support_rows, root)
+            self.assertTrue(strict.valid)
+            self.assertEqual(strict.support_status, "adequate")
+            assert strict.full_scores is not None and strict.support_rows is not None
+            np.testing.assert_allclose(_materialize(strict.full_scores, root), 101.0)
+            rows = _materialize(strict.support_rows, root)
             np.testing.assert_array_equal(rows[:, 0], 100.0)
-            np.testing.assert_array_equal(rows[:, 1], 80.0)
-            np.testing.assert_allclose(rows[:, 2], 0.20)
+            np.testing.assert_array_equal(rows[:, 1], 81.0)
+            np.testing.assert_allclose(rows[:, 2], 0.19)
+
+            equality = np.full_like(addon, 200.0)
+            excluded = self._build(
+                root / "equality",
+                parent_fiber_ids=parent_ids,
+                valid_fiber_ids=valid_ids,
+                full_weights=weights,
+                fold_weights=folds,
+                fold_valid_masks=masks,
+                reference_exposure=reference,
+                addon_reference_exposure=equality,
+            )
+            self.assertEqual(
+                excluded.support_status,
+                "invalid_no_reference_component_exposure",
+            )
+            self.assertFalse(excluded.valid)
 
             zero_exposure = addon.copy()
-            zero_exposure[0] = 199.0
+            zero_exposure[0] = 200.0
             invalid = self._build(
                 root / "zero",
                 parent_fiber_ids=parent_ids,

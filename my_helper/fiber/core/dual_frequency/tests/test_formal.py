@@ -758,14 +758,14 @@ class FormalPermutationTest(unittest.TestCase):
             )
         )
 
-    def test_normative_fiber_coverage_includes_values_equal_to_tau(self) -> None:
+    def test_normative_fiber_coverage_excludes_values_equal_to_tau(self) -> None:
         request = _formal_request("reference_fiber", "permutation")
         exposure = _artifact_value(request.exposure).copy()
         tau = float(request.final_model.final_key.selected_tau)
         exposure[:, 0] = tau
-        self.assertEqual(int(coverage_counts(exposure, tau)[0]), exposure.shape[0])
+        self.assertEqual(int(coverage_counts(exposure, tau)[0]), 0)
         masks = _fold_candidate_masks(request, exposure)
-        self.assertTrue(all(bool(mask[0]) for mask in masks))
+        self.assertTrue(all(not bool(mask[0]) for mask in masks))
 
 
 class FormalBootstrapTest(unittest.TestCase):

@@ -7,11 +7,13 @@ import json
 import os
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
+
+import yaml
 
 from ..cache import ArtifactStore, ContentAddressedCache
 from ..catalog import CatalogStatus, EndpointRecord, build_endpoint_catalog
@@ -33,10 +35,19 @@ from ..workflow import (
     RunStore,
     RunStoreError,
     ServiceRegistry,
+    SpawnWorkerSpec,
     build_default_registry,
     compile_execution_plan,
     execute_plan,
     plan_hash,
+)
+from .sensitivity import (
+    SensitivityCheckpointError,
+    compile_sensitivity_extension_plan,
+    load_sensitivity_checkpoint,
+    parent_manifest_sha256,
+    publish_sensitivity_checkpoints,
+    write_csv_snapshots,
 )
 
 
@@ -93,6 +104,45 @@ class WorkflowRequest:
             object.__setattr__(self, field, value)
         if not isinstance(self.overrides, WorkflowOverrides):
             raise ApplicationError("overrides must be WorkflowOverrides")
+
+
+@dataclass(frozen=True)
+class SensitivityExtensionRequest:
+    """One immutable request to extend an existing final-model checkpoint."""
+
+    base_run: Path
+    analyses: tuple[str, ...]
+    run_id: str
+    workers: int
+    allow_expensive_producers: bool = False
+    resume: bool = False
+    rebuild_request: WorkflowRequest | None = None
+    rebuild_run_id: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "base_run", Path(self.base_run).expanduser())
+        analyses = tuple(dict.fromkeys(str(item).strip().lower() for item in self.analyses))
+        if not analyses or any(item not in {"jitter", "oss"} for item in analyses):
+            raise ApplicationError("analyses must select jitter, oss, or both")
+        object.__setattr__(self, "analyses", analyses)
+        run_id = str(self.run_id).strip()
+        if not run_id or "/" in run_id or "\\" in run_id:
+            raise ApplicationError("extension run_id must be a nonempty path-safe token")
+        object.__setattr__(self, "run_id", run_id)
+        if type(self.workers) is not int or self.workers < 1:
+            raise ApplicationError("extension workers must be a positive integer")
+        if type(self.allow_expensive_producers) is not bool or type(self.resume) is not bool:
+            raise ApplicationError("extension flags must be boolean")
+        if self.rebuild_request is not None and not isinstance(
+            self.rebuild_request,
+            WorkflowRequest,
+        ):
+            raise ApplicationError("rebuild_request must be a WorkflowRequest or None")
+        if self.rebuild_run_id is not None:
+            rebuild_run_id = str(self.rebuild_run_id).strip()
+            if not rebuild_run_id or "/" in rebuild_run_id or "\\" in rebuild_run_id:
+                raise ApplicationError("rebuild_run_id must be a path-safe token")
+            object.__setattr__(self, "rebuild_run_id", rebuild_run_id)
 
 
 @dataclass(frozen=True)
@@ -208,6 +258,7 @@ class WorkflowService:
             allowed_artifact_roots=(output_root, cache_root),
             resume=execution.resume,
         )
+        self._publish_input_bundle(store.root, validated)
         result: RunResult | None = None
         failure: Exception | None = None
         final_status = "failed"
@@ -224,6 +275,7 @@ class WorkflowService:
                     validated,
                     work_root=store.root / "runtime_work",
                     artifact_store=artifact_store,
+                    scientific_cache=scientific_cache,
                 )
             )
             endpoint_facts = {
@@ -248,6 +300,18 @@ class WorkflowService:
                 artifact_store=artifact_store,
                 scientific_cache=scientific_cache,
                 resume=execution.resume,
+                spawn_worker_spec=(
+                    SpawnWorkerSpec(
+                        study=validated.study,
+                        configuration=configuration,
+                        catalog=validated.catalog,
+                        work_root=store.root / "runtime_work",
+                        artifact_roots=(store.root, output_root, cache_root),
+                        cache_root=cache_root,
+                    )
+                    if self.registry is None and self.provider is None
+                    else None
+                ),
             )
             result = execute_plan(bundle.plan, context)
             typed_records = self._typed_records(result)
@@ -257,10 +321,41 @@ class WorkflowService:
                 result,
                 typed_records,
             )
+            publish_sensitivity_checkpoints(
+                run_root=store.root,
+                plan=bundle.plan,
+                outcomes=result.outcomes,
+                typed_records=typed_records,
+                run_id=store.run_id,
+                study_id=validated.study.study_id,
+                model_set_ids={
+                    "direct_voxel": configuration.direct_voxel.model_set_id,
+                    "normative_fiber": configuration.normative_fiber.model_set_id,
+                },
+                cache_root=cache_root,
+                output_root=output_root,
+                source_identities=(
+                    {"uri": source.uri, "sha256": source.sha256}
+                    for source in sources
+                ),
+                rng_profiles={
+                    "direct_voxel": _plain(
+                        configuration.direct_voxel.formal_resampling
+                    ),
+                    "normative_fiber": _plain(
+                        configuration.normative_fiber.formal_resampling
+                    ),
+                },
+            )
             self._publish_reporting_documents(
                 store.root,
                 documents,
                 through=bundle.plan.through,
+            )
+            write_csv_snapshots(
+                store.root,
+                result.outcomes,
+                documents["artifact_index.json"],
             )
             final_status = "completed" if result.exit_code == 0 else "failed"
         except Exception as exc:  # Finalization must also close failed aggregation runs.
@@ -283,6 +378,213 @@ class WorkflowService:
             raise ApplicationError(f"run orchestration failed: {failure}") from failure
         if result is None:  # Defensive: the success path always assigns a RunResult.
             raise ApplicationError("run orchestration completed without a RunResult")
+        return result
+
+    def sensitivity(self, request: SensitivityExtensionRequest) -> RunResult:
+        """Run selected final-linked analyses without mutating or rerunning the parent."""
+
+        if not isinstance(request, SensitivityExtensionRequest):
+            raise ApplicationError("request must be a SensitivityExtensionRequest")
+        try:
+            base_root = self._exact_run_root(request.base_run)
+            workflow_request = self._extension_workflow_request(base_root, request)
+            bundle = self.plan(workflow_request)
+        except ApplicationError:
+            if request.rebuild_request is None:
+                raise
+            rebuilt = self._rebuild_sensitivity_parent(request)
+            return self.sensitivity(
+                replace(request, base_run=rebuilt, rebuild_request=None)
+            )
+        validated = bundle.validated
+        configuration = validated.configuration
+        output_root = configuration.direct_voxel.output.root
+        cache_root = configuration.workflow.storage.cache_root
+        try:
+            checkpoint = load_sensitivity_checkpoint(
+                base_root,
+                cache_root=cache_root,
+                output_root=output_root,
+            )
+            if checkpoint.parent_manifest.get("study_id") != validated.study.study_id:
+                raise SensitivityCheckpointError("base run study identity changed")
+            if (
+                checkpoint.parent_manifest.get("scientific_configuration_hash")
+                != configuration.scientific_configuration_hash
+            ):
+                raise SensitivityCheckpointError(
+                    "base run scientific configuration changed"
+                )
+            extension_plan = compile_sensitivity_extension_plan(
+                bundle.plan,
+                endpoint_ids=checkpoint.endpoint_ids,
+                analyses=request.analyses,
+            )
+        except SensitivityCheckpointError as exc:
+            if request.rebuild_request is not None:
+                rebuilt = self._rebuild_sensitivity_parent(request)
+                return self.sensitivity(
+                    replace(request, base_run=rebuilt, rebuild_request=None)
+                )
+            raise ApplicationError(str(exc)) from exc
+
+        target = (
+            configuration.workflow.storage.run_root
+            / validated.study.study_id
+            / request.run_id
+        )
+        identity = RunIdentity(
+            study_id=validated.study.study_id,
+            run_id=request.run_id,
+            study_base_sha256=validated.study.source_sha256,
+            code_identity=self._code_identity(),
+            configuration_hash=configuration.configuration_hash,
+            scientific_configuration_hash=configuration.scientific_configuration_hash,
+            plan_hash=plan_hash(extension_plan),
+            parent_run_id=str(checkpoint.parent_manifest["run_id"]),
+        )
+        snapshot = self._resolved_snapshot(validated)
+        sources = self._configuration_sources(validated)
+        output_root.mkdir(parents=True, exist_ok=True)
+        cache_root.mkdir(parents=True, exist_ok=True)
+        store = RunStore.open(
+            target,
+            identity,
+            resolved_configuration=snapshot,
+            configuration_sources=sources,
+            allowed_artifact_roots=(output_root, cache_root, base_root),
+            resume=request.resume,
+        )
+        store.annotate_manifest(
+            {
+                "run_type": "sensitivity_extension",
+                "selected_sensitivity_analyses": list(request.analyses),
+                "resource_settings": {"workers": request.workers},
+            }
+        )
+        base_reference = {
+            "schema_version": "dual_frequency_base_run_reference_v1",
+            "base_run_id": checkpoint.parent_manifest["run_id"],
+            "base_run_path": str(base_root),
+            "base_run_manifest_sha256": parent_manifest_sha256(base_root),
+            "scientific_configuration_hash": configuration.scientific_configuration_hash,
+            "checkpoint_endpoint_ids": list(checkpoint.endpoint_ids),
+        }
+        self._write_immutable_json(store.root / "base_run_reference.json", base_reference)
+        self._write_immutable_json(
+            store.root / "sensitivity_plan.json",
+            {
+                "schema_version": "dual_frequency_sensitivity_plan_v1",
+                "analyses": list(request.analyses),
+                "plan": _plain(extension_plan),
+            },
+        )
+        planned_ids = {task.task_id for task in extension_plan.tasks}
+        for outcome in checkpoint.seed_outcomes:
+            if outcome.task_id not in planned_ids:
+                continue
+            existing = store.read_task_state(outcome.task_id)
+            if existing is None:
+                store.write_task_state(outcome.task_id, outcome.as_dict())
+
+        result: RunResult | None = None
+        failure: Exception | None = None
+        final_status = "failed"
+        try:
+            artifact_store = ArtifactStore((store.root, base_root, output_root, cache_root))
+            scientific_cache = ContentAddressedCache(cache_root)
+            registry = self.registry if self.registry is not None else self._default_registry()
+            provider = (
+                self.provider
+                if self.provider is not None
+                else self._default_provider(
+                    validated,
+                    work_root=store.root / "runtime_work",
+                    artifact_store=artifact_store,
+                    scientific_cache=scientific_cache,
+                )
+            )
+            endpoint_facts = {
+                endpoint.endpoint_id: {
+                    "catalog_data_available": endpoint.status
+                    == CatalogStatus.DATA_AVAILABLE,
+                }
+                for endpoint in validated.catalog
+            }
+            context = ExecutionContext(
+                run_store=store,
+                registry=registry,
+                provider=provider,
+                endpoint_facts=endpoint_facts,
+                allow_expensive_producers=request.allow_expensive_producers,
+                continue_on_endpoint_failure=(
+                    configuration.workflow.execution.continue_on_endpoint_failure
+                ),
+                workers=request.workers,
+                artifact_store=artifact_store,
+                scientific_cache=scientific_cache,
+                resume=True,
+                spawn_worker_spec=(
+                    SpawnWorkerSpec(
+                        study=validated.study,
+                        configuration=configuration,
+                        catalog=validated.catalog,
+                        work_root=store.root / "runtime_work",
+                        artifact_roots=(store.root, base_root, output_root, cache_root),
+                        cache_root=cache_root,
+                    )
+                    if self.registry is None and self.provider is None
+                    else None
+                ),
+            )
+            result = execute_plan(extension_plan, context)
+            typed_records = self._typed_records(result)
+            endpoint_ids = {task.endpoint_id for task in extension_plan.tasks}
+            selected_catalog = tuple(
+                endpoint
+                for endpoint in validated.catalog
+                if endpoint.endpoint_id in endpoint_ids
+            )
+            documents = build_report_documents(
+                extension_plan,
+                selected_catalog,
+                result,
+                typed_records,
+            )
+            self._publish_reporting_documents(
+                store.root,
+                documents,
+                through=extension_plan.through,
+            )
+            write_csv_snapshots(
+                store.root,
+                result.outcomes,
+                documents["artifact_index.json"],
+            )
+            self._publish_extension_results(
+                validated,
+                request,
+                checkpoint.parent_manifest,
+                extension_plan,
+                result,
+                documents["artifact_index.json"],
+            )
+            final_status = "completed" if result.exit_code == 0 else "failed"
+        except Exception as exc:
+            failure = exc
+
+        try:
+            store.finalize(final_status)
+        except Exception as exc:
+            failure = exc if failure is None else ApplicationError(
+                f"sensitivity extension failed ({failure}); finalization also failed ({exc})"
+            )
+        if failure is not None:
+            if isinstance(failure, ApplicationError):
+                raise failure
+            raise ApplicationError(f"sensitivity extension failed: {failure}") from failure
+        if result is None:
+            raise ApplicationError("sensitivity extension completed without a result")
         return result
 
     def status(self, run_root: Path) -> dict[str, Any]:
@@ -323,6 +625,7 @@ class WorkflowService:
         *,
         work_root: Path,
         artifact_store: ArtifactStore,
+        scientific_cache: ContentAddressedCache | None = None,
     ) -> object:
         """Construct the production provider from validated current-run inputs."""
 
@@ -338,6 +641,7 @@ class WorkflowService:
             validated.catalog,
             work_root=work_root,
             artifact_store=artifact_store,
+            scientific_cache=scientific_cache,
         )
 
     @staticmethod
@@ -500,6 +804,329 @@ class WorkflowService:
             "configuration_hash": configuration.configuration_hash,
             "scientific_configuration_hash": configuration.scientific_configuration_hash,
         }
+
+    @staticmethod
+    def _publish_input_bundle(run_root: Path, validated: ValidatedWorkflow) -> None:
+        """Copy the small configuration authority needed to reopen a copied run."""
+
+        sources = {
+            "study_base": validated.request.study_base,
+            "workflow_profile": validated.request.workflow_profile,
+            "direct_voxel_model": validated.request.direct_voxel_model,
+            "normative_fiber_model": validated.request.normative_fiber_model,
+        }
+        root = Path(run_root).resolve() / "inputs"
+        root.mkdir(parents=True, exist_ok=True)
+        names = [path.name for path in sources.values()]
+        if len(set(names)) != len(names):
+            raise ApplicationError("portable input bundle filenames must be unique")
+        entries: dict[str, dict[str, str]] = {}
+        for role, source in sources.items():
+            target = root / source.name
+            content = source.read_bytes()
+            if target.exists():
+                if not target.is_file() or target.read_bytes() != content:
+                    raise ApplicationError(
+                        f"portable input bundle conflicts with existing file: {target}"
+                    )
+            else:
+                descriptor, name = tempfile.mkstemp(prefix=f".{target.name}.", dir=root)
+                temporary = Path(name)
+                try:
+                    with os.fdopen(descriptor, "wb") as stream:
+                        stream.write(content)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.replace(temporary, target)
+                finally:
+                    temporary.unlink(missing_ok=True)
+            entries[role] = {
+                "relative_path": target.relative_to(run_root).as_posix(),
+                "sha256": _sha256_file(target),
+            }
+        manifest = {
+            "schema_version": "dual_frequency_input_bundle_v1",
+            "files": entries,
+        }
+        path = root / "input_bundle.json"
+        text = json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n"
+        if path.exists():
+            if path.read_text(encoding="utf-8") != text:
+                raise ApplicationError("portable input bundle manifest changed during resume")
+        else:
+            path.write_text(text, encoding="utf-8")
+
+    @staticmethod
+    def _extension_workflow_request(
+        base_run: Path,
+        request: SensitivityExtensionRequest,
+    ) -> WorkflowRequest:
+        bundle_path = base_run / "inputs" / "input_bundle.json"
+        snapshot_path = base_run / "configuration_resolved.yaml"
+        if not bundle_path.is_file() or not snapshot_path.is_file():
+            raise ApplicationError(
+                "base run lacks its portable input bundle; rebuild a new parent lineage"
+            )
+        try:
+            bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+            snapshot = yaml.safe_load(snapshot_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+            raise ApplicationError("base run input authority is unreadable") from exc
+        if bundle.get("schema_version") != "dual_frequency_input_bundle_v1":
+            raise ApplicationError("base run input bundle schema is unsupported")
+        files = bundle.get("files")
+        if not isinstance(files, dict):
+            raise ApplicationError("base run input bundle files are invalid")
+
+        def bundled(role: str) -> Path:
+            item = files.get(role)
+            if not isinstance(item, dict) or set(item) != {"relative_path", "sha256"}:
+                raise ApplicationError(f"base run input bundle lacks {role}")
+            path = (base_run / str(item["relative_path"])).resolve()
+            if base_run not in path.parents or not path.is_file():
+                raise ApplicationError(f"base run input bundle path is unsafe for {role}")
+            if _sha256_file(path) != item["sha256"]:
+                raise ApplicationError(f"base run input bundle failed SHA-256 for {role}")
+            return path
+
+        try:
+            selected_scales = tuple(snapshot["study"]["selected_scales"])
+            selected_models = tuple(snapshot["selection"]["models"])
+            selected_connectomes = tuple(snapshot["selection"]["connectomes"])
+        except (KeyError, TypeError) as exc:
+            raise ApplicationError("base run resolved selection is incomplete") from exc
+        overrides = WorkflowOverrides(
+            scales=selected_scales,
+            all_available=False,
+            models=selected_models,
+            connectomes=selected_connectomes,
+            through="sensitivity",
+            resume=False,
+            force=False,
+            allow_expensive_producers=request.allow_expensive_producers,
+            workers=request.workers,
+        )
+        return WorkflowRequest(
+            study_base=bundled("study_base"),
+            direct_voxel_model=bundled("direct_voxel_model"),
+            normative_fiber_model=bundled("normative_fiber_model"),
+            workflow_profile=bundled("workflow_profile"),
+            overrides=overrides,
+        )
+
+    def _rebuild_sensitivity_parent(
+        self,
+        request: SensitivityExtensionRequest,
+    ) -> Path:
+        source = request.rebuild_request
+        if source is None:
+            raise ApplicationError("missing or incomplete parent requires explicit rebuild inputs")
+        selected = source.overrides
+        overrides = WorkflowOverrides(
+            scales=selected.scales,
+            all_available=selected.all_available,
+            models=selected.models,
+            connectomes=selected.connectomes,
+            through="observed",
+            resume=False,
+            force=False,
+            allow_expensive_producers=False,
+            workers=request.workers,
+        )
+        parent_request = WorkflowRequest(
+            study_base=source.study_base,
+            direct_voxel_model=source.direct_voxel_model,
+            normative_fiber_model=source.normative_fiber_model,
+            workflow_profile=source.workflow_profile,
+            overrides=overrides,
+        )
+        validated = self.plan(parent_request).validated
+        run_parent = (
+            validated.configuration.workflow.storage.run_root
+            / validated.study.study_id
+        )
+        run_id = request.rebuild_run_id or f"{request.run_id}-parent"
+        if (run_parent / run_id).exists():
+            run_id = self._force_run_id(run_parent, run_id)
+        result = self.run(parent_request, run_id=run_id)
+        if result.exit_code != 0:
+            raise ApplicationError("rebuilt parent did not complete successfully")
+        return run_parent / result.run_id
+
+    @staticmethod
+    def _write_immutable_json(path: Path, payload: Mapping[str, Any]) -> None:
+        text = json.dumps(dict(payload), indent=2, sort_keys=True, allow_nan=False) + "\n"
+        if path.exists():
+            if not path.is_file() or path.read_text(encoding="utf-8") != text:
+                raise ApplicationError(f"immutable extension document changed: {path}")
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        temporary = Path(name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(text)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _replace_json(path: Path, payload: Mapping[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        temporary = Path(name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(dict(payload), stream, indent=2, sort_keys=True, allow_nan=False)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _publish_extension_results(
+        self,
+        validated: ValidatedWorkflow,
+        request: SensitivityExtensionRequest,
+        parent_manifest: Mapping[str, Any],
+        plan: ExecutionPlan,
+        result: RunResult,
+        artifact_document: Mapping[str, Any],
+    ) -> None:
+        tasks = {task.task_id: task for task in plan.tasks}
+        endpoints = {endpoint.endpoint_id: endpoint for endpoint in validated.catalog}
+        selected_stages = {
+            "spatial_jitter" if analysis == "jitter" else "activation_sensitivity"
+            for analysis in request.analyses
+        }
+        rows: list[dict[str, Any]] = []
+        for outcome in result.outcomes:
+            task = tasks[outcome.task_id]
+            if task.phase != "sensitivity" or task.stage not in selected_stages:
+                continue
+            endpoint = endpoints[task.endpoint_id]
+            rows.append(
+                {
+                    "task_id": task.task_id,
+                    "endpoint_id": task.endpoint_id,
+                    "scale_id": endpoint.key.scale_id,
+                    "model_family": endpoint.key.model_family,
+                    "model_role": (
+                        "reference"
+                        if endpoint.key.model_family.startswith("reference_")
+                        else "addon"
+                    ),
+                    "analysis": "jitter" if task.stage == "spatial_jitter" else "oss",
+                    "status": outcome.status,
+                    "reason": outcome.reason,
+                    "record_id": (
+                        None if outcome.result is None else outcome.result.record_id
+                    ),
+                    "artifact_ids": (
+                        []
+                        if outcome.result is None
+                        else [artifact.identifier for artifact in outcome.result.artifacts]
+                    ),
+                }
+            )
+        extension_document = {
+            "schema_version": "dual_frequency_extension_results_v1",
+            "extension_id": request.run_id,
+            "parent_run_id": parent_manifest["run_id"],
+            "analyses": list(request.analyses),
+            "status": "completed" if result.exit_code == 0 else "failed",
+            "results": sorted(rows, key=lambda item: item["task_id"]),
+        }
+        self._replace_json(
+            validated.configuration.workflow.storage.run_root
+            / validated.study.study_id
+            / request.run_id
+            / "sensitivity_results"
+            / "extension_results.json",
+            extension_document,
+        )
+
+        domains = {
+            "direct_voxel": validated.configuration.direct_voxel,
+            "normative_fiber": validated.configuration.normative_fiber,
+        }
+        for model_type, profile in domains.items():
+            suffix = "voxel" if model_type == "direct_voxel" else "fiber"
+            domain_rows = [
+                row for row in rows if str(row["model_family"]).endswith(suffix)
+            ]
+            if not domain_rows:
+                continue
+            root = (
+                profile.output.root
+                / model_type
+                / profile.model_set_id
+                / "extensions"
+                / request.run_id
+            )
+            existing_manifest = root / "extension_manifest.json"
+            if existing_manifest.is_file():
+                existing = json.loads(existing_manifest.read_text(encoding="utf-8"))
+                if (
+                    existing.get("extension_id") != request.run_id
+                    or existing.get("parent_run_id") != parent_manifest["run_id"]
+                    or existing.get("analyses") != list(request.analyses)
+                ):
+                    raise ApplicationError(
+                        f"canonical extension path belongs to another identity: {root}"
+                    )
+            for scale_id in sorted({str(row["scale_id"]) for row in domain_rows}):
+                for role in ("reference", "addon"):
+                    selected = [
+                        row
+                        for row in domain_rows
+                        if row["scale_id"] == scale_id and row["model_role"] == role
+                    ]
+                    if selected:
+                        self._replace_json(
+                            root / scale_id / role / "sensitivity" / "results.json",
+                            {
+                                "schema_version": "dual_frequency_extension_group_v1",
+                                "extension_id": request.run_id,
+                                "results": selected,
+                            },
+                        )
+            relevant_task_ids = {str(row["task_id"]) for row in domain_rows}
+            filtered_artifacts = []
+            for artifact in artifact_document.get("artifacts", []):
+                references = [
+                    reference
+                    for reference in artifact.get("task_references", [])
+                    if reference.get("task_id") in relevant_task_ids
+                ]
+                if references:
+                    item = dict(artifact)
+                    item["task_references"] = references
+                    filtered_artifacts.append(item)
+            canonical_artifacts = {
+                "schema_version": "dual_frequency_extension_artifact_index_v1",
+                "extension_id": request.run_id,
+                "artifacts": filtered_artifacts,
+            }
+            self._replace_json(root / "artifact_index.json", canonical_artifacts)
+            write_csv_snapshots(root, (), canonical_artifacts)
+            self._replace_json(
+                existing_manifest,
+                {
+                    "schema_version": "dual_frequency_extension_manifest_v1",
+                    "extension_id": request.run_id,
+                    "parent_run_id": parent_manifest["run_id"],
+                    "parent_scientific_configuration_hash": parent_manifest[
+                        "scientific_configuration_hash"
+                    ],
+                    "analyses": list(request.analyses),
+                    "workers": request.workers,
+                    "status": extension_document["status"],
+                },
+            )
 
     @staticmethod
     def _force_run_id(parent: Path, requested_run_id: str) -> str:

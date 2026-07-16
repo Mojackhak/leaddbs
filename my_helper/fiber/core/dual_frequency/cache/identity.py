@@ -70,7 +70,8 @@ class ScientificCacheKey:
     backend_name: str
     backend_version: str
     scientific_parameter_hashes: tuple[tuple[str, str], ...]
-    schema_version: str = "scientific_cache_key_v1"
+    kind: str = "generic"
+    schema_version: str = "scientific_cache_key_v2"
 
     def __post_init__(self) -> None:
         for field in (
@@ -81,7 +82,7 @@ class ScientificCacheKey:
             "connectome_feature_hash",
         ):
             object.__setattr__(self, field, _sha256(getattr(self, field), field))
-        for field in ("backend_name", "backend_version", "schema_version"):
+        for field in ("backend_name", "backend_version", "kind", "schema_version"):
             object.__setattr__(self, field, _token(getattr(self, field), field))
         object.__setattr__(
             self,
@@ -115,6 +116,7 @@ class ScientificCacheKey:
             "backend_name",
             "backend_version",
             "scientific_parameter_hashes",
+            "kind",
             "schema_version",
         }
         if set(value) != expected:
@@ -139,6 +141,7 @@ class ScientificCacheKey:
             backend_name=value["backend_name"],
             backend_version=value["backend_version"],
             scientific_parameter_hashes=pairs,
+            kind=value["kind"],
             schema_version=value["schema_version"],
         )
 

@@ -15,7 +15,8 @@
 > **Current branch.** `stnvop`
 > **Status.** `design_documented`; `code_audit_complete`;
 > `literature_review_complete`; `threshold_policy_change_authorized`;
-> `implementation_not_started`;
+> `implementation_in_progress`; `synthetic_acceptance_passed`;
+> `production_configuration_validated`;
 > `configured_production_outputs_missing`; `production_rerun_required`.
 > **Last updated.** 2026-07-16
 
@@ -35,9 +36,9 @@ instruction. Direct-voxel and normative-fiber E-field/tau decisions use
 `X > tau`, their Coverage decisions use `count > Coverage`, reference-active
 overlap uses `reference > selected_tau`, support-QC retains its documented
 strict direction, and pPAM activation uses `p(A) > 0.5`. Every reopened
-boundary is excluded. The current code is not yet changed; Task 17 must update
-code, tests, schemas/output-contract wording, and model summaries before
-completion.
+boundary is excluded. The implementation and boundary fixtures now use these
+strict rules. Task 17 remains open until the production rerun and the remaining
+resource and OSS equivalence gates are recorded.
 
 This comparator policy is limited to the enumerated model-threshold comparators. It
 does not alter formal null-tail counting, hard minimum sample/feature counts,
@@ -73,8 +74,8 @@ includes clinical joins, weights, scores, source/final resolution, formal
 resampling, sensitivity statistics, and reports.
 
 No currently running process is interrupted or migrated. Existing production
-outputs remain read-only. This document does not claim that the target
-implementation already exists.
+outputs remain read-only. Implementation status and remaining gates are stated
+explicitly below.
 
 ### Document authority stack
 
