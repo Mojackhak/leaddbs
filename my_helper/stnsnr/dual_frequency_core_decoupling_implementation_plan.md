@@ -2978,6 +2978,20 @@ ordered source identities per base, and resolvable final-artifact references.
 Only after this audit passes may the parent be accepted for a later independent
 jitter or OSS-DBS extension.
 
+Decision 28 is implemented by materializing the ordered source identities as a
+tuple before checkpoint publication. A multi-base synthetic regression requires
+every base to retain all four identities, and the complete 449-test
+dual-frequency suite passes. A completed-only third execution segment then
+republished the production checkpoint without rerunning scientific tasks: the
+latest completed-task timestamp remains before the end of segment two. The
+corrected production index contains 112 readable unique bases, every base has
+four ordered source identities, the base endpoints exactly match 105 primary
+and 7 fallback finals, and all 1548 base final-artifact references resolve into
+the 6773-entry artifact index. The final run manifest is `completed`; all 1512
+tasks are terminal with 1428 completed and 84 expected skips. This parent is
+accepted for a later separately authorized jitter or OSS-DBS extension without
+rerunning observed, resolver, or final-model work.
+
 **Production resource checkpoint, 2026-07-16.** The first corrected all-scale
 lineage reached 364 completed tasks with no failure before the initial shared
 fiber exposure exposed a decoded-field working-set error. Sixteen canonical-

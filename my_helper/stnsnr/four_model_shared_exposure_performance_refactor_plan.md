@@ -542,6 +542,20 @@ base, and resolvable final-artifact references. This is required so a later
 jitter or OSS-DBS extension can validate and reuse the completed parent without
 rerunning observed, resolver, or final-model work.
 
+Production acceptance on 2026-07-17 used run
+`task17-main-v7-inclusive-ppmi-formal-20260717`. Its final manifest is
+`completed`. The plan contains 1512 tasks: 1428 completed and 84 expected
+`not_run_delta_inputs_invalid` skips, with no failed task. The 224 final
+decisions contain 105 primary finals, 7 fallback finals, and 112
+sensitive-connectome endpoints with no final. The corrected checkpoint contains
+112 bases and four ordered configuration-source identities in every base. The
+112 base endpoint IDs exactly match all primary and fallback final decisions,
+and all 1548 base final-artifact references resolve into the 6773-entry artifact
+index. A completed-only resume created a third execution segment without
+changing any completed-task timestamp, then republished the corrected
+checkpoint. The complete 449-test dual-frequency suite passed. No jitter,
+OSS-DBS, or combined-extension service ran in this lineage.
+
 ## Shared Physical Stimulation Units
 
 A physical stimulation unit is resolved from structured study/model inputs,
