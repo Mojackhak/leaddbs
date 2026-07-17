@@ -3007,6 +3007,10 @@ opposite values under the same `formal_source_available` name. Decision 21
 removes that cross-connectome alias: the sensitive evaluation publishes only
 its own reference-acceptance fact, while the formal-final lineage remains the
 sole authority for formal availability.
+Because the three resume gates deliberately retain old completed results, the
+executor also resolves facts from the nearest publishing dependency layer.
+This preserves old numerical artifacts without allowing a deeper legacy fact
+to override the task's direct scientific owner.
 
 The correction passes 417 dual-frequency tests and 224 parameterized
 subtests. The new cases verify parent-ordered axis union, reference-axis identity

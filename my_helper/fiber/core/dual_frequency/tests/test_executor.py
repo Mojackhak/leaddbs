@@ -259,6 +259,111 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(result.outcomes[0].status, "skipped")
         self.assertEqual(result.outcomes[0].reason, "not_run_not_ready")
 
+    def test_gate_uses_nearest_fact_owner_over_deeper_legacy_fact(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        legacy = _task(endpoint, "legacy", "legacy_false")
+        owner = _task(
+            endpoint,
+            "owner",
+            "owner_true",
+            dependencies=(legacy.task_id,),
+        )
+        target = _task(
+            endpoint,
+            "target",
+            "sentinel",
+            dependencies=(owner.task_id,),
+            gates=(GateRequirement("formal_source_available", "not_run_no_formal"),),
+        )
+        plan = self._plan((legacy, owner, target))
+        calls: list[str] = []
+
+        def with_fact(request, value: bool) -> ServiceResult:
+            return ServiceResult.from_record(
+                _source(request.provider.endpoints[request.task.endpoint_id]),
+                facts={"formal_source_available": value},
+            )
+
+        def sentinel(request):
+            calls.append(request.task.task_id)
+            return _result(request)
+
+        registry = ServiceRegistry(
+            (
+                RegisteredService("legacy_false", lambda request: with_fact(request, False)),
+                RegisteredService("owner_true", lambda request: with_fact(request, True)),
+                RegisteredService("sentinel", sentinel),
+            )
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            store = self._store(Path(temporary_directory) / "run", plan)
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=store,
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                ),
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(calls, [target.task_id])
+        self.assertEqual(result.outcomes[-1].status, "completed")
+
+    def test_gate_rejects_conflicting_facts_at_the_same_nearest_layer(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        left = _task(endpoint, "left", "left_true")
+        right = _task(endpoint, "right", "right_false")
+        target = _task(
+            endpoint,
+            "target",
+            "sentinel",
+            dependencies=(left.task_id, right.task_id),
+            gates=(GateRequirement("formal_source_available", "not_run_no_formal"),),
+        )
+        plan = self._plan((left, right, target))
+        calls: list[str] = []
+
+        def with_fact(request, value: bool) -> ServiceResult:
+            return ServiceResult.from_record(
+                _source(request.provider.endpoints[request.task.endpoint_id]),
+                facts={"formal_source_available": value},
+            )
+
+        registry = ServiceRegistry(
+            (
+                RegisteredService("left_true", lambda request: with_fact(request, True)),
+                RegisteredService("right_false", lambda request: with_fact(request, False)),
+                RegisteredService(
+                    "sentinel",
+                    lambda request: calls.append(request.task.task_id) or _result(request),
+                ),
+            )
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            store = self._store(Path(temporary_directory) / "run", plan)
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=store,
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=2,
+                ),
+            )
+
+        self.assertEqual(result.exit_code, 1)
+        self.assertEqual(calls, [])
+        self.assertEqual(result.outcomes[-1].status, "failed")
+        self.assertIn("contradictory", result.outcomes[-1].reason)
+
     def test_endpoint_input_failure_skips_preparation_and_observed_work(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
         readiness = _task(

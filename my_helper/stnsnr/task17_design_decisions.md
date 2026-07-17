@@ -361,3 +361,9 @@ computable.
 The sensitive add-on formal-cell gate therefore reads formal availability from
 the formal-final lineage and sensitive-reference acceptance from its separate
 reference-dependency lineage. Neither state overrides the other.
+
+Legacy completed task JSON may still contain the superseded cross-connectome
+fact. Gate resolution therefore uses the nearest dependency layer that
+publishes the requested fact. A direct formal-final fact takes precedence over
+a deeper sensitive-reference ancestor. Opposite values published at the same
+nearest layer remain contradictory and fail closed.

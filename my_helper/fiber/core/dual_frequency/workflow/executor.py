@@ -494,16 +494,27 @@ def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[st
     return output
 
 
-def _ancestor_ids(task: TaskSpec, tasks: Mapping[str, TaskSpec]) -> tuple[str, ...]:
+def _dependency_layers(
+    task: TaskSpec,
+    tasks: Mapping[str, TaskSpec],
+) -> tuple[tuple[str, ...], ...]:
+    """Return unique dependency IDs grouped by distance from the task."""
+
     seen: set[str] = set()
-    pending = list(task.dependencies)
-    while pending:
-        task_id = pending.pop()
-        if task_id in seen:
-            continue
-        seen.add(task_id)
-        pending.extend(tasks[task_id].dependencies)
-    return tuple(sorted(seen))
+    frontier = tuple(task.dependencies)
+    layers: list[tuple[str, ...]] = []
+    while frontier:
+        layer = tuple(dict.fromkeys(task_id for task_id in frontier if task_id not in seen))
+        if not layer:
+            break
+        layers.append(layer)
+        seen.update(layer)
+        frontier = tuple(
+            dependency
+            for task_id in layer
+            for dependency in tasks[task_id].dependencies
+        )
+    return tuple(layers)
 
 
 def _resolve_fact(
@@ -513,22 +524,26 @@ def _resolve_fact(
     outcomes: Mapping[str, TaskOutcome],
     endpoint_facts: Mapping[str, Mapping[str, bool]],
 ) -> bool:
-    values: set[bool] = set()
     static = endpoint_facts.get(task.endpoint_id, {})
     if fact_name in static:
-        values.add(static[fact_name])
-    for ancestor_id in _ancestor_ids(task, tasks):
-        outcome = outcomes.get(ancestor_id)
-        if outcome is None or outcome.result is None:
+        return static[fact_name]
+    for layer in _dependency_layers(task, tasks):
+        values = {
+            outcome.result.fact_values[fact_name]
+            for task_id in layer
+            for outcome in (outcomes.get(task_id),)
+            if outcome is not None
+            and outcome.result is not None
+            and fact_name in outcome.result.fact_values
+        }
+        if not values:
             continue
-        fact_values = outcome.result.fact_values
-        if fact_name in fact_values:
-            values.add(fact_values[fact_name])
-    if not values:
-        raise ExecutionError(f"runtime fact {fact_name!r} is unavailable for {task.task_id}")
-    if len(values) != 1:
-        raise ExecutionError(f"runtime fact {fact_name!r} is contradictory for {task.task_id}")
-    return next(iter(values))
+        if len(values) != 1:
+            raise ExecutionError(
+                f"runtime fact {fact_name!r} is contradictory for {task.task_id}"
+            )
+        return next(iter(values))
+    raise ExecutionError(f"runtime fact {fact_name!r} is unavailable for {task.task_id}")
 
 
 def _dependency_states(
