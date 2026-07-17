@@ -706,10 +706,11 @@ indexing or permuting the original DeltaReferenceScore remains a fatal stale-
 input violation.
 
 Provider identity, dependency, shape, axis and provenance violations remain
-fatal. Once those contracts have passed, sample-specific nuisance rank loss
-during construction of the adjusted nuisance plan is replicate attrition under
-Decision 26. It preserves the requested replicate axis and does not trigger a
-replacement draw.
+fatal. Once those contracts have passed, sample-specific matched-reference
+rank loss, absence of a finite full or fold operator, invalid sampled support,
+or rank/scaling loss during construction of the adjusted nuisance plan is
+replicate attrition under Decision 26. It preserves the requested replicate
+axis and does not trigger a replacement draw.
 
 The adjusted bootstrap tasks gain these direct dependencies without changing
 their `TaskKey`, whose identity is endpoint, stage, branch and configuration.

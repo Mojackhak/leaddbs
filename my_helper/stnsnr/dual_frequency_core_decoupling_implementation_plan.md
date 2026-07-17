@@ -2943,10 +2943,12 @@ DeltaReferenceScore plus support and provenance. Direct voxel stays on its
 locked selected voxel axis; normative fiber stays on its locked valid-union
 fiber IDs and signed score settings. No per-replicate scientific artifact is
 published. Dependency, identity, shape, axis, provenance and stale-score
-violations remain fatal; only an estimability loss after valid provider output
-is replicate attrition. Adding direct dependencies does not change the formal
-task IDs, so the v7 run resumes completed work and reruns only failed or
-unfinished tasks.
+violations remain fatal. Sample-specific matched-reference rank loss, absent
+finite full or fold operators, invalid sampled support, and adjusted nuisance
+rank or scaling loss are replicate attrition after the provider's static
+contracts pass. Adding direct dependencies does not change the formal task IDs,
+so the v7 run resumes completed work and reruns only failed or unfinished
+tasks.
 
 **Production resource checkpoint, 2026-07-16.** The first corrected all-scale
 lineage reached 364 completed tasks with no failure before the initial shared
