@@ -171,6 +171,23 @@ def _endpoint_input_record(
     return matches[0]
 
 
+def _prepared_exposure_record(
+    request: TaskExecutionRequest,
+    endpoint_id: str,
+) -> PreparedExposureRecord:
+    matches = tuple(
+        record
+        for record in _records(request, PreparedExposureRecord)
+        if record.endpoint.identifier == endpoint_id
+    )
+    if len(matches) != 1:
+        raise ServiceAdapterError(
+            f"task {request.task.task_id!r} requires exactly one PreparedExposureRecord "
+            f"for endpoint {endpoint_id!r}"
+        )
+    return matches[0]
+
+
 def _endpoint(request: TaskExecutionRequest) -> EndpointRecord:
     endpoint = _provider(request).endpoint(request.task.endpoint_id)
     if endpoint.endpoint_id != request.task.endpoint_id:
@@ -489,7 +506,7 @@ def _build_delta_reference(
 ) -> ServiceResult:
     endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
     dependency = _one_record(request, ReferenceDependencyRecord)
-    prepared = _one_record(request, PreparedExposureRecord)
+    prepared = _prepared_exposure_record(request, request.task.endpoint_id)
     assert endpoint_input is not None and dependency is not None and prepared is not None
     reference_input = _endpoint_input_record(
         request,
@@ -535,6 +552,10 @@ def _build_delta_reference(
             artifact_store=store,
         )
     elif model_family == "addon_fiber":
+        reference_prepared = _prepared_exposure_record(
+            request,
+            dependency.matched_reference_endpoint_id,
+        )
         record = build_delta_reference_fiber(
             matched_reference_endpoint_id=dependency.matched_reference_endpoint_id,
             matched_reference_connectome_id=prepared.endpoint.connectome_id,
@@ -553,6 +574,7 @@ def _build_delta_reference(
             addon_subject_ids=endpoint_input.included_subject_ids,
             reference_subject_ids=reference_input.included_subject_ids,
             parent_fiber_axis=prepared.feature_axis,
+            reference_parent_fiber_axis=reference_prepared.feature_axis,
             fiber_score_settings=_fiber_score_settings(configuration),
             support_profile=configuration.normative_fiber.delta_reference_support,
             publisher=publisher,

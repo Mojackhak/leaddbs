@@ -596,6 +596,10 @@ def _plan_addon_fiber_formal(
         reference_endpoint.endpoint_id,
         "input_readiness",
     )
+    reference_prepare = factory.stage(
+        reference_endpoint.endpoint_id,
+        "prepare_exposure",
+    )
     readiness = factory.add(
         endpoint,
         stage="input_readiness",
@@ -633,6 +637,7 @@ def _plan_addon_fiber_formal(
         dependencies=(
             readiness,
             reference_readiness,
+            reference_prepare,
             dependency,
             prepare,
             reference_source,
@@ -781,6 +786,10 @@ def _plan_addon_fiber_sensitive(
         reference_endpoint.endpoint_id,
         "input_readiness",
     )
+    reference_prepare = factory.stage(
+        reference_endpoint.endpoint_id,
+        "prepare_exposure",
+    )
     formal_final = factory.stage(formal_addon_endpoint.endpoint_id, "final_realization")
     readiness = factory.add(
         endpoint,
@@ -819,6 +828,7 @@ def _plan_addon_fiber_sensitive(
         dependencies=(
             readiness,
             reference_readiness,
+            reference_prepare,
             dependency,
             prepare,
             reference_evaluation,

@@ -2964,6 +2964,22 @@ derived-configuration, path, study-label, parent, and service audit fields do
 not block reuse; changed study JSON or YAML content does block it; malformed or
 incomplete completed-result JSON is rerun rather than aborting the lineage.
 
+**Reference-parent-axis closure, 2026-07-17.** The resumed v6 lineage reached
+844 completed tasks before two add-on fiber DeltaReference tasks exposed a
+second axis-contract defect. Membership in the augmented add-on prepared axis
+passed, but the locked reference selected-axis hash was incorrectly recomputed
+against that augmented add-on parent. A reference selected axis is defined
+against the matched reference prepared parent, not the add-on prepared parent.
+The corrected DeltaReference task therefore receives both prepared records:
+the add-on parent supplies ordered membership and exposure columns, while the
+matched reference parent supplies the SHA used to reproduce the locked selected
+axis. Neither comparator nor numerical operator changes. The interrupted v6
+segment is retained and will continue through the same three resume gates.
+
+The correction passes 419 dual-frequency tests and 224 parameterized subtests.
+The added regression uses intentionally different reference and augmented
+add-on parent identities while preserving the same locked valid-union IDs.
+
 The correction passes 417 dual-frequency tests and 224 parameterized
 subtests. The new cases verify parent-ordered axis union, reference-axis identity
 binding, strict failure for a locked ID outside the parent connectome, artifact

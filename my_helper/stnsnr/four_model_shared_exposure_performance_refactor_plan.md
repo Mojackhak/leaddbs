@@ -1291,6 +1291,18 @@ The implemented contract passes 418 dual-frequency tests and 224 parameterized
 subtests, including direct checks for all three gates and for audit-only code,
 plan, path, and derived-configuration changes.
 
+For add-on fiber DeltaReference, two distinct parents must remain explicit.
+The augmented add-on prepared parent proves that every locked reference ID is
+present in deterministic connectome order and supplies the aligned exposure
+columns. The matched reference prepared parent reproduces the locked reference
+selected-axis hash. Recomputing the reference selected-axis hash against the
+augmented add-on parent is invalid because the two parent axes intentionally
+have different identities. The DeltaReference DAG therefore carries both
+prepared records to the builder.
+
+This two-parent contract passes 419 dual-frequency tests and 224 parameterized
+subtests.
+
 No completed outcome or durable artifact reference may depend on a scratch URI.
 When `storage.scratch_root` changes or prior scratch is missing, the parent
 invalidates only incomplete scratch-dependent work and deterministically rebuilds

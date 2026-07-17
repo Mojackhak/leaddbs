@@ -558,6 +558,7 @@ def build_delta_reference_fiber(
     support_profile: DeltaReferenceSupportProfile,
     publisher: ArtifactPublisher,
     artifact_store: ArtifactStore | None = None,
+    reference_parent_fiber_axis: AxisRef | None = None,
 ) -> DeltaReferenceBundle:
     """Build full/fold fiber DeltaReferenceScore artifacts without refitting."""
 
@@ -569,6 +570,16 @@ def build_delta_reference_fiber(
         raise TypeError(
             "subject_axis, reference_subject_axis, and parent_fiber_axis must be AxisRef values"
         )
+    if reference_parent_fiber_axis is not None and not isinstance(
+        reference_parent_fiber_axis,
+        AxisRef,
+    ):
+        raise TypeError("reference_parent_fiber_axis must be an AxisRef or None")
+    selected_axis_parent = (
+        parent_fiber_axis
+        if reference_parent_fiber_axis is None
+        else reference_parent_fiber_axis
+    )
     if not isinstance(fiber_score_settings, NormativeFiberScoreSettings):
         raise TypeError(
             "fiber_score_settings must be a NormativeFiberScoreSettings"
@@ -652,7 +663,7 @@ def build_delta_reference_fiber(
         locked.selected_axis.count,
     )
     selected_parent_positions = _parent_positions(parent_ids, valid_ids)
-    _validate_selected_axis(locked, parent_fiber_axis, valid_ids)
+    _validate_selected_axis(locked, selected_axis_parent, valid_ids)
 
     full_weight_array = np.asarray(
         _real_array(

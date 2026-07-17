@@ -193,6 +193,7 @@ class DeltaReferenceFiberTest(unittest.TestCase):
         reference_record: SourceRecord | SensitiveRecord | None = None,
         subject_axis: AxisRef | None = None,
         parent_axis: AxisRef | None = None,
+        reference_parent_axis: AxisRef | None = None,
         selected_axis: AxisRef | None = None,
         parent_fiber_input: np.ndarray | ArtifactRef | None = None,
         valid_fiber_input: np.ndarray | ArtifactRef | None = None,
@@ -232,6 +233,7 @@ class DeltaReferenceFiberTest(unittest.TestCase):
             support_profile=_support_profile(),
             publisher=RunScopedArtifactPublisher(root, "delta_fiber_test", "1"),
             artifact_store=artifact_store,
+            reference_parent_fiber_axis=reference_parent_axis,
         )
 
     def test_formal_record_uses_continuous_signed_200_100_20_operator(self) -> None:
@@ -288,6 +290,53 @@ class DeltaReferenceFiberTest(unittest.TestCase):
                 _materialize(bundle.fold_scores, root),
                 np.tile(expected, (4, 1)),
             )
+
+    def test_locked_selected_axis_uses_reference_parent_not_augmented_addon_parent(
+        self,
+    ) -> None:
+        valid_ids = np.arange(10_000, 10_300, dtype=np.int64)
+        reference_parent_ids = valid_ids.copy()
+        addon_parent_ids = np.concatenate(
+            (valid_ids, np.arange(20_000, 20_020, dtype=np.int64))
+        )
+        subjects, reference_parent_axis, selected_axis = _axes(
+            reference_parent_ids,
+            valid_ids,
+            connectome_id="formal_connectome",
+        )
+        _, addon_parent_axis, _ = _axes(
+            addon_parent_ids,
+            valid_ids,
+            connectome_id="formal_connectome",
+        )
+        full_weights = np.concatenate((np.ones(200), -np.ones(100)))
+        fold_weights = np.tile(full_weights, (subjects.count, 1))
+        fold_masks = np.ones_like(fold_weights, dtype=bool)
+        reference = np.zeros(
+            (subjects.count, addon_parent_ids.size),
+            dtype=np.float64,
+        )
+        addon = np.zeros_like(reference)
+        subject = np.arange(subjects.count, dtype=np.float64)[:, None]
+        reference[:, :300] = 250.0 + subject
+        addon[:, :300] = 300.0 + subject
+
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = self._build(
+                Path(temporary),
+                parent_fiber_ids=addon_parent_ids,
+                valid_fiber_ids=valid_ids,
+                full_weights=full_weights,
+                fold_weights=fold_weights,
+                fold_valid_masks=fold_masks,
+                reference_exposure=reference,
+                addon_reference_exposure=addon,
+                subject_axis=subjects,
+                parent_axis=addon_parent_axis,
+                reference_parent_axis=reference_parent_axis,
+                selected_axis=selected_axis,
+            )
+        self.assertTrue(bundle.valid)
 
     def test_fold_operator_can_use_fibers_outside_full_finite_support(self) -> None:
         parent_ids = np.arange(20_000, 20_400, dtype=np.int64)

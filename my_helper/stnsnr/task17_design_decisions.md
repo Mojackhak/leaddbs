@@ -279,3 +279,15 @@ fix, is the selected resume root.
 The implementation passes 418 dual-frequency tests and 224 parameterized
 subtests. A completed result with malformed or incomplete JSON is treated as
 unfinished and rerun; it does not introduce another resume rejection gate.
+
+## Decision 17: Validate the Locked Reference Axis Against Its Reference Parent
+
+The resumed v6 run reached 844 completed tasks before two DeltaReference tasks
+showed that membership and selected-axis identity require different parent
+axes. The augmented add-on prepared parent is the authority for membership and
+column order. The matched reference prepared parent is the authority used to
+recompute the locked reference selected-axis SHA. The builder now receives both
+records explicitly. It keeps strict missing-ID and order failures and does not
+change tau, Coverage, weights, folds, scoring, or the three resume gates.
+
+The correction passes 419 dual-frequency tests and 224 parameterized subtests.
