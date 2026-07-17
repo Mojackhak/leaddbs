@@ -423,6 +423,10 @@ class StudyRuntimeInputProvider:
         self._validated_niftis: dict[Path, _FileDigest] = {}
         self._feature_spaces: dict[tuple[str, str], _FeatureSpace] = {}
         self._shared_preparation_locks: dict[str, RLock] = {}
+        self._selected_fiber_geometries: dict[
+            tuple[str, str],
+            tuple[np.ndarray, np.ndarray],
+        ] = {}
 
     @staticmethod
     def _file_signature(path: Path) -> tuple[int, int, int]:
@@ -2221,6 +2225,229 @@ class StudyRuntimeInputProvider:
                 input_hashes,
                 jitter_context=jitter_context,
             )
+
+    def build_jitter_physical_block(
+        self,
+        *,
+        endpoint_id: str,
+        subject_ids: tuple[str, ...],
+        feature_keys: np.ndarray,
+        replicate_start: int,
+        replicate_stop: int,
+        root_seed: int,
+        translation_fwhm_mm: float,
+    ) -> tuple[dict[str, np.ndarray], np.ndarray]:
+        """Build one reduced-axis physical jitter block without publishing copies."""
+
+        endpoint = self.endpoint(endpoint_id)
+        subjects = tuple(str(value) for value in subject_ids)
+        if not subjects or len(set(subjects)) != len(subjects):
+            raise RuntimeInputProviderError(
+                "jitter physical subject IDs must be nonempty and unique"
+            )
+        if any(subject_id not in self._subjects for subject_id in subjects):
+            raise RuntimeInputProviderError(
+                "jitter physical subject axis contains an unknown subject"
+            )
+        keys = np.asarray(feature_keys)
+        if (
+            keys.ndim != 1
+            or not np.issubdtype(keys.dtype, np.integer)
+            or keys.size < 1
+        ):
+            raise RuntimeInputProviderError(
+                "jitter feature keys must be a nonempty integer vector"
+            )
+        keys = np.asarray(keys, dtype=np.int64)
+        if keys[0] < 0 or np.any(np.diff(keys) <= 0):
+            raise RuntimeInputProviderError(
+                "jitter feature keys must be ordered and unique"
+            )
+        if (
+            type(replicate_start) is not int
+            or type(replicate_stop) is not int
+            or replicate_start < 0
+            or replicate_stop <= replicate_start
+        ):
+            raise RuntimeInputProviderError(
+                "jitter replicate range must be a nonempty half-open interval"
+            )
+        if type(root_seed) is not int or root_seed < 0:
+            raise RuntimeInputProviderError("jitter root seed must be nonnegative")
+        fwhm = float(translation_fwhm_mm)
+        if not math.isfinite(fwhm) or fwhm <= 0.0:
+            raise RuntimeInputProviderError(
+                "jitter translation FWHM must be finite and positive"
+            )
+        sigma = fwhm / 2.354820045
+        profile = self._profile(endpoint)
+        pair = profile.endpoint_pair
+        is_reference = endpoint.key.model_family.startswith("reference_")
+        components = (
+            (("primary_exposure", pair.reference, "reference"),)
+            if is_reference
+            else (
+                ("primary_exposure", pair.addon, "addon"),
+                ("reference_condition_exposure", pair.reference, "reference"),
+                (
+                    "addon_reference_component_exposure",
+                    pair.addon,
+                    "reference",
+                ),
+            )
+        )
+        resolutions_by_component: dict[str, tuple[GroupResolution, ...]] = {}
+        for name, binding, frequency_class in components:
+            resolutions = tuple(
+                self._resolve_groups(
+                    endpoint,
+                    self._subjects[subject_id],
+                    binding,
+                    frequency_class,
+                    require_bilateral=True,
+                )
+                for subject_id in subjects
+            )
+            missing = tuple(
+                subject_id
+                for subject_id, resolution in zip(subjects, resolutions, strict=True)
+                if resolution.reason_code is not None
+            )
+            if missing:
+                raise RuntimeInputProviderError(
+                    "missing_sensitivity_source: jitter component "
+                    f"{name!r} is unavailable for subjects {missing!r}"
+                )
+            resolutions_by_component[name] = resolutions
+
+        if endpoint.key.model_family.endswith("voxel"):
+            parent = self._direct_feature_space()
+            if keys[-1] >= parent.axis.count or parent.coordinates is None:
+                raise RuntimeInputProviderError(
+                    "jitter voxel positions exceed the canonical parent axis"
+                )
+            coordinates = np.asarray(parent.coordinates[keys], dtype=np.float32)
+            fiber_points = fiber_offsets = None
+        else:
+            parent = self._fiber_feature_space(endpoint.key.connectome_id)
+            if keys[0] < 1 or keys[-1] > parent.axis.count:
+                raise RuntimeInputProviderError(
+                    "jitter fiber IDs exceed the canonical connectome axis"
+                )
+            coordinates = None
+            fiber_points, fiber_offsets = self._selected_fiber_geometry(
+                endpoint.key.connectome_id,
+                parent,
+                keys,
+            )
+
+        indices = np.arange(replicate_start, replicate_stop, dtype=np.int64)
+        seeds = np.asarray(
+            [
+                np.random.SeedSequence([root_seed, int(index)]).generate_state(
+                    1,
+                    dtype=np.uint64,
+                )[0]
+                for index in indices
+            ],
+            dtype=np.uint64,
+        )
+        arrays = {
+            name: np.empty(
+                (indices.size, len(subjects), keys.size),
+                dtype=np.float32,
+            )
+            for name, _binding, _frequency_class in components
+        }
+        for replicate_offset, (replicate_index, replicate_seed) in enumerate(
+            zip(indices, seeds, strict=True)
+        ):
+            context = JitterTranslationContext(
+                replicate_index=int(replicate_index),
+                replicate_seed=int(replicate_seed),
+                translation_sigma_mm=sigma,
+            )
+            for name, binding, frequency_class in components:
+                destination = arrays[name][replicate_offset]
+                resolutions = resolutions_by_component[name]
+                for subject_index, (subject_id, resolution) in enumerate(
+                    zip(subjects, resolutions, strict=True)
+                ):
+                    translations = {
+                        side: context.vector(
+                            binding_id=binding.identifier,
+                            frequency_class=frequency_class,
+                            subject_id=subject_id,
+                            hemisphere=side,
+                        )
+                        for side in ("L", "R")
+                    }
+                    if coordinates is not None:
+                        values, _reason = self._sample_group_resolution(
+                            resolution,
+                            coordinates,
+                            allow_absent=False,
+                            translation_by_side=translations,
+                        )
+                    else:
+                        assert fiber_points is not None and fiber_offsets is not None
+                        values, _reason = self._sample_fiber_group_resolution(
+                            resolution,
+                            fiber_points,
+                            fiber_offsets,
+                            allow_absent=False,
+                            translation_by_side=translations,
+                        )
+                    destination[subject_index] = values
+        for array in arrays.values():
+            if not np.all(np.isfinite(array)) or np.any(array < 0.0):
+                raise RuntimeInputProviderError(
+                    "jitter physical block contains invalid exposure values"
+                )
+            array.flags.writeable = False
+        seeds.flags.writeable = False
+        return arrays, seeds
+
+    def _selected_fiber_geometry(
+        self,
+        connectome_id: str,
+        parent: _FeatureSpace,
+        fiber_ids: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Load one ordered reduced connectome geometry once in each worker."""
+
+        identity = hashlib.sha256(
+            np.ascontiguousarray(fiber_ids, dtype="<i8").tobytes()
+        ).hexdigest()
+        key = (str(connectome_id), identity)
+        with self._lock:
+            cached = self._selected_fiber_geometries.get(key)
+            if cached is not None:
+                return cached
+        if parent.connectome is None:
+            raise RuntimeInputProviderError(
+                "jitter fiber parent lacks a connectome reader"
+            )
+        signature = self._file_signature(parent.source_path)
+        streamlines = parent.connectome.load_streamlines(fiber_ids)
+        lengths = np.asarray([value.shape[0] for value in streamlines], dtype=np.int64)
+        if np.any(lengths < 1):
+            raise RuntimeInputProviderError(
+                "jitter selected fiber geometry contains an empty streamline"
+            )
+        offsets = np.empty(lengths.size + 1, dtype=np.int64)
+        offsets[0] = 0
+        np.cumsum(lengths, out=offsets[1:])
+        points = np.ascontiguousarray(np.concatenate(streamlines, axis=0), dtype=np.float32)
+        if self._file_signature(parent.source_path) != signature:
+            raise RuntimeInputProviderError(
+                "connectome changed while selected jitter geometry was loaded"
+            )
+        points.flags.writeable = False
+        offsets.flags.writeable = False
+        with self._lock:
+            self._selected_fiber_geometries[key] = (points, offsets)
+        return points, offsets
 
     def _publish_prepared_exposure_impl(
         self,

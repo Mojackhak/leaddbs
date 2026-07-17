@@ -17,7 +17,8 @@ from ..cache.identity import sha256_file
 from ..contracts import AxisRef, ArtifactRef, FinalSelectionRecord, PreparedExposureRecord
 from ..contracts.identity import canonical_hash
 from ..reporting.artifact_index import record_artifact_closure
-from ..workflow import ExecutionPlan, ServiceResult, TaskOutcome
+from ..workflow import ExecutionPlan, ServiceResult, TaskOutcome, TaskSpec
+from ..contracts import TaskKey
 
 
 class SensitivityCheckpointError(RuntimeError):
@@ -27,6 +28,8 @@ class SensitivityCheckpointError(RuntimeError):
 CHECKPOINT_SCHEMA = "dual_frequency_sensitivity_checkpoint_v1"
 BASE_SCHEMA = "dual_frequency_sensitivity_base_v1"
 SEED_SCHEMA = "dual_frequency_sensitivity_seed_tasks_v1"
+JITTER_BLOCK_SIZE = 25
+JITTER_BLOCK_PRODUCER_VERSION = "1"
 
 
 def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -676,6 +679,7 @@ def compile_sensitivity_extension_plan(
     endpoint_ids: Sequence[str],
     analyses: Sequence[str],
     seed_task_ids: Sequence[str],
+    jitter_bases: Sequence[Mapping[str, Any]] | None = None,
 ) -> ExecutionPlan:
     """Return sensitivity targets bounded by completed direct checkpoint roots."""
 
@@ -730,13 +734,178 @@ def compile_sensitivity_extension_plan(
         )
         for task_id in direct_parent_ids
     }
-    selected = tuple(
+    block_tasks: list[TaskSpec] = []
+    if "jitter" in requested and jitter_bases is not None:
+        bases_by_endpoint = {
+            str(base.get("endpoint_id", "")): dict(base) for base in jitter_bases
+        }
+        jitter_targets = tuple(
+            task for task in extension_targets.values() if task.stage == "spatial_jitter"
+        )
+        missing_bases = tuple(
+            sorted(
+                task.endpoint_id
+                for task in jitter_targets
+                if task.endpoint_id not in bases_by_endpoint
+            )
+        )
+        if missing_bases:
+            raise SensitivityCheckpointError(
+                "jitter extension lacks sensitivity bases for endpoints: "
+                + ",".join(missing_bases)
+            )
+
+        grouped: dict[str, list[TaskSpec]] = {}
+        descriptors: dict[str, dict[str, Any]] = {}
+        for task in jitter_targets:
+            base = bases_by_endpoint[task.endpoint_id]
+            rng = base.get("rng_profile")
+            shared = base.get("shared_exposure_entries")
+            if not isinstance(rng, Mapping) or not isinstance(shared, list):
+                raise SensitivityCheckpointError(
+                    "jitter sensitivity base lacks RNG or shared-exposure identity"
+                )
+            try:
+                replicates = int(rng["jitter_resamples"])
+                seed = int(rng["seed"])
+                fwhm = float(rng["jitter_translation_fwhm_mm"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise SensitivityCheckpointError(
+                    "jitter sensitivity base has an invalid RNG profile"
+                ) from exc
+            if replicates < 1 or seed < 0 or not fwhm > 0.0:
+                raise SensitivityCheckpointError(
+                    "jitter sensitivity base has an invalid RNG schedule"
+                )
+            final_branch = str(base.get("final_branch", "")).strip()
+            if (
+                task.model_family.startswith("addon_")
+                and final_branch != "no_delta_reference"
+            ):
+                continue
+            normalized_shared: list[dict[str, str]] = []
+            for entry in shared:
+                if not isinstance(entry, Mapping) or set(entry) != {
+                    "kind",
+                    "semantic_sha256",
+                }:
+                    raise SensitivityCheckpointError(
+                        "jitter sensitivity base has an invalid shared-exposure entry"
+                    )
+                normalized_shared.append(
+                    {
+                        "kind": str(entry["kind"]),
+                        "semantic_sha256": str(entry["semantic_sha256"]),
+                    }
+                )
+            descriptor = {
+                "model_family": task.model_family,
+                "connectome_role": task.connectome_role,
+                "final_branch_mode": final_branch,
+                "shared_exposure_entries": sorted(
+                    normalized_shared,
+                    key=lambda item: (item["kind"], item["semantic_sha256"]),
+                ),
+                "replicates": replicates,
+                "seed": seed,
+                "translation_fwhm_mm": fwhm,
+                "producer_version": JITTER_BLOCK_PRODUCER_VERSION,
+            }
+            group_id = f"jitter_group_{canonical_hash(descriptor, length=20)}"
+            grouped.setdefault(group_id, []).append(task)
+            descriptors[group_id] = descriptor
+
+        block_ids_by_group: dict[str, tuple[str, ...]] = {}
+        for group_id in sorted(grouped):
+            members = tuple(sorted(grouped[group_id], key=lambda item: item.endpoint_id))
+            descriptor = descriptors[group_id]
+            endpoint_ids_json = json.dumps(
+                [task.endpoint_id for task in members],
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            descriptor_json = json.dumps(
+                descriptor,
+                separators=(",", ":"),
+                sort_keys=True,
+                allow_nan=False,
+            )
+            dependency_set = {
+                dependency for task in members for dependency in task.dependencies
+            }
+            ordered_dependencies = tuple(
+                task.task_id
+                for task in full_plan.tasks
+                if task.task_id in dependency_set
+            )
+            representative = members[0]
+            identifiers: list[str] = []
+            for start in range(0, int(descriptor["replicates"]), JITTER_BLOCK_SIZE):
+                stop = min(
+                    start + JITTER_BLOCK_SIZE,
+                    int(descriptor["replicates"]),
+                )
+                stage = f"jitter_block_{group_id.removeprefix('jitter_group_')}_{start:04d}_{stop:04d}"
+                parameters = (
+                    ("group_descriptor", descriptor_json),
+                    ("group_endpoint_ids", endpoint_ids_json),
+                    ("group_id", group_id),
+                    ("replicate_start", str(start)),
+                    ("replicate_stop", str(stop)),
+                )
+                key = TaskKey(
+                    endpoint_id=representative.endpoint_id,
+                    stage=stage,
+                    parameter_identity=canonical_hash(
+                        {
+                            "scientific_configuration_hash": (
+                                full_plan.scientific_configuration_hash
+                            ),
+                            "execution_parameters": parameters,
+                        }
+                    ),
+                )
+                block = TaskSpec(
+                    key=key,
+                    endpoint_id=representative.endpoint_id,
+                    model_family=representative.model_family,
+                    connectome_role=representative.connectome_role,
+                    stage=stage,
+                    round_id="round_jitter_blocks",
+                    phase="sensitivity",
+                    service_id="prepare_jitter_exposure_block",
+                    dependencies=ordered_dependencies,
+                    gates=(),
+                    output_record_type="SensitivityResult",
+                    execution_parameters=parameters,
+                )
+                block_tasks.append(block)
+                identifiers.append(block.task_id)
+            block_ids_by_group[group_id] = tuple(identifiers)
+
+        for group_id, members in grouped.items():
+            block_ids = block_ids_by_group[group_id]
+            for member in members:
+                extension_targets[member.task_id] = replace(
+                    member,
+                    dependencies=(*member.dependencies, *block_ids),
+                    execution_parameters=(
+                        *member.execution_parameters,
+                        ("jitter_block_group_id", group_id),
+                    ),
+                )
+
+    selected_roots = tuple(
         checkpoint_roots[task.task_id]
-        if task.task_id in checkpoint_roots
-        else extension_targets[task.task_id]
         for task in full_plan.tasks
-        if task.task_id in checkpoint_roots or task.task_id in extension_targets
+        if task.task_id in checkpoint_roots
     )
+    selected_targets = tuple(
+        extension_targets[task.task_id]
+        for task in full_plan.tasks
+        if task.task_id in extension_targets
+    )
+    selected = (*selected_roots, *block_tasks, *selected_targets)
     if any(task.phase == "formal" for task in selected):
         raise SensitivityCheckpointError(
             "sensitivity extension closure cannot contain formal tasks"

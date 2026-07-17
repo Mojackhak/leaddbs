@@ -1008,6 +1008,56 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(resumed.exit_code, 0)
         self.assertEqual(calls, [task.task_id])
 
+    def test_resume_runs_only_missing_jitter_blocks_and_their_consumer(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        first_block = _task(endpoint, "jitter_block_0000_0025", "count")
+        second_block = _task(endpoint, "jitter_block_0025_0050", "count")
+        consumer = _task(
+            endpoint,
+            "spatial_jitter",
+            "count",
+            dependencies=(first_block.task_id, second_block.task_id),
+        )
+        plan = self._plan((first_block, second_block, consumer))
+        calls: list[str] = []
+
+        def count(request):
+            calls.append(request.task.task_id)
+            return _result(request)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            store = self._store(Path(temporary_directory) / "run", plan)
+            completed = TaskOutcome(
+                task_id=first_block.task_id,
+                endpoint_id=first_block.endpoint_id,
+                service_id=first_block.service_id,
+                status="completed",
+                reason="none",
+                result=ServiceResult.from_record(_source(endpoint)),
+            )
+            store.write_task_state(first_block.task_id, completed.as_dict())
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=store,
+                    registry=ServiceRegistry((RegisteredService("count", count),)),
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=2,
+                    resume=True,
+                ),
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(calls, [second_block.task_id, consumer.task_id])
+        outcomes = {outcome.task_id: outcome for outcome in result.outcomes}
+        self.assertEqual(
+            outcomes[first_block.task_id].reason,
+            "restored_completed_result",
+        )
+
     def test_resume_uses_only_json_yaml_and_completed_result_gates(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "run"

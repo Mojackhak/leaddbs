@@ -420,6 +420,18 @@ class WorkflowService:
                 endpoint_ids=checkpoint.endpoint_ids,
                 analyses=request.analyses,
                 seed_task_ids=checkpoint.seed_task_ids,
+                jitter_bases=(
+                    checkpoint.bases
+                    if self.provider is None
+                    or callable(
+                        getattr(
+                            self.provider,
+                            "build_jitter_physical_block",
+                            None,
+                        )
+                    )
+                    else None
+                ),
             )
             checkpoint_root_ids = tuple(
                 task.task_id for task in extension_plan.tasks if task.checkpoint_only

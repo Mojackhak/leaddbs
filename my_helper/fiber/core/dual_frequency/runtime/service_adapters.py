@@ -74,6 +74,10 @@ from ..workflow.registry import RegisteredService, ServiceRegistry
 from ..workflow.state import BranchPlan, derive_branch_plan, realize_final
 from .activation_provider import OSSActivationProvider, OSSActivationRuntimeRequest
 from .input_provider import RuntimeInputProvider, StudyRuntimeInputProvider
+from .jitter_blocks import (
+    CachedJitterReplicateProvider,
+    prepare_jitter_exposure_block,
+)
 from .jitter_provider import StudyJitterReplicateProvider
 
 
@@ -1220,7 +1224,27 @@ def _run_jitter(request: TaskExecutionRequest) -> ServiceResult:
         translation_fwhm_mm=profile.jitter_translation_fwhm_mm,
     )
     target = _final_target(request)
-    if isinstance(request.provider, JitterReplicateProvider):
+    block_group_id = dict(request.task.execution_parameters).get(
+        "jitter_block_group_id"
+    )
+    array_provider = request.artifact_store
+    if block_group_id is not None:
+        if not isinstance(request.provider, StudyRuntimeInputProvider):
+            raise ServiceAdapterCapabilityError(
+                "cached spatial jitter requires StudyRuntimeInputProvider"
+            )
+        endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
+        dependency = _one_record(request, ReferenceDependencyRecord, required=False)
+        replicate_provider = CachedJitterReplicateProvider(
+            request=request,
+            target=target,
+            endpoint_input=endpoint_input,
+            reference_dependency=dependency,
+            settings=settings,
+            group_id=block_group_id,
+        )
+        array_provider = replicate_provider.array_provider
+    elif isinstance(request.provider, JitterReplicateProvider):
         replicate_provider = request.provider
     elif isinstance(request.provider, StudyRuntimeInputProvider):
         endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
@@ -1259,7 +1283,7 @@ def _run_jitter(request: TaskExecutionRequest) -> ServiceResult:
     )
     result = SpatialJitterStrategy(
         _publisher(request),
-        array_provider=request.artifact_store,
+        array_provider=array_provider,
     ).run(jitter_request)
     return ServiceResult.from_record(result)
 
@@ -1385,6 +1409,7 @@ def _run_addon_fiber_branch(request: TaskExecutionRequest) -> ServiceResult:
 
 
 PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
+    ("prepare_jitter_exposure_block", prepare_jitter_exposure_block),
     ("validate_reference_voxel_input", _validate_endpoint_input),
     ("prepare_reference_voxel_exposure", _prepare_exposure),
     ("run_reference_voxel_observed_grid", _run_reference_voxel_observed),

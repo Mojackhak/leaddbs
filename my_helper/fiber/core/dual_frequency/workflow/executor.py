@@ -368,6 +368,10 @@ class _ResourceLedger:
 
     @staticmethod
     def request(task: TaskSpec) -> _ResourceGrant:
+        if task.stage.startswith("jitter_block_"):
+            if task.model_family.endswith("fiber"):
+                return _ResourceGrant(1, 4 * 1024**3, 1, 0)
+            return _ResourceGrant(1, 2 * 1024**3, 0, 0)
         if task.stage == "prepare_exposure":
             return _ResourceGrant(1, 16 * 1024**3, 1, 0)
         if task.stage == "activation_sensitivity":

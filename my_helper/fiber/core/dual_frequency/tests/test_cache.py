@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ from dual_frequency.cache import (
     CacheIdentityMismatch,
     CacheItem,
     CacheShardInterval,
+    CachedFile,
     ContentAddressedCache,
     RunScopedArtifactPublisher,
     ScientificCacheKey,
@@ -175,6 +177,89 @@ class ContentAddressedCacheTest(unittest.TestCase):
         self.assertEqual(first.files, second.files)
         self.assertEqual(first.items, second.items)
         self.assertFalse(tuple(first.path.parent.glob(f".{key.digest}.tmp-*")))
+
+    def test_generated_publish_writes_once_without_copy_or_post_write_hash(self) -> None:
+        key = _key(backend_name="generated_jitter_block")
+        rows = AxisRef("replicates", 2, "c" * 64)
+        columns = AxisRef("features", 3, "d" * 64)
+        value = np.arange(6, dtype=np.float32).reshape(2, 3)
+        producer_calls = 0
+
+        def producer(staging: Path) -> tuple[CachedFile, ...]:
+            nonlocal producer_calls
+            producer_calls += 1
+            path = staging / "block.npy"
+            digest = hashlib.sha256()
+
+            class HashingStream:
+                def __init__(self, stream):
+                    self.stream = stream
+
+                def write(self, payload: bytes) -> int:
+                    digest.update(payload)
+                    return self.stream.write(payload)
+
+                def flush(self) -> None:
+                    self.stream.flush()
+
+            with path.open("xb") as stream:
+                writer = HashingStream(stream)
+                np.lib.format.write_array(writer, value, allow_pickle=False)
+                writer.flush()
+                os.fsync(stream.fileno())
+            return (
+                CachedFile(
+                    relative_path="block.npy",
+                    sha256=digest.hexdigest(),
+                    size_bytes=path.stat().st_size,
+                    metadata=CacheFileMetadata(
+                        dtype="float32",
+                        shape=(2, 3),
+                        axes=(rows, columns),
+                        units="V/m",
+                        space="synthetic",
+                    ),
+                ),
+            )
+
+        with mock.patch.object(
+            ContentAddressedCache,
+            "_copy_and_hash",
+            side_effect=AssertionError("generated publication cannot copy payloads"),
+        ):
+            first = self.cache.publish_generated(key, producer)
+            second = self.cache.publish_generated(
+                key,
+                lambda _staging: (_ for _ in ()).throw(
+                    AssertionError("cache hit cannot invoke the producer")
+                ),
+            )
+
+        self.assertFalse(first.reused)
+        self.assertTrue(second.reused)
+        self.assertEqual(producer_calls, 1)
+        np.testing.assert_array_equal(
+            np.load(first.file_path("block.npy"), allow_pickle=False),
+            value,
+        )
+
+    def test_generated_publish_failure_removes_staging_generation(self) -> None:
+        key = _key(backend_name="failed_generated_jitter_block")
+
+        def producer(staging: Path) -> tuple[CachedFile, ...]:
+            (staging / "partial.bin").write_bytes(b"partial")
+            raise OSError("producer failed")
+
+        with self.assertRaisesRegex(OSError, "producer failed"):
+            self.cache.publish_generated(key, producer)
+        self.assertFalse(self.cache.entry_path(key).exists())
+        self.assertFalse(
+            tuple(
+                self.cache.entry_path(key).parent.glob(
+                    f".{key.digest}.tmp-*"
+                )
+            )
+        )
 
     def test_same_identity_with_different_content_is_rejected_without_overwrite(self) -> None:
         source = self._source("artifact.bin", b"original")

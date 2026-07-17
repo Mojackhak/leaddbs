@@ -48,11 +48,25 @@ class TaskSpec:
     dependencies: tuple[str, ...]
     gates: tuple[GateRequirement, ...]
     output_record_type: str
+    execution_parameters: tuple[tuple[str, str], ...] = ()
     expensive_producer: bool = False
     cache_first_expensive: bool = False
     checkpoint_only: bool = False
 
     def __post_init__(self) -> None:
+        parameters = tuple(
+            sorted(
+                (str(name).strip(), str(value).strip())
+                for name, value in self.execution_parameters
+            )
+        )
+        if any(not name or not value for name, value in parameters):
+            raise PlanningError(
+                "task execution parameter names and values must be nonempty"
+            )
+        if len({name for name, _value in parameters}) != len(parameters):
+            raise PlanningError("task execution parameter names must be unique")
+        object.__setattr__(self, "execution_parameters", parameters)
         if self.cache_first_expensive and not self.expensive_producer:
             raise PlanningError(
                 "cache_first_expensive requires expensive_producer=True"
@@ -61,6 +75,15 @@ class TaskSpec:
             raise PlanningError(
                 "checkpoint-only tasks must be dependency-free and gate-free"
             )
+
+    def execution_parameter(self, name: str) -> str:
+        """Return one required immutable service parameter."""
+
+        token = str(name).strip()
+        for candidate, value in self.execution_parameters:
+            if candidate == token:
+                return value
+        raise PlanningError(f"task execution parameter {token!r} is missing")
 
     @property
     def task_id(self) -> str:
@@ -116,6 +139,7 @@ class _TaskFactory:
         gates: tuple[GateRequirement, ...] = (),
         output_record_type: str,
         branch: str = "none",
+        execution_parameters: tuple[tuple[str, str], ...] = (),
         expensive_producer: bool = False,
         cache_first_expensive: bool = False,
     ) -> str | None:
@@ -144,6 +168,7 @@ class _TaskFactory:
             dependencies=dependency_ids,
             gates=gates,
             output_record_type=output_record_type,
+            execution_parameters=execution_parameters,
             expensive_producer=expensive_producer,
             cache_first_expensive=cache_first_expensive,
         )

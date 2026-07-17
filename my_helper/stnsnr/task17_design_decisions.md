@@ -471,3 +471,79 @@ This boundary does not weaken the portable-cache contract. Every shared entry
 still receives complete payload SHA and structural validation on first use in
 each process, and corruption of a declared final artifact or shared-cache
 payload still fails before any sensitivity service invocation.
+
+## Decision 24: Parallel Jitter Uses Fixed Reduced-Axis Physical Blocks
+
+The first production extension attempt exposed a structural scheduler failure.
+Twelve endpoint tasks entered the same first jitter replicate. One worker held
+the cache producer lease while eleven workers waited inside their services. No
+jitter entry was published during the first two minutes, and the producer was
+building a 16 by 8465824 voxel matrix for one replicate. Repeating that path for
+1000 replicates would serialize physical production and would create endpoint-
+local full-exposure copies. The interrupted extension is retained as resume and
+performance evidence, but it is not an accepted production run.
+
+Jitter production is therefore split into explicit physical block tasks before
+endpoint statistics. Replicate ranges are fixed groups of 25 and do not depend
+on worker count. The production checkpoint currently has three physical groups:
+reference voxel, add-on voxel, and formal reference fiber. Each group has 40
+ordered ranges for the 1000-replicate schedule. The final-axis union sizes are
+386 reference voxels, 418 add-on voxels, and 10098 formal fibers, so physical
+blocks use those reduced ordered axes instead of the complete brainmask or
+connectome axis.
+
+Each block identity binds:
+
+- the ordered parent shared-exposure identities;
+- model family and connectome role;
+- the ordered union feature IDs and union-axis SHA;
+- the physical subject axis;
+- root seed, translation schedule, and replicate start and stop;
+- the physical sampling rule and producer version.
+
+The block contains the replicate axis, physical subject axis, union feature
+axis, ordered feature IDs, ordered replicate seeds, and the required exposure
+components. Reference blocks contain the primary component. Add-on blocks also
+contain the reference-condition and add-on reference-component arrays required
+to rebuild overlap and DeltaReferenceScore inputs.
+
+Cache lookup occurs before source discovery. A complete copied block can be
+used when the original E-field, transform, or connectome is unavailable. A
+cache miss may produce the block only when the required physical sources are
+available; otherwise it fails with `missing_sensitivity_source`. Source absence
+never invalidates a complete block and never causes fabricated data or fallback
+to an unperturbed exposure.
+
+Block producers run as ordinary tasks in the one persistent workflow process
+pool. They do not create a nested executor. Different ranges can occupy
+different workers, while cache identities and RNG order remain invariant under
+worker-count changes. Endpoint jitter tasks start only after their group's
+blocks complete. They mmap each verified block once, select endpoint subject
+rows and final features in memory, and write only compact replicate statistics
+and small DeltaReferenceScore evidence. They do not publish endpoint-local full
+jitter exposure arrays.
+
+The extension compiler enables physical blocks only for the production runtime
+or an explicitly injected provider that exposes the physical-block capability.
+An injected replicate provider without that capability keeps its original typed
+replicate path; the planner does not attach cache-block dependencies that the
+provider cannot consume.
+
+An add-on final on the no-delta branch does not rebuild an unused
+DeltaReferenceScore during jitter. Its support status is explicitly
+not-applicable, while overlap exclusion is still rebuilt from the perturbed
+add-on and reference-component arrays. An adjusted add-on final may use the
+reduced block path only when the block also carries support-preserving evidence
+for the complete parent universe. Until that evidence format is implemented,
+an adjusted final stays on the existing full-parent replicate provider and is
+not assigned to a reduced block group. This preserves the support definition
+without blocking a scientifically valid extension. The current production
+checkpoint contains 28 no-delta add-on voxel finals and no adjusted add-on
+final, so its reduced add-on blocks preserve every input used by the realized
+final branch.
+
+Large block payloads use a generated-entry cache publication path. Final NPY
+bytes are streamed into the cache staging generation while their payload SHA is
+computed, then the completed manifest and directory are atomically published.
+There is no work-memmap copy, endpoint exposure copy, or post-publication full
+payload read by the producer.

@@ -552,11 +552,15 @@ class ServiceAdapterTest(unittest.TestCase):
         plan = compile_execution_plan(configuration, catalog)
         planned = {task.service_id for task in plan.tasks}
         declared = {service_id for service_id, _handler in PRODUCTION_SERVICE_HANDLERS}
+        extension_only = {"prepare_jitter_exposure_block"}
         registry = build_default_registry()
         application_registry = build_default_service_registry()
-        self.assertEqual(declared, planned)
-        self.assertEqual(set(registry.service_ids), planned)
-        self.assertEqual(set(application_registry.service_ids), planned)
+        self.assertEqual(declared, planned | extension_only)
+        self.assertEqual(set(registry.service_ids), planned | extension_only)
+        self.assertEqual(
+            set(application_registry.service_ids),
+            planned | extension_only,
+        )
         self.assertEqual(len(registry.service_ids), len(declared))
 
     def test_readiness_observed_and_resolver_preserve_typed_records(self) -> None:

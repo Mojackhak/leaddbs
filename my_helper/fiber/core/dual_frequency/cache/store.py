@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
 import time
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import unquote, urlsplit
 
 import numpy as np
@@ -365,6 +365,114 @@ class ContentAddressedCache:
                     raise
                 existing = self._load_entry(destination, expected_key=key, reused=True)
                 self._require_exact_publication(existing, expected_files, normalized_items)
+                return existing
+            return self._load_entry(
+                destination,
+                expected_key=key,
+                reused=False,
+                trust_publisher_payloads=True,
+            )
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+
+    def publish_generated(
+        self,
+        key: ScientificCacheKey,
+        producer: Callable[[Path], Sequence[CachedFile]],
+        *,
+        items: Sequence[CacheItem | tuple[str, str]] = (),
+    ) -> CacheEntry:
+        """Atomically publish payloads written and hashed once by a trusted producer."""
+
+        if not isinstance(key, ScientificCacheKey):
+            raise TypeError("key must be a ScientificCacheKey")
+        if not callable(producer):
+            raise TypeError("producer must be callable")
+        normalized_items = _cache_items(items)
+        destination = self.entry_path(key)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            return self._load_entry(destination, expected_key=key, reused=True)
+
+        staging = Path(
+            tempfile.mkdtemp(prefix=f".{key.digest}.tmp-", dir=destination.parent)
+        )
+        try:
+            generated = tuple(producer(staging))
+            if not generated or not all(
+                isinstance(record, CachedFile) for record in generated
+            ):
+                raise CacheIdentityMismatch(
+                    "generated cache producer must return CachedFile records"
+                )
+            expected_files = tuple(
+                sorted(generated, key=lambda record: record.relative_path)
+            )
+            if expected_files != generated:
+                raise CacheIdentityMismatch(
+                    "generated cache files must be returned in path order"
+                )
+            names = tuple(record.relative_path for record in expected_files)
+            if len(set(names)) != len(names):
+                raise CacheIdentityMismatch(
+                    "generated cache file paths must be unique"
+                )
+            descendants = tuple(staging.rglob("*"))
+            if any(path.is_symlink() for path in descendants):
+                raise CacheIdentityMismatch(
+                    "generated cache payloads cannot contain symbolic links"
+                )
+            actual = {
+                path.relative_to(staging).as_posix()
+                for path in descendants
+                if path.is_file()
+                and not _is_platform_sidecar(path.relative_to(staging))
+            }
+            if actual != set(names):
+                raise CacheIdentityMismatch(
+                    "generated cache file records do not cover the staging generation"
+                )
+            for record in expected_files:
+                path = staging / record.relative_path
+                if path.stat().st_size != record.size_bytes:
+                    raise CacheIdentityMismatch(
+                        f"generated cache size changed: {record.relative_path}"
+                    )
+                self._validate_file_structure(path, record)
+            self._validate_shards(expected_files)
+            _write_json(
+                staging / MANIFEST_NAME,
+                self._manifest_payload(key, expected_files, normalized_items),
+            )
+
+            if destination.exists():
+                existing = self._load_entry(
+                    destination,
+                    expected_key=key,
+                    reused=True,
+                )
+                self._require_exact_publication(
+                    existing,
+                    expected_files,
+                    normalized_items,
+                )
+                return existing
+            try:
+                os.replace(staging, destination)
+            except OSError:
+                if not destination.exists():
+                    raise
+                existing = self._load_entry(
+                    destination,
+                    expected_key=key,
+                    reused=True,
+                )
+                self._require_exact_publication(
+                    existing,
+                    expected_files,
+                    normalized_items,
+                )
                 return existing
             return self._load_entry(
                 destination,

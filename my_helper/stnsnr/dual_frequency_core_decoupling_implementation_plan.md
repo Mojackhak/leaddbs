@@ -3060,6 +3060,23 @@ completed state is absent, and extension reporting preserves historical causal
 IDs as validated parent lineage. The focused extension tests and the complete
 427-test dual-frequency suite pass.
 
+**Jitter production audit and revised implementation boundary, 2026-07-17.**
+The first 12-worker production jitter extension restored 308 checkpoint roots
+and submitted 12 reference-voxel endpoint tasks. All 12 reached the same first
+replicate cache key. One worker used one CPU core as producer while the other 11
+waited inside the cache lease, and the producer began a 16 by 8465824 full-grid
+matrix. The run was safely stopped before a jitter entry was published. Decision
+24 replaces endpoint-led production with fixed 25-replicate physical block
+tasks on reduced union axes. The production union counts are 386 reference
+voxels, 418 add-on voxels, and 10098 formal fibers. Cache-first block lookup,
+source-absent reuse, generated-entry single-write publication, and endpoint
+in-memory selection are required before the production extension is resumed.
+The reduced add-on block path is branch-aware. No-delta finals rebuild overlap
+but do not rebuild unused DeltaReferenceScore evidence. Adjusted finals require
+complete-parent support evidence in addition to the reduced selected axes and
+must fail closed when that evidence is absent. The current production
+checkpoint contains only no-delta add-on voxel finals.
+
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 
 Preserve deterministic brute-force direct-voxel, normative-fiber, jitter, OSS,

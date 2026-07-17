@@ -299,6 +299,162 @@ class SensitivityCheckpointTest(unittest.TestCase):
                 seed_task_ids=(),
             )
 
+    def test_jitter_extension_inserts_fixed_shared_physical_blocks(self) -> None:
+        first_endpoint = EndpointKey(
+            "study",
+            "scale-one",
+            "reference",
+            "reference_voxel",
+        )
+        second_endpoint = EndpointKey(
+            "study",
+            "scale-two",
+            "reference",
+            "reference_voxel",
+        )
+        first_parent = _task(first_endpoint, "final_realization", "observed")
+        second_parent = _task(second_endpoint, "final_realization", "observed")
+        first_target = _task(
+            first_endpoint,
+            "spatial_jitter",
+            "sensitivity",
+            dependencies=(first_parent.task_id,),
+        )
+        second_target = _task(
+            second_endpoint,
+            "spatial_jitter",
+            "sensitivity",
+            dependencies=(second_parent.task_id,),
+        )
+        full_plan = ExecutionPlan(
+            configuration_hash=CONFIGURATION_HASH,
+            scientific_configuration_hash=SCIENTIFIC_HASH,
+            through="sensitivity",
+            tasks=(first_parent, second_parent, first_target, second_target),
+        )
+        rng = {
+            "jitter_resamples": 50,
+            "jitter_translation_fwhm_mm": 2.0,
+            "seed": 42,
+        }
+        shared = [
+            {
+                "kind": "voxel_exposures",
+                "semantic_sha256": "d" * 64,
+            }
+        ]
+        extension = compile_sensitivity_extension_plan(
+            full_plan,
+            endpoint_ids=(first_endpoint.identifier, second_endpoint.identifier),
+            analyses=("jitter",),
+            seed_task_ids=(first_parent.task_id, second_parent.task_id),
+            jitter_bases=(
+                {
+                    "endpoint_id": first_endpoint.identifier,
+                    "rng_profile": rng,
+                    "shared_exposure_entries": shared,
+                },
+                {
+                    "endpoint_id": second_endpoint.identifier,
+                    "rng_profile": rng,
+                    "shared_exposure_entries": shared,
+                },
+            ),
+        )
+
+        blocks = tuple(
+            task
+            for task in extension.tasks
+            if task.service_id == "prepare_jitter_exposure_block"
+        )
+        targets = tuple(
+            task for task in extension.tasks if task.stage == "spatial_jitter"
+        )
+        self.assertEqual(len(blocks), 2)
+        self.assertEqual(
+            tuple(
+                (
+                    block.execution_parameter("replicate_start"),
+                    block.execution_parameter("replicate_stop"),
+                )
+                for block in blocks
+            ),
+            (("0", "25"), ("25", "50")),
+        )
+        self.assertEqual(
+            {block.execution_parameter("group_id") for block in blocks},
+            {targets[0].execution_parameter("jitter_block_group_id")},
+        )
+        self.assertEqual(
+            {target.execution_parameter("jitter_block_group_id") for target in targets},
+            {targets[0].execution_parameter("jitter_block_group_id")},
+        )
+        block_ids = {block.task_id for block in blocks}
+        self.assertTrue(all(block_ids < set(target.dependencies) for target in targets))
+        self.assertTrue(
+            all(
+                set(block.dependencies)
+                == {first_parent.task_id, second_parent.task_id}
+                for block in blocks
+            )
+        )
+        self.assertTrue(all(task.checkpoint_only for task in extension.tasks[:2]))
+
+    def test_adjusted_addon_stays_on_full_parent_jitter_provider(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale-one",
+            "addon",
+            "addon_voxel",
+        )
+        parent = _task(endpoint, "final_realization", "observed")
+        target = _task(
+            endpoint,
+            "spatial_jitter",
+            "sensitivity",
+            dependencies=(parent.task_id,),
+        )
+        full_plan = ExecutionPlan(
+            configuration_hash=CONFIGURATION_HASH,
+            scientific_configuration_hash=SCIENTIFIC_HASH,
+            through="sensitivity",
+            tasks=(parent, target),
+        )
+
+        extension = compile_sensitivity_extension_plan(
+            full_plan,
+            endpoint_ids=(endpoint.identifier,),
+            analyses=("jitter",),
+            seed_task_ids=(parent.task_id,),
+            jitter_bases=(
+                {
+                    "endpoint_id": endpoint.identifier,
+                    "final_branch": "delta_reference_adjusted",
+                    "rng_profile": {
+                        "jitter_resamples": 50,
+                        "jitter_translation_fwhm_mm": 2.0,
+                        "seed": 42,
+                    },
+                    "shared_exposure_entries": [
+                        {
+                            "kind": "voxel_exposures",
+                            "semantic_sha256": "d" * 64,
+                        }
+                    ],
+                },
+            ),
+        )
+
+        self.assertFalse(
+            any(
+                task.service_id == "prepare_jitter_exposure_block"
+                for task in extension.tasks
+            )
+        )
+        jitter = next(task for task in extension.tasks if task.stage == "spatial_jitter")
+        self.assertEqual(jitter.execution_parameters, ())
+        self.assertEqual(jitter.dependencies, (parent.task_id,))
+
 
 if __name__ == "__main__":
     unittest.main()
