@@ -37,6 +37,8 @@ class RecordTest(unittest.TestCase):
         self.assertIsNone(limits.fold_n_features_min)
         with self.assertRaises(RequestError):
             HardComputabilityLimits(12, 0, None)
+        with self.assertRaises(RequestError):
+            HardComputabilityLimits(12, None, 0)
 
     @staticmethod
     def _feature_artifact(axis: AxisRef) -> ArtifactRef:

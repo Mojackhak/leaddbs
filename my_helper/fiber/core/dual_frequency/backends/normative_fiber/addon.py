@@ -226,7 +226,7 @@ def prepare_addon_fiber_exposure(
         active_block = (
             np.zeros(addon_block.shape, dtype=bool)
             if tau is None
-            else reference_block > tau
+            else reference_block >= tau
         )
         reference_active[:, start:stop] = active_block
         prepared[:, start:stop] = np.where(active_block, 0.0, addon_block)

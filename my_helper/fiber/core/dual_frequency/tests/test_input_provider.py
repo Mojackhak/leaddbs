@@ -1443,7 +1443,7 @@ class InputProviderTest(unittest.TestCase):
         for tau in source.tau_values:
             for coverage in source.coverage_values:
                 candidates = set(
-                    np.flatnonzero(np.count_nonzero(exposure > tau, axis=0) > coverage)
+                    np.flatnonzero(np.count_nonzero(exposure >= tau, axis=0) >= coverage)
                 )
                 self.assertTrue(candidates.issubset(set(positions.tolist())))
 

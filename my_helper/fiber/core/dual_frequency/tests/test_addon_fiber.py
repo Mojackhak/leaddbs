@@ -166,7 +166,7 @@ def _prepare(
 
 
 class AddonFiberPreparationTest(unittest.TestCase):
-    def test_overlap_is_strict_and_applied_before_candidate_coverage(self) -> None:
+    def test_overlap_includes_equality_and_precedes_candidate_coverage(self) -> None:
         addon = np.full((3, 4), 250.0, dtype=np.float32)
         reference = np.array(
             [[199.0, 200.0, 201.0, 0.0]] * 3,
@@ -179,14 +179,14 @@ class AddonFiberPreparationTest(unittest.TestCase):
         )
         np.testing.assert_array_equal(
             prepared.reference_active[0],
-            np.array([False, False, True, False]),
+            np.array([False, True, True, False]),
         )
         np.testing.assert_array_equal(
             prepared.exposure[0],
-            np.array([250.0, 250.0, 0.0, 250.0], dtype=np.float32),
+            np.array([250.0, 0.0, 0.0, 250.0], dtype=np.float32),
         )
-        coverage = np.sum(prepared.exposure > 200.0, axis=0)
-        np.testing.assert_array_equal(coverage, np.array([3, 3, 0, 3]))
+        coverage = np.sum(prepared.exposure >= 200.0, axis=0)
+        np.testing.assert_array_equal(coverage, np.array([3, 0, 0, 3]))
 
     def test_absent_reference_source_leaves_continuous_addon_exposure_unchanged(self) -> None:
         addon = np.arange(12, dtype=np.float32).reshape(3, 4)
@@ -252,7 +252,7 @@ class AddonFiberPreparationTest(unittest.TestCase):
                 reference_active_destination=active_destination,
                 feature_chunk_size=3,
             )
-            expected_active = reference > 200.0
+            expected_active = reference >= 200.0
             np.testing.assert_array_equal(prepared.reference_active, expected_active)
             np.testing.assert_array_equal(
                 prepared.exposure,

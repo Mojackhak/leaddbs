@@ -47,7 +47,7 @@ def coverage_counts(
     *,
     chunk_size: int = 262_144,
 ) -> np.ndarray:
-    """Count subjects with exposure strictly greater than tau for each fiber."""
+    """Count subjects with exposure at or above tau for each fiber."""
 
     matrix = _exposure_matrix(exposure)
     threshold = _tau(tau)
@@ -58,7 +58,7 @@ def coverage_counts(
         block = np.asarray(matrix[:, start:stop])
         if not np.all(np.isfinite(block)):
             raise FiberCoverageError("exposure must contain only finite values")
-        counts[start:stop] = np.count_nonzero(block > threshold, axis=0)
+        counts[start:stop] = np.count_nonzero(block >= threshold, axis=0)
     counts.flags.writeable = False
     return counts
 
@@ -74,7 +74,7 @@ def candidate_mask(counts: np.ndarray, coverage: int) -> np.ndarray:
         raise FiberCoverageError("counts must be a one-dimensional integer array")
     if np.any(values < 0):
         raise FiberCoverageError("counts cannot be negative")
-    mask = np.asarray(values > minimum, dtype=bool)
+    mask = np.asarray(values >= minimum, dtype=bool)
     mask.flags.writeable = False
     return mask
 
@@ -110,7 +110,7 @@ def heldout_fold_candidate_mask(
         heldout = np.asarray(matrix[heldout_index, start:stop])
         if not np.all(np.isfinite(heldout)):
             raise FiberCoverageError("exposure must contain only finite values")
-        training_counts = counts[start:stop] - (heldout > threshold)
-        mask[start:stop] = training_counts > minimum
+        training_counts = counts[start:stop] - (heldout >= threshold)
+        mask[start:stop] = training_counts >= minimum
     mask.flags.writeable = False
     return mask

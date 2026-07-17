@@ -63,20 +63,20 @@ connectomes: # Every entry runs the complete observed tau/Coverage grid.
     - connectome_id: ppmi_85_ewert_2017 # Stable manifest and output identity.
       label: PPMI 85 (Ewert 2017) # Human-readable connectome label.
       path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/PPMI 85 (Ewert 2017)/data.mat # Lead-DBS data.mat input.
-      role: sensitive # Cross-connectome sensitivity only; never final.
-      fold_candidate_fibers_min: 100 # Fold-level hard computability minimum.
+      role: formal # Unique source resolver, final and formal-inference connectome.
+      fold_candidate_fibers_min: 1 # Require at least one candidate fiber per fold.
 
     - connectome_id: mgh_usc_hcp_32_horn_2017
       label: MGH-USC HCP 32 (Horn 2017) # Human-readable connectome label.
       path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/MGH-USC HCP 32 (Horn 2017)/data.mat # Lead-DBS data.mat input.
       role: sensitive # Cross-connectome sensitivity only; never final.
-      fold_candidate_fibers_min: 100 # Fold-level hard computability minimum.
+      fold_candidate_fibers_min: 1 # Require at least one candidate fiber per fold.
 
     - connectome_id: dtor_985_full_elias_2024
       label: dTOR-985 Full (Elias 2024) # Human-readable connectome label.
       path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/dTOR-985 Full (Elias 2024)/data.mat # Lead-DBS data.mat input.
-      role: formal # Unique source resolver, final, formal, OSS and jitter connectome.
-      fold_candidate_fibers_min: 1000 # Fold-level hard computability minimum.
+      role: sensitive # Cross-connectome sensitivity only; never final.
+      fold_candidate_fibers_min: 1 # Require at least one candidate fiber per fold.
 
 source: # Tau defines Coverage/candidate fibers only; scoring exposure remains continuous.
   pre_specified:

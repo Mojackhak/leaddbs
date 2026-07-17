@@ -429,14 +429,14 @@ def _write_profiles(root: Path) -> WorkflowRequest:
             "label": "Formal Connectome",
             "path": str((root / "formal_connectome.mat").resolve()),
             "role": "formal",
-            "fold_candidate_fibers_min": 10,
+            "fold_candidate_fibers_min": 1,
         },
         {
             "connectome_id": "sensitive_connectome",
             "label": "Sensitive Connectome",
             "path": str((root / "sensitive_connectome.mat").resolve()),
             "role": "sensitive",
-            "fold_candidate_fibers_min": 10,
+            "fold_candidate_fibers_min": 1,
         },
     ]
     fiber["source"] = {
@@ -698,7 +698,7 @@ class _SyntheticRuntimeProvider:
         if reference_dependency is None or reference_dependency.reference_record is None:
             raise AssertionError("add-on preparation requires reference evidence")
         tau = self._reference_tau(reference_dependency.reference_record)
-        overlap = reference_component > tau
+        overlap = reference_component >= tau
         overlap_excluded = np.where(overlap, 0.0, addon)
         axes = (endpoint_input.subject_axis, feature_axis)
         return PreparedExposureRecord(

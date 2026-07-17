@@ -219,7 +219,7 @@ def _support_rows(
     fold_valid: np.ndarray,
     selected_tau: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[str, ...]]:
-    active = addon_reference_exposure > selected_tau
+    active = addon_reference_exposure >= selected_tau
     total = np.sum(active, axis=1, dtype=np.int64)
 
     full_parent_support = np.zeros(addon_reference_exposure.shape[1], dtype=bool)
@@ -480,7 +480,7 @@ def build_delta_reference_voxel(
             "support_status": support_status,
             "selected_reference_tau": reference_source.selected_tau,
             "selected_reference_coverage": reference_source.selected_coverage,
-            "threshold_rule": "reference_component_exposure > selected_reference_tau",
+            "threshold_rule": "reference_component_exposure_not_below_selected_reference_tau",
             "support_fields": list(support_labels),
             "zero_total_suprathreshold_count": int(np.count_nonzero(total == 0)),
             "cohort_median_out_support_fraction": (

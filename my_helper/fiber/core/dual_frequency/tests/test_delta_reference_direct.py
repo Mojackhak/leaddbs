@@ -541,11 +541,11 @@ class DeltaReferenceDirectVoxelTest(unittest.TestCase):
         self.assertEqual(accepted.reference_threshold, 200.0)
         np.testing.assert_array_equal(
             accepted.overlap_mask,
-            np.array([[False, False, True]]),
+            np.array([[False, True, True]]),
         )
         np.testing.assert_array_equal(
             accepted.addon_exposure,
-            np.array([[5.0, 6.0, 0.0]]),
+            np.array([[5.0, 0.0, 0.0]]),
         )
 
         absent = prepare_reference_overlap(addon, reference, _source(selected, accepted=False))

@@ -419,7 +419,7 @@ def _support_rows(
     chunk_size = 65_536
     for start in range(0, addon_reference_exposure.shape[1], chunk_size):
         stop = min(start + chunk_size, addon_reference_exposure.shape[1])
-        active = np.asarray(addon_reference_exposure[:, start:stop]) > selected_tau
+        active = np.asarray(addon_reference_exposure[:, start:stop]) >= selected_tau
         total += np.count_nonzero(active, axis=1)
 
         selected_start = int(np.searchsorted(selected_parent_positions, start))
@@ -818,7 +818,7 @@ def build_delta_reference_fiber(
             "selected_reference_tau": locked.selected_tau,
             "selected_reference_coverage": locked.selected_coverage,
             "threshold_rule": (
-                "reference_component_exposure > selected_reference_tau"
+                "reference_component_exposure_not_below_selected_reference_tau"
             ),
             "support_scope": "complete_parent_fiber_axis",
             "out_support_fraction_formula": (

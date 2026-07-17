@@ -26,6 +26,14 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(len(resolved.selected_scales), 28)
         self.assertEqual(resolved.direct_voxel.direct_candidate_threshold_v_per_m, 100.0)
         self.assertEqual(resolved.normative_fiber.formal_connectome.role, "formal")
+        self.assertEqual(
+            resolved.normative_fiber.formal_connectome.connectome_id,
+            "ppmi_85_ewert_2017",
+        )
+        self.assertTrue(
+            all(item.fold_candidate_fibers_min == 1 for item in resolved.normative_fiber.connectomes)
+        )
+        self.assertEqual(resolved.normative_fiber.hard_computability.n_subjects_min, 12)
         self.assertEqual(resolved.workflow.execution.workers, 3)
         self.assertEqual(len(resolved.configuration_hash), 64)
         self.assertEqual(len(resolved.scientific_configuration_hash), 64)
@@ -89,7 +97,7 @@ class ConfigTest(unittest.TestCase):
                 WorkflowOverrides(
                     all_available=True,
                     models=("reference_fiber",),
-                    connectomes=("ppmi_85_ewert_2017",),
+                    connectomes=("dtor_985_full_elias_2024",),
                 ),
             )
         voxel_only = load_workflow(
@@ -179,7 +187,7 @@ class ConfigTest(unittest.TestCase):
             self._load_modified_profiles(fiber=fiber)
 
         fiber = self._yaml_document(CONFIG_ROOT / "normative_fiber_model.yaml")
-        fiber["connectomes"]["entries"][0]["role"] = "formal"
+        fiber["connectomes"]["entries"][1]["role"] = "formal"
         with self.assertRaisesRegex(ConfigurationError, "exactly one formal"):
             self._load_modified_profiles(fiber=fiber)
 

@@ -1883,8 +1883,8 @@ class StudyRuntimeInputProvider:
         minimum_tau = min(profile.source.tau_values)
         minimum_coverage = min(profile.source.coverage_values)
         matrix = np.asanyarray(exposure)
-        counts = np.count_nonzero(matrix > minimum_tau, axis=0)
-        positions = np.flatnonzero(counts > minimum_coverage).astype(np.int64)
+        counts = np.count_nonzero(matrix >= minimum_tau, axis=0)
+        positions = np.flatnonzero(counts >= minimum_coverage).astype(np.int64)
         if positions.size == 0:
             return parent, None
         ids = np.asarray(parent.ids[positions], dtype=np.int64)
@@ -1901,7 +1901,7 @@ class StudyRuntimeInputProvider:
                     "ordered_subject_ids": subject_ids,
                     "tau_values": profile.source.tau_values,
                     "coverage_values": profile.source.coverage_values,
-                    "threshold_policy": "strict_threshold_v1",
+                    "threshold_policy": "inclusive_threshold_v1",
                     "ordered_parent_positions_sha256": position_hash,
                 }
             ),
@@ -2066,7 +2066,7 @@ class StudyRuntimeInputProvider:
                         }
                     ),
                 ),
-                ("threshold_policy", canonical_hash({"policy": "strict_threshold_v1"})),
+                ("threshold_policy", canonical_hash({"policy": "inclusive_threshold_v1"})),
             ),
             kind="fiber_exposures",
         )

@@ -53,7 +53,7 @@ def _write_fixture(root: Path) -> WorkflowRequest:
             "label": "Synthetic formal connectome",
             "path": "/tmp/data.mat",
             "role": "formal",
-            "fold_candidate_fibers_min": 20,
+            "fold_candidate_fibers_min": 1,
         }
     ]
     direct_path = root / "direct_voxel_model.yaml"

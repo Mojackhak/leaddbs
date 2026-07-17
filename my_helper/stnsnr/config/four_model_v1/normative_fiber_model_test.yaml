@@ -38,13 +38,13 @@ connectomes: # Small real connectomes exercise both allowed roles quickly.
       label: PPMI 85 (Ewert 2017) # Human-readable connectome label.
       path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/PPMI 85 (Ewert 2017)/data.mat # Lead-DBS data.mat input.
       role: formal # Tests resolver/final/formal dispatch without dTOR cost.
-      fold_candidate_fibers_min: 100 # Fold-level hard computability minimum.
+      fold_candidate_fibers_min: 1 # Require at least one candidate fiber per fold.
 
     - connectome_id: mgh_usc_hcp_32_horn_2017
       label: MGH-USC HCP 32 (Horn 2017) # Human-readable connectome label.
       path: /Users/mojackhu/Github/leaddbs/connectomes/dMRI/MGH-USC HCP 32 (Horn 2017)/data.mat # Lead-DBS data.mat input.
       role: sensitive # Tests full-grid sensitive behavior and no-final boundary.
-      fold_candidate_fibers_min: 100 # Fold-level hard computability minimum.
+      fold_candidate_fibers_min: 1 # Require at least one candidate fiber per fold.
 
 source: # Reduced grid retains the pre-specified source and adjacent cells.
   pre_specified:

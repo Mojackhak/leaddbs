@@ -604,7 +604,7 @@ class DeltaReferenceFiberTest(unittest.TestCase):
                 (root / "rejected" / "delta_reference_fold_scores.npy").exists()
             )
 
-    def test_strict_tau_and_adequate_support_boundaries(self) -> None:
+    def test_inclusive_tau_and_strict_adequate_support_boundaries(self) -> None:
         parent_ids = np.arange(50_000, 50_100, dtype=np.int64)
         valid_ids = parent_ids.copy()
         weights = np.ones(100)
@@ -637,7 +637,7 @@ class DeltaReferenceFiberTest(unittest.TestCase):
             np.testing.assert_allclose(rows[:, 2], 0.19)
 
             equality = np.full_like(addon, 200.0)
-            excluded = self._build(
+            included = self._build(
                 root / "equality",
                 parent_fiber_ids=parent_ids,
                 valid_fiber_ids=valid_ids,
@@ -648,13 +648,13 @@ class DeltaReferenceFiberTest(unittest.TestCase):
                 addon_reference_exposure=equality,
             )
             self.assertEqual(
-                excluded.support_status,
-                "invalid_no_reference_component_exposure",
+                included.support_status,
+                "adequate",
             )
-            self.assertFalse(excluded.valid)
+            self.assertTrue(included.valid)
 
             zero_exposure = addon.copy()
-            zero_exposure[0] = 200.0
+            zero_exposure[0] = 199.0
             invalid = self._build(
                 root / "zero",
                 parent_fiber_ids=parent_ids,

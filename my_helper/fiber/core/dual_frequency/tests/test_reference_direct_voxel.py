@@ -750,7 +750,7 @@ class CompletedFixtureParityTest(unittest.TestCase):
         frozen_manifest.is_file(),
         "completed bounded reference-direct fixture is unavailable",
     )
-    def test_frozen_inclusive_fixture_is_preserved_as_strict_migration_evidence(self) -> None:
+    def test_frozen_inclusive_fixture_matches_corrected_policy(self) -> None:
         frozen = json.loads(self.frozen_manifest.read_text(encoding="utf-8"))
         self.assertEqual(frozen["source_run_id"], "20260711T034644Z_d318f177f7f2ac7d")
         task = next(
@@ -835,17 +835,17 @@ class CompletedFixtureParityTest(unittest.TestCase):
             retain_arrays=True,
         )
         metrics = computation.metrics
-        self.assertLess(metrics.n_features_full, int(expected["n_voxels_full"]))
-        self.assertLess(
+        self.assertEqual(metrics.n_features_full, int(expected["n_voxels_full"]))
+        self.assertEqual(
             metrics.n_valid_full_features,
             int(expected["n_valid_full_score_voxels"]),
         )
-        self.assertLess(metrics.fold_n_features_min, int(expected["fold_n_voxels_min"]))
+        self.assertEqual(metrics.fold_n_features_min, int(expected["fold_n_voxels_min"]))
         self.assertTrue(metrics.passes_hard_computability)
         self.assertEqual(metrics.prediction_status, "error_nonpredictive")
-        exact_coverage = np.count_nonzero(exposure > 200.0, axis=0)
+        exact_coverage = np.count_nonzero(exposure >= 200.0, axis=0)
         self.assertGreater(np.count_nonzero(exact_coverage == 5), 0)
-        self.assertEqual(metrics.n_features_full, np.count_nonzero(exact_coverage > 5))
+        self.assertEqual(metrics.n_features_full, np.count_nonzero(exact_coverage >= 5))
 
 
 if __name__ == "__main__":

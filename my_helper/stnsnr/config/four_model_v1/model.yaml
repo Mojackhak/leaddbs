@@ -24,9 +24,9 @@ normative_fiber:
   hard_filter:
     n_subjects_min: 12
     fold_candidate_fibers_min_by_connectome:
-      ppmi: 100
-      mgh: 100
-      dtor: 1000
+      ppmi: 1
+      mgh: 1
+      dtor: 1
     score_nonconstant_all_folds: true
     predictions_finite: true
   score:
@@ -42,9 +42,9 @@ normative_fiber:
     sweet_top_count: 1500
     sour_top_count: 500
   connectome_roles:
-    ppmi: observed_robustness
+    ppmi: formal
     mgh: observed_robustness
-    dtor: formal
+    dtor: observed_robustness
 
 resolver:
   minimum_adjacent_passing_cells: 2

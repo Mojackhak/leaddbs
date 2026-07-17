@@ -59,7 +59,7 @@ def prepare_reference_overlap(
     addon_reference_component_exposure: np.ndarray,
     reference_source: SourceRecord,
 ) -> ReferenceOverlapResult:
-    """Exclude exact-tau reference-active voxels without resolving add-on source."""
+    """Exclude reference-active voxels, including the exact-tau boundary."""
 
     if not isinstance(reference_source, SourceRecord):
         raise TypeError("reference_source must be a SourceRecord")
@@ -94,7 +94,7 @@ def prepare_reference_overlap(
             f"unsupported reference source status {reference_source.source_status!r}"
         )
 
-    overlap_mask = reference > threshold
+    overlap_mask = reference >= threshold
     prepared = np.where(overlap_mask, 0.0, addon)
     return ReferenceOverlapResult(
         reference_threshold=threshold,

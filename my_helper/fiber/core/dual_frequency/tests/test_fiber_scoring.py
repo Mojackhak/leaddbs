@@ -23,7 +23,7 @@ SETTINGS = NormativeFiberScoreSettings(0.01, 0.005, 0.05, 200, 100, 20)
 
 
 class FiberCoverageTest(unittest.TestCase):
-    def test_threshold_and_coverage_equality_are_excluded(self) -> None:
+    def test_threshold_and_coverage_equality_are_included(self) -> None:
         exposure = np.array(
             [
                 [100.0, 200.0, 201.0],
@@ -32,15 +32,15 @@ class FiberCoverageTest(unittest.TestCase):
             ]
         )
         counts = coverage_counts(exposure, 200, chunk_size=2)
-        np.testing.assert_array_equal(counts, [0, 0, 2])
-        np.testing.assert_array_equal(candidate_mask(counts, 2), [False, False, False])
+        np.testing.assert_array_equal(counts, [0, 2, 2])
+        np.testing.assert_array_equal(candidate_mask(counts, 2), [False, True, True])
         np.testing.assert_array_equal(
             heldout_fold_candidate_mask(exposure, counts, 0, 200, 2, chunk_size=2),
             [False, False, False],
         )
         np.testing.assert_array_equal(
             heldout_fold_candidate_mask(exposure, counts, 1, 200, 2, chunk_size=2),
-            [False, False, False],
+            [False, True, False],
         )
 
     def test_coverage_rejects_nonfinite_or_inconsistent_inputs(self) -> None:

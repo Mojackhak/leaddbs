@@ -318,9 +318,9 @@ def evaluate_grid_cell_with_nuisance_plan(
     benefit_oriented_weights(np.array([0.0]), outcome_direction)
 
     n_subjects, n_features = x.shape
-    suprathreshold = np.asarray(x > float(tau), dtype=bool)
+    suprathreshold = np.asarray(x >= float(tau), dtype=bool)
     full_coverage = suprathreshold.sum(axis=0).astype(np.int32)
-    full_support = full_coverage > coverage
+    full_support = full_coverage >= coverage
     n_features_full = int(full_support.sum())
     if n_features_full == 0:
         return GridCellComputation(
@@ -360,7 +360,7 @@ def evaluate_grid_cell_with_nuisance_plan(
         train_mask = np.ones(n_subjects, dtype=bool)
         train_mask[heldout] = False
         fold_coverage = full_coverage - suprathreshold[heldout].astype(np.int32)
-        fold_support = fold_coverage > coverage
+        fold_support = fold_coverage >= coverage
         fold_feature_counts[heldout] = int(fold_support.sum())
         if fold_support_masks is not None:
             fold_support_masks[heldout] = fold_support
