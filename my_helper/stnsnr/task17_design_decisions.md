@@ -496,12 +496,31 @@ The first production exercise of this block design, retained as
 `task17-jitter-v2-20260717`, exposed a second I/O boundary before any block was
 published. Twelve independent workers remained CPU-busy for more than three
 minutes because the producer traversed all subjects inside each replicate. The
-per-worker 2-GiB sampler LRU could not retain the complete physical source set,
-so later replicates repeatedly decompressed the same NIfTI payloads. The
-accepted producer traversal is component, then physical subject, then the fixed
+per-worker sampler LRU has a 10-GiB production ceiling, but the complete
+physical source set approached or exceeded that residency boundary, so later
+replicates repeatedly decompressed the same NIfTI payloads. The accepted
+producer traversal is component, then physical subject, then the fixed
 replicate interval. This keeps each subject's small source set hot while all 25
 translations are sampled and limits each block to one source load per physical
 row. The interrupted v2 run is evidence only and is not resumed.
+
+The next production exercise, retained as `task17-jitter-v3-20260717`, proved
+that block admission also has to charge the real per-process working set.
+Twelve reordered reference-voxel producers consumed roughly 40 GiB of child
+RSS before the first block was published. The ledger charged only 2 GiB per
+producer and checked each grant against the managed budget without enforcing
+the cumulative managed ceiling. The run was stopped before cache publication;
+swap did not grow, and v3 is evidence only rather than a resume source.
+
+The accepted admission charges are 8 GiB for a reference-voxel block, 12 GiB
+for an add-on-voxel block, and 12 GiB plus one connectome-I/O slot for a fiber
+block. The normal managed ceiling remains 48 GiB, and cumulative active grants
+never go above that ceiling. The projected available memory after admission
+must remain `> reserve`. With 12 public workers, these charges permit at most
+six reference-voxel, four add-on-voxel, or two fiber producers at once; lower
+available memory can reduce those counts. This worker reuse is intentional:
+each admitted process can finish later blocks with already resident samplers
+instead of multiplying cold source loads across twelve processes.
 
 Each block identity binds:
 

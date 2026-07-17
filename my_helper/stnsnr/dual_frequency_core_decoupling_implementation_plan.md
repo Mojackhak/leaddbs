@@ -3079,13 +3079,29 @@ current production checkpoint contains only no-delta add-on voxel finals.
 
 The next block exercise, retained as `task17-jitter-v2-20260717`, showed that
 loop order is also part of the resource contract. Traversing all subjects once
-per replicate defeated the bounded sampler LRU and repeatedly decompressed
-identical NIfTI payloads. Twelve workers remained CPU-busy for more than three
-minutes without publishing a block. A block producer must traverse component
-and physical subject first, then sample the complete fixed replicate interval
-while that subject's source samplers are resident. This preserves replicate-
-keyed RNG identity while bounding each block to one source load per physical
-row. The v2 run was safely stopped before cache publication.
+per replicate defeated the 10-GiB production sampler LRU and repeatedly
+decompressed identical NIfTI payloads. Twelve workers remained CPU-busy for
+more than three minutes without publishing a block. A block producer must
+traverse component and physical subject first, then sample the complete fixed
+replicate interval while that subject's source samplers are resident. This
+preserves replicate-keyed RNG identity while bounding each block to one source
+load per physical row. The v2 run was safely stopped before cache publication.
+
+The reordered v3 exercise then exposed admission undercharging. Twelve
+reference-voxel producers reached roughly 40 GiB of child RSS before the first
+block was published. The scheduler had charged 2 GiB per producer even though
+the runtime permits a 10-GiB sampler cache, and its managed-memory predicate
+limited an individual grant without limiting the cumulative active grants.
+The v3 run was safely stopped before cache publication and did not grow swap.
+
+Charge a reference-voxel block 8 GiB, an add-on-voxel block 12 GiB, and a fiber
+block 12 GiB plus one connectome-I/O slot. Enforce the 48-GiB normal managed
+ceiling over cumulative active grants while retaining the strict
+`projected_available_after_admission > reserve` predicate. With the public
+worker ceiling at 12, admit at most six reference-voxel, four add-on-voxel, or
+two fiber producers concurrently; current available memory may lower those
+counts. Later ranges remain eligible for the same persistent workers so their
+resident samplers can be reused.
 
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 

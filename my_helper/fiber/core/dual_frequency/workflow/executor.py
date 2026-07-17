@@ -370,8 +370,10 @@ class _ResourceLedger:
     def request(task: TaskSpec) -> _ResourceGrant:
         if task.stage.startswith("jitter_block_"):
             if task.model_family.endswith("fiber"):
-                return _ResourceGrant(1, 4 * 1024**3, 1, 0)
-            return _ResourceGrant(1, 2 * 1024**3, 0, 0)
+                return _ResourceGrant(1, 12 * 1024**3, 1, 0)
+            if task.model_family == "addon_voxel":
+                return _ResourceGrant(1, 12 * 1024**3, 0, 0)
+            return _ResourceGrant(1, 8 * 1024**3, 0, 0)
         if task.stage == "prepare_exposure":
             return _ResourceGrant(1, 16 * 1024**3, 1, 0)
         if task.stage == "activation_sensitivity":
@@ -388,8 +390,9 @@ class _ResourceLedger:
         if self.solver_used + grant.solver > self.solver_limit:
             return False
         projected = self.available_memory - self.memory_used - grant.memory_bytes
+        cumulative_memory = self.memory_used + grant.memory_bytes
         normal = (
-            grant.memory_bytes < self.managed
+            not cumulative_memory > self.managed
             and projected > self.reserve
         )
         return normal or (running_count < 1 and projected > self.reserve)

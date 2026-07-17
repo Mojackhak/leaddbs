@@ -134,6 +134,83 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(grant.memory_bytes, 16 * 1024**3)
         self.assertEqual(grant.connectome_io, 1)
 
+    def test_jitter_block_grants_charge_model_specific_working_sets(self) -> None:
+        cases = (
+            ("reference_voxel", "none", 8 * 1024**3, 0),
+            ("addon_voxel", "none", 12 * 1024**3, 0),
+            ("reference_fiber", "formal_connectome", 12 * 1024**3, 1),
+        )
+        for model_family, connectome_id, memory_bytes, connectome_io in cases:
+            with self.subTest(model_family=model_family):
+                endpoint = EndpointKey(
+                    "study",
+                    "scale",
+                    "reference" if model_family.startswith("reference") else "addon",
+                    model_family,
+                    connectome_id,
+                )
+                task = _task(endpoint, "jitter_block_0000_0025", "jitter_block")
+                grant = _ResourceLedger.request(task)
+                self.assertEqual(grant.memory_bytes, memory_bytes)
+                self.assertEqual(grant.connectome_io, connectome_io)
+
+    def test_jitter_block_admission_enforces_cumulative_managed_memory(self) -> None:
+        ledger = _ResourceLedger(workers=12)
+        ledger.available_memory = 128 * 1024**3
+        ledger.reserve = 16 * 1024**3
+        ledger.managed = 48 * 1024**3
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_voxel",
+        )
+        grant = ledger.request(
+            _task(endpoint, "jitter_block_0000_0025", "jitter_block")
+        )
+        for running_count in range(6):
+            self.assertTrue(ledger.can_acquire(grant, running_count))
+            ledger.acquire(grant)
+        self.assertFalse(ledger.can_acquire(grant, 6))
+
+    def test_addon_and_fiber_jitter_admission_use_stricter_limits(self) -> None:
+        addon_ledger = _ResourceLedger(workers=12)
+        addon_ledger.available_memory = 128 * 1024**3
+        addon_ledger.reserve = 16 * 1024**3
+        addon_ledger.managed = 48 * 1024**3
+        addon_endpoint = EndpointKey(
+            "study",
+            "scale",
+            "addon",
+            "addon_voxel",
+        )
+        addon_grant = addon_ledger.request(
+            _task(addon_endpoint, "jitter_block_0000_0025", "jitter_block")
+        )
+        for running_count in range(4):
+            self.assertTrue(addon_ledger.can_acquire(addon_grant, running_count))
+            addon_ledger.acquire(addon_grant)
+        self.assertFalse(addon_ledger.can_acquire(addon_grant, 4))
+
+        fiber_ledger = _ResourceLedger(workers=12)
+        fiber_ledger.available_memory = 128 * 1024**3
+        fiber_ledger.reserve = 16 * 1024**3
+        fiber_ledger.managed = 48 * 1024**3
+        fiber_endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        fiber_grant = fiber_ledger.request(
+            _task(fiber_endpoint, "jitter_block_0000_0025", "jitter_block")
+        )
+        for running_count in range(2):
+            self.assertTrue(fiber_ledger.can_acquire(fiber_grant, running_count))
+            fiber_ledger.acquire(fiber_grant)
+        self.assertFalse(fiber_ledger.can_acquire(fiber_grant, 2))
+
     def _store(self, root: Path, plan: ExecutionPlan, *, resume: bool = False) -> RunStore:
         identity = RunIdentity(
             study_id="synthetic",
