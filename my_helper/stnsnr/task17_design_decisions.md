@@ -619,8 +619,8 @@ change:
 - direct-voxel and normative-fiber exact tau values are active;
 - exact Coverage counts are eligible;
 - exact selected-reference-tau values enter overlap;
-- every configured `fold_candidate_fibers_min` is zero, so it imposes no fold
-  candidate restriction;
+- every configured `fold_candidate_fibers_min` is one, so each LOOCV fold must
+  retain at least one candidate fiber;
 - `ppmi_85_ewert_2017` is the unique `formal` connectome, while
   `mgh_usc_hcp_32_horn_2017` and `dtor_985_full_elias_2024` are `sensitive`;
 - `n_subjects_min: 12` remains unchanged for both model families.

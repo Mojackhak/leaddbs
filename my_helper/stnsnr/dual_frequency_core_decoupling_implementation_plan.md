@@ -2911,7 +2911,7 @@ conversion, and authorized OSS axis-equivalence decisions remain open.
 jitter lineages used strict tau/Coverage/overlap boundaries and nonzero fold
 candidate minima. They are historical execution evidence only and cannot be
 resumed as the corrected formal result. The corrected profile retains
-`n_subjects_min: 12`, sets every configured fold candidate minimum to zero,
+`n_subjects_min: 12`, sets every configured fold candidate minimum to one,
 assigns `ppmi_85_ewert_2017` as the unique formal connectome, and requires a
 new main lineage. Jitter and OSS-DBS are intentionally outside this corrected
 main-run invocation.

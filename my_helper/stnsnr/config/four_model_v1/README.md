@@ -15,7 +15,7 @@ profiles for the dual-frequency four-model refactor.
 - `normative_fiber_model.yaml` is the production reference/add-on
   normative-fiber profile. It uses PPMI85 as the unique `formal` connectome and
   MGH/dTOR as `sensitive` connectomes. Every configured fold candidate minimum
-  is zero, so candidate count does not impose an additional fold gate.
+  is one, so each LOOCV fold must retain at least one candidate fiber.
 - `normative_fiber_model_test.yaml` is a lightweight normative-fiber code-path
   profile. It uses PPMI as `formal`, MGH as `sensitive`, two scales, a reduced
   grid, and minimal resampling counts.

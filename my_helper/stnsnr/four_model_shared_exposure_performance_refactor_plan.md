@@ -522,8 +522,8 @@ defined inverse-direction support-QC threshold tests.
 
 The corrected normative-fiber production profile assigns PPMI85 as the unique
 `formal` connectome and MGH/dTOR as `sensitive`. Every configured
-`fold_candidate_fibers_min` is zero, so this field imposes no fold candidate
-gate. The independent `n_subjects_min: 12` requirement is retained unchanged.
+`fold_candidate_fibers_min` is one, so each LOOCV fold must retain at least one
+candidate fiber. The independent `n_subjects_min: 12` requirement is retained unchanged.
 The corrected formal invocation runs the main workflow only; jitter and
 OSS-DBS are deferred to a separate user-authorized invocation.
 
