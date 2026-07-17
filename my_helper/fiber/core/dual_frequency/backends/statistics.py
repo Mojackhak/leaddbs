@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from scipy.stats import pearsonr, spearmanr
+from scipy.stats import pearsonr, rankdata, spearmanr
 
 
 class StatisticsError(ValueError):
@@ -121,6 +121,58 @@ def partial_spearman_weights(
     outcome_residual = residualize(average_rank(y), ranked_covariates)
     exposure_residual = residualize(rank_columns(x), ranked_covariates)
     return pearson_columns(outcome_residual, exposure_residual)
+
+
+def partial_spearman_weights_complete(
+    outcome: np.ndarray,
+    exposure: np.ndarray,
+    nuisance: np.ndarray,
+) -> np.ndarray:
+    """Vectorize partial Spearman weights for complete finite matrices."""
+
+    y = _real_array(outcome, "outcome", 1)
+    x = _real_array(exposure, "exposure", 2)
+    covariates = _real_array(nuisance, "nuisance", 2)
+    if y.shape[0] != x.shape[0] or y.shape[0] != covariates.shape[0]:
+        raise StatisticsError("outcome, exposure, and nuisance must share subjects")
+    if not (
+        np.all(np.isfinite(y))
+        and np.all(np.isfinite(x))
+        and np.all(np.isfinite(covariates))
+    ):
+        raise StatisticsError(
+            "complete partial Spearman weights require only finite values"
+        )
+
+    ranked_y = np.asarray(rankdata(y, method="average"), dtype=np.float64)
+    ranked_x = np.asarray(
+        rankdata(x, method="average", axis=0),
+        dtype=np.float64,
+    )
+    ranked_covariates = np.asarray(
+        rankdata(covariates, method="average", axis=0),
+        dtype=np.float64,
+    )
+    design = np.column_stack([np.ones(y.size), ranked_covariates])
+    if y.size <= design.shape[1] or np.linalg.matrix_rank(design) != design.shape[1]:
+        raise StatisticsError("complete partial Spearman nuisance design is not estimable")
+
+    outcome_beta, *_ = np.linalg.lstsq(design, ranked_y, rcond=None)
+    exposure_beta, *_ = np.linalg.lstsq(design, ranked_x, rcond=None)
+    outcome_residual = ranked_y - design @ outcome_beta
+    exposure_residual = ranked_x - design @ exposure_beta
+    centered_y = outcome_residual - np.mean(outcome_residual)
+    centered_x = exposure_residual - np.mean(exposure_residual, axis=0)
+    denominator = np.sqrt(
+        np.sum(centered_y**2)
+        * np.sum(centered_x**2, axis=0)
+    )
+    coefficients = np.full(x.shape[1], np.nan, dtype=np.float64)
+    valid = np.isfinite(denominator) & (denominator > 0.0)
+    coefficients[valid] = (
+        centered_x[:, valid].T @ centered_y
+    ) / denominator[valid]
+    return coefficients
 
 
 def benefit_oriented_weights(

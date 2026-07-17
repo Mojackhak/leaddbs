@@ -18,6 +18,17 @@ from ..contracts.requests import (
 )
 
 
+class BootstrapNuisanceSampleNotEstimableError(ValueError):
+    """Signal that one valid ordered bootstrap sample cannot rebuild its nuisance."""
+
+    def __init__(self, detail: str) -> None:
+        normalized = str(detail).strip()
+        if not normalized:
+            normalized = "sample-specific matched reference is not estimable"
+        self.detail = normalized
+        super().__init__(normalized)
+
+
 @runtime_checkable
 class ArtifactPublisher(Protocol):
     """Publish immutable run-scoped artifacts without exposing paths to backends."""

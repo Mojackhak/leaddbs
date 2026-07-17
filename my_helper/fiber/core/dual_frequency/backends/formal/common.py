@@ -23,7 +23,10 @@ from ..nuisance import (
     NuisancePlanError,
     build_addon_nuisance_plan,
 )
-from ..protocols import BootstrapNuisanceProvider
+from ..protocols import (
+    BootstrapNuisanceProvider,
+    BootstrapNuisanceSampleNotEstimableError,
+)
 from ..statistics import safe_correlation
 
 
@@ -127,13 +130,23 @@ class BootstrapComputation:
             raise FormalBackendError(
                 "bootstrap outputs must have exact and consistent feature/resample shapes"
             )
-        evidence = tuple(dict(item) for item in self.nuisance_evidence)
-        if evidence and len(evidence) != next(iter(replicate_lengths)):
-            raise FormalBackendError(
-                "bootstrap nuisance evidence must have one row per replicate"
-            )
-        object.__setattr__(self, "nuisance_evidence", evidence)
         replicate_count = next(iter(replicate_lengths))
+        evidence: list[dict[str, Any]] = []
+        evidence_replicates: set[int] = set()
+        for item in self.nuisance_evidence:
+            row = dict(item)
+            replicate = row.get("replicate")
+            if (
+                type(replicate) is not int
+                or not 0 <= replicate < replicate_count
+                or replicate in evidence_replicates
+            ):
+                raise FormalBackendError(
+                    "bootstrap nuisance evidence has an invalid replicate index"
+                )
+            evidence_replicates.add(replicate)
+            evidence.append(row)
+        object.__setattr__(self, "nuisance_evidence", tuple(evidence))
         nonestimable: list[dict[str, Any]] = []
         seen_replicates: set[int] = set()
         for item in self.nonestimable_replicates:
@@ -161,6 +174,15 @@ class BootstrapComputation:
                     "detail": detail,
                 }
             )
+        if evidence_replicates:
+            if evidence_replicates & seen_replicates:
+                raise FormalBackendError(
+                    "bootstrap nuisance and non-estimable evidence overlap"
+                )
+            if evidence_replicates | seen_replicates != set(range(replicate_count)):
+                raise FormalBackendError(
+                    "adjusted bootstrap evidence does not cover every replicate"
+                )
         object.__setattr__(self, "nonestimable_replicates", tuple(nonestimable))
         if type(self.finite_replicate_count) is not int or self.finite_replicate_count < 0:
             raise FormalBackendError("finite_replicate_count must be nonnegative")
@@ -361,7 +383,10 @@ def build_bootstrap_nuisance_plan(
         raise FormalBackendInputError(
             "original fold DeltaReferenceScore must be a finite fold-by-subject matrix"
         )
-    rebuilt = provider.build_bootstrap_nuisance(request, sample.copy())
+    try:
+        rebuilt = provider.build_bootstrap_nuisance(request, sample.copy())
+    except BootstrapNuisanceSampleNotEstimableError as error:
+        raise BootstrapReplicateNotEstimableError(error.detail) from error
     if not isinstance(rebuilt, BootstrapNuisanceEvidence):
         raise FormalBackendInputError(
             "BootstrapNuisanceProvider must return BootstrapNuisanceEvidence"
@@ -411,9 +436,10 @@ def build_bootstrap_nuisance_plan(
             delta_full_scores=rebuilt.delta_reference_full_scores,
             delta_fold_scores=rebuilt.delta_reference_fold_scores,
         )
-    except NuisancePlanError as error:
-        raise FormalBackendInputError(error.detail) from error
-    validate_nuisance_plan(plan)
+        validate_nuisance_plan(plan)
+    except (FormalBackendInputError, NuisancePlanError) as error:
+        detail = error.detail if isinstance(error, NuisancePlanError) else str(error)
+        raise BootstrapReplicateNotEstimableError(detail) from error
     return plan, rebuilt
 
 

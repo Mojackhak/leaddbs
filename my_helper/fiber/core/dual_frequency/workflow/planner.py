@@ -472,6 +472,10 @@ def _plan_addon_voxel(
         reference_endpoint.endpoint_id,
         "input_readiness",
     )
+    reference_prepare = factory.stage(
+        reference_endpoint.endpoint_id,
+        "prepare_exposure",
+    )
     readiness = factory.add(
         endpoint,
         stage="input_readiness",
@@ -572,7 +576,15 @@ def _plan_addon_voxel(
         round_id="round_5",
         phase="formal",
         service_id="run_addon_voxel_formal_bootstrap",
-        dependencies=(readiness, prepare, delta, final),
+        dependencies=(
+            readiness,
+            prepare,
+            delta,
+            final,
+            reference_readiness,
+            reference_prepare,
+            dependency,
+        ),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -731,7 +743,15 @@ def _plan_addon_fiber_formal(
         round_id="round_7",
         phase="formal",
         service_id="run_addon_fiber_formal_bootstrap",
-        dependencies=(readiness, prepare, delta, final),
+        dependencies=(
+            readiness,
+            prepare,
+            delta,
+            final,
+            reference_readiness,
+            reference_prepare,
+            dependency,
+        ),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )

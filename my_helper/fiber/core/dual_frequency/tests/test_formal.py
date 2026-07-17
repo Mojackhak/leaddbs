@@ -29,10 +29,16 @@ from dual_frequency.backends.formal import (
     compute_normative_fiber_permutation,
 )
 from dual_frequency.backends.formal.common import (
+    BootstrapReplicateNotEstimableError,
     PermutationComputation,
     StreamingBootstrapAccumulator,
     build_bootstrap_nuisance_plan,
     build_fixed_nuisance_plan,
+)
+from dual_frequency.backends.protocols import BootstrapNuisanceSampleNotEstimableError
+from dual_frequency.backends.statistics import (
+    partial_spearman_weights,
+    partial_spearman_weights_complete,
 )
 from dual_frequency.backends.formal.direct_voxel import (
     _build_fold_operators as _build_direct_fold_operators,
@@ -769,6 +775,172 @@ class FormalPermutationTest(unittest.TestCase):
 
 
 class FormalBootstrapTest(unittest.TestCase):
+    def test_complete_partial_spearman_matches_general_kernel(self) -> None:
+        outcome = np.asarray([2, 4, 4, 7, 9, 10, 10, 13], dtype=np.float64)
+        nuisance = np.asarray(
+            [
+                [1, 8],
+                [1, 7],
+                [2, 6],
+                [3, 5],
+                [3, 4],
+                [5, 3],
+                [8, 2],
+                [13, 1],
+            ],
+            dtype=np.float64,
+        )
+        exposure = np.column_stack(
+            (
+                np.asarray([0, 0, 1, 1, 2, 3, 3, 5], dtype=np.float64),
+                np.asarray([8, 7, 6, 5, 4, 3, 2, 1], dtype=np.float64),
+                np.asarray([1, 3, 2, 5, 4, 8, 7, 6], dtype=np.float64),
+            )
+        )
+        expected = partial_spearman_weights(outcome, exposure, nuisance)
+        actual = partial_spearman_weights_complete(outcome, exposure, nuisance)
+        np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+    def test_adjusted_provider_sample_failure_is_replicate_attrition(self) -> None:
+        request = _formal_request(
+            "addon_voxel",
+            "bootstrap",
+            branch="delta_reference_adjusted",
+        )
+        sample = np.arange(request.subject_axis.count, dtype=np.int64)
+
+        class NonEstimableProvider:
+            def build_bootstrap_nuisance(
+                self,
+                formal_request: FormalRequest,
+                sample_indices: np.ndarray,
+            ) -> BootstrapNuisanceEvidence:
+                del formal_request, sample_indices
+                raise BootstrapNuisanceSampleNotEstimableError(
+                    "sampled matched reference has no finite fold operator"
+                )
+
+        original_full, original_folds = _original_delta_values(request)
+        with self.assertRaisesRegex(
+            BootstrapReplicateNotEstimableError,
+            "no finite fold operator",
+        ):
+            build_bootstrap_nuisance_plan(
+                request,
+                _artifact_value(request.baseline),
+                sample,
+                NonEstimableProvider(),
+                original_delta_full=original_full,
+                original_delta_folds=original_folds,
+            )
+
+    def test_adjusted_bootstrap_accepts_mixed_rebuild_and_attrition_qc(self) -> None:
+        request = _formal_request(
+            "addon_voxel",
+            "bootstrap",
+            branch="delta_reference_adjusted",
+        )
+        delegate = _SyntheticBootstrapNuisanceProvider(
+            _artifact_value(request.baseline)
+        )
+
+        class PartiallyNonEstimableProvider:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def build_bootstrap_nuisance(
+                self,
+                formal_request: FormalRequest,
+                sample_indices: np.ndarray,
+            ) -> BootstrapNuisanceEvidence:
+                self.calls += 1
+                if self.calls == 1:
+                    raise BootstrapNuisanceSampleNotEstimableError(
+                        "sampled DeltaReferenceScore support is invalid"
+                    )
+                return delegate.build_bootstrap_nuisance(
+                    formal_request,
+                    sample_indices,
+                )
+
+        provider = PartiallyNonEstimableProvider()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            backend = DirectVoxelFormalBackend(
+                RunScopedArtifactPublisher(root, "formal_test", "1"),
+                artifact_store=_ScientificArrayStore(),
+                bootstrap_nuisance_provider=provider,
+            )
+            result = backend.run_formal(request)
+            summary_ref = next(
+                artifact
+                for artifact in result.artifacts
+                if artifact.kind == "formal_bootstrap_summary"
+            )
+            summary = json.loads(
+                _artifact_path(summary_ref).read_text(encoding="utf-8")
+            )
+            self.assertEqual(summary["finite_replicate_count"], 9)
+            self.assertEqual(summary["nonestimable_nuisance_replicate_count"], 1)
+            qc_ref = next(
+                artifact
+                for artifact in result.artifacts
+                if artifact.kind == "formal_bootstrap_nuisance_qc"
+            )
+            qc = json.loads(_artifact_path(qc_ref).read_text(encoding="utf-8"))
+            self.assertEqual(len(qc["replicates"]), 9)
+            self.assertEqual(len(qc["nonestimable_replicates"]), 1)
+            self.assertEqual(qc["nonestimable_replicates"][0]["replicate"], 0)
+
+    def test_adjusted_rebuilt_scaling_failure_is_replicate_attrition(self) -> None:
+        request = _formal_request(
+            "addon_voxel",
+            "bootstrap",
+            branch="delta_reference_adjusted",
+        )
+        sample = np.arange(request.subject_axis.count, dtype=np.int64)
+
+        class ConstantScoreProvider:
+            def build_bootstrap_nuisance(
+                self,
+                formal_request: FormalRequest,
+                sample_indices: np.ndarray,
+            ) -> BootstrapNuisanceEvidence:
+                count = sample_indices.size
+                full = np.full(count, 17.0, dtype=np.float64)
+                folds = np.full((count, count), 17.0, dtype=np.float64)
+                provenance = BootstrapRebuildProvenance.from_rebuild(
+                    provider_id="constant_score_provider",
+                    provider_version="1",
+                    final_model_id=formal_request.final_model.identifier,
+                    subject_axis=formal_request.subject_axis,
+                    sample_indices=sample_indices,
+                    delta_reference_full_scores=full,
+                    delta_reference_fold_scores=folds,
+                )
+                return BootstrapNuisanceEvidence(
+                    sample_indices=sample_indices,
+                    delta_reference_full_scores=full,
+                    delta_reference_fold_scores=folds,
+                    support_status="adequate",
+                    support_qc=(("test", True),),
+                    rebuild_provenance=provenance,
+                )
+
+        original_full, original_folds = _original_delta_values(request)
+        with self.assertRaisesRegex(
+            BootstrapReplicateNotEstimableError,
+            "constant or nonfinite",
+        ):
+            build_bootstrap_nuisance_plan(
+                request,
+                _artifact_value(request.baseline),
+                sample,
+                ConstantScoreProvider(),
+                original_delta_full=original_full,
+                original_delta_folds=original_folds,
+            )
+
     @staticmethod
     def _assert_bootstrap_equal(first: object, second: object) -> None:
         for field in dataclasses.fields(first):

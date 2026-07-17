@@ -73,6 +73,10 @@ from ..workflow.executor import ServiceResult, TaskExecutionRequest
 from ..workflow.registry import RegisteredService, ServiceRegistry
 from ..workflow.state import BranchPlan, derive_branch_plan, realize_final
 from .activation_provider import OSSActivationProvider, OSSActivationRuntimeRequest
+from .bootstrap_provider import (
+    StudyBootstrapNuisanceProvider,
+    StudyBootstrapNuisanceProviderError,
+)
 from .input_provider import RuntimeInputProvider, StudyRuntimeInputProvider
 from .jitter_blocks import (
     CachedJitterReplicateProvider,
@@ -817,8 +821,8 @@ def _formal_request(
     *,
     resampling_kind: str,
 ):
-    endpoint_input = _one_record(request, EndpointInputRecord)
-    prepared = _one_record(request, PreparedExposureRecord)
+    endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
+    prepared = _prepared_exposure_record(request, request.task.endpoint_id)
     delta = _one_record(request, DeltaReferenceBundle, required=False)
     selection = _final_selection(request)
     assert endpoint_input is not None and prepared is not None
@@ -850,6 +854,47 @@ def _run_formal(
         if isinstance(request.provider, BootstrapNuisanceProvider)
         else None
     )
+    if (
+        nuisance_provider is None
+        and resampling_kind == "bootstrap"
+        and formal_request.final_model.final_key is not None
+        and formal_request.final_model.final_key.final_branch == ADJUSTED_BRANCH
+    ):
+        runtime_provider = request.provider
+        if not isinstance(runtime_provider, StudyRuntimeInputProvider):
+            raise ServiceAdapterCapabilityError(
+                "adjusted production bootstrap requires StudyRuntimeInputProvider"
+            )
+        dependency = _one_record(request, ReferenceDependencyRecord)
+        delta_reference = _one_record(request, DeltaReferenceBundle)
+        assert dependency is not None and delta_reference is not None
+        addon_input = _endpoint_input_record(request, request.task.endpoint_id)
+        addon_prepared = _prepared_exposure_record(
+            request,
+            request.task.endpoint_id,
+        )
+        reference_input = _endpoint_input_record(
+            request,
+            dependency.matched_reference_endpoint_id,
+        )
+        reference_prepared = _prepared_exposure_record(
+            request,
+            dependency.matched_reference_endpoint_id,
+        )
+        try:
+            nuisance_provider = StudyBootstrapNuisanceProvider(
+                runtime_provider,
+                _artifact_store(request),
+                formal_request,
+                addon_input,
+                addon_prepared,
+                reference_input,
+                reference_prepared,
+                dependency,
+                delta_reference,
+            )
+        except StudyBootstrapNuisanceProviderError as error:
+            raise ServiceAdapterError(str(error)) from error
     if model_family.endswith("voxel"):
         backend = DirectVoxelFormalBackend(
             publisher,

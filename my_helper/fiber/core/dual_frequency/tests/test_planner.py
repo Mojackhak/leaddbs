@@ -201,6 +201,41 @@ class PlannerTest(unittest.TestCase):
                 {endpoint_tasks[stage].task_id for stage in required_stages},
             )
 
+    def test_adjusted_bootstrap_closure_includes_matched_reference_inputs(self) -> None:
+        _config, catalog, plan = self._plan()
+        task_index = {task.task_id: task for task in plan.tasks}
+        endpoint_index = {endpoint.endpoint_id: endpoint for endpoint in catalog}
+        for endpoint in catalog:
+            if (
+                endpoint.status != CatalogStatus.DATA_AVAILABLE
+                or not endpoint.key.model_family.startswith("addon_")
+                or endpoint.connectome_role == "sensitive"
+            ):
+                continue
+            endpoint_tasks = {
+                task.stage: task for task in plan.for_endpoint(endpoint.endpoint_id)
+            }
+            bootstrap = endpoint_tasks["formal_bootstrap"]
+            dependency = endpoint_tasks["reference_dependency"]
+            reference = endpoint_index[endpoint.matched_reference_endpoint_id]
+            reference_tasks = {
+                task.stage: task for task in plan.for_endpoint(reference.endpoint_id)
+            }
+            required = {
+                endpoint_tasks["input_readiness"].task_id,
+                endpoint_tasks["prepare_exposure"].task_id,
+                endpoint_tasks["delta_reference_input"].task_id,
+                endpoint_tasks["final_realization"].task_id,
+                dependency.task_id,
+                reference_tasks["input_readiness"].task_id,
+                reference_tasks["prepare_exposure"].task_id,
+            }
+            self.assertEqual(set(bootstrap.dependencies), required)
+            self.assertEqual(
+                task_index[dependency.dependencies[0]].endpoint_id,
+                reference.endpoint_id,
+            )
+
     def test_downstream_scientific_tasks_receive_direct_typed_input_closure(self) -> None:
         _config, catalog, plan = self._plan()
         final_linked_stages = {
