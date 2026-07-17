@@ -14,6 +14,7 @@ from ..tracking import (
     build_tckgen_command,
     coverage_complete,
     derive_chunk_rng_seed,
+    generation_complete,
     next_chunk_request,
     source_tracking_mask_path,
 )
@@ -89,6 +90,16 @@ def test_global_coverage_and_exact_final_chunk_request() -> None:
     assert next_chunk_request(0, 50_000, 100_000_000) == 50_000
     assert next_chunk_request(99_980_000, 50_000, 100_000_000) == 20_000
     assert next_chunk_request(100_000_000, 50_000, 100_000_000) == 0
+
+
+def test_fixed_sampling_ignores_early_coverage_and_stops_at_exact_total() -> None:
+    assert not generation_complete(50_000, [2_000, 1_000], 300, 300_000)
+    assert generation_complete(300_000, [2_000, 1_000], 300, 300_000)
+    assert generation_complete(300_000, [2_000, 299], 300, 300_000)
+    assert not generation_complete(50_000, [2_000, 299], 300, None)
+    assert generation_complete(50_000, [2_000, 300], 300, None)
+    assert next_chunk_request(250_000, 50_000, 300_000) == 50_000
+    assert next_chunk_request(300_000, 50_000, 300_000) == 0
 
 
 def test_tracking_uses_validated_source_nifti_instead_of_redundant_mif(

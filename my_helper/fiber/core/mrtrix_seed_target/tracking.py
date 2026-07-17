@@ -37,6 +37,19 @@ def coverage_complete(hit_counts: Sequence[int], required: int) -> bool:
     return all(int(value) >= int(required) for value in hit_counts)
 
 
+def generation_complete(
+    total_streamlines: int,
+    hit_counts: Sequence[int],
+    required_per_target: int,
+    fixed_seedwide_streamlines: int | None,
+) -> bool:
+    """Return whether generation should stop under the configured mode."""
+
+    if fixed_seedwide_streamlines is not None:
+        return int(total_streamlines) >= int(fixed_seedwide_streamlines)
+    return coverage_complete(hit_counts, required_per_target)
+
+
 def next_chunk_request(total: int, chunk_size: int, maximum: int) -> int:
     """Return the exact next request without crossing the seed-wide maximum."""
 
@@ -144,6 +157,7 @@ def seedwide_identity(
             for target in seed_record["targets"]
         ],
         "tracking": {
+            "seedwide_streamlines": config.tracking.seedwide_streamlines,
             "minimum_streamlines_per_target": config.tracking.minimum_streamlines_per_target,
             "fod_cutoff": config.tracking.fod_cutoff,
             "min_length_mm": config.tracking.min_length_mm,
@@ -480,8 +494,20 @@ def run_seedwide(
     valid_chunks: list[dict[str, Any]] = []
     total = 0
     cumulative = np.zeros(len(seed.targets), dtype=np.int64)
+    generation_limit = (
+        config.tracking.seedwide_streamlines
+        if config.tracking.seedwide_streamlines is not None
+        else config.execution.maximum_seedwide_streamlines
+    )
     for index, record in enumerate(state.get("chunks", [])):
         requested = int(record.get("requested_streamlines", 0))
+        expected_request = next_chunk_request(
+            total,
+            config.execution.generation_chunk_streamlines,
+            generation_limit,
+        )
+        if requested != expected_request or expected_request <= 0:
+            break
         rng_seed = derive_chunk_rng_seed(
             config.tracking.random_seed,
             identity,
@@ -500,42 +526,33 @@ def run_seedwide(
         valid_chunks.append(dict(record))
         total += int(record["actual_streamlines"])
         cumulative += np.asarray(record["target_hit_counts"], dtype=np.int64)
-        if coverage_complete(
-            cumulative.tolist(), config.tracking.minimum_streamlines_per_target
+        if generation_complete(
+            total,
+            cumulative.tolist(),
+            config.tracking.minimum_streamlines_per_target,
+            config.tracking.seedwide_streamlines,
         ):
             break
     state["chunks"] = valid_chunks
     state["total_streamlines"] = total
     state["target_hit_counts"] = [int(value) for value in cumulative]
     state["status"] = "running"
+    state.pop("coverage_failed", None)
     atomic_write_json(state_path, state)
 
-    while not coverage_complete(
-        cumulative.tolist(), config.tracking.minimum_streamlines_per_target
+    while not generation_complete(
+        total,
+        cumulative.tolist(),
+        config.tracking.minimum_streamlines_per_target,
+        config.tracking.seedwide_streamlines,
     ):
         requested = next_chunk_request(
             total,
             config.execution.generation_chunk_streamlines,
-            config.execution.maximum_seedwide_streamlines,
+            generation_limit,
         )
         if requested <= 0:
-            deficient = [
-                {
-                    "target": seed_record["targets"][index]["key"],
-                    "actual_streamlines": int(value),
-                    "required_streamlines": config.tracking.minimum_streamlines_per_target,
-                }
-                for index, value in enumerate(cumulative)
-                if value < config.tracking.minimum_streamlines_per_target
-            ]
-            state["status"] = "coverage_failed"
-            state["coverage_failed"] = deficient
-            state["total_streamlines"] = total
-            atomic_write_json(state_path, state)
-            raise CoverageError(
-                f"{subject_id} {seed.key} reached {total} seed-wide streamlines "
-                f"without covering all targets: {json.dumps(deficient)}"
-            )
+            break
         index = len(valid_chunks)
         rng_seed = derive_chunk_rng_seed(
             config.tracking.random_seed,
@@ -567,6 +584,33 @@ def run_seedwide(
         state["target_hit_counts"] = [int(value) for value in cumulative]
         state["minimum_target_streamlines"] = int(np.min(cumulative))
         atomic_write_json(state_path, state)
+
+    if not coverage_complete(
+        cumulative.tolist(), config.tracking.minimum_streamlines_per_target
+    ):
+        deficient = [
+            {
+                "target": seed_record["targets"][index]["key"],
+                "actual_streamlines": int(value),
+                "required_streamlines": config.tracking.minimum_streamlines_per_target,
+            }
+            for index, value in enumerate(cumulative)
+            if value < config.tracking.minimum_streamlines_per_target
+        ]
+        state["status"] = "coverage_failed"
+        state["coverage_failed"] = deficient
+        state["total_streamlines"] = total
+        state["minimum_target_streamlines"] = int(np.min(cumulative))
+        atomic_write_json(state_path, state)
+        mode = (
+            f"fixed total {config.tracking.seedwide_streamlines}"
+            if config.tracking.seedwide_streamlines is not None
+            else f"maximum {config.execution.maximum_seedwide_streamlines}"
+        )
+        raise CoverageError(
+            f"{subject_id} {seed.key} reached {mode} with {total} seed-wide "
+            f"streamlines without covering all targets: {json.dumps(deficient)}"
+        )
 
     state["outputs"] = _build_outputs(state, seed_record, seed_work, tools)
     state["status"] = "staged_complete"

@@ -45,6 +45,7 @@ class SubjectSpec:
 class TrackingConfig:
     """Seed-wide scientific tracking settings."""
 
+    seedwide_streamlines: int | None
     minimum_streamlines_per_target: int
     fod_cutoff: float
     min_length_mm: float

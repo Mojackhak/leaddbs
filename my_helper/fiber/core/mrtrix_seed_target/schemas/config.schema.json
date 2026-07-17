@@ -36,6 +36,7 @@
         "random_seed"
       ],
       "properties": {
+        "seedwide_streamlines": {"type": "integer", "minimum": 1},
         "minimum_streamlines_per_target": {"type": "integer", "minimum": 1},
         "fod_cutoff": {"type": "number", "exclusiveMinimum": 0},
         "min_length_mm": {"type": "number", "exclusiveMinimum": 0},

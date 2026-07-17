@@ -8,6 +8,7 @@ implementation_complete
 real_data_test_gate_passed
 formal_execution_resumed_seven_subject_batch_running
 fixed_seedwide_sampling_approved_for_corrected_four_subject_rerun
+fixed_seedwide_sampling_implementation_complete_and_yaml_validated
 ```
 
 This document is the authoritative implementation and execution contract for
@@ -805,6 +806,13 @@ mother streamlines per subject and 2,400,000 across the four-subject batch.
 Any target below 300 after its fixed 300,000-streamline mother tractogram is
 reported as `coverage_failed` rather than triggering subject-specific primary
 oversampling.
+
+The implementation added the optional strict YAML field, exact fixed-total
+chunk scheduling, fixed-total coverage failure semantics, and scientific
+identity coverage. All 32 focused package tests passed. Read-only real-input
+validation resolved all four subjects to their newly approved SPM44 transforms,
+reported no warnings, and produced configuration hash
+`8d67d89650d1f122bd73e094565d39cf3e95f60fd075aa134a2c2a4072bca8e6`.
 
 ## Final Acceptance Criteria
 

@@ -212,14 +212,21 @@ def resolve_config(
             for subject in subjects
         ],
         "tracking": {
-            key: tracking_document[key]
-            for key in (
-                "minimum_streamlines_per_target",
-                "fod_cutoff",
-                "min_length_mm",
-                "max_length_mm",
-                "random_seed",
-            )
+            **(
+                {"seedwide_streamlines": tracking_document["seedwide_streamlines"]}
+                if "seedwide_streamlines" in tracking_document
+                else {}
+            ),
+            **{
+                key: tracking_document[key]
+                for key in (
+                    "minimum_streamlines_per_target",
+                    "fod_cutoff",
+                    "min_length_mm",
+                    "max_length_mm",
+                    "random_seed",
+                )
+            },
         },
         "execution": {
             **{
@@ -246,6 +253,11 @@ def resolve_config(
     }
 
     tracking = TrackingConfig(
+        seedwide_streamlines=(
+            int(tracking_document["seedwide_streamlines"])
+            if "seedwide_streamlines" in tracking_document
+            else None
+        ),
         minimum_streamlines_per_target=int(
             tracking_document["minimum_streamlines_per_target"]
         ),
@@ -295,6 +307,14 @@ def resolve_config(
     if execution.generation_chunk_streamlines > execution.maximum_seedwide_streamlines:
         raise ConfigurationError(
             "execution.generation_chunk_streamlines must not exceed "
+            "execution.maximum_seedwide_streamlines"
+        )
+    if (
+        tracking.seedwide_streamlines is not None
+        and tracking.seedwide_streamlines > execution.maximum_seedwide_streamlines
+    ):
+        raise ConfigurationError(
+            "tracking.seedwide_streamlines must not exceed "
             "execution.maximum_seedwide_streamlines"
         )
     if execution.preparation_threads_per_subject > execution.cpu_budget:

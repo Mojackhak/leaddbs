@@ -31,6 +31,26 @@ def test_unknown_and_removed_pairwise_fields_are_rejected(tmp_path: Path) -> Non
         resolve_config(document, source_path=tmp_path / "config.yaml")
 
 
+def test_optional_fixed_seedwide_streamlines_is_resolved_and_bounded(
+    tmp_path: Path,
+) -> None:
+    legacy = resolve_config(
+        minimal_document(tmp_path), source_path=tmp_path / "legacy.yaml"
+    )
+    assert legacy.tracking.seedwide_streamlines is None
+    assert "seedwide_streamlines" not in legacy.resolved_mapping["tracking"]
+
+    document = minimal_document(tmp_path)
+    document["tracking"]["seedwide_streamlines"] = 300_000
+    fixed = resolve_config(document, source_path=tmp_path / "fixed.yaml")
+    assert fixed.tracking.seedwide_streamlines == 300_000
+    assert fixed.resolved_mapping["tracking"]["seedwide_streamlines"] == 300_000
+
+    document["execution"]["maximum_seedwide_streamlines"] = 299_999
+    with pytest.raises(ConfigurationError, match="must not exceed"):
+        resolve_config(document, source_path=tmp_path / "invalid.yaml")
+
+
 def test_duplicate_subject_id_and_directory_are_rejected(tmp_path: Path) -> None:
     document = minimal_document(tmp_path, subject_count=2)
     document["subjects"][1]["id"] = document["subjects"][0]["id"]
@@ -96,6 +116,28 @@ def test_approved_formal_and_test_yaml_counts() -> None:
     assert [len(seed.targets) for seed in test.atlas.seeds] == [2, 2]
     assert test.execution.generation_chunk_streamlines == 50_000
     assert test.execution.maximum_seedwide_streamlines == 50_000
+
+
+def test_approved_corrected_four_subject_fixed_sampling_yaml() -> None:
+    path = Path(
+        "/Volumes/VAL/STNSNr/config/"
+        "mrtrix_seed_target_fixed300k_017_020_022_026.yaml"
+    )
+    if not path.is_file():
+        pytest.skip("approved corrected-subject fixed-sampling YAML is unavailable")
+    config = load_config(path)
+    assert [subject.subject_id for subject in config.subjects] == [
+        "sub-SNr017",
+        "sub-SNr020",
+        "sub-SNr022",
+        "sub-SNr026",
+    ]
+    assert config.tracking.seedwide_streamlines == 300_000
+    assert config.tracking.minimum_streamlines_per_target == 300
+    assert config.execution.subject_workers == 4
+    assert config.execution.generation_chunk_streamlines == 50_000
+    assert config.execution.maximum_seedwide_streamlines == 2_000_000
+    assert [len(seed.targets) for seed in config.atlas.seeds] == [18, 18]
 
 
 def test_code_identity_layers_do_not_cross_invalidate_scientific_work() -> None:
