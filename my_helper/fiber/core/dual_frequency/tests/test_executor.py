@@ -136,7 +136,7 @@ class ExecutorTest(unittest.TestCase):
 
     def test_jitter_block_grants_charge_model_specific_working_sets(self) -> None:
         cases = (
-            ("reference_voxel", "none", 8 * 1024**3, 0),
+            ("reference_voxel", "none", 12 * 1024**3, 0),
             ("addon_voxel", "none", 12 * 1024**3, 0),
             ("reference_fiber", "formal_connectome", 12 * 1024**3, 1),
         )
@@ -168,10 +168,10 @@ class ExecutorTest(unittest.TestCase):
         grant = ledger.request(
             _task(endpoint, "jitter_block_0000_0025", "jitter_block")
         )
-        for running_count in range(6):
+        for running_count in range(4):
             self.assertTrue(ledger.can_acquire(grant, running_count))
             ledger.acquire(grant)
-        self.assertFalse(ledger.can_acquire(grant, 6))
+        self.assertFalse(ledger.can_acquire(grant, 4))
 
     def test_addon_and_fiber_jitter_admission_use_stricter_limits(self) -> None:
         addon_ledger = _ResourceLedger(workers=12)

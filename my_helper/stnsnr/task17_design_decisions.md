@@ -512,15 +512,23 @@ producer and checked each grant against the managed budget without enforcing
 the cumulative managed ceiling. The run was stopped before cache publication;
 swap did not grow, and v3 is evidence only rather than a resume source.
 
-The accepted admission charges are 8 GiB for a reference-voxel block, 12 GiB
-for an add-on-voxel block, and 12 GiB plus one connectome-I/O slot for a fiber
-block. The normal managed ceiling remains 48 GiB, and cumulative active grants
-never go above that ceiling. The projected available memory after admission
-must remain `> reserve`. With 12 public workers, these charges permit at most
-six reference-voxel, four add-on-voxel, or two fiber producers at once; lower
-available memory can reduce those counts. This worker reuse is intentional:
-each admitted process can finish later blocks with already resident samplers
-instead of multiplying cold source loads across twelve processes.
+The first cumulative-ledger exercise, retained as
+`task17-jitter-v4-20260717`, admitted six reference-voxel producers at 8 GiB
+each. After roughly 11 minutes, each producer had reached more than 8.5 GiB of
+RSS and the summed child RSS had passed 51 GiB without publishing a block.
+System memory pressure remained low and swap did not grow, but the measured
+working set had crossed the declared managed boundary. The run was stopped
+before cache publication and is evidence only rather than a resume source.
+
+The accepted admission charge is therefore 12 GiB for every physical jitter
+block, with one additional connectome-I/O slot for a fiber block. The normal
+managed ceiling remains 48 GiB, and cumulative active grants never go above
+that ceiling. The projected available memory after admission must remain
+`> reserve`. With 12 public workers, these charges permit at most four voxel
+producers or two fiber producers at once; lower available memory can reduce
+those counts. This worker reuse is intentional: each admitted process can
+finish later blocks with already resident samplers instead of multiplying cold
+source loads across twelve processes.
 
 Each block identity binds:
 

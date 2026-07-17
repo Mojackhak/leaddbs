@@ -3094,14 +3094,21 @@ the runtime permits a 10-GiB sampler cache, and its managed-memory predicate
 limited an individual grant without limiting the cumulative active grants.
 The v3 run was safely stopped before cache publication and did not grow swap.
 
-Charge a reference-voxel block 8 GiB, an add-on-voxel block 12 GiB, and a fiber
-block 12 GiB plus one connectome-I/O slot. Enforce the 48-GiB normal managed
-ceiling over cumulative active grants while retaining the strict
+The cumulative-ledger v4 exercise admitted six reference-voxel producers at
+8 GiB each. After roughly 11 minutes, per-worker RSS had passed 8.5 GiB and the
+summed child RSS had passed 51 GiB without publishing a block. Memory pressure
+remained low and swap did not grow, but the declared 48-GiB managed boundary
+was no longer conservative. The v4 run was safely stopped before cache
+publication.
+
+Charge every physical jitter block 12 GiB and give a fiber block one additional
+connectome-I/O slot. Enforce the 48-GiB normal managed ceiling over cumulative
+active grants while retaining the strict
 `projected_available_after_admission > reserve` predicate. With the public
-worker ceiling at 12, admit at most six reference-voxel, four add-on-voxel, or
-two fiber producers concurrently; current available memory may lower those
-counts. Later ranges remain eligible for the same persistent workers so their
-resident samplers can be reused.
+worker ceiling at 12, admit at most four voxel producers or two fiber producers
+concurrently; current available memory may lower those counts. Later ranges
+remain eligible for the same persistent workers so their resident samplers can
+be reused.
 
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 
