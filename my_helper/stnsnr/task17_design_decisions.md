@@ -492,6 +492,17 @@ ordered ranges for the 1000-replicate schedule. The final-axis union sizes are
 blocks use those reduced ordered axes instead of the complete brainmask or
 connectome axis.
 
+The first production exercise of this block design, retained as
+`task17-jitter-v2-20260717`, exposed a second I/O boundary before any block was
+published. Twelve independent workers remained CPU-busy for more than three
+minutes because the producer traversed all subjects inside each replicate. The
+per-worker 2-GiB sampler LRU could not retain the complete physical source set,
+so later replicates repeatedly decompressed the same NIfTI payloads. The
+accepted producer traversal is component, then physical subject, then the fixed
+replicate interval. This keeps each subject's small source set hot while all 25
+translations are sampled and limits each block to one source load per physical
+row. The interrupted v2 run is evidence only and is not resumed.
+
 Each block identity binds:
 
 - the ordered parent shared-exposure identities;

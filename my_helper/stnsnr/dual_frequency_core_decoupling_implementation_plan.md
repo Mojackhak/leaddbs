@@ -3073,9 +3073,19 @@ source-absent reuse, generated-entry single-write publication, and endpoint
 in-memory selection are required before the production extension is resumed.
 The reduced add-on block path is branch-aware. No-delta finals rebuild overlap
 but do not rebuild unused DeltaReferenceScore evidence. Adjusted finals require
-complete-parent support evidence in addition to the reduced selected axes and
-must fail closed when that evidence is absent. The current production
-checkpoint contains only no-delta add-on voxel finals.
+complete-parent support evidence in addition to the reduced selected axes;
+until that evidence format exists, they remain on the full-parent provider. The
+current production checkpoint contains only no-delta add-on voxel finals.
+
+The next block exercise, retained as `task17-jitter-v2-20260717`, showed that
+loop order is also part of the resource contract. Traversing all subjects once
+per replicate defeated the bounded sampler LRU and repeatedly decompressed
+identical NIfTI payloads. Twelve workers remained CPU-busy for more than three
+minutes without publishing a block. A block producer must traverse component
+and physical subject first, then sample the complete fixed replicate interval
+while that subject's source samplers are resident. This preserves replicate-
+keyed RNG identity while bounding each block to one source load per physical
+row. The v2 run was safely stopped before cache publication.
 
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 

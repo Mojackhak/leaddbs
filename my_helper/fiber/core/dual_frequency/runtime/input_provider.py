@@ -2359,20 +2359,21 @@ class StudyRuntimeInputProvider:
             )
             for name, _binding, _frequency_class in components
         }
-        for replicate_offset, (replicate_index, replicate_seed) in enumerate(
-            zip(indices, seeds, strict=True)
-        ):
-            context = JitterTranslationContext(
+        contexts = tuple(
+            JitterTranslationContext(
                 replicate_index=int(replicate_index),
                 replicate_seed=int(replicate_seed),
                 translation_sigma_mm=sigma,
             )
-            for name, binding, frequency_class in components:
-                destination = arrays[name][replicate_offset]
-                resolutions = resolutions_by_component[name]
-                for subject_index, (subject_id, resolution) in enumerate(
-                    zip(subjects, resolutions, strict=True)
-                ):
+            for replicate_index, replicate_seed in zip(indices, seeds, strict=True)
+        )
+        for name, binding, frequency_class in components:
+            destination = arrays[name]
+            resolutions = resolutions_by_component[name]
+            for subject_index, (subject_id, resolution) in enumerate(
+                zip(subjects, resolutions, strict=True)
+            ):
+                for replicate_offset, context in enumerate(contexts):
                     translations = {
                         side: context.vector(
                             binding_id=binding.identifier,
@@ -2398,7 +2399,7 @@ class StudyRuntimeInputProvider:
                             allow_absent=False,
                             translation_by_side=translations,
                         )
-                    destination[subject_index] = values
+                    destination[replicate_offset, subject_index] = values
         for array in arrays.values():
             if not np.all(np.isfinite(array)) or np.any(array < 0.0):
                 raise RuntimeInputProviderError(
