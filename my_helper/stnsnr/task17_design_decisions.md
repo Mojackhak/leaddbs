@@ -291,3 +291,73 @@ records explicitly. It keeps strict missing-ID and order failures and does not
 change tau, Coverage, weights, folds, scoring, or the three resume gates.
 
 The correction passes 419 dual-frequency tests and 224 parameterized subtests.
+
+## Decision 18: Keep Extension DAGs Final-Linked And Formal-Free
+
+The post-checkpoint extension is a new analysis lineage, not a delayed formal
+run. Its compiled prerequisite closure may contain completed parent records
+needed to reconstruct the final-linked request, but it may not execute observed,
+resolver, final-realization, formal-permutation, or formal-bootstrap services.
+
+The generic one-shot plan keeps its historical phase ordering. The extension
+compiler removes formal task dependencies and the formal-complete gate only
+from copied jitter and OSS target specifications. Task IDs remain stable because
+they identify endpoint, stage, branch, and scientific parameter identity rather
+than dependency layout. Parent observed and final records are seeded as
+completed records in the child RunStore; they are not invoked again.
+
+Acceptance must inspect actual service invocations, not only successful output.
+Separate jitter, OSS, and combined extension cases must report observed,
+resolver, final-realization, formal-permutation, and formal-bootstrap invocation
+counts `< 1`.
+
+## Decision 19: Distinguish Missing Sensitivity Sources From Invalid Checkpoints
+
+A copied, valid jitter or OSS cache entry remains reusable when its original
+physical source files are unavailable. The checkpoint supplies the recorded
+source-content identity needed to reconstruct the same semantic lookup. A cache
+miss may consult physical sources only after lookup. If both the exact prepared
+entry and a required physical source are absent, the task fails with the stable
+reason `missing_sensitivity_source` before any substitute computation.
+
+Checkpoint corruption, payload SHA failure, array-header failure, axis mismatch,
+and incomplete direct copies remain validation failures. They are not reported
+as missing sources and never fall back to a producer.
+
+## Decision 20: Close Sensitivity Acceptance Before Production Extension
+
+The production main run may continue with the already loaded runtime while the
+extension boundary is audited. No production jitter or OSS extension starts
+until tests cover jitter-only, OSS-only, combined selection, no main or formal
+service reinvocation, one-shot parity, copied-cache startup, pre-task corruption
+failure, source-absent cache reuse, explicit missing-source failure,
+worker-count invariance, and missing-task-only extension resume.
+
+The extension run manifest retains the resource settings from the first
+invocation as lineage provenance. Every new invocation records its effective
+workers and resource limits in a new execution segment. Resume may therefore
+change workers without rewriting the immutable lineage annotation.
+
+The immutable `sensitivity_plan.json` stores the selected analyses, scientific
+configuration identity, stable task IDs, dependencies, gates, and services. It
+does not store the execution-configuration hash because that hash includes
+workers and other invocation settings. The full effective hash remains in the
+run and execution-segment audit records.
+
+Artifact resume compares the immutable core identity only: artifact ID, kind,
+URI, and payload SHA. Reporting may add task references and descriptive
+metadata to the same index row. Those additions are preserved and do not turn
+an exact task retry into an identifier collision.
+
+## Decision 21: Keep Runtime Facts Scoped To Their Scientific Owner
+
+`formal_source_available` is owned by the matched formal source or formal final
+selection. A sensitive-connectome reference evaluation publishes only its own
+`reference_source_accepted` fact. Re-publishing the formal fact from the
+sensitive result conflates two connectome roles and can create a false
+contradiction when the formal final exists but the sensitive evaluation is not
+computable.
+
+The sensitive add-on formal-cell gate therefore reads formal availability from
+the formal-final lineage and sensitive-reference acceptance from its separate
+reference-dependency lineage. Neither state overrides the other.

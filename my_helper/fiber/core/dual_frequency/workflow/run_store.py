@@ -351,9 +351,16 @@ class RunStore:
                     "sha256": artifact.sha256,
                 }
                 previous = indexed.get(artifact.identifier)
-                if previous is not None and previous != entry:
-                    raise RunStoreError("artifact identifier collision")
-                indexed[artifact.identifier] = entry
+                if previous is not None:
+                    previous_identity = {
+                        key: previous.get(key)
+                        for key in ("artifact_id", "kind", "uri", "sha256")
+                    }
+                    if previous_identity != entry:
+                        raise RunStoreError("artifact identifier collision")
+                    indexed[artifact.identifier] = previous
+                else:
+                    indexed[artifact.identifier] = entry
             document["artifacts"] = [indexed[key] for key in sorted(indexed)]
             _atomic_write_text(path, json.dumps(document, indent=2, sort_keys=True) + "\n")
 

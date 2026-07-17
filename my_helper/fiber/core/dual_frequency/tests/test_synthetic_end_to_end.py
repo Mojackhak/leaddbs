@@ -1178,18 +1178,23 @@ class _FakeActivationBackend:
 
 def _registry_with_fake_activation(
     fake_activation: _FakeActivationBackend,
+    service_calls: dict[str, int] | None = None,
 ) -> ServiceRegistry:
     activation_services = {
         "run_reference_fiber_activation",
         "run_addon_fiber_activation",
     }
-    return ServiceRegistry(
-        RegisteredService(
-            service_id,
-            fake_activation if service_id in activation_services else handler,
-        )
-        for service_id, handler in PRODUCTION_SERVICE_HANDLERS
-    )
+    registered = []
+    for service_id, handler in PRODUCTION_SERVICE_HANDLERS:
+        selected = fake_activation if service_id in activation_services else handler
+        if service_calls is not None:
+            def counted(request, *, _handler=selected, _service_id=service_id):
+                service_calls[_service_id] = service_calls.get(_service_id, 0) + 1
+                return _handler(request)
+
+            selected = counted
+        registered.append(RegisteredService(service_id, selected))
+    return ServiceRegistry(registered)
 
 
 class SyntheticEndToEndTest(unittest.TestCase):
@@ -1256,8 +1261,9 @@ class SyntheticEndToEndTest(unittest.TestCase):
             catalog = build_endpoint_catalog(configuration, study)
             provider = _SyntheticRuntimeProvider(configuration, catalog, root)
             fake_activation = _FakeActivationBackend()
+            service_calls: dict[str, int] = {}
             service = WorkflowService(
-                registry=_registry_with_fake_activation(fake_activation),
+                registry=_registry_with_fake_activation(fake_activation, service_calls),
                 provider=provider,
             )
             main_result = service.run(main_request, run_id="checkpoint-parent")
@@ -1270,6 +1276,7 @@ class SyntheticEndToEndTest(unittest.TestCase):
                 for path in (parent_root / "tasks").glob("*.json")
             }
 
+            service_calls.clear()
             jitter = service.sensitivity(
                 SensitivityExtensionRequest(
                     base_run=parent_root,
@@ -1278,7 +1285,9 @@ class SyntheticEndToEndTest(unittest.TestCase):
                     workers=2,
                 )
             )
+            jitter_calls = dict(service_calls)
             calls_after_jitter = len(fake_activation.calls)
+            service_calls.clear()
             oss = service.sensitivity(
                 SensitivityExtensionRequest(
                     base_run=parent_root,
@@ -1288,11 +1297,26 @@ class SyntheticEndToEndTest(unittest.TestCase):
                     allow_expensive_producers=True,
                 )
             )
+            oss_calls = dict(service_calls)
+            service_calls.clear()
+            combined = service.sensitivity(
+                SensitivityExtensionRequest(
+                    base_run=parent_root,
+                    analyses=("jitter", "oss"),
+                    run_id="combined-extension",
+                    workers=2,
+                    allow_expensive_producers=True,
+                )
+            )
+            combined_calls = dict(service_calls)
             parent_manifest_after = hashlib.sha256(
                 (parent_root / "run_manifest.json").read_bytes()
             ).hexdigest()
             jitter_root = root / "runs" / "project_neutral_study" / "jitter-extension"
             oss_root = root / "runs" / "project_neutral_study" / "oss-extension"
+            combined_root = (
+                root / "runs" / "project_neutral_study" / "combined-extension"
+            )
             jitter_states = {
                 path.name: path.read_text(encoding="utf-8")
                 for path in (jitter_root / "tasks").glob("*.json")
@@ -1324,13 +1348,41 @@ class SyntheticEndToEndTest(unittest.TestCase):
                     / "oss-extension"
                     / "extension_manifest.json"
                 ).is_file(),
+                "combined_plan": (combined_root / "sensitivity_plan.json").is_file(),
+            }
+            extension_plans = {
+                name: json.loads((path / "sensitivity_plan.json").read_text())
+                for name, path in {
+                    "jitter": jitter_root,
+                    "oss": oss_root,
+                    "combined": combined_root,
+                }.items()
             }
 
         self.assertEqual(main_result.exit_code, 0)
         self.assertEqual(jitter.exit_code, 0)
         self.assertEqual(oss.exit_code, 0)
+        self.assertEqual(combined.exit_code, 0)
         self.assertEqual(calls_after_jitter, 0)
-        self.assertEqual(len(fake_activation.calls), 2)
+        self.assertEqual(len(fake_activation.calls), 4)
+        self.assertTrue(jitter_calls)
+        self.assertTrue(oss_calls)
+        self.assertTrue(combined_calls)
+        self.assertTrue(all(service_id.endswith("_jitter") for service_id in jitter_calls))
+        self.assertTrue(
+            all(service_id.endswith("_activation") for service_id in oss_calls)
+        )
+        self.assertEqual(set(combined_calls), set(jitter_calls) | set(oss_calls))
+        for document in extension_plans.values():
+            tasks = document["plan"]["tasks"]
+            self.assertFalse(any(task["phase"] == "formal" for task in tasks))
+            self.assertFalse(
+                any(
+                    gate["fact"] == "formal_complete"
+                    for task in tasks
+                    for gate in task["gates"]
+                )
+            )
         self.assertEqual(parent_manifest_before, parent_manifest_after)
         self.assertTrue(restored_parent_states)
         self.assertTrue(
@@ -1340,6 +1392,76 @@ class SyntheticEndToEndTest(unittest.TestCase):
             )
         )
         self.assertTrue(all(output_flags.values()), output_flags)
+
+    def test_extension_resume_executes_only_the_noncompleted_sensitivity_task(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory).resolve()
+            complete_request = _write_profiles(root)
+            main_request = WorkflowRequest(
+                study_base=complete_request.study_base,
+                direct_voxel_model=complete_request.direct_voxel_model,
+                normative_fiber_model=complete_request.normative_fiber_model,
+                workflow_profile=complete_request.workflow_profile,
+                overrides=WorkflowOverrides(all_available=True, through="observed"),
+            )
+            configuration = load_workflow(
+                main_request.workflow_profile,
+                main_request.overrides,
+            )
+            study = load_study_base(main_request.study_base)
+            catalog = build_endpoint_catalog(configuration, study)
+            service_calls: dict[str, int] = {}
+            service = WorkflowService(
+                registry=_registry_with_fake_activation(
+                    _FakeActivationBackend(),
+                    service_calls,
+                ),
+                provider=_SyntheticRuntimeProvider(configuration, catalog, root),
+            )
+            main = service.run(main_request, run_id="resume-parent")
+            parent_root = root / "runs" / "project_neutral_study" / "resume-parent"
+            extension_request = SensitivityExtensionRequest(
+                base_run=parent_root,
+                analyses=("jitter",),
+                run_id="resume-extension",
+                workers=2,
+            )
+            first = service.sensitivity(extension_request)
+            extension_root = (
+                root / "runs" / "project_neutral_study" / "resume-extension"
+            )
+            jitter_states = []
+            for path in sorted((extension_root / "tasks").glob("*.json")):
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if str(payload["service_id"]).endswith("_jitter"):
+                    jitter_states.append((path, payload))
+            interrupted_path, interrupted = jitter_states[0]
+            interrupted["status"] = "running"
+            interrupted["reason"] = "interrupted_for_resume_test"
+            interrupted_path.write_text(
+                json.dumps(interrupted, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            service_calls.clear()
+            resumed = service.sensitivity(
+                replace(extension_request, workers=3, resume=True)
+            )
+            final_states = [
+                json.loads(path.read_text(encoding="utf-8"))
+                for path, _payload in jitter_states
+            ]
+
+        self.assertEqual(main.exit_code, 0)
+        self.assertEqual(first.exit_code, 0)
+        self.assertEqual(
+            resumed.exit_code,
+            0,
+            [outcome.as_dict() for outcome in resumed.outcomes if outcome.status == "failed"],
+        )
+        self.assertEqual(sum(service_calls.values()), 1)
+        self.assertTrue(all(key.endswith("_jitter") for key in service_calls))
+        self.assertTrue(all(payload["status"] == "completed" for payload in final_states))
 
     def test_all_four_families_complete_through_report_without_project_imports(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

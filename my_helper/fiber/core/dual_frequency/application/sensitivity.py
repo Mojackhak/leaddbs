@@ -509,7 +509,7 @@ def compile_sensitivity_extension_plan(
         raise SensitivityCheckpointError("analyses must select jitter, oss, or both")
     stages = {"jitter": "spatial_jitter", "oss": "activation_sensitivity"}
     endpoint_set = set(endpoint_ids)
-    tasks = {task.task_id: task for task in full_plan.tasks}
+    source_tasks = {task.task_id: task for task in full_plan.tasks}
     targets = [
         task
         for task in full_plan.tasks
@@ -521,15 +521,36 @@ def compile_sensitivity_extension_plan(
             raise SensitivityCheckpointError(
                 f"no realized final supports requested analysis {analysis!r}"
             )
+    extension_targets = {
+        task.task_id: replace(
+            task,
+            dependencies=tuple(
+                dependency
+                for dependency in task.dependencies
+                if source_tasks[dependency].phase != "formal"
+            ),
+            gates=tuple(gate for gate in task.gates if gate.fact != "formal_complete"),
+        )
+        for task in targets
+    }
+    tasks = {**source_tasks, **extension_targets}
     included: set[str] = set()
-    pending = [task.task_id for task in targets]
+    pending = list(extension_targets)
     while pending:
         task_id = pending.pop()
         if task_id in included:
             continue
         included.add(task_id)
         pending.extend(tasks[task_id].dependencies)
-    selected = tuple(task for task in full_plan.tasks if task.task_id in included)
+    selected = tuple(
+        tasks[task.task_id]
+        for task in full_plan.tasks
+        if task.task_id in included
+    )
+    if any(task.phase == "formal" for task in selected):
+        raise SensitivityCheckpointError(
+            "sensitivity extension closure cannot contain formal tasks"
+        )
     return ExecutionPlan(
         configuration_hash=full_plan.configuration_hash,
         scientific_configuration_hash=full_plan.scientific_configuration_hash,

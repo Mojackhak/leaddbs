@@ -741,10 +741,7 @@ def _evaluate_sensitive_reference(request: TaskExecutionRequest) -> ServiceResul
     computable = result.cell_computability_status == "computable"
     return ServiceResult.from_record(
         result,
-        facts={
-            "reference_source_accepted": computable,
-            "formal_source_available": computable,
-        },
+        facts={"reference_source_accepted": computable},
     )
 
 

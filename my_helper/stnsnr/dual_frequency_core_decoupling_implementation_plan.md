@@ -2980,6 +2980,34 @@ The correction passes 419 dual-frequency tests and 224 parameterized subtests.
 The added regression uses intentionally different reference and augmented
 add-on parent identities while preserving the same locked valid-union IDs.
 
+**Sensitivity-extension closure audit, 2026-07-17.** The implemented extension
+command, checkpoint loader, isolated output tree, and rebuild mode are present,
+but current target closure still inherits formal-permutation and formal-
+bootstrap dependencies from the one-shot DAG. This violates the required
+final-linked extension boundary and would expand a production jitter or OSS run
+by high-resample formal work. Decision 18 therefore requires an extension-only
+dependency rewrite that retains seeded parent prerequisites while executing no
+observed, resolver, final-realization, or formal task. Decisions 19-20 also keep
+source-absent prepared-cache reuse and the twelve extension acceptance scenarios
+open. Production sensitivity execution remains blocked until those code and
+test gates pass.
+
+The audit also found that immutable extension-manifest annotation rejected a
+workers-only resume. The corrected contract retains first-invocation resources
+at the lineage level and records later effective resources in execution
+segments, so worker changes do not become a fourth resume gate.
+The persisted sensitivity DAG likewise omits the execution-configuration hash
+while retaining its scientific hash and complete stable task graph.
+Exact extension retries also preserve enriched artifact-index rows and compare
+only their immutable identity fields.
+
+The resumed production run exposed two sensitive add-on tasks where a realized
+formal final and a noncomputable sensitive-reference evaluation published
+opposite values under the same `formal_source_available` name. Decision 21
+removes that cross-connectome alias: the sensitive evaluation publishes only
+its own reference-acceptance fact, while the formal-final lineage remains the
+sole authority for formal availability.
+
 The correction passes 417 dual-frequency tests and 224 parameterized
 subtests. The new cases verify parent-ordered axis union, reference-axis identity
 binding, strict failure for a locked ID outside the parent connectome, artifact

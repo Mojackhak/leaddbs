@@ -455,13 +455,16 @@ class WorkflowService:
             allowed_artifact_roots=(output_root, cache_root, base_root),
             resume=request.resume,
         )
-        store.annotate_manifest(
-            {
-                "run_type": "sensitivity_extension",
-                "selected_sensitivity_analyses": list(request.analyses),
-                "resource_settings": {"workers": request.workers},
-            }
+        annotations: dict[str, object] = {
+            "run_type": "sensitivity_extension",
+            "selected_sensitivity_analyses": list(request.analyses),
+        }
+        current_manifest = json.loads(
+            (store.root / RunStore.MANIFEST_NAME).read_text(encoding="utf-8")
         )
+        if "resource_settings" not in current_manifest:
+            annotations["resource_settings"] = {"workers": request.workers}
+        store.annotate_manifest(annotations)
         base_reference = {
             "schema_version": "dual_frequency_base_run_reference_v1",
             "base_run_id": checkpoint.parent_manifest["run_id"],
@@ -471,12 +474,14 @@ class WorkflowService:
             "checkpoint_endpoint_ids": list(checkpoint.endpoint_ids),
         }
         self._write_immutable_json(store.root / "base_run_reference.json", base_reference)
+        persisted_extension_plan = _plain(extension_plan)
+        persisted_extension_plan.pop("configuration_hash", None)
         self._write_immutable_json(
             store.root / "sensitivity_plan.json",
             {
                 "schema_version": "dual_frequency_sensitivity_plan_v1",
                 "analyses": list(request.analyses),
-                "plan": _plain(extension_plan),
+                "plan": persisted_extension_plan,
             },
         )
         planned_ids = {task.task_id for task in extension_plan.tasks}
