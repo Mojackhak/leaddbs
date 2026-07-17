@@ -815,7 +815,6 @@ def compile_sensitivity_extension_plan(
             grouped.setdefault(group_id, []).append(task)
             descriptors[group_id] = descriptor
 
-        block_ids_by_group: dict[str, tuple[str, ...]] = {}
         for group_id in sorted(grouped):
             members = tuple(sorted(grouped[group_id], key=lambda item: item.endpoint_id))
             descriptor = descriptors[group_id]
@@ -839,7 +838,6 @@ def compile_sensitivity_extension_plan(
                 if task.task_id in dependency_set
             )
             representative = members[0]
-            identifiers: list[str] = []
             for start in range(0, int(descriptor["replicates"]), JITTER_BLOCK_SIZE):
                 stop = min(
                     start + JITTER_BLOCK_SIZE,
@@ -880,20 +878,24 @@ def compile_sensitivity_extension_plan(
                     execution_parameters=parameters,
                 )
                 block_tasks.append(block)
-                identifiers.append(block.task_id)
-            block_ids_by_group[group_id] = tuple(identifiers)
 
         for group_id, members in grouped.items():
-            block_ids = block_ids_by_group[group_id]
             for member in members:
                 extension_targets[member.task_id] = replace(
                     member,
-                    dependencies=(*member.dependencies, *block_ids),
                     execution_parameters=(
                         *member.execution_parameters,
                         ("jitter_block_group_id", group_id),
                     ),
                 )
+
+        physical_block_ids = tuple(task.task_id for task in block_tasks)
+        for target in jitter_targets:
+            current = extension_targets[target.task_id]
+            extension_targets[target.task_id] = replace(
+                current,
+                dependencies=(*current.dependencies, *physical_block_ids),
+            )
 
     selected_roots = tuple(
         checkpoint_roots[task.task_id]

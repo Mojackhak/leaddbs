@@ -455,6 +455,177 @@ class SensitivityCheckpointTest(unittest.TestCase):
         self.assertEqual(jitter.execution_parameters, ())
         self.assertEqual(jitter.dependencies, (parent.task_id,))
 
+    def test_jitter_endpoints_wait_for_every_physical_group(self) -> None:
+        voxel_endpoint = EndpointKey(
+            "study",
+            "scale-one",
+            "reference",
+            "reference_voxel",
+        )
+        fiber_endpoint = EndpointKey(
+            "study",
+            "scale-two",
+            "reference",
+            "reference_fiber",
+            "formal-connectome",
+        )
+        voxel_parent = _task(voxel_endpoint, "final_realization", "observed")
+        fiber_parent = _task(fiber_endpoint, "final_realization", "observed")
+        voxel_target = _task(
+            voxel_endpoint,
+            "spatial_jitter",
+            "sensitivity",
+            dependencies=(voxel_parent.task_id,),
+        )
+        fiber_target = _task(
+            fiber_endpoint,
+            "spatial_jitter",
+            "sensitivity",
+            dependencies=(fiber_parent.task_id,),
+        )
+        full_plan = ExecutionPlan(
+            configuration_hash=CONFIGURATION_HASH,
+            scientific_configuration_hash=SCIENTIFIC_HASH,
+            through="sensitivity",
+            tasks=(voxel_parent, fiber_parent, voxel_target, fiber_target),
+        )
+        rng = {
+            "jitter_resamples": 25,
+            "jitter_translation_fwhm_mm": 2.0,
+            "seed": 42,
+        }
+        extension = compile_sensitivity_extension_plan(
+            full_plan,
+            endpoint_ids=(voxel_endpoint.identifier, fiber_endpoint.identifier),
+            analyses=("jitter",),
+            seed_task_ids=(voxel_parent.task_id, fiber_parent.task_id),
+            jitter_bases=(
+                {
+                    "endpoint_id": voxel_endpoint.identifier,
+                    "rng_profile": rng,
+                    "shared_exposure_entries": [
+                        {
+                            "kind": "voxel_exposures",
+                            "semantic_sha256": "d" * 64,
+                        }
+                    ],
+                },
+                {
+                    "endpoint_id": fiber_endpoint.identifier,
+                    "rng_profile": rng,
+                    "shared_exposure_entries": [
+                        {
+                            "kind": "fiber_exposures",
+                            "semantic_sha256": "e" * 64,
+                        }
+                    ],
+                },
+            ),
+        )
+
+        blocks = tuple(
+            task
+            for task in extension.tasks
+            if task.service_id == "prepare_jitter_exposure_block"
+        )
+        targets = tuple(
+            task for task in extension.tasks if task.stage == "spatial_jitter"
+        )
+        self.assertEqual(len(blocks), 2)
+        self.assertEqual(
+            len(
+                {
+                    target.execution_parameter("jitter_block_group_id")
+                    for target in targets
+                }
+            ),
+            2,
+        )
+        block_ids = {block.task_id for block in blocks}
+        self.assertTrue(all(block_ids < set(target.dependencies) for target in targets))
+
+    def test_adjusted_addon_waits_for_reduced_physical_blocks(self) -> None:
+        reference_endpoint = EndpointKey(
+            "study",
+            "scale-one",
+            "reference",
+            "reference_voxel",
+        )
+        addon_endpoint = EndpointKey(
+            "study",
+            "scale-two",
+            "addon",
+            "addon_voxel",
+        )
+        reference_parent = _task(
+            reference_endpoint,
+            "final_realization",
+            "observed",
+        )
+        addon_parent = _task(addon_endpoint, "final_realization", "observed")
+        reference_target = _task(
+            reference_endpoint,
+            "spatial_jitter",
+            "sensitivity",
+            dependencies=(reference_parent.task_id,),
+        )
+        addon_target = _task(
+            addon_endpoint,
+            "spatial_jitter",
+            "sensitivity",
+            dependencies=(addon_parent.task_id,),
+        )
+        full_plan = ExecutionPlan(
+            configuration_hash=CONFIGURATION_HASH,
+            scientific_configuration_hash=SCIENTIFIC_HASH,
+            through="sensitivity",
+            tasks=(reference_parent, addon_parent, reference_target, addon_target),
+        )
+        rng = {
+            "jitter_resamples": 25,
+            "jitter_translation_fwhm_mm": 2.0,
+            "seed": 42,
+        }
+        shared = [
+            {
+                "kind": "voxel_exposures",
+                "semantic_sha256": "d" * 64,
+            }
+        ]
+        extension = compile_sensitivity_extension_plan(
+            full_plan,
+            endpoint_ids=(reference_endpoint.identifier, addon_endpoint.identifier),
+            analyses=("jitter",),
+            seed_task_ids=(reference_parent.task_id, addon_parent.task_id),
+            jitter_bases=(
+                {
+                    "endpoint_id": reference_endpoint.identifier,
+                    "rng_profile": rng,
+                    "shared_exposure_entries": shared,
+                },
+                {
+                    "endpoint_id": addon_endpoint.identifier,
+                    "final_branch": "delta_reference_adjusted",
+                    "rng_profile": rng,
+                    "shared_exposure_entries": shared,
+                },
+            ),
+        )
+
+        block = next(
+            task
+            for task in extension.tasks
+            if task.service_id == "prepare_jitter_exposure_block"
+        )
+        adjusted = next(
+            task
+            for task in extension.tasks
+            if task.endpoint_id == addon_endpoint.identifier
+            and task.stage == "spatial_jitter"
+        )
+        self.assertIn(block.task_id, adjusted.dependencies)
+        self.assertEqual(adjusted.execution_parameters, ())
+
 
 if __name__ == "__main__":
     unittest.main()

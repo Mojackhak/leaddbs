@@ -530,6 +530,32 @@ those counts. This worker reuse is intentional: each admitted process can
 finish later blocks with already resident samplers instead of multiplying cold
 source loads across twelve processes.
 
+The v5 exercise proved that per-group endpoint dependencies were still too
+weak for that reuse contract. All 80 voxel blocks completed, after which voxel
+endpoint statistics became runnable while 40 reference-fiber blocks remained.
+Those statistics expanded the persistent pool from four processes to twelve.
+Although only two fiber producers held connectome-I/O grants, later fiber
+ranges could be dispatched to newly idle processes without resident E-field
+samplers. Hot fiber ranges took roughly 1.2 minutes, while two cold ranges took
+roughly 13.7 minutes each. Short process samples placed both cold workers in
+NIfTI gzip decompression. The 32 unique reference E-fields occupy roughly
+8.27 GiB uncompressed, which fits below the 10-GiB sampler ceiling; the defect
+was worker rotation rather than insufficient reference-source capacity.
+
+The retained v5 evidence contains 80 voxel blocks, 23 reference-fiber blocks,
+and all 56 voxel endpoint jitter results. It published 103 complete block cache
+entries, left no producer lock, and did not grow swap. It is not resumed as the
+accepted production run.
+
+Every jitter endpoint task now depends on the complete ordered physical-block
+task set, not only its own physical group. The persistent pool therefore stays
+within the producer population until all 120 blocks finish. Only then may the
+84 endpoint statistics expand the same pool to the public worker ceiling. The
+barrier changes scheduling dependencies only; block identities, replicate
+ranges, RNG order, cache keys, and endpoint scientific inputs remain unchanged.
+When no physical-block capability exists, the legacy typed-provider path keeps
+its original dependencies.
+
 Each block identity binds:
 
 - the ordered parent shared-exposure identities;

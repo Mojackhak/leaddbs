@@ -3110,6 +3110,26 @@ concurrently; current available memory may lower those counts. Later ranges
 remain eligible for the same persistent workers so their resident samplers can
 be reused.
 
+The v5 production exercise exposed a remaining scheduling boundary. After all
+80 voxel blocks completed, their 56 endpoint statistics became runnable while
+40 reference-fiber blocks remained. The endpoint work expanded the pool from
+four processes to twelve, so later fiber ranges could rotate onto cold idle
+workers despite the two-slot connectome-I/O limit. Hot fiber blocks took about
+1.2 minutes, while two cold blocks took about 13.7 minutes and sampled inside
+NIfTI gzip decompression. The 32 reference E-fields occupy about 8.27 GiB
+uncompressed and fit below the 10-GiB sampler ceiling, so increasing that
+ceiling is not the accepted fix. v5 was stopped with 80 voxel blocks, 23 fiber
+blocks, all 56 voxel endpoint results, 103 complete block cache entries, no
+producer lock, and no swap growth.
+
+Compile a global physical-block barrier whenever reduced-axis block production
+is active. Every jitter endpoint target depends on the complete ordered set of
+physical-block task IDs. The one persistent pool remains at the producer
+population until all 120 blocks complete; the 84 endpoint statistics may then
+use the full public worker ceiling. Preserve every block key, fixed range, RNG
+identity, cache descriptor, and endpoint numerical input. Providers without
+physical-block capability retain the legacy typed-provider dependency path.
+
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 
 Preserve deterministic brute-force direct-voxel, normative-fiber, jitter, OSS,
