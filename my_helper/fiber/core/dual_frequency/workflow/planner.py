@@ -50,11 +50,16 @@ class TaskSpec:
     output_record_type: str
     expensive_producer: bool = False
     cache_first_expensive: bool = False
+    checkpoint_only: bool = False
 
     def __post_init__(self) -> None:
         if self.cache_first_expensive and not self.expensive_producer:
             raise PlanningError(
                 "cache_first_expensive requires expensive_producer=True"
+            )
+        if self.checkpoint_only and (self.dependencies or self.gates):
+            raise PlanningError(
+                "checkpoint-only tasks must be dependency-free and gate-free"
             )
 
     @property

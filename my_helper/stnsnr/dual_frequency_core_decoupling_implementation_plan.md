@@ -3035,6 +3035,18 @@ reconciliation. The v6 run remains valuable compatibility and checkpoint
 evidence, but it cannot close those performance and recovery gates. Decision 22
 in `task17_design_decisions.md` records the required implementation boundary.
 
+**Production extension-closure audit, 2026-07-17.** The completed v6
+checkpoint contains 1204 completed seed outcomes. The existing combined jitter
+and OSS compiler selects 588 tasks: 476 observed-phase specifications and 112
+sensitivity targets. The targets require only 308 distinct direct parent
+records, all of which have completed seeds. Recursive ancestry expansion also
+selects 28 intentionally skipped observed branches without completed seeds and
+would make them executable in the child run. Decision 23 replaces that closure
+with completed direct-parent roots. It also requires two-stage checkpoint
+loading so final artifacts and shared entries are validated before execution
+while unrelated historical seed outcomes are never rehydrated or payload-
+hashed.
+
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 
 Preserve deterministic brute-force direct-voxel, normative-fiber, jitter, OSS,

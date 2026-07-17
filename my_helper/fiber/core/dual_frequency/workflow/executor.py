@@ -776,6 +776,16 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
 
     task_index = {task.task_id: task for task in plan.tasks}
     outcomes = _restore_outcomes(plan, context)
+    missing_checkpoint_roots = tuple(
+        task.task_id
+        for task in plan.tasks
+        if task.checkpoint_only and task.task_id not in outcomes
+    )
+    if missing_checkpoint_roots:
+        raise ExecutionError(
+            "extension checkpoint roots are missing completed outcomes: "
+            + ",".join(missing_checkpoint_roots)
+        )
     pending = {task.task_id: task for task in plan.tasks if task.task_id not in outcomes}
     abort = False
     ledger = _ResourceLedger(context.workers)

@@ -421,3 +421,44 @@ No Task 17 completion statement may treat any of these open items as acceptance
 evidence. Documentation status changes to complete only after the corresponding
 code, focused regression tests, production or bounded acceptance evidence, and
 full requirement audit all pass.
+
+## Decision 23: Stop The Extension DAG At Completed Direct Parent Records
+
+The completed production checkpoint contains 1204 seed outcomes, 17888 artifact
+references, and 4059 unique artifact paths. Eagerly rehydrating every seed
+outcome would read about 151.5 GB before the extension plan is known. The same
+checkpoint's combined jitter and OSS targets have only 308 distinct direct
+parent tasks, and every one has a completed seed outcome.
+
+The former recursive extension closure is too broad. For the combined request
+it contains 476 observed-phase specifications and 112 sensitivity targets.
+Twenty-eight of those observed specifications are intentionally skipped parent
+branches and have no completed seed. Leaving them executable would violate the
+rule that an extension invokes no observed, resolver, or final-model service.
+
+The child-plan boundary is therefore:
+
+- remove formal dependencies and the formal-complete gate from each requested
+  sensitivity target;
+- require every remaining direct parent task to have a completed seed outcome;
+- include each completed direct parent as a dependency-free, gate-free child
+  root and restore its result before execution;
+- include only those roots and the requested sensitivity targets;
+- never expand a restored parent into its historical ancestors;
+- fail checkpoint loading or enter explicit rebuild mode when a required
+  direct parent seed is absent.
+
+Checkpoint loading is also two-stage. Metadata loading validates the completed
+parent manifest, every selected `sensitivity_base.json`, the final-model
+artifact set, and every declared shared-cache entry before the sensitivity DAG
+starts. Identical final artifact paths are payload-hashed once in that parent
+process. Only the direct seed roots selected by the compiled child plan are
+then rehydrated. Unrelated historical seed outcomes are not read or hashed.
+Artifacts outside the explicitly validated final set remain subject to exact
+`ArtifactStore` validation when a selected sensitivity service first consumes
+them.
+
+This boundary does not weaken the portable-cache contract. Every shared entry
+still receives complete payload SHA and structural validation on first use in
+each process, and corruption of a declared final artifact or shared-cache
+payload still fails before any sensitivity service invocation.
