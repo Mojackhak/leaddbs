@@ -373,7 +373,7 @@ class StudyRuntimeInputProvider:
         scientific_cache: ContentAddressedCache | None = None,
         left_transformer: LeftToCanonicalTransformer | None = None,
         fiber_chunk_size: int = 65_536,
-        sampler_cache_bytes: int = 5 * 1024**3,
+        sampler_cache_bytes: int = 10 * 1024**3,
     ) -> None:
         if not isinstance(study, StudyBaseRecord):
             raise TypeError("study must be a StudyBaseRecord")

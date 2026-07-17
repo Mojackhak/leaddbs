@@ -25,6 +25,7 @@ from dual_frequency.workflow import ExecutionPlan, GateRequirement, TaskSpec
 from dual_frequency.workflow.executor import (
     ExecutionContext,
     ExecutionError,
+    _ResourceLedger,
     ServiceResult,
     execute_plan,
     plan_hash,
@@ -112,6 +113,19 @@ def _artifact_result(request, filename: str = "exposure.npy") -> ArtifactRef:
 
 
 class ExecutorTest(unittest.TestCase):
+    def test_prepare_exposure_grant_covers_bilateral_sampler_working_set(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        task = _task(endpoint, "prepare_exposure", "prepare_reference_fiber_sidecar")
+        grant = _ResourceLedger.request(task)
+        self.assertEqual(grant.memory_bytes, 13 * 1024**3)
+        self.assertEqual(grant.connectome_io, 1)
+
     def _store(self, root: Path, plan: ExecutionPlan, *, resume: bool = False) -> RunStore:
         identity = RunIdentity(
             study_id="synthetic",

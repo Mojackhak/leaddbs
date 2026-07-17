@@ -1849,15 +1849,17 @@ throughput proves that additional readers do not help; the scheduler records
 that cap rather than changing `execution.workers` or pretending all 12 slots
 were useful.
 
-The 2026-07-16 cold production trace found sixteen decoded canonical E-fields
-occupying about 4.2 GiB. Because that value is `> 2 GiB`, the former sampler
-budget caused eviction and repeated gzip decoding inside the fiber range loop.
-The immediate resource correction uses a 5 GiB sampler budget and a 7 GiB
-prepare-exposure grant, while validating each unchanged NIfTI once per process.
-Acceptance requires sampler rebuild count after initial population to remain
-`< 1` for the same sixteen-path working set and swap growth to remain `< 1`
-byte. A later shared decompressed-memmap cache may reduce private worker RSS,
-but is not required to resume this scientifically unchanged lineage.
+The 2026-07-16 cold production trace found sixteen decoded canonical-left
+E-fields occupying about 4.2 GiB and sixteen matching right fields raising the
+full bilateral working set to about 8.4 GiB. Because that value is `> 2 GiB`
+and `> 5 GiB`, both tested sampler budgets caused eviction and repeated gzip
+decoding inside the fiber range loop. The immediate resource correction uses a
+10 GiB sampler budget and a 13 GiB prepare-exposure grant, while validating
+each unchanged NIfTI once per process. Acceptance requires sampler rebuild
+count after initial population to remain `< 1` for the same thirty-two-path
+working set and swap growth to remain `< 1` byte. A later shared decompressed-
+memmap cache may reduce private worker RSS, but is not required to start the
+scientifically unchanged replacement lineage.
 
 ### State-machine closure
 
