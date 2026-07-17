@@ -637,3 +637,39 @@ After code, configuration, and tests pass, the next formal invocation runs the
 main workflow through its configured formal outputs only. It does not compile
 or execute jitter or OSS-DBS. Those extensions require a later explicit
 authorization and must use the corrected parent lineage.
+
+## Decision 26: Keep Degenerate Bootstrap Draws As Explicit Attrition
+
+The corrected formal lineage
+`task17-main-v7-inclusive-ppmi-formal-20260717` exposed a subject-bootstrap
+boundary that is absent from the fixed observed and permutation fits. The
+`eat_10` baseline has twelve zero values among sixteen subjects. Its sixth
+deterministic draw contains fifteen zero values and one value of seven; the
+LOOCV fold that removes the only nonzero value has a rank-deficient
+intercept-plus-baseline nuisance design. The `dsfs` draw at replicate 8784 has
+the same structure with fifteen values of two and one value of four. These are
+valid with-replacement bootstrap draws, not malformed endpoint inputs.
+
+A sample-specific nuisance design that becomes non-estimable after a valid
+bootstrap draw is replicate attrition. It does not invalidate the endpoint,
+the original nuisance design, or the complete bootstrap task. The backend must
+retain the original deterministic draw schedule and replicate axis, must not
+redraw or condition the bootstrap distribution on estimability, and must mark
+only that replicate as non-estimable. Its candidate mask remains computable
+from the sampled exposure, while its valid-weight count and support code remain
+absent. Feature weights, signs, and signed-fiber selections receive no
+contribution from that replicate.
+
+The published summary records requested and finite replicate counts plus the
+number of non-estimable nuisance draws. Nuisance QC records the exact replicate,
+stable reason code, and diagnostic detail. The technical result is
+`completed_with_nonfinite_replicates` when at least one requested draw has no
+finite weight. A fixed original nuisance design that is non-estimable remains
+a fatal endpoint-input error. Provider identity, stale adjusted-score, shape,
+axis, and provenance failures also remain fatal; this decision does not turn
+contract violations into bootstrap attrition.
+
+After implementation and focused regression tests, the current main lineage
+finishes its independent work and resumes only failed bootstrap tasks through
+the existing three resume gates. No jitter or OSS-DBS task is authorized by
+this repair.

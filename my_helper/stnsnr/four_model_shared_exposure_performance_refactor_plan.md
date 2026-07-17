@@ -1185,6 +1185,16 @@ formal permutation/bootstrap:
   parallel by deterministic replicate blocks, then reduce in replicate order
 ```
 
+Subject bootstrap retains every deterministic with-replacement draw in the
+requested replicate axis. If a valid draw makes its sample-specific nuisance
+design non-estimable, that draw is explicit attrition rather than a task-level
+failure: candidate membership remains measurable, but weights, signs,
+selection, and support receive no contribution. The runtime must not redraw or
+silently condition on estimability. It records the exact replicate and reason,
+publishes finite and non-estimable replicate counts, and reports
+`completed_with_nonfinite_replicates`. A non-estimable original nuisance design
+or any input, identity, axis, provider, or provenance violation remains fatal.
+
 Long monolithic tasks must be split into bounded units; otherwise a 12-worker
 executor still uses one CPU core.
 

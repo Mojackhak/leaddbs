@@ -2916,6 +2916,19 @@ assigns `ppmi_85_ewert_2017` as the unique formal connectome, and requires a
 new main lineage. Jitter and OSS-DBS are intentionally outside this corrected
 main-run invocation.
 
+**Bootstrap non-estimability checkpoint, 2026-07-17.** The corrected v7 main
+lineage proved that valid subject draws can make a sample-specific baseline
+nuisance design rank deficient even though the fixed endpoint design is valid.
+`eat_10` first reaches this boundary at replicate 5 and held-out index 6;
+`dsfs` reaches it at replicate 8784 and held-out index 11. Decision 26 treats
+only these sample-specific cases as explicit replicate attrition. The draw
+schedule and requested replicate axis remain unchanged, no replacement draw is
+allowed, and the result records finite and non-estimable counts plus exact
+nuisance-QC reasons. Original-design failure and provider/input/provenance
+violations remain fatal. The repair applies to both direct-voxel and
+normative-fiber bootstrap loops, followed by focused regression tests and a
+resume of failed formal tasks only.
+
 **Production resource checkpoint, 2026-07-16.** The first corrected all-scale
 lineage reached 364 completed tasks with no failure before the initial shared
 fiber exposure exposed a decoded-field working-set error. Sixteen canonical-
