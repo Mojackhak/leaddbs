@@ -419,7 +419,12 @@ class WorkflowService:
                 bundle.plan,
                 endpoint_ids=checkpoint.endpoint_ids,
                 analyses=request.analyses,
+                seed_task_ids=checkpoint.seed_task_ids,
             )
+            checkpoint_root_ids = tuple(
+                task.task_id for task in extension_plan.tasks if task.checkpoint_only
+            )
+            seed_outcomes = checkpoint.seed_outcomes_for(checkpoint_root_ids)
         except SensitivityCheckpointError as exc:
             if request.rebuild_request is not None:
                 rebuilt = self._rebuild_sensitivity_parent(request)
@@ -484,13 +489,8 @@ class WorkflowService:
                 "plan": persisted_extension_plan,
             },
         )
-        planned_ids = {task.task_id for task in extension_plan.tasks}
-        for outcome in checkpoint.seed_outcomes:
-            if outcome.task_id not in planned_ids:
-                continue
-            existing = store.read_task_state(outcome.task_id)
-            if existing is None:
-                store.write_task_state(outcome.task_id, outcome.as_dict())
+        for outcome in seed_outcomes:
+            store.write_task_state(outcome.task_id, outcome.as_dict())
 
         result: RunResult | None = None
         failure: Exception | None = None
@@ -555,6 +555,7 @@ class WorkflowService:
                 selected_catalog,
                 result,
                 typed_records,
+                external_causal_task_ids=checkpoint.seed_task_ids,
             )
             self._publish_reporting_documents(
                 store.root,

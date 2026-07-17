@@ -1376,6 +1376,17 @@ class SyntheticEndToEndTest(unittest.TestCase):
         for document in extension_plans.values():
             tasks = document["plan"]["tasks"]
             self.assertFalse(any(task["phase"] == "formal" for task in tasks))
+            checkpoint_roots = [task for task in tasks if task["checkpoint_only"]]
+            self.assertTrue(checkpoint_roots)
+            self.assertTrue(
+                all(not task["dependencies"] and not task["gates"] for task in checkpoint_roots)
+            )
+            self.assertTrue(
+                all(
+                    task["phase"] == "sensitivity" or task["checkpoint_only"]
+                    for task in tasks
+                )
+            )
             self.assertFalse(
                 any(
                     gate["fact"] == "formal_complete"

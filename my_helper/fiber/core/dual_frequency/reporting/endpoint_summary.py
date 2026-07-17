@@ -310,6 +310,8 @@ def aggregate_final_decisions(
     endpoint_catalog: Sequence[EndpointRecord],
     run_result: RunResult,
     typed_records: Mapping[str, object],
+    *,
+    external_causal_task_ids: Sequence[str] = (),
 ) -> tuple[FinalDecisionRecord, ...]:
     """Build one deterministic terminal decision for every requested endpoint."""
 
@@ -317,6 +319,10 @@ def aggregate_final_decisions(
         plan, endpoint_catalog, run_result, typed_records
     )
     plan_task_ids = set(inputs.tasks)
+    external_task_ids = {str(task_id) for task_id in external_causal_task_ids}
+    if "" in external_task_ids:
+        raise ReportingError("external causal task IDs must be nonempty")
+    allowed_causal_task_ids = plan_task_ids | external_task_ids
     decisions = []
     for endpoint in sorted(
         (item for item in inputs.catalog if item.requested),
@@ -466,8 +472,10 @@ def aggregate_final_decisions(
         )
 
     for decision in decisions:
-        if not set(decision.causal_task_ids).issubset(plan_task_ids):
-            raise ReportingError("decision causal task IDs must belong to the plan")
+        if not set(decision.causal_task_ids).issubset(allowed_causal_task_ids):
+            raise ReportingError(
+                "decision causal task IDs must belong to the plan or declared parent lineage"
+            )
     return tuple(decisions)
 
 

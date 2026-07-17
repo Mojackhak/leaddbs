@@ -137,11 +137,17 @@ def build_report_documents(
     endpoint_catalog: Sequence[EndpointRecord],
     run_result: RunResult,
     typed_records: Mapping[str, object],
+    *,
+    external_causal_task_ids: Sequence[str] = (),
 ) -> dict[str, dict[str, Any]]:
     """Build current-run documents permitted by the execution cutoff."""
 
     decisions = aggregate_final_decisions(
-        plan, endpoint_catalog, run_result, typed_records
+        plan,
+        endpoint_catalog,
+        run_result,
+        typed_records,
+        external_causal_task_ids=external_causal_task_ids,
     )
     artifact_document = build_artifact_index(
         plan, endpoint_catalog, run_result, typed_records

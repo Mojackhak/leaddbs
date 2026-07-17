@@ -27,6 +27,7 @@ from dual_frequency.workflow.executor import (
     ExecutionError,
     _ResourceLedger,
     ServiceResult,
+    TaskOutcome,
     execute_plan,
     plan_hash,
 )
@@ -73,6 +74,7 @@ def _task(
     output_record_type: str = "SourceRecord",
     expensive: bool = False,
     cache_first_expensive: bool = False,
+    checkpoint_only: bool = False,
 ) -> TaskSpec:
     key = TaskKey(endpoint.identifier, stage, parameter_identity=SCIENTIFIC_HASH)
     return TaskSpec(
@@ -89,6 +91,7 @@ def _task(
         output_record_type=output_record_type,
         expensive_producer=expensive,
         cache_first_expensive=cache_first_expensive,
+        checkpoint_only=checkpoint_only,
     )
 
 
@@ -157,6 +160,89 @@ class ExecutorTest(unittest.TestCase):
             through="observed",
             tasks=tasks,
         )
+
+    def test_checkpoint_only_root_cannot_invoke_its_service(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        root = _task(
+            endpoint,
+            "checkpoint_root",
+            "sentinel",
+            checkpoint_only=True,
+        )
+        plan = self._plan((root,))
+        calls: list[str] = []
+
+        def sentinel(request):
+            calls.append(request.task.task_id)
+            return _result(request)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            store = self._store(Path(temporary_directory) / "run", plan)
+            with self.assertRaisesRegex(
+                ExecutionError,
+                "checkpoint roots are missing completed outcomes",
+            ):
+                execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=store,
+                        registry=ServiceRegistry(
+                            (RegisteredService("sentinel", sentinel),)
+                        ),
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=False,
+                        continue_on_endpoint_failure=True,
+                        workers=1,
+                        resume=True,
+                    ),
+                )
+        self.assertEqual(calls, [])
+
+    def test_checkpoint_only_root_restores_without_invocation(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        root = _task(
+            endpoint,
+            "checkpoint_root",
+            "sentinel",
+            checkpoint_only=True,
+        )
+        plan = self._plan((root,))
+        calls: list[str] = []
+
+        def sentinel(request):
+            calls.append(request.task.task_id)
+            return _result(request)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            store = self._store(Path(temporary_directory) / "run", plan)
+            seed = TaskOutcome(
+                task_id=root.task_id,
+                endpoint_id=root.endpoint_id,
+                service_id=root.service_id,
+                status="completed",
+                reason="none",
+                result=ServiceResult.from_record(_source(endpoint)),
+            )
+            store.write_task_state(root.task_id, seed.as_dict())
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=store,
+                    registry=ServiceRegistry(
+                        (RegisteredService("sentinel", sentinel),)
+                    ),
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    resume=True,
+                ),
+            )
+        self.assertEqual(calls, [])
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(result.outcomes[0].reason, "restored_completed_result")
 
     def test_failure_is_local_and_independent_endpoint_completes(self) -> None:
         endpoint_a = EndpointKey("study", "scale-a", "reference", "reference_voxel")

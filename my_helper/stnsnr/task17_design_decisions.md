@@ -458,6 +458,15 @@ Artifacts outside the explicitly validated final set remain subject to exact
 `ArtifactStore` validation when a selected sensitivity service first consumes
 them.
 
+Records restored at the checkpoint boundary retain their original causal task
+IDs. Those IDs are immutable parent-run lineage and need not appear as child
+tasks. Extension reporting must classify them as external parent provenance;
+it must not enlarge the child DAG merely to satisfy a report-local closure
+check. Every causal ID that is local to the extension must still belong to the
+extension plan, while external IDs remain anchored by
+`base_run_reference.json`, the parent manifest SHA, and the validated seed
+bundle.
+
 This boundary does not weaken the portable-cache contract. Every shared entry
 still receives complete payload SHA and structural validation on first use in
 each process, and corruption of a declared final artifact or shared-cache

@@ -3045,7 +3045,20 @@ would make them executable in the child run. Decision 23 replaces that closure
 with completed direct-parent roots. It also requires two-stage checkpoint
 loading so final artifacts and shared entries are validated before execution
 while unrelated historical seed outcomes are never rehydrated or payload-
-hashed.
+hashed. Restored records keep their parent-run causal IDs; reporting treats
+those nonlocal IDs as parent provenance instead of reintroducing historical
+tasks into the executable extension DAG.
+
+**Compact extension checkpoint implementation evidence, 2026-07-17.** The
+loader now validates the parent manifest, all 84 realized bases, the declared
+final artifacts, and shared-cache entries before parsing seed records into a
+metadata-only index. The production combined plan contains 420 child tasks:
+308 dependency-free checkpoint roots and 112 jitter or OSS targets. It contains
+no executable observed task and no formal task. Only those 308 completed parent
+outcomes are rehydrated. Checkpoint-only roots fail before pool creation when a
+completed state is absent, and extension reporting preserves historical causal
+IDs as validated parent lineage. The focused extension tests and the complete
+427-test dual-frequency suite pass.
 
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 

@@ -14,7 +14,7 @@ from urllib.parse import unquote, urlparse
 
 from ..cache import CacheError, ContentAddressedCache
 from ..cache.identity import sha256_file
-from ..contracts import ArtifactRef, FinalSelectionRecord, PreparedExposureRecord
+from ..contracts import AxisRef, ArtifactRef, FinalSelectionRecord, PreparedExposureRecord
 from ..contracts.identity import canonical_hash
 from ..reporting.artifact_index import record_artifact_closure
 from ..workflow import ExecutionPlan, ServiceResult, TaskOutcome
@@ -116,21 +116,49 @@ def _portable_mapper(
     return mapper
 
 
-def _physical_mapper(
-    run_root: Path,
-    cache_root: Path,
-    output_root: Path,
-) -> Callable[[ArtifactRef], ArtifactRef]:
-    roots = {
-        "base-run": run_root.resolve(),
-        "cache": cache_root.resolve(),
-        "output": output_root.resolve(),
-    }
+class _PhysicalArtifactMapper:
+    """Resolve portable artifacts and memoize process-local verification."""
 
-    def mapper(artifact: ArtifactRef) -> ArtifactRef:
+    def __init__(self, run_root: Path, cache_root: Path, output_root: Path) -> None:
+        self._roots = {
+            "base-run": run_root.resolve(),
+            "cache": cache_root.resolve(),
+            "output": output_root.resolve(),
+        }
+        self._metadata_by_path: dict[Path, tuple[object, ...]] = {}
+        self._validated_headers: set[Path] = set()
+        self._verified_payloads: set[Path] = set()
+
+    @staticmethod
+    def _metadata(artifact: ArtifactRef) -> tuple[object, ...]:
+        return (
+            artifact.sha256,
+            artifact.dtype,
+            artifact.shape,
+            artifact.axis_refs,
+            artifact.axis_hashes,
+            artifact.units,
+            artifact.space,
+        )
+
+    def __call__(self, artifact: ArtifactRef) -> ArtifactRef:
+        return self.map(artifact, verify_payload=False)
+
+    def verify(self, artifact: ArtifactRef) -> ArtifactRef:
+        return self.map(artifact, verify_payload=True)
+
+    def map(self, artifact: ArtifactRef, *, verify_payload: bool) -> ArtifactRef:
+        if not isinstance(artifact, ArtifactRef):
+            raise SensitivityCheckpointError("checkpoint artifact must be an ArtifactRef")
         parsed = urlparse(artifact.uri)
-        root = roots.get(parsed.scheme)
-        if root is None or parsed.netloc or not parsed.path.startswith("/"):
+        root = self._roots.get(parsed.scheme)
+        if (
+            root is None
+            or parsed.netloc
+            or parsed.query
+            or parsed.fragment
+            or not parsed.path.startswith("/")
+        ):
             raise SensitivityCheckpointError(
                 f"unsupported portable artifact URI {artifact.uri!r}"
             )
@@ -148,13 +176,56 @@ def _physical_mapper(
             ) from exc
         if not path.is_file():
             raise SensitivityCheckpointError(f"checkpoint artifact is missing: {path}")
-        if sha256_file(path) != artifact.sha256:
-            raise SensitivityCheckpointError(f"checkpoint artifact failed SHA-256: {path}")
-        if artifact.shape is not None:
+
+        metadata = self._metadata(artifact)
+        previous = self._metadata_by_path.setdefault(path, metadata)
+        if previous != metadata:
+            raise SensitivityCheckpointError(
+                f"checkpoint artifact metadata is inconsistent for one path: {path}"
+            )
+        if artifact.shape is not None and path not in self._validated_headers:
             _validate_array_header(path, artifact)
+            self._validated_headers.add(path)
+        if verify_payload and path not in self._verified_payloads:
+            if sha256_file(path) != artifact.sha256:
+                raise SensitivityCheckpointError(
+                    f"checkpoint artifact failed SHA-256: {path}"
+                )
+            self._verified_payloads.add(path)
         return replace(artifact, uri=path.as_uri())
 
-    return mapper
+
+def _physical_mapper(
+    run_root: Path,
+    cache_root: Path,
+    output_root: Path,
+) -> _PhysicalArtifactMapper:
+    return _PhysicalArtifactMapper(run_root, cache_root, output_root)
+
+
+def _artifact_from_payload(payload: object) -> ArtifactRef:
+    if not isinstance(payload, Mapping):
+        raise SensitivityCheckpointError("checkpoint artifact payload is invalid")
+    expected = {field.name for field in fields(ArtifactRef)}
+    if set(payload) != expected:
+        raise SensitivityCheckpointError("checkpoint artifact fields are invalid")
+    item = dict(payload)
+    axes = item.get("axis_refs")
+    hashes = item.get("axis_hashes")
+    if not isinstance(axes, list) or not isinstance(hashes, list):
+        raise SensitivityCheckpointError("checkpoint artifact axes are invalid")
+    try:
+        item["axis_refs"] = tuple(AxisRef(**dict(axis)) for axis in axes)
+        item["axis_hashes"] = tuple(hashes)
+        if item.get("shape") is not None:
+            if not isinstance(item["shape"], list):
+                raise TypeError("artifact shape must be a list")
+            item["shape"] = tuple(item["shape"])
+        return ArtifactRef(**item)
+    except (TypeError, ValueError) as exc:
+        raise SensitivityCheckpointError(
+            "checkpoint artifact metadata is invalid"
+        ) from exc
 
 
 def _validate_array_header(path: Path, artifact: ArtifactRef) -> None:
@@ -419,11 +490,34 @@ class LoadedSensitivityCheckpoint:
     base_run: Path
     parent_manifest: dict[str, Any]
     bases: tuple[dict[str, Any], ...]
-    seed_outcomes: tuple[TaskOutcome, ...]
+    _seed_states: tuple[dict[str, Any], ...]
+    _artifact_mapper: _PhysicalArtifactMapper
 
     @property
     def endpoint_ids(self) -> tuple[str, ...]:
         return tuple(str(base["endpoint_id"]) for base in self.bases)
+
+    @property
+    def seed_task_ids(self) -> tuple[str, ...]:
+        return tuple(str(state["task_id"]) for state in self._seed_states)
+
+    def seed_outcomes_for(self, task_ids: Sequence[str]) -> tuple[TaskOutcome, ...]:
+        """Rehydrate only the immutable direct roots selected for one extension."""
+
+        requested = tuple(dict.fromkeys(str(task_id) for task_id in task_ids))
+        requested_set = set(requested)
+        available = set(self.seed_task_ids)
+        missing = tuple(task_id for task_id in requested if task_id not in available)
+        if missing:
+            raise SensitivityCheckpointError(
+                "sensitivity checkpoint lacks completed direct parent outcomes: "
+                + ",".join(missing)
+            )
+        return tuple(
+            _physical_outcome(state, self._artifact_mapper)
+            for state in self._seed_states
+            if str(state["task_id"]) in requested_set
+        )
 
 
 def load_sensitivity_checkpoint(
@@ -432,31 +526,55 @@ def load_sensitivity_checkpoint(
     cache_root: Path,
     output_root: Path,
 ) -> LoadedSensitivityCheckpoint:
-    """Validate a complete parent and rehydrate its portable task outcomes."""
+    """Validate a complete parent without eagerly rehydrating historical outcomes."""
 
     root = Path(base_run).expanduser().resolve()
     manifest_path = root / "run_manifest.json"
     index_path = root / "sensitivity_bases" / "index.json"
     if not manifest_path.is_file() or not index_path.is_file():
         raise SensitivityCheckpointError("base run lacks a complete sensitivity checkpoint")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SensitivityCheckpointError(
+            "base run manifest or sensitivity index is unreadable"
+        ) from exc
+    if manifest.get("schema_version") != "dual_frequency_run_v1":
+        raise SensitivityCheckpointError("unsupported base-run manifest schema")
     if manifest.get("final_status") != "completed":
         raise SensitivityCheckpointError("base run is not completed")
-    index = json.loads(index_path.read_text(encoding="utf-8"))
     if index.get("schema_version") != CHECKPOINT_SCHEMA:
         raise SensitivityCheckpointError("unsupported sensitivity checkpoint schema")
     bases: list[dict[str, Any]] = []
     cache = ContentAddressedCache(cache_root)
+    mapper = _physical_mapper(root, cache_root, output_root)
+    endpoint_ids: set[str] = set()
     for item in index.get("bases", []):
+        if not isinstance(item, dict) or set(item) != {
+            "endpoint_id",
+            "relative_path",
+            "sha256",
+        }:
+            raise SensitivityCheckpointError("sensitivity base index row is invalid")
         relative = Path(str(item["relative_path"]))
         path = (index_path.parent / relative).resolve()
         if index_path.parent not in path.parents or not path.is_file():
             raise SensitivityCheckpointError("sensitivity base path is unsafe or missing")
         if sha256_file(path) != item["sha256"]:
             raise SensitivityCheckpointError("sensitivity base failed SHA-256")
-        base = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            base = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SensitivityCheckpointError("sensitivity base is unreadable") from exc
         if base.get("schema_version") != BASE_SCHEMA:
             raise SensitivityCheckpointError("unsupported sensitivity base schema")
+        endpoint_id = str(base.get("endpoint_id", ""))
+        if endpoint_id != str(item["endpoint_id"]) or not endpoint_id:
+            raise SensitivityCheckpointError("sensitivity base endpoint identity changed")
+        if endpoint_id in endpoint_ids:
+            raise SensitivityCheckpointError("sensitivity base endpoint is duplicated")
+        endpoint_ids.add(endpoint_id)
         shared_entries = base.get("shared_exposure_entries", [])
         if not isinstance(shared_entries, list):
             raise SensitivityCheckpointError("shared exposure entries are invalid")
@@ -477,6 +595,11 @@ def load_sensitivity_checkpoint(
                 ) from exc
             if entry is None:
                 raise SensitivityCheckpointError("shared exposure cache entry is missing")
+        final_artifacts = base.get("final_artifacts")
+        if not isinstance(final_artifacts, list):
+            raise SensitivityCheckpointError("final-model artifact set is invalid")
+        for artifact_payload in final_artifacts:
+            mapper.verify(_artifact_from_payload(artifact_payload))
         bases.append(base)
     if not bases:
         raise SensitivityCheckpointError("base run contains no realized final checkpoint")
@@ -488,12 +611,63 @@ def load_sensitivity_checkpoint(
         raise SensitivityCheckpointError("sensitivity seed-task bundle is unsafe or missing")
     if sha256_file(seed_path) != seed_ref["sha256"]:
         raise SensitivityCheckpointError("sensitivity seed-task bundle failed SHA-256")
-    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    try:
+        seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SensitivityCheckpointError(
+            "sensitivity seed-task bundle is unreadable"
+        ) from exc
     if seed.get("schema_version") != SEED_SCHEMA:
         raise SensitivityCheckpointError("unsupported sensitivity seed-task schema")
-    mapper = _physical_mapper(root, cache_root, output_root)
-    outcomes = tuple(_physical_outcome(item, mapper) for item in seed["task_states"])
-    return LoadedSensitivityCheckpoint(root, manifest, tuple(bases), outcomes)
+    states = seed.get("task_states")
+    if not isinstance(states, list):
+        raise SensitivityCheckpointError("sensitivity seed-task states are invalid")
+    normalized_states: list[dict[str, Any]] = []
+    task_ids: set[str] = set()
+    expected_state_fields = {
+        "task_id",
+        "endpoint_id",
+        "service_id",
+        "status",
+        "reason",
+        "started_at",
+        "finished_at",
+        "result",
+    }
+    expected_result_fields = {
+        "output_record_type",
+        "record_id",
+        "payload",
+        "artifacts",
+        "facts",
+    }
+    for state in states:
+        if not isinstance(state, dict) or set(state) != expected_state_fields:
+            raise SensitivityCheckpointError("sensitivity seed-task state is invalid")
+        task_id = str(state["task_id"])
+        result = state.get("result")
+        if (
+            not task_id
+            or task_id in task_ids
+            or state.get("status") != "completed"
+            or not isinstance(result, dict)
+            or set(result) != expected_result_fields
+            or not isinstance(result.get("payload"), dict)
+            or not isinstance(result.get("artifacts"), list)
+            or not isinstance(result.get("facts"), dict)
+        ):
+            raise SensitivityCheckpointError(
+                "sensitivity seed bundle contains an invalid completed outcome"
+            )
+        task_ids.add(task_id)
+        normalized_states.append(dict(state))
+    return LoadedSensitivityCheckpoint(
+        root,
+        manifest,
+        tuple(bases),
+        tuple(normalized_states),
+        mapper,
+    )
 
 
 def compile_sensitivity_extension_plan(
@@ -501,8 +675,9 @@ def compile_sensitivity_extension_plan(
     *,
     endpoint_ids: Sequence[str],
     analyses: Sequence[str],
+    seed_task_ids: Sequence[str],
 ) -> ExecutionPlan:
-    """Return selected sensitivity targets and their exact prerequisite closure."""
+    """Return sensitivity targets bounded by completed direct checkpoint roots."""
 
     requested = tuple(dict.fromkeys(str(value).strip().lower() for value in analyses))
     if not requested or any(value not in {"jitter", "oss"} for value in requested):
@@ -533,19 +708,34 @@ def compile_sensitivity_extension_plan(
         )
         for task in targets
     }
-    tasks = {**source_tasks, **extension_targets}
-    included: set[str] = set()
-    pending = list(extension_targets)
-    while pending:
-        task_id = pending.pop()
-        if task_id in included:
-            continue
-        included.add(task_id)
-        pending.extend(tasks[task_id].dependencies)
+    target_ids = set(extension_targets)
+    direct_parent_ids = {
+        dependency
+        for task in extension_targets.values()
+        for dependency in task.dependencies
+        if dependency not in target_ids
+    }
+    missing = tuple(sorted(direct_parent_ids - set(seed_task_ids)))
+    if missing:
+        raise SensitivityCheckpointError(
+            "sensitivity checkpoint lacks completed direct parent outcomes: "
+            + ",".join(missing)
+        )
+    checkpoint_roots = {
+        task_id: replace(
+            source_tasks[task_id],
+            dependencies=(),
+            gates=(),
+            checkpoint_only=True,
+        )
+        for task_id in direct_parent_ids
+    }
     selected = tuple(
-        tasks[task.task_id]
+        checkpoint_roots[task.task_id]
+        if task.task_id in checkpoint_roots
+        else extension_targets[task.task_id]
         for task in full_plan.tasks
-        if task.task_id in included
+        if task.task_id in checkpoint_roots or task.task_id in extension_targets
     )
     if any(task.phase == "formal" for task in selected):
         raise SensitivityCheckpointError(
