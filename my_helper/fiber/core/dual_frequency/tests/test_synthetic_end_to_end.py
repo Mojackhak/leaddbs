@@ -1524,6 +1524,21 @@ class SyntheticEndToEndTest(unittest.TestCase):
             artifact_index = json.loads(
                 (run_root / "artifact_index.json").read_text(encoding="utf-8")
             )
+            sensitivity_index = json.loads(
+                (run_root / "sensitivity_bases" / "index.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            sensitivity_bases = tuple(
+                json.loads(
+                    (
+                        run_root
+                        / "sensitivity_bases"
+                        / item["relative_path"]
+                    ).read_text(encoding="utf-8")
+                )
+                for item in sensitivity_index["bases"]
+            )
             task_states = tuple(
                 json.loads(path.read_text(encoding="utf-8"))
                 for path in sorted((run_root / "tasks").glob("*.json"))
@@ -1577,6 +1592,14 @@ class SyntheticEndToEndTest(unittest.TestCase):
         )
         self.assertEqual(len(configuration_sources["sources"]), 4)
         self.assertTrue(source_hashes_match)
+        self.assertGreater(len(sensitivity_bases), 1)
+        self.assertTrue(
+            all(
+                base["configuration_source_identities"]
+                == configuration_sources["sources"]
+                for base in sensitivity_bases
+            )
+        )
         self.assertEqual(len(task_states), len(result.outcomes))
         self.assertTrue(task_states)
         self.assertTrue(all(row["status"] == "completed" for row in task_states))

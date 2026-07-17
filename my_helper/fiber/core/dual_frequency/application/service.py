@@ -334,7 +334,7 @@ class WorkflowService:
                 },
                 cache_root=cache_root,
                 output_root=output_root,
-                source_identities=(
+                source_identities=tuple(
                     {"uri": source.uri, "sha256": source.sha256}
                     for source in sources
                 ),
