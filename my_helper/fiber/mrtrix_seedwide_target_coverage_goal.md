@@ -7,8 +7,8 @@ design_approved
 implementation_complete
 real_data_test_gate_passed
 formal_execution_resumed_seven_subject_batch_running
-fixed_seedwide_sampling_approved_for_corrected_four_subject_rerun
-fixed_seedwide_sampling_implementation_complete_and_yaml_validated
+fixed_seedwide_sampling_approved_for_all_subject_rerun
+fixed_seedwide_sampling_implementation_complete
 ```
 
 This document is the authoritative implementation and execution contract for
@@ -778,13 +778,39 @@ sub-SNr026 rh: chunk 409
 No interrupted unit restarted at chunk zero. Monitoring is attached to the
 active run at the approved 30-minute interval.
 
-### Corrected Four-Subject Fixed-Sampling Rerun (2026-07-17)
+### All-Subject Fixed-Sampling Rerun With Corrected Subjects First (2026-07-17)
 
 After corrected DWI preprocessing and newly approved SPM44 B0 registrations,
 `sub-SNr017`, `sub-SNr020`, `sub-SNr022`, and `sub-SNr026` require new
 preparation identities and new tractograms. Their prior FOD, DWI-space ROI,
 chunk, membership, and published TCK artifacts are not valid scientific inputs
-for the rerun.
+for the rerun. The same fixed-sampling tracking identity is applied to all 16
+subjects so every subject-side primary tractogram has the same denominator.
+
+The subject scheduling order is:
+
+```text
+sub-SNr017
+sub-SNr020
+sub-SNr022
+sub-SNr026
+sub-SNr003
+sub-SNr007
+sub-SNr006
+sub-SNr011
+sub-SNr012
+sub-SNr014
+sub-SNr016
+sub-SNr018
+sub-SNr024
+sub-SNr029
+sub-SNr030
+sub-SNr015
+```
+
+With `subject_workers: 4`, the four corrected subjects occupy the first four
+subject slots. Later subjects are admitted in the listed order as slots are
+released.
 
 The dTOR normative connectome contains 11,820,000 fibers. Strict STNSNrplus
 membership contains 251,376 fibers for the left seed and 327,966 for the right
@@ -799,20 +825,21 @@ The formal rerun configuration is:
 /Volumes/VAL/STNSNr/config/mrtrix_seed_target_fixed300k_017_020_022_026.yaml
 ```
 
+The historical filename is retained to avoid creating a second competing
+formal configuration, although its subject list now contains all 16 subjects.
+
 It uses 50,000-streamline chunks, a fixed 300,000-streamline mother total per
 side, a 300-hit completion QC threshold for every one of the 18 targets, and a
 2,000,000-streamline outer safety bound. The expected primary total is 600,000
-mother streamlines per subject and 2,400,000 across the four-subject batch.
+mother streamlines per subject and 9,600,000 across the 16-subject batch.
 Any target below 300 after its fixed 300,000-streamline mother tractogram is
 reported as `coverage_failed` rather than triggering subject-specific primary
 oversampling.
 
 The implementation added the optional strict YAML field, exact fixed-total
 chunk scheduling, fixed-total coverage failure semantics, and scientific
-identity coverage. All 32 focused package tests passed. Read-only real-input
-validation resolved all four subjects to their newly approved SPM44 transforms,
-reported no warnings, and produced configuration hash
-`8d67d89650d1f122bd73e094565d39cf3e95f60fd075aa134a2c2a4072bca8e6`.
+identity coverage. The expanded YAML must pass read-only validation for all 16
+subjects before execution begins.
 
 ## Final Acceptance Criteria
 
