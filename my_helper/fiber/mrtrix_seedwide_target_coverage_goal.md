@@ -838,8 +838,11 @@ oversampling.
 
 The implementation added the optional strict YAML field, exact fixed-total
 chunk scheduling, fixed-total coverage failure semantics, and scientific
-identity coverage. The expanded YAML must pass read-only validation for all 16
-subjects before execution begins.
+identity coverage. All 32 focused package tests passed. Read-only validation
+resolved all 16 subjects, confirmed the required first-four ordering and
+method-specific SPM44 transforms, reported no warnings, and produced
+configuration hash
+`e485d31d3890db8f9ffd731fe1bbc264fffd9e19a39563fad6e5b0047f891735`.
 
 ## Final Acceptance Criteria
 

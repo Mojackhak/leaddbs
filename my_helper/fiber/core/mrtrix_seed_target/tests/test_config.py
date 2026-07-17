@@ -118,7 +118,7 @@ def test_approved_formal_and_test_yaml_counts() -> None:
     assert test.execution.maximum_seedwide_streamlines == 50_000
 
 
-def test_approved_corrected_four_subject_fixed_sampling_yaml() -> None:
+def test_approved_all_subject_fixed_sampling_yaml_starts_with_corrected_four() -> None:
     path = Path(
         "/Volumes/VAL/STNSNr/config/"
         "mrtrix_seed_target_fixed300k_017_020_022_026.yaml"
@@ -131,6 +131,18 @@ def test_approved_corrected_four_subject_fixed_sampling_yaml() -> None:
         "sub-SNr020",
         "sub-SNr022",
         "sub-SNr026",
+        "sub-SNr003",
+        "sub-SNr007",
+        "sub-SNr006",
+        "sub-SNr011",
+        "sub-SNr012",
+        "sub-SNr014",
+        "sub-SNr016",
+        "sub-SNr018",
+        "sub-SNr024",
+        "sub-SNr029",
+        "sub-SNr030",
+        "sub-SNr015",
     ]
     assert config.tracking.seedwide_streamlines == 300_000
     assert config.tracking.minimum_streamlines_per_target == 300
