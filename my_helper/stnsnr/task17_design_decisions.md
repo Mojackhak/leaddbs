@@ -7,7 +7,7 @@ decision_record_active
 task17_implementation_in_progress
 partial_synthetic_acceptance_passed
 production_configuration_validated
-production_rerun_running
+corrected_production_rerun_required
 ```
 
 This record captures choices made while reconciling the Task 17 performance
@@ -16,22 +16,20 @@ run artifacts. It is subordinate to explicit user instructions but
 authoritative when the implementation plans are silent or internally
 inconsistent.
 
-## Decision 1: Strict scientific thresholds
+## Decision 1: Inclusive E-field and Coverage boundaries
 
-The latest Task 17 authority requires strict comparisons throughout the
-reopened threshold set:
+The user's 2026-07-17 correction includes equality at the three reopened model
+boundaries. E-field values below tau are inactive and all other values are
+active. Candidate counts below Coverage are excluded and all other counts are
+included. Reference-component values below the selected reference tau are
+inactive and all other values enter overlap. Boundary fixtures must admit exact
+tau, exact Coverage, and exact selected-reference-tau values.
 
-```text
-E > tau
-count > Coverage
-reference > selected_tau
-p(A) > 0.5
-```
-
-Values on any reopened boundary are excluded. Earlier draft text that admitted
-the E-field or Coverage boundary is superseded. Historical fixtures remain
-evidence of predecessor behavior, while target fixtures exercise and exclude
-every boundary explicitly.
+This change does not reopen support-QC, pPAM, null-tail counting, input
+validity, numerical tolerance, or array-bound predicates. pPAM retains
+`p(A) > 0.5`. Derived support, overlap, candidate, and activation artifacts
+bind `inclusive_threshold_v1`; raw continuous physical exposure remains
+comparator-independent.
 
 ## Decision 2: Directly copyable portable cache
 
@@ -153,7 +151,7 @@ The current implementation now provides:
 
 - strict voxel, fiber, overlap, support-QC, and pPAM boundaries;
 - scale-independent physical-subject exposure keys and endpoint row subsets;
-- exact strict `Omega_max` construction;
+- exact inclusive-boundary `Omega_max` construction;
 - directly copyable v2 cache entries with complete first-use SHA and structural
   validation in every process;
 - one cross-process producer lease per semantic entry;
@@ -228,7 +226,7 @@ connectome chunk rather than hiding them in the reserve. The existing
 connectome-I/O ceiling still bounds simultaneous cold producers.
 
 This change affects execution resources only. Scientific cache identity,
-physical-row identity, task identity, strict comparisons, and output values do
+physical-row identity, task identity, then-current comparisons, and output values do
 not change. Code SHA is retained as audit provenance and does not gate resume.
 
 ## Decision 15: Close Full-Cohort Transform and Add-On Fiber-Axis Failures
@@ -382,9 +380,10 @@ deduplication but does not satisfy the Task 17 requirement to keep a point
 range resident and evaluate every required physical row before advancing to
 the next range.
 
-The v6 production lineage is therefore a compatibility and checkpoint run. It
-can prove resume behavior, strict scientific boundaries, cache reuse, final
-realization, and later extension isolation. It cannot by itself prove the
+The v6 production lineage is therefore historical compatibility and checkpoint
+evidence. It can prove its own strict-boundary resume behavior, cache reuse,
+final realization, and later extension isolation, but cannot authorize the
+corrected inclusive-boundary result. It also cannot by itself prove the
 one-pass connectome acceptance gate or the target CPU-utilization matrix.
 
 The remaining implementation work is explicit:
@@ -394,7 +393,7 @@ The remaining implementation work is explicit:
 - scan each connectome range once and evaluate all batch rows while resident;
 - publish row-addressable final shards without merging a second monolith;
 - prove raw geometry scan count `> 0` and `< 2` for each connectome and batch;
-- prove the produced row values match the current strict side-specific peak
+- prove the produced row values match the side-specific peak
   then bilateral-mean implementation within the existing tolerance.
 
 The cache publication path also still copies a completed temporary NPY into a
@@ -611,3 +610,30 @@ bytes are streamed into the cache staging generation while their payload SHA is
 computed, then the completed manifest and directory are atomically published.
 There is no work-memmap copy, endpoint exposure copy, or post-publication full
 payload read by the producer.
+
+## Decision 25: Correct Boundaries, Fold Gate, And Formal Connectome
+
+The user's 2026-07-17 correction is one atomic scientific configuration
+change:
+
+- direct-voxel and normative-fiber exact tau values are active;
+- exact Coverage counts are eligible;
+- exact selected-reference-tau values enter overlap;
+- every configured `fold_candidate_fibers_min` is zero, so it imposes no fold
+  candidate restriction;
+- `ppmi_85_ewert_2017` is the unique `formal` connectome, while
+  `mgh_usc_hcp_32_horn_2017` and `dtor_985_full_elias_2024` are `sensitive`;
+- `n_subjects_min: 12` remains unchanged for both model families.
+
+The completed `task17-main-v6-20260716` and interrupted
+`task17-jitter-v6-20260717` lineages used superseded strict boundaries and
+nonzero fold minima. Neither may be resumed as the corrected formal result.
+Comparator-independent continuous physical-exposure cache entries may be
+reused after their normal portable SHA and structural validation, but derived
+support, candidate, overlap, source, final, and inferential artifacts must be
+rebuilt under `inclusive_threshold_v1` in a new run lineage.
+
+After code, configuration, and tests pass, the next formal invocation runs the
+main workflow through its configured formal outputs only. It does not compile
+or execute jitter or OSS-DBS. Those extensions require a later explicit
+authorization and must use the corrected parent lineage.

@@ -13,8 +13,9 @@ profiles for the dual-frequency four-model refactor.
   pre-specified source and two-neighbor resolver, and uses minimal resampling
   counts.
 - `normative_fiber_model.yaml` is the production reference/add-on
-  normative-fiber profile. It uses dTOR as the unique `formal` connectome and
-  PPMI/MGH as `sensitive` connectomes.
+  normative-fiber profile. It uses PPMI85 as the unique `formal` connectome and
+  MGH/dTOR as `sensitive` connectomes. Every configured fold candidate minimum
+  is zero, so candidate count does not impose an additional fold gate.
 - `normative_fiber_model_test.yaml` is a lightweight normative-fiber code-path
   profile. It uses PPMI as `formal`, MGH as `sensitive`, two scales, a reduced
   grid, and minimal resampling counts.
@@ -25,6 +26,9 @@ classification, and final-model classification must not be used as scientific
 results. It exists only to verify that validation, planning, observed LOOCV,
 source resolution, add-on branch realization, formal-loop dispatch,
 sensitivity dispatch, and artifact writing execute successfully.
+
+Both production profiles retain the hard requirement for at least 12 complete
+subjects after branch-specific exclusion.
 
 ## Shared Contract
 

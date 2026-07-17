@@ -127,11 +127,14 @@ except for the explicit 2026-07-11 clarification that intended adjusted
 `absent_no_stable_grid` permits one-way accepted no-delta fallback. No other
 final-model rule changes.
 
-Task 17 separately reopens the enumerated threshold boundaries: direct voxel
-and normative fiber use `X > tau`, `count > Coverage`, and
-`reference > selected_tau`; support-QC retains its strict documented direction;
-pPAM uses `p(A) > 0.5`. Boundary equality is excluded and derived artifacts
-bind `strict_threshold_v1`; this target is not implemented in current code.
+Task 17 separately reopens the enumerated threshold boundaries. For direct
+voxel and normative fiber, values below tau are inactive and all other E-field
+values are active; candidate counts below Coverage are excluded and all other
+counts are included; reference-component values below the selected tau are
+inactive and all other values enter overlap. Support-QC retains its strict
+documented direction and pPAM uses `p(A) > 0.5`. Equality is included for the
+three reopened boundaries and derived artifacts bind
+`inclusive_threshold_v1`.
 
 Execution is split into two layers. Scale-independent physical preparation
 produces canonical E-fields, bilateral voxel/fiber exposure, minimum-grid
@@ -322,8 +325,8 @@ grid. Sensitive connectomes produce cell-level metrics and formal-source-cell
 formal inference are derived from a realized final on the formal connectome;
 they do not require a third connectome role.
 
-The core never tests for PPMI, MGH, or dTOR names. The configured STNSNr
-production profile assigns PPMI/MGH to `sensitive` and dTOR to `formal`.
+The core never tests for PPMI, MGH, or dTOR names. The corrected STNSNr
+production profile assigns PPMI85 to `formal` and MGH/dTOR to `sensitive`.
 
 The direct-voxel candidate threshold is not public configuration. The runtime
 derives it from the minimum direct-voxel tau scan value. Script-level smoke and

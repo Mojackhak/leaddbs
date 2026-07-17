@@ -1199,11 +1199,11 @@ target `SensitiveRecord` from a legacy full-sample-only selected axis. Complete
 parent-axis, full/fold-valid-union, sensitive-record, and leakage behavior is
 proven by deterministic synthetic tests.
 
-The Task 10 implementation accepted equality at tau. Task 17 supersedes this
-with strict `E > tau` and adds an explicit boundary-exclusion test. Bounded
-fixtures remain historical semantic evidence. These are bounded-fixture
-limitations, not permission for a transitive
-production read or a silent fallback to the superseded rule.
+The user's 2026-07-17 correction requires equality at tau to be active. Task 17
+adds an explicit boundary-inclusion test. Bounded fixtures remain historical
+semantic evidence. These are bounded-fixture limitations, not permission for
+a transitive production read or a silent fallback to the superseded strict
+rule.
 
 - [x] **Step 4: Extract generic coverage, weights, resolver, and score kernels**
 
@@ -1695,11 +1695,10 @@ git commit -m "feat: extract add-on normative-fiber backend"
   from `0.9 * selected_tau` and `1.1 * selected_tau`. It evaluates those cells
   without invoking the source resolver and omits source/prediction/final status
   from its output.
-- Tau continues to define Coverage/Omega only. Historical Task 13 used strict
-  direct-voxel exposure comparison and treated normative-fiber values exactly at
-  tau as active. Task 17 reopens both comparators so both families use
-  `E > tau` and `count > Coverage`. For both
-  families, all
+- Tau continues to define Coverage/Omega only. Historical Task 13 had
+  inconsistent direct-voxel and normative-fiber boundary behavior. The
+  2026-07-17 correction includes exact tau and Coverage values in both model
+  families. For both families, all
   continuous E-field values inside the selected candidate support enter
   scoring. Add-on sensitivity may zero only the declared reference-overlap
   exposure; it must not zero add-on exposure merely because its value is below
@@ -2877,7 +2876,7 @@ acceptance gaps`). No remote push was performed.
 **Status:** `design_documented`; `code_audit_complete`;
 `literature_review_complete`; `threshold_policy_change_authorized`;
 `implementation_in_progress`; `partial_synthetic_acceptance_passed`;
-`production_configuration_validated`; `production_rerun_running`;
+`production_configuration_validated`; `corrected_production_rerun_required`;
 `completion_gap_audited`.
 
 **Authority:**
@@ -2888,25 +2887,34 @@ thread-pool wave scheduler, and model-specific jitter preparation implemented
 in Tasks 7-15. It reopens the final-axis-only OSS producer but replaces it only
 if the bounded axis-equivalence gate passes. It does not reopen the scientific
 resolver, classifier, fallback, or continuous-dose scoring definitions. It does
-reopen the user-authorized threshold comparator: voxel/fiber E-field/tau uses
-`E > tau`, Coverage uses `count > Coverage`, overlap uses
-`reference > selected_tau`, support-QC retains its documented strict direction,
-and pPAM uses `p(A) > 0.5`. Every reopened boundary is excluded. Formal
+reopen the user-authorized threshold comparator: voxel/fiber exact tau values
+are active, exact Coverage counts are eligible, and exact selected-reference-tau
+values enter overlap. Support-QC retains its documented strict direction and
+pPAM uses `p(A) > 0.5`. Formal
 null-tail counting, hard minimum sample/feature
 counts, identity checks, bounds, and numerical tolerances are not reopened.
 
-**Implementation checkpoint, 2026-07-16.** The v2 directly copyable cache,
+**Historical implementation checkpoint, 2026-07-16.** The v2 directly copyable cache,
 per-process verification set, strict array/shard metadata, cross-process
-producer lease, global physical-subject exposure axes, exact strict
+producer lease, global physical-subject exposure axes, exact
 `Omega_max`, distinct voxel/fiber bilateral rules, sensitivity checkpoint and
 extension command, missing-parent rebuild, completed-only resume restoration,
 persistent event-driven spawn scheduler, parent-only persistence, resource
-ledger, execution-segment manifests, and strict threshold boundaries are
+ledger, execution-segment manifests, and the then-authorized strict threshold boundaries are
 implemented. The complete generic test suite passes. Production validation
 resolves 28 scales, 224 available endpoints, and 1288 tasks through final
 realization. The production rerun, measured resource matrix, hard-worker
 recovery, source-absent sensitivity-cache reuse, single-write large-payload
 conversion, and authorized OSS axis-equivalence decisions remain open.
+
+**Scientific correction checkpoint, 2026-07-17.** The earlier v6 main and
+jitter lineages used strict tau/Coverage/overlap boundaries and nonzero fold
+candidate minima. They are historical execution evidence only and cannot be
+resumed as the corrected formal result. The corrected profile retains
+`n_subjects_min: 12`, sets every configured fold candidate minimum to zero,
+assigns `ppmi_85_ewert_2017` as the unique formal connectome, and requires a
+new main lineage. Jitter and OSS-DBS are intentionally outside this corrected
+main-run invocation.
 
 **Production resource checkpoint, 2026-07-16.** The first corrected all-scale
 lineage reached 364 completed tasks with no failure before the initial shared
@@ -3190,7 +3198,7 @@ Bind cache identity per artifact. Raw physical exposure includes the ordered
 physical-row identity, model domain, canonical grid/connectome content SHA,
 source content SHA values, and producer version. Tau/Coverage support and `Omega_max`
 also include the exact ordered eligible cohort, exact ordered tau and Coverage
-grids, and `strict_threshold_v1`. PASS-branch OSS includes the selected
+grids, and `inclusive_threshold_v1`. PASS-branch OSS includes the selected
 `Omega_max` axis and solver/toolchain producer identity; FAIL retains the
 historical final-axis identity. Canonical JSON SHA selects the path; payload SHA
 and structural checks validate copied bytes. Device, inode, mtime, and absolute
@@ -3209,9 +3217,8 @@ row simultaneously. Optionally canonicalize compressed NIfTI to a versioned
 read-only float32 memmap.
 
 Produce one bilateral direct-voxel row per physical unit and group only exact
-grid identities. Direct-voxel thresholding uses strict `E > tau`,
-`count > Coverage`, and `reference > selected_tau`. Every reopened boundary is
-excluded. Preserve the voxel sampling rule independently from the fiber
+grid identities. Direct-voxel thresholding includes exact tau, Coverage, and
+selected-reference-tau values. Preserve the voxel sampling rule independently from the fiber
 sampling rule.
 Endpoint inputs are ordered row/column views; scale, outcome, worker count, and
 run identity do not enter physical paths.
@@ -3234,9 +3241,8 @@ point bytes. Ranges never split a fiber and minimize partially shared HDF5
 boundary chunks; logical point coverage and raw chunk overlap are measured
 separately. While a range is
 resident, evaluate every physical row using side-specific maxima followed by
-their mean. Normative-fiber thresholding also uses strict `E > tau`,
-`count > Coverage`, and `reference > selected_tau`. Every reopened boundary is
-excluded.
+their mean. Normative-fiber thresholding also includes exact tau, Coverage, and
+selected-reference-tau values.
 Retain exact
 `Omega_max`, publish continuous values once, and prove
 that no full/fold cell loses a candidate. Endpoint, scale, branch, grid, and fold
@@ -3542,9 +3548,10 @@ test count implies that the new execution architecture is implemented.
 - [ ] Managed RAM is the smaller of 48 GiB and available RAM after the larger of
   a 16-GiB or 20%-physical reserve; expected solver RSS is charged and swap
   satisfies `swap_delta_bytes < 1`.
-- [ ] Voxel/fiber thresholds use `E > tau`, `count > Coverage`, and
-  `reference > selected_tau`; support-QC uses its documented strict direction;
-  pPAM uses `p(A) > 0.5`. Every reopened boundary fixture is excluded.
+- [ ] Voxel/fiber thresholds include exact tau and Coverage values, and overlap
+  includes the exact selected reference tau; support-QC uses its documented
+  strict direction and pPAM uses `p(A) > 0.5`. Every reopened boundary fixture
+  is admitted.
 - [x] Formal/sensitivity/activation consume only one realized final.
 - [x] Generic reports contain no HF/ULF compatibility aliases.
 - [x] Bounded parity includes only exact IDs in the reviewed allowlist that are

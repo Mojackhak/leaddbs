@@ -78,11 +78,15 @@ Unfinished paths require contract, synthetic, and lightweight smoke tests but
 do not require comparison with nonexistent predecessor results.
 
 The performance refactor explicitly reopens only the enumerated scientific
-threshold boundaries. Direct voxel and normative fiber use `X > tau`,
-`count > Coverage`, and `reference > selected_tau`; support-QC retains its
-documented strict direction; pPAM uses `p(A) > 0.5`. Boundary equality is
-excluded, and derived artifacts bind `strict_threshold_v1`. Code and current
-outputs remain unchanged until Task 17 implements and validates that migration.
+threshold boundaries. For direct voxel and normative fiber, E-field values
+below tau are inactive and all other values are active; candidate counts below
+Coverage are excluded and all other counts are included; reference-component
+values below the selected tau are inactive and all other values enter overlap.
+Support-QC retains its documented strict direction and pPAM uses
+`p(A) > 0.5`. Equality is therefore included for E-field, Coverage, and
+reference overlap, and derived artifacts bind `inclusive_threshold_v1`.
+Artifacts from the earlier strict-boundary v6 lineages are historical only and
+cannot authorize the corrected formal result.
 
 ## Goal And Success Criteria
 

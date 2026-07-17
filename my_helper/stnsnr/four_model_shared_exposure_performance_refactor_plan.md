@@ -18,7 +18,7 @@
 > `implementation_in_progress`; `synthetic_acceptance_passed`;
 > `production_configuration_validated`;
 > `configured_production_outputs_missing`; `production_rerun_required`.
-> **Last updated.** 2026-07-16
+> **Last updated.** 2026-07-17
 
 ---
 
@@ -31,14 +31,14 @@ below. Except for that comparator, it does not change the source resolver,
 prediction classifier, branch-role state machine, final-model realization, or
 inferential definitions.
 
-One scientific boundary is explicitly reopened by the user's 2026-07-16
-instruction. Direct-voxel and normative-fiber E-field/tau decisions use
-`X > tau`, their Coverage decisions use `count > Coverage`, reference-active
-overlap uses `reference > selected_tau`, support-QC retains its documented
-strict direction, and pPAM activation uses `p(A) > 0.5`. Every reopened
-boundary is excluded. The implementation and boundary fixtures now use these
-strict rules. Task 17 remains open until the production rerun and the remaining
-resource and OSS equivalence gates are recorded.
+The user's 2026-07-17 correction reopens three scientific boundaries.
+Direct-voxel and normative-fiber E-field values below tau are inactive and all
+other values are active. Candidate counts below Coverage are excluded and all
+other counts are included. Reference-component values below the selected tau
+are inactive and all other values enter overlap. Support-QC retains its
+documented strict direction and pPAM activation uses `p(A) > 0.5`. Exact
+E-field, Coverage, and reference-tau boundary values are included. Task 17
+remains open until a corrected production rerun is complete.
 
 This comparator policy is limited to the enumerated model-threshold comparators. It
 does not alter formal null-tail counting, hard minimum sample/feature counts,
@@ -51,7 +51,7 @@ Each process verifies every used entry once before reuse. This simplification
 changes cache identity and integrity mechanics but does not change scientific
 arrays.
 
-The semantic token `strict_threshold_v1` is recorded in scientific provenance
+The semantic token `inclusive_threshold_v1` is recorded in scientific provenance
 and every derived support, overlap, candidate, or binary-activation cache path.
 Comparator-independent raw physical exposure may be reused, but an artifact
 created under a different comparator policy cannot authorize a derived artifact
@@ -487,7 +487,7 @@ kernel:
 | Natural work unit | Physical row and exact-grid voxel tile | Connectome point-count/byte range containing complete fiber boundaries |
 | Dominant reusable state | Decompressed float32 NIfTI, grid identity, affine/interpolation lookup | Point offsets, implicit canonical axis, chunk-aware geometry range, side-specific running peaks |
 | Candidate reduction | Voxel support on the configured direct-voxel grid | Exact `Omega_max` derived from normative-fiber tau/Coverage grids |
-| Threshold rule | Exposure uses `X > tau`, candidate count uses `count > Coverage`, and overlap uses `reference > selected_tau` | Exposure uses `X > tau`, candidate count uses `count > Coverage`, and overlap uses `reference > selected_tau` |
+| Threshold rule | Exact tau, Coverage, and reference-tau boundaries are included | Exact tau, Coverage, and reference-tau boundaries are included |
 | Main I/O risk | Repeated `.nii.gz` decompression and full-volume validation | Repeated gzip HDF5 chunk decompression and geometry/ID validation |
 
 The pre-Task-17 code baseline is intentionally recorded without treating the
@@ -495,15 +495,15 @@ two models as interchangeable:
 
 | Path | Current implementation | Authorized target |
 |---|---|---|
-| Direct voxel | E-field exposure uses `X > tau`; Coverage currently admits the configured boundary count | `X > tau`; `count > Coverage` |
-| Normative fiber | E-field exposure and Coverage currently admit their configured boundaries | `X > tau`; `count > Coverage` |
-| Reference-active overlap | `reference > selected_tau` for the shared interaction path | `reference > selected_tau` |
+| Direct voxel | E-field exposure and Coverage currently exclude their exact boundaries | Include exact tau and exact Coverage boundaries |
+| Normative fiber | E-field exposure and Coverage currently exclude their exact boundaries | Include exact tau and exact Coverage boundaries |
+| Reference-active overlap | The shared interaction path currently excludes the exact selected tau | Include the exact selected reference tau |
 | pPAM binary activation | The current implementation admits the probability boundary at `0.5` | `p(A) > 0.5` |
 
 These current-state statements are migration evidence, not target operators.
-Task 17 preserves direct-voxel strict E-field/tau behavior, changes inclusive
-Coverage and normative-fiber boundaries to strict behavior, and adds explicit
-boundary-exclusion fixtures for every predicate in the right column.
+Task 17 changes the three strict predecessor boundaries to inclusive behavior
+and adds explicit boundary-inclusion fixtures for every predicate in the right
+column.
 
 The voxel path groups only E-fields with exactly matching shape and affine. It
 may reuse base world-to-voxel coordinates and interpolation neighbors within
@@ -516,9 +516,16 @@ normative-fiber profile values. They do not define the direct-voxel model, whose
 grid and support remain independently configured.
 
 Exact-threshold values are scientific boundary fixtures. Both model families
-use strict `X > tau` and `count > Coverage`, while reference-active overlap uses
-strict `reference > selected_tau`. Every reopened boundary is excluded. Strict
-`<` remains in use for inverse-direction support-QC threshold tests.
+include exact tau and Coverage values, and reference-active overlap includes
+the exact selected reference tau. Strict `<` remains in use for the separately
+defined inverse-direction support-QC threshold tests.
+
+The corrected normative-fiber production profile assigns PPMI85 as the unique
+`formal` connectome and MGH/dTOR as `sensitive`. Every configured
+`fold_candidate_fibers_min` is zero, so this field imposes no fold candidate
+gate. The independent `n_subjects_min: 12` requirement is retained unchanged.
+The corrected formal invocation runs the main workflow only; jitter and
+OSS-DBS are deferred to a separate user-authorized invocation.
 
 ## Shared Physical Stimulation Units
 
@@ -562,8 +569,8 @@ For the current normative-fiber profile only:
 C_{\min}=5.
 \]
 
-Under the strict Coverage comparator, this profile accepts only a
-suprathreshold count `> 5`; the configured boundary is excluded.
+This profile accepts the configured Coverage boundary. Only counts below `5`
+are excluded.
 
 For a connectome and physical exposure family, define the maximal candidate
 union over the maximal eligible physical subject cohort:
@@ -574,8 +581,8 @@ union over the maximal eligible physical subject cohort:
 \left\{
 f:
 \sum_i
-\mathbf{1}\!\left[X_{i,f}>\tau_{\min}\right]
-> C_{\min}
+\mathbf{1}\!\left[X_{i,f}\not<\tau_{\min}\right]
+\not< C_{\min}
 \right\}.
 \]
 
@@ -610,7 +617,7 @@ An endpoint's exact subject cohort is an indexed view of the shared exposure.
 For each tau, calculate full-cohort counts once:
 
 \[
-n_f(\tau)=\sum_i\mathbf{1}[X_{i,f}>\tau].
+n_f(\tau)=\sum_i\mathbf{1}[X_{i,f}\not<\tau].
 \]
 
 For LOOCV held-out subject `h`, derive training Coverage by subtraction:
@@ -620,12 +627,12 @@ n_{f,-h}(\tau)
 =
 n_f(\tau)
 -
-\mathbf{1}[X_{h,f}>\tau].
+\mathbf{1}[X_{h,f}\not<\tau].
 \]
 
-All Coverage-grid masks use strict `count > Coverage`. Fold-specific candidate
-support remains exact, but no fold reopens the connectome or resamples an
-E-field.
+All Coverage-grid masks include the exact configured count; only counts below
+Coverage are excluded. Fold-specific candidate support remains exact, but no
+fold reopens the connectome or resamples an E-field.
 
 ## Scale-Independent Jitter And OSS Preparation
 
@@ -1024,7 +1031,7 @@ Canonical JSON binds stable study/configuration IDs, physical-row identity,
 frequency class, model domain, canonical grid/connectome content SHA, ordered
 axis IDs, source content SHA values, producer/version, and scientific parameter
 profile. Tau/Coverage support and `Omega_max` also bind the ordered cohort,
-exact grids, and `strict_threshold_v1`. PASS OSS binds `Omega_max`; FAIL OSS
+exact grids, and `inclusive_threshold_v1`. PASS OSS binds `Omega_max`; FAIL OSS
 binds the historical final axis. Device, inode, mtime, absolute paths, scale,
 endpoint, outcome, run, workers, and task order are excluded.
 
@@ -1550,8 +1557,8 @@ second-stage optimizations.
 3. Produce one bilateral voxel row per physical unit through a direct final-NPY
    writer.
 4. Replace endpoint matrices with ordered row views.
-5. Apply strict `E > tau`, `count > Coverage`, and
-   `reference > selected_tau`; fixtures exclude every reopened boundary.
+5. Include exact tau, Coverage, and selected-reference-tau values; fixtures
+   admit every reopened boundary.
 6. Keep all direct-voxel numerical outputs equivalent outside the authorized
    threshold-boundary change.
 
@@ -1564,8 +1571,8 @@ second-stage optimizations.
 3. Materialize only coordinate rows into application memory on the audited hot
    path and evaluate all unique physical rows per resident range.
 4. Apply exact minimum-grid `Omega_max` filtering.
-5. Apply strict `E > tau`, `count > Coverage`, and
-   `reference > selected_tau`; fixtures exclude every reopened boundary.
+5. Include exact tau, Coverage, and selected-reference-tau values; fixtures
+   admit every reopened boundary.
 6. Publish canonical reduced fiber IDs and continuous exposure as final shards
    plus one portable SHA manifest through atomic directory rename.
 7. Prove no configured cell or fold loses a candidate.
@@ -1706,10 +1713,10 @@ behavioral contracts above must remain intact.
 - Normative-fiber optimized exposure equals side-specific peak followed by
   arithmetic mean; the forbidden mean-before-peak formula is tested to ensure
   it is not substituted.
-- Direct-voxel and normative-fiber exposure use `X > tau`, candidate selection
-  uses `count > Coverage`, overlap uses `reference > selected_tau`, support-QC
-  uses its documented strict direction, and pPAM uses `p(A) > 0.5`. Fixtures
-  exclude every reopened boundary. Formal null-tail tests,
+- Direct-voxel and normative-fiber exposure include exact tau values, candidate
+  selection includes exact Coverage values, and overlap includes the exact
+  selected reference tau. Support-QC uses its documented strict direction and
+  pPAM uses `p(A) > 0.5`. Fixtures admit every reopened boundary. Formal null-tail tests,
   hard minimum counts, and tolerance checks retain their existing definitions.
 - Historical parity is required everywhere except values exactly on a
   user-authorized changed comparator boundary. Brute-force references are updated
@@ -1971,7 +1978,7 @@ missing parent work is rebuilt into a new parent lineage before extension
 CPU-heavy preparation uses processes and disjoint work units
 execution.workers is the sole public n_jobs-like global CPU ceiling
 voxel and fiber retain distinct sampling, partitioning, and candidate contracts
-E/tau, Coverage, overlap, support-QC, and pPAM use strict comparisons
+E/tau, Coverage, and overlap include their boundaries while support-QC and pPAM retain their documented strict comparisons
 one persistent event-driven pool replaces per-wave and nested executors
 the parent process alone owns scheduler and RunStore mutation
 large producers write final-format payloads or shards once and endpoints consume logical indexed views
