@@ -209,25 +209,33 @@ class RunStore:
         resolved_configuration: Mapping[str, Any],
         configuration_sources: tuple[ConfigurationSource, ...],
     ) -> None:
+        del resolved_configuration
         manifest = self.read_manifest()
-        expected = asdict(self.identity)
-        for field, value in expected.items():
-            if manifest.get(field) != value:
-                raise RunStoreError(f"resume identity mismatch for {field}")
-        configuration_text = yaml.safe_dump(
-            dict(resolved_configuration),
-            sort_keys=True,
-            allow_unicode=False,
-        )
-        existing_configuration = (self.root / "configuration_resolved.yaml").read_text(
-            encoding="utf-8"
-        )
-        if existing_configuration != configuration_text:
-            raise RunStoreError("resume resolved configuration mismatch")
-        existing_sources = json.loads((self.root / "configuration_sources.json").read_text(encoding="utf-8"))
-        expected_sources = [asdict(source) for source in configuration_sources]
-        if existing_sources.get("sources") != expected_sources:
-            raise RunStoreError("resume configuration source mismatch")
+        if manifest.get("study_base_sha256") != self.identity.study_base_sha256:
+            raise RunStoreError("resume input JSON content mismatch")
+
+        try:
+            existing_document = json.loads(
+                (self.root / "configuration_sources.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            existing_sources = tuple(existing_document["sources"])
+            existing_digests = tuple(str(source["sha256"]) for source in existing_sources)
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            raise RunStoreError("resume input YAML record is unreadable") from exc
+        expected_digests = tuple(source.sha256 for source in configuration_sources)
+        if configuration_sources:
+            if (
+                expected_digests[0] != self.identity.study_base_sha256
+                or not existing_digests
+                or existing_digests[0] != self.identity.study_base_sha256
+            ):
+                raise RunStoreError("resume input JSON content mismatch")
+            existing_digests = existing_digests[1:]
+            expected_digests = expected_digests[1:]
+        if existing_digests != expected_digests:
+            raise RunStoreError("resume input YAML content mismatch")
 
     @property
     def run_id(self) -> str:

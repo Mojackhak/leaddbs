@@ -31,7 +31,12 @@ from dual_frequency.workflow.executor import (
     plan_hash,
 )
 from dual_frequency.workflow.registry import RegisteredService, ServiceRegistry
-from dual_frequency.workflow.run_store import RunIdentity, RunStore, RunStoreError
+from dual_frequency.workflow.run_store import (
+    ConfigurationSource,
+    RunIdentity,
+    RunStore,
+    RunStoreError,
+)
 
 
 CONFIGURATION_HASH = "a" * 64
@@ -642,11 +647,17 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(len(artifact_index["artifacts"]), 1)
         self.assertEqual(final_status, "running")
 
-    def test_resume_rejects_tampered_completed_record(self) -> None:
+    def test_resume_reruns_completed_json_with_undecodable_result(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
-        task = _task(endpoint, "single", "ok")
+        task = _task(endpoint, "single", "count")
         plan = self._plan((task,))
-        registry = ServiceRegistry((RegisteredService("ok", _result),))
+        calls: list[str] = []
+
+        def count(request):
+            calls.append(request.task.task_id)
+            return _result(request)
+
+        registry = ServiceRegistry((RegisteredService("count", count),))
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "run"
             store = self._store(root, plan)
@@ -667,23 +678,24 @@ class ExecutorTest(unittest.TestCase):
             payload["result"]["record_id"] = "source_tampered"
             store.write_task_state(task.task_id, payload)
             resumed_store = self._store(root, plan, resume=True)
-            with self.assertRaisesRegex(ExecutionError, "record codec"):
-                execute_plan(
-                    plan,
-                    ExecutionContext(
-                        run_store=resumed_store,
-                        registry=registry,
-                        provider=_Provider(endpoint),
-                        endpoint_facts={},
-                        allow_expensive_producers=False,
-                        continue_on_endpoint_failure=True,
-                        workers=1,
-                        resume=True,
-                    ),
-                )
+            resumed = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=resumed_store,
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    resume=True,
+                ),
+            )
         self.assertEqual(first.exit_code, 0)
+        self.assertEqual(resumed.exit_code, 0)
+        self.assertEqual(calls, [task.task_id, task.task_id])
 
-    def test_resume_rejects_tampered_artifact_closure(self) -> None:
+    def test_resume_reruns_completed_json_with_incomplete_result(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
         task = _task(
             endpoint,
@@ -693,7 +705,10 @@ class ExecutorTest(unittest.TestCase):
         )
         plan = self._plan((task,))
 
+        calls: list[str] = []
+
         def write_artifact(request):
+            calls.append(request.task.task_id)
             return ServiceResult.from_record(_artifact_result(request))
 
         registry = ServiceRegistry(
@@ -719,21 +734,22 @@ class ExecutorTest(unittest.TestCase):
             payload["result"]["artifacts"] = []
             store.write_task_state(task.task_id, payload)
             resumed_store = self._store(root, plan, resume=True)
-            with self.assertRaisesRegex(ExecutionError, "artifact closure"):
-                execute_plan(
-                    plan,
-                    ExecutionContext(
-                        run_store=resumed_store,
-                        registry=registry,
-                        provider=_Provider(endpoint),
-                        endpoint_facts={},
-                        allow_expensive_producers=False,
-                        continue_on_endpoint_failure=True,
-                        workers=1,
-                        resume=True,
-                    ),
-                )
+            resumed = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=resumed_store,
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    resume=True,
+                ),
+            )
         self.assertEqual(first.exit_code, 0)
+        self.assertEqual(resumed.exit_code, 0)
+        self.assertEqual(calls, [task.task_id, task.task_id])
 
     def test_exact_resume_restores_completed_result_without_reinvocation(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
@@ -761,6 +777,11 @@ class ExecutorTest(unittest.TestCase):
                     workers=1,
                 ),
             )
+            payload = first_store.read_task_state(task.task_id)
+            assert payload is not None
+            payload["endpoint_id"] = "obsolete-endpoint"
+            payload["service_id"] = "obsolete-service"
+            first_store.write_task_state(task.task_id, payload)
             resumed_store = self._store(root, plan, resume=True)
             resumed = execute_plan(
                 plan,
@@ -775,26 +796,105 @@ class ExecutorTest(unittest.TestCase):
                     resume=True,
                 ),
             )
-            mismatch = RunIdentity(
+            audit_only_mismatch = RunIdentity(
+                study_id="synthetic",
+                run_id="run-001",
+                study_base_sha256="e" * 64,
+                code_identity="synthetic-code-v2",
+                configuration_hash="c" * 64,
+                scientific_configuration_hash="d" * 64,
+                plan_hash="f" * 64,
+                parent_run_id="older-run",
+            )
+            RunStore.open(
+                root,
+                audit_only_mismatch,
+                resolved_configuration={"profile": "changed-derived-snapshot"},
+                configuration_sources=(),
+                resume=True,
+            )
+        self.assertEqual(first.exit_code, 0)
+        self.assertEqual(resumed.exit_code, 0)
+        self.assertEqual(calls, [task.task_id])
+
+    def test_resume_uses_only_json_yaml_and_completed_result_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            initial_identity = RunIdentity(
                 study_id="synthetic",
                 run_id="run-001",
                 study_base_sha256="e" * 64,
                 code_identity="synthetic-code-v1",
-                configuration_hash="c" * 64,
-                scientific_configuration_hash=SCIENTIFIC_HASH,
-                plan_hash=plan_hash(plan),
+                configuration_hash="a" * 64,
+                scientific_configuration_hash="b" * 64,
+                plan_hash="c" * 64,
             )
-            with self.assertRaisesRegex(RunStoreError, "configuration_hash"):
+            initial_sources = (
+                ConfigurationSource("file:///machine-a/study.json", "e" * 64),
+                ConfigurationSource("file:///machine-a/workflow.yaml", "1" * 64),
+                ConfigurationSource("file:///machine-a/voxel.yaml", "2" * 64),
+                ConfigurationSource("file:///machine-a/fiber.yaml", "3" * 64),
+            )
+            RunStore.open(
+                root,
+                initial_identity,
+                resolved_configuration={"snapshot": "initial"},
+                configuration_sources=initial_sources,
+            )
+            changed_audit_identity = RunIdentity(
+                study_id="renamed-audit-study",
+                run_id="run-001",
+                study_base_sha256="e" * 64,
+                code_identity="synthetic-code-v2",
+                configuration_hash="4" * 64,
+                scientific_configuration_hash="5" * 64,
+                plan_hash="6" * 64,
+                parent_run_id="different-parent",
+            )
+            copied_sources = (
+                ConfigurationSource("file:///machine-b/study.json", "e" * 64),
+                ConfigurationSource("file:///machine-b/workflow.yaml", "1" * 64),
+                ConfigurationSource("file:///machine-b/voxel.yaml", "2" * 64),
+                ConfigurationSource("file:///machine-b/fiber.yaml", "3" * 64),
+            )
+            RunStore.open(
+                root,
+                changed_audit_identity,
+                resolved_configuration={"snapshot": "changed"},
+                configuration_sources=copied_sources,
+                resume=True,
+            )
+
+            changed_json_identity = replace(
+                changed_audit_identity,
+                study_base_sha256="7" * 64,
+            )
+            changed_json_sources = (
+                replace(copied_sources[0], sha256="7" * 64),
+                *copied_sources[1:],
+            )
+            with self.assertRaisesRegex(RunStoreError, "input JSON content"):
                 RunStore.open(
                     root,
-                    mismatch,
-                    resolved_configuration={"profile": "synthetic"},
-                    configuration_sources=(),
+                    changed_json_identity,
+                    resolved_configuration={},
+                    configuration_sources=changed_json_sources,
                     resume=True,
                 )
-        self.assertEqual(first.exit_code, 0)
-        self.assertEqual(resumed.exit_code, 0)
-        self.assertEqual(calls, [task.task_id])
+
+            changed_yaml_sources = (
+                copied_sources[0],
+                replace(copied_sources[1], sha256="8" * 64),
+                *copied_sources[2:],
+            )
+            with self.assertRaisesRegex(RunStoreError, "input YAML content"):
+                RunStore.open(
+                    root,
+                    changed_audit_identity,
+                    resolved_configuration={},
+                    configuration_sources=changed_yaml_sources,
+                    resume=True,
+                )
 
 
 if __name__ == "__main__":

@@ -444,7 +444,7 @@ class RunResult:
 
 
 def plan_hash(plan: ExecutionPlan) -> str:
-    """Return the exact hash used by run-store resume validation."""
+    """Return the exact plan hash retained as execution provenance."""
     return canonical_hash({"plan": asdict(plan)})
 
 
@@ -457,20 +457,40 @@ def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[st
         return {}
     output: dict[str, TaskOutcome] = {}
     for task in plan.tasks:
-        payload = context.run_store.read_task_state(task.task_id)
-        if payload is None:
+        try:
+            payload = context.run_store.read_task_state(task.task_id)
+        except (OSError, TypeError, ValueError):
             continue
-        outcome = TaskOutcome.from_dict(payload)
-        if (
-            outcome.task_id != task.task_id
-            or outcome.endpoint_id != task.endpoint_id
-            or outcome.service_id != task.service_id
+        if not isinstance(payload, Mapping):
+            continue
+        result_payload = payload.get("result")
+        if payload.get("status") != "completed" or not isinstance(
+            result_payload,
+            Mapping,
         ):
-            raise ExecutionError(f"resume task identity mismatch for {task.task_id}")
-        if outcome.status == "completed":
-            _validate_service_result(task, outcome.result)
-        if outcome.status == "completed":
-            output[task.task_id] = outcome
+            continue
+        try:
+            result = ServiceResult.from_dict(result_payload)
+        except (ExecutionError, TypeError, ValueError):
+            continue
+        output[task.task_id] = TaskOutcome(
+            task_id=task.task_id,
+            endpoint_id=task.endpoint_id,
+            service_id=task.service_id,
+            status="completed",
+            reason="restored_completed_result",
+            result=result,
+            started_at=(
+                str(payload["started_at"])
+                if payload.get("started_at") is not None
+                else None
+            ),
+            finished_at=(
+                str(payload["finished_at"])
+                if payload.get("finished_at") is not None
+                else None
+            ),
+        )
     return output
 
 
@@ -749,6 +769,8 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     segment_id = context.run_store.begin_execution_segment(
         {
             "started_at": _utc_now(),
+            "code_identity": context.run_store.identity.code_identity,
+            "plan_hash": context.run_store.identity.plan_hash,
             "pool_mode": "spawn_process" if process_mode else "in_process_test",
             "pool_generation_count": 1,
             **ledger.settings(),

@@ -2920,10 +2920,8 @@ GiB sampler budget, which is `> 8.4 GiB`, one structural NIfTI validation per
 unchanged path and process, and a 13 GiB preparation grant that accounts for
 samplers, the output memmap, process baseline, and bounded connectome chunks.
 This is an execution-resource correction only; cache keys, task IDs,
-thresholds, axes, and scientific outputs remain unchanged. The runtime code
-SHA does change, so the old lineage must reject resume rather than weaken its
-identity check. A new lineage reuses verified v2 physical-cache entries but
-recomputes run-scoped tasks under the corrected code identity.
+thresholds, axes, and scientific outputs remain unchanged. Runtime code SHA is
+recorded for provenance but does not invalidate completed task output.
 
 **Full-cohort failure-closure checkpoint, 2026-07-16.** The next production
 lineage used every available endpoint across all 28 scales. Reference endpoints
@@ -2946,10 +2944,25 @@ do not change. Finally, the measured persistent-worker peak of about 14.1 GiB
 is `< 16 GiB`; the prepare-exposure resource grant is raised to 16 GiB while
 the existing I/O ceiling continues to bound simultaneous cold producers.
 
-These corrections change runtime code and the run-scoped add-on prepared-axis
-identity. The failed lineage cannot resume under the new code identity. A new
-lineage may reuse every verified physical cache entry whose semantic identity
-is unchanged, then recompute affected run-scoped preparation and descendants.
+These corrections change runtime code and the run-scoped add-on prepared axis.
+The code SHA itself does not control resume. The replacement v6 lineage was
+stopped after 202 completed tasks and 12 running tasks so the three-gate resume
+contract could be implemented before further computation. v6 is the selected
+resume root because its completed outputs were produced after the axis fix.
+
+**Three-gate resume decision, 2026-07-17.** Resume accepts a run using only the
+study-base JSON content SHA, the ordered content SHA values of the three input
+YAML files, and each task-state JSON's completed result. It ignores code SHA,
+derived configuration/scientific hashes, plan hash, resolved configuration,
+paths, service or producer identity, and artifact revalidation as resume gates.
+Non-completed or unusable task JSON is simply executed again. Code and resource
+details remain execution-segment audit fields.
+
+The three-gate implementation passes 418 dual-frequency tests and 224
+parameterized subtests. Dedicated cases prove that changed code, plan,
+derived-configuration, path, study-label, parent, and service audit fields do
+not block reuse; changed study JSON or YAML content does block it; malformed or
+incomplete completed-result JSON is rerun rather than aborting the lineage.
 
 The correction passes 417 dual-frequency tests and 224 parameterized
 subtests. The new cases verify parent-ordered axis union, reference-axis identity
@@ -3191,16 +3204,11 @@ the reserve and `swap_delta_bytes < 1`. Periodically reconcile live process-tree
 RSS, available memory, shared-memory charges, child RSS, and outstanding grants,
 pausing new admission when the strict reserve predicate fails.
 
-Resume restores completed work but re-evaluates dependency-derived and
-batch-aborted skips. After invariance is proven, the only resource overrides are
-workers, CPU/BLAS/solver stage caps within that ceiling, memory/I/O/solver
-admission, heartbeat/timeout, and scratch root. Append a separate execution-
-segment manifest while preserving task IDs and scientific plan hash. Reject
-`through`, `force`, producer authorization, scientific paths/thresholds/grids,
-seeds, replicate counts, schemas, and producer semantics as resource overrides.
-Completed outcomes never reference scratch URIs. A changed/missing scratch root
-deterministically rebuilds incomplete fold/interpolation workspaces from durable
-artifacts before downstream resume; test this path.
+Resume uses only three gates: study-base JSON content SHA, ordered content SHA
+values for the three input YAML files, and a parseable completed task JSON with
+a decodable result. Failed, running, skipped, missing, malformed, and
+result-incomplete task JSON is rerun. Append code and resource provenance to a
+separate execution-segment manifest without using either as a resume gate.
 
 - [ ] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
 

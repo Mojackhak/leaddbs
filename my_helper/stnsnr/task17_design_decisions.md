@@ -225,10 +225,7 @@ connectome-I/O ceiling still bounds simultaneous cold producers.
 
 This change affects execution resources only. Scientific cache identity,
 physical-row identity, task identity, strict comparisons, and output values do
-not change. The code SHA does change, so the interrupted lineage rejects resume
-and remains immutable. A new lineage may reuse its verified v2 physical-cache
-entries, but it recomputes run-scoped task states under the corrected code
-identity.
+not change. Code SHA is retained as audit provenance and does not gate resume.
 
 ## Decision 15: Close Full-Cohort Transform and Add-On Fiber-Axis Failures
 
@@ -260,3 +257,25 @@ The correction passes 417 dual-frequency tests and 224 parameterized subtests.
 These tests retain strict DeltaReference membership failure while proving that
 the prepared add-on axis contains the required locked reference IDs in parent
 connectome order.
+
+## Decision 16: Reduce Resume to Three Gates
+
+The final authorized resume contract has exactly three gates:
+
+1. The current study-base JSON content SHA matches the run's recorded JSON SHA.
+2. The ordered content SHA values of the workflow, direct-voxel, and normative-
+   fiber YAML files match the recorded values; source paths are ignored.
+3. A task-state JSON exists, parses, declares `completed`, and contains a
+   decodable result object.
+
+No code SHA, derived configuration hash, scientific-configuration hash, plan
+hash, resolved-configuration comparison, service/producer identity, artifact
+metadata, artifact path, or artifact payload rehash is a resume gate. Failed,
+running, skipped, missing, malformed, and incomplete task JSON is rerun. Code
+and effective resource settings remain execution-segment provenance only. The
+interrupted v6 lineage, with 202 completed tasks produced after the add-on axis
+fix, is the selected resume root.
+
+The implementation passes 418 dual-frequency tests and 224 parameterized
+subtests. A completed result with malformed or incomplete JSON is treated as
+unfinished and rerun; it does not introduce another resume rejection gate.

@@ -1250,15 +1250,21 @@ tasks fail closed. Fault injection verifies hard exit, generation restart, and
 requeue behavior. The one-pool-creation performance gate applies to fault-free
 benchmark runs.
 
-Resume restores completed tasks and re-evaluates skips. In particular,
-`dependency_failure:*` and `not_run_batch_aborted` are never treated as stable
-terminal facts after the failed dependency is eligible to run again. A stable
-gate skip may be reused only with a causal fingerprint that still matches.
+Resume has exactly three gates. First, the current study-base JSON content SHA
+must match the value recorded when the run root was created. Second, the ordered
+content SHA values of the workflow, direct-voxel, and normative-fiber YAML files
+must match; paths are ignored. Third, a task-state JSON is reusable only when it
+exists, parses, declares `completed`, and contains a decodable `result` object.
+Every failed, running, skipped, missing, malformed, or result-incomplete task is
+executed again or has its gate re-evaluated.
 
-A completed task may reference only a portable cache entry verified by the
-current process. Resume starts a new process and therefore verifies every used
-entry once before restoring dependent tasks. Later tasks in that process do not
-repeat payload hashing.
+Repository code SHA, derived configuration hashes, scientific-configuration
+hash, plan hash, resolved-configuration text, service identity, producer
+identity, artifact metadata, artifact location, and artifact payload hashing do
+not reject resume. Code SHA remains provenance only. Cache and artifact readers
+may still perform the validation needed when a new task actually consumes a
+payload, but that validation is not a run-opening or completed-task restoration
+gate.
 
 After worker-count invariance is proven, CPU, memory, I/O, solver, and scratch
 limits are execution provenance rather than scientific identity. A resume may
@@ -1277,10 +1283,13 @@ heartbeat/timeout values
 storage.scratch_root
 ```
 
-Each resume appends an execution-segment manifest. Scientific configuration and
-task IDs/plan hash remain unchanged. `through`, `force`, expensive-producer
-authorization, scientific paths, grids/thresholds, seeds, replicate counts,
-schema versions, and producer semantics are rejected as resource overrides.
+Each resume appends an execution-segment manifest containing the code and
+resource provenance used by that segment. Those fields are audit records and
+do not add a fourth resume gate.
+
+The implemented contract passes 418 dual-frequency tests and 224 parameterized
+subtests, including direct checks for all three gates and for audit-only code,
+plan, path, and derived-configuration changes.
 
 No completed outcome or durable artifact reference may depend on a scratch URI.
 When `storage.scratch_root` changes or prior scratch is missing, the parent
