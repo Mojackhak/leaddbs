@@ -723,3 +723,17 @@ their `TaskKey`, whose identity is endpoint, stage, branch and configuration.
 Therefore the corrected provider can resume the current v7 lineage while
 retaining every already completed task outcome. Only failed or unfinished
 tasks execute again. Jitter and OSS-DBS remain outside this run.
+
+## Decision 28: Replace Only The Two Tau Grids For The New Formal Lineage
+
+The authorized rerun changes only the direct-voxel and normative-fiber tau
+configuration. The direct-voxel grid is 150, 180, 200, 220, 250, and 300 V/m,
+with 200 V/m as the pre-specified source. The normative-fiber grid is 200, 350,
+400, 450, 600, and 800 V/m, with 400 V/m as the pre-specified source.
+
+The Coverage grids, inclusive threshold policy, minimum adjacent support,
+hard-computability limits, connectome roles, score fractions, selected-count
+minima, resampling counts, and add-on support policy remain unchanged. The new
+lineage runs through formal outputs with fourteen workers. Jitter and OSS-DBS
+are not requested and must not appear in its plan. The completed formal parent
+remains eligible for a later separately authorized sensitivity extension.

@@ -511,9 +511,11 @@ that grid identity, but different grids remain separate. The fiber path binds a
 `SamplingPlan` before entering the connectome loop and performs the two
 side-specific running maxima while a geometry range is resident.
 
-The currently documented `tau_min = 400 V/m` and `Coverage_min = 5` below are
-normative-fiber profile values. They do not define the direct-voxel model, whose
-grid and support remain independently configured.
+The production threshold grids remain model-family specific. The direct-voxel
+grid is 150, 180, 200, 220, 250, and 300 V/m, with 200 V/m evaluated first. The
+normative-fiber grid is 200, 350, 400, 450, 600, and 800 V/m, with 400 V/m
+evaluated first. The minimum configured Coverage remains five subjects for both
+model families.
 
 Exact-threshold values are scientific boundary fixtures. Both model families
 include exact tau and Coverage values, and reference-active overlap includes
@@ -555,6 +557,16 @@ index. A completed-only resume created a third execution segment without
 changing any completed-task timestamp, then republished the corrected
 checkpoint. The complete 449-test dual-frequency suite passed. No jitter,
 OSS-DBS, or combined-extension service ran in this lineage.
+
+The subsequent threshold-grid rerun keeps all accepted Task 17 contracts and
+changes only the two model-family tau grids and the normative-fiber
+pre-specified tau. The direct-voxel pre-specified tau remains 200 V/m. The
+normative-fiber pre-specified tau is 400 V/m. Coverage grids, score fractions,
+selected-count minima, hard computability limits, formal resampling counts,
+connectome roles, and threshold-boundary inclusion remain unchanged. The rerun
+uses a new lineage, runs through formal outputs, and excludes jitter and
+OSS-DBS. A later explicitly authorized sensitivity extension may reuse the
+completed parent lineage.
 
 ## Shared Physical Stimulation Units
 

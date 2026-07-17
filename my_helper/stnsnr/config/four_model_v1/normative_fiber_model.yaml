@@ -80,10 +80,10 @@ connectomes: # Every entry runs the complete observed tau/Coverage grid.
 
 source: # Tau defines Coverage/candidate fibers only; scoring exposure remains continuous.
   pre_specified:
-    tau_v_per_m: 800 # First source evaluated by the formal connectome.
+    tau_v_per_m: 400 # First source evaluated by the formal connectome.
     coverage_subjects_min: 5 # Minimum subjects with suprathreshold fiber exposure.
   scan:
-    tau_v_per_m: [400, 600, 800, 1000, 1200, 1500, 2000] # Complete source grid.
+    tau_v_per_m: [200, 350, 400, 450, 600, 800] # Complete source grid.
     coverage_subjects_min: [5, 6, 7, 8, 10, 12] # Complete Coverage grid.
   minimum_adjacent_passing_cells: 2 # Local grid support required for acceptance.
 
