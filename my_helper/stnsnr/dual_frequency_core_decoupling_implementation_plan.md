@@ -2925,6 +2925,40 @@ SHA does change, so the old lineage must reject resume rather than weaken its
 identity check. A new lineage reuses verified v2 physical-cache entries but
 recomputes run-scoped tasks under the corrected code identity.
 
+**Full-cohort failure-closure checkpoint, 2026-07-16.** The next production
+lineage used every available endpoint across all 28 scales. Reference endpoints
+used all 16 study subjects; add-on endpoints used their 13 eligible subjects.
+The lineage reached 876 completed tasks, 36 failed tasks, 106 dependency skips,
+and 2 tasks left nonterminal before its parent process exited. It is preserved
+as failed production evidence and is not an authoritative result.
+
+Six failures showed that the bounded MATLAB left-to-canonical transform limit
+of 300 seconds was `<` valid cold-production duration. The replacement limit
+is 1800 seconds, while process-group termination, temporary-output quarantine,
+and producer-lease cleanup remain mandatory. Thirty failures showed that an
+add-on fiber preparation axis derived only from add-on `Omega_max` can omit a
+fiber required by the locked reference valid union. For an accepted add-on
+fiber dependency, the prepared axis is therefore the parent-ordered union of
+the add-on primary `Omega_max` and the exact locked reference valid-union IDs.
+The pure physical `Omega_max` cache remains unchanged. Missing parent IDs still
+fail closed, and tau, Coverage, resolver, DeltaReference, and final-model rules
+do not change. Finally, the measured persistent-worker peak of about 14.1 GiB
+is `< 16 GiB`; the prepare-exposure resource grant is raised to 16 GiB while
+the existing I/O ceiling continues to bound simultaneous cold producers.
+
+These corrections change runtime code and the run-scoped add-on prepared-axis
+identity. The failed lineage cannot resume under the new code identity. A new
+lineage may reuse every verified physical cache entry whose semantic identity
+is unchanged, then recompute affected run-scoped preparation and descendants.
+
+The correction passes 417 dual-frequency tests and 224 parameterized
+subtests. The new cases verify parent-ordered axis union, reference-axis identity
+binding, strict failure for a locked ID outside the parent connectome, artifact
+materialization, the 1800-second process limit, and the 16 GiB scheduler charge.
+The broader package-root collection remains outside this task because unrelated
+packages currently fail import under the installed Numba and coverage versions;
+no dual-frequency test failure is hidden by that environment issue.
+
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 
 Preserve deterministic brute-force direct-voxel, normative-fiber, jitter, OSS,

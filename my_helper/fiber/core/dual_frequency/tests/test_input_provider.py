@@ -1447,6 +1447,100 @@ class InputProviderTest(unittest.TestCase):
                 )
                 self.assertTrue(candidates.issubset(set(positions.tolist())))
 
+    def test_addon_fiber_axis_includes_locked_reference_valid_union(self) -> None:
+        parent = _FeatureSpace(
+            AxisRef("parent-fibers", 5, "d" * 64),
+            np.arange(1, 6, dtype=np.int64),
+            None,
+            None,
+            self.root / "synthetic-parent.mat",
+        )
+        primary = _FeatureSpace(
+            AxisRef("primary-omega", 2, "e" * 64),
+            np.array([1, 4], dtype=np.int64),
+            None,
+            None,
+            parent.source_path,
+        )
+        reference_axis = AxisRef("reference-valid-union", 3, "f" * 64)
+        augmented, positions = (
+            StudyRuntimeInputProvider._augment_addon_fiber_feature_space(
+                parent,
+                primary,
+                np.array([0, 3], dtype=np.int64),
+                np.array([3, 4, 5], dtype=np.int64),
+                reference_axis,
+            )
+        )
+        assert positions is not None
+        np.testing.assert_array_equal(positions, np.array([0, 2, 3, 4]))
+        np.testing.assert_array_equal(augmented.ids, np.array([1, 3, 4, 5]))
+        self.assertNotEqual(augmented.axis.sha256, primary.axis.sha256)
+
+        second_reference_axis = AxisRef("second-reference-valid-union", 3, "a" * 64)
+        rebound, _ = StudyRuntimeInputProvider._augment_addon_fiber_feature_space(
+            parent,
+            primary,
+            np.array([0, 3], dtype=np.int64),
+            np.array([3, 4, 5], dtype=np.int64),
+            second_reference_axis,
+        )
+        self.assertNotEqual(rebound.axis.sha256, augmented.axis.sha256)
+
+        with self.assertRaisesRegex(RuntimeInputProviderError, "outside the parent"):
+            StudyRuntimeInputProvider._augment_addon_fiber_feature_space(
+                parent,
+                primary,
+                np.array([0, 3], dtype=np.int64),
+                np.array([3, 6], dtype=np.int64),
+                AxisRef("invalid-reference-valid-union", 2, "b" * 64),
+            )
+
+    def test_reference_valid_union_ids_are_materialized_from_locked_artifact(self) -> None:
+        provider, _catalog, _artifact_store, artifact_root = self._provider(
+            self._study(missing_addon_for_last_subject=False)
+        )
+        selected_axis = AxisRef("reference-valid-union", 3, "c" * 64)
+        selected_ids = np.array([2, 4, 5], dtype=np.int64)
+        artifact = RunScopedArtifactPublisher(
+            artifact_root / "reference-valid-union",
+            "reference-valid-union",
+            "1",
+        ).array(
+            "valid_union_ids.npy",
+            selected_ids,
+            kind="normative_fiber_valid_union_ids",
+            axes=(selected_axis,),
+            units=None,
+            space="MNI152NLin2009bAsym",
+        )
+        reference_record = SourceRecord(
+            endpoint=EndpointKey(
+                "synthetic",
+                SCALE_ID,
+                "reference",
+                "reference_fiber",
+                FORMAL_CONNECTOME_ID,
+            ),
+            input_status="valid",
+            source_status="pre_specified_accepted",
+            prediction_status="error_predictive",
+            threshold_source="pre_specified",
+            selected_tau=100.0,
+            selected_coverage=1,
+            adjacent_support=2,
+            feature_axis=FeatureAxisRef(
+                selected_axis,
+                "selected_normative_fiber_full_fold_valid_union",
+            ),
+            artifacts=(artifact,),
+        )
+        locked = provider._reference_valid_union_ids(reference_record)
+        assert locked is not None
+        materialized_ids, materialized_axis = locked
+        np.testing.assert_array_equal(materialized_ids, selected_ids)
+        self.assertEqual(materialized_axis, selected_axis)
+
     def test_missing_reference_component_preserves_no_delta_cohort(self) -> None:
         provider, catalog, _store, artifact_root = self._provider(
             self._study(
@@ -1614,6 +1708,7 @@ class InputProviderTest(unittest.TestCase):
             provider._release_temporary_matrix(temporary)
 
     def test_explicit_transform_path_is_used_by_matlab_backend(self) -> None:
+        self.assertEqual(MatlabLeftToCanonicalTransformer.TIMEOUT_SECONDS, 1800.0)
         source = self.root / "left-source.nii.gz"
         destination = self.root / "left-canonical.nii.gz"
         configured = self.root / "configured-forward-transform.nii.gz"

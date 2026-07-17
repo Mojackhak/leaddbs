@@ -95,7 +95,7 @@ class LeftToCanonicalTransformer(Protocol):
 class MatlabLeftToCanonicalTransformer:
     """Run the Lead-DBS nonlinear left-to-right helper with explicit paths."""
 
-    TIMEOUT_SECONDS = 300.0
+    TIMEOUT_SECONDS = 1800.0
     TERMINATION_GRACE_SECONDS = 5.0
 
     def __init__(
@@ -1920,6 +1920,112 @@ class StudyRuntimeInputProvider:
             None if positions.size == parent.axis.count else positions,
         )
 
+    def _reference_valid_union_ids(
+        self,
+        reference_record: SourceRecord | SensitiveRecord,
+    ) -> tuple[np.ndarray, AxisRef] | None:
+        accepted = (
+            isinstance(reference_record, SourceRecord)
+            and reference_record.source_status in ACCEPTED_SOURCE_STATUSES
+        ) or (
+            isinstance(reference_record, SensitiveRecord)
+            and reference_record.cell_computability_status == "computable"
+        )
+        if not accepted:
+            return None
+        selected_feature_axis = reference_record.feature_axis
+        if selected_feature_axis is None or selected_feature_axis.identity_source != (
+            "selected_normative_fiber_full_fold_valid_union"
+        ):
+            raise RuntimeInputProviderError(
+                "accepted fiber reference lacks the locked valid-union axis authority"
+            )
+        matches = tuple(
+            artifact
+            for artifact in reference_record.artifacts
+            if artifact.kind == "normative_fiber_valid_union_ids"
+        )
+        if len(matches) != 1:
+            raise RuntimeInputProviderError(
+                "accepted fiber reference requires one valid-union ID artifact"
+            )
+        artifact = matches[0]
+        selected_axis = selected_feature_axis.axis
+        if artifact.axis_refs != (selected_axis,):
+            raise RuntimeInputProviderError(
+                "reference valid-union ID artifact does not bind the locked axis"
+            )
+        selected_ids = self._materialize(artifact)
+        if selected_ids.dtype != np.dtype(np.int64) or selected_ids.ndim != 1:
+            raise RuntimeInputProviderError(
+                "reference valid-union IDs must be one-dimensional int64"
+            )
+        if selected_ids.size != selected_axis.count:
+            raise RuntimeInputProviderError(
+                "reference valid-union ID count differs from the locked axis"
+            )
+        if selected_ids.size and np.any(np.diff(selected_ids) <= 0):
+            raise RuntimeInputProviderError(
+                "reference valid-union IDs must be ordered and unique"
+            )
+        return np.asarray(selected_ids, dtype=np.int64), selected_axis
+
+    @staticmethod
+    def _augment_addon_fiber_feature_space(
+        parent: _FeatureSpace,
+        primary: _FeatureSpace,
+        primary_positions: np.ndarray | None,
+        required_ids: np.ndarray,
+        required_axis: AxisRef,
+    ) -> tuple[_FeatureSpace, np.ndarray | None]:
+        parent_ids = np.asarray(parent.ids, dtype=np.int64)
+        required = np.asarray(required_ids, dtype=np.int64)
+        required_positions = np.searchsorted(parent_ids, required)
+        valid = required_positions < parent_ids.size
+        if not np.all(valid) or not np.array_equal(
+            parent_ids[required_positions[valid]],
+            required[valid],
+        ):
+            raise RuntimeInputProviderError(
+                "locked reference valid-union IDs are outside the parent connectome axis"
+            )
+        if primary_positions is None:
+            positions = np.arange(parent.axis.count, dtype=np.int64)
+        else:
+            positions = np.asarray(primary_positions, dtype=np.int64)
+        union_positions = np.union1d(positions, required_positions).astype(
+            np.int64,
+            copy=False,
+        )
+        union_ids = np.asarray(parent_ids[union_positions], dtype=np.int64)
+        union_ids.flags.writeable = False
+        position_hash = hashlib.sha256(
+            np.ascontiguousarray(union_positions, dtype="<i8").tobytes()
+        ).hexdigest()
+        axis = AxisRef(
+            axis_id=f"{primary.axis.axis_id}:addon-reference-union",
+            count=int(union_ids.size),
+            sha256=canonical_hash(
+                {
+                    "parent_axis_sha256": parent.axis.sha256,
+                    "primary_omega_axis_sha256": primary.axis.sha256,
+                    "matched_reference_axis_sha256": required_axis.sha256,
+                    "ordered_parent_positions_sha256": position_hash,
+                    "rule": "addon_primary_omega_plus_locked_reference_union_v1",
+                }
+            ),
+        )
+        return (
+            _FeatureSpace(
+                axis=axis,
+                ids=union_ids,
+                coordinates=None,
+                connectome=parent.connectome,
+                source_path=parent.source_path,
+            ),
+            None if union_positions.size == parent.axis.count else union_positions,
+        )
+
     def _publish_omega_max_cache(
         self,
         *,
@@ -2143,6 +2249,16 @@ class StudyRuntimeInputProvider:
             else self._fiber_feature_space(endpoint.key.connectome_id)
         )
         is_reference = endpoint.key.model_family.startswith("reference_")
+        reference_record: SourceRecord | SensitiveRecord | None = None
+        if not is_reference:
+            if reference_dependency is None:
+                raise RuntimeInputProviderError(
+                    "add-on exposure requires reference dependency"
+                )
+            reference_record = self._validate_reference_dependency(
+                endpoint,
+                reference_dependency,
+            )
         primary_binding = pair.reference if is_reference else pair.addon
         primary_class = "reference" if is_reference else "addon"
         raw_primary, _missing_primary = self._matrix_for_binding(
@@ -2164,6 +2280,19 @@ class StudyRuntimeInputProvider:
                 subject_ids,
                 profile,
             )
+            if reference_record is not None:
+                locked_reference = self._reference_valid_union_ids(reference_record)
+                if locked_reference is not None:
+                    required_ids, required_axis = locked_reference
+                    feature_space, omega_positions = (
+                        self._augment_addon_fiber_feature_space(
+                            sampling_feature_space,
+                            feature_space,
+                            omega_positions,
+                            required_ids,
+                            required_axis,
+                        )
+                    )
             if omega_positions is not None:
                 raw_primary = self._subset_matrix(
                     raw_primary,
@@ -2177,7 +2306,11 @@ class StudyRuntimeInputProvider:
             kind=(
                 "canonical_brainmask_voxel_ids"
                 if endpoint.key.model_family.endswith("voxel")
-                else "canonical_connectome_omega_max_fiber_ids"
+                else (
+                    "canonical_connectome_omega_max_fiber_ids"
+                    if is_reference
+                    else "canonical_connectome_addon_prepared_fiber_ids"
+                )
             ),
             axes=(feature_space.axis,),
             units=None,
@@ -2210,14 +2343,8 @@ class StudyRuntimeInputProvider:
                     total_exposure=None,
                 )
 
-            if reference_dependency is None:
-                raise RuntimeInputProviderError(
-                    "add-on exposure requires reference dependency"
-                )
-            reference_record = self._validate_reference_dependency(
-                endpoint,
-                reference_dependency,
-            )
+            if reference_dependency is None or reference_record is None:
+                raise AssertionError("validated add-on dependency is unavailable")
             reference_condition, missing_reference_condition = self._matrix_for_binding(
                 endpoint,
                 subject_ids,

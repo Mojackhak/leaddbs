@@ -369,7 +369,7 @@ class _ResourceLedger:
     @staticmethod
     def request(task: TaskSpec) -> _ResourceGrant:
         if task.stage == "prepare_exposure":
-            return _ResourceGrant(1, 13 * 1024**3, 1, 0)
+            return _ResourceGrant(1, 16 * 1024**3, 1, 0)
         if task.stage == "activation_sensitivity":
             return _ResourceGrant(1, 8 * 1024**3, 1, 1)
         if task.stage in {"formal_permutation", "formal_bootstrap", "spatial_jitter"}:

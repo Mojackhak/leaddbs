@@ -229,3 +229,34 @@ not change. The code SHA does change, so the interrupted lineage rejects resume
 and remains immutable. A new lineage may reuse its verified v2 physical-cache
 entries, but it recomputes run-scoped task states under the corrected code
 identity.
+
+## Decision 15: Close Full-Cohort Transform and Add-On Fiber-Axis Failures
+
+The full-cohort, all-scale production lineage showed that 300 seconds was `<`
+valid cold MATLAB left-to-canonical transformation time. The transformer keeps
+its dedicated process group and bounded termination contract, but the limit is
+raised to 1800 seconds. Timeout still publishes no cache entry, terminates the
+whole child process group, quarantines temporary output, and releases the
+producer lease. This is a runtime correction and does not change transform
+identity or interpolation.
+
+The same lineage proved that an add-on fiber axis derived only from its primary
+`Omega_max` can omit IDs needed by the matched reference valid union. Relaxing
+the DeltaReference membership check would silently alter the scientific
+contrast, so that check remains strict. Instead, an accepted add-on dependency
+uses a run-scoped parent-ordered union of its primary `Omega_max` and the exact
+locked reference valid-union IDs. The augmented axis identity binds the parent
+axis, primary `Omega_max`, locked reference axis, and ordered union positions.
+An ID absent from the parent connectome axis remains a hard error. The durable
+physical exposure and pure primary `Omega_max` caches are unchanged.
+
+Persistent workers reached about 14.1 GiB RSS after large bilateral fiber
+preparation. Since 14.1 GiB is `< 16 GiB`, the parent ledger now charges 16 GiB
+for preparation. The I/O ceiling still permits fewer than 3 simultaneous cold
+connectome producers, keeping managed memory within the documented production
+budget.
+
+The correction passes 417 dual-frequency tests and 224 parameterized subtests.
+These tests retain strict DeltaReference membership failure while proving that
+the prepared add-on axis contains the required locked reference IDs in parent
+connectome order.

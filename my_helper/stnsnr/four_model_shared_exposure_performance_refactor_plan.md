@@ -1861,6 +1861,27 @@ working set and swap growth to remain `< 1` byte. A later shared decompressed-
 memmap cache may reduce private worker RSS, but is not required to start the
 scientifically unchanged replacement lineage.
 
+The subsequent all-endpoint production lineage confirmed two additional
+runtime boundaries. A 300-second MATLAB transformation limit was `<` valid cold
+left-to-canonical work, so the bounded limit becomes 1800 seconds without
+weakening process-group termination or cache-publication rules. Persistent
+worker RSS reached about 14.1 GiB, which is `< 16 GiB`; prepare-exposure tasks
+therefore receive a 16 GiB ledger charge while the connectome-I/O ceiling still
+bounds concurrency.
+
+The same lineage exposed a scientific-axis assembly defect rather than a
+threshold defect. An add-on primary `Omega_max` can be narrower than the locked
+reference valid union required by DeltaReference. The add-on prepared feature
+axis must be the parent-ordered union of those two sets. The physical exposure
+cache and primary `Omega_max` remain separately identified and directly
+copyable; only the run-scoped prepared axis is augmented. Any locked reference
+ID absent from the parent connectome axis remains a hard failure. No tau,
+Coverage, resolver, or DeltaReference comparator is changed.
+
+The implementation checkpoint passes 417 dual-frequency tests and 224
+parameterized subtests, including the new add-on/reference union identity,
+missing-parent-ID failure, MATLAB process-limit, and resource-ledger cases.
+
 ### State-machine closure
 
 - Shared physical failure reaches every dependent endpoint deterministically.

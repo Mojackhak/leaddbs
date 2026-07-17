@@ -123,7 +123,7 @@ class ExecutorTest(unittest.TestCase):
         )
         task = _task(endpoint, "prepare_exposure", "prepare_reference_fiber_sidecar")
         grant = _ResourceLedger.request(task)
-        self.assertEqual(grant.memory_bytes, 13 * 1024**3)
+        self.assertEqual(grant.memory_bytes, 16 * 1024**3)
         self.assertEqual(grant.connectome_io, 1)
 
     def _store(self, root: Path, plan: ExecutionPlan, *, resume: bool = False) -> RunStore:
