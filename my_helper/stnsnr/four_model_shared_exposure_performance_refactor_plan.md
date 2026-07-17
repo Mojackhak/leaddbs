@@ -527,6 +527,21 @@ candidate fiber. The independent `n_subjects_min: 12` requirement is retained un
 The corrected formal invocation runs the main workflow only; jitter and
 OSS-DBS are deferred to a separate user-authorized invocation.
 
+The completed corrected formal lineage must publish one sensitivity base for
+each realized primary or fallback final. On the current 28-scale catalog this
+means 112 bases: 28 each for reference voxel, reference fiber on the unique
+formal connectome, add-on voxel, and add-on fiber on the unique formal
+connectome. The 112 sensitive-connectome endpoints intentionally have no final
+and therefore publish no sensitivity base. Every published base must retain the
+same ordered four-entry configuration-source identity tuple for the study JSON
+and three YAML inputs. The publisher must materialize this tuple before the
+per-endpoint loop; a one-shot iterator that is exhausted after the first base is
+invalid. Acceptance requires 112 readable bases, 112 unique endpoint IDs,
+exact agreement with realized-final decisions, four source identities in every
+base, and resolvable final-artifact references. This is required so a later
+jitter or OSS-DBS extension can validate and reuse the completed parent without
+rerunning observed, resolver, or final-model work.
+
 ## Shared Physical Stimulation Units
 
 A physical stimulation unit is resolved from structured study/model inputs,

@@ -2956,6 +2956,28 @@ axis. Reference and no-delta bootstrap remain provider-free and may contain
 only the non-estimable table. This prevents a valid mixture of rebuilt and
 attrited adjusted draws from being rejected by the result container.
 
+**Corrected-formal checkpoint audit, 2026-07-17.** The v7 lineage completed all
+1512 planned tasks with 1428 completed outcomes, 84 expected
+`not_run_delta_inputs_invalid` skips, no failed outcome, 224 final decisions,
+and 6773 indexed artifacts. The 84 skips are the two add-on-fiber branch tasks
+for each of 28 scales on the two sensitive connectomes; they are not formal
+failures. Formal execution created 112 realized primary or fallback finals and
+112 sensitivity bases, split equally across the four model families. Jitter,
+OSS-DBS, and combined-extension services were absent from the run.
+
+The final audit found one extension-provenance defect before Task 17 closure.
+`publish_sensitivity_checkpoints` received configuration-source identities as a
+one-shot generator. The first base retained the ordered study-JSON plus three-
+YAML identity rows, while the remaining 111 bases received an empty sequence.
+Decision 28 requires the caller or publisher to materialize the identities as a
+reusable tuple before endpoint fan-out. The repair does not alter scientific
+arrays, task IDs, final decisions, or formal statistics. Acceptance reruns the
+completed lineage through the three-gate resume path and requires exactly 112
+readable unique bases, exact agreement with all realized-final endpoints, four
+ordered source identities per base, and resolvable final-artifact references.
+Only after this audit passes may the parent be accepted for a later independent
+jitter or OSS-DBS extension.
+
 **Production resource checkpoint, 2026-07-16.** The first corrected all-scale
 lineage reached 364 completed tasks with no failure before the initial shared
 fiber exposure exposed a decoded-field working-set error. Sixteen canonical-
