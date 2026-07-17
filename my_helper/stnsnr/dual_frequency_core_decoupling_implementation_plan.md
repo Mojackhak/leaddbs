@@ -2950,6 +2950,12 @@ contracts pass. Adding direct dependencies does not change the formal task IDs,
 so the v7 run resumes completed work and reruns only failed or unfinished
 tasks.
 
+For adjusted bootstrap, successful rebuild-evidence rows and explicit
+non-estimable rows are disjoint and jointly cover the requested replicate
+axis. Reference and no-delta bootstrap remain provider-free and may contain
+only the non-estimable table. This prevents a valid mixture of rebuilt and
+attrited adjusted draws from being rejected by the result container.
+
 **Production resource checkpoint, 2026-07-16.** The first corrected all-scale
 lineage reached 364 completed tasks with no failure before the initial shared
 fiber exposure exposed a decoded-field working-set error. Sixteen canonical-

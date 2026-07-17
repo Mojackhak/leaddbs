@@ -712,6 +712,12 @@ or rank/scaling loss during construction of the adjusted nuisance plan is
 replicate attrition under Decision 26. It preserves the requested replicate
 axis and does not trigger a replacement draw.
 
+Adjusted nuisance QC contains rebuild support and provenance for every finite
+provider result, and the non-estimable table contains every attrited replicate
+with its exact index and reason. These two disjoint sets must jointly cover the
+complete requested replicate axis. A reference or no-delta bootstrap has no
+provider evidence and therefore records only any non-estimable rows.
+
 The adjusted bootstrap tasks gain these direct dependencies without changing
 their `TaskKey`, whose identity is endpoint, stage, branch and configuration.
 Therefore the corrected provider can resume the current v7 lineage while
