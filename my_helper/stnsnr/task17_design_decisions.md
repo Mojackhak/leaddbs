@@ -673,3 +673,46 @@ After implementation and focused regression tests, the current main lineage
 finishes its independent work and resumes only failed bootstrap tasks through
 the existing three resume gates. No jitter or OSS-DBS task is authorized by
 this repair.
+
+## Decision 27: Refit The Matched Reference Inside Adjusted Bootstrap
+
+An adjusted add-on subject bootstrap requires a task-scoped production
+`BootstrapNuisanceProvider`. The provider is constructed only after the
+formal request has selected `delta_reference_adjusted`; reference and
+no-delta bootstrap remain provider-free. Its direct task closure contains the
+add-on input, prepared exposure, observed DeltaReferenceScore bundle and final
+selection, plus the matched reference input, prepared exposure, dependency
+record and accepted locked source. The closure is validated by endpoint,
+model-family, connectome, subject identity, parent feature axis, selected
+feature axis, tau and Coverage before the first draw is evaluated.
+
+For every ordered bootstrap sample, add-on subject IDs map to the matching
+reference rows and retain their exact multiplicity and order. The provider
+then refits the reference full-sample weights and every LOOCV fold weight on
+that sampled reference cohort. Direct voxel uses the same inclusive
+tau/Coverage candidate rule, partial-Spearman weights and benefit orientation
+as its observed kernel. Normative fiber uses the same inclusive candidate
+rule, partial-Spearman weights, benefit orientation, locked valid-union fiber
+IDs and signed score settings as its observed backend. Neither model may add
+features outside the accepted reference source axis.
+
+The newly fitted full and fold operators score the sampled difference between
+the add-on reference-component exposure and its matched reference-condition
+exposure. DeltaReferenceScore support is recomputed from the complete parent
+feature axis with the configured support profile. The provider returns only
+the raw full/fold score arrays, support evidence and identity-bound rebuild
+provenance; it does not publish ten thousand per-replicate artifacts. Reusing,
+indexing or permuting the original DeltaReferenceScore remains a fatal stale-
+input violation.
+
+Provider identity, dependency, shape, axis and provenance violations remain
+fatal. Once those contracts have passed, sample-specific nuisance rank loss
+during construction of the adjusted nuisance plan is replicate attrition under
+Decision 26. It preserves the requested replicate axis and does not trigger a
+replacement draw.
+
+The adjusted bootstrap tasks gain these direct dependencies without changing
+their `TaskKey`, whose identity is endpoint, stage, branch and configuration.
+Therefore the corrected provider can resume the current v7 lineage while
+retaining every already completed task outcome. Only failed or unfinished
+tasks execute again. Jitter and OSS-DBS remain outside this run.

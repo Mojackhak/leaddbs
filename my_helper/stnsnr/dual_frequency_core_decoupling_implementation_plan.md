@@ -2929,6 +2929,25 @@ violations remain fatal. The repair applies to both direct-voxel and
 normative-fiber bootstrap loops, followed by focused regression tests and a
 resume of failed formal tasks only.
 
+**Adjusted-bootstrap production-provider checkpoint, 2026-07-17.** The same
+lineage exposed that the formal contracts rejected stale adjusted scores but
+the production runtime did not yet construct the required task-scoped
+`BootstrapNuisanceProvider`. Decision 27 closes that execution gap. Adjusted
+bootstrap tasks directly receive both add-on and matched-reference input and
+prepared records, the dependency and accepted locked source, the observed
+DeltaReferenceScore bundle and the realized final. For each ordered subject
+draw, the provider preserves multiplicity, refits the locked reference full
+and all fold operators with the observed model's inclusive tau/Coverage,
+partial-Spearman and benefit-orientation rules, and rebuilds raw full/fold
+DeltaReferenceScore plus support and provenance. Direct voxel stays on its
+locked selected voxel axis; normative fiber stays on its locked valid-union
+fiber IDs and signed score settings. No per-replicate scientific artifact is
+published. Dependency, identity, shape, axis, provenance and stale-score
+violations remain fatal; only an estimability loss after valid provider output
+is replicate attrition. Adding direct dependencies does not change the formal
+task IDs, so the v7 run resumes completed work and reruns only failed or
+unfinished tasks.
+
 **Production resource checkpoint, 2026-07-16.** The first corrected all-scale
 lineage reached 364 completed tasks with no failure before the initial shared
 fiber exposure exposed a decoded-field working-set error. Sixteen canonical-
