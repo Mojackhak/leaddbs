@@ -5,10 +5,9 @@
 ```text
 decision_record_active
 task17_implementation_in_progress
-synthetic_acceptance_passed
+partial_synthetic_acceptance_passed
 production_configuration_validated
-production_outputs_missing
-production_rerun_required
+production_rerun_running
 ```
 
 This record captures choices made while reconciling the Task 17 performance
@@ -170,6 +169,11 @@ scales, 224 available endpoints, and 1288 tasks through final realization. The
 remaining completion evidence is the production rerun plus measured resource,
 worker-recovery, source-absent cache reuse, single-write payload, and authorized
 OSS axis-equivalence gates.
+
+The implementation checkpoint above describes implemented components, not
+closure of their complete performance contract. Decision 22 records the
+current code-grounded gap audit and supersedes any broader reading of this
+summary.
 
 ## Decision 11: Share Canonicalized Left E-Fields
 
@@ -367,3 +371,53 @@ fact. Gate resolution therefore uses the nearest dependency layer that
 publishes the requested fact. A direct formal-final fact takes precedence over
 a deeper sensitive-reference ancestor. Opposite values published at the same
 nearest layer remain contradictory and fail closed.
+
+## Decision 22: Separate Physical-Row Deduplication From One-Pass Preparation
+
+The current production implementation deduplicates endpoint requests onto
+scale-independent physical rows, but its cache-miss path still calls
+`_compute_binding_matrix` once for each physical row. Each call traverses the
+connectome geometry independently. This satisfies endpoint-to-physical-row
+deduplication but does not satisfy the Task 17 requirement to keep a point
+range resident and evaluate every required physical row before advancing to
+the next range.
+
+The v6 production lineage is therefore a compatibility and checkpoint run. It
+can prove resume behavior, strict scientific boundaries, cache reuse, final
+realization, and later extension isolation. It cannot by itself prove the
+one-pass connectome acceptance gate or the target CPU-utilization matrix.
+
+The remaining implementation work is explicit:
+
+- compile the complete physical-row catalog before fiber production;
+- acquire one producer authority for the ordered row batch;
+- scan each connectome range once and evaluate all batch rows while resident;
+- publish row-addressable final shards without merging a second monolith;
+- prove raw geometry scan count `> 0` and `< 2` for each connectome and batch;
+- prove the produced row values match the current strict side-specific peak
+  then bilateral-mean implementation within the existing tolerance.
+
+The cache publication path also still copies a completed temporary NPY into a
+same-parent staging directory while hashing it. This preserves atomicity and
+direct-copy validation but does not satisfy single-write large-payload
+publication. The batch producer must write final shard bytes directly into its
+staging entry while calculating payload SHA, then publish the completed
+manifest and atomically rename the directory.
+
+The current sensitivity checkpoint validates copied cache entries, but a
+production jitter cache hit still derives its key only after hashing source
+paths and opening the feature-space source. Missing source files therefore
+fail before cache lookup. Decision 19 remains the target; cache-first lookup
+must use parent-recorded semantic identities and defer all physical source
+access until an exact cache miss.
+
+The executor currently owns one persistent pool for a fault-free invocation.
+It does not yet provide hard-worker exit recovery, generation replacement,
+heartbeat timeout handling, or periodic process-tree memory reconciliation.
+Those gates remain open even though the fault-free single-generation test
+passes.
+
+No Task 17 completion statement may treat any of these open items as acceptance
+evidence. Documentation status changes to complete only after the corresponding
+code, focused regression tests, production or bounded acceptance evidence, and
+full requirement audit all pass.

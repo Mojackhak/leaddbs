@@ -2876,8 +2876,9 @@ acceptance gaps`). No remote push was performed.
 
 **Status:** `design_documented`; `code_audit_complete`;
 `literature_review_complete`; `threshold_policy_change_authorized`;
-`implementation_in_progress`; `synthetic_acceptance_passed`;
-`production_configuration_validated`; `production_rerun_pending`.
+`implementation_in_progress`; `partial_synthetic_acceptance_passed`;
+`production_configuration_validated`; `production_rerun_running`;
+`completion_gap_audited`.
 
 **Authority:**
 `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
@@ -3019,6 +3020,20 @@ materialization, the 1800-second process limit, and the 16 GiB scheduler charge.
 The broader package-root collection remains outside this task because unrelated
 packages currently fail import under the installed Numba and coverage versions;
 no dual-frequency test failure is hidden by that environment issue.
+
+**Completion-gap audit, 2026-07-17.** The running v6 lineage uses physical-row
+cache identities and avoids endpoint-specific recomputation, but the cold
+fiber producer still scans one connectome separately for each physical row.
+It is not yet the required range-resident all-row pass. `ContentAddressedCache`
+still copies a completed large temporary payload into staging while hashing it,
+so single-write final-shard publication also remains open. Production jitter
+still hashes and opens physical sources before resolving a prepared cache key,
+which means source-absent cache reuse is not yet implemented. The persistent
+executor has a fault-free single-generation path but no hard-exit generation
+replacement, heartbeat timeout recovery, or periodic live-memory
+reconciliation. The v6 run remains valuable compatibility and checkpoint
+evidence, but it cannot close those performance and recovery gates. Decision 22
+in `task17_design_decisions.md` records the required implementation boundary.
 
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 
