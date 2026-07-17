@@ -7,6 +7,7 @@ design_approved
 implementation_complete
 real_data_test_gate_passed
 formal_execution_resumed_seven_subject_batch_running
+fixed_seedwide_sampling_approved_for_corrected_four_subject_rerun
 ```
 
 This document is the authoritative implementation and execution contract for
@@ -173,7 +174,7 @@ sub-SNr015
 
 ### Tracking Contract
 
-The approved tracking object is:
+The original coverage-driven tracking object is:
 
 ```yaml
 tracking:
@@ -186,6 +187,28 @@ tracking:
 
 All fields are required. Counts and lengths are positive, the cutoff is finite
 and positive, and `min_length_mm <= max_length_mm`.
+
+An optional fixed-sampling field is supported:
+
+```yaml
+tracking:
+  seedwide_streamlines: 300000
+  minimum_streamlines_per_target: 300
+  fod_cutoff: 0.06
+  min_length_mm: 10
+  max_length_mm: 250
+  random_seed: 1
+```
+
+When `seedwide_streamlines` is absent, the historical coverage-driven stopping
+rule remains in force for backward compatibility. When it is present, every
+subject and seed side generates exactly that many structurally validated
+mother streamlines. `minimum_streamlines_per_target` then becomes a completion
+QC threshold rather than a sampling stop trigger. A fixed-sampling unit whose
+mother total is complete but whose least-covered target remains below the
+threshold becomes `coverage_failed`; it must not silently generate a larger
+primary tractogram because doing so would make the sampling denominator depend
+on the observed target distribution.
 
 The removed pairwise fields are invalid in this schema:
 
@@ -336,21 +359,29 @@ once. A streamline may hit multiple targets and is then included in every
 corresponding target-specific TCK.
 
 Let `n_t` be the cumulative number of mother streamlines that hit target `t`.
-Generation stops successfully only when:
+In legacy coverage-driven mode, generation stops successfully only when:
 
 ```text
 min(n_t for every configured target) >= minimum_streamlines_per_target
 ```
 
-The mother streamline total is the sum of structurally validated completed
-chunk counts. It is not forced to a fixed value. The target hit fraction is:
+In fixed-sampling mode, generation stops after exactly
+`seedwide_streamlines` structurally validated mother streamlines. The final
+chunk request is reduced when needed so that the configured total is not
+crossed. Target coverage is assessed only after the fixed total is reached;
+insufficient coverage fails QC without extending the primary tractogram.
+
+The mother streamline total is always the sum of structurally validated
+completed chunk counts. The target hit fraction is:
 
 ```text
 n_t / n_seedwide_total
 ```
 
 Raw target counts must not be compared across subjects without this
-denominator because the rarest target determines the mother total.
+denominator. Fixed sampling is preferred for cross-subject modelling because
+every subject-side unit has the same denominator and the rarest observed
+target does not determine when sampling stops.
 
 If the maximum seed-wide total is reached before all targets meet the minimum,
 the unit becomes `coverage_failed`. The report lists every deficient target,
@@ -358,6 +389,11 @@ its actual hit count, the required count, and the mother total. A
 `coverage_failed` unit is not published as complete. If a final chunk would
 cross the maximum, its requested size is reduced to the exact remaining
 budget.
+
+In fixed-sampling mode, `seedwide_streamlines` must not exceed
+`maximum_seedwide_streamlines`. The fixed total is the effective generation
+limit; `maximum_seedwide_streamlines` remains an outer configuration safety
+bound and does not cause sampling beyond the fixed total.
 
 A zero-streamline chunk or repeated failure to increase the mother count is a
 terminal generation error, not an infinite retry condition. An underfilled
@@ -740,6 +776,35 @@ sub-SNr026 rh: chunk 409
 
 No interrupted unit restarted at chunk zero. Monitoring is attached to the
 active run at the approved 30-minute interval.
+
+### Corrected Four-Subject Fixed-Sampling Rerun (2026-07-17)
+
+After corrected DWI preprocessing and newly approved SPM44 B0 registrations,
+`sub-SNr017`, `sub-SNr020`, `sub-SNr022`, and `sub-SNr026` require new
+preparation identities and new tractograms. Their prior FOD, DWI-space ROI,
+chunk, membership, and published TCK artifacts are not valid scientific inputs
+for the rerun.
+
+The dTOR normative connectome contains 11,820,000 fibers. Strict STNSNrplus
+membership contains 251,376 fibers for the left seed and 327,966 for the right
+seed; their mean is 289,671 fibers per side. The approved rounded fixed sample
+is therefore 300,000 accepted seed-wide iFOD2 streamlines per subject and seed
+side. This is a Monte Carlo sampling count, not an estimate of the biological
+axon count.
+
+The formal rerun configuration is:
+
+```text
+/Volumes/VAL/STNSNr/config/mrtrix_seed_target_fixed300k_017_020_022_026.yaml
+```
+
+It uses 50,000-streamline chunks, a fixed 300,000-streamline mother total per
+side, a 300-hit completion QC threshold for every one of the 18 targets, and a
+2,000,000-streamline outer safety bound. The expected primary total is 600,000
+mother streamlines per subject and 2,400,000 across the four-subject batch.
+Any target below 300 after its fixed 300,000-streamline mother tractogram is
+reported as `coverage_failed` rather than triggering subject-specific primary
+oversampling.
 
 ## Final Acceptance Criteria
 
