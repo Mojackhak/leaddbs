@@ -2907,6 +2907,22 @@ realization. The production rerun, measured resource matrix, hard-worker
 recovery, source-absent sensitivity-cache reuse, single-write large-payload
 conversion, and authorized OSS axis-equivalence decisions remain open.
 
+**Production resource checkpoint, 2026-07-16.** The first corrected all-scale
+lineage reached 364 completed tasks with no failure before the initial shared
+fiber exposure exposed a decoded-field working-set error. Sixteen canonical
+float32 E-fields occupy about 4.2 GiB, which is `> 2 GiB`, so the original
+worker-local sampler limit repeatedly evicted and decompressed the same NIfTI
+files inside successive connectome chunks. The run was interrupted without
+discarding its completed task states. Before the replacement run, the target is a 5 GiB
+sampler budget, which is `> 4.2 GiB`, one structural NIfTI validation per
+unchanged path and process, and a 7 GiB preparation grant that accounts for
+samplers, the output memmap, and bounded connectome chunks. This is an
+execution-resource correction only; cache keys, task IDs, thresholds, axes,
+and scientific outputs remain unchanged. The runtime code SHA does change, so
+the old lineage must reject resume rather than weaken its identity check. A new
+lineage reuses verified v2 physical-cache entries but recomputes run-scoped
+tasks under the corrected code identity.
+
 - [ ] **Step 1: Freeze parity fixtures and characterize every resource path**
 
 Preserve deterministic brute-force direct-voxel, normative-fiber, jitter, OSS,

@@ -373,7 +373,7 @@ class StudyRuntimeInputProvider:
         scientific_cache: ContentAddressedCache | None = None,
         left_transformer: LeftToCanonicalTransformer | None = None,
         fiber_chunk_size: int = 65_536,
-        sampler_cache_bytes: int = 2 * 1024**3,
+        sampler_cache_bytes: int = 5 * 1024**3,
     ) -> None:
         if not isinstance(study, StudyBaseRecord):
             raise TypeError("study must be a StudyBaseRecord")
@@ -420,6 +420,7 @@ class StudyRuntimeInputProvider:
             tuple[_FileDigest, _NiftiSampler],
         ] = OrderedDict()
         self._hashes: dict[Path, _FileDigest] = {}
+        self._validated_niftis: dict[Path, _FileDigest] = {}
         self._feature_spaces: dict[tuple[str, str], _FeatureSpace] = {}
         self._shared_preparation_locks: dict[str, RLock] = {}
 
@@ -528,6 +529,28 @@ class StudyRuntimeInputProvider:
             raise RuntimeInputProviderError(
                 f"cached transformed E-field cannot be read: {path}"
             ) from exc
+
+    def _validate_nifti_once(self, path: Path) -> None:
+        """Validate one unchanged NIfTI only once in this provider process."""
+
+        resolved = Path(path).expanduser().resolve()
+        signature = self._file_signature(resolved)
+        digest = self._path_hash(resolved)
+        expected = _FileDigest(signature, digest)
+        with self._lock:
+            if self._validated_niftis.get(resolved) == expected:
+                return
+        self._validate_nifti(resolved)
+        if self._file_signature(resolved) != signature:
+            raise RuntimeInputProviderError(
+                f"cached transformed E-field changed during validation: {resolved}"
+            )
+        if self._path_hash(resolved, force=True) != digest:
+            raise RuntimeInputProviderError(
+                f"cached transformed E-field content changed during validation: {resolved}"
+            )
+        with self._lock:
+            self._validated_niftis[resolved] = expected
 
     def endpoint(self, endpoint_id: str) -> EndpointRecord:
         try:
@@ -1087,7 +1110,7 @@ class StudyRuntimeInputProvider:
                             "left E-field producer lease ended without a cache entry"
                         )
         cached = entry.file_path("field.nii.gz")
-        self._validate_nifti(cached)
+        self._validate_nifti_once(cached)
         return cached
 
     def _produce_canonical_left_path(
@@ -1125,7 +1148,7 @@ class StudyRuntimeInputProvider:
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX)
             if destination.is_file():
-                self._validate_nifti(destination)
+                self._validate_nifti_once(destination)
                 try:
                     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError) as exc:

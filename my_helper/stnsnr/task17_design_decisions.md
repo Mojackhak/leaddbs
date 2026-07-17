@@ -205,3 +205,25 @@ the former fixed lease wait. A waiter now refreshes its wait deadline whenever
 the lock still names a live producer PID. A dead PID is quarantined immediately;
 an unreadable lock still has a bounded timeout. Producer-specific MATLAB and
 external-tool timeouts remain responsible for terminating stalled children.
+
+## Decision 14: Fit the Decoded E-Field Working Set Before Fiber Resume
+
+The corrected production rerun measured sixteen canonical float32 E-fields at
+about 4.2 GiB. That working set is `> 2 GiB`, so a 2 GiB worker-local LRU
+repeatedly evicted and decompressed unchanged NIfTI files while traversing
+successive fiber chunks. The lineage reached 364 completed tasks with no
+failure before it was safely interrupted.
+
+The worker sampler budget is raised to 5 GiB, which is `> 4.2 GiB`, and one
+unchanged NIfTI path is structurally validated only once per process. The
+prepare-exposure resource grant is raised to 7 GiB so the parent ledger charges
+the decoded samplers, bounded output memmap, and connectome chunk rather than
+hiding them in the reserve. The existing connectome-I/O ceiling still bounds
+simultaneous cold producers.
+
+This change affects execution resources only. Scientific cache identity,
+physical-row identity, task identity, strict comparisons, and output values do
+not change. The code SHA does change, so the interrupted lineage rejects resume
+and remains immutable. A new lineage may reuse its verified v2 physical-cache
+entries, but it recomputes run-scoped task states under the corrected code
+identity.

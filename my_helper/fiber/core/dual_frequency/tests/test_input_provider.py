@@ -1711,6 +1711,34 @@ class InputProviderTest(unittest.TestCase):
         self.assertEqual(tuple(provider._samplers), (second.resolve(),))
         self.assertLessEqual(provider._sampler_bytes, 128)
 
+    def test_shared_transformed_nifti_is_structurally_validated_once_per_process(self) -> None:
+        provider, catalog, _store, _artifact_root = self._provider(
+            self._study(missing_addon_for_last_subject=False),
+            transformer=_CopyTransformer(),
+            shared_cache=True,
+        )
+        endpoint = self._endpoint(catalog, "reference_voxel")
+        subject = provider._subjects[endpoint.subject_ids[0]]
+        source = _leaf(
+            subject.leaddbs_subject_dir,
+            "T2",
+            1,
+            "lead-L",
+            "reference-group",
+            "continuous",
+        )
+        with mock.patch.object(
+            provider,
+            "_validate_nifti",
+            wraps=provider._validate_nifti,
+        ) as validate:
+            first = provider._canonical_left_path(source)
+            calls_after_first_lookup = validate.call_count
+            second = provider._canonical_left_path(source)
+        self.assertEqual(first, second)
+        self.assertGreater(calls_after_first_lookup, 0)
+        self.assertEqual(validate.call_count, calls_after_first_lookup)
+
     def test_left_transform_is_shared_across_provider_process_roots(self) -> None:
         study = self._study(missing_addon_for_last_subject=False)
         first_transformer = _CopyTransformer()
