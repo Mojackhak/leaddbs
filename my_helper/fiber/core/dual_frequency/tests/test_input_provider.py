@@ -1402,7 +1402,7 @@ class InputProviderTest(unittest.TestCase):
             provider._release_temporary_matrix(first)
             provider._release_temporary_matrix(second)
 
-    def test_omega_max_is_the_exact_strict_minimum_grid_candidate_union(self) -> None:
+    def test_omega_max_is_the_exact_inclusive_minimum_grid_candidate_union(self) -> None:
         provider, _catalog, _artifact_store, _artifact_root = self._provider(
             self._study(missing_addon_for_last_subject=False)
         )
@@ -1437,15 +1437,22 @@ class InputProviderTest(unittest.TestCase):
             ("s1", "s2", "s3", "s4"),
             profile,
         )
-        assert positions is not None
-        np.testing.assert_array_equal(positions, np.array([0, 3, 4]))
-        np.testing.assert_array_equal(omega.ids, np.array([1, 4, 5]))
+        self.assertIsNone(positions)
+        resolved_positions = (
+            np.arange(parent.axis.count, dtype=np.int64)
+            if positions is None
+            else positions
+        )
+        np.testing.assert_array_equal(resolved_positions, np.arange(5))
+        np.testing.assert_array_equal(omega.ids, np.arange(1, 6))
         for tau in source.tau_values:
             for coverage in source.coverage_values:
                 candidates = set(
                     np.flatnonzero(np.count_nonzero(exposure >= tau, axis=0) >= coverage)
                 )
-                self.assertTrue(candidates.issubset(set(positions.tolist())))
+                self.assertTrue(
+                    candidates.issubset(set(resolved_positions.tolist()))
+                )
 
     def test_addon_fiber_axis_includes_locked_reference_valid_union(self) -> None:
         parent = _FeatureSpace(

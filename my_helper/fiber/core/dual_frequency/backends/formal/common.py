@@ -35,6 +35,17 @@ class FormalBackendInputError(FormalBackendError):
     """Raised before publication when a formal input is missing or inconsistent."""
 
 
+class BootstrapReplicateNotEstimableError(FormalBackendInputError):
+    """Raised when one valid bootstrap draw has a non-estimable nuisance design."""
+
+    def __init__(self, detail: str) -> None:
+        normalized = str(detail).strip()
+        if not normalized:
+            normalized = "sample-specific nuisance design is not estimable"
+        self.detail = normalized
+        super().__init__(normalized)
+
+
 @dataclass(frozen=True, slots=True)
 class PermutationComputation:
     """Observed prediction metrics and a deterministic permutation null."""
@@ -78,6 +89,7 @@ class BootstrapComputation:
     replicate_valid_weight_count: np.ndarray
     replicate_support_code: np.ndarray
     finite_replicate_count: int
+    nonestimable_replicates: tuple[dict[str, Any], ...] = ()
     nuisance_evidence: tuple[dict[str, Any], ...] = ()
     sweet_selection_frequency: np.ndarray | None = None
     sour_selection_frequency: np.ndarray | None = None
@@ -121,6 +133,35 @@ class BootstrapComputation:
                 "bootstrap nuisance evidence must have one row per replicate"
             )
         object.__setattr__(self, "nuisance_evidence", evidence)
+        replicate_count = next(iter(replicate_lengths))
+        nonestimable: list[dict[str, Any]] = []
+        seen_replicates: set[int] = set()
+        for item in self.nonestimable_replicates:
+            row = dict(item)
+            replicate = row.get("replicate")
+            reason_code = str(row.get("reason_code", "")).strip()
+            detail = str(row.get("detail", "")).strip()
+            if (
+                type(replicate) is not int
+                or not 0 <= replicate < replicate_count
+                or replicate in seen_replicates
+            ):
+                raise FormalBackendError(
+                    "bootstrap non-estimable evidence has an invalid replicate index"
+                )
+            if reason_code != "nonestimable_nuisance_design" or not detail:
+                raise FormalBackendError(
+                    "bootstrap non-estimable evidence has an invalid reason"
+                )
+            seen_replicates.add(replicate)
+            nonestimable.append(
+                {
+                    "replicate": replicate,
+                    "reason_code": reason_code,
+                    "detail": detail,
+                }
+            )
+        object.__setattr__(self, "nonestimable_replicates", tuple(nonestimable))
         if type(self.finite_replicate_count) is not int or self.finite_replicate_count < 0:
             raise FormalBackendError("finite_replicate_count must be nonnegative")
 
@@ -288,13 +329,15 @@ def build_bootstrap_nuisance_plan(
     sampled_baseline = baseline[sample]
     branch = request.final_model.final_key.final_branch
     if branch != ADJUSTED_BRANCH:
-        if request.final_model.endpoint.model_family.startswith("reference_"):
-            return _reference_nuisance_plan(sampled_baseline), None
         try:
-            plan = build_addon_nuisance_plan(sampled_baseline, branch)
-        except NuisancePlanError as error:
-            raise FormalBackendInputError(error.detail) from error
-        validate_nuisance_plan(plan)
+            if request.final_model.endpoint.model_family.startswith("reference_"):
+                plan = _reference_nuisance_plan(sampled_baseline)
+            else:
+                plan = build_addon_nuisance_plan(sampled_baseline, branch)
+                validate_nuisance_plan(plan)
+        except (FormalBackendInputError, NuisancePlanError) as error:
+            detail = error.detail if isinstance(error, NuisancePlanError) else str(error)
+            raise BootstrapReplicateNotEstimableError(detail) from error
         return plan, None
 
     if provider is None:
@@ -491,6 +534,7 @@ class StreamingBootstrapAccumulator:
         self._replicate_valid_count = np.zeros(resamples, dtype=np.int64)
         self._replicate_support_code = np.zeros(resamples, dtype=np.int8)
         self._nuisance_evidence: list[dict[str, Any] | None] = [None] * resamples
+        self._nonestimable_evidence: list[dict[str, Any] | None] = [None] * resamples
 
     def update(
         self,
@@ -502,6 +546,7 @@ class StreamingBootstrapAccumulator:
         nuisance_evidence: BootstrapNuisanceEvidence | None,
         sweet_selected: np.ndarray | None = None,
         sour_selected: np.ndarray | None = None,
+        nuisance_nonestimability: str | None = None,
     ) -> None:
         """Consume exactly one feature-aligned replicate."""
 
@@ -531,6 +576,15 @@ class StreamingBootstrapAccumulator:
             )
         if type(support_code) is not int or support_code not in {0, 1, 2}:
             raise FormalBackendInputError("bootstrap support_code must be 0, 1, or 2")
+        nonestimability = (
+            str(nuisance_nonestimability).strip()
+            if nuisance_nonestimability is not None
+            else ""
+        )
+        if nonestimability and (np.any(finite) or support_code != 0):
+            raise FormalBackendInputError(
+                "a non-estimable bootstrap replicate cannot publish weights or support"
+            )
 
         selection_values: list[np.ndarray] = []
         for name, selected in (
@@ -585,6 +639,12 @@ class StreamingBootstrapAccumulator:
                     "delta_reference_sha256": provenance.delta_reference_sha256,
                 },
             }
+        if nonestimability:
+            self._nonestimable_evidence[replicate] = {
+                "replicate": replicate,
+                "reason_code": "nonestimable_nuisance_design",
+                "detail": nonestimability,
+            }
 
     def finalize(self) -> BootstrapComputation:
         """Validate all B replicates and emit exact F/B-shaped summaries."""
@@ -621,6 +681,11 @@ class StreamingBootstrapAccumulator:
             for item in self._nuisance_evidence
             if item is not None
         )
+        nonestimable = tuple(
+            item
+            for item in self._nonestimable_evidence
+            if item is not None
+        )
         return BootstrapComputation(
             weight_mean=weight_mean,
             weight_se=weight_se,
@@ -632,6 +697,7 @@ class StreamingBootstrapAccumulator:
             replicate_valid_weight_count=self._replicate_valid_count,
             replicate_support_code=self._replicate_support_code,
             finite_replicate_count=finite_replicates,
+            nonestimable_replicates=nonestimable,
             nuisance_evidence=evidence,
             sweet_selection_frequency=(
                 self._sweet_count / finite_replicates
@@ -681,6 +747,7 @@ def json_safe(value: Any) -> Any:
 
 __all__ = [
     "BootstrapComputation",
+    "BootstrapReplicateNotEstimableError",
     "FormalBackendError",
     "FormalBackendInputError",
     "PermutationComputation",

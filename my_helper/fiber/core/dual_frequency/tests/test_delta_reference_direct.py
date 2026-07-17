@@ -197,10 +197,28 @@ class DeltaReferenceDirectVoxelTest(unittest.TestCase):
         self.assertTrue(bundle.valid)
         self.assertEqual(bundle.support_status, "limited")
 
-    def test_zero_total_suprathreshold_coverage_is_invalid(self) -> None:
-        indices = np.arange(8, dtype=np.int64)
+    def test_exact_tau_reference_component_coverage_is_valid(self) -> None:
+        indices = np.arange(10, dtype=np.int64)
         weights = np.ones(indices.size)
         addon_reference = np.full((4, 10), 200.0)
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = self._build(
+                Path(temporary),
+                selected_indices=indices,
+                full_weights=weights,
+                fold_weights=np.tile(weights, (4, 1)),
+                addon_reference_exposure=addon_reference,
+            )
+        self.assertTrue(bundle.valid)
+        self.assertEqual(bundle.support_status, "adequate")
+        self.assertIsNotNone(bundle.full_scores)
+        self.assertIsNotNone(bundle.fold_scores)
+        self.assertIsNotNone(bundle.support_qc)
+
+    def test_below_tau_reference_component_coverage_is_invalid(self) -> None:
+        indices = np.arange(8, dtype=np.int64)
+        weights = np.ones(indices.size)
+        addon_reference = np.full((4, 10), 199.0)
         with tempfile.TemporaryDirectory() as temporary:
             bundle = self._build(
                 Path(temporary),

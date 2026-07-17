@@ -26,6 +26,7 @@ from ..statistics import (
 )
 from .common import (
     BootstrapComputation,
+    BootstrapReplicateNotEstimableError,
     FormalBackendError,
     FormalBackendInputError,
     PermutationComputation,
@@ -326,6 +327,12 @@ def compute_normative_fiber_bootstrap(
         raise FormalBackendInputError(
             "adjusted bootstrap requires an injected BootstrapNuisanceProvider"
         )
+    build_fixed_nuisance_plan(
+        request,
+        baseline,
+        original_delta_full,
+        original_delta_folds,
+    )
     tau = float(request.final_model.final_key.selected_tau)
     coverage = int(request.final_model.final_key.selected_coverage)
     samples = bootstrap_sample_indices(
@@ -341,20 +348,33 @@ def compute_normative_fiber_bootstrap(
     id_to_index = {int(fiber_id): index for index, fiber_id in enumerate(fiber_ids)}
 
     for replicate, sample in enumerate(samples):
-        nuisance_plan, nuisance_evidence = build_bootstrap_nuisance_plan(
-            request,
-            baseline,
-            sample,
-            provider,
-            original_delta_full=original_delta_full,
-            original_delta_folds=original_delta_folds,
-        )
         sampled_exposure = np.asarray(exposure[sample], dtype=np.float64)
-        sampled_outcome = outcome[sample]
         candidate = candidate_mask(coverage_counts(sampled_exposure, tau), coverage)
         replicate_weights = np.full(request.feature_axis.count, np.nan, dtype=np.float64)
         sweet_selected = np.zeros(request.feature_axis.count, dtype=bool)
         sour_selected = np.zeros(request.feature_axis.count, dtype=bool)
+        try:
+            nuisance_plan, nuisance_evidence = build_bootstrap_nuisance_plan(
+                request,
+                baseline,
+                sample,
+                provider,
+                original_delta_full=original_delta_full,
+                original_delta_folds=original_delta_folds,
+            )
+        except BootstrapReplicateNotEstimableError as error:
+            accumulator.update(
+                replicate,
+                weights=replicate_weights,
+                candidate_mask=candidate,
+                support_code=0,
+                nuisance_evidence=None,
+                sweet_selected=sweet_selected,
+                sour_selected=sour_selected,
+                nuisance_nonestimability=error.detail,
+            )
+            continue
+        sampled_outcome = outcome[sample]
         if not np.any(candidate):
             accumulator.update(
                 replicate,
@@ -650,14 +670,17 @@ class NormativeFiberFormalBackend:
             )
             for filename, kind, values, units in replicate_outputs
         )
-        if result.nuisance_evidence:
+        if result.nuisance_evidence or result.nonestimable_replicates:
             artifacts.append(
                 self._publisher.document(
                     "formal_bootstrap_nuisance_qc.json",
                     {
-                        "schema_version": "formal_bootstrap_nuisance_qc_v1",
+                        "schema_version": "formal_bootstrap_nuisance_qc_v2",
                         "final_model_id": request.final_model.identifier,
                         "replicates": list(result.nuisance_evidence),
+                        "nonestimable_replicates": list(
+                            result.nonestimable_replicates
+                        ),
                     },
                     kind="formal_bootstrap_nuisance_qc",
                 )
@@ -668,11 +691,14 @@ class NormativeFiberFormalBackend:
             else "completed_with_nonfinite_replicates"
         )
         summary = {
-            "schema_version": "formal_bootstrap_summary_v1",
+            "schema_version": "formal_bootstrap_summary_v2",
             "final_model_id": request.final_model.identifier,
             "resampling_kind": "bootstrap",
             "resamples_requested": request.resamples,
             "finite_replicate_count": result.finite_replicate_count,
+            "nonestimable_nuisance_replicate_count": len(
+                result.nonestimable_replicates
+            ),
             "seed": request.seed,
             "support_code_legend": {"0": "absent", "1": "limited", "2": "adequate"},
             "technical_status": status,

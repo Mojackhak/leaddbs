@@ -221,7 +221,7 @@ class AddonFiberPreparationTest(unittest.TestCase):
         prepared = _prepare(addon, reference, evidence)
         np.testing.assert_array_equal(
             prepared.exposure,
-            np.array([[250.0, 250.0], [0.0, 250.0]], dtype=np.float32),
+            np.array([[250.0, 0.0], [0.0, 250.0]], dtype=np.float32),
         )
 
     def test_overlap_preparation_writes_caller_owned_chunked_destinations(self) -> None:

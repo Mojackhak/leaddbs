@@ -21,6 +21,7 @@ from ..statistics import (
 )
 from .common import (
     BootstrapComputation,
+    BootstrapReplicateNotEstimableError,
     FormalBackendError,
     FormalBackendInputError,
     PermutationComputation,
@@ -268,6 +269,12 @@ def compute_direct_voxel_bootstrap(
         raise FormalBackendInputError(
             "adjusted bootstrap requires an injected BootstrapNuisanceProvider"
         )
+    build_fixed_nuisance_plan(
+        request,
+        baseline,
+        original_delta_full,
+        original_delta_folds,
+    )
     tau = float(request.final_model.final_key.selected_tau)
     coverage = int(request.final_model.final_key.selected_coverage)
     full_minimum = request.hard_computability.n_features_full_min
@@ -285,18 +292,29 @@ def compute_direct_voxel_bootstrap(
         track_selection=False,
     )
     for replicate, sample in enumerate(samples):
-        nuisance_plan, nuisance_evidence = build_bootstrap_nuisance_plan(
-            request,
-            baseline,
-            sample,
-            provider,
-            original_delta_full=original_delta_full,
-            original_delta_folds=original_delta_folds,
-        )
         sampled_exposure = np.asarray(exposure[sample], dtype=np.float64)
-        sampled_outcome = outcome[sample]
         candidate = np.count_nonzero(sampled_exposure >= tau, axis=0) >= coverage
         replicate_weights = np.full(request.feature_axis.count, np.nan, dtype=np.float64)
+        try:
+            nuisance_plan, nuisance_evidence = build_bootstrap_nuisance_plan(
+                request,
+                baseline,
+                sample,
+                provider,
+                original_delta_full=original_delta_full,
+                original_delta_folds=original_delta_folds,
+            )
+        except BootstrapReplicateNotEstimableError as error:
+            accumulator.update(
+                replicate,
+                weights=replicate_weights,
+                candidate_mask=candidate,
+                support_code=0,
+                nuisance_evidence=None,
+                nuisance_nonestimability=error.detail,
+            )
+            continue
+        sampled_outcome = outcome[sample]
         if not np.any(candidate):
             accumulator.update(
                 replicate,
@@ -558,14 +576,17 @@ class DirectVoxelFormalBackend:
             )
             for filename, kind, values, units in replicate_outputs
         )
-        if result.nuisance_evidence:
+        if result.nuisance_evidence or result.nonestimable_replicates:
             artifacts.append(
                 self._publisher.document(
                     "formal_bootstrap_nuisance_qc.json",
                     {
-                        "schema_version": "formal_bootstrap_nuisance_qc_v1",
+                        "schema_version": "formal_bootstrap_nuisance_qc_v2",
                         "final_model_id": request.final_model.identifier,
                         "replicates": list(result.nuisance_evidence),
+                        "nonestimable_replicates": list(
+                            result.nonestimable_replicates
+                        ),
                     },
                     kind="formal_bootstrap_nuisance_qc",
                 )
@@ -576,11 +597,14 @@ class DirectVoxelFormalBackend:
             else "completed_with_nonfinite_replicates"
         )
         summary = {
-            "schema_version": "formal_bootstrap_summary_v1",
+            "schema_version": "formal_bootstrap_summary_v2",
             "final_model_id": request.final_model.identifier,
             "resampling_kind": "bootstrap",
             "resamples_requested": request.resamples,
             "finite_replicate_count": result.finite_replicate_count,
+            "nonestimable_nuisance_replicate_count": len(
+                result.nonestimable_replicates
+            ),
             "seed": request.seed,
             "support_code_legend": {"0": "absent", "1": "limited", "2": "adequate"},
             "technical_status": status,

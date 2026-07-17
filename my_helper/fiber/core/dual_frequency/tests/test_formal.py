@@ -812,6 +812,170 @@ class FormalBootstrapTest(unittest.TestCase):
                 nuisance_evidence=None,
             )
 
+    @staticmethod
+    def _request_with_sample_specific_nuisance_attrition(
+        model_family: str,
+    ) -> FormalRequest:
+        request = _formal_request(model_family, "bootstrap", resamples=6)
+        baseline = np.array(
+            [
+                0.0,
+                7.0,
+                0.0,
+                0.0,
+                0.0,
+                9.0,
+                0.0,
+                2.0,
+                10.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            dtype=np.float64,
+        )
+        return dataclasses.replace(
+            request,
+            baseline=_scientific_artifact(
+                f"{model_family}_attrition_baseline",
+                baseline,
+                (request.subject_axis,),
+                units="score",
+                space="clinical",
+            ),
+        )
+
+    def test_reference_bootstrap_records_sample_specific_nuisance_attrition(self) -> None:
+        for model_family in ("reference_voxel", "reference_fiber"):
+            with self.subTest(model_family=model_family):
+                request = self._request_with_sample_specific_nuisance_attrition(
+                    model_family
+                )
+                if model_family.endswith("fiber"):
+                    result = compute_normative_fiber_bootstrap(
+                        request,
+                        _artifact_value(request.exposure),
+                        _fiber_id_values(request),
+                        _artifact_value(request.outcome),
+                        _artifact_value(request.baseline),
+                        None,
+                    )
+                else:
+                    result = compute_direct_voxel_bootstrap(
+                        request,
+                        _artifact_value(request.exposure),
+                        _artifact_value(request.outcome),
+                        _artifact_value(request.baseline),
+                        None,
+                    )
+                self.assertEqual(result.finite_replicate_count, 5)
+                self.assertEqual(
+                    result.nonestimable_replicates,
+                    (
+                        {
+                            "replicate": 5,
+                            "reason_code": "nonestimable_nuisance_design",
+                            "detail": (
+                                "fold nuisance-only design is not estimable "
+                                "for held-out index 6"
+                            ),
+                        },
+                    ),
+                )
+                self.assertGreater(int(result.replicate_candidate_count[5]), 0)
+                self.assertEqual(int(result.replicate_valid_weight_count[5]), 0)
+                self.assertEqual(int(result.replicate_support_code[5]), 0)
+
+    def test_bootstrap_publication_reports_nonestimable_nuisance_draws(self) -> None:
+        request = self._request_with_sample_specific_nuisance_attrition(
+            "reference_voxel"
+        )
+        computation = compute_direct_voxel_bootstrap(
+            request,
+            _artifact_value(request.exposure),
+            _artifact_value(request.outcome),
+            _artifact_value(request.baseline),
+            None,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            backend = DirectVoxelFormalBackend(
+                RunScopedArtifactPublisher(Path(temporary), "formal_test", "1")
+            )
+            result = backend._publish_bootstrap(request, computation)
+            self.assertEqual(
+                result.technical_status,
+                "completed_with_nonfinite_replicates",
+            )
+            summary_ref = next(
+                artifact
+                for artifact in result.artifacts
+                if artifact.kind == "formal_bootstrap_summary"
+            )
+            summary = json.loads(
+                _artifact_path(summary_ref).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                summary["schema_version"],
+                "formal_bootstrap_summary_v2",
+            )
+            self.assertEqual(summary["finite_replicate_count"], 5)
+            self.assertEqual(summary["nonestimable_nuisance_replicate_count"], 1)
+            qc_ref = next(
+                artifact
+                for artifact in result.artifacts
+                if artifact.kind == "formal_bootstrap_nuisance_qc"
+            )
+            qc = json.loads(_artifact_path(qc_ref).read_text(encoding="utf-8"))
+            self.assertEqual(
+                qc["schema_version"],
+                "formal_bootstrap_nuisance_qc_v2",
+            )
+            self.assertEqual(
+                qc["nonestimable_replicates"],
+                list(computation.nonestimable_replicates),
+            )
+
+    def test_bootstrap_rejects_nonestimable_original_nuisance_design(self) -> None:
+        for model_family in ("reference_voxel", "reference_fiber"):
+            with self.subTest(model_family=model_family):
+                request = _formal_request(model_family, "bootstrap", resamples=2)
+                request = dataclasses.replace(
+                    request,
+                    baseline=_scientific_artifact(
+                        f"{model_family}_constant_baseline",
+                        np.zeros(request.subject_axis.count, dtype=np.float64),
+                        (request.subject_axis,),
+                        units="score",
+                        space="clinical",
+                    ),
+                )
+                arguments = (
+                    request,
+                    _artifact_value(request.exposure),
+                    _artifact_value(request.outcome),
+                    _artifact_value(request.baseline),
+                    None,
+                )
+                with self.assertRaisesRegex(
+                    FormalBackendInputError,
+                    "full nuisance-only design is not estimable",
+                ):
+                    if model_family.endswith("fiber"):
+                        compute_normative_fiber_bootstrap(
+                            request,
+                            _artifact_value(request.exposure),
+                            _fiber_id_values(request),
+                            _artifact_value(request.outcome),
+                            _artifact_value(request.baseline),
+                            None,
+                        )
+                    else:
+                        compute_direct_voxel_bootstrap(*arguments)
+
     def test_direct_and_fiber_bootstrap_prefixes_are_deterministic(self) -> None:
         direct = _formal_request("reference_voxel", "bootstrap")
         direct_first = compute_direct_voxel_bootstrap(
