@@ -36,6 +36,7 @@ from dual_frequency.contracts import (
     FeatureAxisRef,
     FinalModelKey,
     FinalModelRecord,
+    FormalResult,
     PreparedExposureRecord,
     ReferenceDependencyRecord,
     SourceRecord,
@@ -1918,6 +1919,62 @@ class InputProviderTest(unittest.TestCase):
         )
         self.assertEqual(request.final_model, final_model)
         self.assertEqual(request.feature_axis, final_model.valid_feature_axis.axis)
+
+        source = final_model.selected_source
+        assert source is not None
+        in_sample_publisher = RunScopedArtifactPublisher(
+            artifact_root / "in-sample-request",
+            "in-sample-request",
+            "1",
+        )
+        count = endpoint_input.subject_axis.count
+        source_with_predictions = dataclasses.replace(
+            source,
+            artifacts=(
+                *source.artifacts,
+                in_sample_publisher.array(
+                    "loocv_predictions.npy",
+                    np.arange(count, dtype=np.float64),
+                    kind="loocv_model_predictions",
+                    axes=(endpoint_input.subject_axis,),
+                    units="score",
+                    space=None,
+                ),
+                in_sample_publisher.array(
+                    "loocv_baseline_predictions.npy",
+                    np.zeros(count, dtype=np.float64),
+                    kind="loocv_baseline_predictions",
+                    axes=(endpoint_input.subject_axis,),
+                    units="score",
+                    space=None,
+                ),
+            ),
+        )
+        in_sample_final = dataclasses.replace(
+            final_model,
+            selected_source=source_with_predictions,
+        )
+        loocv_summary = in_sample_publisher.document(
+            "formal_permutation_summary.json",
+            {
+                "schema_version": "formal_permutation_summary_v1",
+                "observed": {},
+            },
+            kind="formal_permutation_summary",
+        )
+        in_sample_request = provider.in_sample_request(
+            in_sample_final,
+            endpoint_input,
+            prepared,
+            FormalResult(
+                final_model_id=in_sample_final.identifier,
+                resampling_kind="permutation",
+                technical_status="completed",
+                artifacts=(loocv_summary,),
+            ),
+        )
+        self.assertEqual(in_sample_request.feature_axis, prepared.feature_axis)
+        self.assertEqual(in_sample_request.final_model, in_sample_final)
 
         mismatched_input = dataclasses.replace(
             endpoint_input,

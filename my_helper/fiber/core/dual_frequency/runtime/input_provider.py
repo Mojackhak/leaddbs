@@ -3450,7 +3450,7 @@ class StudyRuntimeInputProvider:
             raise RuntimeInputProviderError(
                 "in-sample request requires a realized selected source"
             )
-        is_fiber = endpoint.model_family.endswith("fiber")
+        is_fiber = endpoint.key.model_family.endswith("fiber")
         prediction_kind = (
             "normative_fiber_loocv_model_predictions"
             if is_fiber

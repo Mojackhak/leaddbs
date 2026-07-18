@@ -3567,6 +3567,13 @@ bootstrap, jitter, OSS-DBS, or combined extensions. Record the conditioning
 label `conditional_on_selected_tau_coverage_branch_and_candidate_axis` in every
 endpoint summary and aggregate report.
 
+The first formal v8 child startup restored all 504 immutable checkpoint roots
+and then failed all 112 new targets before numerical work because the production
+provider read model family directly from `EndpointRecord` instead of its typed
+`EndpointKey`. The repair changes only that record-field lookup to
+`endpoint.key.model_family`. Resume must retain all restored checkpoints and
+rerun only the 112 failed in-sample endpoint tasks.
+
 - [ ] **Step 10: Run numerical, reuse, resume, deletion-rebuild, and resource acceptance**
 
 Run cold/warm benchmarks for voxel, every connectome, formal, bootstrap, jitter,
