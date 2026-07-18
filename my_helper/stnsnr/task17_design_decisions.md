@@ -737,3 +737,62 @@ minima, resampling counts, and add-on support policy remain unchanged. The new
 lineage runs through formal outputs with fourteen workers. Jitter and OSS-DBS
 are not requested and must not appear in its plan. The completed formal parent
 remains eligible for a later separately authorized sensitivity extension.
+
+## Decision 29: Align Adjusted Fiber Bootstrap Across Two Parent Axes
+
+The v8 formal lineage exposed four fail-fast errors in the adjusted add-on
+fiber bootstrap for FSS, KPPS, ODQ, and PDQ39. The matched reference prepared
+exposure and the add-on prepared exposure intentionally use different parent
+fiber axes. The former is the canonical matched-reference parent, while the
+latter is the add-on reference union that defines the two add-on
+reference-component exposure matrices. Parent-axis identity is therefore not
+a valid fiber bootstrap requirement.
+
+The accepted matched-reference valid-union fiber IDs remain the single locked
+scientific feature axis for every bootstrap refit. The provider must locate
+that ordered ID vector independently in the matched-reference parent and the
+add-on parent. The matched-reference exposure is sliced with the first position
+vector. The add-on reference-condition exposure and add-on reference-component
+exposure are sliced with the second position vector. All three resulting
+matrices must present the locked fiber IDs in their original accepted order
+before any full-sample or LOOCV operator is fitted or scored.
+
+Both parent ID arrays and the locked selected ID array must contain unique
+integers. Every locked selected ID must occur in both parents, and its ordered
+position vector must preserve each parent's deterministic order. A missing ID,
+duplicate ID, order violation, malformed array, or incompatible exposure shape
+remains a fatal provider error. The implementation must not form an
+intersection, drop a fiber, reorder the locked selected axis, or substitute the
+add-on final feature axis for the accepted matched-reference source axis.
+
+The direct-voxel provider retains its existing shared-parent-axis contract and
+single selected-index vector. Reference bootstrap, no-delta bootstrap,
+observed models, final realization, formal permutation, jitter, and OSS-DBS do
+not use this repaired fiber bootstrap alignment path.
+
+After focused regression and dual-frequency test suites pass, the existing
+`task17-main-v8-tau-grid-formal-20260717` lineage resumes through the three
+established resume gates. The 1508 completed task outcomes must be restored
+without execution, while only the four failed adjusted add-on fiber bootstrap
+tasks return to pending work. Acceptance requires all 1512 tasks completed,
+no failed task, unchanged completed-task payload digests, and completed formal
+bootstrap results for the four named endpoints. The repair does not authorize
+jitter, OSS-DBS, or combined sensitivity execution.
+
+The completed repair met this acceptance contract. Five focused dual-parent
+alignment regressions and seventy-three directly related formal, adapter,
+DeltaReferenceScore, and input-provider tests passed. The complete
+dual-frequency suite passed 452 of 454 tests; its two remaining failures are
+the previously stale configuration expectations for the authorized v8 tau
+grid and do not enter the bootstrap provider path. Compilation and diff checks
+passed.
+
+Resume execution segment `segment_0002` used fourteen spawn workers, finished
+without swap growth, restored the original 1508 completed task payloads with
+an unchanged aggregate digest, and executed only the four failed bootstrap
+tasks. KPPS retained 7907 finite draws and 2093 explicit nuisance-attrition
+draws. ODQ retained 7906 and 2094. FSS retained 7903 and 2097. PDQ39 retained
+7906 and 2094. Every pair covers the complete 10000-draw deterministic axis.
+The run manifest is completed with 1512 completed tasks, 224 final decisions,
+112 sensitivity bases, and 7468 indexed artifacts. No jitter, OSS-DBS, or
+combined extension task was planned or executed.

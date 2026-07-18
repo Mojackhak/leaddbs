@@ -111,6 +111,57 @@ def _selected_parent_positions(
     return positions
 
 
+def _aligned_selected_fiber_exposures(
+    reference_parent_ids: np.ndarray,
+    addon_parent_ids: np.ndarray,
+    selected_ids: np.ndarray,
+    reference_exposure: np.ndarray,
+    reference_condition_exposure: np.ndarray,
+    addon_reference_component_exposure: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Align two parent fiber spaces to one locked ordered selected axis."""
+
+    reference_positions = _selected_parent_positions(
+        reference_parent_ids,
+        selected_ids,
+    )
+    addon_positions = _selected_parent_positions(
+        addon_parent_ids,
+        selected_ids,
+    )
+    reference = np.asarray(reference_exposure)
+    reference_condition = np.asarray(reference_condition_exposure)
+    addon_reference_component = np.asarray(addon_reference_component_exposure)
+    if reference.ndim != 2:
+        raise StudyBootstrapNuisanceProviderError(
+            "matched-reference exposure must be a two-dimensional matrix"
+        )
+    if reference_condition.ndim != 2 or addon_reference_component.ndim != 2:
+        raise StudyBootstrapNuisanceProviderError(
+            "add-on reference-component exposures must be two-dimensional matrices"
+        )
+    if reference.shape[1] != np.asarray(reference_parent_ids).size:
+        raise StudyBootstrapNuisanceProviderError(
+            "matched-reference exposure does not match its parent fiber IDs"
+        )
+    if (
+        reference_condition.shape[1] != np.asarray(addon_parent_ids).size
+        or addon_reference_component.shape[1] != np.asarray(addon_parent_ids).size
+    ):
+        raise StudyBootstrapNuisanceProviderError(
+            "add-on reference-component exposures do not match their parent fiber IDs"
+        )
+    if reference_condition.shape != addon_reference_component.shape:
+        raise StudyBootstrapNuisanceProviderError(
+            "add-on reference-component exposure shapes differ"
+        )
+    return (
+        np.asarray(reference[:, reference_positions], dtype=np.float64),
+        np.asarray(reference_condition[:, addon_positions], dtype=np.float64),
+        np.asarray(addon_reference_component[:, addon_positions], dtype=np.float64),
+    )
+
+
 def _sample_not_estimable(detail: str) -> BootstrapNuisanceSampleNotEstimableError:
     return BootstrapNuisanceSampleNotEstimableError(detail)
 
@@ -401,15 +452,6 @@ class StudyBootstrapNuisanceProvider:
             raise StudyBootstrapNuisanceProviderError(
                 "adjusted bootstrap requires both reference-component exposures"
             )
-        if reference_prepared.feature_axis != addon_prepared.feature_axis:
-            raise StudyBootstrapNuisanceProviderError(
-                "reference and add-on parent feature axes differ"
-            )
-        if reference_prepared.feature_ids.sha256 != addon_prepared.feature_ids.sha256:
-            raise StudyBootstrapNuisanceProviderError(
-                "reference and add-on parent feature IDs differ"
-            )
-
         reference_endpoint = runtime_provider.endpoint(
             dependency.matched_reference_endpoint_id
         )
@@ -445,6 +487,14 @@ class StudyBootstrapNuisanceProvider:
 
         selected_axis = reference_source.feature_axis.axis
         if self._model_family.endswith("voxel"):
+            if reference_prepared.feature_axis != addon_prepared.feature_axis:
+                raise StudyBootstrapNuisanceProviderError(
+                    "reference and add-on parent feature axes differ"
+                )
+            if reference_prepared.feature_ids.sha256 != addon_prepared.feature_ids.sha256:
+                raise StudyBootstrapNuisanceProviderError(
+                    "reference and add-on parent feature IDs differ"
+                )
             selected_indices = np.asarray(
                 _materialize(
                     artifact_store,
@@ -483,8 +533,14 @@ class StudyBootstrapNuisanceProvider:
                 raise StudyBootstrapNuisanceProviderError(
                     "selected fiber IDs do not match the locked reference axis"
                 )
-            parent_ids = _materialize(artifact_store, reference_prepared.feature_ids)
-            positions = _selected_parent_positions(parent_ids, selected_ids)
+            reference_parent_ids = _materialize(
+                artifact_store,
+                reference_prepared.feature_ids,
+            )
+            addon_parent_ids = _materialize(
+                artifact_store,
+                addon_prepared.feature_ids,
+            )
             self._fiber_ids = np.asarray(selected_ids, dtype=np.int64)
             if not isinstance(request.fiber_score_settings, NormativeFiberScoreSettings):
                 raise StudyBootstrapNuisanceProviderError(
@@ -504,18 +560,32 @@ class StudyBootstrapNuisanceProvider:
             artifact_store,
             addon_prepared.addon_reference_component_exposure,
         )
-        self._reference_exposure = np.asarray(
-            reference_exposure[:, positions],
-            dtype=np.float64,
-        )
-        self._reference_condition_exposure = np.asarray(
-            reference_condition[:, positions],
-            dtype=np.float64,
-        )
-        self._addon_reference_component_exposure = np.asarray(
-            addon_reference_component[:, positions],
-            dtype=np.float64,
-        )
+        if self._model_family.endswith("voxel"):
+            self._reference_exposure = np.asarray(
+                reference_exposure[:, positions],
+                dtype=np.float64,
+            )
+            self._reference_condition_exposure = np.asarray(
+                reference_condition[:, positions],
+                dtype=np.float64,
+            )
+            self._addon_reference_component_exposure = np.asarray(
+                addon_reference_component[:, positions],
+                dtype=np.float64,
+            )
+        else:
+            (
+                self._reference_exposure,
+                self._reference_condition_exposure,
+                self._addon_reference_component_exposure,
+            ) = _aligned_selected_fiber_exposures(
+                reference_parent_ids,
+                addon_parent_ids,
+                selected_ids,
+                reference_exposure,
+                reference_condition,
+                addon_reference_component,
+            )
         if not (
             np.all(np.isfinite(self._reference_exposure))
             and np.all(np.isfinite(self._reference_condition_exposure))
