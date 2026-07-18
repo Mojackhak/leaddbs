@@ -7,6 +7,7 @@ The public entry points are:
 - `mh_fiber_default_config(subjectDir, stimLabel)`: create a fixed configuration for one subject and one existing Lead-DBS stimulation label.
 - `mh_fiber_run(cfg)`: run ROI generation, fiber filtering, VTA-hit detection, e-field peak extraction, native fiber back-projection by fiber ID, reports, and figures.
 - `mh_fiber_open_scene(figPath)`: reopen a saved helper scene, make it visible, and open the Lead-DBS Anatomy Slices control window when possible.
+- `mh_viz_make_sweet_sour_scene(spec)`: render endpoint-level sweet/sour voxel surfaces and resolved fiber geometry in one `ea_mnifigure` scene.
 - `pipelines/sub001/run_sub001_fiber_tracking_two_scheme_vis.m`: rerun sub-001 structural fiber tracking, then generate both the Lead-DBS two-source VTA approximation and the helper one-solve multi-voltage VTA outputs.
 - `pipelines/sub001/run_sub001_fiber_vis.m`: command-line script for the current `sub-001` case.
 - `stnsnr/run_stnsnr_build_active_contact_dataset.py`: build the 16-subject active-contact coordinate dataset.
@@ -35,8 +36,7 @@ my_helper/fiber/
     stimulation/    stimulation specs, VTA facade/backends, scheme comparison
     tracking/       main runners, MRtrix, seed-target, SIFT2
     util/           shared filesystem, label, repository, and JSON helpers
-    viz/            shared plotting styles and semantic chart helpers
-    visualization/  scenes, figures, plots, electrode styling
+    viz/            Python and MATLAB spatial/statistical plotting, scenes, and styles
     ui/             toolbar/object-control helpers
   pipelines/
     sub001/         patient/case pipeline scripts
@@ -44,6 +44,14 @@ my_helper/fiber/
 ```
 
 Core implementation functions live under `core/`. The `stnsnr/` folder must only contain pipeline scripts that call core functions; ROI specs, selectors, chunked connectome readers, and report writers belong under `core/`.
+
+The unified `core/viz/` package contains the Boxsize-driven Python section and
+fit renderers, the migrated `ea_mnifigure` surface helpers, and the existing
+Fiber/VTA scene functions. Normative-fiber density NIfTIs rendered in 2D remain
+visualization derivatives of fiber-level models; they are not voxel models.
+If MATLAB still has the removed `core/visualization/` folder in its saved path,
+remove that path once and add the repository recursively before using the
+migrated entry points.
 
 ## Generic Seed-Target Connectivity Statistics
 

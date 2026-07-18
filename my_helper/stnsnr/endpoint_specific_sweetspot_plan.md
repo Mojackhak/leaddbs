@@ -1871,7 +1871,7 @@ Reusable functions should be grouped by responsibility:
 - stimulation proxy and future e-field/OSS-DBS adapters: `my_helper/fiber/core/stimulation`;
 - streamline exposure extraction and statistics: `my_helper/fiber/core/tracking`;
 - result tables and provenance writers: `my_helper/fiber/core/io`;
-- figures and scene generation: `my_helper/fiber/core/visualization`.
+- figures and scene generation: `my_helper/fiber/core/viz`.
 
 `my_helper/fiber/stnsnr` should contain only pipeline scripts that call these core functions.
 
