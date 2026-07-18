@@ -36,6 +36,7 @@ from .common import (
     materialize_array,
     plus_one_two_sided,
     prediction_metrics,
+    residual_permutation_schedule,
     resample_axis,
 )
 
@@ -229,11 +230,17 @@ def compute_direct_voxel_permutation(
         raise FormalBackendError(
             "observed final direct-voxel LOOCV statistic is not computable"
         )
+    schedule = residual_permutation_schedule(
+        outcome.size,
+        request.resamples,
+        request.seed,
+    )
     permuted = freedman_lane_outcomes(
         outcome,
         nuisance_plan.full_covariates,
         request.resamples,
         request.seed,
+        schedule=schedule,
     )
     null = np.full(request.resamples, np.nan, dtype=np.float64)
     for index, permuted_outcome in enumerate(permuted):
@@ -248,6 +255,7 @@ def compute_direct_voxel_permutation(
             observed["loocv_spearman_rho"],
             null,
         ),
+        permutation_schedule=schedule,
     )
 
 
@@ -511,8 +519,20 @@ class DirectVoxelFormalBackend:
             if finite_count == request.resamples
             else "completed_with_nonfinite_replicates"
         )
+        artifacts = [null_artifact]
+        schedule_artifact = None
+        if result.permutation_schedule is not None:
+            schedule_artifact = self._publisher.array(
+                "formal_permutation_schedule.npy",
+                result.permutation_schedule,
+                kind="formal_permutation_schedule",
+                axes=(replicate_axis, request.subject_axis),
+                units="subject_index",
+                space=None,
+            )
+            artifacts.append(schedule_artifact)
         summary = {
-            "schema_version": "formal_permutation_summary_v1",
+            "schema_version": "formal_permutation_summary_v2",
             "final_model_id": request.final_model.identifier,
             "resampling_kind": "permutation",
             "resamples_requested": request.resamples,
@@ -520,6 +540,14 @@ class DirectVoxelFormalBackend:
             "seed": request.seed,
             "p_plus_one_two_sided": result.p_plus_one_two_sided,
             "observed": result.observed_metrics,
+            "permutation_schedule_id": (
+                schedule_artifact.identifier if schedule_artifact is not None else None
+            ),
+            "permutation_schedule_sha256": (
+                schedule_artifact.sha256 if schedule_artifact is not None else None
+            ),
+            "rng_algorithm": "numpy_pcg64",
+            "rng_contract_version": 1,
             "technical_status": status,
         }
         summary_artifact = self._publisher.document(
@@ -531,7 +559,7 @@ class DirectVoxelFormalBackend:
             final_model_id=request.final_model.identifier,
             resampling_kind="permutation",
             technical_status=status,
-            artifacts=(null_artifact, summary_artifact),
+            artifacts=tuple((*artifacts, summary_artifact)),
         )
 
     def _publish_bootstrap(

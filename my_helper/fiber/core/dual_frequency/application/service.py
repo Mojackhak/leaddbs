@@ -25,7 +25,11 @@ from ..config import (
     validate_study_compatibility,
 )
 from ..contracts import StudyBaseRecord, load_study_base
-from ..reporting import build_report_documents
+from ..reporting import (
+    build_formal_in_sample_results,
+    build_report_documents,
+    formal_in_sample_results_csv,
+)
 from ..workflow import (
     ConfigurationSource,
     ExecutionContext,
@@ -122,8 +126,11 @@ class SensitivityExtensionRequest:
     def __post_init__(self) -> None:
         object.__setattr__(self, "base_run", Path(self.base_run).expanduser())
         analyses = tuple(dict.fromkeys(str(item).strip().lower() for item in self.analyses))
-        if not analyses or any(item not in {"jitter", "oss"} for item in analyses):
-            raise ApplicationError("analyses must select jitter, oss, or both")
+        allowed = {"jitter", "oss", "final_in_sample"}
+        if not analyses or any(item not in allowed for item in analyses):
+            raise ApplicationError(
+                "analyses must select jitter, oss, final_in_sample, or a combination"
+            )
         object.__setattr__(self, "analyses", analyses)
         run_id = str(self.run_id).strip()
         if not run_id or "/" in run_id or "\\" in run_id:
@@ -352,6 +359,12 @@ class WorkflowService:
                 documents,
                 through=bundle.plan.through,
             )
+            self._publish_formal_in_sample_results(
+                store.root / "formal_results",
+                typed_records,
+                artifact_store,
+                basename="paired_formal_results",
+            )
             write_csv_snapshots(
                 store.root,
                 result.outcomes,
@@ -573,6 +586,12 @@ class WorkflowService:
                 store.root,
                 documents,
                 through=extension_plan.through,
+            )
+            self._publish_formal_in_sample_results(
+                store.root / "sensitivity_results",
+                typed_records,
+                artifact_store,
+                basename="final_in_sample_results",
             )
             write_csv_snapshots(
                 store.root,
@@ -1005,6 +1024,38 @@ class WorkflowService:
         finally:
             temporary.unlink(missing_ok=True)
 
+    @staticmethod
+    def _replace_text(path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        temporary = Path(name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+                stream.write(text)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @classmethod
+    def _publish_formal_in_sample_results(
+        cls,
+        root: Path,
+        typed_records: Mapping[str, object],
+        artifact_store: ArtifactStore,
+        *,
+        basename: str,
+    ) -> None:
+        document = build_formal_in_sample_results(typed_records, artifact_store)
+        if document["result_count"] < 1:
+            return
+        cls._replace_json(root / f"{basename}.json", document)
+        cls._replace_text(
+            root / f"{basename}.csv",
+            formal_in_sample_results_csv(document),
+        )
+
     def _publish_extension_results(
         self,
         validated: ValidatedWorkflow,
@@ -1016,10 +1067,13 @@ class WorkflowService:
     ) -> None:
         tasks = {task.task_id: task for task in plan.tasks}
         endpoints = {endpoint.endpoint_id: endpoint for endpoint in validated.catalog}
-        selected_stages = {
-            "spatial_jitter" if analysis == "jitter" else "activation_sensitivity"
-            for analysis in request.analyses
+        stages = {
+            "jitter": "spatial_jitter",
+            "oss": "activation_sensitivity",
+            "final_in_sample": "formal_in_sample",
         }
+        analyses_by_stage = {stage: analysis for analysis, stage in stages.items()}
+        selected_stages = {stages[analysis] for analysis in request.analyses}
         rows: list[dict[str, Any]] = []
         for outcome in result.outcomes:
             task = tasks[outcome.task_id]
@@ -1037,7 +1091,7 @@ class WorkflowService:
                         if endpoint.key.model_family.startswith("reference_")
                         else "addon"
                     ),
-                    "analysis": "jitter" if task.stage == "spatial_jitter" else "oss",
+                    "analysis": analyses_by_stage[task.stage],
                     "status": outcome.status,
                     "reason": outcome.reason,
                     "record_id": (

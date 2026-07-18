@@ -299,6 +299,52 @@ class SensitivityCheckpointTest(unittest.TestCase):
                 seed_task_ids=(),
             )
 
+    def test_final_in_sample_extension_inherits_exact_loocv_checkpoint(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        parent = _task(endpoint, "final_realization", "observed")
+        formal = _task(
+            endpoint,
+            "formal_permutation",
+            "formal",
+            dependencies=(parent.task_id,),
+        )
+        target = _task(
+            endpoint,
+            "formal_in_sample",
+            "formal",
+            dependencies=(parent.task_id, formal.task_id),
+        )
+        full_plan = ExecutionPlan(
+            configuration_hash=CONFIGURATION_HASH,
+            scientific_configuration_hash=SCIENTIFIC_HASH,
+            through="formal",
+            tasks=(parent, formal, target),
+        )
+        extension = compile_sensitivity_extension_plan(
+            full_plan,
+            endpoint_ids=(endpoint.identifier,),
+            analyses=("final_in_sample",),
+            seed_task_ids=(parent.task_id, formal.task_id),
+        )
+
+        roots = tuple(task for task in extension.tasks if task.checkpoint_only)
+        child = next(task for task in extension.tasks if task.stage == "formal_in_sample")
+        self.assertEqual({task.task_id for task in roots}, {parent.task_id, formal.task_id})
+        self.assertEqual(child.phase, "sensitivity")
+        self.assertEqual(child.dependencies, (parent.task_id, formal.task_id))
+        self.assertEqual(child.service_id, target.service_id)
+
+        with self.assertRaisesRegex(
+            SensitivityCheckpointError,
+            "lacks completed direct parent outcomes",
+        ):
+            compile_sensitivity_extension_plan(
+                full_plan,
+                endpoint_ids=(endpoint.identifier,),
+                analyses=("final_in_sample",),
+                seed_task_ids=(parent.task_id,),
+            )
+
     def test_jitter_extension_inserts_fixed_shared_physical_blocks(self) -> None:
         first_endpoint = EndpointKey(
             "study",

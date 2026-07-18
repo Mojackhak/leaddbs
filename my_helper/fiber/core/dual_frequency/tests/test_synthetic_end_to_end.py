@@ -42,7 +42,9 @@ from dual_frequency.contracts import (
     FinalModelRecord,
     FinalSelectionRecord,
     FormalRequest,
+    FormalResult,
     HardComputabilityLimits,
+    InSampleRequest,
     NormativeFiberScoreSettings,
     ObservedRequest,
     PreparedExposureRecord,
@@ -955,6 +957,77 @@ class _SyntheticRuntimeProvider:
                 if resampling_kind == "permutation"
                 else profile.bootstrap_resamples
             ),
+            seed=profile.seed,
+        )
+
+    def in_sample_request(
+        self,
+        final_model: FinalModelRecord,
+        endpoint_input: EndpointInputRecord,
+        prepared: PreparedExposureRecord,
+        loocv_formal_result: FormalResult,
+        *,
+        delta_reference: DeltaReferenceBundle | None = None,
+    ) -> InSampleRequest:
+        endpoint = self.endpoint(final_model.endpoint.identifier)
+        source = self._selected_source(final_model)
+        is_fiber = endpoint.key.model_family.endswith("fiber")
+        prediction_kind = (
+            "normative_fiber_loocv_model_predictions"
+            if is_fiber
+            else "loocv_model_predictions"
+        )
+        baseline_kind = (
+            "normative_fiber_loocv_baseline_predictions"
+            if is_fiber
+            else "loocv_baseline_predictions"
+        )
+
+        def artifact(artifacts: tuple[ArtifactRef, ...], kind: str) -> ArtifactRef:
+            matches = tuple(item for item in artifacts if item.kind == kind)
+            if len(matches) != 1:
+                raise AssertionError(f"synthetic in-sample request lacks {kind}")
+            return matches[0]
+
+        if endpoint_input.subject_axis is None:
+            raise AssertionError("in-sample endpoint input has no subject axis")
+        adjusted = (
+            final_model.final_key is not None
+            and final_model.final_key.final_branch == "delta_reference_adjusted"
+        )
+        if adjusted and (delta_reference is None or not delta_reference.valid):
+            raise AssertionError("adjusted in-sample request has no DeltaReferenceScore")
+        profile = (
+            self.configuration.normative_fiber.formal_resampling
+            if is_fiber
+            else self.configuration.direct_voxel.formal_resampling
+        )
+        return InSampleRequest(
+            final_model=final_model,
+            exposure=prepared.exposure,
+            outcome=endpoint_input.outcome,
+            baseline=endpoint_input.baseline,
+            delta_reference_full=(
+                delta_reference.full_scores
+                if adjusted and delta_reference is not None
+                else None
+            ),
+            subject_axis=endpoint_input.subject_axis,
+            feature_axis=prepared.feature_axis,
+            feature_ids=prepared.feature_ids,
+            loocv_predictions=artifact(source.artifacts, prediction_kind),
+            loocv_baseline_predictions=artifact(source.artifacts, baseline_kind),
+            loocv_permutation_summary=artifact(
+                loocv_formal_result.artifacts,
+                "formal_permutation_summary",
+            ),
+            exposure_units="V/m",
+            exposure_space="synthetic_canonical_space",
+            outcome_direction=endpoint.scale_direction,
+            hard_computability=self._hard_limits(endpoint),
+            connectome_role=endpoint.connectome_role,
+            fiber_score_settings=self._score_settings(endpoint),
+            resamples=profile.permutation_resamples,
             seed=profile.seed,
         )
 

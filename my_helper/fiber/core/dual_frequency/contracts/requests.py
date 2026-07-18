@@ -733,6 +733,140 @@ class FormalRequest:
 
 
 @dataclass(frozen=True)
+class InSampleRequest:
+    """Full-parent-axis request for conditional final in-sample inference."""
+
+    final_model: FinalModelRecord
+    exposure: ArtifactRef
+    outcome: ArtifactRef
+    baseline: ArtifactRef
+    delta_reference_full: ArtifactRef | None
+    subject_axis: AxisRef
+    feature_axis: AxisRef
+    feature_ids: ArtifactRef
+    loocv_predictions: ArtifactRef
+    loocv_baseline_predictions: ArtifactRef
+    loocv_permutation_summary: ArtifactRef
+    exposure_units: str
+    exposure_space: str
+    outcome_direction: str
+    hard_computability: HardComputabilityLimits
+    connectome_role: str
+    fiber_score_settings: NormativeFiberScoreSettings | None
+    resamples: int
+    seed: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.final_model, FinalModelRecord):
+            raise RequestError("in-sample inference requires a FinalModelRecord")
+        if self.final_model.final_key is None:
+            raise RequestError("in-sample inference requires a realized final key")
+        if not isinstance(self.subject_axis, AxisRef) or not isinstance(
+            self.feature_axis,
+            AxisRef,
+        ):
+            raise RequestError("in-sample axes must be AxisRef values")
+
+        for value, field in (
+            (self.exposure, "exposure"),
+            (self.outcome, "outcome"),
+            (self.baseline, "baseline"),
+            (self.feature_ids, "feature_ids"),
+            (self.loocv_predictions, "loocv_predictions"),
+            (self.loocv_baseline_predictions, "loocv_baseline_predictions"),
+            (self.loocv_permutation_summary, "loocv_permutation_summary"),
+        ):
+            _artifact_input(value, field)
+        _validate_exposure(
+            self.exposure,
+            "exposure",
+            self.subject_axis,
+            self.feature_axis,
+        )
+        _validate_vector(self.outcome, "outcome", self.subject_axis)
+        _validate_vector(self.baseline, "baseline", self.subject_axis)
+        _validate_vector(
+            self.loocv_predictions,
+            "loocv_predictions",
+            self.subject_axis,
+        )
+        _validate_vector(
+            self.loocv_baseline_predictions,
+            "loocv_baseline_predictions",
+            self.subject_axis,
+        )
+        if self.feature_ids.dtype != "int64":
+            raise RequestError("in-sample feature_ids must use int64")
+        if _shape(self.feature_ids, "feature_ids") != (self.feature_axis.count,):
+            raise RequestError("in-sample feature_ids must match the parent feature axis")
+        _require_artifact_axes(
+            self.feature_ids,
+            "feature_ids",
+            (self.feature_axis,),
+        )
+        if self.loocv_permutation_summary.shape is not None:
+            raise RequestError("LOOCV permutation summary must be a document artifact")
+
+        units = _request_token(self.exposure_units, "exposure_units")
+        space = _request_token(self.exposure_space, "exposure_space")
+        object.__setattr__(self, "exposure_units", units)
+        object.__setattr__(self, "exposure_space", space)
+        if self.exposure.units != units or self.exposure.space != space:
+            raise RequestError("in-sample exposure metadata does not match the request")
+
+        direction = str(self.outcome_direction).strip().lower()
+        if direction not in {"lower", "higher"}:
+            raise RequestError("in-sample outcome_direction must be lower or higher")
+        object.__setattr__(self, "outcome_direction", direction)
+        if not isinstance(self.hard_computability, HardComputabilityLimits):
+            raise RequestError("in-sample hard_computability is invalid")
+        if self.subject_axis.count < self.hard_computability.n_subjects_min:
+            raise RequestError("in-sample subject axis does not meet n_subjects_min")
+
+        role = str(self.connectome_role).strip().lower()
+        if role not in {"none", "formal"}:
+            raise RequestError("in-sample connectome_role must be none or formal")
+        object.__setattr__(self, "connectome_role", role)
+        is_fiber = self.final_model.endpoint.model_family.endswith("fiber")
+        if is_fiber:
+            if role != "formal" or not isinstance(
+                self.fiber_score_settings,
+                NormativeFiberScoreSettings,
+            ):
+                raise RequestError(
+                    "normative-fiber in-sample requests require formal role and score settings"
+                )
+        elif role != "none" or self.fiber_score_settings is not None:
+            raise RequestError(
+                "direct-voxel in-sample requests require no connectome role or fiber settings"
+            )
+
+        adjusted = (
+            self.final_model.final_key.final_branch == "delta_reference_adjusted"
+        )
+        if adjusted:
+            if self.delta_reference_full is None:
+                raise RequestError(
+                    "adjusted in-sample inference requires full DeltaReferenceScore"
+                )
+            _artifact_input(self.delta_reference_full, "delta_reference_full")
+            _validate_vector(
+                self.delta_reference_full,
+                "delta_reference_full",
+                self.subject_axis,
+            )
+        elif self.delta_reference_full is not None:
+            raise RequestError(
+                "reference and no-delta in-sample requests cannot receive DeltaReferenceScore"
+            )
+
+        if type(self.resamples) is not int or self.resamples < 1:
+            raise RequestError("in-sample resamples must be a positive integer")
+        if type(self.seed) is not int:
+            raise RequestError("in-sample seed must be an integer")
+
+
+@dataclass(frozen=True)
 class FormalResult:
     """Technical formal evidence with no classification feedback fields."""
 
@@ -748,7 +882,7 @@ class FormalResult:
             _request_token(self.final_model_id, "final_model_id"),
         )
         kind = str(self.resampling_kind).strip().lower()
-        if kind not in {"permutation", "bootstrap"}:
+        if kind not in {"permutation", "bootstrap", "in_sample_permutation"}:
             raise RequestError("formal result has an unsupported resampling_kind")
         status = str(self.technical_status).strip().lower()
         if status not in {"completed", "completed_with_nonfinite_replicates"}:

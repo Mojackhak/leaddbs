@@ -684,9 +684,16 @@ def compile_sensitivity_extension_plan(
     """Return sensitivity targets bounded by completed direct checkpoint roots."""
 
     requested = tuple(dict.fromkeys(str(value).strip().lower() for value in analyses))
-    if not requested or any(value not in {"jitter", "oss"} for value in requested):
-        raise SensitivityCheckpointError("analyses must select jitter, oss, or both")
-    stages = {"jitter": "spatial_jitter", "oss": "activation_sensitivity"}
+    allowed = {"jitter", "oss", "final_in_sample"}
+    if not requested or any(value not in allowed for value in requested):
+        raise SensitivityCheckpointError(
+            "analyses must select jitter, oss, final_in_sample, or a combination"
+        )
+    stages = {
+        "jitter": "spatial_jitter",
+        "oss": "activation_sensitivity",
+        "final_in_sample": "formal_in_sample",
+    }
     endpoint_set = set(endpoint_ids)
     source_tasks = {task.task_id: task for task in full_plan.tasks}
     targets = [
@@ -700,18 +707,25 @@ def compile_sensitivity_extension_plan(
             raise SensitivityCheckpointError(
                 f"no realized final supports requested analysis {analysis!r}"
             )
-    extension_targets = {
-        task.task_id: replace(
-            task,
-            dependencies=tuple(
+    extension_targets: dict[str, TaskSpec] = {}
+    for task in targets:
+        dependencies = (
+            task.dependencies
+            if task.stage == "formal_in_sample"
+            else tuple(
                 dependency
                 for dependency in task.dependencies
                 if source_tasks[dependency].phase != "formal"
-            ),
-            gates=tuple(gate for gate in task.gates if gate.fact != "formal_complete"),
+            )
         )
-        for task in targets
-    }
+        extension_targets[task.task_id] = replace(
+            task,
+            phase="sensitivity",
+            dependencies=dependencies,
+            gates=tuple(
+                gate for gate in task.gates if gate.fact != "formal_complete"
+            ),
+        )
     target_ids = set(extension_targets)
     direct_parent_ids = {
         dependency
@@ -908,7 +922,7 @@ def compile_sensitivity_extension_plan(
         if task.task_id in extension_targets
     )
     selected = (*selected_roots, *block_tasks, *selected_targets)
-    if any(task.phase == "formal" for task in selected):
+    if any(task.phase == "formal" and not task.checkpoint_only for task in selected):
         raise SensitivityCheckpointError(
             "sensitivity extension closure cannot contain formal tasks"
         )

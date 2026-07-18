@@ -45,7 +45,9 @@ from ..contracts import (
     DeltaReferenceBundle,
     EndpointInputRecord,
     FormalRequest,
+    FormalResult,
     HardComputabilityLimits,
+    InSampleRequest,
     NormativeFiberScoreSettings,
     ObservedRequest,
     PreparedExposureRecord,
@@ -3392,6 +3394,134 @@ class StudyRuntimeInputProvider:
             feature_ids=feature_ids,
             fiber_score_settings=self._fiber_score_settings(endpoint),
             resamples=resamples,
+            seed=profile.seed,
+        )
+
+    def in_sample_request(
+        self,
+        final_model: FinalModelRecord,
+        endpoint_input: EndpointInputRecord,
+        prepared: PreparedExposureRecord,
+        loocv_formal_result: FormalResult,
+        *,
+        delta_reference: DeltaReferenceBundle | None = None,
+    ) -> InSampleRequest:
+        endpoint = self.endpoint(final_model.endpoint.identifier)
+        if (
+            final_model.endpoint != endpoint_input.endpoint
+            or final_model.endpoint != prepared.endpoint
+            or endpoint.key != final_model.endpoint
+        ):
+            raise RuntimeInputProviderError(
+                "in-sample final, endpoint input, prepared exposure, and catalog must match"
+            )
+        if endpoint_input.readiness_status != "ready":
+            raise RuntimeInputProviderError(
+                "in-sample request requires ready endpoint input"
+            )
+        if (
+            endpoint_input.subject_axis is None
+            or endpoint_input.baseline is None
+            or endpoint_input.outcome is None
+        ):
+            raise RuntimeInputProviderError(
+                "in-sample request requires complete endpoint input"
+            )
+        if prepared.subject_axis != endpoint_input.subject_axis:
+            raise RuntimeInputProviderError(
+                "in-sample prepared exposure uses a different subject axis"
+            )
+        if prepared.feature_ids is None:
+            raise RuntimeInputProviderError(
+                "in-sample prepared exposure lacks parent feature IDs"
+            )
+        if (
+            loocv_formal_result.resampling_kind != "permutation"
+            or loocv_formal_result.final_model_id != final_model.identifier
+        ):
+            raise RuntimeInputProviderError(
+                "in-sample request requires the matching LOOCV permutation result"
+            )
+
+        selected_source = final_model.selected_source
+        if selected_source is None and final_model.selected_branch is not None:
+            selected_source = final_model.selected_branch.source
+        if selected_source is None:
+            raise RuntimeInputProviderError(
+                "in-sample request requires a realized selected source"
+            )
+        is_fiber = endpoint.model_family.endswith("fiber")
+        prediction_kind = (
+            "normative_fiber_loocv_model_predictions"
+            if is_fiber
+            else "loocv_model_predictions"
+        )
+        baseline_kind = (
+            "normative_fiber_loocv_baseline_predictions"
+            if is_fiber
+            else "loocv_baseline_predictions"
+        )
+
+        def exactly_one_artifact(
+            artifacts: tuple[ArtifactRef, ...],
+            kind: str,
+        ) -> ArtifactRef:
+            matches = tuple(item for item in artifacts if item.kind == kind)
+            if len(matches) != 1:
+                raise RuntimeInputProviderError(
+                    f"in-sample request requires exactly one {kind!r} artifact"
+                )
+            return matches[0]
+
+        adjusted = (
+            final_model.final_key is not None
+            and final_model.final_key.final_branch == "delta_reference_adjusted"
+        )
+        if adjusted:
+            if delta_reference is None or not delta_reference.valid:
+                raise RuntimeInputProviderError(
+                    "adjusted in-sample request requires valid DeltaReferenceScore"
+                )
+            self._validate_delta_reference_axes(
+                delta_reference,
+                endpoint_input.subject_axis,
+            )
+
+        profile = self._profile(endpoint).formal_resampling
+        return InSampleRequest(
+            final_model=final_model,
+            exposure=prepared.exposure,
+            outcome=endpoint_input.outcome,
+            baseline=endpoint_input.baseline,
+            delta_reference_full=(
+                delta_reference.full_scores
+                if adjusted and delta_reference is not None
+                else None
+            ),
+            subject_axis=endpoint_input.subject_axis,
+            feature_axis=prepared.feature_axis,
+            feature_ids=prepared.feature_ids,
+            loocv_predictions=exactly_one_artifact(
+                selected_source.artifacts,
+                prediction_kind,
+            ),
+            loocv_baseline_predictions=exactly_one_artifact(
+                selected_source.artifacts,
+                baseline_kind,
+            ),
+            loocv_permutation_summary=exactly_one_artifact(
+                loocv_formal_result.artifacts,
+                "formal_permutation_summary",
+            ),
+            exposure_units="V/m",
+            exposure_space=self.study.spatial.canonical_space,
+            outcome_direction=endpoint.scale_direction,
+            hard_computability=self._hard_limits(endpoint),
+            connectome_role=endpoint.connectome_role,
+            fiber_score_settings=(
+                self._fiber_score_settings(endpoint) if is_fiber else None
+            ),
+            resamples=profile.permutation_resamples,
             seed=profile.seed,
         )
 

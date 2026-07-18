@@ -19,7 +19,11 @@ from ..backends.direct_voxel.addon import (
     AddonDirectVoxelDesignError,
 )
 from ..backends.direct_voxel.reference import ReferenceDirectVoxelBackend
-from ..backends.formal import DirectVoxelFormalBackend, NormativeFiberFormalBackend
+from ..backends.formal import (
+    DirectVoxelFormalBackend,
+    FinalInSampleBackend,
+    NormativeFiberFormalBackend,
+)
 from ..backends.interaction.branch_resolver import (
     ADJUSTED_BRANCH,
     NO_DELTA_BRANCH,
@@ -59,6 +63,7 @@ from ..contracts import (
     FinalModelKey,
     FinalModelRecord,
     FinalSelectionRecord,
+    FormalResult,
     NormativeFiberScoreSettings,
     ObservedRequest,
     ObservedResult,
@@ -913,6 +918,45 @@ def _run_formal(
     return ServiceResult.from_record(result, facts={"formal_complete": True})
 
 
+def _run_in_sample(
+    request: TaskExecutionRequest,
+    *,
+    model_family: str,
+) -> ServiceResult:
+    endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
+    prepared = _prepared_exposure_record(request, request.task.endpoint_id)
+    delta = _one_record(request, DeltaReferenceBundle, required=False)
+    selection = _final_selection(request)
+    loocv_results = tuple(
+        record
+        for record in _records(request, FormalResult)
+        if record.resampling_kind == "permutation"
+    )
+    if len(loocv_results) != 1:
+        raise ServiceAdapterError(
+            "final in-sample inference requires one matching LOOCV permutation result"
+        )
+    if selection.final_model.endpoint.model_family != model_family:
+        raise ServiceAdapterError("in-sample service model family does not match final")
+    method = getattr(request.provider, "in_sample_request", None)
+    if not callable(method):
+        raise ServiceAdapterCapabilityError(
+            "provider does not expose the typed in_sample_request capability"
+        )
+    in_sample_request = method(
+        selection.final_model,
+        endpoint_input,
+        prepared,
+        loocv_results[0],
+        delta_reference=delta,
+    )
+    result = FinalInSampleBackend(
+        _publisher(request),
+        artifact_store=_artifact_store(request),
+    ).run(in_sample_request)
+    return ServiceResult.from_record(result, facts={"formal_complete": True})
+
+
 def _selected_feature_indices(
     request: TaskExecutionRequest,
     final: FinalModelRecord,
@@ -1476,6 +1520,10 @@ PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
             resampling_kind="bootstrap",
         ),
     ),
+    (
+        "run_reference_voxel_formal_in_sample",
+        partial(_run_in_sample, model_family="reference_voxel"),
+    ),
     ("run_reference_voxel_jitter", _run_jitter),
     ("run_reference_voxel_source_neighborhood", _run_tau_neighborhood),
     ("validate_reference_fiber_input", _validate_endpoint_input),
@@ -1497,6 +1545,10 @@ PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
             model_family="reference_fiber",
             resampling_kind="bootstrap",
         ),
+    ),
+    (
+        "run_reference_fiber_formal_in_sample",
+        partial(_run_in_sample, model_family="reference_fiber"),
     ),
     (
         "run_reference_fiber_plain_control",
@@ -1534,6 +1586,10 @@ PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
             resampling_kind="bootstrap",
         ),
     ),
+    (
+        "run_addon_voxel_formal_in_sample",
+        partial(_run_in_sample, model_family="addon_voxel"),
+    ),
     ("run_addon_voxel_jitter", _run_jitter),
     ("run_addon_voxel_source_neighborhood", _run_tau_neighborhood),
     ("run_addon_voxel_additional_sensitivities", _addon_exposure_sensitivity),
@@ -1559,6 +1615,10 @@ PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
             model_family="addon_fiber",
             resampling_kind="bootstrap",
         ),
+    ),
+    (
+        "run_addon_fiber_formal_in_sample",
+        partial(_run_in_sample, model_family="addon_fiber"),
     ),
     ("run_addon_fiber_plain_burden_controls", _run_final_fiber_control),
     ("run_addon_fiber_cheap_sensitivity", _addon_exposure_sensitivity),

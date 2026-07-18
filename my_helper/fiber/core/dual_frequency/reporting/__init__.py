@@ -14,6 +14,11 @@ from .endpoint_summary import (
     build_final_decisions,
     final_decisions_document,
 )
+from .formal_in_sample import (
+    FormalInSampleReportingError,
+    build_formal_in_sample_results,
+    formal_in_sample_results_csv,
+)
 from .run_report import (
     build_report_documents,
     build_reporting_documents,
@@ -24,14 +29,17 @@ __all__ = [
     "ArtifactIndexError",
     "DECISION_STATUSES",
     "FinalDecisionRecord",
+    "FormalInSampleReportingError",
     "ReportingError",
     "aggregate_final_decisions",
     "build_artifact_index",
     "build_endpoint_summary",
     "build_final_decisions",
+    "build_formal_in_sample_results",
     "build_report_documents",
     "build_reporting_documents",
     "build_run_report",
     "final_decisions_document",
+    "formal_in_sample_results_csv",
     "record_artifact_closure",
 ]

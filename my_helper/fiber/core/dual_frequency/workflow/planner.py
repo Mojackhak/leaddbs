@@ -254,13 +254,23 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         dependencies=(readiness, resolver),
         output_record_type="FinalSelectionRecord",
     )
-    factory.add(
+    formal_permutation = factory.add(
         endpoint,
         stage="formal_permutation",
         round_id="round_4",
         phase="formal",
         service_id="run_reference_voxel_formal_permutation",
         dependencies=(readiness, prepare, final),
+        gates=(FINAL_REALIZED,),
+        output_record_type="FormalResult",
+    )
+    factory.add(
+        endpoint,
+        stage="formal_in_sample",
+        round_id="round_4",
+        phase="formal",
+        service_id="run_reference_voxel_formal_in_sample",
+        dependencies=(readiness, prepare, final, formal_permutation),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -352,6 +362,16 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         phase="formal",
         service_id="run_reference_fiber_formal_permutation",
         dependencies=(readiness, prepare, final),
+        gates=(FINAL_REALIZED,),
+        output_record_type="FormalResult",
+    )
+    factory.add(
+        endpoint,
+        stage="formal_in_sample",
+        round_id="round_6",
+        phase="formal",
+        service_id="run_reference_fiber_formal_in_sample",
+        dependencies=(readiness, prepare, final, formal_permutation),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -560,13 +580,23 @@ def _plan_addon_voxel(
         dependencies=(readiness, dependency, delta, no_delta, adjusted),
         output_record_type="FinalSelectionRecord",
     )
-    factory.add(
+    formal_permutation = factory.add(
         endpoint,
         stage="formal_permutation",
         round_id="round_4",
         phase="formal",
         service_id="run_addon_voxel_formal_permutation",
         dependencies=(readiness, prepare, delta, final),
+        gates=(FINAL_REALIZED,),
+        output_record_type="FormalResult",
+    )
+    factory.add(
+        endpoint,
+        stage="formal_in_sample",
+        round_id="round_4",
+        phase="formal",
+        service_id="run_addon_voxel_formal_in_sample",
+        dependencies=(readiness, prepare, delta, final, formal_permutation),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -734,6 +764,16 @@ def _plan_addon_fiber_formal(
         phase="formal",
         service_id="run_addon_fiber_formal_permutation",
         dependencies=(readiness, prepare, delta, final),
+        gates=(FINAL_REALIZED,),
+        output_record_type="FormalResult",
+    )
+    factory.add(
+        endpoint,
+        stage="formal_in_sample",
+        round_id="round_7",
+        phase="formal",
+        service_id="run_addon_fiber_formal_in_sample",
+        dependencies=(readiness, prepare, delta, final, formal_permutation),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )

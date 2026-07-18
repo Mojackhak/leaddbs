@@ -56,6 +56,7 @@ class PermutationComputation:
     observed_metrics: dict[str, float]
     null_statistics: np.ndarray
     p_plus_one_two_sided: float | None
+    permutation_schedule: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         null = np.array(self.null_statistics, dtype=np.float64, copy=True)
@@ -74,6 +75,20 @@ class PermutationComputation:
             raise FormalBackendError(
                 "a permutation null with attrition cannot carry an inferential p value"
             )
+        schedule = self.permutation_schedule
+        if schedule is not None:
+            schedule = np.array(schedule, dtype=np.int32, copy=True)
+            if schedule.ndim != 2 or schedule.shape[0] != null.size:
+                raise FormalBackendError(
+                    "permutation schedule must be replicate-by-subject"
+                )
+            expected = np.arange(schedule.shape[1], dtype=np.int32)
+            if np.any(np.sort(schedule, axis=1) != expected):
+                raise FormalBackendError(
+                    "every permutation schedule row must contain every subject once"
+                )
+            schedule.flags.writeable = False
+            object.__setattr__(self, "permutation_schedule", schedule)
         null.flags.writeable = False
         object.__setattr__(self, "null_statistics", null)
 
@@ -443,11 +458,34 @@ def build_bootstrap_nuisance_plan(
     return plan, rebuilt
 
 
+def residual_permutation_schedule(
+    subject_count: int,
+    count: int,
+    seed: int,
+) -> np.ndarray:
+    """Return the explicit PCG64 residual-permutation schedule contract."""
+
+    if type(subject_count) is not int or subject_count < 1:
+        raise FormalBackendInputError("subject_count must be a positive integer")
+    if type(count) is not int or count < 1:
+        raise FormalBackendInputError("permutation count must be a positive integer")
+    if type(seed) is not int:
+        raise FormalBackendInputError("permutation seed must be an integer")
+    generator = np.random.Generator(np.random.PCG64(seed))
+    schedule = np.empty((count, subject_count), dtype=np.int32)
+    for index in range(count):
+        schedule[index] = generator.permutation(subject_count)
+    schedule.flags.writeable = False
+    return schedule
+
+
 def freedman_lane_outcomes(
     outcome: np.ndarray,
     nuisance: np.ndarray,
     count: int,
     seed: int,
+    *,
+    schedule: np.ndarray | None = None,
 ) -> np.ndarray:
     """Generate fixed-nuisance Freedman-Lane outcomes in deterministic order."""
 
@@ -457,10 +495,21 @@ def freedman_lane_outcomes(
     beta, *_ = np.linalg.lstsq(design, outcome, rcond=None)
     fitted = design @ beta
     residual = outcome - fitted
-    generator = np.random.default_rng(seed)
+    indices = (
+        residual_permutation_schedule(outcome.size, count, seed)
+        if schedule is None
+        else np.asarray(schedule, dtype=np.int32)
+    )
+    if indices.shape != (count, outcome.size):
+        raise FormalBackendInputError(
+            "Freedman-Lane schedule does not match count and subject axis"
+        )
+    expected = np.arange(outcome.size, dtype=np.int32)
+    if np.any(np.sort(indices, axis=1) != expected):
+        raise FormalBackendInputError("Freedman-Lane schedule rows are invalid")
     output = np.empty((count, outcome.size), dtype=np.float64)
     for index in range(count):
-        output[index] = fitted + residual[generator.permutation(outcome.size)]
+        output[index] = fitted + residual[indices[index]]
     return output
 
 
@@ -789,6 +838,7 @@ __all__ = [
     "materialize_array",
     "plus_one_two_sided",
     "prediction_metrics",
+    "residual_permutation_schedule",
     "resample_axis",
     "validate_nuisance_plan",
 ]

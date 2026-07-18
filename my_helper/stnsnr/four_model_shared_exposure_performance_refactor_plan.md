@@ -1961,6 +1961,55 @@ The implementation checkpoint passes 417 dual-frequency tests and 224
 parameterized subtests, including the new add-on/reference union identity,
 missing-parent-ID failure, MATLAB process-limit, and resource-ledger cases.
 
+### Default final in-sample inference
+
+Every realized final model in formal scope has a required in-sample inference
+path. It is not a YAML option: the existing formal permutation count and
+resolved endpoint seed control both LOOCV and in-sample inference. The two
+paths share only outcome-independent inputs and a declared residual-permutation
+schedule. They never share one fitted model. In-sample fits on the complete
+subject axis; LOOCV independently refits every held-out fold.
+
+The v1 in-sample test is conditional on the realized final model. It locks the
+actual endpoint-specific tau, Coverage, branch, overlap exclusion, subject
+axis, prepared physical exposure, and canonical candidate feature IDs. It
+recomputes every outcome-dependent voxel/fiber weight, signed fiber library,
+weighted-peak selection, spatial score, benefit orientation, and regression
+coefficient for the observed outcome and every pseudo-outcome. The published
+conditioning label is
+`conditional_on_selected_tau_coverage_branch_and_candidate_axis`; it does not
+claim correction for source search, fallback, branch choice, or resolver
+selection.
+
+The primary statistic is Spearman rho between outcome and the full-sample
+fitted prediction. A paired report places in-sample and LOOCV Spearman,
+Pearson, nominal p, formal permutation p, standard R2, nuisance-relative R2 or
+Q2, RMSE, MAE, baseline error, and finite-result evidence on the same endpoint
+row. Adjusted R2 is forbidden because the outcome-derived feature-fitting path
+has no fixed interpretable effective degrees of freedom. Optimism gaps require
+identical outcome transform, subject ordering, and finite-subject masks.
+
+The report applies Benjamini-Hochberg correction to formal permutation p
+values within each 28-scale model family and across all 112 final endpoints.
+Nominal correlation p values remain descriptive. A small explicit residual-
+permutation schedule artifact binds subject order, resolved seed, RNG identity,
+contract version, and replicate count. A child of a historical run without
+that artifact cannot infer subject-index rows from its null-statistic vector
+alone and therefore reports an independent deterministic schedule. New runs
+claim a shared explicit schedule only when both schedule payload SHA values
+match.
+
+Initial persistence mirrors the current LOOCV implementation: one endpoint
+task publishes one complete null-statistic vector and resumes only at endpoint
+granularity. No fixed 250-replicate block is introduced. Future Task 17 formal
+sharding must shard LOOCV and in-sample together and independently refit both
+paths; it cannot reuse one path's fitted weights or predictions.
+
+The completed v8 formal lineage is not mutated. Its separately identified
+`final_in_sample` extension restores immutable final-model checkpoints and
+existing LOOCV evidence, computes only the in-sample path, and publishes the
+paired report. New main lineages include in-sample inference automatically.
+
 ### State-machine closure
 
 - Shared physical failure reaches every dependent endpoint deterministically.

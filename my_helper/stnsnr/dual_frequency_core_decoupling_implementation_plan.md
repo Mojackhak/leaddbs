@@ -3503,6 +3503,70 @@ and nuisance operators; apply overlap in chunks/views and release each jitter
 block after durable publication. Do not cache replicate-specific overlap,
 nuisance, support, or Delta state as invariant.
 
+- [ ] **Step 9A: Add default final in-sample inference and paired formal reporting**
+
+Add one `formal_in_sample` task for every realized final endpoint whenever
+formal permutation is planned. This is a required formal stage with no new
+YAML enable flag, block-size field, selection-scope field, or RNG field. It
+inherits the existing endpoint permutation count and resolved seed. Future
+main plans include the task automatically; the completed v8 parent is handled
+through the existing extension command with analysis name `final_in_sample`.
+
+Introduce a typed in-sample request that carries the full prepared exposure
+and canonical parent feature IDs rather than `final.valid_feature_axis`, which
+may contain an outcome-derived valid union. Reconstruct the outcome-independent
+candidate voxel or fiber mask from the actual selected tau, Coverage, branch,
+overlap rule, and prepared exposure. Publish and identity-bind the resulting
+candidate IDs. Fail closed if the source/final key, parent axis, candidate IDs,
+subject axis, or DeltaReference input does not match the inherited final model.
+
+Implement independent direct-voxel and normative-fiber full-sample kernels.
+For the observed outcome and every Freedman-Lane pseudo-outcome, refit weights,
+benefit orientation, full-sample score, and outcome regression. Fiber also
+reselects sweet, sour, and weighted-peak IDs every time. Do not call the LOOCV
+fit as a shortcut and do not reuse observed or fold-specific fitted state. The
+primary null statistic is Spearman rho between each pseudo-outcome and its
+own full-sample fitted prediction.
+
+Publish a compact residual-permutation index schedule with subject-axis ID,
+resolved seed, BitGenerator identity, RNG-contract version, requested count,
+and schedule digest. New main runs give both formal paths the same schedule but
+retain separate fits, and claim sharing only when both schedule payload SHA
+values match. The historical v8 parent has no schedule artifact, and its null
+statistics do not identify the subject-index rows. Its child therefore reports
+`independent_deterministic_schedule` without paired-replicate claims.
+
+The first implementation uses one endpoint task and one complete null array,
+matching current LOOCV persistence. It adds no 250-replicate block and no
+block-level resume. Valid completed endpoint JSON is reusable; failed,
+interrupted, malformed, or incomplete endpoints rerun in full. Later Step 9
+sharding may refactor both formal paths together only after the historical RNG
+and worker-invariance gates pass.
+
+Mirror the LOOCV report with in-sample Spearman rho and nominal p, Pearson r
+and nominal p, plus-one two-sided permutation p, standard R2, nuisance-relative
+R2, model and baseline RMSE/MAE, finite-subject evidence, finite-prediction
+evidence, and finite-permutation counts. Derive `loocv_r2` from inherited
+held-out predictions without refitting. Do not report adjusted R2. Emit
+Spearman, Pearson, standard-R2, nuisance-relative-R2/Q2, RMSE, and MAE optimism
+gaps only when both sides use the same transformed outcome, subject order, and
+finite mask.
+
+Apply Benjamini-Hochberg correction to complete formal raw permutation p values
+within each model family's 28 predeclared scales and across all 112 endpoints.
+Do not multiplicity-adjust nominal correlation p values in the primary report.
+If a predeclared correction family is incomplete, withhold that correction
+layer and report the missing endpoint IDs.
+
+Extend `SensitivityExtensionRequest`, extension-plan compilation, canonical
+extension publication, artifact indexing, and resume tests for
+`final_in_sample`. The extension rehydrates only immutable parent endpoint,
+prepared-exposure, final-model, DeltaReference, and formal-permutation roots;
+it does not rerun observed grids, resolver, final realization, LOOCV,
+bootstrap, jitter, OSS-DBS, or combined extensions. Record the conditioning
+label `conditional_on_selected_tau_coverage_branch_and_candidate_axis` in every
+endpoint summary and aggregate report.
+
 - [ ] **Step 10: Run numerical, reuse, resume, deletion-rebuild, and resource acceptance**
 
 Run cold/warm benchmarks for voxel, every connectome, formal, bootstrap, jitter,

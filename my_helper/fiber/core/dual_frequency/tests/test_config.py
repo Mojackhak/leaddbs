@@ -24,7 +24,7 @@ class ConfigTest(unittest.TestCase):
             WorkflowOverrides(all_available=True),
         )
         self.assertEqual(len(resolved.selected_scales), 28)
-        self.assertEqual(resolved.direct_voxel.direct_candidate_threshold_v_per_m, 100.0)
+        self.assertEqual(resolved.direct_voxel.direct_candidate_threshold_v_per_m, 150.0)
         self.assertEqual(resolved.normative_fiber.formal_connectome.role, "formal")
         self.assertEqual(
             resolved.normative_fiber.formal_connectome.connectome_id,
@@ -203,7 +203,7 @@ class ConfigTest(unittest.TestCase):
             WorkflowOverrides(all_available=True),
         )
         direct = self._yaml_document(CONFIG_ROOT / "direct_voxel_model.yaml")
-        direct["shared"]["source"]["scan"]["tau_v_per_m"][0] = 100.0
+        direct["shared"]["source"]["scan"]["tau_v_per_m"][0] = 150.0
         equivalent = self._load_modified_profiles(direct=direct)
         self.assertEqual(original.configuration_hash, equivalent.configuration_hash)
         self.assertEqual(

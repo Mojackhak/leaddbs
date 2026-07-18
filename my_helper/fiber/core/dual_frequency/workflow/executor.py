@@ -376,7 +376,12 @@ class _ResourceLedger:
             return _ResourceGrant(1, 16 * 1024**3, 1, 0)
         if task.stage == "activation_sensitivity":
             return _ResourceGrant(1, 8 * 1024**3, 1, 1)
-        if task.stage in {"formal_permutation", "formal_bootstrap", "spatial_jitter"}:
+        if task.stage in {
+            "formal_permutation",
+            "formal_bootstrap",
+            "formal_in_sample",
+            "spatial_jitter",
+        }:
             return _ResourceGrant(1, 2 * 1024**3, 0, 0)
         return _ResourceGrant(1, 512 * 1024**2, 0, 0)
 

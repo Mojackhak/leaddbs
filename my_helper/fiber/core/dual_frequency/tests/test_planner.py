@@ -52,6 +52,7 @@ class PlannerTest(unittest.TestCase):
             "final_realization",
             "formal_permutation",
             "formal_bootstrap",
+            "formal_in_sample",
             "activation_sensitivity",
             "spatial_jitter",
         }
@@ -236,11 +237,25 @@ class PlannerTest(unittest.TestCase):
                 reference.endpoint_id,
             )
 
+    def test_formal_in_sample_is_default_and_depends_on_endpoint_loocv(self) -> None:
+        _config, catalog, plan = self._plan()
+        for endpoint in catalog:
+            tasks = {
+                task.stage: task for task in plan.for_endpoint(endpoint.endpoint_id)
+            }
+            if not tasks or endpoint.connectome_role == "sensitive":
+                continue
+            in_sample = tasks["formal_in_sample"]
+            self.assertEqual(in_sample.phase, "formal")
+            self.assertIn(tasks["formal_permutation"].task_id, in_sample.dependencies)
+            self.assertIn(tasks["final_realization"].task_id, in_sample.dependencies)
+
     def test_downstream_scientific_tasks_receive_direct_typed_input_closure(self) -> None:
         _config, catalog, plan = self._plan()
         final_linked_stages = {
             "formal_permutation",
             "formal_bootstrap",
+            "formal_in_sample",
             "spatial_jitter",
             "selected_source_neighborhood",
             "activation_sensitivity",

@@ -796,3 +796,69 @@ draws. ODQ retained 7906 and 2094. FSS retained 7903 and 2097. PDQ39 retained
 The run manifest is completed with 1512 completed tasks, 224 final decisions,
 112 sensitivity bases, and 7468 indexed artifacts. No jitter, OSS-DBS, or
 combined extension task was planned or executed.
+
+## Decision 30: Add Default Final In-Sample Inference And Paired Reporting
+
+Every realized final model now requires an in-sample inference result whenever
+formal permutation inference is in scope. This behavior is part of the formal
+workflow contract and has no separate YAML enable switch. It inherits the
+endpoint's existing formal permutation count and resolved seed. The public
+configuration therefore remains unchanged.
+
+The in-sample path and the LOOCV path may share the subject ordering, prepared
+physical exposure, nuisance inputs, candidate definition, and a deterministic
+residual-permutation schedule. They must not share an outcome-dependent fit.
+For each observed or pseudo-outcome, in-sample inference fits once on the full
+subject axis, while LOOCV fits independently inside every held-out fold.
+
+The test is explicitly conditional on the realized final model. It locks the
+actual selected tau, Coverage, final branch, overlap exclusion, complete
+subject axis, prepared exposure, and outcome-independent candidate voxel or
+fiber IDs. It does not lock observed voxel weights, fiber weights, benefit
+orientation, sweet IDs, sour IDs, weighted-peak IDs, spatial scores, or final
+regression coefficients. Those values are recomputed under every
+pseudo-outcome. The result does not adjust for tau/Coverage search, fallback,
+branch selection, or source resolution and must carry the conditioning label
+`conditional_on_selected_tau_coverage_branch_and_candidate_axis`.
+
+The primary in-sample statistic is Spearman rho between the outcome and the
+full-sample fitted prediction. The report mirrors the existing LOOCV Spearman,
+Pearson, nominal-p, formal permutation-p, RMSE, MAE, baseline-error, and finite-
+result fields. It additionally reports standard in-sample and LOOCV R2 values
+against the outcome total sum of squares, and pairs the in-sample nuisance-
+relative R2 with the existing LOOCV Q2. No adjusted R2 is reported because the
+outcome-derived voxel/fiber fitting path has no fixed interpretable effective
+degrees of freedom. Paired optimism gaps are emitted only when both paths use
+the same transformed outcome, subject ordering, and finite-subject mask.
+
+Formal raw permutation p values receive two Benjamini-Hochberg corrections:
+one across the 28 scales in each model family and one across all 112 final
+endpoints. Nominal correlation p values remain descriptive and are not used in
+the primary multiplicity correction. A correction layer is published only
+when its complete predeclared raw-p family is available.
+
+A small explicit residual-permutation index artifact records the schedule,
+subject-axis identity, resolved seed, bit-generator identity, RNG-contract
+version, and requested count. The current v8 parent did not publish such an
+artifact, and its null-statistic vector does not independently reveal the
+underlying subject-index rows. The child therefore uses an independent
+deterministic schedule and reports `independent_deterministic_schedule`; it
+does not claim replicate-level pairing with the parent LOOCV null. New main
+lineages report `shared_explicit_schedule` only when both explicit schedule
+payload SHA values match.
+
+The first implementation deliberately matches current formal-permutation
+persistence: one endpoint task computes and atomically publishes its complete
+null vector. There is no public or internal fixed 250-replicate block contract.
+An interrupted endpoint reruns as a whole, while valid completed endpoint task
+JSON is reused. Task 17's future shared formal-sharding work may shard both
+LOOCV and in-sample paths together only after its historical-RNG parity and
+resume gates pass; this in-sample addition does not introduce one-sided
+sharding ahead of that work.
+
+The completed v8 parent remains immutable. A `final_in_sample` child extension
+rehydrates its final-model, endpoint-input, prepared-exposure, DeltaReference,
+and formal-permutation checkpoint roots, computes only the in-sample path, and
+builds a paired report from the inherited LOOCV evidence. Future main lineages
+schedule the same in-sample task automatically beside formal permutation and
+bootstrap.
