@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
+import h5py
 import matplotlib
 
 matplotlib.use("Agg")
@@ -12,11 +14,13 @@ import nibabel as nib
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.io import loadmat
 
 from my_helper.fiber.core.viz.artifacts import restore_voxel_vector_to_nifti
 from my_helper.fiber.core.viz.layout import build_figure_layout
 from my_helper.fiber.core.viz.model_fit import plot_in_sample_loocv_fit
 from my_helper.fiber.core.viz.postprocess import SCHEMA_VERSION, run_postprocess
+from my_helper.fiber.core.viz.scene_example_inputs import prepare_scene_example_input
 from my_helper.fiber.core.viz.spatial import plot_sweet_sour_slices
 
 
@@ -96,6 +100,141 @@ def _nifti_inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
         nib.save(nib.Nifti1Image(data.astype(np.float32), affine), path)
         paths.append(path)
     return tuple(paths)
+
+
+def _scene_example_run(tmp_path: Path) -> Path:
+    run_root = tmp_path / "run"
+    tasks = run_root / "tasks"
+    inputs = run_root / "inputs"
+    work = run_root / "work"
+    tasks.mkdir(parents=True)
+    inputs.mkdir()
+    work.mkdir()
+
+    shape = (5, 4, 3)
+    affine = np.eye(4)
+    affine[0, 3] = -2.0
+    brainmask = tmp_path / "brainmask.nii.gz"
+    nib.save(nib.Nifti1Image(np.ones(shape, dtype=np.float32), affine), brainmask)
+
+    connectome = tmp_path / "connectome.mat"
+    lengths = np.asarray([2, 2, 2, 2], dtype=np.float64)
+    coordinates = np.asarray(
+        [
+            [-2.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [-1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [2.0, 1.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
+    point_ids = np.repeat(np.arange(1, 5, dtype=np.float32), 2)
+    with h5py.File(connectome, "w") as handle:
+        handle.create_dataset("idx", data=lengths.reshape(1, -1))
+        handle.create_dataset(
+            "fibers", data=np.vstack((coordinates.T, point_ids.reshape(1, -1)))
+        )
+
+    study = {
+        "schema_version": "study_base_v1",
+        "study": {
+            "spot_model_sources": {
+                "canonical_space": "MNI152NLin2009bAsym",
+                "hemisphere_mapping": {"canonical_hemisphere": "R"},
+                "brainmask": {"path": str(brainmask)},
+                "connectomes": [
+                    {
+                        "connectome_id": "synthetic_connectome",
+                        "streamlines": {"path": str(connectome)},
+                    }
+                ],
+            }
+        },
+    }
+    (inputs / "study_base.json").write_text(json.dumps(study), encoding="utf-8")
+
+    def artifact(kind: str, path: Path) -> dict[str, object]:
+        return {
+            "kind": kind,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "uri": path.resolve().as_uri(),
+        }
+
+    voxel_work = work / "voxel"
+    voxel_work.mkdir()
+    voxel_positions = voxel_work / "positions.npy"
+    voxel_weights = voxel_work / "weights.npy"
+    np.save(voxel_positions, np.asarray([0, 5], dtype=np.int64))
+    np.save(voxel_weights, np.asarray([0.7, -0.5], dtype=np.float64))
+    voxel_final = {
+        "endpoint": {
+            "scale_id": "pdq39_score",
+            "model_family": "reference_voxel",
+            "connectome_id": "none",
+        },
+        "final_key": {
+            "endpoint_id": "endpoint_voxel",
+            "final_branch": "reference",
+            "selected_tau": 200.0,
+            "selected_coverage": 5,
+        },
+        "artifacts": [
+            artifact("selected_feature_indices", voxel_positions),
+            artifact("benefit_oriented_feature_weights", voxel_weights),
+        ],
+    }
+
+    fiber_work = work / "fiber"
+    fiber_work.mkdir()
+    valid_ids_path = fiber_work / "valid.npy"
+    fiber_weights_path = fiber_work / "weights.npy"
+    sweet_path = fiber_work / "sweet.npy"
+    sour_path = fiber_work / "sour.npy"
+    np.save(valid_ids_path, np.asarray([1, 2, 3, 4], dtype=np.int64))
+    np.save(fiber_weights_path, np.asarray([0.8, -0.6, 0.4, -0.2], dtype=np.float32))
+    np.save(sweet_path, np.asarray([1, 3], dtype=np.int64))
+    np.save(sour_path, np.asarray([2, 4], dtype=np.int64))
+    fiber_final = {
+        "endpoint": {
+            "scale_id": "pdq39_score",
+            "model_family": "reference_fiber",
+            "connectome_id": "synthetic_connectome",
+        },
+        "final_key": {
+            "endpoint_id": "endpoint_fiber",
+            "final_branch": "reference",
+            "selected_tau": 400.0,
+            "selected_coverage": 5,
+        },
+        "artifacts": [
+            artifact("normative_fiber_valid_union_ids", valid_ids_path),
+            artifact("benefit_oriented_fiber_weights", fiber_weights_path),
+            artifact("normative_fiber_sweet_selected_ids", sweet_path),
+            artifact("normative_fiber_sour_selected_ids", sour_path),
+        ],
+    }
+
+    for task_name, final_model in (
+        ("task_voxel.json", voxel_final),
+        ("task_fiber.json", fiber_final),
+    ):
+        task = {
+            "status": "completed",
+            "result": {
+                "output_record_type": "FinalSelectionRecord",
+                "payload": {
+                    "selection_status": "final_model_realized",
+                    "endpoint": final_model["endpoint"],
+                    "final_model": final_model,
+                },
+            },
+        }
+        (tasks / task_name).write_text(json.dumps(task), encoding="utf-8")
+    return run_root
 
 
 def test_layout_preserves_inner_boxsize() -> None:
@@ -232,6 +371,45 @@ def test_manifest_rejects_mismatched_endpoint_summary(tmp_path: Path) -> None:
     assert "does not match" in result["endpoints"][0]["error_message"]
 
 
+def test_scene_example_prepares_and_reuses_voxel_input(tmp_path: Path) -> None:
+    run_root = _scene_example_run(tmp_path)
+    first = prepare_scene_example_input(
+        run_root,
+        tmp_path / "outputs",
+        scale_id="pdq39_score",
+        model_family="reference_voxel",
+    )
+    second = prepare_scene_example_input(
+        run_root,
+        tmp_path / "outputs",
+        scale_id="pdq39_score",
+        model_family="reference_voxel",
+    )
+    assert first["input_path"] == second["input_path"]
+    assert first["selected_tau"] == 200.0
+    data = nib.load(first["input_path"]).get_fdata()
+    finite = data[np.isfinite(data)]
+    np.testing.assert_allclose(np.sort(finite), [-0.5, 0.7])
+
+
+def test_scene_example_prepares_selected_scored_fibers(tmp_path: Path) -> None:
+    run_root = _scene_example_run(tmp_path)
+    result = prepare_scene_example_input(
+        run_root,
+        tmp_path / "outputs",
+        scale_id="pdq39_score",
+        model_family="reference_fiber",
+    )
+    assert result["selected_tau"] == 400.0
+    assert result["details"]["sweet_fiber_count"] == 2
+    assert result["details"]["sour_fiber_count"] == 2
+    payload = loadmat(result["input_path"])
+    np.testing.assert_array_equal(payload["fiber_ids"].reshape(-1), [1, 2, 3, 4])
+    np.testing.assert_allclose(payload["scores"].reshape(-1), [0.8, -0.6, 0.4, -0.2])
+    np.testing.assert_array_equal(payload["idx"].reshape(-1), [2, 2, 2, 2])
+    assert payload["fibers"].shape == (8, 3)
+
+
 def test_legacy_matlab_visualization_functions_are_merged() -> None:
     viz_root = Path(__file__).resolve().parents[1]
     assert not (viz_root.parent / "visualization").exists()
@@ -240,6 +418,12 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
         "mh_fiber_open_scene.m",
         "mh_fiber_style_electrodes.m",
         "mh_viz_make_sweet_sour_scene.m",
+        "mh_viz_prepare_scene_example_input.m",
         "mh_viz_show_scored_fibers.m",
     ):
         assert (viz_root / name).is_file()
+    for name in (
+        "open_pdq39_reference_voxel_scene.m",
+        "open_pdq39_reference_fiber_scene.m",
+    ):
+        assert (viz_root / "examples" / name).is_file()
