@@ -2010,6 +2010,17 @@ The completed v8 formal lineage is not mutated. Its separately identified
 existing LOOCV evidence, computes only the in-sample path, and publishes the
 paired report. New main lineages include in-sample inference automatically.
 
+The first formal extension is complete at
+`task17-final-in-sample-v1-20260718`. It restored 504 read-only parent
+checkpoint tasks and completed 112 endpoint-level in-sample tasks, split into
+28 reference voxel, 28 add-on voxel, 28 reference fiber, and 28 add-on fiber
+results. All requested permutation statistics are finite; the paired report
+contains all nominal and formal p values, both R2 definitions, Q2, error,
+baseline error, and optimism gaps. Both model-family and all-endpoint BH layers
+are complete. Historical v8 schedule status is correctly independent for all
+endpoints. No fixed permutation block, jitter, OSS-DBS, observed, resolver,
+final, LOOCV, or bootstrap computation ran in this child.
+
 ### State-machine closure
 
 - Shared physical failure reaches every dependent endpoint deterministically.

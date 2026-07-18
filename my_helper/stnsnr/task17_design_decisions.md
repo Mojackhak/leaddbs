@@ -862,3 +862,15 @@ and formal-permutation checkpoint roots, computes only the in-sample path, and
 builds a paired report from the inherited LOOCV evidence. Future main lineages
 schedule the same in-sample task automatically beside formal permutation and
 bootstrap.
+
+The implementation and formal v8 child are accepted. The complete generic
+dual-frequency suite passed 459 tests and 239 subtests. The first child startup
+restored all parent checkpoints but failed before numerical work on one shared
+production-record field lookup; the typed-key repair has a dedicated
+production-provider regression. Endpoint-level resume then restored the same
+504 checkpoint roots and completed all 112 new endpoint tasks with fourteen
+workers. Every endpoint produced 10000 finite in-sample permutation statistics,
+paired metrics, an explicit schedule, and a summary. Both 28-scale family BH
+layers and both 112-endpoint BH layers completed. The child contains no jitter,
+OSS-DBS, bootstrap, observed-grid, source-resolver, or final-realization
+execution.

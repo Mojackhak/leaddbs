@@ -3503,7 +3503,7 @@ and nuisance operators; apply overlap in chunks/views and release each jitter
 block after durable publication. Do not cache replicate-specific overlap,
 nuisance, support, or Delta state as invariant.
 
-- [ ] **Step 9A: Add default final in-sample inference and paired formal reporting**
+- [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 
 Add one `formal_in_sample` task for every realized final endpoint whenever
 formal permutation is planned. This is a required formal stage with no new
@@ -3573,6 +3573,25 @@ provider read model family directly from `EndpointRecord` instead of its typed
 `EndpointKey`. The repair changes only that record-field lookup to
 `endpoint.key.model_family`. Resume must retain all restored checkpoints and
 rerun only the 112 failed in-sample endpoint tasks.
+
+The corrected resume completed the formal child
+`task17-final-in-sample-v1-20260718`. All 616 child-plan tasks are completed:
+504 immutable parent checkpoints were restored and 112 in-sample endpoint
+tasks completed, with 28 endpoints in each of the four model families. Every
+endpoint retained all 10000 requested permutation statistics. All subject
+masks match their paired LOOCV results, and all required correlation, nominal
+p, formal p, standard R2, relative R2 or Q2, error, baseline-error, and optimism
+fields are finite. Both predeclared Benjamini-Hochberg layers completed for
+in-sample and LOOCV raw permutation p values. The historical parent lacks an
+explicit schedule, so all 112 results correctly report
+`independent_deterministic_schedule`.
+
+The child publishes `sensitivity_results/final_in_sample_results.json` with
+112 rows and `sensitivity_results/final_in_sample_results.csv` with one header
+plus 112 rows. Its artifact index contains 112 endpoint summaries, 112 explicit
+schedule arrays, and 112 in-sample null arrays. The extension manifest is
+completed with no failed endpoint. The recorded parent-manifest SHA still
+matches the current parent manifest after execution.
 
 - [ ] **Step 10: Run numerical, reuse, resume, deletion-rebuild, and resource acceptance**
 
