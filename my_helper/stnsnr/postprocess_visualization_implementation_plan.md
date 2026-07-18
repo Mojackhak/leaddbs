@@ -103,6 +103,17 @@ The postprocessor restores model vectors to the canonical NIfTI grid.
 Non-covered and non-modelled voxels are written as `NaN`. Coverage maps and
 binary masks may use zero outside their support.
 
+The primary 3D voxel source is the restored signed full-sample weight NIfTI.
+Its surface rendering uses the migrated MyLFP `default_nifti2patch_config` and
+`default_plot_patch_config` contracts: mask geometry, inside-only scalar
+sampling, the `vik` diverging colormap, symmetric color limits, gray missing
+data, the reference texture-lighting profile, and a right-side colorbar at the
+reference position. Sweet and sour binary NIfTIs remain optional selection-mask
+overlays; they do not replace the signed heatmap or its colorbar.
+The `vik` colormap applies only to the statistical voxel surface. Anatomy
+slices are frozen as grayscale truecolor textures and therefore remain
+independent of the statistical axes colormap and color limits.
+
 ### Fiber spatial input
 
 A normative-fiber visualization item contains:
@@ -117,7 +128,12 @@ bootstrap selection frequencies when available
 ```
 
 The 3D renderer consumes geometry resolved from the declared connectome and
-colors sweet and sour fibers separately. The 2D renderer consumes derived
+colors each fiber from its signed full-sample score. Its resolved MAT input
+contains concatenated Lead-DBS `fibers`, one point-count entry in `idx` per
+fiber, and one finite-or-NaN `scores` entry per fiber in exactly the same order.
+Finite scores use `vik` with symmetric limits around zero, so positive sweet
+and negative sour effects share one scale and zero maps to the neutral center.
+The fiber colorbar reports that score scale. The 2D renderer consumes derived
 sweet and sour fiber-density NIfTIs generated on an explicit reference grid.
 The density NIfTIs must retain connectome identity, selected fiber ID hash,
 reference-grid identity, and density normalization in their sidecar metadata.
@@ -201,10 +217,25 @@ The Python renderer:
 The MATLAB renderer:
 
 - creates the base viewer with `ea_mnifigure()`;
-- renders voxel sweet/sour NIfTIs as separate surface objects;
-- renders fiber sweet/sour geometry as separate line objects;
+- renders the signed voxel NIfTI through the migrated MyLFP heatmap pipeline
+  with symmetric `vik` colors and the reference right-side colorbar;
+- may render voxel sweet/sour binary NIfTIs as separate optional overlays;
+- renders resolved fiber geometry with one full-sample score per fiber and maps
+  those scores through a symmetric `vik` scale instead of fixed sweet/sour
+  colors;
+- shows a right-side fiber-score colorbar when the scene is fiber-only;
+- colors the R, A, and S orientation arrows with `#F2000E`, `#0E6AAF`, and
+  `#0CA228`, respectively, while all geometry, head size, line width, label,
+  location, camera-following, and inset-axis settings come unchanged from the
+  migrated MyLFP `default_plot_patch_config` and `ea_add_ras_triad` code;
 - retains Lead-DBS anatomy, camera, atlas, RAS orientation, transparent export,
   and spin-export helpers from the migrated MyLFP surface code;
+- exports PNG and PDF through the repository-local migrated
+  `ea_export_figure_transparent` module; PDF uses that module's `mixed` mode so
+  the 3D scene is rasterized without vector surface seams while the colorbar
+  and its text remain vector objects; Greek-symbol handling, base font,
+  fallback fonts, colorbar font sizes, and text interpreters come from the
+  migrated MyLFP `default_plot_patch_config` contract;
 - assigns stable tags and user data so sweet, sour, voxel, fiber, and anatomy
   objects remain independently controllable;
 - exports a `.fig` scene plus requested static views.
@@ -243,6 +274,7 @@ postprocess/
         sections.pdf
         scene.fig
         scene.png
+        scene.pdf
       fiber/
         sweet_fibers.mat
         sour_fibers.mat
@@ -252,6 +284,7 @@ postprocess/
         sections.pdf
         scene.fig
         scene.png
+        scene.pdf
       spatial_manifest.json
     statistics/
       predictions.csv
@@ -360,5 +393,14 @@ Validation completed on 2026-07-18:
   `mh_viz_make_sweet_sour_scene` entry point under `core/viz`;
 - MATLAB Code Analyzer reported no issue for the new scene wrapper;
 - noninteractive synthetic voxel and fiber scenes exported successfully;
+- synthetic signed-voxel validation confirmed a symmetric `vik` scale, the
+  reference right-side colorbar, grayscale truecolor anatomy slices, and the
+  requested R/A/S colors without changing reference arrow style parameters;
+- synthetic scored-fiber validation confirmed one `scores` value per fiber,
+  symmetric `vik` mapping, true score ticks, and an independent right-side
+  colorbar that does not recolor anatomy slices;
+- PNG and mixed-mode PDF exports were visually reviewed after rendering the PDF
+  pages with Poppler; the PDFs contain embedded Arial text and no vector surface
+  seams;
 - synthetic Boxsize-driven 2D sections and paired in-sample/LOOCV plots were
   exported and visually reviewed.

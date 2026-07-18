@@ -240,5 +240,6 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
         "mh_fiber_open_scene.m",
         "mh_fiber_style_electrodes.m",
         "mh_viz_make_sweet_sour_scene.m",
+        "mh_viz_show_scored_fibers.m",
     ):
         assert (viz_root / name).is_file()
