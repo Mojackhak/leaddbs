@@ -51,6 +51,30 @@ def test_optional_fixed_seedwide_streamlines_is_resolved_and_bounded(
         resolve_config(document, source_path=tmp_path / "invalid.yaml")
 
 
+def test_cache_cleanup_defaults_true_and_can_be_disabled(tmp_path: Path) -> None:
+    defaulted = resolve_config(
+        minimal_document(tmp_path), source_path=tmp_path / "default.yaml"
+    )
+    assert defaulted.execution.cleanup_work_cache_after_success is True
+    assert (
+        defaulted.resolved_mapping["execution"][
+            "cleanup_work_cache_after_success"
+        ]
+        is True
+    )
+
+    document = minimal_document(tmp_path)
+    document["execution"]["cleanup_work_cache_after_success"] = False
+    disabled = resolve_config(document, source_path=tmp_path / "disabled.yaml")
+    assert disabled.execution.cleanup_work_cache_after_success is False
+    assert (
+        disabled.resolved_mapping["execution"][
+            "cleanup_work_cache_after_success"
+        ]
+        is False
+    )
+
+
 def test_duplicate_subject_id_and_directory_are_rejected(tmp_path: Path) -> None:
     document = minimal_document(tmp_path, subject_count=2)
     document["subjects"][1]["id"] = document["subjects"][0]["id"]

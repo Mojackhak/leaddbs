@@ -6,9 +6,13 @@ import hashlib
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from ..classification import build_target_lookup, classify_streamlines
 from ..config import resolve_config
+from ..errors import ValidationError
+from ..identity import file_sha256
+from ..models import ToolIdentity
 from ..tck import validate_tck, write_concatenated_tck, write_selected_tck
 from ..tracking import (
     build_tckgen_command,
@@ -16,6 +20,8 @@ from ..tracking import (
     derive_chunk_rng_seed,
     generation_complete,
     next_chunk_request,
+    preparation_artifact_set,
+    seedwide_identity,
     source_tracking_mask_path,
 )
 from .helpers import minimal_document, write_nifti
@@ -118,3 +124,86 @@ def test_tracking_uses_validated_source_nifti_instead_of_redundant_mif(
         }
     }
     assert source_tracking_mask_path(preparation) == source
+
+
+def _preparation_with_fod(tmp_path: Path, fod_bytes: bytes) -> dict:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    paths = {
+        "wm_fod": tmp_path / "wm_fod.mif",
+        "brain_mask_mif": tmp_path / "brainmask.mif",
+        "response_wm": tmp_path / "response_wm.txt",
+    }
+    paths["wm_fod"].write_bytes(fod_bytes)
+    paths["brain_mask_mif"].write_bytes(b"brain")
+    paths["response_wm"].write_bytes(b"response")
+    tracking_mask = tmp_path / "trackingmask.nii"
+    tracking_mask.write_bytes(b"tracking")
+    return {
+        "preparation_identity": "same-logical-preparation",
+        "artifacts": {
+            name: {"path": str(path), "sha256": file_sha256(path)}
+            for name, path in paths.items()
+        },
+        "identity_document": {
+            "inputs": {
+                "tracking_mask": {
+                    "path": str(tracking_mask),
+                    "sha256": file_sha256(tracking_mask),
+                }
+            }
+        },
+    }
+
+
+def test_seedwide_identity_binds_exact_preparation_artifact_bytes(
+    tmp_path: Path,
+) -> None:
+    config = resolve_config(
+        minimal_document(tmp_path), source_path=tmp_path / "config.yaml"
+    )
+    seed = config.atlas.seeds[0]
+    seed_record = {
+        "path": str(tmp_path / "seed.nii.gz"),
+        "hash": "seed-hash",
+        "targets": [
+            {
+                "key": "lh/Target",
+                "path": str(tmp_path / "target.nii.gz"),
+                "hash": "target-hash",
+            }
+        ],
+    }
+    tools = {
+        "tckgen": ToolIdentity("tckgen", Path("/bin/true"), "3.0"),
+        "tckinfo": ToolIdentity("tckinfo", Path("/bin/true"), "3.0"),
+    }
+    first_preparation = _preparation_with_fod(tmp_path / "first", b"fod-a")
+    second_preparation = _preparation_with_fod(tmp_path / "second", b"fod-b")
+    first_identity, first_document = seedwide_identity(
+        config,
+        "sub-001",
+        first_preparation,
+        seed,
+        seed_record,
+        tools,
+        "tracking-code",
+    )
+    second_identity, second_document = seedwide_identity(
+        config,
+        "sub-001",
+        second_preparation,
+        seed,
+        seed_record,
+        tools,
+        "tracking-code",
+    )
+    assert first_identity != second_identity
+    assert first_document["identity_version"] == 2
+    assert (
+        first_document["preparation_artifact_set_hash"]
+        != second_document["preparation_artifact_set_hash"]
+    )
+
+    Path(first_preparation["artifacts"]["wm_fod"]["path"]).write_bytes(b"changed")
+    with pytest.raises(ValidationError, match="no longer matches"):
+        preparation_artifact_set(first_preparation)

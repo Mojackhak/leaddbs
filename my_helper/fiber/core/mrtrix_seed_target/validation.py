@@ -111,6 +111,7 @@ def _layer_paths(repo_root: Path, layer: str) -> tuple[Path, ...]:
         },
         "publication": shared
         | {
+            "cache_cleanup.py",
             "cli.py",
             "pipeline.py",
             "publication.py",

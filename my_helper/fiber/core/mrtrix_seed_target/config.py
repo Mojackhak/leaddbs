@@ -245,6 +245,9 @@ def resolve_config(
                     "maximum_seedwide_streamlines",
                 )
             },
+            "cleanup_work_cache_after_success": bool(
+                execution_document.get("cleanup_work_cache_after_success", True)
+            ),
             "matlab_executable": str(
                 _resolve_path(str(execution_document["matlab_executable"]), base_dir)
             ),
@@ -298,6 +301,9 @@ def resolve_config(
         ),
         maximum_seedwide_streamlines=int(
             execution_document["maximum_seedwide_streamlines"]
+        ),
+        cleanup_work_cache_after_success=bool(
+            execution_document.get("cleanup_work_cache_after_success", True)
         ),
         matlab_executable=_resolve_path(
             str(execution_document["matlab_executable"]), base_dir

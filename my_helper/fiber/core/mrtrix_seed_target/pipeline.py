@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 from typing import Any, Callable, Iterator, Mapping
 
+from .cache_cleanup import cleanup_batch_work_caches
 from .config import load_config
 from .errors import MrtrixSeedTargetError, PublicationError
 from .identity import file_sha256
@@ -236,6 +237,20 @@ def run_batch(
             emit(f"[{subject.subject_id}] terminal status: {result['status']}")
     ordered = [results_by_id[subject.subject_id] for subject in validation.subjects]
     failed = [result for result in ordered if result["status"] not in {"complete"}]
+    cleanup: dict[str, Any] = {
+        "requested": validation.config.execution.cleanup_work_cache_after_success,
+        "status": "not_run_batch_incomplete" if failed else "pending",
+        "subjects": [],
+        "warnings": [],
+    }
+    if not failed:
+        cleanup = cleanup_batch_work_caches(validation, progress=emit)
+        cleanup_by_subject = {
+            item["subject_id"]: item for item in cleanup["subjects"]
+        }
+        for result in ordered:
+            result["cache_cleanup"] = cleanup_by_subject[result["subject_id"]]
+    warnings = [*validation.warnings, *cleanup.get("warnings", [])]
     return {
         "status": "complete" if not failed else "partial_failure",
         "configuration_hash": validation.config.configuration_hash,
@@ -244,7 +259,8 @@ def run_batch(
         "completed_subjects": len(ordered) - len(failed),
         "failed_subjects": len(failed),
         "resource_usage": resources.report(),
-        "warnings": list(validation.warnings),
+        "cache_cleanup": cleanup,
+        "warnings": warnings,
     }
 
 
@@ -313,6 +329,7 @@ def status_batch(path: Path | str) -> dict[str, Any]:
                 "artifact_count": len(state.get("published_artifacts", [])),
                 "artifact_errors": artifact_errors,
                 "cleanup_pending": state.get("cleanup_pending", []),
+                "cache_cleanup": state.get("cache_cleanup", {}),
             }
         )
     valid_statuses = {"complete"}

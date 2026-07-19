@@ -68,6 +68,7 @@ class ExecutionConfig:
     seedwide_memory_reservation_gb: float
     generation_chunk_streamlines: int
     maximum_seedwide_streamlines: int
+    cleanup_work_cache_after_success: bool
     matlab_executable: Path
     mrtrix_path_prefix: Path | None
 

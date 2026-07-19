@@ -128,6 +128,42 @@ def source_tracking_mask_path(preparation: Mapping[str, Any]) -> Path:
     return path
 
 
+def preparation_artifact_set(
+    preparation: Mapping[str, Any],
+) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Return a verified content identity for tracking preparation artifacts."""
+
+    artifact_names = ("wm_fod", "brain_mask_mif", "response_wm")
+    records: dict[str, dict[str, Any]] = {}
+    try:
+        artifacts = preparation["artifacts"]
+        for name in artifact_names:
+            record = artifacts[name]
+            path = Path(record["path"])
+            expected_hash = str(record["sha256"])
+            if not path.is_file() or file_sha256(path) != expected_hash:
+                raise ValidationError(
+                    f"preparation artifact no longer matches its manifest: {path}"
+                )
+            records[name] = {
+                "path": str(path),
+                "sha256": expected_hash,
+                "size_bytes": int(path.stat().st_size),
+            }
+        tracking_record = preparation["identity_document"]["inputs"]["tracking_mask"]
+        tracking_mask = source_tracking_mask_path(preparation)
+        records["tracking_mask"] = {
+            "path": str(tracking_mask),
+            "sha256": str(tracking_record["sha256"]),
+            "size_bytes": int(tracking_mask.stat().st_size),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValidationError(
+            "prepared subject lacks complete tracking artifact provenance"
+        ) from exc
+    return canonical_hash(records), records
+
+
 def seedwide_identity(
     config: BatchConfig,
     subject_id: str,
@@ -139,10 +175,14 @@ def seedwide_identity(
 ) -> tuple[str, dict[str, Any]]:
     """Return the scientific identity for one subject and seed side."""
 
+    artifact_set_hash, artifact_records = preparation_artifact_set(preparation)
+
     document = {
-        "identity_version": 1,
+        "identity_version": 2,
         "subject_id": subject_id,
         "preparation_identity": preparation["preparation_identity"],
+        "preparation_artifact_set_hash": artifact_set_hash,
+        "preparation_artifacts": artifact_records,
         "seed": {
             "key": seed.key,
             "path": seed_record["path"],
@@ -199,11 +239,17 @@ def _load_membership(path: Path, expected_shape: tuple[int, int]) -> np.ndarray:
 def _verify_chunk(
     record: Mapping[str, Any],
     expected_identity: str,
+    expected_preparation_artifact_set_hash: str,
     target_count: int,
     tckinfo_executable: Path,
 ) -> bool:
     try:
         if record.get("status") != "complete" or record.get("identity") != expected_identity:
+            return False
+        if (
+            record.get("preparation_artifact_set_hash")
+            != expected_preparation_artifact_set_hash
+        ):
             return False
         actual = int(record["actual_streamlines"])
         chunk_path = Path(record["path"])
@@ -268,6 +314,7 @@ def _verify_outputs(
 
 def _chunk_identity(
     identity: str,
+    preparation_artifact_set_hash: str,
     index: int,
     requested: int,
     rng_seed: int,
@@ -275,6 +322,7 @@ def _chunk_identity(
     return canonical_hash(
         {
             "seedwide_identity": identity,
+            "preparation_artifact_set_hash": preparation_artifact_set_hash,
             "chunk_index": index,
             "requested_streamlines": requested,
             "rng_seed": rng_seed,
@@ -288,6 +336,7 @@ def _generate_chunk(
     subject_id: str,
     seed: SeedSpec,
     identity: str,
+    preparation_artifact_set_hash: str,
     index: int,
     requested: int,
     rng_seed: int,
@@ -370,7 +419,14 @@ def _generate_chunk(
     inflight.replace(completed)
     return {
         "status": "complete",
-        "identity": _chunk_identity(identity, index, requested, rng_seed),
+        "identity": _chunk_identity(
+            identity,
+            preparation_artifact_set_hash,
+            index,
+            requested,
+            rng_seed,
+        ),
+        "preparation_artifact_set_hash": preparation_artifact_set_hash,
         "index": index,
         "requested_streamlines": requested,
         "actual_streamlines": actual,
@@ -470,6 +526,9 @@ def run_seedwide(
         tools,
         code_hash,
     )
+    preparation_artifact_set_hash = str(
+        identity_document["preparation_artifact_set_hash"]
+    )
     seed_work = work_root / "seedwide" / seed.side / seed.roi_id / identity
     state_path = seed_work / "seed_state.json"
     state = read_json(state_path, default={})
@@ -515,10 +574,17 @@ def run_seedwide(
             seed.key,
             index,
         )
-        expected_identity = _chunk_identity(identity, index, requested, rng_seed)
+        expected_identity = _chunk_identity(
+            identity,
+            preparation_artifact_set_hash,
+            index,
+            requested,
+            rng_seed,
+        )
         if not _verify_chunk(
             record,
             expected_identity,
+            preparation_artifact_set_hash,
             len(seed.targets),
             tools["tckinfo"].executable,
         ):
@@ -566,6 +632,7 @@ def run_seedwide(
             subject_id=subject_id,
             seed=seed,
             identity=identity,
+            preparation_artifact_set_hash=preparation_artifact_set_hash,
             index=index,
             requested=requested,
             rng_seed=rng_seed,

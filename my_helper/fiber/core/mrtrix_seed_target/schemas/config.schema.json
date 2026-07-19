@@ -78,6 +78,7 @@
         "seedwide_memory_reservation_gb": {"type": "number", "exclusiveMinimum": 0},
         "generation_chunk_streamlines": {"type": "integer", "minimum": 1},
         "maximum_seedwide_streamlines": {"type": "integer", "minimum": 1},
+        "cleanup_work_cache_after_success": {"type": "boolean", "default": true},
         "matlab_executable": {"type": "string", "minLength": 1},
         "mrtrix_path_prefix": {"type": "string"}
       }

@@ -9,6 +9,7 @@ real_data_test_gate_passed
 formal_execution_resumed_seven_subject_batch_running
 fixed_seedwide_sampling_approved_for_all_subject_rerun
 fixed_seedwide_sampling_implementation_complete
+seed42_rerun_integrity_hardening_in_progress
 ```
 
 This document is the authoritative implementation and execution contract for
@@ -37,6 +38,10 @@ The implementation sequence is mandatory:
 
 The formal run must not start after a failed, interrupted, undercovered, or
 ambiguous test run.
+
+The approved seed-42 rerun, pre-rerun archival gate, exact preparation-artifact
+identity binding, and post-success cache cleanup contract are specified in
+`docs/superpowers/specs/2026-07-19-mrtrix-seed42-rerun-integrity-design.md`.
 
 ## Public Interfaces
 
@@ -236,9 +241,28 @@ execution:
   seedwide_memory_reservation_gb: 2
   generation_chunk_streamlines: 50000
   maximum_seedwide_streamlines: 100000000
+  cleanup_work_cache_after_success: true
   matlab_executable: /Applications/MATLAB_R2024b.app/bin/matlab
   mrtrix_path_prefix: /usr/local/bin
 ```
+
+`cleanup_work_cache_after_success` is optional and defaults to `true`. It is
+written explicitly to resolved configuration but is operational rather than
+scientific identity. Cleanup occurs only after the entire configured batch is
+complete and all public artifacts have passed hash and structural validation.
+Partial failure, coverage failure, interruption, or verification failure
+preserves all preparation, seed-wide, staging, and rollback caches. Successful
+cleanup moves only these tool-owned cache directories to platform Trash:
+
+```text
+work/preparations
+work/seedwide
+work/staging
+work/rollback
+```
+
+Public tractograms plus `work/state.json`, `work/configs`, and `work/run.lock`
+remain in place. Cleanup status and any pending paths are recorded in state.
 
 The real-data test YAML differs by using two subjects, two targets per seed,
 and `maximum_seedwide_streamlines: 50000`. Its one generated batch is therefore
@@ -476,6 +500,12 @@ non-scientific publication behavior changes.
 
 Although chunk and maximum sizes appear under `execution`, they affect the
 sampled scientific result and therefore enter seed-wide identity.
+
+The FOD reference in seed-wide identity is content-bound. The identity document
+must include the completed preparation artifact hashes for `wm_fod.mif`,
+`brainmask.mif`, `response_wm.txt`, and the tracking mask consumed by `tckgen`.
+Chunk identity and reuse verification bind the canonical hash of this artifact
+set. A path or preparation identity string alone is insufficient for reuse.
 
 Every external producer writes to an inflight path. A file is reusable only
 after its process exits zero, structural validation succeeds, its hash and
