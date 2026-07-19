@@ -6,9 +6,11 @@ import dataclasses
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
+from dual_frequency.backends.direct_voxel import kernel as direct_kernel
 from dual_frequency.backends.direct_voxel import (
     AddonDirectVoxelBackend,
     AddonDirectVoxelDesignError,
@@ -208,6 +210,42 @@ class AddonNuisancePlanTest(unittest.TestCase):
 
 
 class AddonDirectVoxelBackendTest(unittest.TestCase):
+    def test_adjusted_backend_reuses_tau_operators_and_baseline_predictions(
+        self,
+    ) -> None:
+        request = _request(ADJUSTED)
+        original_prediction = direct_kernel.linear_prediction
+        original_operator = direct_kernel._build_tau_operator
+        with tempfile.TemporaryDirectory() as temporary:
+            backend = AddonDirectVoxelBackend(
+                _publisher(Path(temporary) / "adjusted", ADJUSTED)
+            )
+            with (
+                mock.patch.object(
+                    direct_kernel,
+                    "linear_prediction",
+                    wraps=original_prediction,
+                ) as predict,
+                mock.patch.object(
+                    direct_kernel,
+                    "_build_tau_operator",
+                    wraps=original_operator,
+                ) as build_operator,
+            ):
+                result = backend.run(request)
+
+        baseline_calls = [call for call in predict.call_args_list if call.args[1] is None]
+        self.assertIsNotNone(result.source)
+        self.assertEqual(len(baseline_calls), request.subject_axis.count)
+        self.assertEqual(
+            build_operator.call_count,
+            len(set(request.source_grid.tau_values)),
+        )
+        self.assertEqual(
+            [float(call.args[1]) for call in build_operator.call_args_list],
+            list(request.source_grid.tau_values),
+        )
+
     def test_adjusted_branch_accepts_axis_validated_artifact_inputs(self) -> None:
         request = _request(ADJUSTED)
         exposure, outcome, reference, delta, fold_delta = _fixture()

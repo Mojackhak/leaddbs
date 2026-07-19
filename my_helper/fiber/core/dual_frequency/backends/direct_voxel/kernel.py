@@ -281,6 +281,129 @@ def _empty_metrics(
     )
 
 
+def _baseline_loocv_predictions(
+    outcome: np.ndarray,
+    nuisance_plan: NuisancePlan,
+) -> np.ndarray:
+    predictions = np.full(outcome.size, np.nan, dtype=np.float64)
+    all_subjects = np.arange(outcome.size)
+    for heldout in range(outcome.size):
+        train = np.delete(all_subjects, heldout)
+        prediction, _ = linear_prediction(
+            outcome[train],
+            None,
+            nuisance_plan.fold_covariates[heldout, train],
+            None,
+            nuisance_plan.fold_covariates[heldout, [heldout]],
+        )
+        predictions[heldout] = prediction[0]
+    predictions.flags.writeable = False
+    return predictions
+
+
+def _build_tau_operator(
+    exposure: np.ndarray,
+    tau: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    suprathreshold = np.asarray(exposure >= tau, dtype=bool)
+    full_coverage = suprathreshold.sum(axis=0).astype(np.int32)
+    suprathreshold.flags.writeable = False
+    full_coverage.flags.writeable = False
+    return suprathreshold, full_coverage
+
+
+class DirectVoxelGridWorkspace:
+    """Reuse outcome-independent tau operators and nuisance-only predictions."""
+
+    def __init__(
+        self,
+        exposure: np.ndarray,
+        outcome: np.ndarray,
+        nuisance_plan: NuisancePlan,
+        outcome_direction: str,
+        limits: HardComputabilityLimits,
+    ) -> None:
+        x = _real_array(exposure, "exposure", 2)
+        y = _real_array(outcome, "outcome", 1)
+        if x.shape[0] != y.shape[0]:
+            raise DirectVoxelKernelError(
+                "exposure and outcome must share a subject axis"
+            )
+        if not np.all(np.isfinite(y)):
+            raise DirectVoxelKernelError("outcome must be finite")
+        if not isinstance(nuisance_plan, NuisancePlan):
+            raise DirectVoxelKernelError("nuisance_plan must be a NuisancePlan")
+        if nuisance_plan.full_covariates.shape[0] != y.size:
+            raise DirectVoxelKernelError(
+                "nuisance plan does not match the subject axis"
+            )
+        if not isinstance(limits, HardComputabilityLimits):
+            raise DirectVoxelKernelError("limits must be HardComputabilityLimits")
+        if limits.n_features_full_min is None or limits.fold_n_features_min is None:
+            raise DirectVoxelKernelError(
+                "direct-voxel limits require full-sample and fold feature minima"
+            )
+        benefit_oriented_weights(np.array([0.0]), outcome_direction)
+        self.exposure = x
+        self.outcome = y
+        self.nuisance_plan = nuisance_plan
+        self.outcome_direction = outcome_direction
+        self.limits = limits
+        self._operators: dict[float, tuple[np.ndarray, np.ndarray]] = {}
+        self._baseline_predictions: np.ndarray | None = None
+
+    def _operator(self, tau: float) -> tuple[np.ndarray, np.ndarray]:
+        key = float(tau)
+        if not math.isfinite(key) or key <= 0:
+            raise DirectVoxelKernelError("tau must be finite and positive")
+        operator = self._operators.get(key)
+        if operator is None:
+            operator = _build_tau_operator(self.exposure, key)
+            self._operators[key] = operator
+        return operator
+
+    def _baseline(self) -> np.ndarray:
+        if self._baseline_predictions is None:
+            self._baseline_predictions = _baseline_loocv_predictions(
+                self.outcome,
+                self.nuisance_plan,
+            )
+        return self._baseline_predictions
+
+    def evaluate_cell(
+        self,
+        tau: float,
+        coverage: int,
+        *,
+        retain_arrays: bool = False,
+    ) -> GridCellComputation:
+        suprathreshold, full_coverage = self._operator(tau)
+        return evaluate_grid_cell_with_nuisance_plan(
+            self.exposure,
+            self.outcome,
+            self.nuisance_plan,
+            self.outcome_direction,
+            tau,
+            coverage,
+            self.limits,
+            retain_arrays=retain_arrays,
+            _suprathreshold=suprathreshold,
+            _full_coverage=full_coverage,
+            _baseline_predictions=self._baseline(),
+        )
+
+    def evaluate_grid(
+        self,
+        tau_values: tuple[float, ...],
+        coverage_values: tuple[int, ...],
+    ) -> tuple[GridCellMetrics, ...]:
+        return tuple(
+            self.evaluate_cell(tau, coverage).metrics
+            for tau in tau_values
+            for coverage in coverage_values
+        )
+
+
 def evaluate_grid_cell_with_nuisance_plan(
     exposure: np.ndarray,
     outcome: np.ndarray,
@@ -291,6 +414,9 @@ def evaluate_grid_cell_with_nuisance_plan(
     limits: HardComputabilityLimits,
     *,
     retain_arrays: bool = False,
+    _suprathreshold: np.ndarray | None = None,
+    _full_coverage: np.ndarray | None = None,
+    _baseline_predictions: np.ndarray | None = None,
 ) -> GridCellComputation:
     """Evaluate one source cell with explicit full and fold nuisance designs."""
 
@@ -318,8 +444,25 @@ def evaluate_grid_cell_with_nuisance_plan(
     benefit_oriented_weights(np.array([0.0]), outcome_direction)
 
     n_subjects, n_features = x.shape
-    suprathreshold = np.asarray(x >= float(tau), dtype=bool)
-    full_coverage = suprathreshold.sum(axis=0).astype(np.int32)
+    if _suprathreshold is None or _full_coverage is None:
+        suprathreshold = np.asarray(x >= float(tau), dtype=bool)
+        full_coverage = suprathreshold.sum(axis=0).astype(np.int32)
+    else:
+        suprathreshold = np.asarray(_suprathreshold)
+        full_coverage = np.asarray(_full_coverage)
+        if suprathreshold.dtype != np.dtype(bool) or suprathreshold.shape != x.shape:
+            raise DirectVoxelKernelError(
+                "cached suprathreshold operator does not match exposure"
+            )
+        if (
+            full_coverage.shape != (n_features,)
+            or not np.issubdtype(full_coverage.dtype, np.integer)
+            or np.any(full_coverage < 0)
+            or np.any(full_coverage > n_subjects)
+        ):
+            raise DirectVoxelKernelError(
+                "cached full Coverage operator is inconsistent"
+            )
     full_support = full_coverage >= coverage
     n_features_full = int(full_support.sum())
     if n_features_full == 0:
@@ -344,7 +487,17 @@ def evaluate_grid_cell_with_nuisance_plan(
     full_scores = continuous_mean_score(x, full_weights, full_valid)
 
     heldout_predictions = np.full(n_subjects, np.nan, dtype=np.float64)
-    baseline_predictions = np.full(n_subjects, np.nan, dtype=np.float64)
+    if _baseline_predictions is None:
+        baseline_predictions = np.full(n_subjects, np.nan, dtype=np.float64)
+    else:
+        baseline_predictions = np.asarray(
+            _baseline_predictions,
+            dtype=np.float64,
+        ).copy()
+        if baseline_predictions.shape != (n_subjects,):
+            raise DirectVoxelKernelError(
+                "cached baseline predictions do not match the subject axis"
+            )
     heldout_scores = np.full(n_subjects, np.nan, dtype=np.float64)
     score_slopes = np.full(n_subjects, np.nan, dtype=np.float64)
     fold_feature_counts = np.zeros(n_subjects, dtype=np.int32)
@@ -395,13 +548,15 @@ def evaluate_grid_cell_with_nuisance_plan(
             failure_reasons.append(f"constant_or_nonfinite_training_score_fold_{heldout}")
             continue
 
-        baseline_prediction, _ = linear_prediction(
-            y[train_mask],
-            None,
-            nuisance_plan.fold_covariates[heldout, train_mask],
-            None,
-            nuisance_plan.fold_covariates[heldout, [heldout]],
-        )
+        if _baseline_predictions is None:
+            baseline_prediction, _ = linear_prediction(
+                y[train_mask],
+                None,
+                nuisance_plan.fold_covariates[heldout, train_mask],
+                None,
+                nuisance_plan.fold_covariates[heldout, [heldout]],
+            )
+            baseline_predictions[heldout] = baseline_prediction[0]
         model_prediction, beta = linear_prediction(
             y[train_mask],
             scores[train_mask],
@@ -409,7 +564,6 @@ def evaluate_grid_cell_with_nuisance_plan(
             scores[[heldout]],
             nuisance_plan.fold_covariates[heldout, [heldout]],
         )
-        baseline_predictions[heldout] = baseline_prediction[0]
         heldout_predictions[heldout] = model_prediction[0]
         heldout_scores[heldout] = scores[heldout]
         if beta.size > 1:
@@ -558,16 +712,13 @@ def evaluate_grid_cell(
             (y.size, nuisance.shape[0], nuisance.shape[1]),
         ),
     )
-    return evaluate_grid_cell_with_nuisance_plan(
+    return DirectVoxelGridWorkspace(
         exposure,
         y,
         plan,
         outcome_direction,
-        tau,
-        coverage,
         limits,
-        retain_arrays=retain_arrays,
-    )
+    ).evaluate_cell(tau, coverage, retain_arrays=retain_arrays)
 
 
 def evaluate_grid(
@@ -582,17 +733,19 @@ def evaluate_grid(
 ) -> tuple[GridCellMetrics, ...]:
     """Evaluate a complete declared grid without retaining per-cell arrays."""
 
-    return tuple(
-        evaluate_grid_cell(
-            exposure,
-            outcome,
-            baseline,
-            nuisance_inputs,
-            outcome_direction,
-            tau,
-            coverage,
-            limits,
-        ).metrics
-        for tau in tau_values
-        for coverage in coverage_values
+    y = _real_array(outcome, "outcome", 1)
+    nuisance = _covariate_matrix(baseline, nuisance_inputs, y.size)
+    plan = NuisancePlan(
+        full_covariates=nuisance,
+        fold_covariates=np.broadcast_to(
+            nuisance,
+            (y.size, nuisance.shape[0], nuisance.shape[1]),
+        ),
     )
+    return DirectVoxelGridWorkspace(
+        exposure,
+        y,
+        plan,
+        outcome_direction,
+        limits,
+    ).evaluate_grid(tau_values, coverage_values)

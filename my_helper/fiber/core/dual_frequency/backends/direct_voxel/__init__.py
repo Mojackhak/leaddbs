@@ -8,6 +8,7 @@ from .addon import (
     evaluate_addon_grid,
 )
 from .kernel import (
+    DirectVoxelGridWorkspace,
     DirectVoxelKernelError,
     GridCellArrays,
     GridCellComputation,
@@ -25,6 +26,7 @@ __all__ = [
     "AddonDirectVoxelBackend",
     "AddonDirectVoxelBackendError",
     "AddonDirectVoxelDesignError",
+    "DirectVoxelGridWorkspace",
     "DirectVoxelKernelError",
     "GridCellArrays",
     "GridCellComputation",

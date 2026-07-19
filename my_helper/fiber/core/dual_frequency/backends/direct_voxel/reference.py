@@ -17,8 +17,9 @@ from ...contracts import (
     canonical_hash,
 )
 from ...contracts.requests import ScientificInput
+from ..nuisance import NuisancePlan
 from ..protocols import ArtifactPublisher
-from .kernel import GridCellComputation, evaluate_grid, evaluate_grid_cell
+from .kernel import DirectVoxelGridWorkspace, GridCellComputation
 from .source_resolver import SourceResolution, resolve_source
 
 
@@ -164,17 +165,24 @@ class ReferenceDirectVoxelBackend:
             expected_space=(request.baseline.space if isinstance(request.baseline, ArtifactRef) else None),
             artifact_store=self.artifact_store,
         )
-        nuisance_inputs: tuple[np.ndarray, ...] = ()
-
-        grid_metrics = evaluate_grid(
+        nuisance = np.asarray(baseline, dtype=np.float64)[:, None]
+        nuisance_plan = NuisancePlan(
+            full_covariates=nuisance,
+            fold_covariates=np.broadcast_to(
+                nuisance,
+                (outcome.size, outcome.size, nuisance.shape[1]),
+            ),
+        )
+        workspace = DirectVoxelGridWorkspace(
             exposure,
             outcome,
-            baseline,
-            nuisance_inputs,
+            nuisance_plan,
             request.outcome_direction,
+            request.hard_computability,
+        )
+        grid_metrics = workspace.evaluate_grid(
             request.source_grid.tau_values,
             request.source_grid.coverage_values,
-            request.hard_computability,
         )
         resolution = resolve_source(grid_metrics, request.source_grid)
         grid_artifact = self.publisher.document(
@@ -190,15 +198,9 @@ class ReferenceDirectVoxelBackend:
         selected_metrics: dict[str, Any] | None = None
 
         if resolution.selected is not None:
-            selected_computation = evaluate_grid_cell(
-                exposure,
-                outcome,
-                baseline,
-                nuisance_inputs,
-                request.outcome_direction,
+            selected_computation = workspace.evaluate_cell(
                 resolution.selected.tau,
                 resolution.selected.coverage,
-                request.hard_computability,
                 retain_arrays=True,
             )
             if selected_computation.metrics.as_json_dict() != resolution.selected.as_json_dict():

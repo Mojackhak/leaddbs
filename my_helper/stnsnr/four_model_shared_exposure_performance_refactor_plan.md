@@ -893,6 +893,14 @@ counts by subtracting the held-out row. Baseline-only LOOCV predictions are fit
 once per endpoint/fold. Selected-cell publication consumes the scan workspace
 instead of repeating ranking and weight estimation.
 
+The direct-voxel workspace is branch-local and binds the exact outcome and
+nuisance plan. It may reuse only the tau threshold operator, full Coverage
+counts, and nuisance-only held-out predictions. It must recompute each cell's
+candidate mask, outcome-dependent weights, continuous score, model fit, and
+classification. Selected-cell publication reuses the same operator and
+baseline but retains arrays from a fresh selected-cell evaluation, so the grid
+scan cannot leak a retained selected model.
+
 Normative fiber represents tau exceedance and candidate membership as a
 bit-packed or block-streamed tensor whose memory estimate participates in
 admission. It does not scan the complete matrix for every tau/Coverage/fold.
@@ -1980,6 +1988,16 @@ distinct tau, including reuse of the minimum-tau weight-cache vector and the
 selected-cell vector. Direct parity, fallback parity, solver-call count, and
 tau-scan count tests pass. The complete current regression passes 488 tests and
 241 parameterized subtests.
+
+The subsequent direct-voxel checkpoint binds a branch-local grid workspace to
+the exact exposure, outcome, nuisance plan, direction, and hard limits. Both
+reference and adjusted add-on paths build one threshold/Coverage operator per
+distinct tau and one nuisance-only prediction per held-out fold, then reuse
+only those values for grid cells and selected-cell publication. Every
+outcome-dependent selected-cell quantity is recomputed. The focused gate passes
+29 tests and 5 subtests; the complete current regression passes 490 tests and
+241 parameterized subtests. Normative-fiber baseline-prediction reuse and the
+explicit prevalidated scoring workspace remain open before Step 8 closes.
 
 ### Default final in-sample inference
 

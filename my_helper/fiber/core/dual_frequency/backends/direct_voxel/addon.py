@@ -25,9 +25,9 @@ from ..nuisance import (
 from ..protocols import ArtifactPublisher
 from ..source_resolver import SourceResolution, resolve_source
 from .kernel import (
+    DirectVoxelGridWorkspace,
     GridCellComputation,
     GridCellMetrics,
-    evaluate_grid_cell_with_nuisance_plan,
 )
 
 
@@ -114,18 +114,15 @@ def evaluate_addon_grid(
 ) -> tuple[GridCellMetrics, ...]:
     """Evaluate the complete declared grid for one executable add-on branch."""
 
-    return tuple(
-        evaluate_grid_cell_with_nuisance_plan(
-            exposure,
-            outcome,
-            nuisance_plan,
-            request.outcome_direction,
-            tau,
-            coverage,
-            request.hard_computability,
-        ).metrics
-        for tau in request.source_grid.tau_values
-        for coverage in request.source_grid.coverage_values
+    return DirectVoxelGridWorkspace(
+        exposure,
+        outcome,
+        nuisance_plan,
+        request.outcome_direction,
+        request.hard_computability,
+    ).evaluate_grid(
+        request.source_grid.tau_values,
+        request.source_grid.coverage_values,
     )
 
 
@@ -295,7 +292,17 @@ class AddonDirectVoxelBackend:
         if not isinstance(request, ObservedRequest):
             raise TypeError("request must be an ObservedRequest")
         exposure, outcome, nuisance_plan = self._inputs(request)
-        grid_metrics = evaluate_addon_grid(exposure, outcome, nuisance_plan, request)
+        workspace = DirectVoxelGridWorkspace(
+            exposure,
+            outcome,
+            nuisance_plan,
+            request.outcome_direction,
+            request.hard_computability,
+        )
+        grid_metrics = workspace.evaluate_grid(
+            request.source_grid.tau_values,
+            request.source_grid.coverage_values,
+        )
         resolution = resolve_source(grid_metrics, request.source_grid)
         grid_artifact = self.publisher.document(
             "grid_metrics.json",
@@ -311,14 +318,9 @@ class AddonDirectVoxelBackend:
         selected_metrics: dict[str, Any] | None = None
 
         if resolution.selected is not None:
-            selected = evaluate_grid_cell_with_nuisance_plan(
-                exposure,
-                outcome,
-                nuisance_plan,
-                request.outcome_direction,
+            selected = workspace.evaluate_cell(
                 resolution.selected.tau,
                 resolution.selected.coverage,
-                request.hard_computability,
                 retain_arrays=True,
             )
             if selected.metrics.as_json_dict() != resolution.selected.as_json_dict():

@@ -3506,6 +3506,25 @@ regression passed with 488 tests and 241 subtests. Step 8 remains open for
 direct-voxel grid-operator reuse and one-time endpoint/fold baseline prediction
 construction.
 
+Next implementation slice: bind one direct-voxel grid workspace to the exact
+exposure, outcome, nuisance plan, direction, and hard limits for an endpoint
+branch. Cache the boolean threshold matrix and full Coverage counts once per
+distinct tau. Fit the nuisance-only held-out baseline prediction once per fold
+and reuse it across all tau/Coverage cells and selected-cell publication.
+Cell-specific candidate masks, feature weights, scores, model predictions,
+computability, and classification remain independently recomputed; the
+workspace must not leak selected-cell or outcome-fitted feature state.
+
+Acceptance evidence on 2026-07-19: both the reference and adjusted add-on
+direct-voxel backends construct one threshold/Coverage operator per distinct
+tau and one nuisance-only prediction per held-out fold across grid evaluation
+and selected-cell publication. The selected cell still recomputes its
+outcome-dependent masks, weights, scores, model predictions, computability,
+and retained arrays. The focused direct-voxel gate passed 29 tests and 5
+subtests; the complete dual-frequency plus visualization regression passed 490
+tests and 241 subtests. Step 8 remains open for the normative-fiber one-time
+baseline prediction and explicit prevalidated scoring-workspace contracts.
+
 - [ ] **Step 9: Shard formal, bootstrap, pPAM, jitter, and sensitivity safely**
 
 Shard direct/fiber permutation and bootstrap, pPAM permutation, and spatial

@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -670,6 +671,37 @@ class ReferenceDirectVoxelBackendTest(unittest.TestCase):
         changed = dataclasses.replace(request, outcome=self.outcome[::-1].copy())
         with self.assertRaisesRegex(ArtifactPublicationError, "overwrite"):
             backend.run(changed)
+
+    def test_backend_reuses_tau_operators_and_baseline_predictions(self) -> None:
+        backend = ReferenceDirectVoxelBackend(_publisher(self.root / "output"))
+        request = _request(self.exposure, self.outcome, self.baseline)
+        original_prediction = direct_kernel.linear_prediction
+        original_operator = direct_kernel._build_tau_operator
+        with (
+            mock.patch.object(
+                direct_kernel,
+                "linear_prediction",
+                wraps=original_prediction,
+            ) as predict,
+            mock.patch.object(
+                direct_kernel,
+                "_build_tau_operator",
+                wraps=original_operator,
+            ) as build_operator,
+        ):
+            result = backend.run(request)
+
+        baseline_calls = [call for call in predict.call_args_list if call.args[1] is None]
+        self.assertIsNotNone(result.source)
+        self.assertEqual(len(baseline_calls), request.subject_axis.count)
+        self.assertEqual(
+            build_operator.call_count,
+            len(set(request.source_grid.tau_values)),
+        )
+        self.assertEqual(
+            [float(call.args[1]) for call in build_operator.call_args_list],
+            list(request.source_grid.tau_values),
+        )
 
     def test_backend_rejects_extra_nuisance_and_non_v_per_m_exposure(self) -> None:
         backend = ReferenceDirectVoxelBackend(_publisher(self.root / "output"))
