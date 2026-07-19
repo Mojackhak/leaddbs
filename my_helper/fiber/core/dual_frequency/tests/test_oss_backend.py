@@ -811,6 +811,57 @@ class PPAMActivationBackendTest(unittest.TestCase):
                     ArtifactStore((root,)),
                 )
 
+    def test_observed_state_enforces_permutation_readiness(self) -> None:
+        request = dataclasses.replace(
+            self._request(),
+            permutation_resamples=3,
+            seed=79,
+        )
+        workspace = ppam_fitting.prepare_ppam_fit_workspace(
+            request,
+            self.probabilities,
+            np.zeros_like(self.probabilities, dtype=bool),
+            self.outcome,
+            self.baseline,
+            self.peak_score,
+            self.fiber_ids,
+            (),
+        )
+        observed = ppam_fitting.ppam_observed_state(workspace)
+        with self.assertRaisesRegex(
+            ppam_fitting.PPAMFittingError,
+            "requires its parent schedule",
+        ):
+            ppam_fitting.aggregate_ppam_observed_state(observed, None, ())
+
+        degenerate = dataclasses.replace(
+            observed,
+            failure_reasons=("activation_all_zero",),
+        )
+        result = ppam_fitting.aggregate_ppam_observed_state(
+            degenerate,
+            None,
+            (),
+        )
+        self.assertEqual(result.status, "failed_activation_degenerate")
+        self.assertEqual(result.failure_reasons, ("activation_all_zero",))
+        self.assertTrue(np.all(np.isnan(result.permutation_null)))
+        schedule = formal_resampling_schedule(
+            "permutation",
+            self.n_subjects,
+            request.permutation_resamples,
+            request.seed,
+        )
+        with self.assertRaisesRegex(
+            ppam_fitting.PPAMFittingError,
+            "cannot receive null state",
+        ):
+            ppam_fitting.aggregate_ppam_observed_state(
+                degenerate,
+                schedule,
+                (),
+            )
+
     def test_heldout_outcome_does_not_change_its_fold_fit(self) -> None:
         request = self._request()
         with tempfile.TemporaryDirectory() as temporary_directory:

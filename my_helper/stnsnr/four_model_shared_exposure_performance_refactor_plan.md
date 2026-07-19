@@ -2403,6 +2403,21 @@ dual-frequency gate passed 502 tests and 295 subtests outside the restricted
 system-monitoring sandbox. Planner and durable-workspace migration remain the
 next boundary, and no sensitivity process was started.
 
+Before persistence, observed pPAM outputs are projected into a separate
+operator-free state. It retains every final observed array, support and
+performance field, technical reason, peak-score comparison, and plain-control
+result, but never the null axis or physical OSS rows. The ordered aggregate
+consumes this state plus the complete parent schedule and durable null blocks.
+This makes observed-state publication independent from the run-scoped
+fixed-operator scratch and allows resume to invalidate only the missing layer.
+
+The operator-free boundary now passes exact result parity. Ready observed state
+requires the complete parent schedule, while degenerate observed state accepts
+no null state and preserves the historical failure classification. The
+focused OSS gate passed 25 tests and 12 subtests; the complete dual-frequency
+gate passed 503 tests and 295 subtests outside the restricted
+system-monitoring sandbox. No sensitivity process was started.
+
 ## Documentation Validation
 
 Before implementation begins:

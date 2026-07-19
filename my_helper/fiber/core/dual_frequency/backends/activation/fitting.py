@@ -140,6 +140,37 @@ class PPAMFitWorkspace:
         return not self.failure_reasons
 
 
+@dataclass(frozen=True, slots=True)
+class PPAMObservedState:
+    """Operator-free observed state required by the final pPAM aggregate."""
+
+    request: ActivationRequest
+    full_weights: np.ndarray
+    fold_weights: np.ndarray
+    full_scores: np.ndarray
+    fold_scores: np.ndarray
+    heldout_scores: np.ndarray
+    predictions: np.ndarray
+    baseline_predictions: np.ndarray
+    full_support: dict[str, object]
+    fold_support: tuple[dict[str, object], ...]
+    finite_full_weights: int
+    finite_fold_weights: np.ndarray
+    performance: dict[str, float]
+    peak_score_pearson_r: float
+    failure_reasons: tuple[str, ...]
+    plain_activation_count: np.ndarray
+    plain_activation_sum: np.ndarray
+    plain_activation_top5: np.ndarray
+    plain_model_comparisons: tuple[dict[str, object], ...]
+
+    @property
+    def can_permute(self) -> bool:
+        """Return whether the retained observed state permits null inference."""
+
+        return not self.failure_reasons
+
+
 def _finite_vector(value: np.ndarray, name: str, count: int) -> np.ndarray:
     array = np.asarray(value, dtype=np.float64)
     if array.shape != (count,) or not np.all(np.isfinite(array)):
@@ -821,40 +852,71 @@ def prepare_ppam_fit_workspace(
     )
 
 
-def aggregate_ppam_fit_workspace(
-    workspace: PPAMFitWorkspace,
-    schedule: ResamplingSchedule | None,
-    blocks: tuple[PermutationBlockComputation, ...],
-) -> PPAMFitResult:
-    """Combine a complete null axis with retained observed pPAM state."""
+def ppam_observed_state(workspace: PPAMFitWorkspace) -> PPAMObservedState:
+    """Project one complete observed workspace into operator-free state."""
 
     if not isinstance(workspace, PPAMFitWorkspace):
         raise PPAMFittingError("workspace must be a PPAMFitWorkspace")
+    request = workspace.permutation.request
+    return PPAMObservedState(
+        request=request,
+        full_weights=workspace.full_weights,
+        fold_weights=workspace.observed.fold_weights,
+        full_scores=np.asarray(workspace.full_score.net_score, dtype=np.float64),
+        fold_scores=workspace.observed.fold_scores,
+        heldout_scores=workspace.observed.heldout_scores,
+        predictions=workspace.observed.predictions,
+        baseline_predictions=workspace.observed.baseline_predictions,
+        full_support=score_support_fields(
+            workspace.full_score,
+            request.fiber_score_settings,
+        ),
+        fold_support=workspace.observed.fold_support,
+        finite_full_weights=workspace.finite_full_weights,
+        finite_fold_weights=workspace.observed.finite_weight_counts,
+        performance=workspace.observed.metrics,
+        peak_score_pearson_r=workspace.peak_score_pearson_r,
+        failure_reasons=workspace.failure_reasons,
+        plain_activation_count=workspace.plain_activation_count,
+        plain_activation_sum=workspace.plain_activation_sum,
+        plain_activation_top5=workspace.plain_activation_top5,
+        plain_model_comparisons=workspace.plain_model_comparisons,
+    )
+
+
+def aggregate_ppam_observed_state(
+    observed: PPAMObservedState,
+    schedule: ResamplingSchedule | None,
+    blocks: tuple[PermutationBlockComputation, ...],
+) -> PPAMFitResult:
+    """Combine a complete null axis with operator-free observed state."""
+
+    if not isinstance(observed, PPAMObservedState):
+        raise PPAMFittingError("observed must be a PPAMObservedState")
     if not isinstance(blocks, tuple) or not all(
         isinstance(item, PermutationBlockComputation) for item in blocks
     ):
         raise PPAMFittingError(
             "pPAM aggregate blocks must be typed permutation computations"
         )
-    permutation = workspace.permutation
-    request = permutation.request
-    failures = list(workspace.failure_reasons)
+    request = observed.request
+    failures = list(observed.failure_reasons)
     null = np.full(request.permutation_resamples, np.nan, dtype=np.float64)
     permutation_p = math.nan
-    if workspace.can_permute:
+    if observed.can_permute:
         if not isinstance(schedule, ResamplingSchedule):
             raise PPAMFittingError(
                 "permutation-ready pPAM workspace requires its parent schedule"
             )
         combined = combine_permutation_blocks(
-            workspace.observed.metrics,
+            observed.performance,
             schedule,
             blocks,
         )
         null = combined.null_statistics
         if not np.all(np.isfinite(null)):
             failures.append("permutation_incomplete")
-        observed_statistic = workspace.observed.metrics["loocv_spearman_rho"]
+        observed_statistic = observed.performance["loocv_spearman_rho"]
         if np.isfinite(observed_statistic) and np.all(np.isfinite(null)):
             permutation_p = float(combined.p_plus_one_two_sided)
     elif schedule is not None or blocks:
@@ -874,8 +936,8 @@ def aggregate_ppam_fit_workspace(
     elif failures:
         status = "failed_oss_design_or_prediction"
     elif (
-        np.isfinite(workspace.peak_score_pearson_r)
-        and workspace.peak_score_pearson_r > 0.0
+        np.isfinite(observed.peak_score_pearson_r)
+        and observed.peak_score_pearson_r > 0.0
     ):
         status = "passed_activation_consistent"
     else:
@@ -883,28 +945,39 @@ def aggregate_ppam_fit_workspace(
     return PPAMFitResult(
         status=status,
         failure_reasons=tuple(failures),
-        full_weights=workspace.full_weights,
-        fold_weights=workspace.observed.fold_weights,
-        full_scores=np.asarray(workspace.full_score.net_score, dtype=np.float64),
-        fold_scores=workspace.observed.fold_scores,
-        heldout_scores=workspace.observed.heldout_scores,
-        predictions=workspace.observed.predictions,
-        baseline_predictions=workspace.observed.baseline_predictions,
-        full_support=score_support_fields(
-            workspace.full_score,
-            request.fiber_score_settings,
-        ),
-        fold_support=workspace.observed.fold_support,
-        finite_full_weights=workspace.finite_full_weights,
-        finite_fold_weights=workspace.observed.finite_weight_counts,
-        performance=workspace.observed.metrics,
-        peak_score_pearson_r=workspace.peak_score_pearson_r,
+        full_weights=observed.full_weights,
+        fold_weights=observed.fold_weights,
+        full_scores=observed.full_scores,
+        fold_scores=observed.fold_scores,
+        heldout_scores=observed.heldout_scores,
+        predictions=observed.predictions,
+        baseline_predictions=observed.baseline_predictions,
+        full_support=observed.full_support,
+        fold_support=observed.fold_support,
+        finite_full_weights=observed.finite_full_weights,
+        finite_fold_weights=observed.finite_fold_weights,
+        performance=observed.performance,
+        peak_score_pearson_r=observed.peak_score_pearson_r,
         permutation_null=null,
         permutation_p_plus_one_two_sided=permutation_p,
-        plain_activation_count=workspace.plain_activation_count,
-        plain_activation_sum=workspace.plain_activation_sum,
-        plain_activation_top5=workspace.plain_activation_top5,
-        plain_model_comparisons=workspace.plain_model_comparisons,
+        plain_activation_count=observed.plain_activation_count,
+        plain_activation_sum=observed.plain_activation_sum,
+        plain_activation_top5=observed.plain_activation_top5,
+        plain_model_comparisons=observed.plain_model_comparisons,
+    )
+
+
+def aggregate_ppam_fit_workspace(
+    workspace: PPAMFitWorkspace,
+    schedule: ResamplingSchedule | None,
+    blocks: tuple[PermutationBlockComputation, ...],
+) -> PPAMFitResult:
+    """Combine null blocks with one complete in-memory pPAM workspace."""
+
+    return aggregate_ppam_observed_state(
+        ppam_observed_state(workspace),
+        schedule,
+        blocks,
     )
 
 
@@ -1399,11 +1472,14 @@ __all__ = [
     "PPAMFitResult",
     "PPAMFitWorkspace",
     "PPAMFittingError",
+    "PPAMObservedState",
     "PPAMPermutationWorkspace",
     "aggregate_ppam_fit_workspace",
+    "aggregate_ppam_observed_state",
     "compute_ppam_permutation_block",
     "compute_ppam_permutation_block_from_workspace",
     "fit_ppam_activation",
     "prepare_ppam_fit_workspace",
     "prepare_ppam_permutation_workspace",
+    "ppam_observed_state",
 ]

@@ -4050,6 +4050,34 @@ dual-frequency gate passed 502 tests and 295 subtests outside the restricted
 system-monitoring sandbox. No planner, record, production, jitter, OSS-DBS, or
 combined extension was started.
 
+Fifteenth Step 9 implementation slice: separate the retained observed pPAM
+state from the in-memory numerical operators. The observed state contains only
+the exact arrays, support evidence, performance metrics, technical reasons,
+peak-score comparison, and plain-control outputs needed to construct the final
+`PPAMFitResult`; it contains no permutation null and no operator object. Its
+permutation-readiness decision is derived only from the retained technical
+reasons. The workspace aggregate first projects the observed workspace into
+this state, then calls one state-level ordered aggregate. A later durable
+record can therefore restore the state and fixed-operator scratch separately
+without reconstructing or rerunning the observed fit.
+
+Tests must compare every state-derived final field with the existing workspace
+and compatibility paths, require a complete parent schedule when the observed
+state is permutation-ready, reject any supplied null block when it is not
+permutation-ready, and preserve the current degenerate-status classification.
+This slice changes no artifact schema, planner, service, or production path.
+
+Fifteenth-slice acceptance on 2026-07-19: the compatibility and workspace
+aggregates both delegate to the operator-free observed state and preserve every
+final field exactly. A permutation-ready state fails before aggregation when
+its parent schedule is absent. A retained degenerate state completes with the
+historical activation-degenerate classification and all-NaN null axis only
+when no schedule or block is supplied; any supplied null state fails closed.
+The focused OSS gate passed 25 tests and 12 subtests, and the complete
+dual-frequency gate passed 503 tests and 295 subtests outside the restricted
+system-monitoring sandbox. No artifact schema, planner, production, jitter,
+OSS-DBS, or combined extension changed or ran.
+
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial
 accumulators and the strict ordered aggregate. A 251-replicate fixture for both
