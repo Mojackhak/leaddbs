@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import dual_frequency.application.publication as publication_module
 from dual_frequency.application.publication import (
     CanonicalPublisher,
     PublicationError,
@@ -102,6 +103,68 @@ def test_writer_rejects_immutable_collision(tmp_path: Path) -> None:
             artifact_kind="resolved_model_profile",
             context=context,
         )
+
+
+def test_new_in_memory_payload_reuses_digest_without_fsync_or_reread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    publication = tmp_path / "publication"
+    writer = _PublicationWriter(publication, domain="direct_voxel")
+
+    def reject_fsync(_descriptor: int) -> None:
+        raise AssertionError("publication must not issue a per-artifact fsync")
+
+    def reject_reread(_path: Path) -> str:
+        raise AssertionError("new in-memory payload must reuse its verified digest")
+
+    monkeypatch.setattr(publication_module.os, "fsync", reject_fsync)
+    monkeypatch.setattr(publication_module, "_sha256_file", reject_reread)
+    writer.bytes(
+        "resolved.yaml",
+        b"payload\n",
+        artifact_kind="resolved_model_profile",
+        context={"stage": "configuration"},
+    )
+
+    expected = hashlib.sha256(b"payload\n").hexdigest()
+    assert writer.rows["resolved.yaml"]["sha256"] == expected
+    assert writer.rows["resolved.yaml"]["size_bytes"] == len(b"payload\n")
+
+
+def test_copied_payload_hashes_temporary_once_and_reuses_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.npy"
+    np.save(source, np.asarray([1.0, 2.0, 3.0], dtype=np.float32))
+    reference = _artifact(source)
+    publication = tmp_path / "publication"
+    writer = _PublicationWriter(publication, domain="direct_voxel")
+    original_sha256_file = publication_module._sha256_file
+    checked_paths: list[Path] = []
+
+    def track_sha256(path: Path) -> str:
+        checked_paths.append(Path(path))
+        return original_sha256_file(path)
+
+    monkeypatch.setattr(publication_module, "_sha256_file", track_sha256)
+    writer.artifact(
+        "scale_a/reference/resolver/full_weights.npy",
+        reference,
+        artifact_kind="full_weights",
+        context={"scale_id": "scale_a", "stage": "resolver"},
+    )
+
+    target = publication / "scale_a/reference/resolver/full_weights.npy"
+    assert checked_paths[0] == source
+    assert len(checked_paths) == 2
+    assert checked_paths[1].parent == target.parent
+    assert checked_paths[1] != target
+    assert target not in checked_paths
+    assert writer.rows[
+        "scale_a/reference/resolver/full_weights.npy"
+    ]["sha256"] == reference.sha256
 
 
 def test_replay_rejects_noncompleted_manifest_without_writing(tmp_path: Path) -> None:

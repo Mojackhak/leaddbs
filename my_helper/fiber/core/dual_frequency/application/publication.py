@@ -149,13 +149,13 @@ class _PublicationWriter:
         return target
 
     @staticmethod
-    def _install_bytes(target: Path, payload: bytes) -> None:
+    def _install_bytes(target: Path, payload: bytes) -> tuple[str, int]:
         target.parent.mkdir(parents=True, exist_ok=True)
         expected = hashlib.sha256(payload).hexdigest()
         if target.is_file():
             if _sha256_file(target) != expected:
                 raise PublicationError(f"immutable publication collision: {target}")
-            return
+            return expected, target.stat().st_size
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
         )
@@ -163,23 +163,22 @@ class _PublicationWriter:
         try:
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
             if target.exists():
                 if _sha256_file(target) != expected:
                     raise PublicationError(f"concurrent publication collision: {target}")
             else:
                 os.replace(temporary, target)
+            return expected, target.stat().st_size
         finally:
             temporary.unlink(missing_ok=True)
 
     @staticmethod
-    def _install_file(target: Path, source: Path, sha256: str) -> None:
+    def _install_file(target: Path, source: Path, sha256: str) -> tuple[str, int]:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_file():
             if _sha256_file(target) != sha256:
                 raise PublicationError(f"immutable publication collision: {target}")
-            return
+            return sha256, target.stat().st_size
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
         )
@@ -187,8 +186,6 @@ class _PublicationWriter:
         temporary = Path(temporary_name)
         try:
             shutil.copyfile(source, temporary)
-            with temporary.open("rb+") as handle:
-                os.fsync(handle.fileno())
             if _sha256_file(temporary) != sha256:
                 raise PublicationError(f"copied artifact SHA-256 mismatch: {source}")
             if target.exists():
@@ -196,6 +193,7 @@ class _PublicationWriter:
                     raise PublicationError(f"concurrent publication collision: {target}")
             else:
                 os.replace(temporary, target)
+            return sha256, target.stat().st_size
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -206,8 +204,14 @@ class _PublicationWriter:
         artifact_kind: str,
         context: Mapping[str, object],
         status: str = "completed",
+        verified: tuple[str, int] | None = None,
     ) -> None:
         target = self._target(relative)
+        digest, size_bytes = (
+            verified
+            if verified is not None
+            else (_sha256_file(target), target.stat().st_size)
+        )
         row: dict[str, object] = {
             "scale_id": context.get("scale_id", ""),
             "model_family": context.get("model_family", ""),
@@ -215,8 +219,8 @@ class _PublicationWriter:
             "stage": context.get("stage", ""),
             "artifact_kind": artifact_kind,
             "relative_path": Path(relative).as_posix(),
-            "sha256": _sha256_file(target),
-            "size_bytes": target.stat().st_size,
+            "sha256": digest,
+            "size_bytes": size_bytes,
             "status": status,
         }
         if self.domain == "normative_fiber":
@@ -236,8 +240,13 @@ class _PublicationWriter:
         context: Mapping[str, object],
     ) -> None:
         target = self._target(relative)
-        self._install_bytes(target, payload)
-        self._record(relative, artifact_kind=artifact_kind, context=context)
+        verified = self._install_bytes(target, payload)
+        self._record(
+            relative,
+            artifact_kind=artifact_kind,
+            context=context,
+            verified=verified,
+        )
 
     def json(
         self,
@@ -280,7 +289,7 @@ class _PublicationWriter:
     ) -> None:
         source = _artifact_path(artifact)
         target = self._target(relative)
-        self._install_file(target, source, artifact.sha256)
+        verified = self._install_file(target, source, artifact.sha256)
         metadata = {
             "schema_version": "dual_frequency_published_artifact_metadata_v1",
             "artifact_kind": artifact_kind,
@@ -299,13 +308,18 @@ class _PublicationWriter:
             },
             "published_relative_path": Path(relative).as_posix(),
             "payload_sha256": artifact.sha256,
-            "size_bytes": target.stat().st_size,
+            "size_bytes": verified[1],
         }
         self._install_bytes(
             self._target(f"{relative}.metadata.json"),
             _json_bytes(metadata),
         )
-        self._record(relative, artifact_kind=artifact_kind, context=context)
+        self._record(
+            relative,
+            artifact_kind=artifact_kind,
+            context=context,
+            verified=verified,
+        )
 
     def generated_file(
         self,
@@ -319,20 +333,25 @@ class _PublicationWriter:
         source = Path(source).resolve()
         digest = _sha256_file(source)
         target = self._target(relative)
-        self._install_file(target, source, digest)
+        verified = self._install_file(target, source, digest)
         metadata = {
             "schema_version": "dual_frequency_derived_artifact_metadata_v1",
             "artifact_kind": artifact_kind,
             "published_relative_path": Path(relative).as_posix(),
             "payload_sha256": digest,
-            "size_bytes": target.stat().st_size,
+            "size_bytes": verified[1],
             "provenance": dict(provenance),
         }
         self._install_bytes(
             self._target(f"{relative}.metadata.json"),
             _json_bytes(metadata),
         )
-        self._record(relative, artifact_kind=artifact_kind, context=context)
+        self._record(
+            relative,
+            artifact_kind=artifact_kind,
+            context=context,
+            verified=verified,
+        )
 
     def write_index(self) -> None:
         if self.domain == "direct_voxel":

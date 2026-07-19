@@ -1349,6 +1349,14 @@ must never remove cache content. This is an unconditional recovery invariant:
 enabling successful-run cleanup cannot override it. Publication and run
 artifacts are never cache cleanup targets.
 
+Canonical publication uses replayable temporary-sibling writes followed by
+atomic rename and a single payload integrity read. The verified SHA-256 and
+byte count are reused when recording the artifact index. Per-artifact
+synchronous filesystem flushes are not part of the portable publication
+contract: completion is instead guarded by commit-last root manifests, and any
+interrupted fragment remains available for verified same-byte replay from the
+immutable source run.
+
 The normative-fiber profile is `normative_fiber_model.yaml`; its lightweight
 acceptance profile is `normative_fiber_model_test.yaml`. Both enforce `formal`
 connectome count `> 0` and `< 2`; their `sensitive` connectome lists are

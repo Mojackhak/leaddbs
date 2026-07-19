@@ -3683,6 +3683,17 @@ On the completed 1,512-task v8 parent, the bounded loader decoded all 1,512
 states from VAL in about 187 seconds; the preceding serial attempt had not
 finished after 12 minutes and was stopped before any scale directory existed.
 
+Canonical publication is replayable from the retained immutable run store.
+Each new payload is written to a temporary sibling, closed, verified once by
+SHA-256 when its bytes did not originate in memory, and installed by atomic
+rename. The writer retains that verified digest and byte count for the
+artifact-index row instead of reading the installed payload again. It does not
+issue one synchronous filesystem flush for every artifact on portable external
+filesystems. Root manifests remain commit-last, so an interruption cannot
+advertise a partial publication as complete; a later replay verifies and reuses
+already installed same-byte payloads. Failed or partial replay never removes
+the publication fragment, source run, checkpoint, or shared cache.
+
 - [x] **Step 3: Publish direct-voxel display NIfTI derivatives**
 
 For every realized reference or add-on direct-voxel final, publish the
