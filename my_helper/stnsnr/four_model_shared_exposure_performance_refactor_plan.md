@@ -2148,6 +2148,30 @@ passes 89 tests and 48 subtests; the complete
 dual-frequency and visualization regression passes 504 tests and 253
 subtests. The production DAG and its task count are unchanged.
 
+The next slice adds registered but unplanned formal permutation block and
+aggregate consumers. Each block receives only its canonical internal index,
+the exact published schedule, the input-bound run-relative operator record,
+and normal typed formal inputs. It validates and reopens shared operators,
+computes only its null-statistic interval, and publishes one durable block
+record. It never rebuilds fold operators and never computes observed metrics.
+The aggregate validates complete historical interval coverage, computes the
+observed statistic once with the same shared operators, combines blocks in
+replicate order, and emits the existing final formal result while referencing
+the original schedule artifact. Scratch remains available for resume and later
+extension work. Four-family service parity and malformed-block rejection must
+pass before planner migration.
+
+The block and aggregate consumers passed acceptance on 2026-07-19. All four
+endpoint model families use reopened scratch without invoking either fold
+operator builder. Direct and fiber 251-replicate fixtures publish a canonical
+250-replicate block and one-replicate tail; reverse completion order produces
+the exact retained serial null array, observed metrics, and p value. Missing
+coverage, changed schedule binding, and changed scratch input identity fail
+closed. The aggregate retains the upstream schedule artifact and does not
+delete scratch. The focused gate passes 90 tests and 50 subtests, and the
+complete dual-frequency and visualization regression passes 505 tests and 255
+subtests. The registered consumers remain absent from the production planner.
+
 ### Default final in-sample inference
 
 Every realized final model in formal scope has a required in-sample inference

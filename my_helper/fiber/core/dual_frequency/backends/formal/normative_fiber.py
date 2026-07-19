@@ -8,7 +8,12 @@ from pathlib import Path
 import numpy as np
 
 from ...cache import ArtifactStore
-from ...contracts import FormalRequest, FormalResult, NormativeFiberScoreSettings
+from ...contracts import (
+    ArtifactRef,
+    FormalRequest,
+    FormalResult,
+    NormativeFiberScoreSettings,
+)
 from ..normative_fiber.coverage import (
     candidate_mask,
     coverage_counts,
@@ -753,6 +758,146 @@ class NormativeFiberFormalBackend:
         )
         return _publish_normative_fiber_operator_scratch(parent, operators)
 
+    def _permutation_workspace(
+        self,
+        request: FormalRequest,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, NuisancePlan]:
+        """Materialize exact inputs shared by block and aggregate consumers."""
+
+        if not isinstance(request, FormalRequest):
+            raise FormalBackendInputError("request must be FormalRequest")
+        if request.resampling_kind != "permutation":
+            raise FormalBackendInputError(
+                "fiber permutation workspace requires permutation resampling"
+            )
+        exposure = finite_exposure(
+            materialize_array(
+                request.exposure,
+                name="exposure",
+                expected_axes=(request.subject_axis, request.feature_axis),
+                expected_units=request.exposure_units,
+                expected_space=request.exposure_space,
+                artifact_store=self._artifact_store,
+                memory_map=True,
+            ),
+            request,
+        )
+        outcome = finite_vector(
+            materialize_array(
+                request.outcome,
+                name="outcome",
+                expected_axes=(request.subject_axis,),
+                expected_units=request.outcome.units,
+                expected_space=request.outcome.space,
+                artifact_store=self._artifact_store,
+            ),
+            "outcome",
+            request.subject_axis.count,
+        )
+        baseline = finite_vector(
+            materialize_array(
+                request.baseline,
+                name="baseline",
+                expected_axes=(request.subject_axis,),
+                expected_units=request.baseline.units,
+                expected_space=request.baseline.space,
+                artifact_store=self._artifact_store,
+            ),
+            "baseline",
+            request.subject_axis.count,
+        )
+        assert request.feature_ids is not None
+        fiber_ids = canonical_fiber_ids(
+            materialize_array(
+                request.feature_ids,
+                name="feature_ids",
+                expected_axes=(request.feature_axis,),
+                expected_units=request.feature_ids.units,
+                expected_space=request.feature_ids.space,
+                artifact_store=self._artifact_store,
+                memory_map=True,
+            ),
+            request.feature_axis.count,
+        )
+        nuisance_plan = build_fixed_nuisance_plan(
+            request,
+            baseline,
+            self._optional_delta_vector(request.delta_reference_full, request),
+            self._optional_delta_folds(request.delta_reference_folds, request),
+        )
+        return exposure, fiber_ids, outcome, nuisance_plan
+
+    def _run_permutation_block_from_scratch(
+        self,
+        request: FormalRequest,
+        schedule: ResamplingSchedule,
+        block: ReplicateBlock,
+        descriptor: FormalOperatorScratchDescriptor,
+    ) -> PermutationBlockComputation:
+        """Compute one interval through descriptor-reopened fiber operators."""
+
+        exposure, fiber_ids, outcome, nuisance_plan = self._permutation_workspace(
+            request
+        )
+        operators, arrays = open_normative_fiber_operator_scratch(descriptor)
+        score_workspace = PrevalidatedFiberScoreWorkspace(exposure, fiber_ids)
+        try:
+            return _normative_fiber_permutation_block(
+                request,
+                exposure,
+                fiber_ids,
+                outcome,
+                nuisance_plan,
+                operators,
+                score_workspace,
+                schedule,
+                block,
+                optimized=True,
+            )
+        finally:
+            close_operator_scratch(arrays)
+
+    def _aggregate_permutation_blocks_from_scratch(
+        self,
+        request: FormalRequest,
+        schedule: ResamplingSchedule,
+        blocks: tuple[PermutationBlockComputation, ...],
+        descriptor: FormalOperatorScratchDescriptor,
+        schedule_artifact: ArtifactRef,
+    ) -> FormalResult:
+        """Compute observed fiber metrics once and publish ordered block output."""
+
+        exposure, fiber_ids, outcome, nuisance_plan = self._permutation_workspace(
+            request
+        )
+        operators, arrays = open_normative_fiber_operator_scratch(descriptor)
+        score_workspace = PrevalidatedFiberScoreWorkspace(exposure, fiber_ids)
+        try:
+            observed = _loocv(
+                request,
+                exposure,
+                fiber_ids,
+                outcome,
+                nuisance_plan,
+                operators,
+                score_workspace,
+                optimized=True,
+            )
+        finally:
+            close_operator_scratch(arrays)
+        if not bool(observed["all_predictions_finite"]) or not np.isfinite(
+            observed["loocv_spearman_rho"]
+        ):
+            raise FormalBackendError(
+                "observed final normative-fiber LOOCV statistic is not computable"
+            )
+        result = combine_permutation_blocks(observed, schedule, blocks)
+        return self._publish_permutation(
+            request,
+            result,
+            schedule_artifact=schedule_artifact,
+        )
+
     def run_formal(self, request: FormalRequest) -> FormalResult:
         if not isinstance(request, FormalRequest):
             raise FormalBackendInputError("request must be FormalRequest")
@@ -894,6 +1039,8 @@ class NormativeFiberFormalBackend:
         self,
         request: FormalRequest,
         result: PermutationComputation,
+        *,
+        schedule_artifact: ArtifactRef | None = None,
     ) -> FormalResult:
         replicate_axis = resample_axis(request)
         null_artifact = self._publisher.array(
@@ -911,8 +1058,21 @@ class NormativeFiberFormalBackend:
             else "completed_with_nonfinite_replicates"
         )
         artifacts = [null_artifact]
-        schedule_artifact = None
-        if result.permutation_schedule is not None:
+        if schedule_artifact is not None:
+            if (
+                schedule_artifact.kind != "formal_resampling_schedule"
+                or schedule_artifact.dtype != "int32"
+                or schedule_artifact.shape
+                != (replicate_axis.count, request.subject_axis.count)
+                or schedule_artifact.axis_refs
+                != (replicate_axis, request.subject_axis)
+                or schedule_artifact.units != "subject_index"
+            ):
+                raise FormalBackendInputError(
+                    "upstream permutation schedule artifact is invalid"
+                )
+            artifacts.append(schedule_artifact)
+        elif result.permutation_schedule is not None:
             schedule_artifact = self._publisher.array(
                 "formal_permutation_schedule.npy",
                 result.permutation_schedule,

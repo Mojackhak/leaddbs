@@ -129,6 +129,39 @@ def validate_formal_operator_scratch_record(
     close_operator_scratch(arrays)
 
 
+def validated_formal_operator_scratch_descriptor(
+    record: FormalOperatorScratchRecord,
+    request: FormalRequest,
+    run_root: Path,
+) -> FormalOperatorScratchDescriptor:
+    """Bind and reopen one scratch record for the exact formal request."""
+
+    if not isinstance(record, FormalOperatorScratchRecord):
+        raise FormalOperatorWorkspaceError("operator scratch record is invalid")
+    if not isinstance(request, FormalRequest):
+        raise FormalOperatorWorkspaceError("formal request is invalid")
+    expected_family = (
+        "direct_voxel"
+        if request.final_model.endpoint.model_family.endswith("voxel")
+        else "normative_fiber"
+    )
+    if (
+        record.target_id != request.final_model.identifier
+        or record.model_family != expected_family
+        or record.subject_axis != request.subject_axis
+        or record.feature_axis != request.feature_axis
+        or record.input_identity != formal_operator_input_identity(request)
+        or record.technical_status != "completed"
+    ):
+        raise FormalOperatorWorkspaceError(
+            "operator scratch record does not match the formal request"
+        )
+    descriptor = formal_operator_scratch_descriptor(record, run_root)
+    arrays = open_operator_scratch(descriptor)
+    close_operator_scratch(arrays)
+    return descriptor
+
+
 def cleanup_formal_operator_scratch_record(
     record: FormalOperatorScratchRecord,
     run_root: Path,
@@ -144,5 +177,6 @@ __all__ = [
     "formal_operator_input_identity",
     "formal_operator_scratch_descriptor",
     "formal_operator_scratch_record",
+    "validated_formal_operator_scratch_descriptor",
     "validate_formal_operator_scratch_record",
 ]

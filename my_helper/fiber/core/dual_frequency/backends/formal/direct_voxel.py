@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from ...cache import ArtifactStore
-from ...contracts import FormalRequest, FormalResult
+from ...contracts import ArtifactRef, FormalRequest, FormalResult
 from ..direct_voxel.kernel import evaluate_grid_cell_with_nuisance_plan
 from ..nuisance import ADJUSTED_BRANCH, NuisancePlan
 from ..protocols import ArtifactPublisher, BootstrapNuisanceProvider
@@ -655,6 +655,101 @@ class DirectVoxelFormalBackend:
         operators = _build_fold_operators(request, exposure, nuisance_plan)
         return _publish_direct_voxel_operator_scratch(parent, operators)
 
+    def _permutation_workspace(
+        self,
+        request: FormalRequest,
+    ) -> tuple[np.ndarray, NuisancePlan]:
+        """Materialize exact inputs shared by block and aggregate consumers."""
+
+        if not isinstance(request, FormalRequest):
+            raise FormalBackendInputError("request must be FormalRequest")
+        if request.resampling_kind != "permutation":
+            raise FormalBackendInputError(
+                "direct permutation workspace requires permutation resampling"
+            )
+        outcome = finite_vector(
+            materialize_array(
+                request.outcome,
+                name="outcome",
+                expected_axes=(request.subject_axis,),
+                expected_units=request.outcome.units,
+                expected_space=request.outcome.space,
+                artifact_store=self._artifact_store,
+            ),
+            "outcome",
+            request.subject_axis.count,
+        )
+        baseline = finite_vector(
+            materialize_array(
+                request.baseline,
+                name="baseline",
+                expected_axes=(request.subject_axis,),
+                expected_units=request.baseline.units,
+                expected_space=request.baseline.space,
+                artifact_store=self._artifact_store,
+            ),
+            "baseline",
+            request.subject_axis.count,
+        )
+        nuisance_plan = build_fixed_nuisance_plan(
+            request,
+            baseline,
+            self._optional_delta_vector(request.delta_reference_full, request),
+            self._optional_delta_folds(request.delta_reference_folds, request),
+        )
+        return outcome, nuisance_plan
+
+    def _run_permutation_block_from_scratch(
+        self,
+        request: FormalRequest,
+        schedule: ResamplingSchedule,
+        block: ReplicateBlock,
+        descriptor: FormalOperatorScratchDescriptor,
+    ) -> PermutationBlockComputation:
+        """Compute one interval through descriptor-reopened direct operators."""
+
+        outcome, nuisance_plan = self._permutation_workspace(request)
+        operators, arrays = open_direct_voxel_operator_scratch(descriptor)
+        try:
+            return _direct_voxel_permutation_block(
+                lambda values: _optimized_loocv(values, operators),
+                outcome,
+                nuisance_plan,
+                schedule,
+                block,
+            )
+        finally:
+            close_operator_scratch(arrays)
+
+    def _aggregate_permutation_blocks_from_scratch(
+        self,
+        request: FormalRequest,
+        schedule: ResamplingSchedule,
+        blocks: tuple[PermutationBlockComputation, ...],
+        descriptor: FormalOperatorScratchDescriptor,
+        schedule_artifact: ArtifactRef,
+    ) -> FormalResult:
+        """Compute observed direct metrics once and publish ordered block output."""
+
+        outcome, _nuisance_plan = self._permutation_workspace(request)
+        operators, arrays = open_direct_voxel_operator_scratch(descriptor)
+        try:
+            observed = _optimized_loocv(outcome, operators)
+        finally:
+            close_operator_scratch(arrays)
+        if not bool(observed["all_predictions_finite"]) or not np.isfinite(
+            observed["loocv_spearman_rho"]
+        ):
+            raise FormalBackendError(
+                "observed final direct-voxel LOOCV statistic is not computable"
+            )
+        result = combine_permutation_blocks(observed, schedule, blocks)
+        return self._publish_permutation(
+            request,
+            result,
+            schedule_artifact=schedule_artifact,
+        )
+
     def run_formal(self, request: FormalRequest) -> FormalResult:
         if not isinstance(request, FormalRequest):
             raise FormalBackendInputError("request must be FormalRequest")
@@ -780,6 +875,8 @@ class DirectVoxelFormalBackend:
         self,
         request: FormalRequest,
         result: PermutationComputation,
+        *,
+        schedule_artifact: ArtifactRef | None = None,
     ) -> FormalResult:
         replicate_axis = resample_axis(request)
         null_artifact = self._publisher.array(
@@ -797,8 +894,21 @@ class DirectVoxelFormalBackend:
             else "completed_with_nonfinite_replicates"
         )
         artifacts = [null_artifact]
-        schedule_artifact = None
-        if result.permutation_schedule is not None:
+        if schedule_artifact is not None:
+            if (
+                schedule_artifact.kind != "formal_resampling_schedule"
+                or schedule_artifact.dtype != "int32"
+                or schedule_artifact.shape
+                != (replicate_axis.count, request.subject_axis.count)
+                or schedule_artifact.axis_refs
+                != (replicate_axis, request.subject_axis)
+                or schedule_artifact.units != "subject_index"
+            ):
+                raise FormalBackendInputError(
+                    "upstream permutation schedule artifact is invalid"
+                )
+            artifacts.append(schedule_artifact)
+        elif result.permutation_schedule is not None:
             schedule_artifact = self._publisher.array(
                 "formal_permutation_schedule.npy",
                 result.permutation_schedule,

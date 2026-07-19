@@ -95,6 +95,7 @@ from dual_frequency.contracts import (
     NormativeFiberScoreSettings,
     PreparedExposureRecord,
     RequestError,
+    ResamplingBlockRecord,
     ResamplingScheduleRecord,
     SourceRecord,
     TaskKey,
@@ -103,6 +104,7 @@ from dual_frequency.runtime.formal_operator_workspace import (
     cleanup_formal_operator_scratch_record,
     formal_operator_scratch_descriptor,
     formal_operator_scratch_record,
+    validated_formal_operator_scratch_descriptor,
     validate_formal_operator_scratch_record,
 )
 from dual_frequency.runtime.formal_resampling import (
@@ -257,6 +259,16 @@ class _ScientificArrayStore:
         output = np.array(value, copy=True)
         output.flags.writeable = False
         return output
+
+
+class _FormalServiceArrayStore:
+    def __init__(self, run_root: Path) -> None:
+        self._published = ArtifactStore((run_root,))
+
+    def materialize(self, artifact: ArtifactRef, **requirements: object) -> np.ndarray:
+        if artifact.identifier in _SCIENTIFIC_ARRAYS:
+            return _ScientificArrayStore().materialize(artifact, **requirements)
+        return self._published.materialize(artifact, **requirements)
 
 
 def _artifact_value(value: ArtifactRef) -> np.ndarray:
@@ -659,13 +671,22 @@ def _formal_service_task(
     *,
     service_id: str,
     output_record_type: str,
+    execution_parameters: tuple[tuple[str, str], ...] = (),
+    dependency_ids: tuple[str, ...] = (
+        "endpoint_input",
+        "prepared_exposure",
+        "final_selection",
+    ),
 ) -> TaskSpec:
+    parameter_identity = hashlib.sha256(
+        repr((service_id, execution_parameters)).encode("utf-8")
+    ).hexdigest()
     return TaskSpec(
         key=TaskKey(
             request.final_model.endpoint.identifier,
             service_id,
             "none",
-            "e" * 64,
+            parameter_identity,
         ),
         endpoint_id=request.final_model.endpoint.identifier,
         model_family=request.final_model.endpoint.model_family,
@@ -674,9 +695,10 @@ def _formal_service_task(
         round_id="formal_predecessor_test",
         phase="formal",
         service_id=service_id,
-        dependencies=("endpoint_input", "prepared_exposure", "final_selection"),
+        dependencies=dependency_ids,
         gates=(),
         output_record_type=output_record_type,
+        execution_parameters=execution_parameters,
     )
 
 
@@ -686,12 +708,17 @@ def _formal_service_execution_request(
     service_id: str,
     output_record_type: str,
     run_root: Path,
+    execution_parameters: tuple[tuple[str, str], ...] = (),
+    additional_dependencies: dict[str, DependencyState] | None = None,
 ) -> tuple[TaskExecutionRequest, _FormalServiceProvider]:
     provider, dependencies = _formal_service_dependencies(request)
+    dependencies.update(additional_dependencies or {})
     task = _formal_service_task(
         request,
         service_id=service_id,
         output_record_type=output_record_type,
+        execution_parameters=execution_parameters,
+        dependency_ids=tuple(dependencies),
     )
     return (
         TaskExecutionRequest(
@@ -700,7 +727,7 @@ def _formal_service_execution_request(
             run_id="formal-predecessor-test",
             output_dir=run_root / "work" / task.task_id,
             provider=provider,
-            artifact_store=_ScientificArrayStore(),
+            artifact_store=_FormalServiceArrayStore(run_root),
             scientific_cache=None,
             allow_expensive_producers=False,
             workers=2,
@@ -720,18 +747,28 @@ class FormalPredecessorServiceTest(unittest.TestCase):
     def test_schedule_and_operator_services_preserve_typed_boundaries(self) -> None:
         registry = build_default_service_registry()
         backend_types = {
-            "reference_voxel": (DirectVoxelFormalBackend, "reference"),
-            "reference_fiber": (NormativeFiberFormalBackend, "reference"),
+            "reference_voxel": (
+                DirectVoxelFormalBackend,
+                "reference",
+                "dual_frequency.backends.formal.direct_voxel._build_fold_operators",
+            ),
+            "reference_fiber": (
+                NormativeFiberFormalBackend,
+                "reference",
+                "dual_frequency.backends.formal.normative_fiber._build_fold_operators",
+            ),
             "addon_voxel": (
                 DirectVoxelFormalBackend,
                 "delta_reference_adjusted",
+                "dual_frequency.backends.formal.direct_voxel._build_fold_operators",
             ),
             "addon_fiber": (
                 NormativeFiberFormalBackend,
                 "delta_reference_adjusted",
+                "dual_frequency.backends.formal.normative_fiber._build_fold_operators",
             ),
         }
-        for model_family, (backend_type, branch) in backend_types.items():
+        for model_family, (backend_type, branch, builder_target) in backend_types.items():
             with (
                 self.subTest(model_family=model_family),
                 tempfile.TemporaryDirectory() as temporary,
@@ -744,6 +781,42 @@ class FormalPredecessorServiceTest(unittest.TestCase):
                     resamples=11,
                     seed=73,
                 )
+                if branch == "delta_reference_adjusted":
+                    subject_index = np.arange(
+                        formal_request.subject_axis.count,
+                        dtype=np.float64,
+                    )
+                    delta_full = (
+                        np.sin(1.7 * subject_index)
+                        + 0.2 * np.cos(0.6 * subject_index)
+                    )
+                    delta_folds = np.broadcast_to(
+                        delta_full,
+                        (
+                            formal_request.subject_axis.count,
+                            formal_request.subject_axis.count,
+                        ),
+                    ).copy()
+                    formal_request = dataclasses.replace(
+                        formal_request,
+                        delta_reference_full=_scientific_artifact(
+                            f"{model_family}_service_delta_full",
+                            delta_full,
+                            (formal_request.subject_axis,),
+                            units="score",
+                            space="clinical",
+                        ),
+                        delta_reference_folds=_scientific_artifact(
+                            f"{model_family}_service_delta_folds",
+                            delta_folds,
+                            (
+                                formal_request.subject_axis,
+                                formal_request.subject_axis,
+                            ),
+                            units="score",
+                            space="clinical",
+                        ),
+                    )
                 schedule_request, schedule_provider = (
                     _formal_service_execution_request(
                         formal_request,
@@ -816,6 +889,295 @@ class FormalPredecessorServiceTest(unittest.TestCase):
                 validate_formal_operator_scratch_record(
                     workspace_record,
                     run_root,
+                )
+
+                predecessor_dependencies = {
+                    "schedule": DependencyState(
+                        "completed",
+                        "none",
+                        schedule_record,
+                    ),
+                    "scratch": DependencyState(
+                        "completed",
+                        "none",
+                        workspace_record,
+                    ),
+                }
+                block_request, block_provider = _formal_service_execution_request(
+                    formal_request,
+                    service_id="run_formal_permutation_block",
+                    output_record_type="ResamplingBlockRecord",
+                    run_root=run_root,
+                    execution_parameters=(("block_index", "0"),),
+                    additional_dependencies=predecessor_dependencies,
+                )
+                with mock.patch(
+                    builder_target,
+                    side_effect=AssertionError("fold operators must not rebuild"),
+                ) as operator_builder:
+                    block_result = registry.resolve(
+                        "run_formal_permutation_block"
+                    )(block_request)
+                operator_builder.assert_not_called()
+                block_record = block_result.decode_record()
+                self.assertIsInstance(block_record, ResamplingBlockRecord)
+                self.assertEqual(block_provider.calls, ["permutation"])
+
+                aggregate_request, aggregate_provider = (
+                    _formal_service_execution_request(
+                        formal_request,
+                        service_id="aggregate_formal_permutation",
+                        output_record_type="FormalResult",
+                        run_root=run_root,
+                        additional_dependencies={
+                            **predecessor_dependencies,
+                            "block_000": DependencyState(
+                                "completed",
+                                "none",
+                                block_record,
+                            ),
+                        },
+                    )
+                )
+                with mock.patch(
+                    builder_target,
+                    side_effect=AssertionError("fold operators must not rebuild"),
+                ) as operator_builder:
+                    aggregate_result = registry.resolve(
+                        "aggregate_formal_permutation"
+                    )(aggregate_request)
+                operator_builder.assert_not_called()
+                final_result = aggregate_result.decode_record()
+                self.assertIsInstance(final_result, FormalResult)
+                self.assertTrue(aggregate_result.fact_values["formal_complete"])
+                self.assertEqual(aggregate_provider.calls, ["permutation"])
+                artifact_kinds = {artifact.kind for artifact in final_result.artifacts}
+                self.assertIn("formal_resampling_schedule", artifact_kinds)
+                self.assertNotIn("formal_permutation_schedule", artifact_kinds)
+                self.assertTrue(
+                    formal_operator_scratch_descriptor(
+                        workspace_record,
+                        run_root,
+                    ).root.is_dir()
+                )
+                cleanup_formal_operator_scratch_record(workspace_record, run_root)
+
+    def test_two_block_services_match_serial_and_reject_missing_interval(self) -> None:
+        registry = build_default_service_registry()
+        cases = {
+            "reference_voxel": (
+                DirectVoxelFormalBackend,
+                "dual_frequency.backends.formal.direct_voxel._build_fold_operators",
+            ),
+            "reference_fiber": (
+                NormativeFiberFormalBackend,
+                "dual_frequency.backends.formal.normative_fiber._build_fold_operators",
+            ),
+        }
+        exposure = _synthetic_arrays(n_subjects=12, n_features=20)[0]
+        for model_family, (backend_type, builder_target) in cases.items():
+            with (
+                self.subTest(model_family=model_family),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                run_root = Path(temporary)
+                formal_request = _formal_request(
+                    model_family,
+                    "permutation",
+                    resamples=251,
+                    seed=91,
+                    exposure=exposure,
+                )
+                serial = backend_type(
+                    RunScopedArtifactPublisher(
+                        run_root / "serial",
+                        "serial_formal",
+                        "1",
+                    ),
+                    artifact_store=_ScientificArrayStore(),
+                ).run_formal(formal_request)
+
+                schedule_request, _provider = _formal_service_execution_request(
+                    formal_request,
+                    service_id="prepare_formal_permutation_schedule",
+                    output_record_type="ResamplingScheduleRecord",
+                    run_root=run_root,
+                )
+                schedule_record = registry.resolve(
+                    "prepare_formal_permutation_schedule"
+                )(schedule_request).decode_record()
+                self.assertIsInstance(schedule_record, ResamplingScheduleRecord)
+                workspace_request, _provider = _formal_service_execution_request(
+                    formal_request,
+                    service_id="prepare_formal_operator_workspace",
+                    output_record_type="FormalOperatorScratchRecord",
+                    run_root=run_root,
+                )
+                workspace_record = registry.resolve(
+                    "prepare_formal_operator_workspace"
+                )(workspace_request).decode_record()
+                self.assertIsInstance(
+                    workspace_record,
+                    FormalOperatorScratchRecord,
+                )
+                predecessors = {
+                    "schedule": DependencyState(
+                        "completed",
+                        "none",
+                        schedule_record,
+                    ),
+                    "scratch": DependencyState(
+                        "completed",
+                        "none",
+                        workspace_record,
+                    ),
+                }
+                block_records: list[ResamplingBlockRecord] = []
+                with mock.patch(
+                    builder_target,
+                    side_effect=AssertionError("fold operators must not rebuild"),
+                ) as operator_builder:
+                    for block_index in range(2):
+                        block_request, _provider = (
+                            _formal_service_execution_request(
+                                formal_request,
+                                service_id="run_formal_permutation_block",
+                                output_record_type="ResamplingBlockRecord",
+                                run_root=run_root,
+                                execution_parameters=(
+                                    ("block_index", str(block_index)),
+                                ),
+                                additional_dependencies=predecessors,
+                            )
+                        )
+                        block_record = registry.resolve(
+                            "run_formal_permutation_block"
+                        )(block_request).decode_record()
+                        self.assertIsInstance(
+                            block_record,
+                            ResamplingBlockRecord,
+                        )
+                        block_records.append(block_record)
+                operator_builder.assert_not_called()
+
+                missing_request, _provider = _formal_service_execution_request(
+                    formal_request,
+                    service_id="aggregate_formal_permutation",
+                    output_record_type="FormalResult",
+                    run_root=run_root,
+                    additional_dependencies={
+                        **predecessors,
+                        "block_000": DependencyState(
+                            "completed",
+                            "none",
+                            block_records[0],
+                        ),
+                    },
+                )
+                with self.assertRaises(FormalBackendError):
+                    registry.resolve("aggregate_formal_permutation")(
+                        missing_request
+                    )
+
+                mismatched_request, _provider = (
+                    _formal_service_execution_request(
+                        formal_request,
+                        service_id="aggregate_formal_permutation",
+                        output_record_type="FormalResult",
+                        run_root=run_root,
+                        additional_dependencies={
+                            **predecessors,
+                            "block_000": DependencyState(
+                                "completed",
+                                "none",
+                                dataclasses.replace(
+                                    block_records[0],
+                                    schedule_id="different_schedule",
+                                ),
+                            ),
+                            "block_001": DependencyState(
+                                "completed",
+                                "none",
+                                block_records[1],
+                            ),
+                        },
+                    )
+                )
+                with self.assertRaisesRegex(RuntimeError, "parent schedule"):
+                    registry.resolve("aggregate_formal_permutation")(
+                        mismatched_request
+                    )
+
+                aggregate_request, _provider = _formal_service_execution_request(
+                    formal_request,
+                    service_id="aggregate_formal_permutation",
+                    output_record_type="FormalResult",
+                    run_root=run_root,
+                    additional_dependencies={
+                        **predecessors,
+                        "block_001": DependencyState(
+                            "completed",
+                            "none",
+                            block_records[1],
+                        ),
+                        "block_000": DependencyState(
+                            "completed",
+                            "none",
+                            block_records[0],
+                        ),
+                    },
+                )
+                with mock.patch(
+                    builder_target,
+                    side_effect=AssertionError("fold operators must not rebuild"),
+                ) as operator_builder:
+                    aggregate = registry.resolve(
+                        "aggregate_formal_permutation"
+                    )(aggregate_request).decode_record()
+                operator_builder.assert_not_called()
+                self.assertIsInstance(aggregate, FormalResult)
+
+                serial_artifacts = {
+                    artifact.kind: artifact for artifact in serial.artifacts
+                }
+                aggregate_artifacts = {
+                    artifact.kind: artifact for artifact in aggregate.artifacts
+                }
+                np.testing.assert_array_equal(
+                    np.load(
+                        _artifact_path(
+                            aggregate_artifacts[
+                                "formal_permutation_null_statistics"
+                            ]
+                        ),
+                        allow_pickle=False,
+                    ),
+                    np.load(
+                        _artifact_path(
+                            serial_artifacts[
+                                "formal_permutation_null_statistics"
+                            ]
+                        ),
+                        allow_pickle=False,
+                    ),
+                )
+                aggregate_summary = json.loads(
+                    _artifact_path(
+                        aggregate_artifacts["formal_permutation_summary"]
+                    ).read_text(encoding="utf-8")
+                )
+                serial_summary = json.loads(
+                    _artifact_path(
+                        serial_artifacts["formal_permutation_summary"]
+                    ).read_text(encoding="utf-8")
+                )
+                self.assertEqual(
+                    aggregate_summary["observed"],
+                    serial_summary["observed"],
+                )
+                self.assertEqual(
+                    aggregate_summary["p_plus_one_two_sided"],
+                    serial_summary["p_plus_one_two_sided"],
                 )
                 cleanup_formal_operator_scratch_record(workspace_record, run_root)
 
@@ -1041,6 +1403,20 @@ class FormalOperatorScratchTest(unittest.TestCase):
                 run_root,
             )
             validate_formal_operator_scratch_record(record, run_root)
+            self.assertEqual(
+                validated_formal_operator_scratch_descriptor(
+                    record,
+                    request,
+                    run_root,
+                ),
+                descriptor,
+            )
+            with self.assertRaisesRegex(RuntimeError, "does not match"):
+                validated_formal_operator_scratch_descriptor(
+                    dataclasses.replace(record, input_identity="0" * 64),
+                    request,
+                    run_root,
+                )
             self.assertEqual(
                 formal_operator_scratch_descriptor(record, run_root),
                 descriptor,

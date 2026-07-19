@@ -3769,6 +3769,48 @@ visualization regression passes 504 tests and 253 subtests. No production task
 count or planner dependency changed in this slice; permutation block and
 aggregate services remain open.
 
+Seventh Step 9 implementation slice: register the permutation block and
+aggregate consumers without changing planner topology. One block service takes
+the canonical internal `block_index` task parameter, one matching
+`ResamplingScheduleRecord`, and one input-bound
+`FormalOperatorScratchRecord`. It restores the exact `FormalRequest`, validates
+the complete schedule before lending the canonical interval, validates the
+scratch target, model family, axes, input identity, and read-only NPY headers,
+then reopens the existing direct or fiber fold operators without rebuilding
+them. It publishes only one block-local null-statistic artifact and one
+`ResamplingBlockRecord`; it does not compute observed metrics or publish a
+`FormalResult`.
+
+The aggregate service requires the schedule, scratch, and complete set of
+canonical block records. It rejects a missing, duplicated, overlapping,
+noncontiguous, changed-target, changed-axis, changed-schedule, or malformed
+block before calculating a p value. It computes the observed statistic once
+through the same reopened operators, reconstructs null values in historical
+replicate order, and publishes the existing final `FormalResult` schema. The
+final result references the exact upstream schedule artifact rather than
+copying it into the aggregate task. This slice retains operator scratch after
+success or failure so later resume and extensions remain possible. Focused
+tests cover all four endpoint model families, reverse block completion order,
+missing-block rejection, no operator rebuild, and equality with the retained
+serial result. The production planner remains unchanged until both consumers
+pass independently.
+
+Seventh-slice acceptance on 2026-07-19: the production registry now contains
+`run_formal_permutation_block` and `aggregate_formal_permutation` as unplanned
+services. Reference voxel, reference fiber, adjusted add-on voxel, and adjusted
+add-on fiber complete the typed single-block path while patched operator
+builders remain unused. A 251-replicate direct and fiber fixture publishes the
+canonical 250-replicate first block plus the one-replicate tail. Reverse record
+order reconstructs null statistics with exact array equality to the retained
+serial path and preserves identical observed metrics and formal p values.
+Missing coverage, changed parent schedule identity, and changed scratch input
+identity fail closed. Aggregate output references the upstream schedule
+artifact, and scratch remains present until explicit descriptor-confined test
+cleanup. The focused formal, service, codec, executor, spawn, and dependency
+gate passes 90 tests and 50 subtests. The complete dual-frequency and
+visualization regression passes 505 tests and 255 subtests. The production DAG
+and task count remain unchanged; planner migration is the next open slice.
+
 - [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 
 Add one `formal_in_sample` task for every realized final endpoint whenever

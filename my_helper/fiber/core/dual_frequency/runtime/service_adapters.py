@@ -64,6 +64,7 @@ from ..contracts import (
     FinalModelKey,
     FinalModelRecord,
     FinalSelectionRecord,
+    FormalOperatorScratchRecord,
     FormalRequest,
     FormalResult,
     NormativeFiberScoreSettings,
@@ -71,6 +72,8 @@ from ..contracts import (
     ObservedResult,
     PreparedExposureRecord,
     ReferenceDependencyRecord,
+    ResamplingBlockRecord,
+    ResamplingScheduleRecord,
     SensitiveRecord,
     SensitivityResult,
     SourceRecord,
@@ -84,8 +87,18 @@ from .bootstrap_provider import (
     StudyBootstrapNuisanceProvider,
     StudyBootstrapNuisanceProviderError,
 )
-from .formal_operator_workspace import formal_operator_scratch_record
-from .formal_resampling import publish_formal_resampling_schedule
+from .formal_operator_workspace import (
+    formal_operator_scratch_record,
+    validated_formal_operator_scratch_descriptor,
+)
+from .formal_permutation_blocks import (
+    load_formal_permutation_block,
+    publish_formal_permutation_block,
+)
+from .formal_resampling import (
+    load_formal_resampling_schedule,
+    publish_formal_resampling_schedule,
+)
 from .input_provider import RuntimeInputProvider, StudyRuntimeInputProvider
 from .jitter_blocks import (
     CachedJitterReplicateProvider,
@@ -874,22 +887,7 @@ def _prepare_formal_operator_workspace(
     request: TaskExecutionRequest,
 ) -> ServiceResult:
     formal_request = _formal_permutation_request(request)
-    publisher = _publisher(request)
-    model_family = formal_request.final_model.endpoint.model_family
-    if model_family.endswith("voxel"):
-        backend = DirectVoxelFormalBackend(
-            publisher,
-            artifact_store=request.artifact_store,
-        )
-    elif model_family.endswith("fiber"):
-        backend = NormativeFiberFormalBackend(
-            publisher,
-            artifact_store=request.artifact_store,
-        )
-    else:
-        raise ServiceAdapterError(
-            f"unsupported formal model family {model_family!r}"
-        )
+    backend = _formal_permutation_backend(request, formal_request)
 
     descriptor = None
     try:
@@ -912,6 +910,111 @@ def _prepare_formal_operator_workspace(
                     f"operator scratch cleanup also failed: {cleanup_error}"
                 )
         raise
+
+
+def _formal_permutation_backend(
+    request: TaskExecutionRequest,
+    formal_request: FormalRequest,
+):
+    publisher = _publisher(request)
+    model_family = formal_request.final_model.endpoint.model_family
+    if model_family.endswith("voxel"):
+        return DirectVoxelFormalBackend(
+            publisher,
+            artifact_store=request.artifact_store,
+        )
+    if model_family.endswith("fiber"):
+        return NormativeFiberFormalBackend(
+            publisher,
+            artifact_store=request.artifact_store,
+        )
+    raise ServiceAdapterError(
+        f"unsupported formal model family {model_family!r}"
+    )
+
+
+def _formal_permutation_predecessors(
+    request: TaskExecutionRequest,
+    formal_request: FormalRequest,
+):
+    schedule_record = _one_record(request, ResamplingScheduleRecord)
+    scratch_record = _one_record(request, FormalOperatorScratchRecord)
+    assert schedule_record is not None and scratch_record is not None
+    schedule = load_formal_resampling_schedule(
+        schedule_record,
+        formal_request,
+        request.artifact_store,
+    )
+    descriptor = validated_formal_operator_scratch_descriptor(
+        scratch_record,
+        formal_request,
+        request.output_dir.parents[1],
+    )
+    return schedule_record, schedule, descriptor
+
+
+def _run_formal_permutation_block(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    formal_request = _formal_permutation_request(request)
+    schedule_record, schedule, descriptor = _formal_permutation_predecessors(
+        request,
+        formal_request,
+    )
+    try:
+        block_index = int(request.task.execution_parameter("block_index"))
+        if block_index < 0:
+            raise ValueError("block index is negative")
+        block = schedule.blocks()[block_index]
+    except (IndexError, TypeError, ValueError) as error:
+        raise ServiceAdapterError(
+            "formal permutation block_index is invalid"
+        ) from error
+    backend = _formal_permutation_backend(request, formal_request)
+    result = backend._run_permutation_block_from_scratch(
+        formal_request,
+        schedule,
+        block,
+        descriptor,
+    )
+    record = publish_formal_permutation_block(
+        result,
+        schedule_record,
+        _publisher(request),
+    )
+    return ServiceResult.from_record(record)
+
+
+def _aggregate_formal_permutation(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    formal_request = _formal_permutation_request(request)
+    schedule_record, schedule, descriptor = _formal_permutation_predecessors(
+        request,
+        formal_request,
+    )
+    block_records = _records(request, ResamplingBlockRecord)
+    if not block_records:
+        raise ServiceAdapterError(
+            "formal permutation aggregate requires block records"
+        )
+    blocks = tuple(
+        load_formal_permutation_block(
+            record,
+            schedule_record,
+            request.artifact_store,
+        )
+        for record in block_records
+    )
+    backend = _formal_permutation_backend(request, formal_request)
+    result = backend._aggregate_permutation_blocks_from_scratch(
+        formal_request,
+        schedule,
+        blocks,
+        descriptor,
+        schedule_record.schedule,
+    )
+    return ServiceResult.from_record(result, facts={"formal_complete": True})
 
 
 def _run_formal(
@@ -1575,6 +1678,8 @@ PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
         "prepare_formal_operator_workspace",
         _prepare_formal_operator_workspace,
     ),
+    ("run_formal_permutation_block", _run_formal_permutation_block),
+    ("aggregate_formal_permutation", _aggregate_formal_permutation),
     ("validate_reference_voxel_input", _validate_endpoint_input),
     ("prepare_reference_voxel_exposure", _prepare_exposure),
     ("run_reference_voxel_observed_grid", _run_reference_voxel_observed),
