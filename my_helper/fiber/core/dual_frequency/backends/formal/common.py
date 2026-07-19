@@ -17,6 +17,7 @@ from ...contracts import (
     AxisRef,
     BootstrapNuisanceEvidence,
     FormalRequest,
+    RESAMPLING_REPLICATE_BLOCK_SIZE,
     canonical_hash,
 )
 from ...contracts.requests import ScientificInput
@@ -52,7 +53,7 @@ class BootstrapReplicateNotEstimableError(FormalBackendInputError):
         super().__init__(normalized)
 
 
-FORMAL_REPLICATE_BLOCK_SIZE = 250
+FORMAL_REPLICATE_BLOCK_SIZE = RESAMPLING_REPLICATE_BLOCK_SIZE
 RNG_SCHEDULE_SCHEMA = "dual_frequency_resampling_schedule_v1"
 
 

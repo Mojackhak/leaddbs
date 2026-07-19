@@ -14,9 +14,13 @@ from .records import (
     PreparedExposureRecord,
     RecordError,
     ReferenceDependencyRecord,
+    RESAMPLING_REPLICATE_BLOCK_SIZE,
+    ResamplingBlockRecord,
+    ResamplingScheduleRecord,
     SensitiveRecord,
     SourceRecord,
     SubjectExclusionRecord,
+    resampling_block_axis,
 )
 from .requests import (
     ActivationArtifact,
@@ -74,7 +78,10 @@ __all__ = [
     "PreparedExposureRecord",
     "RecordError",
     "ReferenceDependencyRecord",
+    "RESAMPLING_REPLICATE_BLOCK_SIZE",
     "RequestError",
+    "ResamplingBlockRecord",
+    "ResamplingScheduleRecord",
     "ScaleDefinition",
     "SensitiveRecord",
     "SensitivityResult",
@@ -89,4 +96,5 @@ __all__ = [
     "canonical_hash",
     "load_study_base",
     "validate_study_base",
+    "resampling_block_axis",
 ]

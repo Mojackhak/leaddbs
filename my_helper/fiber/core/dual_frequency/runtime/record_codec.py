@@ -24,6 +24,8 @@ from ..contracts import (
     ObservedResult,
     PreparedExposureRecord,
     ReferenceDependencyRecord,
+    ResamplingBlockRecord,
+    ResamplingScheduleRecord,
     SensitiveRecord,
     SensitivityResult,
     SourceRecord,
@@ -42,6 +44,8 @@ _ROOT_TYPES = {
     "ObservedResult": ObservedResult,
     "SourceRecord": SourceRecord,
     "ReferenceDependencyRecord": ReferenceDependencyRecord,
+    "ResamplingScheduleRecord": ResamplingScheduleRecord,
+    "ResamplingBlockRecord": ResamplingBlockRecord,
     "DeltaReferenceBundle": DeltaReferenceBundle,
     "BranchRecord": BranchRecord,
     "FinalModelRecord": FinalModelRecord,
@@ -349,6 +353,40 @@ _FINAL_SELECTION_FIELDS = frozenset(
 _OBSERVED_RESULT_FIELDS = frozenset({"source", "artifacts"})
 _FORMAL_RESULT_FIELDS = frozenset(
     {"final_model_id", "resampling_kind", "technical_status", "artifacts"}
+)
+_RESAMPLING_SCHEDULE_FIELDS = frozenset(
+    {
+        "target_id",
+        "resampling_kind",
+        "subject_axis",
+        "replicate_axis",
+        "seed",
+        "replicate_count",
+        "block_size",
+        "schedule_schema",
+        "generator_class",
+        "bit_generator_class",
+        "numpy_version",
+        "environment_fingerprint",
+        "schedule_sha256",
+        "schedule",
+    }
+)
+_RESAMPLING_BLOCK_FIELDS = frozenset(
+    {
+        "target_id",
+        "resampling_kind",
+        "schedule_id",
+        "replicate_axis",
+        "block_axis",
+        "block_index",
+        "start",
+        "stop",
+        "total",
+        "schedule_sha256",
+        "technical_status",
+        "artifacts",
+    }
 )
 _SENSITIVITY_RESULT_FIELDS = frozenset(
     {"target_id", "sensitivity_kind", "artifacts"}
@@ -862,6 +900,105 @@ def _decode_formal_result(value: object, location: str) -> FormalResult:
     )
 
 
+def _decode_resampling_schedule(
+    value: object,
+    location: str,
+) -> ResamplingScheduleRecord:
+    payload = _object(value, location, _RESAMPLING_SCHEDULE_FIELDS)
+    return ResamplingScheduleRecord(
+        target_id=_text(payload["target_id"], f"{location}.target_id"),
+        resampling_kind=_text(
+            payload["resampling_kind"],
+            f"{location}.resampling_kind",
+        ),
+        subject_axis=_decode_axis(
+            payload["subject_axis"],
+            f"{location}.subject_axis",
+        ),
+        replicate_axis=_decode_axis(
+            payload["replicate_axis"],
+            f"{location}.replicate_axis",
+        ),
+        seed=_integer(payload["seed"], f"{location}.seed"),
+        replicate_count=_integer(
+            payload["replicate_count"],
+            f"{location}.replicate_count",
+        ),
+        block_size=_integer(payload["block_size"], f"{location}.block_size"),
+        schedule_schema=_text(
+            payload["schedule_schema"],
+            f"{location}.schedule_schema",
+        ),
+        generator_class=_text(
+            payload["generator_class"],
+            f"{location}.generator_class",
+        ),
+        bit_generator_class=_text(
+            payload["bit_generator_class"],
+            f"{location}.bit_generator_class",
+        ),
+        numpy_version=_text(
+            payload["numpy_version"],
+            f"{location}.numpy_version",
+        ),
+        environment_fingerprint=_text(
+            payload["environment_fingerprint"],
+            f"{location}.environment_fingerprint",
+        ),
+        schedule_sha256=_text(
+            payload["schedule_sha256"],
+            f"{location}.schedule_sha256",
+        ),
+        schedule=_decode_artifact(
+            payload["schedule"],
+            f"{location}.schedule",
+        ),
+    )
+
+
+def _decode_resampling_block(
+    value: object,
+    location: str,
+) -> ResamplingBlockRecord:
+    payload = _object(value, location, _RESAMPLING_BLOCK_FIELDS)
+    return ResamplingBlockRecord(
+        target_id=_text(payload["target_id"], f"{location}.target_id"),
+        resampling_kind=_text(
+            payload["resampling_kind"],
+            f"{location}.resampling_kind",
+        ),
+        schedule_id=_text(payload["schedule_id"], f"{location}.schedule_id"),
+        replicate_axis=_decode_axis(
+            payload["replicate_axis"],
+            f"{location}.replicate_axis",
+        ),
+        block_axis=_decode_axis(
+            payload["block_axis"],
+            f"{location}.block_axis",
+        ),
+        block_index=_integer(
+            payload["block_index"],
+            f"{location}.block_index",
+        ),
+        start=_integer(payload["start"], f"{location}.start"),
+        stop=_integer(payload["stop"], f"{location}.stop"),
+        total=_integer(payload["total"], f"{location}.total"),
+        schedule_sha256=_text(
+            payload["schedule_sha256"],
+            f"{location}.schedule_sha256",
+        ),
+        technical_status=_text(
+            payload["technical_status"],
+            f"{location}.technical_status",
+        ),
+        artifacts=_tuple_of(
+            payload["artifacts"],
+            f"{location}.artifacts",
+            _decode_artifact,
+        ),
+    )
+
+
 def _decode_sensitivity_result(
     value: object,
     location: str,
@@ -924,6 +1061,8 @@ _ROOT_DECODERS: dict[str, Callable[[object, str], object]] = {
     "FinalSelectionRecord": _decode_final_selection,
     "SensitiveRecord": _decode_sensitive,
     "FormalResult": _decode_formal_result,
+    "ResamplingScheduleRecord": _decode_resampling_schedule,
+    "ResamplingBlockRecord": _decode_resampling_block,
     "SensitivityResult": _decode_sensitivity_result,
     "ActivationArtifact": _decode_activation_artifact,
 }

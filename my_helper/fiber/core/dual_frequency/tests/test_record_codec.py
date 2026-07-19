@@ -25,10 +25,14 @@ from dual_frequency.contracts import (
     PreparedExposureRecord,
     RecordError,
     ReferenceDependencyRecord,
+    RESAMPLING_REPLICATE_BLOCK_SIZE,
+    ResamplingBlockRecord,
+    ResamplingScheduleRecord,
     SensitiveRecord,
     SensitivityResult,
     SourceRecord,
     SubjectExclusionRecord,
+    resampling_block_axis,
 )
 from dual_frequency.runtime import (
     RecordCodecError,
@@ -168,6 +172,89 @@ class RecordCodecTest(unittest.TestCase):
             record_id=record_identifier(record),
             artifacts=record_artifacts(record),
         )
+
+    def _resampling_records(
+        self,
+    ) -> tuple[ResamplingScheduleRecord, ResamplingBlockRecord]:
+        replicates = AxisRef("formal_permutation_replicates", 500, "e" * 64)
+        schedule_artifact = self._artifact(
+            "formal_resampling_schedule",
+            (replicates, self.subjects),
+            digest="f",
+            units="subject_index",
+            dtype="int32",
+        )
+        schedule = ResamplingScheduleRecord(
+            target_id=self.final.identifier,
+            resampling_kind="permutation",
+            subject_axis=self.subjects,
+            replicate_axis=replicates,
+            seed=42,
+            replicate_count=replicates.count,
+            block_size=RESAMPLING_REPLICATE_BLOCK_SIZE,
+            schedule_schema="dual_frequency_resampling_schedule_v1",
+            generator_class="numpy.random._generator.Generator",
+            bit_generator_class="numpy.random._pcg64.PCG64",
+            numpy_version="2.4.6",
+            environment_fingerprint="8" * 64,
+            schedule_sha256="9" * 64,
+            schedule=schedule_artifact,
+        )
+        block_axis = resampling_block_axis(replicates, 250, 500)
+        null = self._artifact(
+            "formal_permutation_null_statistics_block",
+            (block_axis,),
+            digest="a",
+            units="spearman_rho",
+        )
+        block = ResamplingBlockRecord(
+            target_id=self.final.identifier,
+            resampling_kind="permutation",
+            schedule_id=schedule.identifier,
+            replicate_axis=replicates,
+            block_axis=block_axis,
+            block_index=1,
+            start=250,
+            stop=500,
+            total=500,
+            schedule_sha256=schedule.schedule_sha256,
+            technical_status="completed",
+            artifacts=(null,),
+        )
+        return schedule, block
+
+    def test_resampling_records_bind_canonical_schedule_and_block_axes(self) -> None:
+        schedule, block = self._resampling_records()
+        self.assertEqual(self._round_trip(schedule), schedule)
+        self.assertEqual(self._round_trip(block), block)
+        self.assertEqual(record_artifacts(schedule), (schedule.schedule,))
+        self.assertEqual(record_artifacts(block), block.artifacts)
+
+        with self.assertRaisesRegex(RecordError, "block size"):
+            dataclasses.replace(schedule, block_size=249)
+        wrong_schedule_artifact = self._artifact(
+            "formal_resampling_schedule",
+            (self.subjects, schedule.replicate_axis),
+            digest="b",
+            units="subject_index",
+            dtype="int32",
+        )
+        with self.assertRaisesRegex(RecordError, "artifact"):
+            dataclasses.replace(schedule, schedule=wrong_schedule_artifact)
+        with self.assertRaisesRegex(RecordError, "interval"):
+            dataclasses.replace(block, start=249)
+        with self.assertRaisesRegex(RecordError, "block axis"):
+            dataclasses.replace(block, block_axis=self.subjects)
+
+        payload = encode_record(schedule)
+        payload["unexpected"] = True
+        with self.assertRaisesRegex(RecordCodecError, "fields do not match"):
+            decode_record(
+                "ResamplingScheduleRecord",
+                payload,
+                record_id=schedule.identifier,
+                artifacts=record_artifacts(schedule),
+            )
 
     def test_endpoint_input_record_separates_candidates_and_ready_subjects(self) -> None:
         record = EndpointInputRecord(
@@ -455,6 +542,7 @@ class RecordCodecTest(unittest.TestCase):
             binary_exposure=binary,
             artifacts=(observed_artifact,),
         )
+        schedule, block = self._resampling_records()
         records = (
             endpoint_input,
             prepared,
@@ -474,6 +562,8 @@ class RecordCodecTest(unittest.TestCase):
             ),
             sensitive,
             formal,
+            schedule,
+            block,
             sensitivity,
             activation,
         )
@@ -492,6 +582,8 @@ class RecordCodecTest(unittest.TestCase):
                 "FinalSelectionRecord",
                 "SensitiveRecord",
                 "FormalResult",
+                "ResamplingScheduleRecord",
+                "ResamplingBlockRecord",
                 "SensitivityResult",
                 "ActivationArtifact",
             },

@@ -2067,6 +2067,23 @@ regression passes 497 tests and 246 subtests. Durable publication, planner
 tasks, shared operator scratch, and block-level resume remain required before
 this performance step is complete.
 
+The next slice introduces closed-codec `ResamplingScheduleRecord` and
+`ResamplingBlockRecord` roots. Schedule identity includes exact subject and
+replicate axes, RNG provenance, digest, and immutable schedule artifact; every
+block carries one canonical half-open interval, block axis, parent digest,
+status, and immutable outputs. Completed task JSON plus existing artifact SHA
+verification is the only resume mechanism. The production planner does not
+emit these block tasks until parent-created read-only fold-operator scratch can
+be reopened by workers without rebuilding, copying, or multiplying its memory
+footprint.
+
+The durable-record slice passed acceptance on 2026-07-19: canonical schedule
+and permutation-block roots round-trip through the closed codec, retain exact
+artifact closure, and reject changed fixed block size, interval, local axis, or
+array metadata. The focused gate passes 60 tests and 37 subtests and the full
+regression passes 498 tests and 248 subtests. The production DAG remains on its
+existing entry point pending shared operator scratch and worker reopen tests.
+
 ### Default final in-sample inference
 
 Every realized final model in formal scope has a required in-sample inference

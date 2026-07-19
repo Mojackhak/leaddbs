@@ -3647,6 +3647,33 @@ subtests. Step 9 remains open for durable schedule/block records, planner DAG
 tasks, parent-managed shared operators, block-level resume, bootstrap merging,
 and pPAM block execution.
 
+Third Step 9 implementation slice: freeze durable records before exposing block
+tasks in the execution DAG. `ResamplingScheduleRecord` binds one target, exact
+resampling kind, subject and replicate axes, seed, replicate count, internal
+block size, RNG schema/classes/version/environment fingerprint, complete
+schedule digest, and immutable schedule artifact. `ResamplingBlockRecord` binds
+one target and kind to that schedule digest, full replicate axis, exact
+half-open block interval, block-local axis, technical completion status, and
+immutable block artifacts. Both records use the closed JSON codec and reject
+unknown fields, invalid digests, inconsistent axes/counts, noncanonical block
+indices, or artifact-axis mismatches. The executor's existing completed task
+JSON and artifact SHA verification then provide block-level resume without a
+new resume gate. Planner migration remains disabled in this slice because a
+spawned block task must not rebuild or pickle the complete fold operators; the
+parent-managed read-only operator scratch contract is required first.
+
+Third-slice acceptance on 2026-07-19: the two records are closed-codec roots
+with canonical identifiers and exact artifact closures. The schedule record
+requires the fixed internal block size, subject/replicate axes, dtype implied
+by schedule kind, RNG provenance and two independent payload identities. The
+permutation block v1 record requires the canonical 250-replicate interval and
+derived local axis, one matching float64 null-statistic artifact, its parent
+schedule ID/digest, and a terminal technical status. Malformed fields, axes,
+artifacts, block sizes, and intervals fail before persistence. The focused
+record/formal gate passes 60 tests and 37 subtests; the complete regression
+passes 498 tests and 248 subtests. No planner stage changed, so shared operator
+scratch and actual block-level execution/resume remain open.
+
 - [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 
 Add one `formal_in_sample` task for every realized final endpoint whenever

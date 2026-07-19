@@ -67,6 +67,7 @@ FINAL_SELECTION_STATUSES = frozenset(
     }
 )
 _REASON_CODE = re.compile(r"^[a-z][a-z0-9_]*$")
+RESAMPLING_REPLICATE_BLOCK_SIZE = 250
 
 
 class RecordError(ValueError):
@@ -177,6 +178,193 @@ class ArtifactRef:
     @property
     def identifier(self) -> str:
         return f"artifact_{canonical_hash(asdict(self), length=20)}"
+
+
+def resampling_block_axis(
+    replicate_axis: AxisRef,
+    start: int,
+    stop: int,
+) -> AxisRef:
+    """Return the canonical local axis for one fixed replicate interval."""
+
+    if not isinstance(replicate_axis, AxisRef):
+        raise RecordError("replicate_axis must be an AxisRef")
+    if (
+        type(start) is not int
+        or type(stop) is not int
+        or start < 0
+        or stop <= start
+        or stop > replicate_axis.count
+    ):
+        raise RecordError("resampling block interval is invalid")
+    payload = {
+        "replicate_axis": asdict(replicate_axis),
+        "start": start,
+        "stop": stop,
+    }
+    return AxisRef(
+        f"{replicate_axis.axis_id}_block_{start:06d}_{stop:06d}",
+        stop - start,
+        canonical_hash(payload),
+    )
+
+
+@dataclass(frozen=True)
+class ResamplingScheduleRecord:
+    """Durable identity and payload for one complete historical RNG schedule."""
+
+    target_id: str
+    resampling_kind: str
+    subject_axis: AxisRef
+    replicate_axis: AxisRef
+    seed: int
+    replicate_count: int
+    block_size: int
+    schedule_schema: str
+    generator_class: str
+    bit_generator_class: str
+    numpy_version: str
+    environment_fingerprint: str
+    schedule_sha256: str
+    schedule: ArtifactRef
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "target_id", _token(self.target_id, "target_id"))
+        kind = _token(self.resampling_kind, "resampling_kind").lower()
+        if kind not in {"permutation", "bootstrap"}:
+            raise RecordError("resampling schedule kind is unsupported")
+        object.__setattr__(self, "resampling_kind", kind)
+        if not isinstance(self.subject_axis, AxisRef) or not isinstance(
+            self.replicate_axis,
+            AxisRef,
+        ):
+            raise RecordError("resampling schedule axes must be AxisRef values")
+        if type(self.seed) is not int:
+            raise RecordError("resampling schedule seed must be an integer")
+        if (
+            type(self.replicate_count) is not int
+            or self.replicate_count != self.replicate_axis.count
+        ):
+            raise RecordError(
+                "resampling schedule count must match the replicate axis"
+            )
+        if self.block_size != RESAMPLING_REPLICATE_BLOCK_SIZE:
+            raise RecordError("resampling schedule block size is not canonical")
+        for field in (
+            "schedule_schema",
+            "generator_class",
+            "bit_generator_class",
+            "numpy_version",
+        ):
+            object.__setattr__(self, field, _token(getattr(self, field), field))
+        object.__setattr__(
+            self,
+            "environment_fingerprint",
+            _sha256(self.environment_fingerprint, "environment_fingerprint"),
+        )
+        object.__setattr__(
+            self,
+            "schedule_sha256",
+            _sha256(self.schedule_sha256, "schedule_sha256"),
+        )
+        if not isinstance(self.schedule, ArtifactRef):
+            raise RecordError("resampling schedule payload must be an ArtifactRef")
+        expected_dtype = "int32" if kind == "permutation" else "int64"
+        if (
+            self.schedule.kind != "formal_resampling_schedule"
+            or self.schedule.dtype != expected_dtype
+            or self.schedule.shape
+            != (self.replicate_axis.count, self.subject_axis.count)
+            or self.schedule.axis_refs != (self.replicate_axis, self.subject_axis)
+            or self.schedule.units != "subject_index"
+        ):
+            raise RecordError(
+                "resampling schedule artifact does not match its axes and kind"
+            )
+
+    @property
+    def identifier(self) -> str:
+        return f"resampling_schedule_{canonical_hash(asdict(self), length=20)}"
+
+
+@dataclass(frozen=True)
+class ResamplingBlockRecord:
+    """Durable output for one canonical formal-permutation replicate block."""
+
+    target_id: str
+    resampling_kind: str
+    schedule_id: str
+    replicate_axis: AxisRef
+    block_axis: AxisRef
+    block_index: int
+    start: int
+    stop: int
+    total: int
+    schedule_sha256: str
+    technical_status: str
+    artifacts: tuple[ArtifactRef, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "target_id", _token(self.target_id, "target_id"))
+        kind = _token(self.resampling_kind, "resampling_kind").lower()
+        if kind != "permutation":
+            raise RecordError(
+                "resampling block v1 supports formal permutation only"
+            )
+        object.__setattr__(self, "resampling_kind", kind)
+        object.__setattr__(self, "schedule_id", _token(self.schedule_id, "schedule_id"))
+        if not isinstance(self.replicate_axis, AxisRef) or not isinstance(
+            self.block_axis,
+            AxisRef,
+        ):
+            raise RecordError("resampling block axes must be AxisRef values")
+        if (
+            type(self.block_index) is not int
+            or type(self.start) is not int
+            or type(self.stop) is not int
+            or type(self.total) is not int
+            or self.total != self.replicate_axis.count
+            or self.start != self.block_index * RESAMPLING_REPLICATE_BLOCK_SIZE
+            or self.stop
+            != min(self.start + RESAMPLING_REPLICATE_BLOCK_SIZE, self.total)
+        ):
+            raise RecordError("resampling block interval is not canonical")
+        if self.block_axis != resampling_block_axis(
+            self.replicate_axis,
+            self.start,
+            self.stop,
+        ):
+            raise RecordError("resampling block axis does not match its interval")
+        object.__setattr__(
+            self,
+            "schedule_sha256",
+            _sha256(self.schedule_sha256, "schedule_sha256"),
+        )
+        status = _token(self.technical_status, "technical_status").lower()
+        if status not in {"completed", "completed_with_nonfinite_replicates"}:
+            raise RecordError("resampling block technical status is unsupported")
+        object.__setattr__(self, "technical_status", status)
+        artifacts = tuple(self.artifacts)
+        if len(artifacts) != 1 or not isinstance(artifacts[0], ArtifactRef):
+            raise RecordError(
+                "formal permutation block requires one null-statistic artifact"
+            )
+        null = artifacts[0]
+        if (
+            null.kind != "formal_permutation_null_statistics_block"
+            or null.dtype != "float64"
+            or null.shape != (self.block_axis.count,)
+            or null.axis_refs != (self.block_axis,)
+            or null.units != "spearman_rho"
+        ):
+            raise RecordError(
+                "formal permutation block artifact does not match the block axis"
+            )
+        object.__setattr__(self, "artifacts", artifacts)
+
+    @property
+    def identifier(self) -> str:
+        return f"resampling_block_{canonical_hash(asdict(self), length=20)}"
 
 
 def _artifact_with_axes(
