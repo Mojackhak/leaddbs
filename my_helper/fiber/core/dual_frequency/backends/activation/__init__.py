@@ -17,6 +17,14 @@ from .ppam import (
     validate_probabilities,
     validate_ten_sample_probabilities,
 )
+from .operator_scratch import (
+    PPAMOperatorScratchDescriptor,
+    PPAMOperatorScratchError,
+    cleanup_ppam_operator_scratch,
+    close_ppam_operator_scratch,
+    open_ppam_operator_scratch,
+    reopen_ppam_permutation_workspace,
+)
 from .fitting import (
     PPAMActivationBackend,
     PPAMFitResult,
@@ -31,7 +39,9 @@ from .fitting import (
     fit_ppam_activation,
     prepare_ppam_fit_workspace,
     prepare_ppam_permutation_workspace,
+    ppam_operator_scratch_arrays,
     ppam_observed_state,
+    restore_ppam_permutation_workspace,
 )
 from .ossdbs import (
     DEFAULT_ROW_WORKERS,
@@ -59,11 +69,15 @@ __all__ = [
     "PPAMFitWorkspace",
     "PPAMFittingError",
     "PPAMObservedState",
+    "PPAMOperatorScratchDescriptor",
+    "PPAMOperatorScratchError",
     "PPAMPermutationWorkspace",
     "aggregate_ppam_fit_workspace",
     "aggregate_ppam_observed_state",
     "compute_ppam_permutation_block",
     "compute_ppam_permutation_block_from_workspace",
+    "cleanup_ppam_operator_scratch",
+    "close_ppam_operator_scratch",
     "MissingAcceptanceFixture",
     "OSSBackendError",
     "OSSRowBatchArtifact",
@@ -80,7 +94,11 @@ __all__ = [
     "merge_right_canonical_probabilities",
     "prepare_ppam_fit_workspace",
     "prepare_ppam_permutation_workspace",
+    "ppam_operator_scratch_arrays",
     "ppam_observed_state",
+    "restore_ppam_permutation_workspace",
+    "open_ppam_operator_scratch",
+    "reopen_ppam_permutation_workspace",
     "subset_probability_axis",
     "validate_probabilities",
     "validate_ten_sample_probabilities",

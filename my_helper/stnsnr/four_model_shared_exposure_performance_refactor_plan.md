@@ -2438,6 +2438,27 @@ tests and 28 subtests; the complete dual-frequency gate passed 504 tests and
 publication, worker reopen, and sensitivity-planner migration remain the next
 boundary.
 
+The next runtime slice persists only fixed pPAM numerical state. One exclusive
+run-relative generation stores nuisance designs and full/fold rank-residual
+operators as descriptor-bound read-only NPY arrays. Variable logical widths
+use deterministic prefix packing plus the recorded estimable masks; a logical
+zero-width matrix keeps one physical storage column. Reopened blocks rebuild
+only lightweight scoring scratch from already published activation and fiber-ID
+artifacts. They may not rebuild nuisance designs, rank residuals, or physical
+OSS rows. Exact descriptor validation, macOS spawn reopen, missing-file
+invalidation, and descriptor-confined cleanup must pass before service or
+planner migration.
+
+The runtime scratch gate now passes. Fixed pPAM state reopens as read-only
+memmaps in both the parent and a fresh macOS spawned process, reproduces one
+null block byte-for-byte, and never invokes `_weight_operators`. Logical
+zero-width operators survive the physical padding representation. Request
+identity mismatch, missing payload, and untracked cleanup content fail closed.
+The joint formal and OSS gate passed 74 tests and 39 subtests; the complete
+dual-frequency gate passed 506 tests and 296 subtests outside the restricted
+system-monitoring sandbox. Observed-output service publication and planner
+migration remain open.
+
 ## Documentation Validation
 
 Before implementation begins:

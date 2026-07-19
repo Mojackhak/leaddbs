@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import dataclasses
+from concurrent.futures import ProcessPoolExecutor
 import json
+import multiprocessing
 from pathlib import Path
 import tempfile
 import threading
@@ -24,6 +26,8 @@ from dual_frequency.backends.activation import (
     OSSRowProduct,
     OSSScientificSettings,
     PPAMActivationBackend,
+    cleanup_ppam_operator_scratch,
+    close_ppam_operator_scratch,
     binary_activation,
     build_oss_row_cache_key,
     compute_ppam_permutation_block,
@@ -57,6 +61,7 @@ from dual_frequency.contracts import (
     HardComputabilityLimits,
     NormativeFiberScoreSettings,
     PPAMPermutationBlockRecord,
+    PPAMObservedWorkspaceRecord,
     RecordError,
     ResamplingScheduleRecord,
     SourceRecord,
@@ -66,6 +71,67 @@ from dual_frequency.runtime.ppam_permutation_blocks import (
     load_ppam_permutation_block,
     publish_ppam_permutation_block,
 )
+from dual_frequency.runtime.ppam_observed_workspace import (
+    PPAMObservedWorkspaceError,
+    cleanup_ppam_observed_workspace_record,
+    ppam_observed_workspace_record,
+    publish_ppam_operator_scratch,
+    reopen_ppam_workspace_from_record,
+    validated_ppam_operator_scratch_descriptor,
+)
+
+
+def _materialize_artifact(
+    store: ArtifactStore,
+    artifact: ArtifactRef,
+) -> np.ndarray:
+    return store.materialize(
+        artifact,
+        expected_dtype=np.dtype(artifact.dtype),
+        expected_shape=artifact.shape,
+        expected_axes=artifact.axis_refs,
+        expected_units=artifact.units,
+        expected_space=artifact.space,
+        mmap_mode="r",
+    )
+
+
+def _spawn_reopen_ppam_workspace(
+    record: PPAMObservedWorkspaceRecord,
+    request: ActivationRequest,
+    binary_exposure: ArtifactRef,
+    run_root: Path,
+    schedule: object,
+    block: ReplicateBlock,
+) -> tuple[bool, np.ndarray]:
+    """Reopen one durable pPAM workspace in a fresh spawned interpreter."""
+
+    store = ArtifactStore((run_root,))
+    binary = _materialize_artifact(store, binary_exposure)
+    outcome = _materialize_artifact(store, request.outcome)
+    fiber_ids = _materialize_artifact(store, request.feature_ids)
+    workspace, arrays = reopen_ppam_workspace_from_record(
+        record,
+        request,
+        binary_exposure,
+        binary,
+        outcome,
+        fiber_ids,
+        run_root,
+    )
+    try:
+        readonly = all(
+            isinstance(value, np.memmap) and not value.flags.writeable
+            for value in arrays.values()
+        )
+        computed = ppam_fitting.compute_ppam_permutation_block_from_workspace(
+            workspace,
+            schedule,
+            block,
+        )
+        return readonly, computed.null_statistics
+    finally:
+        close_ppam_operator_scratch(arrays)
 
 
 def _artifact(axis: AxisRef) -> ArtifactRef:
@@ -508,6 +574,142 @@ class PPAMActivationBackendTest(unittest.TestCase):
             seed=42,
         )
 
+    def _published_request(
+        self,
+        root: Path,
+        request: ActivationRequest,
+        binary: np.ndarray,
+    ) -> tuple[ActivationRequest, ArtifactRef]:
+        publisher = RunScopedArtifactPublisher(root, "ppam_inputs", "1")
+        probability = publisher.array(
+            "activation_probability.npy",
+            np.asarray(request.activation_probability, dtype=np.float32),
+            kind="activation_probability",
+            axes=(self.subject_axis, self.feature_axis),
+            units="probability",
+            space="right_canonical",
+        )
+        binary_ref = publisher.array(
+            "binary_exposure.npy",
+            np.asarray(binary, dtype=np.float32),
+            kind="binary_exposure",
+            axes=(self.subject_axis, self.feature_axis),
+            units="binary",
+            space="right_canonical",
+        )
+        outcome = publisher.array(
+            "outcome.npy",
+            np.asarray(request.outcome, dtype=np.float64),
+            kind="endpoint_outcome",
+            axes=(self.subject_axis,),
+            units="score",
+            space=None,
+        )
+        baseline = publisher.array(
+            "baseline.npy",
+            np.asarray(request.baseline, dtype=np.float64),
+            kind="endpoint_baseline",
+            axes=(self.subject_axis,),
+            units="score",
+            space=None,
+        )
+        peak = publisher.array(
+            "peak_final_score.npy",
+            np.asarray(request.peak_final_score, dtype=np.float64),
+            kind="oss_peak_final_score",
+            axes=(self.subject_axis,),
+            units="score",
+            space=None,
+        )
+        feature_ids = publisher.array(
+            "feature_ids.npy",
+            np.asarray(request.feature_ids, dtype=np.int64),
+            kind="oss_final_feature_ids",
+            axes=(self.feature_axis,),
+            units="fiber_id",
+            space="right_canonical",
+        )
+        activation_feature_ids = publisher.array(
+            "activation_feature_ids.npy",
+            np.asarray(request.activation_feature_ids, dtype=np.int64),
+            kind="oss_activation_feature_ids",
+            axes=(self.feature_axis,),
+            units="fiber_id",
+            space="right_canonical",
+        )
+        return (
+            dataclasses.replace(
+                request,
+                activation_probability=probability,
+                outcome=outcome,
+                baseline=baseline,
+                peak_final_score=peak,
+                feature_ids=feature_ids,
+                activation_feature_ids=activation_feature_ids,
+            ),
+            binary_ref,
+        )
+
+    def _observed_artifacts(self) -> tuple[ArtifactRef, ...]:
+        axes_by_kind = {
+            "oss_fiber_ids": (self.feature_axis,),
+            "oss_benefit_oriented_fiber_weights": (self.feature_axis,),
+            "oss_loocv_benefit_oriented_fiber_weights": (
+                self.subject_axis,
+                self.feature_axis,
+            ),
+            "oss_full_net_fiber_scores": (self.subject_axis,),
+            "oss_loocv_fold_net_fiber_scores": (
+                self.subject_axis,
+                self.subject_axis,
+            ),
+            "oss_loocv_heldout_net_fiber_scores": (self.subject_axis,),
+            "oss_loocv_model_predictions": (self.subject_axis,),
+            "oss_loocv_baseline_predictions": (self.subject_axis,),
+            "oss_plain_activation_count": (self.subject_axis,),
+            "oss_plain_activation_sum": (self.subject_axis,),
+            "oss_plain_activation_top5": (self.subject_axis,),
+        }
+        arrays = tuple(
+            ArtifactRef(
+                kind=kind,
+                schema_version="dual_frequency_array_v1",
+                uri=f"memory://ppam/{kind}",
+                sha256=f"{index:x}" * 64,
+                dtype="float64",
+                shape=tuple(axis.count for axis in axes),
+                axis_refs=axes,
+                axis_hashes=tuple(axis.sha256 for axis in axes),
+                units="score",
+                space=None,
+                producer_id="ppam_observed_test",
+                producer_version="1",
+            )
+            for index, (kind, axes) in enumerate(axes_by_kind.items(), start=1)
+        )
+        documents = tuple(
+            ArtifactRef(
+                kind=kind,
+                schema_version="dual_frequency_document_v1",
+                uri=f"memory://ppam/{kind}",
+                sha256=digest * 64,
+                dtype=None,
+                shape=None,
+                axis_refs=(),
+                axis_hashes=(),
+                units=None,
+                space=None,
+                producer_id="ppam_observed_test",
+                producer_version="1",
+            )
+            for kind, digest in (
+                ("oss_fiber_score_support", "c"),
+                ("oss_plain_activation_model_comparison", "d"),
+                ("ppam_observed_state", "e"),
+            )
+        )
+        return (*arrays, *documents)
+
     @staticmethod
     def _status(result) -> dict[str, object]:
         status = next(
@@ -697,6 +899,213 @@ class PPAMActivationBackendTest(unittest.TestCase):
                 np.testing.assert_array_equal(actual, expected)
             else:
                 self.assertEqual(actual, expected, field.name)
+
+    def test_ppam_operator_scratch_reopens_in_spawn_without_rebuilding(self) -> None:
+        request = dataclasses.replace(
+            self._request(),
+            permutation_resamples=3,
+            seed=73,
+        )
+        binary = binary_activation(self.probabilities)
+        workspace = ppam_fitting.prepare_ppam_permutation_workspace(
+            request,
+            binary,
+            self.outcome,
+            self.baseline,
+            self.fiber_ids,
+            (),
+        )
+        schedule = formal_resampling_schedule(
+            "permutation",
+            self.n_subjects,
+            request.permutation_resamples,
+            request.seed,
+        )
+        block = schedule.blocks()[0]
+        expected = ppam_fitting.compute_ppam_permutation_block_from_workspace(
+            workspace,
+            schedule,
+            block,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_root = Path(temporary_directory)
+            descriptor = publish_ppam_operator_scratch(
+                run_root
+                / "work"
+                / "task_ppam_workspace"
+                / "attempt-0000000000000001",
+                workspace,
+            )
+            persisted_request, binary_ref = self._published_request(
+                run_root / "work" / "task_ppam_inputs",
+                request,
+                binary,
+            )
+            record = ppam_observed_workspace_record(
+                persisted_request,
+                binary_ref,
+                self._observed_artifacts(),
+                "permutation_ready",
+                run_root,
+                descriptor,
+            )
+            self.assertEqual(
+                validated_ppam_operator_scratch_descriptor(
+                    record,
+                    persisted_request,
+                    binary_ref,
+                    run_root,
+                ),
+                descriptor,
+            )
+            store = ArtifactStore((run_root,))
+            with patch.object(
+                ppam_fitting,
+                "_weight_operators",
+                side_effect=AssertionError("operators must not be rebuilt"),
+            ):
+                reopened, arrays = reopen_ppam_workspace_from_record(
+                    record,
+                    persisted_request,
+                    binary_ref,
+                    _materialize_artifact(store, binary_ref),
+                    _materialize_artifact(store, persisted_request.outcome),
+                    _materialize_artifact(
+                        store,
+                        persisted_request.feature_ids,
+                    ),
+                    run_root,
+                )
+                try:
+                    self.assertTrue(
+                        all(
+                            isinstance(value, np.memmap)
+                            and not value.flags.writeable
+                            for value in arrays.values()
+                        )
+                    )
+                    restored = (
+                        ppam_fitting.compute_ppam_permutation_block_from_workspace(
+                            reopened,
+                            schedule,
+                            block,
+                        )
+                    )
+                finally:
+                    close_ppam_operator_scratch(arrays)
+            np.testing.assert_array_equal(
+                restored.null_statistics,
+                expected.null_statistics,
+            )
+
+            with ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=multiprocessing.get_context("spawn"),
+            ) as executor:
+                readonly, spawned_null = executor.submit(
+                    _spawn_reopen_ppam_workspace,
+                    record,
+                    persisted_request,
+                    binary_ref,
+                    run_root,
+                    schedule,
+                    block,
+                ).result(timeout=60)
+            self.assertTrue(readonly)
+            np.testing.assert_array_equal(
+                spawned_null,
+                expected.null_statistics,
+            )
+
+            with self.assertRaisesRegex(
+                PPAMObservedWorkspaceError,
+                "does not match",
+            ):
+                validated_ppam_operator_scratch_descriptor(
+                    record,
+                    dataclasses.replace(persisted_request, seed=74),
+                    binary_ref,
+                    run_root,
+                )
+            unexpected = descriptor.root / "unexpected.txt"
+            unexpected.write_text("untracked\n", encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "cleanup"):
+                cleanup_ppam_operator_scratch(descriptor)
+            unexpected.unlink()
+            descriptor_path = descriptor.root / descriptor.arrays[0].filename
+            descriptor_path.unlink()
+            with self.assertRaisesRegex(RuntimeError, "cannot be reopened"):
+                validated_ppam_operator_scratch_descriptor(
+                    record,
+                    persisted_request,
+                    binary_ref,
+                    run_root,
+                )
+            cleanup_ppam_observed_workspace_record(record, run_root)
+            self.assertFalse(descriptor.root.exists())
+
+    def test_ppam_operator_scratch_preserves_zero_width_logical_state(self) -> None:
+        request = self._request()
+        binary = np.zeros_like(self.probabilities, dtype=np.float32)
+        workspace = ppam_fitting.prepare_ppam_permutation_workspace(
+            request,
+            binary,
+            self.outcome,
+            self.baseline,
+            self.fiber_ids,
+            (),
+        )
+        workspace = dataclasses.replace(
+            workspace,
+            full_operator=dataclasses.replace(
+                workspace.full_operator,
+                estimable=np.zeros(self.n_fibers, dtype=bool),
+                standardized_exposure_residual=np.empty(
+                    (self.n_subjects, 0),
+                    dtype=np.float64,
+                ),
+            ),
+            fold_operators=tuple(
+                dataclasses.replace(
+                    operator,
+                    estimable=np.zeros(self.n_fibers, dtype=bool),
+                    standardized_exposure_residual=np.empty(
+                        (self.n_subjects - 1, 0),
+                        dtype=np.float64,
+                    ),
+                )
+                for operator in workspace.fold_operators
+            ),
+        )
+        packed = ppam_fitting.ppam_operator_scratch_arrays(workspace)
+        self.assertEqual(
+            packed["full_standardized_exposure_residual"].shape[1],
+            1,
+        )
+        self.assertEqual(
+            packed["fold_standardized_exposure_residual"].shape[2],
+            1,
+        )
+        self.assertFalse(np.any(packed["full_standardized_exposure_residual"]))
+        self.assertFalse(np.any(packed["fold_standardized_exposure_residual"]))
+        restored = ppam_fitting.restore_ppam_permutation_workspace(
+            request,
+            binary,
+            self.outcome,
+            self.fiber_ids,
+            packed,
+        )
+        self.assertEqual(
+            restored.full_operator.standardized_exposure_residual.shape[1],
+            0,
+        )
+        self.assertTrue(
+            all(
+                item.standardized_exposure_residual.shape[1] == 0
+                for item in restored.fold_operators
+            )
+        )
 
     def test_permutation_block_record_publishes_reopens_and_fails_closed(self) -> None:
         request = dataclasses.replace(

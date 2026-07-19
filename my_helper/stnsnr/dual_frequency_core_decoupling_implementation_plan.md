@@ -4117,6 +4117,42 @@ codec gate passed 12 tests and 28 subtests; the complete dual-frequency gate
 passed 504 tests and 296 subtests outside the restricted system-monitoring
 sandbox. The production planner and sensitivity extensions remain unchanged.
 
+Seventeenth Step 9 implementation slice: make the fixed pPAM operator state
+portable across spawned workers without yet changing the sensitivity planner.
+The observed worker writes one immutable `ppam-generation-*` directory under
+its task attempt. It contains the full and fold nuisance covariates, training
+rows, ranked nuisance matrices, estimable masks, and standardized exposure
+residual operators listed by the durable observed-workspace record. Compact
+standardized residual columns occupy a deterministic prefix; the estimable
+mask supplies the exact logical width. A zero-width logical operator retains
+one zero-filled storage column so the NPY generation remains structurally
+valid.
+
+Publication uses temporary NPY siblings followed by atomic rename, read-only
+permissions, and an exclusive generation directory. Reopen validates the exact
+descriptor names, dtype, shape, order, byte count, and run-relative location
+before constructing `PPAMPermutationWorkspace`. The reconstruction path may
+instantiate scoring scratch from the immutable binary exposure and final fiber
+IDs, but it must not call nuisance construction or `_weight_operators`.
+Descriptor-confined cleanup rejects untracked files. A fresh macOS spawned
+process must reproduce one null block from reopened state and release every
+memmap cleanly. Missing, truncated, writable-metadata, or request-mismatched
+scratch invalidates the parent observed task. This slice leaves observed-output
+publication, block services, and planner topology unchanged.
+
+Seventeenth-slice acceptance on 2026-07-19: one real pPAM permutation
+workspace publishes the complete descriptor set, reopens every array as a
+read-only memmap, and reproduces the retained null block byte-for-byte without
+calling `_weight_operators`. A fresh macOS spawned interpreter repeats the
+same reopen and numerical check through `ArtifactStore`. The zero-estimable
+case retains one physical padding column and restores zero logical columns.
+Changed request identity, an absent descriptor file, and untracked cleanup
+content fail closed; descriptor-confined cleanup removes the remaining valid
+generation. The joint formal and OSS gate passed 74 tests and 39 subtests, and
+the complete dual-frequency gate passed 506 tests and 296 subtests outside the
+restricted system-monitoring sandbox. No production or sensitivity process
+was started.
+
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial
 accumulators and the strict ordered aggregate. A 251-replicate fixture for both

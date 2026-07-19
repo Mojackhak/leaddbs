@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import math
 
@@ -13,6 +14,7 @@ from ...contracts import (
     ActivationRequest,
     ArtifactRef,
     AxisRef,
+    PPAM_OPERATOR_SCRATCH_ARRAY_NAMES,
     canonical_hash,
 )
 from ...contracts.requests import ScientificInput
@@ -289,6 +291,301 @@ def _weight_operators(
         for heldout in subjects
     )
     return full, folds
+
+
+def ppam_operator_scratch_arrays(
+    workspace: PPAMPermutationWorkspace,
+) -> dict[str, np.ndarray]:
+    """Pack one fixed pPAM workspace into deterministic NPY payloads."""
+
+    if not isinstance(workspace, PPAMPermutationWorkspace):
+        raise PPAMFittingError(
+            "workspace must be a PPAMPermutationWorkspace"
+        )
+    full = workspace.full_operator
+    folds = workspace.fold_operators
+    n_subjects, n_features = workspace.binary_exposure.shape
+    if len(folds) != n_subjects:
+        raise PPAMFittingError("pPAM fold operator count is inconsistent")
+    full_width = max(1, full.standardized_exposure_residual.shape[1])
+    full_standardized = np.zeros(
+        (full.train.size, full_width),
+        dtype=np.float64,
+    )
+    full_standardized[
+        :, : full.standardized_exposure_residual.shape[1]
+    ] = full.standardized_exposure_residual
+    fold_width = max(
+        1,
+        *(item.standardized_exposure_residual.shape[1] for item in folds),
+    )
+    fold_standardized = np.zeros(
+        (n_subjects, n_subjects - 1, fold_width),
+        dtype=np.float64,
+    )
+    for heldout, operator in enumerate(folds):
+        width = operator.standardized_exposure_residual.shape[1]
+        fold_standardized[heldout, :, :width] = (
+            operator.standardized_exposure_residual
+        )
+    nuisance_tests = tuple(item.nuisance_test for item in folds)
+    if any(item is None for item in nuisance_tests):
+        raise PPAMFittingError("pPAM fold nuisance test state is missing")
+    arrays = {
+        "nuisance_full_covariates": np.asarray(
+            workspace.nuisance_plan.full_covariates,
+            dtype=np.float64,
+        ),
+        "nuisance_fold_covariates": np.asarray(
+            workspace.nuisance_plan.fold_covariates,
+            dtype=np.float64,
+        ),
+        "full_train": np.asarray(full.train, dtype=np.int64),
+        "full_nuisance_train": np.asarray(
+            full.nuisance_train,
+            dtype=np.float64,
+        ),
+        "full_ranked_nuisance_train": np.asarray(
+            full.ranked_nuisance_train,
+            dtype=np.float64,
+        ),
+        "full_estimable": np.asarray(full.estimable, dtype=bool),
+        "full_standardized_exposure_residual": full_standardized,
+        "fold_train": np.stack(
+            tuple(np.asarray(item.train, dtype=np.int64) for item in folds)
+        ),
+        "fold_nuisance_train": np.stack(
+            tuple(
+                np.asarray(item.nuisance_train, dtype=np.float64)
+                for item in folds
+            )
+        ),
+        "fold_nuisance_test": np.stack(
+            tuple(
+                np.asarray(item, dtype=np.float64)
+                for item in nuisance_tests
+                if item is not None
+            )
+        ),
+        "fold_ranked_nuisance_train": np.stack(
+            tuple(
+                np.asarray(item.ranked_nuisance_train, dtype=np.float64)
+                for item in folds
+            )
+        ),
+        "fold_estimable": np.stack(
+            tuple(np.asarray(item.estimable, dtype=bool) for item in folds)
+        ),
+        "fold_standardized_exposure_residual": fold_standardized,
+    }
+    if set(arrays) != PPAM_OPERATOR_SCRATCH_ARRAY_NAMES:
+        raise PPAMFittingError("pPAM operator scratch payload set is incomplete")
+    if arrays["full_estimable"].shape != (n_features,):
+        raise PPAMFittingError("pPAM full estimable mask is inconsistent")
+    return arrays
+
+
+def _ppam_scratch_array(
+    arrays: Mapping[str, np.ndarray],
+    name: str,
+    dtype: np.dtype,
+    shape: tuple[int, ...],
+) -> np.ndarray:
+    value = np.asanyarray(arrays[name])
+    if value.dtype != dtype or value.shape != shape:
+        raise PPAMFittingError(f"pPAM scratch array {name!r} is inconsistent")
+    if np.issubdtype(dtype, np.floating) and not np.all(np.isfinite(value)):
+        raise PPAMFittingError(f"pPAM scratch array {name!r} is nonfinite")
+    return value
+
+
+def restore_ppam_permutation_workspace(
+    request: ActivationRequest,
+    binary_exposure: np.ndarray,
+    outcome: np.ndarray,
+    fiber_ids: np.ndarray,
+    arrays: Mapping[str, np.ndarray],
+) -> PPAMPermutationWorkspace:
+    """Reconstruct fixed pPAM state without rebuilding nuisance operators."""
+
+    if not isinstance(request, ActivationRequest):
+        raise PPAMFittingError("request must be an ActivationRequest")
+    if not isinstance(arrays, Mapping) or set(arrays) != (
+        PPAM_OPERATOR_SCRATCH_ARRAY_NAMES
+    ):
+        raise PPAMFittingError("pPAM operator scratch payload set is incomplete")
+    n_subjects = request.subject_axis.count
+    n_features = request.feature_axis.count
+    binary = np.asanyarray(binary_exposure)
+    if (
+        binary.dtype != np.dtype(np.float32)
+        or binary.shape != (n_subjects, n_features)
+        or not np.all(np.isfinite(binary))
+        or np.any(~np.isin(binary, (0.0, 1.0)))
+    ):
+        raise PPAMFittingError("binary exposure is invalid")
+    y = _finite_vector(outcome, "outcome", n_subjects)
+    ids = activation_universe(fiber_ids)
+    if ids.size != n_features:
+        raise PPAMFittingError("fiber IDs do not match activation feature axis")
+
+    full_covariates = np.asanyarray(arrays["nuisance_full_covariates"])
+    if (
+        full_covariates.dtype != np.dtype(np.float64)
+        or full_covariates.ndim != 2
+        or full_covariates.shape[0] != n_subjects
+        or full_covariates.shape[1] < 1
+        or not np.all(np.isfinite(full_covariates))
+    ):
+        raise PPAMFittingError("pPAM full nuisance scratch is inconsistent")
+    n_covariates = full_covariates.shape[1]
+    fold_covariates = _ppam_scratch_array(
+        arrays,
+        "nuisance_fold_covariates",
+        np.dtype(np.float64),
+        (n_subjects, n_subjects, n_covariates),
+    )
+    full_train = _ppam_scratch_array(
+        arrays,
+        "full_train",
+        np.dtype(np.int64),
+        (n_subjects,),
+    )
+    full_nuisance = _ppam_scratch_array(
+        arrays,
+        "full_nuisance_train",
+        np.dtype(np.float64),
+        (n_subjects, n_covariates),
+    )
+    full_ranked = _ppam_scratch_array(
+        arrays,
+        "full_ranked_nuisance_train",
+        np.dtype(np.float64),
+        (n_subjects, n_covariates),
+    )
+    full_estimable = _ppam_scratch_array(
+        arrays,
+        "full_estimable",
+        np.dtype(bool),
+        (n_features,),
+    )
+    full_width = max(1, int(np.count_nonzero(full_estimable)))
+    full_standardized = _ppam_scratch_array(
+        arrays,
+        "full_standardized_exposure_residual",
+        np.dtype(np.float64),
+        (n_subjects, full_width),
+    )
+
+    fold_train = _ppam_scratch_array(
+        arrays,
+        "fold_train",
+        np.dtype(np.int64),
+        (n_subjects, n_subjects - 1),
+    )
+    fold_nuisance = _ppam_scratch_array(
+        arrays,
+        "fold_nuisance_train",
+        np.dtype(np.float64),
+        (n_subjects, n_subjects - 1, n_covariates),
+    )
+    fold_nuisance_test = _ppam_scratch_array(
+        arrays,
+        "fold_nuisance_test",
+        np.dtype(np.float64),
+        (n_subjects, 1, n_covariates),
+    )
+    fold_ranked = _ppam_scratch_array(
+        arrays,
+        "fold_ranked_nuisance_train",
+        np.dtype(np.float64),
+        (n_subjects, n_subjects - 1, n_covariates),
+    )
+    fold_estimable = _ppam_scratch_array(
+        arrays,
+        "fold_estimable",
+        np.dtype(bool),
+        (n_subjects, n_features),
+    )
+    fold_counts = np.count_nonzero(fold_estimable, axis=1)
+    fold_width = max(1, int(np.max(fold_counts)))
+    fold_standardized = _ppam_scratch_array(
+        arrays,
+        "fold_standardized_exposure_residual",
+        np.dtype(np.float64),
+        (n_subjects, n_subjects - 1, fold_width),
+    )
+
+    subjects = np.arange(n_subjects, dtype=np.int64)
+    expected_fold_train = np.stack(
+        tuple(np.delete(subjects, heldout) for heldout in subjects)
+    )
+    if not np.array_equal(full_train, subjects) or not np.array_equal(
+        fold_train,
+        expected_fold_train,
+    ):
+        raise PPAMFittingError("pPAM scratch training rows are inconsistent")
+    if not np.array_equal(full_nuisance, full_covariates[full_train]):
+        raise PPAMFittingError("pPAM full nuisance operator is inconsistent")
+    for heldout in subjects:
+        train = fold_train[heldout]
+        if (
+            not np.array_equal(
+                fold_nuisance[heldout],
+                fold_covariates[heldout, train],
+            )
+            or not np.array_equal(
+                fold_nuisance_test[heldout],
+                fold_covariates[heldout, [heldout]],
+            )
+        ):
+            raise PPAMFittingError("pPAM fold nuisance operator is inconsistent")
+    full_count = int(np.count_nonzero(full_estimable))
+    if full_count < full_width and np.any(full_standardized[:, full_count:]):
+        raise PPAMFittingError("pPAM full operator padding is nonzero")
+    for heldout, count in enumerate(fold_counts):
+        if count < fold_width and np.any(
+            fold_standardized[heldout, :, int(count) :]
+        ):
+            raise PPAMFittingError("pPAM fold operator padding is nonzero")
+
+    nuisance_plan = NuisancePlan(
+        full_covariates=full_covariates,
+        fold_covariates=fold_covariates,
+    )
+    full_operator = _WeightOperator(
+        train=full_train,
+        nuisance_train=full_nuisance,
+        nuisance_test=None,
+        ranked_nuisance_train=full_ranked,
+        estimable=full_estimable,
+        standardized_exposure_residual=full_standardized[:, :full_count],
+    )
+    fold_operators = tuple(
+        _WeightOperator(
+            train=fold_train[heldout],
+            nuisance_train=fold_nuisance[heldout],
+            nuisance_test=fold_nuisance_test[heldout],
+            ranked_nuisance_train=fold_ranked[heldout],
+            estimable=fold_estimable[heldout],
+            standardized_exposure_residual=fold_standardized[
+                heldout,
+                :,
+                : int(fold_counts[heldout]),
+            ],
+        )
+        for heldout in subjects
+    )
+    return PPAMPermutationWorkspace(
+        request=request,
+        binary_exposure=binary,
+        outcome=y,
+        nuisance_plan=nuisance_plan,
+        fiber_ids=ids,
+        full_operator=full_operator,
+        fold_operators=fold_operators,
+        score_workspace=PrevalidatedFiberScoreWorkspace(binary, ids),
+    )
 
 
 def _weights_for_outcome(
@@ -1481,5 +1778,7 @@ __all__ = [
     "fit_ppam_activation",
     "prepare_ppam_fit_workspace",
     "prepare_ppam_permutation_workspace",
+    "ppam_operator_scratch_arrays",
     "ppam_observed_state",
+    "restore_ppam_permutation_workspace",
 ]

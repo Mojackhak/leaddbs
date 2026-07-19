@@ -98,16 +98,19 @@ def _close_memmap(array: np.ndarray) -> None:
         mapping.close()
 
 
-def _publish_operator_scratch(
+def _publish_scratch_arrays(
     parent: Path,
-    model_family: str,
+    generation_prefix: str,
     arrays: Mapping[str, np.ndarray],
-) -> FormalOperatorScratchDescriptor:
-    """Atomically publish one exclusive generation without replacing files."""
+) -> tuple[Path, tuple[ScratchArrayDescriptor, ...]]:
+    """Atomically publish one exclusive NPY generation."""
 
     parent = Path(parent).expanduser().resolve()
     parent.mkdir(parents=True, exist_ok=True)
-    generation = parent / f"operator-generation-{uuid.uuid4().hex}"
+    prefix = str(generation_prefix).strip().lower()
+    if re.fullmatch(r"[a-z][a-z0-9-]*-", prefix) is None:
+        raise OperatorScratchError("scratch generation prefix is invalid")
+    generation = parent / f"{prefix}{uuid.uuid4().hex}"
     generation.mkdir(exist_ok=False)
     descriptors: list[ScratchArrayDescriptor] = []
     created: list[Path] = []
@@ -157,12 +160,7 @@ def _publish_operator_scratch(
                     nbytes=int(value.nbytes),
                 )
             )
-        return FormalOperatorScratchDescriptor(
-            schema_version=OPERATOR_SCRATCH_SCHEMA,
-            model_family=model_family,
-            root=generation,
-            arrays=tuple(descriptors),
-        )
+        return generation, tuple(descriptors)
     except Exception:
         for path in (*temporary, *created):
             path.unlink(missing_ok=True)
@@ -173,22 +171,55 @@ def _publish_operator_scratch(
         raise
 
 
-def open_operator_scratch(
-    descriptor: FormalOperatorScratchDescriptor,
-) -> dict[str, np.memmap]:
-    """Validate and reopen a complete generation as read-only NPY memmaps."""
+def _publish_operator_scratch(
+    parent: Path,
+    model_family: str,
+    arrays: Mapping[str, np.ndarray],
+) -> FormalOperatorScratchDescriptor:
+    """Atomically publish one exclusive formal-operator generation."""
 
-    if not isinstance(descriptor, FormalOperatorScratchDescriptor):
-        raise OperatorScratchError("operator scratch descriptor is invalid")
-    root = descriptor.root.resolve()
+    family = str(model_family).strip().lower()
+    if family not in {"direct_voxel", "normative_fiber"}:
+        raise OperatorScratchError("operator scratch model family is unsupported")
+    root, descriptors = _publish_scratch_arrays(
+        parent,
+        "operator-generation-",
+        arrays,
+    )
+    return FormalOperatorScratchDescriptor(
+        schema_version=OPERATOR_SCRATCH_SCHEMA,
+        model_family=family,
+        root=root,
+        arrays=descriptors,
+    )
+
+
+def _open_scratch_arrays(
+    root: Path,
+    descriptors: tuple[ScratchArrayDescriptor, ...],
+) -> dict[str, np.memmap]:
+    """Validate and reopen one descriptor-bound generation read-only."""
+
+    root = Path(root).expanduser().resolve()
+    arrays = tuple(descriptors)
+    if not arrays or not all(
+        isinstance(item, ScratchArrayDescriptor) for item in arrays
+    ):
+        raise OperatorScratchError("operator scratch arrays are invalid")
+    if len({item.name for item in arrays}) != len(arrays):
+        raise OperatorScratchError("operator scratch array names are duplicated")
+    if len({item.filename for item in arrays}) != len(arrays):
+        raise OperatorScratchError("operator scratch filenames are duplicated")
     if not root.is_dir():
         raise OperatorScratchError("operator scratch generation is missing")
     output: dict[str, np.memmap] = {}
     try:
-        for item in descriptor.arrays:
+        for item in arrays:
             path = (root / item.filename).resolve()
             if path.parent != root or not path.is_file():
-                raise OperatorScratchError("operator scratch array is missing or unsafe")
+                raise OperatorScratchError(
+                    "operator scratch array is missing or unsafe"
+                )
             try:
                 value = np.load(path, mmap_mode="r", allow_pickle=False)
             except (OSError, ValueError) as error:
@@ -216,6 +247,16 @@ def open_operator_scratch(
         raise
 
 
+def open_operator_scratch(
+    descriptor: FormalOperatorScratchDescriptor,
+) -> dict[str, np.memmap]:
+    """Validate and reopen a complete generation as read-only NPY memmaps."""
+
+    if not isinstance(descriptor, FormalOperatorScratchDescriptor):
+        raise OperatorScratchError("operator scratch descriptor is invalid")
+    return _open_scratch_arrays(descriptor.root, descriptor.arrays)
+
+
 def close_operator_scratch(arrays: Mapping[str, np.ndarray]) -> None:
     """Close every distinct memmap owned by one reopened generation."""
 
@@ -228,17 +269,21 @@ def close_operator_scratch(arrays: Mapping[str, np.ndarray]) -> None:
         mapping.close()
 
 
-def cleanup_operator_scratch(
-    descriptor: FormalOperatorScratchDescriptor,
+def _cleanup_scratch_arrays(
+    root: Path,
+    descriptors: tuple[ScratchArrayDescriptor, ...],
 ) -> None:
-    """Remove only descriptor-listed files and one otherwise-empty generation."""
+    """Remove only descriptor-listed files and one empty generation root."""
 
-    if not isinstance(descriptor, FormalOperatorScratchDescriptor):
-        raise OperatorScratchError("operator scratch descriptor is invalid")
-    root = descriptor.root.resolve()
+    root = Path(root).expanduser().resolve()
     if not root.is_dir():
         return
-    paths = tuple((root / item.filename).resolve() for item in descriptor.arrays)
+    arrays = tuple(descriptors)
+    if not arrays or not all(
+        isinstance(item, ScratchArrayDescriptor) for item in arrays
+    ):
+        raise OperatorScratchError("operator scratch arrays are invalid")
+    paths = tuple((root / item.filename).resolve() for item in arrays)
     if any(path.parent != root for path in paths):
         raise OperatorScratchError("operator scratch cleanup path is unsafe")
     expected_names = {path.name for path in paths}
@@ -251,6 +296,16 @@ def cleanup_operator_scratch(
     for path in paths:
         path.unlink(missing_ok=True)
     root.rmdir()
+
+
+def cleanup_operator_scratch(
+    descriptor: FormalOperatorScratchDescriptor,
+) -> None:
+    """Remove only descriptor-listed files and one otherwise-empty generation."""
+
+    if not isinstance(descriptor, FormalOperatorScratchDescriptor):
+        raise OperatorScratchError("operator scratch descriptor is invalid")
+    _cleanup_scratch_arrays(descriptor.root, descriptor.arrays)
 
 
 __all__ = [
