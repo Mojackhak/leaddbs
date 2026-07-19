@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import csv
+from concurrent.futures import ProcessPoolExecutor
 import dataclasses
 import hashlib
 import json
+import multiprocessing
 from pathlib import Path
 import tempfile
 import unittest
@@ -51,8 +53,22 @@ from dual_frequency.backends.statistics import (
 )
 from dual_frequency.backends.formal.direct_voxel import (
     _build_fold_operators as _build_direct_fold_operators,
+    _optimized_loocv as _optimized_direct_loocv,
+    open_direct_voxel_operator_scratch,
+    _publish_direct_voxel_operator_scratch,
 )
-from dual_frequency.backends.formal.normative_fiber import _fold_candidate_masks
+from dual_frequency.backends.formal.normative_fiber import (
+    _build_fold_operators as _build_fiber_fold_operators,
+    _fold_candidate_masks,
+    _loocv as _fiber_loocv,
+    open_normative_fiber_operator_scratch,
+    _publish_normative_fiber_operator_scratch,
+)
+from dual_frequency.backends.formal.operator_scratch import (
+    OperatorScratchError,
+    cleanup_operator_scratch,
+    close_operator_scratch,
+)
 from dual_frequency.backends.normative_fiber.coverage import coverage_counts
 from dual_frequency.cache import RunScopedArtifactPublisher, sha256_file
 from dual_frequency.contracts import (
@@ -92,6 +108,23 @@ FORMAL_TASK_IDS = {
 
 
 _SCIENTIFIC_ARRAYS: dict[str, np.ndarray] = {}
+
+
+def _spawn_reopen_operator_scratch(descriptor: object) -> tuple[bool, int]:
+    from dual_frequency.backends.formal.operator_scratch import (
+        close_operator_scratch,
+        open_operator_scratch,
+    )
+
+    arrays = open_operator_scratch(descriptor)
+    try:
+        valid = all(
+            isinstance(value, np.memmap) and not value.flags.writeable
+            for value in arrays.values()
+        )
+        return valid, len(arrays)
+    finally:
+        close_operator_scratch(arrays)
 
 
 class ResamplingScheduleBlockTest(unittest.TestCase):
@@ -611,6 +644,131 @@ class FormalRequestContractTest(unittest.TestCase):
                 no_delta,
                 delta_reference_full=np.arange(no_delta.subject_axis.count),
             )
+
+
+class FormalOperatorScratchTest(unittest.TestCase):
+    @staticmethod
+    def _assert_metrics_equal(
+        expected: dict[str, float],
+        actual: dict[str, float],
+    ) -> None:
+        if set(expected) != set(actual):
+            raise AssertionError("operator scratch changed metric fields")
+        for key in expected:
+            np.testing.assert_allclose(
+                actual[key],
+                expected[key],
+                rtol=0.0,
+                atol=0.0,
+                equal_nan=True,
+                err_msg=key,
+            )
+
+    def test_direct_operator_generation_reopens_read_only_with_exact_metrics(self) -> None:
+        request = _formal_request("reference_voxel", "permutation")
+        exposure = _artifact_value(request.exposure)
+        outcome = _artifact_value(request.outcome)
+        baseline = _artifact_value(request.baseline)
+        nuisance = build_fixed_nuisance_plan(request, baseline, None, None)
+        operators = _build_direct_fold_operators(request, exposure, nuisance)
+        expected = _optimized_direct_loocv(outcome, operators)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            descriptor = _publish_direct_voxel_operator_scratch(
+                Path(temporary_directory),
+                operators,
+            )
+            reopened, arrays = open_direct_voxel_operator_scratch(descriptor)
+            try:
+                self.assertTrue(
+                    all(
+                        isinstance(value, np.memmap) and not value.flags.writeable
+                        for value in arrays.values()
+                    )
+                )
+                self._assert_metrics_equal(
+                    expected,
+                    _optimized_direct_loocv(outcome, reopened),
+                )
+            finally:
+                close_operator_scratch(arrays)
+
+            with ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=multiprocessing.get_context("spawn"),
+            ) as executor:
+                reopened_in_spawn, array_count = executor.submit(
+                    _spawn_reopen_operator_scratch,
+                    descriptor,
+                ).result(timeout=30)
+            self.assertTrue(reopened_in_spawn)
+            self.assertEqual(array_count, len(descriptor.arrays))
+
+            untracked = descriptor.root / "untracked.txt"
+            untracked.write_text("preserve", encoding="utf-8")
+            with self.assertRaisesRegex(OperatorScratchError, "untracked"):
+                cleanup_operator_scratch(descriptor)
+            self.assertTrue(untracked.is_file())
+            untracked.unlink()
+            cleanup_operator_scratch(descriptor)
+            self.assertFalse(descriptor.root.exists())
+
+    def test_fiber_operator_generation_reopens_read_only_with_exact_metrics(self) -> None:
+        request = _formal_request("reference_fiber", "permutation")
+        exposure = _artifact_value(request.exposure)
+        fiber_ids = _fiber_id_values(request)
+        outcome = _artifact_value(request.outcome)
+        baseline = _artifact_value(request.baseline)
+        nuisance = build_fixed_nuisance_plan(request, baseline, None, None)
+        masks = _fold_candidate_masks(request, exposure)
+        operators = _build_fiber_fold_operators(
+            request,
+            exposure,
+            nuisance,
+            masks,
+        )
+        expected = _fiber_loocv(
+            request,
+            exposure,
+            fiber_ids,
+            outcome,
+            nuisance,
+            operators,
+            scoring_module.PrevalidatedFiberScoreWorkspace(exposure, fiber_ids),
+            optimized=True,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            descriptor = _publish_normative_fiber_operator_scratch(
+                Path(temporary_directory),
+                operators,
+            )
+            reopened, arrays = open_normative_fiber_operator_scratch(descriptor)
+            try:
+                self.assertTrue(
+                    all(
+                        isinstance(value, np.memmap) and not value.flags.writeable
+                        for value in arrays.values()
+                    )
+                )
+                actual = _fiber_loocv(
+                    request,
+                    exposure,
+                    fiber_ids,
+                    outcome,
+                    nuisance,
+                    reopened,
+                    scoring_module.PrevalidatedFiberScoreWorkspace(
+                        exposure,
+                        fiber_ids,
+                    ),
+                    optimized=True,
+                )
+                self._assert_metrics_equal(expected, actual)
+            finally:
+                close_operator_scratch(arrays)
+            cleanup_operator_scratch(descriptor)
+            self.assertFalse(descriptor.root.exists())
 
 
 class FormalPermutationTest(unittest.TestCase):

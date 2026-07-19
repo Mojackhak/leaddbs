@@ -2084,6 +2084,31 @@ array metadata. The focused gate passes 60 tests and 37 subtests and the full
 regression passes 498 tests and 248 subtests. The production DAG remains on its
 existing entry point pending shared operator scratch and worker reopen tests.
 
+The following slice builds the shared operator scratch substrate before DAG
+migration. One exclusive run-scoped generation stores stacked direct-voxel
+fold fields. Normative-fiber fixed-shape fields are stacked, but every fold's
+variable estimable-index and coefficient matrices remain separate contiguous
+NPY arrays; padded strided coefficient views are disallowed after producing an
+approximately `1.1e-16` Pearson-rho parity difference. Each descriptor retains
+the original C/Fortran memory order. Workers receive only a
+validated descriptor and reopen read-only
+memmaps; no fold operator is rebuilt, copied, or pickled per block. Atomic
+generation publication never overwrites an existing file. Cleanup is confined
+to descriptor-listed generation files and is allowed only after successful
+downstream completion; failed or partial execution retains scratch for resume.
+Raw work-directory paths remain confined to private runtime publication
+helpers and never enter a public scientific-backend signature.
+
+The operator-scratch foundation passed acceptance on 2026-07-19. Direct and
+fiber reconstructed operators use read-only memmaps and reproduce all metrics
+exactly; separate Fortran-order fiber coefficient payloads remove the detected
+padded-view drift. One actual spawn worker reopened the descriptor without an
+operator payload. Cleanup preserved an untracked sentinel and removed only the
+declared generation after the sentinel was explicitly cleared. The focused
+gate passes 42 tests and 13 subtests and the full regression passes 500 tests
+and 248 subtests. Planner integration and resume-aware descriptor persistence
+remain open.
+
 ### Default final in-sample inference
 
 Every realized final model in formal scope has a required in-sample inference

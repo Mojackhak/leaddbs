@@ -3674,6 +3674,43 @@ record/formal gate passes 60 tests and 37 subtests; the complete regression
 passes 498 tests and 248 subtests. No planner stage changed, so shared operator
 scratch and actual block-level execution/resume remain open.
 
+Fourth Step 9 implementation slice: implement the run-scoped operator scratch
+foundation without changing the planner. One predecessor workspace task will
+own an exclusive generation directory beneath its task work directory and
+atomically publish only `.npy` arrays plus a small immutable descriptor. Array
+descriptors bind a unique logical name, safe generation-relative filename,
+dtype, shape, C/Fortran memory order, and byte count. Spawned workers reopen every array with
+`mmap_mode='r'`, verify the NPY header and descriptor before use, and receive no
+operator payload through pickling. Direct-voxel fixed-shape fold fields are
+stacked by fold. Normative-fiber fixed-shape fields are stacked, while each
+fold's variable estimable-index and standardized-coefficient arrays use
+separate contiguous NPY payloads. A padded 3D coefficient array is forbidden:
+its strided fold view changes BLAS accumulation order and produced an observed
+Pearson-rho difference of approximately `1.1e-16` in the parity gate.
+Reconstructed views must reproduce the in-memory operator calculations
+exactly. Publication uses a new exclusive generation instead of overwriting an
+existing file. Cleanup may
+unlink only descriptor-enumerated files in that generation and remove the
+directory only when empty; failed or partial workflow execution retains the
+generation for resume.
+All functions that accept the task work-directory `Path` are private runtime
+infrastructure. They must not widen the public scientific-backend signatures;
+scientific block computation receives only typed records, arrays, and the
+validated scratch descriptor.
+
+Fourth-slice acceptance on 2026-07-19: direct and fiber in-memory fold
+operators publish into exclusive generations and reopen as descriptor-verified,
+nonwriteable memmaps. Both model families reproduce every observed metric with
+zero numerical difference. The fiber parity failure from padded strided views
+is eliminated by preserving each variable coefficient matrix as a separate
+Fortran-order payload. A real macOS spawn worker receives only the descriptor
+and reopens all arrays successfully. Cleanup rejects and preserves a generation
+containing an untracked file, then removes only the enumerated files once the
+directory is clean. The raw-Path public-API boundary passes. The focused gate
+passes 42 tests and 13 subtests; the complete regression passes 500 tests and
+248 subtests. Descriptor persistence, predecessor workspace tasks, and block
+DAG execution remain open.
+
 - [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 
 Add one `formal_in_sample` task for every realized final endpoint whenever

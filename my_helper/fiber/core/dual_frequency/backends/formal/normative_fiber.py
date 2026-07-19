@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -52,6 +53,13 @@ from .common import (
     resample_axis,
     validate_resampling_schedule,
 )
+from .operator_scratch import (
+    FormalOperatorScratchDescriptor,
+    OperatorScratchError,
+    close_operator_scratch,
+    open_operator_scratch,
+    _publish_operator_scratch,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +72,150 @@ class _FiberFoldOperator:
     candidate_mask: np.ndarray
     estimable_indices: np.ndarray
     standardized_exposure_residual: np.ndarray
+
+
+def _publish_normative_fiber_operator_scratch(
+    parent: Path,
+    operators: tuple[_FiberFoldOperator, ...],
+) -> FormalOperatorScratchDescriptor:
+    """Publish one contiguous normative-fiber fold-operator generation."""
+
+    values = tuple(operators)
+    if not values:
+        raise OperatorScratchError("normative-fiber operator scratch is empty")
+    maximum = max(operator.estimable_indices.size for operator in values)
+    if maximum < 1:
+        raise OperatorScratchError(
+            "normative-fiber operator scratch has no estimable features"
+        )
+    arrays: dict[str, np.ndarray] = {
+        "heldout": np.asarray(
+            [operator.heldout for operator in values],
+            dtype=np.int64,
+        ),
+        "train": np.stack([operator.train for operator in values]),
+        "nuisance_train": np.stack(
+            [operator.nuisance_train for operator in values]
+        ),
+        "nuisance_test": np.stack(
+            [operator.nuisance_test for operator in values]
+        ),
+        "ranked_nuisance_train": np.stack(
+            [operator.ranked_nuisance_train for operator in values]
+        ),
+        "candidate_mask": np.stack(
+            [operator.candidate_mask for operator in values]
+        ),
+    }
+    for index, operator in enumerate(values):
+        arrays[f"estimable_indices_{index:03d}"] = operator.estimable_indices
+        arrays[
+            f"standardized_exposure_residual_{index:03d}"
+        ] = operator.standardized_exposure_residual
+    return _publish_operator_scratch(parent, "normative_fiber", arrays)
+
+
+def open_normative_fiber_operator_scratch(
+    descriptor: FormalOperatorScratchDescriptor,
+) -> tuple[tuple[_FiberFoldOperator, ...], dict[str, np.memmap]]:
+    """Reconstruct fiber fold operators as views over read-only memmaps."""
+
+    if descriptor.model_family != "normative_fiber":
+        raise OperatorScratchError(
+            "normative-fiber operator scratch has the wrong model family"
+        )
+    arrays = open_operator_scratch(descriptor)
+    shared = {
+        "heldout",
+        "train",
+        "nuisance_train",
+        "nuisance_test",
+        "ranked_nuisance_train",
+        "candidate_mask",
+    }
+    try:
+        if not shared.issubset(arrays):
+            raise OperatorScratchError(
+                "normative-fiber operator scratch fields do not match"
+            )
+        expected_ndim = {
+            "heldout": 1,
+            "train": 2,
+            "nuisance_train": 3,
+            "nuisance_test": 3,
+            "ranked_nuisance_train": 3,
+            "candidate_mask": 2,
+        }
+        if any(arrays[name].ndim != ndim for name, ndim in expected_ndim.items()):
+            raise OperatorScratchError(
+                "normative-fiber operator scratch ranks are inconsistent"
+            )
+        count = arrays["heldout"].size
+        variable = {
+            name
+            for index in range(count)
+            for name in (
+                f"estimable_indices_{index:03d}",
+                f"standardized_exposure_residual_{index:03d}",
+            )
+        }
+        if set(arrays) != shared | variable:
+            raise OperatorScratchError(
+                "normative-fiber variable scratch fields do not match"
+            )
+        features = arrays["candidate_mask"].shape[1]
+        nuisance_columns = arrays["nuisance_train"].shape[2]
+        if (
+            arrays["heldout"].shape != (count,)
+            or not np.array_equal(arrays["heldout"], np.arange(count))
+            or arrays["train"].shape != (count, count - 1)
+            or arrays["nuisance_train"].shape
+            != (count, count - 1, nuisance_columns)
+            or arrays["nuisance_test"].shape != (count, 1, nuisance_columns)
+            or arrays["ranked_nuisance_train"].shape
+            != arrays["nuisance_train"].shape
+            or arrays["candidate_mask"].shape != (count, features)
+            or arrays["candidate_mask"].dtype != np.dtype(bool)
+        ):
+            raise OperatorScratchError(
+                "normative-fiber operator scratch fold shapes are inconsistent"
+            )
+        operators: list[_FiberFoldOperator] = []
+        for index in range(count):
+            estimable = arrays[f"estimable_indices_{index:03d}"]
+            standardized = arrays[
+                f"standardized_exposure_residual_{index:03d}"
+            ]
+            estimable_count = estimable.size
+            if (
+                estimable.ndim != 1
+                or standardized.shape != (count - 1, estimable_count)
+                or estimable_count < 1
+                or np.any(estimable < 0)
+                or np.any(estimable >= features)
+                or np.unique(estimable).size != estimable_count
+                or not np.all(arrays["candidate_mask"][index, estimable])
+                or not np.all(np.isfinite(standardized))
+            ):
+                raise OperatorScratchError(
+                    "normative-fiber estimable scratch payload is invalid"
+                )
+            operators.append(
+                _FiberFoldOperator(
+                    heldout=int(arrays["heldout"][index]),
+                    train=arrays["train"][index],
+                    nuisance_train=arrays["nuisance_train"][index],
+                    nuisance_test=arrays["nuisance_test"][index],
+                    ranked_nuisance_train=arrays["ranked_nuisance_train"][index],
+                    candidate_mask=arrays["candidate_mask"][index],
+                    estimable_indices=estimable,
+                    standardized_exposure_residual=standardized,
+                )
+            )
+        return tuple(operators), arrays
+    except Exception:
+        close_operator_scratch(arrays)
+        raise
 
 
 def _fold_candidate_masks(

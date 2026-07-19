@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -44,6 +45,13 @@ from .common import (
     resample_axis,
     validate_resampling_schedule,
 )
+from .operator_scratch import (
+    FormalOperatorScratchDescriptor,
+    OperatorScratchError,
+    close_operator_scratch,
+    open_operator_scratch,
+    _publish_operator_scratch,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +64,129 @@ class _FoldOperator:
     score_operator: np.ndarray
     candidate_count: int
     valid_feature_count: int
+
+
+def _publish_direct_voxel_operator_scratch(
+    parent: Path,
+    operators: tuple[_FoldOperator, ...],
+) -> FormalOperatorScratchDescriptor:
+    """Publish one stacked direct-voxel fold-operator generation."""
+
+    values = tuple(operators)
+    if not values:
+        raise OperatorScratchError("direct-voxel operator scratch is empty")
+    return _publish_operator_scratch(
+        parent,
+        "direct_voxel",
+        {
+            "heldout": np.asarray(
+                [operator.heldout for operator in values],
+                dtype=np.int64,
+            ),
+            "train": np.stack([operator.train for operator in values]),
+            "nuisance_train": np.stack(
+                [operator.nuisance_train for operator in values]
+            ),
+            "nuisance_test": np.stack(
+                [operator.nuisance_test for operator in values]
+            ),
+            "ranked_nuisance_train": np.stack(
+                [operator.ranked_nuisance_train for operator in values]
+            ),
+            "score_operator": np.stack(
+                [operator.score_operator for operator in values]
+            ),
+            "candidate_count": np.asarray(
+                [operator.candidate_count for operator in values],
+                dtype=np.int64,
+            ),
+            "valid_feature_count": np.asarray(
+                [operator.valid_feature_count for operator in values],
+                dtype=np.int64,
+            ),
+        },
+    )
+
+
+def open_direct_voxel_operator_scratch(
+    descriptor: FormalOperatorScratchDescriptor,
+) -> tuple[tuple[_FoldOperator, ...], dict[str, np.memmap]]:
+    """Reconstruct direct-voxel fold operators as views over read-only memmaps."""
+
+    if descriptor.model_family != "direct_voxel":
+        raise OperatorScratchError(
+            "direct-voxel operator scratch has the wrong model family"
+        )
+    arrays = open_operator_scratch(descriptor)
+    required = {
+        "heldout",
+        "train",
+        "nuisance_train",
+        "nuisance_test",
+        "ranked_nuisance_train",
+        "score_operator",
+        "candidate_count",
+        "valid_feature_count",
+    }
+    try:
+        if set(arrays) != required:
+            raise OperatorScratchError(
+                "direct-voxel operator scratch fields do not match"
+            )
+        expected_ndim = {
+            "heldout": 1,
+            "train": 2,
+            "nuisance_train": 3,
+            "nuisance_test": 3,
+            "ranked_nuisance_train": 3,
+            "score_operator": 3,
+            "candidate_count": 1,
+            "valid_feature_count": 1,
+        }
+        if any(arrays[name].ndim != ndim for name, ndim in expected_ndim.items()):
+            raise OperatorScratchError(
+                "direct-voxel operator scratch ranks are inconsistent"
+            )
+        count = arrays["heldout"].size
+        nuisance_columns = arrays["nuisance_train"].shape[2]
+        if (
+            arrays["heldout"].shape != (count,)
+            or arrays["candidate_count"].shape != (count,)
+            or arrays["valid_feature_count"].shape != (count,)
+            or not np.array_equal(arrays["heldout"], np.arange(count))
+            or arrays["train"].shape != (count, count - 1)
+            or arrays["nuisance_train"].shape
+            != (count, count - 1, nuisance_columns)
+            or arrays["nuisance_test"].shape != (count, 1, nuisance_columns)
+            or arrays["ranked_nuisance_train"].shape
+            != arrays["nuisance_train"].shape
+            or arrays["score_operator"].shape != (count, count, count - 1)
+            or np.any(arrays["candidate_count"] < 1)
+            or np.any(arrays["valid_feature_count"] < 1)
+            or np.any(
+                arrays["valid_feature_count"] > arrays["candidate_count"]
+            )
+        ):
+            raise OperatorScratchError(
+                "direct-voxel operator scratch fold shapes are inconsistent"
+            )
+        operators = tuple(
+            _FoldOperator(
+                heldout=int(arrays["heldout"][index]),
+                train=arrays["train"][index],
+                nuisance_train=arrays["nuisance_train"][index],
+                nuisance_test=arrays["nuisance_test"][index],
+                ranked_nuisance_train=arrays["ranked_nuisance_train"][index],
+                score_operator=arrays["score_operator"][index],
+                candidate_count=int(arrays["candidate_count"][index]),
+                valid_feature_count=int(arrays["valid_feature_count"][index]),
+            )
+            for index in range(count)
+        )
+        return operators, arrays
+    except Exception:
+        close_operator_scratch(arrays)
+        raise
 
 
 def _build_fold_operators(
