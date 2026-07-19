@@ -481,7 +481,17 @@ def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[st
             continue
         try:
             result = ServiceResult.from_dict(result_payload)
-        except (ExecutionError, TypeError, ValueError):
+            record = result.decode_record()
+            if type(record).__name__ == "FormalOperatorScratchRecord":
+                from ..runtime.formal_operator_workspace import (
+                    validate_formal_operator_scratch_record,
+                )
+
+                validate_formal_operator_scratch_record(
+                    record,
+                    context.run_store.root,
+                )
+        except (OSError, RuntimeError, TypeError, ValueError):
             continue
         output[task.task_id] = TaskOutcome(
             task_id=task.task_id,

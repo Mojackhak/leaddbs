@@ -87,6 +87,11 @@ from dual_frequency.contracts import (
     RequestError,
     SourceRecord,
 )
+from dual_frequency.runtime.formal_operator_workspace import (
+    formal_operator_scratch_descriptor,
+    formal_operator_scratch_record,
+    validate_formal_operator_scratch_record,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
@@ -674,9 +679,20 @@ class FormalOperatorScratchTest(unittest.TestCase):
         expected = _optimized_direct_loocv(outcome, operators)
 
         with tempfile.TemporaryDirectory() as temporary_directory:
+            run_root = Path(temporary_directory)
             descriptor = _publish_direct_voxel_operator_scratch(
-                Path(temporary_directory),
+                run_root / "work" / "task_fixture",
                 operators,
+            )
+            record = formal_operator_scratch_record(
+                descriptor,
+                request,
+                run_root,
+            )
+            validate_formal_operator_scratch_record(record, run_root)
+            self.assertEqual(
+                formal_operator_scratch_descriptor(record, run_root),
+                descriptor,
             )
             reopened, arrays = open_direct_voxel_operator_scratch(descriptor)
             try:

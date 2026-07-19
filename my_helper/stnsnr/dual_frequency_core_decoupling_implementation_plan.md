@@ -3711,6 +3711,31 @@ passes 42 tests and 13 subtests; the complete regression passes 500 tests and
 248 subtests. Descriptor persistence, predecessor workspace tasks, and block
 DAG execution remain open.
 
+Fifth Step 9 implementation slice: persist the operator descriptor without
+misclassifying scratch as a scientific artifact. `FormalOperatorScratchRecord`
+binds the final target, model family, exact subject/feature axes, canonical
+scientific input identity, operator schema, completed status, run-root-relative
+generation path, ordered array-header records, and total payload bytes. It has
+an empty artifact closure and may not contain an absolute path or parent
+traversal. Runtime conversion resolves the generation only beneath the current
+run's `work` directory and rebuilds the internal descriptor. During resume, a
+completed workspace task is restored only when every listed NPY file still
+reopens read-only with the declared dtype, shape, memory order, and byte count.
+If validation fails, that workspace task becomes pending and reruns; unrelated
+completed block outputs remain restorable. No repository code identity enters
+this gate.
+
+Fifth-slice acceptance on 2026-07-19: the scratch root round-trips through the
+closed codec with an empty artifact closure and rejects absolute/traversing
+paths, altered total bytes, malformed array paths, fields, or headers. Runtime
+conversion resolves only beneath the current run's `work` directory and
+reconstructs the original descriptor. Executor resume restores a completed
+workspace task while its generation is structurally valid; after the same
+generation is removed through descriptor-confined cleanup, resume reruns only
+that workspace task. The focused record/executor/formal gate passes 76 tests
+and 44 subtests; the complete regression passes 502 tests and 249 subtests.
+Actual workspace services and block planner tasks remain open.
+
 - [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 
 Add one `formal_in_sample` task for every realized final endpoint whenever

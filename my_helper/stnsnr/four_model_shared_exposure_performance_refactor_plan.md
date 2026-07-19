@@ -2109,6 +2109,22 @@ gate passes 42 tests and 13 subtests and the full regression passes 500 tests
 and 248 subtests. Planner integration and resume-aware descriptor persistence
 remain open.
 
+The next slice persists a `FormalOperatorScratchRecord` with no `ArtifactRef`
+closure. It uses only a safe run-root-relative generation path, exact
+subject/feature axes and scientific-input identity, ordered NPY header
+descriptors, total bytes, and terminal status. Resume restores the completed
+workspace task only after all files reopen read-only beneath the current run's
+`work` directory. Missing or malformed scratch reruns that producer without
+invalidating independent completed block outputs; repository code identity is
+not a gate.
+
+The resume-aware scratch record passed acceptance on 2026-07-19. Closed-codec
+and path/header checks pass, descriptor conversion is confined to the current
+run work root, valid scratch is restored without service invocation, and a
+removed generation reruns only its workspace task. The focused gate passes 76
+tests and 44 subtests and the full regression passes 502 tests and 249
+subtests. Production workspace services and the block DAG remain open.
+
 ### Default final in-sample inference
 
 Every realized final model in formal scope has a required in-sample inference

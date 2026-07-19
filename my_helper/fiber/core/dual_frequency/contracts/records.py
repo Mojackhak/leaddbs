@@ -5,7 +5,10 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import asdict, dataclass
+from pathlib import PurePosixPath
 from urllib.parse import urlparse
+
+import numpy as np
 
 from .identity import EndpointKey, FinalModelKey, canonical_hash
 
@@ -365,6 +368,113 @@ class ResamplingBlockRecord:
     @property
     def identifier(self) -> str:
         return f"resampling_block_{canonical_hash(asdict(self), length=20)}"
+
+
+@dataclass(frozen=True)
+class ScratchArrayRecord:
+    """Persistable NPY header contract for one run-scoped scratch array."""
+
+    name: str
+    filename: str
+    dtype: str
+    shape: tuple[int, ...]
+    fortran_order: bool
+    nbytes: int
+
+    def __post_init__(self) -> None:
+        name = _token(self.name, "scratch array name").lower()
+        if _REASON_CODE.fullmatch(name) is None:
+            raise RecordError("scratch array name must be lower_snake_case")
+        filename = _token(self.filename, "scratch array filename")
+        path = PurePosixPath(filename)
+        if path.is_absolute() or len(path.parts) != 1 or path.suffix != ".npy":
+            raise RecordError("scratch array filename is unsafe")
+        try:
+            dtype = np.dtype(self.dtype)
+        except (TypeError, ValueError) as error:
+            raise RecordError("scratch array dtype is invalid") from error
+        shape = tuple(self.shape)
+        if not shape or any(type(value) is not int or value < 1 for value in shape):
+            raise RecordError("scratch array shape is invalid")
+        if type(self.fortran_order) is not bool:
+            raise RecordError("scratch array order flag must be boolean")
+        expected_nbytes = math.prod(shape) * dtype.itemsize
+        if type(self.nbytes) is not int or self.nbytes != expected_nbytes:
+            raise RecordError("scratch array byte count is inconsistent")
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "filename", filename)
+        object.__setattr__(self, "dtype", dtype.name)
+        object.__setattr__(self, "shape", shape)
+
+
+@dataclass(frozen=True)
+class FormalOperatorScratchRecord:
+    """Non-artifact descriptor for one resumable formal-operator generation."""
+
+    target_id: str
+    model_family: str
+    subject_axis: AxisRef
+    feature_axis: AxisRef
+    input_identity: str
+    operator_schema: str
+    technical_status: str
+    generation_path: str
+    arrays: tuple[ScratchArrayRecord, ...]
+    total_nbytes: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "target_id", _token(self.target_id, "target_id"))
+        family = _token(self.model_family, "model_family").lower()
+        if family not in {"direct_voxel", "normative_fiber"}:
+            raise RecordError("formal operator scratch model family is unsupported")
+        object.__setattr__(self, "model_family", family)
+        if not isinstance(self.subject_axis, AxisRef) or not isinstance(
+            self.feature_axis,
+            AxisRef,
+        ):
+            raise RecordError("formal operator scratch axes must be AxisRef values")
+        object.__setattr__(
+            self,
+            "input_identity",
+            _sha256(self.input_identity, "input_identity"),
+        )
+        schema = _token(self.operator_schema, "operator_schema")
+        if schema != "dual_frequency_formal_operator_scratch_v1":
+            raise RecordError("formal operator scratch schema is unsupported")
+        object.__setattr__(self, "operator_schema", schema)
+        status = _token(self.technical_status, "technical_status").lower()
+        if status != "completed":
+            raise RecordError("formal operator scratch status must be completed")
+        object.__setattr__(self, "technical_status", status)
+        generation = _token(self.generation_path, "generation_path")
+        path = PurePosixPath(generation)
+        if (
+            path.is_absolute()
+            or len(path.parts) != 3
+            or path.parts[0] != "work"
+            or not path.parts[1].startswith("task_")
+            or not path.parts[2].startswith("operator-generation-")
+            or any(part in {".", ".."} for part in path.parts)
+        ):
+            raise RecordError(
+                "formal operator scratch generation path is unsafe"
+            )
+        object.__setattr__(self, "generation_path", path.as_posix())
+        arrays = tuple(self.arrays)
+        if not arrays or not all(isinstance(item, ScratchArrayRecord) for item in arrays):
+            raise RecordError("formal operator scratch arrays are invalid")
+        if len({item.name for item in arrays}) != len(arrays):
+            raise RecordError("formal operator scratch names are duplicated")
+        if len({item.filename for item in arrays}) != len(arrays):
+            raise RecordError("formal operator scratch filenames are duplicated")
+        expected_nbytes = sum(item.nbytes for item in arrays)
+        if type(self.total_nbytes) is not int or self.total_nbytes != expected_nbytes:
+            raise RecordError("formal operator scratch total bytes are inconsistent")
+        object.__setattr__(self, "arrays", arrays)
+
+    @property
+    def identifier(self) -> str:
+        return f"formal_operator_scratch_{canonical_hash(asdict(self), length=20)}"
 
 
 def _artifact_with_axes(

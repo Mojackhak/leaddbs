@@ -20,6 +20,7 @@ from dual_frequency.contracts import (
     FinalModelKey,
     FinalModelRecord,
     FinalSelectionRecord,
+    FormalOperatorScratchRecord,
     FormalResult,
     ObservedResult,
     PreparedExposureRecord,
@@ -28,6 +29,7 @@ from dual_frequency.contracts import (
     RESAMPLING_REPLICATE_BLOCK_SIZE,
     ResamplingBlockRecord,
     ResamplingScheduleRecord,
+    ScratchArrayRecord,
     SensitiveRecord,
     SensitivityResult,
     SourceRecord,
@@ -222,6 +224,44 @@ class RecordCodecTest(unittest.TestCase):
             artifacts=(null,),
         )
         return schedule, block
+
+    def _operator_scratch_record(self) -> FormalOperatorScratchRecord:
+        array = ScratchArrayRecord(
+            name="score_operator",
+            filename="00_score_operator.npy",
+            dtype="float64",
+            shape=(2, 2),
+            fortran_order=False,
+            nbytes=32,
+        )
+        return FormalOperatorScratchRecord(
+            target_id=self.final.identifier,
+            model_family="direct_voxel",
+            subject_axis=self.subjects,
+            feature_axis=self.features,
+            input_identity="7" * 64,
+            operator_schema="dual_frequency_formal_operator_scratch_v1",
+            technical_status="completed",
+            generation_path=(
+                "work/task_fixture/operator-generation-0123456789abcdef"
+            ),
+            arrays=(array,),
+            total_nbytes=array.nbytes,
+        )
+
+    def test_operator_scratch_record_is_path_safe_and_has_no_artifact_closure(self) -> None:
+        record = self._operator_scratch_record()
+        self.assertEqual(self._round_trip(record), record)
+        self.assertEqual(record_artifacts(record), ())
+        with self.assertRaisesRegex(RecordError, "generation path"):
+            dataclasses.replace(record, generation_path="/tmp/operator-generation-x")
+        with self.assertRaisesRegex(RecordError, "total bytes"):
+            dataclasses.replace(record, total_nbytes=record.total_nbytes + 1)
+        with self.assertRaisesRegex(RecordError, "filename"):
+            dataclasses.replace(
+                record.arrays[0],
+                filename="../score_operator.npy",
+            )
 
     def test_resampling_records_bind_canonical_schedule_and_block_axes(self) -> None:
         schedule, block = self._resampling_records()
@@ -543,6 +583,7 @@ class RecordCodecTest(unittest.TestCase):
             artifacts=(observed_artifact,),
         )
         schedule, block = self._resampling_records()
+        operator_scratch = self._operator_scratch_record()
         records = (
             endpoint_input,
             prepared,
@@ -564,6 +605,7 @@ class RecordCodecTest(unittest.TestCase):
             formal,
             schedule,
             block,
+            operator_scratch,
             sensitivity,
             activation,
         )
@@ -584,6 +626,7 @@ class RecordCodecTest(unittest.TestCase):
                 "FormalResult",
                 "ResamplingScheduleRecord",
                 "ResamplingBlockRecord",
+                "FormalOperatorScratchRecord",
                 "SensitivityResult",
                 "ActivationArtifact",
             },

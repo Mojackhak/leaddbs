@@ -20,12 +20,14 @@ from ..contracts import (
     FinalModelKey,
     FinalModelRecord,
     FinalSelectionRecord,
+    FormalOperatorScratchRecord,
     FormalResult,
     ObservedResult,
     PreparedExposureRecord,
     ReferenceDependencyRecord,
     ResamplingBlockRecord,
     ResamplingScheduleRecord,
+    ScratchArrayRecord,
     SensitiveRecord,
     SensitivityResult,
     SourceRecord,
@@ -50,6 +52,7 @@ _ROOT_TYPES = {
     "BranchRecord": BranchRecord,
     "FinalModelRecord": FinalModelRecord,
     "FinalSelectionRecord": FinalSelectionRecord,
+    "FormalOperatorScratchRecord": FormalOperatorScratchRecord,
     "SensitiveRecord": SensitiveRecord,
     "FormalResult": FormalResult,
     "SensitivityResult": SensitivityResult,
@@ -64,6 +67,7 @@ _NESTED_TYPES = frozenset(
         FeatureAxisRef,
         SubjectExclusionRecord,
         FinalDecisionRecord,
+        ScratchArrayRecord,
         *_ROOT_TYPES.values(),
     }
 )
@@ -157,6 +161,12 @@ def _optional_text(value: object, location: str) -> str | None:
 def _integer(value: object, location: str) -> int:
     if type(value) is not int:
         raise RecordCodecError(f"{location} must be an integer")
+    return value
+
+
+def _boolean(value: object, location: str) -> bool:
+    if type(value) is not bool:
+        raise RecordCodecError(f"{location} must be a boolean")
     return value
 
 
@@ -386,6 +396,23 @@ _RESAMPLING_BLOCK_FIELDS = frozenset(
         "schedule_sha256",
         "technical_status",
         "artifacts",
+    }
+)
+_SCRATCH_ARRAY_FIELDS = frozenset(
+    {"name", "filename", "dtype", "shape", "fortran_order", "nbytes"}
+)
+_FORMAL_OPERATOR_SCRATCH_FIELDS = frozenset(
+    {
+        "target_id",
+        "model_family",
+        "subject_axis",
+        "feature_axis",
+        "input_identity",
+        "operator_schema",
+        "technical_status",
+        "generation_path",
+        "arrays",
+        "total_nbytes",
     }
 )
 _SENSITIVITY_RESULT_FIELDS = frozenset(
@@ -999,6 +1026,68 @@ def _decode_resampling_block(
     )
 
 
+def _decode_scratch_array(
+    value: object,
+    location: str,
+) -> ScratchArrayRecord:
+    payload = _object(value, location, _SCRATCH_ARRAY_FIELDS)
+    return ScratchArrayRecord(
+        name=_text(payload["name"], f"{location}.name"),
+        filename=_text(payload["filename"], f"{location}.filename"),
+        dtype=_text(payload["dtype"], f"{location}.dtype"),
+        shape=_tuple_of(payload["shape"], f"{location}.shape", _integer),
+        fortran_order=_boolean(
+            payload["fortran_order"],
+            f"{location}.fortran_order",
+        ),
+        nbytes=_integer(payload["nbytes"], f"{location}.nbytes"),
+    )
+
+
+def _decode_formal_operator_scratch(
+    value: object,
+    location: str,
+) -> FormalOperatorScratchRecord:
+    payload = _object(value, location, _FORMAL_OPERATOR_SCRATCH_FIELDS)
+    return FormalOperatorScratchRecord(
+        target_id=_text(payload["target_id"], f"{location}.target_id"),
+        model_family=_text(payload["model_family"], f"{location}.model_family"),
+        subject_axis=_decode_axis(
+            payload["subject_axis"],
+            f"{location}.subject_axis",
+        ),
+        feature_axis=_decode_axis(
+            payload["feature_axis"],
+            f"{location}.feature_axis",
+        ),
+        input_identity=_text(
+            payload["input_identity"],
+            f"{location}.input_identity",
+        ),
+        operator_schema=_text(
+            payload["operator_schema"],
+            f"{location}.operator_schema",
+        ),
+        technical_status=_text(
+            payload["technical_status"],
+            f"{location}.technical_status",
+        ),
+        generation_path=_text(
+            payload["generation_path"],
+            f"{location}.generation_path",
+        ),
+        arrays=_tuple_of(
+            payload["arrays"],
+            f"{location}.arrays",
+            _decode_scratch_array,
+        ),
+        total_nbytes=_integer(
+            payload["total_nbytes"],
+            f"{location}.total_nbytes",
+        ),
+    )
+
+
 def _decode_sensitivity_result(
     value: object,
     location: str,
@@ -1059,6 +1148,7 @@ _ROOT_DECODERS: dict[str, Callable[[object, str], object]] = {
     "BranchRecord": _decode_branch,
     "FinalModelRecord": _decode_final_model,
     "FinalSelectionRecord": _decode_final_selection,
+    "FormalOperatorScratchRecord": _decode_formal_operator_scratch,
     "SensitiveRecord": _decode_sensitive,
     "FormalResult": _decode_formal_result,
     "ResamplingScheduleRecord": _decode_resampling_schedule,

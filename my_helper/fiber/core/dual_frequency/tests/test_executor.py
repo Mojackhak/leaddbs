@@ -16,6 +16,8 @@ from dual_frequency.contracts import (
     AxisRef,
     EndpointInputRecord,
     EndpointKey,
+    FormalOperatorScratchRecord,
+    ScratchArrayRecord,
     SourceRecord,
     SubjectExclusionRecord,
     TaskKey,
@@ -37,6 +39,9 @@ from dual_frequency.workflow.run_store import (
     RunIdentity,
     RunStore,
     RunStoreError,
+)
+from dual_frequency.runtime.formal_operator_workspace import (
+    cleanup_formal_operator_scratch_record,
 )
 
 
@@ -1084,6 +1089,109 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(first.exit_code, 0)
         self.assertEqual(resumed.exit_code, 0)
         self.assertEqual(calls, [task.task_id])
+
+    def test_resume_reruns_only_missing_operator_scratch_workspace(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        task = _task(
+            endpoint,
+            "formal_operator_workspace",
+            "write_scratch",
+            output_record_type="FormalOperatorScratchRecord",
+        )
+        plan = self._plan((task,))
+        calls: list[str] = []
+
+        def write_scratch(request):
+            calls.append(request.task.task_id)
+            generation = request.output_dir / "operator-generation-test"
+            generation.mkdir(parents=True, exist_ok=False)
+            value = np.arange(4, dtype=np.float64).reshape(2, 2)
+            path = generation / "00_score_operator.npy"
+            np.save(path, value)
+            array = ScratchArrayRecord(
+                name="score_operator",
+                filename=path.name,
+                dtype=value.dtype.name,
+                shape=value.shape,
+                fortran_order=False,
+                nbytes=value.nbytes,
+            )
+            run_root = request.output_dir.parents[1]
+            record = FormalOperatorScratchRecord(
+                target_id=request.task.endpoint_id,
+                model_family="direct_voxel",
+                subject_axis=AxisRef("subjects", 2, "1" * 64),
+                feature_axis=AxisRef("features", 3, "2" * 64),
+                input_identity="3" * 64,
+                operator_schema="dual_frequency_formal_operator_scratch_v1",
+                technical_status="completed",
+                generation_path=generation.relative_to(run_root).as_posix(),
+                arrays=(array,),
+                total_nbytes=array.nbytes,
+            )
+            return ServiceResult.from_record(record)
+
+        registry = ServiceRegistry(
+            (RegisteredService("write_scratch", write_scratch),)
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            first_store = self._store(root, plan)
+            first = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=first_store,
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                ),
+            )
+            record = first.outcomes[0].result.decode_record()
+            assert isinstance(record, FormalOperatorScratchRecord)
+
+            retained_store = self._store(root, plan, resume=True)
+            retained = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=retained_store,
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    resume=True,
+                ),
+            )
+            self.assertEqual(
+                retained.outcomes[0].reason,
+                "restored_completed_result",
+            )
+            cleanup_formal_operator_scratch_record(record, root)
+
+            missing_store = self._store(root, plan, resume=True)
+            rerun = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=missing_store,
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    resume=True,
+                ),
+            )
+
+        self.assertEqual(first.exit_code, 0)
+        self.assertEqual(retained.exit_code, 0)
+        self.assertEqual(rerun.exit_code, 0)
+        self.assertEqual(calls, [task.task_id, task.task_id])
+        self.assertEqual(rerun.outcomes[0].reason, "none")
 
     def test_resume_runs_only_missing_jitter_blocks_and_their_consumer(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
