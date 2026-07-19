@@ -24,6 +24,7 @@ from ..contracts import (
     FormalOperatorScratchRecord,
     FormalResult,
     ObservedResult,
+    PPAMObservedWorkspaceRecord,
     PreparedExposureRecord,
     PPAMPermutationBlockRecord,
     ReferenceDependencyRecord,
@@ -46,6 +47,7 @@ _ROOT_TYPES = {
     "PreparedExposureRecord": PreparedExposureRecord,
     "ArtifactRef": ArtifactRef,
     "BootstrapBlockRecord": BootstrapBlockRecord,
+    "PPAMObservedWorkspaceRecord": PPAMObservedWorkspaceRecord,
     "PPAMPermutationBlockRecord": PPAMPermutationBlockRecord,
     "ObservedResult": ObservedResult,
     "SourceRecord": SourceRecord,
@@ -448,6 +450,43 @@ _FORMAL_OPERATOR_SCRATCH_FIELDS = frozenset(
         "input_identity",
         "operator_schema",
         "technical_status",
+        "generation_path",
+        "arrays",
+        "total_nbytes",
+    }
+)
+_PPAM_OBSERVED_WORKSPACE_FIELDS = frozenset(
+    {
+        "target_id",
+        "model_family",
+        "final_branch",
+        "subject_axis",
+        "feature_axis",
+        "input_identity",
+        "technical_status",
+        "outcome_direction",
+        "n_subjects_min",
+        "fold_n_features_min",
+        "sweet_fraction",
+        "sour_fraction",
+        "weighted_peak_fraction",
+        "sweet_selected_min_count",
+        "sour_selected_min_count",
+        "weighted_peak_min_count",
+        "fitting_probability_threshold",
+        "permutation_resamples",
+        "seed",
+        "activation_probability",
+        "binary_exposure",
+        "outcome",
+        "baseline",
+        "peak_final_score",
+        "feature_ids",
+        "activation_feature_ids",
+        "reference_overlap_mask",
+        "nuisance_inputs",
+        "observed_artifacts",
+        "operator_schema",
         "generation_path",
         "arrays",
         "total_nbytes",
@@ -1220,6 +1259,142 @@ def _decode_formal_operator_scratch(
     )
 
 
+def _decode_ppam_observed_workspace(
+    value: object,
+    location: str,
+) -> PPAMObservedWorkspaceRecord:
+    payload = _object(value, location, _PPAM_OBSERVED_WORKSPACE_FIELDS)
+    return PPAMObservedWorkspaceRecord(
+        target_id=_text(payload["target_id"], f"{location}.target_id"),
+        model_family=_text(
+            payload["model_family"],
+            f"{location}.model_family",
+        ),
+        final_branch=_text(
+            payload["final_branch"],
+            f"{location}.final_branch",
+        ),
+        subject_axis=_decode_axis(
+            payload["subject_axis"],
+            f"{location}.subject_axis",
+        ),
+        feature_axis=_decode_axis(
+            payload["feature_axis"],
+            f"{location}.feature_axis",
+        ),
+        input_identity=_text(
+            payload["input_identity"],
+            f"{location}.input_identity",
+        ),
+        technical_status=_text(
+            payload["technical_status"],
+            f"{location}.technical_status",
+        ),
+        outcome_direction=_text(
+            payload["outcome_direction"],
+            f"{location}.outcome_direction",
+        ),
+        n_subjects_min=_integer(
+            payload["n_subjects_min"],
+            f"{location}.n_subjects_min",
+        ),
+        fold_n_features_min=_integer(
+            payload["fold_n_features_min"],
+            f"{location}.fold_n_features_min",
+        ),
+        sweet_fraction=_number(
+            payload["sweet_fraction"],
+            f"{location}.sweet_fraction",
+        ),
+        sour_fraction=_number(
+            payload["sour_fraction"],
+            f"{location}.sour_fraction",
+        ),
+        weighted_peak_fraction=_number(
+            payload["weighted_peak_fraction"],
+            f"{location}.weighted_peak_fraction",
+        ),
+        sweet_selected_min_count=_integer(
+            payload["sweet_selected_min_count"],
+            f"{location}.sweet_selected_min_count",
+        ),
+        sour_selected_min_count=_integer(
+            payload["sour_selected_min_count"],
+            f"{location}.sour_selected_min_count",
+        ),
+        weighted_peak_min_count=_integer(
+            payload["weighted_peak_min_count"],
+            f"{location}.weighted_peak_min_count",
+        ),
+        fitting_probability_threshold=_number(
+            payload["fitting_probability_threshold"],
+            f"{location}.fitting_probability_threshold",
+        ),
+        permutation_resamples=_integer(
+            payload["permutation_resamples"],
+            f"{location}.permutation_resamples",
+        ),
+        seed=_integer(payload["seed"], f"{location}.seed"),
+        activation_probability=_decode_artifact(
+            payload["activation_probability"],
+            f"{location}.activation_probability",
+        ),
+        binary_exposure=_decode_artifact(
+            payload["binary_exposure"],
+            f"{location}.binary_exposure",
+        ),
+        outcome=_decode_artifact(payload["outcome"], f"{location}.outcome"),
+        baseline=_decode_artifact(
+            payload["baseline"],
+            f"{location}.baseline",
+        ),
+        peak_final_score=_decode_artifact(
+            payload["peak_final_score"],
+            f"{location}.peak_final_score",
+        ),
+        feature_ids=_decode_artifact(
+            payload["feature_ids"],
+            f"{location}.feature_ids",
+        ),
+        activation_feature_ids=_decode_artifact(
+            payload["activation_feature_ids"],
+            f"{location}.activation_feature_ids",
+        ),
+        reference_overlap_mask=_optional(
+            payload["reference_overlap_mask"],
+            f"{location}.reference_overlap_mask",
+            _decode_artifact,
+        ),
+        nuisance_inputs=_tuple_of(
+            payload["nuisance_inputs"],
+            f"{location}.nuisance_inputs",
+            _decode_artifact,
+        ),
+        observed_artifacts=_tuple_of(
+            payload["observed_artifacts"],
+            f"{location}.observed_artifacts",
+            _decode_artifact,
+        ),
+        operator_schema=_optional_text(
+            payload["operator_schema"],
+            f"{location}.operator_schema",
+        ),
+        generation_path=_optional_text(
+            payload["generation_path"],
+            f"{location}.generation_path",
+        ),
+        arrays=_tuple_of(
+            payload["arrays"],
+            f"{location}.arrays",
+            _decode_scratch_array,
+        ),
+        total_nbytes=_integer(
+            payload["total_nbytes"],
+            f"{location}.total_nbytes",
+        ),
+    )
+
+
 def _decode_sensitivity_result(
     value: object,
     location: str,
@@ -1285,6 +1460,7 @@ _ROOT_DECODERS: dict[str, Callable[[object, str], object]] = {
     "FormalResult": _decode_formal_result,
     "ResamplingScheduleRecord": _decode_resampling_schedule,
     "ResamplingBlockRecord": _decode_resampling_block,
+    "PPAMObservedWorkspaceRecord": _decode_ppam_observed_workspace,
     "PPAMPermutationBlockRecord": _decode_ppam_permutation_block,
     "BootstrapBlockRecord": _decode_bootstrap_block,
     "SensitivityResult": _decode_sensitivity_result,

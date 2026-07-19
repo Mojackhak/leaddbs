@@ -4078,6 +4078,45 @@ dual-frequency gate passed 503 tests and 295 subtests outside the restricted
 system-monitoring sandbox. No artifact schema, planner, production, jitter,
 OSS-DBS, or combined extension changed or ran.
 
+Sixteenth Step 9 implementation slice: define the durable observed-workspace
+record before changing the sensitivity DAG. The record binds the exact final
+model, reference or add-on fiber family, subject and final feature axes,
+scientific input identity, activation request parameters, all named immutable
+input artifacts, the observed-output artifact set, technical readiness, and
+one optional run-relative fixed-operator generation. It never contains a null
+block or physical OSS row.
+
+Three terminal observed states are explicit. `permutation_ready` requires the
+complete observed output set and fixed-operator scratch.
+`observed_not_permutation_ready` retains the complete observed outputs and
+scratch but permits no schedule or null block. `nuisance_not_estimable`
+retains the continuous and binary activation inputs plus reason-coded state,
+requires no scratch, and permits no schedule or null block. The record carries
+named activation probability, binary exposure, outcome, baseline, peak final
+score, final feature IDs, activation feature IDs, optional reference-overlap
+mask, and optional nuisance inputs so a later process reconstructs the exact
+typed `ActivationRequest` without calling the physical OSS producer or
+republishing inputs.
+
+The scratch contract uses immutable run-relative NPY generations and explicit
+header descriptors for the nuisance plan and full/fold weight operators. A
+restored record is reusable only when its input identity, final axes, request
+parameters, named artifacts, observed-state document, and every scratch header
+match. Missing or malformed scratch invalidates the observed task and all of
+its descendants; it never falls back to rebuilding operators inside a null
+block. This record-and-codec slice leaves the planner and activation service
+unchanged.
+
+Sixteenth-slice acceptance on 2026-07-19: the closed codec round-trips all
+three terminal modes, a reference permutation-ready workspace, and an adjusted
+add-on observed-only workspace. Artifact closure contains every immutable
+named input and observed output but excludes run-scoped scratch files. Changed
+branch semantics, an incomplete scratch descriptor set, scratch attached to a
+nuisance failure, and malformed persisted scratch all fail closed. The focused
+codec gate passed 12 tests and 28 subtests; the complete dual-frequency gate
+passed 504 tests and 296 subtests outside the restricted system-monitoring
+sandbox. The production planner and sensitivity extensions remain unchanged.
+
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial
 accumulators and the strict ordered aggregate. A 251-replicate fixture for both

@@ -2418,6 +2418,26 @@ focused OSS gate passed 25 tests and 12 subtests; the complete dual-frequency
 gate passed 503 tests and 295 subtests outside the restricted
 system-monitoring sandbox. No sensitivity process was started.
 
+The durable pPAM workspace record has three explicit terminal modes:
+permutation-ready observed state, complete observed state without permutation,
+and nuisance-non-estimable state. It binds all typed fitting inputs and request
+parameters, observed outputs, and an optional run-relative fixed-operator NPY
+generation. Only the first mode may feed a schedule or null block. Null blocks
+receive this restored state directly and may never invoke physical OSS
+materialization, input republishing, or operator reconstruction. Missing
+scratch invalidates the observed task for resume instead of shifting work into
+its descendants.
+
+The durable observed-workspace record and closed codec now pass acceptance for
+all three terminal modes, reference and adjusted add-on branches, exact named
+artifact closure, and run-relative scratch descriptors. Changed branch
+semantics, incomplete scratch, scratch attached to a nuisance failure, and
+malformed persisted scratch fail closed. The focused codec gate passed 12
+tests and 28 subtests; the complete dual-frequency gate passed 504 tests and
+296 subtests outside the restricted system-monitoring sandbox. Runtime scratch
+publication, worker reopen, and sensitivity-planner migration remain the next
+boundary.
+
 ## Documentation Validation
 
 Before implementation begins:

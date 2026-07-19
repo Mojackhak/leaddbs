@@ -25,6 +25,9 @@ from dual_frequency.contracts import (
     FormalResult,
     ObservedResult,
     PreparedExposureRecord,
+    PPAMObservedWorkspaceRecord,
+    PPAM_OPERATOR_SCRATCH_ARRAY_NAMES,
+    PPAM_OPERATOR_SCRATCH_SCHEMA,
     PPAMPermutationBlockRecord,
     RecordError,
     ReferenceDependencyRecord,
@@ -404,6 +407,186 @@ class RecordCodecTest(unittest.TestCase):
             artifacts=(artifact,),
         )
 
+    def _ppam_observed_workspace_record(self) -> PPAMObservedWorkspaceRecord:
+        def array(
+            kind: str,
+            axes: tuple[AxisRef, ...],
+            digest: str,
+            units: str,
+            dtype: str = "float64",
+            *,
+            space: str | None = "synthetic",
+        ) -> ArtifactRef:
+            return dataclasses.replace(
+                self._artifact(
+                    kind,
+                    axes,
+                    digest=digest,
+                    units=units,
+                    dtype=dtype,
+                ),
+                space=space,
+            )
+
+        activation_probability = array(
+            "activation_probability",
+            (self.subjects, self.features),
+            "1",
+            "probability",
+            "float32",
+            space="right_canonical",
+        )
+        binary_exposure = array(
+            "binary_exposure",
+            (self.subjects, self.features),
+            "2",
+            "binary",
+            "float32",
+            space="right_canonical",
+        )
+        feature_ids = array(
+            "oss_final_feature_ids",
+            (self.features,),
+            "3",
+            "fiber_id",
+            "int64",
+            space="right_canonical",
+        )
+        activation_feature_ids = array(
+            "oss_activation_feature_ids",
+            (self.features,),
+            "4",
+            "fiber_id",
+            "int64",
+            space="right_canonical",
+        )
+        observed_artifacts = (
+            array(
+                "oss_fiber_ids",
+                (self.features,),
+                "5",
+                "fiber_id",
+                "int64",
+            ),
+            array(
+                "oss_benefit_oriented_fiber_weights",
+                (self.features,),
+                "6",
+                "coefficient",
+            ),
+            array(
+                "oss_loocv_benefit_oriented_fiber_weights",
+                (self.subjects, self.features),
+                "7",
+                "coefficient",
+            ),
+            array(
+                "oss_full_net_fiber_scores",
+                (self.subjects,),
+                "8",
+                "score",
+            ),
+            array(
+                "oss_loocv_fold_net_fiber_scores",
+                (self.subjects, self.subjects),
+                "9",
+                "score",
+            ),
+            array(
+                "oss_loocv_heldout_net_fiber_scores",
+                (self.subjects,),
+                "a",
+                "score",
+            ),
+            array(
+                "oss_loocv_model_predictions",
+                (self.subjects,),
+                "b",
+                "score",
+            ),
+            array(
+                "oss_loocv_baseline_predictions",
+                (self.subjects,),
+                "c",
+                "score",
+            ),
+            array(
+                "oss_plain_activation_count",
+                (self.subjects,),
+                "d",
+                "count",
+            ),
+            array(
+                "oss_plain_activation_sum",
+                (self.subjects,),
+                "e",
+                "probability_sum",
+            ),
+            array(
+                "oss_plain_activation_top5",
+                (self.subjects,),
+                "f",
+                "probability",
+            ),
+            self._document("oss_fiber_score_support", digest="1"),
+            self._document("oss_plain_activation_model_comparison", digest="2"),
+            self._document("ppam_observed_state", digest="3"),
+        )
+        scratch_arrays = tuple(
+            ScratchArrayRecord(
+                name=name,
+                filename=f"{index:02d}_{name}.npy",
+                dtype="float64",
+                shape=(1,),
+                fortran_order=False,
+                nbytes=8,
+            )
+            for index, name in enumerate(sorted(PPAM_OPERATOR_SCRATCH_ARRAY_NAMES))
+        )
+        return PPAMObservedWorkspaceRecord(
+            target_id="final_reference_fiber_fixture",
+            model_family="reference_fiber",
+            final_branch="reference",
+            subject_axis=self.subjects,
+            feature_axis=self.features,
+            input_identity="c" * 64,
+            technical_status="permutation_ready",
+            outcome_direction="lower",
+            n_subjects_min=12,
+            fold_n_features_min=1,
+            sweet_fraction=0.01,
+            sour_fraction=0.005,
+            weighted_peak_fraction=0.05,
+            sweet_selected_min_count=200,
+            sour_selected_min_count=100,
+            weighted_peak_min_count=20,
+            fitting_probability_threshold=0.5,
+            permutation_resamples=10_000,
+            seed=42,
+            activation_probability=activation_probability,
+            binary_exposure=binary_exposure,
+            outcome=self.outcome,
+            baseline=self.baseline,
+            peak_final_score=array(
+                "oss_peak_final_score",
+                (self.subjects,),
+                "4",
+                "score",
+            ),
+            feature_ids=feature_ids,
+            activation_feature_ids=activation_feature_ids,
+            reference_overlap_mask=None,
+            nuisance_inputs=(),
+            observed_artifacts=observed_artifacts,
+            operator_schema=PPAM_OPERATOR_SCRATCH_SCHEMA,
+            generation_path=(
+                "work/task_ppam_fixture/attempt-0000000000000001/"
+                "ppam-generation-0000000000000002"
+            ),
+            arrays=scratch_arrays,
+            total_nbytes=sum(item.nbytes for item in scratch_arrays),
+        )
+
     def test_operator_scratch_record_is_path_safe_and_has_no_artifact_closure(self) -> None:
         record = self._operator_scratch_record()
         self.assertEqual(self._round_trip(record), record)
@@ -430,6 +613,85 @@ class RecordCodecTest(unittest.TestCase):
             dataclasses.replace(
                 record.arrays[0],
                 filename="../score_operator.npy",
+            )
+
+    def test_ppam_observed_workspace_round_trip_and_fail_closed_contract(self) -> None:
+        record = self._ppam_observed_workspace_record()
+        self.assertEqual(self._round_trip(record), record)
+        self.assertEqual(
+            record_artifacts(record),
+            (
+                record.activation_probability,
+                record.binary_exposure,
+                record.outcome,
+                record.baseline,
+                record.peak_final_score,
+                record.feature_ids,
+                record.activation_feature_ids,
+                *record.observed_artifacts,
+            ),
+        )
+        with self.assertRaisesRegex(RecordError, "final branch"):
+            dataclasses.replace(record, final_branch="no_delta_reference")
+        with self.assertRaisesRegex(RecordError, "scratch array set"):
+            dataclasses.replace(record, arrays=record.arrays[:-1])
+        with self.assertRaisesRegex(RecordError, "cannot carry scratch"):
+            dataclasses.replace(
+                record,
+                technical_status="nuisance_not_estimable",
+                observed_artifacts=(self._document("ppam_observed_state", digest="4"),),
+            )
+
+        nuisance_failed = dataclasses.replace(
+            record,
+            technical_status="nuisance_not_estimable",
+            observed_artifacts=(self._document("ppam_observed_state", digest="4"),),
+            operator_schema=None,
+            generation_path=None,
+            arrays=(),
+            total_nbytes=0,
+        )
+        self.assertEqual(self._round_trip(nuisance_failed), nuisance_failed)
+
+        overlap = dataclasses.replace(
+            self._artifact(
+                "reference_overlap_mask",
+                (self.subjects, self.features),
+                digest="5",
+                units="binary",
+                dtype="bool",
+            ),
+            space="right_canonical",
+        )
+        adjusted = dataclasses.replace(
+            record,
+            model_family="addon_fiber",
+            final_branch="delta_reference_adjusted",
+            technical_status="observed_not_permutation_ready",
+            reference_overlap_mask=overlap,
+            nuisance_inputs=(
+                self._artifact(
+                    "oss_full_reference_score",
+                    (self.subjects,),
+                    digest="6",
+                ),
+                self._artifact(
+                    "oss_fold_reference_scores",
+                    (self.subjects, self.subjects),
+                    digest="7",
+                ),
+            ),
+        )
+        self.assertEqual(self._round_trip(adjusted), adjusted)
+
+        payload = encode_record(record)
+        payload["arrays"] = payload["arrays"][:-1]
+        with self.assertRaisesRegex(RecordCodecError, "scratch array set"):
+            decode_record(
+                "PPAMObservedWorkspaceRecord",
+                payload,
+                record_id=record.identifier,
+                artifacts=record_artifacts(record),
             )
 
     def test_resampling_records_bind_canonical_schedule_and_block_axes(self) -> None:
@@ -760,6 +1022,7 @@ class RecordCodecTest(unittest.TestCase):
         schedule, block = self._resampling_records()
         bootstrap_block = self._bootstrap_block_record(schedule)
         ppam_block = self._ppam_permutation_block_record(schedule)
+        ppam_observed_workspace = self._ppam_observed_workspace_record()
         operator_scratch = self._operator_scratch_record()
         records = (
             endpoint_input,
@@ -783,6 +1046,7 @@ class RecordCodecTest(unittest.TestCase):
             schedule,
             block,
             bootstrap_block,
+            ppam_observed_workspace,
             ppam_block,
             operator_scratch,
             sensitivity,
@@ -806,6 +1070,7 @@ class RecordCodecTest(unittest.TestCase):
                 "ResamplingScheduleRecord",
                 "ResamplingBlockRecord",
                 "BootstrapBlockRecord",
+                "PPAMObservedWorkspaceRecord",
                 "PPAMPermutationBlockRecord",
                 "FormalOperatorScratchRecord",
                 "SensitivityResult",

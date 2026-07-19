@@ -71,6 +71,24 @@ FINAL_SELECTION_STATUSES = frozenset(
 )
 _REASON_CODE = re.compile(r"^[a-z][a-z0-9_]*$")
 RESAMPLING_REPLICATE_BLOCK_SIZE = 250
+PPAM_OPERATOR_SCRATCH_SCHEMA = "dual_frequency_ppam_operator_scratch_v1"
+PPAM_OPERATOR_SCRATCH_ARRAY_NAMES = frozenset(
+    {
+        "nuisance_full_covariates",
+        "nuisance_fold_covariates",
+        "full_train",
+        "full_nuisance_train",
+        "full_ranked_nuisance_train",
+        "full_estimable",
+        "full_standardized_exposure_residual",
+        "fold_train",
+        "fold_nuisance_train",
+        "fold_nuisance_test",
+        "fold_ranked_nuisance_train",
+        "fold_estimable",
+        "fold_standardized_exposure_residual",
+    }
+)
 
 
 class RecordError(ValueError):
@@ -737,6 +755,297 @@ def _artifact_with_axes(
     if value.axis_refs != expected_axes:
         raise RecordError(f"{field} must use the exact subject and feature axes")
     return value
+
+
+def _nonarray_artifact(value: ArtifactRef, field: str) -> ArtifactRef:
+    if not isinstance(value, ArtifactRef):
+        raise RecordError(f"{field} must be an ArtifactRef")
+    if (
+        value.dtype is not None
+        or value.shape is not None
+        or value.axis_refs
+        or value.axis_hashes
+        or value.units is not None
+        or value.space is not None
+    ):
+        raise RecordError(f"{field} must be a non-array artifact")
+    return value
+
+
+_PPAM_OBSERVED_ARRAY_AXES = {
+    "oss_fiber_ids": "feature",
+    "oss_benefit_oriented_fiber_weights": "feature",
+    "oss_loocv_benefit_oriented_fiber_weights": "subject_feature",
+    "oss_full_net_fiber_scores": "subject",
+    "oss_loocv_fold_net_fiber_scores": "subject_subject",
+    "oss_loocv_heldout_net_fiber_scores": "subject",
+    "oss_loocv_model_predictions": "subject",
+    "oss_loocv_baseline_predictions": "subject",
+    "oss_plain_activation_count": "subject",
+    "oss_plain_activation_sum": "subject",
+    "oss_plain_activation_top5": "subject",
+}
+_PPAM_OBSERVED_DOCUMENT_KINDS = frozenset(
+    {
+        "oss_fiber_score_support",
+        "oss_plain_activation_model_comparison",
+        "ppam_observed_state",
+    }
+)
+
+
+@dataclass(frozen=True)
+class PPAMObservedWorkspaceRecord:
+    """Durable observed pPAM state and run-scoped fixed-operator scratch."""
+
+    target_id: str
+    model_family: str
+    final_branch: str
+    subject_axis: AxisRef
+    feature_axis: AxisRef
+    input_identity: str
+    technical_status: str
+    outcome_direction: str
+    n_subjects_min: int
+    fold_n_features_min: int
+    sweet_fraction: float
+    sour_fraction: float
+    weighted_peak_fraction: float
+    sweet_selected_min_count: int
+    sour_selected_min_count: int
+    weighted_peak_min_count: int
+    fitting_probability_threshold: float
+    permutation_resamples: int
+    seed: int
+    activation_probability: ArtifactRef
+    binary_exposure: ArtifactRef
+    outcome: ArtifactRef
+    baseline: ArtifactRef
+    peak_final_score: ArtifactRef
+    feature_ids: ArtifactRef
+    activation_feature_ids: ArtifactRef
+    reference_overlap_mask: ArtifactRef | None
+    nuisance_inputs: tuple[ArtifactRef, ...]
+    observed_artifacts: tuple[ArtifactRef, ...]
+    operator_schema: str | None
+    generation_path: str | None
+    arrays: tuple[ScratchArrayRecord, ...]
+    total_nbytes: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "target_id", _token(self.target_id, "target_id"))
+        family = _token(self.model_family, "model_family").lower()
+        if family not in {"reference_fiber", "addon_fiber"}:
+            raise RecordError("pPAM observed model family is unsupported")
+        object.__setattr__(self, "model_family", family)
+        branch = _token(self.final_branch, "final_branch").lower()
+        if (
+            (family == "reference_fiber" and branch != "reference")
+            or (
+                family == "addon_fiber"
+                and branch not in {"no_delta_reference", "delta_reference_adjusted"}
+            )
+        ):
+            raise RecordError("pPAM observed final branch is incompatible")
+        object.__setattr__(self, "final_branch", branch)
+        if not isinstance(self.subject_axis, AxisRef) or not isinstance(
+            self.feature_axis,
+            AxisRef,
+        ):
+            raise RecordError("pPAM observed axes must be AxisRef values")
+        object.__setattr__(
+            self,
+            "input_identity",
+            _sha256(self.input_identity, "input_identity"),
+        )
+        status = _token(self.technical_status, "technical_status").lower()
+        if status not in {
+            "permutation_ready",
+            "observed_not_permutation_ready",
+            "nuisance_not_estimable",
+        }:
+            raise RecordError("pPAM observed technical status is unsupported")
+        object.__setattr__(self, "technical_status", status)
+        direction = _token(self.outcome_direction, "outcome_direction").lower()
+        if direction not in {"lower", "higher"}:
+            raise RecordError("pPAM observed outcome direction is unsupported")
+        object.__setattr__(self, "outcome_direction", direction)
+        if type(self.n_subjects_min) is not int or self.n_subjects_min < 1:
+            raise RecordError("pPAM observed subject minimum must be positive")
+        if type(self.fold_n_features_min) is not int or self.fold_n_features_min < 1:
+            raise RecordError("pPAM observed fold feature minimum must be positive")
+        for field in ("sweet_fraction", "sour_fraction", "weighted_peak_fraction"):
+            value = float(getattr(self, field))
+            if not math.isfinite(value) or not 0.0 < value <= 1.0:
+                raise RecordError(f"{field} must be finite and within its fraction range")
+            object.__setattr__(self, field, value)
+        for field in (
+            "sweet_selected_min_count",
+            "sour_selected_min_count",
+            "weighted_peak_min_count",
+        ):
+            value = getattr(self, field)
+            if type(value) is not int or value < 1:
+                raise RecordError(f"{field} must be a positive integer")
+        threshold = float(self.fitting_probability_threshold)
+        if threshold != 0.5:
+            raise RecordError("pPAM fitting probability threshold is unsupported")
+        object.__setattr__(self, "fitting_probability_threshold", threshold)
+        if type(self.permutation_resamples) is not int or self.permutation_resamples < 1:
+            raise RecordError("pPAM permutation count must be positive")
+        if type(self.seed) is not int or self.seed < 0:
+            raise RecordError("pPAM seed must be a nonnegative integer")
+
+        subject_feature = (self.subject_axis, self.feature_axis)
+        probability = _artifact_with_axes(
+            self.activation_probability,
+            "activation_probability",
+            subject_feature,
+        )
+        binary = _artifact_with_axes(
+            self.binary_exposure,
+            "binary_exposure",
+            subject_feature,
+        )
+        if (
+            np.dtype(probability.dtype) != np.dtype(np.float32)
+            or probability.units != "probability"
+            or probability.space != "right_canonical"
+            or np.dtype(binary.dtype) != np.dtype(np.float32)
+            or binary.units != "binary"
+            or binary.space != "right_canonical"
+        ):
+            raise RecordError("pPAM activation artifacts have invalid semantics")
+        for field in ("outcome", "baseline", "peak_final_score"):
+            _artifact_with_axes(
+                getattr(self, field),
+                field,
+                (self.subject_axis,),
+            )
+        for field in ("feature_ids", "activation_feature_ids"):
+            artifact = _artifact_with_axes(
+                getattr(self, field),
+                field,
+                (self.feature_axis,),
+            )
+            if (
+                np.dtype(artifact.dtype) != np.dtype(np.int64)
+                or artifact.units != "fiber_id"
+                or artifact.space != "right_canonical"
+            ):
+                raise RecordError(f"{field} has invalid fiber-ID semantics")
+        overlap = self.reference_overlap_mask
+        if family == "reference_fiber":
+            if overlap is not None:
+                raise RecordError("reference pPAM observed state cannot carry overlap")
+        else:
+            if overlap is None:
+                raise RecordError("add-on pPAM observed state requires overlap")
+            overlap = _artifact_with_axes(
+                overlap,
+                "reference_overlap_mask",
+                subject_feature,
+            )
+            if (
+                np.dtype(overlap.dtype) != np.dtype(bool)
+                or overlap.units != "binary"
+                or overlap.space != "right_canonical"
+            ):
+                raise RecordError("pPAM observed overlap semantics are invalid")
+        nuisance = tuple(self.nuisance_inputs)
+        if branch == "delta_reference_adjusted":
+            if len(nuisance) != 2:
+                raise RecordError("adjusted pPAM observed state requires two nuisance inputs")
+            _artifact_with_axes(
+                nuisance[0],
+                "nuisance_inputs[0]",
+                (self.subject_axis,),
+            )
+            _artifact_with_axes(
+                nuisance[1],
+                "nuisance_inputs[1]",
+                (self.subject_axis, self.subject_axis),
+            )
+        elif nuisance:
+            raise RecordError("unadjusted pPAM observed state cannot carry nuisance inputs")
+        object.__setattr__(self, "nuisance_inputs", nuisance)
+
+        observed = tuple(self.observed_artifacts)
+        if not all(isinstance(item, ArtifactRef) for item in observed):
+            raise RecordError("pPAM observed artifacts are invalid")
+        by_kind = {item.kind: item for item in observed}
+        if len(by_kind) != len(observed):
+            raise RecordError("pPAM observed artifact kinds are duplicated")
+        expected_kinds = (
+            {"ppam_observed_state"}
+            if status == "nuisance_not_estimable"
+            else set(_PPAM_OBSERVED_ARRAY_AXES) | set(_PPAM_OBSERVED_DOCUMENT_KINDS)
+        )
+        if set(by_kind) != expected_kinds:
+            raise RecordError("pPAM observed artifact set is incomplete")
+        if status != "nuisance_not_estimable":
+            axes = {
+                "feature": (self.feature_axis,),
+                "subject_feature": subject_feature,
+                "subject": (self.subject_axis,),
+                "subject_subject": (self.subject_axis, self.subject_axis),
+            }
+            for kind, axis_key in _PPAM_OBSERVED_ARRAY_AXES.items():
+                _artifact_with_axes(by_kind[kind], kind, axes[axis_key])
+            for kind in _PPAM_OBSERVED_DOCUMENT_KINDS:
+                _nonarray_artifact(by_kind[kind], kind)
+        else:
+            _nonarray_artifact(by_kind["ppam_observed_state"], "ppam_observed_state")
+        object.__setattr__(self, "observed_artifacts", observed)
+
+        arrays = tuple(self.arrays)
+        if status == "nuisance_not_estimable":
+            if (
+                self.operator_schema is not None
+                or self.generation_path is not None
+                or arrays
+                or self.total_nbytes != 0
+            ):
+                raise RecordError("nuisance-failed pPAM observed state cannot carry scratch")
+        else:
+            if self.operator_schema != PPAM_OPERATOR_SCRATCH_SCHEMA:
+                raise RecordError("pPAM observed operator schema is unsupported")
+            generation = _token(self.generation_path or "", "generation_path")
+            path = PurePosixPath(generation)
+            historical_layout = (
+                len(path.parts) == 3
+                and path.parts[2].startswith("ppam-generation-")
+            )
+            attempt_layout = (
+                len(path.parts) == 4
+                and path.parts[2].startswith("attempt-")
+                and path.parts[3].startswith("ppam-generation-")
+            )
+            if (
+                path.is_absolute()
+                or path.parts[0] != "work"
+                or not path.parts[1].startswith("task_")
+                or not (historical_layout or attempt_layout)
+                or any(part in {".", ".."} for part in path.parts)
+            ):
+                raise RecordError("pPAM observed generation path is unsafe")
+            if not arrays or not all(
+                isinstance(item, ScratchArrayRecord) for item in arrays
+            ):
+                raise RecordError("pPAM observed scratch arrays are invalid")
+            if {item.name for item in arrays} != PPAM_OPERATOR_SCRATCH_ARRAY_NAMES:
+                raise RecordError("pPAM observed scratch array set is incomplete")
+            if len({item.filename for item in arrays}) != len(arrays):
+                raise RecordError("pPAM observed scratch filenames are duplicated")
+            expected_nbytes = sum(item.nbytes for item in arrays)
+            if self.total_nbytes != expected_nbytes:
+                raise RecordError("pPAM observed scratch byte count is inconsistent")
+            object.__setattr__(self, "generation_path", path.as_posix())
+        object.__setattr__(self, "arrays", arrays)
+
+    @property
+    def identifier(self) -> str:
+        return f"ppam_observed_workspace_{canonical_hash(asdict(self), length=20)}"
 
 
 @dataclass(frozen=True, order=True)
