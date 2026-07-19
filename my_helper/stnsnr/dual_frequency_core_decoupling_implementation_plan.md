@@ -3909,6 +3909,19 @@ reverse worker completion order, match the retained serial computation, and
 reject incomplete coverage. Durable bootstrap records, planner migration, and
 pPAM block execution remain outside this numerical slice.
 
+Tenth-slice acceptance on 2026-07-19: the pPAM fit now creates one complete
+historical schedule, executes schedule-bound null blocks against the fixed
+in-task operators and scoring workspace, and reuses the shared strict ordered
+aggregator for the plus-one result. A 251-replicate fixture produces the
+250-replicate block and one-replicate tail, matches the retained
+single-interval null exactly, accepts reverse completion order, and rejects
+incomplete coverage or a changed schedule digest. Existing activation status,
+publication, strict threshold, overlap, and authorization tests remain green.
+The OSS/pPAM module passes 23 tests; the complete matrix passes 485
+dual-frequency tests, eight separately invoked goal guards, and 14
+visualization tests. The sensitivity DAG and durable artifact schemas remain
+unchanged, and no production OSS process was invoked.
+
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial
 accumulators and the strict ordered aggregate. A 251-replicate fixture for both
@@ -3921,6 +3934,24 @@ formal module passes 44 tests; the complete matrix passes 484 dual-frequency
 tests, eight separately invoked goal guards, and 14 visualization tests. The
 production DAG and formal artifact schemas remain unchanged, and no production
 or sensitivity run was started.
+
+Tenth Step 9 implementation slice: decompose only pPAM permutation numerics.
+The observed pPAM fit builds and retains its complete historical output, while
+one fixed permutation workspace owns the immutable binary exposure, nuisance
+plan, fold operators, scoring workspace, and observed LOOCV metrics. The parent
+creates the complete historical permutation schedule once. Each numerical
+block consumes only its schedule interval, refits every permuted outcome with
+lightweight score metadata disabled, and returns only block-local LOOCV
+Spearman values bound to the full schedule digest.
+
+The ordered aggregate uses the shared strict permutation-block validator and
+plus-one two-sided calculation. A 251-replicate fixture must match a retained
+single-interval calculation exactly, accept reverse completion order, and
+reject incomplete or changed-digest blocks. Activation admissibility,
+`p(A) > 0.5`, final-axis locking, reference-overlap masking, status,
+publication, and expensive OSS authorization remain unchanged. Durable pPAM
+records, shared operator scratch, and sensitivity-planner migration remain
+outside this numerical slice.
 
 - [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 

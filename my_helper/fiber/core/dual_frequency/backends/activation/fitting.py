@@ -28,7 +28,14 @@ from ..nuisance import (
     build_addon_nuisance_plan,
 )
 from ..protocols import ArtifactPublisher
-from ..formal.common import formal_resampling_schedule
+from ..formal.common import (
+    PermutationBlockComputation,
+    ReplicateBlock,
+    ResamplingSchedule,
+    combine_permutation_blocks,
+    formal_resampling_schedule,
+    validate_resampling_schedule,
+)
 from ..statistics import (
     average_rank,
     benefit_oriented_weights,
@@ -393,6 +400,8 @@ def _freedman_lane_outcomes(
     nuisance: np.ndarray,
     count: int,
     seed: int,
+    *,
+    schedule: np.ndarray | None = None,
 ) -> np.ndarray:
     design = np.column_stack([np.ones(outcome.size), nuisance])
     if np.linalg.matrix_rank(design) != design.shape[1]:
@@ -400,13 +409,119 @@ def _freedman_lane_outcomes(
     beta, *_ = np.linalg.lstsq(design, outcome, rcond=None)
     fitted = design @ beta
     residuals = outcome - fitted
-    schedule = formal_resampling_schedule(
-        "permutation",
-        outcome.size,
-        count,
-        seed,
-    ).indices
-    return fitted[None, :] + residuals[schedule]
+    indices = (
+        formal_resampling_schedule(
+            "permutation",
+            outcome.size,
+            count,
+            seed,
+        ).indices
+        if schedule is None
+        else np.asarray(schedule, dtype=np.int32)
+    )
+    if indices.shape != (count, outcome.size):
+        raise PPAMFittingError(
+            "Freedman-Lane schedule does not match count and subject axis"
+        )
+    expected = np.arange(outcome.size, dtype=np.int32)
+    if np.any(np.sort(indices, axis=1) != expected):
+        raise PPAMFittingError("Freedman-Lane schedule rows are invalid")
+    return fitted[None, :] + residuals[indices]
+
+
+def _ppam_permutation_block(
+    request: ActivationRequest,
+    binary: np.ndarray,
+    outcome: np.ndarray,
+    plan: NuisancePlan,
+    fold_operators: tuple[_WeightOperator, ...],
+    score_workspace: PrevalidatedFiberScoreWorkspace,
+    schedule: ResamplingSchedule,
+    block: ReplicateBlock,
+) -> PermutationBlockComputation:
+    """Compute one schedule-bound pPAM null interval."""
+
+    permuted_outcomes = _freedman_lane_outcomes(
+        outcome,
+        plan.full_covariates,
+        block.count,
+        schedule.descriptor.seed,
+        schedule=schedule.block_view(block),
+    )
+    null = np.full(block.count, np.nan, dtype=np.float64)
+    for local_index, permuted in enumerate(permuted_outcomes):
+        permuted_fit = _loocv(
+            permuted,
+            binary,
+            plan,
+            fold_operators,
+            request,
+            score_workspace,
+            retain_score_metadata=False,
+        )
+        null[local_index] = permuted_fit.metrics["loocv_spearman_rho"]
+    return PermutationBlockComputation(
+        block=block,
+        schedule_sha256=schedule.descriptor.schedule_sha256,
+        null_statistics=null,
+    )
+
+
+def compute_ppam_permutation_block(
+    request: ActivationRequest,
+    binary_exposure: np.ndarray,
+    outcome: np.ndarray,
+    baseline: np.ndarray,
+    fiber_ids: np.ndarray,
+    nuisance_inputs: tuple[np.ndarray, ...],
+    schedule: ResamplingSchedule,
+    block: ReplicateBlock,
+) -> PermutationBlockComputation:
+    """Build fixed pPAM operators and compute one independent null interval."""
+
+    if not isinstance(request, ActivationRequest):
+        raise PPAMFittingError("request must be an ActivationRequest")
+    binary = np.asarray(binary_exposure, dtype=np.float32)
+    expected_shape = (request.subject_axis.count, request.feature_axis.count)
+    if (
+        binary.shape != expected_shape
+        or not np.all(np.isfinite(binary))
+        or np.any(~np.isin(binary, (0.0, 1.0)))
+    ):
+        raise PPAMFittingError("binary exposure is invalid")
+    y = _finite_vector(outcome, "outcome", request.subject_axis.count)
+    baseline_values = _finite_vector(
+        baseline,
+        "baseline",
+        request.subject_axis.count,
+    )
+    ids = activation_universe(fiber_ids)
+    if ids.size != request.feature_axis.count:
+        raise PPAMFittingError("fiber IDs do not match activation feature axis")
+    validate_resampling_schedule(
+        schedule,
+        schedule_kind="permutation",
+        subject_count=request.subject_axis.count,
+        replicate_count=request.permutation_resamples,
+        seed=request.seed,
+    )
+    if block.total != request.permutation_resamples:
+        raise PPAMFittingError(
+            "pPAM permutation block does not match request resamples"
+        )
+    plan = _build_nuisance_plan(request, baseline_values, nuisance_inputs)
+    score_workspace = PrevalidatedFiberScoreWorkspace(binary, ids)
+    _full_operator, fold_operators = _weight_operators(binary, plan)
+    return _ppam_permutation_block(
+        request,
+        binary,
+        y,
+        plan,
+        fold_operators,
+        score_workspace,
+        schedule,
+        block,
+    )
 
 
 def _plain_activation(binary_exposure: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -607,31 +722,40 @@ def fit_ppam_activation(
     }
     can_permute = not failures
     if can_permute:
-        permuted_outcomes = _freedman_lane_outcomes(
-            y,
-            plan.full_covariates,
+        schedule = formal_resampling_schedule(
+            "permutation",
+            y.size,
             request.permutation_resamples,
             request.seed,
         )
-        for index, permuted in enumerate(permuted_outcomes):
-            permuted_fit = _loocv(
-                permuted,
+        blocks = tuple(
+            _ppam_permutation_block(
+                request,
                 binary,
+                y,
                 plan,
                 fold_operators,
-                request,
                 score_workspace,
-                retain_score_metadata=False,
+                schedule,
+                block,
             )
-            null[index] = permuted_fit.metrics["loocv_spearman_rho"]
+            for block in schedule.blocks()
+        )
+        combined = combine_permutation_blocks(
+            observed.metrics,
+            schedule,
+            blocks,
+        )
+        null = combined.null_statistics
         if not np.all(np.isfinite(null)):
             failures.append("permutation_incomplete")
 
     observed_statistic = observed.metrics["loocv_spearman_rho"]
     if np.isfinite(observed_statistic) and np.all(np.isfinite(null)):
         permutation_p = float(
-            (1 + np.sum(np.abs(null) >= abs(observed_statistic)))
-            / (null.size + 1)
+            combined.p_plus_one_two_sided
+            if can_permute
+            else math.nan
         )
     else:
         permutation_p = math.nan
@@ -1126,5 +1250,6 @@ __all__ = [
     "PPAMActivationBackend",
     "PPAMFitResult",
     "PPAMFittingError",
+    "compute_ppam_permutation_block",
     "fit_ppam_activation",
 ]

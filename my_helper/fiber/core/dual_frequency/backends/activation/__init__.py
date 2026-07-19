@@ -21,6 +21,7 @@ from .fitting import (
     PPAMActivationBackend,
     PPAMFitResult,
     PPAMFittingError,
+    compute_ppam_permutation_block,
     fit_ppam_activation,
 )
 from .ossdbs import (
@@ -47,6 +48,7 @@ __all__ = [
     "PPAMActivationBackend",
     "PPAMFitResult",
     "PPAMFittingError",
+    "compute_ppam_permutation_block",
     "MissingAcceptanceFixture",
     "OSSBackendError",
     "OSSRowBatchArtifact",

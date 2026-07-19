@@ -26,7 +26,14 @@ from dual_frequency.backends.activation import (
     PPAMActivationBackend,
     binary_activation,
     build_oss_row_cache_key,
+    compute_ppam_permutation_block,
     subset_probability_axis,
+)
+from dual_frequency.backends.formal.common import (
+    FormalBackendError,
+    ReplicateBlock,
+    combine_permutation_blocks,
+    formal_resampling_schedule,
 )
 from dual_frequency.backends.statistics import (
     benefit_oriented_weights,
@@ -580,6 +587,74 @@ class PPAMActivationBackendTest(unittest.TestCase):
             "lower",
         ).astype(np.float32)
         np.testing.assert_allclose(full_weights, expected_weights, rtol=1e-6, atol=1e-6)
+
+    def test_permutation_blocks_match_single_interval_in_reverse_order(self) -> None:
+        request = dataclasses.replace(
+            self._request(),
+            permutation_resamples=251,
+            seed=67,
+        )
+        binary = binary_activation(self.probabilities)
+        schedule = formal_resampling_schedule(
+            "permutation",
+            self.n_subjects,
+            request.permutation_resamples,
+            request.seed,
+        )
+
+        def compute(block):
+            return compute_ppam_permutation_block(
+                request,
+                binary,
+                self.outcome,
+                self.baseline,
+                self.fiber_ids,
+                (),
+                schedule,
+                block,
+            )
+
+        serial = compute(
+            ReplicateBlock(
+                0,
+                0,
+                request.permutation_resamples,
+                request.permutation_resamples,
+            )
+        )
+        canonical_blocks = tuple(compute(block) for block in schedule.blocks())
+        self.assertEqual(
+            tuple(block.block.count for block in canonical_blocks),
+            (250, 1),
+        )
+        combined = combine_permutation_blocks(
+            {"loocv_spearman_rho": 0.25},
+            schedule,
+            tuple(reversed(canonical_blocks)),
+        )
+        np.testing.assert_array_equal(combined.null_statistics, serial.null_statistics)
+        with self.assertRaisesRegex(
+            FormalBackendError,
+            "full schedule",
+        ):
+            combine_permutation_blocks(
+                {"loocv_spearman_rho": 0.25},
+                schedule,
+                canonical_blocks[:-1],
+            )
+        changed_digest = dataclasses.replace(
+            canonical_blocks[0],
+            schedule_sha256="0" * 64,
+        )
+        with self.assertRaisesRegex(
+            FormalBackendError,
+            "parent schedule",
+        ):
+            combine_permutation_blocks(
+                {"loocv_spearman_rho": 0.25},
+                schedule,
+                (changed_digest, *canonical_blocks[1:]),
+            )
 
     def test_heldout_outcome_does_not_change_its_fold_fit(self) -> None:
         request = self._request()

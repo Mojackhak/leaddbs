@@ -2315,6 +2315,22 @@ complete validation matrix passes 484 dual-frequency tests, eight separately
 invoked goal guards, and 14 visualization tests. Durable publication, planner
 migration, and pPAM sharding remain open.
 
+The following numerical slice routes the pPAM permutation null through the
+same complete historical schedule and strict ordered block aggregator. One
+fixed in-task workspace reuses binary exposure, nuisance operators, fold
+operators, and scoring scratch; each block retains only its null Spearman
+interval. A 251-replicate reverse-order fixture must match the retained
+single-interval calculation exactly before durable pPAM records, operator
+scratch, or sensitivity-planner tasks are introduced.
+
+pPAM numerical acceptance on 2026-07-19 confirms exact 251-replicate null
+parity between one interval and the 250-replicate plus one-replicate blocks.
+Reverse completion order is deterministic; incomplete and changed-digest
+blocks fail closed. The OSS/pPAM module passes 23 tests, and the complete
+matrix passes 485 dual-frequency tests, eight separately invoked goal guards,
+and 14 visualization tests. No durable pPAM record, planner mutation, or real
+OSS execution was introduced.
+
 ## Documentation Validation
 
 Before implementation begins:
