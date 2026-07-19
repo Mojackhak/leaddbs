@@ -4782,6 +4782,17 @@ tau support rule. The reconstructed support rows, support status, score arrays,
 overlap, rebuilt observed request, and final jitter metrics must match the
 retained full-parent provider before the adjusted endpoint switches paths.
 
+The completed parent dependency records fix the production support-threshold
+vector without introducing a configured default. The six adjusted add-on voxel
+endpoints use their matched-reference selections at tau 200 and Coverage 5:
+ESS, MDS-UPDRS I, MDS-UPDRS IV, ODQ, SCOPA-AUT, and SDQ. The four adjusted
+add-on fiber endpoints use their matched-reference selections at tau 400 and
+Coverage 5: FSS, KPPS, ODQ, and PDQ-39. The v2 descriptor must derive these
+values from each `ReferenceDependencyRecord`; it must not infer them from model
+family or the configured main-analysis preference. A future endpoint with a
+different realized reference choice therefore creates the corresponding
+ordered threshold entry instead of reusing either observed production value.
+
 The new cache identity binds the complete parent axis, ordered union keys,
 ordered matched-reference tau vector, physical source identities, replicate
 schedule, support-count algorithm version, and producer version. The block
