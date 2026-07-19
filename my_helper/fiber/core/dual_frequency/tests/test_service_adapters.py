@@ -552,7 +552,11 @@ class ServiceAdapterTest(unittest.TestCase):
         plan = compile_execution_plan(configuration, catalog)
         planned = {task.service_id for task in plan.tasks}
         declared = {service_id for service_id, _handler in PRODUCTION_SERVICE_HANDLERS}
-        extension_only = {"prepare_jitter_exposure_block"}
+        extension_only = {
+            "prepare_formal_operator_workspace",
+            "prepare_formal_permutation_schedule",
+            "prepare_jitter_exposure_block",
+        }
         registry = build_default_registry()
         application_registry = build_default_service_registry()
         self.assertEqual(declared, planned | extension_only)

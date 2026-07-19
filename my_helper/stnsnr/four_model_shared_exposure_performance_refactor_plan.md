@@ -2125,6 +2125,29 @@ removed generation reruns only its workspace task. The focused gate passes 76
 tests and 44 subtests and the full regression passes 502 tests and 249
 subtests. Production workspace services and the block DAG remain open.
 
+The next slice registers separate schedule and operator-workspace predecessor
+services without yet emitting them from the production planner. The first
+publishes one exact historical schedule artifact and typed record; the second
+materializes the formal request once, builds fold operators once, and returns
+one input-bound run-relative scratch record. Failures clean only the new
+descriptor generation. Tests must prove both typed service boundaries before
+the existing serial `formal_permutation` task is replaced. The focused matrix
+must cover reference voxel, reference fiber, adjusted add-on voxel, and
+adjusted add-on fiber so the DeltaReference full/fold inputs are exercised.
+
+The two predecessor services passed acceptance on 2026-07-19. They are present
+in the production registry but remain absent from the planner until block and
+aggregate consumers are complete. Reference voxel, reference fiber, adjusted
+add-on voxel, and adjusted add-on fiber pass through the typed provider
+boundary, restore the published historical schedule byte for byte, reopen all
+operator arrays as descriptor-validated read-only memmaps, and prove that
+neither service calls a formal fit or returns a `FormalResult`. Changed
+schedule identity fails validation, and a synthetic post-publication record
+failure cleans only the newly created operator generation. The focused gate
+passes 89 tests and 48 subtests; the complete
+dual-frequency and visualization regression passes 504 tests and 253
+subtests. The production DAG and its task count are unchanged.
+
 ### Default final in-sample inference
 
 Every realized final model in formal scope has a required in-sample inference

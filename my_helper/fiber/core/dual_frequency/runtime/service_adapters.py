@@ -24,6 +24,7 @@ from ..backends.formal import (
     FinalInSampleBackend,
     NormativeFiberFormalBackend,
 )
+from ..backends.formal.operator_scratch import cleanup_operator_scratch
 from ..backends.interaction.branch_resolver import (
     ADJUSTED_BRANCH,
     NO_DELTA_BRANCH,
@@ -63,6 +64,7 @@ from ..contracts import (
     FinalModelKey,
     FinalModelRecord,
     FinalSelectionRecord,
+    FormalRequest,
     FormalResult,
     NormativeFiberScoreSettings,
     ObservedRequest,
@@ -82,6 +84,8 @@ from .bootstrap_provider import (
     StudyBootstrapNuisanceProvider,
     StudyBootstrapNuisanceProviderError,
 )
+from .formal_operator_workspace import formal_operator_scratch_record
+from .formal_resampling import publish_formal_resampling_schedule
 from .input_provider import RuntimeInputProvider, StudyRuntimeInputProvider
 from .jitter_blocks import (
     CachedJitterReplicateProvider,
@@ -846,6 +850,70 @@ def _formal_request(
     )
 
 
+def _formal_permutation_request(request: TaskExecutionRequest) -> FormalRequest:
+    formal_request = _formal_request(request, resampling_kind="permutation")
+    if formal_request.final_model.endpoint.model_family != request.task.model_family:
+        raise ServiceAdapterError(
+            "formal predecessor service model family does not match final"
+        )
+    return formal_request
+
+
+def _prepare_formal_permutation_schedule(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    formal_request = _formal_permutation_request(request)
+    record = publish_formal_resampling_schedule(
+        formal_request,
+        _publisher(request),
+    )
+    return ServiceResult.from_record(record)
+
+
+def _prepare_formal_operator_workspace(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    formal_request = _formal_permutation_request(request)
+    publisher = _publisher(request)
+    model_family = formal_request.final_model.endpoint.model_family
+    if model_family.endswith("voxel"):
+        backend = DirectVoxelFormalBackend(
+            publisher,
+            artifact_store=request.artifact_store,
+        )
+    elif model_family.endswith("fiber"):
+        backend = NormativeFiberFormalBackend(
+            publisher,
+            artifact_store=request.artifact_store,
+        )
+    else:
+        raise ServiceAdapterError(
+            f"unsupported formal model family {model_family!r}"
+        )
+
+    descriptor = None
+    try:
+        descriptor = backend._prepare_permutation_operator_scratch(
+            formal_request,
+            request.output_dir,
+        )
+        record = formal_operator_scratch_record(
+            descriptor,
+            formal_request,
+            request.output_dir.parents[1],
+        )
+        return ServiceResult.from_record(record)
+    except Exception as error:
+        if descriptor is not None:
+            try:
+                cleanup_operator_scratch(descriptor)
+            except Exception as cleanup_error:
+                error.add_note(
+                    f"operator scratch cleanup also failed: {cleanup_error}"
+                )
+        raise
+
+
 def _run_formal(
     request: TaskExecutionRequest,
     *,
@@ -1499,6 +1567,14 @@ def _run_addon_fiber_branch(request: TaskExecutionRequest) -> ServiceResult:
 
 PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
     ("prepare_jitter_exposure_block", prepare_jitter_exposure_block),
+    (
+        "prepare_formal_permutation_schedule",
+        _prepare_formal_permutation_schedule,
+    ),
+    (
+        "prepare_formal_operator_workspace",
+        _prepare_formal_operator_workspace,
+    ),
     ("validate_reference_voxel_input", _validate_endpoint_input),
     ("prepare_reference_voxel_exposure", _prepare_exposure),
     ("run_reference_voxel_observed_grid", _run_reference_voxel_observed),

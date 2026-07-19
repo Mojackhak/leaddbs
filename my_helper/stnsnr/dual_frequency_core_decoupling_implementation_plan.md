@@ -3736,6 +3736,39 @@ that workspace task. The focused record/executor/formal gate passes 76 tests
 and 44 subtests; the complete regression passes 502 tests and 249 subtests.
 Actual workspace services and block planner tasks remain open.
 
+Sixth Step 9 implementation slice: implement and register the two predecessor
+services before changing planner topology. The schedule service constructs one
+exact `FormalRequest`, generates the complete historical permutation schedule,
+publishes it once as `formal_resampling_schedule`, and returns the fully bound
+`ResamplingScheduleRecord`. Its loader verifies target, axes, seed/count/kind,
+artifact metadata, full schedule digest, and row semantics before lending any
+slice. The operator-workspace service constructs the same request, materializes
+only its declared artifacts, builds the direct or fiber fold operators once,
+publishes one exclusive scratch generation, and returns the input-bound
+`FormalOperatorScratchRecord`; any failure after generation creation performs
+descriptor-confined cleanup. Focused service tests use the real typed provider
+boundary for all four endpoint model families, including adjusted add-on
+DeltaReference inputs, and require that neither service performs formal
+permutation fits or publishes a `FormalResult`. The production planner remains
+unchanged until both services pass independently.
+
+Sixth-slice acceptance on 2026-07-19: the generic production registry now
+contains `prepare_formal_permutation_schedule` and
+`prepare_formal_operator_workspace` as registered but not yet planned
+services. All four endpoint model families, including both adjusted add-on
+paths, construct the locked permutation request through the typed provider
+boundary. The first publishes and restores the complete
+historical schedule with exact bytes and rejects a changed schedule digest.
+The second materializes the fixed operator inputs once, publishes a
+run-relative read-only generation, and returns an input-bound scratch record
+without calling `run_formal` or producing a `FormalResult`. A forced failure
+after generation publication removes only that new descriptor generation.
+The focused service, formal, codec, executor, registry, spawn, and dependency
+boundary gate passes 89 tests and 48 subtests. The complete dual-frequency and
+visualization regression passes 504 tests and 253 subtests. No production task
+count or planner dependency changed in this slice; permutation block and
+aggregate services remain open.
+
 - [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 
 Add one `formal_in_sample` task for every realized final endpoint whenever

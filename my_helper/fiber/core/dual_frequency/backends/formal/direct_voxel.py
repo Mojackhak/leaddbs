@@ -601,6 +601,60 @@ class DirectVoxelFormalBackend:
         self._artifact_store = artifact_store
         self._bootstrap_nuisance_provider = bootstrap_nuisance_provider
 
+    def _prepare_permutation_operator_scratch(
+        self,
+        request: FormalRequest,
+        parent: Path,
+    ) -> FormalOperatorScratchDescriptor:
+        """Build and publish fixed permutation operators without fitting outcomes."""
+
+        if not isinstance(request, FormalRequest):
+            raise FormalBackendInputError("request must be FormalRequest")
+        if request.resampling_kind != "permutation":
+            raise FormalBackendInputError(
+                "direct operator scratch requires permutation resampling"
+            )
+        if not request.final_model.endpoint.model_family.endswith("voxel"):
+            raise FormalBackendInputError(
+                "direct operator scratch requires a direct-voxel final"
+            )
+        if request.connectome_role != "none":
+            raise FormalBackendInputError(
+                "direct operator scratch requires connectome_role='none'"
+            )
+        exposure = finite_exposure(
+            materialize_array(
+                request.exposure,
+                name="exposure",
+                expected_axes=(request.subject_axis, request.feature_axis),
+                expected_units=request.exposure_units,
+                expected_space=request.exposure_space,
+                artifact_store=self._artifact_store,
+                memory_map=True,
+            ),
+            request,
+        )
+        baseline = finite_vector(
+            materialize_array(
+                request.baseline,
+                name="baseline",
+                expected_axes=(request.subject_axis,),
+                expected_units=request.baseline.units,
+                expected_space=request.baseline.space,
+                artifact_store=self._artifact_store,
+            ),
+            "baseline",
+            request.subject_axis.count,
+        )
+        nuisance_plan = build_fixed_nuisance_plan(
+            request,
+            baseline,
+            self._optional_delta_vector(request.delta_reference_full, request),
+            self._optional_delta_folds(request.delta_reference_folds, request),
+        )
+        operators = _build_fold_operators(request, exposure, nuisance_plan)
+        return _publish_direct_voxel_operator_scratch(parent, operators)
+
     def run_formal(self, request: FormalRequest) -> FormalResult:
         if not isinstance(request, FormalRequest):
             raise FormalBackendInputError("request must be FormalRequest")

@@ -70,28 +70,48 @@ from dual_frequency.backends.formal.operator_scratch import (
     close_operator_scratch,
 )
 from dual_frequency.backends.normative_fiber.coverage import coverage_counts
-from dual_frequency.cache import RunScopedArtifactPublisher, sha256_file
+from dual_frequency.cache import (
+    ArtifactStore,
+    RunScopedArtifactPublisher,
+    sha256_file,
+)
 from dual_frequency.contracts import (
     ArtifactRef,
     AxisRef,
     BootstrapNuisanceEvidence,
     BootstrapRebuildProvenance,
     BranchRecord,
+    DeltaReferenceBundle,
     EndpointKey,
+    EndpointInputRecord,
     FeatureAxisRef,
     FinalModelKey,
     FinalModelRecord,
+    FinalSelectionRecord,
+    FormalOperatorScratchRecord,
     FormalRequest,
+    FormalResult,
     HardComputabilityLimits,
     NormativeFiberScoreSettings,
+    PreparedExposureRecord,
     RequestError,
+    ResamplingScheduleRecord,
     SourceRecord,
+    TaskKey,
 )
 from dual_frequency.runtime.formal_operator_workspace import (
+    cleanup_formal_operator_scratch_record,
     formal_operator_scratch_descriptor,
     formal_operator_scratch_record,
     validate_formal_operator_scratch_record,
 )
+from dual_frequency.runtime.formal_resampling import (
+    FormalResamplingError,
+    load_formal_resampling_schedule,
+)
+from dual_frequency.runtime.service_adapters import build_default_service_registry
+from dual_frequency.workflow.executor import DependencyState, TaskExecutionRequest
+from dual_frequency.workflow.planner import TaskSpec
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
@@ -490,11 +510,342 @@ def _original_delta_values(request: FormalRequest) -> tuple[np.ndarray, np.ndarr
     )
 
 
+class _FormalServiceProvider:
+    def __init__(self, request: FormalRequest) -> None:
+        self.request = request
+        self.calls: list[str] = []
+
+    def formal_request(
+        self,
+        final_model: FinalModelRecord,
+        endpoint_input: EndpointInputRecord,
+        prepared: PreparedExposureRecord,
+        publisher: object,
+        *,
+        resampling_kind: str,
+        delta_reference: object | None,
+    ) -> FormalRequest:
+        del publisher
+        if final_model != self.request.final_model:
+            raise AssertionError("formal service passed a different final model")
+        if endpoint_input.endpoint != final_model.endpoint:
+            raise AssertionError("formal service passed a different endpoint input")
+        if prepared.endpoint != final_model.endpoint:
+            raise AssertionError("formal service passed a different prepared exposure")
+        adjusted = self.request.delta_reference_full is not None
+        if (
+            resampling_kind != "permutation"
+            or (delta_reference is not None) != adjusted
+        ):
+            raise AssertionError("formal predecessor requested the wrong resampling input")
+        self.calls.append(resampling_kind)
+        return self.request
+
+
+def _formal_service_dependencies(
+    request: FormalRequest,
+) -> tuple[_FormalServiceProvider, dict[str, DependencyState]]:
+    subject_ids = tuple(
+        f"subject-{index:02d}" for index in range(request.subject_axis.count)
+    )
+    endpoint_input = EndpointInputRecord(
+        endpoint=request.final_model.endpoint,
+        readiness_status="ready",
+        candidate_subject_ids=subject_ids,
+        included_subject_ids=subject_ids,
+        exclusions=(),
+        minimum_subjects=request.hard_computability.n_subjects_min,
+        subject_axis=request.subject_axis,
+        baseline=request.baseline,
+        outcome=request.outcome,
+    )
+    feature_ids = request.feature_ids
+    if feature_ids is None:
+        feature_ids = _scientific_artifact(
+            "canonical_brainmask_voxel_ids",
+            np.arange(request.feature_axis.count, dtype=np.int64),
+            (request.feature_axis,),
+            units="voxel_id",
+            space=request.exposure_space,
+        )
+    is_reference = request.final_model.endpoint.model_family.startswith("reference_")
+    auxiliary_readiness = None
+    if not is_reference:
+        auxiliary_readiness = ArtifactRef(
+            kind="synthetic_auxiliary_readiness",
+            schema_version="synthetic_v1",
+            uri="memory://formal-fixture/auxiliary-readiness.json",
+            sha256="8" * 64,
+            dtype=None,
+            shape=None,
+            axis_refs=(),
+            axis_hashes=(),
+            units=None,
+            space=None,
+            producer_id="formal_fixture",
+            producer_version="1",
+        )
+    prepared = PreparedExposureRecord(
+        endpoint=request.final_model.endpoint,
+        subject_axis=request.subject_axis,
+        feature_axis=request.feature_axis,
+        exposure=request.exposure,
+        feature_ids=feature_ids,
+        delta_reference_input_status=("not_applicable" if is_reference else "ready"),
+        delta_reference_reason_code=("not_applicable" if is_reference else "ready"),
+        auxiliary_readiness=auxiliary_readiness,
+        reference_condition_exposure=(None if is_reference else request.exposure),
+        addon_reference_component_exposure=(
+            None if is_reference else request.exposure
+        ),
+        reference_overlap_mask=None,
+        total_exposure=None,
+    )
+    selection = FinalSelectionRecord(
+        endpoint=request.final_model.endpoint,
+        selection_status=request.final_model.final_status,
+        final_model=request.final_model,
+        reason_codes=("primary_model_realized",),
+        causal_task_ids=("task_fixture",),
+    )
+    dependencies = {
+        "endpoint_input": DependencyState("completed", "none", endpoint_input),
+        "prepared_exposure": DependencyState("completed", "none", prepared),
+        "final_selection": DependencyState("completed", "none", selection),
+    }
+    if request.delta_reference_full is not None:
+        assert request.delta_reference_folds is not None
+        support_axis = _axis("delta_support_columns", 4, "d")
+        support_rows = _scientific_artifact(
+            "delta_reference_support_rows",
+            np.ones((request.subject_axis.count, support_axis.count)),
+            (request.subject_axis, support_axis),
+            units="support",
+            space="clinical",
+        )
+        support_qc = ArtifactRef(
+            kind="delta_reference_support_qc",
+            schema_version="synthetic_v1",
+            uri="memory://formal-fixture/delta-support-qc.json",
+            sha256="9" * 64,
+            dtype=None,
+            shape=None,
+            axis_refs=(),
+            axis_hashes=(),
+            units=None,
+            space=None,
+            producer_id="formal_fixture",
+            producer_version="1",
+        )
+        dependencies["delta_reference"] = DependencyState(
+            "completed",
+            "none",
+            DeltaReferenceBundle(
+                input_status="valid",
+                support_status="adequate",
+                selected_reference_tau=200.0,
+                selected_reference_coverage=5,
+                full_scores=request.delta_reference_full,
+                fold_scores=request.delta_reference_folds,
+                support_rows=support_rows,
+                support_qc=support_qc,
+            ),
+        )
+    return _FormalServiceProvider(request), dependencies
+
+
+def _formal_service_task(
+    request: FormalRequest,
+    *,
+    service_id: str,
+    output_record_type: str,
+) -> TaskSpec:
+    return TaskSpec(
+        key=TaskKey(
+            request.final_model.endpoint.identifier,
+            service_id,
+            "none",
+            "e" * 64,
+        ),
+        endpoint_id=request.final_model.endpoint.identifier,
+        model_family=request.final_model.endpoint.model_family,
+        connectome_role=request.connectome_role,
+        stage=service_id,
+        round_id="formal_predecessor_test",
+        phase="formal",
+        service_id=service_id,
+        dependencies=("endpoint_input", "prepared_exposure", "final_selection"),
+        gates=(),
+        output_record_type=output_record_type,
+    )
+
+
+def _formal_service_execution_request(
+    request: FormalRequest,
+    *,
+    service_id: str,
+    output_record_type: str,
+    run_root: Path,
+) -> tuple[TaskExecutionRequest, _FormalServiceProvider]:
+    provider, dependencies = _formal_service_dependencies(request)
+    task = _formal_service_task(
+        request,
+        service_id=service_id,
+        output_record_type=output_record_type,
+    )
+    return (
+        TaskExecutionRequest(
+            task=task,
+            dependencies=dependencies,
+            run_id="formal-predecessor-test",
+            output_dir=run_root / "work" / task.task_id,
+            provider=provider,
+            artifact_store=_ScientificArrayStore(),
+            scientific_cache=None,
+            allow_expensive_producers=False,
+            workers=2,
+        ),
+        provider,
+    )
+
+
 def _artifact_path(artifact: ArtifactRef) -> Path:
     parsed = urlsplit(artifact.uri)
     if parsed.scheme != "file":
         raise AssertionError("test publisher did not return a local file artifact")
     return Path(unquote(parsed.path))
+
+
+class FormalPredecessorServiceTest(unittest.TestCase):
+    def test_schedule_and_operator_services_preserve_typed_boundaries(self) -> None:
+        registry = build_default_service_registry()
+        backend_types = {
+            "reference_voxel": (DirectVoxelFormalBackend, "reference"),
+            "reference_fiber": (NormativeFiberFormalBackend, "reference"),
+            "addon_voxel": (
+                DirectVoxelFormalBackend,
+                "delta_reference_adjusted",
+            ),
+            "addon_fiber": (
+                NormativeFiberFormalBackend,
+                "delta_reference_adjusted",
+            ),
+        }
+        for model_family, (backend_type, branch) in backend_types.items():
+            with (
+                self.subTest(model_family=model_family),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                run_root = Path(temporary)
+                formal_request = _formal_request(
+                    model_family,
+                    "permutation",
+                    branch=branch,
+                    resamples=11,
+                    seed=73,
+                )
+                schedule_request, schedule_provider = (
+                    _formal_service_execution_request(
+                        formal_request,
+                        service_id="prepare_formal_permutation_schedule",
+                        output_record_type="ResamplingScheduleRecord",
+                        run_root=run_root,
+                    )
+                )
+                schedule_result = registry.resolve(
+                    "prepare_formal_permutation_schedule"
+                )(schedule_request)
+                schedule_record = schedule_result.decode_record()
+                self.assertIsInstance(schedule_record, ResamplingScheduleRecord)
+                self.assertNotIsInstance(schedule_record, FormalResult)
+                self.assertEqual(schedule_provider.calls, ["permutation"])
+                restored = load_formal_resampling_schedule(
+                    schedule_record,
+                    formal_request,
+                    ArtifactStore((run_root,)),
+                )
+                expected = formal_resampling_schedule(
+                    "permutation",
+                    formal_request.subject_axis.count,
+                    formal_request.resamples,
+                    formal_request.seed,
+                )
+                self.assertEqual(
+                    restored.indices.tobytes(order="C"),
+                    expected.indices.tobytes(order="C"),
+                )
+                altered_digest = (
+                    "f" * 64
+                    if schedule_record.schedule_sha256 != "f" * 64
+                    else "e" * 64
+                )
+                with self.assertRaises(FormalResamplingError):
+                    load_formal_resampling_schedule(
+                        dataclasses.replace(
+                            schedule_record,
+                            schedule_sha256=altered_digest,
+                        ),
+                        formal_request,
+                        ArtifactStore((run_root,)),
+                    )
+
+                workspace_request, workspace_provider = (
+                    _formal_service_execution_request(
+                        formal_request,
+                        service_id="prepare_formal_operator_workspace",
+                        output_record_type="FormalOperatorScratchRecord",
+                        run_root=run_root,
+                    )
+                )
+                with mock.patch.object(
+                    backend_type,
+                    "run_formal",
+                    side_effect=AssertionError("formal fit must not run"),
+                ) as formal_fit:
+                    workspace_result = registry.resolve(
+                        "prepare_formal_operator_workspace"
+                    )(workspace_request)
+                formal_fit.assert_not_called()
+                workspace_record = workspace_result.decode_record()
+                self.assertIsInstance(
+                    workspace_record,
+                    FormalOperatorScratchRecord,
+                )
+                self.assertNotIsInstance(workspace_record, FormalResult)
+                self.assertEqual(workspace_provider.calls, ["permutation"])
+                validate_formal_operator_scratch_record(
+                    workspace_record,
+                    run_root,
+                )
+                cleanup_formal_operator_scratch_record(workspace_record, run_root)
+
+    def test_workspace_service_cleans_generation_after_record_failure(self) -> None:
+        formal_request = _formal_request(
+            "reference_voxel",
+            "permutation",
+            resamples=3,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            run_root = Path(temporary)
+            execution_request, _provider = _formal_service_execution_request(
+                formal_request,
+                service_id="prepare_formal_operator_workspace",
+                output_record_type="FormalOperatorScratchRecord",
+                run_root=run_root,
+            )
+            with mock.patch(
+                "dual_frequency.runtime.service_adapters."
+                "formal_operator_scratch_record",
+                side_effect=RuntimeError("synthetic record failure"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "synthetic record failure"):
+                    build_default_service_registry().resolve(
+                        "prepare_formal_operator_workspace"
+                    )(execution_request)
+            self.assertEqual(
+                tuple(execution_request.output_dir.glob("operator-generation-*")),
+                (),
+            )
 
 
 class _SyntheticBootstrapNuisanceProvider:
