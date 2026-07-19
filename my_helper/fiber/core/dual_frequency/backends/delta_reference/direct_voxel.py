@@ -246,29 +246,58 @@ def _support_rows(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[str, ...]]:
     active = addon_reference_exposure >= selected_tau
     total = np.sum(active, axis=1, dtype=np.int64)
+    return _support_rows_from_selected(
+        active[:, selected_indices],
+        total,
+        full_valid,
+        fold_valid,
+    )
 
-    full_parent_support = np.zeros(addon_reference_exposure.shape[1], dtype=bool)
-    full_parent_support[selected_indices[full_valid]] = True
-    full_in_support = np.sum(active & full_parent_support[None, :], axis=1)
 
-    n_subjects = addon_reference_exposure.shape[0]
+def _support_rows_from_selected(
+    selected_active: np.ndarray,
+    total: np.ndarray,
+    full_valid: np.ndarray,
+    fold_valid: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[str, ...]]:
+    active = np.asarray(selected_active, dtype=bool)
+    totals = np.asarray(total, dtype=np.int64)
+    if active.ndim != 2:
+        raise DeltaReferenceDirectVoxelError(
+            "compact DeltaReferenceScore support inputs are inconsistent"
+        )
+    n_subjects = active.shape[0]
+    if (
+        totals.shape != (n_subjects,)
+        or full_valid.shape != (active.shape[1],)
+        or fold_valid.shape != (n_subjects, active.shape[1])
+        or np.any(totals < 0)
+    ):
+        raise DeltaReferenceDirectVoxelError(
+            "compact DeltaReferenceScore support inputs are inconsistent"
+        )
+    full_in_support = np.count_nonzero(active[:, full_valid], axis=1)
     fold_in_support = np.empty((n_subjects, n_subjects), dtype=np.int64)
     for heldout_index in range(n_subjects):
-        fold_parent_support = np.zeros(addon_reference_exposure.shape[1], dtype=bool)
-        fold_parent_support[selected_indices[fold_valid[heldout_index]]] = True
-        fold_in_support[heldout_index] = np.sum(
-            active & fold_parent_support[None, :],
+        fold_in_support[heldout_index] = np.count_nonzero(
+            active[:, fold_valid[heldout_index]],
             axis=1,
+        )
+    if np.any(full_in_support > totals) or np.any(
+        fold_in_support > totals[None, :]
+    ):
+        raise DeltaReferenceDirectVoxelError(
+            "compact support counts exceed complete-parent totals"
         )
 
     full_out_fraction = np.full(n_subjects, np.nan, dtype=np.float64)
     fold_out_fraction = np.full((n_subjects, n_subjects), np.nan, dtype=np.float64)
-    nonzero = total > 0
+    nonzero = totals > 0
     full_out_fraction[nonzero] = 1.0 - (
-        full_in_support[nonzero] / total[nonzero]
+        full_in_support[nonzero] / totals[nonzero]
     )
     fold_out_fraction[:, nonzero] = 1.0 - (
-        fold_in_support[:, nonzero] / total[nonzero][None, :]
+        fold_in_support[:, nonzero] / totals[nonzero][None, :]
     )
 
     labels = (
@@ -279,13 +308,13 @@ def _support_rows(
     )
     rows = np.column_stack(
         (
-            total.astype(np.float64),
+            totals.astype(np.float64),
             full_in_support.astype(np.float64),
             full_out_fraction,
             fold_out_fraction.T,
         )
     )
-    return rows, total, full_out_fraction, labels
+    return rows, totals, full_out_fraction, labels
 
 
 def _classify_support(
@@ -348,6 +377,137 @@ def _classify_support(
     return "limited"
 
 
+def _publish_compact_result(
+    *,
+    reference_source: SourceRecord,
+    subject_axis: AxisRef,
+    support_profile: DeltaReferenceSupportProfile,
+    support_rows: np.ndarray,
+    total: np.ndarray,
+    full_out_fraction: np.ndarray,
+    support_labels: tuple[str, ...],
+    full_scores: np.ndarray,
+    fold_scores: np.ndarray,
+    publisher: ArtifactPublisher,
+) -> DeltaReferenceBundle:
+    support_status = _classify_support(
+        total,
+        full_out_fraction,
+        support_rows,
+        support_profile,
+    )
+    finite_full = full_out_fraction[np.isfinite(full_out_fraction)]
+    all_fractions = support_rows[:, 2:]
+    finite_required = all_fractions[np.isfinite(all_fractions)]
+    support_qc_artifact = publisher.document(
+        "delta_reference_support_qc.json",
+        {
+            "schema_version": "delta_reference_support_qc_v1",
+            "support_status": support_status,
+            "selected_reference_tau": reference_source.selected_tau,
+            "selected_reference_coverage": reference_source.selected_coverage,
+            "threshold_rule": (
+                "reference_component_exposure_not_below_selected_reference_tau"
+            ),
+            "support_fields": list(support_labels),
+            "zero_total_suprathreshold_count": int(np.count_nonzero(total == 0)),
+            "cohort_median_out_support_fraction": (
+                float(np.median(finite_full)) if finite_full.size else None
+            ),
+            "subject_fraction_over_0p50": (
+                float(np.mean(finite_full > 0.50)) if finite_full.size else None
+            ),
+            "subject_fraction_over_0p80": (
+                float(np.mean(finite_full > 0.80)) if finite_full.size else None
+            ),
+            "maximum_required_out_support_fraction": (
+                float(np.max(finite_required)) if finite_required.size else None
+            ),
+            "classification_thresholds": {
+                "adequate_cohort_median_max": (
+                    support_profile.adequate.cohort_median_out_support_max
+                ),
+                "adequate_subject_threshold": (
+                    support_profile.adequate.subject_out_support_threshold
+                ),
+                "adequate_subject_fraction_max": (
+                    support_profile.adequate.subject_fraction_max
+                ),
+                "invalid_cohort_median_min_exclusive": (
+                    support_profile.invalid.cohort_median_out_support_min_exclusive
+                ),
+                "invalid_subject_threshold": (
+                    support_profile.invalid.subject_out_support_threshold
+                ),
+                "invalid_subject_fraction_min_exclusive": (
+                    support_profile.invalid.subject_fraction_min_exclusive
+                ),
+                "invalid_individual_min_exclusive": (
+                    support_profile.invalid.individual_out_support_min_exclusive
+                ),
+            },
+        },
+        kind="delta_reference_support_qc",
+    )
+    support_axis = AxisRef(
+        axis_id=f"{subject_axis.axis_id}:delta-reference-support-fields",
+        count=len(support_labels),
+        sha256=canonical_hash(
+            {
+                "subject_axis_sha256": subject_axis.sha256,
+                "support_fields": support_labels,
+            }
+        ),
+    )
+    support_artifact = publisher.array(
+        "delta_reference_support_rows.npy",
+        support_rows,
+        kind="delta_reference_support_rows",
+        axes=(subject_axis, support_axis),
+        units=None,
+        space=None,
+    )
+    if support_status not in {"adequate", "limited"}:
+        return DeltaReferenceBundle(
+            input_status="invalid",
+            support_status=support_status,
+            selected_reference_tau=reference_source.selected_tau,
+            selected_reference_coverage=reference_source.selected_coverage,
+            full_scores=None,
+            fold_scores=None,
+            support_rows=support_artifact,
+            support_qc=support_qc_artifact,
+            failure_stage="support_qc",
+            failure_detail=support_status,
+        )
+    full_artifact = publisher.array(
+        "delta_reference_full_scores.npy",
+        full_scores,
+        kind="delta_reference_full_scores",
+        axes=(subject_axis,),
+        units="V/m",
+        space=None,
+    )
+    fold_artifact = publisher.array(
+        "delta_reference_fold_scores.npy",
+        fold_scores,
+        kind="delta_reference_fold_scores",
+        axes=(subject_axis, subject_axis),
+        units="V/m",
+        space=None,
+    )
+    return DeltaReferenceBundle(
+        input_status="valid",
+        support_status=support_status,
+        selected_reference_tau=reference_source.selected_tau,
+        selected_reference_coverage=reference_source.selected_coverage,
+        full_scores=full_artifact,
+        fold_scores=fold_artifact,
+        support_rows=support_artifact,
+        support_qc=support_qc_artifact,
+    )
+
+
 def build_delta_reference_voxel(
     *,
     matched_reference_endpoint_id: str,
@@ -380,6 +540,8 @@ def build_delta_reference_voxel(
         raise TypeError("publisher must implement ArtifactPublisher")
     if artifact_store is not None and not isinstance(artifact_store, ArtifactStore):
         raise TypeError("artifact_store must be an ArtifactStore or None")
+    if not isinstance(reference_source, SourceRecord):
+        raise TypeError("reference_source must be a SourceRecord")
     _validate_support_profile(support_profile)
     if not isinstance(reference_source, SourceRecord):
         raise TypeError("reference_source must be a SourceRecord")
@@ -622,4 +784,174 @@ def build_delta_reference_voxel(
         fold_scores=fold_artifact,
         support_rows=support_artifact,
         support_qc=support_qc_artifact,
+    )
+
+
+def build_compact_delta_reference_voxel(
+    *,
+    matched_reference_endpoint_id: str,
+    reference_source: SourceRecord,
+    selected_feature_indices: ScientificArray,
+    full_weights: ScientificArray,
+    fold_weights: ScientificArray,
+    selected_reference_condition_exposure: ScientificArray,
+    selected_addon_reference_component_exposure: ScientificArray,
+    total_suprathreshold_count: ScientificArray,
+    subject_axis: AxisRef,
+    reference_subject_axis: AxisRef,
+    addon_subject_ids: tuple[str, ...],
+    reference_subject_ids: tuple[str, ...],
+    parent_feature_axis: AxisRef,
+    support_profile: DeltaReferenceSupportProfile,
+    publisher: ArtifactPublisher,
+    artifact_store: ArtifactStore | None = None,
+) -> DeltaReferenceBundle:
+    """Rebuild voxel DeltaReferenceScore from selected rows and parent counts."""
+
+    if (
+        not isinstance(subject_axis, AxisRef)
+        or not isinstance(reference_subject_axis, AxisRef)
+        or not isinstance(parent_feature_axis, AxisRef)
+    ):
+        raise TypeError(
+            "subject_axis, reference_subject_axis, and parent_feature_axis must be AxisRef values"
+        )
+    if not isinstance(publisher, ArtifactPublisher):
+        raise TypeError("publisher must implement ArtifactPublisher")
+    if artifact_store is not None and not isinstance(artifact_store, ArtifactStore):
+        raise TypeError("artifact_store must be an ArtifactStore or None")
+    _validate_support_profile(support_profile)
+    matched_endpoint = str(matched_reference_endpoint_id).strip()
+    if not matched_endpoint or reference_source.endpoint.identifier != matched_endpoint:
+        raise DeltaReferenceDirectVoxelError(
+            "reference source does not match matched_reference_endpoint_id"
+        )
+    if reference_source.feature_axis is None:
+        raise DeltaReferenceDirectVoxelError(
+            "compact DeltaReferenceScore requires a selected feature axis"
+        )
+    selected_axis = reference_source.feature_axis.axis
+    try:
+        fold_indices = reference_fold_indices(
+            addon_subject_ids=addon_subject_ids,
+            reference_subject_ids=reference_subject_ids,
+            addon_subject_axis=subject_axis,
+            reference_subject_axis=reference_subject_axis,
+        )
+    except DeltaReferenceCohortError as error:
+        raise DeltaReferenceDirectVoxelError(str(error)) from error
+    for value, name in (
+        (selected_feature_indices, "selected_feature_indices"),
+        (full_weights, "full_weights"),
+        (fold_weights, "fold_weights"),
+    ):
+        _require_source_artifact(value, reference_source, name)
+    indices = _selected_indices(
+        _materialize(
+            selected_feature_indices,
+            name="selected_feature_indices",
+            expected_axes=(selected_axis,),
+            expected_units=None,
+            artifact_store=artifact_store,
+        ),
+        selected_axis.count,
+    )
+    _validate_locked_source(reference_source, parent_feature_axis, indices)
+    full_weight_array = _real_array(
+        _materialize(
+            full_weights,
+            name="full_weights",
+            expected_axes=(selected_axis,),
+            expected_units="coefficient",
+            artifact_store=artifact_store,
+        ),
+        "full_weights",
+        1,
+    )
+    fold_weight_array = _real_array(
+        _materialize(
+            fold_weights,
+            name="fold_weights",
+            expected_axes=(reference_subject_axis, selected_axis),
+            expected_units="coefficient",
+            artifact_store=artifact_store,
+        ),
+        "fold_weights",
+        2,
+    )
+    reference_exposure = _real_array(
+        _materialize(
+            selected_reference_condition_exposure,
+            name="selected_reference_condition_exposure",
+            expected_axes=(subject_axis, selected_axis),
+            expected_units="V/m",
+            artifact_store=artifact_store,
+        ),
+        "selected_reference_condition_exposure",
+        2,
+    )
+    addon_reference_exposure = _real_array(
+        _materialize(
+            selected_addon_reference_component_exposure,
+            name="selected_addon_reference_component_exposure",
+            expected_axes=(subject_axis, selected_axis),
+            expected_units="V/m",
+            artifact_store=artifact_store,
+        ),
+        "selected_addon_reference_component_exposure",
+        2,
+    )
+    totals = _real_array(
+        _materialize(
+            total_suprathreshold_count,
+            name="total_suprathreshold_count",
+            expected_axes=(subject_axis,),
+            expected_units=None,
+            artifact_store=artifact_store,
+        ),
+        "total_suprathreshold_count",
+        1,
+    )
+    if (
+        full_weight_array.shape != (selected_axis.count,)
+        or fold_weight_array.shape
+        != (reference_subject_axis.count, selected_axis.count)
+        or reference_exposure.shape != (subject_axis.count, selected_axis.count)
+        or addon_reference_exposure.shape
+        != (subject_axis.count, selected_axis.count)
+        or totals.shape != (subject_axis.count,)
+        or not np.all(np.isfinite(totals))
+        or np.any(totals < 0.0)
+        or np.any(totals > parent_feature_axis.count)
+        or np.any(totals != np.floor(totals))
+    ):
+        raise DeltaReferenceDirectVoxelError(
+            "compact DeltaReferenceScore arrays do not match their declared axes"
+        )
+    addon_fold_weights = fold_weight_array[fold_indices]
+    selected_delta = addon_reference_exposure - reference_exposure
+    full_scores, fold_scores, full_valid, fold_valid = _continuous_scores(
+        selected_delta,
+        full_weight_array,
+        addon_fold_weights,
+    )
+    support_rows, total, full_out_fraction, support_labels = (
+        _support_rows_from_selected(
+            addon_reference_exposure >= float(reference_source.selected_tau),
+            np.asarray(totals, dtype=np.int64),
+            full_valid,
+            fold_valid,
+        )
+    )
+    return _publish_compact_result(
+        reference_source=reference_source,
+        subject_axis=subject_axis,
+        support_profile=support_profile,
+        support_rows=support_rows,
+        total=total,
+        full_out_fraction=full_out_fraction,
+        support_labels=support_labels,
+        full_scores=full_scores,
+        fold_scores=fold_scores,
+        publisher=publisher,
     )

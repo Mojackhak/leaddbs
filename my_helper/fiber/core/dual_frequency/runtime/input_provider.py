@@ -2411,6 +2411,274 @@ class StudyRuntimeInputProvider:
         seeds.flags.writeable = False
         return arrays, seeds
 
+    def build_adjusted_jitter_physical_block(
+        self,
+        *,
+        endpoint_id: str,
+        subject_ids: tuple[str, ...],
+        feature_keys: np.ndarray,
+        support_parent_axis: AxisRef,
+        support_parent_feature_keys: np.ndarray | None,
+        reference_taus: np.ndarray,
+        replicate_start: int,
+        replicate_stop: int,
+        root_seed: int,
+        translation_fwhm_mm: float,
+    ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
+        """Build one adjusted block with compact complete-parent support counts."""
+
+        endpoint = self.endpoint(endpoint_id)
+        if not endpoint.key.model_family.startswith("addon_"):
+            raise RuntimeInputProviderError(
+                "adjusted jitter blocks require an add-on endpoint"
+            )
+        if not isinstance(support_parent_axis, AxisRef):
+            raise TypeError("support_parent_axis must be an AxisRef")
+        subjects = tuple(str(value) for value in subject_ids)
+        if not subjects or len(set(subjects)) != len(subjects):
+            raise RuntimeInputProviderError(
+                "jitter physical subject IDs must be nonempty and unique"
+            )
+        if any(subject_id not in self._subjects for subject_id in subjects):
+            raise RuntimeInputProviderError(
+                "jitter physical subject axis contains an unknown subject"
+            )
+        keys = np.asarray(feature_keys)
+        if (
+            keys.ndim != 1
+            or not np.issubdtype(keys.dtype, np.integer)
+            or keys.size < 1
+        ):
+            raise RuntimeInputProviderError(
+                "jitter feature keys must be a nonempty integer vector"
+            )
+        keys = np.asarray(keys, dtype=np.int64)
+        if keys[0] < 0 or np.any(np.diff(keys) <= 0):
+            raise RuntimeInputProviderError(
+                "jitter feature keys must be ordered and unique"
+            )
+        taus = np.asarray(reference_taus, dtype=np.float64)
+        if (
+            taus.ndim != 1
+            or taus.size < 1
+            or not np.all(np.isfinite(taus))
+            or np.any(taus <= 0.0)
+            or np.any(np.diff(taus) <= 0.0)
+        ):
+            raise RuntimeInputProviderError(
+                "adjusted jitter reference taus must be finite, positive, and ordered"
+            )
+        if (
+            type(replicate_start) is not int
+            or type(replicate_stop) is not int
+            or replicate_start < 0
+            or replicate_stop <= replicate_start
+        ):
+            raise RuntimeInputProviderError(
+                "jitter replicate range must be a nonempty half-open interval"
+            )
+        if type(root_seed) is not int or root_seed < 0:
+            raise RuntimeInputProviderError("jitter root seed must be nonnegative")
+        fwhm = float(translation_fwhm_mm)
+        if not math.isfinite(fwhm) or fwhm <= 0.0:
+            raise RuntimeInputProviderError(
+                "jitter translation FWHM must be finite and positive"
+            )
+
+        profile = self._profile(endpoint)
+        pair = profile.endpoint_pair
+        components = (
+            ("primary_exposure", pair.addon, "addon"),
+            ("reference_condition_exposure", pair.reference, "reference"),
+            (
+                "addon_reference_component_exposure",
+                pair.addon,
+                "reference",
+            ),
+        )
+        resolutions_by_component: dict[str, tuple[GroupResolution, ...]] = {}
+        for name, binding, frequency_class in components:
+            resolutions = tuple(
+                self._resolve_groups(
+                    endpoint,
+                    self._subjects[subject_id],
+                    binding,
+                    frequency_class,
+                    require_bilateral=True,
+                )
+                for subject_id in subjects
+            )
+            missing = tuple(
+                subject_id
+                for subject_id, resolution in zip(subjects, resolutions, strict=True)
+                if resolution.reason_code is not None
+            )
+            if missing:
+                raise RuntimeInputProviderError(
+                    "missing_sensitivity_source: jitter component "
+                    f"{name!r} is unavailable for subjects {missing!r}"
+                )
+            resolutions_by_component[name] = resolutions
+
+        parent = (
+            self._direct_feature_space()
+            if endpoint.key.model_family.endswith("voxel")
+            else self._fiber_feature_space(endpoint.key.connectome_id)
+        )
+        if endpoint.key.model_family.endswith("voxel"):
+            if (
+                support_parent_feature_keys is not None
+                or support_parent_axis != parent.axis
+                or parent.coordinates is None
+                or keys[-1] >= support_parent_axis.count
+            ):
+                raise RuntimeInputProviderError(
+                    "adjusted voxel support parent differs from the canonical grid"
+                )
+            support_coordinates = np.asarray(parent.coordinates, dtype=np.float32)
+            union_coordinates = np.asarray(
+                support_coordinates[keys],
+                dtype=np.float32,
+            )
+            union_positions = keys
+            union_points = union_offsets = None
+        else:
+            parent_keys = np.asarray(support_parent_feature_keys)
+            if (
+                parent_keys.ndim != 1
+                or parent_keys.dtype != np.dtype(np.int64)
+                or parent_keys.shape != (support_parent_axis.count,)
+                or parent_keys.size < 1
+                or parent_keys[0] < 1
+                or parent_keys[-1] > parent.axis.count
+                or np.any(np.diff(parent_keys) <= 0)
+            ):
+                raise RuntimeInputProviderError(
+                    "adjusted fiber support parent IDs are invalid"
+                )
+            union_positions = np.searchsorted(parent_keys, keys)
+            if (
+                np.any(union_positions >= parent_keys.size)
+                or not np.array_equal(parent_keys[union_positions], keys)
+            ):
+                raise RuntimeInputProviderError(
+                    "adjusted jitter union is outside the support parent axis"
+                )
+            support_coordinates = None
+            union_coordinates = None
+            union_points, union_offsets = self._selected_fiber_geometry(
+                endpoint.key.connectome_id,
+                parent,
+                keys,
+            )
+            support_points, support_offsets = self._selected_fiber_geometry(
+                endpoint.key.connectome_id,
+                parent,
+                parent_keys,
+            )
+
+        indices = np.arange(replicate_start, replicate_stop, dtype=np.int64)
+        seeds = np.asarray(
+            [
+                np.random.SeedSequence([root_seed, int(index)]).generate_state(
+                    1,
+                    dtype=np.uint64,
+                )[0]
+                for index in indices
+            ],
+            dtype=np.uint64,
+        )
+        arrays = {
+            name: np.empty(
+                (indices.size, len(subjects), keys.size),
+                dtype=np.float32,
+            )
+            for name, _binding, _frequency_class in components
+        }
+        support_counts = np.empty(
+            (indices.size, len(subjects), taus.size),
+            dtype=np.int64,
+        )
+        contexts = tuple(
+            JitterTranslationContext(
+                replicate_index=int(replicate_index),
+                replicate_seed=int(replicate_seed),
+                translation_sigma_mm=fwhm / 2.354820045,
+            )
+            for replicate_index, replicate_seed in zip(indices, seeds, strict=True)
+        )
+        for name, binding, frequency_class in components:
+            destination = arrays[name]
+            resolutions = resolutions_by_component[name]
+            complete_parent = name == "addon_reference_component_exposure"
+            for subject_index, (subject_id, resolution) in enumerate(
+                zip(subjects, resolutions, strict=True)
+            ):
+                for replicate_offset, context in enumerate(contexts):
+                    translations = {
+                        side: context.vector(
+                            binding_id=binding.identifier,
+                            frequency_class=frequency_class,
+                            subject_id=subject_id,
+                            hemisphere=side,
+                        )
+                        for side in ("L", "R")
+                    }
+                    if support_coordinates is not None:
+                        coordinates = (
+                            support_coordinates
+                            if complete_parent
+                            else union_coordinates
+                        )
+                        assert coordinates is not None
+                        values, _reason = self._sample_group_resolution(
+                            resolution,
+                            coordinates,
+                            allow_absent=False,
+                            translation_by_side=translations,
+                        )
+                    else:
+                        if complete_parent:
+                            points = support_points
+                            offsets = support_offsets
+                        else:
+                            points = union_points
+                            offsets = union_offsets
+                        assert points is not None and offsets is not None
+                        values, _reason = self._sample_fiber_group_resolution(
+                            resolution,
+                            points,
+                            offsets,
+                            allow_absent=False,
+                            translation_by_side=translations,
+                        )
+                    if complete_parent:
+                        destination[replicate_offset, subject_index] = values[
+                            union_positions
+                        ]
+                        support_counts[replicate_offset, subject_index] = np.count_nonzero(
+                            values[:, None] >= taus[None, :],
+                            axis=0,
+                        )
+                    else:
+                        destination[replicate_offset, subject_index] = values
+
+        for array in arrays.values():
+            if not np.all(np.isfinite(array)) or np.any(array < 0.0):
+                raise RuntimeInputProviderError(
+                    "adjusted jitter block contains invalid exposure values"
+                )
+            array.flags.writeable = False
+        if np.any(support_counts < 0) or np.any(
+            support_counts > support_parent_axis.count
+        ):
+            raise RuntimeInputProviderError(
+                "adjusted jitter support counts are outside the parent axis"
+            )
+        support_counts.flags.writeable = False
+        seeds.flags.writeable = False
+        return arrays, seeds, support_counts
+
     def _selected_fiber_geometry(
         self,
         connectome_id: str,

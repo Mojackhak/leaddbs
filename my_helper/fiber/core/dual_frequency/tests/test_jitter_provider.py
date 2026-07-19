@@ -18,6 +18,7 @@ from dual_frequency.backends.sensitivity import (
     FinalSensitivityTarget,
     SpatialJitterSettings,
 )
+from dual_frequency.backends.delta_reference import build_delta_reference_fiber
 from dual_frequency.cache import (
     ArtifactStore,
     CacheCorruption,
@@ -35,6 +36,7 @@ from dual_frequency.contracts import (
     FinalModelKey,
     FinalModelRecord,
     FinalSelectionRecord,
+    NormativeFiberScoreSettings,
     PreparedExposureRecord,
     ReferenceDependencyRecord,
     SensitivityResult,
@@ -56,7 +58,10 @@ from dual_frequency.contracts.study_base import (
     StudyBaseRecord,
     SubscaleDefinition,
 )
-from dual_frequency.runtime.input_provider import StudyRuntimeInputProvider
+from dual_frequency.runtime.input_provider import (
+    JitterTranslationContext,
+    StudyRuntimeInputProvider,
+)
 from dual_frequency.runtime.jitter_blocks import (
     CachedJitterReplicateProvider,
     prepare_jitter_exposure_block,
@@ -366,7 +371,7 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
         )
         return provider, catalog, artifact_store, artifact_root
 
-    def _fiber_study_and_configuration(self):
+    def _fiber_study_and_configuration(self, *, include_addon: bool = False):
         connectome_id = "synthetic-formal-connectome"
         connectome_path = self.root / connectome_id / "data.mat"
         connectome_path.parent.mkdir(parents=True, exist_ok=True)
@@ -415,7 +420,11 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
                 scales=(SCALE_ID,),
                 connectomes=(formal,),
             ),
-            selected_models=("reference_fiber",),
+            selected_models=(
+                ("reference_fiber", "addon_fiber")
+                if include_addon
+                else ("reference_fiber",)
+            ),
             selected_connectomes=(connectome_id,),
         )
         return study, configuration
@@ -653,6 +662,73 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
             ),
             selected_source=source,
             selected_branch=None,
+        )
+
+    def _fiber_reference_source(
+        self,
+        endpoint,
+        reference_input,
+        prepared: PreparedExposureRecord,
+        artifact_root: Path,
+        fiber_ids: np.ndarray,
+    ) -> SourceRecord:
+        final = self._fiber_final(
+            endpoint,
+            prepared,
+            artifact_root,
+            fiber_ids,
+        )
+        source = final.selected_source
+        assert isinstance(source, SourceRecord)
+        selected_axis = source.feature_axis.axis
+        count = selected_axis.count
+        full_weights = np.linspace(-1.0, 1.0, count, dtype=np.float64)
+        assert reference_input.subject_axis is not None
+        fold_weights = np.tile(
+            full_weights,
+            (reference_input.subject_axis.count, 1),
+        )
+        publisher = RunScopedArtifactPublisher(
+            artifact_root / f"fiber-reference-source-{endpoint.endpoint_id}",
+            f"fiber-reference-source-{endpoint.endpoint_id}",
+            "1",
+        )
+        return replace(
+            source,
+            artifacts=(
+                publisher.array(
+                    "normative_fiber_valid_union_ids.npy",
+                    np.asarray(fiber_ids, dtype=np.int64),
+                    kind="normative_fiber_valid_union_ids",
+                    axes=(selected_axis,),
+                    units=None,
+                    space=None,
+                ),
+                publisher.array(
+                    "benefit_oriented_fiber_weights.npy",
+                    full_weights,
+                    kind="benefit_oriented_fiber_weights",
+                    axes=(selected_axis,),
+                    units="coefficient",
+                    space=None,
+                ),
+                publisher.array(
+                    "loocv_benefit_oriented_fiber_weights.npy",
+                    fold_weights,
+                    kind="loocv_benefit_oriented_fiber_weights",
+                    axes=(reference_input.subject_axis, selected_axis),
+                    units="coefficient",
+                    space=None,
+                ),
+                publisher.array(
+                    "loocv_valid_fiber_masks.npy",
+                    np.isfinite(fold_weights),
+                    kind="loocv_valid_fiber_masks",
+                    axes=(reference_input.subject_axis, selected_axis),
+                    units=None,
+                    space=None,
+                ),
+            ),
         )
 
     @staticmethod
@@ -1531,6 +1607,369 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
                 atol=0.0,
             )
 
+    def test_adjusted_fiber_block_matches_legacy_delta_rebuild(self) -> None:
+        study, configuration = self._fiber_study_and_configuration(
+            include_addon=True
+        )
+        provider, catalog, store, artifact_root = self._provider(
+            study,
+            configuration=configuration,
+        )
+        reference_endpoint = self._endpoint(catalog, "reference_fiber")
+        addon_endpoint = self._endpoint(catalog, "addon_fiber")
+        reference_input = provider.publish_endpoint_input(
+            reference_endpoint.endpoint_id,
+            RunScopedArtifactPublisher(
+                artifact_root / "adjusted-fiber-reference-input",
+                "adjusted-fiber-reference-input",
+                "1",
+            ),
+        )
+        reference_prepared = provider.publish_prepared_exposure(
+            reference_input,
+            None,
+            RunScopedArtifactPublisher(
+                artifact_root / "adjusted-fiber-reference-prepared",
+                "adjusted-fiber-reference-prepared",
+                "1",
+            ),
+        )
+        fiber_ids = np.asarray(
+            _materialize(store, reference_prepared.feature_ids),
+            dtype=np.int64,
+        )
+        reference_source = self._fiber_reference_source(
+            reference_endpoint,
+            reference_input,
+            reference_prepared,
+            artifact_root,
+            fiber_ids,
+        )
+        dependency = self._dependency(
+            reference_endpoint,
+            addon_endpoint,
+            reference_source,
+        )
+        addon_input = provider.publish_endpoint_input(
+            addon_endpoint.endpoint_id,
+            RunScopedArtifactPublisher(
+                artifact_root / "adjusted-fiber-addon-input",
+                "adjusted-fiber-addon-input",
+                "1",
+            ),
+        )
+        addon_prepared = provider.publish_prepared_exposure(
+            addon_input,
+            dependency,
+            RunScopedArtifactPublisher(
+                artifact_root / "adjusted-fiber-addon-prepared",
+                "adjusted-fiber-addon-prepared",
+                "1",
+            ),
+        )
+        selected_digest = hashlib.sha256(
+            np.ascontiguousarray(fiber_ids, dtype=np.int64).tobytes(order="C")
+        ).hexdigest()
+        selected_axis = AxisRef(
+            f"{addon_endpoint.endpoint_id}:selected-fibers",
+            int(fiber_ids.size),
+            canonical_hash(
+                {
+                    "parent_axis_sha256": addon_prepared.feature_axis.sha256,
+                    "selected_fiber_ids_sha256": selected_digest,
+                    "tau": 200.0,
+                    "coverage": 5,
+                }
+            ),
+        )
+        selected_ids = RunScopedArtifactPublisher(
+            artifact_root / "adjusted-fiber-addon-final",
+            "adjusted-fiber-addon-final",
+            "1",
+        ).array(
+            "normative_fiber_valid_union_ids.npy",
+            fiber_ids,
+            kind="normative_fiber_valid_union_ids",
+            axes=(selected_axis,),
+            units="fiber_id",
+            space=None,
+        )
+        addon_source = SourceRecord(
+            endpoint=addon_endpoint.key,
+            input_status="valid",
+            source_status="pre_specified_accepted",
+            prediction_status="error_predictive",
+            threshold_source="pre_specified",
+            selected_tau=200.0,
+            selected_coverage=5,
+            adjacent_support=2,
+            feature_axis=FeatureAxisRef(
+                selected_axis,
+                "selected_normative_fiber_full_fold_valid_union",
+            ),
+            artifacts=(selected_ids,),
+        )
+        branch = BranchRecord(
+            endpoint=addon_endpoint.key,
+            branch="delta_reference_adjusted",
+            intended_role="primary",
+            input_status="valid",
+            nuisance_design_status="valid",
+            source=addon_source,
+        )
+        final_model = FinalModelRecord(
+            endpoint=addon_endpoint.key,
+            final_status="final_model_realized",
+            realization_role="primary",
+            final_key=FinalModelKey(
+                addon_endpoint.endpoint_id,
+                "delta_reference_adjusted",
+                200.0,
+                5,
+                "loocv_linear",
+            ),
+            selected_source=None,
+            selected_branch=branch,
+        )
+        original_delta = self._valid_delta(addon_input.subject_axis, artifact_root)
+        target = self._target(
+            provider,
+            addon_input,
+            addon_prepared,
+            final_model,
+            artifact_root,
+            branch="delta_reference_adjusted",
+            delta_reference=original_delta,
+        )
+        selection = FinalSelectionRecord(
+            endpoint=addon_endpoint.key,
+            selection_status="final_model_realized",
+            final_model=final_model,
+            reason_codes=("accepted_final",),
+            causal_task_ids=(),
+        )
+        settings = SpatialJitterSettings(1, 23, 0.01)
+        descriptor = {
+            "model_family": "addon_fiber",
+            "connectome_role": addon_endpoint.connectome_role,
+            "final_branch_mode": "delta_reference_adjusted",
+            "shared_exposure_entries": [
+                {"kind": "fiber_exposures", "semantic_sha256": "b" * 64}
+            ],
+            "replicates": settings.replicates,
+            "seed": settings.seed,
+            "translation_fwhm_mm": settings.translation_fwhm_mm,
+            "producer_version": "2",
+        }
+        group_id = f"jitter_group_{canonical_hash(descriptor, length=20)}"
+        parameters = (
+            (
+                "group_descriptor",
+                json.dumps(descriptor, sort_keys=True, separators=(",", ":")),
+            ),
+            ("group_endpoint_ids", json.dumps([addon_endpoint.endpoint_id])),
+            ("group_id", group_id),
+            ("replicate_start", "0"),
+            ("replicate_stop", "1"),
+        )
+        task = TaskSpec(
+            key=TaskKey(
+                addon_endpoint.endpoint_id,
+                "adjusted_fiber_block_test",
+                parameter_identity="test",
+            ),
+            endpoint_id=addon_endpoint.endpoint_id,
+            model_family=addon_endpoint.key.model_family,
+            connectome_role=addon_endpoint.connectome_role,
+            stage="adjusted_fiber_block_test",
+            round_id="round_jitter_blocks",
+            phase="sensitivity",
+            service_id="prepare_jitter_exposure_block",
+            dependencies=(
+                "addon-input",
+                "addon-prepared",
+                "reference-input",
+                "reference-prepared",
+                "reference-dependency",
+                "final",
+            ),
+            gates=(),
+            output_record_type="SensitivityResult",
+            execution_parameters=parameters,
+        )
+        dependencies = {
+            "addon-input": DependencyState("completed", "none", addon_input),
+            "addon-prepared": DependencyState(
+                "completed",
+                "none",
+                addon_prepared,
+            ),
+            "reference-input": DependencyState(
+                "completed",
+                "none",
+                reference_input,
+            ),
+            "reference-prepared": DependencyState(
+                "completed",
+                "none",
+                reference_prepared,
+            ),
+            "reference-dependency": DependencyState(
+                "completed",
+                "none",
+                dependency,
+            ),
+            "final": DependencyState("completed", "none", selection),
+        }
+        cache = ContentAddressedCache(self.root / "adjusted-fiber-block-cache")
+        block_request = TaskExecutionRequest(
+            task=task,
+            dependencies=dependencies,
+            run_id="adjusted-fiber-block-test",
+            output_dir=artifact_root / "adjusted-fiber-block-output",
+            provider=provider,
+            artifact_store=store,
+            scientific_cache=cache,
+            allow_expensive_producers=False,
+            workers=2,
+        )
+        block_record = prepare_jitter_exposure_block(block_request).decode_record()
+        assert isinstance(block_record, SensitivityResult)
+        consumer_request = replace(
+            block_request,
+            task=replace(
+                task,
+                stage="spatial_jitter",
+                service_id="run_addon_fiber_jitter",
+                execution_parameters=(("jitter_block_group_id", group_id),),
+            ),
+            dependencies={
+                **dependencies,
+                "block": DependencyState("completed", "none", block_record),
+            },
+            output_dir=artifact_root / "adjusted-fiber-block-consumer",
+        )
+        cached_provider = CachedJitterReplicateProvider(
+            request=consumer_request,
+            target=target,
+            endpoint_input=addon_input,
+            reference_dependency=dependency,
+            settings=settings,
+            group_id=group_id,
+        )
+        replicate_seed = int(
+            np.random.SeedSequence([settings.seed, 0]).generate_state(
+                1,
+                dtype=np.uint64,
+            )[0]
+        )
+        cached = cached_provider.build_replicate(
+            target,
+            replicate_index=0,
+            replicate_seed=replicate_seed,
+        )
+        full_publisher = RunScopedArtifactPublisher(
+            artifact_root / "adjusted-fiber-full-parent",
+            "adjusted-fiber-full-parent",
+            "1",
+        )
+        full_prepared = provider.publish_jitter_prepared_exposure(
+            addon_input,
+            dependency,
+            full_publisher,
+            JitterTranslationContext(
+                replicate_index=0,
+                replicate_seed=replicate_seed,
+                translation_sigma_mm=settings.translation_sigma_mm,
+            ),
+        )
+        self.assertIsNotNone(full_prepared.reference_condition_exposure)
+        self.assertIsNotNone(
+            full_prepared.addon_reference_component_exposure
+        )
+        reference_artifacts = {
+            artifact.kind: artifact for artifact in reference_source.artifacts
+        }
+        score = configuration.normative_fiber.score
+        full_delta = build_delta_reference_fiber(
+            matched_reference_endpoint_id=reference_endpoint.endpoint_id,
+            matched_reference_connectome_id=addon_endpoint.key.connectome_id,
+            reference_record=reference_source,
+            parent_fiber_ids=full_prepared.feature_ids,
+            valid_fiber_ids=reference_artifacts[
+                "normative_fiber_valid_union_ids"
+            ],
+            full_weights=reference_artifacts[
+                "benefit_oriented_fiber_weights"
+            ],
+            fold_weights=reference_artifacts[
+                "loocv_benefit_oriented_fiber_weights"
+            ],
+            fold_valid_masks=reference_artifacts["loocv_valid_fiber_masks"],
+            reference_condition_exposure=(
+                full_prepared.reference_condition_exposure
+            ),
+            addon_reference_component_exposure=(
+                full_prepared.addon_reference_component_exposure
+            ),
+            subject_axis=addon_input.subject_axis,
+            reference_subject_axis=reference_input.subject_axis,
+            addon_subject_ids=addon_input.included_subject_ids,
+            reference_subject_ids=reference_input.included_subject_ids,
+            parent_fiber_axis=full_prepared.feature_axis,
+            reference_parent_fiber_axis=reference_prepared.feature_axis,
+            fiber_score_settings=NormativeFiberScoreSettings(
+                sweet_fraction=score.sweet_fraction,
+                sour_fraction=score.sour_fraction,
+                weighted_peak_fraction=score.weighted_peak_fraction,
+                sweet_selected_min_count=score.sweet_selected_min_count,
+                sour_selected_min_count=score.sour_selected_min_count,
+                weighted_peak_min_count=score.weighted_peak_min_count,
+            ),
+            support_profile=(
+                configuration.normative_fiber.delta_reference_support
+            ),
+            publisher=full_publisher,
+            artifact_store=store,
+        )
+        full_exposure, _full_feature_ids = provider.selected_exposure(
+            final_model,
+            full_prepared,
+            full_publisher,
+        )
+
+        def cached_array(artifact):
+            return cached_provider.array_provider.materialize(
+                artifact,
+                expected_dtype=artifact.dtype,
+                expected_shape=artifact.shape,
+                expected_axes=artifact.axis_refs,
+                expected_units=artifact.units,
+                expected_space=artifact.space,
+            )
+
+        self.assertEqual(cached.support_status, full_delta.support_status)
+        self.assertEqual(
+            cached.delta_rebuild_identity is not None,
+            full_delta.valid,
+        )
+        np.testing.assert_array_equal(
+            cached_array(cached.observed_request.exposure),
+            _materialize(store, full_exposure),
+        )
+        if full_delta.valid:
+            assert full_delta.full_scores is not None
+            assert full_delta.fold_scores is not None
+            for cached_artifact, full_artifact in zip(
+                cached.observed_request.nuisance_inputs,
+                (full_delta.full_scores, full_delta.fold_scores),
+                strict=True,
+            ):
+                np.testing.assert_array_equal(
+                    cached_array(cached_artifact),
+                    _materialize(store, full_artifact),
+                )
+
     def test_addon_no_delta_replicate_remains_evaluable_without_usable_delta_support(self) -> None:
         cases = (
             {
@@ -1742,7 +2181,119 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
             branch="delta_reference_adjusted",
             delta_reference=original_delta,
         )
-        replicate_provider = StudyJitterReplicateProvider(
+        settings = SpatialJitterSettings(1, 9, 0.01)
+        selection = FinalSelectionRecord(
+            endpoint=addon_endpoint.key,
+            selection_status="final_model_realized",
+            final_model=final_model,
+            reason_codes=("accepted_final",),
+            causal_task_ids=(),
+        )
+        descriptor = {
+            "model_family": "addon_voxel",
+            "connectome_role": "none",
+            "final_branch_mode": "delta_reference_adjusted",
+            "shared_exposure_entries": [
+                {"kind": "voxel_exposures", "semantic_sha256": "a" * 64}
+            ],
+            "replicates": settings.replicates,
+            "seed": settings.seed,
+            "translation_fwhm_mm": settings.translation_fwhm_mm,
+            "producer_version": "2",
+        }
+        group_id = f"jitter_group_{canonical_hash(descriptor, length=20)}"
+        parameters = (
+            (
+                "group_descriptor",
+                json.dumps(descriptor, sort_keys=True, separators=(",", ":")),
+            ),
+            ("group_endpoint_ids", json.dumps([addon_endpoint.endpoint_id])),
+            ("group_id", group_id),
+            ("replicate_start", "0"),
+            ("replicate_stop", "1"),
+        )
+        task = TaskSpec(
+            key=TaskKey(
+                addon_endpoint.endpoint_id,
+                "adjusted_jitter_block_test",
+                parameter_identity="test",
+            ),
+            endpoint_id=addon_endpoint.endpoint_id,
+            model_family=addon_endpoint.key.model_family,
+            connectome_role=addon_endpoint.connectome_role,
+            stage="adjusted_jitter_block_test",
+            round_id="round_jitter_blocks",
+            phase="sensitivity",
+            service_id="prepare_jitter_exposure_block",
+            dependencies=(
+                "addon-input",
+                "addon-prepared",
+                "reference-input",
+                "reference-prepared",
+                "reference-dependency",
+                "final",
+            ),
+            gates=(),
+            output_record_type="SensitivityResult",
+            execution_parameters=parameters,
+        )
+        dependencies = {
+            "addon-input": DependencyState("completed", "none", addon_input),
+            "addon-prepared": DependencyState("completed", "none", prepared),
+            "reference-input": DependencyState(
+                "completed",
+                "none",
+                reference_input,
+            ),
+            "reference-prepared": DependencyState(
+                "completed",
+                "none",
+                reference_prepared,
+            ),
+            "reference-dependency": DependencyState(
+                "completed",
+                "none",
+                dependency,
+            ),
+            "final": DependencyState("completed", "none", selection),
+        }
+        cache = ContentAddressedCache(self.root / "adjusted-voxel-block-cache")
+        block_request = TaskExecutionRequest(
+            task=task,
+            dependencies=dependencies,
+            run_id="adjusted-voxel-block-test",
+            output_dir=artifact_root / "adjusted-voxel-block-output",
+            provider=provider,
+            artifact_store=store,
+            scientific_cache=cache,
+            allow_expensive_producers=False,
+            workers=2,
+        )
+        block_record = prepare_jitter_exposure_block(block_request).decode_record()
+        assert isinstance(block_record, SensitivityResult)
+        consumer_request = replace(
+            block_request,
+            task=replace(
+                task,
+                stage="spatial_jitter",
+                service_id="run_addon_voxel_jitter",
+                execution_parameters=(("jitter_block_group_id", group_id),),
+            ),
+            dependencies={
+                **dependencies,
+                "block": DependencyState("completed", "none", block_record),
+            },
+            output_dir=artifact_root / "adjusted-voxel-block-consumer",
+        )
+        cached_provider = CachedJitterReplicateProvider(
+            request=consumer_request,
+            target=target,
+            endpoint_input=addon_input,
+            reference_dependency=dependency,
+            settings=settings,
+            group_id=group_id,
+        )
+        legacy_provider = StudyJitterReplicateProvider(
             provider=provider,
             endpoint_input=addon_input,
             reference_input=reference_input,
@@ -1755,20 +2306,59 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
                 "1",
             ),
             artifact_store=store,
-            settings=SpatialJitterSettings(1, 9, 0.01),
+            settings=settings,
         )
-
-        evidence = replicate_provider.build_replicate(
+        replicate_seed = int(
+            np.random.SeedSequence([settings.seed, 0]).generate_state(
+                1,
+                dtype=np.uint64,
+            )[0]
+        )
+        cached = cached_provider.build_replicate(
             target,
             replicate_index=0,
-            replicate_seed=41,
+            replicate_seed=replicate_seed,
+        )
+        legacy = legacy_provider.build_replicate(
+            target,
+            replicate_index=0,
+            replicate_seed=replicate_seed,
         )
 
-        self.assertEqual(evidence.support_status, "adequate")
-        self.assertIsNotNone(evidence.delta_rebuild_identity)
-        self.assertEqual(len(evidence.observed_request.nuisance_inputs), 2)
-        full_scores = _materialize(store, evidence.observed_request.nuisance_inputs[0])
-        fold_scores = _materialize(store, evidence.observed_request.nuisance_inputs[1])
+        def cached_array(artifact):
+            return cached_provider.array_provider.materialize(
+                artifact,
+                expected_dtype=artifact.dtype,
+                expected_shape=artifact.shape,
+                expected_axes=artifact.axis_refs,
+                expected_units=artifact.units,
+                expected_space=artifact.space,
+            )
+
+        self.assertEqual(cached.support_status, legacy.support_status)
+        self.assertEqual(cached.support_status, "adequate")
+        self.assertIsNotNone(cached.delta_rebuild_identity)
+        self.assertEqual(len(cached.observed_request.nuisance_inputs), 2)
+        np.testing.assert_array_equal(
+            cached_array(cached.observed_request.exposure),
+            _materialize(store, legacy.observed_request.exposure),
+        )
+        assert cached.reference_overlap_mask is not None
+        assert legacy.reference_overlap_mask is not None
+        np.testing.assert_array_equal(
+            cached_array(cached.reference_overlap_mask),
+            _materialize(store, legacy.reference_overlap_mask),
+        )
+        full_scores = cached_array(cached.observed_request.nuisance_inputs[0])
+        fold_scores = cached_array(cached.observed_request.nuisance_inputs[1])
+        np.testing.assert_array_equal(
+            full_scores,
+            _materialize(store, legacy.observed_request.nuisance_inputs[0]),
+        )
+        np.testing.assert_array_equal(
+            fold_scores,
+            _materialize(store, legacy.observed_request.nuisance_inputs[1]),
+        )
         expected_subject_ids = addon_input.included_subject_ids
         self.assertEqual(
             expected_subject_ids,

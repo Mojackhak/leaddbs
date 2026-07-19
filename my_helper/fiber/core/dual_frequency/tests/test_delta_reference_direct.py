@@ -11,6 +11,7 @@ import numpy as np
 
 from dual_frequency.backends.delta_reference import (
     DeltaReferenceDirectVoxelError,
+    build_compact_delta_reference_voxel,
     build_delta_reference_voxel,
 )
 from dual_frequency.backends.interaction import prepare_reference_overlap
@@ -181,6 +182,87 @@ class DeltaReferenceDirectVoxelTest(unittest.TestCase):
             )
             expected = np.mean((250.0 - 100.0) * full_weights)
             np.testing.assert_allclose(full, expected)
+
+    def test_compact_parent_counts_match_full_parent_rebuild(self) -> None:
+        indices = np.asarray([0, 1, 3, 4, 6, 7, 8, 9], dtype=np.int64)
+        subjects, parent, selected = _axes(indices)
+        source = _source(selected)
+        full_weights = np.linspace(0.25, 1.0, indices.size)
+        fold_weights = np.vstack(
+            tuple(full_weights + offset for offset in (0.0, 0.1, 0.2, 0.3))
+        )
+        reference = np.arange(40, dtype=np.float64).reshape(4, 10) + 100.0
+        addon_reference = reference + 150.0
+        addon_reference[:, 2] = 175.0
+        totals = np.count_nonzero(addon_reference >= 200.0, axis=1)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            full = build_delta_reference_voxel(
+                matched_reference_endpoint_id=source.endpoint.identifier,
+                reference_source=source,
+                selected_feature_indices=indices,
+                full_weights=full_weights,
+                fold_weights=fold_weights,
+                reference_condition_exposure=reference,
+                addon_reference_component_exposure=addon_reference,
+                subject_axis=subjects,
+                reference_subject_axis=subjects,
+                addon_subject_ids=_subject_ids(subjects),
+                reference_subject_ids=_subject_ids(subjects),
+                parent_feature_axis=parent,
+                support_profile=_support_profile(),
+                publisher=RunScopedArtifactPublisher(root / "full", "full", "1"),
+            )
+            compact = build_compact_delta_reference_voxel(
+                matched_reference_endpoint_id=source.endpoint.identifier,
+                reference_source=source,
+                selected_feature_indices=indices,
+                full_weights=full_weights,
+                fold_weights=fold_weights,
+                selected_reference_condition_exposure=reference[:, indices],
+                selected_addon_reference_component_exposure=(
+                    addon_reference[:, indices]
+                ),
+                total_suprathreshold_count=totals,
+                subject_axis=subjects,
+                reference_subject_axis=subjects,
+                addon_subject_ids=_subject_ids(subjects),
+                reference_subject_ids=_subject_ids(subjects),
+                parent_feature_axis=parent,
+                support_profile=_support_profile(),
+                publisher=RunScopedArtifactPublisher(
+                    root / "compact",
+                    "compact",
+                    "2",
+                ),
+            )
+            store = ArtifactStore([root])
+            self.assertEqual(compact.input_status, full.input_status)
+            self.assertEqual(compact.support_status, full.support_status)
+            for full_artifact, compact_artifact in (
+                (full.full_scores, compact.full_scores),
+                (full.fold_scores, compact.fold_scores),
+                (full.support_rows, compact.support_rows),
+            ):
+                assert full_artifact is not None and compact_artifact is not None
+                full_value = store.materialize(
+                    full_artifact,
+                    expected_dtype=full_artifact.dtype,
+                    expected_shape=full_artifact.shape,
+                    expected_axes=full_artifact.axis_refs,
+                    expected_units=full_artifact.units,
+                    expected_space=full_artifact.space,
+                )
+                compact_value = store.materialize(
+                    compact_artifact,
+                    expected_dtype=compact_artifact.dtype,
+                    expected_shape=compact_artifact.shape,
+                    expected_axes=compact_artifact.axis_refs,
+                    expected_units=compact_artifact.units,
+                    expected_space=compact_artifact.space,
+                )
+                np.testing.assert_array_equal(compact_value, full_value)
 
     def test_limited_support_remains_valid(self) -> None:
         indices = np.arange(6, dtype=np.int64)

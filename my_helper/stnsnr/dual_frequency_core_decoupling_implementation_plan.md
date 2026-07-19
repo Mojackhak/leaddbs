@@ -4731,37 +4731,37 @@ and required direct seed before creating a child. Historical jitter lineages
 from v1 through v6 used superseded scientific boundaries and remain immutable
 evidence only. They must not seed, resume, or publish the corrected result.
 
-The three new child lineages are:
+The active child lineages are:
 
-- `task17-jitter-v7-inclusive-formal-20260719` for independent jitter;
+- `task17-jitter-v8-support-preserving-formal-20260719` for independent
+  jitter;
 - `task17-oss-v1-inclusive-formal-20260719` for independent OSS and pPAM;
 - `task17-combined-v1-inclusive-formal-20260719` for the joint cache-reuse and
   closure check.
+
+The earlier `task17-jitter-v7-inclusive-formal-20260719` lineage is retained as
+partial runtime evidence only. It stopped before endpoint statistics and cannot
+publish or resume as the formal jitter result.
 
 All children use fourteen workers. The production cache-cleanup policy remains
 false, so successful children retain shared cache and run-owned resume state.
 Failed or partial children are never cleanup-eligible. A VAL unmount stops new
 writes and forbids automatic restart until the mount is verified again.
 
-The independent jitter plan contains 720 tasks. Of these, 448 are immutable
-checkpoint roots, 160 are fixed physical blocks covering four physical groups
-with forty blocks per group, and 112 are endpoint statistics. The four groups
-are reference voxel, add-on voxel, reference fiber, and add-on fiber. Each
-endpoint consumes the complete physical-block set required by its immutable
-descriptor and retains its own statistical refit.
+The successor independent jitter plan contains 800 tasks. Of these, 448 are
+immutable checkpoint roots, 240 are fixed physical blocks covering six
+physical groups with forty blocks per group, and 112 are endpoint statistics.
+The six groups are reference voxel, no-delta add-on voxel, adjusted add-on
+voxel, reference fiber, no-delta add-on fiber, and adjusted add-on fiber. Each
+endpoint consumes the complete physical-block barrier and retains its own
+statistical refit.
 
 The realized branch inventory contains 22 no-delta add-on voxel endpoints,
 six adjusted add-on voxel endpoints, 24 no-delta add-on fiber endpoints, and
-four adjusted add-on fiber endpoints. The reduced physical groups serve both
-reference families and the 46 no-delta add-on endpoints. The ten adjusted
-add-on endpoints still use Decision 24's full-parent replicate provider because
-the reduced block format does not carry support-preserving evidence for their
-complete parent universe. They wait behind the same 160-block barrier but do
-not claim reduced-axis Layer-1 execution. Their completion proves the corrected
-scientific jitter result; it cannot by itself close the open adjusted-branch
-Layer-1 performance requirement. That requirement needs bounded measured
-resource evidence for the retained path or a later support-preserving block
-implementation with numerical parity.
+four adjusted add-on fiber endpoints. The 46 no-delta add-on endpoints retain
+the version-one reduced physical groups. The ten adjusted add-on endpoints use
+the version-two support-preserving groups below and must not invoke Decision
+24's endpoint-local full-parent artifact path.
 
 Adjusted-branch Layer-1 closure uses a versioned support-preserving block, not
 the endpoint-local full-parent artifact path. The compiler adds separate
@@ -4814,8 +4814,8 @@ may materialize a missing physical OSS generation. It receives the sole
 external-solver token and requires explicit expensive-producer authorization.
 Schedules, permutation blocks, and aggregates cannot launch the solver.
 
-The combined plan contains 1112 tasks. Of these, 448 are immutable checkpoint
-roots and 664 are new tasks forming the exact union of the independently
+The successor combined plan contains 1192 tasks. Of these, 448 are immutable
+checkpoint roots and 744 are new tasks forming the exact union of the independently
 closed jitter and OSS subgraphs. It follows the two independent children so
 valid physical exposure and OSS cache entries are warm. Acceptance requires
 cache validation and reuse without duplicate physical production, no observed,
@@ -4862,6 +4862,38 @@ voxel blocks had not published and create no resumable result. A successor
 lineage may reuse the eighty completed v1 entries, but adjusted endpoints must
 first move to the support-preserving v2 block path described above. The partial
 v7 lineage cannot publish a formal jitter extension.
+
+Support-preserving v2 implementation acceptance on 2026-07-19: the extension
+compiler now creates separate adjusted voxel and fiber groups, uses producer
+version two, restores the matched-reference prepared parent as a direct block
+and endpoint checkpoint, and excludes generated block tasks from the immutable
+parent-root audit. The physical producer retains only union-axis component
+exposures, deterministic replicate seeds, ordered matched-reference taus, and
+complete-parent suprathreshold counts. The consumer rebuilds final exposure,
+reference overlap, full and fold DeltaReferenceScore values, support rows,
+support status, and replicate-local nuisance inputs in a task-local arena.
+
+Direct-voxel and normative-fiber scalar parity tests compare the compact path
+against the existing full-parent implementation. Synthetic production-path
+integration tests additionally cover both adjusted model families, copied
+block consumption, the add-on subset within a larger reference cohort, locked
+reference parent identity, deterministic seed schedules, and exact exposure
+and score arrays. The focused checkpoint, input-provider, jitter-provider, and
+DeltaReferenceScore matrix passes 65 tests and 10 subtests. Static compilation
+also passes. The complete dual-frequency matrix passes 522 tests and 308
+subtests when macOS system monitoring, spawn, and process-group inspection are
+available. The restricted monitoring sandbox separately passes 491 tests; its
+34 failures are all environment-denied executor, spawn, or process-group
+checks. This closes the local implementation and numerical fixture gate; the
+800-task successor run, production resource evidence, cache resume, and
+published jitter result remain open.
+
+The production-parent read-only preflight compiles exactly 800 successor tasks:
+448 immutable checkpoint roots, 240 physical blocks, and 112 endpoint
+statistics. The physical set contains 160 version-one blocks and 80
+version-two blocks. Each of the six model-family and branch groups contributes
+forty ranges. This confirms that the production DAG matches the frozen
+support-preserving contract before any successor run directory is created.
 
 ---
 

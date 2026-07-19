@@ -30,6 +30,7 @@ BASE_SCHEMA = "dual_frequency_sensitivity_base_v1"
 SEED_SCHEMA = "dual_frequency_sensitivity_seed_tasks_v1"
 JITTER_BLOCK_SIZE = 25
 JITTER_BLOCK_PRODUCER_VERSION = "1"
+JITTER_ADJUSTED_BLOCK_PRODUCER_VERSION = "2"
 
 
 def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -753,28 +754,6 @@ def compile_sensitivity_extension_plan(
                 gate for gate in task.gates if gate.fact != "formal_complete"
             ),
         )
-    target_ids = set(extension_targets)
-    direct_parent_ids = {
-        dependency
-        for task in extension_targets.values()
-        for dependency in task.dependencies
-        if dependency not in target_ids
-    }
-    missing = tuple(sorted(direct_parent_ids - set(seed_task_ids)))
-    if missing:
-        raise SensitivityCheckpointError(
-            "sensitivity checkpoint lacks completed direct parent outcomes: "
-            + ",".join(missing)
-        )
-    checkpoint_roots = {
-        task_id: replace(
-            source_tasks[task_id],
-            dependencies=(),
-            gates=(),
-            checkpoint_only=True,
-        )
-        for task_id in direct_parent_ids
-    }
     block_tasks: list[TaskSpec] = []
     if "jitter" in requested and jitter_bases is not None:
         bases_by_endpoint = {
@@ -819,11 +798,17 @@ def compile_sensitivity_extension_plan(
                     "jitter sensitivity base has an invalid RNG schedule"
                 )
             final_branch = str(base.get("final_branch", "")).strip()
-            if (
+            adjusted = (
                 task.model_family.startswith("addon_")
-                and final_branch != "no_delta_reference"
-            ):
-                continue
+                and final_branch == "delta_reference_adjusted"
+            )
+            if task.model_family.startswith("addon_") and final_branch not in {
+                "no_delta_reference",
+                "delta_reference_adjusted",
+            }:
+                raise SensitivityCheckpointError(
+                    "add-on jitter base has an unsupported final branch"
+                )
             normalized_shared: list[dict[str, str]] = []
             for entry in shared:
                 if not isinstance(entry, Mapping) or set(entry) != {
@@ -850,14 +835,20 @@ def compile_sensitivity_extension_plan(
                 "replicates": replicates,
                 "seed": seed,
                 "translation_fwhm_mm": fwhm,
-                "producer_version": JITTER_BLOCK_PRODUCER_VERSION,
+                "producer_version": (
+                    JITTER_ADJUSTED_BLOCK_PRODUCER_VERSION
+                    if adjusted
+                    else JITTER_BLOCK_PRODUCER_VERSION
+                ),
             }
             group_id = f"jitter_group_{canonical_hash(descriptor, length=20)}"
             grouped.setdefault(group_id, []).append(task)
             descriptors[group_id] = descriptor
 
+        adjusted_reference_prepared_by_target: dict[str, str] = {}
         for group_id in sorted(grouped):
             members = tuple(sorted(grouped[group_id], key=lambda item: item.endpoint_id))
+            representative = members[0]
             descriptor = descriptors[group_id]
             endpoint_ids_json = json.dumps(
                 [task.endpoint_id for task in members],
@@ -873,12 +864,43 @@ def compile_sensitivity_extension_plan(
             dependency_set = {
                 dependency for task in members for dependency in task.dependencies
             }
+            if descriptor["final_branch_mode"] == "delta_reference_adjusted":
+                reference_family = (
+                    "reference_voxel"
+                    if representative.model_family.endswith("voxel")
+                    else "reference_fiber"
+                )
+                for member in members:
+                    reference_inputs = tuple(
+                        source_tasks[dependency]
+                        for dependency in member.dependencies
+                        if source_tasks[dependency].stage == "input_readiness"
+                        and source_tasks[dependency].model_family == reference_family
+                    )
+                    if len(reference_inputs) != 1:
+                        raise SensitivityCheckpointError(
+                            "adjusted jitter target lacks one matched-reference input"
+                        )
+                    reference_prepared = tuple(
+                        candidate
+                        for candidate in full_plan.tasks
+                        if candidate.endpoint_id == reference_inputs[0].endpoint_id
+                        and candidate.stage == "prepare_exposure"
+                    )
+                    if len(reference_prepared) != 1:
+                        raise SensitivityCheckpointError(
+                            "adjusted jitter target lacks one matched-reference preparation"
+                        )
+                    reference_prepared_id = reference_prepared[0].task_id
+                    dependency_set.add(reference_prepared_id)
+                    adjusted_reference_prepared_by_target[
+                        member.task_id
+                    ] = reference_prepared_id
             ordered_dependencies = tuple(
                 task.task_id
                 for task in full_plan.tasks
                 if task.task_id in dependency_set
             )
-            representative = members[0]
             for start in range(0, int(descriptor["replicates"]), JITTER_BLOCK_SIZE):
                 stop = min(
                     start + JITTER_BLOCK_SIZE,
@@ -922,10 +944,21 @@ def compile_sensitivity_extension_plan(
 
         for group_id, members in grouped.items():
             for member in members:
+                current = extension_targets[member.task_id]
+                dependencies = current.dependencies
+                reference_prepared_id = adjusted_reference_prepared_by_target.get(
+                    member.task_id
+                )
+                if (
+                    reference_prepared_id is not None
+                    and reference_prepared_id not in dependencies
+                ):
+                    dependencies = (*dependencies, reference_prepared_id)
                 extension_targets[member.task_id] = replace(
-                    member,
+                    current,
+                    dependencies=dependencies,
                     execution_parameters=(
-                        *member.execution_parameters,
+                        *current.execution_parameters,
                         ("jitter_block_group_id", group_id),
                     ),
                 )
@@ -937,6 +970,32 @@ def compile_sensitivity_extension_plan(
                 current,
                 dependencies=(*current.dependencies, *physical_block_ids),
             )
+
+    internal_task_ids = {
+        *extension_targets,
+        *(task.task_id for task in block_tasks),
+    }
+    direct_parent_ids = {
+        dependency
+        for task in (*extension_targets.values(), *block_tasks)
+        for dependency in task.dependencies
+        if dependency not in internal_task_ids
+    }
+    missing = tuple(sorted(direct_parent_ids - set(seed_task_ids)))
+    if missing:
+        raise SensitivityCheckpointError(
+            "sensitivity checkpoint lacks completed direct parent outcomes: "
+            + ",".join(missing)
+        )
+    checkpoint_roots = {
+        task_id: replace(
+            source_tasks[task_id],
+            dependencies=(),
+            gates=(),
+            checkpoint_only=True,
+        )
+        for task_id in direct_parent_ids
+    }
 
     selected_roots = tuple(
         checkpoint_roots[task.task_id]

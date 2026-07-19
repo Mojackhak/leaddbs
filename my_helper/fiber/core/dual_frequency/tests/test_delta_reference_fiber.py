@@ -12,6 +12,7 @@ import numpy as np
 
 from dual_frequency.backends.delta_reference.normative_fiber import (
     DeltaReferenceFiberError,
+    build_compact_delta_reference_fiber,
     build_delta_reference_fiber,
 )
 from dual_frequency.backends.normative_fiber.scoring import score_signed_fibers
@@ -290,6 +291,90 @@ class DeltaReferenceFiberTest(unittest.TestCase):
                 _materialize(bundle.fold_scores, root),
                 np.tile(expected, (4, 1)),
             )
+
+    def test_compact_parent_counts_match_full_parent_rebuild(self) -> None:
+        parent_ids = np.arange(10_000, 10_320, dtype=np.int64)
+        valid_ids = parent_ids[:300]
+        subjects, parent, selected = _axes(
+            parent_ids,
+            valid_ids,
+            connectome_id="formal_connectome",
+        )
+        evidence = _reference_record(
+            selected,
+            connectome_id="formal_connectome",
+        )
+        full_weights = np.concatenate((np.ones(200), -np.ones(100)))
+        fold_weights = np.tile(full_weights, (subjects.count, 1))
+        fold_masks = np.isfinite(fold_weights)
+        subject = np.arange(subjects.count, dtype=np.float64)[:, None]
+        reference = np.zeros((subjects.count, parent.count), dtype=np.float64)
+        addon = np.zeros_like(reference)
+        reference[:, :200] = 125.0 + 10.0 * subject
+        reference[:, 200:300] = 75.0 + 5.0 * subject
+        addon[:, :200] = 450.0 + 20.0 * subject
+        addon[:, 200:300] = 225.0 + 10.0 * subject
+        totals = np.count_nonzero(addon >= 200.0, axis=1)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            full = build_delta_reference_fiber(
+                matched_reference_endpoint_id=evidence.endpoint.identifier,
+                matched_reference_connectome_id="formal_connectome",
+                reference_record=evidence,
+                parent_fiber_ids=parent_ids,
+                valid_fiber_ids=valid_ids,
+                full_weights=full_weights,
+                fold_weights=fold_weights,
+                fold_valid_masks=fold_masks,
+                reference_condition_exposure=reference,
+                addon_reference_component_exposure=addon,
+                subject_axis=subjects,
+                reference_subject_axis=subjects,
+                addon_subject_ids=_subject_ids(subjects),
+                reference_subject_ids=_subject_ids(subjects),
+                parent_fiber_axis=parent,
+                fiber_score_settings=_score_settings(),
+                support_profile=_support_profile(),
+                publisher=RunScopedArtifactPublisher(root / "full", "full", "1"),
+            )
+            compact = build_compact_delta_reference_fiber(
+                matched_reference_endpoint_id=evidence.endpoint.identifier,
+                matched_reference_connectome_id="formal_connectome",
+                reference_record=evidence,
+                valid_fiber_ids=valid_ids,
+                full_weights=full_weights,
+                fold_weights=fold_weights,
+                fold_valid_masks=fold_masks,
+                selected_reference_condition_exposure=reference[:, :300],
+                selected_addon_reference_component_exposure=addon[:, :300],
+                total_suprathreshold_count=totals,
+                subject_axis=subjects,
+                reference_subject_axis=subjects,
+                addon_subject_ids=_subject_ids(subjects),
+                reference_subject_ids=_subject_ids(subjects),
+                support_parent_fiber_axis=parent,
+                reference_parent_fiber_axis=parent,
+                fiber_score_settings=_score_settings(),
+                support_profile=_support_profile(),
+                publisher=RunScopedArtifactPublisher(
+                    root / "compact",
+                    "compact",
+                    "2",
+                ),
+            )
+            self.assertEqual(compact.input_status, full.input_status)
+            self.assertEqual(compact.support_status, full.support_status)
+            for full_artifact, compact_artifact in (
+                (full.full_scores, compact.full_scores),
+                (full.fold_scores, compact.fold_scores),
+                (full.support_rows, compact.support_rows),
+            ):
+                assert full_artifact is not None and compact_artifact is not None
+                np.testing.assert_array_equal(
+                    _materialize(compact_artifact, root),
+                    _materialize(full_artifact, root),
+                )
 
     def test_locked_selected_axis_uses_reference_parent_not_augmented_addon_parent(
         self,

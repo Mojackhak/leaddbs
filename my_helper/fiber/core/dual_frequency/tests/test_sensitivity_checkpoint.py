@@ -446,32 +446,53 @@ class SensitivityCheckpointTest(unittest.TestCase):
         )
         self.assertTrue(all(task.checkpoint_only for task in extension.tasks[:2]))
 
-    def test_adjusted_addon_stays_on_full_parent_jitter_provider(self) -> None:
+    def test_adjusted_addon_uses_support_preserving_physical_blocks(self) -> None:
+        reference_endpoint = EndpointKey(
+            "study",
+            "scale-one",
+            "reference",
+            "reference_voxel",
+        )
         endpoint = EndpointKey(
             "study",
             "scale-one",
             "addon",
             "addon_voxel",
         )
+        reference_input = _task(
+            reference_endpoint,
+            "input_readiness",
+            "observed",
+        )
+        reference_prepared = _task(
+            reference_endpoint,
+            "prepare_exposure",
+            "observed",
+            dependencies=(reference_input.task_id,),
+        )
         parent = _task(endpoint, "final_realization", "observed")
         target = _task(
             endpoint,
             "spatial_jitter",
             "sensitivity",
-            dependencies=(parent.task_id,),
+            dependencies=(parent.task_id, reference_input.task_id),
         )
         full_plan = ExecutionPlan(
             configuration_hash=CONFIGURATION_HASH,
             scientific_configuration_hash=SCIENTIFIC_HASH,
             through="sensitivity",
-            tasks=(parent, target),
+            tasks=(reference_input, reference_prepared, parent, target),
         )
 
         extension = compile_sensitivity_extension_plan(
             full_plan,
             endpoint_ids=(endpoint.identifier,),
             analyses=("jitter",),
-            seed_task_ids=(parent.task_id,),
+            seed_task_ids=(
+                reference_input.task_id,
+                reference_prepared.task_id,
+                parent.task_id,
+            ),
             jitter_bases=(
                 {
                     "endpoint_id": endpoint.identifier,
@@ -491,15 +512,25 @@ class SensitivityCheckpointTest(unittest.TestCase):
             ),
         )
 
-        self.assertFalse(
-            any(
-                task.service_id == "prepare_jitter_exposure_block"
-                for task in extension.tasks
-            )
+        blocks = tuple(
+            task
+            for task in extension.tasks
+            if task.service_id == "prepare_jitter_exposure_block"
+        )
+        self.assertEqual(len(blocks), 2)
+        descriptors = tuple(
+            json.loads(block.execution_parameter("group_descriptor"))
+            for block in blocks
+        )
+        self.assertEqual(
+            {descriptor["producer_version"] for descriptor in descriptors},
+            {"2"},
         )
         jitter = next(task for task in extension.tasks if task.stage == "spatial_jitter")
-        self.assertEqual(jitter.execution_parameters, ())
-        self.assertEqual(jitter.dependencies, (parent.task_id,))
+        block_ids = {block.task_id for block in blocks}
+        self.assertTrue(block_ids < set(jitter.dependencies))
+        self.assertIn(reference_prepared.task_id, jitter.dependencies)
+        self.assertTrue(jitter.execution_parameter("jitter_block_group_id"))
 
     def test_jitter_endpoints_wait_for_every_physical_group(self) -> None:
         voxel_endpoint = EndpointKey(
@@ -603,6 +634,17 @@ class SensitivityCheckpointTest(unittest.TestCase):
             "addon",
             "addon_voxel",
         )
+        reference_input = _task(
+            reference_endpoint,
+            "input_readiness",
+            "observed",
+        )
+        reference_prepared = _task(
+            reference_endpoint,
+            "prepare_exposure",
+            "observed",
+            dependencies=(reference_input.task_id,),
+        )
         reference_parent = _task(
             reference_endpoint,
             "final_realization",
@@ -619,13 +661,20 @@ class SensitivityCheckpointTest(unittest.TestCase):
             addon_endpoint,
             "spatial_jitter",
             "sensitivity",
-            dependencies=(addon_parent.task_id,),
+            dependencies=(addon_parent.task_id, reference_input.task_id),
         )
         full_plan = ExecutionPlan(
             configuration_hash=CONFIGURATION_HASH,
             scientific_configuration_hash=SCIENTIFIC_HASH,
             through="sensitivity",
-            tasks=(reference_parent, addon_parent, reference_target, addon_target),
+            tasks=(
+                reference_input,
+                reference_prepared,
+                reference_parent,
+                addon_parent,
+                reference_target,
+                addon_target,
+            ),
         )
         rng = {
             "jitter_resamples": 25,
@@ -642,7 +691,12 @@ class SensitivityCheckpointTest(unittest.TestCase):
             full_plan,
             endpoint_ids=(reference_endpoint.identifier, addon_endpoint.identifier),
             analyses=("jitter",),
-            seed_task_ids=(reference_parent.task_id, addon_parent.task_id),
+            seed_task_ids=(
+                reference_input.task_id,
+                reference_prepared.task_id,
+                reference_parent.task_id,
+                addon_parent.task_id,
+            ),
             jitter_bases=(
                 {
                     "endpoint_id": reference_endpoint.identifier,
@@ -658,10 +712,14 @@ class SensitivityCheckpointTest(unittest.TestCase):
             ),
         )
 
-        block = next(
+        adjusted_block = next(
             task
             for task in extension.tasks
             if task.service_id == "prepare_jitter_exposure_block"
+            and json.loads(task.execution_parameter("group_descriptor"))[
+                "producer_version"
+            ]
+            == "2"
         )
         adjusted = next(
             task
@@ -669,8 +727,9 @@ class SensitivityCheckpointTest(unittest.TestCase):
             if task.endpoint_id == addon_endpoint.identifier
             and task.stage == "spatial_jitter"
         )
-        self.assertIn(block.task_id, adjusted.dependencies)
-        self.assertEqual(adjusted.execution_parameters, ())
+        self.assertIn(adjusted_block.task_id, adjusted.dependencies)
+        self.assertIn(reference_prepared.task_id, adjusted.dependencies)
+        self.assertTrue(adjusted.execution_parameter("jitter_block_group_id"))
 
 
 if __name__ == "__main__":

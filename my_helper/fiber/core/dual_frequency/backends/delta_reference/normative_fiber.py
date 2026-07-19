@@ -438,8 +438,10 @@ def _support_rows(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[str, ...]]:
     n_subjects = addon_reference_exposure.shape[0]
     total = np.zeros(n_subjects, dtype=np.int64)
-    full_in_support = np.zeros(n_subjects, dtype=np.int64)
-    fold_in_support = np.zeros((n_subjects, n_subjects), dtype=np.int64)
+    selected_active = np.empty(
+        (n_subjects, selected_parent_positions.size),
+        dtype=bool,
+    )
 
     chunk_size = 65_536
     for start in range(0, addon_reference_exposure.shape[1], chunk_size):
@@ -453,23 +455,54 @@ def _support_rows(
             continue
         selected_slice = slice(selected_start, selected_stop)
         local_positions = selected_parent_positions[selected_slice] - start
+        selected_active[:, selected_slice] = active[:, local_positions]
 
-        full_positions = local_positions[full_valid[selected_slice]]
-        if full_positions.size:
-            full_in_support += np.count_nonzero(
-                active[:, full_positions],
-                axis=1,
-            )
-        for heldout_index in range(n_subjects):
-            fold_positions = local_positions[fold_valid[heldout_index, selected_slice]]
-            if fold_positions.size:
-                fold_in_support[heldout_index] += np.count_nonzero(
-                    active[:, fold_positions],
-                    axis=1,
-                )
+    return _support_rows_from_selected(
+        selected_active,
+        total,
+        full_valid,
+        fold_valid,
+    )
 
-    full_out_count = total - full_in_support
-    fold_out_count = total[None, :] - fold_in_support
+
+def _support_rows_from_selected(
+    selected_active: np.ndarray,
+    total: np.ndarray,
+    full_valid: np.ndarray,
+    fold_valid: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[str, ...]]:
+    active = np.asarray(selected_active, dtype=bool)
+    totals = np.asarray(total, dtype=np.int64)
+    if active.ndim != 2:
+        raise DeltaReferenceFiberError(
+            "compact DeltaReferenceScore support inputs are inconsistent"
+        )
+    n_subjects = active.shape[0]
+    if (
+        totals.shape != (n_subjects,)
+        or full_valid.shape != (active.shape[1],)
+        or fold_valid.shape != (n_subjects, active.shape[1])
+        or np.any(totals < 0)
+    ):
+        raise DeltaReferenceFiberError(
+            "compact DeltaReferenceScore support inputs are inconsistent"
+        )
+    full_in_support = np.count_nonzero(active[:, full_valid], axis=1)
+    fold_in_support = np.empty((n_subjects, n_subjects), dtype=np.int64)
+    for heldout_index in range(n_subjects):
+        fold_in_support[heldout_index] = np.count_nonzero(
+            active[:, fold_valid[heldout_index]],
+            axis=1,
+        )
+    if np.any(full_in_support > totals) or np.any(
+        fold_in_support > totals[None, :]
+    ):
+        raise DeltaReferenceFiberError(
+            "compact support counts exceed complete-parent totals"
+        )
+
+    full_out_count = totals - full_in_support
+    fold_out_count = totals[None, :] - fold_in_support
 
     full_out_fraction = np.full(n_subjects, np.nan, dtype=np.float64)
     fold_out_fraction = np.full(
@@ -477,12 +510,12 @@ def _support_rows(
         np.nan,
         dtype=np.float64,
     )
-    nonzero = total > 0
+    nonzero = totals > 0
     full_out_fraction[nonzero] = (
-        full_out_count[nonzero] / total[nonzero]
+        full_out_count[nonzero] / totals[nonzero]
     )
     fold_out_fraction[:, nonzero] = (
-        fold_out_count[:, nonzero] / total[nonzero][None, :]
+        fold_out_count[:, nonzero] / totals[nonzero][None, :]
     )
 
     labels = (
@@ -493,13 +526,13 @@ def _support_rows(
     )
     rows = np.column_stack(
         (
-            total.astype(np.float64),
+            totals.astype(np.float64),
             full_in_support.astype(np.float64),
             full_out_fraction,
             fold_out_fraction.T,
         )
     )
-    return rows, total, full_out_fraction, labels
+    return rows, totals, full_out_fraction, labels
 
 
 def _classify_support(
@@ -577,6 +610,165 @@ def _score_settings_payload(
         "sour_selected_min_count": settings.sour_selected_min_count,
         "weighted_peak_min_count": settings.weighted_peak_min_count,
     }
+
+
+def _publish_compact_result(
+    *,
+    locked: _LockedReference,
+    parent_fiber_axis: AxisRef,
+    subject_axis: AxisRef,
+    fiber_score_settings: NormativeFiberScoreSettings,
+    support_profile: DeltaReferenceSupportProfile,
+    support_rows: np.ndarray,
+    total: np.ndarray,
+    full_out_fraction: np.ndarray,
+    support_labels: tuple[str, ...],
+    full_valid: np.ndarray,
+    fold_valid: np.ndarray,
+    full_scores: np.ndarray,
+    fold_scores: np.ndarray,
+    publisher: ArtifactPublisher,
+) -> DeltaReferenceBundle:
+    support_status = _classify_support(
+        total,
+        full_out_fraction,
+        support_rows,
+        support_profile,
+    )
+    finite_full = full_out_fraction[np.isfinite(full_out_fraction)]
+    all_fractions = support_rows[:, 2:]
+    finite_required = all_fractions[np.isfinite(all_fractions)]
+    support_qc_artifact = publisher.document(
+        "delta_reference_support_qc.json",
+        {
+            "schema_version": "delta_reference_support_qc_v1",
+            "model_family": "normative_fiber",
+            "support_status": support_status,
+            "matched_reference_endpoint_id": locked.endpoint_id,
+            "matched_reference_connectome_id": locked.connectome_id,
+            "reference_record_type": locked.record_type,
+            "parent_fiber_axis_sha256": parent_fiber_axis.sha256,
+            "valid_union_axis_sha256": locked.selected_axis.sha256,
+            "selected_reference_tau": locked.selected_tau,
+            "selected_reference_coverage": locked.selected_coverage,
+            "threshold_rule": (
+                "reference_component_exposure_not_below_selected_reference_tau"
+            ),
+            "support_scope": "complete_parent_fiber_axis",
+            "out_support_fraction_formula": (
+                "count(suprathreshold fibers outside finite valid support) / "
+                "count(all suprathreshold fibers)"
+            ),
+            "support_fields": list(support_labels),
+            "fiber_score_settings": _score_settings_payload(
+                fiber_score_settings
+            ),
+            "full_finite_valid_count": int(np.count_nonzero(full_valid)),
+            "fold_finite_valid_counts": [
+                int(value) for value in np.sum(fold_valid, axis=1)
+            ],
+            "zero_total_suprathreshold_count": int(
+                np.count_nonzero(total == 0)
+            ),
+            "cohort_median_out_support_fraction": (
+                float(np.median(finite_full)) if finite_full.size else None
+            ),
+            "subject_fraction_over_0p50": (
+                float(np.mean(finite_full > 0.50))
+                if finite_full.size
+                else None
+            ),
+            "subject_fraction_over_0p80": (
+                float(np.mean(finite_full > 0.80))
+                if finite_full.size
+                else None
+            ),
+            "maximum_required_out_support_fraction": (
+                float(np.max(finite_required)) if finite_required.size else None
+            ),
+            "classification_thresholds": {
+                "adequate_cohort_median_max": (
+                    support_profile.adequate.cohort_median_out_support_max
+                ),
+                "adequate_subject_threshold": (
+                    support_profile.adequate.subject_out_support_threshold
+                ),
+                "adequate_subject_fraction_max": (
+                    support_profile.adequate.subject_fraction_max
+                ),
+                "invalid_cohort_median_min_exclusive": (
+                    support_profile.invalid.cohort_median_out_support_min_exclusive
+                ),
+                "invalid_subject_threshold": (
+                    support_profile.invalid.subject_out_support_threshold
+                ),
+                "invalid_subject_fraction_min_exclusive": (
+                    support_profile.invalid.subject_fraction_min_exclusive
+                ),
+                "invalid_individual_min_exclusive": (
+                    support_profile.invalid.individual_out_support_min_exclusive
+                ),
+            },
+        },
+        kind="delta_reference_support_qc",
+    )
+    support_axis = AxisRef(
+        axis_id=f"{subject_axis.axis_id}:delta-reference-fiber-support-fields",
+        count=len(support_labels),
+        sha256=canonical_hash(
+            {
+                "subject_axis_sha256": subject_axis.sha256,
+                "support_fields": support_labels,
+            }
+        ),
+    )
+    support_artifact = publisher.array(
+        "delta_reference_support_rows.npy",
+        support_rows,
+        kind="delta_reference_support_rows",
+        axes=(subject_axis, support_axis),
+        units=None,
+        space=None,
+    )
+    if support_status not in {"adequate", "limited"}:
+        return DeltaReferenceBundle(
+            input_status="invalid",
+            support_status=support_status,
+            selected_reference_tau=locked.selected_tau,
+            selected_reference_coverage=locked.selected_coverage,
+            full_scores=None,
+            fold_scores=None,
+            support_rows=support_artifact,
+            support_qc=support_qc_artifact,
+            failure_stage="support_qc",
+            failure_detail=support_status,
+        )
+    full_artifact = publisher.array(
+        "delta_reference_full_scores.npy",
+        full_scores,
+        kind="delta_reference_full_scores",
+        axes=(subject_axis,),
+        units="V/m",
+        space=None,
+    )
+    fold_artifact = publisher.array(
+        "delta_reference_fold_scores.npy",
+        fold_scores,
+        kind="delta_reference_fold_scores",
+        axes=(subject_axis, subject_axis),
+        units="V/m",
+        space=None,
+    )
+    return DeltaReferenceBundle(
+        input_status="valid",
+        support_status=support_status,
+        selected_reference_tau=locked.selected_tau,
+        selected_reference_coverage=locked.selected_coverage,
+        full_scores=full_artifact,
+        fold_scores=fold_artifact,
+        support_rows=support_artifact,
+        support_qc=support_qc_artifact,
+    )
 
 
 def build_delta_reference_fiber(
@@ -993,4 +1185,237 @@ def build_delta_reference_fiber(
     )
 
 
-__all__ = ["DeltaReferenceFiberError", "build_delta_reference_fiber"]
+def build_compact_delta_reference_fiber(
+    *,
+    matched_reference_endpoint_id: str,
+    matched_reference_connectome_id: str,
+    reference_record: ReferenceRecord,
+    valid_fiber_ids: ScientificArray,
+    full_weights: ScientificArray,
+    fold_weights: ScientificArray,
+    fold_valid_masks: ScientificArray,
+    selected_reference_condition_exposure: ScientificArray,
+    selected_addon_reference_component_exposure: ScientificArray,
+    total_suprathreshold_count: ScientificArray,
+    subject_axis: AxisRef,
+    reference_subject_axis: AxisRef,
+    addon_subject_ids: tuple[str, ...],
+    reference_subject_ids: tuple[str, ...],
+    support_parent_fiber_axis: AxisRef,
+    reference_parent_fiber_axis: AxisRef,
+    fiber_score_settings: NormativeFiberScoreSettings,
+    support_profile: DeltaReferenceSupportProfile,
+    publisher: ArtifactPublisher,
+    artifact_store: ArtifactStore | None = None,
+) -> DeltaReferenceBundle:
+    """Rebuild fiber DeltaReferenceScore from selected rows and parent counts."""
+
+    for axis, name in (
+        (subject_axis, "subject_axis"),
+        (reference_subject_axis, "reference_subject_axis"),
+        (support_parent_fiber_axis, "support_parent_fiber_axis"),
+        (reference_parent_fiber_axis, "reference_parent_fiber_axis"),
+    ):
+        if not isinstance(axis, AxisRef):
+            raise TypeError(f"{name} must be an AxisRef")
+    if not isinstance(fiber_score_settings, NormativeFiberScoreSettings):
+        raise TypeError("fiber_score_settings must be NormativeFiberScoreSettings")
+    if not isinstance(publisher, ArtifactPublisher):
+        raise TypeError("publisher must implement ArtifactPublisher")
+    if artifact_store is not None and not isinstance(artifact_store, ArtifactStore):
+        raise TypeError("artifact_store must be an ArtifactStore or None")
+    _validate_support_profile(support_profile)
+    locked = _locked_reference(
+        reference_record,
+        matched_reference_endpoint_id=matched_reference_endpoint_id,
+        matched_reference_connectome_id=matched_reference_connectome_id,
+    )
+    try:
+        fold_indices = reference_fold_indices(
+            addon_subject_ids=addon_subject_ids,
+            reference_subject_ids=reference_subject_ids,
+            addon_subject_axis=subject_axis,
+            reference_subject_axis=reference_subject_axis,
+        )
+    except DeltaReferenceCohortError as error:
+        raise DeltaReferenceFiberError(str(error)) from error
+    for value, name, kind in (
+        (valid_fiber_ids, "valid_fiber_ids", "normative_fiber_valid_union_ids"),
+        (full_weights, "full_weights", "benefit_oriented_fiber_weights"),
+        (
+            fold_weights,
+            "fold_weights",
+            "loocv_benefit_oriented_fiber_weights",
+        ),
+        (
+            fold_valid_masks,
+            "fold_valid_masks",
+            "loocv_valid_fiber_masks",
+        ),
+    ):
+        _require_reference_artifact(
+            value,
+            locked,
+            name=name,
+            expected_kind=kind,
+        )
+    _validate_artifact_spaces(
+        (
+            valid_fiber_ids,
+            full_weights,
+            fold_weights,
+            fold_valid_masks,
+            selected_reference_condition_exposure,
+            selected_addon_reference_component_exposure,
+        )
+    )
+    valid_ids = _fiber_ids(
+        _materialize(
+            valid_fiber_ids,
+            name="valid_fiber_ids",
+            expected_axes=(locked.selected_axis,),
+            expected_units=None,
+            artifact_store=artifact_store,
+        ),
+        "valid_fiber_ids",
+        locked.selected_axis.count,
+    )
+    _validate_selected_axis(locked, reference_parent_fiber_axis, valid_ids)
+    full_weight_array = np.asarray(
+        _real_array(
+            _materialize(
+                full_weights,
+                name="full_weights",
+                expected_axes=(locked.selected_axis,),
+                expected_units="coefficient",
+                artifact_store=artifact_store,
+            ),
+            "full_weights",
+            1,
+        ),
+        dtype=np.float64,
+    )
+    fold_weight_array = np.asarray(
+        _real_array(
+            _materialize(
+                fold_weights,
+                name="fold_weights",
+                expected_axes=(reference_subject_axis, locked.selected_axis),
+                expected_units="coefficient",
+                artifact_store=artifact_store,
+            ),
+            "fold_weights",
+            2,
+        ),
+        dtype=np.float64,
+    )
+    fold_mask_array = _boolean_array(
+        _materialize(
+            fold_valid_masks,
+            name="fold_valid_masks",
+            expected_axes=(reference_subject_axis, locked.selected_axis),
+            expected_units=None,
+            artifact_store=artifact_store,
+        ),
+        "fold_valid_masks",
+        2,
+    )
+    if not np.array_equal(fold_mask_array, np.isfinite(fold_weight_array)):
+        raise DeltaReferenceFiberError(
+            "fold_valid_masks must exactly match finite fold weight support"
+        )
+    reference_exposure = _real_array(
+        _materialize(
+            selected_reference_condition_exposure,
+            name="selected_reference_condition_exposure",
+            expected_axes=(subject_axis, locked.selected_axis),
+            expected_units="V/m",
+            artifact_store=artifact_store,
+        ),
+        "selected_reference_condition_exposure",
+        2,
+    )
+    addon_reference_exposure = _real_array(
+        _materialize(
+            selected_addon_reference_component_exposure,
+            name="selected_addon_reference_component_exposure",
+            expected_axes=(subject_axis, locked.selected_axis),
+            expected_units="V/m",
+            artifact_store=artifact_store,
+        ),
+        "selected_addon_reference_component_exposure",
+        2,
+    )
+    totals = _real_array(
+        _materialize(
+            total_suprathreshold_count,
+            name="total_suprathreshold_count",
+            expected_axes=(subject_axis,),
+            expected_units=None,
+            artifact_store=artifact_store,
+        ),
+        "total_suprathreshold_count",
+        1,
+    )
+    expected_selected_shape = (subject_axis.count, locked.selected_axis.count)
+    if (
+        full_weight_array.shape != (locked.selected_axis.count,)
+        or fold_weight_array.shape
+        != (reference_subject_axis.count, locked.selected_axis.count)
+        or fold_mask_array.shape
+        != (reference_subject_axis.count, locked.selected_axis.count)
+        or reference_exposure.shape != expected_selected_shape
+        or addon_reference_exposure.shape != expected_selected_shape
+        or totals.shape != (subject_axis.count,)
+        or not np.all(np.isfinite(reference_exposure))
+        or not np.all(np.isfinite(addon_reference_exposure))
+        or not np.all(np.isfinite(totals))
+        or np.any(totals < 0.0)
+        or np.any(totals > support_parent_fiber_axis.count)
+        or np.any(totals != np.floor(totals))
+    ):
+        raise DeltaReferenceFiberError(
+            "compact DeltaReferenceScore arrays do not match their declared axes"
+        )
+    addon_fold_weights = fold_weight_array[fold_indices]
+    addon_fold_masks = fold_mask_array[fold_indices]
+    full_scores, fold_scores, full_valid, fold_valid = _locked_scores(
+        addon_reference_exposure,
+        reference_exposure,
+        full_weight_array,
+        addon_fold_weights,
+        addon_fold_masks,
+        valid_ids,
+        fiber_score_settings,
+    )
+    support_rows, total, full_out_fraction, support_labels = (
+        _support_rows_from_selected(
+            addon_reference_exposure >= locked.selected_tau,
+            np.asarray(totals, dtype=np.int64),
+            full_valid,
+            fold_valid,
+        )
+    )
+    return _publish_compact_result(
+        locked=locked,
+        parent_fiber_axis=support_parent_fiber_axis,
+        subject_axis=subject_axis,
+        fiber_score_settings=fiber_score_settings,
+        support_profile=support_profile,
+        support_rows=support_rows,
+        total=total,
+        full_out_fraction=full_out_fraction,
+        support_labels=support_labels,
+        full_valid=full_valid,
+        fold_valid=fold_valid,
+        full_scores=full_scores,
+        fold_scores=fold_scores,
+        publisher=publisher,
+    )
+
+
+__all__ = [
+    "DeltaReferenceFiberError",
+    "build_compact_delta_reference_fiber",
+    "build_delta_reference_fiber",
+]
