@@ -4750,6 +4750,19 @@ are reference voxel, add-on voxel, reference fiber, and add-on fiber. Each
 endpoint consumes the complete physical-block set required by its immutable
 descriptor and retains its own statistical refit.
 
+The realized branch inventory contains 22 no-delta add-on voxel endpoints,
+six adjusted add-on voxel endpoints, 24 no-delta add-on fiber endpoints, and
+four adjusted add-on fiber endpoints. The reduced physical groups serve both
+reference families and the 46 no-delta add-on endpoints. The ten adjusted
+add-on endpoints still use Decision 24's full-parent replicate provider because
+the reduced block format does not carry support-preserving evidence for their
+complete parent universe. They wait behind the same 160-block barrier but do
+not claim reduced-axis Layer-1 execution. Their completion proves the corrected
+scientific jitter result; it cannot by itself close the open adjusted-branch
+Layer-1 performance requirement. That requirement needs bounded measured
+resource evidence for the retained path or a later support-preserving block
+implementation with numerical parity.
+
 The independent OSS plan contains 588 tasks. Of these, 196 are immutable
 checkpoint roots and 392 are new pPAM tasks. Every one of the 56 fiber
 endpoints receives one observed workspace, one deterministic schedule, four
