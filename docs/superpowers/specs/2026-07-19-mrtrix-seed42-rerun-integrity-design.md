@@ -107,6 +107,12 @@ work/configs
 work/run.lock
 ```
 
+Because the seed-wide cache is eligible for removal, `work/state.json` must be
+self-contained. Each published seed result retains its seed-wide identity,
+preparation artifact-set hash, complete scientific identity document, ordered
+target keys, target counts, and hit fractions. Later comparison and provenance
+checks must not depend on a deleted `seed_state.json`.
+
 Eligible cache directories are moved to platform Trash and never permanently
 deleted. Each subject state records the request, terminal cleanup status,
 selected paths, selected bytes, completed time, and any pending paths. Trash

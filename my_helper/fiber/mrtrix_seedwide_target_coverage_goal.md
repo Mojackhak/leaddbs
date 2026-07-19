@@ -263,6 +263,10 @@ work/rollback
 
 Public tractograms plus `work/state.json`, `work/configs`, and `work/run.lock`
 remain in place. Cleanup status and any pending paths are recorded in state.
+The retained state is self-contained: each seed result stores the complete
+seed-wide scientific identity document, preparation artifact-set hash, ordered
+target keys, target counts, and hit fractions so provenance and comparisons do
+not depend on cache-resident seed state.
 
 The real-data test YAML differs by using two subjects, two targets per seed,
 and `maximum_seedwide_streamlines: 50000`. Its one generated batch is therefore

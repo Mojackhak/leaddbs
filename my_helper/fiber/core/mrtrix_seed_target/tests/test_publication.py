@@ -57,6 +57,10 @@ def _seed_result(tmp_path: Path, *, target_id: str = "Target") -> dict:
     return {
         "status": "staged_complete",
         "seedwide_identity": "seed-identity",
+        "identity_document": {
+            "identity_version": 2,
+            "preparation_artifact_set_hash": "artifact-set",
+        },
         "total_streamlines": 1,
         "target_hit_counts": [1],
         "minimum_target_streamlines": 1,
@@ -97,6 +101,16 @@ def test_fresh_publication_and_unchanged_reuse_preserve_tck_mtime(
         run_provenance=RUN_PROVENANCE,
     )
     assert first["status"] == "complete"
+    state = publication_module.read_json(
+        subject.output_root / "work" / "state.json"
+    )
+    assert (
+        state["seed_results"]["lh/Seed"]["preparation_artifact_set_hash"]
+        == "artifact-set"
+    )
+    assert state["seed_results"]["lh/Seed"]["targets"] == [
+        {"key": "lh/Target", "streamline_count": 1, "hit_fraction": 1.0}
+    ]
     final = subject.output_root / "tractograms" / "lh" / "Seed" / "seedwide.tck"
     first_mtime = final.stat().st_mtime_ns
     sidecar = subject.output_root / "tractograms" / "lh" / "._Seed"

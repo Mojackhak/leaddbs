@@ -278,9 +278,21 @@ def publish_subject(
         "seed_results": {
             key: {
                 "seedwide_identity": result["seedwide_identity"],
+                "identity_document": result["identity_document"],
+                "preparation_artifact_set_hash": result["identity_document"][
+                    "preparation_artifact_set_hash"
+                ],
                 "total_streamlines": int(result["total_streamlines"]),
                 "target_hit_counts": [
                     int(value) for value in result["target_hit_counts"]
+                ],
+                "targets": [
+                    {
+                        "key": target["key"],
+                        "streamline_count": int(target["streamline_count"]),
+                        "hit_fraction": float(target["hit_fraction"]),
+                    }
+                    for target in result["outputs"]["targets"]
                 ],
                 "minimum_target_streamlines": int(
                     result["minimum_target_streamlines"]
