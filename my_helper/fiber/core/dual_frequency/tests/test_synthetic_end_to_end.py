@@ -1522,6 +1522,70 @@ def _registry_with_fake_activation(
 
 
 class SyntheticEndToEndTest(unittest.TestCase):
+    def test_true_cleanup_runs_only_after_complete_canonical_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory).resolve()
+            request = _write_profiles(root)
+            workflow = yaml.safe_load(
+                request.workflow_profile.read_text(encoding="utf-8")
+            )
+            workflow["storage"]["delete_run_cache_on_success"] = True
+            request.workflow_profile.write_text(
+                yaml.safe_dump(workflow, sort_keys=False),
+                encoding="utf-8",
+            )
+            _write_publication_assets(root, request.study_base)
+            configuration = load_workflow(
+                request.workflow_profile,
+                request.overrides,
+            )
+            study = load_study_base(request.study_base)
+            catalog = build_endpoint_catalog(configuration, study)
+            service = WorkflowService(
+                registry=_registry_with_fake_activation(_FakeActivationBackend()),
+                provider=_PublicationFixtureRuntimeProvider(
+                    configuration,
+                    catalog,
+                    root,
+                ),
+            )
+            run_id = "cleanup-after-publication"
+            result = service.run(request, run_id=run_id)
+            run_root = root / "runs" / "project_neutral_study" / run_id
+            generations_before = tuple(
+                path
+                for path in (run_root / "work").rglob("*")
+                if path.is_dir()
+                and (
+                    path.name.startswith("operator-generation-")
+                    or path.name.startswith("ppam-generation-")
+                )
+            )
+            task_artifacts = tuple(
+                path
+                for path in (run_root / "work").rglob("*.npy")
+                if not any(
+                    parent in generations_before for parent in path.parents
+                )
+            )
+            shared_sentinel = configuration.workflow.storage.cache_root / "retained.bin"
+            shared_sentinel.parent.mkdir(parents=True, exist_ok=True)
+            shared_sentinel.write_bytes(b"shared-cache")
+
+            first = CanonicalPublisher().publish(run_root)
+            second = CanonicalPublisher().publish(run_root)
+
+            self.assertEqual(result.exit_code, 0)
+            self.assertTrue(generations_before)
+            self.assertTrue(task_artifacts)
+            self.assertTrue(
+                all(not generation.exists() for generation in generations_before)
+            )
+            self.assertTrue(all(path.is_file() for path in task_artifacts))
+            self.assertTrue(shared_sentinel.is_file())
+            self.assertTrue((run_root / "run_cache_cleanup.json").is_file())
+            self.assertEqual(first, second)
+
     def test_missing_parent_rebuild_creates_a_new_lineage_before_extension(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory).resolve()

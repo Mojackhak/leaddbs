@@ -1351,6 +1351,25 @@ must never remove cache content. This is an unconditional recovery invariant:
 enabling successful-run cleanup cannot override it. Publication and run
 artifacts are never cache cleanup targets.
 
+Run-owned cache is restricted to descriptor-listed formal and pPAM operator
+scratch plus the current run's `runtime_work` directory. The shared scientific
+`cache_root`, task artifacts, task JSON, sensitivity checkpoint, extension, and
+canonical publication are never cleanup targets. Cleanup executes only from the
+canonical main publisher after both model manifests, artifact indexes, all
+configured scale-status rows, and the source run are unqualified completed.
+Descriptor validation is a complete preflight before deletion, and one atomic
+run-local marker makes a repeated publication cleanup idempotent. The configured
+false value therefore performs no cache mutation and preserves later resume,
+jitter, OSS-DBS, and combined extensions.
+
+Cleanup implementation acceptance on 2026-07-19: false, incomplete-run,
+complete-publication, untracked-scratch, and repeated-publication paths pass.
+The true-policy synthetic publisher removes only validated run-owned scratch,
+retains task artifacts and shared scientific cache, and completes an identical
+second publication through its marker. The focused gate passed 34 tests and 10
+subtests; the complete dual-frequency and visualization gate passed 539 tests
+and 308 subtests. The configured production value remains false.
+
 Canonical publication uses replayable temporary-sibling writes followed by
 atomic rename and a single payload integrity read. The verified SHA-256 and
 byte count are reused when recording the artifact index. Per-artifact

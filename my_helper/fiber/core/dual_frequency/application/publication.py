@@ -615,7 +615,7 @@ class CanonicalPublisher:
             times,
             domain="normative_fiber",
         )
-        return PublicationResult(
+        result = PublicationResult(
             run_id=str(manifest["run_id"]),
             direct_voxel_root=direct_root,
             normative_fiber_root=fiber_root,
@@ -623,6 +623,21 @@ class CanonicalPublisher:
             normative_fiber_artifact_count=len(fiber_writer.rows),
             scale_count=len(resolved["study"]["selected_scales"]),
         )
+        try:
+            from .run_cache_cleanup import cleanup_run_cache_after_publication
+
+            cleanup_run_cache_after_publication(
+                run_root=root,
+                resolved_configuration=resolved,
+                outcomes=outcomes,
+                direct_voxel_publication=direct_root,
+                normative_fiber_publication=fiber_root,
+            )
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            raise PublicationError(
+                f"post-publication run-cache cleanup failed: {error}"
+            ) from error
+        return result
 
     def publish_extension(
         self,

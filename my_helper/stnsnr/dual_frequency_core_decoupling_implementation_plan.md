@@ -4670,6 +4670,31 @@ Cleanup cannot remove the run store, canonical model-set publication,
 extensions, sensitivity checkpoints, or cache entries not owned by the
 completed run.
 
+The executable cleanup boundary is deliberately narrower than the shared
+scientific cache. Run-owned cache means only descriptor-enumerated formal and
+pPAM operator generations plus the run's own `runtime_work` directory. It never
+includes shared `cache_root` entries, task artifacts, task-state JSON, reporting
+documents, portable sensitivity bases, or canonical output. The canonical main
+publisher is the sole trigger: before touching scratch it verifies the completed
+run manifest, absence of failed or nonterminal task outcomes, both completed
+model manifests, both artifact indexes, and completed coverage of every
+configured scale. It validates all scratch descriptors in a first pass, removes
+them only in a second pass, and writes one atomic idempotence marker after full
+success. A false policy returns without inspection or mutation beyond the
+already completed publication.
+
+Cleanup acceptance on 2026-07-19: false policy returns before reading missing
+publication state and preserves all scratch. True policy rejects failed run
+state and untracked scratch before deletion. A complete synthetic run with real
+formal operator generations completes canonical publication, removes only those
+generations and run-owned `runtime_work`, preserves task NPY artifacts and a
+sentinel in shared `cache_root`, writes the atomic marker, and republishes
+successfully through the idempotent marker path. The cleanup, publication, and
+configuration gate passed 34 tests and 10 subtests; the complete dual-frequency
+and visualization gate passed 539 tests and 308 subtests outside the restricted
+system-monitoring sandbox. The production policy remains false, so no production
+cache was deleted.
+
 - [x] **Step 6: Update status and commit**
 
 Only after the publisher, publication replay, and public-only postprocess gates

@@ -2502,6 +2502,15 @@ The planner, executor, service, and extension focused gate passed 59 tests and
 tests and 308 subtests outside the restricted system-monitoring sandbox. No
 production, jitter, OSS-DBS, or combined extension was started.
 
+Post-publication cleanup now has an executable fail-closed boundary. The main
+canonical publisher alone may remove descriptor-listed formal or pPAM scratch
+and run-owned `runtime_work` after complete run, artifact-index, model-manifest,
+and configured-scale validation. Shared scientific cache and durable artifacts
+remain outside that boundary. False policy, incomplete state, untracked scratch,
+true-policy cleanup, and idempotent replay pass; the complete regression passes
+539 tests and 308 subtests. The production policy remains false and no
+production cache was deleted.
+
 ## Documentation Validation
 
 Before implementation begins:

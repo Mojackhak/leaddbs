@@ -96,8 +96,12 @@ both finish without failure. It must never clean failed or partial work, the
 run store, canonical publication, extensions, sensitivity checkpoints, or
 cache owned by another run. This failed-or-partial retention rule is
 unconditional; the setting can authorize only the fully successful branch.
-The cleanup execution boundary remains part of the open canonical-publisher
-Task 18.
+Run-owned cache is limited to descriptor-listed formal and pPAM operator
+scratch plus the run's `runtime_work` directory. Shared scientific cache,
+task artifacts, run records, sensitivity checkpoints, extensions, and canonical
+publications are never cleanup targets. The canonical main publisher performs
+the complete-state preflight and atomic cleanup marker. The current false value
+therefore retains all cache and later extension capability.
 
 The runtime reads the existing `study_base.json` supplied through the CLI. It
 does not create or consume an intermediate study bundle, copied clinical
