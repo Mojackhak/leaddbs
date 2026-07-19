@@ -15,6 +15,7 @@ pdq39VoxelInput = mh_viz_prepare_scene_example_input( ...
 spec = struct();
 spec.VoxelSignedNifti = pdq39VoxelInput.input_path;
 spec.VoxelColorbarLabel = 'PDQ-39 benefit-oriented voxel weight';
+spec.VoxelSampleDepthMm = 0.5;
 spec.FigureVisible = 'on';
 spec.OutputFig = '';
 spec.OutputImage = '';

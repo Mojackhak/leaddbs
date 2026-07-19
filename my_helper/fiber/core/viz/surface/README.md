@@ -26,7 +26,10 @@ Two MATLAB scripts under `../examples/` demonstrate the completed PDQ-39
 reference final models from the Task 17 main run:
 
 - `open_pdq39_reference_voxel_scene.m` opens the benefit-oriented direct-voxel
-  surface with symmetric `vik` colors and grayscale anatomy slices.
+  surface with symmetric `vik` colors and grayscale anatomy slices. It keeps
+  the migrated `insideOnly` color-sampling contract but overrides the sampling
+  depth to 0.5 mm for the sparse selected-feature NIfTI; the repository-wide
+  surface default remains 0.25 mm.
 - `open_pdq39_reference_fiber_scene.m` opens the selected sweet and sour PPMI
   fibers with one `vik` color per full-sample benefit-oriented weight.
 

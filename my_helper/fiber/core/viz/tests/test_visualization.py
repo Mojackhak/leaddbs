@@ -427,3 +427,8 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
         "open_pdq39_reference_fiber_scene.m",
     ):
         assert (viz_root / "examples" / name).is_file()
+    voxel_example_path = (
+        viz_root / "examples" / "open_pdq39_reference_voxel_scene.m"
+    )
+    voxel_example = voxel_example_path.read_text(encoding="utf-8")
+    assert "spec.VoxelSampleDepthMm = 0.5;" in voxel_example

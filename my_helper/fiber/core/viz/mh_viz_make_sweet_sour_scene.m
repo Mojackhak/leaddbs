@@ -196,6 +196,7 @@ defaults = struct();
 defaults.VoxelSignedNifti = '';
 defaults.VoxelTemplateNifti = '';
 defaults.VoxelColorbarLabel = '';
+defaults.VoxelSampleDepthMm = [];
 defaults.VoxelSweetNifti = '';
 defaults.VoxelSourNifti = '';
 defaults.FiberScoreMat = '';
@@ -250,6 +251,14 @@ end
 local_validate_unit(spec.VoxelAlpha, 'VoxelAlpha');
 local_validate_unit(spec.FiberAlpha, 'FiberAlpha');
 local_validate_unit(spec.AnatomySliceAlpha, 'AnatomySliceAlpha');
+if ~isempty(spec.VoxelSampleDepthMm) && ...
+        (~isnumeric(spec.VoxelSampleDepthMm) || ...
+        ~isscalar(spec.VoxelSampleDepthMm) || ...
+        ~isfinite(spec.VoxelSampleDepthMm) || ...
+        spec.VoxelSampleDepthMm < 0)
+    error('mh_viz_make_sweet_sour_scene:BadVoxelSampleDepth', ...
+        'VoxelSampleDepthMm must be empty or a nonnegative finite scalar.');
+end
 if ~isempty(spec.FiberColorLimit) && ...
         (~isnumeric(spec.FiberColorLimit) || ...
         ~isscalar(spec.FiberColorLimit) || ...
@@ -317,6 +326,9 @@ if ~isfile(signedPath)
 end
 
 niftiConfig = default_nifti2patch_config();
+if ~isempty(spec.VoxelSampleDepthMm)
+    niftiConfig.SampleDepthMm = spec.VoxelSampleDepthMm;
+end
 if strlength(string(spec.VoxelTemplateNifti)) > 0
     templatePath = char(string(spec.VoxelTemplateNifti));
     if ~isfile(templatePath)
