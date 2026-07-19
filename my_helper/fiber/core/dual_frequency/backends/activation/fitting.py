@@ -103,6 +103,43 @@ class PPAMFitResult:
     plain_model_comparisons: tuple[dict[str, object], ...]
 
 
+@dataclass(frozen=True, slots=True)
+class PPAMPermutationWorkspace:
+    """Immutable endpoint-local state reused by every pPAM null block."""
+
+    request: ActivationRequest
+    binary_exposure: np.ndarray
+    outcome: np.ndarray
+    nuisance_plan: NuisancePlan
+    fiber_ids: np.ndarray
+    full_operator: _WeightOperator
+    fold_operators: tuple[_WeightOperator, ...]
+    score_workspace: PrevalidatedFiberScoreWorkspace
+
+
+@dataclass(frozen=True, slots=True)
+class PPAMFitWorkspace:
+    """Observed pPAM state plus the fixed workspace for null inference."""
+
+    permutation: PPAMPermutationWorkspace
+    full_weights: np.ndarray
+    full_score: FiberScoreResult
+    observed: _LOOCVResult
+    finite_full_weights: int
+    peak_score_pearson_r: float
+    failure_reasons: tuple[str, ...]
+    plain_activation_count: np.ndarray
+    plain_activation_sum: np.ndarray
+    plain_activation_top5: np.ndarray
+    plain_model_comparisons: tuple[dict[str, object], ...]
+
+    @property
+    def can_permute(self) -> bool:
+        """Return whether formal pPAM null inference is scientifically valid."""
+
+        return not self.failure_reasons
+
+
 def _finite_vector(value: np.ndarray, name: str, count: int) -> np.ndarray:
     array = np.asarray(value, dtype=np.float64)
     if array.shape != (count,) or not np.all(np.isfinite(array)):
@@ -467,17 +504,15 @@ def _ppam_permutation_block(
     )
 
 
-def compute_ppam_permutation_block(
+def prepare_ppam_permutation_workspace(
     request: ActivationRequest,
     binary_exposure: np.ndarray,
     outcome: np.ndarray,
     baseline: np.ndarray,
     fiber_ids: np.ndarray,
     nuisance_inputs: tuple[np.ndarray, ...],
-    schedule: ResamplingSchedule,
-    block: ReplicateBlock,
-) -> PermutationBlockComputation:
-    """Build fixed pPAM operators and compute one independent null interval."""
+) -> PPAMPermutationWorkspace:
+    """Build the invariant pPAM state shared by all null intervals."""
 
     if not isinstance(request, ActivationRequest):
         raise PPAMFittingError("request must be an ActivationRequest")
@@ -498,6 +533,33 @@ def compute_ppam_permutation_block(
     ids = activation_universe(fiber_ids)
     if ids.size != request.feature_axis.count:
         raise PPAMFittingError("fiber IDs do not match activation feature axis")
+    plan = _build_nuisance_plan(request, baseline_values, nuisance_inputs)
+    score_workspace = PrevalidatedFiberScoreWorkspace(binary, ids)
+    full_operator, fold_operators = _weight_operators(binary, plan)
+    return PPAMPermutationWorkspace(
+        request=request,
+        binary_exposure=binary,
+        outcome=y,
+        nuisance_plan=plan,
+        fiber_ids=ids,
+        full_operator=full_operator,
+        fold_operators=fold_operators,
+        score_workspace=score_workspace,
+    )
+
+
+def compute_ppam_permutation_block_from_workspace(
+    workspace: PPAMPermutationWorkspace,
+    schedule: ResamplingSchedule,
+    block: ReplicateBlock,
+) -> PermutationBlockComputation:
+    """Compute one null interval without rebuilding invariant endpoint state."""
+
+    if not isinstance(workspace, PPAMPermutationWorkspace):
+        raise PPAMFittingError(
+            "workspace must be a PPAMPermutationWorkspace"
+        )
+    request = workspace.request
     validate_resampling_schedule(
         schedule,
         schedule_kind="permutation",
@@ -509,16 +571,40 @@ def compute_ppam_permutation_block(
         raise PPAMFittingError(
             "pPAM permutation block does not match request resamples"
         )
-    plan = _build_nuisance_plan(request, baseline_values, nuisance_inputs)
-    score_workspace = PrevalidatedFiberScoreWorkspace(binary, ids)
-    _full_operator, fold_operators = _weight_operators(binary, plan)
     return _ppam_permutation_block(
         request,
-        binary,
-        y,
-        plan,
-        fold_operators,
-        score_workspace,
+        workspace.binary_exposure,
+        workspace.outcome,
+        workspace.nuisance_plan,
+        workspace.fold_operators,
+        workspace.score_workspace,
+        schedule,
+        block,
+    )
+
+
+def compute_ppam_permutation_block(
+    request: ActivationRequest,
+    binary_exposure: np.ndarray,
+    outcome: np.ndarray,
+    baseline: np.ndarray,
+    fiber_ids: np.ndarray,
+    nuisance_inputs: tuple[np.ndarray, ...],
+    schedule: ResamplingSchedule,
+    block: ReplicateBlock,
+) -> PermutationBlockComputation:
+    """Compatibility helper for one independently prepared null interval."""
+
+    workspace = prepare_ppam_permutation_workspace(
+        request,
+        binary_exposure,
+        outcome,
+        baseline,
+        fiber_ids,
+        nuisance_inputs,
+    )
+    return compute_ppam_permutation_block_from_workspace(
+        workspace,
         schedule,
         block,
     )
@@ -611,7 +697,7 @@ def _plain_model_comparisons(
     )
 
 
-def fit_ppam_activation(
+def prepare_ppam_fit_workspace(
     request: ActivationRequest,
     probabilities: np.ndarray,
     reference_overlap_mask: np.ndarray,
@@ -620,8 +706,8 @@ def fit_ppam_activation(
     peak_final_score: np.ndarray,
     fiber_ids: np.ndarray,
     nuisance_inputs: tuple[np.ndarray, ...],
-) -> PPAMFitResult:
-    """Fit one report-only pPAM sensitivity on a locked final fiber axis."""
+) -> PPAMFitWorkspace:
+    """Prepare fixed pPAM operators and the complete observed fit once."""
 
     probability = validate_ten_sample_probabilities(probabilities)
     unmasked_binary = binary_activation(probability)
@@ -633,24 +719,25 @@ def fit_ppam_activation(
     binary = np.where(overlap, 0.0, unmasked_binary).astype(np.float32, copy=False)
     binary.flags.writeable = False
     n_subjects, n_features = binary.shape
-    y = _finite_vector(outcome, "outcome", n_subjects)
-    baseline_values = _finite_vector(baseline, "baseline", n_subjects)
+    permutation = prepare_ppam_permutation_workspace(
+        request,
+        binary,
+        outcome,
+        baseline,
+        fiber_ids,
+        nuisance_inputs,
+    )
+    y = permutation.outcome
     peak = np.asarray(peak_final_score, dtype=np.float64)
     if peak.shape != (n_subjects,):
         raise PPAMFittingError("peak_final_score must be a subject vector")
-    ids = activation_universe(fiber_ids)
-    if ids.size != n_features:
-        raise PPAMFittingError("fiber_ids do not match activation feature axis")
-    plan = _build_nuisance_plan(request, baseline_values, nuisance_inputs)
-    score_workspace = PrevalidatedFiberScoreWorkspace(binary, ids)
-    full_operator, fold_operators = _weight_operators(binary, plan)
     full_weights = _weights_for_outcome(
         y,
-        full_operator,
+        permutation.full_operator,
         n_features,
         request.outcome_direction,
     )
-    full_score = score_workspace.score(
+    full_score = permutation.score_workspace.score(
         full_weights,
         request.fiber_score_settings,
         candidate_mask=np.ones(n_features, dtype=bool),
@@ -658,10 +745,10 @@ def fit_ppam_activation(
     observed = _loocv(
         y,
         binary,
-        plan,
-        fold_operators,
+        permutation.nuisance_plan,
+        permutation.fold_operators,
         request,
-        score_workspace,
+        permutation.score_workspace,
         retain_score_metadata=True,
     )
     finite_full = int(np.count_nonzero(np.isfinite(full_weights)))
@@ -712,7 +799,69 @@ def fit_ppam_activation(
     )
     if peak_is_valid and not np.isfinite(peak_correlation):
         failures.append("nonfinite_peak_score_correlation")
+    plain_count, plain_sum, plain_top5 = _plain_activation(binary)
+    comparisons = _plain_model_comparisons(
+        y,
+        permutation.nuisance_plan.full_covariates,
+        full_score.net_score,
+        plain_top5,
+    )
+    return PPAMFitWorkspace(
+        permutation=permutation,
+        full_weights=full_weights,
+        full_score=full_score,
+        observed=observed,
+        finite_full_weights=finite_full,
+        peak_score_pearson_r=peak_correlation,
+        failure_reasons=tuple(failures),
+        plain_activation_count=plain_count,
+        plain_activation_sum=plain_sum,
+        plain_activation_top5=plain_top5,
+        plain_model_comparisons=comparisons,
+    )
+
+
+def aggregate_ppam_fit_workspace(
+    workspace: PPAMFitWorkspace,
+    schedule: ResamplingSchedule | None,
+    blocks: tuple[PermutationBlockComputation, ...],
+) -> PPAMFitResult:
+    """Combine a complete null axis with retained observed pPAM state."""
+
+    if not isinstance(workspace, PPAMFitWorkspace):
+        raise PPAMFittingError("workspace must be a PPAMFitWorkspace")
+    if not isinstance(blocks, tuple) or not all(
+        isinstance(item, PermutationBlockComputation) for item in blocks
+    ):
+        raise PPAMFittingError(
+            "pPAM aggregate blocks must be typed permutation computations"
+        )
+    permutation = workspace.permutation
+    request = permutation.request
+    failures = list(workspace.failure_reasons)
     null = np.full(request.permutation_resamples, np.nan, dtype=np.float64)
+    permutation_p = math.nan
+    if workspace.can_permute:
+        if not isinstance(schedule, ResamplingSchedule):
+            raise PPAMFittingError(
+                "permutation-ready pPAM workspace requires its parent schedule"
+            )
+        combined = combine_permutation_blocks(
+            workspace.observed.metrics,
+            schedule,
+            blocks,
+        )
+        null = combined.null_statistics
+        if not np.all(np.isfinite(null)):
+            failures.append("permutation_incomplete")
+        observed_statistic = workspace.observed.metrics["loocv_spearman_rho"]
+        if np.isfinite(observed_statistic) and np.all(np.isfinite(null)):
+            permutation_p = float(combined.p_plus_one_two_sided)
+    elif schedule is not None or blocks:
+        raise PPAMFittingError(
+            "non-permutation-ready pPAM workspace cannot receive null state"
+        )
+
     activation_failures = {
         "activation_all_zero",
         "insufficient_fold_finite_weights",
@@ -720,87 +869,86 @@ def fit_ppam_activation(
         "full_score_constant_or_nonfinite",
         "fold_score_constant_or_nonfinite",
     }
-    can_permute = not failures
-    if can_permute:
+    if any(reason in activation_failures for reason in failures):
+        status = "failed_activation_degenerate"
+    elif failures:
+        status = "failed_oss_design_or_prediction"
+    elif (
+        np.isfinite(workspace.peak_score_pearson_r)
+        and workspace.peak_score_pearson_r > 0.0
+    ):
+        status = "passed_activation_consistent"
+    else:
+        status = "passed_activation_model_dependent"
+    return PPAMFitResult(
+        status=status,
+        failure_reasons=tuple(failures),
+        full_weights=workspace.full_weights,
+        fold_weights=workspace.observed.fold_weights,
+        full_scores=np.asarray(workspace.full_score.net_score, dtype=np.float64),
+        fold_scores=workspace.observed.fold_scores,
+        heldout_scores=workspace.observed.heldout_scores,
+        predictions=workspace.observed.predictions,
+        baseline_predictions=workspace.observed.baseline_predictions,
+        full_support=score_support_fields(
+            workspace.full_score,
+            request.fiber_score_settings,
+        ),
+        fold_support=workspace.observed.fold_support,
+        finite_full_weights=workspace.finite_full_weights,
+        finite_fold_weights=workspace.observed.finite_weight_counts,
+        performance=workspace.observed.metrics,
+        peak_score_pearson_r=workspace.peak_score_pearson_r,
+        permutation_null=null,
+        permutation_p_plus_one_two_sided=permutation_p,
+        plain_activation_count=workspace.plain_activation_count,
+        plain_activation_sum=workspace.plain_activation_sum,
+        plain_activation_top5=workspace.plain_activation_top5,
+        plain_model_comparisons=workspace.plain_model_comparisons,
+    )
+
+
+def fit_ppam_activation(
+    request: ActivationRequest,
+    probabilities: np.ndarray,
+    reference_overlap_mask: np.ndarray,
+    outcome: np.ndarray,
+    baseline: np.ndarray,
+    peak_final_score: np.ndarray,
+    fiber_ids: np.ndarray,
+    nuisance_inputs: tuple[np.ndarray, ...],
+) -> PPAMFitResult:
+    """Fit one report-only pPAM sensitivity on a locked final fiber axis."""
+
+    workspace = prepare_ppam_fit_workspace(
+        request,
+        probabilities,
+        reference_overlap_mask,
+        outcome,
+        baseline,
+        peak_final_score,
+        fiber_ids,
+        nuisance_inputs,
+    )
+    if workspace.can_permute:
         schedule = formal_resampling_schedule(
             "permutation",
-            y.size,
+            request.subject_axis.count,
             request.permutation_resamples,
             request.seed,
         )
         blocks = tuple(
-            _ppam_permutation_block(
-                request,
-                binary,
-                y,
-                plan,
-                fold_operators,
-                score_workspace,
+            compute_ppam_permutation_block_from_workspace(
+                workspace.permutation,
                 schedule,
                 block,
             )
             for block in schedule.blocks()
         )
-        combined = combine_permutation_blocks(
-            observed.metrics,
-            schedule,
-            blocks,
-        )
-        null = combined.null_statistics
-        if not np.all(np.isfinite(null)):
-            failures.append("permutation_incomplete")
-
-    observed_statistic = observed.metrics["loocv_spearman_rho"]
-    if np.isfinite(observed_statistic) and np.all(np.isfinite(null)):
-        permutation_p = float(
-            combined.p_plus_one_two_sided
-            if can_permute
-            else math.nan
-        )
     else:
-        permutation_p = math.nan
-
-    if any(reason in activation_failures for reason in failures):
-        status = "failed_activation_degenerate"
-    elif failures:
-        status = "failed_oss_design_or_prediction"
-    elif np.isfinite(peak_correlation) and peak_correlation > 0.0:
-        status = "passed_activation_consistent"
-    else:
-        status = "passed_activation_model_dependent"
-    plain_count, plain_sum, plain_top5 = _plain_activation(binary)
-    comparisons = _plain_model_comparisons(
-        y,
-        plan.full_covariates,
-        full_score.net_score,
-        plain_top5,
-    )
-    return PPAMFitResult(
-        status=status,
-        failure_reasons=tuple(failures),
-        full_weights=full_weights,
-        fold_weights=observed.fold_weights,
-        full_scores=np.asarray(full_score.net_score, dtype=np.float64),
-        fold_scores=observed.fold_scores,
-        heldout_scores=observed.heldout_scores,
-        predictions=observed.predictions,
-        baseline_predictions=observed.baseline_predictions,
-        full_support=score_support_fields(
-            full_score,
-            request.fiber_score_settings,
-        ),
-        fold_support=observed.fold_support,
-        finite_full_weights=finite_full,
-        finite_fold_weights=observed.finite_weight_counts,
-        performance=observed.metrics,
-        peak_score_pearson_r=peak_correlation,
-        permutation_null=null,
-        permutation_p_plus_one_two_sided=permutation_p,
-        plain_activation_count=plain_count,
-        plain_activation_sum=plain_sum,
-        plain_activation_top5=plain_top5,
-        plain_model_comparisons=comparisons,
-    )
+        schedule = None
+        blocks = ()
+    return aggregate_ppam_fit_workspace(workspace, schedule, blocks)
 
 
 def _json_number(value: float) -> float | None:
@@ -1249,7 +1397,13 @@ class PPAMActivationBackend:
 __all__ = [
     "PPAMActivationBackend",
     "PPAMFitResult",
+    "PPAMFitWorkspace",
     "PPAMFittingError",
+    "PPAMPermutationWorkspace",
+    "aggregate_ppam_fit_workspace",
     "compute_ppam_permutation_block",
+    "compute_ppam_permutation_block_from_workspace",
     "fit_ppam_activation",
+    "prepare_ppam_fit_workspace",
+    "prepare_ppam_permutation_workspace",
 ]

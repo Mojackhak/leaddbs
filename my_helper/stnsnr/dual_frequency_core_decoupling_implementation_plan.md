@@ -4015,6 +4015,41 @@ subtests. The full dual-frequency gate passed 502 tests and 295 subtests
 outside the restricted system-monitoring sandbox. No production or sensitivity
 extension was started.
 
+Fourteenth Step 9 implementation slice: extract one in-memory pPAM fit
+workspace before introducing its durable run-scoped representation. Workspace
+construction validates the inherited final axis, applies the reference-overlap
+mask, builds the nuisance plan, fixed full and fold weight operators, and fiber
+score workspace once, then computes the complete observed fit and technical
+eligibility state once. A block function accepts only this prepared workspace,
+the complete parent schedule, and one canonical interval. The ordered
+aggregate accepts the same workspace and a complete set of non-overlapping
+blocks, computes the plus-one two-sided tail, and returns the existing
+`PPAMFitResult` without changing any `ActivationArtifact` field or serial
+numerical output.
+
+The retained `fit_ppam_activation` entry point becomes a compatibility wrapper
+over workspace construction, fixed block execution, and ordered aggregation.
+The existing public single-block helper may construct a workspace for bounded
+parity tests, but the later production block service must receive a durable
+workspace and must not invoke that compatibility path. Tests must prove that a
+251-replicate two-block execution builds fixed operators and observed state
+once, preserves exact schedule bytes and block results, and matches every
+legacy result array, scalar, status, failure reason, support field, and plain
+control within the existing floating tolerance. This slice changes no planner,
+record codec, service registry, production output, or sensitivity execution.
+
+Fourteenth-slice acceptance on 2026-07-19: the 251-replicate fixture constructs
+one pPAM fit workspace, one complete historical schedule, a 250-replicate
+block, and the one-replicate tail. The fixed-operator builder is invoked once
+across observed fitting and both canonical blocks. Reverse block completion
+matches the single-interval null bytes exactly, and explicit
+workspace/block/aggregate execution matches every compatibility-wrapper
+result field exactly. Missing coverage and changed parent schedule digest
+continue to fail closed. The OSS gate passed 24 tests and 12 subtests; the full
+dual-frequency gate passed 502 tests and 295 subtests outside the restricted
+system-monitoring sandbox. No planner, record, production, jitter, OSS-DBS, or
+combined extension was started.
+
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial
 accumulators and the strict ordered aggregate. A 251-replicate fixture for both

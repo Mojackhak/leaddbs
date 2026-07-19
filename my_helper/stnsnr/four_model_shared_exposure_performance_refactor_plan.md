@@ -2383,6 +2383,26 @@ tests and 295 subtests outside the restricted system-monitoring sandbox. No
 planner, production, jitter, OSS-DBS, or combined extension was started by this
 slice.
 
+The next pPAM numerical slice creates one endpoint-local in-memory fit
+workspace. It owns the immutable binary exposure, final feature IDs, nuisance
+plan, fixed full and fold operators, reusable score workspace, observed fit,
+and permutation eligibility. Canonical permutation blocks consume this object
+without rebuilding those inputs, and the strict ordered aggregate combines the
+complete parent axis into the unchanged final pPAM result. The serial public
+entry point must delegate to the same workspace/block/aggregate path so parity
+does not compare two independent implementations. Durable scratch, task
+records, planner migration, and extension resume follow only after this
+numerical boundary passes the two-block parity and one-construction tests.
+
+The numerical workspace gate now passes. A 251-replicate fixture builds fixed
+operators once, executes the 250-replicate block and one-replicate tail in
+reverse completion order, reproduces the single-interval null bytes exactly,
+and reproduces every existing pPAM result field through the compatibility
+wrapper. The focused OSS gate passed 24 tests and 12 subtests; the complete
+dual-frequency gate passed 502 tests and 295 subtests outside the restricted
+system-monitoring sandbox. Planner and durable-workspace migration remain the
+next boundary, and no sensitivity process was started.
+
 ## Documentation Validation
 
 Before implementation begins:

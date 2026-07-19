@@ -602,35 +602,51 @@ class PPAMActivationBackendTest(unittest.TestCase):
             permutation_resamples=251,
             seed=67,
         )
-        binary = binary_activation(self.probabilities)
         schedule = formal_resampling_schedule(
             "permutation",
             self.n_subjects,
             request.permutation_resamples,
             request.seed,
         )
-
-        def compute(block):
-            return compute_ppam_permutation_block(
+        with patch.object(
+            ppam_fitting,
+            "_weight_operators",
+            wraps=ppam_fitting._weight_operators,
+        ) as build_operators:
+            workspace = ppam_fitting.prepare_ppam_fit_workspace(
                 request,
-                binary,
+                self.probabilities,
+                np.zeros_like(self.probabilities, dtype=bool),
                 self.outcome,
                 self.baseline,
+                self.peak_score,
                 self.fiber_ids,
                 (),
+            )
+            serial = ppam_fitting.compute_ppam_permutation_block_from_workspace(
+                workspace.permutation,
                 schedule,
-                block,
+                ReplicateBlock(
+                    0,
+                    0,
+                    request.permutation_resamples,
+                    request.permutation_resamples,
+                ),
             )
-
-        serial = compute(
-            ReplicateBlock(
-                0,
-                0,
-                request.permutation_resamples,
-                request.permutation_resamples,
+            canonical_blocks = tuple(
+                ppam_fitting.compute_ppam_permutation_block_from_workspace(
+                    workspace.permutation,
+                    schedule,
+                    block,
+                )
+                for block in schedule.blocks()
             )
-        )
-        canonical_blocks = tuple(compute(block) for block in schedule.blocks())
+            explicit = ppam_fitting.aggregate_ppam_fit_workspace(
+                workspace,
+                schedule,
+                tuple(reversed(canonical_blocks)),
+            )
+            self.assertEqual(build_operators.call_count, 1)
         self.assertEqual(
             tuple(block.block.count for block in canonical_blocks),
             (250, 1),
@@ -663,6 +679,24 @@ class PPAMActivationBackendTest(unittest.TestCase):
                 schedule,
                 (changed_digest, *canonical_blocks[1:]),
             )
+
+        delegated = ppam_fitting.fit_ppam_activation(
+            request,
+            self.probabilities,
+            np.zeros_like(self.probabilities, dtype=bool),
+            self.outcome,
+            self.baseline,
+            self.peak_score,
+            self.fiber_ids,
+            (),
+        )
+        for field in dataclasses.fields(explicit):
+            actual = getattr(explicit, field.name)
+            expected = getattr(delegated, field.name)
+            if isinstance(actual, np.ndarray):
+                np.testing.assert_array_equal(actual, expected)
+            else:
+                self.assertEqual(actual, expected, field.name)
 
     def test_permutation_block_record_publishes_reopens_and_fails_closed(self) -> None:
         request = dataclasses.replace(
