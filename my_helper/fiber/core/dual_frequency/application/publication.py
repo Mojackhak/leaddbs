@@ -15,7 +15,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import unquote, urlparse
 
 import numpy as np
@@ -91,11 +91,15 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _artifact_path(artifact: ArtifactRef) -> Path:
+def _artifact_location(artifact: ArtifactRef) -> Path:
     parsed = urlparse(artifact.uri)
     if parsed.scheme != "file":
         raise PublicationError("canonical publication accepts file artifacts only")
-    path = Path(unquote(parsed.path)).resolve()
+    return Path(unquote(parsed.path)).resolve()
+
+
+def _artifact_path(artifact: ArtifactRef) -> Path:
+    path = _artifact_location(artifact)
     if not path.is_file():
         raise PublicationError(f"source artifact is missing: {path}")
     if _sha256_file(path) != artifact.sha256:
@@ -133,26 +137,42 @@ def _plain(value: object) -> object:
 class _PublicationWriter:
     """Publish immutable files while retaining partial state after a failure."""
 
-    def __init__(self, root: Path, *, domain: str) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        domain: str,
+        artifact_resolver: Callable[[ArtifactRef], Path] | None = None,
+    ) -> None:
         self.root = Path(root).resolve()
         self.domain = domain
         self.root.mkdir(parents=True, exist_ok=True)
         self.rows: dict[str, dict[str, object]] = {}
+        self._artifact_resolver = artifact_resolver or _artifact_path
+        self._validated_parents: set[Path] = {self.root}
 
     def _target(self, relative: str) -> Path:
         candidate = Path(relative)
         if candidate.is_absolute() or ".." in candidate.parts:
             raise PublicationError(f"publication path must be relative: {relative}")
-        target = (self.root / candidate).resolve()
-        if self.root not in target.parents:
-            raise PublicationError(f"publication path escapes model root: {relative}")
-        return target
+        return self.root / candidate
 
-    @staticmethod
-    def _install_bytes(target: Path, payload: bytes) -> tuple[str, int]:
-        target.parent.mkdir(parents=True, exist_ok=True)
+    def _ensure_parent(self, target: Path) -> None:
+        parent = target.parent
+        if parent in self._validated_parents:
+            return
+        parent.mkdir(parents=True, exist_ok=True)
+        resolved = parent.resolve()
+        if resolved != self.root and self.root not in resolved.parents:
+            raise PublicationError(f"publication path escapes model root: {target}")
+        self._validated_parents.add(parent)
+
+    def _install_bytes(self, target: Path, payload: bytes) -> tuple[str, int]:
+        self._ensure_parent(target)
         expected = hashlib.sha256(payload).hexdigest()
         if target.is_file():
+            if target.is_symlink():
+                raise PublicationError(f"publication target must not be a symlink: {target}")
             if _sha256_file(target) != expected:
                 raise PublicationError(f"immutable publication collision: {target}")
             return expected, target.stat().st_size
@@ -172,10 +192,13 @@ class _PublicationWriter:
         finally:
             temporary.unlink(missing_ok=True)
 
-    @staticmethod
-    def _install_file(target: Path, source: Path, sha256: str) -> tuple[str, int]:
-        target.parent.mkdir(parents=True, exist_ok=True)
+    def _install_file(
+        self, target: Path, source: Path, sha256: str
+    ) -> tuple[str, int]:
+        self._ensure_parent(target)
         if target.is_file():
+            if target.is_symlink():
+                raise PublicationError(f"publication target must not be a symlink: {target}")
             if _sha256_file(target) != sha256:
                 raise PublicationError(f"immutable publication collision: {target}")
             return sha256, target.stat().st_size
@@ -287,7 +310,7 @@ class _PublicationWriter:
         artifact_kind: str,
         context: Mapping[str, object],
     ) -> None:
-        source = _artifact_path(artifact)
+        source = self._artifact_resolver(artifact)
         target = self._target(relative)
         verified = self._install_file(target, source, artifact.sha256)
         metadata = {
@@ -386,6 +409,11 @@ class _PublicationWriter:
         )
         self._install_bytes(self.root / "artifact_index.csv", payload)
 
+    def commit_bytes(self, relative: str, payload: bytes) -> None:
+        """Install an unindexed commit marker after all indexed payloads."""
+
+        self._install_bytes(self._target(relative), payload)
+
 
 def _one_artifact(record: object, kind: str, *, required: bool = True) -> ArtifactRef | None:
     artifacts = tuple(getattr(record, "artifacts", ()))
@@ -451,6 +479,7 @@ class CanonicalPublisher:
         self._fiber_voxel_cache: dict[tuple[str, str], dict[int, np.ndarray]] = {}
         self._fiber_offset_cache: dict[str, tuple[np.ndarray, np.ndarray, bool]] = {}
         self._file_sha_cache: dict[str, str] = {}
+        self._artifact_path_cache: dict[str, tuple[Path, str]] = {}
 
     def _cached_sha256(self, path: Path) -> str:
         resolved = str(Path(path).resolve())
@@ -459,6 +488,22 @@ class CanonicalPublisher:
             digest = _sha256_file(Path(resolved))
             self._file_sha_cache[resolved] = digest
         return digest
+
+    def _artifact_path(self, artifact: ArtifactRef) -> Path:
+        cached = self._artifact_path_cache.get(artifact.uri)
+        if cached is not None:
+            path, digest = cached
+            if digest != artifact.sha256:
+                raise PublicationError(f"source artifact SHA-256 mismatch: {path}")
+            return path
+        path = _artifact_location(artifact)
+        if not path.is_file():
+            raise PublicationError(f"source artifact is missing: {path}")
+        digest = self._cached_sha256(path)
+        if digest != artifact.sha256:
+            raise PublicationError(f"source artifact SHA-256 mismatch: {path}")
+        self._artifact_path_cache[artifact.uri] = (path, digest)
+        return path
 
     def publish(
         self,
@@ -496,8 +541,16 @@ class CanonicalPublisher:
             / "normative_fiber"
             / str(resolved["normative_fiber"]["model_set_id"])
         )
-        direct_writer = _PublicationWriter(direct_root, domain="direct_voxel")
-        fiber_writer = _PublicationWriter(fiber_root, domain="normative_fiber")
+        direct_writer = _PublicationWriter(
+            direct_root,
+            domain="direct_voxel",
+            artifact_resolver=self._artifact_path,
+        )
+        fiber_writer = _PublicationWriter(
+            fiber_root,
+            domain="normative_fiber",
+            artifact_resolver=self._artifact_path,
+        )
 
         times = self._run_times(outcomes)
         self._publish_profile(
@@ -634,6 +687,7 @@ class CanonicalPublisher:
             writers[domain] = _PublicationWriter(
                 main_root / "extensions" / selected_extension_id,
                 domain=domain,
+                artifact_resolver=self._artifact_path,
             )
 
         by_endpoint: dict[str, list[tuple[TaskOutcome, object]]] = defaultdict(list)
@@ -824,9 +878,8 @@ class CanonicalPublisher:
                 "finished_at_utc": times[1],
                 "status": "completed",
             }
-            _PublicationWriter._install_bytes(
-                writer.root / "extension_manifest.json",
-                _json_bytes(extension_manifest),
+            writer.commit_bytes(
+                "extension_manifest.json", _json_bytes(extension_manifest)
             )
         return ExtensionPublicationResult(
             source_run_id=str(manifest["run_id"]),
@@ -865,13 +918,13 @@ class CanonicalPublisher:
         source_artifacts = {item.kind: item for item in source.artifacts}
         in_sample_predictions = np.asarray(
             np.load(
-                _artifact_path(in_sample_artifacts["in_sample_model_predictions"]),
+                self._artifact_path(in_sample_artifacts["in_sample_model_predictions"]),
                 allow_pickle=False,
             )
         )
         in_sample_baseline = np.asarray(
             np.load(
-                _artifact_path(in_sample_artifacts["in_sample_baseline_predictions"]),
+                self._artifact_path(in_sample_artifacts["in_sample_baseline_predictions"]),
                 allow_pickle=False,
             )
         )
@@ -886,16 +939,16 @@ class CanonicalPublisher:
             else "normative_fiber_loocv_baseline_predictions"
         )
         loocv_predictions = np.asarray(
-            np.load(_artifact_path(source_artifacts[loocv_kind]), allow_pickle=False)
+            np.load(self._artifact_path(source_artifacts[loocv_kind]), allow_pickle=False)
         )
         loocv_baseline = np.asarray(
             np.load(
-                _artifact_path(source_artifacts[loocv_baseline_kind]),
+                self._artifact_path(source_artifacts[loocv_baseline_kind]),
                 allow_pickle=False,
             )
         )
         outcome = np.asarray(
-            np.load(_artifact_path(endpoint_input.outcome), allow_pickle=False)
+            np.load(self._artifact_path(endpoint_input.outcome), allow_pickle=False)
         )
         rows = [
             {
@@ -1219,7 +1272,7 @@ class CanonicalPublisher:
             else "addon_direct_voxel_grid_metrics"
         )
         grid_artifact = artifacts_by_kind[grid_kind]
-        grid = self._json(_artifact_path(grid_artifact))
+        grid = self._json(self._artifact_path(grid_artifact))
         cells = list(grid["cells"])
         scan_fields = tuple(sorted({key for row in cells for key in row}))
         writer.csv(
@@ -1456,7 +1509,9 @@ class CanonicalPublisher:
             "branch_id": branch_record.branch,
         }
         artifacts = {item.kind: item for item in source.artifacts}
-        grid = self._json(_artifact_path(artifacts["addon_direct_voxel_grid_metrics"]))
+        grid = self._json(
+            self._artifact_path(artifacts["addon_direct_voxel_grid_metrics"])
+        )
         cells = list(grid["cells"])
         scan_fields = tuple(sorted({key for row in cells for key in row}))
         writer.csv(
@@ -1621,17 +1676,23 @@ class CanonicalPublisher:
             if source.endpoint.model_family.endswith("voxel")
             else "normative_fiber_loocv_baseline_predictions"
         )
-        scores = np.asarray(np.load(_artifact_path(artifacts[score_kind]), allow_pickle=False))
-        heldout = np.asarray(np.load(_artifact_path(artifacts[heldout_kind]), allow_pickle=False))
-        model = np.asarray(np.load(_artifact_path(artifacts[model_kind]), allow_pickle=False))
+        scores = np.asarray(
+            np.load(self._artifact_path(artifacts[score_kind]), allow_pickle=False)
+        )
+        heldout = np.asarray(
+            np.load(self._artifact_path(artifacts[heldout_kind]), allow_pickle=False)
+        )
+        model = np.asarray(
+            np.load(self._artifact_path(artifacts[model_kind]), allow_pickle=False)
+        )
         baseline_predictions = np.asarray(
-            np.load(_artifact_path(artifacts[baseline_kind]), allow_pickle=False)
+            np.load(self._artifact_path(artifacts[baseline_kind]), allow_pickle=False)
         )
         outcome = np.asarray(
-            np.load(_artifact_path(endpoint_input.outcome), allow_pickle=False)
+            np.load(self._artifact_path(endpoint_input.outcome), allow_pickle=False)
         )
         baseline = np.asarray(
-            np.load(_artifact_path(endpoint_input.baseline), allow_pickle=False)
+            np.load(self._artifact_path(endpoint_input.baseline), allow_pickle=False)
         )
         subject_ids = endpoint_input.included_subject_ids
         score_name = "reference_score" if role == "reference" else "addon_score"
@@ -1709,28 +1770,38 @@ class CanonicalPublisher:
             raise PublicationError("direct-voxel publication requires nibabel and scipy") from exc
         artifacts = {item.kind: item for item in source.artifacts}
         selected = np.asarray(
-            np.load(_artifact_path(artifacts["selected_feature_indices"]), allow_pickle=False),
+            np.load(
+                self._artifact_path(artifacts["selected_feature_indices"]),
+                allow_pickle=False,
+            ),
             dtype=np.int64,
         )
         parent_voxel_ids = np.asarray(
-            np.load(_artifact_path(prepared.feature_ids), allow_pickle=False), dtype=np.int64
+            np.load(self._artifact_path(prepared.feature_ids), allow_pickle=False),
+            dtype=np.int64,
         )
         voxel_ids = parent_voxel_ids[selected]
         benefit = np.asarray(
             np.load(
-                _artifact_path(artifacts["benefit_oriented_feature_weights"]),
+                self._artifact_path(artifacts["benefit_oriented_feature_weights"]),
                 allow_pickle=False,
             ),
             dtype=np.float32,
         )
         fold_weights = np.asarray(
             np.load(
-                _artifact_path(artifacts["loocv_benefit_oriented_feature_weights"]),
+                self._artifact_path(
+                    artifacts["loocv_benefit_oriented_feature_weights"]
+                ),
                 allow_pickle=False,
             ),
             dtype=np.float64,
         )
-        exposure = np.load(_artifact_path(prepared.exposure), allow_pickle=False, mmap_mode="r")
+        exposure = np.load(
+            self._artifact_path(prepared.exposure),
+            allow_pickle=False,
+            mmap_mode="r",
+        )
         coverage_values = np.count_nonzero(
             np.asarray(exposure[:, selected]) >= float(source.selected_tau), axis=0
         ).astype(np.int16)
@@ -2197,7 +2268,9 @@ class CanonicalPublisher:
                     connectome_roles[endpoint.connectome_id],
                     times,
                 )
-        grid = self._json(_artifact_path(artifacts["normative_fiber_grid_metrics"]))
+        grid = self._json(
+            self._artifact_path(artifacts["normative_fiber_grid_metrics"])
+        )
         cells = list(grid["cells"])
         scan_fields = tuple(sorted({key for row in cells for key in row}))
         writer.csv(
@@ -2399,7 +2472,9 @@ class CanonicalPublisher:
             "connectome_role": connectome_role,
         }
         artifacts = {item.kind: item for item in source.artifacts}
-        grid = self._json(_artifact_path(artifacts["normative_fiber_grid_metrics"]))
+        grid = self._json(
+            self._artifact_path(artifacts["normative_fiber_grid_metrics"])
+        )
         cells = list(grid["cells"])
         scan_fields = tuple(sorted({key for row in cells for key in row}))
         scan_path = f"{observed}/source_scan.csv"
@@ -2512,7 +2587,7 @@ class CanonicalPublisher:
         resolver: str,
         context: Mapping[str, object],
     ) -> str:
-        support = self._json(_artifact_path(artifact))
+        support = self._json(self._artifact_path(artifact))
         rows = [
             {"scope": "full_sample", "heldout_index": "", **support["full_sample"]},
             *({"scope": "loocv_fold", **row} for row in support["folds"]),
@@ -2590,7 +2665,7 @@ class CanonicalPublisher:
                 "connectome_id": endpoint.connectome_id,
                 "connectome_role": "sensitive",
             }
-            grid = self._json(_artifact_path(artifact))
+            grid = self._json(self._artifact_path(artifact))
             cells = list(grid["cells"])
             fields = tuple(sorted({key for row in cells for key in row}))
             scan_path = f"{observed}/source_scan.csv"
@@ -2694,38 +2769,44 @@ class CanonicalPublisher:
             score_name = "reference_score" if role == "reference" else "addon_score"
             full_scores = np.asarray(
                 np.load(
-                    _artifact_path(artifacts["normative_fiber_full_scores"]),
+                    self._artifact_path(artifacts["normative_fiber_full_scores"]),
                     allow_pickle=False,
                 ),
                 dtype=np.float64,
             )
             heldout_scores = np.asarray(
                 np.load(
-                    _artifact_path(artifacts["normative_fiber_loocv_heldout_scores"]),
+                    self._artifact_path(
+                        artifacts["normative_fiber_loocv_heldout_scores"]
+                    ),
                     allow_pickle=False,
                 ),
                 dtype=np.float64,
             )
             predictions = np.asarray(
                 np.load(
-                    _artifact_path(artifacts["normative_fiber_loocv_model_predictions"]),
+                    self._artifact_path(
+                        artifacts["normative_fiber_loocv_model_predictions"]
+                    ),
                     allow_pickle=False,
                 ),
                 dtype=np.float64,
             )
             baseline_predictions = np.asarray(
                 np.load(
-                    _artifact_path(artifacts["normative_fiber_loocv_baseline_predictions"]),
+                    self._artifact_path(
+                        artifacts["normative_fiber_loocv_baseline_predictions"]
+                    ),
                     allow_pickle=False,
                 ),
                 dtype=np.float64,
             )
             outcome = np.asarray(
-                np.load(_artifact_path(endpoint_input.outcome), allow_pickle=False),
+                np.load(self._artifact_path(endpoint_input.outcome), allow_pickle=False),
                 dtype=np.float64,
             )
             baseline = np.asarray(
-                np.load(_artifact_path(endpoint_input.baseline), allow_pickle=False),
+                np.load(self._artifact_path(endpoint_input.baseline), allow_pickle=False),
                 dtype=np.float64,
             )
             subject_ids = endpoint_input.included_subject_ids
@@ -2788,7 +2869,7 @@ class CanonicalPublisher:
             )
             paths.append(relative)
             support = self._json(
-                _artifact_path(artifacts["normative_fiber_score_support"])
+                self._artifact_path(artifacts["normative_fiber_score_support"])
             )
             support_rows = [
                 {"scope": "full_sample", "heldout_index": "", **support["full_sample"]},
@@ -2870,28 +2951,28 @@ class CanonicalPublisher:
             )
         valid_ids = np.asarray(
             np.load(
-                _artifact_path(artifacts["normative_fiber_valid_union_ids"]),
+                self._artifact_path(artifacts["normative_fiber_valid_union_ids"]),
                 allow_pickle=False,
             ),
             dtype=np.int64,
         ).reshape(-1)
         weights = np.asarray(
             np.load(
-                _artifact_path(artifacts["benefit_oriented_fiber_weights"]),
+                self._artifact_path(artifacts["benefit_oriented_fiber_weights"]),
                 allow_pickle=False,
             ),
             dtype=np.float64,
         ).reshape(-1)
         sweet_ids = np.asarray(
             np.load(
-                _artifact_path(artifacts["normative_fiber_sweet_selected_ids"]),
+                self._artifact_path(artifacts["normative_fiber_sweet_selected_ids"]),
                 allow_pickle=False,
             ),
             dtype=np.int64,
         ).reshape(-1)
         sour_ids = np.asarray(
             np.load(
-                _artifact_path(artifacts["normative_fiber_sour_selected_ids"]),
+                self._artifact_path(artifacts["normative_fiber_sour_selected_ids"]),
                 allow_pickle=False,
             ),
             dtype=np.int64,
@@ -3158,7 +3239,7 @@ class CanonicalPublisher:
                 )
                 paths.append(relative)
                 summary_artifact = artifacts["formal_permutation_summary"]
-                summary = self._json(_artifact_path(summary_artifact))
+                summary = self._json(self._artifact_path(summary_artifact))
                 relative = f"{formal_base}/permutation_summary.csv"
                 writer.csv(
                     relative,
@@ -3170,7 +3251,7 @@ class CanonicalPublisher:
                 paths.append(relative)
             elif record.resampling_kind == "bootstrap":
                 summary_artifact = artifacts["formal_bootstrap_summary"]
-                summary = self._json(_artifact_path(summary_artifact))
+                summary = self._json(self._artifact_path(summary_artifact))
                 relative = f"{formal_base}/bootstrap_summary.csv"
                 writer.csv(
                     relative,
@@ -3235,8 +3316,8 @@ class CanonicalPublisher:
             context={**context, "stage": "formal"},
         )
 
-    @staticmethod
     def _publish_direct_formal_nifti(
+        self,
         writer: _PublicationWriter,
         relative: str,
         artifact: ArtifactRef,
@@ -3252,17 +3333,17 @@ class CanonicalPublisher:
         source_artifacts = {item.kind: item for item in source.artifacts}
         selected = np.asarray(
             np.load(
-                _artifact_path(source_artifacts["selected_feature_indices"]),
+                self._artifact_path(source_artifacts["selected_feature_indices"]),
                 allow_pickle=False,
             ),
             dtype=np.int64,
         )
         parent_voxel_ids = np.asarray(
-            np.load(_artifact_path(prepared.feature_ids), allow_pickle=False),
+            np.load(self._artifact_path(prepared.feature_ids), allow_pickle=False),
             dtype=np.int64,
         )
         values = np.asarray(
-            np.load(_artifact_path(artifact), allow_pickle=False),
+            np.load(self._artifact_path(artifact), allow_pickle=False),
             dtype=np.float32,
         ).reshape(-1)
         if values.shape != selected.shape:
@@ -3384,9 +3465,7 @@ class CanonicalPublisher:
                 for item in profile["connectomes"]
                 if item["role"] == "formal"
             )
-        _PublicationWriter._install_bytes(
-            writer.root / "model_manifest.json", _json_bytes(payload)
-        )
+        writer.commit_bytes("model_manifest.json", _json_bytes(payload))
 
 
 __all__ = [

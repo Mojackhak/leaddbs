@@ -1357,6 +1357,12 @@ contract: completion is instead guarded by commit-last root manifests, and any
 interrupted fragment remains available for verified same-byte replay from the
 immutable source run.
 
+The writer resolves the publication root once, rejects absolute or
+parent-traversing relative paths, and resolves each unique destination parent
+once before first use. It verifies each distinct immutable source artifact and
+its declared SHA-256 once per publisher process. Reuse of that verification is
+allowed only for another reference to the same canonical path and digest.
+
 The normative-fiber profile is `normative_fiber_model.yaml`; its lightweight
 acceptance profile is `normative_fiber_model_test.yaml`. Both enforce `formal`
 connectome count `> 0` and `< 2`; their `sensitive` connectome lists are

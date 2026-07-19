@@ -3694,6 +3694,26 @@ advertise a partial publication as complete; a later replay verifies and reuses
 already installed same-byte payloads. Failed or partial replay never removes
 the publication fragment, source run, checkpoint, or shared cache.
 
+The publication root is resolved once. Relative artifact names reject absolute
+paths and parent traversal lexically; each unique destination parent is then
+created and resolved once before first use, so an existing symlink cannot
+escape the publication root. The publisher also verifies each distinct source
+artifact path and SHA-256 once per process and reuses that result only when a
+later reference declares the same digest. This preserves fail-closed path and
+content validation while avoiding repeated external-filesystem metadata walks
+and repeated reads of the same immutable run-store payload.
+
+Recovery and performance evidence on 2026-07-19: a real PDQ-39 replay was
+intentionally allowed to retain its partial publication after an implementation
+failure in the bootstrap standard-error NIfTI step. After correcting that
+helper, replay resumed into the same output root without deleting or replacing
+the fragment. The completed replay published 82 indexed direct-voxel artifacts
+and 127 indexed normative-fiber artifacts; the public-only catalog rechecked
+every indexed path, byte count, and SHA-256 successfully. Targeted publication
+and configuration regression passed with 29 tests and 10 subtests. The complete
+dual-frequency and visualization regression then passed with 481 tests and 239
+subtests after the USB 3 link was restored.
+
 - [x] **Step 3: Publish direct-voxel display NIfTI derivatives**
 
 For every realized reference or add-on direct-voxel final, publish the

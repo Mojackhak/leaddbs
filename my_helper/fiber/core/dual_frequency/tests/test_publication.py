@@ -167,6 +167,126 @@ def test_copied_payload_hashes_temporary_once_and_reuses_result(
     ]["sha256"] == reference.sha256
 
 
+def test_publisher_verifies_each_source_path_once_per_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.npy"
+    np.save(source, np.asarray([1.0, 2.0, 3.0], dtype=np.float32))
+    reference = _artifact(source)
+    publisher = CanonicalPublisher()
+    original_sha256_file = publication_module._sha256_file
+    original_artifact_location = publication_module._artifact_location
+    checked_paths: list[Path] = []
+    resolved_uris: list[str] = []
+
+    def track_sha256(path: Path) -> str:
+        checked_paths.append(Path(path))
+        return original_sha256_file(path)
+
+    def track_artifact_location(artifact: ArtifactRef) -> Path:
+        resolved_uris.append(artifact.uri)
+        return original_artifact_location(artifact)
+
+    monkeypatch.setattr(publication_module, "_sha256_file", track_sha256)
+    monkeypatch.setattr(
+        publication_module, "_artifact_location", track_artifact_location
+    )
+    assert publisher._artifact_path(reference) == source.resolve()
+    assert publisher._artifact_path(reference) == source.resolve()
+
+    assert checked_paths == [source.resolve()]
+    assert resolved_uris == [reference.uri]
+
+
+def test_publisher_rejects_changed_digest_without_rereading_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.npy"
+    np.save(source, np.asarray([1.0, 2.0, 3.0], dtype=np.float32))
+    reference = _artifact(source)
+    publisher = CanonicalPublisher()
+    original_sha256_file = publication_module._sha256_file
+    checks = 0
+
+    def track_sha256(path: Path) -> str:
+        nonlocal checks
+        checks += 1
+        return original_sha256_file(path)
+
+    monkeypatch.setattr(publication_module, "_sha256_file", track_sha256)
+    publisher._artifact_path(reference)
+    changed = ArtifactRef(
+        kind=reference.kind,
+        schema_version=reference.schema_version,
+        uri=reference.uri,
+        sha256="b" * 64,
+        dtype=reference.dtype,
+        shape=reference.shape,
+        axis_refs=reference.axis_refs,
+        axis_hashes=reference.axis_hashes,
+        units=reference.units,
+        space=reference.space,
+        producer_id=reference.producer_id,
+        producer_version=reference.producer_version,
+    )
+
+    with pytest.raises(PublicationError, match="SHA-256 mismatch"):
+        publisher._artifact_path(changed)
+
+    assert checks == 1
+
+
+def test_writer_resolves_each_destination_parent_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    publication = tmp_path / "publication"
+    writer = _PublicationWriter(publication, domain="direct_voxel")
+    original_resolve = Path.resolve
+    resolved_paths: list[Path] = []
+
+    def track_resolve(path: Path, *args: object, **kwargs: object) -> Path:
+        resolved_paths.append(path)
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", track_resolve)
+    writer.bytes(
+        "scale_a/reference/first.json",
+        b"first\n",
+        artifact_kind="first",
+        context={"scale_id": "scale_a"},
+    )
+    writer.bytes(
+        "scale_a/reference/second.json",
+        b"second\n",
+        artifact_kind="second",
+        context={"scale_id": "scale_a"},
+    )
+
+    assert resolved_paths == [publication / "scale_a/reference"]
+
+
+def test_writer_rejects_destination_parent_symlink_escape(tmp_path: Path) -> None:
+    publication = tmp_path / "publication"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    publication.mkdir()
+    (publication / "escape").symlink_to(outside, target_is_directory=True)
+    writer = _PublicationWriter(publication, domain="direct_voxel")
+
+    with pytest.raises(PublicationError, match="escapes model root"):
+        writer.bytes(
+            "escape/payload.json",
+            b"payload\n",
+            artifact_kind="payload",
+            context={"stage": "configuration"},
+        )
+
+    assert not (outside / "payload.json").exists()
+
+
 def test_replay_rejects_noncompleted_manifest_without_writing(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     run_root.mkdir()
