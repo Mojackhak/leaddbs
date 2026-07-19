@@ -4789,6 +4789,22 @@ the external-solver token. Performance windows overlapping unrelated VAL-heavy
 work remain correctness evidence but cannot support an uncontended throughput
 claim.
 
+Intermediate v7 runtime evidence on 2026-07-19: startup restored all 448
+checkpoint roots before launching four physical producers. The first four
+reference-voxel ranges took 756.62, 756.66, 757.12, and 758.68 seconds while
+their workers populated the source sampler. The remaining 36 ranges took from
+0.74 through 0.96 seconds, with a median of 0.79 seconds. All forty block
+references recorded a false reuse field, so this acceleration is persistent
+worker sampler reuse followed by new cache publication, not a pre-existing
+cache hit. Four workers reached an aggregate RSS near 34 GiB after the first
+group and later near 40 GiB while groups overlapped. The largest sampled worker
+RSS remained near 10.1 GiB and `< 12 GiB`, its declared charge. Swap remained
+at its 0.75-MiB startup value and VAL remained mounted through a 10-Gb/s USB
+link.
+This is partial runtime evidence only. It does not establish child completion,
+endpoint completion, adjusted-branch performance, uncontended throughput, or
+the final Step 10 acceptance result.
+
 ---
 
 ## Plan Self-Review Record
