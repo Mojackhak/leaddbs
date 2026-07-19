@@ -1,0 +1,38 @@
+{
+  "direct_voxel": {
+    "artifact_count": 82,
+    "file_count": 118,
+    "file_tree_sha256": "48946a8964ba5362581ad069e8b5be671dfd7ca20f48223db1f8c93cce12a788",
+    "index_fields": [
+      "scale_id",
+      "model_family",
+      "branch_id",
+      "stage",
+      "artifact_kind",
+      "relative_path",
+      "sha256",
+      "size_bytes",
+      "status"
+    ]
+  },
+  "normative_fiber": {
+    "artifact_count": 100,
+    "file_count": 146,
+    "file_tree_sha256": "96bffe8dbd4b4927543d362f68ae9a181200494b48591ce014c8167119bc6c0f",
+    "index_fields": [
+      "scale_id",
+      "model_family",
+      "branch_id",
+      "connectome_id",
+      "connectome_role",
+      "stage",
+      "artifact_kind",
+      "relative_path",
+      "sha256",
+      "size_bytes",
+      "status"
+    ]
+  },
+  "schema_version": "canonical_publication_tree_fixture_v1",
+  "source_fixture": "project_neutral_synthetic_e2e_v1"
+}

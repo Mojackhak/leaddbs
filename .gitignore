@@ -8,6 +8,7 @@
 *.png
 *.json
 !my_helper/atlas/specs/*.json
+!my_helper/fiber/core/dual_frequency/tests/canonical_publication_tree_v1.json
 *.woff
 *.trk.gz
 *.trk
@@ -68,4 +69,3 @@ Thumbs.db
 /ext_libs/fastsurfer/upstream
 
 /templates/space/Waxholm_Space_Atlas_SD_Rat_Brain/
-

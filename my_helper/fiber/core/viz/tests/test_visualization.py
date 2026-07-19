@@ -518,8 +518,15 @@ def test_manifest_rejects_mismatched_endpoint_summary(tmp_path: Path) -> None:
     assert "does not match" in result["endpoints"][0]["error_message"]
 
 
-def test_postprocess_rejects_run_store_as_publication(tmp_path: Path) -> None:
-    publication_root = tmp_path / ".runs" / "internal_run"
+@pytest.mark.parametrize(
+    "forbidden_part",
+    (".runs", "tasks", "work", "runtime_work"),
+)
+def test_postprocess_rejects_run_store_as_publication(
+    tmp_path: Path,
+    forbidden_part: str,
+) -> None:
+    publication_root = tmp_path / forbidden_part / "internal_run"
     scientific_root = publication_root / "report"
     scientific_root.mkdir(parents=True)
     summary_path = scientific_root / "summary.json"

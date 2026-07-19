@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import csv
 import hashlib
 import importlib.abc
 import json
@@ -14,9 +15,12 @@ from dataclasses import replace
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+import h5py
+import nibabel as nib
 import numpy as np
 import yaml
 
+from dual_frequency.application.publication import CanonicalPublisher
 from dual_frequency.application.service import (
     SensitivityExtensionRequest,
     WorkflowRequest,
@@ -62,6 +66,9 @@ from dual_frequency.workflow.executor import ServiceResult, TaskExecutionRequest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 PROFILE_ROOT = REPOSITORY_ROOT / "my_helper" / "stnsnr" / "config" / "four_model_v1"
+PUBLICATION_TREE_FIXTURE = Path(__file__).with_name(
+    "canonical_publication_tree_v1.json"
+)
 MODEL_FAMILIES = frozenset(
     {"reference_voxel", "addon_voxel", "reference_fiber", "addon_fiber"}
 )
@@ -504,6 +511,81 @@ def _write_profiles(root: Path) -> WorkflowRequest:
         workflow_profile=workflow_path,
         overrides=WorkflowOverrides(all_available=True, through="report"),
     )
+
+
+def _write_publication_assets(root: Path, study_path: Path) -> None:
+    shape = (4, 4, 4)
+    affine = np.eye(4, dtype=np.float64)
+    for name in ("brainmask.nii.gz", "reference_t1.nii.gz", "reference_t2.nii.gz"):
+        nib.save(
+            nib.Nifti1Image(np.ones(shape, dtype=np.float32), affine),
+            root / name,
+        )
+    transform_path = root / "flip.tfm"
+    transform_path.write_text(
+        "#Insight Transform File V1.0\n"
+        "# Transform 0\n"
+        "Transform: AffineTransform_double_3_3\n"
+        "Parameters: 1 0 0 0 1 0 0 0 1 0 0 0\n"
+        "FixedParameters: 0 0 0\n",
+        encoding="utf-8",
+    )
+    study = json.loads(study_path.read_text(encoding="utf-8"))
+    study["study"]["spot_model_sources"]["hemisphere_mapping"][
+        "left_to_right_transform"
+    ]["path"] = str(transform_path)
+    study_path.write_text(
+        json.dumps(study, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    fiber_count = 20_064
+    lengths = np.full(fiber_count, 2, dtype=np.float64)
+    fiber_ids = np.repeat(np.arange(1, fiber_count + 1, dtype=np.float32), 2)
+    position = np.repeat(np.arange(fiber_count, dtype=np.float32), 2)
+    coordinates = np.column_stack(
+        (
+            np.mod(position, 4.0),
+            np.mod(np.floor(position / 4.0), 4.0),
+            np.mod(np.floor(position / 16.0), 4.0),
+        )
+    ).astype(np.float32)
+    coordinates[1::2, 0] += 0.25
+    for name in ("formal_connectome.mat", "sensitive_connectome.mat"):
+        with h5py.File(root / name, "w") as handle:
+            handle.create_dataset("idx", data=lengths.reshape(1, -1))
+            handle.create_dataset(
+                "fibers",
+                data=np.vstack((coordinates.T, fiber_ids.reshape(1, -1))),
+            )
+
+
+def _publication_files(root: Path) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            path.relative_to(root).as_posix()
+            for path in root.rglob("*")
+            if path.is_file() and not path.name.startswith("._")
+        )
+    )
+
+
+def _publication_tree_sha256(files: tuple[str, ...]) -> str:
+    return hashlib.sha256(("\n".join(files) + "\n").encode("utf-8")).hexdigest()
+
+
+def _publication_index(
+    root: Path,
+) -> tuple[tuple[str, ...], tuple[dict[str, str], ...]]:
+    with (root / "artifact_index.csv").open(
+        "r",
+        encoding="utf-8",
+        newline="",
+    ) as handle:
+        reader = csv.DictReader(handle)
+        rows = tuple(reader)
+        fields = tuple(reader.fieldnames or ())
+    return fields, rows
 
 
 def _artifact_array(artifact: ArtifactRef) -> np.ndarray:
@@ -1181,6 +1263,20 @@ class _SyntheticRuntimeProvider:
         )
 
 
+class _PublicationFixtureRuntimeProvider(_SyntheticRuntimeProvider):
+    """Exercise both-sign and single-sign canonical fiber publication."""
+
+    def _exposure_arrays(
+        self,
+        endpoint: EndpointRecord,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        reference, addon, reference_component = super()._exposure_arrays(endpoint)
+        reference[:, 12:24] = 520.0 - reference[:, 12:24]
+        reference_component[:, 12:24] = 520.0 - reference_component[:, 12:24]
+        addon[:, 36:48] = 520.0 - addon[:, 36:48]
+        return reference, addon, reference_component
+
+
 class _FakeActivationBackend:
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -1551,10 +1647,15 @@ class SyntheticEndToEndTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory).resolve()
             request = _write_profiles(root)
+            _write_publication_assets(root, request.study_base)
             configuration = load_workflow(request.workflow_profile, request.overrides)
             study = load_study_base(request.study_base)
             catalog = build_endpoint_catalog(configuration, study)
-            provider = _SyntheticRuntimeProvider(configuration, catalog, root)
+            provider = _PublicationFixtureRuntimeProvider(
+                configuration,
+                catalog,
+                root,
+            )
             fake_activation = _FakeActivationBackend()
             service = WorkflowService(
                 registry=_registry_with_fake_activation(fake_activation),
@@ -1563,15 +1664,39 @@ class SyntheticEndToEndTest(unittest.TestCase):
             planned_model_families = {
                 task.model_family for task in service.plan(request).plan.tasks
             }
-            with _blocked_project_namespace() as blocker:
-                result = service.run(request, run_id="project-neutral-synthetic-e2e")
-
             run_root = (
                 root
                 / "runs"
                 / "project_neutral_study"
                 / "project-neutral-synthetic-e2e"
             )
+            with _blocked_project_namespace() as blocker:
+                result = service.run(request, run_id="project-neutral-synthetic-e2e")
+                publication = CanonicalPublisher().publish(run_root)
+
+            expected_publication = json.loads(
+                PUBLICATION_TREE_FIXTURE.read_text(encoding="utf-8")
+            )
+            direct_files = _publication_files(publication.direct_voxel_root)
+            fiber_files = _publication_files(publication.normative_fiber_root)
+            direct_index_fields, direct_index_rows = _publication_index(
+                publication.direct_voxel_root
+            )
+            fiber_index_fields, fiber_index_rows = _publication_index(
+                publication.normative_fiber_root
+            )
+            missing_sign_path = (
+                publication.normative_fiber_root
+                / "response_scale"
+                / "addon"
+                / "report"
+                / "negative_weighted_density.nii.gz"
+            )
+            missing_sign_values = nib.load(str(missing_sign_path)).get_fdata()
+            missing_sign_finite = missing_sign_values[np.isfinite(missing_sign_values)]
+            missing_sign_metadata = json.loads(
+                Path(f"{missing_sign_path}.metadata.json").read_text(encoding="utf-8")
+            )["provenance"]
             final_decisions = json.loads(
                 (run_root / "final_decisions.json").read_text(encoding="utf-8")
             )
@@ -1639,6 +1764,66 @@ class SyntheticEndToEndTest(unittest.TestCase):
         self.assertEqual(planned_model_families, MODEL_FAMILIES)
         self.assertEqual(len(fake_activation.calls), 2)
         self.assertEqual(run_manifest["final_status"], "completed")
+        self.assertEqual(
+            publication.direct_voxel_artifact_count,
+            expected_publication["direct_voxel"]["artifact_count"],
+        )
+        self.assertEqual(
+            publication.normative_fiber_artifact_count,
+            expected_publication["normative_fiber"]["artifact_count"],
+        )
+        self.assertEqual(
+            len(direct_files),
+            expected_publication["direct_voxel"]["file_count"],
+        )
+        self.assertEqual(
+            len(fiber_files),
+            expected_publication["normative_fiber"]["file_count"],
+        )
+        self.assertEqual(
+            _publication_tree_sha256(direct_files),
+            expected_publication["direct_voxel"]["file_tree_sha256"],
+        )
+        self.assertEqual(
+            _publication_tree_sha256(fiber_files),
+            expected_publication["normative_fiber"]["file_tree_sha256"],
+        )
+        self.assertEqual(
+            direct_index_fields,
+            tuple(expected_publication["direct_voxel"]["index_fields"]),
+        )
+        self.assertEqual(
+            fiber_index_fields,
+            tuple(expected_publication["normative_fiber"]["index_fields"]),
+        )
+        self.assertEqual(
+            len(direct_index_rows),
+            publication.direct_voxel_artifact_count,
+        )
+        self.assertEqual(
+            len(fiber_index_rows),
+            publication.normative_fiber_artifact_count,
+        )
+        self.assertTrue(
+            all(
+                row["relative_path"]
+                and row["sha256"]
+                and row["size_bytes"]
+                and row["stage"]
+                and "model_family" in row
+                and "branch_id" in row
+                and row["status"] == "completed"
+                for row in (*direct_index_rows, *fiber_index_rows)
+            )
+        )
+        self.assertGreater(missing_sign_finite.size, 0)
+        np.testing.assert_array_equal(
+            missing_sign_finite,
+            np.zeros_like(missing_sign_finite),
+        )
+        self.assertEqual(missing_sign_metadata["sour_selected_fiber_count"], 0)
+        self.assertIsNone(missing_sign_metadata["sour_selected_ids_sha256"])
+        self.assertGreater(missing_sign_metadata["sweet_selected_fiber_count"], 0)
         self.assertEqual(
             run_manifest["configuration_hash"],
             configuration.configuration_hash,

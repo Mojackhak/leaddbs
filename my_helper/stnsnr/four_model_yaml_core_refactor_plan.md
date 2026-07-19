@@ -22,10 +22,12 @@
 > `generic_core_implementation_complete`; `generic_runtime_active`;
 > `predecessor_runtime_archived`; `bounded_numeric_evidence_verified`;
 > `performance_refactor_design_documented`;
-> `performance_refactor_implementation_not_started`;
-> `canonical_main_publisher_implemented`;
-> `postprocess_publication_adapter_implemented`;
-> `configured_production_outputs_missing`; `production_rerun_required`.
+> `performance_refactor_implementation_in_progress`;
+> `canonical_main_publication_accepted`;
+> `final_in_sample_publication_accepted`;
+> `public_only_postprocess_accepted`;
+> `configured_production_outputs_published`;
+> `task17_sensitivity_extensions_deferred_by_user`.
 > **Last updated.** 2026-07-19
 
 ---

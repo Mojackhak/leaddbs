@@ -3,12 +3,12 @@
 ## Status
 
 Rendering primitives were implemented on 2026-07-18. The public-only adapter
-was implemented and synthetically validated on 2026-07-19. This document is the implementation contract for a
+was implemented and synthetically validated on 2026-07-19. Canonical main and
+final-in-sample publication, real-data rendering, and output-local resume were
+accepted on 2026-07-19. This document is the implementation contract for a
 postprocess visualization layer that consumes formally published
 dual-frequency final-model artifacts without rerunning model fitting,
 permutation, bootstrap, jitter, or OSS-DBS. A run-store adapter is prohibited.
-The remaining integration step is canonical main publication followed by
-real-data rendering from its model-set manifest and artifact index.
 
 ## Goal
 
@@ -179,6 +179,14 @@ weight sums and the negative density retains negative weight sums; the 2D sour
 layer therefore uses `negative_magnitude` display mode without altering the
 published signed density.
 
+A realized model may select only one sign. The canonical publisher still emits
+both positive and negative density files so the postprocess schema remains
+stable. The missing-sign file is zero over the union support of the selected
+side and `NaN` outside that support; its provenance records zero selected fibers
+and no selected-ID SHA. Postprocess renders the available sign and treats the
+zero file as an empty layer. It does not create a replacement fiber or infer a
+missing sign from the opposite library.
+
 Canonical fiber IDs are resolved to explicit tractogram streamline indices by
 the caller before density generation. The rendering helper does not infer that
 a canonical fiber ID is a zero-based or one-based tractogram row number.
@@ -302,41 +310,36 @@ formal p.
 
 ```text
 postprocess/
+  postprocess_request.json
   manifest.json
   endpoints/<endpoint_id>/
     spatial/
-      voxel/
-        sweet.nii.gz
-        sour.nii.gz
-        signed_weight.nii.gz
-        stability.nii.gz
+      <voxel-or-fiber>/
         sections.png
         sections.pdf
-        scene.fig
-        scene.png
-        scene.pdf
-      fiber/
-        sweet_fibers.mat
-        sour_fibers.mat
-        sweet_density.nii.gz
-        sour_density.nii.gz
-        sections.png
-        sections.pdf
-        scene.fig
-        scene.png
-        scene.pdf
-      spatial_manifest.json
     statistics/
-      predictions.csv
       in_sample_loocv_fit.png
       in_sample_loocv_fit.pdf
-      fit_manifest.json
+    manifest.json
 ```
 
 Each manifest records canonical publication IDs, indexed relative source paths,
 source hashes, selected model key, plotting parameters, output paths,
 completion status, and errors. Postprocessing never changes a model-set or
 extension manifest and never marks a scientific task complete.
+
+The endpoint batch renderer does not duplicate published NIfTI, MAT, or
+prediction-table scientific inputs into its output tree. Their canonical
+publication aliases, relative paths, byte counts, and SHA-256 values are stored
+in the endpoint manifest. This preserves one scientific source of truth and
+keeps output-local resume independent of the internal run store.
+
+The two PDQ-39 MATLAB examples are the separate interactive 3D acceptance
+surface requested for voxel and fiber models. They verify and prepare inputs
+from the same canonical publications, open a correctly rendered figure window,
+and intentionally create no FIG, PNG, PDF, or spin export. The migrated export
+helpers remain available for an explicit later export request but are not part
+of the cohort-wide endpoint batch contract.
 
 ## Resume And Failure Boundaries
 
@@ -533,6 +536,11 @@ Public-only integration validation completed on 2026-07-19:
   and 239 subtests under Conda `leaddbs`; and
 - MATLAB Code Analyzer reported no issue for the changed helper and examples.
 
-No real production scene can pass this adapter yet because the canonical main
-publisher remains unimplemented and the configured model-set roots remain
-missing. That failure is intentional and prevents fallback to `.runs`.
+Real-data production acceptance completed on 2026-07-19. The formal request
+resolved four completed canonical publications, rendered all 112 final
+endpoints with zero failures, and produced 448 PNG/PDF outputs. All endpoint
+manifests and files passed structural validation; 224 PNG files decoded, and
+224 PDF files passed file-level integrity checks. Reference and add-on examples
+from both physical domains passed visual review. Repeating the identical
+request reused all 112 endpoint outputs without changing their byte counts or
+nanosecond modification times. No run-store fallback was used.

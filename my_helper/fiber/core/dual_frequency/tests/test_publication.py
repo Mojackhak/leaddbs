@@ -199,6 +199,16 @@ def test_publisher_verifies_each_source_path_once_per_process(
     assert resolved_uris == [reference.uri]
 
 
+def test_publisher_rejects_missing_source_payload(tmp_path: Path) -> None:
+    source = tmp_path / "source.npy"
+    np.save(source, np.asarray([1.0, 2.0, 3.0], dtype=np.float32))
+    reference = _artifact(source)
+    source.unlink()
+
+    with pytest.raises(PublicationError, match="source artifact is missing"):
+        CanonicalPublisher()._artifact_path(reference)
+
+
 def test_publisher_rejects_changed_digest_without_rereading_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

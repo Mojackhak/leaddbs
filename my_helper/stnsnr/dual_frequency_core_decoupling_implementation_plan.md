@@ -20,7 +20,11 @@ validated `study_base.json` without legacy or migration imports.
 `my_helper/stnsnr/task17_design_decisions.md`.
 The generic core implementation below is complete, but the shared-exposure,
 one-pass connectome, process-scheduler, direct-copy SHA cache, sensitivity
-extension, and missing-parent rebuild are `implementation_not_started`.
+extension, and missing-parent rebuild work remains collectively
+`implementation_in_progress`. Canonical main publication, final-in-sample
+publication, and public-only postprocess are accepted. Jitter, OSS-DBS, and the
+combined sensitivity extension remain outside the current execution phase by
+explicit user instruction.
 
 **Architecture:** Build a new `my_helper/fiber/core/dual_frequency` package next
 to the predecessor package, migrate contracts and orchestration first, then
@@ -2876,8 +2880,9 @@ acceptance gaps`). No remote push was performed.
 **Status:** `design_documented`; `code_audit_complete`;
 `literature_review_complete`; `threshold_policy_change_authorized`;
 `implementation_in_progress`; `partial_synthetic_acceptance_passed`;
-`production_configuration_validated`; `corrected_production_rerun_required`;
-`completion_gap_audited`.
+`production_configuration_validated`; `corrected_production_main_completed`;
+`canonical_publication_and_postprocess_accepted`;
+`sensitivity_extensions_deferred_by_user`; `completion_gap_audited`.
 
 **Authority:**
 `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
@@ -3644,7 +3649,7 @@ scientific output trees.
 Task 18 closes the gap between the internal run store and the stable output
 contracts. It is required before the authoritative `/goal` can be complete.
 
-- [ ] **Step 1: Freeze publication-only fixtures and path rejection tests**
+- [x] **Step 1: Freeze publication-only fixtures and path rejection tests**
 
 Create synthetic completed direct-voxel and normative-fiber run stores plus
 their expected canonical model-set trees. Freeze tests proving that every
@@ -3652,6 +3657,38 @@ published payload is indexed with a relative path, SHA-256, byte count, stage,
 model family, branch, and terminal status. Add negative fixtures for partial
 manifests, missing payloads, SHA mismatch, path escape, task-local URI, and any
 postprocess input below `.runs/`, `tasks/`, `work/`, or `runtime_work/`.
+
+Closure plan on 2026-07-19: reuse the existing project-neutral one-scale
+end-to-end run inside its current test instead of executing a second scientific
+fixture. Replay that completed run through `CanonicalPublisher` and compare the
+entire direct-voxel and normative-fiber relative file trees plus artifact-index
+schema/counts against one checked-in versioned JSON fixture. Extend negative
+coverage for a missing source payload and parameterize public-only input-root
+rejection across `.runs`, `tasks`, `work`, and `runtime_work`. Existing tests
+already cover noncompleted manifests, failed task states, SHA mismatch,
+immutable collision, URI removal, and symlink escape.
+
+The frozen normative-fiber fixture must also exercise a scientifically valid
+single-sign selection. A realized source may contain sweet selected IDs without
+sour selected IDs, or the converse. Publication still requires the canonical
+valid-fiber axis and its complete benefit-oriented weights, publishes the signed
+density from the selected side, and publishes a zero-valued density for the
+missing side over the same selected-fiber support. Its provenance records a
+selected count of `0` and a null selected-ID SHA for that side. It must not
+invent a fiber, expand the support, or change model scores.
+
+Acceptance evidence on 2026-07-19: the project-neutral one-scale four-model
+test now runs the completed scientific workflow and replays the same run
+through `CanonicalPublisher` while the project namespace remains blocked. The
+checked-in `canonical_publication_tree_v1.json` freezes the direct-voxel tree
+at 118 files and 82 indexed artifacts, the normative-fiber tree at 146 files
+and 100 indexed artifacts, both complete sorted relative-tree SHA-256 values,
+and the domain-specific artifact-index fields. The add-on fiber fixture selects
+only sweet fibers; its published negative density is exactly zero on finite
+support, with zero sour count and null sour selected-ID SHA in provenance.
+Missing source payload rejection and all four prohibited postprocess root names
+are covered. The focused gate passed 26 tests, and the complete dual-frequency
+plus visualization suite passed 485 tests and 239 subtests.
 
 - [x] **Step 2: Implement the canonical main publisher**
 
@@ -3759,7 +3796,7 @@ Analyzer reported no issue in the changed helper and example scripts. Real-data
 scene execution remains correctly blocked until Steps 2 and 3 publish the
 canonical model-set tree.
 
-- [ ] **Step 5: Run publication-only replay and downstream acceptance**
+- [x] **Step 5: Run publication-only replay and downstream acceptance**
 
 Replay the completed formal parent and completed final-in-sample extension into
 new canonical model-set publications without rerunning observed grids,
@@ -3775,7 +3812,8 @@ reference-voxel and reference-fiber artifacts prepared the interactive scene
 inputs, and one statistics postprocess completed then reused its output-local
 resume result. All 82 direct and 127 fiber main artifacts passed the public
 catalog path, byte-count, and SHA checks. The full 28-scale production replay,
-cohort-wide postprocess, and final extension audit remain open. The complete
+cohort-wide postprocess, and final extension audit remained open at this
+checkpoint and are closed by the later evidence below. The complete
 dual-frequency plus visualization regression passed with 475 tests and 239
 subtests outside the restricted system-monitoring sandbox.
 
@@ -3793,7 +3831,8 @@ model's unsmoothed selected benefit map, bootstrap standard-error map,
 bilateral map, and 1 mm plus 2 mm FWHM display derivatives. The fiber check
 covered signed, positive, and negative density maps. All checked NIfTI files
 had compatible shape, affine, spatial units, and nonempty finite support. The
-final-in-sample extension and cohort-wide public-only postprocess remain open.
+final-in-sample extension and cohort-wide public-only postprocess remained open
+at this checkpoint and are closed by the later evidence below.
 
 Extension migration decision on 2026-07-19: the pre-existing
 `task17-final-in-sample-v1-20260718` extension directories are retained as
@@ -3828,8 +3867,21 @@ exact Boxsize panels, shows ticks only at the outer grid edges, uses one
 plane-specific bottom axis label, and reserves a separate legend band. PNG and
 Poppler-rendered PDF review passed, Arial was embedded, 11 focused visualization
 tests passed, and the complete suite passed with 481 tests and 239 subtests.
-The 112-endpoint production postprocess and its output-local resume audit remain
-open.
+At this smoke checkpoint, the 112-endpoint production postprocess and its
+output-local resume audit remained open; the full acceptance immediately below
+supersedes that checkpoint.
+
+Full downstream acceptance evidence on 2026-07-19: the production request
+consumed only the four completed canonical main/extension publications and
+completed all 112 endpoints with zero failures. Each endpoint produced one 2D
+spatial PNG/PDF pair and one paired in-sample/LOOCV PNG/PDF pair. All 112
+endpoint manifests were complete; all 448 outputs existed with nontrivial byte
+counts; 224 PNG files decoded successfully; and all 224 PDF files had valid PDF
+headers and terminal EOF records. Model coverage was exactly 28 rows for each
+of reference voxel, add-on voxel, reference fiber, and add-on fiber. Reference
+and add-on examples from both domains passed visual review. An identical second
+request reused all 112 completed endpoint manifests, reported zero failures,
+and changed neither byte size nor nanosecond modification time for any output.
 
 Add the workflow storage policy `delete_run_cache_on_success`. Its production
 value is `false`. When false, successful runs retain cache content. When true,
@@ -3844,12 +3896,21 @@ Cleanup cannot remove the run store, canonical model-set publication,
 extensions, sensitivity checkpoints, or cache entries not owned by the
 completed run.
 
-- [ ] **Step 6: Update status and commit**
+- [x] **Step 6: Update status and commit**
 
 Only after the publisher, publication replay, and public-only postprocess gates
 pass may the goal remove `canonical_main_publisher_not_started`,
 `postprocess_publication_adapter_not_started`, and
 `configured_production_outputs_missing`.
+
+Status evidence on 2026-07-19: all three gates passed. The authoritative goal
+now records accepted canonical main publication, accepted final-in-sample
+publication, accepted public-only postprocess, and published configured
+production outputs. The three obsolete blockers above are absent. The commit
+containing this record freezes the publisher boundary, fixture, negative tests,
+single-sign fiber behavior, and final acceptance evidence. This completes Task
+18 only; Task 17 sensitivity-extension work remains deferred by explicit user
+instruction and therefore the authoritative `/goal` remains active.
 
 ---
 

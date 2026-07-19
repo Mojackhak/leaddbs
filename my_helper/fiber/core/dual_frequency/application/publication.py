@@ -2941,8 +2941,6 @@ class CanonicalPublisher:
         required = (
             "normative_fiber_valid_union_ids",
             "benefit_oriented_fiber_weights",
-            "normative_fiber_sweet_selected_ids",
-            "normative_fiber_sour_selected_ids",
         )
         missing = [kind for kind in required if kind not in artifacts]
         if missing:
@@ -2963,20 +2961,24 @@ class CanonicalPublisher:
             ),
             dtype=np.float64,
         ).reshape(-1)
-        sweet_ids = np.asarray(
-            np.load(
-                self._artifact_path(artifacts["normative_fiber_sweet_selected_ids"]),
-                allow_pickle=False,
-            ),
-            dtype=np.int64,
-        ).reshape(-1)
-        sour_ids = np.asarray(
-            np.load(
-                self._artifact_path(artifacts["normative_fiber_sour_selected_ids"]),
-                allow_pickle=False,
-            ),
-            dtype=np.int64,
-        ).reshape(-1)
+        sweet_artifact = artifacts.get("normative_fiber_sweet_selected_ids")
+        sour_artifact = artifacts.get("normative_fiber_sour_selected_ids")
+        sweet_ids = (
+            np.asarray(
+                np.load(self._artifact_path(sweet_artifact), allow_pickle=False),
+                dtype=np.int64,
+            ).reshape(-1)
+            if sweet_artifact is not None
+            else np.empty(0, dtype=np.int64)
+        )
+        sour_ids = (
+            np.asarray(
+                np.load(self._artifact_path(sour_artifact), allow_pickle=False),
+                dtype=np.int64,
+            ).reshape(-1)
+            if sour_artifact is not None
+            else np.empty(0, dtype=np.int64)
+        )
         if valid_ids.shape != weights.shape or valid_ids.size < 1:
             raise PublicationError("published fiber IDs and weights have mismatched axes")
         if np.any(np.diff(valid_ids) <= 0):
@@ -3147,12 +3149,14 @@ class CanonicalPublisher:
             "connectome_path": str(connectome_path),
             "connectome_sha256": str(connectome_entry.get("sha256", "")),
             "brainmask_sha256": cache_key[1],
-            "sweet_selected_ids_sha256": artifacts[
-                "normative_fiber_sweet_selected_ids"
-            ].sha256,
-            "sour_selected_ids_sha256": artifacts[
-                "normative_fiber_sour_selected_ids"
-            ].sha256,
+            "sweet_selected_ids_sha256": (
+                sweet_artifact.sha256 if sweet_artifact is not None else None
+            ),
+            "sour_selected_ids_sha256": (
+                sour_artifact.sha256 if sour_artifact is not None else None
+            ),
+            "sweet_selected_fiber_count": int(sweet_ids.size),
+            "sour_selected_fiber_count": int(sour_ids.size),
             "full_weights_sha256": artifacts[
                 "benefit_oriented_fiber_weights"
             ].sha256,
