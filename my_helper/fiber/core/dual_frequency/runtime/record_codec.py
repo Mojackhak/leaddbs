@@ -11,6 +11,7 @@ from ..contracts import (
     ActivationArtifact,
     ArtifactRef,
     AxisRef,
+    BootstrapBlockRecord,
     BranchRecord,
     DeltaReferenceBundle,
     EndpointInputRecord,
@@ -43,6 +44,7 @@ _ROOT_TYPES = {
     "EndpointInputRecord": EndpointInputRecord,
     "PreparedExposureRecord": PreparedExposureRecord,
     "ArtifactRef": ArtifactRef,
+    "BootstrapBlockRecord": BootstrapBlockRecord,
     "ObservedResult": ObservedResult,
     "SourceRecord": SourceRecord,
     "ReferenceDependencyRecord": ReferenceDependencyRecord,
@@ -394,6 +396,25 @@ _RESAMPLING_BLOCK_FIELDS = frozenset(
         "stop",
         "total",
         "schedule_sha256",
+        "technical_status",
+        "artifacts",
+    }
+)
+_BOOTSTRAP_BLOCK_FIELDS = frozenset(
+    {
+        "target_id",
+        "schedule_id",
+        "feature_axis",
+        "feature_space",
+        "replicate_axis",
+        "block_axis",
+        "block_index",
+        "start",
+        "stop",
+        "total",
+        "schedule_sha256",
+        "selection_mode",
+        "nuisance_evidence_mode",
         "technical_status",
         "artifacts",
     }
@@ -1026,6 +1047,61 @@ def _decode_resampling_block(
     )
 
 
+def _decode_bootstrap_block(
+    value: object,
+    location: str,
+) -> BootstrapBlockRecord:
+    payload = _object(value, location, _BOOTSTRAP_BLOCK_FIELDS)
+    return BootstrapBlockRecord(
+        target_id=_text(payload["target_id"], f"{location}.target_id"),
+        schedule_id=_text(payload["schedule_id"], f"{location}.schedule_id"),
+        feature_axis=_decode_axis(
+            payload["feature_axis"],
+            f"{location}.feature_axis",
+        ),
+        feature_space=_text(
+            payload["feature_space"],
+            f"{location}.feature_space",
+        ),
+        replicate_axis=_decode_axis(
+            payload["replicate_axis"],
+            f"{location}.replicate_axis",
+        ),
+        block_axis=_decode_axis(
+            payload["block_axis"],
+            f"{location}.block_axis",
+        ),
+        block_index=_integer(
+            payload["block_index"],
+            f"{location}.block_index",
+        ),
+        start=_integer(payload["start"], f"{location}.start"),
+        stop=_integer(payload["stop"], f"{location}.stop"),
+        total=_integer(payload["total"], f"{location}.total"),
+        schedule_sha256=_text(
+            payload["schedule_sha256"],
+            f"{location}.schedule_sha256",
+        ),
+        selection_mode=_text(
+            payload["selection_mode"],
+            f"{location}.selection_mode",
+        ),
+        nuisance_evidence_mode=_text(
+            payload["nuisance_evidence_mode"],
+            f"{location}.nuisance_evidence_mode",
+        ),
+        technical_status=_text(
+            payload["technical_status"],
+            f"{location}.technical_status",
+        ),
+        artifacts=_tuple_of(
+            payload["artifacts"],
+            f"{location}.artifacts",
+            _decode_artifact,
+        ),
+    )
+
+
 def _decode_scratch_array(
     value: object,
     location: str,
@@ -1153,6 +1229,7 @@ _ROOT_DECODERS: dict[str, Callable[[object, str], object]] = {
     "FormalResult": _decode_formal_result,
     "ResamplingScheduleRecord": _decode_resampling_schedule,
     "ResamplingBlockRecord": _decode_resampling_block,
+    "BootstrapBlockRecord": _decode_bootstrap_block,
     "SensitivityResult": _decode_sensitivity_result,
     "ActivationArtifact": _decode_activation_artifact,
 }

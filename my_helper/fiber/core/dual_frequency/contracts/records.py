@@ -371,6 +371,168 @@ class ResamplingBlockRecord:
 
 
 @dataclass(frozen=True)
+class BootstrapBlockRecord:
+    """Durable mergeable state for one canonical bootstrap interval."""
+
+    target_id: str
+    schedule_id: str
+    feature_axis: AxisRef
+    feature_space: str
+    replicate_axis: AxisRef
+    block_axis: AxisRef
+    block_index: int
+    start: int
+    stop: int
+    total: int
+    schedule_sha256: str
+    selection_mode: str
+    nuisance_evidence_mode: str
+    technical_status: str
+    artifacts: tuple[ArtifactRef, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "target_id", _token(self.target_id, "target_id"))
+        object.__setattr__(
+            self,
+            "schedule_id",
+            _token(self.schedule_id, "schedule_id"),
+        )
+        if not isinstance(self.feature_axis, AxisRef) or not isinstance(
+            self.replicate_axis,
+            AxisRef,
+        ) or not isinstance(self.block_axis, AxisRef):
+            raise RecordError("bootstrap block axes must be AxisRef values")
+        object.__setattr__(
+            self,
+            "feature_space",
+            _token(self.feature_space, "feature_space"),
+        )
+        if (
+            type(self.block_index) is not int
+            or type(self.start) is not int
+            or type(self.stop) is not int
+            or type(self.total) is not int
+            or self.total != self.replicate_axis.count
+            or self.start != self.block_index * RESAMPLING_REPLICATE_BLOCK_SIZE
+            or self.stop
+            != min(self.start + RESAMPLING_REPLICATE_BLOCK_SIZE, self.total)
+        ):
+            raise RecordError("bootstrap block interval is not canonical")
+        if self.block_axis != resampling_block_axis(
+            self.replicate_axis,
+            self.start,
+            self.stop,
+        ):
+            raise RecordError("bootstrap block axis does not match its interval")
+        object.__setattr__(
+            self,
+            "schedule_sha256",
+            _sha256(self.schedule_sha256, "schedule_sha256"),
+        )
+        selection_mode = _token(self.selection_mode, "selection_mode").lower()
+        if selection_mode not in {"none", "sweet_sour"}:
+            raise RecordError("bootstrap block selection mode is unsupported")
+        object.__setattr__(self, "selection_mode", selection_mode)
+        nuisance_mode = _token(
+            self.nuisance_evidence_mode,
+            "nuisance_evidence_mode",
+        ).lower()
+        if nuisance_mode not in {"none", "complete_adjusted"}:
+            raise RecordError("bootstrap block nuisance evidence mode is unsupported")
+        object.__setattr__(self, "nuisance_evidence_mode", nuisance_mode)
+        status = _token(self.technical_status, "technical_status").lower()
+        if status not in {"completed", "completed_with_nonfinite_replicates"}:
+            raise RecordError("bootstrap block technical status is unsupported")
+        object.__setattr__(self, "technical_status", status)
+
+        artifacts = tuple(self.artifacts)
+        if not all(isinstance(item, ArtifactRef) for item in artifacts):
+            raise RecordError("bootstrap block artifacts are invalid")
+        by_kind = {item.kind: item for item in artifacts}
+        if len(by_kind) != len(artifacts):
+            raise RecordError("bootstrap block artifact kinds are duplicated")
+        feature_specs = {
+            "formal_bootstrap_weight_sum_block": ("float64", "coefficient_sum"),
+            "formal_bootstrap_weight_square_sum_block": (
+                "float64",
+                "coefficient_squared_sum",
+            ),
+            "formal_bootstrap_finite_weight_count_block": ("int64", "count"),
+            "formal_bootstrap_candidate_count_block": ("int64", "count"),
+            "formal_bootstrap_positive_count_block": ("int64", "count"),
+            "formal_bootstrap_negative_count_block": ("int64", "count"),
+        }
+        if selection_mode == "sweet_sour":
+            feature_specs.update(
+                {
+                    "formal_bootstrap_sweet_count_block": ("int64", "count"),
+                    "formal_bootstrap_sour_count_block": ("int64", "count"),
+                }
+            )
+        replicate_specs = {
+            "formal_bootstrap_replicate_candidate_count_block": (
+                "int64",
+                "count",
+            ),
+            "formal_bootstrap_replicate_valid_weight_count_block": (
+                "int64",
+                "count",
+            ),
+            "formal_bootstrap_replicate_support_code_block": (
+                "int8",
+                "ordinal_code",
+            ),
+        }
+        expected_kinds = {
+            *feature_specs,
+            *replicate_specs,
+            "formal_bootstrap_evidence_block",
+        }
+        if set(by_kind) != expected_kinds:
+            raise RecordError("bootstrap block artifact closure is incomplete")
+        for kind, (dtype, units) in feature_specs.items():
+            artifact = by_kind[kind]
+            if (
+                artifact.dtype != dtype
+                or artifact.shape != (self.feature_axis.count,)
+                or artifact.axis_refs != (self.feature_axis,)
+                or artifact.units != units
+                or artifact.space != self.feature_space
+            ):
+                raise RecordError(
+                    f"bootstrap block feature artifact {kind!r} is invalid"
+                )
+        for kind, (dtype, units) in replicate_specs.items():
+            artifact = by_kind[kind]
+            if (
+                artifact.dtype != dtype
+                or artifact.shape != (self.block_axis.count,)
+                or artifact.axis_refs != (self.block_axis,)
+                or artifact.units != units
+                or artifact.space is not None
+            ):
+                raise RecordError(
+                    f"bootstrap block replicate artifact {kind!r} is invalid"
+                )
+        evidence = by_kind["formal_bootstrap_evidence_block"]
+        if (
+            evidence.schema_version != "dual_frequency_document_v1"
+            or evidence.dtype is not None
+            or evidence.shape is not None
+            or evidence.axis_refs
+            or evidence.axis_hashes
+            or evidence.units is not None
+            or evidence.space is not None
+        ):
+            raise RecordError("bootstrap block evidence artifact is invalid")
+        object.__setattr__(self, "artifacts", artifacts)
+
+    @property
+    def identifier(self) -> str:
+        return f"bootstrap_block_{canonical_hash(asdict(self), length=20)}"
+
+
+@dataclass(frozen=True)
 class ScratchArrayRecord:
     """Persistable NPY header contract for one run-scoped scratch array."""
 

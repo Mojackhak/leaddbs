@@ -4,6 +4,7 @@ from .identity import EndpointKey, FinalModelKey, TaskKey, canonical_hash
 from .records import (
     ArtifactRef,
     AxisRef,
+    BootstrapBlockRecord,
     BranchRecord,
     DeltaReferenceBundle,
     EndpointInputRecord,
@@ -57,6 +58,7 @@ __all__ = [
     "ActivationRequest",
     "ArtifactRef",
     "AxisRef",
+    "BootstrapBlockRecord",
     "BranchRecord",
     "BootstrapNuisanceEvidence",
     "BootstrapRebuildProvenance",

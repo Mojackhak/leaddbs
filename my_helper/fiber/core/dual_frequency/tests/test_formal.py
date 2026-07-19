@@ -37,6 +37,7 @@ from dual_frequency.backends.formal import (
     compute_normative_fiber_permutation_block,
 )
 from dual_frequency.backends.formal.common import (
+    BootstrapBlockComputation,
     BootstrapReplicateNotEstimableError,
     PermutationBlockComputation,
     PermutationComputation,
@@ -114,6 +115,12 @@ from dual_frequency.runtime.formal_operator_workspace import (
 from dual_frequency.runtime.formal_resampling import (
     FormalResamplingError,
     load_formal_resampling_schedule,
+    publish_formal_resampling_schedule,
+)
+from dual_frequency.runtime.formal_bootstrap_blocks import (
+    FormalBootstrapBlockError,
+    load_formal_bootstrap_block,
+    publish_formal_bootstrap_block,
 )
 from dual_frequency.runtime.service_adapters import build_default_service_registry
 from dual_frequency.workflow.executor import DependencyState, TaskExecutionRequest
@@ -196,6 +203,228 @@ class ResamplingScheduleBlockTest(unittest.TestCase):
             schedule.descriptor.schedule_sha256,
             formal_resampling_schedule("bootstrap", 12, 13, 73).descriptor.schedule_sha256,
         )
+
+
+class DurableBootstrapBlockTest(unittest.TestCase):
+    @staticmethod
+    def _assert_block_equal(
+        expected: BootstrapBlockComputation,
+        actual: BootstrapBlockComputation,
+    ) -> None:
+        for field in dataclasses.fields(expected):
+            left = getattr(expected, field.name)
+            right = getattr(actual, field.name)
+            if isinstance(left, np.ndarray):
+                np.testing.assert_array_equal(right, left)
+            else:
+                if right != left:
+                    raise AssertionError(f"bootstrap block field differs: {field.name}")
+
+    def _compute_block(
+        self,
+        request: FormalRequest,
+        schedule: object,
+    ) -> BootstrapBlockComputation:
+        exposure = _artifact_value(request.exposure)
+        outcome = _artifact_value(request.outcome)
+        baseline = _artifact_value(request.baseline)
+        block = schedule.blocks()[0]
+        if request.final_model.endpoint.model_family.endswith("fiber"):
+            return compute_normative_fiber_bootstrap_block(
+                request,
+                exposure,
+                _artifact_value(request.feature_ids),
+                outcome,
+                baseline,
+                None,
+                schedule,
+                block,
+            )
+        return compute_direct_voxel_bootstrap_block(
+            request,
+            exposure,
+            outcome,
+            baseline,
+            None,
+            schedule,
+            block,
+        )
+
+    def test_direct_and_fiber_blocks_publish_reopen_and_preserve_exact_state(self) -> None:
+        for model_family, expected_selection, expected_count in (
+            ("reference_voxel", "none", 10),
+            ("reference_fiber", "sweet_sour", 12),
+        ):
+            with (
+                self.subTest(model_family=model_family),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary)
+                request = _formal_request(
+                    model_family,
+                    "bootstrap",
+                    resamples=3,
+                    seed=97,
+                )
+                schedule_record = publish_formal_resampling_schedule(
+                    request,
+                    RunScopedArtifactPublisher(root, "schedule", "1"),
+                )
+                store = ArtifactStore((root,))
+                schedule = load_formal_resampling_schedule(
+                    schedule_record,
+                    request,
+                    store,
+                )
+                computed = self._compute_block(request, schedule)
+                record = publish_formal_bootstrap_block(
+                    computed,
+                    schedule_record,
+                    request.feature_axis,
+                    request.exposure.space,
+                    RunScopedArtifactPublisher(root, "block", "1"),
+                )
+                self.assertEqual(record.selection_mode, expected_selection)
+                self.assertEqual(len(record.artifacts), expected_count)
+                self.assertNotIn(
+                    (request.resamples, request.feature_axis.count),
+                    tuple(
+                        artifact.shape
+                        for artifact in record.artifacts
+                        if artifact.shape is not None
+                    ),
+                )
+                restored = load_formal_bootstrap_block(
+                    record,
+                    schedule_record,
+                    request.feature_axis,
+                    request.exposure.space,
+                    store,
+                )
+                self._assert_block_equal(computed, restored)
+
+                changed_schedule = dataclasses.replace(
+                    schedule_record,
+                    schedule_sha256="0" * 64,
+                )
+                with self.assertRaisesRegex(
+                    FormalBootstrapBlockError,
+                    "parent schedule",
+                ):
+                    load_formal_bootstrap_block(
+                        record,
+                        changed_schedule,
+                        request.feature_axis,
+                        request.exposure.space,
+                        store,
+                    )
+                with self.assertRaisesRegex(
+                    FormalBootstrapBlockError,
+                    "feature axis",
+                ):
+                    load_formal_bootstrap_block(
+                        record,
+                        schedule_record,
+                        dataclasses.replace(
+                            request.feature_axis,
+                            axis_id="wrong_features",
+                        ),
+                        request.exposure.space,
+                        store,
+                    )
+                first_artifact = record.artifacts[0]
+                with self.assertRaisesRegex(
+                    public_contracts.RecordError,
+                    "closure",
+                ):
+                    dataclasses.replace(
+                        record,
+                        artifacts=(
+                            dataclasses.replace(first_artifact, kind="wrong_kind"),
+                            *record.artifacts[1:],
+                        ),
+                    )
+                with self.assertRaisesRegex(
+                    public_contracts.RecordError,
+                    "artifact shape",
+                ):
+                    dataclasses.replace(
+                        record,
+                        artifacts=(
+                            dataclasses.replace(
+                                first_artifact,
+                                shape=(request.feature_axis.count + 1,),
+                            ),
+                            *record.artifacts[1:],
+                        ),
+                    )
+                _artifact_path(first_artifact).write_bytes(
+                    _artifact_path(first_artifact).read_bytes() + b"corrupt"
+                )
+                with self.assertRaises(FormalBootstrapBlockError):
+                    load_formal_bootstrap_block(
+                        record,
+                        schedule_record,
+                        request.feature_axis,
+                        request.exposure.space,
+                        store,
+                    )
+
+    def test_adjusted_evidence_mode_round_trips_complete_interval(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = _formal_request(
+                "reference_voxel",
+                "bootstrap",
+                resamples=3,
+                seed=101,
+            )
+            schedule_record = publish_formal_resampling_schedule(
+                request,
+                RunScopedArtifactPublisher(root, "schedule", "1"),
+            )
+            store = ArtifactStore((root,))
+            schedule = load_formal_resampling_schedule(
+                schedule_record,
+                request,
+                store,
+            )
+            computed = self._compute_block(request, schedule)
+            adjusted = dataclasses.replace(
+                computed,
+                require_complete_nuisance_evidence=True,
+                nuisance_evidence=tuple(
+                    {
+                        "replicate": replicate,
+                        "support_status": "adequate",
+                    }
+                    for replicate in range(computed.block.start, computed.block.stop)
+                ),
+            )
+            with self.assertRaisesRegex(
+                FormalBackendError,
+                "does not cover",
+            ):
+                dataclasses.replace(
+                    adjusted,
+                    nuisance_evidence=adjusted.nuisance_evidence[:-1],
+                )
+            record = publish_formal_bootstrap_block(
+                adjusted,
+                schedule_record,
+                request.feature_axis,
+                request.exposure.space,
+                RunScopedArtifactPublisher(root, "adjusted_block", "1"),
+            )
+            self.assertEqual(record.nuisance_evidence_mode, "complete_adjusted")
+            restored = load_formal_bootstrap_block(
+                record,
+                schedule_record,
+                request.feature_axis,
+                request.exposure.space,
+                store,
+            )
+            self._assert_block_equal(adjusted, restored)
 
 
 def _axis(axis_id: str, count: int, character: str) -> AxisRef:

@@ -3922,6 +3922,35 @@ dual-frequency tests, eight separately invoked goal guards, and 14
 visualization tests. The sensitivity DAG and durable artifact schemas remain
 unchanged, and no production OSS process was invoked.
 
+Eleventh Step 9 implementation slice: freeze durable bootstrap block output
+before adding services or planner tasks. `BootstrapBlockRecord` binds the final
+target, parent bootstrap schedule record and digest, feature axis, complete
+replicate axis, canonical block axis and interval, selection mode, adjusted
+nuisance-evidence mode, and terminal technical status. It carries only
+feature-aligned weight sum, squared-weight sum, finite/candidate/positive/
+negative counts, optional sweet/sour counts, block-local candidate/valid/support
+vectors, and one strict evidence JSON document. It never carries per-replicate
+feature weights.
+
+Publication uses immutable run-scoped artifacts with complete dtype, shape,
+axis, units, space, and SHA metadata. Restoration verifies every artifact and
+evidence field against the parent schedule and record before constructing the
+numerical block. Direct and fiber round trips must preserve exact arrays and
+evidence, reject a changed parent, axis, kind, shape, digest, interval,
+selection mode, or incomplete adjusted evidence, and remain compatible with
+reverse-order numerical aggregation. Planner task count and production service
+selection remain unchanged in this record-only slice.
+
+Eleventh-slice acceptance on 2026-07-19: direct-voxel and normative-fiber
+blocks publish and reopen with exact accumulator arrays and evidence. The
+fiber closure contains sweet/sour counts while the voxel closure does not; both
+exclude every replicate-by-feature artifact. Changed parent schedule, feature
+axis, artifact kind, shape, payload SHA, selection closure, or incomplete
+adjusted evidence fails closed. The focused codec and formal suites pass 57
+tests. The complete matrix passes 487 dual-frequency tests, eight separately
+invoked goal guards, and 14 visualization tests. Production planner topology
+is unchanged, and no production or sensitivity run was started.
+
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial
 accumulators and the strict ordered aggregate. A 251-replicate fixture for both

@@ -2331,6 +2331,22 @@ matrix passes 485 dual-frequency tests, eight separately invoked goal guards,
 and 14 visualization tests. No durable pPAM record, planner mutation, or real
 OSS execution was introduced.
 
+The durable-bootstrap record slice publishes mergeable feature moments and
+counts, block-local diagnostics, and strict evidence JSON against the exact
+parent bootstrap schedule. It excludes every per-replicate feature-weight
+matrix. Restoration verifies SHA, metadata, axes, interval, selection mode,
+and adjusted evidence coverage before numerical aggregation. Production
+planner and service topology remain unchanged until this record contract passes
+direct and fiber round-trip tests independently.
+
+Durable-bootstrap acceptance on 2026-07-19 confirms exact direct and fiber
+round trips, correct model-specific artifact closure, and fail-closed rejection
+of changed parent, axis, kind, shape, payload SHA, selection closure, or
+adjusted evidence coverage. The focused codec and formal suites pass 57 tests;
+the complete validation matrix passes 487 dual-frequency tests, eight
+separately invoked goal guards, and 14 visualization tests. No production,
+jitter, OSS-DBS, or combined extension process was started.
+
 ## Documentation Validation
 
 Before implementation begins:

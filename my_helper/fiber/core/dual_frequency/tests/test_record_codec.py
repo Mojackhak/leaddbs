@@ -11,6 +11,7 @@ from dual_frequency.contracts import (
     ActivationArtifact,
     ArtifactRef,
     AxisRef,
+    BootstrapBlockRecord,
     BranchRecord,
     DeltaReferenceBundle,
     EndpointInputRecord,
@@ -249,6 +250,127 @@ class RecordCodecTest(unittest.TestCase):
             total_nbytes=array.nbytes,
         )
 
+    def _bootstrap_block_record(
+        self,
+        schedule: ResamplingScheduleRecord,
+    ) -> BootstrapBlockRecord:
+        replicates = schedule.replicate_axis
+        block_axis = resampling_block_axis(replicates, 250, 500)
+
+        def array(
+            kind: str,
+            axis: AxisRef,
+            digest: str,
+            units: str,
+            dtype: str,
+            *,
+            space: str | None,
+        ) -> ArtifactRef:
+            artifact = self._artifact(
+                kind,
+                (axis,),
+                digest=digest,
+                units=units,
+                dtype=dtype,
+            )
+            return dataclasses.replace(artifact, space=space)
+
+        artifacts = (
+            array(
+                "formal_bootstrap_weight_sum_block",
+                self.features,
+                "1",
+                "coefficient_sum",
+                "float64",
+                space="synthetic",
+            ),
+            array(
+                "formal_bootstrap_weight_square_sum_block",
+                self.features,
+                "2",
+                "coefficient_squared_sum",
+                "float64",
+                space="synthetic",
+            ),
+            array(
+                "formal_bootstrap_finite_weight_count_block",
+                self.features,
+                "3",
+                "count",
+                "int64",
+                space="synthetic",
+            ),
+            array(
+                "formal_bootstrap_candidate_count_block",
+                self.features,
+                "4",
+                "count",
+                "int64",
+                space="synthetic",
+            ),
+            array(
+                "formal_bootstrap_positive_count_block",
+                self.features,
+                "5",
+                "count",
+                "int64",
+                space="synthetic",
+            ),
+            array(
+                "formal_bootstrap_negative_count_block",
+                self.features,
+                "6",
+                "count",
+                "int64",
+                space="synthetic",
+            ),
+            array(
+                "formal_bootstrap_replicate_candidate_count_block",
+                block_axis,
+                "7",
+                "count",
+                "int64",
+                space=None,
+            ),
+            array(
+                "formal_bootstrap_replicate_valid_weight_count_block",
+                block_axis,
+                "8",
+                "count",
+                "int64",
+                space=None,
+            ),
+            array(
+                "formal_bootstrap_replicate_support_code_block",
+                block_axis,
+                "9",
+                "ordinal_code",
+                "int8",
+                space=None,
+            ),
+            dataclasses.replace(
+                self._document("formal_bootstrap_evidence_block", digest="a"),
+                schema_version="dual_frequency_document_v1",
+            ),
+        )
+        return BootstrapBlockRecord(
+            target_id=schedule.target_id,
+            schedule_id=schedule.identifier,
+            feature_axis=self.features,
+            feature_space="synthetic",
+            replicate_axis=replicates,
+            block_axis=block_axis,
+            block_index=1,
+            start=250,
+            stop=500,
+            total=500,
+            schedule_sha256=schedule.schedule_sha256,
+            selection_mode="none",
+            nuisance_evidence_mode="none",
+            technical_status="completed",
+            artifacts=artifacts,
+        )
+
     def test_operator_scratch_record_is_path_safe_and_has_no_artifact_closure(self) -> None:
         record = self._operator_scratch_record()
         self.assertEqual(self._round_trip(record), record)
@@ -279,10 +401,13 @@ class RecordCodecTest(unittest.TestCase):
 
     def test_resampling_records_bind_canonical_schedule_and_block_axes(self) -> None:
         schedule, block = self._resampling_records()
+        bootstrap_block = self._bootstrap_block_record(schedule)
         self.assertEqual(self._round_trip(schedule), schedule)
         self.assertEqual(self._round_trip(block), block)
+        self.assertEqual(self._round_trip(bootstrap_block), bootstrap_block)
         self.assertEqual(record_artifacts(schedule), (schedule.schedule,))
         self.assertEqual(record_artifacts(block), block.artifacts)
+        self.assertEqual(record_artifacts(bootstrap_block), bootstrap_block.artifacts)
 
         with self.assertRaisesRegex(RecordError, "block size"):
             dataclasses.replace(schedule, block_size=249)
@@ -597,6 +722,7 @@ class RecordCodecTest(unittest.TestCase):
             artifacts=(observed_artifact,),
         )
         schedule, block = self._resampling_records()
+        bootstrap_block = self._bootstrap_block_record(schedule)
         operator_scratch = self._operator_scratch_record()
         records = (
             endpoint_input,
@@ -619,6 +745,7 @@ class RecordCodecTest(unittest.TestCase):
             formal,
             schedule,
             block,
+            bootstrap_block,
             operator_scratch,
             sensitivity,
             activation,
@@ -640,6 +767,7 @@ class RecordCodecTest(unittest.TestCase):
                 "FormalResult",
                 "ResamplingScheduleRecord",
                 "ResamplingBlockRecord",
+                "BootstrapBlockRecord",
                 "FormalOperatorScratchRecord",
                 "SensitivityResult",
                 "ActivationArtifact",
