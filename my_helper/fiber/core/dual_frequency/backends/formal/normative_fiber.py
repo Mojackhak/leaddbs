@@ -13,7 +13,10 @@ from ..normative_fiber.coverage import (
     coverage_counts,
     heldout_fold_candidate_mask,
 )
-from ..normative_fiber.scoring import score_signed_fibers
+from ..normative_fiber.scoring import (
+    PrevalidatedFiberScoreWorkspace,
+    score_signed_fibers,
+)
 from ..nuisance import ADJUSTED_BRANCH, NuisancePlan
 from ..protocols import ArtifactPublisher, BootstrapNuisanceProvider
 from ..statistics import (
@@ -178,6 +181,7 @@ def _loocv(
     outcome: np.ndarray,
     nuisance_plan: NuisancePlan,
     operators: tuple[_FiberFoldOperator, ...],
+    score_workspace: PrevalidatedFiberScoreWorkspace,
     *,
     optimized: bool,
 ) -> dict[str, float]:
@@ -200,10 +204,8 @@ def _loocv(
             )
         )
         valid_counts.append(int(np.count_nonzero(np.isfinite(weights))))
-        score = score_signed_fibers(
-            exposure,
+        score = score_workspace.score_state(
             weights,
-            fiber_ids,
             settings,
             candidate_mask=operator.candidate_mask,
         )
@@ -261,6 +263,7 @@ def compute_normative_fiber_permutation(
         raise FormalBackendInputError("fiber permutation requires resampling_kind='permutation'")
     masks = _fold_candidate_masks(request, exposure)
     operators = _build_fold_operators(request, exposure, nuisance_plan, masks)
+    score_workspace = PrevalidatedFiberScoreWorkspace(exposure, fiber_ids)
     observed = _loocv(
         request,
         exposure,
@@ -268,6 +271,7 @@ def compute_normative_fiber_permutation(
         outcome,
         nuisance_plan,
         operators,
+        score_workspace,
         optimized=optimized,
     )
     if not bool(observed["all_predictions_finite"]) or not np.isfinite(
@@ -297,6 +301,7 @@ def compute_normative_fiber_permutation(
             permuted_outcome,
             nuisance_plan,
             operators,
+            score_workspace,
             optimized=optimized,
         )
         rho = float(metrics["loocv_spearman_rho"])

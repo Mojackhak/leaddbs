@@ -278,6 +278,44 @@ class DeltaReferenceDirectVoxelTest(unittest.TestCase):
         self.assertEqual(accepted.support_status, "adequate")
         self.assertEqual(rejected.support_status, "invalid_extreme_out_of_support")
 
+    def test_adequate_median_and_subject_fraction_boundaries_are_strict(self) -> None:
+        median_indices = np.arange(80, dtype=np.int64)
+        median_boundary = np.full((4, 100), 250.0)
+        fraction_indices = np.arange(100, dtype=np.int64)
+        fraction_boundary = np.full((4, 204), 150.0)
+        fraction_boundary[:, :100] = 250.0
+        fraction_boundary[0, 100:] = 250.0
+        below_indices = np.arange(81, dtype=np.int64)
+        below_boundaries = np.full((4, 100), 250.0)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            median = self._build(
+                root / "median",
+                selected_indices=median_indices,
+                full_weights=np.ones(median_indices.size),
+                fold_weights=np.ones((4, median_indices.size)),
+                addon_reference_exposure=median_boundary,
+            )
+            fraction = self._build(
+                root / "fraction",
+                selected_indices=fraction_indices,
+                full_weights=np.ones(fraction_indices.size),
+                fold_weights=np.ones((4, fraction_indices.size)),
+                addon_reference_exposure=fraction_boundary,
+            )
+            below = self._build(
+                root / "below",
+                selected_indices=below_indices,
+                full_weights=np.ones(below_indices.size),
+                fold_weights=np.ones((4, below_indices.size)),
+                addon_reference_exposure=below_boundaries,
+            )
+
+        self.assertEqual(median.support_status, "limited")
+        self.assertEqual(fraction.support_status, "limited")
+        self.assertEqual(below.support_status, "adequate")
+
     def test_fold_scores_never_substitute_full_sample_weights(self) -> None:
         indices = np.arange(8, dtype=np.int64)
         addon_reference = np.full((4, 10), 150.0)

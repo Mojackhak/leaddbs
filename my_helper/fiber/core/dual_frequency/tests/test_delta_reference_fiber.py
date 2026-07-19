@@ -681,6 +681,58 @@ class DeltaReferenceFiberTest(unittest.TestCase):
                 (root / "zero" / "delta_reference_fold_scores.npy").exists()
             )
 
+    def test_adequate_median_and_subject_fraction_boundaries_are_strict(self) -> None:
+        cases = (
+            (
+                "median",
+                np.arange(100, dtype=np.int64),
+                80,
+                np.full((4, 100), 250.0),
+                "limited",
+            ),
+            (
+                "fraction",
+                np.arange(204, dtype=np.int64),
+                100,
+                np.vstack(
+                    (
+                        np.full((1, 204), 250.0),
+                        np.column_stack(
+                            (
+                                np.full((3, 100), 250.0),
+                                np.full((3, 104), 150.0),
+                            )
+                        ),
+                    )
+                ),
+                "limited",
+            ),
+            (
+                "below",
+                np.arange(100, dtype=np.int64),
+                81,
+                np.full((4, 100), 250.0),
+                "adequate",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, parent_ids, valid_count, addon, expected in cases:
+                with self.subTest(name=name):
+                    valid_ids = parent_ids[:valid_count]
+                    weights = np.ones(valid_count)
+                    bundle = self._build(
+                        root / name,
+                        parent_fiber_ids=parent_ids,
+                        valid_fiber_ids=valid_ids,
+                        full_weights=weights,
+                        fold_weights=np.ones((4, valid_count)),
+                        fold_valid_masks=np.ones((4, valid_count), dtype=bool),
+                        reference_exposure=np.full(addon.shape, 100.0),
+                        addon_reference_exposure=addon,
+                    )
+                    self.assertEqual(bundle.support_status, expected)
+
     def test_artifact_inputs_require_exact_axes_and_local_record_membership(self) -> None:
         parent_ids = np.arange(60_000, 60_200, dtype=np.int64)
         valid_ids = parent_ids.copy()

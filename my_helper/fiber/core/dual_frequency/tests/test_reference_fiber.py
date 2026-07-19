@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlsplit
 import numpy as np
 
 import dual_frequency.backends.normative_fiber.reference as reference_module
+import dual_frequency.backends.normative_fiber.scoring as scoring_module
 from dual_frequency.backends.normative_fiber import ReferenceFiberBackend
 from dual_frequency.cache import ArtifactStore, RunScopedArtifactPublisher, sha256_file
 from dual_frequency.contracts import (
@@ -160,14 +161,29 @@ class ReferenceFiberBackendTest(unittest.TestCase):
                 RunScopedArtifactPublisher(Path(temporary), "fiber_test", "1"),
                 feature_chunk_size=11,
             )
-            with mock.patch.object(
-                reference_module,
-                "coverage_counts",
-                wraps=reference_module.coverage_counts,
-            ) as count_coverage:
+            with (
+                mock.patch.object(
+                    reference_module,
+                    "coverage_counts",
+                    wraps=reference_module.coverage_counts,
+                ) as count_coverage,
+                mock.patch.object(
+                    reference_module,
+                    "linear_prediction",
+                    wraps=reference_module.linear_prediction,
+                ) as predict,
+                mock.patch.object(
+                    scoring_module,
+                    "_validate_exposure",
+                    wraps=scoring_module._validate_exposure,
+                ) as validate_exposure,
+            ):
                 result = backend.run(request)
 
         self.assertIsNotNone(result.source)
+        baseline_calls = [call for call in predict.call_args_list if call.args[1] is None]
+        self.assertEqual(len(baseline_calls), request.subject_axis.count)
+        self.assertEqual(validate_exposure.call_count, 1)
         self.assertEqual(
             count_coverage.call_count,
             len(set(request.source_grid.tau_values)),

@@ -15,6 +15,7 @@ from urllib.parse import unquote, urlsplit
 import numpy as np
 
 import dual_frequency.backends as public_backends
+import dual_frequency.backends.normative_fiber.scoring as scoring_module
 import dual_frequency.backends.protocols as backend_protocols
 import dual_frequency.backends.statistics as statistics_module
 import dual_frequency.contracts as public_contracts
@@ -607,14 +608,20 @@ class FormalPermutationTest(unittest.TestCase):
         baseline = _artifact_value(request.baseline)
         fiber_ids = _fiber_id_values(request)
         nuisance = build_fixed_nuisance_plan(request, baseline, None, None)
-        optimized = compute_normative_fiber_permutation(
-            request,
-            exposure,
-            fiber_ids,
-            outcome,
-            nuisance,
-            optimized=True,
-        )
+        with mock.patch.object(
+            scoring_module,
+            "_validate_exposure",
+            wraps=scoring_module._validate_exposure,
+        ) as validate_exposure:
+            optimized = compute_normative_fiber_permutation(
+                request,
+                exposure,
+                fiber_ids,
+                outcome,
+                nuisance,
+                optimized=True,
+            )
+        self.assertEqual(validate_exposure.call_count, 1)
         brute = compute_normative_fiber_permutation(
             request,
             exposure,

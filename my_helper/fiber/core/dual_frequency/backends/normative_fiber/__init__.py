@@ -18,6 +18,8 @@ from .coverage import (
 from .scoring import (
     FiberScoreError,
     FiberScoreResult,
+    FiberScoreState,
+    PrevalidatedFiberScoreWorkspace,
     score_signed_fibers,
     score_support_fields,
 )
@@ -41,6 +43,8 @@ __all__ = [
     "FiberGridCellMetrics",
     "FiberScoreError",
     "FiberScoreResult",
+    "FiberScoreState",
+    "PrevalidatedFiberScoreWorkspace",
     "FiberSelectedArrays",
     "ReferenceFiberBackend",
     "ReferenceFiberBackendError",

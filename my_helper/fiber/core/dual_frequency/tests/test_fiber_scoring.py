@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import dataclasses
 import unittest
+from unittest import mock
 
 import numpy as np
 
+import dual_frequency.backends.normative_fiber.scoring as scoring_module
 from dual_frequency.backends.normative_fiber import (
     FiberCoverageError,
     FiberScoreError,
+    FiberScoreState,
+    PrevalidatedFiberScoreWorkspace,
     candidate_mask,
     coverage_counts,
     heldout_fold_candidate_mask,
@@ -96,6 +100,79 @@ class FiberScoreTest(unittest.TestCase):
         )
         self.assertTrue(np.all(np.isfinite(result.net_score)))
         self.assertFalse(result.net_score.flags.writeable)
+
+    def test_prevalidated_workspace_reuses_scratch_without_fitted_state(self) -> None:
+        exposure, weights, fiber_ids = self._library()
+        first_candidate = np.ones(weights.size, dtype=bool)
+        second_candidate = np.ones(weights.size, dtype=bool)
+        second_candidate[:40] = False
+        second_weights = weights.copy()
+        second_weights[40:80] *= -1.0
+        expected_first = score_signed_fibers(
+            exposure,
+            weights,
+            fiber_ids,
+            SETTINGS,
+            candidate_mask=first_candidate,
+            chunk_size=17,
+        )
+        expected_second = score_signed_fibers(
+            exposure,
+            second_weights,
+            fiber_ids,
+            SETTINGS,
+            candidate_mask=second_candidate,
+            chunk_size=17,
+        )
+
+        with mock.patch.object(
+            scoring_module,
+            "_validate_exposure",
+            wraps=scoring_module._validate_exposure,
+        ) as validate:
+            workspace = PrevalidatedFiberScoreWorkspace(
+                exposure,
+                fiber_ids,
+                chunk_size=17,
+            )
+            first = workspace.score(
+                weights,
+                SETTINGS,
+                candidate_mask=first_candidate,
+            )
+            retained_identity = id(workspace._retained_scratch)
+            merge_identity = id(workspace._merge_scratch)
+            second = workspace.score(
+                second_weights,
+                SETTINGS,
+                candidate_mask=second_candidate,
+            )
+            null_state = workspace.score_state(
+                second_weights,
+                SETTINGS,
+                candidate_mask=second_candidate,
+            )
+
+        self.assertEqual(validate.call_count, 1)
+        self.assertEqual(id(workspace._retained_scratch), retained_identity)
+        self.assertEqual(id(workspace._merge_scratch), merge_identity)
+        np.testing.assert_allclose(first.net_score, expected_first.net_score)
+        np.testing.assert_allclose(second.net_score, expected_second.net_score)
+        self.assertIsInstance(null_state, FiberScoreState)
+        np.testing.assert_allclose(null_state.net_score, expected_second.net_score)
+        self.assertFalse(hasattr(null_state, "sweet_fiber_ids"))
+        np.testing.assert_array_equal(
+            first.sweet_fiber_ids,
+            expected_first.sweet_fiber_ids,
+        )
+        np.testing.assert_array_equal(
+            second.sweet_fiber_ids,
+            expected_second.sweet_fiber_ids,
+        )
+        self.assertNotEqual(
+            first.sweet_selected_fiber_id_hash,
+            second.sweet_selected_fiber_id_hash,
+        )
 
     def test_intersects_candidate_mask_with_finite_weights(self) -> None:
         exposure, weights, fiber_ids = self._library()

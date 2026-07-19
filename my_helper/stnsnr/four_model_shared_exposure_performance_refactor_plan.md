@@ -891,7 +891,10 @@ and multiple block sizes against the current scalar implementation.
 Direct voxel constructs threshold/support counts once per tau and derives fold
 counts by subtracting the held-out row. Baseline-only LOOCV predictions are fit
 once per endpoint/fold. Selected-cell publication consumes the scan workspace
-instead of repeating ranking and weight estimation.
+for invariant threshold/Coverage operators and baseline predictions. Direct
+voxel deliberately recomputes selected-cell ranking and weights; normative
+fiber may reuse only its exact endpoint/fold maximal-support weight cache and
+must reapply the selected cell's candidate and finite-weight masks.
 
 The direct-voxel workspace is branch-local and binds the exact outcome and
 nuisance plan. It may reuse only the tau threshold operator, full Coverage
@@ -1998,6 +2001,41 @@ outcome-dependent selected-cell quantity is recomputed. The focused gate passes
 29 tests and 5 subtests; the complete current regression passes 490 tests and
 241 parameterized subtests. Normative-fiber baseline-prediction reuse and the
 explicit prevalidated scoring workspace remain open before Step 8 closes.
+
+The remaining normative-fiber slice introduces one branch-local
+`PrevalidatedFiberScoreWorkspace`. It validates the exposure and ordered
+canonical fiber axis once, then owns bounded top-k retained/merge scratch whose
+capacity may grow but whose contents are reset for every call. It never caches
+weights, candidate masks, finite masks, sign partitions, order, selected IDs,
+or scores. The endpoint workspace also computes the nuisance-only held-out
+prediction once per fold and reuses that vector across grid and selected-cell
+evaluation. Full observed metadata remains unchanged; parity and state-change
+tests are required before this optimization is accepted.
+
+Formal normative-fiber permutation and final in-sample inference reuse the same
+workspace only while exposure and ordered fiber axes remain fixed. Observed
+calls return complete publication metadata. Null calls return a lightweight
+net-score/support-state record and recompute all outcome-dependent selections;
+they do not construct or retain selected-ID arrays or hashes.
+The pPAM activation permutation loop follows the same fixed-axis workspace
+boundary. Its published full and observed-fold results keep complete support
+metadata; permutation folds use only lightweight score state.
+
+Strict DeltaReference support cutoffs use an absolute `1e-12` boundary-
+proximity guard in both direct-voxel and normative-fiber classifiers. This
+prevents a mathematical ratio at `0.20` from being accepted merely because
+float64 subtraction represents it infinitesimally below the declared cutoff;
+ratios genuinely farther below retain the strict passing behavior.
+
+Step 8 final acceptance on 2026-07-19 confirms one normative-fiber
+nuisance-only prediction per held-out fold, one exposure/fiber-axis validation
+per scoring workspace, reusable bounded top-k scratch, independent
+weight/mask/sign/order reconstruction, and lightweight null score state across
+formal permutation, final in-sample, and pPAM permutation. Exact direct and
+fiber cutoff fixtures also confirm strict support behavior. The workspace gate
+passes 76 tests and 28 subtests, the support-boundary gate passes 22 tests and 3
+subtests, and the complete regression passes 493 tests and 244 parameterized
+subtests.
 
 ### Default final in-sample inference
 

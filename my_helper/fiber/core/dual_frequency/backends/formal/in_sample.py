@@ -20,7 +20,8 @@ from ...contracts import (
 from ..direct_voxel.kernel import continuous_mean_score
 from ..normative_fiber.coverage import candidate_mask, coverage_counts
 from ..normative_fiber.scoring import (
-    _score_signed_fibers_prevalidated,
+    FiberScoreResult,
+    PrevalidatedFiberScoreWorkspace,
     score_support_fields,
 )
 from ..nuisance import ADJUSTED_BRANCH
@@ -185,6 +186,9 @@ def _fit(
     candidate_exposure: np.ndarray,
     candidate_ids: np.ndarray,
     operator: _WeightOperator,
+    score_workspace: PrevalidatedFiberScoreWorkspace | None,
+    *,
+    retain_score_metadata: bool,
 ) -> _Fit:
     weights = _weights(operator, outcome, request.outcome_direction)
     valid = np.isfinite(weights)
@@ -195,16 +199,34 @@ def _fit(
             raise FormalBackendInputError(
                 "normative-fiber in-sample score settings are missing"
             )
-        score = _score_signed_fibers_prevalidated(
-            candidate_exposure,
-            weights,
-            candidate_ids,
-            settings,
-            candidate_mask=np.ones(candidate_ids.size, dtype=bool),
-            chunk_size=8_192,
+        if score_workspace is None:
+            raise FormalBackendInputError(
+                "normative-fiber in-sample score workspace is missing"
+            )
+        candidate = np.ones(candidate_ids.size, dtype=bool)
+        score = (
+            score_workspace.score(
+                weights,
+                settings,
+                candidate_mask=candidate,
+            )
+            if retain_score_metadata
+            else score_workspace.score_state(
+                weights,
+                settings,
+                candidate_mask=candidate,
+            )
         )
         scores = np.asarray(score.net_score, dtype=np.float64)
-        support = score_support_fields(score, settings)
+        support = (
+            score_support_fields(score, settings)
+            if isinstance(score, FiberScoreResult)
+            else {
+                "n_positive_valid_fibers": score.n_positive_valid_fibers,
+                "n_negative_valid_fibers": score.n_negative_valid_fibers,
+                "fiber_score_support_status": score.fiber_score_support_status,
+            }
+        )
         usable = score.fiber_score_support_status != "absent_no_valid_signed_fibers"
     else:
         usable = bool(np.any(valid))
@@ -508,12 +530,19 @@ class FinalInSampleBackend:
             feature_ids,
         )
         operator = _weight_operator(candidate_exposure, nuisance)
+        score_workspace = (
+            PrevalidatedFiberScoreWorkspace(candidate_exposure, candidate_ids)
+            if request.final_model.endpoint.model_family.endswith("fiber")
+            else None
+        )
         observed = _fit(
             request,
             outcome,
             candidate_exposure,
             candidate_ids,
             operator,
+            score_workspace,
+            retain_score_metadata=True,
         )
         in_sample_metrics, in_sample_mask = _metrics(
             outcome,
@@ -544,6 +573,8 @@ class FinalInSampleBackend:
                 candidate_exposure,
                 candidate_ids,
                 operator,
+                score_workspace,
+                retain_score_metadata=False,
             )
             rho, _ = safe_correlation(
                 pseudo_outcome,

@@ -36,7 +36,7 @@ from ..statistics import (
 from .coverage import candidate_mask, coverage_counts, heldout_fold_candidate_mask
 from .scoring import (
     FiberScoreResult,
-    _score_signed_fibers_prevalidated,
+    PrevalidatedFiberScoreWorkspace,
     score_support_fields,
 )
 
@@ -427,6 +427,26 @@ def _build_weight_cache(
     return cache
 
 
+def _baseline_loocv_predictions(
+    outcome: np.ndarray,
+    nuisance_plan: NuisancePlan,
+) -> np.ndarray:
+    predictions = np.full(outcome.size, np.nan, dtype=np.float64)
+    all_subjects = np.arange(outcome.size)
+    for heldout in range(outcome.size):
+        train = np.delete(all_subjects, heldout)
+        prediction, _ = linear_prediction(
+            outcome[train],
+            None,
+            nuisance_plan.fold_covariates[heldout, train],
+            None,
+            nuisance_plan.fold_covariates[heldout, [heldout]],
+        )
+        predictions[heldout] = prediction[0]
+    predictions.flags.writeable = False
+    return predictions
+
+
 def _prediction_metrics(
     outcome: np.ndarray,
     model_predictions: np.ndarray,
@@ -480,9 +500,10 @@ def _evaluate_cell(
     exposure: np.ndarray,
     outcome: np.ndarray,
     nuisance_plan: NuisancePlan,
-    fiber_ids: np.ndarray,
     request: ObservedRequest,
     cache: _WeightCache,
+    score_workspace: PrevalidatedFiberScoreWorkspace,
+    baseline_predictions: np.ndarray,
     counts: np.ndarray,
     tau: float,
     coverage: int,
@@ -495,13 +516,10 @@ def _evaluate_cell(
         raise ReferenceFiberBackendError("normative-fiber score settings are missing")
     full_candidate = candidate_mask(counts, coverage)
     full_weights = cache.full_weights
-    full_score = _score_signed_fibers_prevalidated(
-        exposure,
+    full_score = score_workspace.score(
         full_weights,
-        fiber_ids,
         settings,
         candidate_mask=full_candidate,
-        chunk_size=chunk_size,
     )
     full_valid = full_candidate & np.isfinite(full_weights)
     valid_union = full_valid.copy()
@@ -511,7 +529,14 @@ def _evaluate_cell(
     fold_scores = np.empty((n_subjects, n_subjects), dtype=np.float64)
     heldout_scores = np.empty(n_subjects, dtype=np.float64)
     predictions = np.full(n_subjects, np.nan, dtype=np.float64)
-    baseline_predictions = np.full(n_subjects, np.nan, dtype=np.float64)
+    baseline_predictions = np.asarray(
+        baseline_predictions,
+        dtype=np.float64,
+    ).copy()
+    if baseline_predictions.shape != (n_subjects,):
+        raise ReferenceFiberBackendError(
+            "cached baseline predictions do not match the subject axis"
+        )
     fold_candidate_counts: list[int] = []
     fold_valid_counts: list[int] = []
     fold_support: list[dict[str, object]] = []
@@ -529,13 +554,10 @@ def _evaluate_cell(
             chunk_size=chunk_size,
         )
         fold_weights = cache.fold_weights[heldout]
-        fold_score = _score_signed_fibers_prevalidated(
-            exposure,
+        fold_score = score_workspace.score(
             fold_weights,
-            fiber_ids,
             settings,
             candidate_mask=fold_candidate,
-            chunk_size=chunk_size,
         )
         fold_valid = fold_candidate & np.isfinite(fold_weights)
         valid_union |= fold_valid
@@ -556,15 +578,7 @@ def _evaluate_cell(
             fold_score.net_score[[heldout]],
             nuisance_plan.fold_covariates[heldout, [heldout]],
         )
-        baseline_prediction, _ = linear_prediction(
-            outcome[train],
-            None,
-            nuisance_plan.fold_covariates[heldout, train],
-            None,
-            nuisance_plan.fold_covariates[heldout, [heldout]],
-        )
         predictions[heldout] = model_prediction[0]
-        baseline_predictions[heldout] = baseline_prediction[0]
 
     fold_candidates = np.asarray(fold_candidate_counts, dtype=np.int64)
     fold_valid = np.asarray(fold_valid_counts, dtype=np.int64)
@@ -727,7 +741,9 @@ class _FiberWorkspace:
         self.chunk_size = chunk_size
         self._temporary: tempfile.TemporaryDirectory[str] | None = None
         self.cache: _WeightCache | None = None
+        self.score_workspace: PrevalidatedFiberScoreWorkspace | None = None
         self._coverage_counts: dict[float, np.ndarray] = {}
+        self._baseline_predictions: np.ndarray | None = None
 
     def __enter__(self) -> "_FiberWorkspace":
         self._temporary = tempfile.TemporaryDirectory(prefix="dual-frequency-fiber-")
@@ -739,6 +755,11 @@ class _FiberWorkspace:
             Path(self._temporary.name),
             chunk_size=self.chunk_size,
         )
+        self.score_workspace = PrevalidatedFiberScoreWorkspace(
+            self.exposure,
+            self.fiber_ids,
+            chunk_size=self.chunk_size,
+        )
         self._coverage_counts[self.cache.minimum_tau] = self.cache.minimum_counts
         return self
 
@@ -746,7 +767,9 @@ class _FiberWorkspace:
         if self.cache is not None:
             self.cache.flush()
         self.cache = None
+        self.score_workspace = None
         self._coverage_counts.clear()
+        self._baseline_predictions = None
         if self._temporary is not None:
             self._temporary.cleanup()
         self._temporary = None
@@ -763,8 +786,16 @@ class _FiberWorkspace:
             self._coverage_counts[key] = counts
         return counts
 
+    def _baseline(self) -> np.ndarray:
+        if self._baseline_predictions is None:
+            self._baseline_predictions = _baseline_loocv_predictions(
+                self.outcome,
+                self.nuisance_plan,
+            )
+        return self._baseline_predictions
+
     def evaluate_grid(self) -> tuple[FiberGridCellMetrics, ...]:
-        if self.cache is None:
+        if self.cache is None or self.score_workspace is None:
             raise ReferenceFiberBackendError("fiber workspace is not open")
         metrics: list[FiberGridCellMetrics] = []
         for tau in self.request.source_grid.tau_values:
@@ -775,9 +806,10 @@ class _FiberWorkspace:
                         self.exposure,
                         self.outcome,
                         self.nuisance_plan,
-                        self.fiber_ids,
                         self.request,
                         self.cache,
+                        self.score_workspace,
+                        self._baseline(),
                         counts,
                         tau,
                         coverage,
@@ -794,16 +826,17 @@ class _FiberWorkspace:
         *,
         retain_arrays: bool,
     ) -> FiberGridCellComputation:
-        if self.cache is None:
+        if self.cache is None or self.score_workspace is None:
             raise ReferenceFiberBackendError("fiber workspace is not open")
         counts = self._counts(tau)
         return _evaluate_cell(
             self.exposure,
             self.outcome,
             self.nuisance_plan,
-            self.fiber_ids,
             self.request,
             self.cache,
+            self.score_workspace,
+            self._baseline(),
             counts,
             tau,
             coverage,

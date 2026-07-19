@@ -16,7 +16,11 @@ from ...contracts import (
     canonical_hash,
 )
 from ...contracts.requests import ScientificInput
-from ..normative_fiber.scoring import score_signed_fibers, score_support_fields
+from ..normative_fiber.scoring import (
+    FiberScoreResult,
+    PrevalidatedFiberScoreWorkspace,
+    score_support_fields,
+)
 from ..nuisance import (
     ADJUSTED_BRANCH,
     NuisancePlan,
@@ -289,10 +293,12 @@ def _prediction_metrics(
 def _loocv(
     outcome: np.ndarray,
     binary_exposure: np.ndarray,
-    fiber_ids: np.ndarray,
     nuisance_plan: NuisancePlan,
     fold_operators: tuple[_WeightOperator, ...],
     request: ActivationRequest,
+    score_workspace: PrevalidatedFiberScoreWorkspace,
+    *,
+    retain_score_metadata: bool,
 ) -> _LOOCVResult:
     n_subjects, n_features = binary_exposure.shape
     fold_weights = np.full((n_subjects, n_features), np.nan, dtype=np.float32)
@@ -313,17 +319,29 @@ def _loocv(
         )
         fold_weights[heldout] = weights
         finite_counts[heldout] = int(np.count_nonzero(np.isfinite(weights)))
-        score = score_signed_fibers(
-            binary_exposure,
-            weights,
-            fiber_ids,
-            request.fiber_score_settings,
-            candidate_mask=candidate,
+        score = (
+            score_workspace.score(
+                weights,
+                request.fiber_score_settings,
+                candidate_mask=candidate,
+            )
+            if retain_score_metadata
+            else score_workspace.score_state(
+                weights,
+                request.fiber_score_settings,
+                candidate_mask=candidate,
+            )
         )
         fold_scores[heldout] = score.net_score
         heldout_scores[heldout] = score.net_score[heldout]
         support.append(
             score_support_fields(score, request.fiber_score_settings)
+            if isinstance(score, FiberScoreResult)
+            else {
+                "n_positive_valid_fibers": score.n_positive_valid_fibers,
+                "n_negative_valid_fibers": score.n_negative_valid_fibers,
+                "fiber_score_support_status": score.fiber_score_support_status,
+            }
         )
         train_score = score.net_score[operator.train]
         usable_score = bool(
@@ -506,6 +524,7 @@ def fit_ppam_activation(
     if ids.size != n_features:
         raise PPAMFittingError("fiber_ids do not match activation feature axis")
     plan = _build_nuisance_plan(request, baseline_values, nuisance_inputs)
+    score_workspace = PrevalidatedFiberScoreWorkspace(binary, ids)
     full_operator, fold_operators = _weight_operators(binary, plan)
     full_weights = _weights_for_outcome(
         y,
@@ -513,20 +532,19 @@ def fit_ppam_activation(
         n_features,
         request.outcome_direction,
     )
-    full_score = score_signed_fibers(
-        binary,
+    full_score = score_workspace.score(
         full_weights,
-        ids,
         request.fiber_score_settings,
         candidate_mask=np.ones(n_features, dtype=bool),
     )
     observed = _loocv(
         y,
         binary,
-        ids,
         plan,
         fold_operators,
         request,
+        score_workspace,
+        retain_score_metadata=True,
     )
     finite_full = int(np.count_nonzero(np.isfinite(full_weights)))
     minimum = request.hard_computability.fold_n_features_min
@@ -596,10 +614,11 @@ def fit_ppam_activation(
             permuted_fit = _loocv(
                 permuted,
                 binary,
-                ids,
                 plan,
                 fold_operators,
                 request,
+                score_workspace,
+                retain_score_metadata=False,
             )
             null[index] = permuted_fit.metrics["loocv_spearman_rho"]
         if not np.all(np.isfinite(null)):

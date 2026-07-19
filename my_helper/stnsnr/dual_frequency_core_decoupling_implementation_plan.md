@@ -3455,7 +3455,7 @@ a decodable result. Failed, running, skipped, missing, malformed, and
 result-incomplete task JSON is rerun. Append code and resource provenance to a
 separate execution-segment manifest without using either as a resume gate.
 
-- [ ] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
+- [x] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
 
 Cache compact/block-streamed tau exceedance and Coverage operators by exact
 axis and derive training-fold counts by held-out subtraction. Fit baseline-only
@@ -3476,6 +3476,13 @@ selection, and finite-weight intersection.
 Update support-QC classification to strict cutoffs only, including cohort
 median `< 0.20` and subject fraction `< 0.25` for `adequate`; add exact-cutoff
 fixtures so equality is not silently included in either class.
+
+Exact rational cutoff fixtures must account for binary floating-point
+representation. A mathematically exact support ratio at a declared cutoff is
+treated as the cutoff, even when its float64 subtraction lands infinitesimally
+below it. Direct-voxel and normative-fiber classifiers therefore require both
+the strict comparison and failure of an absolute boundary-proximity test with
+tolerance `1e-12`; values farther below remain eligible.
 
 Implementation slice on 2026-07-19: route the shared
 `partial_spearman_weights` entry point through the existing complete-finite
@@ -3502,7 +3509,8 @@ grid invokes Coverage counting exactly three times across maximal-cache
 construction, grid evaluation, and selected-cell publication. The statistics
 gate passed 78 tests and 26 subtests; the statistics-plus-fiber gate passed 42
 tests and 14 subtests. The complete dual-frequency plus visualization
-regression passed with 488 tests and 241 subtests. Step 8 remains open for
+regression passed with 488 tests and 241 subtests. At that checkpoint, Step 8
+remained open for
 direct-voxel grid-operator reuse and one-time endpoint/fold baseline prediction
 construction.
 
@@ -3522,8 +3530,44 @@ and selected-cell publication. The selected cell still recomputes its
 outcome-dependent masks, weights, scores, model predictions, computability,
 and retained arrays. The focused direct-voxel gate passed 29 tests and 5
 subtests; the complete dual-frequency plus visualization regression passed 490
-tests and 241 subtests. Step 8 remains open for the normative-fiber one-time
+tests and 241 subtests. After that checkpoint, Step 8 remained open for the normative-fiber one-time
 baseline prediction and explicit prevalidated scoring-workspace contracts.
+
+Next implementation slice: add a `PrevalidatedFiberScoreWorkspace` that owns
+only one validated exposure/ordered-fiber axis, the configured feature chunk
+size, and reusable top-k merge/retained scratch. Every score call must validate
+its new weight and candidate-mask vectors and must independently rebuild finite
+support, sign partitions, canonical-ID tie ordering, and selected libraries.
+The normative-fiber endpoint workspace binds one nuisance-only held-out
+prediction vector to the exact outcome and nuisance plan and reuses it for all
+grid cells and selected-cell publication. Tests must count one exposure/axis
+validation per workspace, one baseline prediction per fold, stable scratch
+identity after initial capacity allocation, exact parity with the public scalar
+entry point, and changed selections when weights or candidate masks change.
+The formal normative-fiber permutation and final in-sample paths bind one such
+workspace to their fixed exposure/fiber axis. Observed scoring requests the
+complete result needed for publication; null replicates request a lightweight
+result containing only net scores, signed-support status, and signed counts.
+No replicate weight, mask, ordering, selected ID, score, or support object may
+survive into the next call.
+The pPAM activation fit uses the same rule while its binary activation matrix
+and canonical fiber axis are fixed: full and observed-fold calls retain the
+published support metadata, whereas permutation-fold calls request only the
+lightweight score state.
+
+Final acceptance on 2026-07-19: the normative-fiber endpoint computes one
+nuisance-only prediction per held-out fold across its grid and selected-cell
+publication. `PrevalidatedFiberScoreWorkspace` validates the exposure and
+ordered fiber axis once, reuses bounded top-k scratch, and reproduces the
+public scorer while changed weights and masks produce independently changed
+selections. Formal permutation, final in-sample, and pPAM permutation bind the
+workspace only to fixed exposure/fiber axes; null calls return lightweight
+score state without selected-ID arrays or hashes. Direct-voxel and
+normative-fiber support classifiers now treat mathematical equality at strict
+cutoffs as nonpassing despite float64 representation drift. The workspace gate
+passed 76 tests and 28 subtests, the support-boundary gate passed 22 tests and 3
+subtests, and the complete dual-frequency plus visualization regression passed
+493 tests and 244 subtests. Step 8 is complete.
 
 - [ ] **Step 9: Shard formal, bootstrap, pPAM, jitter, and sensitivity safely**
 

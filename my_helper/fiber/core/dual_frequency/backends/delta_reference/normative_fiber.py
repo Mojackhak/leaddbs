@@ -28,10 +28,35 @@ from .cohort import DeltaReferenceCohortError, reference_fold_indices
 
 ScientificArray: TypeAlias = np.ndarray | ArtifactRef
 ReferenceRecord: TypeAlias = SourceRecord | SensitiveRecord
+_BOUNDARY_ABS_TOL = 1e-12
 
 
 class DeltaReferenceFiberError(ValueError):
     """Raised when a local locked fiber operator violates its contract."""
+
+
+def _strictly_below(value: float, cutoff: float) -> bool:
+    return bool(
+        value < cutoff
+        and not math.isclose(value, cutoff, rel_tol=0.0, abs_tol=_BOUNDARY_ABS_TOL)
+    )
+
+
+def _strictly_above(value: float, cutoff: float) -> bool:
+    return bool(
+        value > cutoff
+        and not math.isclose(value, cutoff, rel_tol=0.0, abs_tol=_BOUNDARY_ABS_TOL)
+    )
+
+
+def _strictly_above_array(values: np.ndarray, cutoff: float) -> np.ndarray:
+    array = np.asarray(values, dtype=np.float64)
+    return (array > cutoff) & ~np.isclose(
+        array,
+        cutoff,
+        rtol=0.0,
+        atol=_BOUNDARY_ABS_TOL,
+    )
 
 
 @dataclass(frozen=True)
@@ -495,30 +520,47 @@ def _classify_support(
     median_out = float(np.median(full_out_fraction))
     invalid_subject_fraction = float(
         np.mean(
-            full_out_fraction
-            > profile.invalid.subject_out_support_threshold
+            _strictly_above_array(
+                full_out_fraction,
+                profile.invalid.subject_out_support_threshold,
+            )
         )
     )
     if (
-        median_out > profile.invalid.cohort_median_out_support_min_exclusive
-        or invalid_subject_fraction
-        > profile.invalid.subject_fraction_min_exclusive
+        _strictly_above(
+            median_out,
+            profile.invalid.cohort_median_out_support_min_exclusive,
+        )
+        or _strictly_above(
+            invalid_subject_fraction,
+            profile.invalid.subject_fraction_min_exclusive,
+        )
         or np.any(
-            all_required
-            > profile.invalid.individual_out_support_min_exclusive
+            _strictly_above_array(
+                all_required,
+                profile.invalid.individual_out_support_min_exclusive,
+            )
         )
     ):
         return "invalid_extreme_out_of_support"
 
     adequate_subject_fraction = float(
         np.mean(
-            full_out_fraction
-            > profile.adequate.subject_out_support_threshold
+            _strictly_above_array(
+                full_out_fraction,
+                profile.adequate.subject_out_support_threshold,
+            )
         )
     )
     if (
-        median_out < profile.adequate.cohort_median_out_support_max
-        and adequate_subject_fraction < profile.adequate.subject_fraction_max
+        _strictly_below(
+            median_out,
+            profile.adequate.cohort_median_out_support_max,
+        )
+        and _strictly_below(
+            adequate_subject_fraction,
+            profile.adequate.subject_fraction_max,
+        )
     ):
         return "adequate"
     return "limited"
