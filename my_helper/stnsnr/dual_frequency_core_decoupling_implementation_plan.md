@@ -4711,6 +4711,71 @@ single-sign fiber behavior, and final acceptance evidence. This completes Task
 18 only; Task 17 sensitivity-extension work remains deferred by explicit user
 instruction and therefore the authoritative `/goal` remains active.
 
+### Corrected v8 production sensitivity execution contract
+
+Production sensitivity execution on 2026-07-19 uses only the completed parent
+`task17-main-v8-tau-grid-formal-20260717`. Its completed manifest SHA-256 is
+`25d48876aa955b2df514102523dcee7deb9bf8a8a8bd0c8151d141c1b3809347`, its
+study SHA-256 is
+`3aa0d58a7373e186896b2fbfb5c0342d8425046bf9a5b07517b416d6a7def925`, and
+its scientific configuration SHA-256 is
+`6d23bc0e9f30e697806d0847f238c1c8b09170673dc1ff0c29253808a5c401d5`.
+The current resolved configuration reproduces that scientific identity. Its
+different complete configuration SHA-256 reflects only the retained-cache
+execution policy and other nonscientific runtime state.
+
+The parent checkpoint contains 112 endpoint bases and 1512 completed seed task
+states. The preflight validates the parent manifest, every selected final
+artifact, declared shared-cache entry, scientific identity, endpoint identity,
+and required direct seed before creating a child. Historical jitter lineages
+from v1 through v6 used superseded scientific boundaries and remain immutable
+evidence only. They must not seed, resume, or publish the corrected result.
+
+The three new child lineages are:
+
+- `task17-jitter-v7-inclusive-formal-20260719` for independent jitter;
+- `task17-oss-v1-inclusive-formal-20260719` for independent OSS and pPAM;
+- `task17-combined-v1-inclusive-formal-20260719` for the joint cache-reuse and
+  closure check.
+
+All children use fourteen workers. The production cache-cleanup policy remains
+false, so successful children retain shared cache and run-owned resume state.
+Failed or partial children are never cleanup-eligible. A VAL unmount stops new
+writes and forbids automatic restart until the mount is verified again.
+
+The independent jitter plan contains 720 tasks. Of these, 448 are immutable
+checkpoint roots, 160 are fixed physical blocks covering four physical groups
+with forty blocks per group, and 112 are endpoint statistics. The four groups
+are reference voxel, add-on voxel, reference fiber, and add-on fiber. Each
+endpoint consumes the complete physical-block set required by its immutable
+descriptor and retains its own statistical refit.
+
+The independent OSS plan contains 588 tasks. Of these, 196 are immutable
+checkpoint roots and 392 are new pPAM tasks. Every one of the 56 fiber
+endpoints receives one observed workspace, one deterministic schedule, four
+fixed permutation blocks, and one aggregate. Only an observed-workspace task
+may materialize a missing physical OSS generation. It receives the sole
+external-solver token and requires explicit expensive-producer authorization.
+Schedules, permutation blocks, and aggregates cannot launch the solver.
+
+The combined plan contains 1112 tasks. Of these, 448 are immutable checkpoint
+roots and 664 are new tasks forming the exact union of the independently
+closed jitter and OSS subgraphs. It follows the two independent children so
+valid physical exposure and OSS cache entries are warm. Acceptance requires
+cache validation and reuse without duplicate physical production, no observed,
+resolver, final, formal permutation, bootstrap, or in-sample recomputation, and
+no mutation of the parent lineage.
+
+Each child must finish with no failed or nonterminal task, a completed run
+manifest, complete reporting documents, a valid artifact index, unchanged
+parent-manifest binding, and publication below the canonical model-set
+extension roots. Resume acceptance interrupts or invalidates one bounded child
+task and verifies that only its required descendants rerun. Resource evidence
+records effective worker admission, CPU, RSS, swap, connectome-I/O tokens, and
+the external-solver token. Performance windows overlapping unrelated VAL-heavy
+work remain correctness evidence but cannot support an uncontended throughput
+claim.
+
 ---
 
 ## Plan Self-Review Record
