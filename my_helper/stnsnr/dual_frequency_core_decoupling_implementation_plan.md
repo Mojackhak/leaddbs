@@ -3674,6 +3674,15 @@ root indexes, and commit-last manifests. A one-scale real PDQ-39 replay
 published and verified 82 direct-voxel plus 127 normative-fiber indexed
 artifacts without refitting.
 
+Publication replay loads independent completed task-state JSON documents with
+a bounded metadata thread pool. This boundary is limited to small immutable
+JSON reads and record decoding; scientific arrays, HDF5 connectomes, NIfTI
+generation, and publication writes remain explicitly ordered. The bound must
+avoid serial exFAT open latency without multiplying large scientific payloads.
+On the completed 1,512-task v8 parent, the bounded loader decoded all 1,512
+states from VAL in about 187 seconds; the preceding serial attempt had not
+finished after 12 minutes and was stopped before any scale directory existed.
+
 - [x] **Step 3: Publish direct-voxel display NIfTI derivatives**
 
 For every realized reference or add-on direct-voxel final, publish the

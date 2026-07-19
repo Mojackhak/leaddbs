@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -934,7 +935,7 @@ class CanonicalPublisher:
         outcomes: list[TaskOutcome] = []
         selected_task_ids: set[str] | None = None
         status_path = root / "task_status.csv"
-        if endpoint_ids is not None and status_path.is_file():
+        if status_path.is_file():
             try:
                 with status_path.open("r", encoding="utf-8", newline="") as handle:
                     rows = tuple(csv.DictReader(handle))
@@ -950,7 +951,8 @@ class CanonicalPublisher:
             selected_task_ids = {
                 str(row["task_id"])
                 for row in rows
-                if str(row.get("endpoint_id", "")) in endpoint_ids
+                if endpoint_ids is None
+                or str(row.get("endpoint_id", "")) in endpoint_ids
             }
         paths = (
             sorted((root / "tasks").glob("task_*.json"))
@@ -960,14 +962,17 @@ class CanonicalPublisher:
                 for task_id in sorted(selected_task_ids)
             ]
         )
-        for path in paths:
+        if not paths:
+            raise PublicationError("completed run has no persisted task states")
+
+        def load(path: Path) -> TaskOutcome:
             payload = CanonicalPublisher._json(path)
             try:
-                outcomes.append(TaskOutcome.from_dict(payload))
+                return TaskOutcome.from_dict(payload)
             except Exception as exc:
                 raise PublicationError(f"invalid persisted task state: {path}") from exc
-        if not outcomes:
-            raise PublicationError("completed run has no persisted task states")
+        with ThreadPoolExecutor(max_workers=min(16, len(paths))) as executor:
+            outcomes.extend(executor.map(load, paths))
         failed = tuple(item.task_id for item in outcomes if item.status == "failed")
         if failed:
             raise PublicationError(
