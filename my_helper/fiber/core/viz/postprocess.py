@@ -191,6 +191,8 @@ def _run_spatial(
         sour_color=str(spec.get("sour_color", "#3268A8")),
         sweet_threshold=float(spec.get("sweet_threshold", 0.5)),
         sour_threshold=float(spec.get("sour_threshold", 0.5)),
+        sweet_value_mode=str(spec.get("sweet_value_mode", "raw")),
+        sour_value_mode=str(spec.get("sour_value_mode", "raw")),
         layer_alpha=float(spec.get("layer_alpha", 0.68)),
         percent_list=tuple(spec.get("percent_list", [25.0, 50.0, 75.0])),
         slice_coordinates_mm=spec.get("slice_coordinates_mm"),

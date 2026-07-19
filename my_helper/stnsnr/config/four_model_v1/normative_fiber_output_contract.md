@@ -614,6 +614,14 @@ zero denotes a true zero contribution inside support. FDR and density outputs
 are reporting evidence only. ROI labels, enrichment, and regional heatmaps are
 not part of this contract.
 
+The density support is the union of the final selected sweet and sour fiber
+libraries. Each selected fiber contributes its signed full-sample
+benefit-oriented weight once to every traversed voxel. The unthresholded map
+stores the signed sum, while the positive and negative maps retain the two
+signed contributions separately. Here, unthresholded means that no additional
+voxel-density cutoff is applied after projection; it does not expand the map
+to fibers outside the final selected libraries.
+
 If there is no final model, report contains status and summary only; HTML and
 density outputs are not generated.
 

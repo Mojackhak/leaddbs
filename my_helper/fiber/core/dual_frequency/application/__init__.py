@@ -9,6 +9,12 @@ from .service import (
     WorkflowRequest,
     WorkflowService,
 )
+from .publication import (
+    CanonicalPublisher,
+    ExtensionPublicationResult,
+    PublicationError,
+    PublicationResult,
+)
 
 __all__ = [
     "ApplicationError",
@@ -18,4 +24,8 @@ __all__ = [
     "ValidationSummary",
     "WorkflowRequest",
     "WorkflowService",
+    "CanonicalPublisher",
+    "ExtensionPublicationResult",
+    "PublicationError",
+    "PublicationResult",
 ]

@@ -82,6 +82,27 @@ def _load_volume(image: ImageInput) -> _Volume:
     return _Volume(data=data, affine=affine, inverse_affine=np.linalg.inv(affine))
 
 
+def _apply_value_mode(volume: _Volume, mode: str) -> _Volume:
+    normalized = str(mode).strip().lower()
+    if normalized == "raw":
+        return volume
+    if normalized == "positive":
+        data = np.where(np.isfinite(volume.data), np.maximum(volume.data, 0.0), np.nan)
+    elif normalized == "negative_magnitude":
+        data = np.where(np.isfinite(volume.data), np.maximum(-volume.data, 0.0), np.nan)
+    elif normalized == "absolute":
+        data = np.abs(volume.data)
+    else:
+        raise ValueError(
+            "spatial value mode must be raw, positive, negative_magnitude, or absolute"
+        )
+    return _Volume(
+        data=np.asarray(data, dtype=np.float32),
+        affine=volume.affine,
+        inverse_affine=volume.inverse_affine,
+    )
+
+
 def _support_world_bounds(volumes: Sequence[_Volume], thresholds: Sequence[float]) -> np.ndarray:
     world_points: list[np.ndarray] = []
     for volume, threshold in zip(volumes, thresholds, strict=True):
@@ -285,6 +306,8 @@ def plot_sweet_sour_slices(
     sour_color: str = "#3268A8",
     sweet_threshold: float = 0.5,
     sour_threshold: float = 0.5,
+    sweet_value_mode: str = "raw",
+    sour_value_mode: str = "raw",
     layer_alpha: float = 0.68,
     percent_list: Sequence[float] = (25.0, 50.0, 75.0),
     slice_coordinates_mm: Mapping[str, Sequence[float]] | None = None,
@@ -316,8 +339,8 @@ def plot_sweet_sour_slices(
     if not facets:
         raise ValueError("facets must contain at least one plane")
 
-    sweet = _load_volume(sweet_image)
-    sour = _load_volume(sour_image)
+    sweet = _apply_value_mode(_load_volume(sweet_image), sweet_value_mode)
+    sour = _apply_value_mode(_load_volume(sour_image), sour_value_mode)
     background = _load_volume(background_image) if background_image is not None else None
     resolved_atlas = [(layer, _load_volume(layer.image)) for layer in atlas_layers]
     bounds = _support_world_bounds((sweet, sour), (sweet_threshold, sour_threshold))
@@ -350,6 +373,8 @@ def plot_sweet_sour_slices(
             "bounds_mm": bounds.tolist(),
             "slice_coordinates_mm": {key: list(value) for key, value in coordinates.items()},
             "facets": list(facets),
+            "sweet_value_mode": str(sweet_value_mode),
+            "sour_value_mode": str(sour_value_mode),
             "fiber_density_is_display_derivative": True,
         },
     )

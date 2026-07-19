@@ -94,8 +94,10 @@ all retain cache under the current profile. A future `true` value may clean
 only run-owned cache after the requested workflow and canonical publication
 both finish without failure. It must never clean failed or partial work, the
 run store, canonical publication, extensions, sensitivity checkpoints, or
-cache owned by another run. The cleanup execution boundary remains part of the
-open canonical-publisher Task 18.
+cache owned by another run. This failed-or-partial retention rule is
+unconditional; the setting can authorize only the fully successful branch.
+The cleanup execution boundary remains part of the open canonical-publisher
+Task 18.
 
 The runtime reads the existing `study_base.json` supplied through the CLI. It
 does not create or consume an intermediate study bundle, copied clinical

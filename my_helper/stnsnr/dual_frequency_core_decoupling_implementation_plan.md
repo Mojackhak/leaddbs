@@ -3653,7 +3653,7 @@ model family, branch, and terminal status. Add negative fixtures for partial
 manifests, missing payloads, SHA mismatch, path escape, task-local URI, and any
 postprocess input below `.runs/`, `tasks/`, `work/`, or `runtime_work/`.
 
-- [ ] **Step 2: Implement the canonical main publisher**
+- [x] **Step 2: Implement the canonical main publisher**
 
 Implement publication-only projection from a completed run into the exact
 direct-voxel and normative-fiber output contracts. The publisher may consume
@@ -3664,7 +3664,17 @@ per-scale stage status, selected-source bundles, final-model references,
 formal outputs, sensitivity checkpoints, and reports. It must support replay
 from an already completed scientific run without refitting a model.
 
-- [ ] **Step 3: Publish direct-voxel display NIfTI derivatives**
+Implementation evidence on 2026-07-19: the public `publish` and
+`publish-extension` commands replay completed run stores into immutable
+direct-voxel and normative-fiber model-set roots. Main publication now covers
+both add-on branches, all configured connectome observed grids, sensitive
+formal-source evaluations, selected source arrays and NIfTI files, formal
+permutation/bootstrap results, final-model references, report derivatives,
+root indexes, and commit-last manifests. A one-scale real PDQ-39 replay
+published and verified 82 direct-voxel plus 127 normative-fiber indexed
+artifacts without refitting.
+
+- [x] **Step 3: Publish direct-voxel display NIfTI derivatives**
 
 For every realized reference or add-on direct-voxel final, publish the
 unsmoothed selected-source map and the masked normalized Gaussian display
@@ -3672,6 +3682,15 @@ derivatives with 1 mm and 2 mm FWHM. These derivatives remain report-only and
 must not feed scoring, source selection, LOOCV, permutation, bootstrap,
 sensitivity, or final-model identity. Verify NIfTI shape, affine, units,
 finite-support behavior, payload SHA-256, and artifact-index rows.
+
+Implementation evidence on 2026-07-19: the real PDQ-39 replay published the
+unsmoothed selected benefit map, 1 mm and 2 mm masked-normalized Gaussian
+display maps, canonical bootstrap standard-error NIfTI, and a bilateral map
+derived with the configured nonlinear ANTs displacement. Bilateral
+transformation applies the same field to a zero-filled value image and its
+finite-support mask before normalized resampling back to the right-canonical
+grid. Reference and add-on shapes and affines matched the canonical brainmask;
+their indexed payloads passed byte-count and SHA-256 verification.
 
 - [x] **Step 4: Replace run-store visualization inputs with publication inputs**
 
@@ -3710,12 +3729,25 @@ states, root manifests, artifact indexes, 1 mm and 2 mm voxel display NIfTI
 files, extension linkage, public-only postprocess input preparation, and
 output-local postprocess resume.
 
+Partial acceptance evidence on 2026-07-19: one real PDQ-39 parent replay and
+one final-in-sample child replay completed below `/private/tmp`. Published
+reference-voxel and reference-fiber artifacts prepared the interactive scene
+inputs, and one statistics postprocess completed then reused its output-local
+resume result. All 82 direct and 127 fiber main artifacts passed the public
+catalog path, byte-count, and SHA checks. The full 28-scale production replay,
+cohort-wide postprocess, and final extension audit remain open. The complete
+dual-frequency plus visualization regression passed with 475 tests and 239
+subtests outside the restricted system-monitoring sandbox.
+
 Add the workflow storage policy `delete_run_cache_on_success`. Its production
 value is `false`. When false, successful runs retain cache content. When true,
 cleanup is permitted only after the requested workflow, reporting, canonical
 publication, root artifact index, and every required scale reach an
 unqualified completed state. Failed, partial, interrupted,
 completed-with-failures, or publication-incomplete runs never clean cache.
+This recovery rule is unconditional and cannot be overridden by the cleanup
+setting. A cleanup attempt must fail closed before touching cache whenever the
+run or publication state is not fully complete.
 Cleanup cannot remove the run store, canonical model-set publication,
 extensions, sensitivity checkpoints, or cache entries not owned by the
 completed run.

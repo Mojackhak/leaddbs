@@ -23,7 +23,7 @@
 > `predecessor_runtime_archived`; `bounded_numeric_evidence_verified`;
 > `performance_refactor_design_documented`;
 > `performance_refactor_implementation_not_started`;
-> `canonical_main_publisher_not_started`;
+> `canonical_main_publisher_implemented`;
 > `postprocess_publication_adapter_implemented`;
 > `configured_production_outputs_missing`; `production_rerun_required`.
 > **Last updated.** 2026-07-19
@@ -1345,8 +1345,9 @@ available for later jitter, OSS-DBS, combined extensions, and resume. Cache
 cleanup is eligible only after the requested workflow and canonical
 publication both reach an unqualified completed terminal state. Failed,
 partial, interrupted, completed-with-failures, or incompletely published runs
-must never remove cache content. Publication and run artifacts are never cache
-cleanup targets.
+must never remove cache content. This is an unconditional recovery invariant:
+enabling successful-run cleanup cannot override it. Publication and run
+artifacts are never cache cleanup targets.
 
 The normative-fiber profile is `normative_fiber_model.yaml`; its lightweight
 acceptance profile is `normative_fiber_model_test.yaml`. Both enforce `formal`

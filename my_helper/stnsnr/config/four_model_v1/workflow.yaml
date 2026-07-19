@@ -20,4 +20,4 @@ execution: # Runtime controls do not change the scientific model definition.
 storage: # Generic cache and immutable run-store roots.
   cache_root: /Volumes/VAL/STNSNr/cache/dual_frequency
   run_root: /Volumes/VAL/STNSNr/summary/spot/.runs
-  delete_run_cache_on_success: false # Retain cache for resume and later sensitivity extensions.
+  delete_run_cache_on_success: false # Retain cache; failed or partial runs are never cleanup-eligible.

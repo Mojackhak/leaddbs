@@ -143,6 +143,10 @@ sampling, the `vik` diverging colormap, symmetric color limits, gray missing
 data, the reference texture-lighting profile, and a right-side colorbar at the
 reference position. Sweet and sour binary NIfTIs remain optional selection-mask
 overlays; they do not replace the signed heatmap or its colorbar.
+For 2D sections, the same indexed signed `benefit_map.nii.gz` is supplied as
+both spatial inputs with `sweet_value_mode: positive` and
+`sour_value_mode: negative_magnitude`. These display-time sign projections do
+not create, publish, threshold, or refit separate voxel models.
 The `vik` colormap applies only to the statistical voxel surface. Anatomy
 slices are frozen as grayscale truecolor textures and therefore remain
 independent of the statistical axes colormap and color limits.
@@ -170,7 +174,10 @@ The fiber colorbar reports that score scale. The 2D renderer consumes derived
 sweet and sour fiber-density NIfTIs generated on an explicit reference grid.
 The density NIfTIs must retain connectome identity, selected fiber ID hash,
 reference-grid identity, and density normalization in their sidecar metadata.
-They are display derivatives only.
+They are display derivatives only. The positive density retains positive
+weight sums and the negative density retains negative weight sums; the 2D sour
+layer therefore uses `negative_magnitude` display mode without altering the
+published signed density.
 
 Canonical fiber IDs are resolved to explicit tractogram streamline indices by
 the caller before density generation. The rendering helper does not infer that
@@ -399,12 +406,14 @@ the manifest directory. One minimal item is:
         "model_unit": "voxel",
         "sweet_image": {
           "publication": "direct_voxel_main",
-          "relative_path": "example_endpoint/report/sweet.nii.gz"
+          "relative_path": "example_endpoint/resolver/benefit_map.nii.gz"
         },
         "sour_image": {
           "publication": "direct_voxel_main",
-          "relative_path": "example_endpoint/report/sour.nii.gz"
+          "relative_path": "example_endpoint/resolver/benefit_map.nii.gz"
         },
+        "sweet_value_mode": "positive",
+        "sour_value_mode": "negative_magnitude",
         "background_image": "inputs/anatomy.nii.gz"
       },
       "statistics": {

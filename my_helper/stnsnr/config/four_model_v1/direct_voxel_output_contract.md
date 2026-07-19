@@ -748,6 +748,13 @@ final benefit map. The configured nonlinear left-right transform creates the
 left homologous copy on the same canonical grid. Right and left finite values
 are preserved; if interpolation produces a finite overlap voxel, the display
 value is their arithmetic mean. This map is not a bilateral fitted model.
+The implementation reproduces the Lead-DBS left-right header flip, applies the
+configured ANTs displacement field to both a zero-filled value image and its
+finite-support mask, and resamples both results back to the right-canonical
+grid with linear interpolation. Division by the transformed mask restores
+values only where transformed support is finite. This normalized transform
+prevents NaN background or interpolation fill from becoming statistical
+signal.
 
 If a requested model-family report has no final model, it writes only
 `status.json` and `summary.json`. It does not create HTML or display artifacts.

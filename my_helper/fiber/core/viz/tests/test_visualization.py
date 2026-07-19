@@ -344,6 +344,30 @@ def test_spatial_plot_uses_world_slices_and_boxsize(tmp_path: Path) -> None:
     plt.close(figure)
 
 
+def test_spatial_plot_projects_one_signed_map_into_sweet_and_sour(tmp_path: Path) -> None:
+    signed, _, background = _nifti_inputs(tmp_path)
+    signed_data = np.asarray(nib.load(signed).dataobj, dtype=np.float32)
+    signed_data[3, 4, 5] = -2.0
+    nib.save(nib.Nifti1Image(signed_data, np.eye(4)), signed)
+
+    figure = plot_sweet_sour_slices(
+        signed,
+        signed,
+        background_image=background,
+        sweet_threshold=0.5,
+        sour_threshold=0.5,
+        sweet_value_mode="positive",
+        sour_value_mode="negative_magnitude",
+        percent_list=(50.0,),
+        boxsize=(20.0, 18.0),
+    )
+
+    metadata = getattr(figure, "_mh_viz_spatial_metadata")
+    assert metadata["sweet_value_mode"] == "positive"
+    assert metadata["sour_value_mode"] == "negative_magnitude"
+    plt.close(figure)
+
+
 def test_restore_voxel_vector_requires_explicit_index_semantics(tmp_path: Path) -> None:
     reference = nib.Nifti1Image(np.zeros((4, 5, 6), dtype=np.float32), np.eye(4))
     output = tmp_path / "restored.nii.gz"

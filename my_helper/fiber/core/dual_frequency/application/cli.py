@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Sequence
 
 from ..config import WorkflowOverrides
+from .publication import CanonicalPublisher, PublicationError
 from .service import (
     ApplicationError,
     SensitivityExtensionRequest,
@@ -87,6 +88,14 @@ def build_parser() -> argparse.ArgumentParser:
     for command in ("status", "artifacts"):
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--run-root", type=Path, required=True)
+    publish = subparsers.add_parser("publish")
+    publish.add_argument("--run-root", type=Path, required=True)
+    publish.add_argument("--output-root", type=Path)
+    publish_extension = subparsers.add_parser("publish-extension")
+    publish_extension.add_argument("--run-root", type=Path, required=True)
+    publish_extension.add_argument("--extension-id")
+    publish_extension.add_argument("--output-root", type=Path)
+    publish_extension.add_argument("--scale", action="append", default=[])
     return parser
 
 
@@ -208,8 +217,30 @@ def main(
         if arguments.command == "artifacts":
             _print_json(workflow_service.artifacts(arguments.run_root))
             return 0
+        if arguments.command == "publish":
+            _print_json(
+                CanonicalPublisher()
+                .publish(
+                    arguments.run_root,
+                    output_root_override=arguments.output_root,
+                )
+                .as_dict()
+            )
+            return 0
+        if arguments.command == "publish-extension":
+            _print_json(
+                CanonicalPublisher()
+                .publish_extension(
+                    arguments.run_root,
+                    extension_id=arguments.extension_id,
+                    output_root_override=arguments.output_root,
+                    selected_scales=tuple(arguments.scale),
+                )
+                .as_dict()
+            )
+            return 0
         raise ApplicationError(f"unsupported command {arguments.command!r}")
-    except (ApplicationError, RuntimeError, ValueError, OSError) as exc:
+    except (ApplicationError, PublicationError, RuntimeError, ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
