@@ -2052,6 +2052,21 @@ passes 60 tests and 25 subtests and the complete regression passes 495 tests
 and 244 parameterized subtests. Durable planner block tasks, aggregation, and
 block-level resume remain open.
 
+The next Step 9 slice first decomposes direct and fiber permutation numerics
+into pure schedule-bound block calculations and a strict ordered aggregator.
+Worker completion order may vary, but schedule digest and complete contiguous
+replicate coverage may not. The unsplit public entry points run through the
+same block contract and require multi-block numerical parity before the DAG is
+expanded with durable block records.
+
+This numerical slice passed its 2026-07-19 acceptance: reverse-order
+three-block assembly is exactly equal to the public full calculation for both
+direct voxel and normative fiber, malformed or incomplete block sets fail
+closed, the focused formal suite passes 40 tests and 15 subtests, and the full
+regression passes 497 tests and 246 subtests. Durable publication, planner
+tasks, shared operator scratch, and block-level resume remain required before
+this performance step is complete.
+
 ### Default final in-sample inference
 
 Every realized final model in formal scope has a required in-sample inference

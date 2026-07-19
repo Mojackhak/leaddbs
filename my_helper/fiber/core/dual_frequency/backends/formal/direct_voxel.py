@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,20 +25,24 @@ from .common import (
     BootstrapReplicateNotEstimableError,
     FormalBackendError,
     FormalBackendInputError,
+    PermutationBlockComputation,
     PermutationComputation,
+    ReplicateBlock,
+    ResamplingSchedule,
     StreamingBootstrapAccumulator,
     bootstrap_sample_indices,
     build_bootstrap_nuisance_plan,
     build_fixed_nuisance_plan,
+    combine_permutation_blocks,
     finite_exposure,
     finite_vector,
+    formal_resampling_schedule,
     freedman_lane_outcomes,
     json_safe,
     materialize_array,
-    plus_one_two_sided,
     prediction_metrics,
-    residual_permutation_schedule,
     resample_axis,
+    validate_resampling_schedule,
 )
 
 
@@ -205,6 +210,86 @@ def _brute_force_loocv(
     }
 
 
+def _direct_voxel_permutation_block(
+    statistic: Callable[[np.ndarray], dict[str, float]],
+    outcome: np.ndarray,
+    nuisance_plan: NuisancePlan,
+    schedule: ResamplingSchedule,
+    block: ReplicateBlock,
+) -> PermutationBlockComputation:
+    permuted = freedman_lane_outcomes(
+        outcome,
+        nuisance_plan.full_covariates,
+        block.count,
+        schedule.descriptor.seed,
+        schedule=schedule.block_view(block),
+    )
+    null = np.full(block.count, np.nan, dtype=np.float64)
+    for local_index, permuted_outcome in enumerate(permuted):
+        metrics = statistic(permuted_outcome)
+        rho = float(metrics["loocv_spearman_rho"])
+        if bool(metrics["all_predictions_finite"]) and np.isfinite(rho):
+            null[local_index] = rho
+    return PermutationBlockComputation(
+        block=block,
+        schedule_sha256=schedule.descriptor.schedule_sha256,
+        null_statistics=null,
+    )
+
+
+def compute_direct_voxel_permutation_block(
+    request: FormalRequest,
+    exposure: np.ndarray,
+    outcome: np.ndarray,
+    nuisance_plan: NuisancePlan,
+    schedule: ResamplingSchedule,
+    block: ReplicateBlock,
+    *,
+    optimized: bool = True,
+) -> PermutationBlockComputation:
+    """Compute one fixed direct-voxel permutation interval."""
+
+    if request.resampling_kind != "permutation":
+        raise FormalBackendInputError(
+            "direct permutation requires resampling_kind='permutation'"
+        )
+    validate_resampling_schedule(
+        schedule,
+        schedule_kind="permutation",
+        subject_count=outcome.size,
+        replicate_count=request.resamples,
+        seed=request.seed,
+    )
+    if block.total != request.resamples:
+        raise FormalBackendInputError(
+            "direct permutation block does not match request resamples"
+        )
+    operators = (
+        _build_fold_operators(request, exposure, nuisance_plan)
+        if optimized
+        else None
+    )
+    statistic = (
+        (lambda values: _optimized_loocv(values, operators))
+        if operators is not None
+        else (
+            lambda values: _brute_force_loocv(
+                request,
+                exposure,
+                values,
+                nuisance_plan,
+            )
+        )
+    )
+    return _direct_voxel_permutation_block(
+        statistic,
+        outcome,
+        nuisance_plan,
+        schedule,
+        block,
+    )
+
+
 def compute_direct_voxel_permutation(
     request: FormalRequest,
     exposure: np.ndarray,
@@ -216,12 +301,25 @@ def compute_direct_voxel_permutation(
     """Compute a deterministic direct-voxel Freedman-Lane permutation test."""
 
     if request.resampling_kind != "permutation":
-        raise FormalBackendInputError("direct permutation requires resampling_kind='permutation'")
-    operators = _build_fold_operators(request, exposure, nuisance_plan) if optimized else None
+        raise FormalBackendInputError(
+            "direct permutation requires resampling_kind='permutation'"
+        )
+    operators = (
+        _build_fold_operators(request, exposure, nuisance_plan)
+        if optimized
+        else None
+    )
     statistic = (
         (lambda values: _optimized_loocv(values, operators))
         if operators is not None
-        else (lambda values: _brute_force_loocv(request, exposure, values, nuisance_plan))
+        else (
+            lambda values: _brute_force_loocv(
+                request,
+                exposure,
+                values,
+                nuisance_plan,
+            )
+        )
     )
     observed = statistic(outcome)
     if not bool(observed["all_predictions_finite"]) or not np.isfinite(
@@ -230,32 +328,26 @@ def compute_direct_voxel_permutation(
         raise FormalBackendError(
             "observed final direct-voxel LOOCV statistic is not computable"
         )
-    schedule = residual_permutation_schedule(
+    schedule = formal_resampling_schedule(
+        "permutation",
         outcome.size,
         request.resamples,
         request.seed,
     )
-    permuted = freedman_lane_outcomes(
-        outcome,
-        nuisance_plan.full_covariates,
-        request.resamples,
-        request.seed,
-        schedule=schedule,
+    blocks = tuple(
+        _direct_voxel_permutation_block(
+            statistic,
+            outcome,
+            nuisance_plan,
+            schedule,
+            block,
+        )
+        for block in schedule.blocks()
     )
-    null = np.full(request.resamples, np.nan, dtype=np.float64)
-    for index, permuted_outcome in enumerate(permuted):
-        metrics = statistic(permuted_outcome)
-        rho = float(metrics["loocv_spearman_rho"])
-        if bool(metrics["all_predictions_finite"]) and np.isfinite(rho):
-            null[index] = rho
-    return PermutationComputation(
-        observed_metrics=observed,
-        null_statistics=null,
-        p_plus_one_two_sided=plus_one_two_sided(
-            observed["loocv_spearman_rho"],
-            null,
-        ),
-        permutation_schedule=schedule,
+    return combine_permutation_blocks(
+        observed,
+        schedule,
+        blocks,
     )
 
 
@@ -658,4 +750,5 @@ __all__ = [
     "FormalBackendInputError",
     "compute_direct_voxel_bootstrap",
     "compute_direct_voxel_permutation",
+    "compute_direct_voxel_permutation_block",
 ]

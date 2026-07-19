@@ -32,21 +32,25 @@ from .common import (
     BootstrapReplicateNotEstimableError,
     FormalBackendError,
     FormalBackendInputError,
+    PermutationBlockComputation,
     PermutationComputation,
+    ReplicateBlock,
+    ResamplingSchedule,
     StreamingBootstrapAccumulator,
     bootstrap_sample_indices,
     build_bootstrap_nuisance_plan,
     build_fixed_nuisance_plan,
     canonical_fiber_ids,
+    combine_permutation_blocks,
     finite_exposure,
     finite_vector,
+    formal_resampling_schedule,
     freedman_lane_outcomes,
     json_safe,
     materialize_array,
-    plus_one_two_sided,
     prediction_metrics,
-    residual_permutation_schedule,
     resample_axis,
+    validate_resampling_schedule,
 )
 
 
@@ -248,6 +252,93 @@ def _loocv(
     return metrics
 
 
+def _normative_fiber_permutation_block(
+    request: FormalRequest,
+    exposure: np.ndarray,
+    fiber_ids: np.ndarray,
+    outcome: np.ndarray,
+    nuisance_plan: NuisancePlan,
+    operators: tuple[_FiberFoldOperator, ...],
+    score_workspace: PrevalidatedFiberScoreWorkspace,
+    schedule: ResamplingSchedule,
+    block: ReplicateBlock,
+    *,
+    optimized: bool,
+) -> PermutationBlockComputation:
+    permuted = freedman_lane_outcomes(
+        outcome,
+        nuisance_plan.full_covariates,
+        block.count,
+        schedule.descriptor.seed,
+        schedule=schedule.block_view(block),
+    )
+    null = np.full(block.count, np.nan, dtype=np.float64)
+    for local_index, permuted_outcome in enumerate(permuted):
+        metrics = _loocv(
+            request,
+            exposure,
+            fiber_ids,
+            permuted_outcome,
+            nuisance_plan,
+            operators,
+            score_workspace,
+            optimized=optimized,
+        )
+        rho = float(metrics["loocv_spearman_rho"])
+        if bool(metrics["all_predictions_finite"]) and np.isfinite(rho):
+            null[local_index] = rho
+    return PermutationBlockComputation(
+        block=block,
+        schedule_sha256=schedule.descriptor.schedule_sha256,
+        null_statistics=null,
+    )
+
+
+def compute_normative_fiber_permutation_block(
+    request: FormalRequest,
+    exposure: np.ndarray,
+    fiber_ids: np.ndarray,
+    outcome: np.ndarray,
+    nuisance_plan: NuisancePlan,
+    schedule: ResamplingSchedule,
+    block: ReplicateBlock,
+    *,
+    optimized: bool = True,
+) -> PermutationBlockComputation:
+    """Compute one fixed normative-fiber permutation interval."""
+
+    if request.resampling_kind != "permutation":
+        raise FormalBackendInputError(
+            "fiber permutation requires resampling_kind='permutation'"
+        )
+    validate_resampling_schedule(
+        schedule,
+        schedule_kind="permutation",
+        subject_count=outcome.size,
+        replicate_count=request.resamples,
+        seed=request.seed,
+    )
+    if block.total != request.resamples:
+        raise FormalBackendInputError(
+            "fiber permutation block does not match request resamples"
+        )
+    masks = _fold_candidate_masks(request, exposure)
+    operators = _build_fold_operators(request, exposure, nuisance_plan, masks)
+    score_workspace = PrevalidatedFiberScoreWorkspace(exposure, fiber_ids)
+    return _normative_fiber_permutation_block(
+        request,
+        exposure,
+        fiber_ids,
+        outcome,
+        nuisance_plan,
+        operators,
+        score_workspace,
+        schedule,
+        block,
+        optimized=optimized,
+    )
+
+
 def compute_normative_fiber_permutation(
     request: FormalRequest,
     exposure: np.ndarray,
@@ -260,7 +351,9 @@ def compute_normative_fiber_permutation(
     """Compute a deterministic normative-fiber Freedman-Lane permutation test."""
 
     if request.resampling_kind != "permutation":
-        raise FormalBackendInputError("fiber permutation requires resampling_kind='permutation'")
+        raise FormalBackendInputError(
+            "fiber permutation requires resampling_kind='permutation'"
+        )
     masks = _fold_candidate_masks(request, exposure)
     operators = _build_fold_operators(request, exposure, nuisance_plan, masks)
     score_workspace = PrevalidatedFiberScoreWorkspace(exposure, fiber_ids)
@@ -280,41 +373,31 @@ def compute_normative_fiber_permutation(
         raise FormalBackendError(
             "observed final normative-fiber LOOCV statistic is not computable"
         )
-    schedule = residual_permutation_schedule(
+    schedule = formal_resampling_schedule(
+        "permutation",
         outcome.size,
         request.resamples,
         request.seed,
     )
-    permuted = freedman_lane_outcomes(
-        outcome,
-        nuisance_plan.full_covariates,
-        request.resamples,
-        request.seed,
-        schedule=schedule,
-    )
-    null = np.full(request.resamples, np.nan, dtype=np.float64)
-    for index, permuted_outcome in enumerate(permuted):
-        metrics = _loocv(
+    blocks = tuple(
+        _normative_fiber_permutation_block(
             request,
             exposure,
             fiber_ids,
-            permuted_outcome,
+            outcome,
             nuisance_plan,
             operators,
             score_workspace,
+            schedule,
+            block,
             optimized=optimized,
         )
-        rho = float(metrics["loocv_spearman_rho"])
-        if bool(metrics["all_predictions_finite"]) and np.isfinite(rho):
-            null[index] = rho
-    return PermutationComputation(
-        observed_metrics=observed,
-        null_statistics=null,
-        p_plus_one_two_sided=plus_one_two_sided(
-            observed["loocv_spearman_rho"],
-            null,
-        ),
-        permutation_schedule=schedule,
+        for block in schedule.blocks()
+    )
+    return combine_permutation_blocks(
+        observed,
+        schedule,
+        blocks,
     )
 
 
@@ -757,4 +840,5 @@ __all__ = [
     "NormativeFiberFormalBackend",
     "compute_normative_fiber_bootstrap",
     "compute_normative_fiber_permutation",
+    "compute_normative_fiber_permutation_block",
 ]

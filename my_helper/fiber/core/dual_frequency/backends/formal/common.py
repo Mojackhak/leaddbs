@@ -140,6 +140,19 @@ class ResamplingSchedule:
             raise FormalBackendInputError(
                 "resampling schedule payload digest does not match its descriptor"
             )
+        if self.descriptor.schedule_kind == "permutation":
+            expected = np.arange(self.descriptor.subject_count, dtype=indices.dtype)
+            if np.any(np.sort(indices, axis=1) != expected):
+                raise FormalBackendInputError(
+                    "permutation schedule rows must contain every subject once"
+                )
+        elif self.descriptor.schedule_kind == "bootstrap":
+            if np.any(indices < 0) or np.any(indices >= self.descriptor.subject_count):
+                raise FormalBackendInputError(
+                    "bootstrap schedule indices are outside the subject axis"
+                )
+        else:
+            raise FormalBackendInputError("resampling schedule kind is unsupported")
         indices.flags.writeable = False
         object.__setattr__(self, "indices", indices)
 
@@ -160,6 +173,32 @@ class ResamplingSchedule:
         view = self.indices[block.start : block.stop]
         view.flags.writeable = False
         return view
+
+
+@dataclass(frozen=True, slots=True)
+class PermutationBlockComputation:
+    """One schedule-bound null-statistic interval from an independent worker."""
+
+    block: ReplicateBlock
+    schedule_sha256: str
+    null_statistics: np.ndarray
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.block, ReplicateBlock):
+            raise FormalBackendError("permutation block descriptor is invalid")
+        digest = str(self.schedule_sha256).strip().lower()
+        if len(digest) != 64 or any(
+            character not in "0123456789abcdef" for character in digest
+        ):
+            raise FormalBackendError("permutation block schedule digest is invalid")
+        null = np.array(self.null_statistics, dtype=np.float64, copy=True)
+        if null.shape != (self.block.count,):
+            raise FormalBackendError(
+                "permutation block null length does not match its interval"
+            )
+        null.flags.writeable = False
+        object.__setattr__(self, "schedule_sha256", digest)
+        object.__setattr__(self, "null_statistics", null)
 
 
 def _schedule_sha256(indices: np.ndarray) -> str:
@@ -256,6 +295,30 @@ def formal_resampling_schedule(
         schedule_sha256=_schedule_sha256(indices),
     )
     return ResamplingSchedule(descriptor=descriptor, indices=indices)
+
+
+def validate_resampling_schedule(
+    schedule: ResamplingSchedule,
+    *,
+    schedule_kind: str,
+    subject_count: int,
+    replicate_count: int,
+    seed: int,
+) -> None:
+    """Require exact request identity for one parent-generated schedule."""
+
+    if not isinstance(schedule, ResamplingSchedule):
+        raise FormalBackendInputError("resampling schedule is invalid")
+    descriptor = schedule.descriptor
+    if (
+        descriptor.schedule_kind != schedule_kind
+        or descriptor.subject_count != subject_count
+        or descriptor.replicate_count != replicate_count
+        or descriptor.seed != seed
+    ):
+        raise FormalBackendInputError(
+            "resampling schedule does not match the formal request"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -730,6 +793,67 @@ def plus_one_two_sided(observed: float, null: np.ndarray) -> float | None:
     return float((extreme + 1) / (values.size + 1))
 
 
+def combine_permutation_blocks(
+    observed_metrics: dict[str, float],
+    schedule: ResamplingSchedule,
+    blocks: tuple[PermutationBlockComputation, ...],
+) -> PermutationComputation:
+    """Reassemble complete schedule-bound blocks in historical replicate order."""
+
+    if not isinstance(schedule, ResamplingSchedule):
+        raise FormalBackendError("permutation aggregation requires a schedule")
+    if schedule.descriptor.schedule_kind != "permutation":
+        raise FormalBackendError("permutation aggregation received a non-permutation schedule")
+    candidates = tuple(blocks)
+    if not candidates:
+        raise FormalBackendError("permutation aggregation requires at least one block")
+    if not all(
+        isinstance(result, PermutationBlockComputation) for result in candidates
+    ):
+        raise FormalBackendError(
+            "permutation aggregation received an invalid block"
+        )
+    ordered = tuple(sorted(candidates, key=lambda item: item.block.start))
+    total = schedule.descriptor.replicate_count
+    digest = schedule.descriptor.schedule_sha256
+    null = np.empty(total, dtype=np.float64)
+    expected_start = 0
+    seen_indices: set[int] = set()
+    for result in ordered:
+        block = result.block
+        if block.index != len(seen_indices):
+            raise FormalBackendError(
+                "permutation aggregation received a nonsequential block index"
+            )
+        if block.index in seen_indices:
+            raise FormalBackendError("permutation aggregation received a duplicate block index")
+        seen_indices.add(block.index)
+        if result.schedule_sha256 != digest or block.total != total:
+            raise FormalBackendError(
+                "permutation block does not match the parent schedule"
+            )
+        if block.start != expected_start:
+            raise FormalBackendError(
+                "permutation blocks are missing, overlapping, or noncontiguous"
+            )
+        null[block.start : block.stop] = result.null_statistics
+        expected_start = block.stop
+    if expected_start != total:
+        raise FormalBackendError("permutation blocks do not cover the full schedule")
+    try:
+        observed = float(observed_metrics["loocv_spearman_rho"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise FormalBackendError(
+            "permutation aggregation lacks an observed Spearman statistic"
+        ) from error
+    return PermutationComputation(
+        observed_metrics=dict(observed_metrics),
+        null_statistics=null,
+        p_plus_one_two_sided=plus_one_two_sided(observed, null),
+        permutation_schedule=schedule.indices,
+    )
+
+
 def prediction_metrics(
     outcome: np.ndarray,
     predictions: np.ndarray,
@@ -1030,6 +1154,7 @@ __all__ = [
     "FormalBackendError",
     "FormalBackendInputError",
     "PermutationComputation",
+    "PermutationBlockComputation",
     "ReplicateBlock",
     "ResamplingSchedule",
     "RngScheduleDescriptor",
@@ -1038,6 +1163,7 @@ __all__ = [
     "build_bootstrap_nuisance_plan",
     "build_fixed_nuisance_plan",
     "canonical_fiber_ids",
+    "combine_permutation_blocks",
     "finite_exposure",
     "finite_vector",
     "fixed_replicate_blocks",
@@ -1049,5 +1175,6 @@ __all__ = [
     "prediction_metrics",
     "residual_permutation_schedule",
     "resample_axis",
+    "validate_resampling_schedule",
     "validate_nuisance_plan",
 ]

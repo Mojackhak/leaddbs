@@ -3623,6 +3623,30 @@ complete regression passed 495 tests and 244 subtests. Step 9 remains open for
 durable block records, planner tasks, parallel aggregation, bootstrap merging,
 and block-level resume.
 
+Second Step 9 implementation slice: refactor direct-voxel and normative-fiber
+permutation numerics into pure fixed-interval block computations plus one
+strict ordered aggregator before changing the workflow DAG. A block receives
+the immutable parent schedule and one matching half-open descriptor and returns
+only its null-statistic interval with the full schedule digest. The aggregator
+accepts blocks in arbitrary worker-completion order but rejects a changed
+digest, total, missing interval, overlap, duplicate, or noncontiguous coverage;
+it reconstructs the historical replicate order before calculating the plus-one
+p value. Full serial entry points must execute through the same block contract,
+and multi-block synthetic tests must match the retained unsplit calculation
+before durable records and planner tasks are introduced.
+
+Second-slice acceptance on 2026-07-19: both formal model families execute the
+public full permutation entry point through the schedule-bound block contract;
+three-block standalone results reassemble with exact null-statistic parity even
+when supplied in reverse completion order. Aggregation rejects incomplete,
+overlapping, noncontiguous, nonsequential, duplicate, wrong-total, or
+wrong-schedule-digest blocks before calculating the plus-one p value. The
+focused formal suite passes 40 tests and 15 subtests, and the complete
+dual-frequency plus visualization regression passes 497 tests and 246
+subtests. Step 9 remains open for durable schedule/block records, planner DAG
+tasks, parent-managed shared operators, block-level resume, bootstrap merging,
+and pPAM block execution.
+
 - [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 
 Add one `formal_in_sample` task for every realized final endpoint whenever

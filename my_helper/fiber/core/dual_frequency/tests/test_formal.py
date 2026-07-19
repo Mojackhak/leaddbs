@@ -27,15 +27,20 @@ from dual_frequency.backends.formal import (
     NormativeFiberFormalBackend,
     compute_direct_voxel_bootstrap,
     compute_direct_voxel_permutation,
+    compute_direct_voxel_permutation_block,
     compute_normative_fiber_bootstrap,
     compute_normative_fiber_permutation,
+    compute_normative_fiber_permutation_block,
 )
 from dual_frequency.backends.formal.common import (
     BootstrapReplicateNotEstimableError,
+    PermutationBlockComputation,
     PermutationComputation,
+    ReplicateBlock,
     StreamingBootstrapAccumulator,
     build_bootstrap_nuisance_plan,
     build_fixed_nuisance_plan,
+    combine_permutation_blocks,
     fixed_replicate_blocks,
     formal_resampling_schedule,
 )
@@ -609,6 +614,108 @@ class FormalRequestContractTest(unittest.TestCase):
 
 
 class FormalPermutationTest(unittest.TestCase):
+    def test_multi_block_permutations_match_unsplit_results_and_worker_order(self) -> None:
+        for model_family in ("reference_voxel", "reference_fiber"):
+            with self.subTest(model_family=model_family):
+                request = _formal_request(model_family, "permutation")
+                exposure = _artifact_value(request.exposure)
+                outcome = _artifact_value(request.outcome)
+                baseline = _artifact_value(request.baseline)
+                nuisance = build_fixed_nuisance_plan(request, baseline, None, None)
+                schedule = formal_resampling_schedule(
+                    "permutation",
+                    outcome.size,
+                    request.resamples,
+                    request.seed,
+                )
+                blocks = schedule.blocks(block_size=3)
+                if model_family.endswith("voxel"):
+                    full = compute_direct_voxel_permutation(
+                        request,
+                        exposure,
+                        outcome,
+                        nuisance,
+                    )
+                    results = tuple(
+                        compute_direct_voxel_permutation_block(
+                            request,
+                            exposure,
+                            outcome,
+                            nuisance,
+                            schedule,
+                            block,
+                        )
+                        for block in blocks
+                    )
+                else:
+                    fiber_ids = _fiber_id_values(request)
+                    full = compute_normative_fiber_permutation(
+                        request,
+                        exposure,
+                        fiber_ids,
+                        outcome,
+                        nuisance,
+                    )
+                    results = tuple(
+                        compute_normative_fiber_permutation_block(
+                            request,
+                            exposure,
+                            fiber_ids,
+                            outcome,
+                            nuisance,
+                            schedule,
+                            block,
+                        )
+                        for block in blocks
+                    )
+                combined = combine_permutation_blocks(
+                    full.observed_metrics,
+                    schedule,
+                    tuple(reversed(results)),
+                )
+                np.testing.assert_allclose(
+                    combined.null_statistics,
+                    full.null_statistics,
+                    rtol=0.0,
+                    atol=0.0,
+                    equal_nan=True,
+                )
+                self.assertEqual(
+                    combined.p_plus_one_two_sided,
+                    full.p_plus_one_two_sided,
+                )
+
+    def test_permutation_aggregator_rejects_missing_overlap_and_digest_change(self) -> None:
+        schedule = formal_resampling_schedule("permutation", 4, 6, 19)
+        blocks = schedule.blocks(block_size=2)
+        results = tuple(
+            PermutationBlockComputation(
+                block=block,
+                schedule_sha256=schedule.descriptor.schedule_sha256,
+                null_statistics=np.arange(block.start, block.stop, dtype=np.float64),
+            )
+            for block in blocks
+        )
+        observed = {"loocv_spearman_rho": 0.5}
+        with self.assertRaisesRegex(FormalBackendError, "invalid block"):
+            combine_permutation_blocks(observed, schedule, (object(),))
+        with self.assertRaisesRegex(FormalBackendError, "full schedule"):
+            combine_permutation_blocks(observed, schedule, results[:-1])
+        changed = dataclasses.replace(results[0], schedule_sha256="0" * 64)
+        with self.assertRaisesRegex(FormalBackendError, "parent schedule"):
+            combine_permutation_blocks(observed, schedule, (changed, *results[1:]))
+        overlapping = PermutationBlockComputation(
+            block=ReplicateBlock(index=1, start=1, stop=3, total=6),
+            schedule_sha256=schedule.descriptor.schedule_sha256,
+            null_statistics=np.array([1.0, 2.0]),
+        )
+        with self.assertRaisesRegex(FormalBackendError, "noncontiguous"):
+            combine_permutation_blocks(
+                observed,
+                schedule,
+                (results[0], overlapping, results[2]),
+            )
+
     def test_direct_optimized_matches_brute_force_for_ten_permutations(self) -> None:
         request = _formal_request("reference_voxel", "permutation")
         exposure = _artifact_value(request.exposure)
