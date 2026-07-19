@@ -4763,6 +4763,38 @@ Layer-1 performance requirement. That requirement needs bounded measured
 resource evidence for the retained path or a later support-preserving block
 implementation with numerical parity.
 
+Adjusted-branch Layer-1 closure uses a versioned support-preserving block, not
+the endpoint-local full-parent artifact path. The compiler adds separate
+adjusted add-on voxel and adjusted add-on fiber physical groups. Their reduced
+union contains every realized add-on final feature plus every matched-reference
+selected source feature required by full and fold DeltaReferenceScore weights.
+The producer streams the complete parent geometry once for each physical
+component, subject, and replicate range. It retains union-axis exposures and a
+compact all-parent suprathreshold-count tensor for every realized matched-
+reference tau. It must not retain or publish a complete parent exposure matrix.
+
+The adjusted consumer reconstructs the final selected exposure and reference
+overlap from union-axis views. It reconstructs full and fold DeltaReferenceScore
+values from the matched-reference selected source view. In-support counts use
+the exact finite full and fold reference-weight masks; the compact all-parent
+count supplies the denominator required by the existing inclusive reference-
+tau support rule. The reconstructed support rows, support status, score arrays,
+overlap, rebuilt observed request, and final jitter metrics must match the
+retained full-parent provider before the adjusted endpoint switches paths.
+
+The new cache identity binds the complete parent axis, ordered union keys,
+ordered matched-reference tau vector, physical source identities, replicate
+schedule, support-count algorithm version, and producer version. The block
+keeps the 12-GiB admission charge, existing connectome-I/O limit, one persistent
+spawn pool, single-write publication, and no nested executor. Existing block
+version one entries remain valid for their original reference and no-delta
+scope but cannot satisfy adjusted support. Migration acceptance covers a small
+exact scalar fixture, direct-voxel and normative-fiber full-provider parity,
+worker-order invariance, cache corruption, one-block resume, and the ten
+realized production adjusted endpoints. Only after those gates pass may the
+adjusted endpoints join the reduced-axis production lineage and close the open
+Layer-1 requirement.
+
 The independent OSS plan contains 588 tasks. Of these, 196 are immutable
 checkpoint roots and 392 are new pPAM tasks. Every one of the 56 fiber
 endpoints receives one observed workspace, one deterministic schedule, four
