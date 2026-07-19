@@ -4153,6 +4153,33 @@ the complete dual-frequency gate passed 506 tests and 296 subtests outside the
 restricted system-monitoring sandbox. No production or sensitivity process
 was started.
 
+Eighteenth Step 9 implementation slice: register the pPAM observed, schedule,
+block, and aggregate services before planner migration. The observed service
+is the only service allowed to request or materialize physical OSS rows. It
+publishes the continuous activation artifact, masked binary exposure, complete
+operator-free observed arrays and documents, fixed-operator generation when
+available, and one `PPAMObservedWorkspaceRecord`. It emits the single runtime
+fact `ppam_permutation_ready`.
+
+The schedule and fixed 250-replicate block services depend directly on the
+observed record and realized final selection. They reconstruct the typed
+`ActivationRequest` exclusively from durable record fields and published
+artifacts. A permutation-ready record requires one complete schedule and all
+canonical blocks. For either non-permutation-ready terminal state, the schedule
+and block tasks terminate through the `ppam_permutation_ready` gate without
+creating schedule or null records. Their ordinary gate skip is not a dependency
+failure.
+
+The aggregate always runs after the observed, schedule, and block tasks become
+terminal. It requires the exact complete schedule and blocks only for a
+permutation-ready parent; otherwise it requires both to be absent. It restores
+the operator-free observed state, publishes the unchanged public
+`ActivationArtifact` contract, and never reopens fixed-operator scratch in the
+non-permutation path. The historical serial activation service remains
+callable and delegates through the same observed publication and aggregate
+helpers. Direct service tests must cover ready and degenerate paths before any
+new plan emits these services.
+
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial
 accumulators and the strict ordered aggregate. A 251-replicate fixture for both

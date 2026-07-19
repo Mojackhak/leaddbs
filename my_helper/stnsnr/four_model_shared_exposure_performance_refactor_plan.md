@@ -2459,6 +2459,17 @@ dual-frequency gate passed 506 tests and 296 subtests outside the restricted
 system-monitoring sandbox. Observed-output service publication and planner
 migration remain open.
 
+The next service slice registers four pPAM boundaries without changing the
+planner. The observed service alone may materialize physical OSS rows and
+publishes the durable observed workspace plus one permutation-readiness fact.
+Schedule and block services reconstruct their request only from that record
+and published artifacts. Their normal readiness gate emits no schedule or null
+record for either non-permutation terminal state. The aggregate still runs
+after those skipped tasks become terminal, requires schedule and blocks only
+for a ready parent, and publishes the historical public activation result.
+Ready and degenerate service paths must pass independently before planner
+migration.
+
 ## Documentation Validation
 
 Before implementation begins:
