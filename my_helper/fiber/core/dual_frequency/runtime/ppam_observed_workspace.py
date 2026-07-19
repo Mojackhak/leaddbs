@@ -1025,6 +1025,31 @@ def validated_ppam_operator_scratch_descriptor(
     return descriptor
 
 
+def validate_ppam_observed_workspace_record(
+    record: PPAMObservedWorkspaceRecord,
+    final_model: FinalModelRecord,
+    run_root: Path,
+) -> None:
+    """Validate one restored observed record and its optional scratch."""
+
+    request = activation_request_from_ppam_workspace(record, final_model)
+    if record.input_identity != ppam_observed_input_identity(
+        request,
+        record.binary_exposure,
+    ):
+        raise PPAMObservedWorkspaceError(
+            "pPAM observed workspace input identity changed"
+        )
+    if record.technical_status == "nuisance_not_estimable":
+        return
+    validated_ppam_operator_scratch_descriptor(
+        record,
+        request,
+        record.binary_exposure,
+        run_root,
+    )
+
+
 def reopen_ppam_workspace_from_record(
     record: PPAMObservedWorkspaceRecord,
     request: ActivationRequest,
@@ -1077,5 +1102,6 @@ __all__ = [
     "publish_ppam_observed_state",
     "publish_ppam_operator_scratch",
     "reopen_ppam_workspace_from_record",
+    "validate_ppam_observed_workspace_record",
     "validated_ppam_operator_scratch_descriptor",
 ]

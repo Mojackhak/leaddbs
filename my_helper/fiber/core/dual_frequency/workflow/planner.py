@@ -127,6 +127,7 @@ class _TaskFactory:
         fiber_permutation_resamples: int,
         direct_bootstrap_resamples: int,
         fiber_bootstrap_resamples: int,
+        ppam_permutation_resamples: int,
     ) -> None:
         self.configuration_hash = configuration_hash
         self.through = through
@@ -134,6 +135,7 @@ class _TaskFactory:
         self.fiber_permutation_resamples = fiber_permutation_resamples
         self.direct_bootstrap_resamples = direct_bootstrap_resamples
         self.fiber_bootstrap_resamples = fiber_bootstrap_resamples
+        self.ppam_permutation_resamples = ppam_permutation_resamples
         self.tasks: list[TaskSpec] = []
         self.stage_ids: dict[tuple[str, str], str] = {}
 
@@ -229,6 +231,10 @@ FORMAL_COMPLETE = GateRequirement("formal_complete", "not_run_formal_incomplete"
 FORMAL_SOURCE_AVAILABLE = GateRequirement(
     "formal_source_available",
     "not_run_formal_source_unavailable",
+)
+PPAM_PERMUTATION_READY = GateRequirement(
+    "ppam_permutation_ready",
+    "not_run_ppam_permutation_not_ready",
 )
 
 
@@ -345,6 +351,72 @@ def _plan_formal_bootstrap(
         dependencies=(*dependencies, schedule, *blocks),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
+    )
+    assert aggregate is not None
+    return aggregate
+
+
+def _plan_ppam_activation(
+    factory: _TaskFactory,
+    endpoint: EndpointRecord,
+    *,
+    round_id: str,
+    dependencies: tuple[str | None, ...],
+) -> str | None:
+    """Plan one observed pPAM workspace, fixed null blocks, and aggregate."""
+
+    if not factory.includes("sensitivity"):
+        return None
+    observed = factory.add(
+        endpoint,
+        stage="ppam_observed_workspace",
+        round_id=round_id,
+        phase="sensitivity",
+        service_id="prepare_ppam_observed_workspace",
+        dependencies=dependencies,
+        gates=(FINAL_REALIZED, FORMAL_COMPLETE),
+        output_record_type="PPAMObservedWorkspaceRecord",
+        expensive_producer=True,
+        cache_first_expensive=True,
+    )
+    schedule = factory.add(
+        endpoint,
+        stage="ppam_permutation_schedule",
+        round_id=round_id,
+        phase="sensitivity",
+        service_id="prepare_ppam_permutation_schedule",
+        dependencies=(*dependencies, observed),
+        gates=(FINAL_REALIZED, FORMAL_COMPLETE, PPAM_PERMUTATION_READY),
+        output_record_type="ResamplingScheduleRecord",
+    )
+    block_count = (
+        factory.ppam_permutation_resamples
+        + RESAMPLING_REPLICATE_BLOCK_SIZE
+        - 1
+    ) // RESAMPLING_REPLICATE_BLOCK_SIZE
+    blocks = tuple(
+        factory.add(
+            endpoint,
+            stage=f"ppam_permutation_block_{block_index:04d}",
+            round_id=round_id,
+            phase="sensitivity",
+            service_id="run_ppam_permutation_block",
+            dependencies=(*dependencies, observed, schedule),
+            gates=(FINAL_REALIZED, FORMAL_COMPLETE, PPAM_PERMUTATION_READY),
+            output_record_type="PPAMPermutationBlockRecord",
+            execution_parameters=(("block_index", str(block_index)),),
+        )
+        for block_index in range(block_count)
+    )
+    aggregate = factory.add(
+        endpoint,
+        stage="activation_sensitivity",
+        round_id=round_id,
+        phase="sensitivity",
+        service_id="aggregate_ppam_activation",
+        dependencies=(*dependencies, observed, schedule, *blocks),
+        gates=(FINAL_REALIZED, FORMAL_COMPLETE),
+        output_record_type="ActivationArtifact",
     )
     assert aggregate is not None
     return aggregate
@@ -534,17 +606,17 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         gates=(ENDPOINT_INPUT_READY,),
         output_record_type="SensitivityResult",
     )
-    factory.add(
+    _plan_ppam_activation(
+        factory,
         endpoint,
-        stage="activation_sensitivity",
         round_id="round_7",
-        phase="sensitivity",
-        service_id="run_reference_fiber_activation",
-        dependencies=(readiness, prepare, final, formal_permutation, formal_bootstrap),
-        gates=(FINAL_REALIZED, FORMAL_COMPLETE),
-        output_record_type="ActivationArtifact",
-        expensive_producer=True,
-        cache_first_expensive=True,
+        dependencies=(
+            readiness,
+            prepare,
+            final,
+            formal_permutation,
+            formal_bootstrap,
+        ),
     )
     factory.add(
         endpoint,
@@ -938,12 +1010,10 @@ def _plan_addon_fiber_formal(
         gates=(FINAL_REALIZED,),
         output_record_type="SensitivityResult",
     )
-    factory.add(
+    _plan_ppam_activation(
+        factory,
         endpoint,
-        stage="activation_sensitivity",
         round_id="round_8",
-        phase="sensitivity",
-        service_id="run_addon_fiber_activation",
         dependencies=(
             readiness,
             prepare,
@@ -952,10 +1022,6 @@ def _plan_addon_fiber_formal(
             formal_permutation,
             formal_bootstrap,
         ),
-        gates=(FINAL_REALIZED, FORMAL_COMPLETE),
-        output_record_type="ActivationArtifact",
-        expensive_producer=True,
-        cache_first_expensive=True,
     )
     factory.add(
         endpoint,
@@ -1140,6 +1206,9 @@ def compile_execution_plan(
         ),
         fiber_bootstrap_resamples=(
             config.normative_fiber.formal_resampling.bootstrap_resamples
+        ),
+        ppam_permutation_resamples=(
+            config.normative_fiber.oss.permutation_resamples
         ),
     )
 

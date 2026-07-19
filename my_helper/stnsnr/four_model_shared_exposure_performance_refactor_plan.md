@@ -2470,6 +2470,38 @@ for a ready parent, and publishes the historical public activation result.
 Ready and degenerate service paths must pass independently before planner
 migration.
 
+The service gate now passes. The four registered boundaries preserve the
+historical activation artifact set and content digests, reopen one immutable
+operator generation without rebuilding it, and distinguish permutation-ready,
+observed-degenerate, and nuisance-design terminal states. Malformed numerical
+state and incomplete scratch fail closed. The focused service, OSS, codec, and
+dependency gate passed 54 tests and 43 subtests; the complete dual-frequency
+and visualization gate passed 526 tests and 299 subtests outside the restricted
+system-monitoring sandbox.
+
+The planner migration replaces each formal fiber activation task with one
+cache-first observed workspace, one deterministic schedule, fixed
+250-replicate pPAM blocks, and one historical-stage aggregate. Only the observed
+task holds connectome-I/O and solver tokens. Schedule and block tasks use the
+single readiness gate; the aggregate runs for every realized final after those
+tasks become terminal. Independent OSS extensions select this complete subgraph
+and convert only its completed non-formal parents into checkpoint roots. One
+invalidated block reruns with its aggregate while the observed workspace,
+schedule, other blocks, and physical OSS cache remain reusable.
+
+Planner-migration acceptance on 2026-07-19: no newly compiled task selects the
+serial compatibility services. Ready output matches the retained serial backend
+artifact-for-artifact, false readiness skips schedule and blocks while the
+aggregate completes, and independent OSS plus combined jitter/OSS child plans
+close without rerunning their observed parent. Resume validates a restored pPAM
+workspace against its final model, scientific input identity, and scratch
+headers. Invalid completed workspace state invalidates its descendants, whereas
+an explicitly interrupted formal block retains independent valid consumers.
+The planner, executor, service, and extension focused gate passed 59 tests and
+86 subtests. The complete dual-frequency and visualization gate passed 534
+tests and 308 subtests outside the restricted system-monitoring sandbox. No
+production, jitter, OSS-DBS, or combined extension was started.
+
 ## Documentation Validation
 
 Before implementation begins:

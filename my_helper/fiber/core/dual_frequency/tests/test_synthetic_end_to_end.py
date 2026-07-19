@@ -36,6 +36,7 @@ from dual_frequency.catalog import EndpointRecord, build_endpoint_catalog
 from dual_frequency.config import WorkflowOverrides, load_workflow
 from dual_frequency.contracts import (
     ActivationArtifact,
+    ActivationRequest,
     ArtifactRef,
     AxisRef,
     BootstrapNuisanceEvidence,
@@ -52,6 +53,7 @@ from dual_frequency.contracts import (
     NormativeFiberScoreSettings,
     ObservedRequest,
     PreparedExposureRecord,
+    PPAMObservedWorkspaceRecord,
     ReferenceDependencyRecord,
     SensitiveRecord,
     SourceGrid,
@@ -60,6 +62,10 @@ from dual_frequency.contracts import (
     load_study_base,
 )
 from dual_frequency.runtime.service_adapters import PRODUCTION_SERVICE_HANDLERS
+from dual_frequency.runtime.ppam_observed_workspace import (
+    ppam_observed_workspace_record,
+    publish_ppam_nuisance_failure,
+)
 from dual_frequency.workflow import RegisteredService, ServiceRegistry
 from dual_frequency.workflow.executor import ServiceResult, TaskExecutionRequest
 
@@ -1282,6 +1288,8 @@ class _FakeActivationBackend:
         self.calls: list[str] = []
 
     def __call__(self, request: TaskExecutionRequest) -> ServiceResult:
+        if request.task.service_id == "prepare_ppam_observed_workspace":
+            return self._observed_workspace(request)
         selection = next(
             state.record
             for state in request.dependencies.values()
@@ -1344,12 +1352,159 @@ class _FakeActivationBackend:
             )
         )
 
+    @staticmethod
+    def _observed_workspace(request: TaskExecutionRequest) -> ServiceResult:
+        selection = next(
+            state.record
+            for state in request.dependencies.values()
+            if isinstance(state.record, FinalSelectionRecord)
+        )
+        endpoint_input = next(
+            state.record
+            for state in request.dependencies.values()
+            if isinstance(state.record, EndpointInputRecord)
+            and state.record.endpoint == selection.endpoint
+        )
+        if selection.final_model is None or endpoint_input.subject_axis is None:
+            raise AssertionError("pPAM workspace requires a realized final")
+        final_model = selection.final_model
+        subject_axis = endpoint_input.subject_axis
+        feature_axis = final_model.valid_feature_axis.axis
+        publisher = RunScopedArtifactPublisher(
+            request.output_dir,
+            request.task.task_id,
+            "synthetic_ppam_observed_v1",
+        )
+        probability = publisher.array(
+            "activation_probability.npy",
+            np.zeros(
+                (subject_axis.count, feature_axis.count),
+                dtype=np.float32,
+            ),
+            kind="synthetic_activation_probability",
+            axes=(subject_axis, feature_axis),
+            units="probability",
+            space="right_canonical",
+        )
+        binary = publisher.array(
+            "binary_activation.npy",
+            np.zeros(
+                (subject_axis.count, feature_axis.count),
+                dtype=np.float32,
+            ),
+            kind="synthetic_binary_activation",
+            axes=(subject_axis, feature_axis),
+            units="binary",
+            space="right_canonical",
+        )
+        peak = publisher.array(
+            "peak_final_score.npy",
+            np.zeros(subject_axis.count, dtype=np.float64),
+            kind="synthetic_peak_final_score",
+            axes=(subject_axis,),
+            units="score",
+            space=None,
+        )
+        feature_ids = publisher.array(
+            "feature_ids.npy",
+            np.arange(feature_axis.count, dtype=np.int64),
+            kind="synthetic_fiber_ids",
+            axes=(feature_axis,),
+            units="fiber_id",
+            space="right_canonical",
+        )
+        overlap = None
+        if final_model.endpoint.model_family == "addon_fiber":
+            overlap = publisher.array(
+                "reference_overlap.npy",
+                np.zeros(
+                    (subject_axis.count, feature_axis.count),
+                    dtype=bool,
+                ),
+                kind="synthetic_reference_overlap",
+                axes=(subject_axis, feature_axis),
+                units="binary",
+                space="right_canonical",
+            )
+        nuisance: tuple[ArtifactRef, ...] = ()
+        if final_model.final_key.final_branch == "delta_reference_adjusted":
+            nuisance = (
+                publisher.array(
+                    "delta_full.npy",
+                    np.zeros(subject_axis.count, dtype=np.float64),
+                    kind="synthetic_delta_full",
+                    axes=(subject_axis,),
+                    units="score",
+                    space=None,
+                ),
+                publisher.array(
+                    "delta_folds.npy",
+                    np.zeros(
+                        (subject_axis.count, subject_axis.count),
+                        dtype=np.float64,
+                    ),
+                    kind="synthetic_delta_folds",
+                    axes=(subject_axis, subject_axis),
+                    units="score",
+                    space=None,
+                ),
+            )
+        activation_request = ActivationRequest(
+            final_model=final_model,
+            activation_probability=probability,
+            reference_overlap_mask=overlap,
+            outcome=endpoint_input.outcome,
+            baseline=endpoint_input.baseline,
+            peak_final_score=peak,
+            nuisance_inputs=nuisance,
+            subject_axis=subject_axis,
+            feature_axis=feature_axis,
+            feature_ids=feature_ids,
+            activation_feature_ids=feature_ids,
+            outcome_direction="lower",
+            hard_computability=HardComputabilityLimits(1, None, 1),
+            connectome_role="formal",
+            fiber_score_settings=NormativeFiberScoreSettings(
+                sweet_fraction=0.1,
+                sour_fraction=0.1,
+                weighted_peak_fraction=0.1,
+                sweet_selected_min_count=1,
+                sour_selected_min_count=1,
+                weighted_peak_min_count=1,
+            ),
+            fitting_probability_threshold=0.5,
+            permutation_resamples=1,
+            seed=1,
+        )
+        observed_artifacts = publish_ppam_nuisance_failure(
+            activation_request,
+            "synthetic_nuisance_not_estimable",
+            "synthetic acceptance bypasses physical OSS fitting",
+            publisher,
+        )
+        record = ppam_observed_workspace_record(
+            activation_request,
+            binary,
+            observed_artifacts,
+            "nuisance_not_estimable",
+            request.output_dir,
+            None,
+        )
+        if not isinstance(record, PPAMObservedWorkspaceRecord):
+            raise AssertionError("synthetic pPAM workspace record is invalid")
+        return ServiceResult.from_record(
+            record,
+            facts={"ppam_permutation_ready": False},
+        )
+
 
 def _registry_with_fake_activation(
     fake_activation: _FakeActivationBackend,
     service_calls: dict[str, int] | None = None,
 ) -> ServiceRegistry:
     activation_services = {
+        "prepare_ppam_observed_workspace",
+        "aggregate_ppam_activation",
         "run_reference_fiber_activation",
         "run_addon_fiber_activation",
     }
@@ -1538,8 +1693,12 @@ class SyntheticEndToEndTest(unittest.TestCase):
         self.assertTrue(oss_calls)
         self.assertTrue(combined_calls)
         self.assertTrue(all(service_id.endswith("_jitter") for service_id in jitter_calls))
-        self.assertTrue(
-            all(service_id.endswith("_activation") for service_id in oss_calls)
+        self.assertEqual(
+            set(oss_calls),
+            {
+                "prepare_ppam_observed_workspace",
+                "aggregate_ppam_activation",
+            },
         )
         self.assertEqual(set(combined_calls), set(jitter_calls) | set(oss_calls))
         for document in extension_plans.values():
@@ -2124,7 +2283,21 @@ class SyntheticEndToEndTest(unittest.TestCase):
         )
         self.assertEqual(len(task_states), len(result.outcomes))
         self.assertTrue(task_states)
-        self.assertTrue(all(row["status"] == "completed" for row in task_states))
+        self.assertTrue(
+            all(
+                row["status"] == "completed"
+                or (
+                    row["status"] == "skipped"
+                    and row["service_id"]
+                    in {
+                        "prepare_ppam_permutation_schedule",
+                        "run_ppam_permutation_block",
+                    }
+                    and row["reason"] == "not_run_ppam_permutation_not_ready"
+                )
+                for row in task_states
+            )
+        )
         self.assertEqual(run_report["technical_status"], "completed")
         self.assertTrue(artifact_index["artifacts"])
         self.assertEqual(

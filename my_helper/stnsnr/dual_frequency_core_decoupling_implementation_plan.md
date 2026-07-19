@@ -4188,6 +4188,30 @@ must not select the serial compatibility service. Direct service tests cover
 permutation-ready, observed-degenerate, and nuisance-design-failure paths before
 any new plan emits the decomposed services.
 
+Planner migration contract: each formal fiber endpoint replaces its serial
+activation task with one observed-workspace task, one schedule task, fixed
+250-replicate block tasks covering the configured OSS permutation count, and one
+aggregate retaining the historical `activation_sensitivity` stage. The observed
+task keeps the cache-first expensive-producer flag and receives the activation
+resource class with one connectome-I/O token, one solver token, and an 8-GiB
+memory charge. Schedule, block, and aggregate tasks receive the bounded
+resampling resource class without solver or connectome-I/O tokens. Schedule and
+block tasks require `ppam_permutation_ready`; the aggregate requires final and
+formal completion but deliberately does not require that pPAM fact. Resume
+invalidating one block must rerun only that block and the aggregate, while the
+observed workspace, physical OSS cache, schedule, and unrelated blocks remain
+reusable.
+
+An independent OSS sensitivity extension selects the complete decomposed pPAM
+subgraph rather than only its final aggregate. Its observed workspace, schedule,
+all fixed blocks, and aggregate remain new extension tasks; only their completed
+non-formal parents become immutable checkpoint roots. Formal dependencies and
+the `formal_complete` gate are removed from this child plan exactly as for the
+historical single-task OSS extension, while `final_model_realized` and
+`ppam_permutation_ready` retain their meanings. Jitter-only extension closure is
+unchanged, and a combined child plan contains the union of both independently
+closed subgraphs without duplicating checkpoint roots.
+
 Eighteenth-slice acceptance on 2026-07-19: the production registry contains all
 four decomposed pPAM services while the planner remains unchanged. The observed
 service is the only tested caller of physical OSS materialization and creates
@@ -4200,6 +4224,32 @@ service, OSS, codec, and dependency gate passed 54 tests and 43 subtests. The
 complete dual-frequency and visualization gate passed 526 tests and 299
 subtests outside the restricted system-monitoring sandbox. No planner task,
 production run, jitter, OSS-DBS, or combined extension was started.
+
+Nineteenth Step 9 implementation slice: migrate the two formal fiber planner
+paths and independent sensitivity compiler to the decomposed pPAM services.
+Reference and add-on fiber endpoints now plan one cache-first observed task,
+one schedule, the configured number of fixed blocks, and one aggregate. The
+resource ledger assigns solver and connectome-I/O tokens only to observed
+preparation. New plans contain no serial activation service, while the registry
+retains both legacy handlers for old checkpoint compatibility.
+
+An OSS child plan recursively selects the exact pPAM sensitivity ancestors of
+each aggregate before deriving checkpoint roots. The observed parent run,
+formal tasks, and unrelated sensitivities remain absent from the child. A
+restored completed pPAM observed record is accepted only after final-model,
+input-identity, and scratch validation; an invalid completed parent prevents
+restoration of its descendants. An explicitly interrupted block does not
+invalidate scientifically independent completed consumers.
+
+Nineteenth-slice acceptance on 2026-07-19: the decomposed ready service result
+matches the retained serial backend artifact kinds and content digests. False
+readiness skips schedule and blocks with the documented reason while aggregate
+still completes. Fixed-resource, planner-closure, gate, one-block resume,
+independent OSS extension, combined jitter/OSS extension, and synthetic full-run
+tests pass. The focused planner, executor, and service gate passed 59 tests and
+86 subtests. The complete dual-frequency and visualization gate passed 534
+tests and 308 subtests outside the restricted system-monitoring sandbox. No
+production, jitter, OSS-DBS, or combined extension was started.
 
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial

@@ -707,6 +707,33 @@ def compile_sensitivity_extension_plan(
             raise SensitivityCheckpointError(
                 f"no realized final supports requested analysis {analysis!r}"
             )
+    selected_target_ids = {task.task_id for task in targets}
+    if "oss" in requested:
+        ppam_services = {
+            "prepare_ppam_observed_workspace",
+            "prepare_ppam_permutation_schedule",
+            "run_ppam_permutation_block",
+            "aggregate_ppam_activation",
+        }
+        frontier = [
+            task
+            for task in targets
+            if task.service_id == "aggregate_ppam_activation"
+        ]
+        while frontier:
+            child = frontier.pop()
+            for dependency in child.dependencies:
+                parent = source_tasks[dependency]
+                if (
+                    parent.service_id not in ppam_services
+                    or parent.task_id in selected_target_ids
+                ):
+                    continue
+                selected_target_ids.add(parent.task_id)
+                frontier.append(parent)
+        targets = [
+            task for task in full_plan.tasks if task.task_id in selected_target_ids
+        ]
     extension_targets: dict[str, TaskSpec] = {}
     for task in targets:
         dependencies = (

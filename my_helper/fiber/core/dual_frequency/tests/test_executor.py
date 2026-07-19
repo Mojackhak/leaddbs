@@ -139,6 +139,54 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(grant.memory_bytes, 16 * 1024**3)
         self.assertEqual(grant.connectome_io, 1)
 
+    def test_ppam_resource_grants_isolate_solver_from_blocks_and_aggregate(
+        self,
+    ) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        observed = _ResourceLedger.request(
+            _task(
+                endpoint,
+                "ppam_observed_workspace",
+                "prepare_ppam_observed_workspace",
+            )
+        )
+        schedule = _ResourceLedger.request(
+            _task(
+                endpoint,
+                "ppam_permutation_schedule",
+                "prepare_ppam_permutation_schedule",
+            )
+        )
+        block = _ResourceLedger.request(
+            _task(
+                endpoint,
+                "ppam_permutation_block_0000",
+                "run_ppam_permutation_block",
+            )
+        )
+        aggregate = _ResourceLedger.request(
+            _task(
+                endpoint,
+                "activation_sensitivity",
+                "aggregate_ppam_activation",
+            )
+        )
+        self.assertEqual(
+            (observed.memory_bytes, observed.connectome_io, observed.solver),
+            (8 * 1024**3, 1, 1),
+        )
+        for grant in (schedule, block, aggregate):
+            self.assertEqual(
+                (grant.memory_bytes, grant.connectome_io, grant.solver),
+                (2 * 1024**3, 0, 0),
+            )
+
     def test_jitter_block_grants_charge_model_specific_working_sets(self) -> None:
         cases = (
             ("reference_voxel", "none", 12 * 1024**3, 0),
@@ -1268,6 +1316,191 @@ class ExecutorTest(unittest.TestCase):
             outcomes[first_block.task_id].reason,
             "restored_completed_result",
         )
+
+    def test_ppam_false_gate_skips_null_tasks_but_runs_aggregate(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        observed = _task(endpoint, "ppam_observed_workspace", "observed")
+        ready_gate = GateRequirement(
+            "ppam_permutation_ready",
+            "not_run_ppam_permutation_not_ready",
+        )
+        schedule = _task(
+            endpoint,
+            "ppam_permutation_schedule",
+            "must_not_run",
+            dependencies=(observed.task_id,),
+            gates=(ready_gate,),
+        )
+        block = _task(
+            endpoint,
+            "ppam_permutation_block_0000",
+            "must_not_run",
+            dependencies=(observed.task_id, schedule.task_id),
+            gates=(ready_gate,),
+        )
+        aggregate = _task(
+            endpoint,
+            "activation_sensitivity",
+            "aggregate",
+            dependencies=(observed.task_id, schedule.task_id, block.task_id),
+        )
+        plan = self._plan((observed, schedule, block, aggregate))
+        calls: list[str] = []
+
+        def observed_service(request):
+            calls.append(request.task.task_id)
+            return ServiceResult.from_record(
+                _source(endpoint),
+                facts={"ppam_permutation_ready": False},
+            )
+
+        def aggregate_service(request):
+            calls.append(request.task.task_id)
+            self.assertEqual(request.dependencies[schedule.task_id].status, "skipped")
+            self.assertEqual(request.dependencies[block.task_id].status, "skipped")
+            return _result(request)
+
+        def must_not_run(request):
+            raise AssertionError(f"unexpected pPAM null task {request.task.task_id}")
+
+        registry = ServiceRegistry(
+            (
+                RegisteredService("observed", observed_service),
+                RegisteredService("must_not_run", must_not_run),
+                RegisteredService("aggregate", aggregate_service),
+            )
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=self._store(
+                        Path(temporary_directory) / "run",
+                        plan,
+                    ),
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=2,
+                ),
+            )
+        outcomes = {outcome.task_id: outcome for outcome in result.outcomes}
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(calls, [observed.task_id, aggregate.task_id])
+        self.assertEqual(outcomes[schedule.task_id].status, "skipped")
+        self.assertEqual(outcomes[block.task_id].status, "skipped")
+        self.assertEqual(outcomes[aggregate.task_id].status, "completed")
+
+    def test_resume_runs_only_missing_ppam_block_and_aggregate(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        observed = _task(endpoint, "ppam_observed_workspace", "count")
+        ready_gate = GateRequirement(
+            "ppam_permutation_ready",
+            "not_run_ppam_permutation_not_ready",
+        )
+        schedule = _task(
+            endpoint,
+            "ppam_permutation_schedule",
+            "count",
+            dependencies=(observed.task_id,),
+            gates=(ready_gate,),
+        )
+        first_block = _task(
+            endpoint,
+            "ppam_permutation_block_0000",
+            "count",
+            dependencies=(observed.task_id, schedule.task_id),
+            gates=(ready_gate,),
+        )
+        second_block = _task(
+            endpoint,
+            "ppam_permutation_block_0001",
+            "count",
+            dependencies=(observed.task_id, schedule.task_id),
+            gates=(ready_gate,),
+        )
+        aggregate = _task(
+            endpoint,
+            "activation_sensitivity",
+            "count",
+            dependencies=(
+                observed.task_id,
+                schedule.task_id,
+                first_block.task_id,
+                second_block.task_id,
+            ),
+        )
+        plan = self._plan(
+            (observed, schedule, first_block, second_block, aggregate)
+        )
+        calls: list[str] = []
+
+        def count(request):
+            calls.append(request.task.task_id)
+            return _result(request)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            store = self._store(Path(temporary_directory) / "run", plan)
+            completed_records = (
+                (
+                    observed,
+                    ServiceResult.from_record(
+                        _source(endpoint),
+                        facts={"ppam_permutation_ready": True},
+                    ),
+                ),
+                (schedule, ServiceResult.from_record(_source(endpoint))),
+                (first_block, ServiceResult.from_record(_source(endpoint))),
+            )
+            for task, service_result in completed_records:
+                store.write_task_state(
+                    task.task_id,
+                    TaskOutcome(
+                        task_id=task.task_id,
+                        endpoint_id=task.endpoint_id,
+                        service_id=task.service_id,
+                        status="completed",
+                        reason="none",
+                        result=service_result,
+                    ).as_dict(),
+                )
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=store,
+                    registry=ServiceRegistry(
+                        (RegisteredService("count", count),)
+                    ),
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=2,
+                    resume=True,
+                ),
+            )
+        outcomes = {outcome.task_id: outcome for outcome in result.outcomes}
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(calls, [second_block.task_id, aggregate.task_id])
+        for task in (observed, schedule, first_block):
+            self.assertEqual(
+                outcomes[task.task_id].reason,
+                "restored_completed_result",
+            )
 
     def test_resume_uses_only_json_yaml_and_completed_result_gates(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

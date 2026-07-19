@@ -375,7 +375,11 @@ class _ResourceLedger:
             return _ResourceGrant(1, 12 * 1024**3, 0, 0)
         if task.stage == "prepare_exposure":
             return _ResourceGrant(1, 16 * 1024**3, 1, 0)
+        if task.stage == "ppam_observed_workspace":
+            return _ResourceGrant(1, 8 * 1024**3, 1, 1)
         if task.stage == "activation_sensitivity":
+            if task.service_id == "aggregate_ppam_activation":
+                return _ResourceGrant(1, 2 * 1024**3, 0, 0)
             return _ResourceGrant(1, 8 * 1024**3, 1, 1)
         if task.stage.startswith("formal_permutation_block_") or task.stage in {
             "formal_permutation_schedule",
@@ -385,6 +389,11 @@ class _ResourceLedger:
             "formal_in_sample",
             "spatial_jitter",
         }:
+            return _ResourceGrant(1, 2 * 1024**3, 0, 0)
+        if (
+            task.stage.startswith("ppam_permutation_block_")
+            or task.stage == "ppam_permutation_schedule"
+        ):
             return _ResourceGrant(1, 2 * 1024**3, 0, 0)
         return _ResourceGrant(1, 512 * 1024**2, 0, 0)
 
@@ -469,7 +478,11 @@ def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[st
     if not context.resume:
         return {}
     output: dict[str, TaskOutcome] = {}
+    invalid_completed: set[str] = set()
     for task in plan.tasks:
+        if any(dependency in invalid_completed for dependency in task.dependencies):
+            invalid_completed.add(task.task_id)
+            continue
         try:
             payload = context.run_store.read_task_state(task.task_id)
         except (OSError, TypeError, ValueError):
@@ -477,10 +490,10 @@ def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[st
         if not isinstance(payload, Mapping):
             continue
         result_payload = payload.get("result")
-        if payload.get("status") != "completed" or not isinstance(
-            result_payload,
-            Mapping,
-        ):
+        if payload.get("status") != "completed":
+            continue
+        if not isinstance(result_payload, Mapping):
+            invalid_completed.add(task.task_id)
             continue
         try:
             result = ServiceResult.from_dict(result_payload)
@@ -494,7 +507,34 @@ def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[st
                     record,
                     context.run_store.root,
                 )
+            if type(record).__name__ == "PPAMObservedWorkspaceRecord":
+                from ..runtime.ppam_observed_workspace import (
+                    validate_ppam_observed_workspace_record,
+                )
+
+                selections = tuple(
+                    dependency.result.decode_record()
+                    for dependency_id in task.dependencies
+                    for dependency in (output.get(dependency_id),)
+                    if dependency is not None
+                    and dependency.result is not None
+                    and dependency.result.output_record_type
+                    == "FinalSelectionRecord"
+                )
+                if (
+                    len(selections) != 1
+                    or getattr(selections[0], "final_model", None) is None
+                ):
+                    raise ExecutionError(
+                        "restored pPAM workspace lacks its final selection"
+                    )
+                validate_ppam_observed_workspace_record(
+                    record,
+                    selections[0].final_model,
+                    context.run_store.root,
+                )
         except (OSError, RuntimeError, TypeError, ValueError):
+            invalid_completed.add(task.task_id)
             continue
         output[task.task_id] = TaskOutcome(
             task_id=task.task_id,

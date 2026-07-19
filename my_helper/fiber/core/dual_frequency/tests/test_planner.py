@@ -63,12 +63,20 @@ class PlannerTest(unittest.TestCase):
             if stages:
                 self.assertIn("formal_source_evaluation", stages)
 
-    def test_only_formal_fiber_finals_schedule_activation_as_expensive(self) -> None:
+    def test_only_formal_fiber_finals_schedule_ppam_observed_as_expensive(self) -> None:
         _config, catalog, plan = self._plan()
         roles = {endpoint.endpoint_id: endpoint.connectome_role for endpoint in catalog}
         expensive = tuple(task for task in plan.tasks if task.expensive_producer)
         self.assertTrue(expensive)
-        self.assertTrue(all(task.stage == "activation_sensitivity" for task in expensive))
+        self.assertTrue(
+            all(task.stage == "ppam_observed_workspace" for task in expensive)
+        )
+        self.assertTrue(
+            all(
+                task.service_id == "prepare_ppam_observed_workspace"
+                for task in expensive
+            )
+        )
         self.assertTrue(all(task.model_family.endswith("fiber") for task in expensive))
         self.assertTrue(all(roles[task.endpoint_id] == "formal" for task in expensive))
         self.assertTrue(all(task.cache_first_expensive for task in expensive))
@@ -80,6 +88,113 @@ class PlannerTest(unittest.TestCase):
             self.assertIn(
                 endpoint_tasks["final_realization"].task_id,
                 task.dependencies,
+            )
+            aggregate = endpoint_tasks["activation_sensitivity"]
+            self.assertEqual(aggregate.service_id, "aggregate_ppam_activation")
+            self.assertFalse(aggregate.expensive_producer)
+
+    def test_ppam_activation_uses_observed_schedule_block_aggregate_dag(self) -> None:
+        config, catalog, plan = self._plan()
+        serial_services = {
+            "run_reference_fiber_activation",
+            "run_addon_fiber_activation",
+        }
+        self.assertTrue(
+            serial_services.isdisjoint(task.service_id for task in plan.tasks)
+        )
+        expected_count = (
+            config.normative_fiber.oss.permutation_resamples
+            + RESAMPLING_REPLICATE_BLOCK_SIZE
+            - 1
+        ) // RESAMPLING_REPLICATE_BLOCK_SIZE
+        for endpoint in catalog:
+            if (
+                endpoint.status != CatalogStatus.DATA_AVAILABLE
+                or endpoint.connectome_role != "formal"
+                or not endpoint.key.model_family.endswith("fiber")
+            ):
+                continue
+            tasks = {
+                task.stage: task for task in plan.for_endpoint(endpoint.endpoint_id)
+            }
+            observed = tasks["ppam_observed_workspace"]
+            schedule = tasks["ppam_permutation_schedule"]
+            aggregate = tasks["activation_sensitivity"]
+            blocks = tuple(
+                task
+                for task in tasks.values()
+                if task.stage.startswith("ppam_permutation_block_")
+            )
+            self.assertEqual(
+                observed.service_id,
+                "prepare_ppam_observed_workspace",
+            )
+            self.assertEqual(
+                observed.output_record_type,
+                "PPAMObservedWorkspaceRecord",
+            )
+            self.assertTrue(observed.expensive_producer)
+            self.assertTrue(observed.cache_first_expensive)
+            self.assertEqual(
+                {gate.fact for gate in observed.gates},
+                {"final_model_realized", "formal_complete"},
+            )
+            self.assertEqual(
+                schedule.service_id,
+                "prepare_ppam_permutation_schedule",
+            )
+            self.assertEqual(schedule.output_record_type, "ResamplingScheduleRecord")
+            self.assertIn(observed.task_id, schedule.dependencies)
+            self.assertEqual(
+                {gate.fact for gate in schedule.gates},
+                {
+                    "final_model_realized",
+                    "formal_complete",
+                    "ppam_permutation_ready",
+                },
+            )
+            self.assertEqual(len(blocks), expected_count)
+            for block_index, block in enumerate(
+                sorted(blocks, key=lambda item: item.stage)
+            ):
+                self.assertEqual(block.service_id, "run_ppam_permutation_block")
+                self.assertEqual(
+                    block.output_record_type,
+                    "PPAMPermutationBlockRecord",
+                )
+                self.assertEqual(
+                    block.execution_parameters,
+                    (("block_index", str(block_index)),),
+                )
+                self.assertTrue(
+                    {observed.task_id, schedule.task_id}
+                    <= set(block.dependencies)
+                )
+                self.assertEqual(
+                    {gate.fact for gate in block.gates},
+                    {
+                        "final_model_realized",
+                        "formal_complete",
+                        "ppam_permutation_ready",
+                    },
+                )
+            self.assertEqual(aggregate.service_id, "aggregate_ppam_activation")
+            self.assertEqual(aggregate.output_record_type, "ActivationArtifact")
+            self.assertTrue(
+                {
+                    observed.task_id,
+                    schedule.task_id,
+                    *(block.task_id for block in blocks),
+                }
+                <= set(aggregate.dependencies)
+            )
+            self.assertEqual(
+                {gate.fact for gate in aggregate.gates},
+                {"final_model_realized", "formal_complete"},
+            )
+            self.assertNotIn(
+                "ppam_permutation_ready",
+                {gate.fact for gate in aggregate.gates},
             )
 
     def test_unavailable_endpoint_has_no_tasks_without_blocking_other_scales(self) -> None:

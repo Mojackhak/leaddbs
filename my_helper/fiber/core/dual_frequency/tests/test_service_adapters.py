@@ -14,6 +14,7 @@ from dual_frequency.backends.activation import (
     MissingAcceptanceFixture,
     OSSRowProduct,
     OSSScientificSettings,
+    PPAMActivationBackend,
 )
 from dual_frequency.cache import (
     ArtifactStore,
@@ -54,6 +55,9 @@ from dual_frequency.backends.nuisance import NuisancePlanError
 from dual_frequency.runtime.service_adapters import (
     PRODUCTION_SERVICE_HANDLERS,
     build_default_service_registry,
+)
+from dual_frequency.runtime.ppam_observed_workspace import (
+    activation_request_from_ppam_workspace,
 )
 from dual_frequency.workflow import compile_execution_plan
 from dual_frequency.workflow.executor import DependencyState, TaskExecutionRequest
@@ -596,10 +600,8 @@ class ServiceAdapterTest(unittest.TestCase):
         declared = {service_id for service_id, _handler in PRODUCTION_SERVICE_HANDLERS}
         extension_only = {
             "prepare_jitter_exposure_block",
-            "prepare_ppam_observed_workspace",
-            "prepare_ppam_permutation_schedule",
-            "run_ppam_permutation_block",
-            "aggregate_ppam_activation",
+            "run_addon_fiber_activation",
+            "run_reference_fiber_activation",
             "run_addon_fiber_formal_permutation",
             "run_addon_voxel_formal_permutation",
             "run_reference_fiber_formal_permutation",
@@ -1013,6 +1015,19 @@ class ServiceAdapterTest(unittest.TestCase):
                 status_ref,
                 expected_kind="oss_sensitivity_status",
             )
+            legacy = PPAMActivationBackend(
+                RunScopedArtifactPublisher(
+                    root / "legacy",
+                    "legacy_ppam_activation",
+                    "1",
+                ),
+                artifact_store=ArtifactStore((root,)),
+            ).run_activation(
+                activation_request_from_ppam_workspace(
+                    observed_record,
+                    final,
+                )
+            )
 
         self.assertIsInstance(activation, ActivationArtifact)
         self.assertTrue(aggregate_result.fact_values["activation_complete"])
@@ -1021,6 +1036,22 @@ class ServiceAdapterTest(unittest.TestCase):
         self.assertEqual(provider.toolchain.calls, [])
         self.assertEqual(provider.toolchain_resolution_calls, 0)
         self.assertEqual(len(seed_toolchain.calls), len(subject_ids) * 2)
+        self.assertEqual(
+            tuple(item.kind for item in activation.artifacts),
+            tuple(item.kind for item in legacy.artifacts),
+        )
+        self.assertEqual(
+            {item.kind: item.sha256 for item in activation.artifacts},
+            {item.kind: item.sha256 for item in legacy.artifacts},
+        )
+        self.assertEqual(
+            activation.activation_probability.sha256,
+            legacy.activation_probability.sha256,
+        )
+        self.assertEqual(
+            activation.binary_exposure.sha256,
+            legacy.binary_exposure.sha256,
+        )
 
     def test_ppam_degenerate_observed_state_aggregates_without_null_tasks(
         self,
