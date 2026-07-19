@@ -2366,6 +2366,23 @@ The complete validation matrix passes 490 dual-frequency tests, eight
 separately invoked goal guards, and 14 visualization tests. No production or
 sensitivity process was started.
 
+The next record-only pPAM slice introduces a dedicated immutable null-block
+record bound to the complete parent schedule. Each record contains only its
+LOOCV Spearman interval and never carries physical OSS rows, activation
+matrices, fold weights, predictions, or selected fibers. Runtime restoration
+validates the full parent and artifact contract before lending numerical state.
+Sensitivity planner migration remains disabled until a separate observed pPAM
+workspace can guarantee that physical OSS preparation and retained observed
+output execute once per endpoint rather than once per null block.
+
+The record-only runtime gate now round-trips exact block-local null bytes and
+fails closed on changed parent schedule identity or digest, changed artifact
+semantics, and payload SHA corruption. The focused codec and OSS regression
+passed 35 tests and 39 subtests. The complete dual-frequency gate passed 502
+tests and 295 subtests outside the restricted system-monitoring sandbox. No
+planner, production, jitter, OSS-DBS, or combined extension was started by this
+slice.
+
 ## Documentation Validation
 
 Before implementation begins:

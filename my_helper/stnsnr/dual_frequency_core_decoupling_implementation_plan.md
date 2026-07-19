@@ -3987,6 +3987,34 @@ dual-frequency tests, eight separately invoked goal guards, and 14
 visualization tests. No production, jitter, OSS-DBS, or combined extension was
 started.
 
+Thirteenth Step 9 implementation slice: freeze a pPAM-specific durable
+permutation block record before splitting the activation task. The record binds
+the final-model target, exact parent permutation schedule identifier and
+digest, complete replicate axis, canonical block interval and axis, terminal
+technical status, and one immutable block-local LOOCV Spearman artifact. It
+does not contain activation probability, binary exposure, fold weights,
+predictions, selected fibers, or physical OSS rows.
+
+Publication and restoration reuse the same parent-pregenerated schedule and
+canonical 250-replicate intervals as formal inference, but retain a distinct
+pPAM artifact kind and units contract. Closed-codec and runtime tests must
+round-trip exact null bytes and reject changed schedule target, identifier,
+digest, interval, artifact kind, axis, shape, units, or payload SHA. The
+activation service and sensitivity extension planner remain unchanged in this
+record-only slice; the next slice must first freeze the observed pPAM workspace
+needed to prevent every block task from repeating physical OSS preparation or
+rebuilding retained observed output.
+
+Thirteenth-slice acceptance on 2026-07-19: the closed record codec round-trips
+the dedicated pPAM block, artifact discovery includes its only numerical
+payload, and runtime publication restores the exact null bytes from a
+read-only artifact store. Negative tests reject changed artifact kind, parent
+schedule identity or digest, and corrupted payload SHA before returning
+numerical state. The focused codec and OSS gate passed 35 tests and 39
+subtests. The full dual-frequency gate passed 502 tests and 295 subtests
+outside the restricted system-monitoring sandbox. No production or sensitivity
+extension was started.
+
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial
 accumulators and the strict ordered aggregate. A 251-replicate fixture for both

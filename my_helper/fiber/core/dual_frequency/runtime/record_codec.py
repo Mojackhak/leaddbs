@@ -25,6 +25,7 @@ from ..contracts import (
     FormalResult,
     ObservedResult,
     PreparedExposureRecord,
+    PPAMPermutationBlockRecord,
     ReferenceDependencyRecord,
     ResamplingBlockRecord,
     ResamplingScheduleRecord,
@@ -45,6 +46,7 @@ _ROOT_TYPES = {
     "PreparedExposureRecord": PreparedExposureRecord,
     "ArtifactRef": ArtifactRef,
     "BootstrapBlockRecord": BootstrapBlockRecord,
+    "PPAMPermutationBlockRecord": PPAMPermutationBlockRecord,
     "ObservedResult": ObservedResult,
     "SourceRecord": SourceRecord,
     "ReferenceDependencyRecord": ReferenceDependencyRecord,
@@ -388,6 +390,21 @@ _RESAMPLING_BLOCK_FIELDS = frozenset(
     {
         "target_id",
         "resampling_kind",
+        "schedule_id",
+        "replicate_axis",
+        "block_axis",
+        "block_index",
+        "start",
+        "stop",
+        "total",
+        "schedule_sha256",
+        "technical_status",
+        "artifacts",
+    }
+)
+_PPAM_PERMUTATION_BLOCK_FIELDS = frozenset(
+    {
+        "target_id",
         "schedule_id",
         "replicate_axis",
         "block_axis",
@@ -1047,6 +1064,45 @@ def _decode_resampling_block(
     )
 
 
+def _decode_ppam_permutation_block(
+    value: object,
+    location: str,
+) -> PPAMPermutationBlockRecord:
+    payload = _object(value, location, _PPAM_PERMUTATION_BLOCK_FIELDS)
+    return PPAMPermutationBlockRecord(
+        target_id=_text(payload["target_id"], f"{location}.target_id"),
+        schedule_id=_text(payload["schedule_id"], f"{location}.schedule_id"),
+        replicate_axis=_decode_axis(
+            payload["replicate_axis"],
+            f"{location}.replicate_axis",
+        ),
+        block_axis=_decode_axis(
+            payload["block_axis"],
+            f"{location}.block_axis",
+        ),
+        block_index=_integer(
+            payload["block_index"],
+            f"{location}.block_index",
+        ),
+        start=_integer(payload["start"], f"{location}.start"),
+        stop=_integer(payload["stop"], f"{location}.stop"),
+        total=_integer(payload["total"], f"{location}.total"),
+        schedule_sha256=_text(
+            payload["schedule_sha256"],
+            f"{location}.schedule_sha256",
+        ),
+        technical_status=_text(
+            payload["technical_status"],
+            f"{location}.technical_status",
+        ),
+        artifacts=_tuple_of(
+            payload["artifacts"],
+            f"{location}.artifacts",
+            _decode_artifact,
+        ),
+    )
+
+
 def _decode_bootstrap_block(
     value: object,
     location: str,
@@ -1229,6 +1285,7 @@ _ROOT_DECODERS: dict[str, Callable[[object, str], object]] = {
     "FormalResult": _decode_formal_result,
     "ResamplingScheduleRecord": _decode_resampling_schedule,
     "ResamplingBlockRecord": _decode_resampling_block,
+    "PPAMPermutationBlockRecord": _decode_ppam_permutation_block,
     "BootstrapBlockRecord": _decode_bootstrap_block,
     "SensitivityResult": _decode_sensitivity_result,
     "ActivationArtifact": _decode_activation_artifact,

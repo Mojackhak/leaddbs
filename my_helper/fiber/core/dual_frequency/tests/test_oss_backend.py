@@ -56,7 +56,15 @@ from dual_frequency.contracts import (
     FinalModelRecord,
     HardComputabilityLimits,
     NormativeFiberScoreSettings,
+    PPAMPermutationBlockRecord,
+    RecordError,
+    ResamplingScheduleRecord,
     SourceRecord,
+)
+from dual_frequency.runtime.ppam_permutation_blocks import (
+    PPAMPermutationBlockError,
+    load_ppam_permutation_block,
+    publish_ppam_permutation_block,
 )
 
 
@@ -655,6 +663,119 @@ class PPAMActivationBackendTest(unittest.TestCase):
                 schedule,
                 (changed_digest, *canonical_blocks[1:]),
             )
+
+    def test_permutation_block_record_publishes_reopens_and_fails_closed(self) -> None:
+        request = dataclasses.replace(
+            self._request(),
+            permutation_resamples=3,
+            seed=71,
+        )
+        binary = binary_activation(self.probabilities)
+        schedule = formal_resampling_schedule(
+            "permutation",
+            self.n_subjects,
+            request.permutation_resamples,
+            request.seed,
+        )
+        computed = compute_ppam_permutation_block(
+            request,
+            binary,
+            self.outcome,
+            self.baseline,
+            self.fiber_ids,
+            (),
+            schedule,
+            schedule.blocks()[0],
+        )
+        replicate_axis = AxisRef(
+            "ppam_permutation_replicates",
+            request.permutation_resamples,
+            "9" * 64,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            schedule_publisher = RunScopedArtifactPublisher(
+                root,
+                "ppam_schedule",
+                "1",
+            )
+            schedule_artifact = schedule_publisher.array(
+                "formal_resampling_schedule.npy",
+                schedule.indices,
+                kind="formal_resampling_schedule",
+                axes=(replicate_axis, self.subject_axis),
+                units="subject_index",
+                space=None,
+            )
+            descriptor = schedule.descriptor
+            schedule_record = ResamplingScheduleRecord(
+                target_id=request.final_model.identifier,
+                resampling_kind="permutation",
+                subject_axis=self.subject_axis,
+                replicate_axis=replicate_axis,
+                seed=request.seed,
+                replicate_count=request.permutation_resamples,
+                block_size=250,
+                schedule_schema=descriptor.schema_version,
+                generator_class=descriptor.generator_class,
+                bit_generator_class=descriptor.bit_generator_class,
+                numpy_version=descriptor.numpy_version,
+                environment_fingerprint=descriptor.environment_fingerprint,
+                schedule_sha256=descriptor.schedule_sha256,
+                schedule=schedule_artifact,
+            )
+            record = publish_ppam_permutation_block(
+                computed,
+                schedule_record,
+                RunScopedArtifactPublisher(root, "ppam_block", "1"),
+            )
+            self.assertIsInstance(record, PPAMPermutationBlockRecord)
+            restored = load_ppam_permutation_block(
+                record,
+                schedule_record,
+                ArtifactStore((root,)),
+            )
+            np.testing.assert_array_equal(
+                restored.null_statistics,
+                computed.null_statistics,
+            )
+            self.assertEqual(restored.block, computed.block)
+            self.assertEqual(
+                restored.schedule_sha256,
+                computed.schedule_sha256,
+            )
+
+            with self.assertRaisesRegex(RecordError, "artifact"):
+                dataclasses.replace(
+                    record,
+                    artifacts=(
+                        dataclasses.replace(
+                            record.artifacts[0],
+                            kind="formal_permutation_null_statistics_block",
+                        ),
+                    ),
+                )
+            changed_schedule = dataclasses.replace(
+                schedule_record,
+                schedule_sha256="0" * 64,
+            )
+            with self.assertRaisesRegex(
+                PPAMPermutationBlockError,
+                "parent schedule",
+            ):
+                load_ppam_permutation_block(
+                    record,
+                    changed_schedule,
+                    ArtifactStore((root,)),
+                )
+            block_path = Path(unquote(urlsplit(record.artifacts[0].uri).path))
+            block_path.write_bytes(block_path.read_bytes() + b"corrupt")
+            with self.assertRaises(PPAMPermutationBlockError):
+                load_ppam_permutation_block(
+                    record,
+                    schedule_record,
+                    ArtifactStore((root,)),
+                )
 
     def test_heldout_outcome_does_not_change_its_fold_fit(self) -> None:
         request = self._request()

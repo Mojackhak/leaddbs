@@ -25,6 +25,7 @@ from dual_frequency.contracts import (
     FormalResult,
     ObservedResult,
     PreparedExposureRecord,
+    PPAMPermutationBlockRecord,
     RecordError,
     ReferenceDependencyRecord,
     RESAMPLING_REPLICATE_BLOCK_SIZE,
@@ -371,6 +372,38 @@ class RecordCodecTest(unittest.TestCase):
             artifacts=artifacts,
         )
 
+    def _ppam_permutation_block_record(
+        self,
+        schedule: ResamplingScheduleRecord,
+    ) -> PPAMPermutationBlockRecord:
+        block_axis = resampling_block_axis(
+            schedule.replicate_axis,
+            250,
+            500,
+        )
+        artifact = dataclasses.replace(
+            self._artifact(
+                "ppam_permutation_null_statistics_block",
+                (block_axis,),
+                digest="b",
+                units="loocv_spearman_rho",
+            ),
+            space=None,
+        )
+        return PPAMPermutationBlockRecord(
+            target_id=schedule.target_id,
+            schedule_id=schedule.identifier,
+            replicate_axis=schedule.replicate_axis,
+            block_axis=block_axis,
+            block_index=1,
+            start=250,
+            stop=500,
+            total=500,
+            schedule_sha256=schedule.schedule_sha256,
+            technical_status="completed",
+            artifacts=(artifact,),
+        )
+
     def test_operator_scratch_record_is_path_safe_and_has_no_artifact_closure(self) -> None:
         record = self._operator_scratch_record()
         self.assertEqual(self._round_trip(record), record)
@@ -402,12 +435,15 @@ class RecordCodecTest(unittest.TestCase):
     def test_resampling_records_bind_canonical_schedule_and_block_axes(self) -> None:
         schedule, block = self._resampling_records()
         bootstrap_block = self._bootstrap_block_record(schedule)
+        ppam_block = self._ppam_permutation_block_record(schedule)
         self.assertEqual(self._round_trip(schedule), schedule)
         self.assertEqual(self._round_trip(block), block)
         self.assertEqual(self._round_trip(bootstrap_block), bootstrap_block)
+        self.assertEqual(self._round_trip(ppam_block), ppam_block)
         self.assertEqual(record_artifacts(schedule), (schedule.schedule,))
         self.assertEqual(record_artifacts(block), block.artifacts)
         self.assertEqual(record_artifacts(bootstrap_block), bootstrap_block.artifacts)
+        self.assertEqual(record_artifacts(ppam_block), ppam_block.artifacts)
 
         with self.assertRaisesRegex(RecordError, "block size"):
             dataclasses.replace(schedule, block_size=249)
@@ -723,6 +759,7 @@ class RecordCodecTest(unittest.TestCase):
         )
         schedule, block = self._resampling_records()
         bootstrap_block = self._bootstrap_block_record(schedule)
+        ppam_block = self._ppam_permutation_block_record(schedule)
         operator_scratch = self._operator_scratch_record()
         records = (
             endpoint_input,
@@ -746,6 +783,7 @@ class RecordCodecTest(unittest.TestCase):
             schedule,
             block,
             bootstrap_block,
+            ppam_block,
             operator_scratch,
             sensitivity,
             activation,
@@ -768,6 +806,7 @@ class RecordCodecTest(unittest.TestCase):
                 "ResamplingScheduleRecord",
                 "ResamplingBlockRecord",
                 "BootstrapBlockRecord",
+                "PPAMPermutationBlockRecord",
                 "FormalOperatorScratchRecord",
                 "SensitivityResult",
                 "ActivationArtifact",

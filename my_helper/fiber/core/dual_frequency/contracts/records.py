@@ -371,6 +371,84 @@ class ResamplingBlockRecord:
 
 
 @dataclass(frozen=True)
+class PPAMPermutationBlockRecord:
+    """Durable pPAM null-statistic state for one canonical interval."""
+
+    target_id: str
+    schedule_id: str
+    replicate_axis: AxisRef
+    block_axis: AxisRef
+    block_index: int
+    start: int
+    stop: int
+    total: int
+    schedule_sha256: str
+    technical_status: str
+    artifacts: tuple[ArtifactRef, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "target_id", _token(self.target_id, "target_id"))
+        object.__setattr__(
+            self,
+            "schedule_id",
+            _token(self.schedule_id, "schedule_id"),
+        )
+        if not isinstance(self.replicate_axis, AxisRef) or not isinstance(
+            self.block_axis,
+            AxisRef,
+        ):
+            raise RecordError("pPAM permutation block axes must be AxisRef values")
+        if (
+            type(self.block_index) is not int
+            or type(self.start) is not int
+            or type(self.stop) is not int
+            or type(self.total) is not int
+            or self.total != self.replicate_axis.count
+            or self.start != self.block_index * RESAMPLING_REPLICATE_BLOCK_SIZE
+            or self.stop
+            != min(self.start + RESAMPLING_REPLICATE_BLOCK_SIZE, self.total)
+        ):
+            raise RecordError("pPAM permutation block interval is not canonical")
+        if self.block_axis != resampling_block_axis(
+            self.replicate_axis,
+            self.start,
+            self.stop,
+        ):
+            raise RecordError("pPAM permutation block axis does not match its interval")
+        object.__setattr__(
+            self,
+            "schedule_sha256",
+            _sha256(self.schedule_sha256, "schedule_sha256"),
+        )
+        status = _token(self.technical_status, "technical_status").lower()
+        if status not in {"completed", "completed_with_nonfinite_replicates"}:
+            raise RecordError("pPAM permutation block technical status is unsupported")
+        object.__setattr__(self, "technical_status", status)
+        artifacts = tuple(self.artifacts)
+        if len(artifacts) != 1 or not isinstance(artifacts[0], ArtifactRef):
+            raise RecordError(
+                "pPAM permutation block requires one null-statistic artifact"
+            )
+        null = artifacts[0]
+        if (
+            null.kind != "ppam_permutation_null_statistics_block"
+            or null.dtype != "float64"
+            or null.shape != (self.block_axis.count,)
+            or null.axis_refs != (self.block_axis,)
+            or null.units != "loocv_spearman_rho"
+            or null.space is not None
+        ):
+            raise RecordError(
+                "pPAM permutation block artifact does not match the block axis"
+            )
+        object.__setattr__(self, "artifacts", artifacts)
+
+    @property
+    def identifier(self) -> str:
+        return f"ppam_permutation_block_{canonical_hash(asdict(self), length=20)}"
+
+
+@dataclass(frozen=True)
 class BootstrapBlockRecord:
     """Durable mergeable state for one canonical bootstrap interval."""
 
