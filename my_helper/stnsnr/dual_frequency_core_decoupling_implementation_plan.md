@@ -4848,6 +4848,21 @@ This is partial runtime evidence only. It does not establish child completion,
 endpoint completion, adjusted-branch performance, uncontended throughput, or
 the final Step 10 acceptance result.
 
+The v7 endpoint-boundary audit found that the retained adjusted fallback cannot
+be allowed to enter production endpoint execution. Each adjusted replicate
+publishes complete parent prepared-exposure arrays beneath the endpoint task,
+including multiple parent-sized add-on voxel components, while the scheduler
+charges the entire `spatial_jitter` task only 2 GiB. After the global block
+barrier, the ten adjusted tasks could therefore run beside reduced-axis
+consumers, exceed the declared memory accounting, and consume the remaining
+844 GiB volume capacity with endpoint-local parent copies. The run is stopped
+before any endpoint statistic starts. Its eighty completed reference-voxel and
+reference-fiber blocks remain valid v1 cache evidence; four in-flight add-on
+voxel blocks had not published and create no resumable result. A successor
+lineage may reuse the eighty completed v1 entries, but adjusted endpoints must
+first move to the support-preserving v2 block path described above. The partial
+v7 lineage cannot publish a formal jitter extension.
+
 ---
 
 ## Plan Self-Review Record
