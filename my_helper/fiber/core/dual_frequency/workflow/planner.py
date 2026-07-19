@@ -125,11 +125,15 @@ class _TaskFactory:
         *,
         direct_permutation_resamples: int,
         fiber_permutation_resamples: int,
+        direct_bootstrap_resamples: int,
+        fiber_bootstrap_resamples: int,
     ) -> None:
         self.configuration_hash = configuration_hash
         self.through = through
         self.direct_permutation_resamples = direct_permutation_resamples
         self.fiber_permutation_resamples = fiber_permutation_resamples
+        self.direct_bootstrap_resamples = direct_bootstrap_resamples
+        self.fiber_bootstrap_resamples = fiber_bootstrap_resamples
         self.tasks: list[TaskSpec] = []
         self.stage_ids: dict[tuple[str, str], str] = {}
 
@@ -196,6 +200,13 @@ class _TaskFactory:
             self.fiber_permutation_resamples
             if endpoint.key.model_family.endswith("fiber")
             else self.direct_permutation_resamples
+        )
+
+    def bootstrap_resamples(self, endpoint: EndpointRecord) -> int:
+        return (
+            self.fiber_bootstrap_resamples
+            if endpoint.key.model_family.endswith("fiber")
+            else self.direct_bootstrap_resamples
         )
 
 
@@ -285,6 +296,60 @@ def _plan_formal_permutation(
     return aggregate
 
 
+def _plan_formal_bootstrap(
+    factory: _TaskFactory,
+    endpoint: EndpointRecord,
+    *,
+    round_id: str,
+    dependencies: tuple[str | None, ...],
+) -> str | None:
+    """Plan one complete bootstrap schedule, fixed blocks, and aggregate."""
+
+    if not factory.includes("formal"):
+        return None
+    schedule = factory.add(
+        endpoint,
+        stage="formal_bootstrap_schedule",
+        round_id=round_id,
+        phase="formal",
+        service_id="prepare_formal_bootstrap_schedule",
+        dependencies=dependencies,
+        gates=(FINAL_REALIZED,),
+        output_record_type="ResamplingScheduleRecord",
+    )
+    block_count = (
+        factory.bootstrap_resamples(endpoint)
+        + RESAMPLING_REPLICATE_BLOCK_SIZE
+        - 1
+    ) // RESAMPLING_REPLICATE_BLOCK_SIZE
+    blocks = tuple(
+        factory.add(
+            endpoint,
+            stage=f"formal_bootstrap_block_{block_index:04d}",
+            round_id=round_id,
+            phase="formal",
+            service_id="run_formal_bootstrap_block",
+            dependencies=(*dependencies, schedule),
+            gates=(FINAL_REALIZED,),
+            output_record_type="BootstrapBlockRecord",
+            execution_parameters=(("block_index", str(block_index)),),
+        )
+        for block_index in range(block_count)
+    )
+    aggregate = factory.add(
+        endpoint,
+        stage="formal_bootstrap",
+        round_id=round_id,
+        phase="formal",
+        service_id="aggregate_formal_bootstrap",
+        dependencies=(*dependencies, schedule, *blocks),
+        gates=(FINAL_REALIZED,),
+        output_record_type="FormalResult",
+    )
+    assert aggregate is not None
+    return aggregate
+
+
 def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> None:
     readiness = factory.add(
         endpoint,
@@ -350,15 +415,11 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
-    formal_bootstrap = factory.add(
+    formal_bootstrap = _plan_formal_bootstrap(
+        factory,
         endpoint,
-        stage="formal_bootstrap",
         round_id="round_5",
-        phase="formal",
-        service_id="run_reference_voxel_formal_bootstrap",
         dependencies=(readiness, prepare, final),
-        gates=(FINAL_REALIZED,),
-        output_record_type="FormalResult",
     )
     factory.add(
         endpoint,
@@ -447,15 +508,11 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
-    formal_bootstrap = factory.add(
+    formal_bootstrap = _plan_formal_bootstrap(
+        factory,
         endpoint,
-        stage="formal_bootstrap",
         round_id="round_6",
-        phase="formal",
-        service_id="run_reference_fiber_formal_bootstrap",
         dependencies=(readiness, prepare, final),
-        gates=(FINAL_REALIZED,),
-        output_record_type="FormalResult",
     )
     factory.add(
         endpoint,
@@ -668,12 +725,10 @@ def _plan_addon_voxel(
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
-    formal_bootstrap = factory.add(
+    formal_bootstrap = _plan_formal_bootstrap(
+        factory,
         endpoint,
-        stage="formal_bootstrap",
         round_id="round_5",
-        phase="formal",
-        service_id="run_addon_voxel_formal_bootstrap",
         dependencies=(
             readiness,
             prepare,
@@ -683,8 +738,6 @@ def _plan_addon_voxel(
             reference_prepare,
             dependency,
         ),
-        gates=(FINAL_REALIZED,),
-        output_record_type="FormalResult",
     )
     factory.add(
         endpoint,
@@ -841,12 +894,10 @@ def _plan_addon_fiber_formal(
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
-    formal_bootstrap = factory.add(
+    formal_bootstrap = _plan_formal_bootstrap(
+        factory,
         endpoint,
-        stage="formal_bootstrap",
         round_id="round_7",
-        phase="formal",
-        service_id="run_addon_fiber_formal_bootstrap",
         dependencies=(
             readiness,
             prepare,
@@ -856,8 +907,6 @@ def _plan_addon_fiber_formal(
             reference_prepare,
             dependency,
         ),
-        gates=(FINAL_REALIZED,),
-        output_record_type="FormalResult",
     )
     factory.add(
         endpoint,
@@ -1085,6 +1134,12 @@ def compile_execution_plan(
         ),
         fiber_permutation_resamples=(
             config.normative_fiber.formal_resampling.permutation_resamples
+        ),
+        direct_bootstrap_resamples=(
+            config.direct_voxel.formal_resampling.bootstrap_resamples
+        ),
+        fiber_bootstrap_resamples=(
+            config.normative_fiber.formal_resampling.bootstrap_resamples
         ),
     )
 

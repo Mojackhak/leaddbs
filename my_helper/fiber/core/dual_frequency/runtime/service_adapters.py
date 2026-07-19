@@ -23,6 +23,15 @@ from ..backends.formal import (
     DirectVoxelFormalBackend,
     FinalInSampleBackend,
     NormativeFiberFormalBackend,
+    compute_direct_voxel_bootstrap_block,
+    compute_normative_fiber_bootstrap_block,
+)
+from ..backends.formal.common import (
+    canonical_fiber_ids,
+    combine_bootstrap_blocks,
+    finite_exposure,
+    finite_vector,
+    materialize_array,
 )
 from ..backends.interaction.branch_resolver import (
     ADJUSTED_BRANCH,
@@ -57,6 +66,7 @@ from ..contracts import (
     ActivationArtifact,
     ActivationRequest,
     ArtifactRef,
+    BootstrapBlockRecord,
     BranchRecord,
     DeltaReferenceBundle,
     EndpointInputRecord,
@@ -89,6 +99,10 @@ from .bootstrap_provider import (
 from .formal_operator_workspace import (
     formal_operator_scratch_record,
     validated_formal_operator_scratch_descriptor,
+)
+from .formal_bootstrap_blocks import (
+    load_formal_bootstrap_block,
+    publish_formal_bootstrap_block,
 )
 from .formal_permutation_blocks import (
     load_formal_permutation_block,
@@ -1015,6 +1029,354 @@ def _aggregate_formal_permutation(
     return ServiceResult.from_record(result, facts={"formal_complete": True})
 
 
+def _formal_bootstrap_request(request: TaskExecutionRequest) -> FormalRequest:
+    formal_request = _formal_request(request, resampling_kind="bootstrap")
+    if formal_request.final_model.endpoint.model_family != request.task.model_family:
+        raise ServiceAdapterError(
+            "formal bootstrap service model family does not match final"
+        )
+    return formal_request
+
+
+def _prepare_formal_bootstrap_schedule(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    formal_request = _formal_bootstrap_request(request)
+    record = publish_formal_resampling_schedule(
+        formal_request,
+        _publisher(request),
+    )
+    return ServiceResult.from_record(record)
+
+
+def _bootstrap_nuisance_provider(
+    request: TaskExecutionRequest,
+    formal_request: FormalRequest,
+) -> BootstrapNuisanceProvider | None:
+    nuisance_provider = (
+        request.provider
+        if isinstance(request.provider, BootstrapNuisanceProvider)
+        else None
+    )
+    if (
+        nuisance_provider is not None
+        or formal_request.final_model.final_key is None
+        or formal_request.final_model.final_key.final_branch != ADJUSTED_BRANCH
+    ):
+        return nuisance_provider
+    runtime_provider = request.provider
+    if not isinstance(runtime_provider, StudyRuntimeInputProvider):
+        raise ServiceAdapterCapabilityError(
+            "adjusted production bootstrap requires StudyRuntimeInputProvider"
+        )
+    dependency = _one_record(request, ReferenceDependencyRecord)
+    delta_reference = _one_record(request, DeltaReferenceBundle)
+    assert dependency is not None and delta_reference is not None
+    addon_input = _endpoint_input_record(request, request.task.endpoint_id)
+    addon_prepared = _prepared_exposure_record(
+        request,
+        request.task.endpoint_id,
+    )
+    reference_input = _endpoint_input_record(
+        request,
+        dependency.matched_reference_endpoint_id,
+    )
+    reference_prepared = _prepared_exposure_record(
+        request,
+        dependency.matched_reference_endpoint_id,
+    )
+    try:
+        return StudyBootstrapNuisanceProvider(
+            runtime_provider,
+            _artifact_store(request),
+            formal_request,
+            addon_input,
+            addon_prepared,
+            reference_input,
+            reference_prepared,
+            dependency,
+            delta_reference,
+        )
+    except StudyBootstrapNuisanceProviderError as error:
+        raise ServiceAdapterError(str(error)) from error
+
+
+def _formal_bootstrap_backend(
+    request: TaskExecutionRequest,
+    formal_request: FormalRequest,
+    nuisance_provider: BootstrapNuisanceProvider | None,
+):
+    publisher = _publisher(request)
+    model_family = formal_request.final_model.endpoint.model_family
+    if model_family.endswith("voxel"):
+        return DirectVoxelFormalBackend(
+            publisher,
+            artifact_store=request.artifact_store,
+            bootstrap_nuisance_provider=nuisance_provider,
+        )
+    if model_family.endswith("fiber"):
+        return NormativeFiberFormalBackend(
+            publisher,
+            artifact_store=request.artifact_store,
+            bootstrap_nuisance_provider=nuisance_provider,
+        )
+    raise ServiceAdapterError(
+        f"unsupported formal model family {model_family!r}"
+    )
+
+
+def _optional_bootstrap_vector(
+    request: TaskExecutionRequest,
+    formal_request: FormalRequest,
+    value: ArtifactRef | np.ndarray | None,
+    *,
+    name: str,
+) -> np.ndarray | None:
+    if value is None:
+        return None
+    array = materialize_array(
+        value,
+        name=name,
+        expected_axes=(formal_request.subject_axis,),
+        expected_units=(value.units if isinstance(value, ArtifactRef) else None),
+        expected_space=(value.space if isinstance(value, ArtifactRef) else None),
+        artifact_store=request.artifact_store,
+    )
+    return finite_vector(array, name, formal_request.subject_axis.count)
+
+
+def _formal_bootstrap_inputs(
+    request: TaskExecutionRequest,
+    formal_request: FormalRequest,
+) -> tuple[
+    np.ndarray,
+    np.ndarray | None,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray | None,
+    np.ndarray | None,
+]:
+    exposure = finite_exposure(
+        materialize_array(
+            formal_request.exposure,
+            name="exposure",
+            expected_axes=(
+                formal_request.subject_axis,
+                formal_request.feature_axis,
+            ),
+            expected_units=formal_request.exposure_units,
+            expected_space=formal_request.exposure_space,
+            artifact_store=request.artifact_store,
+            memory_map=True,
+        ),
+        formal_request,
+    )
+    outcome = finite_vector(
+        materialize_array(
+            formal_request.outcome,
+            name="outcome",
+            expected_axes=(formal_request.subject_axis,),
+            expected_units=(
+                formal_request.outcome.units
+                if isinstance(formal_request.outcome, ArtifactRef)
+                else None
+            ),
+            expected_space=(
+                formal_request.outcome.space
+                if isinstance(formal_request.outcome, ArtifactRef)
+                else None
+            ),
+            artifact_store=request.artifact_store,
+        ),
+        "outcome",
+        formal_request.subject_axis.count,
+    )
+    baseline = finite_vector(
+        materialize_array(
+            formal_request.baseline,
+            name="baseline",
+            expected_axes=(formal_request.subject_axis,),
+            expected_units=(
+                formal_request.baseline.units
+                if isinstance(formal_request.baseline, ArtifactRef)
+                else None
+            ),
+            expected_space=(
+                formal_request.baseline.space
+                if isinstance(formal_request.baseline, ArtifactRef)
+                else None
+            ),
+            artifact_store=request.artifact_store,
+        ),
+        "baseline",
+        formal_request.subject_axis.count,
+    )
+    delta_full = _optional_bootstrap_vector(
+        request,
+        formal_request,
+        formal_request.delta_reference_full,
+        name="delta_reference_full",
+    )
+    delta_folds = None
+    if formal_request.delta_reference_folds is not None:
+        value = formal_request.delta_reference_folds
+        delta_folds = np.asarray(
+            materialize_array(
+                value,
+                name="delta_reference_folds",
+                expected_axes=(
+                    formal_request.subject_axis,
+                    formal_request.subject_axis,
+                ),
+                expected_units=(
+                    value.units if isinstance(value, ArtifactRef) else None
+                ),
+                expected_space=(
+                    value.space if isinstance(value, ArtifactRef) else None
+                ),
+                artifact_store=request.artifact_store,
+            ),
+            dtype=np.float64,
+        )
+        expected = (
+            formal_request.subject_axis.count,
+            formal_request.subject_axis.count,
+        )
+        if delta_folds.shape != expected or not np.all(np.isfinite(delta_folds)):
+            raise ServiceAdapterError(
+                "delta_reference_folds must be a finite fold-by-subject matrix"
+            )
+    fiber_ids = None
+    if formal_request.final_model.endpoint.model_family.endswith("fiber"):
+        if formal_request.feature_ids is None:
+            raise ServiceAdapterError("fiber bootstrap requires feature IDs")
+        value = formal_request.feature_ids
+        fiber_ids = canonical_fiber_ids(
+            materialize_array(
+                value,
+                name="feature_ids",
+                expected_axes=(formal_request.feature_axis,),
+                expected_units=(
+                    value.units if isinstance(value, ArtifactRef) else None
+                ),
+                expected_space=(
+                    value.space if isinstance(value, ArtifactRef) else None
+                ),
+                artifact_store=request.artifact_store,
+            ),
+            formal_request.feature_axis.count,
+        )
+    return exposure, fiber_ids, outcome, baseline, delta_full, delta_folds
+
+
+def _formal_bootstrap_predecessor(
+    request: TaskExecutionRequest,
+    formal_request: FormalRequest,
+):
+    schedule_record = _one_record(request, ResamplingScheduleRecord)
+    assert schedule_record is not None
+    schedule = load_formal_resampling_schedule(
+        schedule_record,
+        formal_request,
+        request.artifact_store,
+    )
+    return schedule_record, schedule
+
+
+def _run_formal_bootstrap_block(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    formal_request = _formal_bootstrap_request(request)
+    schedule_record, schedule = _formal_bootstrap_predecessor(
+        request,
+        formal_request,
+    )
+    try:
+        block_index = int(request.task.execution_parameter("block_index"))
+        if block_index < 0:
+            raise ValueError("block index is negative")
+        block = schedule.blocks()[block_index]
+    except (IndexError, TypeError, ValueError) as error:
+        raise ServiceAdapterError(
+            "formal bootstrap block_index is invalid"
+        ) from error
+    nuisance_provider = _bootstrap_nuisance_provider(request, formal_request)
+    exposure, fiber_ids, outcome, baseline, delta_full, delta_folds = (
+        _formal_bootstrap_inputs(request, formal_request)
+    )
+    model_family = formal_request.final_model.endpoint.model_family
+    if model_family.endswith("voxel"):
+        result = compute_direct_voxel_bootstrap_block(
+            formal_request,
+            exposure,
+            outcome,
+            baseline,
+            nuisance_provider,
+            schedule,
+            block,
+            original_delta_full=delta_full,
+            original_delta_folds=delta_folds,
+        )
+    elif model_family.endswith("fiber"):
+        assert fiber_ids is not None
+        result = compute_normative_fiber_bootstrap_block(
+            formal_request,
+            exposure,
+            fiber_ids,
+            outcome,
+            baseline,
+            nuisance_provider,
+            schedule,
+            block,
+            original_delta_full=delta_full,
+            original_delta_folds=delta_folds,
+        )
+    else:
+        raise ServiceAdapterError(
+            f"unsupported formal model family {model_family!r}"
+        )
+    record = publish_formal_bootstrap_block(
+        result,
+        schedule_record,
+        formal_request.feature_axis,
+        formal_request.exposure_space,
+        _publisher(request),
+    )
+    return ServiceResult.from_record(record)
+
+
+def _aggregate_formal_bootstrap(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    formal_request = _formal_bootstrap_request(request)
+    schedule_record, schedule = _formal_bootstrap_predecessor(
+        request,
+        formal_request,
+    )
+    block_records = _records(request, BootstrapBlockRecord)
+    if not block_records:
+        raise ServiceAdapterError(
+            "formal bootstrap aggregate requires block records"
+        )
+    blocks = tuple(
+        load_formal_bootstrap_block(
+            record,
+            schedule_record,
+            formal_request.feature_axis,
+            formal_request.exposure_space,
+            request.artifact_store,
+        )
+        for record in block_records
+    )
+    result = combine_bootstrap_blocks(schedule, blocks)
+    backend = _formal_bootstrap_backend(request, formal_request, None)
+    formal_result = backend._publish_bootstrap(formal_request, result)
+    return ServiceResult.from_record(
+        formal_result,
+        facts={"formal_complete": True},
+    )
+
+
 def _run_formal(
     request: TaskExecutionRequest,
     *,
@@ -1024,51 +1386,10 @@ def _run_formal(
     formal_request = _formal_request(request, resampling_kind=resampling_kind)
     publisher = _publisher(request)
     nuisance_provider = (
-        request.provider
-        if isinstance(request.provider, BootstrapNuisanceProvider)
+        _bootstrap_nuisance_provider(request, formal_request)
+        if resampling_kind == "bootstrap"
         else None
     )
-    if (
-        nuisance_provider is None
-        and resampling_kind == "bootstrap"
-        and formal_request.final_model.final_key is not None
-        and formal_request.final_model.final_key.final_branch == ADJUSTED_BRANCH
-    ):
-        runtime_provider = request.provider
-        if not isinstance(runtime_provider, StudyRuntimeInputProvider):
-            raise ServiceAdapterCapabilityError(
-                "adjusted production bootstrap requires StudyRuntimeInputProvider"
-            )
-        dependency = _one_record(request, ReferenceDependencyRecord)
-        delta_reference = _one_record(request, DeltaReferenceBundle)
-        assert dependency is not None and delta_reference is not None
-        addon_input = _endpoint_input_record(request, request.task.endpoint_id)
-        addon_prepared = _prepared_exposure_record(
-            request,
-            request.task.endpoint_id,
-        )
-        reference_input = _endpoint_input_record(
-            request,
-            dependency.matched_reference_endpoint_id,
-        )
-        reference_prepared = _prepared_exposure_record(
-            request,
-            dependency.matched_reference_endpoint_id,
-        )
-        try:
-            nuisance_provider = StudyBootstrapNuisanceProvider(
-                runtime_provider,
-                _artifact_store(request),
-                formal_request,
-                addon_input,
-                addon_prepared,
-                reference_input,
-                reference_prepared,
-                dependency,
-                delta_reference,
-            )
-        except StudyBootstrapNuisanceProviderError as error:
-            raise ServiceAdapterError(str(error)) from error
     if model_family.endswith("voxel"):
         backend = DirectVoxelFormalBackend(
             publisher,
@@ -1678,6 +1999,12 @@ PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
     ),
     ("run_formal_permutation_block", _run_formal_permutation_block),
     ("aggregate_formal_permutation", _aggregate_formal_permutation),
+    (
+        "prepare_formal_bootstrap_schedule",
+        _prepare_formal_bootstrap_schedule,
+    ),
+    ("run_formal_bootstrap_block", _run_formal_bootstrap_block),
+    ("aggregate_formal_bootstrap", _aggregate_formal_bootstrap),
     ("validate_reference_voxel_input", _validate_endpoint_input),
     ("prepare_reference_voxel_exposure", _prepare_exposure),
     ("run_reference_voxel_observed_grid", _run_reference_voxel_observed),

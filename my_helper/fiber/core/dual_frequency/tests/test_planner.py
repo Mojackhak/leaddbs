@@ -232,7 +232,26 @@ class PlannerTest(unittest.TestCase):
                 reference_tasks["input_readiness"].task_id,
                 reference_tasks["prepare_exposure"].task_id,
             }
-            self.assertEqual(set(bootstrap.dependencies), required)
+            schedule = endpoint_tasks["formal_bootstrap_schedule"]
+            blocks = tuple(
+                task
+                for task in endpoint_tasks.values()
+                if task.stage.startswith("formal_bootstrap_block_")
+            )
+            self.assertEqual(set(schedule.dependencies), required)
+            for block in blocks:
+                self.assertEqual(
+                    set(block.dependencies),
+                    {*required, schedule.task_id},
+                )
+            self.assertEqual(
+                set(bootstrap.dependencies),
+                {
+                    *required,
+                    schedule.task_id,
+                    *(block.task_id for block in blocks),
+                },
+            )
             self.assertEqual(
                 task_index[dependency.dependencies[0]].endpoint_id,
                 reference.endpoint_id,
@@ -338,6 +357,78 @@ class PlannerTest(unittest.TestCase):
                 - {
                     schedule.task_id,
                     workspace.task_id,
+                    *(block.task_id for block in blocks),
+                },
+            )
+
+    def test_formal_bootstrap_uses_fixed_schedule_block_dag(self) -> None:
+        config, catalog, plan = self._plan()
+        serial_services = {
+            "run_addon_fiber_formal_bootstrap",
+            "run_addon_voxel_formal_bootstrap",
+            "run_reference_fiber_formal_bootstrap",
+            "run_reference_voxel_formal_bootstrap",
+        }
+        self.assertTrue(
+            serial_services.isdisjoint(task.service_id for task in plan.tasks)
+        )
+        for endpoint in catalog:
+            if (
+                endpoint.status != CatalogStatus.DATA_AVAILABLE
+                or endpoint.connectome_role == "sensitive"
+            ):
+                continue
+            tasks = {
+                task.stage: task for task in plan.for_endpoint(endpoint.endpoint_id)
+            }
+            if "formal_bootstrap" not in tasks:
+                continue
+            profile = (
+                config.normative_fiber.formal_resampling
+                if endpoint.key.model_family.endswith("fiber")
+                else config.direct_voxel.formal_resampling
+            )
+            expected_count = (
+                profile.bootstrap_resamples
+                + RESAMPLING_REPLICATE_BLOCK_SIZE
+                - 1
+            ) // RESAMPLING_REPLICATE_BLOCK_SIZE
+            schedule = tasks["formal_bootstrap_schedule"]
+            aggregate = tasks["formal_bootstrap"]
+            blocks = tuple(
+                task
+                for task in tasks.values()
+                if task.stage.startswith("formal_bootstrap_block_")
+            )
+            self.assertEqual(
+                schedule.service_id,
+                "prepare_formal_bootstrap_schedule",
+            )
+            self.assertEqual(schedule.output_record_type, "ResamplingScheduleRecord")
+            self.assertEqual(len(blocks), expected_count)
+            for block_index, block in enumerate(
+                sorted(blocks, key=lambda item: item.stage)
+            ):
+                self.assertEqual(block.service_id, "run_formal_bootstrap_block")
+                self.assertEqual(block.output_record_type, "BootstrapBlockRecord")
+                self.assertEqual(
+                    block.execution_parameters,
+                    (("block_index", str(block_index)),),
+                )
+                self.assertEqual(
+                    set(block.dependencies),
+                    {*schedule.dependencies, schedule.task_id},
+                )
+            self.assertEqual(
+                aggregate.service_id,
+                "aggregate_formal_bootstrap",
+            )
+            self.assertEqual(aggregate.output_record_type, "FormalResult")
+            self.assertEqual(
+                set(aggregate.dependencies),
+                {
+                    *schedule.dependencies,
+                    schedule.task_id,
                     *(block.task_id for block in blocks),
                 },
             )

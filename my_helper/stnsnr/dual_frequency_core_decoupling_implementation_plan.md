@@ -3951,6 +3951,42 @@ tests. The complete matrix passes 487 dual-frequency tests, eight separately
 invoked goal guards, and 14 visualization tests. Production planner topology
 is unchanged, and no production or sensitivity run was started.
 
+Twelfth Step 9 implementation slice: replace each planner-selected serial
+formal-bootstrap task with one bootstrap schedule task, one fixed task per
+canonical 250-replicate interval, and one strict aggregate task. The schedule
+and every block retain the endpoint's complete typed scientific predecessor
+closure. Adjusted add-on blocks additionally retain matched-reference input,
+prepared exposure, reference dependency, and DeltaReference inputs so each
+sample can rebuild its nuisance state independently. No permutation operator
+workspace is shared with bootstrap because every bootstrap replicate must
+refit the sampled model.
+
+The block service reconstructs the same final-selected `FormalRequest`, opens
+the complete immutable bootstrap schedule, computes only the requested
+interval, and publishes one `BootstrapBlockRecord`. The aggregate requires all
+canonical records, reopens and verifies every artifact, combines them in
+replicate order, and publishes the unchanged final bootstrap result schema.
+The legacy family-specific serial bootstrap handlers remain registered only
+for historical compatibility and must be absent from newly compiled plans.
+Resume acceptance uses 251 replicates: after one block and the aggregate become
+nonterminal, exactly that block and the aggregate rerun; schedule, other block,
+observed, resolver, final, permutation, and in-sample work remain restored, and
+all prior attempt artifacts remain byte-identical.
+
+Twelfth-slice acceptance on 2026-07-19: newly compiled plans select the
+bootstrap schedule, canonical blocks, and aggregate for reference/add-on voxel
+and fiber endpoints; none selects a historical family-specific serial
+bootstrap service. Four-model 251-replicate service fixtures match the serial
+final arrays within `1e-13` relative and absolute floating tolerance, and match
+integer arrays, summaries, adjusted nuisance QC, attrition evidence, and
+model-specific output closure exactly. Missing block coverage fails closed.
+The end-to-end resume fixture reruns exactly one invalidated block and its
+aggregate while every predecessor and the other block remain restored; both
+old attempt generations remain byte-identical. The complete matrix passes 490
+dual-frequency tests, eight separately invoked goal guards, and 14
+visualization tests. No production, jitter, OSS-DBS, or combined extension was
+started.
+
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial
 accumulators and the strict ordered aggregate. A 251-replicate fixture for both

@@ -558,6 +558,10 @@ class ServiceAdapterTest(unittest.TestCase):
             "run_addon_voxel_formal_permutation",
             "run_reference_fiber_formal_permutation",
             "run_reference_voxel_formal_permutation",
+            "run_addon_fiber_formal_bootstrap",
+            "run_addon_voxel_formal_bootstrap",
+            "run_reference_fiber_formal_bootstrap",
+            "run_reference_voxel_formal_bootstrap",
         }
         registry = build_default_registry()
         application_registry = build_default_service_registry()

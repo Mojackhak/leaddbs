@@ -2347,6 +2347,25 @@ the complete validation matrix passes 487 dual-frequency tests, eight
 separately invoked goal guards, and 14 visualization tests. No production,
 jitter, OSS-DBS, or combined extension process was started.
 
+The following service/planner slice expands each formal bootstrap into one
+complete schedule, fixed 250-replicate block tasks, and one ordered aggregate.
+Blocks execute independently in the shared persistent worker pool but do not
+share permutation operators or sampled-model fits. Adjusted add-on blocks keep
+the full matched-reference dependency closure needed to rebuild sample-specific
+nuisance values. Only O(F) mergeable feature state and O(B) diagnostics cross
+the task boundary. A 251-replicate resume fixture must rerun one invalidated
+block plus its aggregate while preserving all completed predecessors and prior
+attempt bytes. Newly compiled plans must not select the historical serial
+family-specific bootstrap services.
+
+Bootstrap DAG acceptance on 2026-07-19 confirms four-model 251-replicate
+service parity, strict missing-interval rejection, and block-level resume that
+invokes only one invalidated block and its aggregate. Completed predecessors,
+the other block, and both old immutable attempt generations remain unchanged.
+The complete validation matrix passes 490 dual-frequency tests, eight
+separately invoked goal guards, and 14 visualization tests. No production or
+sensitivity process was started.
+
 ## Documentation Validation
 
 Before implementation begins:

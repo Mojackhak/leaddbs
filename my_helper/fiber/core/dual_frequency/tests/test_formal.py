@@ -82,6 +82,7 @@ from dual_frequency.cache import (
 from dual_frequency.contracts import (
     ArtifactRef,
     AxisRef,
+    BootstrapBlockRecord,
     BootstrapNuisanceEvidence,
     BootstrapRebuildProvenance,
     BranchRecord,
@@ -503,6 +504,13 @@ class _FormalServiceArrayStore:
             return _ScientificArrayStore().materialize(artifact, **requirements)
         return self._published.materialize(artifact, **requirements)
 
+    def materialize_document(
+        self,
+        artifact: ArtifactRef,
+        **requirements: object,
+    ) -> dict[str, object]:
+        return self._published.materialize_document(artifact, **requirements)
+
 
 def _artifact_value(value: ArtifactRef) -> np.ndarray:
     return _ScientificArrayStore().materialize(
@@ -759,6 +767,7 @@ class _FormalServiceProvider:
     def __init__(self, request: FormalRequest) -> None:
         self.request = request
         self.calls: list[str] = []
+        self.bootstrap_calls: list[np.ndarray] = []
 
     def formal_request(
         self,
@@ -779,12 +788,48 @@ class _FormalServiceProvider:
             raise AssertionError("formal service passed a different prepared exposure")
         adjusted = self.request.delta_reference_full is not None
         if (
-            resampling_kind != "permutation"
+            resampling_kind != self.request.resampling_kind
             or (delta_reference is not None) != adjusted
         ):
             raise AssertionError("formal predecessor requested the wrong resampling input")
         self.calls.append(resampling_kind)
         return self.request
+
+    def build_bootstrap_nuisance(
+        self,
+        request: FormalRequest,
+        sample_indices: np.ndarray,
+    ) -> BootstrapNuisanceEvidence:
+        sample = np.asarray(sample_indices, dtype=np.int64)
+        self.bootstrap_calls.append(sample.copy())
+        n_subjects = sample.size
+        positions = np.arange(n_subjects, dtype=np.float64)
+        sample_token = int(
+            np.dot(sample, np.arange(1, n_subjects + 1, dtype=np.int64))
+        )
+        full = positions + 0.05 * np.sin(positions + sample_token)
+        folds = np.empty((n_subjects, n_subjects), dtype=np.float64)
+        for heldout in range(n_subjects):
+            folds[heldout] = full + 0.01 * np.cos(
+                (heldout + 1) * (positions + 1)
+            )
+        provenance = BootstrapRebuildProvenance.from_rebuild(
+            provider_id="formal_service_fixture",
+            provider_version="1",
+            final_model_id=request.final_model.identifier,
+            subject_axis=request.subject_axis,
+            sample_indices=sample,
+            delta_reference_full_scores=full,
+            delta_reference_fold_scores=folds,
+        )
+        return BootstrapNuisanceEvidence(
+            sample_indices=sample,
+            delta_reference_full_scores=full,
+            delta_reference_fold_scores=folds,
+            support_status="adequate",
+            support_qc=(("fixture", True),),
+            rebuild_provenance=provenance,
+        )
 
 
 def _formal_service_dependencies(
@@ -1413,6 +1458,182 @@ class FormalPredecessorServiceTest(unittest.TestCase):
                     serial_summary["p_plus_one_two_sided"],
                 )
                 cleanup_formal_operator_scratch_record(workspace_record, run_root)
+
+    def test_bootstrap_block_services_match_serial_for_all_four_families(self) -> None:
+        registry = build_default_service_registry()
+        cases = {
+            "reference_voxel": (DirectVoxelFormalBackend, "reference"),
+            "reference_fiber": (NormativeFiberFormalBackend, "reference"),
+            "addon_voxel": (
+                DirectVoxelFormalBackend,
+                "delta_reference_adjusted",
+            ),
+            "addon_fiber": (
+                NormativeFiberFormalBackend,
+                "delta_reference_adjusted",
+            ),
+        }
+        exposure = _synthetic_arrays(n_subjects=12, n_features=20)[0]
+        for model_family, (backend_type, branch) in cases.items():
+            with (
+                self.subTest(model_family=model_family),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                run_root = Path(temporary)
+                formal_request = _formal_request(
+                    model_family,
+                    "bootstrap",
+                    branch=branch,
+                    resamples=251,
+                    seed=103,
+                    exposure=exposure,
+                )
+                serial_provider = _FormalServiceProvider(formal_request)
+                serial = backend_type(
+                    RunScopedArtifactPublisher(
+                        run_root / "serial",
+                        "serial_formal",
+                        "1",
+                    ),
+                    artifact_store=_ScientificArrayStore(),
+                    bootstrap_nuisance_provider=serial_provider,
+                ).run_formal(formal_request)
+
+                schedule_request, schedule_provider = (
+                    _formal_service_execution_request(
+                        formal_request,
+                        service_id="prepare_formal_bootstrap_schedule",
+                        output_record_type="ResamplingScheduleRecord",
+                        run_root=run_root,
+                    )
+                )
+                schedule_record = registry.resolve(
+                    "prepare_formal_bootstrap_schedule"
+                )(schedule_request).decode_record()
+                self.assertIsInstance(schedule_record, ResamplingScheduleRecord)
+                self.assertEqual(schedule_provider.calls, ["bootstrap"])
+                predecessors = {
+                    "schedule": DependencyState(
+                        "completed",
+                        "none",
+                        schedule_record,
+                    ),
+                }
+                block_records: list[BootstrapBlockRecord] = []
+                for block_index in range(2):
+                    block_request, block_provider = (
+                        _formal_service_execution_request(
+                            formal_request,
+                            service_id="run_formal_bootstrap_block",
+                            output_record_type="BootstrapBlockRecord",
+                            run_root=run_root,
+                            execution_parameters=(
+                                ("block_index", str(block_index)),
+                            ),
+                            additional_dependencies=predecessors,
+                        )
+                    )
+                    block_record = registry.resolve(
+                        "run_formal_bootstrap_block"
+                    )(block_request).decode_record()
+                    self.assertIsInstance(block_record, BootstrapBlockRecord)
+                    self.assertEqual(block_provider.calls, ["bootstrap"])
+                    block_records.append(block_record)
+
+                missing_request, _provider = _formal_service_execution_request(
+                    formal_request,
+                    service_id="aggregate_formal_bootstrap",
+                    output_record_type="FormalResult",
+                    run_root=run_root,
+                    additional_dependencies={
+                        **predecessors,
+                        "block_000": DependencyState(
+                            "completed",
+                            "none",
+                            block_records[0],
+                        ),
+                    },
+                )
+                with self.assertRaises(FormalBackendError):
+                    registry.resolve("aggregate_formal_bootstrap")(
+                        missing_request
+                    )
+
+                aggregate_request, aggregate_provider = (
+                    _formal_service_execution_request(
+                        formal_request,
+                        service_id="aggregate_formal_bootstrap",
+                        output_record_type="FormalResult",
+                        run_root=run_root,
+                        additional_dependencies={
+                            **predecessors,
+                            "block_001": DependencyState(
+                                "completed",
+                                "none",
+                                block_records[1],
+                            ),
+                            "block_000": DependencyState(
+                                "completed",
+                                "none",
+                                block_records[0],
+                            ),
+                        },
+                    )
+                )
+                aggregate_result = registry.resolve(
+                    "aggregate_formal_bootstrap"
+                )(aggregate_request)
+                aggregate = aggregate_result.decode_record()
+                self.assertIsInstance(aggregate, FormalResult)
+                self.assertTrue(aggregate_result.fact_values["formal_complete"])
+                self.assertEqual(aggregate_provider.calls, ["bootstrap"])
+
+                serial_artifacts = {
+                    artifact.kind: artifact for artifact in serial.artifacts
+                }
+                aggregate_artifacts = {
+                    artifact.kind: artifact for artifact in aggregate.artifacts
+                }
+                self.assertEqual(
+                    set(aggregate_artifacts),
+                    set(serial_artifacts),
+                )
+                for kind, expected_artifact in serial_artifacts.items():
+                    actual_artifact = aggregate_artifacts[kind]
+                    if expected_artifact.dtype is None:
+                        expected_payload = json.loads(
+                            _artifact_path(expected_artifact).read_text(
+                                encoding="utf-8"
+                            )
+                        )
+                        actual_payload = json.loads(
+                            _artifact_path(actual_artifact).read_text(
+                                encoding="utf-8"
+                            )
+                        )
+                        self.assertEqual(actual_payload, expected_payload)
+                        continue
+                    expected_values = np.load(
+                        _artifact_path(expected_artifact),
+                        allow_pickle=False,
+                    )
+                    actual_values = np.load(
+                        _artifact_path(actual_artifact),
+                        allow_pickle=False,
+                    )
+                    if np.issubdtype(expected_values.dtype, np.floating):
+                        np.testing.assert_allclose(
+                            actual_values,
+                            expected_values,
+                            rtol=1e-13,
+                            atol=1e-13,
+                            equal_nan=True,
+                        )
+                    else:
+                        np.testing.assert_array_equal(
+                            actual_values,
+                            expected_values,
+                        )
 
     def test_workspace_service_retains_generation_after_record_failure(self) -> None:
         formal_request = _formal_request(
