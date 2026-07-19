@@ -3779,6 +3779,58 @@ cohort-wide postprocess, and final extension audit remain open. The complete
 dual-frequency plus visualization regression passed with 475 tests and 239
 subtests outside the restricted system-monitoring sandbox.
 
+Formal-parent acceptance evidence on 2026-07-19: after the external volume was
+restored to a verified 10 Gbps USB 3 link, publication replay resumed the
+retained partial canonical tree and completed all 28 configured scales without
+rerunning scientific tasks. The completed direct-voxel model set contains
+2,215 indexed artifacts and the normative-fiber model set contains 3,475.
+The public-only catalog independently resolved all 5,690 relative paths and
+verified completed row status, byte count, and SHA-256. Semantic acceptance
+confirmed 28 completed scale-status rows, 56 realized reference/add-on final
+models per physical domain, 280 direct-voxel spatial files, and 168
+normative-fiber density files. The direct-voxel check covered each realized
+model's unsmoothed selected benefit map, bootstrap standard-error map,
+bilateral map, and 1 mm plus 2 mm FWHM display derivatives. The fiber check
+covered signed, positive, and negative density maps. All checked NIfTI files
+had compatible shape, affine, spatial units, and nonempty finite support. The
+final-in-sample extension and cohort-wide public-only postprocess remain open.
+
+Extension migration decision on 2026-07-19: the pre-existing
+`task17-final-in-sample-v1-20260718` extension directories are retained as
+legacy evidence but are not valid public-only inputs. Their v1 artifact indexes
+lack the canonical relative-path, byte-count, and terminal-status columns and
+are rejected by `PublicationCatalog`. The completed child run remains the
+immutable source of 112 final-in-sample results. Replay therefore publishes a
+new `task17-final-in-sample-v2-20260719` extension beside v1, using the current
+v2 manifest and canonical artifact-index contracts. It must not overwrite,
+delete, or treat the v1 directories as resumable canonical output.
+
+Extension acceptance evidence on 2026-07-19: the v2 replay completed with 56
+direct-voxel and 56 normative-fiber final-in-sample rows. Its two canonical
+indexes contain 674 artifacts each; the public-only catalog verified all 1,348
+relative paths, completed statuses, byte counts, and SHA-256 values. Semantic
+acceptance confirmed all 112 unique endpoints against their canonical parent
+final-model identifier, realized branch, selected tau, selected coverage, and
+subject axis. Every paired in-sample and LOOCV result used 10,000 requested and
+finite permutations. Spearman rho, descriptive nominal p values, formal
+permutation p values, Pearson statistics, standard and relative R2, LOOCV R2
+and Q2, model and baseline errors, and all declared optimism gaps were present
+and internally consistent. The patient-level prediction tables paired outcome,
+in-sample prediction, LOOCV prediction, and both nuisance-only baselines with
+finite values. No adjusted R2 was published.
+
+Real-data postprocess smoke evidence on 2026-07-19: canonical PDQ-39
+reference-voxel and reference-fiber inputs each rendered one 2D spatial figure
+and one paired in-sample/LOOCV fit figure in PNG and PDF formats with zero
+failed items. Visual QA identified and corrected repeated axis-label and legend
+collisions before cohort-wide execution. The corrected renderer preserves
+exact Boxsize panels, shows ticks only at the outer grid edges, uses one
+plane-specific bottom axis label, and reserves a separate legend band. PNG and
+Poppler-rendered PDF review passed, Arial was embedded, 11 focused visualization
+tests passed, and the complete suite passed with 481 tests and 239 subtests.
+The 112-endpoint production postprocess and its output-local resume audit remain
+open.
+
 Add the workflow storage policy `delete_run_cache_on_success`. Its production
 value is `false`. When false, successful runs retain cache content. When true,
 cleanup is permitted only after the requested workflow, reporting, canonical

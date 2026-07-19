@@ -341,6 +341,17 @@ def test_spatial_plot_uses_world_slices_and_boxsize(tmp_path: Path) -> None:
     assert metadata["facets"] == ["Ax", "Cor", "Sag"]
     assert len(metadata["slice_coordinates_mm"]["Ax"]) == 3
     assert getattr(figure, "_mh_viz_layout").boxsize_mm == (30.0, 28.0)
+    panels = [axis for axis in figure.axes if axis.images]
+    assert len(panels) == 9
+    assert all(not axis.get_xticklabels() for axis in panels[:6])
+    assert all(axis.get_xticklabels() for axis in panels[6:])
+    assert all(axis.get_yticklabels() for axis in panels[::3])
+    assert all(
+        not axis.get_yticklabels()
+        for index, axis in enumerate(panels)
+        if index % 3
+    )
+    assert [axis.get_xlabel() for axis in panels[6:]] == ["", "MNI y (mm)", ""]
     plt.close(figure)
 
 

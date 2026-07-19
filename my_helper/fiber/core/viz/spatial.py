@@ -359,7 +359,7 @@ def plot_sweet_sour_slices(
         ncols,
         boxsize=boxsize,
         panel_gap=panel_gap,
-        margins=(13.0, 13.0, 6.0, 10.0),
+        margins=(13.0, 18.0, 6.0, 10.0),
         top_strip_mm=4.0,
         strip_pad_mm=0.4,
         right_strip_mm=4.0,
@@ -396,7 +396,7 @@ def plot_sweet_sour_slices(
 
     for row, plane in enumerate(facets):
         x_limits, y_limits = ranges[plane]
-        _, _, _, _, y_axis_label = _PLANE_AXES[plane]
+        _, _, _, x_axis_label, y_axis_label = _PLANE_AXES[plane]
         for column, fixed_coordinate in enumerate(coordinates[plane]):
             ax = fig.add_axes(layout.panel_position(row, column))
             world, extent = _sampling_grid(
@@ -458,15 +458,24 @@ def plot_sweet_sour_slices(
             ax.set_xlim(x_limits)
             ax.set_ylim(y_limits)
             ax.set_aspect("equal", adjustable="box")
-            ax.tick_params(colors="#333333", labelsize=7.5, width=0.6, length=2.5)
+            show_horizontal_labels = row == len(facets) - 1
+            show_vertical_labels = column == 0
+            ax.tick_params(
+                colors="#333333",
+                labelsize=7.5,
+                width=0.6,
+                length=2.5,
+                labelbottom=show_horizontal_labels,
+                labelleft=show_vertical_labels,
+            )
             for spine in ax.spines.values():
                 spine.set_color("#555555")
                 spine.set_linewidth(0.55)
-            if row == len(facets) - 1:
-                ax.set_xlabel("MNI horizontal coordinate (mm)", fontsize=8.0, fontfamily=font)
+            if show_horizontal_labels and column == ncols // 2:
+                ax.set_xlabel(x_axis_label, fontsize=8.0, fontfamily=font)
             else:
                 ax.set_xlabel("")
-            if column == 0:
+            if show_vertical_labels:
                 ax.set_ylabel(y_axis_label, fontsize=8.0, fontfamily=font)
             else:
                 ax.set_ylabel("")
@@ -503,7 +512,7 @@ def plot_sweet_sour_slices(
     fig.legend(
         handles=handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.003),
+        bbox_to_anchor=(0.5, 0.008),
         ncol=max(2, len(handles)),
         frameon=False,
         prop={"family": font, "size": 8.5},

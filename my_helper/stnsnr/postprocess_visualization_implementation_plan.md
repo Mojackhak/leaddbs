@@ -372,6 +372,56 @@ completed normative-fiber endpoint before cohort-wide postprocessing.
 
 ## Invocation
 
+### Formal production request
+
+The 2026-07-19 production acceptance request uses the completed
+`dual_frequency_four_model_v1` direct-voxel and normative-fiber model-set
+publications plus their canonical
+`task17-final-in-sample-v2-20260719` extensions. It contains all 112 unique
+final endpoints. Every endpoint receives one paired in-sample/LOOCV fit plot.
+The 56 direct-voxel endpoints use the realized final benefit map as both the
+sweet and sour source with positive and negative-magnitude display modes. The
+56 normative-fiber endpoints use the published positive and negative weighted
+density maps; these remain display derivatives of fiber-axis results.
+
+Spatial panels use the repository MNI152NLin2009bAsym T1 image as anatomy and
+right-hemisphere STN and SNr masks from the configured 0.05 custom atlas as
+outline-only rendering resources. The request retains Boxsize layout, the
+explicit sweet/sour color distinction, 0.5 mm display sampling, 300 dpi output,
+and both PNG and PDF formats. It writes only below:
+
+```text
+/Volumes/VAL/STNSNr/summary/spot/postprocess/
+  dual_frequency_four_model_v1/
+    task17-final-in-sample-v2-20260719/
+```
+
+Acceptance first renders reference-voxel and reference-fiber PDQ-39 smoke
+items for visual review, then executes all 112 endpoints. A second identical
+execution must reuse all completed endpoint manifests and outputs without
+rerendering. Any failed or partial endpoint remains in place for output-local
+resume; postprocess never cleans the run store, canonical publications,
+extensions, or shared cache.
+
+The first real PDQ-39 smoke render exposed a layout defect before cohort-wide
+execution: every bottom-row panel repeated a long generic horizontal-axis
+label, adjacent tick labels collided, and the legend occupied the same lower
+margin. The renderer must retain exact Boxsize panels while showing horizontal
+tick labels only on the bottom row, vertical tick labels only in the first
+column, one plane-specific horizontal-axis label on the center bottom panel,
+and a separately reserved legend band. This is a rendering-only correction;
+it does not change slice selection, spatial sampling, source values, colors,
+atlas geometry, or statistical results.
+
+After the correction, 11 focused visualization tests passed. The regenerated
+PDQ-39 reference-voxel and reference-fiber smoke requests completed with zero
+failed items. PNG review confirmed grayscale anatomy, distinct sweet and sour
+overlays, readable STN/SNr outlines, noncolliding labels, and a complete legend.
+Poppler-rendered PDF review confirmed the same layout without clipping; the
+PDFs embed Arial text. The complete dual-frequency and visualization regression
+then passed with 481 tests and 239 subtests in the system-monitoring-capable
+test environment.
+
 The endpoint renderer accepts a JSON manifest. Relative paths are resolved from
 the manifest directory. One minimal item is:
 
