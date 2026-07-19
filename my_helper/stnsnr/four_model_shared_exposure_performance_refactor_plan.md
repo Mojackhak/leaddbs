@@ -2296,6 +2296,25 @@ dual-frequency tests, eight separately invoked goal guards, and 14
 visualization tests. Production data and sensitivity extensions remain
 untouched.
 
+The next numerical slice splits bootstrap without expanding the production
+DAG. Each fixed schedule block emits only mergeable O(F) moment/count state,
+block-local O(B) replicate diagnostics, and ordered nuisance evidence; it never
+emits a block-by-feature weight matrix. The aggregate requires complete
+canonical coverage, combines integer state exactly, and reduces floating
+moments in replicate-block order within the retained serial tolerance. Both
+direct voxel and normative fiber must pass a 251-replicate reverse-completion
+fixture before durable bootstrap publication, planner tasks, or pPAM sharding
+begin.
+
+Bootstrap numerical acceptance on 2026-07-19 confirms direct and fiber
+251-replicate reverse-order aggregation without a block-by-feature retained
+matrix. All integer and categorical fields are exact; floating summaries stay
+within `1e-13` relative and absolute tolerance against the single-interval
+calculation. Incomplete, changed-digest, and untyped blocks fail closed. The
+complete validation matrix passes 484 dual-frequency tests, eight separately
+invoked goal guards, and 14 visualization tests. Durable publication, planner
+migration, and pPAM sharding remain open.
+
 ## Documentation Validation
 
 Before implementation begins:

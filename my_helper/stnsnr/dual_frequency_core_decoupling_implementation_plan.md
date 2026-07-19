@@ -3889,6 +3889,39 @@ passes 483 dual-frequency tests, eight separately invoked goal guards, and 14
 visualization tests. No production, jitter, OSS-DBS, or combined extension was
 started in this slice.
 
+Ninth Step 9 implementation slice: decompose direct-voxel and normative-fiber
+bootstrap numerics before adding durable tasks. One independent block consumes
+only its immutable rows from the complete historical bootstrap schedule and
+returns feature-aligned partial sums, squared sums, finite/candidate/sign and
+optional sweet/sour counts, block-local replicate count/support vectors, and
+replicate-indexed nuisance or non-estimability evidence. It does not publish a
+final bootstrap result and does not retain a block-by-feature weight matrix.
+
+The strict aggregate orders blocks by canonical replicate interval, rejects a
+changed schedule digest, duplicate, overlap, gap, changed feature length,
+changed selection mode, or malformed evidence, then combines integer counts
+exactly and floating moments in canonical block order. Integer and categorical
+mismatch count must be `< 1`; floating summaries must remain within the
+existing serial tolerance. The public full bootstrap functions execute through
+the same block and aggregate contract. Direct and fiber 251-replicate fixtures
+must cover the canonical 250-replicate block and one-replicate tail, accept
+reverse worker completion order, match the retained serial computation, and
+reject incomplete coverage. Durable bootstrap records, planner migration, and
+pPAM block execution remain outside this numerical slice.
+
+Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
+normative-fiber bootstrap functions now execute through schedule-bound partial
+accumulators and the strict ordered aggregate. A 251-replicate fixture for both
+families produces the 250-replicate block and one-replicate tail, accepts
+reverse completion order, matches the retained single-interval calculation
+within `1e-13` relative and absolute floating tolerance, and matches every
+integer, support, selection, attrition, and evidence field exactly. Incomplete
+coverage, changed schedule digest, and untyped block state fail closed. The
+formal module passes 44 tests; the complete matrix passes 484 dual-frequency
+tests, eight separately invoked goal guards, and 14 visualization tests. The
+production DAG and formal artifact schemas remain unchanged, and no production
+or sensitivity run was started.
+
 - [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 
 Add one `formal_in_sample` task for every realized final endpoint whenever

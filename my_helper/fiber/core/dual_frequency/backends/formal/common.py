@@ -476,6 +476,177 @@ class BootstrapComputation:
             raise FormalBackendError("finite_replicate_count must be nonnegative")
 
 
+@dataclass(frozen=True, slots=True)
+class BootstrapBlockComputation:
+    """Mergeable bootstrap accumulator state for one schedule interval."""
+
+    block: ReplicateBlock
+    schedule_sha256: str
+    weight_sum: np.ndarray
+    weight_square_sum: np.ndarray
+    finite_weight_count: np.ndarray
+    candidate_count: np.ndarray
+    positive_count: np.ndarray
+    negative_count: np.ndarray
+    replicate_candidate_count: np.ndarray
+    replicate_valid_weight_count: np.ndarray
+    replicate_support_code: np.ndarray
+    require_complete_nuisance_evidence: bool = False
+    nuisance_evidence: tuple[dict[str, Any], ...] = ()
+    nonestimable_replicates: tuple[dict[str, Any], ...] = ()
+    sweet_count: np.ndarray | None = None
+    sour_count: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.block, ReplicateBlock):
+            raise FormalBackendError("bootstrap block descriptor is invalid")
+        if type(self.require_complete_nuisance_evidence) is not bool:
+            raise FormalBackendError(
+                "bootstrap block nuisance evidence mode must be boolean"
+            )
+        digest = str(self.schedule_sha256).strip().lower()
+        if len(digest) != 64 or any(
+            character not in "0123456789abcdef" for character in digest
+        ):
+            raise FormalBackendError("bootstrap block schedule digest is invalid")
+        object.__setattr__(self, "schedule_sha256", digest)
+
+        feature_count: int | None = None
+        for field in (
+            "weight_sum",
+            "weight_square_sum",
+            "finite_weight_count",
+            "candidate_count",
+            "positive_count",
+            "negative_count",
+            "sweet_count",
+            "sour_count",
+        ):
+            value = getattr(self, field)
+            if value is None:
+                continue
+            dtype = np.float64 if field.startswith("weight_") else np.int64
+            array = np.array(value, dtype=dtype, copy=True)
+            if array.ndim != 1:
+                raise FormalBackendError(
+                    f"bootstrap block {field} must be one-dimensional"
+                )
+            if feature_count is None:
+                feature_count = array.size
+            elif array.size != feature_count:
+                raise FormalBackendError(
+                    "bootstrap block feature arrays have inconsistent lengths"
+                )
+            if field.startswith("weight_"):
+                if not np.all(np.isfinite(array)):
+                    raise FormalBackendError(
+                        f"bootstrap block {field} must be finite"
+                    )
+            elif np.any(array < 0):
+                raise FormalBackendError(
+                    f"bootstrap block {field} cannot contain negative counts"
+                )
+            array.flags.writeable = False
+            object.__setattr__(self, field, array)
+        if feature_count is None or feature_count < 1:
+            raise FormalBackendError("bootstrap block feature axis is empty")
+        if (self.sweet_count is None) != (self.sour_count is None):
+            raise FormalBackendError(
+                "bootstrap block selection counts must be both present or absent"
+            )
+        if np.any(self.weight_square_sum < 0.0):
+            raise FormalBackendError(
+                "bootstrap block squared-weight sums cannot be negative"
+            )
+        if np.any(self.finite_weight_count > self.candidate_count):
+            raise FormalBackendError(
+                "bootstrap block finite counts exceed candidate counts"
+            )
+        if np.any(self.positive_count + self.negative_count > self.finite_weight_count):
+            raise FormalBackendError(
+                "bootstrap block sign counts exceed finite counts"
+            )
+
+        for field, dtype in (
+            ("replicate_candidate_count", np.int64),
+            ("replicate_valid_weight_count", np.int64),
+            ("replicate_support_code", np.int8),
+        ):
+            array = np.array(getattr(self, field), dtype=dtype, copy=True)
+            if array.shape != (self.block.count,):
+                raise FormalBackendError(
+                    f"bootstrap block {field} does not match its interval"
+                )
+            array.flags.writeable = False
+            object.__setattr__(self, field, array)
+        if np.any(self.replicate_candidate_count < 0) or np.any(
+            self.replicate_valid_weight_count < 0
+        ):
+            raise FormalBackendError(
+                "bootstrap block replicate counts cannot be negative"
+            )
+        if np.any(
+            self.replicate_valid_weight_count > self.replicate_candidate_count
+        ):
+            raise FormalBackendError(
+                "bootstrap block valid replicate counts exceed candidate counts"
+            )
+        if np.any(~np.isin(self.replicate_support_code, (0, 1, 2))):
+            raise FormalBackendError("bootstrap block support codes are invalid")
+
+        evidence_indices: set[int] = set()
+        evidence: list[dict[str, Any]] = []
+        for item in self.nuisance_evidence:
+            row = dict(item)
+            replicate = row.get("replicate")
+            if (
+                type(replicate) is not int
+                or not self.block.start <= replicate < self.block.stop
+                or replicate in evidence_indices
+            ):
+                raise FormalBackendError(
+                    "bootstrap block nuisance evidence index is invalid"
+                )
+            evidence_indices.add(replicate)
+            evidence.append(row)
+        object.__setattr__(self, "nuisance_evidence", tuple(evidence))
+
+        nonestimable_indices: set[int] = set()
+        nonestimable: list[dict[str, Any]] = []
+        for item in self.nonestimable_replicates:
+            row = dict(item)
+            replicate = row.get("replicate")
+            if (
+                type(replicate) is not int
+                or not self.block.start <= replicate < self.block.stop
+                or replicate in nonestimable_indices
+                or replicate in evidence_indices
+                or row.get("reason_code") != "nonestimable_nuisance_design"
+                or not str(row.get("detail", "")).strip()
+            ):
+                raise FormalBackendError(
+                    "bootstrap block non-estimable evidence is invalid"
+                )
+            nonestimable_indices.add(replicate)
+            nonestimable.append(row)
+        object.__setattr__(
+            self,
+            "nonestimable_replicates",
+            tuple(nonestimable),
+        )
+        covered = evidence_indices | nonestimable_indices
+        if self.require_complete_nuisance_evidence and covered != set(
+            range(self.block.start, self.block.stop)
+        ):
+            raise FormalBackendError(
+                "bootstrap block adjusted evidence does not cover its interval"
+            )
+        if not self.require_complete_nuisance_evidence and evidence_indices:
+            raise FormalBackendError(
+                "bootstrap block nuisance evidence is unexpected for this branch"
+            )
+
+
 def materialize_array(
     value: ScientificInput,
     *,
@@ -1049,6 +1220,60 @@ class StreamingBootstrapAccumulator:
                 "detail": nonestimability,
             }
 
+    def block_result(
+        self,
+        block: ReplicateBlock,
+        schedule_sha256: str,
+        *,
+        require_complete_nuisance_evidence: bool = False,
+    ) -> BootstrapBlockComputation:
+        """Freeze partial state after consuming exactly one block interval."""
+
+        if not isinstance(block, ReplicateBlock) or block.total != self.resamples:
+            raise FormalBackendInputError(
+                "bootstrap block does not match the accumulator"
+            )
+        expected = np.zeros(self.resamples, dtype=bool)
+        expected[block.start : block.stop] = True
+        if not np.array_equal(self._seen, expected):
+            raise FormalBackendInputError(
+                "bootstrap accumulator does not contain exactly one block"
+            )
+        return BootstrapBlockComputation(
+            block=block,
+            schedule_sha256=schedule_sha256,
+            weight_sum=self._weight_sum,
+            weight_square_sum=self._weight_square_sum,
+            finite_weight_count=self._finite_count,
+            candidate_count=self._candidate_count,
+            positive_count=self._positive_count,
+            negative_count=self._negative_count,
+            sweet_count=(self._sweet_count if self._track_selection else None),
+            sour_count=(self._sour_count if self._track_selection else None),
+            replicate_candidate_count=self._replicate_candidate_count[
+                block.start : block.stop
+            ],
+            replicate_valid_weight_count=self._replicate_valid_count[
+                block.start : block.stop
+            ],
+            replicate_support_code=self._replicate_support_code[
+                block.start : block.stop
+            ],
+            require_complete_nuisance_evidence=(
+                require_complete_nuisance_evidence
+            ),
+            nuisance_evidence=tuple(
+                item
+                for item in self._nuisance_evidence[block.start : block.stop]
+                if item is not None
+            ),
+            nonestimable_replicates=tuple(
+                item
+                for item in self._nonestimable_evidence[block.start : block.stop]
+                if item is not None
+            ),
+        )
+
     def finalize(self) -> BootstrapComputation:
         """Validate all B replicates and emit exact F/B-shaped summaries."""
 
@@ -1115,6 +1340,93 @@ class StreamingBootstrapAccumulator:
         )
 
 
+def combine_bootstrap_blocks(
+    schedule: ResamplingSchedule,
+    blocks: tuple[BootstrapBlockComputation, ...],
+) -> BootstrapComputation:
+    """Strictly combine complete bootstrap block state in replicate order."""
+
+    validate_resampling_schedule(
+        schedule,
+        schedule_kind="bootstrap",
+        subject_count=schedule.descriptor.subject_count,
+        replicate_count=schedule.descriptor.replicate_count,
+        seed=schedule.descriptor.seed,
+    )
+    candidates = tuple(blocks)
+    if not candidates or not all(
+        isinstance(item, BootstrapBlockComputation) for item in candidates
+    ):
+        raise FormalBackendInputError(
+            "bootstrap aggregation requires valid block state"
+        )
+    ordered = tuple(sorted(candidates, key=lambda item: item.block.start))
+    expected_start = 0
+    for block_index, item in enumerate(ordered):
+        if (
+            item.block.index != block_index
+            or item.block.start != expected_start
+            or item.block.total != schedule.descriptor.replicate_count
+            or item.schedule_sha256 != schedule.descriptor.schedule_sha256
+        ):
+            raise FormalBackendInputError(
+                "bootstrap blocks do not match the complete schedule"
+            )
+        expected_start = item.block.stop
+    if expected_start != schedule.descriptor.replicate_count:
+        raise FormalBackendInputError(
+            "bootstrap blocks do not cover the complete schedule"
+        )
+    feature_counts = {item.weight_sum.size for item in ordered}
+    selection_modes = {
+        item.sweet_count is not None and item.sour_count is not None
+        for item in ordered
+    }
+    nuisance_evidence_modes = {
+        item.require_complete_nuisance_evidence for item in ordered
+    }
+    if (
+        len(feature_counts) != 1
+        or len(selection_modes) != 1
+        or len(nuisance_evidence_modes) != 1
+    ):
+        raise FormalBackendInputError(
+            "bootstrap blocks have inconsistent feature or selection state"
+        )
+    n_features = next(iter(feature_counts))
+    track_selection = next(iter(selection_modes))
+    merged = StreamingBootstrapAccumulator(
+        resamples=schedule.descriptor.replicate_count,
+        n_features=n_features,
+        track_selection=track_selection,
+    )
+    merged._seen[:] = True
+    for item in ordered:
+        merged._weight_sum += item.weight_sum
+        merged._weight_square_sum += item.weight_square_sum
+        merged._finite_count += item.finite_weight_count
+        merged._candidate_count += item.candidate_count
+        merged._positive_count += item.positive_count
+        merged._negative_count += item.negative_count
+        if track_selection:
+            assert item.sweet_count is not None and item.sour_count is not None
+            merged._sweet_count += item.sweet_count
+            merged._sour_count += item.sour_count
+        interval = slice(item.block.start, item.block.stop)
+        merged._replicate_candidate_count[interval] = (
+            item.replicate_candidate_count
+        )
+        merged._replicate_valid_count[interval] = (
+            item.replicate_valid_weight_count
+        )
+        merged._replicate_support_code[interval] = item.replicate_support_code
+        for evidence in item.nuisance_evidence:
+            merged._nuisance_evidence[int(evidence["replicate"])] = evidence
+        for evidence in item.nonestimable_replicates:
+            merged._nonestimable_evidence[int(evidence["replicate"])] = evidence
+    return merged.finalize()
+
+
 def resample_axis(request: FormalRequest) -> AxisRef:
     """Build the deterministic generated axis for this exact formal task."""
 
@@ -1149,6 +1461,7 @@ def json_safe(value: Any) -> Any:
 
 
 __all__ = [
+    "BootstrapBlockComputation",
     "BootstrapComputation",
     "BootstrapReplicateNotEstimableError",
     "FORMAL_REPLICATE_BLOCK_SIZE",
@@ -1163,6 +1476,7 @@ __all__ = [
     "bootstrap_sample_indices",
     "build_bootstrap_nuisance_plan",
     "build_fixed_nuisance_plan",
+    "combine_bootstrap_blocks",
     "canonical_fiber_ids",
     "combine_permutation_blocks",
     "finite_exposure",

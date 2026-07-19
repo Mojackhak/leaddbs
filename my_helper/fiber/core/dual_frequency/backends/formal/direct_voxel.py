@@ -22,6 +22,7 @@ from ..statistics import (
     residualize,
 )
 from .common import (
+    BootstrapBlockComputation,
     BootstrapComputation,
     BootstrapReplicateNotEstimableError,
     FormalBackendError,
@@ -31,9 +32,9 @@ from .common import (
     ReplicateBlock,
     ResamplingSchedule,
     StreamingBootstrapAccumulator,
-    bootstrap_sample_indices,
     build_bootstrap_nuisance_plan,
     build_fixed_nuisance_plan,
+    combine_bootstrap_blocks,
     combine_permutation_blocks,
     finite_exposure,
     finite_vector,
@@ -491,7 +492,43 @@ def compute_direct_voxel_bootstrap(
     original_delta_full: np.ndarray | None = None,
     original_delta_folds: np.ndarray | None = None,
 ) -> BootstrapComputation:
-    """Compute deterministic subject-bootstrap weight and support stability."""
+    """Compute bootstrap evidence through fixed schedule-bound blocks."""
+
+    schedule = formal_resampling_schedule(
+        "bootstrap",
+        request.subject_axis.count,
+        request.resamples,
+        request.seed,
+    )
+    blocks = tuple(
+        compute_direct_voxel_bootstrap_block(
+            request,
+            exposure,
+            outcome,
+            baseline,
+            provider,
+            schedule,
+            block,
+            original_delta_full=original_delta_full,
+            original_delta_folds=original_delta_folds,
+        )
+        for block in schedule.blocks()
+    )
+    return combine_bootstrap_blocks(schedule, blocks)
+
+
+def compute_direct_voxel_bootstrap_block(
+    request: FormalRequest,
+    exposure: np.ndarray,
+    outcome: np.ndarray,
+    baseline: np.ndarray,
+    provider: BootstrapNuisanceProvider | None,
+    schedule: ResamplingSchedule,
+    block: ReplicateBlock,
+    original_delta_full: np.ndarray | None = None,
+    original_delta_folds: np.ndarray | None = None,
+) -> BootstrapBlockComputation:
+    """Compute one independent direct-voxel bootstrap interval."""
 
     if request.resampling_kind != "bootstrap":
         raise FormalBackendInputError("direct bootstrap requires resampling_kind='bootstrap'")
@@ -511,18 +548,27 @@ def compute_direct_voxel_bootstrap(
     full_minimum = request.hard_computability.n_features_full_min
     if full_minimum is None:
         raise FormalBackendInputError("direct bootstrap requires n_features_full_min")
-
-    samples = bootstrap_sample_indices(
-        request.subject_axis.count,
-        request.resamples,
-        request.seed,
+    validate_resampling_schedule(
+        schedule,
+        schedule_kind="bootstrap",
+        subject_count=request.subject_axis.count,
+        replicate_count=request.resamples,
+        seed=request.seed,
     )
+    if block.total != request.resamples:
+        raise FormalBackendInputError(
+            "direct bootstrap block does not match request resamples"
+        )
     accumulator = StreamingBootstrapAccumulator(
         resamples=request.resamples,
         n_features=request.feature_axis.count,
         track_selection=False,
     )
-    for replicate, sample in enumerate(samples):
+    for replicate, sample in zip(
+        range(block.start, block.stop),
+        schedule.block_view(block),
+        strict=True,
+    ):
         sampled_exposure = np.asarray(exposure[sample], dtype=np.float64)
         candidate = np.count_nonzero(sampled_exposure >= tau, axis=0) >= coverage
         replicate_weights = np.full(request.feature_axis.count, np.nan, dtype=np.float64)
@@ -584,7 +630,11 @@ def compute_direct_voxel_bootstrap(
             support_code=support_code,
             nuisance_evidence=nuisance_evidence,
         )
-    return accumulator.finalize()
+    return accumulator.block_result(
+        block,
+        schedule.descriptor.schedule_sha256,
+        require_complete_nuisance_evidence=adjusted,
+    )
 
 
 class DirectVoxelFormalBackend:
@@ -1044,6 +1094,7 @@ __all__ = [
     "FormalBackendError",
     "FormalBackendInputError",
     "compute_direct_voxel_bootstrap",
+    "compute_direct_voxel_bootstrap_block",
     "compute_direct_voxel_permutation",
     "compute_direct_voxel_permutation_block",
 ]

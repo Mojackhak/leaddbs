@@ -28,9 +28,11 @@ from dual_frequency.backends.formal import (
     FormalBackendInputError,
     NormativeFiberFormalBackend,
     compute_direct_voxel_bootstrap,
+    compute_direct_voxel_bootstrap_block,
     compute_direct_voxel_permutation,
     compute_direct_voxel_permutation_block,
     compute_normative_fiber_bootstrap,
+    compute_normative_fiber_bootstrap_block,
     compute_normative_fiber_permutation,
     compute_normative_fiber_permutation_block,
 )
@@ -42,6 +44,7 @@ from dual_frequency.backends.formal.common import (
     StreamingBootstrapAccumulator,
     build_bootstrap_nuisance_plan,
     build_fixed_nuisance_plan,
+    combine_bootstrap_blocks,
     combine_permutation_blocks,
     fixed_replicate_blocks,
     formal_resampling_schedule,
@@ -2127,6 +2130,115 @@ class FormalBootstrapTest(unittest.TestCase):
                 support_code=2,
                 nuisance_evidence=None,
             )
+
+    def test_bootstrap_blocks_match_single_interval_in_reverse_order(self) -> None:
+        for model_family in ("reference_voxel", "reference_fiber"):
+            with self.subTest(model_family=model_family):
+                request = _formal_request(
+                    model_family,
+                    "bootstrap",
+                    resamples=251,
+                    seed=83,
+                )
+                exposure = _artifact_value(request.exposure)
+                outcome = _artifact_value(request.outcome)
+                baseline = _artifact_value(request.baseline)
+                schedule = formal_resampling_schedule(
+                    "bootstrap",
+                    request.subject_axis.count,
+                    request.resamples,
+                    request.seed,
+                )
+                if model_family.endswith("fiber"):
+                    fiber_ids = _artifact_value(request.feature_ids)
+
+                    def compute(block):
+                        return compute_normative_fiber_bootstrap_block(
+                            request,
+                            exposure,
+                            fiber_ids,
+                            outcome,
+                            baseline,
+                            None,
+                            schedule,
+                            block,
+                        )
+
+                else:
+
+                    def compute(block):
+                        return compute_direct_voxel_bootstrap_block(
+                            request,
+                            exposure,
+                            outcome,
+                            baseline,
+                            None,
+                            schedule,
+                            block,
+                        )
+
+                serial = combine_bootstrap_blocks(
+                    schedule,
+                    (compute(ReplicateBlock(0, 0, request.resamples, request.resamples)),),
+                )
+                canonical_blocks = tuple(compute(block) for block in schedule.blocks())
+                self.assertEqual(
+                    tuple(block.block.count for block in canonical_blocks),
+                    (250, 1),
+                )
+                self.assertTrue(
+                    all(
+                        array.ndim == 1
+                        for block in canonical_blocks
+                        for array in (
+                            block.weight_sum,
+                            block.weight_square_sum,
+                            block.replicate_candidate_count,
+                        )
+                    )
+                )
+                combined = combine_bootstrap_blocks(
+                    schedule,
+                    tuple(reversed(canonical_blocks)),
+                )
+                for field in dataclasses.fields(serial):
+                    expected = getattr(serial, field.name)
+                    actual = getattr(combined, field.name)
+                    if isinstance(expected, np.ndarray):
+                        if np.issubdtype(expected.dtype, np.floating):
+                            np.testing.assert_allclose(
+                                actual,
+                                expected,
+                                rtol=1e-13,
+                                atol=1e-13,
+                                equal_nan=True,
+                            )
+                        else:
+                            np.testing.assert_array_equal(actual, expected)
+                    else:
+                        self.assertEqual(actual, expected)
+                with self.assertRaisesRegex(
+                    FormalBackendInputError,
+                    "complete schedule",
+                ):
+                    combine_bootstrap_blocks(schedule, canonical_blocks[:-1])
+                changed_digest = dataclasses.replace(
+                    canonical_blocks[0],
+                    schedule_sha256="0" * 64,
+                )
+                with self.assertRaisesRegex(
+                    FormalBackendInputError,
+                    "complete schedule",
+                ):
+                    combine_bootstrap_blocks(
+                        schedule,
+                        (changed_digest, *canonical_blocks[1:]),
+                    )
+                with self.assertRaisesRegex(
+                    FormalBackendInputError,
+                    "valid block state",
+                ):
+                    combine_bootstrap_blocks(schedule, (object(),))
 
     @staticmethod
     def _request_with_sample_specific_nuisance_attrition(
