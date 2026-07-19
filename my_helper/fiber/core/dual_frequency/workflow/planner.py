@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from ..catalog import CatalogStatus, EndpointRecord
 from ..config import ResolvedWorkflow
-from ..contracts import TaskKey
+from ..contracts import RESAMPLING_REPLICATE_BLOCK_SIZE, TaskKey
 
 
 PHASE_ORDER = {
@@ -118,9 +118,18 @@ class ExecutionPlan:
 
 
 class _TaskFactory:
-    def __init__(self, configuration_hash: str, through: str) -> None:
+    def __init__(
+        self,
+        configuration_hash: str,
+        through: str,
+        *,
+        direct_permutation_resamples: int,
+        fiber_permutation_resamples: int,
+    ) -> None:
         self.configuration_hash = configuration_hash
         self.through = through
+        self.direct_permutation_resamples = direct_permutation_resamples
+        self.fiber_permutation_resamples = fiber_permutation_resamples
         self.tasks: list[TaskSpec] = []
         self.stage_ids: dict[tuple[str, str], str] = {}
 
@@ -182,6 +191,13 @@ class _TaskFactory:
         except KeyError as exc:
             raise PlanningError(f"missing planned stage {endpoint_id}/{stage}") from exc
 
+    def permutation_resamples(self, endpoint: EndpointRecord) -> int:
+        return (
+            self.fiber_permutation_resamples
+            if endpoint.key.model_family.endswith("fiber")
+            else self.direct_permutation_resamples
+        )
+
 
 CATALOG_AVAILABLE = GateRequirement("catalog_data_available", "not_run_catalog_unavailable")
 ENDPOINT_INPUT_READY = GateRequirement(
@@ -203,6 +219,70 @@ FORMAL_SOURCE_AVAILABLE = GateRequirement(
     "formal_source_available",
     "not_run_formal_source_unavailable",
 )
+
+
+def _plan_formal_permutation(
+    factory: _TaskFactory,
+    endpoint: EndpointRecord,
+    *,
+    round_id: str,
+    dependencies: tuple[str | None, ...],
+) -> str | None:
+    """Plan schedule, shared operators, fixed blocks, and one final aggregate."""
+
+    if not factory.includes("formal"):
+        return None
+    schedule = factory.add(
+        endpoint,
+        stage="formal_permutation_schedule",
+        round_id=round_id,
+        phase="formal",
+        service_id="prepare_formal_permutation_schedule",
+        dependencies=dependencies,
+        gates=(FINAL_REALIZED,),
+        output_record_type="ResamplingScheduleRecord",
+    )
+    workspace = factory.add(
+        endpoint,
+        stage="formal_operator_workspace",
+        round_id=round_id,
+        phase="formal",
+        service_id="prepare_formal_operator_workspace",
+        dependencies=dependencies,
+        gates=(FINAL_REALIZED,),
+        output_record_type="FormalOperatorScratchRecord",
+    )
+    block_count = (
+        factory.permutation_resamples(endpoint)
+        + RESAMPLING_REPLICATE_BLOCK_SIZE
+        - 1
+    ) // RESAMPLING_REPLICATE_BLOCK_SIZE
+    blocks = tuple(
+        factory.add(
+            endpoint,
+            stage=f"formal_permutation_block_{block_index:04d}",
+            round_id=round_id,
+            phase="formal",
+            service_id="run_formal_permutation_block",
+            dependencies=(*dependencies, schedule, workspace),
+            gates=(FINAL_REALIZED,),
+            output_record_type="ResamplingBlockRecord",
+            execution_parameters=(("block_index", str(block_index)),),
+        )
+        for block_index in range(block_count)
+    )
+    aggregate = factory.add(
+        endpoint,
+        stage="formal_permutation",
+        round_id=round_id,
+        phase="formal",
+        service_id="aggregate_formal_permutation",
+        dependencies=(*dependencies, schedule, workspace, *blocks),
+        gates=(FINAL_REALIZED,),
+        output_record_type="FormalResult",
+    )
+    assert aggregate is not None
+    return aggregate
 
 
 def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> None:
@@ -254,15 +334,11 @@ def _plan_reference_voxel(factory: _TaskFactory, endpoint: EndpointRecord) -> No
         dependencies=(readiness, resolver),
         output_record_type="FinalSelectionRecord",
     )
-    formal_permutation = factory.add(
+    formal_permutation = _plan_formal_permutation(
+        factory,
         endpoint,
-        stage="formal_permutation",
         round_id="round_4",
-        phase="formal",
-        service_id="run_reference_voxel_formal_permutation",
         dependencies=(readiness, prepare, final),
-        gates=(FINAL_REALIZED,),
-        output_record_type="FormalResult",
     )
     factory.add(
         endpoint,
@@ -355,15 +431,11 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         dependencies=(readiness, resolver),
         output_record_type="FinalSelectionRecord",
     )
-    formal_permutation = factory.add(
+    formal_permutation = _plan_formal_permutation(
+        factory,
         endpoint,
-        stage="formal_permutation",
         round_id="round_6",
-        phase="formal",
-        service_id="run_reference_fiber_formal_permutation",
         dependencies=(readiness, prepare, final),
-        gates=(FINAL_REALIZED,),
-        output_record_type="FormalResult",
     )
     factory.add(
         endpoint,
@@ -580,15 +652,11 @@ def _plan_addon_voxel(
         dependencies=(readiness, dependency, delta, no_delta, adjusted),
         output_record_type="FinalSelectionRecord",
     )
-    formal_permutation = factory.add(
+    formal_permutation = _plan_formal_permutation(
+        factory,
         endpoint,
-        stage="formal_permutation",
         round_id="round_4",
-        phase="formal",
-        service_id="run_addon_voxel_formal_permutation",
         dependencies=(readiness, prepare, delta, final),
-        gates=(FINAL_REALIZED,),
-        output_record_type="FormalResult",
     )
     factory.add(
         endpoint,
@@ -757,15 +825,11 @@ def _plan_addon_fiber_formal(
         dependencies=(readiness, dependency, delta, no_delta, adjusted),
         output_record_type="FinalSelectionRecord",
     )
-    formal_permutation = factory.add(
+    formal_permutation = _plan_formal_permutation(
+        factory,
         endpoint,
-        stage="formal_permutation",
         round_id="round_7",
-        phase="formal",
-        service_id="run_addon_fiber_formal_permutation",
         dependencies=(readiness, prepare, delta, final),
-        gates=(FINAL_REALIZED,),
-        output_record_type="FormalResult",
     )
     factory.add(
         endpoint,
@@ -1016,6 +1080,12 @@ def compile_execution_plan(
     factory = _TaskFactory(
         config.scientific_configuration_hash,
         config.workflow.execution.through,
+        direct_permutation_resamples=(
+            config.direct_voxel.formal_resampling.permutation_resamples
+        ),
+        fiber_permutation_resamples=(
+            config.normative_fiber.formal_resampling.permutation_resamples
+        ),
     )
 
     available = tuple(item for item in catalog if item.status == CatalogStatus.DATA_AVAILABLE)

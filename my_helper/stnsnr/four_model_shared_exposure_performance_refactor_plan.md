@@ -2172,6 +2172,31 @@ delete scratch. The focused gate passes 90 tests and 50 subtests, and the
 complete dual-frequency and visualization regression passes 505 tests and 255
 subtests. The registered consumers remain absent from the production planner.
 
+The next slice replaces only new-plan formal permutation topology. Each final
+endpoint receives schedule and operator-workspace predecessors, then one
+canonical block task per 250 configured permutations or partial tail, followed
+by an aggregate that retains the public `formal_permutation` stage and
+`FormalResult`. Every spawned block has direct typed clinical/final inputs plus
+the two shared predecessor records; the aggregate also has every block record.
+The internal block index is an immutable task parameter, independent of worker
+count and unavailable in YAML. Existing downstream tasks continue to depend on
+the aggregate. Historical family-specific serial services remain callable but
+are not emitted by new plans. The scheduler charges all four new stage types to
+the existing formal memory and CPU resource class.
+
+Task-local selected-exposure copies are compared by immutable payload SHA and
+scientific array metadata, not URI or producer labels. The scratch identity
+continues to include the final model, all other formal input payloads and axes,
+model settings, replicate count, and seed. This permits the schedule,
+workspace, block, and aggregate tasks to reconstruct content-equivalent typed
+requests without treating their distinct work directories as scientific
+changes.
+
+Resume acceptance changes one durable block and its aggregate to nonterminal
+state after a complete synthetic run. The next execution must invoke exactly
+one block consumer and one aggregate consumer; every other completed task and
+the valid shared schedule/operator predecessors remain restored.
+
 ### Default final in-sample inference
 
 Every realized final model in formal scope has a required in-sample inference
@@ -2244,6 +2269,14 @@ final, LOOCV, or bootstrap computation ran in this child.
 - Formal and sensitivity remain attached only to the realized final model.
 - A fail-once dependency followed by resume reruns its previously
   dependency-skipped descendants; stable gate skips remain deterministic.
+- Each task invocation uses a fresh immutable `work/<task_id>/<attempt>`
+  directory. Resume retains every prior completed, failed, and partial attempt
+  and publishes replacement artifacts only in the new attempt. Attempt paths
+  are execution provenance and never become a scientific identity or resume
+  gate.
+- A workspace failure after operator generation retains that generation in its
+  immutable attempt. Automatic failure-path cleanup is prohibited; explicit
+  descriptor-confined cleanup remains a maintenance and test-teardown action.
 - Fail-fast cancels queued work. A timeout releases tokens only after worker/
   subprocess termination, lease revocation, and temporary-output quarantine;
   retry is limited to declared idempotent/transient-safe tasks with unchanged
@@ -2251,6 +2284,17 @@ final, LOOCV, or bootstrap computation ran in this child.
 - Resume may change only execution-resource limits after invariance acceptance;
   each segment records its effective settings without invalidating scientific
   outputs.
+
+Planner-migration acceptance on 2026-07-19: production plans now replace each
+serial formal-permutation task with one schedule task, one shared operator
+workspace task, fixed internal 250-replicate blocks, and one ordered aggregate.
+The configured permutation count determines only the number and tail length of
+those blocks. A synthetic 251-replicate interruption reruns only the selected
+block and aggregate, retains both earlier attempts byte-for-byte, and restores
+all other scientific work. The complete validation matrix passes 483
+dual-frequency tests, eight separately invoked goal guards, and 14
+visualization tests. Production data and sensitivity extensions remain
+untouched.
 
 ## Documentation Validation
 

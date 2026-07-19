@@ -928,6 +928,10 @@ class ExecutorTest(unittest.TestCase):
 
         def count(request):
             calls.append(request.task.task_id)
+            (request.output_dir / "attempt_marker.txt").write_text(
+                f"invocation-{len(calls)}\n",
+                encoding="utf-8",
+            )
             return _result(request)
 
         registry = ServiceRegistry((RegisteredService("count", count),))
@@ -946,6 +950,14 @@ class ExecutorTest(unittest.TestCase):
                     workers=1,
                 ),
             )
+            task_root = root / "work" / task.task_id
+            first_attempts = tuple(sorted(task_root.glob("attempt-*")))
+            self.assertEqual(len(first_attempts), 1)
+            first_attempt_snapshot = {
+                path.relative_to(first_attempts[0]).as_posix(): path.read_bytes()
+                for path in first_attempts[0].rglob("*")
+                if path.is_file()
+            }
             payload = store.read_task_state(task.task_id)
             assert payload is not None and payload["result"] is not None
             payload["result"]["record_id"] = "source_tampered"
@@ -964,9 +976,18 @@ class ExecutorTest(unittest.TestCase):
                     resume=True,
                 ),
             )
+            resumed_attempts = tuple(sorted(task_root.glob("attempt-*")))
+            retained_attempt_snapshot = {
+                path.relative_to(first_attempts[0]).as_posix(): path.read_bytes()
+                for path in first_attempts[0].rglob("*")
+                if path.is_file()
+            }
         self.assertEqual(first.exit_code, 0)
         self.assertEqual(resumed.exit_code, 0)
         self.assertEqual(calls, [task.task_id, task.task_id])
+        self.assertEqual(len(first_attempts), 1)
+        self.assertEqual(len(resumed_attempts), 2)
+        self.assertEqual(first_attempt_snapshot, retained_attempt_snapshot)
 
     def test_resume_reruns_completed_json_with_incomplete_result(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
@@ -1116,7 +1137,11 @@ class ExecutorTest(unittest.TestCase):
                 fortran_order=False,
                 nbytes=value.nbytes,
             )
-            run_root = request.output_dir.parents[1]
+            run_root = next(
+                parent.parent
+                for parent in request.output_dir.parents
+                if parent.name == "work"
+            )
             record = FormalOperatorScratchRecord(
                 target_id=request.task.endpoint_id,
                 model_family="direct_voxel",
@@ -1149,6 +1174,7 @@ class ExecutorTest(unittest.TestCase):
                     workers=1,
                 ),
             )
+            self.assertIsNotNone(first.outcomes[0].result, first.outcomes[0].reason)
             record = first.outcomes[0].result.decode_record()
             assert isinstance(record, FormalOperatorScratchRecord)
 

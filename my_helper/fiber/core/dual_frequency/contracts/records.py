@@ -448,12 +448,20 @@ class FormalOperatorScratchRecord:
         object.__setattr__(self, "technical_status", status)
         generation = _token(self.generation_path, "generation_path")
         path = PurePosixPath(generation)
+        historical_layout = (
+            len(path.parts) == 3
+            and path.parts[2].startswith("operator-generation-")
+        )
+        attempt_layout = (
+            len(path.parts) == 4
+            and path.parts[2].startswith("attempt-")
+            and path.parts[3].startswith("operator-generation-")
+        )
         if (
             path.is_absolute()
-            or len(path.parts) != 3
             or path.parts[0] != "work"
             or not path.parts[1].startswith("task_")
-            or not path.parts[2].startswith("operator-generation-")
+            or not (historical_layout or attempt_layout)
             or any(part in {".", ".."} for part in path.parts)
         ):
             raise RecordError(

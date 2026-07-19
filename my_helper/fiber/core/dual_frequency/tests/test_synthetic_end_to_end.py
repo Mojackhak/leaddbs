@@ -1643,6 +1643,138 @@ class SyntheticEndToEndTest(unittest.TestCase):
         self.assertTrue(all(key.endswith("_jitter") for key in service_calls))
         self.assertTrue(all(payload["status"] == "completed" for payload in final_states))
 
+    def test_formal_permutation_resume_reruns_only_one_block_and_aggregate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory).resolve()
+            request = _write_profiles(root)
+            direct_profile = yaml.safe_load(
+                request.direct_voxel_model.read_text(encoding="utf-8")
+            )
+            direct_profile["shared"]["formal_resampling"][
+                "permutation_resamples"
+            ] = 251
+            request.direct_voxel_model.write_text(
+                yaml.safe_dump(direct_profile, sort_keys=False),
+                encoding="utf-8",
+            )
+            configuration = load_workflow(
+                request.workflow_profile,
+                request.overrides,
+            )
+            study = load_study_base(request.study_base)
+            catalog = build_endpoint_catalog(configuration, study)
+            service_calls: dict[str, int] = {}
+            service = WorkflowService(
+                registry=_registry_with_fake_activation(
+                    _FakeActivationBackend(),
+                    service_calls,
+                ),
+                provider=_SyntheticRuntimeProvider(configuration, catalog, root),
+            )
+            plan = service.plan(request).plan
+            endpoint_id = next(
+                task.endpoint_id
+                for task in plan.tasks
+                if task.model_family == "reference_voxel"
+                and task.stage == "formal_permutation"
+            )
+            blocks = tuple(
+                task
+                for task in plan.tasks
+                if task.endpoint_id == endpoint_id
+                and task.stage.startswith("formal_permutation_block_")
+            )
+            aggregate = next(
+                task
+                for task in plan.tasks
+                if task.endpoint_id == endpoint_id
+                and task.stage == "formal_permutation"
+            )
+            first = service.run(request, run_id="formal-block-resume")
+            run_root = (
+                root
+                / "runs"
+                / "project_neutral_study"
+                / "formal-block-resume"
+            )
+            interrupted_block = blocks[0]
+            attempt_snapshots: dict[str, dict[str, bytes]] = {}
+            first_attempts: dict[str, Path] = {}
+            for task in (interrupted_block, aggregate):
+                attempts = tuple(
+                    sorted((run_root / "work" / task.task_id).glob("attempt-*"))
+                )
+                self.assertEqual(len(attempts), 1)
+                first_attempts[task.task_id] = attempts[0]
+                attempt_snapshots[task.task_id] = {
+                    path.relative_to(attempts[0]).as_posix(): path.read_bytes()
+                    for path in attempts[0].rglob("*")
+                    if path.is_file()
+                }
+                state_path = run_root / "tasks" / f"{task.task_id}.json"
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                state.update(
+                    {
+                        "status": "running",
+                        "reason": "interrupted_for_block_resume_test",
+                        "finished_at": None,
+                        "result": None,
+                    }
+                )
+                state_path.write_text(
+                    json.dumps(state, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+
+            service_calls.clear()
+            resumed = service.run(
+                replace(
+                    request,
+                    overrides=replace(request.overrides, resume=True),
+                ),
+                run_id="formal-block-resume",
+            )
+            resumed_attempt_counts = {
+                task.task_id: len(
+                    tuple(
+                        (run_root / "work" / task.task_id).glob("attempt-*")
+                    )
+                )
+                for task in (interrupted_block, aggregate)
+            }
+            retained_snapshots = {
+                task_id: {
+                    path.relative_to(attempt).as_posix(): path.read_bytes()
+                    for path in attempt.rglob("*")
+                    if path.is_file()
+                }
+                for task_id, attempt in first_attempts.items()
+            }
+
+        self.assertEqual(len(blocks), 2)
+        self.assertEqual(first.exit_code, 0)
+        self.assertEqual(
+            resumed.exit_code,
+            0,
+            [
+                outcome.as_dict()
+                for outcome in resumed.outcomes
+                if outcome.status == "failed"
+            ],
+        )
+        self.assertEqual(
+            service_calls,
+            {
+                "run_formal_permutation_block": 1,
+                "aggregate_formal_permutation": 1,
+            },
+        )
+        self.assertEqual(
+            resumed_attempt_counts,
+            {interrupted_block.task_id: 2, aggregate.task_id: 2},
+        )
+        self.assertEqual(attempt_snapshots, retained_snapshots)
+
     def test_all_four_families_complete_through_report_without_project_imports(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory).resolve()

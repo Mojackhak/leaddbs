@@ -7,6 +7,7 @@ import unittest
 
 from dual_frequency.catalog import CatalogStatus, build_endpoint_catalog
 from dual_frequency.config import WorkflowOverrides
+from dual_frequency.contracts import RESAMPLING_REPLICATE_BLOCK_SIZE
 from dual_frequency.workflow import compile_execution_plan
 
 try:
@@ -249,6 +250,97 @@ class PlannerTest(unittest.TestCase):
             self.assertEqual(in_sample.phase, "formal")
             self.assertIn(tasks["formal_permutation"].task_id, in_sample.dependencies)
             self.assertIn(tasks["final_realization"].task_id, in_sample.dependencies)
+
+    def test_formal_permutation_uses_fixed_schedule_workspace_block_dag(self) -> None:
+        config, catalog, plan = self._plan()
+        serial_services = {
+            "run_addon_fiber_formal_permutation",
+            "run_addon_voxel_formal_permutation",
+            "run_reference_fiber_formal_permutation",
+            "run_reference_voxel_formal_permutation",
+        }
+        self.assertTrue(
+            serial_services.isdisjoint(task.service_id for task in plan.tasks)
+        )
+        for endpoint in catalog:
+            if (
+                endpoint.status != CatalogStatus.DATA_AVAILABLE
+                or endpoint.connectome_role == "sensitive"
+            ):
+                continue
+            tasks = {
+                task.stage: task for task in plan.for_endpoint(endpoint.endpoint_id)
+            }
+            if "formal_permutation" not in tasks:
+                continue
+            profile = (
+                config.normative_fiber.formal_resampling
+                if endpoint.key.model_family.endswith("fiber")
+                else config.direct_voxel.formal_resampling
+            )
+            expected_count = (
+                profile.permutation_resamples
+                + RESAMPLING_REPLICATE_BLOCK_SIZE
+                - 1
+            ) // RESAMPLING_REPLICATE_BLOCK_SIZE
+            schedule = tasks["formal_permutation_schedule"]
+            workspace = tasks["formal_operator_workspace"]
+            aggregate = tasks["formal_permutation"]
+            blocks = tuple(
+                task
+                for task in tasks.values()
+                if task.stage.startswith("formal_permutation_block_")
+            )
+            self.assertEqual(
+                schedule.service_id,
+                "prepare_formal_permutation_schedule",
+            )
+            self.assertEqual(schedule.output_record_type, "ResamplingScheduleRecord")
+            self.assertEqual(
+                workspace.service_id,
+                "prepare_formal_operator_workspace",
+            )
+            self.assertEqual(
+                workspace.output_record_type,
+                "FormalOperatorScratchRecord",
+            )
+            self.assertEqual(len(blocks), expected_count)
+            for block_index, block in enumerate(
+                sorted(blocks, key=lambda item: item.stage)
+            ):
+                self.assertEqual(block.service_id, "run_formal_permutation_block")
+                self.assertEqual(block.output_record_type, "ResamplingBlockRecord")
+                self.assertEqual(
+                    block.execution_parameters,
+                    (("block_index", str(block_index)),),
+                )
+                self.assertTrue(
+                    {schedule.task_id, workspace.task_id}
+                    <= set(block.dependencies)
+                )
+                self.assertEqual(
+                    set(schedule.dependencies),
+                    set(block.dependencies) - {schedule.task_id, workspace.task_id},
+                )
+            self.assertEqual(aggregate.service_id, "aggregate_formal_permutation")
+            self.assertEqual(aggregate.output_record_type, "FormalResult")
+            self.assertTrue(
+                {
+                    schedule.task_id,
+                    workspace.task_id,
+                    *(block.task_id for block in blocks),
+                }
+                <= set(aggregate.dependencies)
+            )
+            self.assertEqual(
+                set(schedule.dependencies),
+                set(aggregate.dependencies)
+                - {
+                    schedule.task_id,
+                    workspace.task_id,
+                    *(block.task_id for block in blocks),
+                },
+            )
 
     def test_downstream_scientific_tasks_receive_direct_typed_input_closure(self) -> None:
         _config, catalog, plan = self._plan()

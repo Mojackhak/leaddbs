@@ -24,7 +24,6 @@ from ..backends.formal import (
     FinalInSampleBackend,
     NormativeFiberFormalBackend,
 )
-from ..backends.formal.operator_scratch import cleanup_operator_scratch
 from ..backends.interaction.branch_resolver import (
     ADJUSTED_BRANCH,
     NO_DELTA_BRANCH,
@@ -153,6 +152,17 @@ def _publisher(request: TaskExecutionRequest) -> RunScopedArtifactPublisher:
         request.output_dir,
         request.task.task_id,
         ADAPTER_VERSION,
+    )
+
+
+def _run_root(request: TaskExecutionRequest) -> Path:
+    """Resolve the run root from historical or attempt-isolated work paths."""
+
+    for parent in request.output_dir.parents:
+        if parent.name == "work":
+            return parent.parent
+    raise ServiceAdapterError(
+        "task output directory is not beneath the run work root"
     )
 
 
@@ -888,28 +898,16 @@ def _prepare_formal_operator_workspace(
 ) -> ServiceResult:
     formal_request = _formal_permutation_request(request)
     backend = _formal_permutation_backend(request, formal_request)
-
-    descriptor = None
-    try:
-        descriptor = backend._prepare_permutation_operator_scratch(
-            formal_request,
-            request.output_dir,
-        )
-        record = formal_operator_scratch_record(
-            descriptor,
-            formal_request,
-            request.output_dir.parents[1],
-        )
-        return ServiceResult.from_record(record)
-    except Exception as error:
-        if descriptor is not None:
-            try:
-                cleanup_operator_scratch(descriptor)
-            except Exception as cleanup_error:
-                error.add_note(
-                    f"operator scratch cleanup also failed: {cleanup_error}"
-                )
-        raise
+    descriptor = backend._prepare_permutation_operator_scratch(
+        formal_request,
+        request.output_dir,
+    )
+    record = formal_operator_scratch_record(
+        descriptor,
+        formal_request,
+        _run_root(request),
+    )
+    return ServiceResult.from_record(record)
 
 
 def _formal_permutation_backend(
@@ -948,7 +946,7 @@ def _formal_permutation_predecessors(
     descriptor = validated_formal_operator_scratch_descriptor(
         scratch_record,
         formal_request,
-        request.output_dir.parents[1],
+        _run_root(request),
     )
     return schedule_record, schedule, descriptor
 

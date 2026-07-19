@@ -3762,7 +3762,9 @@ historical schedule with exact bytes and rejects a changed schedule digest.
 The second materializes the fixed operator inputs once, publishes a
 run-relative read-only generation, and returns an input-bound scratch record
 without calling `run_formal` or producing a `FormalResult`. A forced failure
-after generation publication removes only that new descriptor generation.
+after generation publication initially removed only that new descriptor
+generation; the Eighth-slice failed/partial retention rule below supersedes
+that cleanup behavior.
 The focused service, formal, codec, executor, registry, spawn, and dependency
 boundary gate passes 89 tests and 48 subtests. The complete dual-frequency and
 visualization regression passes 504 tests and 253 subtests. No production task
@@ -3810,6 +3812,82 @@ cleanup. The focused formal, service, codec, executor, spawn, and dependency
 gate passes 90 tests and 50 subtests. The complete dual-frequency and
 visualization regression passes 505 tests and 255 subtests. The production DAG
 and task count remain unchanged; planner migration is the next open slice.
+
+Eighth Step 9 implementation slice: migrate only formal permutation planner
+topology for new execution plans. For each realized-final endpoint, replace the
+single serial service with one `formal_permutation_schedule` task, one
+`formal_operator_workspace` task, the YAML-derived number of canonical
+`formal_permutation_block_NNNN` tasks, and one aggregate task. Block count is
+the ceiling of the configured endpoint permutation count divided by the fixed
+internal 250-replicate size. Each block carries only the immutable
+`block_index` execution parameter. No YAML field or worker-count dependency is
+added.
+
+Schedule and workspace tasks receive the same endpoint input, prepared
+exposure, optional DeltaReference bundle, and final selection used by the old
+formal task. Every block directly receives that complete typed closure plus
+both predecessor records so a spawned worker does not depend on transitive
+record injection. The aggregate directly receives the typed closure,
+predecessors, and every block record. It retains stage
+`formal_permutation`, output type `FormalResult`, the final-realized gate, and
+the existing downstream task identity. In-sample and sensitivity dependencies
+therefore continue to point to the aggregate. The four family-specific serial
+services remain registered only as historical compatibility entry points and
+are absent from new plans. New schedule, workspace, block, and aggregate
+stages use the existing formal resource class. Planner tests must prove exact
+block count and indices, complete direct dependency closure, topological
+ordering, generic-service registry closure, and absence of serial formal
+services before full regression. A synthetic interrupted-run test marks one
+completed block and its aggregate nonterminal, resumes the same plan, and
+requires only that block plus aggregate to execute while schedule, workspace,
+other blocks, observed, resolver, final, bootstrap, and in-sample remain
+restored.
+
+Because each task reconstructs the same selected exposure beneath its own work
+directory, scratch input identity uses the selected payload content SHA,
+schema, dtype, shape, ordered axes, units, and space rather than artifact URI,
+task-local producer ID, or producer version. It still binds the realized final
+identifier, resampling kind, outcome/baseline/Delta/feature-ID content,
+subject/feature axes, direction, hard limits, connectome role, fiber scoring
+settings, replicate count, and seed. Equal content published at different
+task-local paths therefore reuses the workspace; any scientific-content or
+metadata difference still fails closed.
+
+Every actual task invocation writes beneath a new immutable attempt directory
+inside `work/<task_id>/`. The task checkpoint references artifacts from the
+successful attempt; resume creates another attempt and never overwrites,
+deletes, or truncates an earlier completed, failed, or partial attempt. This
+attempt isolation is execution provenance, not a scientific identity or resume
+gate. Scratch validation resolves the run root from the enclosing `work`
+directory so both historical task-root layouts and new attempt-root layouts
+remain readable. The interrupted-run acceptance must also prove that the old
+block and aggregate attempts remain byte-identical after the replacement block
+and aggregate complete.
+
+The workspace service applies the same failure rule internally: once an
+operator generation exists beneath its attempt directory, a later descriptor
+or publication failure must leave that generation in place. Production code
+does not perform failure-path scratch cleanup. Descriptor-confined cleanup is
+available only to explicit maintenance or test teardown and is never invoked
+automatically for a failed or partial run.
+
+Eighth-slice acceptance on 2026-07-19: all four endpoint families now plan the
+generic schedule, workspace, fixed block, and aggregate topology. The block
+count follows each model profile's actual permutation count, every spawned
+consumer receives the complete typed dependency closure, and no new YAML or
+worker-derived scientific parameter is present. Task-local selected-exposure
+paths no longer change scratch identity; scientific payload SHA or metadata
+changes still do. A full synthetic 251-replicate direct-voxel run produces the
+canonical 250-replicate block and one-replicate tail. After one block and its
+aggregate are marked nonterminal, resume invokes exactly one block service and
+one aggregate service; schedule, workspace, the other block, observed,
+resolver, final, bootstrap, and in-sample results are restored. Both earlier
+attempt directories remain byte-identical while replacement artifacts are
+published beneath new attempt directories. Focused planner, formal, service,
+executor, codec, and synthetic coverage passes 110 tests. The complete matrix
+passes 483 dual-frequency tests, eight separately invoked goal guards, and 14
+visualization tests. No production, jitter, OSS-DBS, or combined extension was
+started in this slice.
 
 - [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 

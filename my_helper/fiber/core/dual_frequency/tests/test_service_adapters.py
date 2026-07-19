@@ -553,11 +553,11 @@ class ServiceAdapterTest(unittest.TestCase):
         planned = {task.service_id for task in plan.tasks}
         declared = {service_id for service_id, _handler in PRODUCTION_SERVICE_HANDLERS}
         extension_only = {
-            "aggregate_formal_permutation",
-            "prepare_formal_operator_workspace",
-            "prepare_formal_permutation_schedule",
             "prepare_jitter_exposure_block",
-            "run_formal_permutation_block",
+            "run_addon_fiber_formal_permutation",
+            "run_addon_voxel_formal_permutation",
+            "run_reference_fiber_formal_permutation",
+            "run_reference_voxel_formal_permutation",
         }
         registry = build_default_registry()
         application_registry = build_default_service_registry()

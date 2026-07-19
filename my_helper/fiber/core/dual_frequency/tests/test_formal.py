@@ -102,6 +102,7 @@ from dual_frequency.contracts import (
 )
 from dual_frequency.runtime.formal_operator_workspace import (
     cleanup_formal_operator_scratch_record,
+    formal_operator_input_identity,
     formal_operator_scratch_descriptor,
     formal_operator_scratch_record,
     validated_formal_operator_scratch_descriptor,
@@ -1181,7 +1182,7 @@ class FormalPredecessorServiceTest(unittest.TestCase):
                 )
                 cleanup_formal_operator_scratch_record(workspace_record, run_root)
 
-    def test_workspace_service_cleans_generation_after_record_failure(self) -> None:
+    def test_workspace_service_retains_generation_after_record_failure(self) -> None:
         formal_request = _formal_request(
             "reference_voxel",
             "permutation",
@@ -1204,10 +1205,11 @@ class FormalPredecessorServiceTest(unittest.TestCase):
                     build_default_service_registry().resolve(
                         "prepare_formal_operator_workspace"
                     )(execution_request)
-            self.assertEqual(
-                tuple(execution_request.output_dir.glob("operator-generation-*")),
-                (),
+            generations = tuple(
+                execution_request.output_dir.glob("operator-generation-*")
             )
+            self.assertEqual(len(generations), 1)
+            self.assertTrue(tuple(generations[0].glob("*.npy")))
 
 
 class _SyntheticBootstrapNuisanceProvider:
@@ -1381,6 +1383,28 @@ class FormalOperatorScratchTest(unittest.TestCase):
                 equal_nan=True,
                 err_msg=key,
             )
+
+    def test_operator_identity_ignores_task_path_but_not_content(self) -> None:
+        request = _formal_request("reference_voxel", "permutation")
+        republished = dataclasses.replace(
+            request.exposure,
+            uri="memory://different-task/selected-exposure.npy",
+            producer_id="different_task",
+            producer_version="99",
+        )
+        self.assertEqual(
+            formal_operator_input_identity(request),
+            formal_operator_input_identity(
+                dataclasses.replace(request, exposure=republished)
+            ),
+        )
+        changed = dataclasses.replace(republished, sha256="1" * 64)
+        self.assertNotEqual(
+            formal_operator_input_identity(request),
+            formal_operator_input_identity(
+                dataclasses.replace(request, exposure=changed)
+            ),
+        )
 
     def test_direct_operator_generation_reopens_read_only_with_exact_metrics(self) -> None:
         request = _formal_request("reference_voxel", "permutation")

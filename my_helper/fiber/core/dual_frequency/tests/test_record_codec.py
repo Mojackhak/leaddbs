@@ -255,6 +255,20 @@ class RecordCodecTest(unittest.TestCase):
         self.assertEqual(record_artifacts(record), ())
         with self.assertRaisesRegex(RecordError, "generation path"):
             dataclasses.replace(record, generation_path="/tmp/operator-generation-x")
+        attempt_record = dataclasses.replace(
+            record,
+            generation_path=(
+                "work/task_fixture/attempt-0123456789abcdef/"
+                "operator-generation-0123456789abcdef"
+            ),
+        )
+        self.assertEqual(
+            attempt_record.generation_path,
+            (
+                "work/task_fixture/attempt-0123456789abcdef/"
+                "operator-generation-0123456789abcdef"
+            ),
+        )
         with self.assertRaisesRegex(RecordError, "total bytes"):
             dataclasses.replace(record, total_nbytes=record.total_nbytes + 1)
         with self.assertRaisesRegex(RecordError, "filename"):

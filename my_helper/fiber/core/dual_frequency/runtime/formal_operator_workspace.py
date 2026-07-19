@@ -13,6 +13,7 @@ from ..backends.formal.operator_scratch import (
     open_operator_scratch,
 )
 from ..contracts import (
+    ArtifactRef,
     FormalOperatorScratchRecord,
     FormalRequest,
     ScratchArrayRecord,
@@ -25,11 +26,56 @@ class FormalOperatorWorkspaceError(RuntimeError):
 
 
 def formal_operator_input_identity(request: FormalRequest) -> str:
-    """Bind operator scratch to exact scientific inputs without repository code."""
+    """Bind scratch to scientific content without task-local artifact paths."""
 
     if not isinstance(request, FormalRequest):
         raise FormalOperatorWorkspaceError("formal request is invalid")
-    return canonical_hash({"formal_request": asdict(request)})
+
+    def artifact_identity(value: ArtifactRef | None) -> dict[str, object] | None:
+        if value is None:
+            return None
+        return {
+            "kind": value.kind,
+            "schema_version": value.schema_version,
+            "sha256": value.sha256,
+            "dtype": value.dtype,
+            "shape": value.shape,
+            "axis_hashes": value.axis_hashes,
+            "units": value.units,
+            "space": value.space,
+        }
+
+    return canonical_hash(
+        {
+            "schema_version": "dual_frequency_formal_operator_input_v2",
+            "final_model_id": request.final_model.identifier,
+            "resampling_kind": request.resampling_kind,
+            "exposure": artifact_identity(request.exposure),
+            "outcome": artifact_identity(request.outcome),
+            "baseline": artifact_identity(request.baseline),
+            "delta_reference_full": artifact_identity(
+                request.delta_reference_full
+            ),
+            "delta_reference_folds": artifact_identity(
+                request.delta_reference_folds
+            ),
+            "subject_axis": asdict(request.subject_axis),
+            "feature_axis": asdict(request.feature_axis),
+            "exposure_units": request.exposure_units,
+            "exposure_space": request.exposure_space,
+            "outcome_direction": request.outcome_direction,
+            "hard_computability": asdict(request.hard_computability),
+            "connectome_role": request.connectome_role,
+            "feature_ids": artifact_identity(request.feature_ids),
+            "fiber_score_settings": (
+                asdict(request.fiber_score_settings)
+                if request.fiber_score_settings is not None
+                else None
+            ),
+            "resamples": request.resamples,
+            "seed": request.seed,
+        }
+    )
 
 
 def formal_operator_scratch_record(

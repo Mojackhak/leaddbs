@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import multiprocessing
 import os
+import uuid
 from concurrent.futures import (
     FIRST_COMPLETED,
     ProcessPoolExecutor,
@@ -376,7 +377,9 @@ class _ResourceLedger:
             return _ResourceGrant(1, 16 * 1024**3, 1, 0)
         if task.stage == "activation_sensitivity":
             return _ResourceGrant(1, 8 * 1024**3, 1, 1)
-        if task.stage in {
+        if task.stage.startswith("formal_permutation_block_") or task.stage in {
+            "formal_permutation_schedule",
+            "formal_operator_workspace",
             "formal_permutation",
             "formal_bootstrap",
             "formal_in_sample",
@@ -619,6 +622,7 @@ def _validate_service_result(task: TaskSpec, result: object) -> ServiceResult:
 
 def _begin_task(task: TaskSpec, context: ExecutionContext) -> tuple[str, Path]:
     started = _utc_now()
+    output_dir = _new_task_attempt_dir(context.run_store.root, task)
     context.run_store.write_task_state(
         task.task_id,
         {
@@ -631,9 +635,17 @@ def _begin_task(task: TaskSpec, context: ExecutionContext) -> tuple[str, Path]:
             "result": None,
         },
     )
-    output_dir = context.run_store.root / "work" / task.task_id
-    output_dir.mkdir(parents=True, exist_ok=True)
     return started, output_dir
+
+
+def _new_task_attempt_dir(run_root: Path, task: TaskSpec) -> Path:
+    """Create an immutable output directory for one task invocation."""
+
+    task_root = Path(run_root) / "work" / task.task_id
+    task_root.mkdir(parents=True, exist_ok=True)
+    output_dir = task_root / f"attempt-{uuid.uuid4().hex}"
+    output_dir.mkdir(exist_ok=False)
+    return output_dir
 
 
 def _invoke_local_service(
@@ -693,6 +705,7 @@ def _finish_future(
 
 def _run_task(task: TaskSpec, context: ExecutionContext, outcomes: Mapping[str, TaskOutcome]) -> TaskOutcome:
     started = _utc_now()
+    output_dir = _new_task_attempt_dir(context.run_store.root, task)
     context.run_store.write_task_state(
         task.task_id,
         {
@@ -705,8 +718,6 @@ def _run_task(task: TaskSpec, context: ExecutionContext, outcomes: Mapping[str, 
             "result": None,
         },
     )
-    output_dir = context.run_store.root / "work" / task.task_id
-    output_dir.mkdir(parents=True, exist_ok=True)
     try:
         service = context.registry.resolve(task.service_id)
         request = TaskExecutionRequest(
