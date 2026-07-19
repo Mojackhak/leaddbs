@@ -4175,10 +4175,31 @@ terminal. It requires the exact complete schedule and blocks only for a
 permutation-ready parent; otherwise it requires both to be absent. It restores
 the operator-free observed state, publishes the unchanged public
 `ActivationArtifact` contract, and never reopens fixed-operator scratch in the
-non-permutation path. The historical serial activation service remains
-callable and delegates through the same observed publication and aggregate
-helpers. Direct service tests must cover ready and degenerate paths before any
-new plan emits these services.
+non-permutation path. Every scalar and collection restored from the observed
+state document is type checked before numerical reconstruction; missing,
+non-numeric, non-finite, or structurally inconsistent fields fail closed. A
+nuisance-design failure publishes only its reason-coded state, emits a false
+permutation-ready fact, and aggregates without schedule, block, or scratch
+records.
+
+The historical serial activation service remains callable only for old plans
+and checkpoints. Newly compiled plans must use the four decomposed services and
+must not select the serial compatibility service. Direct service tests cover
+permutation-ready, observed-degenerate, and nuisance-design-failure paths before
+any new plan emits the decomposed services.
+
+Eighteenth-slice acceptance on 2026-07-19: the production registry contains all
+four decomposed pPAM services while the planner remains unchanged. The observed
+service is the only tested caller of physical OSS materialization and creates
+one reusable fixed-operator generation. A spawned block reopens that generation
+without rebuilding operators; ready aggregation restores one complete null,
+while degenerate and nuisance-failure aggregation requires no schedule or block.
+Malformed finite counts, nonnumeric performance fields, contradictory failure
+state, changed identities, and incomplete artifacts fail closed. The focused
+service, OSS, codec, and dependency gate passed 54 tests and 43 subtests. The
+complete dual-frequency and visualization gate passed 526 tests and 299
+subtests outside the restricted system-monitoring sandbox. No planner task,
+production run, jitter, OSS-DBS, or combined extension was started.
 
 Ninth-slice acceptance on 2026-07-19: the public direct-voxel and
 normative-fiber bootstrap functions now execute through schedule-bound partial

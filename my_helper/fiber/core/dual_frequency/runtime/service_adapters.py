@@ -8,8 +8,20 @@ from typing import Callable, TypeVar
 
 import numpy as np
 
-from ..backends.activation.fitting import PPAMActivationBackend
+from ..backends.activation.canonical_mapping import activation_universe
+from ..backends.activation.fitting import (
+    PPAMActivationBackend,
+    aggregate_ppam_observed_state,
+    compute_ppam_permutation_block_from_workspace,
+    ppam_observed_state,
+    prepare_ppam_fit_workspace,
+)
+from ..backends.activation.operator_scratch import close_ppam_operator_scratch
 from ..backends.activation.ossdbs import OSSRowBatchArtifact
+from ..backends.activation.ppam import (
+    binary_activation,
+    validate_ten_sample_probabilities,
+)
 from ..backends.delta_reference import (
     build_delta_reference_fiber,
     build_delta_reference_voxel,
@@ -41,6 +53,7 @@ from ..backends.interaction.branch_resolver import (
 )
 from ..backends.normative_fiber.addon import AddonFiberBackend, AddonFiberDesignError
 from ..backends.normative_fiber.reference import ReferenceFiberBackend
+from ..backends.nuisance import NuisancePlanError
 from ..backends.protocols import BootstrapNuisanceProvider
 from ..backends.sensitivity import (
     AddonExposureSensitivityRequest,
@@ -80,6 +93,8 @@ from ..contracts import (
     ObservedRequest,
     ObservedResult,
     PreparedExposureRecord,
+    PPAMObservedWorkspaceRecord,
+    PPAMPermutationBlockRecord,
     ReferenceDependencyRecord,
     ResamplingBlockRecord,
     ResamplingScheduleRecord,
@@ -118,6 +133,24 @@ from .jitter_blocks import (
     prepare_jitter_exposure_block,
 )
 from .jitter_provider import StudyJitterReplicateProvider
+from .ppam_observed_workspace import (
+    activation_request_from_ppam_workspace,
+    load_ppam_observed_state,
+    ppam_observed_workspace_record,
+    publish_ppam_activation_result,
+    publish_ppam_nuisance_failure,
+    publish_ppam_observed_state,
+    publish_ppam_operator_scratch,
+    reopen_ppam_workspace_from_record,
+)
+from .ppam_permutation_blocks import (
+    load_ppam_permutation_block,
+    publish_ppam_permutation_block,
+)
+from .ppam_resampling import (
+    load_ppam_resampling_schedule,
+    publish_ppam_resampling_schedule,
+)
 
 
 ADAPTER_VERSION = "1"
@@ -1867,7 +1900,11 @@ def _run_jitter(request: TaskExecutionRequest) -> ServiceResult:
     return ServiceResult.from_record(result)
 
 
-def _run_activation(request: TaskExecutionRequest) -> ServiceResult:
+def _activation_fitting_request(
+    request: TaskExecutionRequest,
+) -> ActivationRequest:
+    """Materialize physical OSS rows once and return the typed fitting request."""
+
     endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
     prepared = _one_record(request, PreparedExposureRecord)
     delta = _one_record(request, DeltaReferenceBundle, required=False)
@@ -1928,13 +1965,484 @@ def _run_activation(request: TaskExecutionRequest) -> ServiceResult:
         raise ServiceAdapterError(
             "activation_fitting_request must return ActivationRequest"
         )
+    return activation_request
+
+
+def _run_activation(request: TaskExecutionRequest) -> ServiceResult:
+    activation_request = _activation_fitting_request(request)
     result = PPAMActivationBackend(
-        publisher,
+        _publisher(request),
         artifact_store=request.artifact_store,
     ).run_activation(activation_request)
     if not isinstance(result, ActivationArtifact):
         raise ServiceAdapterError("activation backend returned an invalid record")
     return ServiceResult.from_record(result)
+
+
+def _materialize_ppam_fit_inputs(
+    backend: PPAMActivationBackend,
+    activation_request: ActivationRequest,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    tuple[np.ndarray, ...],
+]:
+    shape = (
+        activation_request.subject_axis.count,
+        activation_request.feature_axis.count,
+    )
+    axes = (
+        activation_request.subject_axis,
+        activation_request.feature_axis,
+    )
+    probability = validate_ten_sample_probabilities(
+        backend._array(
+            activation_request.activation_probability,
+            shape=shape,
+            axes=axes,
+            dtype=np.dtype(np.float32),
+            units="probability",
+            space="right_canonical",
+        )
+    )
+    outcome = backend._array(
+        activation_request.outcome,
+        shape=(activation_request.subject_axis.count,),
+        axes=(activation_request.subject_axis,),
+    )
+    baseline = backend._array(
+        activation_request.baseline,
+        shape=(activation_request.subject_axis.count,),
+        axes=(activation_request.subject_axis,),
+    )
+    peak_score = backend._array(
+        activation_request.peak_final_score,
+        shape=(activation_request.subject_axis.count,),
+        axes=(activation_request.subject_axis,),
+    )
+    fiber_ids = activation_universe(
+        backend._array(
+            activation_request.feature_ids,
+            shape=(activation_request.feature_axis.count,),
+            axes=(activation_request.feature_axis,),
+            dtype=np.dtype(np.int64),
+            units="fiber_id",
+            space="right_canonical",
+        )
+    )
+    activation_feature_ids = activation_universe(
+        backend._array(
+            activation_request.activation_feature_ids,
+            shape=(activation_request.feature_axis.count,),
+            axes=(activation_request.feature_axis,),
+            dtype=np.dtype(np.int64),
+            units="fiber_id",
+            space="right_canonical",
+        )
+    )
+    if not np.array_equal(fiber_ids, activation_feature_ids):
+        raise ServiceAdapterError(
+            "activation feature IDs differ from the final feature axis"
+        )
+    if activation_request.reference_overlap_mask is None:
+        overlap = np.zeros(shape, dtype=bool)
+    else:
+        overlap = backend._array(
+            activation_request.reference_overlap_mask,
+            shape=shape,
+            axes=axes,
+            dtype=np.dtype(bool),
+            units="binary",
+            space="right_canonical",
+        )
+        if overlap.dtype != np.dtype(bool):
+            raise ServiceAdapterError(
+                "reference overlap must materialize as boolean data"
+            )
+    nuisance = tuple(
+        backend._array(
+            value,
+            shape=(
+                (activation_request.subject_axis.count,)
+                if index == 0
+                else (
+                    activation_request.subject_axis.count,
+                    activation_request.subject_axis.count,
+                )
+            ),
+            axes=(
+                (activation_request.subject_axis,)
+                if index == 0
+                else (
+                    activation_request.subject_axis,
+                    activation_request.subject_axis,
+                )
+            ),
+        )
+        for index, value in enumerate(activation_request.nuisance_inputs)
+    )
+    return (
+        probability,
+        outcome,
+        baseline,
+        peak_score,
+        fiber_ids,
+        overlap,
+        nuisance,
+    )
+
+
+def _prepare_ppam_observed_workspace(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    activation_request = _activation_fitting_request(request)
+    publisher = _publisher(request)
+    backend = PPAMActivationBackend(
+        publisher,
+        artifact_store=_artifact_store(request),
+    )
+    (
+        probability,
+        outcome,
+        baseline,
+        peak_score,
+        fiber_ids,
+        overlap,
+        nuisance,
+    ) = _materialize_ppam_fit_inputs(backend, activation_request)
+    binary = np.where(
+        overlap,
+        0.0,
+        binary_activation(probability),
+    ).astype(np.float32, copy=False)
+    probability_ref = backend._publish_probability(
+        activation_request,
+        probability,
+    )
+    binary_ref = publisher.array(
+        "oss_binary_exposure.npy",
+        binary,
+        kind="oss_binary_activation",
+        axes=(activation_request.subject_axis, activation_request.feature_axis),
+        units="binary",
+        space="right_canonical",
+    )
+
+    def persisted_array(
+        value: object,
+        materialized: np.ndarray,
+        filename: str,
+        kind: str,
+        axes: tuple,
+        units: str | None,
+        space: str | None,
+    ) -> ArtifactRef:
+        if isinstance(value, ArtifactRef):
+            return value
+        return publisher.array(
+            filename,
+            materialized,
+            kind=kind,
+            axes=axes,
+            units=units,
+            space=space,
+        )
+
+    subject = (activation_request.subject_axis,)
+    feature = (activation_request.feature_axis,)
+    subject_subject = (
+        activation_request.subject_axis,
+        activation_request.subject_axis,
+    )
+    persisted_nuisance = tuple(
+        persisted_array(
+            value,
+            nuisance[index],
+            f"oss_nuisance_input_{index}.npy",
+            f"oss_nuisance_input_{index}",
+            subject if index == 0 else subject_subject,
+            "score",
+            None,
+        )
+        for index, value in enumerate(activation_request.nuisance_inputs)
+    )
+    persisted_request = replace(
+        activation_request,
+        activation_probability=probability_ref,
+        reference_overlap_mask=(
+            None
+            if activation_request.reference_overlap_mask is None
+            else persisted_array(
+                activation_request.reference_overlap_mask,
+                overlap,
+                "oss_reference_overlap_mask.npy",
+                "oss_reference_overlap_mask",
+                (activation_request.subject_axis, activation_request.feature_axis),
+                "binary",
+                "right_canonical",
+            )
+        ),
+        outcome=persisted_array(
+            activation_request.outcome,
+            outcome,
+            "oss_outcome.npy",
+            "oss_outcome",
+            subject,
+            "score",
+            None,
+        ),
+        baseline=persisted_array(
+            activation_request.baseline,
+            baseline,
+            "oss_baseline.npy",
+            "oss_baseline",
+            subject,
+            "score",
+            None,
+        ),
+        peak_final_score=persisted_array(
+            activation_request.peak_final_score,
+            peak_score,
+            "oss_peak_final_score.npy",
+            "oss_peak_final_score",
+            subject,
+            "score",
+            None,
+        ),
+        nuisance_inputs=persisted_nuisance,
+        feature_ids=persisted_array(
+            activation_request.feature_ids,
+            fiber_ids,
+            "oss_final_feature_ids.npy",
+            "oss_final_feature_ids",
+            feature,
+            "fiber_id",
+            "right_canonical",
+        ),
+        activation_feature_ids=persisted_array(
+            activation_request.activation_feature_ids,
+            fiber_ids,
+            "oss_activation_feature_ids.npy",
+            "oss_activation_feature_ids",
+            feature,
+            "fiber_id",
+            "right_canonical",
+        ),
+    )
+    try:
+        workspace = prepare_ppam_fit_workspace(
+            persisted_request,
+            probability,
+            overlap,
+            outcome,
+            baseline,
+            peak_score,
+            fiber_ids,
+            nuisance,
+        )
+    except NuisancePlanError as error:
+        observed_artifacts = publish_ppam_nuisance_failure(
+            persisted_request,
+            error.status,
+            error.detail,
+            publisher,
+        )
+        technical_status = "nuisance_not_estimable"
+        descriptor = None
+    else:
+        observed = ppam_observed_state(workspace)
+        observed_artifacts = publish_ppam_observed_state(
+            observed,
+            fiber_ids,
+            publisher,
+        )
+        technical_status = (
+            "permutation_ready"
+            if observed.can_permute
+            else "observed_not_permutation_ready"
+        )
+        descriptor = publish_ppam_operator_scratch(
+            request.output_dir,
+            workspace.permutation,
+        )
+    record = ppam_observed_workspace_record(
+        persisted_request,
+        binary_ref,
+        observed_artifacts,
+        technical_status,
+        _run_root(request),
+        descriptor,
+    )
+    return ServiceResult.from_record(
+        record,
+        facts={"ppam_permutation_ready": technical_status == "permutation_ready"},
+    )
+
+
+def _ppam_workspace_request(
+    request: TaskExecutionRequest,
+) -> tuple[PPAMObservedWorkspaceRecord, ActivationRequest]:
+    record = _one_record(request, PPAMObservedWorkspaceRecord)
+    selection = _final_selection(request)
+    assert record is not None and selection.final_model is not None
+    activation_request = activation_request_from_ppam_workspace(
+        record,
+        selection.final_model,
+    )
+    return record, activation_request
+
+
+def _prepare_ppam_permutation_schedule(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    record, activation_request = _ppam_workspace_request(request)
+    if record.technical_status != "permutation_ready":
+        raise ServiceAdapterError(
+            "pPAM schedule requires a permutation-ready observed workspace"
+        )
+    schedule = publish_ppam_resampling_schedule(
+        activation_request,
+        _publisher(request),
+    )
+    return ServiceResult.from_record(schedule)
+
+
+def _run_ppam_permutation_block(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    record, activation_request = _ppam_workspace_request(request)
+    if record.technical_status != "permutation_ready":
+        raise ServiceAdapterError(
+            "pPAM block requires a permutation-ready observed workspace"
+        )
+    schedule_record = _one_record(request, ResamplingScheduleRecord)
+    assert schedule_record is not None
+    schedule = load_ppam_resampling_schedule(
+        schedule_record,
+        activation_request,
+        _artifact_store(request),
+    )
+    try:
+        block_index = int(request.task.execution_parameter("block_index"))
+        if block_index < 0:
+            raise ValueError("block index is negative")
+        block = schedule.blocks()[block_index]
+    except (IndexError, TypeError, ValueError) as error:
+        raise ServiceAdapterError("pPAM permutation block_index is invalid") from error
+    binary = materialize_array(
+        record.binary_exposure,
+        name="oss_binary_activation",
+        expected_axes=(record.subject_axis, record.feature_axis),
+        expected_units="binary",
+        expected_space="right_canonical",
+        artifact_store=_artifact_store(request),
+        memory_map=True,
+    )
+    outcome = materialize_array(
+        record.outcome,
+        name="outcome",
+        expected_axes=(record.subject_axis,),
+        expected_units=record.outcome.units,
+        expected_space=record.outcome.space,
+        artifact_store=_artifact_store(request),
+        memory_map=True,
+    )
+    fiber_ids = materialize_array(
+        record.feature_ids,
+        name="feature_ids",
+        expected_axes=(record.feature_axis,),
+        expected_units="fiber_id",
+        expected_space="right_canonical",
+        artifact_store=_artifact_store(request),
+        memory_map=True,
+    )
+    workspace, arrays = reopen_ppam_workspace_from_record(
+        record,
+        activation_request,
+        record.binary_exposure,
+        binary,
+        outcome,
+        fiber_ids,
+        _run_root(request),
+    )
+    try:
+        computed = compute_ppam_permutation_block_from_workspace(
+            workspace,
+            schedule,
+            block,
+        )
+    finally:
+        close_ppam_operator_scratch(arrays)
+    block_record = publish_ppam_permutation_block(
+        computed,
+        schedule_record,
+        _publisher(request),
+    )
+    return ServiceResult.from_record(block_record)
+
+
+def _aggregate_ppam_activation(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    record, activation_request = _ppam_workspace_request(request)
+    schedule_record = _one_record(
+        request,
+        ResamplingScheduleRecord,
+        required=False,
+    )
+    block_records = _records(request, PPAMPermutationBlockRecord)
+    if record.technical_status == "permutation_ready":
+        if schedule_record is None or not block_records:
+            raise ServiceAdapterError(
+                "permutation-ready pPAM aggregate requires schedule and blocks"
+            )
+        schedule = load_ppam_resampling_schedule(
+            schedule_record,
+            activation_request,
+            _artifact_store(request),
+        )
+        blocks = tuple(
+            load_ppam_permutation_block(
+                block_record,
+                schedule_record,
+                _artifact_store(request),
+            )
+            for block_record in block_records
+        )
+        observed = load_ppam_observed_state(
+            record,
+            activation_request,
+            _artifact_store(request),
+        )
+        result = aggregate_ppam_observed_state(observed, schedule, blocks)
+    elif schedule_record is not None or block_records:
+        raise ServiceAdapterError(
+            "non-permutation pPAM aggregate cannot receive schedule or blocks"
+        )
+    elif record.technical_status == "observed_not_permutation_ready":
+        observed = load_ppam_observed_state(
+            record,
+            activation_request,
+            _artifact_store(request),
+        )
+        result = aggregate_ppam_observed_state(observed, None, ())
+    else:
+        result = None
+    activation = publish_ppam_activation_result(
+        record,
+        activation_request,
+        result,
+        _publisher(request),
+        _artifact_store(request),
+    )
+    return ServiceResult.from_record(
+        activation,
+        facts={"activation_complete": True},
+    )
 
 
 def _technical_sensitivity(
@@ -1989,6 +2497,10 @@ def _run_addon_fiber_branch(request: TaskExecutionRequest) -> ServiceResult:
 
 PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
     ("prepare_jitter_exposure_block", prepare_jitter_exposure_block),
+    ("prepare_ppam_observed_workspace", _prepare_ppam_observed_workspace),
+    ("prepare_ppam_permutation_schedule", _prepare_ppam_permutation_schedule),
+    ("run_ppam_permutation_block", _run_ppam_permutation_block),
+    ("aggregate_ppam_activation", _aggregate_ppam_activation),
     (
         "prepare_formal_permutation_schedule",
         _prepare_formal_permutation_schedule,

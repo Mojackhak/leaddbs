@@ -74,6 +74,7 @@ from dual_frequency.runtime.ppam_permutation_blocks import (
 from dual_frequency.runtime.ppam_observed_workspace import (
     PPAMObservedWorkspaceError,
     cleanup_ppam_observed_workspace_record,
+    load_ppam_observed_state,
     ppam_observed_workspace_record,
     publish_ppam_operator_scratch,
     reopen_ppam_workspace_from_record,
@@ -1106,6 +1107,87 @@ class PPAMActivationBackendTest(unittest.TestCase):
                 for item in restored.fold_operators
             )
         )
+
+    def test_ppam_observed_document_rejects_missing_or_nonnumeric_state(self) -> None:
+        request = self._request()
+        binary = binary_activation(self.probabilities)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_root = Path(temporary_directory)
+            workspace = ppam_fitting.prepare_ppam_permutation_workspace(
+                request,
+                binary,
+                self.outcome,
+                self.baseline,
+                self.fiber_ids,
+                (),
+            )
+            descriptor = publish_ppam_operator_scratch(
+                run_root
+                / "work"
+                / "task_ppam_workspace"
+                / "attempt-0000000000000001",
+                workspace,
+            )
+            persisted_request, binary_ref = self._published_request(
+                run_root / "work" / "task_ppam_inputs",
+                request,
+                binary,
+            )
+            record = ppam_observed_workspace_record(
+                persisted_request,
+                binary_ref,
+                self._observed_artifacts(),
+                "permutation_ready",
+                run_root,
+                descriptor,
+            )
+            base_payload = {
+                "schema_version": "dual_frequency_ppam_observed_state_v1",
+                "final_model_id": request.final_model.identifier,
+                "technical_status": "permutation_ready",
+                "failure_reasons": [],
+                "finite_fold_weights": [0] * self.n_subjects,
+                "performance": {"loocv_spearman_rho": None},
+                "full_support": {},
+                "fold_support": [{} for _index in range(self.n_subjects)],
+                "plain_model_comparisons": [],
+                "peak_score_pearson_r": None,
+            }
+
+            class DocumentStore:
+                def __init__(self, payload: dict[str, object]) -> None:
+                    self.payload = payload
+
+                def materialize_document(
+                    self,
+                    artifact: ArtifactRef,
+                    *,
+                    expected_kind: str,
+                ) -> dict[str, object]:
+                    del artifact, expected_kind
+                    return self.payload
+
+            malformed_payloads = (
+                base_payload,
+                {
+                    **base_payload,
+                    "finite_full_weights": 0,
+                    "performance": {"loocv_spearman_rho": "not-a-number"},
+                },
+                {
+                    **base_payload,
+                    "finite_full_weights": self.n_fibers + 1,
+                },
+            )
+            for payload in malformed_payloads:
+                with self.subTest(payload=payload), self.assertRaises(
+                    PPAMObservedWorkspaceError
+                ):
+                    load_ppam_observed_state(
+                        record,
+                        persisted_request,
+                        DocumentStore(payload),
+                    )
 
     def test_permutation_block_record_publishes_reopens_and_fails_closed(self) -> None:
         request = dataclasses.replace(

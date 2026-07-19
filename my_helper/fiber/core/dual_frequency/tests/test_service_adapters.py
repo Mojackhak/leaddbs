@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
@@ -37,6 +38,9 @@ from dual_frequency.contracts import (
     NormativeFiberScoreSettings,
     ObservedResult,
     PreparedExposureRecord,
+    PPAMObservedWorkspaceRecord,
+    PPAMPermutationBlockRecord,
+    ResamplingScheduleRecord,
     SourceRecord,
     SubjectExclusionRecord,
 )
@@ -46,6 +50,7 @@ from dual_frequency.runtime.activation_provider import (
     OSSActivationRuntimeRequest,
     OSSProducerRequest,
 )
+from dual_frequency.backends.nuisance import NuisancePlanError
 from dual_frequency.runtime.service_adapters import (
     PRODUCTION_SERVICE_HANDLERS,
     build_default_service_registry,
@@ -200,6 +205,7 @@ def _task(
     branch: str = "none",
     connectome_role: str = "none",
     phase: str = "observed",
+    execution_parameters: tuple[tuple[str, str], ...] = (),
 ) -> TaskSpec:
     from dual_frequency.contracts import TaskKey
 
@@ -215,6 +221,7 @@ def _task(
         dependencies=dependencies,
         gates=(),
         output_record_type=output_type,
+        execution_parameters=execution_parameters,
     )
 
 
@@ -390,6 +397,15 @@ class _ActivationToolchain:
         return OSSRowProduct(request.row.feature_ids, probability)
 
 
+class _ZeroActivationToolchain(_ActivationToolchain):
+    def produce(self, request: OSSProducerRequest) -> OSSRowProduct:
+        self.calls.append(request)
+        return OSSRowProduct(
+            request.row.feature_ids,
+            np.full(request.row.feature_axis.count, 0.2, dtype=np.float32),
+        )
+
+
 class _ActivationProvider:
     def __init__(
         self,
@@ -546,6 +562,32 @@ class ServiceAdapterTest(unittest.TestCase):
             workers=2,
         )
 
+    @staticmethod
+    def _ppam_execution_request(
+        *,
+        root: Path,
+        task: TaskSpec,
+        provider: _ActivationProvider,
+        cache: ContentAddressedCache,
+        dependencies: dict[str, DependencyState],
+    ) -> TaskExecutionRequest:
+        return TaskExecutionRequest(
+            task=task,
+            dependencies=dependencies,
+            run_id="synthetic-ppam-run",
+            output_dir=(
+                root
+                / "work"
+                / f"task_{task.stage}"
+                / "attempt-0000000000000001"
+            ),
+            provider=provider,
+            artifact_store=ArtifactStore((root,)),
+            scientific_cache=cache,
+            allow_expensive_producers=False,
+            workers=2,
+        )
+
     def test_default_registry_exactly_covers_planner_services(self) -> None:
         configuration = make_workflow(WorkflowOverrides(all_available=True))
         catalog = build_endpoint_catalog(configuration, synthetic_study())
@@ -554,6 +596,10 @@ class ServiceAdapterTest(unittest.TestCase):
         declared = {service_id for service_id, _handler in PRODUCTION_SERVICE_HANDLERS}
         extension_only = {
             "prepare_jitter_exposure_block",
+            "prepare_ppam_observed_workspace",
+            "prepare_ppam_permutation_schedule",
+            "run_ppam_permutation_block",
+            "aggregate_ppam_activation",
             "run_addon_fiber_formal_permutation",
             "run_addon_voxel_formal_permutation",
             "run_reference_fiber_formal_permutation",
@@ -774,6 +820,476 @@ class ServiceAdapterTest(unittest.TestCase):
         self.assertIsInstance(record, ActivationArtifact)
         self.assertEqual(record.final_model_id, final.identifier)
         self.assertEqual(record.feature_axis, feature_axis)
+
+    def test_ppam_services_reuse_one_observed_workspace_and_aggregate_blocks(
+        self,
+    ) -> None:
+        (
+            endpoint_input,
+            prepared,
+            final,
+            selection,
+            feature_axis,
+            feature_ids,
+            sources,
+        ) = _activation_case()
+        subject_ids = endpoint_input.included_subject_ids
+        provider = _ActivationProvider(
+            final_model=final,
+            subject_axis=endpoint_input.subject_axis,
+            subject_ids=subject_ids,
+            feature_axis=feature_axis,
+            feature_ids=feature_ids,
+            sources=sources,
+            toolchain=_ActivationToolchain(subject_ids),
+        )
+        registry = build_default_registry()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = ContentAddressedCache(root / "cache")
+            seed_toolchain = _ActivationToolchain(subject_ids)
+            seed_request = provider.activation_runtime_request(
+                final,
+                endpoint_input,
+                prepared,
+                RunScopedArtifactPublisher(root / "seed", "seed", "1"),
+                workers=2,
+                allow_expensive_producers=True,
+            )
+            OSSActivationProvider(
+                cache,
+                producer_toolchain=seed_toolchain,
+            ).materialize(
+                seed_request,
+                RunScopedArtifactPublisher(root / "seed", "seed", "1"),
+            )
+            observed_task = _task(
+                endpoint_input.endpoint,
+                service_id="prepare_ppam_observed_workspace",
+                stage="ppam_observed_workspace",
+                output_type="PPAMObservedWorkspaceRecord",
+                dependencies=("input", "prepared", "final"),
+                connectome_role="formal",
+                phase="sensitivity",
+            )
+            observed_result = registry.resolve(observed_task.service_id)(
+                self._ppam_execution_request(
+                    root=root,
+                    task=observed_task,
+                    provider=provider,
+                    cache=cache,
+                    dependencies={
+                        "input": DependencyState(
+                            "completed",
+                            "none",
+                            endpoint_input,
+                        ),
+                        "prepared": DependencyState(
+                            "completed",
+                            "none",
+                            prepared,
+                        ),
+                        "final": DependencyState("completed", "none", selection),
+                    },
+                )
+            )
+            observed_record = observed_result.decode_record()
+            self.assertIsInstance(observed_record, PPAMObservedWorkspaceRecord)
+            self.assertEqual(observed_record.technical_status, "permutation_ready")
+            self.assertTrue(observed_result.fact_values["ppam_permutation_ready"])
+
+            schedule_task = _task(
+                endpoint_input.endpoint,
+                service_id="prepare_ppam_permutation_schedule",
+                stage="ppam_permutation_schedule",
+                output_type="ResamplingScheduleRecord",
+                dependencies=("workspace", "final"),
+                connectome_role="formal",
+                phase="sensitivity",
+            )
+            schedule_result = registry.resolve(schedule_task.service_id)(
+                self._ppam_execution_request(
+                    root=root,
+                    task=schedule_task,
+                    provider=provider,
+                    cache=cache,
+                    dependencies={
+                        "workspace": DependencyState(
+                            "completed",
+                            "none",
+                            observed_record,
+                        ),
+                        "final": DependencyState("completed", "none", selection),
+                    },
+                )
+            )
+            schedule_record = schedule_result.decode_record()
+            self.assertIsInstance(schedule_record, ResamplingScheduleRecord)
+
+            block_task = _task(
+                endpoint_input.endpoint,
+                service_id="run_ppam_permutation_block",
+                stage="ppam_permutation_block_0000",
+                output_type="PPAMPermutationBlockRecord",
+                dependencies=("workspace", "final", "schedule"),
+                connectome_role="formal",
+                phase="sensitivity",
+                execution_parameters=(("block_index", "0"),),
+            )
+            with patch(
+                "dual_frequency.backends.activation.fitting._weight_operators",
+                side_effect=AssertionError("block rebuilt pPAM operators"),
+            ):
+                block_result = registry.resolve(block_task.service_id)(
+                    self._ppam_execution_request(
+                        root=root,
+                        task=block_task,
+                        provider=provider,
+                        cache=cache,
+                        dependencies={
+                            "workspace": DependencyState(
+                                "completed",
+                                "none",
+                                observed_record,
+                            ),
+                            "final": DependencyState(
+                                "completed",
+                                "none",
+                                selection,
+                            ),
+                            "schedule": DependencyState(
+                                "completed",
+                                "none",
+                                schedule_record,
+                            ),
+                        },
+                    )
+                )
+            block_record = block_result.decode_record()
+            self.assertIsInstance(block_record, PPAMPermutationBlockRecord)
+
+            aggregate_task = _task(
+                endpoint_input.endpoint,
+                service_id="aggregate_ppam_activation",
+                stage="activation_sensitivity",
+                output_type="ActivationArtifact",
+                dependencies=("workspace", "final", "schedule", "block"),
+                connectome_role="formal",
+                phase="sensitivity",
+            )
+            aggregate_result = registry.resolve(aggregate_task.service_id)(
+                self._ppam_execution_request(
+                    root=root,
+                    task=aggregate_task,
+                    provider=provider,
+                    cache=cache,
+                    dependencies={
+                        "workspace": DependencyState(
+                            "completed",
+                            "none",
+                            observed_record,
+                        ),
+                        "final": DependencyState("completed", "none", selection),
+                        "schedule": DependencyState(
+                            "completed",
+                            "none",
+                            schedule_record,
+                        ),
+                        "block": DependencyState(
+                            "completed",
+                            "none",
+                            block_record,
+                        ),
+                    },
+                )
+            )
+            activation = aggregate_result.decode_record()
+            status_ref = next(
+                item
+                for item in activation.artifacts
+                if item.kind == "oss_sensitivity_status"
+            )
+            status = ArtifactStore((root,)).materialize_document(
+                status_ref,
+                expected_kind="oss_sensitivity_status",
+            )
+
+        self.assertIsInstance(activation, ActivationArtifact)
+        self.assertTrue(aggregate_result.fact_values["activation_complete"])
+        self.assertEqual(status["status"], "completed")
+        self.assertEqual(provider.fitting_calls, 1)
+        self.assertEqual(provider.toolchain.calls, [])
+        self.assertEqual(provider.toolchain_resolution_calls, 0)
+        self.assertEqual(len(seed_toolchain.calls), len(subject_ids) * 2)
+
+    def test_ppam_degenerate_observed_state_aggregates_without_null_tasks(
+        self,
+    ) -> None:
+        (
+            endpoint_input,
+            prepared,
+            final,
+            selection,
+            feature_axis,
+            feature_ids,
+            sources,
+        ) = _activation_case()
+        subject_ids = endpoint_input.included_subject_ids
+        provider = _ActivationProvider(
+            final_model=final,
+            subject_axis=endpoint_input.subject_axis,
+            subject_ids=subject_ids,
+            feature_axis=feature_axis,
+            feature_ids=feature_ids,
+            sources=sources,
+            toolchain=_ActivationToolchain(subject_ids),
+        )
+        registry = build_default_registry()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = ContentAddressedCache(root / "cache")
+            seed_toolchain = _ZeroActivationToolchain(subject_ids)
+            runtime_request = provider.activation_runtime_request(
+                final,
+                endpoint_input,
+                prepared,
+                RunScopedArtifactPublisher(root / "seed", "seed", "1"),
+                workers=2,
+                allow_expensive_producers=True,
+            )
+            OSSActivationProvider(
+                cache,
+                producer_toolchain=seed_toolchain,
+            ).materialize(
+                runtime_request,
+                RunScopedArtifactPublisher(root / "seed", "seed", "1"),
+            )
+            observed_task = _task(
+                endpoint_input.endpoint,
+                service_id="prepare_ppam_observed_workspace",
+                stage="ppam_observed_workspace_degenerate",
+                output_type="PPAMObservedWorkspaceRecord",
+                dependencies=("input", "prepared", "final"),
+                connectome_role="formal",
+                phase="sensitivity",
+            )
+            observed_result = registry.resolve(observed_task.service_id)(
+                self._ppam_execution_request(
+                    root=root,
+                    task=observed_task,
+                    provider=provider,
+                    cache=cache,
+                    dependencies={
+                        "input": DependencyState(
+                            "completed",
+                            "none",
+                            endpoint_input,
+                        ),
+                        "prepared": DependencyState(
+                            "completed",
+                            "none",
+                            prepared,
+                        ),
+                        "final": DependencyState("completed", "none", selection),
+                    },
+                )
+            )
+            observed_record = observed_result.decode_record()
+            self.assertEqual(
+                observed_record.technical_status,
+                "observed_not_permutation_ready",
+            )
+            self.assertFalse(observed_result.fact_values["ppam_permutation_ready"])
+            aggregate_task = _task(
+                endpoint_input.endpoint,
+                service_id="aggregate_ppam_activation",
+                stage="activation_sensitivity_degenerate",
+                output_type="ActivationArtifact",
+                dependencies=("workspace", "final"),
+                connectome_role="formal",
+                phase="sensitivity",
+            )
+            aggregate_result = registry.resolve(aggregate_task.service_id)(
+                self._ppam_execution_request(
+                    root=root,
+                    task=aggregate_task,
+                    provider=provider,
+                    cache=cache,
+                    dependencies={
+                        "workspace": DependencyState(
+                            "completed",
+                            "none",
+                            observed_record,
+                        ),
+                        "final": DependencyState("completed", "none", selection),
+                    },
+                )
+            )
+            activation = aggregate_result.decode_record()
+            null_ref = next(
+                item
+                for item in activation.artifacts
+                if item.kind == "oss_permutation_null_statistics"
+            )
+            store = ArtifactStore((root,))
+            null = store.materialize(
+                null_ref,
+                expected_dtype=null_ref.dtype,
+                expected_shape=null_ref.shape,
+                expected_axes=null_ref.axis_refs,
+                expected_units=null_ref.units,
+                expected_space=null_ref.space,
+            )
+            status_ref = next(
+                item
+                for item in activation.artifacts
+                if item.kind == "oss_sensitivity_status"
+            )
+            status = store.materialize_document(
+                status_ref,
+                expected_kind="oss_sensitivity_status",
+            )
+
+        self.assertTrue(np.all(np.isnan(null)))
+        self.assertEqual(status["oss_sensitivity_status"], "failed_activation_degenerate")
+        self.assertEqual(provider.fitting_calls, 1)
+        self.assertEqual(provider.toolchain.calls, [])
+
+    def test_ppam_nuisance_failure_aggregates_without_schedule_or_scratch(
+        self,
+    ) -> None:
+        (
+            endpoint_input,
+            prepared,
+            final,
+            selection,
+            feature_axis,
+            feature_ids,
+            sources,
+        ) = _activation_case()
+        subject_ids = endpoint_input.included_subject_ids
+        provider = _ActivationProvider(
+            final_model=final,
+            subject_axis=endpoint_input.subject_axis,
+            subject_ids=subject_ids,
+            feature_axis=feature_axis,
+            feature_ids=feature_ids,
+            sources=sources,
+            toolchain=_ActivationToolchain(subject_ids),
+        )
+        registry = build_default_registry()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = ContentAddressedCache(root / "cache")
+            seed_toolchain = _ActivationToolchain(subject_ids)
+            runtime_request = provider.activation_runtime_request(
+                final,
+                endpoint_input,
+                prepared,
+                RunScopedArtifactPublisher(root / "seed", "seed", "1"),
+                workers=2,
+                allow_expensive_producers=True,
+            )
+            OSSActivationProvider(
+                cache,
+                producer_toolchain=seed_toolchain,
+            ).materialize(
+                runtime_request,
+                RunScopedArtifactPublisher(root / "seed", "seed", "1"),
+            )
+            observed_task = _task(
+                endpoint_input.endpoint,
+                service_id="prepare_ppam_observed_workspace",
+                stage="ppam_observed_workspace_nuisance_failure",
+                output_type="PPAMObservedWorkspaceRecord",
+                dependencies=("input", "prepared", "final"),
+                connectome_role="formal",
+                phase="sensitivity",
+            )
+            with patch(
+                "dual_frequency.runtime.service_adapters.prepare_ppam_fit_workspace",
+                side_effect=NuisancePlanError(
+                    "invalid_nuisance_design",
+                    "synthetic rank deficiency",
+                ),
+            ):
+                observed_result = registry.resolve(observed_task.service_id)(
+                    self._ppam_execution_request(
+                        root=root,
+                        task=observed_task,
+                        provider=provider,
+                        cache=cache,
+                        dependencies={
+                            "input": DependencyState(
+                                "completed",
+                                "none",
+                                endpoint_input,
+                            ),
+                            "prepared": DependencyState(
+                                "completed",
+                                "none",
+                                prepared,
+                            ),
+                            "final": DependencyState(
+                                "completed",
+                                "none",
+                                selection,
+                            ),
+                        },
+                    )
+                )
+            observed_record = observed_result.decode_record()
+            self.assertEqual(
+                observed_record.technical_status,
+                "nuisance_not_estimable",
+            )
+            self.assertFalse(observed_result.fact_values["ppam_permutation_ready"])
+            self.assertIsNone(observed_record.generation_path)
+            self.assertFalse(observed_record.arrays)
+
+            aggregate_task = _task(
+                endpoint_input.endpoint,
+                service_id="aggregate_ppam_activation",
+                stage="activation_sensitivity_nuisance_failure",
+                output_type="ActivationArtifact",
+                dependencies=("workspace", "final"),
+                connectome_role="formal",
+                phase="sensitivity",
+            )
+            aggregate_result = registry.resolve(aggregate_task.service_id)(
+                self._ppam_execution_request(
+                    root=root,
+                    task=aggregate_task,
+                    provider=provider,
+                    cache=cache,
+                    dependencies={
+                        "workspace": DependencyState(
+                            "completed",
+                            "none",
+                            observed_record,
+                        ),
+                        "final": DependencyState(
+                            "completed",
+                            "none",
+                            selection,
+                        ),
+                    },
+                )
+            )
+            activation = aggregate_result.decode_record()
+            self.assertEqual(len(activation.artifacts), 1)
+            status = ArtifactStore((root,)).materialize_document(
+                activation.artifacts[0],
+                expected_kind="oss_sensitivity_status",
+            )
+
+        self.assertEqual(
+            status["oss_sensitivity_status"],
+            "failed_oss_design_or_prediction",
+        )
+        self.assertEqual(status["failure_reasons"], ["invalid_nuisance_design"])
+        self.assertEqual(provider.fitting_calls, 1)
+        self.assertEqual(provider.toolchain.calls, [])
 
     def test_activation_authorized_cache_miss_materializes_rows_before_fitting(
         self,

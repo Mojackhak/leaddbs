@@ -16,7 +16,11 @@ from ..backends.activation.operator_scratch import (
     open_ppam_operator_scratch,
     reopen_ppam_permutation_workspace,
 )
-from ..backends.activation.fitting import PPAMPermutationWorkspace
+from ..backends.activation.fitting import (
+    PPAMFitResult,
+    PPAMObservedState,
+    PPAMPermutationWorkspace,
+)
 from ..backends.formal.operator_scratch import ScratchArrayDescriptor
 from ..contracts import (
     ActivationArtifact,
@@ -30,7 +34,6 @@ from ..contracts import (
     ScratchArrayRecord,
     canonical_hash,
 )
-from ..backends.activation.fitting import PPAMFitResult, PPAMObservedState
 from ..backends.formal.common import materialize_array
 from ..backends.protocols import ArtifactPublisher
 
@@ -83,6 +86,54 @@ def ppam_observed_input_identity(
     activation_probability = _artifact(
         request.activation_probability,
         "activation_probability",
+    )
+    outcome = _artifact(request.outcome, "outcome")
+    baseline = _artifact(request.baseline, "baseline")
+    peak = _artifact(request.peak_final_score, "peak_final_score")
+    feature_ids = _artifact(request.feature_ids, "feature_ids")
+    activation_feature_ids = _artifact(
+        request.activation_feature_ids,
+        "activation_feature_ids",
+    )
+    overlap = (
+        None
+        if request.reference_overlap_mask is None
+        else _artifact(request.reference_overlap_mask, "reference_overlap_mask")
+    )
+    nuisance = tuple(
+        _artifact(value, f"nuisance_inputs[{index}]")
+        for index, value in enumerate(request.nuisance_inputs)
+    )
+    return canonical_hash(
+        {
+            "schema_version": "dual_frequency_ppam_observed_input_v1",
+            "final_model_id": request.final_model.identifier,
+            "final_branch": request.final_model.final_key.final_branch,
+            "subject_axis": asdict(request.subject_axis),
+            "feature_axis": asdict(request.feature_axis),
+            "activation_probability": _artifact_identity(activation_probability),
+            "binary_exposure": _artifact_identity(binary),
+            "outcome": _artifact_identity(outcome),
+            "baseline": _artifact_identity(baseline),
+            "peak_final_score": _artifact_identity(peak),
+            "feature_ids": _artifact_identity(feature_ids),
+            "activation_feature_ids": _artifact_identity(
+                activation_feature_ids
+            ),
+            "reference_overlap_mask": _artifact_identity(overlap),
+            "nuisance_inputs": tuple(
+                _artifact_identity(value) for value in nuisance
+            ),
+            "outcome_direction": request.outcome_direction,
+            "hard_computability": asdict(request.hard_computability),
+            "connectome_role": request.connectome_role,
+            "fiber_score_settings": asdict(request.fiber_score_settings),
+            "fitting_probability_threshold": (
+                request.fitting_probability_threshold
+            ),
+            "permutation_resamples": request.permutation_resamples,
+            "seed": request.seed,
+        }
     )
 
 
@@ -141,6 +192,33 @@ def activation_request_from_ppam_workspace(
 def _json_number(value: float) -> float | None:
     number = float(value)
     return number if math.isfinite(number) else None
+
+
+def _document_finite_count(
+    value: object,
+    field: str,
+    maximum: int,
+) -> int:
+    if type(value) is not int or value < 0 or value > maximum:
+        raise PPAMObservedWorkspaceError(
+            f"pPAM observed {field} is not a valid finite count"
+        )
+    return value
+
+
+def _document_number(value: object, field: str) -> float:
+    if value is None:
+        return math.nan
+    if type(value) not in {int, float}:
+        raise PPAMObservedWorkspaceError(
+            f"pPAM observed {field} is not numeric"
+        )
+    number = float(value)
+    if not math.isfinite(number):
+        raise PPAMObservedWorkspaceError(
+            f"pPAM observed {field} is not finite"
+        )
+    return number
 
 
 _PPAM_PUBLIC_OBSERVED_ARRAY_KINDS = (
@@ -399,6 +477,7 @@ def load_ppam_observed_state(
             "pPAM observed state document does not match its record"
         )
     failures = payload.get("failure_reasons")
+    finite_full = payload.get("finite_full_weights")
     finite_fold = payload.get("finite_fold_weights")
     performance = payload.get("performance")
     full_support = payload.get("full_support")
@@ -409,8 +488,8 @@ def load_ppam_observed_state(
         or not all(type(value) is str for value in failures)
         or not isinstance(finite_fold, list)
         or len(finite_fold) != request.subject_axis.count
-        or not all(type(value) is int for value in finite_fold)
         or not isinstance(performance, dict)
+        or not all(type(key) is str and key for key in performance)
         or not isinstance(full_support, dict)
         or not isinstance(fold_support, list)
         or len(fold_support) != request.subject_axis.count
@@ -419,11 +498,39 @@ def load_ppam_observed_state(
         or not all(isinstance(value, dict) for value in comparisons)
     ):
         raise PPAMObservedWorkspaceError("pPAM observed state document is malformed")
+    finite_full_count = _document_finite_count(
+        finite_full,
+        "finite_full_weights",
+        request.feature_axis.count,
+    )
+    finite_fold_counts = np.asarray(
+        [
+            _document_finite_count(
+                value,
+                f"finite_fold_weights[{index}]",
+                request.feature_axis.count,
+            )
+            for index, value in enumerate(finite_fold)
+        ],
+        dtype=np.int64,
+    )
     numeric_performance = {
-        str(key): math.nan if value is None else float(value)
+        key: _document_number(value, f"performance.{key}")
         for key, value in performance.items()
     }
-    peak = payload.get("peak_score_pearson_r")
+    peak = _document_number(
+        payload.get("peak_score_pearson_r"),
+        "peak_score_pearson_r",
+    )
+    if (
+        record.technical_status == "permutation_ready" and failures
+    ) or (
+        record.technical_status == "observed_not_permutation_ready"
+        and not failures
+    ):
+        raise PPAMObservedWorkspaceError(
+            "pPAM observed failure state contradicts its technical status"
+        )
     outcome_units = record.outcome.units
     subject = (record.subject_axis,)
     feature = (record.feature_axis,)
@@ -497,10 +604,10 @@ def load_ppam_observed_state(
         ),
         full_support=full_support,
         fold_support=tuple(fold_support),
-        finite_full_weights=int(payload["finite_full_weights"]),
-        finite_fold_weights=np.asarray(finite_fold, dtype=np.int64),
+        finite_full_weights=finite_full_count,
+        finite_fold_weights=finite_fold_counts,
         performance=numeric_performance,
-        peak_score_pearson_r=math.nan if peak is None else float(peak),
+        peak_score_pearson_r=peak,
         failure_reasons=tuple(failures),
         plain_activation_count=_materialize_observed_array(
             record,
@@ -704,54 +811,6 @@ def publish_ppam_activation_result(
             comparison,
             status,
         ),
-    )
-    outcome = _artifact(request.outcome, "outcome")
-    baseline = _artifact(request.baseline, "baseline")
-    peak = _artifact(request.peak_final_score, "peak_final_score")
-    feature_ids = _artifact(request.feature_ids, "feature_ids")
-    activation_feature_ids = _artifact(
-        request.activation_feature_ids,
-        "activation_feature_ids",
-    )
-    overlap = (
-        None
-        if request.reference_overlap_mask is None
-        else _artifact(request.reference_overlap_mask, "reference_overlap_mask")
-    )
-    nuisance = tuple(
-        _artifact(value, f"nuisance_inputs[{index}]")
-        for index, value in enumerate(request.nuisance_inputs)
-    )
-    return canonical_hash(
-        {
-            "schema_version": "dual_frequency_ppam_observed_input_v1",
-            "final_model_id": request.final_model.identifier,
-            "final_branch": request.final_model.final_key.final_branch,
-            "subject_axis": asdict(request.subject_axis),
-            "feature_axis": asdict(request.feature_axis),
-            "activation_probability": _artifact_identity(activation_probability),
-            "binary_exposure": _artifact_identity(binary),
-            "outcome": _artifact_identity(outcome),
-            "baseline": _artifact_identity(baseline),
-            "peak_final_score": _artifact_identity(peak),
-            "feature_ids": _artifact_identity(feature_ids),
-            "activation_feature_ids": _artifact_identity(
-                activation_feature_ids
-            ),
-            "reference_overlap_mask": _artifact_identity(overlap),
-            "nuisance_inputs": tuple(
-                _artifact_identity(value) for value in nuisance
-            ),
-            "outcome_direction": request.outcome_direction,
-            "hard_computability": asdict(request.hard_computability),
-            "connectome_role": request.connectome_role,
-            "fiber_score_settings": asdict(request.fiber_score_settings),
-            "fitting_probability_threshold": (
-                request.fitting_probability_threshold
-            ),
-            "permutation_resamples": request.permutation_resamples,
-            "seed": request.seed,
-        }
     )
 
 
