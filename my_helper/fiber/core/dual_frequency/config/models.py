@@ -234,6 +234,7 @@ class ExecutionProfile:
 class StorageProfile:
     cache_root: Path
     run_root: Path
+    delete_run_cache_on_success: bool
 
 
 @dataclass(frozen=True)

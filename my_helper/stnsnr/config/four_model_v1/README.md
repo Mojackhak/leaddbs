@@ -87,6 +87,16 @@ endpoint pair, and connectome roles. CLI selection may narrow the configured
 scales or model families, but it cannot add values absent from the model
 profiles.
 
+`storage.delete_run_cache_on_success` controls eligible post-publication cache
+cleanup. The production profile sets it to `false`; omission also resolves to
+`false`. Therefore successful, failed, partial, interrupted, and resumed runs
+all retain cache under the current profile. A future `true` value may clean
+only run-owned cache after the requested workflow and canonical publication
+both finish without failure. It must never clean failed or partial work, the
+run store, canonical publication, extensions, sensitivity checkpoints, or
+cache owned by another run. The cleanup execution boundary remains part of the
+open canonical-publisher Task 18.
+
 The runtime reads the existing `study_base.json` supplied through the CLI. It
 does not create or consume an intermediate study bundle, copied clinical
 table, study index, or resolved-study manifest. This configuration contract is

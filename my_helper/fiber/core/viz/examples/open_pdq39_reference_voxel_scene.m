@@ -6,11 +6,10 @@ vizRoot = fileparts(exampleRoot);
 repoRoot = fileparts(fileparts(fileparts(fileparts(vizRoot))));
 addpath(genpath(repoRoot));
 
-runRoot = ['/Volumes/VAL/STNSNr/summary/spot/.runs/', ...
-    'stnsnr_frequency_addon/', ...
-    'task17-main-v8-tau-grid-formal-20260717'];
+publicationRoot = ['/Volumes/VAL/STNSNr/summary/spot/direct_voxel/', ...
+    'dual_frequency_four_model_v1'];
 pdq39VoxelInput = mh_viz_prepare_scene_example_input( ...
-    runRoot, 'reference_voxel', 'ScaleId', 'pdq39_score');
+    publicationRoot, 'reference_voxel', 'ScaleId', 'pdq39_score');
 
 spec = struct();
 spec.VoxelSignedNifti = pdq39VoxelInput.input_path;

@@ -20,6 +20,7 @@ from my_helper.fiber.core.viz.artifacts import restore_voxel_vector_to_nifti
 from my_helper.fiber.core.viz.layout import build_figure_layout
 from my_helper.fiber.core.viz.model_fit import plot_in_sample_loocv_fit
 from my_helper.fiber.core.viz.postprocess import SCHEMA_VERSION, run_postprocess
+from my_helper.fiber.core.viz.published_artifacts import PublishedArtifactError
 from my_helper.fiber.core.viz.scene_example_inputs import prepare_scene_example_input
 from my_helper.fiber.core.viz.spatial import plot_sweet_sour_slices
 
@@ -102,14 +103,37 @@ def _nifti_inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
     return tuple(paths)
 
 
-def _scene_example_run(tmp_path: Path) -> Path:
-    run_root = tmp_path / "run"
-    tasks = run_root / "tasks"
-    inputs = run_root / "inputs"
-    work = run_root / "work"
-    tasks.mkdir(parents=True)
-    inputs.mkdir()
-    work.mkdir()
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write_publication(
+    root: Path,
+    artifacts: dict[str, tuple[Path, str]],
+    *,
+    manifest: dict[str, object] | None = None,
+) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    payload = {"final_status": "completed", "model_set_id": root.name, **(manifest or {})}
+    (root / "model_manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+    rows = []
+    for relative_path, (path, kind) in artifacts.items():
+        target = root / relative_path
+        assert target.resolve() == path.resolve()
+        rows.append(
+            {
+                "relative_path": relative_path,
+                "sha256": _sha256(path),
+                "size_bytes": path.stat().st_size,
+                "status": "completed",
+                "artifact_kind": kind,
+            }
+        )
+    pd.DataFrame(rows).to_csv(root / "artifact_index.csv", index=False)
+    return root
+
+
+def _scene_example_publications(tmp_path: Path) -> tuple[Path, Path]:
 
     shape = (5, 4, 3)
     affine = np.eye(4)
@@ -139,6 +163,7 @@ def _scene_example_run(tmp_path: Path) -> Path:
             "fibers", data=np.vstack((coordinates.T, point_ids.reshape(1, -1)))
         )
 
+    study_path = tmp_path / "study_base.json"
     study = {
         "schema_version": "study_base_v1",
         "study": {
@@ -149,92 +174,121 @@ def _scene_example_run(tmp_path: Path) -> Path:
                 "connectomes": [
                     {
                         "connectome_id": "synthetic_connectome",
-                        "streamlines": {"path": str(connectome)},
+                        "streamlines": {
+                            "path": str(connectome),
+                            "sha256": _sha256(connectome),
+                        },
                     }
                 ],
             }
         },
     }
-    (inputs / "study_base.json").write_text(json.dumps(study), encoding="utf-8")
-
-    def artifact(kind: str, path: Path) -> dict[str, object]:
-        return {
-            "kind": kind,
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "uri": path.resolve().as_uri(),
-        }
-
-    voxel_work = work / "voxel"
-    voxel_work.mkdir()
-    voxel_positions = voxel_work / "positions.npy"
-    voxel_weights = voxel_work / "weights.npy"
-    np.save(voxel_positions, np.asarray([0, 5], dtype=np.int64))
-    np.save(voxel_weights, np.asarray([0.7, -0.5], dtype=np.float64))
-    voxel_final = {
-        "endpoint": {
-            "scale_id": "pdq39_score",
-            "model_family": "reference_voxel",
-            "connectome_id": "none",
-        },
-        "final_key": {
-            "endpoint_id": "endpoint_voxel",
-            "final_branch": "reference",
-            "selected_tau": 200.0,
-            "selected_coverage": 5,
-        },
-        "artifacts": [
-            artifact("selected_feature_indices", voxel_positions),
-            artifact("benefit_oriented_feature_weights", voxel_weights),
-        ],
+    study_path.write_text(json.dumps(study), encoding="utf-8")
+    common_manifest = {
+        "study_base_path": str(study_path),
+        "study_base_sha256": _sha256(study_path),
     }
 
-    fiber_work = work / "fiber"
-    fiber_work.mkdir()
-    valid_ids_path = fiber_work / "valid.npy"
-    fiber_weights_path = fiber_work / "weights.npy"
-    sweet_path = fiber_work / "sweet.npy"
-    sour_path = fiber_work / "sour.npy"
+    direct_root = tmp_path / "direct_voxel" / "dual_frequency_four_model_v1"
+    direct_resolver = direct_root / "pdq39_score" / "reference" / "resolver"
+    direct_resolver.mkdir(parents=True)
+    benefit_map = direct_resolver / "benefit_map.nii.gz"
+    benefit_data = np.full(shape, np.nan, dtype=np.float32)
+    benefit_data[2, 0, 0] = 0.7
+    benefit_data[3, 1, 0] = -0.5
+    nib.save(nib.Nifti1Image(benefit_data, affine), benefit_map)
+    direct_final_path = direct_root / "pdq39_score" / "reference" / "final_model.json"
+    direct_final_path.parent.mkdir(parents=True, exist_ok=True)
+    direct_final = {
+        "schema_version": "direct_voxel_final_model_v1",
+        "scale_id": "pdq39_score",
+        "model_family": "reference",
+        "final_role": "primary",
+        "realized_final_branch": "reference",
+        "selected_tau_v_per_m": 200.0,
+        "selected_coverage_subjects_min": 5,
+        "source_record_relative_path": (
+            "pdq39_score/reference/resolver/selected_source.json"
+        ),
+    }
+    direct_final_path.write_text(json.dumps(direct_final), encoding="utf-8")
+    _write_publication(
+        direct_root,
+        {
+            "pdq39_score/reference/final_model.json": (
+                direct_final_path,
+                "final_model",
+            ),
+            "pdq39_score/reference/resolver/benefit_map.nii.gz": (
+                benefit_map,
+                "benefit_map",
+            ),
+        },
+        manifest=common_manifest,
+    )
+
+    fiber_root = tmp_path / "normative_fiber" / "dual_frequency_four_model_v1"
+    fiber_resolver = (
+        fiber_root
+        / "pdq39_score"
+        / "reference"
+        / "connectomes"
+        / "synthetic_connectome"
+        / "resolver"
+    )
+    fiber_resolver.mkdir(parents=True)
+    valid_ids_path = fiber_resolver / "valid_fiber_ids.npy"
+    fiber_weights_path = fiber_resolver / "full_weights.npy"
+    sweet_path = fiber_resolver / "selected_sweet_fiber_ids.npy"
+    sour_path = fiber_resolver / "selected_sour_fiber_ids.npy"
     np.save(valid_ids_path, np.asarray([1, 2, 3, 4], dtype=np.int64))
     np.save(fiber_weights_path, np.asarray([0.8, -0.6, 0.4, -0.2], dtype=np.float32))
     np.save(sweet_path, np.asarray([1, 3], dtype=np.int64))
     np.save(sour_path, np.asarray([2, 4], dtype=np.int64))
+    fiber_final_path = fiber_root / "pdq39_score" / "reference" / "final_model.json"
+    fiber_final_path.parent.mkdir(parents=True, exist_ok=True)
+    resolver_relative = (
+        "pdq39_score/reference/connectomes/synthetic_connectome/resolver"
+    )
     fiber_final = {
-        "endpoint": {
-            "scale_id": "pdq39_score",
-            "model_family": "reference_fiber",
-            "connectome_id": "synthetic_connectome",
-        },
-        "final_key": {
-            "endpoint_id": "endpoint_fiber",
-            "final_branch": "reference",
-            "selected_tau": 400.0,
-            "selected_coverage": 5,
-        },
-        "artifacts": [
-            artifact("normative_fiber_valid_union_ids", valid_ids_path),
-            artifact("benefit_oriented_fiber_weights", fiber_weights_path),
-            artifact("normative_fiber_sweet_selected_ids", sweet_path),
-            artifact("normative_fiber_sour_selected_ids", sour_path),
-        ],
+        "schema_version": "normative_fiber_final_model_v1",
+        "scale_id": "pdq39_score",
+        "model_family": "reference",
+        "formal_connectome_id": "synthetic_connectome",
+        "final_branch": "reference",
+        "final_role": "primary",
+        "selected_tau_v_per_m": 400.0,
+        "selected_coverage_subjects_min": 5,
+        "resolver_relative_path": f"{resolver_relative}/source_selection.json",
     }
-
-    for task_name, final_model in (
-        ("task_voxel.json", voxel_final),
-        ("task_fiber.json", fiber_final),
-    ):
-        task = {
-            "status": "completed",
-            "result": {
-                "output_record_type": "FinalSelectionRecord",
-                "payload": {
-                    "selection_status": "final_model_realized",
-                    "endpoint": final_model["endpoint"],
-                    "final_model": final_model,
-                },
-            },
-        }
-        (tasks / task_name).write_text(json.dumps(task), encoding="utf-8")
-    return run_root
+    fiber_final_path.write_text(json.dumps(fiber_final), encoding="utf-8")
+    _write_publication(
+        fiber_root,
+        {
+            "pdq39_score/reference/final_model.json": (
+                fiber_final_path,
+                "final_model",
+            ),
+            f"{resolver_relative}/valid_fiber_ids.npy": (
+                valid_ids_path,
+                "valid_fiber_ids",
+            ),
+            f"{resolver_relative}/full_weights.npy": (
+                fiber_weights_path,
+                "full_weights",
+            ),
+            f"{resolver_relative}/selected_sweet_fiber_ids.npy": (
+                sweet_path,
+                "selected_sweet_fiber_ids",
+            ),
+            f"{resolver_relative}/selected_sour_fiber_ids.npy": (
+                sour_path,
+                "selected_sour_fiber_ids",
+            ),
+        },
+        manifest=common_manifest,
+    )
+    return direct_root, fiber_root
 
 
 def test_layout_preserves_inner_boxsize() -> None:
@@ -310,28 +364,62 @@ def test_restore_voxel_vector_requires_explicit_index_semantics(tmp_path: Path) 
 
 
 def test_manifest_postprocess_and_resume(tmp_path: Path) -> None:
-    sweet, sour, background = _nifti_inputs(tmp_path)
-    subjects_path = tmp_path / "subjects.csv"
+    publication_root = tmp_path / "direct_voxel" / "model_set"
+    scientific_root = publication_root / "scale_test" / "reference" / "report"
+    scientific_root.mkdir(parents=True)
+    sweet, sour, background = _nifti_inputs(scientific_root)
+    summary_path = scientific_root / "summary.json"
+    summary_path.write_text(json.dumps(_summary()), encoding="utf-8")
+    subjects_path = scientific_root / "subjects.csv"
     _subjects().to_csv(subjects_path, index=False)
+    _write_publication(
+        publication_root,
+        {
+            "scale_test/reference/report/sweet.nii.gz": (sweet, "sweet_map"),
+            "scale_test/reference/report/sour.nii.gz": (sour, "sour_map"),
+            "scale_test/reference/report/summary.json": (summary_path, "summary"),
+            "scale_test/reference/report/subjects.csv": (
+                subjects_path,
+                "predictions",
+            ),
+        },
+    )
     config_path = tmp_path / "postprocess.json"
     config = {
         "schema_version": SCHEMA_VERSION,
         "output_root": "outputs",
+        "publications": {
+            "main": {"root": str(publication_root), "manifest": "model_manifest.json"}
+        },
         "defaults": {"formats": ["png"], "dpi": 100},
         "endpoints": [
             {
                 "endpoint_id": "endpoint_test",
-                "summary": _summary(),
+                "summary_json": {
+                    "publication": "main",
+                    "relative_path": "scale_test/reference/report/summary.json",
+                },
                 "spatial_2d": {
                     "model_unit": "voxel",
-                    "sweet_image": str(sweet),
-                    "sour_image": str(sour),
+                    "sweet_image": {
+                        "publication": "main",
+                        "relative_path": "scale_test/reference/report/sweet.nii.gz",
+                    },
+                    "sour_image": {
+                        "publication": "main",
+                        "relative_path": "scale_test/reference/report/sour.nii.gz",
+                    },
                     "background_image": str(background),
                     "resolution_mm": 1.0,
                     "percent_list": [50.0],
                     "boxsize": [24.0, 22.0],
                 },
-                "statistics": {"subject_table": str(subjects_path)},
+                "statistics": {
+                    "subject_table": {
+                        "publication": "main",
+                        "relative_path": "scale_test/reference/report/subjects.csv",
+                    }
+                },
             }
         ],
     }
@@ -345,20 +433,44 @@ def test_manifest_postprocess_and_resume(tmp_path: Path) -> None:
 
 
 def test_manifest_rejects_mismatched_endpoint_summary(tmp_path: Path) -> None:
-    subjects_path = tmp_path / "subjects.csv"
+    publication_root = tmp_path / "direct_voxel" / "model_set"
+    scientific_root = publication_root / "scale_test" / "reference" / "report"
+    scientific_root.mkdir(parents=True)
+    summary_path = scientific_root / "summary.json"
+    summary_path.write_text(json.dumps(_summary()), encoding="utf-8")
+    subjects_path = scientific_root / "subjects.csv"
     _subjects().to_csv(subjects_path, index=False)
+    _write_publication(
+        publication_root,
+        {
+            "scale_test/reference/report/summary.json": (summary_path, "summary"),
+            "scale_test/reference/report/subjects.csv": (
+                subjects_path,
+                "predictions",
+            ),
+        },
+    )
     config_path = tmp_path / "postprocess.json"
     config_path.write_text(
         json.dumps(
             {
                 "schema_version": SCHEMA_VERSION,
                 "output_root": "outputs",
+                "publications": {"main": {"root": str(publication_root)}},
                 "defaults": {"formats": ["png"], "dpi": 100},
                 "endpoints": [
                     {
                         "endpoint_id": "endpoint_other",
-                        "summary": _summary(),
-                        "statistics": {"subject_table": str(subjects_path)},
+                        "summary_json": {
+                            "publication": "main",
+                            "relative_path": "scale_test/reference/report/summary.json",
+                        },
+                        "statistics": {
+                            "subject_table": {
+                                "publication": "main",
+                                "relative_path": "scale_test/reference/report/subjects.csv",
+                            }
+                        },
                     }
                 ],
             }
@@ -371,16 +483,56 @@ def test_manifest_rejects_mismatched_endpoint_summary(tmp_path: Path) -> None:
     assert "does not match" in result["endpoints"][0]["error_message"]
 
 
+def test_postprocess_rejects_run_store_as_publication(tmp_path: Path) -> None:
+    publication_root = tmp_path / ".runs" / "internal_run"
+    scientific_root = publication_root / "report"
+    scientific_root.mkdir(parents=True)
+    summary_path = scientific_root / "summary.json"
+    summary_path.write_text(json.dumps(_summary()), encoding="utf-8")
+    _write_publication(
+        publication_root,
+        {"report/summary.json": (summary_path, "summary")},
+    )
+    config_path = tmp_path / "postprocess.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "output_root": "outputs",
+                "publications": {"main": {"root": str(publication_root)}},
+                "endpoints": [
+                    {
+                        "endpoint_id": "endpoint_test",
+                        "summary_json": {
+                            "publication": "main",
+                            "relative_path": "report/summary.json",
+                        },
+                        "statistics": {
+                            "subject_table": {
+                                "publication": "main",
+                                "relative_path": "report/summary.json",
+                            }
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(PublishedArtifactError, match="cannot be inside a run store"):
+        run_postprocess(config_path)
+
+
 def test_scene_example_prepares_and_reuses_voxel_input(tmp_path: Path) -> None:
-    run_root = _scene_example_run(tmp_path)
+    direct_root, _ = _scene_example_publications(tmp_path)
     first = prepare_scene_example_input(
-        run_root,
+        direct_root,
         tmp_path / "outputs",
         scale_id="pdq39_score",
         model_family="reference_voxel",
     )
     second = prepare_scene_example_input(
-        run_root,
+        direct_root,
         tmp_path / "outputs",
         scale_id="pdq39_score",
         model_family="reference_voxel",
@@ -393,9 +545,9 @@ def test_scene_example_prepares_and_reuses_voxel_input(tmp_path: Path) -> None:
 
 
 def test_scene_example_prepares_selected_scored_fibers(tmp_path: Path) -> None:
-    run_root = _scene_example_run(tmp_path)
+    _, fiber_root = _scene_example_publications(tmp_path)
     result = prepare_scene_example_input(
-        run_root,
+        fiber_root,
         tmp_path / "outputs",
         scale_id="pdq39_score",
         model_family="reference_fiber",

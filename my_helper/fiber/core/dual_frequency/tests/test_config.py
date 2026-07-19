@@ -35,6 +35,7 @@ class ConfigTest(unittest.TestCase):
         )
         self.assertEqual(resolved.normative_fiber.hard_computability.n_subjects_min, 12)
         self.assertEqual(resolved.workflow.execution.workers, 3)
+        self.assertFalse(resolved.workflow.storage.delete_run_cache_on_success)
         self.assertEqual(len(resolved.configuration_hash), 64)
         self.assertEqual(len(resolved.scientific_configuration_hash), 64)
         with self.assertRaises(FrozenInstanceError):
@@ -72,6 +73,24 @@ class ConfigTest(unittest.TestCase):
                 CONFIG_ROOT / "workflow.yaml",
                 WorkflowOverrides(all_available=True, workers=0),
             )
+
+    def test_cache_cleanup_policy_is_explicit_and_nonscientific(self) -> None:
+        original = load_workflow(
+            CONFIG_ROOT / "workflow.yaml",
+            WorkflowOverrides(all_available=True),
+        )
+        workflow = self._workflow_document()
+        workflow["storage"]["delete_run_cache_on_success"] = True
+        cleanup_enabled = self._load_modified_profiles(workflow=workflow)
+        self.assertTrue(cleanup_enabled.workflow.storage.delete_run_cache_on_success)
+        self.assertNotEqual(
+            original.configuration_hash,
+            cleanup_enabled.configuration_hash,
+        )
+        self.assertEqual(
+            original.scientific_configuration_hash,
+            cleanup_enabled.scientific_configuration_hash,
+        )
 
     def test_override_types_and_selector_uniqueness_are_strict(self) -> None:
         invalid_overrides = (

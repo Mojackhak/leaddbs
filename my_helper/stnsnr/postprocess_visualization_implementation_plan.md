@@ -2,12 +2,13 @@
 
 ## Status
 
-Implemented on 2026-07-18. This document is the implementation contract for the
-postprocess visualization layer that consumes completed dual-frequency final
-model records without rerunning model fitting, permutation, bootstrap, jitter,
-or OSS-DBS. Cohort-wide rendering from the formal Task 17 run has not started;
-the next integration step is a run-store adapter that resolves the completed
-artifacts into the explicit manifest described below.
+Rendering primitives were implemented on 2026-07-18. The public-only adapter
+was implemented and synthetically validated on 2026-07-19. This document is the implementation contract for a
+postprocess visualization layer that consumes formally published
+dual-frequency final-model artifacts without rerunning model fitting,
+permutation, bootstrap, jitter, or OSS-DBS. A run-store adapter is prohibited.
+The remaining integration step is canonical main publication followed by
+real-data rendering from its model-set manifest and artifact index.
 
 ## Goal
 
@@ -66,6 +67,38 @@ recursive MATLAB path users do not require call-site changes. The old directory
 must be absent after the migration.
 
 ## Input Contract
+
+### Canonical publication boundary
+
+The internal run store is not a postprocess API. The only accepted scientific
+source is a completed canonical model-set publication or a completed canonical
+extension publication. Configuration declares publication aliases whose roots
+contain a terminal manifest and `artifact_index.csv`. Every scientific input
+uses an object with:
+
+```text
+publication
+relative_path
+```
+
+Before reading a scientific input, the adapter requires that the resolved path
+remain below the declared publication root, that the artifact index contain one
+matching row, that status is complete, and that byte count and SHA-256 match.
+Paths below `.runs/`, `tasks/`, `work/`, or `runtime_work/` are invalid even if
+their bytes match an indexed historical artifact. File URIs pointing back to a
+run store are likewise invalid. There is no fallback to task records.
+
+Postprocess is unaffected by workflow cache retention. It remains usable after
+an eligible cache cleanup because every scientific input comes from canonical
+publication. The configured production workflow currently retains cache so
+later jitter, OSS-DBS, and combined extensions can reuse physical preparation.
+
+Model summaries, final-model records, prediction tables, voxel maps, fiber
+axes, fiber weights, density maps, and formal or in-sample inference summaries
+are scientific inputs and must use indexed publication references. Anatomy,
+atlas outlines, and declared connectome geometry are rendering resources; the
+publication manifest must bind their identities, but the large immutable
+source files need not be copied into every model-set directory.
 
 ### Endpoint identity
 
@@ -293,10 +326,10 @@ postprocess/
       fit_manifest.json
 ```
 
-Each manifest records source artifact URIs, source hashes already present in the
-run, selected model key, plotting parameters, output paths, completion status,
-and errors. Postprocessing never changes the parent run manifest or marks a
-scientific task complete.
+Each manifest records canonical publication IDs, indexed relative source paths,
+source hashes, selected model key, plotting parameters, output paths,
+completion status, and errors. Postprocessing never changes a model-set or
+extension manifest and never marks a scientific task complete.
 
 ## Resume And Failure Boundaries
 
@@ -337,8 +370,18 @@ the manifest directory. One minimal item is:
 
 ```json
 {
-  "schema_version": "dual_frequency_postprocess_v1",
+  "schema_version": "dual_frequency_postprocess_v2",
   "output_root": "postprocess",
+  "publications": {
+    "direct_voxel_main": {
+      "root": "/absolute/path/to/direct_voxel/model_set",
+      "manifest": "model_manifest.json"
+    },
+    "direct_voxel_in_sample": {
+      "root": "/absolute/path/to/direct_voxel/model_set/extensions/final_in_sample",
+      "manifest": "extension_manifest.json"
+    }
+  },
   "defaults": {
     "formats": ["png", "pdf"],
     "dpi": 300,
@@ -348,15 +391,27 @@ the manifest directory. One minimal item is:
   "endpoints": [
     {
       "endpoint_id": "example_endpoint",
-      "summary_json": "inputs/example_endpoint_summary.json",
+      "summary_json": {
+        "publication": "direct_voxel_in_sample",
+        "relative_path": "example_endpoint/summary.json"
+      },
       "spatial_2d": {
         "model_unit": "voxel",
-        "sweet_image": "inputs/sweet.nii.gz",
-        "sour_image": "inputs/sour.nii.gz",
+        "sweet_image": {
+          "publication": "direct_voxel_main",
+          "relative_path": "example_endpoint/report/sweet.nii.gz"
+        },
+        "sour_image": {
+          "publication": "direct_voxel_main",
+          "relative_path": "example_endpoint/report/sour.nii.gz"
+        },
         "background_image": "inputs/anatomy.nii.gz"
       },
       "statistics": {
-        "subject_table": "inputs/predictions.csv"
+        "subject_table": {
+          "publication": "direct_voxel_in_sample",
+          "relative_path": "example_endpoint/predictions.csv"
+        }
       }
     }
   ]
@@ -404,3 +459,21 @@ Validation completed on 2026-07-18:
   seams;
 - synthetic Boxsize-driven 2D sections and paired in-sample/LOOCV plots were
   exported and visually reviewed.
+
+Public-only integration validation completed on 2026-07-19:
+
+- postprocess schema v2 rejected inline scientific summaries and required
+  publication aliases plus indexed relative paths;
+- every scientific input passed publication-root containment, completed-row,
+  byte-count, and SHA-256 validation before rendering or resume reuse;
+- a publication root below `.runs` was rejected without creating output;
+- the PDQ-39 scene adapter consumed synthetic canonical direct-voxel and
+  normative-fiber publications and no longer scanned task JSON or run work;
+- 10 focused visualization tests passed;
+- the complete dual-frequency and visualization suite passed with 470 tests
+  and 239 subtests under Conda `leaddbs`; and
+- MATLAB Code Analyzer reported no issue for the changed helper and examples.
+
+No real production scene can pass this adapter yet because the canonical main
+publisher remains unimplemented and the configured model-set roots remain
+missing. That failure is intentional and prevents fallback to `.runs`.

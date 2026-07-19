@@ -17,9 +17,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from .model_fit import plot_in_sample_loocv_fit
+from .published_artifacts import PublicationCatalog, PublishedArtifact
 from .spatial import SpatialLayer, plot_sweet_sour_slices
 
-SCHEMA_VERSION = "dual_frequency_postprocess_v1"
+SCHEMA_VERSION = "dual_frequency_postprocess_v2"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -46,14 +47,41 @@ def _resolve_path(base: Path, value: str | Path) -> Path:
     return (base / path).resolve() if not path.is_absolute() else path.resolve()
 
 
-def _summary(endpoint: Mapping[str, Any], base: Path) -> dict[str, Any]:
-    inline = endpoint.get("summary")
-    if isinstance(inline, Mapping):
-        return dict(inline)
+def _summary(
+    endpoint: Mapping[str, Any], publications: PublicationCatalog
+) -> dict[str, Any]:
+    if "summary" in endpoint:
+        raise ValueError("inline scientific summaries are forbidden")
     summary_json = endpoint.get("summary_json")
-    if summary_json:
-        return _read_json(_resolve_path(base, summary_json))
-    raise ValueError("endpoint requires summary or summary_json")
+    if summary_json is None:
+        raise ValueError("endpoint requires a published summary_json artifact")
+    return _read_json(publications.resolve(summary_json).path)
+
+
+def _scientific_sources(
+    endpoint: Mapping[str, Any], publications: PublicationCatalog
+) -> list[PublishedArtifact]:
+    references: list[object] = []
+    if "summary" in endpoint:
+        raise ValueError("inline scientific summaries are forbidden")
+    references.append(endpoint.get("summary_json"))
+    spatial = endpoint.get("spatial_2d")
+    if spatial is not None:
+        if not isinstance(spatial, Mapping):
+            raise ValueError("spatial_2d must be an object")
+        references.extend((spatial.get("sweet_image"), spatial.get("sour_image")))
+    statistics = endpoint.get("statistics")
+    if statistics is not None:
+        if not isinstance(statistics, Mapping):
+            raise ValueError("statistics must be an object")
+        references.append(statistics.get("subject_table"))
+    if any(reference is None for reference in references):
+        raise ValueError("every scientific postprocess input requires a publication reference")
+    unique: dict[tuple[str, str], PublishedArtifact] = {}
+    for reference in references:
+        artifact = publications.resolve(reference)
+        unique[(artifact.publication, artifact.relative_path)] = artifact
+    return [unique[key] for key in sorted(unique)]
 
 
 def _output_paths(directory: Path, stem: str, formats: Sequence[str]) -> list[Path]:
@@ -99,7 +127,7 @@ def _atlas_layers(specs: Sequence[Mapping[str, Any]], base: Path) -> list[Spatia
 def _run_statistics(
     endpoint: Mapping[str, Any],
     summary: Mapping[str, Any],
-    base: Path,
+    publications: PublicationCatalog,
     endpoint_dir: Path,
     defaults: Mapping[str, Any],
 ) -> list[Path]:
@@ -108,7 +136,7 @@ def _run_statistics(
         return []
     if not isinstance(spec, Mapping):
         raise ValueError("statistics must be an object")
-    table_path = _resolve_path(base, spec["subject_table"])
+    table_path = publications.resolve(spec["subject_table"]).path
     table = pd.read_csv(table_path)
     formats = spec.get("formats", defaults.get("formats", ["png", "pdf"]))
     output_dir = endpoint_dir / "statistics"
@@ -132,6 +160,7 @@ def _run_statistics(
 
 def _run_spatial(
     endpoint: Mapping[str, Any],
+    publications: PublicationCatalog,
     base: Path,
     endpoint_dir: Path,
     defaults: Mapping[str, Any],
@@ -148,8 +177,8 @@ def _run_spatial(
     output_dir = endpoint_dir / "spatial" / model_unit
     paths = _output_paths(output_dir, "sections", formats)
     figure = plot_sweet_sour_slices(
-        _resolve_path(base, spec["sweet_image"]),
-        _resolve_path(base, spec["sour_image"]),
+        publications.resolve(spec["sweet_image"]).path,
+        publications.resolve(spec["sour_image"]).path,
         background_image=(
             _resolve_path(base, spec["background_image"])
             if spec.get("background_image")
@@ -189,6 +218,9 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
     if not isinstance(endpoints, list) or not endpoints:
         raise ValueError("endpoints must be a nonempty list")
     base = config_file.parent
+    publications = PublicationCatalog.from_config(
+        config.get("publications"), config_base=base
+    )
     output_root = _resolve_path(base, config["output_root"])
     defaults = config.get("defaults", {})
     if not isinstance(defaults, Mapping):
@@ -198,6 +230,7 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
         "schema_version": SCHEMA_VERSION,
         "status": "running",
         "source_config": str(config_file),
+        "publications": publications.publication_records(),
         "endpoints": [],
     }
     output_root.mkdir(parents=True, exist_ok=True)
@@ -213,22 +246,30 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
             raise ValueError("each endpoint requires endpoint_id")
         endpoint_dir = output_root / "endpoints" / endpoint_id
         endpoint_manifest = endpoint_dir / "manifest.json"
-        request_hash = _canonical_payload_hash(endpoint)
-        if not force and _completed_reusable(endpoint_manifest, request_hash):
-            restored = _read_json(endpoint_manifest)
-            restored["resume_status"] = "reused"
-            aggregate["endpoints"].append(restored)
-            continue
-
         item: dict[str, Any] = {
             "endpoint_id": endpoint_id,
-            "request_hash": request_hash,
             "status": "running",
             "outputs": [],
         }
-        _write_json_atomic(endpoint_manifest, item)
         try:
-            summary = _summary(endpoint, base)
+            source_artifacts = _scientific_sources(endpoint, publications)
+            source_records = [item.as_manifest_record() for item in source_artifacts]
+            request_hash = _canonical_payload_hash(
+                {"endpoint": dict(endpoint), "source_artifacts": source_records}
+            )
+            if not force and _completed_reusable(endpoint_manifest, request_hash):
+                restored = _read_json(endpoint_manifest)
+                restored["resume_status"] = "reused"
+                aggregate["endpoints"].append(restored)
+                continue
+            item.update(
+                {
+                    "request_hash": request_hash,
+                    "source_artifacts": source_records,
+                }
+            )
+            _write_json_atomic(endpoint_manifest, item)
+            summary = _summary(endpoint, publications)
             summary_endpoint_id = summary.get("endpoint_id")
             if summary_endpoint_id is not None and str(summary_endpoint_id) != endpoint_id:
                 raise ValueError(
@@ -236,8 +277,10 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
                     f"{endpoint_id!r} versus {summary_endpoint_id!r}"
                 )
             outputs = [
-                *_run_spatial(endpoint, base, endpoint_dir, defaults),
-                *_run_statistics(endpoint, summary, base, endpoint_dir, defaults),
+                *_run_spatial(endpoint, publications, base, endpoint_dir, defaults),
+                *_run_statistics(
+                    endpoint, summary, publications, endpoint_dir, defaults
+                ),
             ]
             if not outputs:
                 raise ValueError("endpoint contains neither spatial_2d nor statistics work")
@@ -261,6 +304,7 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
             )
         except Exception as error:  # noqa: BLE001 - item-local failure boundary is intentional
             failures += 1
+            item.setdefault("request_hash", _canonical_payload_hash(endpoint))
             item.update(
                 {
                     "status": "failed",

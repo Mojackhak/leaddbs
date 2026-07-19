@@ -575,6 +575,9 @@ def load_workflow(
         storage=StorageProfile(
             cache_root=Path(workflow_payload["storage"]["cache_root"]).expanduser().resolve(),
             run_root=Path(workflow_payload["storage"]["run_root"]).expanduser().resolve(),
+            delete_run_cache_on_success=workflow_payload["storage"].get(
+                "delete_run_cache_on_success", False
+            ),
         ),
     )
     return ResolvedWorkflow(

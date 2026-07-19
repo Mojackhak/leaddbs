@@ -19,12 +19,14 @@
 > **Current branch.** `stnvop`
 > **Target schema.** `dual_frequency_v1`
 > **Status.** `design_approved`; `goal_review_passed`;
-> `implementation_complete`; `generic_runtime_active`;
+> `generic_core_implementation_complete`; `generic_runtime_active`;
 > `predecessor_runtime_archived`; `bounded_numeric_evidence_verified`;
 > `performance_refactor_design_documented`;
 > `performance_refactor_implementation_not_started`;
+> `canonical_main_publisher_not_started`;
+> `postprocess_publication_adapter_implemented`;
 > `configured_production_outputs_missing`; `production_rerun_required`.
-> **Last updated.** 2026-07-16
+> **Last updated.** 2026-07-19
 
 ---
 
@@ -1320,6 +1322,31 @@ Configured normative-fiber publication follows
 ```text
 <normative_fiber_model.output.root>/normative_fiber/<model_set_id>/<scale_id>/
 ```
+
+The canonical publication is the only scientific-input boundary for
+postprocessing. The internal run store may be read by the publisher, but no
+postprocess adapter, renderer, example, or resume check may inspect `.runs/`,
+`tasks/`, `work/`, `runtime_work/`, or a task-local artifact URI. A postprocess
+request must start from a completed model-set or extension manifest, resolve
+every scientific input through that publication's `artifact_index.csv`, and
+verify the recorded payload SHA-256 before rendering. Missing canonical
+publication is a blocking input state; it never permits run-store fallback.
+
+The direct-voxel publisher owns the unsmoothed selected-source NIfTI and the
+1 mm and 2 mm FWHM display-only NIfTI derivatives defined by the direct-voxel
+output contract. Postprocess consumes those published NIfTI files and cannot
+reconstruct a substitute from task-local arrays. Normative-fiber visualization
+likewise begins from published selected fiber axes, weights, density maps, and
+declared connectome geometry identity.
+
+Workflow storage policy exposes `delete_run_cache_on_success`. The configured
+production value is `false`, so completed shared physical preparation remains
+available for later jitter, OSS-DBS, combined extensions, and resume. Cache
+cleanup is eligible only after the requested workflow and canonical
+publication both reach an unqualified completed terminal state. Failed,
+partial, interrupted, completed-with-failures, or incompletely published runs
+must never remove cache content. Publication and run artifacts are never cache
+cleanup targets.
 
 The normative-fiber profile is `normative_fiber_model.yaml`; its lightweight
 acceptance profile is `normative_fiber_model_test.yaml`. Both enforce `formal`

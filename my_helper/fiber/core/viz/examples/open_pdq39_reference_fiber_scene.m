@@ -6,11 +6,10 @@ vizRoot = fileparts(exampleRoot);
 repoRoot = fileparts(fileparts(fileparts(fileparts(vizRoot))));
 addpath(genpath(repoRoot));
 
-runRoot = ['/Volumes/VAL/STNSNr/summary/spot/.runs/', ...
-    'stnsnr_frequency_addon/', ...
-    'task17-main-v8-tau-grid-formal-20260717'];
+publicationRoot = ['/Volumes/VAL/STNSNr/summary/spot/normative_fiber/', ...
+    'dual_frequency_four_model_v1'];
 pdq39FiberInput = mh_viz_prepare_scene_example_input( ...
-    runRoot, 'reference_fiber', 'ScaleId', 'pdq39_score');
+    publicationRoot, 'reference_fiber', 'ScaleId', 'pdq39_score');
 
 spec = struct();
 spec.FiberScoreMat = pdq39FiberInput.input_path;

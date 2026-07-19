@@ -3639,6 +3639,96 @@ scientific output trees.
 
 ---
 
+### Task 18: Implement Canonical Main Publication And Public-Only Postprocess
+
+Task 18 closes the gap between the internal run store and the stable output
+contracts. It is required before the authoritative `/goal` can be complete.
+
+- [ ] **Step 1: Freeze publication-only fixtures and path rejection tests**
+
+Create synthetic completed direct-voxel and normative-fiber run stores plus
+their expected canonical model-set trees. Freeze tests proving that every
+published payload is indexed with a relative path, SHA-256, byte count, stage,
+model family, branch, and terminal status. Add negative fixtures for partial
+manifests, missing payloads, SHA mismatch, path escape, task-local URI, and any
+postprocess input below `.runs/`, `tasks/`, `work/`, or `runtime_work/`.
+
+- [ ] **Step 2: Implement the canonical main publisher**
+
+Implement publication-only projection from a completed run into the exact
+direct-voxel and normative-fiber output contracts. The publisher may consume
+the internal run store, but it must publish immutable payloads and relative
+references below each model-set root. It writes the resolved profile,
+`model_manifest.json`, `scale_status.csv`, `artifact_index.csv`, all required
+per-scale stage status, selected-source bundles, final-model references,
+formal outputs, sensitivity checkpoints, and reports. It must support replay
+from an already completed scientific run without refitting a model.
+
+- [ ] **Step 3: Publish direct-voxel display NIfTI derivatives**
+
+For every realized reference or add-on direct-voxel final, publish the
+unsmoothed selected-source map and the masked normalized Gaussian display
+derivatives with 1 mm and 2 mm FWHM. These derivatives remain report-only and
+must not feed scoring, source selection, LOOCV, permutation, bootstrap,
+sensitivity, or final-model identity. Verify NIfTI shape, affine, units,
+finite-support behavior, payload SHA-256, and artifact-index rows.
+
+- [x] **Step 4: Replace run-store visualization inputs with publication inputs**
+
+Postprocess configuration names one or more completed canonical publication
+roots. Every scientific input is an artifact reference containing a
+publication alias and an indexed relative path. The adapter verifies the
+publication manifest, artifact index, path containment, payload size, and
+SHA-256 before reading. Inline scientific summaries and arbitrary scientific
+file paths are rejected. External anatomy and atlas overlays remain declared
+rendering resources and cannot replace a scientific result artifact.
+
+Interactive scene examples use the same publication resolver. They read
+published `final_model.json` and its relative artifact references; they never
+scan run tasks or reconstruct a display map from `.runs` arrays. Absence of a
+completed canonical publication fails before MATLAB opens a figure.
+
+Implementation evidence on 2026-07-19: postprocess schema v2 accepts only
+indexed publication artifact references, verifies path containment, byte count,
+and SHA-256, and rejects a `.runs` publication root. Inline scientific
+summaries are rejected. Both PDQ-39 MATLAB examples now name canonical
+direct-voxel or normative-fiber model-set roots. Synthetic canonical
+direct-voxel and normative-fiber publications prepare the signed voxel NIfTI
+and scored-fiber MAT inputs successfully. The complete dual-frequency and
+visualization regression passed with 470 tests and 239 subtests; MATLAB Code
+Analyzer reported no issue in the changed helper and example scripts. Real-data
+scene execution remains correctly blocked until Steps 2 and 3 publish the
+canonical model-set tree.
+
+- [ ] **Step 5: Run publication-only replay and downstream acceptance**
+
+Replay the completed formal parent and completed final-in-sample extension into
+new canonical model-set publications without rerunning observed grids,
+resolvers, final realization, LOOCV, permutation, bootstrap, jitter, or OSS.
+Validate all configured scales, both physical domains, reference/add-on final
+states, root manifests, artifact indexes, 1 mm and 2 mm voxel display NIfTI
+files, extension linkage, public-only postprocess input preparation, and
+output-local postprocess resume.
+
+Add the workflow storage policy `delete_run_cache_on_success`. Its production
+value is `false`. When false, successful runs retain cache content. When true,
+cleanup is permitted only after the requested workflow, reporting, canonical
+publication, root artifact index, and every required scale reach an
+unqualified completed state. Failed, partial, interrupted,
+completed-with-failures, or publication-incomplete runs never clean cache.
+Cleanup cannot remove the run store, canonical model-set publication,
+extensions, sensitivity checkpoints, or cache entries not owned by the
+completed run.
+
+- [ ] **Step 6: Update status and commit**
+
+Only after the publisher, publication replay, and public-only postprocess gates
+pass may the goal remove `canonical_main_publisher_not_started`,
+`postprocess_publication_adapter_not_started`, and
+`configured_production_outputs_missing`.
+
+---
+
 ## Plan Self-Review Record
 
 Five generic-core review passes were completed on 2026-07-15. A sixth
