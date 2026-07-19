@@ -2037,6 +2037,21 @@ passes 76 tests and 28 subtests, the support-boundary gate passes 22 tests and 3
 subtests, and the complete regression passes 493 tests and 244 parameterized
 subtests.
 
+The first Step 9 slice uses an internal 250-replicate formal block size and no
+new YAML option. A parent creates the complete historical permutation or
+bootstrap index schedule with the unchanged `default_rng(seed)` call pattern;
+block descriptors lend immutable half-open slices. Blocks never reseed or use
+generic draw-count jumps. The schedule contract records the NumPy, Generator,
+BitGenerator, schema, seed, subject/replicate counts, and full payload digest,
+and must reassemble byte-for-byte under different block and worker orders.
+
+The 2026-07-19 RNG foundation gate confirms byte parity for historical
+permutation and bootstrap schedules and shuffled block reassembly. Formal
+LOOCV, final in-sample, and pPAM use the shared constructor. The focused gate
+passes 60 tests and 25 subtests and the complete regression passes 495 tests
+and 244 parameterized subtests. Durable planner block tasks, aggregation, and
+block-level resume remain open.
+
 ### Default final in-sample inference
 
 Every realized final model in formal scope has a required in-sample inference

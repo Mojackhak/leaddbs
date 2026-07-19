@@ -28,6 +28,7 @@ from ..nuisance import (
     build_addon_nuisance_plan,
 )
 from ..protocols import ArtifactPublisher
+from ..formal.common import formal_resampling_schedule
 from ..statistics import (
     average_rank,
     benefit_oriented_weights,
@@ -399,11 +400,13 @@ def _freedman_lane_outcomes(
     beta, *_ = np.linalg.lstsq(design, outcome, rcond=None)
     fitted = design @ beta
     residuals = outcome - fitted
-    generator = np.random.default_rng(seed)
-    permutations = np.empty((count, outcome.size), dtype=np.float64)
-    for index in range(count):
-        permutations[index] = fitted + residuals[generator.permutation(outcome.size)]
-    return permutations
+    schedule = formal_resampling_schedule(
+        "permutation",
+        outcome.size,
+        count,
+        seed,
+    ).indices
+    return fitted[None, :] + residuals[schedule]
 
 
 def _plain_activation(binary_exposure: np.ndarray) -> tuple[np.ndarray, ...]:

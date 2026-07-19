@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 import math
+import platform
 from typing import Any
 
 import numpy as np
@@ -47,6 +50,212 @@ class BootstrapReplicateNotEstimableError(FormalBackendInputError):
             normalized = "sample-specific nuisance design is not estimable"
         self.detail = normalized
         super().__init__(normalized)
+
+
+FORMAL_REPLICATE_BLOCK_SIZE = 250
+RNG_SCHEDULE_SCHEMA = "dual_frequency_resampling_schedule_v1"
+
+
+@dataclass(frozen=True, slots=True)
+class ReplicateBlock:
+    """One immutable half-open interval over a complete replicate schedule."""
+
+    index: int
+    start: int
+    stop: int
+    total: int
+
+    def __post_init__(self) -> None:
+        if type(self.index) is not int or self.index < 0:
+            raise FormalBackendInputError("replicate block index must be nonnegative")
+        if (
+            type(self.start) is not int
+            or type(self.stop) is not int
+            or type(self.total) is not int
+            or self.start < 0
+            or self.stop <= self.start
+            or self.stop > self.total
+        ):
+            raise FormalBackendInputError("replicate block interval is invalid")
+
+    @property
+    def count(self) -> int:
+        return self.stop - self.start
+
+
+@dataclass(frozen=True, slots=True)
+class RngScheduleDescriptor:
+    """Portable identity and environment evidence for one full RNG schedule."""
+
+    schema_version: str
+    schedule_kind: str
+    seed: int
+    subject_count: int
+    replicate_count: int
+    dtype: str
+    generator_class: str
+    bit_generator_class: str
+    numpy_version: str
+    environment_fingerprint: str
+    schedule_sha256: str
+
+    def as_dict(self) -> dict[str, str | int]:
+        return {
+            "schema_version": self.schema_version,
+            "schedule_kind": self.schedule_kind,
+            "seed": self.seed,
+            "subject_count": self.subject_count,
+            "replicate_count": self.replicate_count,
+            "dtype": self.dtype,
+            "generator_class": self.generator_class,
+            "bit_generator_class": self.bit_generator_class,
+            "numpy_version": self.numpy_version,
+            "environment_fingerprint": self.environment_fingerprint,
+            "schedule_sha256": self.schedule_sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ResamplingSchedule:
+    """One complete historical schedule with immutable block views."""
+
+    descriptor: RngScheduleDescriptor
+    indices: np.ndarray
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.descriptor, RngScheduleDescriptor):
+            raise FormalBackendInputError(
+                "resampling schedule descriptor is invalid"
+            )
+        indices = np.array(self.indices, copy=True)
+        expected_shape = (
+            self.descriptor.replicate_count,
+            self.descriptor.subject_count,
+        )
+        if indices.shape != expected_shape or indices.dtype.name != self.descriptor.dtype:
+            raise FormalBackendInputError(
+                "resampling schedule payload does not match its descriptor"
+            )
+        if _schedule_sha256(indices) != self.descriptor.schedule_sha256:
+            raise FormalBackendInputError(
+                "resampling schedule payload digest does not match its descriptor"
+            )
+        indices.flags.writeable = False
+        object.__setattr__(self, "indices", indices)
+
+    def blocks(
+        self,
+        block_size: int = FORMAL_REPLICATE_BLOCK_SIZE,
+    ) -> tuple[ReplicateBlock, ...]:
+        return fixed_replicate_blocks(
+            self.descriptor.replicate_count,
+            block_size=block_size,
+        )
+
+    def block_view(self, block: ReplicateBlock) -> np.ndarray:
+        if not isinstance(block, ReplicateBlock) or block.total != self.indices.shape[0]:
+            raise FormalBackendInputError(
+                "replicate block does not match the full schedule"
+            )
+        view = self.indices[block.start : block.stop]
+        view.flags.writeable = False
+        return view
+
+
+def _schedule_sha256(indices: np.ndarray) -> str:
+    array = np.ascontiguousarray(indices)
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(
+        json.dumps(list(array.shape), separators=(",", ":")).encode("ascii")
+    )
+    digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def fixed_replicate_blocks(
+    replicate_count: int,
+    *,
+    block_size: int = FORMAL_REPLICATE_BLOCK_SIZE,
+) -> tuple[ReplicateBlock, ...]:
+    """Partition a replicate axis independently of worker assignment."""
+
+    if type(replicate_count) is not int or replicate_count < 1:
+        raise FormalBackendInputError("replicate_count must be a positive integer")
+    if type(block_size) is not int or block_size < 1:
+        raise FormalBackendInputError("block_size must be a positive integer")
+    return tuple(
+        ReplicateBlock(
+            index=index,
+            start=start,
+            stop=min(start + block_size, replicate_count),
+            total=replicate_count,
+        )
+        for index, start in enumerate(range(0, replicate_count, block_size))
+    )
+
+
+def formal_resampling_schedule(
+    schedule_kind: str,
+    subject_count: int,
+    replicate_count: int,
+    seed: int,
+) -> ResamplingSchedule:
+    """Generate one complete schedule with the historical RNG call pattern."""
+
+    kind = str(schedule_kind).strip().lower()
+    if kind not in {"permutation", "bootstrap"}:
+        raise FormalBackendInputError(
+            "schedule_kind must be 'permutation' or 'bootstrap'"
+        )
+    if type(subject_count) is not int or subject_count < 1:
+        raise FormalBackendInputError("subject_count must be a positive integer")
+    if type(replicate_count) is not int or replicate_count < 1:
+        raise FormalBackendInputError("replicate_count must be a positive integer")
+    if type(seed) is not int:
+        raise FormalBackendInputError("resampling seed must be an integer")
+    generator = np.random.default_rng(seed)
+    if kind == "permutation":
+        indices = np.empty((replicate_count, subject_count), dtype=np.int32)
+        for index in range(replicate_count):
+            indices[index] = generator.permutation(subject_count)
+    else:
+        indices = generator.integers(
+            0,
+            subject_count,
+            size=(replicate_count, subject_count),
+            dtype=np.int64,
+        )
+    generator_class = f"{type(generator).__module__}.{type(generator).__name__}"
+    bit_generator = generator.bit_generator
+    bit_generator_class = (
+        f"{type(bit_generator).__module__}.{type(bit_generator).__name__}"
+    )
+    environment_fingerprint = canonical_hash(
+        {
+            "numpy_version": np.__version__,
+            "python_version": platform.python_version(),
+            "implementation": platform.python_implementation(),
+            "platform": platform.platform(),
+            "machine": platform.machine(),
+            "generator_class": generator_class,
+            "bit_generator_class": bit_generator_class,
+        }
+    )
+    descriptor = RngScheduleDescriptor(
+        schema_version=RNG_SCHEDULE_SCHEMA,
+        schedule_kind=kind,
+        seed=seed,
+        subject_count=subject_count,
+        replicate_count=replicate_count,
+        dtype=indices.dtype.name,
+        generator_class=generator_class,
+        bit_generator_class=bit_generator_class,
+        numpy_version=np.__version__,
+        environment_fingerprint=environment_fingerprint,
+        schedule_sha256=_schedule_sha256(indices),
+    )
+    return ResamplingSchedule(descriptor=descriptor, indices=indices)
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,18 +674,12 @@ def residual_permutation_schedule(
 ) -> np.ndarray:
     """Return the explicit PCG64 residual-permutation schedule contract."""
 
-    if type(subject_count) is not int or subject_count < 1:
-        raise FormalBackendInputError("subject_count must be a positive integer")
-    if type(count) is not int or count < 1:
-        raise FormalBackendInputError("permutation count must be a positive integer")
-    if type(seed) is not int:
-        raise FormalBackendInputError("permutation seed must be an integer")
-    generator = np.random.Generator(np.random.PCG64(seed))
-    schedule = np.empty((count, subject_count), dtype=np.int32)
-    for index in range(count):
-        schedule[index] = generator.permutation(subject_count)
-    schedule.flags.writeable = False
-    return schedule
+    return formal_resampling_schedule(
+        "permutation",
+        subject_count,
+        count,
+        seed,
+    ).indices
 
 
 def freedman_lane_outcomes(
@@ -577,12 +780,12 @@ def prediction_metrics(
 def bootstrap_sample_indices(count: int, resamples: int, seed: int) -> np.ndarray:
     """Return deterministic ordered subject-index vectors."""
 
-    return np.random.default_rng(seed).integers(
-        0,
+    return formal_resampling_schedule(
+        "bootstrap",
         count,
-        size=(resamples, count),
-        dtype=np.int64,
-    )
+        resamples,
+        seed,
+    ).indices
 
 
 class StreamingBootstrapAccumulator:
@@ -823,9 +1026,13 @@ def json_safe(value: Any) -> Any:
 __all__ = [
     "BootstrapComputation",
     "BootstrapReplicateNotEstimableError",
+    "FORMAL_REPLICATE_BLOCK_SIZE",
     "FormalBackendError",
     "FormalBackendInputError",
     "PermutationComputation",
+    "ReplicateBlock",
+    "ResamplingSchedule",
+    "RngScheduleDescriptor",
     "StreamingBootstrapAccumulator",
     "bootstrap_sample_indices",
     "build_bootstrap_nuisance_plan",
@@ -833,6 +1040,8 @@ __all__ = [
     "canonical_fiber_ids",
     "finite_exposure",
     "finite_vector",
+    "fixed_replicate_blocks",
+    "formal_resampling_schedule",
     "freedman_lane_outcomes",
     "json_safe",
     "materialize_array",

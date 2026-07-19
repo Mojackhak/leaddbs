@@ -3600,6 +3600,29 @@ and nuisance operators; apply overlap in chunks/views and release each jitter
 block after durable publication. Do not cache replicate-specific overlap,
 nuisance, support, or Delta state as invariant.
 
+First Step 9 implementation slice: introduce one internal formal replicate
+block size of 250 without exposing a YAML field. The parent constructs the
+complete historical permutation or bootstrap index schedule with the exact
+existing `default_rng(seed)` method-call sequence and argument shapes. Fixed
+half-open block descriptors only lend immutable schedule slices; workers never
+reseed, jump, advance, or infer draw counts. Tests concatenate multiple block
+partitions and require byte identity with the historical full schedule,
+complete nonoverlapping coverage, and identical output when worker assignment
+order changes. The same descriptor carries NumPy version, Generator and
+BitGenerator class, schedule schema, seed, replicate count, subject count, and
+full schedule digest for later task publication and cross-environment resume.
+
+Acceptance evidence on 2026-07-19: permutation schedules match the historical
+row-by-row `default_rng(seed).permutation` payload byte-for-byte, and bootstrap
+schedules match the historical single `integers` call byte-for-byte. Fixed
+half-open slices reassemble the same payload after shuffled worker assignment;
+the descriptor records PCG64, NumPy/environment identity, axis sizes, seed, and
+the full digest. Formal LOOCV, final in-sample, and pPAM now use this shared
+schedule constructor. The focused gate passed 60 tests and 25 subtests; the
+complete regression passed 495 tests and 244 subtests. Step 9 remains open for
+durable block records, planner tasks, parallel aggregation, bootstrap merging,
+and block-level resume.
+
 - [x] **Step 9A: Add default final in-sample inference and paired formal reporting**
 
 Add one `formal_in_sample` task for every realized final endpoint whenever

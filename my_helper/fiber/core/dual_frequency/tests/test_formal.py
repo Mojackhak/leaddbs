@@ -36,6 +36,8 @@ from dual_frequency.backends.formal.common import (
     StreamingBootstrapAccumulator,
     build_bootstrap_nuisance_plan,
     build_fixed_nuisance_plan,
+    fixed_replicate_blocks,
+    formal_resampling_schedule,
 )
 from dual_frequency.backends.protocols import BootstrapNuisanceSampleNotEstimableError
 from dual_frequency.backends.statistics import (
@@ -85,6 +87,46 @@ FORMAL_TASK_IDS = {
 
 
 _SCIENTIFIC_ARRAYS: dict[str, np.ndarray] = {}
+
+
+class ResamplingScheduleBlockTest(unittest.TestCase):
+    def test_permutation_blocks_reassemble_historical_default_rng_bytes(self) -> None:
+        generator = np.random.default_rng(42)
+        expected = np.vstack(
+            [generator.permutation(16) for _ in range(11)]
+        ).astype(np.int32)
+        schedule = formal_resampling_schedule("permutation", 16, 11, 42)
+        blocks = schedule.blocks(block_size=4)
+        self.assertEqual(
+            tuple((block.start, block.stop) for block in blocks),
+            ((0, 4), (4, 8), (8, 11)),
+        )
+        shuffled = (blocks[2], blocks[0], blocks[1])
+        restored = np.concatenate(
+            [schedule.block_view(block) for block in sorted(shuffled, key=lambda x: x.index)]
+        )
+        self.assertEqual(restored.tobytes(order="C"), expected.tobytes(order="C"))
+        self.assertFalse(schedule.indices.flags.writeable)
+        self.assertTrue(schedule.descriptor.bit_generator_class.endswith(".PCG64"))
+
+    def test_bootstrap_blocks_reassemble_historical_single_integers_call(self) -> None:
+        expected = np.random.default_rng(73).integers(
+            0,
+            12,
+            size=(13, 12),
+            dtype=np.int64,
+        )
+        schedule = formal_resampling_schedule("bootstrap", 12, 13, 73)
+        blocks = fixed_replicate_blocks(13, block_size=5)
+        restored = np.concatenate(
+            [schedule.block_view(block) for block in blocks]
+        )
+        self.assertEqual(restored.tobytes(order="C"), expected.tobytes(order="C"))
+        self.assertEqual(blocks[-1].count, 3)
+        self.assertEqual(
+            schedule.descriptor.schedule_sha256,
+            formal_resampling_schedule("bootstrap", 12, 13, 73).descriptor.schedule_sha256,
+        )
 
 
 def _axis(axis_id: str, count: int, character: str) -> AxisRef:
