@@ -227,6 +227,8 @@ class FiberGridCellComputation:
 class _WeightCache:
     full_weights: np.memmap
     fold_weights: np.memmap
+    minimum_tau: float
+    minimum_counts: np.ndarray
 
     def flush(self) -> None:
         self.full_weights.flush()
@@ -420,7 +422,7 @@ def _build_weight_cache(
             request.outcome_direction,
             chunk_size=chunk_size,
         )
-    cache = _WeightCache(full, folds)
+    cache = _WeightCache(full, folds, float(minimum_tau), counts)
     cache.flush()
     return cache
 
@@ -725,6 +727,7 @@ class _FiberWorkspace:
         self.chunk_size = chunk_size
         self._temporary: tempfile.TemporaryDirectory[str] | None = None
         self.cache: _WeightCache | None = None
+        self._coverage_counts: dict[float, np.ndarray] = {}
 
     def __enter__(self) -> "_FiberWorkspace":
         self._temporary = tempfile.TemporaryDirectory(prefix="dual-frequency-fiber-")
@@ -736,26 +739,36 @@ class _FiberWorkspace:
             Path(self._temporary.name),
             chunk_size=self.chunk_size,
         )
+        self._coverage_counts[self.cache.minimum_tau] = self.cache.minimum_counts
         return self
 
     def __exit__(self, *_: object) -> None:
         if self.cache is not None:
             self.cache.flush()
         self.cache = None
+        self._coverage_counts.clear()
         if self._temporary is not None:
             self._temporary.cleanup()
         self._temporary = None
+
+    def _counts(self, tau: float) -> np.ndarray:
+        key = float(tau)
+        counts = self._coverage_counts.get(key)
+        if counts is None:
+            counts = coverage_counts(
+                self.exposure,
+                key,
+                chunk_size=self.chunk_size,
+            )
+            self._coverage_counts[key] = counts
+        return counts
 
     def evaluate_grid(self) -> tuple[FiberGridCellMetrics, ...]:
         if self.cache is None:
             raise ReferenceFiberBackendError("fiber workspace is not open")
         metrics: list[FiberGridCellMetrics] = []
         for tau in self.request.source_grid.tau_values:
-            counts = coverage_counts(
-                self.exposure,
-                tau,
-                chunk_size=self.chunk_size,
-            )
+            counts = self._counts(tau)
             for coverage in self.request.source_grid.coverage_values:
                 metrics.append(
                     _evaluate_cell(
@@ -783,11 +796,7 @@ class _FiberWorkspace:
     ) -> FiberGridCellComputation:
         if self.cache is None:
             raise ReferenceFiberBackendError("fiber workspace is not open")
-        counts = coverage_counts(
-            self.exposure,
-            tau,
-            chunk_size=self.chunk_size,
-        )
+        counts = self._counts(tau)
         return _evaluate_cell(
             self.exposure,
             self.outcome,

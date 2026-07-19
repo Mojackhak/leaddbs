@@ -3477,6 +3477,35 @@ Update support-QC classification to strict cutoffs only, including cohort
 median `< 0.20` and subject fraction `< 0.25` for `adequate`; add exact-cutoff
 fixtures so equality is not silently included in either class.
 
+Implementation slice on 2026-07-19: route the shared
+`partial_spearman_weights` entry point through the existing complete-finite
+multi-RHS kernel whenever outcome, exposure, and nuisance inputs are finite and
+the ranked nuisance design is estimable. The optimized path performs one
+outcome solve and one all-feature solve per block. Preserve the historical
+columnwise implementation as the nonfinite and rank-deficient fallback. Freeze
+direct parity for average ties, constants, nonfinite feature cells, and
+rank-deficient nuisance designs, and count linear-solver calls so passing tests
+cannot silently retain one solve per feature.
+
+The normative-fiber endpoint workspace also retains one immutable Coverage
+count vector per evaluated tau. Seed it with the minimum-tau vector already
+required to construct the maximal weight cache, reuse each vector across every
+Coverage value, and reuse the selected tau vector during final-cell
+materialization. A complete grid therefore scans exposure once per distinct tau,
+not once again for source publication.
+
+Acceptance evidence on 2026-07-19: complete finite blocks use exactly two
+linear solves and match the retained scalar implementation for average ties and
+constant columns. Nonfinite feature cells and rank-deficient nuisance designs
+take the scalar fallback with numerical parity. A three-tau normative-fiber
+grid invokes Coverage counting exactly three times across maximal-cache
+construction, grid evaluation, and selected-cell publication. The statistics
+gate passed 78 tests and 26 subtests; the statistics-plus-fiber gate passed 42
+tests and 14 subtests. The complete dual-frequency plus visualization
+regression passed with 488 tests and 241 subtests. Step 8 remains open for
+direct-voxel grid-operator reuse and one-time endpoint/fold baseline prediction
+construction.
+
 - [ ] **Step 9: Shard formal, bootstrap, pPAM, jitter, and sensitivity safely**
 
 Shard direct/fiber permutation and bootstrap, pPAM permutation, and spatial

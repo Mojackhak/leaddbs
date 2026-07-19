@@ -17,8 +17,11 @@
 > `literature_review_complete`; `threshold_policy_change_authorized`;
 > `implementation_in_progress`; `synthetic_acceptance_passed`;
 > `production_configuration_validated`;
-> `configured_production_outputs_missing`; `production_rerun_required`.
-> **Last updated.** 2026-07-17
+> `corrected_production_main_completed`;
+> `canonical_publication_and_postprocess_accepted`;
+> `configured_production_outputs_published`;
+> `sensitivity_extensions_deferred_by_user`.
+> **Last updated.** 2026-07-19
 
 ---
 
@@ -856,6 +859,14 @@ No full-sample ranking, sign, weight, or selected-feature set may leak into a
 held-out fold.
 
 ### Vectorized statistics contract
+
+The shared partial-Spearman entry point dispatches complete finite blocks to a
+rank-aware multi-RHS implementation. It ranks the outcome, all feature columns,
+and nuisance columns with average ties, fits the outcome residual once, and
+fits all feature residuals in one matrix solve. If any value is nonfinite or
+the ranked nuisance design is not estimable, it uses the retained columnwise
+finite-pair implementation. Tests must prove numerical parity and must verify
+that a complete block uses two linear solves rather than one solve per feature.
 
 `backends/statistics.py` must gain a finite-data fast path that operates on
 feature blocks rather than calling Python and `np.linalg.lstsq` once per
@@ -1960,6 +1971,15 @@ Coverage, resolver, or DeltaReference comparator is changed.
 The implementation checkpoint passes 417 dual-frequency tests and 224
 parameterized subtests, including the new add-on/reference union identity,
 missing-parent-ID failure, MATLAB process-limit, and resource-ledger cases.
+
+The 2026-07-19 statistics optimization checkpoint routes complete finite
+partial-Spearman blocks through one outcome solve and one multi-feature solve,
+while retaining the historical columnwise path for nonfinite or rank-deficient
+inputs. Normative-fiber observed work now computes Coverage counts once per
+distinct tau, including reuse of the minimum-tau weight-cache vector and the
+selected-cell vector. Direct parity, fallback parity, solver-call count, and
+tau-scan count tests pass. The complete current regression passes 488 tests and
+241 parameterized subtests.
 
 ### Default final in-sample inference
 

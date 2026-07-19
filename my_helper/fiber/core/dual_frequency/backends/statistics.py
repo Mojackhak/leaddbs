@@ -105,12 +105,12 @@ def pearson_columns(vector: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return output
 
 
-def partial_spearman_weights(
+def _partial_spearman_weights_scalar(
     outcome: np.ndarray,
     exposure: np.ndarray,
     nuisance: np.ndarray,
 ) -> np.ndarray:
-    """Compute nuisance-adjusted partial Spearman coefficients by feature."""
+    """Retain the finite-pair columnwise partial-Spearman implementation."""
 
     y = _real_array(outcome, "outcome", 1)
     x = _real_array(exposure, "exposure", 2)
@@ -157,8 +157,13 @@ def partial_spearman_weights_complete(
     if y.size <= design.shape[1] or np.linalg.matrix_rank(design) != design.shape[1]:
         raise StatisticsError("complete partial Spearman nuisance design is not estimable")
 
-    outcome_beta, *_ = np.linalg.lstsq(design, ranked_y, rcond=None)
-    exposure_beta, *_ = np.linalg.lstsq(design, ranked_x, rcond=None)
+    try:
+        outcome_beta, *_ = np.linalg.lstsq(design, ranked_y, rcond=None)
+        exposure_beta, *_ = np.linalg.lstsq(design, ranked_x, rcond=None)
+    except np.linalg.LinAlgError as exc:
+        raise StatisticsError(
+            "complete partial Spearman nuisance solve failed"
+        ) from exc
     outcome_residual = ranked_y - design @ outcome_beta
     exposure_residual = ranked_x - design @ exposure_beta
     centered_y = outcome_residual - np.mean(outcome_residual)
@@ -173,6 +178,30 @@ def partial_spearman_weights_complete(
         centered_x[:, valid].T @ centered_y
     ) / denominator[valid]
     return coefficients
+
+
+def partial_spearman_weights(
+    outcome: np.ndarray,
+    exposure: np.ndarray,
+    nuisance: np.ndarray,
+) -> np.ndarray:
+    """Use multi-RHS partial Spearman for complete inputs with a safe fallback."""
+
+    y = _real_array(outcome, "outcome", 1)
+    x = _real_array(exposure, "exposure", 2)
+    covariates = _real_array(nuisance, "nuisance", 2)
+    if y.shape[0] != x.shape[0] or y.shape[0] != covariates.shape[0]:
+        raise StatisticsError("outcome, exposure, and nuisance must share subjects")
+    if (
+        np.all(np.isfinite(y))
+        and np.all(np.isfinite(x))
+        and np.all(np.isfinite(covariates))
+    ):
+        try:
+            return partial_spearman_weights_complete(y, x, covariates)
+        except StatisticsError:
+            pass
+    return _partial_spearman_weights_scalar(y, x, covariates)
 
 
 def benefit_oriented_weights(
@@ -274,6 +303,7 @@ __all__ = [
     "classify_prediction_status",
     "linear_prediction",
     "partial_spearman_weights",
+    "partial_spearman_weights_complete",
     "pearson_columns",
     "rank_columns",
     "residualize",

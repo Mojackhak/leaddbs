@@ -7,10 +7,12 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 from urllib.parse import unquote, urlsplit
 
 import numpy as np
 
+import dual_frequency.backends.normative_fiber.reference as reference_module
 from dual_frequency.backends.normative_fiber import ReferenceFiberBackend
 from dual_frequency.cache import ArtifactStore, RunScopedArtifactPublisher, sha256_file
 from dual_frequency.contracts import (
@@ -142,6 +144,38 @@ class ReferenceFiberBackendTest(unittest.TestCase):
                 {"normative_fiber_grid_metrics", "normative_fiber_source_resolution"}
                 <= {artifact.kind for artifact in result.artifacts}
             )
+
+    def test_grid_and_selected_cell_scan_coverage_once_per_tau(self) -> None:
+        exposure, outcome, baseline, fiber_ids = _synthetic_inputs()
+        request = _request(
+            "formal",
+            exposure,
+            outcome,
+            baseline,
+            fiber_ids,
+            connectome_id="connectome_formal",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            backend = ReferenceFiberBackend(
+                RunScopedArtifactPublisher(Path(temporary), "fiber_test", "1"),
+                feature_chunk_size=11,
+            )
+            with mock.patch.object(
+                reference_module,
+                "coverage_counts",
+                wraps=reference_module.coverage_counts,
+            ) as count_coverage:
+                result = backend.run(request)
+
+        self.assertIsNotNone(result.source)
+        self.assertEqual(
+            count_coverage.call_count,
+            len(set(request.source_grid.tau_values)),
+        )
+        self.assertEqual(
+            [float(call.args[1]) for call in count_coverage.call_args_list],
+            list(request.source_grid.tau_values),
+        )
 
     def test_sensitive_role_emits_grid_only_then_formal_cell_evidence(self) -> None:
         exposure, outcome, baseline, fiber_ids = _synthetic_inputs()

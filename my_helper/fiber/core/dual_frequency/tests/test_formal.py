@@ -16,6 +16,7 @@ import numpy as np
 
 import dual_frequency.backends as public_backends
 import dual_frequency.backends.protocols as backend_protocols
+import dual_frequency.backends.statistics as statistics_module
 import dual_frequency.contracts as public_contracts
 import dual_frequency.contracts.requests as request_contracts
 from dual_frequency.backends.formal import (
@@ -797,9 +798,71 @@ class FormalBootstrapTest(unittest.TestCase):
                 np.asarray([1, 3, 2, 5, 4, 8, 7, 6], dtype=np.float64),
             )
         )
-        expected = partial_spearman_weights(outcome, exposure, nuisance)
-        actual = partial_spearman_weights_complete(outcome, exposure, nuisance)
-        np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+        expected = statistics_module._partial_spearman_weights_scalar(
+            outcome,
+            exposure,
+            nuisance,
+        )
+        complete = partial_spearman_weights_complete(outcome, exposure, nuisance)
+        dispatched = partial_spearman_weights(outcome, exposure, nuisance)
+        np.testing.assert_allclose(complete, expected, rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(dispatched, expected, rtol=1e-12, atol=1e-12)
+
+    def test_complete_partial_spearman_dispatch_uses_two_linear_solves(self) -> None:
+        outcome = np.asarray([8, 2, 7, 3, 6, 4, 5, 1], dtype=np.float64)
+        nuisance = np.arange(8, dtype=np.float64)[:, None]
+        exposure = np.column_stack(
+            tuple(
+                np.roll(np.arange(8, dtype=np.float64), shift)
+                for shift in range(5)
+            )
+        )
+        original = np.linalg.lstsq
+        with mock.patch.object(np.linalg, "lstsq", wraps=original) as solve:
+            actual = partial_spearman_weights(outcome, exposure, nuisance)
+
+        self.assertEqual(solve.call_count, 2)
+        self.assertEqual(solve.call_args_list[0].args[1].shape, (8,))
+        self.assertEqual(solve.call_args_list[1].args[1].shape, (8, 5))
+        self.assertEqual(actual.shape, (5,))
+
+    def test_partial_spearman_dispatch_preserves_scalar_fallbacks(self) -> None:
+        outcome = np.asarray([1, 2, 2, 4, 5, 7, 7, 9], dtype=np.float64)
+        base_exposure = np.column_stack(
+            (
+                np.asarray([3, 1, 4, 1, 5, 9, 2, 6], dtype=np.float64),
+                np.ones(8, dtype=np.float64),
+                np.asarray([8, 6, 7, 5, 3, 0, 9, 2], dtype=np.float64),
+            )
+        )
+        finite_nuisance = np.arange(8, dtype=np.float64)[:, None]
+        nonfinite_exposure = base_exposure.copy()
+        nonfinite_exposure[3, 2] = np.nan
+        rank_deficient_nuisance = np.column_stack(
+            (finite_nuisance[:, 0], finite_nuisance[:, 0])
+        )
+
+        for exposure, nuisance in (
+            (nonfinite_exposure, finite_nuisance),
+            (base_exposure, rank_deficient_nuisance),
+        ):
+            with self.subTest(
+                nonfinite=bool(np.any(~np.isfinite(exposure))),
+                nuisance_columns=nuisance.shape[1],
+            ):
+                expected = statistics_module._partial_spearman_weights_scalar(
+                    outcome,
+                    exposure,
+                    nuisance,
+                )
+                actual = partial_spearman_weights(outcome, exposure, nuisance)
+                np.testing.assert_allclose(
+                    actual,
+                    expected,
+                    rtol=1e-12,
+                    atol=1e-12,
+                    equal_nan=True,
+                )
 
     def test_adjusted_provider_sample_failure_is_replicate_attrition(self) -> None:
         request = _formal_request(
