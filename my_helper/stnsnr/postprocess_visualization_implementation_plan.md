@@ -9,8 +9,11 @@ deleted the earlier 112-endpoint postprocess output after review, so that
 historical render is evidence about the implementation but is not a current
 published deliverable. The PDQ-39 paired in-sample and LOOCV fit checkpoint was
 accepted on 2026-07-19. The next refinement checkpoint is the sweet/sour 2D
-spatial figure; its design must be reviewed on a single explicit scale before
-any new cohort-wide batch is allowed. This document is the implementation contract
+spatial figure. Its PDQ-39 direct-voxel implementation produced all six
+contracted PNG/PDF/JSON result triplets with zero failures on 2026-07-19 and
+reused all six results on an immediate second invocation. Internal visual and
+PDF QA passed; explicit user visual acceptance remains pending. No other scale
+or fiber spatial batch is authorized. This document is the implementation contract
 for a postprocess visualization layer that consumes formally published
 dual-frequency final-model artifacts without rerunning model fitting,
 permutation, bootstrap, jitter, or OSS-DBS. A run-store adapter is prohibited.
@@ -397,17 +400,113 @@ zero failures. The acceptance figure shows observed outcome on the shared
 horizontal axis, prediction on the shared maximum-joint-range vertical axis,
 and upper-left Spearman rho plus formal permutation p annotations.
 
-### Next checkpoint: sweet/sour 2D spatial figure
+### Accepted PDQ-39 direct-voxel spatial checkpoint
 
-The next postprocess design review concerns only the sweet/sour 2D spatial
-figure. No cohort-wide rendering is authorized by the fit-figure acceptance.
-The next checkpoint must first freeze, on one explicitly selected scale and
-model family, the source-map semantics, voxel-versus-fiber display distinction,
-slice selection, anatomy and atlas layers, color mapping, Boxsize geometry,
-labels, colorbar or legend behavior, export formats, and human-readable output
-location. Scientific inputs must continue to come only from completed canonical
-publications rather than `.runs/`. Batch implementation may begin only after
-the single-scale 2D figure is explicitly accepted.
+The first 2D spatial checkpoint is restricted to the completed PDQ-39
+direct-voxel reference and add-on final models. It does not authorize another
+scale or a normative-fiber spatial batch. Scientific heatmaps are read only
+from the completed canonical direct-voxel publication and never from `.runs/`.
+
+The checkpoint produces six independent three-by-three figures: the original
+right-sided benefit map, its one-millimetre FWHM display derivative, and its
+two-millimetre FWHM display derivative for each of the reference and add-on
+models. The indexed publication artifacts are `benefit_map.nii.gz`,
+`benefit_map_smooth_fwhm1mm.nii.gz`, and
+`benefit_map_smooth_fwhm2mm.nii.gz`. All three heatmaps remain right-sided;
+this checkpoint does not create or render a bilateral derivative. Each figure derives its own symmetric
+signed color limits from its sampled panels. No color range is shared between
+figures. The heat colorbar label is `Benefit-oriented partial Spearman rho`,
+rendered with the Greek rho glyph.
+
+The implementation reproduces the effective configuration and rendering
+contract of
+`/Users/mojackhu/Github/MyLFP/recipes/stnsnr/viz/med/single_volume.py`,
+`plugin/default/viz_defaults.py`, and
+`src/viz/visualdf.py::plot_triple_interaction_nifti` without importing MyLFP at
+runtime. Each row is one of Ax, Cor, and Sag. Columns use the 25, 50, and 75
+percent positions of the finite signed heatmap support along the row's fixed
+world axis. All panels use canonical RAS world coordinates, equal physical
+spatial aspect, the maximum shared support span, and the 30 by 25 mm inner
+Boxsize. Sampling resolution is 0.1 mm. Continuous anatomy and heat use linear
+world-space sampling; the binary mask uses nearest-neighbour sampling.
+
+The background is fixed to
+`/Volumes/VAL/STNSNr/config/atlas/7T_100um_Edlow_2019_cropped.nii.gz` and uses
+the reference grayscale zero-to-one-hundred percentile contrast with gamma
+one. The large compressed anatomy must not be converted into one full
+floating-point array. The renderer reads only the required spatial crop or
+slice data while preserving the reference pixels. Anatomy is always rendered
+before the mask and heatmap and never receives the `vik` colormap.
+
+The reference figure uses
+`/Volumes/VAL/STNSNr/config/atlas/STN_rh_mask.nii.gz`; the add-on figure uses
+`/Volumes/VAL/STNSNr/config/atlas/SNr_rh_mask.nii.gz`. The mask threshold is
+0.05. Masks are
+not filled: their boundaries are drawn after the voxel heatmap with a solid,
+fully opaque black 0.5 point stroke, so the boundary remains visible over every
+heat color.
+
+The remaining style is frozen to the MyLFP reference values: a three-by-three
+panel grid, 3 mm horizontal and vertical panel gaps, Arial typography, 7 point
+strip and axis text, 600 DPI, no title, no axis tick labels, `#D7E3E0` top
+strips, `#E3DCCF` right strips, the `vik` signed colormap, a single global
+right-side colorbar, a black 2 mm global scale bar, and a transparent figure
+canvas. The output formats are PNG, PDF, and one machine-readable JSON record
+per figure.
+
+The accepted output root is
+`/Volumes/VAL/STNSNr/summary/spot/postprocess/dual_frequency_four_model_v1/task17-pdq39-voxel-spatial-v1-20260719`.
+The human-readable relative output contract is:
+
+```text
+scales/pdq39_score/reference/voxel/
+  benefit_map_sections.png
+  benefit_map_sections.pdf
+  benefit_map_sections.json
+  benefit_map_smooth_fwhm1mm_sections.png
+  benefit_map_smooth_fwhm1mm_sections.pdf
+  benefit_map_smooth_fwhm1mm_sections.json
+  benefit_map_smooth_fwhm2mm_sections.png
+  benefit_map_smooth_fwhm2mm_sections.pdf
+  benefit_map_smooth_fwhm2mm_sections.json
+scales/pdq39_score/addon/voxel/
+  benefit_map_sections.png
+  benefit_map_sections.pdf
+  benefit_map_sections.json
+  benefit_map_smooth_fwhm1mm_sections.png
+  benefit_map_smooth_fwhm1mm_sections.pdf
+  benefit_map_smooth_fwhm1mm_sections.json
+  benefit_map_smooth_fwhm2mm_sections.png
+  benefit_map_smooth_fwhm2mm_sections.pdf
+  benefit_map_smooth_fwhm2mm_sections.json
+```
+
+Each JSON record binds the publication artifact identity and hash, final-model
+identity and selected tau and Coverage, anatomy and mask identities, slice
+coordinates, sampled ranges, color limits, rendering parameters, and PNG/PDF
+outputs. A completed reusable result requires both visual files and the matching
+JSON record. The six-figure checkpoint must pass direct PNG review, rendered-PDF
+review, font inspection, output-structure validation, publication-hash
+validation, and proof that the anatomy was not loaded as one full floating-point
+volume before any broader spatial batch can be proposed.
+
+Acceptance evidence for the right-sided contract comprises six completed
+figures with zero failures, 24 passing visualization tests, direct review of
+the reference and add-on raw PNG/PDF renderings, and embedded Arial plus Arial
+Bold PDF fonts. Source inspection found zero finite voxels at negative MNI x in
+all six selected raw or smoothed NIfTIs. A second invocation reused all six
+completed results with zero failures. Superseded bilateral outputs were moved
+out of the formal result tree and into the VAL Trash.
+
+Implementation evidence on 2026-07-19 comprises six complete results, zero
+failed results, and six reused results on the second invocation. All six PDFs
+are single-page files with embedded subset Arial and Arial Bold TrueType fonts.
+Poppler-rendered PDF review and direct PNG review found complete strips, panel
+labels, colorbars, global scale bars, anatomy, signed heatmaps, and top-layer
+black mask boundaries without clipping. Every result records a symmetric heat
+range and `background_full_float_loaded: false`. This evidence establishes
+implementation readiness but does not replace explicit user acceptance of the
+visual appearance.
 
 ## Output Contract
 

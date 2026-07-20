@@ -23,6 +23,10 @@ from my_helper.fiber.core.viz.postprocess import SCHEMA_VERSION, run_postprocess
 from my_helper.fiber.core.viz.published_artifacts import PublishedArtifactError
 from my_helper.fiber.core.viz.scene_example_inputs import prepare_scene_example_input
 from my_helper.fiber.core.viz.spatial import plot_sweet_sour_slices
+from my_helper.fiber.core.viz.voxel_sections import plot_signed_voxel_sections
+from my_helper.fiber.core.viz.voxel_section_postprocess import (
+    run_single_scale_voxel_section_postprocess,
+)
 
 
 def _summary() -> dict[str, object]:
@@ -101,6 +105,46 @@ def _nifti_inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
         nib.save(nib.Nifti1Image(data.astype(np.float32), affine), path)
         paths.append(path)
     return tuple(paths)
+
+
+def _signed_voxel_inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    heat_shape = (21, 21, 21)
+    heat_affine = np.diag([0.5, 0.5, 0.5, 1.0])
+    heat_affine[:3, 3] = -5.0
+    heat = np.full(heat_shape, np.nan, dtype=np.float32)
+    grid = np.indices(heat_shape, dtype=float)
+    support = (
+        ((grid[0] - 10.0) ** 2) / 25.0
+        + ((grid[1] - 10.0) ** 2) / 16.0
+        + ((grid[2] - 10.0) ** 2) / 9.0
+    ) <= 1.0
+    heat[support] = ((grid[0][support] - 10.0) / 5.0).astype(np.float32)
+    heat_path = tmp_path / "benefit_map.nii.gz"
+    nib.save(nib.Nifti1Image(heat, heat_affine), heat_path)
+
+    anatomy_shape = (101, 101, 101)
+    anatomy_affine = np.diag([0.1, 0.1, 0.1, 1.0])
+    anatomy_affine[:3, 3] = -5.0
+    anatomy_grid = np.indices(anatomy_shape, dtype=float)
+    anatomy = np.clip(
+        220.0
+        - np.sqrt(
+            sum((anatomy_grid[axis] - 50.0) ** 2 for axis in range(3))
+        )
+        * 4.0,
+        0.0,
+        255.0,
+    ).astype(np.uint8)
+    anatomy_path = tmp_path / "anatomy.nii.gz"
+    nib.save(nib.Nifti1Image(anatomy, anatomy_affine), anatomy_path)
+
+    center = np.asarray([65.0, 50.0, 50.0])[:, None, None, None]
+    distance = np.sqrt(np.sum((anatomy_grid - center) ** 2, axis=0))
+    mask = (distance <= 18.0).astype(np.uint8)
+    mask_path = tmp_path / "mask.nii.gz"
+    nib.save(nib.Nifti1Image(mask, anatomy_affine), mask_path)
+    return heat_path, anatomy_path, mask_path
 
 
 def _sha256(path: Path) -> str:
@@ -289,6 +333,79 @@ def _scene_example_publications(tmp_path: Path) -> tuple[Path, Path]:
         manifest=common_manifest,
     )
     return direct_root, fiber_root
+
+
+def _voxel_section_publication(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    heat_path, anatomy_path, mask_path = _signed_voxel_inputs(tmp_path / "resources")
+    root = tmp_path / "direct_voxel" / "dual_frequency_four_model_v1"
+    artifacts: dict[str, tuple[Path, str]] = {}
+    for role in ("reference", "addon"):
+        resolver_relative = (
+            f"pdq39_score/{role}/resolver"
+            if role == "reference"
+            else "pdq39_score/addon/branches/no_delta_reference/resolver"
+        )
+        raw_relative = f"{resolver_relative}/benefit_map.nii.gz"
+        raw_path = root / raw_relative
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        nib.save(nib.load(heat_path), raw_path)
+        artifacts[raw_relative] = (raw_path, "benefit_map")
+
+        final_model_path = root / "pdq39_score" / role / "final_model.json"
+        final_model_path.parent.mkdir(parents=True, exist_ok=True)
+        final_model = {
+            "schema_version": "direct_voxel_final_model_v1",
+            "final_status": "final_model_realized",
+            "final_model_id": f"final_{role}",
+            "scale_id": "pdq39_score",
+            "model_family": role,
+            "realized_final_branch": (
+                "reference" if role == "reference" else "no_delta_reference"
+            ),
+            "selected_tau_v_per_m": 200.0,
+            "selected_coverage_subjects_min": 5,
+            "artifact_relative_paths": [raw_relative],
+        }
+        final_model_path.write_text(json.dumps(final_model), encoding="utf-8")
+        artifacts[f"pdq39_score/{role}/final_model.json"] = (
+            final_model_path,
+            "final_model",
+        )
+
+        report_root = root / "pdq39_score" / role / "report"
+        display_root = report_root / "display"
+        display_root.mkdir(parents=True, exist_ok=True)
+        summary_path = report_root / "summary.json"
+        summary_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "direct_voxel_report_summary_v1",
+                    "display_only": True,
+                    "scale_id": "pdq39_score",
+                    "model_family": role,
+                    "final_model_id": f"final_{role}",
+                    "selected_tau_v_per_m": 200.0,
+                    "selected_coverage_subjects_min": 5,
+                }
+            ),
+            encoding="utf-8",
+        )
+        artifacts[f"pdq39_score/{role}/report/summary.json"] = (
+            summary_path,
+            "report_summary",
+        )
+        for name in (
+            "benefit_map_smooth_fwhm1mm.nii.gz",
+            "benefit_map_smooth_fwhm2mm.nii.gz",
+        ):
+            target = display_root / name
+            nib.save(nib.load(heat_path), target)
+            artifacts[f"pdq39_score/{role}/report/display/{name}"] = (
+                target,
+                name.removesuffix(".nii.gz"),
+            )
+    _write_publication(root, artifacts)
+    return root, anatomy_path, mask_path, mask_path
 
 
 def test_layout_preserves_inner_boxsize() -> None:
@@ -675,6 +792,112 @@ def test_scene_example_prepares_selected_scored_fibers(tmp_path: Path) -> None:
     np.testing.assert_allclose(payload["scores"].reshape(-1), [0.8, -0.6, 0.4, -0.2])
     np.testing.assert_array_equal(payload["idx"].reshape(-1), [2, 2, 2, 2])
     assert payload["fibers"].shape == (8, 3)
+
+
+def test_signed_voxel_sections_match_the_accepted_layer_and_layout_contract(
+    tmp_path: Path,
+) -> None:
+    heat_path, anatomy_path, mask_path = _signed_voxel_inputs(tmp_path)
+    output = tmp_path / "sections.png"
+    figure = plot_signed_voxel_sections(
+        heat_path,
+        background_image=anatomy_path,
+        mask_image=mask_path,
+        style_config={
+            "dpi": 72,
+            "resolution_mm": 0.5,
+            "boxsize": (12.0, 10.0),
+            "panel_gap": (1.0, 1.0),
+        },
+        output_paths=[output],
+    )
+
+    assert output.is_file()
+    assert output.stat().st_size > 1000
+    panel_axes = getattr(figure, "_mh_viz_panel_axes")
+    assert len(panel_axes) == 9
+    assert all(len(axis.images) == 2 for axis in panel_axes)
+    assert all(axis.images[0].get_zorder() == 0 for axis in panel_axes)
+    assert all(axis.images[1].get_zorder() == 2 for axis in panel_axes)
+    contours = [
+        collection
+        for axis in panel_axes
+        for collection in axis.collections
+        if collection.get_zorder() == 4
+    ]
+    assert contours
+    assert all(collection.get_alpha() == 1.0 for collection in contours)
+    assert all(
+        collection.get_linewidths()[0] == pytest.approx(0.5)
+        for collection in contours
+    )
+    assert all(
+        np.asarray(collection.get_edgecolor())[0, :3] == pytest.approx((0.0, 0.0, 0.0))
+        for collection in contours
+    )
+    metadata = getattr(figure, "_mh_viz_voxel_section_metadata")
+    assert metadata["background_full_float_loaded"] is False
+    assert metadata["background_crop_bytes"] < np.prod(
+        metadata["background_full_shape"]
+    ) * np.dtype(np.float32).itemsize
+    assert metadata["heat_limits"][0] == pytest.approx(-metadata["heat_limits"][1])
+    assert metadata["mask_layer"] == "top"
+    assert metadata["mask_color"] == "#000000"
+    assert metadata["mask_linewidth_pt"] == 0.5
+    assert metadata["colorbar_label"] == "Benefit-oriented partial Spearman ρ"
+    plt.close(figure)
+
+
+def test_single_scale_voxel_section_postprocess_writes_and_reuses_six_figures(
+    tmp_path: Path,
+) -> None:
+    publication, anatomy, reference_mask, addon_mask = _voxel_section_publication(
+        tmp_path
+    )
+    output_root = tmp_path / "postprocess"
+    arguments = {
+        "scale_id": "pdq39_score",
+        "output_root": output_root,
+        "direct_voxel_publication_root": publication,
+        "background_path": anatomy,
+        "reference_mask_path": reference_mask,
+        "addon_mask_path": addon_mask,
+        "style_overrides": {
+            "dpi": 72,
+            "resolution_mm": 0.5,
+            "boxsize": (12.0, 10.0),
+            "panel_gap": (1.0, 1.0),
+        },
+    }
+    first = run_single_scale_voxel_section_postprocess(**arguments)
+    assert first["status"] == "complete"
+    assert first["completed_count"] == 6
+    assert first["failed_count"] == 0
+    assert first["reused_count"] == 0
+
+    for role in ("reference", "addon"):
+        leaf = output_root / "scales" / "pdq39_score" / role / "voxel"
+        for stem in (
+            "benefit_map_sections",
+            "benefit_map_smooth_fwhm1mm_sections",
+            "benefit_map_smooth_fwhm2mm_sections",
+        ):
+            for extension in ("png", "pdf", "json"):
+                assert (leaf / f"{stem}.{extension}").is_file()
+            result = json.loads((leaf / f"{stem}.json").read_text(encoding="utf-8"))
+            assert result["status"] == "complete"
+            assert result["model_role"] == role
+            assert result["render_metadata"]["background_full_float_loaded"] is False
+            assert result["render_metadata"]["mask_layer"] == "top"
+            if stem == "benefit_map_sections":
+                relative = result["source_artifacts"]["heatmap"]["relative_path"]
+                assert relative.endswith("/resolver/benefit_map.nii.gz")
+                assert "bilateral" not in relative
+
+    second = run_single_scale_voxel_section_postprocess(**arguments)
+    assert second["status"] == "complete"
+    assert second["failed_count"] == 0
+    assert second["reused_count"] == 6
 
 
 def test_legacy_matlab_visualization_functions_are_merged() -> None:

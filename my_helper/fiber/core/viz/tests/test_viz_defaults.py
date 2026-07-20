@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from my_helper.fiber.core.viz.plugin.default import fit_cfg, get_fit_cfg
+from my_helper.fiber.core.viz.plugin.default import (
+    fit_cfg,
+    get_fit_cfg,
+    get_voxel_section_cfg,
+    voxel_section_cfg,
+)
 
 
 def test_fit_cfg_preserves_reference_six_to_five_panel_geometry() -> None:
@@ -39,3 +44,38 @@ def test_get_fit_cfg_returns_an_isolated_validated_copy() -> None:
 
     with pytest.raises(KeyError, match="unknown fit visualization settings"):
         get_fit_cfg({"selected_tau": 400.0})
+
+
+def test_voxel_section_cfg_matches_the_accepted_mylfp_contract() -> None:
+    assert voxel_section_cfg["boxsize"] == (30.0, 25.0)
+    assert voxel_section_cfg["panel_gap"] == (3.0, 3.0)
+    assert voxel_section_cfg["percent_list"] == (25.0, 50.0, 75.0)
+    assert voxel_section_cfg["facets"] == ("Ax", "Cor", "Sag")
+    assert voxel_section_cfg["resolution_mm"] == 0.1
+    assert voxel_section_cfg["background_percentiles"] == (0.0, 100.0)
+    assert voxel_section_cfg["heat_scale_mode"] == "symmetric"
+    assert voxel_section_cfg["mask_color"] == "#000000"
+    assert voxel_section_cfg["mask_alpha"] == 1.0
+    assert voxel_section_cfg["mask_linewidth_pt"] == 0.5
+    assert voxel_section_cfg["mask_layer"] == "top"
+    assert voxel_section_cfg["colorbar_label"] == (
+        "Benefit-oriented partial Spearman ρ"
+    )
+    assert voxel_section_cfg["label_top_bg_color"] == "#D7E3E0"
+    assert voxel_section_cfg["label_right_bg_color"] == "#E3DCCF"
+    assert voxel_section_cfg["global_scale_bar_length_mm"] == 2.0
+    assert voxel_section_cfg["dpi"] == 600
+    assert voxel_section_cfg["transparent"] is True
+
+
+def test_get_voxel_section_cfg_returns_an_isolated_validated_copy() -> None:
+    configured = get_voxel_section_cfg({"dpi": 72, "resolution_mm": 0.5})
+    configured["boxsize"] = (12.0, 10.0)
+
+    assert configured["dpi"] == 72
+    assert configured["resolution_mm"] == 0.5
+    assert voxel_section_cfg["dpi"] == 600
+    assert voxel_section_cfg["boxsize"] == (30.0, 25.0)
+
+    with pytest.raises(KeyError, match="unknown voxel-section visualization settings"):
+        get_voxel_section_cfg({"scale_id": "pdq39_score"})
