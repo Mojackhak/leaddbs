@@ -970,5 +970,13 @@ The segment was stopped under the earlier 32-GiB task charge. That charge is
 replaced by a measured 48-GiB solver grant while the cumulative managed ceiling
 remains 64 GiB and the sole-solver token remains unchanged. This avoids
 duplicating FEM and OSS work through smaller execution chunks without admitting
-the historical unchunked row that reached about 72.8 GiB. The real gate remains
-open until all ten samples of one 3500-fiber chunk satisfy the revised bounds.
+the historical unchunked row that reached about 72.8 GiB.
+
+Segment 0004 completed all ten samples of one exact 3500-fiber `Omega_max`
+chunk. One-second sampling measured a solver peak of 42,068,082,688 bytes and a
+complete-descendant peak of 42,447,421,440 bytes. Minimum available memory
+remained 78,255,472,640 bytes, swap growth stayed `< 1` byte, and VAL remained
+mounted. The completed chunk workspace was removed and the next ordered
+3500-fiber chunk began, proving successful return rather than mere process
+termination. The real resource gate is therefore closed for formal continuation
+under the 48-GiB sole-solver charge and 64-GiB cumulative ceiling.

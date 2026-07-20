@@ -5003,8 +5003,15 @@ minimum available memory remained 77,078,921,216 bytes, swap growth stayed
 crossed the earlier 32-GiB task charge, not because it crossed the 64-GiB
 managed ceiling. The measured contract therefore charges the sole solver task
 48 GiB while preserving the 64-GiB cumulative ceiling and the existing reserve.
-Formal continuation must still observe all ten samples of the chunk before the
-real resource gate closes.
+Formal continuation then completed all ten samples of one exact 3500-fiber
+`Omega_max` chunk. One-second sampling measured a segment-0004 solver peak of
+42,068,082,688 bytes and a complete-descendant peak of 42,447,421,440 bytes;
+minimum available memory remained 78,255,472,640 bytes, swap growth stayed
+`< 1` byte, and VAL remained mounted. Removal of the completed chunk workspace
+and creation of the next ordered 3500-fiber chunk prove that the full logical
+chunk returned successfully. This closes the real resource gate and permits the
+independent OSS child to continue under the 48-GiB sole-solver charge and
+64-GiB cumulative ceiling.
 
 ---
 

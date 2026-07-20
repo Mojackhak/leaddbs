@@ -2587,8 +2587,16 @@ descendant tree. Minimum available memory remained 77,078,921,216 bytes, swap
 growth stayed `< 1` byte, and VAL remained mounted. The run was stopped because
 that result exceeded the earlier 32-GiB charge. The evidence supports a 48-GiB
 sole-solver charge under the unchanged 64-GiB cumulative ceiling and reserve;
-it does not support restoring the historical unchunked 10320-fiber row. All ten
-samples of one 3500-fiber chunk must still pass before the real gate closes.
+it does not support restoring the historical unchunked 10320-fiber row.
+
+Segment 0004 subsequently completed all ten samples of one exact 3500-fiber
+`Omega_max` chunk. One-second sampling measured 42,068,082,688 bytes of solver
+RSS and 42,447,421,440 bytes across the complete descendant tree. Minimum
+available memory remained 78,255,472,640 bytes, swap growth stayed `< 1` byte,
+and VAL remained mounted. The completed workspace was removed and the next
+ordered chunk began. This closes the real resource gate for continued formal
+OSS execution while preserving the 48-GiB sole-solver charge, 64-GiB cumulative
+ceiling, and the prohibition on the historical unchunked row.
 
 The accepted v8 jitter exercise exposed one final-linked dependency-selection
 defect after every physical block and every reference endpoint had completed.
