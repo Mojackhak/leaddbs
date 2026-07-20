@@ -155,6 +155,8 @@ class OSSActivationRuntimeRequest:
     connectome_feature_hash: str
     settings: OSSScientificSettings
     allow_expensive_producers: bool
+    simulation_feature_axis: AxisRef | None = None
+    simulation_feature_ids: np.ndarray | None = None
     workers: int = DEFAULT_ROW_WORKERS
 
     def __post_init__(self) -> None:
@@ -203,6 +205,30 @@ class OSSActivationRuntimeRequest:
                 "feature_ids must match the exact final feature axis"
             )
         object.__setattr__(self, "feature_ids", feature_ids)
+        simulation_axis = self.simulation_feature_axis or self.feature_axis
+        if not isinstance(simulation_axis, AxisRef):
+            raise ActivationProviderError(
+                "simulation_feature_axis must be an AxisRef"
+            )
+        simulation_ids = activation_universe(
+            feature_ids
+            if self.simulation_feature_ids is None
+            else self.simulation_feature_ids
+        )
+        if simulation_ids.size != simulation_axis.count:
+            raise ActivationProviderError(
+                "simulation_feature_ids must match simulation_feature_axis"
+            )
+        positions = np.searchsorted(simulation_ids, feature_ids)
+        if (
+            np.any(positions >= simulation_ids.size)
+            or not np.array_equal(simulation_ids[positions], feature_ids)
+        ):
+            raise ActivationProviderError(
+                "the final feature axis must be an exact ordered subset of the simulation axis"
+            )
+        object.__setattr__(self, "simulation_feature_axis", simulation_axis)
+        object.__setattr__(self, "simulation_feature_ids", simulation_ids)
         sources = tuple(self.sources)
         if not sources or not all(
             isinstance(source, CanonicalStimulationSource) for source in sources
@@ -484,6 +510,8 @@ class OSSActivationProvider:
                 rows=tuple(item.row for item in producer_requests),
                 settings=request.settings,
                 allow_expensive_producers=request.allow_expensive_producers,
+                simulation_feature_axis=request.simulation_feature_axis,
+                simulation_feature_ids=request.simulation_feature_ids,
                 workers=request.workers,
             )
         )
@@ -560,8 +588,8 @@ class OSSActivationProvider:
                     subject_id=source_batch[0].subject_id,
                     side=source_batch[0].side,
                     source_id=_logical_row_id(source_batch),
-                    feature_axis=request.feature_axis,
-                    feature_ids=request.feature_ids,
+                    feature_axis=request.simulation_feature_axis,
+                    feature_ids=request.simulation_feature_ids,
                     geometry_hash=geometry_hash,
                     stimulation_hash=stimulation_hash,
                     component_frequency_hash=component_frequency_hash,

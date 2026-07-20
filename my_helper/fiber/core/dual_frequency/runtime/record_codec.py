@@ -24,6 +24,7 @@ from ..contracts import (
     FormalOperatorScratchRecord,
     FormalResult,
     ObservedResult,
+    OSSAxisEquivalenceGroupRecord,
     PPAMObservedWorkspaceRecord,
     PreparedExposureRecord,
     PPAMPermutationBlockRecord,
@@ -58,6 +59,7 @@ _ROOT_TYPES = {
     "BranchRecord": BranchRecord,
     "FinalModelRecord": FinalModelRecord,
     "FinalSelectionRecord": FinalSelectionRecord,
+    "OSSAxisEquivalenceGroupRecord": OSSAxisEquivalenceGroupRecord,
     "FormalOperatorScratchRecord": FormalOperatorScratchRecord,
     "SensitiveRecord": SensitiveRecord,
     "FormalResult": FormalResult,
@@ -364,6 +366,20 @@ _FINAL_SELECTION_FIELDS = frozenset(
         "final_model",
         "reason_codes",
         "causal_task_ids",
+    }
+)
+_OSS_AXIS_EQUIVALENCE_FIELDS = frozenset(
+    {
+        "group_id",
+        "model_family",
+        "gate_status",
+        "final_feature_axis",
+        "omega_feature_axis",
+        "omega_cache_kind",
+        "omega_cache_semantic_sha256",
+        "endpoint_ids",
+        "row_decision_ids",
+        "artifacts",
     }
 )
 _OBSERVED_RESULT_FIELDS = frozenset({"source", "artifacts"})
@@ -965,6 +981,49 @@ def _decode_final_selection(
     )
 
 
+def _decode_oss_axis_equivalence(
+    value: object,
+    location: str,
+) -> OSSAxisEquivalenceGroupRecord:
+    payload = _object(value, location, _OSS_AXIS_EQUIVALENCE_FIELDS)
+    return OSSAxisEquivalenceGroupRecord(
+        group_id=_text(payload["group_id"], f"{location}.group_id"),
+        model_family=_text(payload["model_family"], f"{location}.model_family"),
+        gate_status=_text(payload["gate_status"], f"{location}.gate_status"),
+        final_feature_axis=_decode_axis(
+            payload["final_feature_axis"],
+            f"{location}.final_feature_axis",
+        ),
+        omega_feature_axis=_decode_axis(
+            payload["omega_feature_axis"],
+            f"{location}.omega_feature_axis",
+        ),
+        omega_cache_kind=_text(
+            payload["omega_cache_kind"],
+            f"{location}.omega_cache_kind",
+        ),
+        omega_cache_semantic_sha256=_text(
+            payload["omega_cache_semantic_sha256"],
+            f"{location}.omega_cache_semantic_sha256",
+        ),
+        endpoint_ids=_tuple_of(
+            payload["endpoint_ids"],
+            f"{location}.endpoint_ids",
+            _text,
+        ),
+        row_decision_ids=_tuple_of(
+            payload["row_decision_ids"],
+            f"{location}.row_decision_ids",
+            _text,
+        ),
+        artifacts=_tuple_of(
+            payload["artifacts"],
+            f"{location}.artifacts",
+            _decode_artifact,
+        ),
+    )
+
+
 def _decode_observed_result(value: object, location: str) -> ObservedResult:
     payload = _object(value, location, _OBSERVED_RESULT_FIELDS)
     return ObservedResult(
@@ -1455,6 +1514,7 @@ _ROOT_DECODERS: dict[str, Callable[[object, str], object]] = {
     "BranchRecord": _decode_branch,
     "FinalModelRecord": _decode_final_model,
     "FinalSelectionRecord": _decode_final_selection,
+    "OSSAxisEquivalenceGroupRecord": _decode_oss_axis_equivalence,
     "FormalOperatorScratchRecord": _decode_formal_operator_scratch,
     "SensitiveRecord": _decode_sensitive,
     "FormalResult": _decode_formal_result,

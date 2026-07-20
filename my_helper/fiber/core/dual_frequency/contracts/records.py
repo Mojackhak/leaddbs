@@ -69,6 +69,7 @@ FINAL_SELECTION_STATUSES = frozenset(
         "execution_failure",
     }
 )
+OSS_AXIS_GATE_STATUSES = frozenset({"accepted_omega_max", "rejected_final_axis"})
 _REASON_CODE = re.compile(r"^[a-z][a-z0-9_]*$")
 RESAMPLING_REPLICATE_BLOCK_SIZE = 250
 PPAM_OPERATOR_SCRATCH_SCHEMA = "dual_frequency_ppam_operator_scratch_v1"
@@ -1736,6 +1737,74 @@ class FinalSelectionRecord:
     @property
     def identifier(self) -> str:
         return f"final_selection_{canonical_hash(asdict(self), length=20)}"
+
+
+@dataclass(frozen=True)
+class OSSAxisEquivalenceGroupRecord:
+    """Immutable group decision selecting the OSS simulation fiber axis."""
+
+    group_id: str
+    model_family: str
+    gate_status: str
+    final_feature_axis: AxisRef
+    omega_feature_axis: AxisRef
+    omega_cache_kind: str
+    omega_cache_semantic_sha256: str
+    endpoint_ids: tuple[str, ...]
+    row_decision_ids: tuple[str, ...]
+    artifacts: tuple[ArtifactRef, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "group_id", _token(self.group_id, "group_id"))
+        family = _token(self.model_family, "model_family")
+        if not family.endswith("fiber"):
+            raise RecordError("OSS axis equivalence requires a normative-fiber family")
+        object.__setattr__(self, "model_family", family)
+        status = _token(self.gate_status, "gate_status")
+        if status not in OSS_AXIS_GATE_STATUSES:
+            raise RecordError(f"unsupported OSS axis gate status {status!r}")
+        object.__setattr__(self, "gate_status", status)
+        if not isinstance(self.final_feature_axis, AxisRef) or not isinstance(
+            self.omega_feature_axis, AxisRef
+        ):
+            raise RecordError("OSS axis gate requires final and Omega AxisRef values")
+        if self.omega_feature_axis.count < self.final_feature_axis.count:
+            raise RecordError("Omega axis cannot be smaller than the final feature axis")
+        object.__setattr__(
+            self,
+            "omega_cache_kind",
+            _token(self.omega_cache_kind, "omega_cache_kind"),
+        )
+        object.__setattr__(
+            self,
+            "omega_cache_semantic_sha256",
+            _sha256(
+                self.omega_cache_semantic_sha256,
+                "omega_cache_semantic_sha256",
+            ),
+        )
+        endpoint_ids = tuple(
+            sorted(_token(value, "endpoint_id") for value in self.endpoint_ids)
+        )
+        if not endpoint_ids or len(set(endpoint_ids)) != len(endpoint_ids):
+            raise RecordError("OSS axis gate endpoint_ids must be nonempty and unique")
+        object.__setattr__(self, "endpoint_ids", endpoint_ids)
+        decision_ids = tuple(
+            sorted(_token(value, "row_decision_id") for value in self.row_decision_ids)
+        )
+        if not decision_ids or len(set(decision_ids)) != len(decision_ids):
+            raise RecordError(
+                "OSS axis gate row_decision_ids must be nonempty and unique"
+            )
+        object.__setattr__(self, "row_decision_ids", decision_ids)
+        artifacts = tuple(self.artifacts)
+        if not all(isinstance(item, ArtifactRef) for item in artifacts):
+            raise RecordError("OSS axis gate artifacts must contain ArtifactRef values")
+        object.__setattr__(self, "artifacts", artifacts)
+
+    @property
+    def identifier(self) -> str:
+        return f"oss_axis_gate_{canonical_hash(asdict(self), length=20)}"
 
 
 @dataclass(frozen=True)

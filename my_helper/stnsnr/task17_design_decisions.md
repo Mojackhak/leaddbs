@@ -6,6 +6,7 @@
 decision_record_active
 task17_implementation_in_progress
 partial_synthetic_acceptance_passed
+oss_axis_gate_synthetic_acceptance_passed
 production_configuration_validated
 corrected_production_rerun_required
 ```

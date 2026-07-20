@@ -2549,6 +2549,21 @@ and 392 endpoint pPAM tasks. The corrected combined plan contains 1194 tasks:
 448 immutable roots, 240 jitter blocks, two OSS gate tasks, and 504 endpoint
 statistics and pPAM tasks.
 
+Implementation checkpoint on 2026-07-20: the production loader now recovers
+and validates the portable `Omega_max` descriptor without changing the
+completed parent. Live validation covered all 56 fiber endpoints and recovered
+the two exact axis pairs, reference 3401 to 10320 fibers and add-on 2004 to
+7193 fibers. The extension compiler emits the two group gates and the real
+independent OSS dry plan contains 590 tasks. Each observed workspace depends
+on one gate. The implemented gate persists one immutable decision per physical
+row, retains all ten axon-state samples during comparison, publishes both
+standard row caches with an O(1) manifest in fiber count, and selects back to
+the locked final axis before endpoint fitting. Synthetic PASS, FAIL, resume,
+codec, resource-token, exact-subset, and constant-manifest tests passed. The
+complete dual-frequency regression passed 530 tests and 310 subtests outside
+the restricted system-monitoring sandbox. Formal real solver decisions and the
+independent OSS child remain open; no formal OSS child has started.
+
 The accepted v8 jitter exercise exposed one final-linked dependency-selection
 defect after every physical block and every reference endpoint had completed.
 An add-on endpoint closure intentionally contains both its own prepared exposure

@@ -3365,6 +3365,8 @@ class StudyRuntimeInputProvider:
         *,
         workers: int,
         allow_expensive_producers: bool,
+        simulation_feature_axis: AxisRef | None = None,
+        simulation_feature_ids: np.ndarray | None = None,
     ) -> OSSActivationRuntimeRequest:
         """Build exact cache-first OSS rows for one realized fiber final."""
 
@@ -3443,6 +3445,8 @@ class StudyRuntimeInputProvider:
             connectome_feature_hash=self._path_hash(connectomes[0].path),
             settings=settings,
             allow_expensive_producers=allow_expensive_producers,
+            simulation_feature_axis=simulation_feature_axis,
+            simulation_feature_ids=simulation_feature_ids,
             workers=workers,
         )
 

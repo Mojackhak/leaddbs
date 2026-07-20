@@ -207,6 +207,25 @@ class ExecutorTest(unittest.TestCase):
                 self.assertEqual(grant.memory_bytes, memory_bytes)
                 self.assertEqual(grant.connectome_io, connectome_io)
 
+    def test_oss_axis_gate_owns_the_single_solver_token(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        gate = _task(
+            endpoint,
+            "oss_axis_equivalence_synthetic",
+            "establish_oss_axis_equivalence",
+        )
+        grant = _ResourceLedger.request(gate)
+        self.assertEqual(
+            (grant.memory_bytes, grant.connectome_io, grant.solver),
+            (8 * 1024**3, 1, 1),
+        )
+
     def test_jitter_block_admission_enforces_cumulative_managed_memory(self) -> None:
         ledger = _ResourceLedger(workers=12)
         ledger.available_memory = 128 * 1024**3

@@ -740,7 +740,7 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
             )
         self.assertEqual(executor.rows, [])
 
-    def test_rejects_backend_attestation_change_during_execution(self) -> None:
+    def test_backend_attestation_is_cached_once_across_rows(self) -> None:
         executor = _FakeOSSRowExecutor()
         source = self._publish_source(
             "attestation-change-source",
@@ -758,15 +758,15 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
                 else "changed-toolchain-version"
             )
 
-        with self.assertRaisesRegex(
-            OSSProducerExecutionError,
-            "implementation changed during OSS row production",
-        ):
-            self._toolchain(
-                executor,
-                backend_version_resolver=resolver,
-            ).produce(self._request((source,), delivery_mode="alternating"))
-        self.assertEqual(len(executor.rows), 1)
+        toolchain = self._toolchain(
+            executor,
+            backend_version_resolver=resolver,
+        )
+        request = self._request((source,), delivery_mode="alternating")
+        toolchain.produce(request)
+        toolchain.produce(request)
+        self.assertEqual(calls, 1)
+        self.assertEqual(len(executor.rows), 2)
 
     def test_backend_attestation_covers_all_core_python_modules(self) -> None:
         repository = self.root / "attestation-repository"

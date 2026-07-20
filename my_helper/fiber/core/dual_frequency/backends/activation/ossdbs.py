@@ -6,15 +6,15 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 import hashlib
+import io
 import json
 from pathlib import Path
-import tempfile
 
 import numpy as np
 
 from ...cache import (
     CacheFileMetadata,
-    CacheItem,
+    CachedFile,
     ContentAddressedCache,
     RunScopedArtifactPublisher,
 )
@@ -252,6 +252,8 @@ class OSSRowBatchRequest:
     rows: tuple[OSSRowInput, ...]
     settings: OSSScientificSettings
     allow_expensive_producers: bool
+    simulation_feature_axis: AxisRef | None = None
+    simulation_feature_ids: np.ndarray | None = None
     workers: int = DEFAULT_ROW_WORKERS
 
     def __post_init__(self) -> None:
@@ -274,6 +276,26 @@ class OSSRowBatchRequest:
         if ids.size != self.feature_axis.count:
             raise OSSBackendError("feature_ids must match feature_axis")
         object.__setattr__(self, "feature_ids", ids)
+        simulation_axis = self.simulation_feature_axis or self.feature_axis
+        if not isinstance(simulation_axis, AxisRef):
+            raise OSSBackendError("simulation_feature_axis must be an AxisRef")
+        simulation_ids = activation_universe(
+            ids if self.simulation_feature_ids is None else self.simulation_feature_ids
+        )
+        if simulation_ids.size != simulation_axis.count:
+            raise OSSBackendError(
+                "simulation_feature_ids must match simulation_feature_axis"
+            )
+        positions = np.searchsorted(simulation_ids, ids)
+        if (
+            np.any(positions >= simulation_ids.size)
+            or not np.array_equal(simulation_ids[positions], ids)
+        ):
+            raise OSSBackendError(
+                "the final feature axis must be an exact ordered subset of the simulation axis"
+            )
+        object.__setattr__(self, "simulation_feature_axis", simulation_axis)
+        object.__setattr__(self, "simulation_feature_ids", simulation_ids)
         rows = tuple(self.rows)
         if not rows or not all(isinstance(row, OSSRowInput) for row in rows):
             raise OSSBackendError("rows must contain typed OSSRowInput values")
@@ -290,8 +312,13 @@ class OSSRowBatchRequest:
         for row in rows:
             if row.subject_id not in expected_subjects:
                 raise OSSBackendError("row subject is outside the declared subject axis")
-            if row.feature_axis != self.feature_axis or not np.array_equal(row.feature_ids, ids):
-                raise OSSBackendError("every OSS row must use final.valid_feature_axis exactly")
+            if row.feature_axis != simulation_axis or not np.array_equal(
+                row.feature_ids,
+                simulation_ids,
+            ):
+                raise OSSBackendError(
+                    "every OSS row must use the selected simulation feature axis exactly"
+                )
             identity = (row.subject_id, row.side, row.source_id)
             if identity in observed_keys:
                 raise OSSBackendError("duplicate subject/side/source OSS row")
@@ -341,20 +368,31 @@ class OSSRowMaterializer:
         if missing_by_digest:
             if self.producer is None:
                 raise OSSBackendError("authorized cache misses require an OSS row producer")
-            self._produce_missing(tuple(missing_by_digest.values()), request.workers)
+            self._produce_missing(
+                tuple(missing_by_digest.values()),
+                request.settings,
+                request.workers,
+            )
             for _row, key in missing_by_digest.values():
                 entries[key.digest] = self.cache.resolve(key)
         if any(entry is None for entry in entries.values()):
             raise OSSBackendError("an OSS cache entry remained unavailable after production")
 
         side_values: dict[tuple[str, str], list[np.ndarray]] = defaultdict(list)
+        simulation_ids = request.simulation_feature_ids
+        assert simulation_ids is not None
+        final_positions = np.searchsorted(simulation_ids, request.feature_ids)
         for row, key in keyed_rows:
             entry = entries[key.digest]
             assert entry is not None
             ids, probabilities = self._load_entry(entry.path)
-            if not np.array_equal(ids, request.feature_ids):
-                raise OSSBackendError("cached OSS row feature axis differs from final axis")
-            side_values[(row.subject_id, row.side)].append(probabilities)
+            if not np.array_equal(ids, simulation_ids):
+                raise OSSBackendError(
+                    "cached OSS row feature axis differs from the selected simulation axis"
+                )
+            side_values[(row.subject_id, row.side)].append(
+                probabilities[final_positions]
+            )
         side_rows: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
         for key, values in side_values.items():
             merged = values[0]
@@ -436,74 +474,115 @@ class OSSRowMaterializer:
     def _produce_missing(
         self,
         missing: tuple[tuple[OSSRowInput, ScientificCacheKey], ...],
+        settings: OSSScientificSettings,
         workers: int,
     ) -> None:
         assert self.producer is not None
         del workers
         for row, key in missing:
-            self._produce_one(row, key)
+            self._produce_one(row, key, settings)
 
-    def _produce_one(self, row: OSSRowInput, key: ScientificCacheKey) -> None:
+    def _produce_one(
+        self,
+        row: OSSRowInput,
+        key: ScientificCacheKey,
+        settings: OSSScientificSettings,
+    ) -> None:
         assert self.producer is not None
         product = self.producer(row)
         if not isinstance(product, OSSRowProduct):
             raise OSSBackendError("OSS row producer must return OSSRowProduct")
         if not np.array_equal(product.feature_ids, row.feature_ids):
             raise OSSBackendError("OSS row producer returned a different feature axis")
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            ids_path = root / "fiber_ids.npy"
-            probability_path = root / "probabilities.npy"
-            metadata_path = root / "row_metadata.json"
-            np.save(ids_path, product.feature_ids, allow_pickle=False)
-            np.save(probability_path, product.probabilities, allow_pickle=False)
-            metadata_path.write_text(
-                json.dumps(
-                    {
-                        "schema_version": "dual_frequency_oss_row_v1",
-                        "scientific_identity": key.digest,
-                        "feature_axis_sha256": row.feature_axis.sha256,
-                        "n_fibers": row.feature_axis.count,
-                        "backend_name": key.backend_name,
-                        "backend_version": key.backend_version,
-                    },
-                    sort_keys=True,
-                    indent=2,
-                    ensure_ascii=True,
-                    allow_nan=False,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            items = tuple(
-                CacheItem(str(int(fiber_id)), canonical_hash({"fiber_id": int(fiber_id)}))
-                for fiber_id in product.feature_ids
-            )
-            self.cache.publish(
-                key,
+        self.publish_product(row, key, settings, product)
+
+    def publish_product(
+        self,
+        row: OSSRowInput,
+        key: ScientificCacheKey,
+        settings: OSSScientificSettings,
+        product: OSSRowProduct,
+    ) -> None:
+        """Publish one row with constant-size manifest metadata and one payload write."""
+
+        if (
+            not isinstance(row, OSSRowInput)
+            or not isinstance(settings, OSSScientificSettings)
+            or not isinstance(product, OSSRowProduct)
+        ):
+            raise TypeError("row, settings, and product must be typed OSS values")
+        if build_oss_row_cache_key(row, settings).digest != key.digest:
+            raise OSSBackendError("row cache key differs from the supplied row identity")
+        if not np.array_equal(product.feature_ids, row.feature_ids):
+            raise OSSBackendError("OSS row product differs from the requested feature axis")
+
+        def npy_bytes(value: np.ndarray) -> bytes:
+            stream = io.BytesIO()
+            np.save(stream, value, allow_pickle=False)
+            return stream.getvalue()
+
+        ids_bytes = npy_bytes(product.feature_ids)
+        probabilities_bytes = npy_bytes(product.probabilities)
+        metadata_bytes = (
+            json.dumps(
                 {
-                    "fiber_ids.npy": ids_path,
-                    "probabilities.npy": probability_path,
-                    "row_metadata.json": metadata_path,
+                    "schema_version": "dual_frequency_oss_row_v2",
+                    "scientific_identity": key.digest,
+                    "feature_axis_sha256": row.feature_axis.sha256,
+                    "n_fibers": row.feature_axis.count,
+                    "backend_name": key.backend_name,
+                    "backend_version": key.backend_version,
+                    "manifest_item_policy": "row_level_only",
                 },
-                items=items,
-                metadata={
-                    "fiber_ids.npy": CacheFileMetadata(
-                        dtype=product.feature_ids.dtype.name,
-                        shape=product.feature_ids.shape,
-                        axes=(row.feature_axis,),
-                        units="fiber_id",
-                        space="right_canonical",
-                    ),
-                    "probabilities.npy": CacheFileMetadata(
-                        dtype=product.probabilities.dtype.name,
-                        shape=product.probabilities.shape,
-                        axes=(row.feature_axis,),
-                        units="probability",
-                        space="right_canonical",
-                    ),
-                },
+                sort_keys=True,
+                indent=2,
+                ensure_ascii=True,
+                allow_nan=False,
             )
+            + "\n"
+        ).encode("utf-8")
+        payloads = {
+            "fiber_ids.npy": (
+                ids_bytes,
+                CacheFileMetadata(
+                    dtype=product.feature_ids.dtype.name,
+                    shape=product.feature_ids.shape,
+                    axes=(row.feature_axis,),
+                    units="fiber_id",
+                    space="right_canonical",
+                ),
+            ),
+            "probabilities.npy": (
+                probabilities_bytes,
+                CacheFileMetadata(
+                    dtype=product.probabilities.dtype.name,
+                    shape=product.probabilities.shape,
+                    axes=(row.feature_axis,),
+                    units="probability",
+                    space="right_canonical",
+                ),
+            ),
+            "row_metadata.json": (metadata_bytes, CacheFileMetadata()),
+        }
+
+        def _cache_producer(staging: Path) -> tuple[CachedFile, ...]:
+            output = []
+            for relative_path in sorted(payloads):
+                data, metadata = payloads[relative_path]
+                target = staging / relative_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+                output.append(
+                    CachedFile(
+                        relative_path=relative_path,
+                        sha256=hashlib.sha256(data).hexdigest(),
+                        size_bytes=len(data),
+                        metadata=metadata,
+                    )
+                )
+            return tuple(output)
+
+        self.cache.publish_generated(key, _cache_producer, items=())
 
     @staticmethod
     def _load_entry(path: Path) -> tuple[np.ndarray, np.ndarray]:

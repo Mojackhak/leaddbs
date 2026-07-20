@@ -445,6 +445,18 @@ class WorkflowService:
                     )
                     else None
                 ),
+                sensitivity_bases=(
+                    checkpoint.bases
+                    if self.provider is None
+                    or callable(
+                        getattr(
+                            self.provider,
+                            "oss_producer_toolchain",
+                            None,
+                        )
+                    )
+                    else None
+                ),
             )
             checkpoint_root_ids = tuple(
                 task.task_id for task in extension_plan.tasks if task.checkpoint_only

@@ -420,6 +420,64 @@ class OSSRowMaterializerTest(unittest.TestCase):
                 np.asarray([0.0, 0.1, 0.37, 0.9, 1.0], dtype=np.float32),
             )
 
+    def test_omega_simulation_rows_are_cropped_to_the_locked_final_axis(self) -> None:
+        final_axis = AxisRef("final-fibers", 2, "1" * 64)
+        final_ids = np.asarray([102, 104], dtype=np.int64)
+        simulation_axis = AxisRef("omega-fibers", 5, "2" * 64)
+        simulation_ids = np.arange(101, 106, dtype=np.int64)
+        rows = _rows(self.subjects, simulation_axis, simulation_ids)
+
+        def producer(row: OSSRowInput) -> OSSRowProduct:
+            return OSSRowProduct(row.feature_ids, self._values(row))
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            batch = OSSRowMaterializer(
+                ContentAddressedCache(root / "cache"),
+                RunScopedArtifactPublisher(root / "run", "oss_test", "1"),
+                producer=producer,
+            ).materialize(
+                OSSRowBatchRequest(
+                    final_model=_final("scale-omega", final_axis),
+                    connectome_role="formal",
+                    subject_axis=self.subject_axis,
+                    subject_ids=self.subjects,
+                    feature_axis=final_axis,
+                    feature_ids=final_ids,
+                    rows=rows,
+                    settings=OSSScientificSettings(backend_version="2.2.0"),
+                    allow_expensive_producers=True,
+                    simulation_feature_axis=simulation_axis,
+                    simulation_feature_ids=simulation_ids,
+                    workers=3,
+                )
+            )
+            observed = _artifact_array(batch.activation_probability)
+            observed_ids = _artifact_array(batch.feature_ids)
+        full = np.stack(
+            [
+                np.maximum(
+                    self._values(
+                        next(
+                            row
+                            for row in rows
+                            if row.subject_id == subject and row.side == "L"
+                        )
+                    ),
+                    self._values(
+                        next(
+                            row
+                            for row in rows
+                            if row.subject_id == subject and row.side == "R"
+                        )
+                    ),
+                )
+                for subject in self.subjects
+            ]
+        )
+        np.testing.assert_array_equal(observed, full[:, [1, 3]])
+        np.testing.assert_array_equal(observed_ids, final_ids)
+
     def test_three_worker_production_is_deterministic_and_cache_reusable(self) -> None:
         lock = threading.Lock()
         active = 0

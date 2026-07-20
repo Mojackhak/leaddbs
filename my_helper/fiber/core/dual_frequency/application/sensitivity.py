@@ -31,6 +31,7 @@ SEED_SCHEMA = "dual_frequency_sensitivity_seed_tasks_v1"
 JITTER_BLOCK_SIZE = 25
 JITTER_BLOCK_PRODUCER_VERSION = "1"
 JITTER_ADJUSTED_BLOCK_PRODUCER_VERSION = "2"
+OSS_AXIS_GATE_VERSION = "1"
 
 
 def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -53,6 +54,65 @@ def _axis_payload(axis: object) -> dict[str, object]:
         "axis_id": str(getattr(axis, "axis_id")),
         "count": int(getattr(axis, "count")),
         "sha256": str(getattr(axis, "sha256")),
+    }
+
+
+def _omega_max_descriptor(
+    *,
+    model_family: str,
+    shared_exposure_semantic_sha256: str,
+    shared_entries: Sequence[Mapping[str, str]],
+    cache: ContentAddressedCache,
+) -> dict[str, object] | None:
+    """Recover one portable Omega_max descriptor from validated cache entries."""
+
+    if not str(model_family).endswith("fiber"):
+        return None
+    if not shared_entries:
+        return None
+    candidates = []
+    for shared in shared_entries:
+        try:
+            entry = cache.resolve_identity(
+                str(shared["kind"]),
+                str(shared["semantic_sha256"]),
+            )
+        except (KeyError, CacheError) as exc:
+            raise SensitivityCheckpointError(
+                "Omega_max shared cache identity failed validation"
+            ) from exc
+        if entry is None:
+            raise SensitivityCheckpointError("Omega_max shared cache entry is missing")
+        if (
+            entry.key.backend_name == "normative_fiber_omega_max"
+            and entry.key.stimulation_hash == shared_exposure_semantic_sha256
+        ):
+            candidates.append(entry)
+    if len(candidates) != 1:
+        raise SensitivityCheckpointError(
+            "fiber sensitivity base must resolve one exact Omega_max cache entry"
+        )
+    entry = candidates[0]
+    payloads = tuple(item for item in entry.files if item.relative_path == "fiber_ids.npy")
+    if len(payloads) != 1:
+        raise SensitivityCheckpointError("Omega_max cache lacks one fiber_ids payload")
+    payload = payloads[0]
+    metadata = payload.metadata
+    if (
+        metadata.dtype != "int64"
+        or metadata.shape is None
+        or len(metadata.shape) != 1
+        or len(metadata.axes) != 1
+        or metadata.shape[0] != metadata.axes[0].count
+        or metadata.units != "fiber_id"
+    ):
+        raise SensitivityCheckpointError("Omega_max cache axis metadata is invalid")
+    return {
+        "cache_kind": entry.key.kind,
+        "semantic_sha256": entry.key.digest,
+        "feature_axis": _axis_payload(metadata.axes[0]),
+        "payload_relative_path": payload.relative_path,
+        "payload_sha256": payload.sha256,
     }
 
 
@@ -336,6 +396,7 @@ def publish_sensitivity_checkpoints(
     task_by_id = {task.task_id: task for task in plan.tasks}
     outcome_by_id = {outcome.task_id: outcome for outcome in outcomes}
     mapper = _portable_mapper(root, cache_root, output_root)
+    scientific_cache = ContentAddressedCache(cache_root)
 
     seed_outcomes: list[TaskOutcome] = []
     for task in plan.tasks:
@@ -412,6 +473,17 @@ def publish_sensitivity_checkpoints(
             root,
             prepare_tasks[0].task_id,
         )
+        shared_exposure_semantic_sha256 = (
+            prepared.exposure.sha256
+            if not shared_exposures
+            else shared_exposures[0]["semantic_sha256"]
+        )
+        omega_max = _omega_max_descriptor(
+            model_family=family,
+            shared_exposure_semantic_sha256=shared_exposure_semantic_sha256,
+            shared_entries=shared_exposures,
+            cache=scientific_cache,
+        )
         base = {
             "schema_version": BASE_SCHEMA,
             "base_run_id": run_id,
@@ -435,17 +507,13 @@ def publish_sensitivity_checkpoints(
             "subject_axis": _axis_payload(subject_axis),
             "feature_axis": _axis_payload(final.valid_feature_axis.axis),
             "feature_identity_source": final.valid_feature_axis.identity_source,
-            "shared_exposure_semantic_sha256": (
-                prepared.exposure.sha256
-                if not shared_exposures
-                else shared_exposures[0]["semantic_sha256"]
-            ),
+            "shared_exposure_semantic_sha256": shared_exposure_semantic_sha256,
             "shared_exposure_entries": shared_exposures,
             "shared_exposure_artifact": _artifact_payload(mapper(prepared.exposure)),
             "final_artifacts": [_artifact_payload(item) for item in portable_artifacts],
             "source_content_identities": source_files,
             "configuration_source_identities": [dict(item) for item in source_identities],
-            "omega_max": None,
+            "omega_max": omega_max,
             "oss_axis_gate": {
                 "status": "historical_final_axis",
                 "reason": "omega_max_equivalence_not_yet_accepted",
@@ -582,6 +650,7 @@ def load_sensitivity_checkpoint(
         shared_entries = base.get("shared_exposure_entries", [])
         if not isinstance(shared_entries, list):
             raise SensitivityCheckpointError("shared exposure entries are invalid")
+        normalized_shared_entries: list[dict[str, str]] = []
         for shared in shared_entries:
             if not isinstance(shared, dict) or set(shared) != {
                 "kind",
@@ -599,6 +668,31 @@ def load_sensitivity_checkpoint(
                 ) from exc
             if entry is None:
                 raise SensitivityCheckpointError("shared exposure cache entry is missing")
+            normalized_shared_entries.append(
+                {
+                    "kind": str(shared["kind"]),
+                    "semantic_sha256": str(shared["semantic_sha256"]),
+                }
+            )
+        model_family = str(base.get("model_family", ""))
+        if model_family.endswith("fiber") and normalized_shared_entries:
+            physical_identity = str(base.get("shared_exposure_semantic_sha256", ""))
+            if not physical_identity:
+                raise SensitivityCheckpointError(
+                    "fiber sensitivity base lacks shared exposure identity"
+                )
+            descriptor = _omega_max_descriptor(
+                model_family=model_family,
+                shared_exposure_semantic_sha256=physical_identity,
+                shared_entries=normalized_shared_entries,
+                cache=cache,
+            )
+            existing = base.get("omega_max")
+            if existing is not None and existing != descriptor:
+                raise SensitivityCheckpointError(
+                    "persisted Omega_max descriptor differs from validated cache"
+                )
+            base = {**base, "omega_max": descriptor}
         final_artifacts = base.get("final_artifacts")
         if not isinstance(final_artifacts, list):
             raise SensitivityCheckpointError("final-model artifact set is invalid")
@@ -681,6 +775,7 @@ def compile_sensitivity_extension_plan(
     analyses: Sequence[str],
     seed_task_ids: Sequence[str],
     jitter_bases: Sequence[Mapping[str, Any]] | None = None,
+    sensitivity_bases: Sequence[Mapping[str, Any]] | None = None,
 ) -> ExecutionPlan:
     """Return sensitivity targets bounded by completed direct checkpoint roots."""
 
@@ -755,6 +850,7 @@ def compile_sensitivity_extension_plan(
             ),
         )
     block_tasks: list[TaskSpec] = []
+    oss_gate_tasks: list[TaskSpec] = []
     if "jitter" in requested and jitter_bases is not None:
         bases_by_endpoint = {
             str(base.get("endpoint_id", "")): dict(base) for base in jitter_bases
@@ -971,13 +1067,118 @@ def compile_sensitivity_extension_plan(
                 dependencies=(*current.dependencies, *physical_block_ids),
             )
 
+    if "oss" in requested:
+        bases_by_endpoint = (
+            {}
+            if sensitivity_bases is None
+            else {
+                str(base.get("endpoint_id", "")): dict(base)
+                for base in sensitivity_bases
+            }
+        )
+        observed_targets = tuple(
+            task
+            for task in extension_targets.values()
+            if task.service_id == "prepare_ppam_observed_workspace"
+        )
+        grouped_oss: dict[str, list[TaskSpec]] = {}
+        oss_descriptors: dict[str, dict[str, Any]] = {}
+        for task in observed_targets if sensitivity_bases is not None else ():
+            base = bases_by_endpoint.get(task.endpoint_id)
+            if base is None:
+                raise SensitivityCheckpointError(
+                    f"OSS sensitivity base is missing for {task.endpoint_id!r}"
+                )
+            if not task.model_family.endswith("fiber"):
+                raise SensitivityCheckpointError(
+                    "OSS sensitivity target must be a normative-fiber endpoint"
+                )
+            final_axis = base.get("feature_axis")
+            omega_max = base.get("omega_max")
+            if not isinstance(final_axis, Mapping) or not isinstance(omega_max, Mapping):
+                raise SensitivityCheckpointError(
+                    "OSS sensitivity base lacks final or Omega_max axis identity"
+                )
+            descriptor = {
+                "gate_version": OSS_AXIS_GATE_VERSION,
+                "model_family": task.model_family,
+                "final_feature_axis": dict(final_axis),
+                "omega_max": dict(omega_max),
+            }
+            group_id = f"oss_axis_group_{canonical_hash(descriptor, length=20)}"
+            grouped_oss.setdefault(group_id, []).append(task)
+            oss_descriptors[group_id] = descriptor
+
+        for group_id in sorted(grouped_oss):
+            members = tuple(
+                sorted(grouped_oss[group_id], key=lambda item: item.endpoint_id)
+            )
+            representative = members[0]
+            descriptor = {
+                **oss_descriptors[group_id],
+                "group_id": group_id,
+                "endpoint_ids": [member.endpoint_id for member in members],
+            }
+            descriptor_json = json.dumps(
+                descriptor,
+                separators=(",", ":"),
+                sort_keys=True,
+                allow_nan=False,
+            )
+            dependency_set = {
+                dependency for member in members for dependency in member.dependencies
+            }
+            ordered_dependencies = tuple(
+                task.task_id
+                for task in full_plan.tasks
+                if task.task_id in dependency_set
+            )
+            stage = f"oss_axis_equivalence_{group_id.removeprefix('oss_axis_group_')}"
+            parameters = (("group_descriptor", descriptor_json),)
+            gate_key = TaskKey(
+                endpoint_id=representative.endpoint_id,
+                stage=stage,
+                parameter_identity=canonical_hash(
+                    {
+                        "scientific_configuration_hash": (
+                            full_plan.scientific_configuration_hash
+                        ),
+                        "execution_parameters": parameters,
+                    }
+                ),
+            )
+            gate = TaskSpec(
+                key=gate_key,
+                endpoint_id=representative.endpoint_id,
+                model_family=representative.model_family,
+                connectome_role=representative.connectome_role,
+                stage=stage,
+                round_id="round_oss_axis_equivalence",
+                phase="sensitivity",
+                service_id="establish_oss_axis_equivalence",
+                dependencies=ordered_dependencies,
+                gates=(),
+                output_record_type="OSSAxisEquivalenceGroupRecord",
+                execution_parameters=parameters,
+                expensive_producer=True,
+                cache_first_expensive=True,
+            )
+            oss_gate_tasks.append(gate)
+            for member in members:
+                current = extension_targets[member.task_id]
+                extension_targets[member.task_id] = replace(
+                    current,
+                    dependencies=(*current.dependencies, gate.task_id),
+                )
+
     internal_task_ids = {
         *extension_targets,
         *(task.task_id for task in block_tasks),
+        *(task.task_id for task in oss_gate_tasks),
     }
     direct_parent_ids = {
         dependency
-        for task in (*extension_targets.values(), *block_tasks)
+        for task in (*extension_targets.values(), *block_tasks, *oss_gate_tasks)
         for dependency in task.dependencies
         if dependency not in internal_task_ids
     }
@@ -1007,7 +1208,7 @@ def compile_sensitivity_extension_plan(
         for task in full_plan.tasks
         if task.task_id in extension_targets
     )
-    selected = (*selected_roots, *block_tasks, *selected_targets)
+    selected = (*selected_roots, *block_tasks, *oss_gate_tasks, *selected_targets)
     if any(task.phase == "formal" and not task.checkpoint_only for task in selected):
         raise SensitivityCheckpointError(
             "sensitivity extension closure cannot contain formal tasks"

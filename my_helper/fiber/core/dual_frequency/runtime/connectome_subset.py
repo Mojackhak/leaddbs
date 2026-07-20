@@ -287,12 +287,24 @@ def aggregate_activation_probabilities(
 ) -> np.ndarray:
     """Return exact activated-count/10 probabilities on the final fiber axis."""
 
+    states = load_activation_state_matrix(sample_state_paths, feature_ids)
+    counts = np.count_nonzero(states == 1, axis=0)
+    probabilities = (counts.astype(np.float64) / 10.0).astype(np.float32)
+    return validate_ten_sample_probabilities(probabilities)
+
+
+def load_activation_state_matrix(
+    sample_state_paths: Iterable[str | Path],
+    feature_ids: np.ndarray,
+) -> np.ndarray:
+    """Return the exact ten-sample OSS state matrix on one ordered fiber axis."""
+
     paths = tuple(Path(path).expanduser().resolve() for path in sample_state_paths)
     ids = activation_universe(feature_ids)
     if len(paths) != 10 or len(set(paths)) != 10:
         raise ConnectomeSubsetError("pPAM aggregation requires ten unique samples")
     expected = set(range(1, ids.size + 1))
-    counts = np.zeros(ids.size, dtype=np.int64)
+    states = np.empty((10, ids.size), dtype=np.int8)
     for sample_index, path in enumerate(paths, start=1):
         statuses = load_local_activation_status(path)
         if set(statuses) != expected:
@@ -301,17 +313,19 @@ def aggregate_activation_probabilities(
             raise ConnectomeSubsetError(
                 f"sample {sample_index} local axis mismatch: missing={missing}, extra={extra}"
             )
-        for local_id, status in statuses.items():
-            if status == 1:
-                counts[local_id - 1] += 1
-    probabilities = (counts.astype(np.float64) / 10.0).astype(np.float32)
-    return validate_ten_sample_probabilities(probabilities)
+        states[sample_index - 1, :] = np.asarray(
+            [statuses[local_id] for local_id in range(1, ids.size + 1)],
+            dtype=np.int8,
+        )
+    states.flags.writeable = False
+    return states
 
 
 __all__ = [
     "ConnectomeSubsetError",
     "FilteredConnectome",
     "aggregate_activation_probabilities",
+    "load_activation_state_matrix",
     "load_local_activation_status",
     "write_filtered_connectome",
 ]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from functools import partial
+import json
 from typing import Callable, TypeVar
 
 import numpy as np
@@ -92,6 +93,7 @@ from ..contracts import (
     NormativeFiberScoreSettings,
     ObservedRequest,
     ObservedResult,
+    OSSAxisEquivalenceGroupRecord,
     PreparedExposureRecord,
     PPAMObservedWorkspaceRecord,
     PPAMPermutationBlockRecord,
@@ -133,6 +135,7 @@ from .jitter_blocks import (
     prepare_jitter_exposure_block,
 )
 from .jitter_provider import StudyJitterReplicateProvider
+from .oss_axis_equivalence import establish_oss_axis_equivalence
 from .ppam_observed_workspace import (
     activation_request_from_ppam_workspace,
     load_ppam_observed_state,
@@ -1921,6 +1924,56 @@ def _activation_fitting_request(
             "activation requires the configured content-addressed scientific cache"
         )
     publisher = _publisher(request)
+    simulation_arguments: dict[str, object] = {}
+    gate_records = tuple(
+        record
+        for record in _records(request, OSSAxisEquivalenceGroupRecord)
+        if request.task.endpoint_id in record.endpoint_ids
+    )
+    if len(gate_records) > 1:
+        raise ServiceAdapterError(
+            "activation task received multiple OSS axis equivalence decisions"
+        )
+    if gate_records:
+        gate = gate_records[0]
+        if (
+            gate.model_family != selection.final_model.endpoint.model_family
+            or gate.final_feature_axis
+            != selection.final_model.valid_feature_axis.axis
+        ):
+            raise ServiceAdapterError(
+                "OSS axis equivalence decision differs from the selected final model"
+            )
+        if gate.gate_status == "accepted_omega_max":
+            entry = request.scientific_cache.resolve_identity(
+                gate.omega_cache_kind,
+                gate.omega_cache_semantic_sha256,
+            )
+            if entry is None:
+                raise ServiceAdapterError(
+                    "accepted OSS axis equivalence decision lacks Omega_max cache"
+                )
+            matches = tuple(
+                item for item in entry.files if item.relative_path == "fiber_ids.npy"
+            )
+            if (
+                len(matches) != 1
+                or matches[0].metadata.axes != (gate.omega_feature_axis,)
+                or matches[0].metadata.dtype != "int64"
+            ):
+                raise ServiceAdapterError(
+                    "accepted OSS axis equivalence cache metadata changed"
+                )
+            try:
+                omega_ids = np.asarray(
+                    np.load(entry.file_path("fiber_ids.npy"), allow_pickle=False)
+                )
+            except (OSError, ValueError) as exc:
+                raise ServiceAdapterError("Omega_max fiber IDs are unreadable") from exc
+            simulation_arguments = {
+                "simulation_feature_axis": gate.omega_feature_axis,
+                "simulation_feature_ids": omega_ids,
+            }
     runtime_request = runtime_method(
         selection.final_model,
         endpoint_input,
@@ -1928,6 +1981,7 @@ def _activation_fitting_request(
         publisher,
         workers=request.workers,
         allow_expensive_producers=request.allow_expensive_producers,
+        **simulation_arguments,
     )
     if not isinstance(runtime_request, OSSActivationRuntimeRequest):
         raise ServiceAdapterError(
@@ -1966,6 +2020,59 @@ def _activation_fitting_request(
             "activation_fitting_request must return ActivationRequest"
         )
     return activation_request
+
+
+def _establish_oss_axis_equivalence(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    """Execute or restore the immutable group-level final/Omega OSS gate."""
+
+    if not isinstance(request.provider, StudyRuntimeInputProvider):
+        raise ServiceAdapterCapabilityError(
+            "OSS axis equivalence requires StudyRuntimeInputProvider"
+        )
+    if not isinstance(request.scientific_cache, ContentAddressedCache):
+        raise ServiceAdapterCapabilityError(
+            "OSS axis equivalence requires the scientific cache"
+        )
+    try:
+        descriptor = json.loads(request.task.execution_parameter("group_descriptor"))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ServiceAdapterError("OSS axis group descriptor is invalid") from exc
+    endpoint_ids = tuple(str(value) for value in descriptor.get("endpoint_ids", ()))
+    endpoint_inputs = {
+        record.endpoint.identifier: record
+        for record in _records(request, EndpointInputRecord)
+        if record.endpoint.identifier in endpoint_ids
+    }
+    prepared_exposures = {
+        record.endpoint.identifier: record
+        for record in _records(request, PreparedExposureRecord)
+        if record.endpoint.identifier in endpoint_ids
+    }
+    final_selections = {
+        record.endpoint.identifier: record
+        for record in _records(request, FinalSelectionRecord)
+        if record.endpoint.identifier in endpoint_ids
+    }
+    toolchain_method = getattr(request.provider, "oss_producer_toolchain", None)
+    if not callable(toolchain_method):
+        raise ServiceAdapterCapabilityError(
+            "provider does not expose the OSS producer toolchain"
+        )
+    record = establish_oss_axis_equivalence(
+        descriptor=descriptor,
+        endpoint_inputs=endpoint_inputs,
+        prepared_exposures=prepared_exposures,
+        final_selections=final_selections,
+        provider=request.provider,
+        cache=request.scientific_cache,
+        publisher=_publisher(request),
+        toolchain=toolchain_method(),
+        workers=request.workers,
+        allow_expensive_producers=request.allow_expensive_producers,
+    )
+    return ServiceResult.from_record(record)
 
 
 def _run_activation(request: TaskExecutionRequest) -> ServiceResult:
@@ -2497,6 +2604,7 @@ def _run_addon_fiber_branch(request: TaskExecutionRequest) -> ServiceResult:
 
 PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
     ("prepare_jitter_exposure_block", prepare_jitter_exposure_block),
+    ("establish_oss_axis_equivalence", _establish_oss_axis_equivalence),
     ("prepare_ppam_observed_workspace", _prepare_ppam_observed_workspace),
     ("prepare_ppam_permutation_schedule", _prepare_ppam_permutation_schedule),
     ("run_ppam_permutation_block", _run_ppam_permutation_block),

@@ -23,6 +23,7 @@ import yaml
 from .connectome_subset import (
     ConnectomeSubsetError,
     aggregate_activation_probabilities,
+    load_activation_state_matrix,
     write_filtered_connectome,
 )
 from ..backends.activation.canonical_mapping import activation_universe
@@ -631,6 +632,34 @@ class OSSRowExecutor(Protocol):
     def execute(self, row: PreparedOSSRow) -> OSSRowProduct: ...
 
 
+@dataclass(frozen=True, slots=True)
+class OSSRowExecutionEvidence:
+    """One OSS row product plus its exact ten-sample axon-state matrix."""
+
+    product: OSSRowProduct
+    sample_states: np.ndarray
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.product, OSSRowProduct):
+            raise OSSProducerExecutionError("OSS row evidence requires an OSSRowProduct")
+        states = np.asarray(self.sample_states, dtype=np.int8)
+        if states.shape != (10, self.product.feature_ids.size):
+            raise OSSProducerExecutionError(
+                "OSS row evidence state matrix must match ten samples and the fiber axis"
+            )
+        if not set(np.unique(states).tolist()).issubset({-2, -1, 0, 1}):
+            raise OSSProducerExecutionError("OSS row evidence contains invalid axon states")
+        probabilities = (
+            np.count_nonzero(states == 1, axis=0).astype(np.float64) / 10.0
+        ).astype(np.float32)
+        if not np.array_equal(probabilities, self.product.probabilities):
+            raise OSSProducerExecutionError(
+                "OSS row evidence states disagree with activation probabilities"
+            )
+        states.flags.writeable = False
+        object.__setattr__(self, "sample_states", states)
+
+
 class LeadDBSOSSProducerToolchain:
     """Restore verified source documents and execute one exact OSS row."""
 
@@ -690,6 +719,8 @@ class LeadDBSOSSProducerToolchain:
                 "a custom backend_version_resolver requires an injected test executor"
             )
         self._backend_version_resolver = backend_version_resolver or oss_backend_version
+        self._attestation: str | None = None
+        self._attestation_lock = RLock()
         self.executor = executor or SubprocessOSSRowExecutor(
             work_root=self.work_root,
             repository_root=self.repository_root,
@@ -699,26 +730,75 @@ class LeadDBSOSSProducerToolchain:
             raise TypeError("executor must implement OSSRowExecutor")
 
     def produce(self, request: OSSProducerRequest) -> OSSRowProduct:
+        """Produce one row after one process-local toolchain attestation."""
+
+        return self._produce(request, include_evidence=False).product
+
+    def produce_with_evidence(
+        self,
+        request: OSSProducerRequest,
+    ) -> OSSRowExecutionEvidence:
+        """Produce one row and retain exact sample states for axis equivalence."""
+
+        return self._produce(request, include_evidence=True)
+
+    def _attested_backend_version(self) -> str:
+        with self._attestation_lock:
+            if self._attestation is None:
+                self._attestation = self._backend_version_resolver(
+                    self.repository_root
+                )
+            return self._attestation
+
+    def _produce(
+        self,
+        request: OSSProducerRequest,
+        *,
+        include_evidence: bool,
+    ) -> OSSRowExecutionEvidence:
         if not isinstance(request, OSSProducerRequest):
             raise TypeError("request must be an OSSProducerRequest")
-        attestation = self._backend_version_resolver(self.repository_root)
+        attestation = self._attested_backend_version()
         if attestation != request.settings.backend_version:
             raise OSSProducerExecutionError(
                 "producer implementation differs from the row cache backend version"
             )
         row = self._prepare(request)
-        product = self.executor.execute(row)
-        if not isinstance(product, OSSRowProduct):
-            raise OSSProducerExecutionError("OSS executor returned an invalid product")
+        if include_evidence:
+            execute_with_evidence = getattr(self.executor, "execute_with_evidence", None)
+            if not callable(execute_with_evidence):
+                raise OSSProducerExecutionError(
+                    "OSS executor does not expose exact sample-state evidence"
+                )
+            evidence = execute_with_evidence(row)
+            if not isinstance(evidence, OSSRowExecutionEvidence):
+                raise OSSProducerExecutionError(
+                    "OSS executor returned invalid row evidence"
+                )
+        else:
+            product = self.executor.execute(row)
+            if not isinstance(product, OSSRowProduct):
+                raise OSSProducerExecutionError(
+                    "OSS executor returned an invalid product"
+                )
+            placeholder = np.repeat(
+                np.where(product.probabilities > 0.0, 1, 0)[None, :],
+                10,
+                axis=0,
+            ).astype(np.int8)
+            activated_counts = np.rint(
+                product.probabilities.astype(np.float64) * 10.0
+            ).astype(np.int64)
+            placeholder.fill(0)
+            for column, count in enumerate(activated_counts.tolist()):
+                placeholder[:count, column] = 1
+            evidence = OSSRowExecutionEvidence(product, placeholder)
+        product = evidence.product
         if not np.array_equal(product.feature_ids, row.feature_ids):
             raise OSSProducerExecutionError("OSS executor changed the exact final fiber axis")
         for snapshot in row.input_snapshots:
             snapshot.assert_unchanged()
-        if self._backend_version_resolver(self.repository_root) != attestation:
-            raise OSSProducerExecutionError(
-                "producer implementation changed during OSS row production"
-            )
-        return product
+        return evidence
 
     def _snapshot(self, path: Path, expected_digest: object, label: str) -> OSSInputSnapshot:
         resolved = Path(path).resolve(strict=True)
@@ -1035,6 +1115,17 @@ class SubprocessOSSRowExecutor:
         self._command_lock = RLock()
 
     def execute(self, row: PreparedOSSRow) -> OSSRowProduct:
+        return self._execute(row, include_evidence=False).product
+
+    def execute_with_evidence(self, row: PreparedOSSRow) -> OSSRowExecutionEvidence:
+        return self._execute(row, include_evidence=True)
+
+    def _execute(
+        self,
+        row: PreparedOSSRow,
+        *,
+        include_evidence: bool,
+    ) -> OSSRowExecutionEvidence:
         if not isinstance(row, PreparedOSSRow):
             raise TypeError("row must be a PreparedOSSRow")
         commands = self._resolve_commands()
@@ -1091,14 +1182,39 @@ class SubprocessOSSRowExecutor:
                 commands=commands,
                 filtered_connectome=filtered.path,
             )
-            probabilities = aggregate_activation_probabilities(state_paths, row.feature_ids)
+            if include_evidence:
+                sample_states = load_activation_state_matrix(
+                    state_paths,
+                    row.feature_ids,
+                )
+                probabilities = (
+                    np.count_nonzero(sample_states == 1, axis=0).astype(np.float64)
+                    / 10.0
+                ).astype(np.float32)
+            else:
+                probabilities = aggregate_activation_probabilities(
+                    state_paths,
+                    row.feature_ids,
+                )
+                activated_counts = np.rint(
+                    probabilities.astype(np.float64) * 10.0
+                ).astype(np.int64)
+                sample_states = np.zeros(
+                    (10, row.feature_ids.size),
+                    dtype=np.int8,
+                )
+                for column, count in enumerate(activated_counts.tolist()):
+                    sample_states[:count, column] = 1
             commands_after = self._resolve_commands()
             if commands_after != commands:
                 raise OSSProducerExecutionError(
                     "installed OSS command paths changed during row production"
                 )
             completed = True
-            return OSSRowProduct(row.feature_ids, probabilities)
+            return OSSRowExecutionEvidence(
+                OSSRowProduct(row.feature_ids, probabilities),
+                sample_states,
+            )
         except (ConnectomeSubsetError, OSError, ValueError) as exc:
             raise OSSProducerExecutionError(f"OSS row production failed: {exc}") from exc
         finally:
@@ -1761,6 +1877,7 @@ __all__ = [
     "OSSExecutableSet",
     "OSSProducerExecutionError",
     "OSSRowExecutor",
+    "OSSRowExecutionEvidence",
     "PAM_DIAMETERS_UM",
     "PreparedOSSRow",
     "SubprocessOSSRowExecutor",

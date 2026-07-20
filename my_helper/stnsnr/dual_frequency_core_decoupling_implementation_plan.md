@@ -4843,6 +4843,18 @@ reuse without duplicate physical production, no observed, resolver, final,
 formal permutation, bootstrap, or in-sample recomputation, and no mutation of
 the parent lineage.
 
+The 2026-07-20 implementation checkpoint closes the code-side gate boundary.
+The real completed parent validated 56 recovered fiber descriptors, with the
+reference axis expanding from 3401 to 10320 fibers and the add-on axis from
+2004 to 7193 fibers. The real independent OSS dry plan contains 590 tasks and
+two group gates. The row-decision cache, ten-state comparison, O(1) row
+manifest, final-axis subset publication, solver-token admission, and resume
+reuse passed synthetic acceptance. The complete dual-frequency regression
+passed 530 tests and 310 subtests outside the restricted system-monitoring
+sandbox. This evidence does not close the scientific gate: the 60 real row
+classes still require formal solver execution before the OSS child may use
+`Omega_max`.
+
 Each child must finish with no failed or nonterminal task, a completed run
 manifest, complete reporting documents, a valid artifact index, unchanged
 parent-manifest binding, and publication below the canonical model-set
@@ -4930,11 +4942,13 @@ performance-contract review was added on 2026-07-16:
 | 3. Dependency/fallback | PASS | Task 5 defines the exhaustive readiness/source/Delta/fallback truth table; Tasks 11-12 integrate it without bidirectional fallback. |
 | 4. Round/interface/provenance | PASS | Tasks 2, 6-8, and 13-16 cover every Round, typed requests/arrays/artifacts, project import isolation, standalone CLI, connectome roles, and resolved configuration artifacts. |
 | 5. Bounded acceptance | PASS | Task 1 requires an exact reviewed task allowlist; Tasks 9-14 use only applicable completed fixtures; Task 16 blocks expensive misses and parity expansion. |
-| 6. Shared physical preparation and resources | DESIGN PASS / IMPLEMENTATION OPEN | Code audit plus primary literature/official runtime guidance now map Task 17 to the authorized mixed threshold policy, distinct voxel/fiber preparation, exact `Omega_max`, single-write no-payload-reread caches, bounded semantic identity, a persistent spawn-safe resource scheduler, parity-preserving RNG blocks, vectorized kernels, resume correctness, and measured performance gates. |
+| 6. Shared physical preparation and resources | DESIGN PASS / PARTIAL IMPLEMENTATION | Code audit plus primary literature/official runtime guidance map Task 17 to the authorized mixed threshold policy, distinct voxel/fiber preparation, exact `Omega_max`, single-write no-payload-reread caches, bounded semantic identity, a persistent spawn-safe resource scheduler, parity-preserving RNG blocks, vectorized kernels, resume correctness, and measured performance gates. The OSS axis gate, exact subset path, row-decision resume, and O(1) row manifest are implemented and synthetically accepted; formal real OSS decisions and the remaining full Task 17 audit remain open. |
 
 This record validates closure of the generic-core implementation and design
-closure of the performance refactor. Task 17 remains open; no current status or
-test count implies that the new execution architecture is implemented.
+closure of the performance refactor. Task 17 remains open. The OSS axis-gate
+subsystem is implemented, but no test count implies completion of the remaining
+formal real OSS execution, combined extension, publication, or full resource
+audit.
 
 ---
 

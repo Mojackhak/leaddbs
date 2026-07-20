@@ -174,6 +174,161 @@ def _task(
 
 
 class SensitivityCheckpointTest(unittest.TestCase):
+    def test_oss_extension_inserts_one_group_gate_before_observed_workspace(self) -> None:
+        endpoints = tuple(
+            EndpointKey(
+                "study",
+                f"scale-{index}",
+                "reference",
+                "reference_fiber",
+                "formal-connectome",
+            )
+            for index in range(2)
+        )
+        tasks: list[TaskSpec] = []
+        seed_ids: list[str] = []
+        for endpoint in endpoints:
+            readiness = _task(endpoint, "input_readiness", "observed")
+            prepared = _task(
+                endpoint,
+                "prepare_exposure",
+                "observed",
+                dependencies=(readiness.task_id,),
+            )
+            final = _task(
+                endpoint,
+                "final_realization",
+                "observed",
+                dependencies=(readiness.task_id,),
+            )
+            observed = TaskSpec(
+                key=TaskKey(
+                    endpoint.identifier,
+                    "ppam_observed_workspace",
+                    parameter_identity=SCIENTIFIC_HASH,
+                ),
+                endpoint_id=endpoint.identifier,
+                model_family=endpoint.model_family,
+                connectome_role="formal",
+                stage="ppam_observed_workspace",
+                round_id="round_oss",
+                phase="sensitivity",
+                service_id="prepare_ppam_observed_workspace",
+                dependencies=(readiness.task_id, prepared.task_id, final.task_id),
+                gates=(),
+                output_record_type="PPAMObservedWorkspaceRecord",
+                expensive_producer=True,
+                cache_first_expensive=True,
+            )
+            schedule = TaskSpec(
+                key=TaskKey(
+                    endpoint.identifier,
+                    "ppam_permutation_schedule",
+                    parameter_identity=SCIENTIFIC_HASH,
+                ),
+                endpoint_id=endpoint.identifier,
+                model_family=endpoint.model_family,
+                connectome_role="formal",
+                stage="ppam_permutation_schedule",
+                round_id="round_oss",
+                phase="sensitivity",
+                service_id="prepare_ppam_permutation_schedule",
+                dependencies=(observed.task_id,),
+                gates=(),
+                output_record_type="ResamplingScheduleRecord",
+            )
+            block = TaskSpec(
+                key=TaskKey(
+                    endpoint.identifier,
+                    "ppam_permutation_block_0000",
+                    parameter_identity=SCIENTIFIC_HASH,
+                ),
+                endpoint_id=endpoint.identifier,
+                model_family=endpoint.model_family,
+                connectome_role="formal",
+                stage="ppam_permutation_block_0000",
+                round_id="round_oss",
+                phase="sensitivity",
+                service_id="run_ppam_permutation_block",
+                dependencies=(observed.task_id, schedule.task_id),
+                gates=(),
+                output_record_type="PPAMPermutationBlockRecord",
+            )
+            aggregate = TaskSpec(
+                key=TaskKey(
+                    endpoint.identifier,
+                    "activation_sensitivity",
+                    parameter_identity=SCIENTIFIC_HASH,
+                ),
+                endpoint_id=endpoint.identifier,
+                model_family=endpoint.model_family,
+                connectome_role="formal",
+                stage="activation_sensitivity",
+                round_id="round_oss",
+                phase="sensitivity",
+                service_id="aggregate_ppam_activation",
+                dependencies=(observed.task_id, schedule.task_id, block.task_id),
+                gates=(),
+                output_record_type="ActivationArtifact",
+            )
+            tasks.extend((readiness, prepared, final, observed, schedule, block, aggregate))
+            seed_ids.extend((readiness.task_id, prepared.task_id, final.task_id))
+        final_axis = {
+            "axis_id": "final-axis",
+            "count": 2,
+            "sha256": "1" * 64,
+        }
+        omega = {
+            "cache_kind": "fiber_exposures",
+            "semantic_sha256": "2" * 64,
+            "feature_axis": {
+                "axis_id": "omega-axis",
+                "count": 4,
+                "sha256": "3" * 64,
+            },
+            "payload_relative_path": "fiber_ids.npy",
+            "payload_sha256": "4" * 64,
+        }
+        plan = ExecutionPlan(
+            configuration_hash=CONFIGURATION_HASH,
+            scientific_configuration_hash=SCIENTIFIC_HASH,
+            through="sensitivity",
+            tasks=tuple(tasks),
+        )
+        extension = compile_sensitivity_extension_plan(
+            plan,
+            endpoint_ids=tuple(endpoint.identifier for endpoint in endpoints),
+            analyses=("oss",),
+            seed_task_ids=tuple(seed_ids),
+            sensitivity_bases=tuple(
+                {
+                    "endpoint_id": endpoint.identifier,
+                    "feature_axis": final_axis,
+                    "omega_max": omega,
+                }
+                for endpoint in endpoints
+            ),
+        )
+
+        gates = tuple(
+            task
+            for task in extension.tasks
+            if task.service_id == "establish_oss_axis_equivalence"
+        )
+        observed_tasks = tuple(
+            task
+            for task in extension.tasks
+            if task.service_id == "prepare_ppam_observed_workspace"
+        )
+        self.assertEqual(len(gates), 1)
+        self.assertEqual(gates[0].output_record_type, "OSSAxisEquivalenceGroupRecord")
+        self.assertTrue(gates[0].expensive_producer)
+        self.assertTrue(gates[0].cache_first_expensive)
+        self.assertEqual(len(observed_tasks), 2)
+        self.assertTrue(
+            all(gates[0].task_id in task.dependencies for task in observed_tasks)
+        )
+
     def test_loader_hashes_final_artifact_once_and_ignores_unselected_seed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

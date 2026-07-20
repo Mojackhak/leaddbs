@@ -717,6 +717,7 @@ class ServiceAdapterTest(unittest.TestCase):
         planned = {task.service_id for task in plan.tasks}
         declared = {service_id for service_id, _handler in PRODUCTION_SERVICE_HANDLERS}
         extension_only = {
+            "establish_oss_axis_equivalence",
             "prepare_jitter_exposure_block",
             "run_addon_fiber_activation",
             "run_reference_fiber_activation",
