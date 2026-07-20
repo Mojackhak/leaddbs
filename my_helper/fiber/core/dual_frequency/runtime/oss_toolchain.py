@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import math
@@ -49,6 +49,7 @@ CONVERTER_TIMEOUT_SECONDS = 5 * 60
 OSS_SOLVER_TIMEOUT_SECONDS = 6 * 60 * 60
 PATHWAY_ACTIVATION_TIMEOUT_SECONDS = 2 * 60 * 60
 PROCESS_TERMINATION_GRACE_SECONDS = 10.0
+OSS_MAX_FIBERS_PER_EXECUTION = 3500
 
 OSS_PRODUCER_IMPLEMENTATION_PATHS = (
     Path("classes/conda_utils/environments/OSS-DBSv2.yml"),
@@ -1128,6 +1129,69 @@ class SubprocessOSSRowExecutor:
     ) -> OSSRowExecutionEvidence:
         if not isinstance(row, PreparedOSSRow):
             raise TypeError("row must be a PreparedOSSRow")
+        chunks = self._execution_chunks(row)
+        evidence = tuple(
+            self._execute_single(chunk, include_evidence=include_evidence)
+            for chunk in chunks
+        )
+        if len(evidence) == 1:
+            return evidence[0]
+        feature_ids = np.concatenate(
+            tuple(item.product.feature_ids for item in evidence)
+        )
+        if not np.array_equal(feature_ids, row.feature_ids):
+            raise OSSProducerExecutionError(
+                "OSS execution chunks changed the complete ordered fiber axis"
+            )
+        probabilities = np.concatenate(
+            tuple(item.product.probabilities for item in evidence)
+        )
+        sample_states = np.concatenate(
+            tuple(item.sample_states for item in evidence),
+            axis=1,
+        )
+        return OSSRowExecutionEvidence(
+            OSSRowProduct(row.feature_ids, probabilities),
+            sample_states,
+        )
+
+    @staticmethod
+    def _execution_chunks(row: PreparedOSSRow) -> tuple[PreparedOSSRow, ...]:
+        if row.feature_ids.size < OSS_MAX_FIBERS_PER_EXECUTION + 1:
+            return (row,)
+        chunks: list[PreparedOSSRow] = []
+        for chunk_index, start in enumerate(
+            range(0, row.feature_ids.size, OSS_MAX_FIBERS_PER_EXECUTION)
+        ):
+            stop = min(start + OSS_MAX_FIBERS_PER_EXECUTION, row.feature_ids.size)
+            feature_ids = np.asarray(row.feature_ids[start:stop], dtype=np.int64)
+            feature_digest = hashlib.sha256(
+                np.asarray(feature_ids, dtype="<i8").tobytes(order="C")
+            ).hexdigest()
+            chunks.append(
+                replace(
+                    row,
+                    scientific_identity=canonical_hash(
+                        {
+                            "contract": "dual_frequency_oss_execution_chunk_v1",
+                            "parent_scientific_identity": row.scientific_identity,
+                            "chunk_index": chunk_index,
+                            "start": start,
+                            "stop": stop,
+                            "feature_ids_sha256": feature_digest,
+                        }
+                    ),
+                    feature_ids=feature_ids,
+                )
+            )
+        return tuple(chunks)
+
+    def _execute_single(
+        self,
+        row: PreparedOSSRow,
+        *,
+        include_evidence: bool,
+    ) -> OSSRowExecutionEvidence:
         commands = self._resolve_commands()
         row_parent = self.work_root / row.scientific_identity[:2]
         row_parent.mkdir(parents=True, exist_ok=True)
@@ -1834,16 +1898,37 @@ class SubprocessOSSRowExecutor:
                 start_new_session=True,
             )
             process_group_id = process.pid if os.name == "posix" else None
-            try:
-                return_code = process.wait(timeout=timeout_seconds)
-            except subprocess.TimeoutExpired as exc:
+            previous_sigterm_handler: Any = None
+            sigterm_handler_installed = False
+
+            def forward_sigterm(signum: int, _frame: Any) -> None:
                 _terminate_process_group(
                     process,
                     process_group_id=process_group_id,
                 )
-                raise OSSProducerExecutionError(
-                    f"external OSS command timed out ({Path(command[0]).name})"
-                ) from exc
+                raise SystemExit(128 + int(signum))
+
+            if os.name == "posix":
+                try:
+                    previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
+                    signal.signal(signal.SIGTERM, forward_sigterm)
+                    sigterm_handler_installed = True
+                except ValueError:
+                    pass
+            try:
+                try:
+                    return_code = process.wait(timeout=timeout_seconds)
+                except subprocess.TimeoutExpired as exc:
+                    _terminate_process_group(
+                        process,
+                        process_group_id=process_group_id,
+                    )
+                    raise OSSProducerExecutionError(
+                        f"external OSS command timed out ({Path(command[0]).name})"
+                    ) from exc
+            finally:
+                if sigterm_handler_installed:
+                    signal.signal(signal.SIGTERM, previous_sigterm_handler)
         if return_code != 0:
             raise OSSProducerExecutionError(
                 f"external OSS command failed ({Path(command[0]).name}, "
@@ -1892,6 +1977,7 @@ __all__ = [
     "OSSBoundaryContact",
     "OSSBoundarySource",
     "OSSExecutableSet",
+    "OSS_MAX_FIBERS_PER_EXECUTION",
     "OSSProducerExecutionError",
     "OSSRowExecutor",
     "OSSRowExecutionEvidence",

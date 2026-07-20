@@ -368,7 +368,7 @@ numerical parity and benchmark evidence.
    equivalent. [NumPy parallel random generation](https://numpy.org/doc/2.4/reference/random/parallel.html)
    and [NumPy compatibility policy](https://numpy.org/doc/2.4/reference/random/compatibility.html)
 
-No cited source proves that 12 workers, a particular range size, or a 48-GiB
+No cited source proves that 12 workers, a particular range size, or a 64-GiB
 managed budget is optimal for this workload. Those remain benchmark hypotheses
 and must pass the acceptance matrix below.
 
@@ -1403,7 +1403,7 @@ the initial operating budget is calculated rather than assumed:
 
 ```text
 required_reserve = max(16 GiB, 20% of physical RAM)
-normal_managed_budget = min(48 GiB, max(0, currently_available - required_reserve))
+normal_managed_budget = min(64 GiB, max(0, currently_available - required_reserve))
 shared resident/cache target = min(32 GiB, two thirds of normal_managed_budget)
 active working-set budget = the remaining managed budget
 ```
@@ -2522,9 +2522,10 @@ endpoint identity do not enter the gate cache key.
 The production row inventory is derived from the union of included subjects in
 the 56 realized fiber finals. Sixteen reference subjects produce 34 logical
 OSS rows and thirteen add-on subjects produce 26 logical rows. The decision
-matrix therefore contains 60 row classes. A cold gate may execute two solver
-runs per class, one on the final axis and one on `Omega_max`, for fewer than
-121 solver executions. The sole external-solver token makes these executions
+matrix therefore contains 60 row classes. A logical row uses one final-axis and
+one `Omega_max` product, but each external product is partitioned into ordered
+execution chunks containing `< 3501` fibers. Every chunk runs the same ten fixed
+diameter samples. The sole external-solver token makes these sample executions
 sequential. Per-row immutable decisions make an interrupted group task resume
 from the first missing row rather than restart accepted rows.
 
@@ -2563,6 +2564,22 @@ codec, resource-token, exact-subset, and constant-manifest tests passed. The
 complete dual-frequency regression passed 530 tests and 310 subtests outside
 the restricted system-monitoring sandbox. Formal real solver decisions and the
 independent OSS child remain open; no formal OSS child has started.
+
+The first production child and its PATH-repaired resume then supplied the
+missing real resource evidence. A 3401-fiber final row completed, whereas the
+first 10320-fiber `Omega_max` sample exceeded 48 GiB and reached about 72.8 GiB
+during termination. The main process exited before the separately sessioned
+solver, so the orphan required direct termination. No row cache or equivalence
+decision published and swap did not grow. Formal resume is prohibited until
+the fixed `< 3501`-fiber chunk executor, 32-GiB solver charge, hard managed-grant
+admission, and worker-to-child process-group termination pass automated tests
+and a real reference-chunk acceptance with RSS `< 32 GiB`, total managed memory
+`< 64 GiB`, and swap growth `< 1` byte.
+
+The bounded-row and cascade-termination implementation passed 62 focused OSS/
+executor tests. The complete dual-frequency regression passed 534 tests plus
+310 subtests in the `leaddbs` environment. Formal OSS resume remains blocked on
+the real reference-chunk RSS acceptance rather than on automated regression.
 
 The accepted v8 jitter exercise exposed one final-linked dependency-selection
 defect after every physical block and every reference endpoint had completed.

@@ -11,6 +11,7 @@ from dataclasses import replace
 import hashlib
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -42,10 +43,12 @@ from dual_frequency.runtime.activation_provider import (
 from dual_frequency.runtime.oss_toolchain import (
     LeadDBSOSSProducerToolchain,
     OSSExecutableSet,
+    OSS_MAX_FIBERS_PER_EXECUTION,
     OSS_PRODUCER_IMPLEMENTATION_PATHS,
     OSSProducerExecutionError,
     PreparedOSSRow,
     SubprocessOSSRowExecutor,
+    OSSRowExecutionEvidence,
     _hash_oss_source_tree,
     _terminate_process_group,
     oss_backend_version,
@@ -901,6 +904,151 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
             )
         time.sleep(1.2)
         self.assertFalse(marker.exists())
+
+    @unittest.skipUnless(os.name == "posix", "process groups require POSIX")
+    def test_sigterm_cascades_to_the_active_external_process_group(self) -> None:
+        external_pid_path = self.root / "external-parent.pid"
+        descendant_pid_path = self.root / "external-descendant.pid"
+        descendant = (
+            "import os,pathlib,time; "
+            f"pathlib.Path({str(descendant_pid_path)!r}).write_text("
+            "str(os.getpid()), encoding='utf-8'); "
+            "time.sleep(60.0)"
+        )
+        external = (
+            "import os,pathlib,subprocess,sys,time; "
+            f"pathlib.Path({str(external_pid_path)!r}).write_text("
+            "str(os.getpid()), encoding='utf-8'); "
+            f"subprocess.Popen([sys.executable, '-c', {descendant!r}]); "
+            "time.sleep(60.0)"
+        )
+        package_root = Path(__file__).resolve().parents[2]
+        wrapper = (
+            "import pathlib,sys; "
+            f"sys.path.insert(0, {str(package_root)!r}); "
+            "from dual_frequency.runtime.oss_toolchain import "
+            "SubprocessOSSRowExecutor; "
+            "SubprocessOSSRowExecutor._run("
+            f"({sys.executable!r}, '-c', {external!r}), "
+            f"cwd=pathlib.Path({str(self.root)!r}), "
+            f"log_prefix=pathlib.Path({str(self.root / 'cascade')!r}), "
+            "timeout_seconds=60.0)"
+        )
+        process = subprocess.Popen(
+            (sys.executable, "-c", wrapper),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+
+        def cleanup() -> None:
+            if process.poll() is None:
+                process.kill()
+            if external_pid_path.exists():
+                try:
+                    os.killpg(
+                        int(external_pid_path.read_text(encoding="utf-8")),
+                        signal.SIGKILL,
+                    )
+                except (ProcessLookupError, ValueError):
+                    pass
+
+        self.addCleanup(cleanup)
+        deadline = time.monotonic() + 5.0
+        while (
+            not external_pid_path.exists() or not descendant_pid_path.exists()
+        ) and time.monotonic() < deadline:
+            if process.poll() is not None:
+                break
+            time.sleep(0.01)
+        if not external_pid_path.exists() or not descendant_pid_path.exists():
+            stdout, stderr = process.communicate(timeout=5.0)
+            self.fail(f"external process group did not start: {stdout!r} {stderr!r}")
+
+        process.terminate()
+        process.wait(timeout=5.0)
+        process.communicate()
+        self.assertNotEqual(process.returncode, 0)
+        pids = (
+            int(external_pid_path.read_text(encoding="utf-8")),
+            int(descendant_pid_path.read_text(encoding="utf-8")),
+        )
+        deadline = time.monotonic() + 2.0
+        live = set(pids)
+        while live and time.monotonic() < deadline:
+            for pid in tuple(live):
+                status = subprocess.run(
+                    ("ps", "-o", "stat=", "-p", str(pid)),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                state = status.stdout.strip()
+                if status.returncode != 0 or not state or state.startswith("Z"):
+                    live.discard(pid)
+            if live:
+                time.sleep(0.01)
+        self.assertFalse(live)
+
+    def test_large_row_execution_preserves_axis_and_exact_sample_states(self) -> None:
+        row = replace(
+            self._prepared_row_for_converter(control_mode="voltage"),
+            scientific_identity=_digest(9876),
+            feature_ids=np.arange(1, 7003, dtype=np.int64),
+        )
+        executor = SubprocessOSSRowExecutor(
+            work_root=self.root / "chunked-executor",
+            repository_root=self.repository_root,
+            environment_file=self.environment_file,
+        )
+        observed_chunks: list[PreparedOSSRow] = []
+
+        def execute_chunk(
+            chunk: PreparedOSSRow,
+            *,
+            include_evidence: bool,
+        ) -> OSSRowExecutionEvidence:
+            self.assertTrue(include_evidence)
+            observed_chunks.append(chunk)
+            counts = np.remainder(chunk.feature_ids, 11).astype(np.int64)
+            states = np.zeros((10, chunk.feature_ids.size), dtype=np.int8)
+            for column, count in enumerate(counts.tolist()):
+                states[:count, column] = 1
+            probabilities = (counts.astype(np.float64) / 10.0).astype(np.float32)
+            return OSSRowExecutionEvidence(
+                OSSRowProduct(chunk.feature_ids, probabilities),
+                states,
+            )
+
+        with mock.patch.object(
+            executor,
+            "_execute_single",
+            side_effect=execute_chunk,
+        ):
+            result = executor.execute_with_evidence(row)
+
+        self.assertEqual(
+            [chunk.feature_ids.size for chunk in observed_chunks],
+            [OSS_MAX_FIBERS_PER_EXECUTION, OSS_MAX_FIBERS_PER_EXECUTION, 2],
+        )
+        self.assertEqual(len({chunk.scientific_identity for chunk in observed_chunks}), 3)
+        np.testing.assert_array_equal(result.product.feature_ids, row.feature_ids)
+        expected_counts = np.remainder(row.feature_ids, 11).astype(np.int64)
+        np.testing.assert_array_equal(
+            result.product.probabilities,
+            (expected_counts.astype(np.float64) / 10.0).astype(np.float32),
+        )
+        for column, count in enumerate(expected_counts.tolist()):
+            np.testing.assert_array_equal(
+                result.sample_states[:, column],
+                np.concatenate(
+                    (
+                        np.ones(count, dtype=np.int8),
+                        np.zeros(10 - count, dtype=np.int8),
+                    )
+                ),
+            )
 
     @unittest.skipUnless(os.name == "posix", "process groups require POSIX")
     def test_termination_kills_a_sigterm_resistant_descendant(self) -> None:

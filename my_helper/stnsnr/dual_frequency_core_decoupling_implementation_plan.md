@@ -3191,10 +3191,10 @@ was no longer conservative. The v4 run was safely stopped before cache
 publication.
 
 Charge every physical jitter block 12 GiB and give a fiber block one additional
-connectome-I/O slot. Enforce the 48-GiB normal managed ceiling over cumulative
+connectome-I/O slot. Enforce the 64-GiB normal managed ceiling over cumulative
 active grants while retaining the strict
 `projected_available_after_admission > reserve` predicate. With the public
-worker ceiling at 12, admit at most four voxel producers or two fiber producers
+worker ceiling at 12, admit at most five voxel producers or two fiber producers
 concurrently; current available memory may lower those counts. Later ranges
 remain eligible for the same persistent workers so their resident samplers can
 be reused.
@@ -3440,7 +3440,7 @@ A compiled GIL-releasing kernel may use a separately declared thread resource
 class only after measured parity, utilization, and oversubscription acceptance;
 h5py-call-heavy and Python-bytecode-heavy preparation stays process-based.
 Define `reserve = max(16 GiB, 20% physical RAM)` and
-`managed = min(48 GiB, max(0, currently_available - reserve))`. Charge expected
+`managed = min(64 GiB, max(0, currently_available - reserve))`. Charge expected
 MATLAB/OSS RSS and per-reader HDF5 raw chunk caches to task memory rather than
 the reserve. Normal admission requires `task_memory_bytes < managed` and
 `projected_available_after_admission > reserve`. Otherwise the task remains
@@ -4961,6 +4961,40 @@ execution-path repair only; the original failed child remains the formal resume
 target and the real two-group scientific gate remains open until its resumed
 solver execution finishes.
 
+That resume exposed a second, independent production boundary before any row
+decision published. The first reference final-axis row completed all ten
+samples. On the matching 10320-fiber `Omega_max` row, the first OSS sample grew
+beyond the 48-GiB managed-memory ceiling and reached about 72.8 GiB during the
+stop sequence. Main-process termination also left the separately sessioned
+solver alive until it was explicitly terminated. VAL stayed mounted, swap did
+not grow, no immutable decision or row cache published, and the 196 restored
+parent roots remain valid.
+
+Formal resume is now gated on two implementation repairs. External execution
+must split a logical row into deterministic ordered chunks containing `< 3501`
+fibers, run the same ten fixed samples for every chunk, concatenate exact states
+and probabilities on the unchanged full canonical axis, and publish only the
+existing full-row cache identity. The chunk limit is an internal execution
+constant rather than YAML or scientific model configuration. Solver-capable
+tasks charge 32 GiB, and the resource ledger cannot admit any grant above its
+managed ceiling. A real reference `Omega_max` chunk must demonstrate solver RSS
+`< 32 GiB`, total managed use `< 64 GiB`, and swap growth `< 1` byte before the
+formal child may resume.
+
+The worker must also forward termination to the active external process group
+using the existing bounded TERM-to-KILL path before it exits. Acceptance sends
+a termination signal while a worker owns a live descendant and proves that no
+process-group member survives. Focused chunk-order, state-concatenation,
+resource-admission, and termination tests plus the complete regression precede
+the real single-row resource gate. The interrupted task JSON and runtime work
+remain diagnostic and resumable evidence; they are not cleaned or declared
+complete.
+
+The implementation repair passed 62 focused OSS/executor tests and the complete
+dual-frequency regression passed 534 tests plus 310 subtests in the `leaddbs`
+environment. The real reference-chunk RSS gate remains open and formal OSS
+resume is still prohibited until that measured gate passes.
+
 ---
 
 ## Plan Self-Review Record
@@ -5037,7 +5071,7 @@ audit.
   invariant to worker count and scheduling order.
 - [ ] Resume re-evaluates dependency-derived skips and permits only accepted
   resource-provenance overrides without changing scientific identity.
-- [ ] Managed RAM is the smaller of 48 GiB and available RAM after the larger of
+- [ ] Managed RAM is the smaller of 64 GiB and available RAM after the larger of
   a 16-GiB or 20%-physical reserve; expected solver RSS is charged and swap
   satisfies `swap_delta_bytes < 1`.
 - [ ] Voxel/fiber thresholds include exact tau and Coverage values, and overlap

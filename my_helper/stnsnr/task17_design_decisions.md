@@ -522,9 +522,9 @@ before cache publication and is evidence only rather than a resume source.
 
 The accepted admission charge is therefore 12 GiB for every physical jitter
 block, with one additional connectome-I/O slot for a fiber block. The normal
-managed ceiling remains 48 GiB, and cumulative active grants never go above
+managed ceiling is 64 GiB, and cumulative active grants never go above
 that ceiling. The projected available memory after admission must remain
-`> reserve`. With 12 public workers, these charges permit at most four voxel
+`> reserve`. With 12 public workers, these charges permit at most five voxel
 producers or two fiber producers at once; lower available memory can reduce
 those counts. This worker reuse is intentional: each admitted process can
 finish later blocks with already resident samplers instead of multiplying cold
@@ -919,3 +919,45 @@ axes, task IDs, result schemas, and scientific cache identities. Resume restores
 the 790 completed v8 tasks and reruns only the ten failed add-on endpoints. Tests
 must cover target-plus-reference inputs for jitter and activation, the unchanged
 reference path, and both endpoint-local failure cases before formal resume.
+
+## Decision 33: Bound OSS Omega Rows And Cascade External Termination
+
+The first repaired independent OSS resume established the complete final-axis
+ten-sample result for one reference physical row, then entered the corresponding
+10320-fiber `Omega_max` row. Its first sample passed the FEM stages but the OSS
+process RSS grew beyond 48 GiB and later reached about 72.8 GiB while the main
+process was being stopped. This violates the formal managed-memory boundary.
+The main process exited before its separately sessioned OSS subprocess, leaving
+that solver temporarily orphaned until it received a direct termination signal.
+No row decision or standard row cache had published, and swap did not grow.
+
+The accepted repair partitions only the external execution axis into ordered,
+contiguous chunks containing `< 3501` fibers. Chunk boundaries and identities
+derive deterministically from the full row identity and ordered feature IDs.
+Every chunk repeats the same ten fixed diameter samples and unchanged
+stimulation, geometry, material, waveform, and connectome-source contracts.
+Chunk state matrices concatenate in the original canonical order. Only the
+complete logical row product receives the existing standard cache identity;
+chunks are runtime implementation details and never become public axes, cache
+items, endpoint features, or independent statistical replicates.
+
+The group gate and any solver-capable observed activation task charge 32 GiB.
+The resource ledger must reject a grant above its managed boundary even when no
+other task is running. Production resume remains prohibited until a real
+reference `Omega_max` chunk stays below 32 GiB, total managed memory stays below
+64 GiB, and swap growth remains `< 1` byte. If that evidence fails, the fixed
+chunk bound must decrease before another formal resume.
+
+Every external command remains in its own process group. While waiting for that
+command, the worker must intercept termination, terminate the complete external
+process group with the existing bounded TERM-to-KILL policy, and then exit. A
+process-level regression must terminate a worker during an active child command
+and prove that no live descendant remains. The interrupted formal child retains
+its 196 completed parent roots, failed and interrupted runtime workspaces, and
+all valid immutable caches; resume re-evaluates the incomplete gate only after
+these two repairs pass focused and complete regression.
+
+The implementation repair passed 62 focused OSS/executor tests and the complete
+dual-frequency regression passed 534 tests plus 310 subtests in the `leaddbs`
+environment. These synthetic and process-level results close the code gate but
+do not replace the still-required real reference-chunk RSS acceptance.

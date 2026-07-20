@@ -179,7 +179,7 @@ class ExecutorTest(unittest.TestCase):
         )
         self.assertEqual(
             (observed.memory_bytes, observed.connectome_io, observed.solver),
-            (8 * 1024**3, 1, 1),
+            (32 * 1024**3, 1, 1),
         )
         for grant in (schedule, block, aggregate):
             self.assertEqual(
@@ -223,14 +223,35 @@ class ExecutorTest(unittest.TestCase):
         grant = _ResourceLedger.request(gate)
         self.assertEqual(
             (grant.memory_bytes, grant.connectome_io, grant.solver),
-            (8 * 1024**3, 1, 1),
+            (32 * 1024**3, 1, 1),
         )
+
+    def test_solver_grant_cannot_bypass_the_managed_memory_ceiling(self) -> None:
+        ledger = _ResourceLedger(workers=12)
+        ledger.available_memory = 128 * 1024**3
+        ledger.reserve = 16 * 1024**3
+        ledger.managed = 16 * 1024**3
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        grant = ledger.request(
+            _task(
+                endpoint,
+                "oss_axis_equivalence_synthetic",
+                "establish_oss_axis_equivalence",
+            )
+        )
+        self.assertFalse(ledger.can_acquire(grant, 0))
 
     def test_jitter_block_admission_enforces_cumulative_managed_memory(self) -> None:
         ledger = _ResourceLedger(workers=12)
         ledger.available_memory = 128 * 1024**3
         ledger.reserve = 16 * 1024**3
-        ledger.managed = 48 * 1024**3
+        ledger.managed = 64 * 1024**3
         endpoint = EndpointKey(
             "study",
             "scale",
@@ -240,16 +261,16 @@ class ExecutorTest(unittest.TestCase):
         grant = ledger.request(
             _task(endpoint, "jitter_block_0000_0025", "jitter_block")
         )
-        for running_count in range(4):
+        for running_count in range(5):
             self.assertTrue(ledger.can_acquire(grant, running_count))
             ledger.acquire(grant)
-        self.assertFalse(ledger.can_acquire(grant, 4))
+        self.assertFalse(ledger.can_acquire(grant, 5))
 
     def test_addon_and_fiber_jitter_admission_use_stricter_limits(self) -> None:
         addon_ledger = _ResourceLedger(workers=12)
         addon_ledger.available_memory = 128 * 1024**3
         addon_ledger.reserve = 16 * 1024**3
-        addon_ledger.managed = 48 * 1024**3
+        addon_ledger.managed = 64 * 1024**3
         addon_endpoint = EndpointKey(
             "study",
             "scale",
@@ -259,15 +280,15 @@ class ExecutorTest(unittest.TestCase):
         addon_grant = addon_ledger.request(
             _task(addon_endpoint, "jitter_block_0000_0025", "jitter_block")
         )
-        for running_count in range(4):
+        for running_count in range(5):
             self.assertTrue(addon_ledger.can_acquire(addon_grant, running_count))
             addon_ledger.acquire(addon_grant)
-        self.assertFalse(addon_ledger.can_acquire(addon_grant, 4))
+        self.assertFalse(addon_ledger.can_acquire(addon_grant, 5))
 
         fiber_ledger = _ResourceLedger(workers=12)
         fiber_ledger.available_memory = 128 * 1024**3
         fiber_ledger.reserve = 16 * 1024**3
-        fiber_ledger.managed = 48 * 1024**3
+        fiber_ledger.managed = 64 * 1024**3
         fiber_endpoint = EndpointKey(
             "study",
             "scale",
