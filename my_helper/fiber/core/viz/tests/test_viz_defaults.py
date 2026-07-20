@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 
 from my_helper.fiber.core.viz.plugin.default import (
+    fiber_section_cfg,
     fit_cfg,
+    get_fiber_section_cfg,
     get_fit_cfg,
     get_voxel_section_cfg,
     voxel_section_cfg,
@@ -81,3 +83,21 @@ def test_get_voxel_section_cfg_returns_an_isolated_validated_copy() -> None:
 
     with pytest.raises(KeyError, match="unknown voxel-section visualization settings"):
         get_voxel_section_cfg({"scale_id": "pdq39_score"})
+
+
+def test_fiber_section_cfg_reuses_the_accepted_spatial_aesthetics() -> None:
+    assert fiber_section_cfg["boxsize"] == (30.0, 25.0)
+    assert fiber_section_cfg["panel_gap"] == (3.0, 3.0)
+    assert fiber_section_cfg["global_box_span_mm"] == (12.0, 10.0)
+    assert fiber_section_cfg["font_family"] == "Arial"
+    assert fiber_section_cfg["label_top_bg_color"] == "#D7E3E0"
+    assert fiber_section_cfg["label_right_bg_color"] == "#E3DCCF"
+    assert fiber_section_cfg["mask_linewidth_pt"] == 1.0
+    assert fiber_section_cfg["background_loading_mode"] == "panel_local_lazy"
+    assert fiber_section_cfg["heat_sampling_order"] == 0
+    assert fiber_section_cfg["support_coordinate_mode"] == "affine_voxel_centers"
+    assert fiber_section_cfg["dpi"] == 600
+
+    configured = get_fiber_section_cfg({"dpi": 72})
+    assert configured["dpi"] == 72
+    assert fiber_section_cfg["dpi"] == 600

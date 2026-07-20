@@ -1,0 +1,81 @@
+schema_version: normative_fiber_spatial_projection_v1
+
+background:
+  path: /Volumes/VAL/STNSNr/config/atlas/7T_100um_Edlow_2019.nii
+  loading: panel_local_lazy
+  role: display_only
+
+projection:
+  grid_source: role_seed
+  direct_streamline_scope: complete_path
+  target_conditioned_scope: seed_only
+  per_fiber_per_voxel: once
+  target_hit_method: segment_intersection
+  target_membership: independent_binary
+  target_composition: fractional_by_hit_count
+  streamline_weight_source: uniform_one
+  no_target_policy: exclude_and_report
+
+seeds:
+  reference:
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/STN.nii.gz
+  addon:
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/SNr.nii.gz
+
+targets:
+  - name: VM_thalamus
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/VM_thalamus.nii.gz
+  - name: VLA_thalamus
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/VLA_thalamus.nii.gz
+  - name: GPi
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/GPi.nii.gz
+  - name: sPf_thalamus
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/sPf_thalamus.nii.gz
+  - name: GPe
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/GPe.nii.gz
+  - name: PPN
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/PPN.nii.gz
+  - name: VLP_thalamus
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/VLP_thalamus.nii.gz
+  - name: VA_thalamus
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/VA_thalamus.nii.gz
+  - name: Pf_thalamus
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/Pf_thalamus.nii.gz
+  - name: preSMA
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/preSMA.nii.gz
+  - name: SMA
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/SMA.nii.gz
+  - name: posterior_putamen
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/posterior_putamen.nii.gz
+  - name: CM_thalamus
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/CM_thalamus.nii.gz
+  - name: caudate
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/caudate.nii.gz
+  - name: premotor
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/premotor.nii.gz
+  - name: M1
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/M1.nii.gz
+  - name: DLPFC
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/DLPFC.nii.gz
+  - name: RN
+    side: rh
+    path: /Users/mojackhu/Github/leaddbs/templates/space/MNI152NLin2009bAsym/atlases/STNSNrplus-connected regions/rh/RN.nii.gz

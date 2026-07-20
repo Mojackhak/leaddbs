@@ -533,6 +533,155 @@ boundaries without clipping. Every result records a symmetric heat range and
 readiness but does not replace explicit user acceptance of the visual
 appearance.
 
+### PDQ-39 normative-fiber two-dimensional spatial checkpoint
+
+The next spatial checkpoint is restricted to the completed PDQ-39 normative-
+fiber reference and add-on final models. It consumes only the final model,
+resolver artifacts, and formal connectome geometry declared by the completed
+canonical normative-fiber publication. It never reads `.runs/`, and it does
+not authorize another endpoint or a cohort-wide fiber batch.
+
+The checkpoint publishes two distinct fiber-axis display derivatives for each
+model role. Neither derivative is a direct-voxel model, a new fitted model, or
+an inferential statistic.
+
+The direct streamline-score projection uses the complete selected streamline
+paths. For selected fiber `i`, signed full-model score `s_i`, independent
+quantitative streamline weight `q_i`, and binary once-per-fiber voxel incidence
+`I_iv`, the projected score is:
+
+```text
+M_v = sum_i(I_iv * q_i * s_i) / sum_i(I_iv * q_i)
+```
+
+The current formal PPMI connectome has no independent quantitative streamline
+weight, so `q_i` is exactly one. Model-score magnitude must never be reused as
+`q_i`. The direct projection writes `NaN` where no selected sweet or sour fiber
+is present and publishes separate total, sweet, and sour support maps. Complete
+streamline paths are retained in the NIfTI derivative, while the accepted
+three-by-three figure remains centered on the right-sided role seed.
+
+The target-conditioned projection separates target scoring from local target
+composition. Target membership `m_it` is one when any segment of selected
+fiber `i` intersects target `t` and zero otherwise. Multiple intersections with
+one target remain one hit, and overlapping targets are evaluated independently.
+The target score is:
+
+```text
+T_t = sum_i(m_it * q_i * s_i) / sum_i(m_it * q_i)
+```
+
+For `k_i = sum_t(m_it)`, fractional membership is used only for composition:
+
+```text
+a_it = m_it / k_i
+H_vt = sum_i(I_iv * q_i * a_it)
+G_v = sum_t(H_vt * T_t) / sum_t(H_vt)
+```
+
+`H_vt` and `G_v` are evaluated only inside the configured right-sided seed:
+STN for reference and SNr for add-on. Every target-hit fiber therefore
+contributes total composition mass `q_i` at each traversed seed voxel regardless
+of how many targets it hits. A fiber with `k_i` equal to zero is excluded from
+`G_v`, but its seed-voxel mass is published separately. The contract therefore
+claims mass conservation only within the target-hit subset and also publishes
+target-assignment coverage so unassigned mass is never hidden.
+
+The explicit spatial catalog is
+`my_helper/stnsnr/config/four_model_v1/fiber_spatial_projection.yaml`. It fixes
+the full 7 T Edlow anatomy, one right-sided seed per role, the shared ordered
+right-sided target catalog, segment-aware intersection, independent binary
+target hits, fractional composition, uniform `q_i`, and the exclude-and-report
+no-target policy. Every seed and target must be binary, three-dimensional,
+canonical RAS, and on the exact projection grid. Geometry disagreement is a
+hard failure rather than an implicit resampling step. The 100 micrometre anatomy
+is a lazy display resource only and never becomes the projection grid.
+
+The first checkpoint produces four independent figures:
+
+1. reference direct streamline-score mean;
+2. add-on direct streamline-score mean;
+3. reference target-conditioned score;
+4. add-on target-conditioned score.
+
+All four figures reuse the accepted direct-voxel layout and aesthetics: three
+rows for Ax, Cor, and Sag; 25, 50, and 75 percent seed positions; one fixed 12
+by 10 mm field per cell; 0.1 mm display sampling; lazy 7 T anatomy; a solid,
+fully opaque black 1 point seed boundary on the top layer; Arial typography;
+opaque `#D7E3E0` top strips and `#E3DCCF` right strips; a signed `vik` scale
+centered on zero; a single right colorbar; 600 DPI; transparent canvas; and PNG,
+PDF, and JSON outputs. Each figure derives its own symmetric color range. The
+first checkpoint publishes raw projections only and performs no Gaussian
+smoothing.
+
+The human-readable output contract is:
+
+```text
+scales/pdq39_score/<reference-or-addon>/fiber/
+  direct_streamline/
+    maps/
+      streamline_score_mean.nii.gz
+      streamline_support_count.nii.gz
+      streamline_sweet_count.nii.gz
+      streamline_sour_count.nii.gz
+    figures/
+      streamline_score_mean_sections.png
+      streamline_score_mean_sections.pdf
+      streamline_score_mean_sections.json
+    projection_qc.json
+  target_conditioned/
+    maps/
+      target_conditioned_score.nii.gz
+      target_assigned_mass.nii.gz
+      target_unassigned_mass.nii.gz
+      target_assignment_fraction.nii.gz
+    tables/
+      target_scores.csv
+      fiber_target_membership.csv
+    figures/
+      target_conditioned_score_sections.png
+      target_conditioned_score_sections.pdf
+      target_conditioned_score_sections.json
+    target_membership_qc.json
+```
+
+The output-local cache stores resolved selected streamline geometry, binary
+target membership, once-per-fiber voxel incidence, and sparse seed target mass.
+Cache identity binds the canonical publication artifacts, formal connectome
+identity, spatial-catalog identity, traversal contract, and projection grid.
+Repository code identity is not a resume gate. Failed or partial work retains
+the cache and completed role-local outputs.
+
+Acceptance requires exact selected-ID and score alignment; binary once-per-
+fiber target and voxel incidence; segment-aware rather than vertex-only
+intersection; target-hit composition conservation; explicit unassigned mass;
+finite `G_v` only where assigned mass is positive; `G_v` within the local
+finite target-score range; role-local failure isolation; verified publication
+hashes; direct PNG and rendered-PDF inspection; Arial font inspection; bounded
+lazy anatomy loading; and full reuse on an identical second invocation.
+
+Implementation evidence on 2026-07-20 is stored below
+`/Volumes/VAL/STNSNr/summary/spot/postprocess/dual_frequency_four_model_v1/`
+`task17-pdq39-fiber-spatial-v1-20260720/`. Both role-local results completed,
+and an identical second invocation reused both complete results. Reference and
+add-on each used 300 selected fibers, comprising 200 sweet and 100 sour fibers,
+at their realized final tau of 400 V/m and Coverage of 5. The direct maps
+contain 50,142 and 50,571 finite voxels, respectively. The target-conditioned
+maps contain 878 finite reference seed voxels and 2,183 finite add-on seed
+voxels. Maximum target-composition mass errors are
+`1.4210854715202004e-14` and `7.105427357601002e-15`, and no target-conditioned
+score exceeds its contributing target-score range.
+
+All four PNG files and Poppler-rendered PDF pages passed visual inspection for
+the accepted anatomy, signed heatmap, panel geometry, opaque strips, top-layer
+seed outline, colorbar, scale bar, and absence of clipping. Each PDF embeds
+only subset Arial and Arial Bold TrueType fonts. The combined visualization and
+seed-target traversal suite passed 106 tests and 27 subtests, with one optional
+real-data acceptance test skipped. The formal output passed NIfTI grid,
+support-decomposition, assignment-fraction, finite-support, output-presence,
+figure-metadata, and mass-conservation checks. This evidence authorizes only
+the PDQ-39 checkpoint; no other scale was rendered.
+
 ## Output Contract
 
 ```text

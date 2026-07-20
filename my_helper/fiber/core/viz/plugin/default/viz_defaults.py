@@ -15,6 +15,8 @@ FIT_BOXSIZE_MM: Final[tuple[float, float]] = (30.0, 25.0)
 FIT_PANEL_GAP_MM: Final[tuple[float, float]] = (3.0, 3.0)
 VOXEL_SECTION_BOXSIZE_MM: Final[tuple[float, float]] = (30.0, 25.0)
 VOXEL_SECTION_PANEL_GAP_MM: Final[tuple[float, float]] = (3.0, 3.0)
+FIBER_SECTION_BOXSIZE_MM: Final[tuple[float, float]] = (30.0, 25.0)
+FIBER_SECTION_PANEL_GAP_MM: Final[tuple[float, float]] = (3.0, 3.0)
 
 _FIT_CONFIG: Final[dict[str, Any]] = {
     "style_id": "paired_in_sample_loocv_fit_mylfp_v1",
@@ -82,13 +84,16 @@ _VOXEL_SECTION_CONFIG: Final[dict[str, Any]] = {
     "facets": ("Ax", "Cor", "Sag"),
     "resolution_mm": 0.1,
     "heat_support_mode": "finite",
+    "support_coordinate_mode": "half_voxel_offset",
     "heat_colormap": "vik",
     "heat_scale_mode": "symmetric",
+    "heat_sampling_order": 1,
     "heat_alpha": 0.95,
     "background_colormap": "gray",
     "background_percentiles": (0.0, 100.0),
     "background_gamma": 1.0,
     "background_alpha": 1.0,
+    "background_loading_mode": "bounded_union_lazy",
     "mask_threshold": 0.05,
     "mask_color": "#000000",
     "mask_alpha": 1.0,
@@ -140,6 +145,25 @@ DEFAULT_VOXEL_SECTION_CONFIG: Final[Mapping[str, Any]] = MappingProxyType(
 voxel_section_cfg: Final[Mapping[str, Any]] = DEFAULT_VOXEL_SECTION_CONFIG
 
 
+_FIBER_SECTION_CONFIG: Final[dict[str, Any]] = deepcopy(_VOXEL_SECTION_CONFIG)
+_FIBER_SECTION_CONFIG.update(
+    {
+        "style_id": "pdq39_fiber_sections_mylfp_v1",
+        "boxsize": FIBER_SECTION_BOXSIZE_MM,
+        "panel_gap": FIBER_SECTION_PANEL_GAP_MM,
+        "background_loading_mode": "panel_local_lazy",
+        "heat_sampling_order": 0,
+        "support_coordinate_mode": "affine_voxel_centers",
+        "colorbar_label": "Mean selected-fiber model score",
+    }
+)
+
+DEFAULT_FIBER_SECTION_CONFIG: Final[Mapping[str, Any]] = MappingProxyType(
+    _FIBER_SECTION_CONFIG
+)
+fiber_section_cfg: Final[Mapping[str, Any]] = DEFAULT_FIBER_SECTION_CONFIG
+
+
 def get_fit_cfg(overrides: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Return an isolated fit-style configuration with validated overrides."""
 
@@ -168,14 +192,34 @@ def get_voxel_section_cfg(
     return config
 
 
+def get_fiber_section_cfg(
+    overrides: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return an isolated normative-fiber section style configuration."""
+
+    config = deepcopy(dict(DEFAULT_FIBER_SECTION_CONFIG))
+    if overrides is None:
+        return config
+    unknown = sorted(set(overrides) - set(DEFAULT_FIBER_SECTION_CONFIG))
+    if unknown:
+        raise KeyError(f"unknown fiber-section visualization settings: {unknown}")
+    config.update(dict(overrides))
+    return config
+
+
 __all__ = [
     "DEFAULT_FIT_CONFIG",
+    "DEFAULT_FIBER_SECTION_CONFIG",
     "DEFAULT_VOXEL_SECTION_CONFIG",
+    "FIBER_SECTION_BOXSIZE_MM",
+    "FIBER_SECTION_PANEL_GAP_MM",
     "FIT_BOXSIZE_MM",
     "FIT_PANEL_GAP_MM",
     "VOXEL_SECTION_BOXSIZE_MM",
     "VOXEL_SECTION_PANEL_GAP_MM",
     "fit_cfg",
+    "fiber_section_cfg",
+    "get_fiber_section_cfg",
     "get_fit_cfg",
     "get_voxel_section_cfg",
     "voxel_section_cfg",

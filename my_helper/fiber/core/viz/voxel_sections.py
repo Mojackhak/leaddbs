@@ -155,6 +155,7 @@ def _sample_slice(
 def _slice_geometry(
     heat: _Volume,
     style: Mapping[str, Any],
+    support_override: np.ndarray | None = None,
 ) -> tuple[
     np.ndarray,
     dict[tuple[str, str], dict[str, float]],
@@ -162,15 +163,29 @@ def _slice_geometry(
     tuple[str, ...],
     tuple[str, ...],
 ]:
-    support = np.isfinite(heat.data)
+    if support_override is None:
+        support = np.isfinite(heat.data)
+    else:
+        support = np.asarray(support_override, dtype=bool)
+        if support.shape != heat.data.shape:
+            raise ValueError("slice-support mask must match its geometry volume")
     if not np.any(support):
         raise ValueError("heatmap contains no finite voxel support")
     xlo, xhi, ylo, yhi, zlo, zhi = _bbox(support)
     voxel_sizes = nib.affines.voxel_sizes(heat.affine)
     translations = heat.affine[:3, 3]
-    x_all = translations[0] + (np.arange(xlo, xhi + 1) + 0.5) * voxel_sizes[0]
-    y_all = translations[1] + (np.arange(ylo, yhi + 1) + 0.5) * voxel_sizes[1]
-    z_all = translations[2] + (np.arange(zlo, zhi + 1) + 0.5) * voxel_sizes[2]
+    coordinate_mode = str(style.get("support_coordinate_mode", "half_voxel_offset"))
+    if coordinate_mode == "half_voxel_offset":
+        coordinate_offset = 0.5
+    elif coordinate_mode == "affine_voxel_centers":
+        coordinate_offset = 0.0
+    else:
+        raise ValueError(
+            "support_coordinate_mode must be half_voxel_offset or affine_voxel_centers"
+        )
+    x_all = translations[0] + (np.arange(xlo, xhi + 1) + coordinate_offset) * voxel_sizes[0]
+    y_all = translations[1] + (np.arange(ylo, yhi + 1) + coordinate_offset) * voxel_sizes[1]
+    z_all = translations[2] + (np.arange(zlo, zhi + 1) + coordinate_offset) * voxel_sizes[2]
     axes = (x_all, y_all, z_all)
     bounds = np.asarray(
         [[axis.min() for axis in axes], [axis.max() for axis in axes]],
@@ -287,6 +302,40 @@ def _panel_world_bounds(
                     values.append((horizontal, fixed, vertical))
                 else:
                     values.append((fixed, horizontal, vertical))
+    points = np.asarray(values, dtype=float)
+    return np.vstack((np.min(points, axis=0), np.max(points, axis=0)))
+
+
+def _single_panel_world_bounds(
+    key: tuple[str, str],
+    geometry: Mapping[tuple[str, str], Mapping[str, float]],
+    ranges: Mapping[tuple[str, str], Mapping[str, tuple[float, float]]],
+) -> np.ndarray:
+    plane, _ = key
+    fixed = float(geometry[key]["fixed_mm"])
+    x_limits = ranges[key]["xlim"]
+    y_limits = ranges[key]["ylim"]
+    if plane == "Ax":
+        values = (
+            (x_limits[0], y_limits[0], fixed),
+            (x_limits[0], y_limits[1], fixed),
+            (x_limits[1], y_limits[0], fixed),
+            (x_limits[1], y_limits[1], fixed),
+        )
+    elif plane == "Cor":
+        values = (
+            (x_limits[0], fixed, y_limits[0]),
+            (x_limits[0], fixed, y_limits[1]),
+            (x_limits[1], fixed, y_limits[0]),
+            (x_limits[1], fixed, y_limits[1]),
+        )
+    else:
+        values = (
+            (fixed, x_limits[0], y_limits[0]),
+            (fixed, x_limits[0], y_limits[1]),
+            (fixed, x_limits[1], y_limits[0]),
+            (fixed, x_limits[1], y_limits[1]),
+        )
     points = np.asarray(values, dtype=float)
     return np.vstack((np.min(points, axis=0), np.max(points, axis=0)))
 
@@ -592,6 +641,8 @@ def plot_signed_voxel_sections(
     *,
     background_image: ImageInput,
     mask_image: ImageInput,
+    geometry_image: ImageInput | None = None,
+    geometry_threshold: float = 0.0,
     style_config: Mapping[str, Any] | None = None,
     output_paths: Sequence[str | Path] = (),
 ) -> plt.Figure:
@@ -602,11 +653,45 @@ def plot_signed_voxel_sections(
     font = _configure_fonts(str(style["font_family"]))
     heat = _load_volume(heat_image)
     mask = _load_volume(mask_image)
-    bounds, geometry, ranges, facets, panel_labels = _slice_geometry(heat, style)
-    background = _load_background_crop(
-        background_image,
-        _panel_world_bounds(geometry, ranges),
+    geometry_volume = heat
+    geometry_support = None
+    slice_support_source = "finite_heatmap"
+    if geometry_image is not None:
+        geometry_volume = _load_volume(geometry_image)
+        geometry_support = (
+            np.isfinite(geometry_volume.data)
+            & (geometry_volume.data > float(geometry_threshold))
+        )
+        slice_support_source = "positive_geometry_image"
+    bounds, geometry, ranges, facets, panel_labels = _slice_geometry(
+        geometry_volume,
+        style,
+        geometry_support,
     )
+    background_mode = str(
+        style.get("background_loading_mode", "bounded_union_lazy")
+    )
+    if background_mode not in {"bounded_union_lazy", "panel_local_lazy"}:
+        raise ValueError(
+            "background_loading_mode must be bounded_union_lazy or panel_local_lazy"
+        )
+    background_crops: dict[tuple[str, str], _BackgroundCrop] = {}
+    if background_mode == "bounded_union_lazy":
+        shared_background = _load_background_crop(
+            background_image,
+            _panel_world_bounds(geometry, ranges),
+        )
+        for plane in facets:
+            for label in panel_labels:
+                background_crops[(plane, label)] = shared_background
+    else:
+        for plane in facets:
+            for label in panel_labels:
+                key = (plane, label)
+                background_crops[key] = _load_background_crop(
+                    background_image,
+                    _single_panel_world_bounds(key, geometry, ranges),
+                )
 
     cache: dict[
         tuple[str, str], tuple[np.ndarray, np.ma.MaskedArray, np.ndarray, list[float]]
@@ -621,7 +706,7 @@ def plot_signed_voxel_sections(
             x_limits = ranges[key]["xlim"]
             y_limits = ranges[key]["ylim"]
             anatomy_slice, _ = _sample_slice(
-                background.volume,
+                background_crops[key].volume,
                 plane,
                 fixed,
                 x_limits,
@@ -637,7 +722,7 @@ def plot_signed_voxel_sections(
                 x_limits,
                 y_limits,
                 resolution,
-                order=1,
+                order=int(style.get("heat_sampling_order", 1)),
                 fill=np.nan,
             )
             heat_masked = np.ma.masked_where(~np.isfinite(heat_slice), heat_slice)
@@ -803,8 +888,17 @@ def plot_signed_voxel_sections(
         if text_artist.get_text():
             text_artist.set_fontfamily(font)
 
+    unique_background_crops = list(
+        {id(value): value for value in background_crops.values()}.values()
+    )
+    first_background = unique_background_crops[0]
+    maximum_crop_shape = np.max(
+        np.asarray([value.crop_shape for value in unique_background_crops], dtype=int),
+        axis=0,
+    )
     metadata = {
         "style_id": style["style_id"],
+        "slice_support_source": slice_support_source,
         "bounds_mm": bounds.tolist(),
         "slice_coordinates_mm": {
             plane: [
@@ -823,11 +917,18 @@ def plot_signed_voxel_sections(
         },
         "heat_limits": list(heat_limits),
         "background_limits": list(background_limits),
-        "background_full_shape": list(background.full_shape),
-        "background_full_dtype": background.full_dtype,
-        "background_crop_shape": list(background.crop_shape),
-        "background_crop_bytes": background.crop_bytes,
-        "background_crop_slices": [list(item) for item in background.crop_slices],
+        "background_loading_mode": background_mode,
+        "background_full_shape": list(first_background.full_shape),
+        "background_full_dtype": first_background.full_dtype,
+        "background_crop_shape": [int(value) for value in maximum_crop_shape],
+        "background_crop_bytes": int(
+            sum(value.crop_bytes for value in unique_background_crops)
+        ),
+        "background_crop_slices": [
+            [list(item) for item in value.crop_slices]
+            for value in unique_background_crops
+        ],
+        "background_crop_count": len(unique_background_crops),
         "background_full_float_loaded": False,
         "mask_threshold": style["mask_threshold"],
         "mask_color": style["mask_color"],
