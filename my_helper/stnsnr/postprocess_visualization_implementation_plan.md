@@ -4,9 +4,14 @@
 
 Rendering primitives were implemented on 2026-07-18. The public-only adapter
 was implemented and synthetically validated on 2026-07-19. Canonical main and
-final-in-sample publication, real-data rendering, and output-local resume were
-accepted on 2026-07-19. This document is the implementation contract for a
-postprocess visualization layer that consumes formally published
+final-in-sample publication remain the scientific input boundary. The user
+deleted the earlier 112-endpoint postprocess output after review, so that
+historical render is evidence about the implementation but is not a current
+published deliverable. The PDQ-39 paired in-sample and LOOCV fit checkpoint was
+accepted on 2026-07-19. The next refinement checkpoint is the sweet/sour 2D
+spatial figure; its design must be reviewed on a single explicit scale before
+any new cohort-wide batch is allowed. This document is the implementation contract
+for a postprocess visualization layer that consumes formally published
 dual-frequency final-model artifacts without rerunning model fitting,
 permutation, bootstrap, jitter, or OSS-DBS. A run-store adapter is prohibited.
 
@@ -17,8 +22,9 @@ Add one reusable visualization package under
 
 1. sweet/sour spatial visualization for direct-voxel and normative-fiber final
    models;
-2. paired in-sample and LOOCV statistical-fit visualization with the final
-   model parameters and inference statistics shown on the figure.
+2. paired in-sample and LOOCV statistical-fit visualization with only the
+   requested Spearman and permutation inference statistics shown on the
+   figure.
 
 The package must preserve the distinction between voxel and fiber models.
 Voxel model values live on a canonical voxel axis. Fiber model values live on
@@ -51,7 +57,13 @@ my_helper/fiber/core/viz/
   layout.py
   spatial.py
   model_fit.py
+  paired_fit_postprocess.py
   postprocess.py
+  plugin/
+    __init__.py
+    default/
+      __init__.py
+      viz_defaults.py
   surface/
     batch/
     batch_helper/
@@ -65,6 +77,22 @@ The existing `my_helper/fiber/core/visualization/` MATLAB functions move into
 `my_helper/fiber/core/viz/`. Their public function names remain unchanged, so
 recursive MATLAB path users do not require call-site changes. The old directory
 must be absent after the migration.
+
+### Visualization plugin configuration
+
+`my_helper/fiber/core/viz/plugin/default/viz_defaults.py` is the canonical
+default visual-style configuration. It mirrors the configuration role of
+`/Users/mojackhu/Github/MyLFP/plugin/default/viz_defaults.py` without importing
+MyLFP at runtime. The module contains rendering choices only: physical panel
+geometry, gaps, strip geometry, typography, palette, point and line styling,
+ribbon styling, identity-line styling, export formats, DPI, and transparency.
+
+The module must not contain endpoint IDs, scale IDs, tau, Coverage, branch
+selection, sample size, statistical values, p-value thresholds, model-selection
+rules, or scientific file paths. Those values remain publication data and are
+read from the selected final model and final-in-sample summary. Callers obtain a
+fresh configuration mapping so endpoint-specific display overrides cannot
+mutate the process-wide default configuration.
 
 ## Input Contract
 
@@ -207,28 +235,18 @@ and reported metrics. This separates plotting from the current run-store JSON
 layout and permits future report schema changes without changing the rendering
 primitive.
 
-Required annotations include:
+The figure annotation is intentionally restricted to:
 
 ```text
-selected tau
-selected Coverage
-final branch
-finite subject count
 Spearman rho
-Spearman nominal p
 formal permutation p
-model-family BH q
-all-endpoint BH q
-Pearson r and nominal p
-RMSE and MAE
-in-sample standard R2
-in-sample relative R2
-LOOCV R2 and Q2
-optimism gaps when finite
 ```
 
-Adjusted R2 is not reported because the fitted spatial model has no single
-stable degrees-of-freedom count.
+Selected tau, selected Coverage, final branch, finite counts, Pearson metrics,
+Spearman nominal p, error metrics, fit metrics, optimism gaps, and BH-adjusted
+values remain in the machine-readable endpoint result and are not drawn on the
+figure. Adjusted R2 is not reported because the fitted spatial model has no
+single stable degrees-of-freedom count.
 
 ## Rendering Contract
 
@@ -290,38 +308,140 @@ The MATLAB renderer:
 
 ### In-sample and LOOCV fit plot
 
-The Python renderer creates paired panels with shared limits:
+The Python renderer creates paired calibration panels:
 
-- observed outcome on the vertical axis;
-- fitted in-sample or held-out LOOCV prediction on the horizontal axis;
+- observed outcome on the shared horizontal axis;
+- fitted in-sample or held-out LOOCV prediction on the vertical axis;
 - subject points;
 - ordinary least-squares display line with a 95 percent confidence band when
   the input is estimable;
-- optional identity line;
-- one annotation block per panel containing the corresponding metrics;
-- one figure-level block containing model family, scale, final tau, Coverage,
-  final branch, and candidate-axis identity.
+- no identity line;
+- one upper-left annotation block per panel containing only Spearman rho and
+  formal permutation p;
+- no figure title or model-parameter text inside the graphic.
 
 The fit line is descriptive. Formal inference remains the stored permutation
 p and BH q; the renderer must not reinterpret the line's slope p as the model's
 formal p.
 
+### Accepted PDQ-39 fit-style checkpoint
+
+The first postprocess checkpoint rendered only paired in-sample and LOOCV fit
+figures for PDQ-39. The reference-fiber final model was the first visual QA
+sentinel, followed by reference voxel, add-on voxel, and add-on fiber. The user
+accepted this fit visualization on 2026-07-19. This acceptance freezes the
+style described below for a future fit batch but does not authorize that batch
+or a spatial batch.
+
+The default fit style is a value-for-value port of the MyLFP `fit_cfg` and its
+effective `plot_double_interaction_fit` defaults. It preserves the six-to-five
+panel aspect with a 30 by 25 mm inner plotting box. Two panels are arranged in
+one row with a 3 mm horizontal gap. The top strips use `#D7E3E0`, bold black
+labels, 4.5 mm strip height, and 2 mm strip padding. Arial is used throughout.
+Strip, axis-label, and optional title text use 7 point type; tick and annotation
+text use 6 point type. Output DPI is 600 and the background is transparent.
+Global axis labels use the MyLFP 5 mm offsets and measured text margins. Export
+uses the same tight bounding-box behavior as the MyLFP `save_fig` helper. The
+figure canvas outside the axes is transparent, while panel and strip axes stay
+opaque so the `#D7E3E0` strip color survives both PNG and PDF export.
+
+Each subject keeps one deterministic Viridis color across both panels. The
+subject colors span the full MyLFP Viridis sampling interval. Points use the
+MyLFP `fit_cfg` size of 2 and full opacity. The descriptive line is black with a
+1 point stroke, and its 95 percent display ribbon uses 0.30 alpha. Grid lines
+are absent. All four panel spines remain visible because `fit_cfg` does not
+override the effective `plot_double_interaction_fit` default. Axis spines and
+major ticks use a 1 point stroke, major ticks are 2 points long, and tick and
+axis-label padding are 1 point. No identity line is drawn.
+
+Axis-limit content reproduces the effective MyLFP
+`visualdf._plot_interaction_fit_grid` contract, with one explicit adaptation
+for paired calibration plots. Horizontal and vertical limits are computed
+independently rather than forcing a square numeric range. The shared horizontal
+limit includes all finite observed outcomes and both display-curve grids. The
+shared vertical limit uses the maximum joint range across both panels: its
+lower endpoint is the minimum of every finite in-sample and LOOCV prediction,
+fitted curve, and lower confidence-ribbon bound; its upper endpoint is the
+maximum of the corresponding predictions, fitted curves, and upper
+confidence-ribbon bounds. Both shared ranges receive 5 percent of their own
+span as padding. The panels therefore share the observed horizontal axis and
+the prediction vertical axis. No finite ribbon vertex may lie outside the
+final shared vertical limit. The right panel suppresses duplicate vertical
+tick labels.
+
+The compact panel annotation contains only stored Spearman rho and formal
+two-sided permutation p. Spearman rho is formatted as `rho = xxx` with the Greek
+rho glyph. Permutation p is formatted to three decimals with `(n.s.)`, `(*)`,
+or `(**)` for values outside, below 0.05, or below 0.01, respectively. Values
+strictly below 0.001 are reported as `p < 0.001 (***)`. Spearman nominal p,
+model-family BH q, finite subject count, and every other metric remain outside
+the figure. The two-line block uses the 6 point tick-label size, upper-left
+panel anchor, 5 percent inset on both axes, and a fully transparent annotation
+box. The complete published
+metrics remain in the human-readable result JSON; shrinking or hiding points
+to fit the annotation is prohibited.
+
+`paired_fit_postprocess.py` is the fit-only publication entry point. It accepts
+one explicit scale ID and the four completed canonical publication roots,
+validates each final model, final-in-sample summary, and paired prediction
+table through the publication artifact indexes, and writes the semantic
+`scales/<scale-id>/<reference-or-addon>/<voxel-or-fiber>/` tree. The PDQ-39
+acceptance invocation passes only `pdq39_score`; it does not enumerate the
+remaining scales.
+
+Acceptance evidence comprises four completed PDQ-39 model-family figures with
+zero rendering failures, direct PNG and Poppler-rendered PDF review, complete
+confidence ribbons, embedded Arial PDF fonts, and 20 passing visualization
+tests. An identical second invocation reused all four completed outputs with
+zero failures. The acceptance figure shows observed outcome on the shared
+horizontal axis, prediction on the shared maximum-joint-range vertical axis,
+and upper-left Spearman rho plus formal permutation p annotations.
+
+### Next checkpoint: sweet/sour 2D spatial figure
+
+The next postprocess design review concerns only the sweet/sour 2D spatial
+figure. No cohort-wide rendering is authorized by the fit-figure acceptance.
+The next checkpoint must first freeze, on one explicitly selected scale and
+model family, the source-map semantics, voxel-versus-fiber display distinction,
+slice selection, anatomy and atlas layers, color mapping, Boxsize geometry,
+labels, colorbar or legend behavior, export formats, and human-readable output
+location. Scientific inputs must continue to come only from completed canonical
+publications rather than `.runs/`. Batch implementation may begin only after
+the single-scale 2D figure is explicitly accepted.
+
 ## Output Contract
 
 ```text
-postprocess/
-  postprocess_request.json
+postprocess/<postprocess-id>/
+  README.md
+  endpoint_index.csv
   manifest.json
-  endpoints/<endpoint_id>/
-    spatial/
-      <voxel-or-fiber>/
-        sections.png
-        sections.pdf
-    statistics/
-      in_sample_loocv_fit.png
-      in_sample_loocv_fit.pdf
-    manifest.json
+  scales/
+    <scale-id>/
+      reference/
+        voxel/
+          in_sample_loocv_fit.png
+          in_sample_loocv_fit.pdf
+          result.json
+        fiber/
+          in_sample_loocv_fit.png
+          in_sample_loocv_fit.pdf
+          result.json
+      addon/
+        voxel/
+          in_sample_loocv_fit.png
+          in_sample_loocv_fit.pdf
+          result.json
+        fiber/
+          in_sample_loocv_fit.png
+          in_sample_loocv_fit.pdf
+          result.json
 ```
+
+Opaque endpoint IDs remain manifest fields for resume and provenance; they are
+not user-facing directory names. During the active checkpoint, the tree
+contains only `scales/pdq39_score/`. Spatial output will be added only after its
+separate visual contract is accepted.
 
 Each manifest records canonical publication IDs, indexed relative source paths,
 source hashes, selected model key, plotting parameters, output paths,

@@ -6,14 +6,19 @@ repository's recursive MATLAB path setup.
 """
 
 from .layout import DEFAULT_BOXSIZE_MM, FigureLayout, build_figure_layout
+from .plugin.default import DEFAULT_FIT_CONFIG, fit_cfg, get_fit_cfg
 
 __all__ = [
     "DEFAULT_BOXSIZE_MM",
+    "DEFAULT_FIT_CONFIG",
     "FigureLayout",
     "SpatialLayer",
     "build_figure_layout",
+    "fit_cfg",
+    "get_fit_cfg",
     "plot_in_sample_loocv_fit",
     "plot_sweet_sour_slices",
+    "run_single_scale_paired_fit_postprocess",
 ]
 
 
@@ -31,4 +36,8 @@ def __getattr__(name: str):
             "SpatialLayer": SpatialLayer,
             "plot_sweet_sour_slices": plot_sweet_sour_slices,
         }[name]
+    if name == "run_single_scale_paired_fit_postprocess":
+        from .paired_fit_postprocess import run_single_scale_paired_fit_postprocess
+
+        return run_single_scale_paired_fit_postprocess
     raise AttributeError(name)

@@ -317,10 +317,83 @@ def test_fit_plot_exports_and_uses_stored_metrics(tmp_path: Path) -> None:
     assert output.is_file()
     assert output.stat().st_size > 1000
     text = "\n".join(item.get_text() for axis in figure.axes for item in axis.texts)
-    assert "permutation p  0.040" in text
-    assert "Q²  0.120" in text
+    assert "ρ = 0.820" in text
+    assert "p = 0.040 (*)" in text
+    assert "nominal" not in text
+    assert "family BH" not in text
+    assert "Pearson" not in text
+    assert "tau" not in text
+    assert "Coverage" not in text
     layout = getattr(figure, "_mh_viz_layout")
     assert layout.boxsize_mm == (45.0, 38.0)
+    panel_axes = [axis for axis in figure.axes if axis.has_data()]
+    assert len(panel_axes) == 2
+    assert all(axis.spines["top"].get_visible() for axis in panel_axes)
+    assert all(axis.spines["right"].get_visible() for axis in panel_axes)
+    assert all(len(axis.lines) == 1 for axis in panel_axes)
+    assert panel_axes[0].get_xlim() == pytest.approx(panel_axes[1].get_xlim())
+    assert panel_axes[0].get_ylim() == pytest.approx(panel_axes[1].get_ylim())
+    assert any(label.get_visible() for label in panel_axes[0].get_yticklabels())
+    assert not any(label.get_visible() for label in panel_axes[1].get_yticklabels())
+
+    displays = getattr(figure, "_mh_viz_fit_displays")
+    x_values = np.concatenate(
+        [
+            part
+            for display in displays
+            for part in (display.x, display.x_grid)
+            if part.size
+        ]
+    )
+    x_span = float(np.max(x_values) - np.min(x_values))
+    expected_x = (
+        float(np.min(x_values) - 0.05 * x_span),
+        float(np.max(x_values) + 0.05 * x_span),
+    )
+    y_values = np.concatenate(
+        [
+            part
+            for display in displays
+            for part in (display.y, display.fitted, display.lower, display.upper)
+            if part.size
+        ]
+    )
+    y_span = float(np.max(y_values) - np.min(y_values))
+    expected_y = (
+        float(np.min(y_values) - 0.05 * y_span),
+        float(np.max(y_values) + 0.05 * y_span),
+    )
+    assert panel_axes[0].get_xlim() == pytest.approx(expected_x)
+    for axis, display in zip(panel_axes, displays, strict=True):
+        assert axis.get_ylim() == pytest.approx(expected_y)
+        if display.lower.size:
+            assert float(np.min(display.lower)) > expected_y[0]
+            assert float(np.max(display.upper)) < expected_y[1]
+        annotation = next(item for item in axis.texts if "ρ =" in item.get_text())
+        assert annotation.get_position() == pytest.approx((0.05, 0.95))
+        assert annotation.get_horizontalalignment() == "left"
+        assert annotation.get_verticalalignment() == "top"
+    plt.close(figure)
+
+
+@pytest.mark.parametrize(
+    ("permutation_p", "expected"),
+    [
+        (0.2, "p = 0.200 (n.s.)"),
+        (0.04, "p = 0.040 (*)"),
+        (0.008, "p = 0.008 (**)"),
+        (0.0005, "p < 0.001 (***)"),
+    ],
+)
+def test_fit_plot_formats_permutation_significance(
+    permutation_p: float,
+    expected: str,
+) -> None:
+    summary = _summary()
+    summary["in_sample_permutation_p_plus_one_two_sided"] = permutation_p
+    figure = plot_in_sample_loocv_fit(_subjects(), summary)
+    text = "\n".join(item.get_text() for axis in figure.axes for item in axis.texts)
+    assert expected in text
     plt.close(figure)
 
 
