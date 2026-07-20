@@ -4822,7 +4822,9 @@ entries through its portable shared-exposure identities, so the loader enriches
 the in-memory checkpoint without mutating parent files. The union of realized
 fiber cohorts contains 34 reference physical rows and 26 add-on physical rows.
 The bounded decision matrix therefore covers 60 exact row classes and may run
-fewer than 121 cold solver calls. Each row has an immutable decision cache;
+`< 121` cold row executions. Each row execution contains ten fixed
+sample-level OSS solver invocations, so a completely cold gate contains
+`< 1201` sample-level invocations. Each row has an immutable decision cache;
 group resume reuses accepted rows and continues only missing or invalid rows.
 
 For each row, compare all ten sample-wise axon states after selecting the final
@@ -4927,6 +4929,37 @@ statistics. The physical set contains 160 version-one blocks and 80
 version-two blocks. Each of the six model-family and branch groups contributes
 forty ranges. This confirms that the production DAG matches the frozen
 support-preserving contract before any successor run directory is created.
+
+The first independent OSS production attempt on 2026-07-20 restored all 196
+parent roots and admitted only one external solver worker, but both group gates
+failed on their first physical row. OSS-DBSv2 completed the FEM stage and
+created the time-domain result; `run_pathway_activation` then failed while
+compiling the NEURON mechanism because `nrnivmodl` was absent from the child
+process `PATH`. The executable is present under the locked `ossdbsv2`
+environment. This is an execution-environment propagation defect, not a
+scientific input, final-axis, or `Omega_max` decision failure.
+
+The corrective boundary follows the already frozen row-runner contract in
+`normative_fiber_oss_ppam_generation_plan.md`: every external OSS command must
+receive an explicit child environment whose leading `PATH` component is the
+parent directory of the attested environment Python executable. The inherited
+remainder of `PATH` stays intact. A focused subprocess test must prove that a
+nested executable placed beside that Python is discoverable, and existing
+timeout, process-group termination, logging, and command-identity tests must
+remain unchanged. After the focused and complete dual-frequency suites pass,
+the failed child may resume in place. Resume must restore the 196 completed
+roots, rerun only the two failed gates and their dependency-derived skipped
+descendants, and retain both failed runtime workspaces as diagnostic evidence.
+
+The corrective implementation now supplies that explicit child environment.
+A real probe launched through the locked environment Python resolved
+`nrnivmodl` to the locked environment `bin` directory. The focused toolchain
+suite passed 29 tests, the complete pytest regression passed 531 tests and 310
+subtests, the package-aware unittest regression passed 520 tests, static
+compilation passed, and the diff whitespace check passed. These tests close the
+execution-path repair only; the original failed child remains the formal resume
+target and the real two-group scientific gate remains open until its resumed
+solver execution finishes.
 
 ---
 

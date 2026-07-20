@@ -1808,10 +1808,27 @@ class SubprocessOSSRowExecutor:
         log_prefix.parent.mkdir(parents=True, exist_ok=True)
         stdout_path = log_prefix.with_suffix(".stdout.log")
         stderr_path = log_prefix.with_suffix(".stderr.log")
+        environment = os.environ.copy()
+        executable = Path(command[0]).expanduser()
+        executable_parent: Path | None = None
+        if executable.is_absolute():
+            executable_parent = executable.resolve().parent
+        else:
+            resolved_executable = shutil.which(command[0])
+            if resolved_executable is not None:
+                executable_parent = Path(resolved_executable).resolve().parent
+        if executable_parent is not None:
+            inherited_path = environment.get("PATH", "")
+            environment["PATH"] = os.pathsep.join(
+                part
+                for part in (str(executable_parent), inherited_path)
+                if part
+            )
         with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
             process = subprocess.Popen(
                 command,
                 cwd=cwd,
+                env=environment,
                 stdout=stdout_file,
                 stderr=stderr_file,
                 start_new_session=True,

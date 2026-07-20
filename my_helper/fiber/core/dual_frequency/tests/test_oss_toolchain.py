@@ -846,6 +846,37 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
             "stderr-line\n",
         )
 
+    @unittest.skipUnless(os.name == "posix", "executable scripts require POSIX")
+    def test_external_stage_prepends_environment_bin_to_path(self) -> None:
+        environment_bin = self.root / "locked-environment" / "bin"
+        environment_bin.mkdir(parents=True)
+        python = environment_bin / "python"
+        nested_executable = environment_bin / "nrnivmodl"
+        python.write_text("#!/bin/sh\nnrnivmodl\n", encoding="utf-8")
+        nested_executable.write_text(
+            "#!/bin/sh\nprintf 'nested-path-ok\\n'\n",
+            encoding="utf-8",
+        )
+        python.chmod(0o755)
+        nested_executable.chmod(0o755)
+        log_prefix = self.root / "external-stage" / "nested-path"
+
+        SubprocessOSSRowExecutor._run(
+            (str(python),),
+            cwd=self.root,
+            log_prefix=log_prefix,
+            timeout_seconds=5.0,
+        )
+
+        self.assertEqual(
+            log_prefix.with_suffix(".stdout.log").read_text(encoding="utf-8"),
+            "nested-path-ok\n",
+        )
+        self.assertEqual(
+            log_prefix.with_suffix(".stderr.log").read_text(encoding="utf-8"),
+            "",
+        )
+
     def test_external_stage_timeout_terminates_the_process_group(self) -> None:
         marker = self.root / "escaped-child.txt"
         child = (
