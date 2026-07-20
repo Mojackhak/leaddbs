@@ -740,8 +740,14 @@ millimeters:
 smoothed = Gaussian(value * finite_mask) / Gaussian(finite_mask)
 ```
 
-Locations with zero smoothed-mask support remain `NaN`. The 1 mm and 2 mm FWHM
-outputs never replace values in the unsmoothed selected-source bundle.
+The original ROI is exactly the finite support of the selected unsmoothed
+`benefit_map.nii.gz`. After convolution, values are published only at this
+original ROI and every voxel outside it remains `NaN`. Consequently, the raw,
+1 mm FWHM, and 2 mm FWHM maps have identical finite masks. The normalized
+denominator prevents unsupported voxels from acting as numerical zeros at ROI
+boundaries, while the final remask prevents Gaussian support from enlarging the
+displayed scientific domain. The 1 mm and 2 mm FWHM outputs never replace
+values in the unsmoothed selected-source bundle.
 
 `benefit_map_bilateral.nii.gz` is derived from the unsmoothed right-canonical
 final benefit map. The configured nonlinear left-right transform creates the

@@ -91,6 +91,33 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _masked_normalized_gaussian_original_roi(
+    values: np.ndarray,
+    finite_mask: np.ndarray,
+    sigma: np.ndarray,
+) -> np.ndarray:
+    """Smooth finite values while preserving their exact original support."""
+
+    try:
+        from scipy.ndimage import gaussian_filter
+    except ImportError as exc:
+        raise PublicationError(
+            "direct-voxel publication requires scipy"
+        ) from exc
+
+    value_array = np.asarray(values, dtype=np.float32)
+    mask_array = np.asarray(finite_mask, dtype=np.float32)
+    if value_array.shape != mask_array.shape:
+        raise ValueError("values and finite_mask must have identical shapes")
+    numerator = gaussian_filter(value_array, sigma=sigma, mode="constant")
+    denominator = gaussian_filter(mask_array, sigma=sigma, mode="constant")
+    smoothed = np.full(value_array.shape, np.nan, dtype=np.float32)
+    original_roi = mask_array > 0.0
+    supported = original_roi & (denominator > 0.0)
+    smoothed[supported] = numerator[supported] / denominator[supported]
+    return smoothed
+
+
 def _artifact_location(artifact: ArtifactRef) -> Path:
     parsed = urlparse(artifact.uri)
     if parsed.scheme != "file":
@@ -1780,9 +1807,8 @@ class CanonicalPublisher:
     ) -> list[str]:
         try:
             import nibabel as nib
-            from scipy.ndimage import gaussian_filter
         except ImportError as exc:
-            raise PublicationError("direct-voxel publication requires nibabel and scipy") from exc
+            raise PublicationError("direct-voxel publication requires nibabel") from exc
         artifacts = {item.kind: item for item in source.artifacts}
         selected = np.asarray(
             np.load(
@@ -1894,11 +1920,11 @@ class CanonicalPublisher:
                     selected_coordinates = coordinates - crop_lower
                     local_values[tuple(selected_coordinates.T)] = benefit[finite_positions]
                     local_mask[tuple(selected_coordinates.T)] = 1.0
-                    numerator = gaussian_filter(local_values, sigma=sigma, mode="constant")
-                    denominator = gaussian_filter(local_mask, sigma=sigma, mode="constant")
-                    local_smoothed = np.full(crop_shape, np.nan, dtype=np.float32)
-                    supported = denominator > 0.0
-                    local_smoothed[supported] = numerator[supported] / denominator[supported]
+                    local_smoothed = _masked_normalized_gaussian_original_roi(
+                        local_values,
+                        local_mask,
+                        sigma,
+                    )
                     volume = np.full(reference_image.shape, np.nan, dtype=np.float32)
                     slices = tuple(
                         slice(int(crop_lower[axis]), int(crop_upper[axis]))
@@ -1922,7 +1948,12 @@ class CanonicalPublisher:
                             "source_record_id": source.identifier,
                             "input_relative_path": f"{resolver}/benefit_map.nii.gz",
                             "fwhm_mm": fwhm,
-                            "algorithm": "masked_normalized_gaussian_v1",
+                            "algorithm": "masked_normalized_gaussian_original_roi_v2",
+                            "support_policy": "original_finite_benefit_roi",
+                            "input_finite_voxels": int(finite_positions.size),
+                            "output_finite_voxels": int(
+                                np.count_nonzero(np.isfinite(local_smoothed))
+                            ),
                         },
                     )
                     outputs.append(relative)

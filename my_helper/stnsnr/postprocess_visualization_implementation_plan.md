@@ -9,10 +9,13 @@ deleted the earlier 112-endpoint postprocess output after review, so that
 historical render is evidence about the implementation but is not a current
 published deliverable. The PDQ-39 paired in-sample and LOOCV fit checkpoint was
 accepted on 2026-07-19. The next refinement checkpoint is the sweet/sour 2D
-spatial figure. Its PDQ-39 direct-voxel implementation produced all six
-contracted PNG/PDF/JSON result triplets with zero failures on 2026-07-19 and
-reused all six results on an immediate second invocation. Internal visual and
-PDF QA passed; explicit user visual acceptance remains pending. No other scale
+spatial figure. Its revised PDQ-39 direct-voxel implementation produced all six
+contracted PNG/PDF/JSON result triplets with zero failures on 2026-07-20 and
+reused all six results on an immediate second invocation. The revision fixes
+the per-cell MNI field to 12 by 10 mm, preserves the raw finite ROI during
+display smoothing, uses a 1 point mask boundary, and preserves opaque MyLFP
+strip colors on the transparent canvas. Internal visual and PDF QA passed;
+explicit user visual acceptance remains pending. No other scale
 or fiber spatial batch is authorized. This document is the implementation contract
 for a postprocess visualization layer that consumes formally published
 dual-frequency final-model artifacts without rerunning model fitting,
@@ -426,9 +429,13 @@ contract of
 runtime. Each row is one of Ax, Cor, and Sag. Columns use the 25, 50, and 75
 percent positions of the finite signed heatmap support along the row's fixed
 world axis. All panels use canonical RAS world coordinates, equal physical
-spatial aspect, the maximum shared support span, and the 30 by 25 mm inner
+spatial aspect, one shared fixed field of view, and the 30 by 25 mm inner
 Boxsize. Sampling resolution is 0.1 mm. Continuous anatomy and heat use linear
 world-space sampling; the binary mask uses nearest-neighbour sampling.
+Every cell uses one fixed 12 by 10 mm MNI field of view centered on that
+slice's finite heatmap support. This field preserves the 30 by 25 mm page
+Boxsize ratio and one-to-one physical spatial scaling while providing more
+anatomical context than the support-tight automatic range.
 
 The background is fixed to
 `/Volumes/VAL/STNSNr/config/atlas/7T_100um_Edlow_2019_cropped.nii.gz` and uses
@@ -443,8 +450,14 @@ The reference figure uses
 `/Volumes/VAL/STNSNr/config/atlas/SNr_rh_mask.nii.gz`. The mask threshold is
 0.05. Masks are
 not filled: their boundaries are drawn after the voxel heatmap with a solid,
-fully opaque black 0.5 point stroke, so the boundary remains visible over every
+fully opaque black 1 point stroke, so the boundary remains visible over every
 heat color.
+
+Both smoothed heatmaps are constrained to the exact finite support of their
+selected unsmoothed `benefit_map.nii.gz`. Smoothing remains masked-normalized
+within that support, but no Gaussian halo becomes a finite output voxel. The
+raw, 1 mm FWHM, and 2 mm FWHM NIfTIs therefore share one finite ROI for each
+model role.
 
 The remaining style is frozen to the MyLFP reference values: a three-by-three
 panel grid, 3 mm horizontal and vertical panel gaps, Arial typography, 7 point
@@ -453,6 +466,14 @@ strips, `#E3DCCF` right strips, the `vik` signed colormap, a single global
 right-side colorbar, a black 2 mm global scale bar, and a transparent figure
 canvas. The output formats are PNG, PDF, and one machine-readable JSON record
 per figure.
+
+Every ordinary text artist uses Arial, matching the MyLFP defaults. A fallback
+font is permitted only for a special character that Arial cannot render; it
+must not replace Arial for surrounding ordinary text. The top and right strip
+patches remain fully opaque even though the surrounding figure canvas is
+transparent. Their rendered backgrounds are respectively the solid MyLFP
+colors `#D7E3E0` and `#E3DCCF`, and export QA checks the output pixels rather
+than relying only on in-memory Matplotlib properties.
 
 The accepted output root is
 `/Volumes/VAL/STNSNr/summary/spot/postprocess/dual_frequency_four_model_v1/task17-pdq39-voxel-spatial-v1-20260719`.
@@ -491,22 +512,26 @@ validation, and proof that the anatomy was not loaded as one full floating-point
 volume before any broader spatial batch can be proposed.
 
 Acceptance evidence for the right-sided contract comprises six completed
-figures with zero failures, 24 passing visualization tests, direct review of
-the reference and add-on raw PNG/PDF renderings, and embedded Arial plus Arial
-Bold PDF fonts. Source inspection found zero finite voxels at negative MNI x in
-all six selected raw or smoothed NIfTIs. A second invocation reused all six
-completed results with zero failures. Superseded bilateral outputs were moved
-out of the formal result tree and into the VAL Trash.
+figures with zero failures, 36 passing focused publication and visualization
+tests, direct review of reference and add-on PNG/PDF renderings, and embedded
+Arial plus Arial Bold PDF fonts. Source inspection found zero finite voxels at
+negative MNI x in all six selected raw or smoothed NIfTIs. A second invocation
+reused all six completed results with zero failures. Superseded outputs were
+moved out of the formal result tree and into the VAL Trash.
 
-Implementation evidence on 2026-07-19 comprises six complete results, zero
-failed results, and six reused results on the second invocation. All six PDFs
-are single-page files with embedded subset Arial and Arial Bold TrueType fonts.
-Poppler-rendered PDF review and direct PNG review found complete strips, panel
-labels, colorbars, global scale bars, anatomy, signed heatmaps, and top-layer
-black mask boundaries without clipping. Every result records a symmetric heat
-range and `background_full_float_loaded: false`. This evidence establishes
-implementation readiness but does not replace explicit user acceptance of the
-visual appearance.
+Implementation evidence on 2026-07-20 comprises six complete results, zero
+failed results, and six reused results on the second invocation. The reference
+raw, 1 mm, and 2 mm maps each contain 638 finite voxels; the add-on maps each
+contain 577. Every recorded panel range is exactly 12 by 10 mm. Pixel-level PNG
+inspection found fully opaque `#D7E3E0` top-strip and `#E3DCCF` right-strip
+backgrounds in all six figures while the surrounding canvas remained
+transparent. All six PDFs embed only subset Arial and Arial Bold TrueType
+fonts. Poppler-rendered PDF review found complete strips, panel labels,
+colorbars, global scale bars, anatomy, signed heatmaps, and top-layer black mask
+boundaries without clipping. Every result records a symmetric heat range and
+`background_full_float_loaded: false`. This evidence establishes implementation
+readiness but does not replace explicit user acceptance of the visual
+appearance.
 
 ## Output Contract
 

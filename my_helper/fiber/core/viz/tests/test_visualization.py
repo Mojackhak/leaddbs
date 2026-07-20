@@ -10,6 +10,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+from matplotlib.text import Text
 import nibabel as nib
 import numpy as np
 import pandas as pd
@@ -828,7 +829,7 @@ def test_signed_voxel_sections_match_the_accepted_layer_and_layout_contract(
     assert contours
     assert all(collection.get_alpha() == 1.0 for collection in contours)
     assert all(
-        collection.get_linewidths()[0] == pytest.approx(0.5)
+        collection.get_linewidths()[0] == pytest.approx(1.0)
         for collection in contours
     )
     assert all(
@@ -843,8 +844,43 @@ def test_signed_voxel_sections_match_the_accepted_layer_and_layout_contract(
     assert metadata["heat_limits"][0] == pytest.approx(-metadata["heat_limits"][1])
     assert metadata["mask_layer"] == "top"
     assert metadata["mask_color"] == "#000000"
-    assert metadata["mask_linewidth_pt"] == 0.5
+    assert metadata["mask_linewidth_pt"] == 1.0
     assert metadata["colorbar_label"] == "Benefit-oriented partial Spearman ρ"
+    assert metadata["global_box_span_mm"] == [12.0, 10.0]
+    assert metadata["font_family"] == "Arial"
+    assert metadata["label_top_bg_color"] == "#D7E3E0"
+    assert metadata["label_right_bg_color"] == "#E3DCCF"
+    assert metadata["strip_background_alpha"] == 1.0
+    for panel_range in metadata["panel_ranges_mm"].values():
+        assert panel_range["xlim"][1] - panel_range["xlim"][0] == pytest.approx(12.0)
+        assert panel_range["ylim"][1] - panel_range["ylim"][0] == pytest.approx(10.0)
+    top_strips = [axis for axis in figure.axes if axis.get_gid() == "voxel-top-strip"]
+    right_strips = [
+        axis for axis in figure.axes if axis.get_gid() == "voxel-right-strip"
+    ]
+    assert len(top_strips) == 3
+    assert len(right_strips) == 3
+    assert all(axis.patch.get_alpha() == 1.0 for axis in top_strips + right_strips)
+    top_rgba = (*tuple(np.asarray((0xD7, 0xE3, 0xE0)) / 255.0), 1.0)
+    right_rgba = (*tuple(np.asarray((0xE3, 0xDC, 0xCF)) / 255.0), 1.0)
+    assert all(axis.get_facecolor() == pytest.approx(top_rgba) for axis in top_strips)
+    assert all(
+        axis.get_facecolor() == pytest.approx(right_rgba) for axis in right_strips
+    )
+    assert all(
+        text.get_fontfamily()[0] == "Arial"
+        for text in figure.findobj(Text)
+        if text.get_text()
+    )
+    rendered = plt.imread(output)
+    top_rgb = np.asarray((0xD7, 0xE3, 0xE0), dtype=float) / 255.0
+    right_rgb = np.asarray((0xE3, 0xDC, 0xCF), dtype=float) / 255.0
+    assert np.count_nonzero(
+        np.all(np.isclose(rendered[..., :3], top_rgb, atol=2.0 / 255.0), axis=-1)
+    ) > 10
+    assert np.count_nonzero(
+        np.all(np.isclose(rendered[..., :3], right_rgb, atol=2.0 / 255.0), axis=-1)
+    ) > 10
     plt.close(figure)
 
 

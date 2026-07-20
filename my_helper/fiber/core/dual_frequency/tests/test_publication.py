@@ -15,6 +15,7 @@ from dual_frequency.application.publication import (
     CanonicalPublisher,
     PublicationError,
     _PublicationWriter,
+    _masked_normalized_gaussian_original_roi,
 )
 from dual_frequency.contracts import ArtifactRef, AxisRef
 
@@ -39,6 +40,24 @@ def _artifact(path: Path) -> ArtifactRef:
         producer_id="task-test",
         producer_version="1",
     )
+
+
+def test_masked_normalized_gaussian_preserves_original_finite_roi() -> None:
+    values = np.zeros((9, 9, 9), dtype=np.float32)
+    finite_mask = np.zeros(values.shape, dtype=np.float32)
+    finite_mask[4, 4, 3:6] = 1.0
+    values[4, 4, 3:6] = np.asarray([-1.0, 0.5, 2.0], dtype=np.float32)
+
+    smoothed = _masked_normalized_gaussian_original_roi(
+        values,
+        finite_mask,
+        np.asarray([1.0, 1.0, 1.0], dtype=float),
+    )
+
+    original_roi = finite_mask.astype(bool)
+    assert np.array_equal(np.isfinite(smoothed), original_roi)
+    assert np.all(np.isnan(smoothed[~original_roi]))
+    assert not np.allclose(smoothed[original_roi], values[original_roi])
 
 
 def test_writer_copies_verified_payload_without_persisting_run_uri(tmp_path: Path) -> None:

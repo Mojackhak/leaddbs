@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import font_manager
 from matplotlib.patches import Rectangle
+from matplotlib.text import Text
 
 from .colormaps import vik_colormap
 from .plugin.default import get_voxel_section_cfg
@@ -232,16 +233,26 @@ def _slice_geometry(
                 "fixed_mm": fixed_mm,
             }
 
-    raw_span_x = max(value["span_x"] for value in geometry.values())
-    raw_span_y = max(value["span_y"] for value in geometry.values())
     box_width, box_height = (float(item) for item in style["boxsize"])
     target_ratio = box_height / box_width
-    if raw_span_y / raw_span_x <= target_ratio:
-        final_span_x = raw_span_x
-        final_span_y = target_ratio * raw_span_x
+    fixed_span = style.get("global_box_span_mm")
+    if fixed_span is not None:
+        final_span_x, final_span_y = (float(item) for item in fixed_span)
+        if final_span_x <= 0.0 or final_span_y <= 0.0:
+            raise ValueError("global_box_span_mm values must be positive")
+        if not np.isclose(final_span_y / final_span_x, target_ratio):
+            raise ValueError(
+                "global_box_span_mm must preserve the configured boxsize ratio"
+            )
     else:
-        final_span_y = raw_span_y
-        final_span_x = raw_span_y / target_ratio
+        raw_span_x = max(value["span_x"] for value in geometry.values())
+        raw_span_y = max(value["span_y"] for value in geometry.values())
+        if raw_span_y / raw_span_x <= target_ratio:
+            final_span_x = raw_span_x
+            final_span_y = target_ratio * raw_span_x
+        else:
+            final_span_y = raw_span_y
+            final_span_x = raw_span_y / target_ratio
 
     ranges: dict[tuple[str, str], dict[str, tuple[float, float]]] = {}
     for key, value in geometry.items():
@@ -461,7 +472,10 @@ def _add_strips(
         strip = figure.add_axes(
             [position.x0, position.y1 + pad_y, position.width, top_height]
         )
+        strip.set_gid("voxel-top-strip")
         strip.set_facecolor(style["label_top_bg_color"])
+        strip.patch.set_visible(True)
+        strip.patch.set_alpha(1.0)
         strip.text(
             0.5,
             0.5,
@@ -483,7 +497,10 @@ def _add_strips(
         strip = figure.add_axes(
             [position.x1 + pad_x, position.y0, right_width, position.height]
         )
+        strip.set_gid("voxel-right-strip")
         strip.set_facecolor(style["label_right_bg_color"])
+        strip.patch.set_visible(True)
+        strip.patch.set_alpha(1.0)
         strip.text(
             0.5,
             0.5,
@@ -553,6 +570,10 @@ def _save(
     output_paths: Sequence[str | Path],
     style: Mapping[str, Any],
 ) -> None:
+    transparent_canvas = bool(style["transparent"])
+    if transparent_canvas:
+        figure.patch.set_facecolor((1.0, 1.0, 1.0, 0.0))
+        figure.patch.set_alpha(0.0)
     for raw_path in output_paths:
         path = Path(raw_path).expanduser().resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -560,7 +581,9 @@ def _save(
             path,
             dpi=int(style["dpi"]),
             bbox_inches="tight" if style["tight_bounding_box"] else None,
-            transparent=bool(style["transparent"]),
+            transparent=False,
+            facecolor=figure.get_facecolor(),
+            edgecolor="none",
         )
 
 
@@ -763,6 +786,8 @@ def plot_signed_voxel_sections(
     scalar.set_array([])
     colorbar = figure.colorbar(scalar, cax=colorbar_axis)
     colorbar.ax.tick_params(labelsize=style["tick_label_fontsize"])
+    for tick in colorbar.ax.get_yticklabels():
+        tick.set_fontfamily(font)
     position = colorbar_axis.get_position()
     figure.text(
         position.x1 + layout["colorbar_label_offset_fraction"],
@@ -774,6 +799,9 @@ def plot_signed_voxel_sections(
         fontsize=style["axis_label_fontsize"],
         fontfamily=font,
     )
+    for text_artist in figure.findobj(match=Text):
+        if text_artist.get_text():
+            text_artist.set_fontfamily(font)
 
     metadata = {
         "style_id": style["style_id"],
@@ -810,8 +838,18 @@ def plot_signed_voxel_sections(
         "percent_list": list(style["percent_list"]),
         "resolution_mm": style["resolution_mm"],
         "boxsize_mm": list(style["boxsize"]),
+        "global_box_span_mm": (
+            None
+            if style["global_box_span_mm"] is None
+            else list(style["global_box_span_mm"])
+        ),
         "panel_gap_mm": list(style["panel_gap"]),
         "colorbar_label": style["colorbar_label"],
+        "font_family": font,
+        "special_character_font_policy": "fallback_only_if_missing",
+        "label_top_bg_color": style["label_top_bg_color"],
+        "label_right_bg_color": style["label_right_bg_color"],
+        "strip_background_alpha": 1.0,
     }
     setattr(figure, "_mh_viz_voxel_section_metadata", metadata)
     setattr(figure, "_mh_viz_panel_axes", tuple(axes.ravel()))

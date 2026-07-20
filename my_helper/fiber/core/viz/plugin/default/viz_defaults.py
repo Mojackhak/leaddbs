@@ -75,7 +75,7 @@ fit_cfg: Final[Mapping[str, Any]] = DEFAULT_FIT_CONFIG
 
 
 _VOXEL_SECTION_CONFIG: Final[dict[str, Any]] = {
-    "style_id": "pdq39_voxel_sections_mylfp_v1",
+    "style_id": "pdq39_voxel_sections_mylfp_v2",
     "boxsize": VOXEL_SECTION_BOXSIZE_MM,
     "panel_gap": VOXEL_SECTION_PANEL_GAP_MM,
     "percent_list": (25.0, 50.0, 75.0),
@@ -92,10 +92,11 @@ _VOXEL_SECTION_CONFIG: Final[dict[str, Any]] = {
     "mask_threshold": 0.05,
     "mask_color": "#000000",
     "mask_alpha": 1.0,
-    "mask_linewidth_pt": 0.5,
+    "mask_linewidth_pt": 1.0,
     "mask_layer": "top",
     "global_span_mode": "max",
     "enforce_global_box_span": True,
+    "global_box_span_mm": (12.0, 10.0),
     "x_label": "Slice position (%)",
     "y_label": "Slice plane",
     "show_tick_labels": False,
