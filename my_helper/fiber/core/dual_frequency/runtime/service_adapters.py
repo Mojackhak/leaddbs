@@ -1567,7 +1567,7 @@ def _observed_request_for_final(
     ArtifactRef | None,
 ]:
     endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
-    prepared = _one_record(request, PreparedExposureRecord)
+    prepared = _prepared_exposure_record(request, request.task.endpoint_id)
     delta = _one_record(request, DeltaReferenceBundle, required=False)
     selection = _final_selection(request)
     assert endpoint_input is not None and prepared is not None
@@ -1906,7 +1906,7 @@ def _activation_fitting_request(
     """Materialize physical OSS rows once and return the typed fitting request."""
 
     endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
-    prepared = _one_record(request, PreparedExposureRecord)
+    prepared = _prepared_exposure_record(request, request.task.endpoint_id)
     delta = _one_record(request, DeltaReferenceBundle, required=False)
     selection = _final_selection(request)
     assert endpoint_input is not None and prepared is not None

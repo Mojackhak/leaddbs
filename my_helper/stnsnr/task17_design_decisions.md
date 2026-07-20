@@ -898,3 +898,23 @@ activation matrices and endpoint fitting remain locked to the final feature
 axis. The row cache stores no per-fiber manifest item list and writes each
 payload once. The corrected independent OSS plan has 590 tasks; the combined
 plan has 1194 tasks.
+
+## Decision 32: Resolve Final-Linked Prepared Exposure By Endpoint
+
+The v8 jitter child completed all 240 physical blocks and both reference model
+families, then ten add-on endpoint tasks failed because their dependency
+closures contained more than one `PreparedExposureRecord`. This multiplicity
+is expected: an add-on closure carries its own prepared exposure and the
+matched-reference prepared exposure required to rebuild physical contrast.
+
+Every final-linked adapter now resolves the target prepared exposure by the
+current task endpoint identifier rather than by record type alone. Exactly one
+endpoint-local match is required. Missing or duplicate endpoint-local matches
+fail closed, while a distinct matched-reference record remains available to the
+typed jitter provider. Spatial jitter and OSS activation share this rule.
+
+The change is orchestration-only. It preserves completed blocks, seeds, feature
+axes, task IDs, result schemas, and scientific cache identities. Resume restores
+the 790 completed v8 tasks and reruns only the ten failed add-on endpoints. Tests
+must cover target-plus-reference inputs for jitter and activation, the unchanged
+reference path, and both endpoint-local failure cases before formal resume.

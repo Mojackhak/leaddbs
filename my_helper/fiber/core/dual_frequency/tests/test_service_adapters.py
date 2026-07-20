@@ -45,6 +45,7 @@ from dual_frequency.contracts import (
     SourceRecord,
     SubjectExclusionRecord,
 )
+from dual_frequency.runtime import service_adapters
 from dual_frequency.runtime.activation_provider import (
     CanonicalStimulationSource,
     OSSActivationProvider,
@@ -174,6 +175,71 @@ def _prepared(endpoint_input: EndpointInputRecord) -> PreparedExposureRecord:
         addon_reference_component_exposure=None,
         reference_overlap_mask=None,
         total_exposure=None,
+    )
+
+
+def _addon_prepared(endpoint_input: EndpointInputRecord) -> PreparedExposureRecord:
+    assert endpoint_input.subject_axis is not None
+    feature_axis = _axis("addon-voxels", 20, "4")
+    axes = (endpoint_input.subject_axis, feature_axis)
+    return PreparedExposureRecord(
+        endpoint=endpoint_input.endpoint,
+        subject_axis=endpoint_input.subject_axis,
+        feature_axis=feature_axis,
+        exposure=_artifact(
+            "addon-exposure.npy",
+            kind="prepared_addon_exposure",
+            axes=axes,
+            dtype="float32",
+            units="V/m",
+            space="canonical",
+        ),
+        feature_ids=_artifact(
+            "addon-feature-ids.npy",
+            kind="canonical_brainmask_voxel_ids",
+            axes=(feature_axis,),
+            dtype="int64",
+            units="voxel_id",
+            space="canonical",
+        ),
+        delta_reference_input_status="ready",
+        delta_reference_reason_code="ready",
+        auxiliary_readiness=_artifact(
+            "addon-auxiliary-readiness.json",
+            kind="synthetic_auxiliary_readiness",
+        ),
+        reference_condition_exposure=_artifact(
+            "reference-condition-exposure.npy",
+            kind="reference_condition_exposure",
+            axes=axes,
+            dtype="float32",
+            units="V/m",
+            space="canonical",
+        ),
+        addon_reference_component_exposure=_artifact(
+            "addon-reference-component-exposure.npy",
+            kind="addon_reference_component_exposure",
+            axes=axes,
+            dtype="float32",
+            units="V/m",
+            space="canonical",
+        ),
+        reference_overlap_mask=_artifact(
+            "reference-overlap-mask.npy",
+            kind="reference_overlap_mask",
+            axes=axes,
+            dtype="bool",
+            units="binary",
+            space="canonical",
+        ),
+        total_exposure=_artifact(
+            "total-exposure.npy",
+            kind="raw_addon_component_exposure",
+            axes=axes,
+            dtype="float32",
+            units="V/m",
+            space="canonical",
+        ),
     )
 
 
@@ -359,6 +425,58 @@ class _Provider:
 
     def observed_request(self, endpoint_input, prepared, *, branch, delta_reference=None):
         return self.observed_token
+
+
+@dataclasses.dataclass(frozen=True)
+class _FinalLinkedObservedStub:
+    branch: str
+    exposure: ArtifactRef
+    feature_axis: AxisRef
+    feature_ids: ArtifactRef | None
+
+
+class _FinalLinkedProvider(_Provider):
+    def __init__(
+        self,
+        endpoints: tuple[EndpointRecord, ...],
+        endpoint_input: EndpointInputRecord,
+    ) -> None:
+        super().__init__(endpoints, endpoint_input)
+        self.observed_prepared: PreparedExposureRecord | None = None
+        self.selected_prepared: PreparedExposureRecord | None = None
+
+    def observed_request(
+        self,
+        endpoint_input,
+        prepared,
+        *,
+        branch,
+        delta_reference=None,
+    ):
+        del endpoint_input, delta_reference
+        self.observed_prepared = prepared
+        return _FinalLinkedObservedStub(
+            branch=branch,
+            exposure=prepared.exposure,
+            feature_axis=prepared.feature_axis,
+            feature_ids=prepared.feature_ids,
+        )
+
+    def selected_exposure(self, final, prepared, publisher):
+        del publisher
+        self.selected_prepared = prepared
+        selected_axis = final.valid_feature_axis.axis
+        return (
+            _artifact(
+                "selected-final-exposure.npy",
+                kind="selected_final_exposure",
+                axes=(prepared.subject_axis, selected_axis),
+                dtype="float32",
+                units="V/m",
+                space="canonical",
+            ),
+            None,
+        )
 
 
 def _digest(seed: int) -> str:
@@ -759,6 +877,159 @@ class ServiceAdapterTest(unittest.TestCase):
             )
             self.assertTrue(final_result.fact_values["final_model_realized"])
 
+    def test_final_linked_prepared_exposure_is_selected_by_endpoint(self) -> None:
+        reference_endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_voxel",
+        )
+        addon_endpoint = EndpointKey("study", "scale", "addon", "addon_voxel")
+        addon_input = _endpoint_input(addon_endpoint)
+        reference_input = _endpoint_input(reference_endpoint)
+        addon_prepared = _addon_prepared(addon_input)
+        reference_prepared = _prepared(reference_input)
+        source = _source(addon_endpoint)
+        branch = BranchRecord(
+            endpoint=addon_endpoint,
+            branch="no_delta_reference",
+            intended_role="primary",
+            input_status="valid",
+            nuisance_design_status="valid",
+            source=source,
+        )
+        final = FinalModelRecord(
+            endpoint=addon_endpoint,
+            final_status="final_model_realized",
+            realization_role="primary",
+            final_key=FinalModelKey(
+                addon_endpoint.identifier,
+                branch.branch,
+                source.selected_tau,
+                source.selected_coverage,
+                "loocv_linear",
+            ),
+            selected_source=None,
+            selected_branch=branch,
+        )
+        selection = FinalSelectionRecord(
+            endpoint=addon_endpoint,
+            selection_status="final_model_realized",
+            final_model=final,
+            reason_codes=("primary_model_realized",),
+            causal_task_ids=("synthetic_final_task",),
+        )
+        provider = _FinalLinkedProvider(
+            (
+                _endpoint_record(reference_endpoint),
+                _endpoint_record(
+                    addon_endpoint,
+                    matched=reference_endpoint.identifier,
+                ),
+            ),
+            addon_input,
+        )
+        task = _task(
+            addon_endpoint,
+            service_id="run_addon_voxel_jitter",
+            stage="spatial_jitter",
+            output_type="SensitivityResult",
+            dependencies=(
+                "addon_input",
+                "reference_input",
+                "addon_prepared",
+                "reference_prepared",
+                "final",
+            ),
+            phase="sensitivity",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            request = _request(
+                task,
+                provider,
+                Path(temporary),
+                {
+                    "addon_input": DependencyState("completed", "none", addon_input),
+                    "reference_input": DependencyState(
+                        "completed",
+                        "none",
+                        reference_input,
+                    ),
+                    "addon_prepared": DependencyState(
+                        "completed",
+                        "none",
+                        addon_prepared,
+                    ),
+                    "reference_prepared": DependencyState(
+                        "completed",
+                        "none",
+                        reference_prepared,
+                    ),
+                    "final": DependencyState("completed", "none", selection),
+                },
+            )
+            with patch.object(
+                service_adapters,
+                "_selected_overlap_for_final",
+                return_value=None,
+            ):
+                observed_final, _, prepared, _, _ = (
+                    service_adapters._observed_request_for_final(request)
+                )
+
+        self.assertEqual(observed_final, final)
+        self.assertEqual(prepared, addon_prepared)
+        self.assertEqual(provider.observed_prepared, addon_prepared)
+        self.assertEqual(provider.selected_prepared, addon_prepared)
+
+    def test_endpoint_local_prepared_exposure_missing_or_duplicate_fails_closed(
+        self,
+    ) -> None:
+        target_endpoint = EndpointKey("study", "scale", "addon", "addon_voxel")
+        other_endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_voxel",
+        )
+        target_prepared = _addon_prepared(_endpoint_input(target_endpoint))
+        other_prepared = _prepared(_endpoint_input(other_endpoint))
+        provider = _Provider(
+            (
+                _endpoint_record(
+                    target_endpoint,
+                    matched=other_endpoint.identifier,
+                ),
+                _endpoint_record(other_endpoint),
+            ),
+            _endpoint_input(target_endpoint),
+        )
+        task = _task(
+            target_endpoint,
+            service_id="run_addon_voxel_jitter",
+            stage="spatial_jitter",
+            output_type="SensitivityResult",
+        )
+        cases = {
+            "missing": {
+                "other": DependencyState("completed", "none", other_prepared),
+            },
+            "duplicate": {
+                "first": DependencyState("completed", "none", target_prepared),
+                "second": DependencyState("completed", "none", target_prepared),
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            for name, dependencies in cases.items():
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    service_adapters.ServiceAdapterError,
+                    "requires exactly one PreparedExposureRecord for endpoint",
+                ):
+                    service_adapters._prepared_exposure_record(
+                        _request(task, provider, Path(temporary), dependencies),
+                        target_endpoint.identifier,
+                    )
+
     def test_activation_exact_cache_hit_skips_producer_and_returns_typed_artifact(
         self,
     ) -> None:
@@ -822,6 +1093,79 @@ class ServiceAdapterTest(unittest.TestCase):
         self.assertIsInstance(record, ActivationArtifact)
         self.assertEqual(record.final_model_id, final.identifier)
         self.assertEqual(record.feature_axis, feature_axis)
+
+    def test_activation_ignores_cross_endpoint_prepared_exposure(self) -> None:
+        (
+            endpoint_input,
+            prepared,
+            final,
+            selection,
+            feature_axis,
+            feature_ids,
+            sources,
+        ) = _activation_case()
+        subject_ids = endpoint_input.included_subject_ids
+        provider = _ActivationProvider(
+            final_model=final,
+            subject_axis=endpoint_input.subject_axis,
+            subject_ids=subject_ids,
+            feature_axis=feature_axis,
+            feature_ids=feature_ids,
+            sources=sources,
+            toolchain=_ActivationToolchain(subject_ids),
+        )
+        other_endpoint = EndpointKey(
+            endpoint_input.endpoint.study_id,
+            endpoint_input.endpoint.scale_id,
+            "matched-reference-binding",
+            "reference_voxel",
+        )
+        other_prepared = _prepared(_endpoint_input(other_endpoint))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = ContentAddressedCache(root / "cache")
+            seed_request = provider.activation_runtime_request(
+                final,
+                endpoint_input,
+                prepared,
+                RunScopedArtifactPublisher(root / "seed", "seed", "1"),
+                workers=2,
+                allow_expensive_producers=True,
+            )
+            OSSActivationProvider(
+                cache,
+                producer_toolchain=_ActivationToolchain(subject_ids),
+            ).materialize(
+                seed_request,
+                RunScopedArtifactPublisher(root / "seed", "seed", "1"),
+            )
+            request = self._activation_execution_request(
+                root=root,
+                cache=cache,
+                provider=provider,
+                endpoint_input=endpoint_input,
+                prepared=prepared,
+                selection=selection,
+                allow_expensive_producers=False,
+            )
+            request = dataclasses.replace(
+                request,
+                dependencies={
+                    **request.dependencies,
+                    "matched_reference_prepared": DependencyState(
+                        "completed",
+                        "none",
+                        other_prepared,
+                    ),
+                },
+            )
+            activation_request = service_adapters._activation_fitting_request(
+                request
+            )
+
+        self.assertEqual(activation_request.final_model, final)
+        self.assertEqual(activation_request.feature_axis, feature_axis)
+        self.assertEqual(provider.fitting_calls, 1)
 
     def test_ppam_services_reuse_one_observed_workspace_and_aggregate_blocks(
         self,

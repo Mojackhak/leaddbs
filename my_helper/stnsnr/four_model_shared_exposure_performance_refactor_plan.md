@@ -2549,6 +2549,27 @@ and 392 endpoint pPAM tasks. The corrected combined plan contains 1194 tasks:
 448 immutable roots, 240 jitter blocks, two OSS gate tasks, and 504 endpoint
 statistics and pPAM tasks.
 
+The accepted v8 jitter exercise exposed one final-linked dependency-selection
+defect after every physical block and every reference endpoint had completed.
+An add-on endpoint closure intentionally contains both its own prepared exposure
+and the matched-reference prepared exposure needed for physical reconstruction.
+The endpoint adapter must therefore never require a type-only singleton
+`PreparedExposureRecord`. It selects the one record whose endpoint identifier
+matches the current task endpoint, fails closed when that endpoint-local record
+is absent or duplicated, and leaves cross-endpoint records available only to
+the explicitly matched-reference provider. The same endpoint-local selector is
+required by spatial jitter and OSS activation so the later OSS extension cannot
+repeat this defect.
+
+This repair does not alter jitter blocks, RNG order, final axes, task identity,
+or any completed artifact. Its regression gate supplies target and reference
+prepared records to one add-on jitter task and one add-on activation task,
+proves selection of the target record, proves reference behavior is unchanged,
+and proves missing or duplicate endpoint-local records fail closed. Resume of
+the v8 child must restore all completed roots, 240 physical blocks, and completed
+endpoint results, rerun only its ten failed add-on endpoint tasks, and publish a
+complete manifest only after all 800 tasks are terminal without failure.
+
 Post-publication cleanup now has an executable fail-closed boundary. The main
 canonical publisher alone may remove descriptor-listed formal or pPAM scratch
 and run-owned `runtime_work` after complete run, artifact-index, model-manifest,
