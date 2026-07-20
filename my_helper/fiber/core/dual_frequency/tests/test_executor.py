@@ -179,7 +179,7 @@ class ExecutorTest(unittest.TestCase):
         )
         self.assertEqual(
             (observed.memory_bytes, observed.connectome_io, observed.solver),
-            (32 * 1024**3, 1, 1),
+            (48 * 1024**3, 1, 1),
         )
         for grant in (schedule, block, aggregate):
             self.assertEqual(
@@ -223,7 +223,7 @@ class ExecutorTest(unittest.TestCase):
         grant = _ResourceLedger.request(gate)
         self.assertEqual(
             (grant.memory_bytes, grant.connectome_io, grant.solver),
-            (32 * 1024**3, 1, 1),
+            (48 * 1024**3, 1, 1),
         )
 
     def test_solver_grant_cannot_bypass_the_managed_memory_ceiling(self) -> None:

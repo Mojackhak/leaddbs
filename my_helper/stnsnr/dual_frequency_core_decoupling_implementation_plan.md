@@ -4976,9 +4976,9 @@ fibers, run the same ten fixed samples for every chunk, concatenate exact states
 and probabilities on the unchanged full canonical axis, and publish only the
 existing full-row cache identity. The chunk limit is an internal execution
 constant rather than YAML or scientific model configuration. Solver-capable
-tasks charge 32 GiB, and the resource ledger cannot admit any grant above its
+tasks charge 48 GiB, and the resource ledger cannot admit any grant above its
 managed ceiling. A real reference `Omega_max` chunk must demonstrate solver RSS
-`< 32 GiB`, total managed use `< 64 GiB`, and swap growth `< 1` byte before the
+`< 48 GiB`, total managed use `< 64 GiB`, and swap growth `< 1` byte before the
 formal child may resume.
 
 The worker must also forward termination to the active external process group
@@ -4994,6 +4994,17 @@ The implementation repair passed 62 focused OSS/executor tests and the complete
 dual-frequency regression passed 534 tests plus 310 subtests in the `leaddbs`
 environment. The real reference-chunk RSS gate remains open and formal OSS
 resume is still prohibited until that measured gate passes.
+
+The first monitored segment after that repair executed an exact 3500-fiber
+reference `Omega_max` chunk. One-second sampling measured solver RSS at
+45,910,048,768 bytes and complete descendant RSS at 46,284,881,920 bytes. The
+minimum available memory remained 77,078,921,216 bytes, swap growth stayed
+`< 1` byte, and VAL remained mounted. The segment was stopped because this
+crossed the earlier 32-GiB task charge, not because it crossed the 64-GiB
+managed ceiling. The measured contract therefore charges the sole solver task
+48 GiB while preserving the 64-GiB cumulative ceiling and the existing reserve.
+Formal continuation must still observe all ten samples of the chunk before the
+real resource gate closes.
 
 ---
 

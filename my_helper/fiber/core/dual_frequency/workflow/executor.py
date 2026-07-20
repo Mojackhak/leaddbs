@@ -376,13 +376,13 @@ class _ResourceLedger:
         if task.stage == "prepare_exposure":
             return _ResourceGrant(1, 16 * 1024**3, 1, 0)
         if task.stage == "ppam_observed_workspace":
-            return _ResourceGrant(1, 32 * 1024**3, 1, 1)
+            return _ResourceGrant(1, 48 * 1024**3, 1, 1)
         if task.stage.startswith("oss_axis_equivalence_"):
-            return _ResourceGrant(1, 32 * 1024**3, 1, 1)
+            return _ResourceGrant(1, 48 * 1024**3, 1, 1)
         if task.stage == "activation_sensitivity":
             if task.service_id == "aggregate_ppam_activation":
                 return _ResourceGrant(1, 2 * 1024**3, 0, 0)
-            return _ResourceGrant(1, 32 * 1024**3, 1, 1)
+            return _ResourceGrant(1, 48 * 1024**3, 1, 1)
         if task.stage.startswith("formal_permutation_block_") or task.stage in {
             "formal_permutation_schedule",
             "formal_operator_workspace",

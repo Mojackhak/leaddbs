@@ -941,10 +941,10 @@ complete logical row product receives the existing standard cache identity;
 chunks are runtime implementation details and never become public axes, cache
 items, endpoint features, or independent statistical replicates.
 
-The group gate and any solver-capable observed activation task charge 32 GiB.
+The group gate and any solver-capable observed activation task charge 48 GiB.
 The resource ledger must reject a grant above its managed boundary even when no
 other task is running. Production resume remains prohibited until a real
-reference `Omega_max` chunk stays below 32 GiB, total managed memory stays below
+reference `Omega_max` chunk stays below 48 GiB, total managed memory stays below
 64 GiB, and swap growth remains `< 1` byte. If that evidence fails, the fixed
 chunk bound must decrease before another formal resume.
 
@@ -961,3 +961,14 @@ The implementation repair passed 62 focused OSS/executor tests and the complete
 dual-frequency regression passed 534 tests plus 310 subtests in the `leaddbs`
 environment. These synthetic and process-level results close the code gate but
 do not replace the still-required real reference-chunk RSS acceptance.
+
+The next monitored segment reached an exact 3500-fiber reference `Omega_max`
+chunk. One-second sampling measured solver RSS at 45,910,048,768 bytes and the
+complete descendant tree at 46,284,881,920 bytes. Available memory stayed above
+77,078,921,215 bytes, swap growth stayed `< 1` byte, and VAL remained mounted.
+The segment was stopped under the earlier 32-GiB task charge. That charge is
+replaced by a measured 48-GiB solver grant while the cumulative managed ceiling
+remains 64 GiB and the sole-solver token remains unchanged. This avoids
+duplicating FEM and OSS work through smaller execution chunks without admitting
+the historical unchunked row that reached about 72.8 GiB. The real gate remains
+open until all ten samples of one 3500-fiber chunk satisfy the revised bounds.

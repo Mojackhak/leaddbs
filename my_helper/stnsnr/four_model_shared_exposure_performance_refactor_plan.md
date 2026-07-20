@@ -2571,15 +2571,24 @@ first 10320-fiber `Omega_max` sample exceeded 48 GiB and reached about 72.8 GiB
 during termination. The main process exited before the separately sessioned
 solver, so the orphan required direct termination. No row cache or equivalence
 decision published and swap did not grow. Formal resume is prohibited until
-the fixed `< 3501`-fiber chunk executor, 32-GiB solver charge, hard managed-grant
+the fixed `< 3501`-fiber chunk executor, 48-GiB solver charge, hard managed-grant
 admission, and worker-to-child process-group termination pass automated tests
-and a real reference-chunk acceptance with RSS `< 32 GiB`, total managed memory
+and a real reference-chunk acceptance with RSS `< 48 GiB`, total managed memory
 `< 64 GiB`, and swap growth `< 1` byte.
 
 The bounded-row and cascade-termination implementation passed 62 focused OSS/
 executor tests. The complete dual-frequency regression passed 534 tests plus
 310 subtests in the `leaddbs` environment. Formal OSS resume remains blocked on
 the real reference-chunk RSS acceptance rather than on automated regression.
+
+The first monitored exact 3500-fiber reference `Omega_max` execution measured
+45,910,048,768 bytes of solver RSS and 46,284,881,920 bytes across the complete
+descendant tree. Minimum available memory remained 77,078,921,216 bytes, swap
+growth stayed `< 1` byte, and VAL remained mounted. The run was stopped because
+that result exceeded the earlier 32-GiB charge. The evidence supports a 48-GiB
+sole-solver charge under the unchanged 64-GiB cumulative ceiling and reserve;
+it does not support restoring the historical unchunked 10320-fiber row. All ten
+samples of one 3500-fiber chunk must still pass before the real gate closes.
 
 The accepted v8 jitter exercise exposed one final-linked dependency-selection
 defect after every physical block and every reference endpoint had completed.
