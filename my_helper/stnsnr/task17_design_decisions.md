@@ -874,3 +874,27 @@ paired metrics, an explicit schedule, and a summary. Both 28-scale family BH
 layers and both 112-endpoint BH layers completed. The child contains no jitter,
 OSS-DBS, bootstrap, observed-grid, source-resolver, or final-realization
 execution.
+
+## Decision 31: Gate Shared OSS Rows Before Endpoint pPAM
+
+The formal OSS extension adds two cache-first group tasks ahead of endpoint
+pPAM: one for reference fiber and one for add-on fiber. Group identity binds the
+ordered final axis, ordered `Omega_max`, formal connectome, physical rows,
+toolchain, RNG contract, and comparison tolerance. The completed v8 parent is
+not rewritten. Its already declared shared-cache identities let the loader
+recover and validate the exact `Omega_max` descriptor in memory.
+
+The realized fiber cohorts produce 34 reference and 26 add-on physical rows.
+For each of these 60 row classes, the gate compares ten sample-wise axon-state
+vectors from a final-axis run and an `Omega_max` run after exact canonical-ID
+subsetting. PASS requires state mismatch count `< 1`, activation-count mismatch
+count `< 1`, and maximum probability difference below the fixed internal
+tolerance. Every per-row decision is immutable and independently resumable.
+
+Only complete PASS coverage moves that group to shared `Omega_max` simulation.
+Any unproven, corrupt, or failed row keeps the whole group on the historical
+final-axis path. Both row products remain valid standard caches, while public
+activation matrices and endpoint fitting remain locked to the final feature
+axis. The row cache stores no per-fiber manifest item list and writes each
+payload once. The corrected independent OSS plan has 590 tasks; the combined
+plan has 1194 tasks.

@@ -2502,6 +2502,53 @@ The planner, executor, service, and extension focused gate passed 59 tests and
 tests and 308 subtests outside the restricted system-monitoring sandbox. No
 production, jitter, OSS-DBS, or combined extension was started.
 
+Before the first formal OSS child starts, add two explicit axis-equivalence
+group tasks to the extension DAG. The current completed parent yields one
+reference-fiber group and one add-on-fiber group. Each group is keyed by its
+exact ordered final axis, exact ordered `Omega_max` cache identity, formal
+connectome, allocator and solver toolchain identity, RNG contract, probability
+tolerance, and ordered physical-row identities. Every observed pPAM workspace
+in that group depends on the group decision. A missing, corrupt, or identity-
+changed decision keeps the group on the historical final-axis path.
+
+The parent checkpoint already names the portable shared-cache entries needed
+to recover `Omega_max`. The loader must select the one
+`normative_fiber_omega_max` entry whose stimulation identity matches the base's
+primary shared exposure, validate its manifest and payload, and enrich the
+in-memory checkpoint without editing the completed parent. Future checkpoints
+publish this descriptor directly. Absolute paths, run identity, scale, and
+endpoint identity do not enter the gate cache key.
+
+The production row inventory is derived from the union of included subjects in
+the 56 realized fiber finals. Sixteen reference subjects produce 34 logical
+OSS rows and thirteen add-on subjects produce 26 logical rows. The decision
+matrix therefore contains 60 row classes. A cold gate may execute two solver
+runs per class, one on the final axis and one on `Omega_max`, for fewer than
+121 solver executions. The sole external-solver token makes these executions
+sequential. Per-row immutable decisions make an interrupted group task resume
+from the first missing row rather than restart accepted rows.
+
+For each row, the producer retains the ten sample-wise axon-state vectors long
+enough to compare the final-axis vector with the canonical-ID subset of the
+`Omega_max` vector. PASS requires state mismatch count `< 1`, activation-count
+mismatch count `< 1`, and maximum probability absolute difference below the
+internal accepted tolerance. Both standard row-cache entries are published
+after structural validation regardless of PASS or FAIL. A group uses shared
+`Omega_max` simulation only when every row decision passes; otherwise every
+endpoint in that group uses its historical final axis. In both branches the
+ordinary pPAM workspace and public activation artifacts remain on the exact
+final model axis.
+
+The row cache uses one O(1) manifest in fiber count, stores no per-fiber
+`CacheItem` list, and writes each NPY payload once from its final byte buffer.
+The group task attests the immutable toolchain once, records every per-row
+decision cache identity, and publishes one group summary. Later observed tasks
+validate that summary and the required row caches before reuse. The corrected
+independent OSS plan contains 590 tasks: 196 immutable roots, two gate tasks,
+and 392 endpoint pPAM tasks. The corrected combined plan contains 1194 tasks:
+448 immutable roots, 240 jitter blocks, two OSS gate tasks, and 504 endpoint
+statistics and pPAM tasks.
+
 Post-publication cleanup now has an executable fail-closed boundary. The main
 canonical publisher alone may remove descriptor-listed formal or pPAM scratch
 and run-owned `runtime_work` after complete run, artifact-index, model-manifest,

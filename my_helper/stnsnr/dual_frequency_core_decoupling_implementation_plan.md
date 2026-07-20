@@ -4806,21 +4806,42 @@ realized production adjusted endpoints. Only after those gates pass may the
 adjusted endpoints join the reduced-axis production lineage and close the open
 Layer-1 requirement.
 
-The independent OSS plan contains 588 tasks. Of these, 196 are immutable
-checkpoint roots and 392 are new pPAM tasks. Every one of the 56 fiber
-endpoints receives one observed workspace, one deterministic schedule, four
-fixed permutation blocks, and one aggregate. Only an observed-workspace task
-may materialize a missing physical OSS generation. It receives the sole
-external-solver token and requires explicit expensive-producer authorization.
-Schedules, permutation blocks, and aggregates cannot launch the solver.
+The corrected independent OSS plan contains 590 tasks. Of these, 196 are
+immutable checkpoint roots, two are axis-equivalence group tasks, and 392 are
+new endpoint pPAM tasks. Every one of the 56 fiber endpoints receives one
+observed workspace, one deterministic schedule, four fixed permutation blocks,
+and one aggregate. Each observed workspace depends on exactly one group gate.
+Only a gate task or an observed-workspace task on the retained FAIL path may
+materialize a missing physical OSS generation. Both receive the sole external-
+solver token and require explicit expensive-producer authorization. Schedules,
+permutation blocks, and aggregates cannot launch the solver.
 
-The successor combined plan contains 1192 tasks. Of these, 448 are immutable
-checkpoint roots and 744 are new tasks forming the exact union of the independently
-closed jitter and OSS subgraphs. It follows the two independent children so
-valid physical exposure and OSS cache entries are warm. Acceptance requires
-cache validation and reuse without duplicate physical production, no observed,
-resolver, final, formal permutation, bootstrap, or in-sample recomputation, and
-no mutation of the parent lineage.
+The two current gate groups use the reference and add-on ordered final-axis and
+`Omega_max` pairs. The completed parent exposes the relevant `Omega_max` cache
+entries through its portable shared-exposure identities, so the loader enriches
+the in-memory checkpoint without mutating parent files. The union of realized
+fiber cohorts contains 34 reference physical rows and 26 add-on physical rows.
+The bounded decision matrix therefore covers 60 exact row classes and may run
+fewer than 121 cold solver calls. Each row has an immutable decision cache;
+group resume reuses accepted rows and continues only missing or invalid rows.
+
+For each row, compare all ten sample-wise axon states after selecting the final
+canonical IDs from the `Omega_max` result. PASS requires state mismatch count
+`< 1`, activation-count mismatch count `< 1`, and probability absolute
+difference below the internal tolerance for every final-axis fiber. A group
+switches to `Omega_max` only when all row decisions pass. Any FAIL or unproven
+row retains the complete historical final-axis path for that group. Both paths
+publish final-axis endpoint matrices and statistics, so the gate cannot change
+the fitted feature axis.
+
+The successor combined plan contains 1194 tasks. Of these, 448 are immutable
+checkpoint roots and 746 are new tasks forming the exact union of 240 jitter
+blocks, two OSS gate tasks, and 504 endpoint statistics and pPAM tasks. It
+follows the two independent children so valid physical exposure, gate-decision,
+and OSS row-cache entries are warm. Acceptance requires cache validation and
+reuse without duplicate physical production, no observed, resolver, final,
+formal permutation, bootstrap, or in-sample recomputation, and no mutation of
+the parent lineage.
 
 Each child must finish with no failed or nonterminal task, a completed run
 manifest, complete reporting documents, a valid artifact index, unchanged

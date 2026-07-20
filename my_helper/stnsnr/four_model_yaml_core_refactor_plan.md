@@ -1636,6 +1636,30 @@ This completes the generic core implementation contract. It does not claim a
 new scientific result, a full expensive all-scale rerun, or migration of any
 existing STNSNr output.
 
+### Task 17 OSS axis-gate execution addendum
+
+The first formal OSS extension must not let 56 endpoint workers independently
+race for the same physical rows. Its compiler inserts one reference-fiber and
+one add-on-fiber axis-equivalence group task before endpoint pPAM work. The
+completed parent identifies the exact portable `Omega_max` cache entry for each
+group. Existing parent files remain immutable; the checkpoint loader validates
+and enriches this identity in memory.
+
+The current production inventory contains 34 reference physical rows and 26
+add-on physical rows. Each of the 60 row classes compares ten sample-wise axon
+states on the historical final axis against the canonical-ID subset of the
+corresponding `Omega_max` result. A class passes only when state and activation-
+count mismatch counts are `< 1` and probability difference is below the fixed
+internal tolerance. Shared `Omega_max` simulation is authorized only when all
+classes in a group pass. An absent, corrupt, changed, or failed decision retains
+the final-axis producer.
+
+Each row decision and both standard row caches are immutable and resume-safe.
+Only the gate or a retained final-axis observed workspace may hold the single
+solver token. Public activation matrices and endpoint fitting always use the
+exact realized final feature axis. The corrected independent OSS and combined
+plans contain 590 and 1194 tasks, respectively.
+
 ## Deferred Work
 
 ```text
