@@ -66,6 +66,25 @@ def _number(value: object, label: str, *, minimum: float = 0.0) -> float:
     return result
 
 
+def _task_id(item: Mapping[str, Any]) -> str:
+    key = item.get("key")
+    if (
+        not isinstance(key, Mapping)
+        or set(key)
+        != {"endpoint_id", "stage", "branch", "parameter_identity"}
+        or any(not str(key[field]).strip() for field in key)
+    ):
+        raise ResourceAcceptanceError("sensitivity plan task key is invalid")
+    payload = json.dumps(
+        dict(key),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    return f"task_{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:20]}"
+
+
 def _validate_tasks(
     run_root: Path,
     segment: Mapping[str, Any],
@@ -79,8 +98,8 @@ def _validate_tasks(
     for task in plan["tasks"]:
         if not isinstance(task, Mapping):
             raise ResourceAcceptanceError("sensitivity plan task must be an object")
-        task_id = str(task.get("task_id", "")).strip()
-        if not task_id or task_id in task_ids:
+        task_id = _task_id(task)
+        if task_id in task_ids:
             raise ResourceAcceptanceError(
                 "sensitivity plan task IDs must be nonempty and unique"
             )

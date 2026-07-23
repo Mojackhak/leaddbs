@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -33,11 +34,31 @@ def _write_json(path: Path, value: object) -> None:
     )
 
 
+def _task_id(key: dict[str, str]) -> str:
+    payload = json.dumps(
+        key,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    return f"task_{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:20]}"
+
+
 class Task17ResourceAcceptanceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name) / "resource-run"
-        self.tasks = ("task_a", "task_b")
+        self.task_keys = tuple(
+            {
+                "endpoint_id": f"endpoint_{index}",
+                "stage": f"stage_{index}",
+                "branch": "none",
+                "parameter_identity": str(index + 1) * 64,
+            }
+            for index in range(2)
+        )
+        self.tasks = tuple(_task_id(key) for key in self.task_keys)
         self.guard = Path(self.temporary.name) / "guard.csv"
         self.segment_path = (
             self.root / "execution_segments" / "segment_0002.json"
@@ -61,8 +82,8 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
             {
                 "plan": {
                     "tasks": [
-                        {"task_id": task_id}
-                        for task_id in self.tasks
+                        {"key": key}
+                        for key in self.task_keys
                     ]
                 }
             },
@@ -188,7 +209,7 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
             self._validate()
 
     def test_terminal_task_mismatch_fails(self) -> None:
-        path = self.root / "tasks" / "task_b.json"
+        path = self.root / "tasks" / f"{self.tasks[1]}.json"
         task = json.loads(path.read_text(encoding="utf-8"))
         task["status"] = "skipped"
         task["reason"] = "dependency_failed"
@@ -207,6 +228,17 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
         with self.assertRaisesRegex(
             validator.ResourceAcceptanceError,
             "stop or unsupported",
+        ):
+            self._validate()
+
+    def test_derived_task_identity_mismatch_fails(self) -> None:
+        path = self.root / "tasks" / f"{self.tasks[1]}.json"
+        task = json.loads(path.read_text(encoding="utf-8"))
+        task["task_id"] = "task_wrong"
+        _write_json(path, task)
+        with self.assertRaisesRegex(
+            validator.ResourceAcceptanceError,
+            "task identity differs",
         ):
             self._validate()
 

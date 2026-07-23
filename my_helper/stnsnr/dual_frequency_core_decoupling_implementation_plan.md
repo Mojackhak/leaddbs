@@ -6751,7 +6751,7 @@ the pre-guard and post-guard uncovered intervals, and publishes its report
 atomically. Five focused fixtures cover valid multi-epoch evidence,
 non-maximum-row binding, peak mismatch, corrupt decision payload, and incorrect
 use on an instrumented segment. The complete dual-frequency regression passes
-587 tests under Conda `leaddbs`. The real report remains blocked on terminal
+588 tests under Conda `leaddbs`. The real report remains blocked on terminal
 OSS gate closure and a frozen measured-window input assembled only from the
 already captured runtime observations.
 
@@ -6765,6 +6765,13 @@ top-level task IDs is insufficient. Focused coverage now uses the production
 plan shape and rejects a task document whose derived identity differs. A
 read-only audit of the active production plan derived 590 unique IDs and found
 590 task documents with no missing or mismatched identity.
+The same serialized-plan rule applies to
+`validate_task17_resource_acceptance.py`; the later instrumented combined
+lineage cannot be accepted by a fixture-only top-level identity convention.
+Both resource validators must share the exact canonical `TaskKey` derivation
+and production-shaped mismatch coverage before combined execution begins.
+They now do: the strict and pre-instrumentation focused suites pass 12 tests,
+including an identity-mismatch rejection for each validator.
 
 The later combined lineage starts under the instrumented code and must use the
 strict validator with its own terminal segment and guard CSV, the same limits,
