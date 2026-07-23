@@ -1566,8 +1566,9 @@ class InputProviderTest(unittest.TestCase):
         self.assertEqual(len(cache_entries), 1)
 
     def test_different_endpoint_subject_subsets_reuse_one_physical_matrix(self) -> None:
+        study = self._study(missing_addon_for_last_subject=False)
         provider, catalog, _artifact_store, _artifact_root = self._provider(
-            self._study(missing_addon_for_last_subject=False),
+            study,
             shared_cache=True,
         )
         endpoint = self._endpoint(catalog, "reference_voxel")
@@ -1579,7 +1580,15 @@ class InputProviderTest(unittest.TestCase):
             provider,
             "_compute_binding_matrix",
             wraps=provider._compute_binding_matrix,
-        ) as producer:
+        ) as producer, mock.patch.object(
+            provider,
+            "_bilateral_sampling_plan",
+            wraps=provider._bilateral_sampling_plan,
+        ) as sampling_plan, mock.patch.object(
+            provider,
+            "_sample_voxel_plan",
+            wraps=provider._sample_voxel_plan,
+        ) as sample_plan:
             first, first_missing = provider._matrix_for_binding(
                 endpoint,
                 first_subjects,
@@ -1598,6 +1607,8 @@ class InputProviderTest(unittest.TestCase):
             )
         try:
             self.assertEqual(producer.call_count, 1)
+            self.assertEqual(sampling_plan.call_count, len(study.subjects))
+            self.assertEqual(sample_plan.call_count, len(study.subjects))
             self.assertEqual(first_missing, ())
             self.assertEqual(second_missing, ())
             self.assertEqual(first.array.shape[0], len(first_subjects))

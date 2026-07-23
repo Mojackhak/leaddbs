@@ -3417,6 +3417,30 @@ sampling rule.
 Endpoint inputs are ordered row/column views; scale, outcome, worker count, and
 run identity do not enter physical paths.
 
+**Frozen direct-voxel hot-loop boundary, 2026-07-22.** The current vectorized
+voxel evaluator has no feature-range loop, but it still resolves paths,
+transforms, hashes, and sampler handles inside the physical-subject enumeration.
+Replace the fiber-specific sampler descriptor with one immutable bilateral
+sampling plan shared by the voxel and fiber evaluators. Because direct voxel
+has one vectorized call per row, build each physical-row plan once immediately
+before that pure call and then release the row reference; do not pin every row's
+samplers simultaneously. The pure voxel evaluator receives only the plan and
+canonical coordinates; it performs no path, transform, hash, cache, or
+NIfTI-open operation. Preserve bilateral side maxima, side averaging,
+missing-group behavior, translations, float32 output bytes, and the independent
+voxel threshold contract. Acceptance requires exact output parity plus call
+evidence that plan construction occurs once per physical row and no plan
+construction occurs inside the pure evaluator.
+
+The direct-voxel path now uses the same immutable bilateral plan descriptor as
+normative fiber. Its pure evaluator accepts only sampler handles, translations,
+and canonical coordinates. Physical preparation builds and consumes one plan
+per physical row, then endpoint subset requests reuse the single cached matrix.
+The complete input-provider suite passes 28 tests plus five subtests; the
+two-overlapping-subset fixture proves one physical producer, one plan and one
+pure evaluator call per physical subject, and identical overlapping rows.
+Configured full-matrix parity and production resource counters remain pending.
+
 - [ ] **Step 4: Implement audited, point-balanced one-pass `Omega_max` fiber preparation**
 
 Cold-audit each `(semantic connectome ID, source content SHA, cache schema)`

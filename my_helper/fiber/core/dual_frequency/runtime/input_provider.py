@@ -212,8 +212,8 @@ class GroupResolution:
 
 
 @dataclass(frozen=True)
-class _FiberSamplingPlan:
-    """Path-free sampler handles for one subject and frequency group."""
+class _BilateralSamplingPlan:
+    """Path-free bilateral sampler handles for one physical row."""
 
     left_samplers: tuple["_NiftiSampler", ...]
     right_samplers: tuple["_NiftiSampler", ...]
@@ -1301,43 +1301,44 @@ class StudyRuntimeInputProvider:
         allow_absent: bool,
         translation_by_side: dict[str, np.ndarray] | None = None,
     ) -> tuple[np.ndarray, str | None]:
+        plan = self._bilateral_sampling_plan(
+            resolution,
+            allow_absent=allow_absent,
+            translation_by_side=translation_by_side,
+        )
+        return self._sample_voxel_plan(plan, coordinates)
+
+    @staticmethod
+    def _sample_voxel_plan(
+        plan: _BilateralSamplingPlan,
+        coordinates: np.ndarray,
+    ) -> tuple[np.ndarray, str | None]:
+        """Evaluate one voxel row without path, cache, or sampler operations."""
+
         count = int(coordinates.shape[0])
-        if not resolution.groups:
-            if allow_absent:
-                return np.zeros(count, dtype=np.float32), resolution.reason_code
-            raise RuntimeInputProviderError(
-                f"required frequency group is unavailable: {resolution.reason_code}"
-            )
-        if resolution.reason_code == "missing_efield_artifact":
-            if allow_absent:
-                return np.zeros(count, dtype=np.float32), resolution.reason_code
-            raise RuntimeInputProviderError("declared frequency-group E-field is missing")
+        if plan.inactive:
+            return np.zeros(count, dtype=np.float32), plan.reason_code
         side_values: dict[str, np.ndarray] = {}
-        for side in ("L", "R"):
-            paths = tuple(item.efield_path for item in resolution.groups if item.hemisphere == side)
-            if not paths:
-                if allow_absent:
-                    side_values[side] = np.zeros(count, dtype=np.float32)
-                    continue
-                raise RuntimeInputProviderError(f"required {side} hemisphere exposure is missing")
+        for side, samplers, translation in (
+            ("L", plan.left_samplers, plan.left_translation_mm),
+            ("R", plan.right_samplers, plan.right_translation_mm),
+        ):
+            if not samplers:
+                side_values[side] = np.zeros(count, dtype=np.float32)
+                continue
             values = []
-            for path in paths:
-                sample_path = self._canonical_left_path(path) if side == "L" else path
+            for sampler in samplers:
                 values.append(
-                    self._sampler(sample_path).sample(
+                    sampler.sample(
                         coordinates,
-                        translation_mm=(
-                            None
-                            if translation_by_side is None
-                            else translation_by_side[side]
-                        ),
+                        translation_mm=translation,
                     )
                 )
             side_values[side] = np.maximum.reduce(values)
         bilateral = (side_values["L"] + side_values["R"]) / np.float32(2.0)
         if not np.all(np.isfinite(bilateral)) or np.any(bilateral < 0.0):
             raise RuntimeInputProviderError("bilateral exposure is not finite and nonnegative")
-        return bilateral.astype(np.float32, copy=False), resolution.reason_code
+        return bilateral.astype(np.float32, copy=False), plan.reason_code
 
     def _sample_fiber_group_resolution(
         self,
@@ -1361,12 +1362,27 @@ class StudyRuntimeInputProvider:
         *,
         allow_absent: bool,
         translation_by_side: dict[str, np.ndarray] | None,
-    ) -> _FiberSamplingPlan:
+    ) -> _BilateralSamplingPlan:
         """Resolve every path and sampler before entering a geometry range loop."""
+
+        return self._bilateral_sampling_plan(
+            resolution,
+            allow_absent=allow_absent,
+            translation_by_side=translation_by_side,
+        )
+
+    def _bilateral_sampling_plan(
+        self,
+        resolution: GroupResolution,
+        *,
+        allow_absent: bool,
+        translation_by_side: dict[str, np.ndarray] | None,
+    ) -> _BilateralSamplingPlan:
+        """Resolve immutable sampler handles for one bilateral physical row."""
 
         if not resolution.groups:
             if allow_absent:
-                return _FiberSamplingPlan(
+                return _BilateralSamplingPlan(
                     (),
                     (),
                     None,
@@ -1379,7 +1395,7 @@ class StudyRuntimeInputProvider:
             )
         if resolution.reason_code == "missing_efield_artifact":
             if allow_absent:
-                return _FiberSamplingPlan(
+                return _BilateralSamplingPlan(
                     (),
                     (),
                     None,
@@ -1409,7 +1425,7 @@ class StudyRuntimeInputProvider:
                 )
                 for path in paths
             )
-        return _FiberSamplingPlan(
+        return _BilateralSamplingPlan(
             left_samplers=samplers["L"],
             right_samplers=samplers["R"],
             left_translation_mm=(
@@ -1423,7 +1439,7 @@ class StudyRuntimeInputProvider:
 
     @staticmethod
     def _sample_fiber_plan(
-        plan: _FiberSamplingPlan,
+        plan: _BilateralSamplingPlan,
         points: np.ndarray,
         point_offsets: np.ndarray,
     ) -> tuple[np.ndarray, str | None]:
@@ -2185,11 +2201,14 @@ class StudyRuntimeInputProvider:
                             for side in ("L", "R")
                         }
                     )
-                    matrix[index], _reason = self._sample_group_resolution(
+                    plan = self._bilateral_sampling_plan(
                         resolution,
-                        feature_space.coordinates,
                         allow_absent=allow_absent,
                         translation_by_side=translations,
+                    )
+                    matrix[index], _reason = self._sample_voxel_plan(
+                        plan,
+                        feature_space.coordinates,
                     )
                 matrix.flush()
                 completed = True
