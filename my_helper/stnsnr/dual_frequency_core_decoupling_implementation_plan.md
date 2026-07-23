@@ -6710,6 +6710,15 @@ use temporary process snapshots and do not replace the active independent OSS
 guard or its production evidence. The checked-in guard becomes the required
 external observer for combined execution.
 
+After this PID-evidence correction, the complete isolated-package
+dual-frequency test directory passed 609 tests in 72.466 seconds under Conda
+`leaddbs`. The authoritative invocation included both the repository root and
+the isolated `dual_frequency` package root so package-relative tests and the
+repository-owned guard module shared the same test process. Two earlier
+discovery attempts produced only import-path errors before this corrected
+invocation; they are not product-test failures and are not acceptance
+evidence.
+
 Terminal resource acceptance uses a repository-owned read-only validator rather
 than a hand-copied peak. `validate_task17_resource_acceptance.py` receives one
 completed sensitivity run, its accepted execution segment, the append-only
