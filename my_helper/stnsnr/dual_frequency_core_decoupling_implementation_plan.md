@@ -6831,6 +6831,25 @@ reference gate, one historical failed add-on gate, and 392 dependency-derived
 skips. This is progress evidence only; the reference group still lacks its
 terminal authoritative closure.
 
+### Current remaining-acceptance matrix, 2026-07-22
+
+This matrix separates implemented code from evidence that can exist only after
+the active production lineage advances. The unchecked Task 17 steps remain
+unchecked until both columns are complete.
+
+| Step | Current implementation evidence | Remaining authoritative evidence |
+|---|---|---|
+| 1 | Reviewed parity allowlist, axis authority, voxel/fiber separation, and replay verifier are implemented and covered by the current regression. | Run the configured-data post-refactor replay after the independent OSS process releases the shared connectome and VAL I/O path. |
+| 2 | Direct-copy SHA cache, process-local verification reuse, persisted indexed views for reference and all raw add-on matrices, bounded consumers, copied-root checkpoint replay, and corruption tests pass. | Measure configured-data parity and production-scale logical-versus-physical write reduction from the post-refactor replay. |
+| 3 | Shared bilateral sampling plans, scale-neutral physical rows, endpoint row/column views, and direct-voxel parity fixtures pass. | Record configured full-matrix parity and production physical-row counters. |
+| 4 | Point-balanced HDF5 traversal, exact inclusive minimum-grid `Omega_max`, shared geometry, bounded fallback, and real-HDF5 path fixtures pass. | Record configured connectome parity and production chunk/resource counters. |
+| 5 | Jitter v8 is complete; physical blocks are cache-first; the OSS decision gate, O(1) rows, exact subset mapping, and lazy toolchain boundary pass local tests. | Finish both production OSS groups, prove every decision passes, rerun the 392 dependency-derived downstream tasks, and accept independent OSS reporting and publication. |
+| 6 | Portable sensitivity bases, exact resume, extension-v2 replay, missing-parent checks, and self-contained publication fixtures pass. | Publish canonical independent OSS and combined extension-v2 trees from terminal children. |
+| 7 | Persistent spawn scheduling, pure-data commands, parent-owned state mutation, resource ledger, timeout/retry boundaries, one solver token, and 64-GiB guard fixtures pass. | Retain terminal live RSS, CPU, swap, worker, resume, and generation evidence across independent OSS and combined execution. |
+| 9 | Formal and bootstrap schedules, scratch, durable blocks, ordered aggregation, pPAM blocks, jitter blocks, fixed historical RNG, and selective resume pass local regression. | Accept the production downstream pPAM block closure and combined cache-only replay. |
+| 10 | Numerical, cache-copy, corruption, resume, cleanup, publication, and visualization component suites pass. | Run the configured parity replay, no-authorization combined child, canonical publication, full public-only postprocess, identical resume, and sampled visual review. |
+| 11 | All implementation and checkpoint changes are recorded in focused commits and the worktree is clean. | Complete the requirement-by-requirement three-plan audit, update final statuses, and commit only after every production artifact and verifier passes. |
+
 ---
 
 ## Plan Self-Review Record
