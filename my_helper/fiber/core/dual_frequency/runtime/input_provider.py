@@ -4334,7 +4334,6 @@ class StudyRuntimeInputProvider:
             raise RuntimeInputProviderError(
                 "selected source endpoint differs from the final endpoint"
             )
-        parent_exposure = self._materialize(prepared.exposure)
         parent_ids = self._materialize(prepared.feature_ids)
         if parent_ids.dtype != np.dtype(np.int64) or parent_ids.ndim != 1:
             raise RuntimeInputProviderError(
@@ -4468,12 +4467,52 @@ class StudyRuntimeInputProvider:
             np.float32,
         )
         try:
-            for start in range(0, selected_axis.count, self._fiber_chunk_size):
-                stop = min(start + self._fiber_chunk_size, selected_axis.count)
-                selected_temporary.array[:, start:stop] = parent_exposure[
-                    :,
-                    indices[start:stop],
-                ]
+            if isinstance(prepared.exposure, IndexedArrayView):
+                if self._artifact_store is None:
+                    raise RuntimeInputProviderError(
+                        "artifact_store is required to read an indexed exposure"
+                    )
+                block_width = max(
+                    1,
+                    min(self._fiber_chunk_size, selected_axis.count),
+                )
+                max_block_bytes = (
+                    prepared.subject_axis.count
+                    * block_width
+                    * np.dtype(prepared.exposure.dtype).itemsize
+                )
+                with self._artifact_store.open_indexed_array_view(
+                    prepared.exposure,
+                    max_block_bytes=max_block_bytes,
+                ) as parent_exposure:
+                    for start in range(
+                        0,
+                        selected_axis.count,
+                        self._fiber_chunk_size,
+                    ):
+                        stop = min(
+                            start + self._fiber_chunk_size,
+                            selected_axis.count,
+                        )
+                        selected_temporary.array[:, start:stop] = parent_exposure[
+                            :,
+                            indices[start:stop],
+                        ]
+            else:
+                parent_exposure = self._materialize(prepared.exposure)
+                for start in range(
+                    0,
+                    selected_axis.count,
+                    self._fiber_chunk_size,
+                ):
+                    stop = min(
+                        start + self._fiber_chunk_size,
+                        selected_axis.count,
+                    )
+                    selected_temporary.array[:, start:stop] = parent_exposure[
+                        :,
+                        indices[start:stop],
+                    ]
             selected_temporary.array.flush()
             selected_exposure = publisher.array(
                 "selected_exposure.npy",

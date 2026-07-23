@@ -1588,6 +1588,40 @@ class InputProviderTest(unittest.TestCase):
             _materialize(artifact_store, first.exposure),
             _materialize(artifact_store, second.exposure),
         )
+        selected_indices = np.asarray(
+            (0, first.feature_axis.count - 1),
+            dtype=np.int64,
+        )
+        expected_selected = _materialize(
+            artifact_store,
+            first.exposure,
+        )[:, selected_indices]
+        final_model = self._direct_final(
+            endpoint,
+            first,
+            artifact_root,
+            selected_indices,
+        )
+        with mock.patch.object(
+            artifact_store,
+            "materialize_indexed_array_view",
+            side_effect=AssertionError(
+                "selected exposure must not materialize the complete view"
+            ),
+        ):
+            selected_exposure, _selected_ids = provider.selected_exposure(
+                final_model,
+                first,
+                RunScopedArtifactPublisher(
+                    artifact_root / "shared-selected",
+                    "shared-selected",
+                    "1",
+                ),
+            )
+        np.testing.assert_array_equal(
+            _materialize(artifact_store, selected_exposure),
+            expected_selected,
+        )
         self.assertFalse(tuple((artifact_root / "shared-first").glob("*.npy")))
         self.assertFalse(tuple((artifact_root / "shared-second").glob("*.npy")))
         cache_entries = tuple(

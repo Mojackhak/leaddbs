@@ -3687,6 +3687,25 @@ NumPy array. Its explicit candidate gather budget is 16 GiB, matching the
 existing contiguous replay ceiling while retaining the exact full-parent
 selection semantics.
 
+Final selected-exposure publication follows the same bounded rule. Resolve and
+validate the final feature positions against the complete parent ID axis before
+opening the exposure. For an `IndexedArrayView`, open one bounded reader and
+copy only the locked final columns into the existing final selected-exposure
+temporary matrix in feature blocks. The reader budget is the byte size of one
+subject-by-feature block and must be positive. Do not call the complete-view
+materializer. An artifact-only prepared exposure retains its existing
+read-only mapping path. Both paths publish the same selected axis, dtype,
+units, space, and payload bytes. Acceptance must force complete-view
+materialization to fail while view-backed selected publication still succeeds
+and matches the artifact-backed result.
+
+This final selected-exposure boundary is now implemented. View-backed
+publication keeps one bounded reader open and gathers only locked final
+columns; artifact-backed publication retains the existing read-only mapping.
+The focused provider suite passes 31 tests and explicitly forces the complete
+view materializer to raise while selected publication remains byte-identical.
+The complete dual-frequency suite passes 550 tests.
+
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
 ordered subject and feature selections, exposes bounded column reads, and
