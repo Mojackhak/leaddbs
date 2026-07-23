@@ -7641,6 +7641,34 @@ aggregate CPU. The guard exceeded 67000 samples; its recorded peak remained
 in both detected baseline epochs. This remains intermediate, nonterminal
 evidence.
 
+At the 2026-07-23 12:18 PDT checkpoint, the reference cache had advanced to 63
+passing decisions and 126 corresponding row manifests. The newest decision is
+`79bf18b86e0da3a2134e1877774f9361765d5b2979f79bb0ceddfbfd23dd7883`;
+its final and `Omega_max` row identities are
+`9cd749fa7dfb821a5ba0146ad2951f707ecbdfc67a02d1c3dd853f77b904dec6`
+and
+`cd139fd00adbf1cb47c2c9963b606f1c500fd1542f29adef8f81f2bbb7f96e22`.
+Production cache resolution validated the decision and both row entries,
+manifest identity, declared payload closure, byte count, SHA-256, NPY dtype
+and shape, ordered unique positive fiber IDs, and finite probabilities within
+the closed unit interval. Independent replay confirmed that the 3401-fiber
+final axis is an exact canonical-ID subset of the 10320-fiber `Omega_max`
+axis. The maximum probability difference, strict `p(A) > 0.5` state mismatch
+count, and activation-count mismatch count were all 0, matching the persisted
+pass decision.
+
+All 63 cumulative decisions belong to the reference group and pass. The
+reference gate remains running and has not committed its terminal
+`row_decision_ids` closure, so this cumulative count is still not an
+acceptance denominator. The 590-task ledger remains 196 completed, one
+running, one historical failed, and 392 dependency-derived skips. VAL remained
+mounted; the live runner, persistent worker, guard, and one OSS bootstrap child
+were present. The bounded task-tree snapshot contained four processes at 98.1
+percent aggregate CPU and 1860419584 bytes RSS. The append-only guard exceeded
+74500 samples, retained its 62493573120-byte peak below 64 GiB, and reported
+swap use below the active epoch baseline. This remains intermediate,
+nonterminal evidence.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside
