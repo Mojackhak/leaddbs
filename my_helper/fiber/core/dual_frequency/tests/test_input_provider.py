@@ -1589,6 +1589,11 @@ class InputProviderTest(unittest.TestCase):
             shared_cache=True,
         )
         subject_axis = AxisRef("prepared-subjects", 2, canonical_hash(["s1", "s2"]))
+        alias_subject_axis = AxisRef(
+            "different-endpoint-subjects",
+            subject_axis.count,
+            subject_axis.sha256,
+        )
         feature_axis = AxisRef("prepared-features", 3, canonical_hash([1, 2, 3]))
         changed_axis = AxisRef("prepared-features", 3, canonical_hash([1, 3, 2]))
         values = np.arange(6, dtype=np.float32).reshape(2, 3)
@@ -1618,6 +1623,15 @@ class InputProviderTest(unittest.TestCase):
             axes=(subject_axis, feature_axis),
             **arguments,
         )
+        endpoint_alias = provider._publish_prepared_array(
+            publisher=RunScopedArtifactPublisher(
+                artifact_root / "prepared-cache-endpoint-alias",
+                "prepared-cache-endpoint-alias",
+                "1",
+            ),
+            axes=(alias_subject_axis, feature_axis),
+            **arguments,
+        )
         separated = provider._publish_prepared_array(
             publisher=RunScopedArtifactPublisher(
                 artifact_root / "prepared-cache-separated",
@@ -1628,11 +1642,17 @@ class InputProviderTest(unittest.TestCase):
             **arguments,
         )
         self.assertEqual(first.uri, second.uri)
+        self.assertEqual(first.uri, endpoint_alias.uri)
+        self.assertEqual(
+            endpoint_alias.axis_refs,
+            (alias_subject_axis, feature_axis),
+        )
         self.assertNotEqual(first.uri, separated.uri)
         np.testing.assert_array_equal(_materialize(artifact_store, first), values)
         for task_root in (
             "prepared-cache-first",
             "prepared-cache-second",
+            "prepared-cache-endpoint-alias",
             "prepared-cache-separated",
         ):
             self.assertFalse(tuple((artifact_root / task_root).glob("*.npy")))

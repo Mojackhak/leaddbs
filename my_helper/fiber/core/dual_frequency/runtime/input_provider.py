@@ -2681,7 +2681,6 @@ class StudyRuntimeInputProvider:
                 {
                     "ordered_axes": [
                         {
-                            "axis_id": axis.axis_id,
                             "count": axis.count,
                             "sha256": axis.sha256,
                         }
@@ -2711,6 +2710,19 @@ class StudyRuntimeInputProvider:
                 *dependencies,
             ),
             kind="prepared_artifacts",
+        )
+
+    @staticmethod
+    def _portable_prepared_axes(
+        axes: tuple[AxisRef, ...],
+    ) -> tuple[AxisRef, ...]:
+        return tuple(
+            AxisRef(
+                axis_id=f"portable-dimension-{index}-{axis.sha256[:16]}",
+                count=axis.count,
+                sha256=axis.sha256,
+            )
+            for index, axis in enumerate(axes)
         )
 
     def _publish_prepared_array(
@@ -2744,6 +2756,7 @@ class StudyRuntimeInputProvider:
             axes=axes,
             dependencies=dependencies,
         )
+        portable_axes = self._portable_prepared_axes(axes)
         shared_entries = _ACTIVE_SHARED_EXPOSURES.get()
         if shared_entries is not None:
             identity = {"kind": key.kind, "semantic_sha256": key.digest}
@@ -2756,7 +2769,7 @@ class StudyRuntimeInputProvider:
                     metadata = CacheFileMetadata(
                         dtype=np.dtype(array.dtype).name,
                         shape=tuple(int(dimension) for dimension in array.shape),
-                        axes=axes,
+                        axes=portable_axes,
                         units=units,
                         space=space,
                     )
@@ -2792,7 +2805,7 @@ class StudyRuntimeInputProvider:
         expected_metadata = CacheFileMetadata(
             dtype=np.dtype(array.dtype).name,
             shape=tuple(int(dimension) for dimension in array.shape),
-            axes=axes,
+            axes=portable_axes,
             units=units,
             space=space,
         )
@@ -2807,8 +2820,8 @@ class StudyRuntimeInputProvider:
             sha256=cached.sha256,
             dtype=cached.metadata.dtype,
             shape=cached.metadata.shape,
-            axis_refs=cached.metadata.axes,
-            axis_hashes=tuple(axis.sha256 for axis in cached.metadata.axes),
+            axis_refs=axes,
+            axis_hashes=tuple(axis.sha256 for axis in axes),
             units=cached.metadata.units,
             space=cached.metadata.space,
             producer_id="shared_prepared_exposure",

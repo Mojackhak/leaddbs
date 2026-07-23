@@ -3530,6 +3530,26 @@ subtests. Post-refactor configured-data parity replay and measured v8-sized
 write reduction remain required before this boundary is accepted as complete;
 temporary subset allocation and `IndexedArrayView` also remain open.
 
+A follow-up identity audit found that the first implementation still included
+the requested `AxisRef.axis_id` in the prepared cache key and manifest. Endpoint
+subject-axis IDs contain the endpoint ID, so otherwise identical ordered
+subjects would not reuse one payload across scales. The correction excludes
+axis labels from the portable identity and binds only ordered axis count and
+SHA. Cache manifests use deterministic neutral axis labels derived from the
+dimension and axis SHA, while each returned task `ArtifactRef` retains the
+caller's exact endpoint-local axes. NPY bytes do not encode axis labels, and
+the artifact store continues to validate the exact task axes, dtype, shape,
+units, space, and payload SHA. Tests must prove that two different axis labels
+with the same count and SHA reuse one URI, while a changed axis SHA does not.
+
+The portable-axis correction is now implemented. Prepared cache keys and cache
+manifest axes exclude endpoint-local labels, while returned artifacts rebind
+the validated payload to the caller's exact axes. The focused provider suite
+passes 29 tests plus 5 subtests and explicitly proves different endpoint axis
+labels reuse one URI, preserve their own returned axis refs, and separate when
+the ordered axis SHA changes. The complete dual-frequency suite remains green
+at 558 tests plus 310 subtests.
+
 - [ ] **Step 3: Implement distinct voxel sampling and shared physical rows**
 
 Resolve unique physical subject/program/frequency-component units before
