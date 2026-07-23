@@ -5502,6 +5502,27 @@ toolchain calls. The copy proves that absolute path, inode, machine, and cache
 instance are not reuse gates. None of these fixtures changes production
 behavior.
 
+A final adapter-level cache-first correction is required before combined
+execution. The group function may not require a usable
+`produce_with_evidence` method until `_load_decision` returns a genuine miss,
+and the service adapter may not instantiate the project OSS toolchain merely
+to validate a fully cached gate. Pass a lazy toolchain proxy from the adapter;
+resolve the real project toolchain only on the first authorized producer call.
+A fully cached gate must therefore succeed with an unusable toolchain object
+and with a factory that raises if invoked. An unauthorized miss must fail
+before factory resolution, while an authorized miss resolves the factory once
+and produces only missing evidence. This closes source-independent combined
+reuse rather than only the lower-level decision-cache lookup.
+
+The adapter-level correction is now implemented. Cached group restoration no
+longer requires a usable producer object, and the service adapter passes a
+proxy that instantiates the project toolchain only on the first evidence
+request. The strengthened gate fixture restores with an unusable toolchain,
+blocks an unauthorized missing decision before producer access, and repairs
+the miss after authorization. The proxy fixture proves zero eager factory
+calls and one factory resolution across repeated producer calls. The complete
+dual-frequency suite passes 554 tests.
+
 The three focused cache-first suites were rerun during formal OSS segment
 `segment_0010` on 2026-07-22 and now pass 22 tests plus two subtests after the
 decision-to-two-row closure fixtures were added. This current

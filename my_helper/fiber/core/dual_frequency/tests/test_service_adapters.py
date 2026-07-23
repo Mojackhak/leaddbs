@@ -650,6 +650,31 @@ def _request(
 
 
 class ServiceAdapterTest(unittest.TestCase):
+    def test_lazy_oss_toolchain_factory_resolves_once_on_first_producer_call(
+        self,
+    ) -> None:
+        factory_calls: list[object] = []
+        producer_calls: list[object] = []
+
+        class Toolchain:
+            @staticmethod
+            def produce_with_evidence(request):
+                producer_calls.append(request)
+                return request
+
+        def factory():
+            factory_calls.append(object())
+            return Toolchain()
+
+        lazy = service_adapters._LazyOSSProducerToolchain(factory)
+        self.assertEqual(factory_calls, [])
+        first = object()
+        second = object()
+        self.assertIs(lazy.produce_with_evidence(first), first)
+        self.assertIs(lazy.produce_with_evidence(second), second)
+        self.assertEqual(len(factory_calls), 1)
+        self.assertEqual(producer_calls, [first, second])
+
     def test_indexed_total_exposure_uses_bounded_selected_and_mean_reads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

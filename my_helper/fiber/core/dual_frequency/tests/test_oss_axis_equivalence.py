@@ -260,6 +260,7 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
             }
             first = establish_oss_axis_equivalence(**arguments)
             arguments["allow_expensive_producers"] = False
+            arguments["toolchain"] = object()
             restored = establish_oss_axis_equivalence(**arguments)
 
             self.assertEqual(first.gate_status, "accepted_omega_max")
@@ -281,6 +282,7 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
                 establish_oss_axis_equivalence(**arguments)
             self.assertEqual(toolchain.calls, 4)
             arguments["allow_expensive_producers"] = True
+            arguments["toolchain"] = toolchain
             repaired = establish_oss_axis_equivalence(**arguments)
             self.assertEqual(repaired.gate_status, "accepted_omega_max")
             self.assertEqual(toolchain.calls, 6)

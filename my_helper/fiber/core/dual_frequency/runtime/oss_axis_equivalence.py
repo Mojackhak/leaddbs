@@ -281,10 +281,9 @@ def establish_oss_axis_equivalence(
     if omega_axis.count < final_axis.count:
         raise OSSAxisEquivalenceError("Omega_max axis is smaller than the final axis")
     runtime_method = getattr(provider, "activation_runtime_request", None)
-    toolchain_method = getattr(toolchain, "produce_with_evidence", None)
-    if not callable(runtime_method) or not callable(toolchain_method):
+    if not callable(runtime_method):
         raise OSSAxisEquivalenceError(
-            "OSS axis gate requires runtime and exact sample-evidence capabilities"
+            "OSS axis gate requires runtime request capabilities"
         )
     paired: dict[str, tuple[OSSProducerRequest, OSSProducerRequest]] = {}
     activation_provider = OSSActivationProvider(cache, producer_toolchain=None)
@@ -359,6 +358,11 @@ def establish_oss_axis_equivalence(
             if not allow_expensive_producers:
                 raise OSSAxisEquivalenceError(
                     "OSS axis gate cache misses require expensive producer authorization"
+                )
+            toolchain_method = getattr(toolchain, "produce_with_evidence", None)
+            if not callable(toolchain_method):
+                raise OSSAxisEquivalenceError(
+                    "OSS axis gate cache misses require exact sample-evidence capabilities"
                 )
             final_evidence = toolchain_method(final_request)
             omega_evidence = toolchain_method(omega_request)

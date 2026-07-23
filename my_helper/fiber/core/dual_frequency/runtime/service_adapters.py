@@ -2090,6 +2090,26 @@ def _activation_fitting_request(
     return activation_request
 
 
+class _LazyOSSProducerToolchain:
+    """Resolve the project toolchain only when a cache miss invokes it."""
+
+    def __init__(self, factory: Callable[[], object]) -> None:
+        if not callable(factory):
+            raise TypeError("factory must be callable")
+        self._factory = factory
+        self._toolchain: object | None = None
+
+    def produce_with_evidence(self, request: object):
+        if self._toolchain is None:
+            self._toolchain = self._factory()
+        method = getattr(self._toolchain, "produce_with_evidence", None)
+        if not callable(method):
+            raise ServiceAdapterCapabilityError(
+                "OSS producer toolchain lacks exact sample-evidence capabilities"
+            )
+        return method(request)
+
+
 def _establish_oss_axis_equivalence(
     request: TaskExecutionRequest,
 ) -> ServiceResult:
@@ -2128,6 +2148,7 @@ def _establish_oss_axis_equivalence(
         raise ServiceAdapterCapabilityError(
             "provider does not expose the OSS producer toolchain"
         )
+    toolchain = _LazyOSSProducerToolchain(toolchain_method)
     record = establish_oss_axis_equivalence(
         descriptor=descriptor,
         endpoint_inputs=endpoint_inputs,
@@ -2136,7 +2157,7 @@ def _establish_oss_axis_equivalence(
         provider=request.provider,
         cache=request.scientific_cache,
         publisher=_publisher(request),
-        toolchain=toolchain_method(),
+        toolchain=toolchain,
         workers=request.workers,
         allow_expensive_producers=request.allow_expensive_producers,
     )
