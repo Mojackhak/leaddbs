@@ -3753,6 +3753,22 @@ prepared-record codec fixture also round-trips all three raw add-on views and
 reconstructs their transitive artifact closure. The complete dual-frequency
 suite passes 553 tests.
 
+Portable sensitivity replay must cover the complete prepared-record closure,
+not only its primary exposure. A cache-backed add-on fixture must remap the
+primary, reference-condition, add-on reference-component, and total views to
+portable cache URIs, retain every parent and selector, encode and decode the
+prepared record, then resolve the copied tree beneath a distinct cache root.
+Every resolved artifact must pass NPY header and payload-SHA validation.
+Neither the original absolute root nor a run scratch path may survive the
+portable record.
+
+The complete add-on portability fixture is now implemented. It remaps and
+codec-round-trips the four indexed views, copies the cache to a distinct root,
+resolves every parent, selector, feature-ID, overlap, and readiness artifact,
+and verifies every payload SHA without retaining the original root. The
+focused checkpoint suite passes 11 tests and the complete dual-frequency suite
+passes 555 tests.
+
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
 ordered subject and feature selections, exposes bounded column reads, and

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -16,19 +17,25 @@ from dual_frequency.application.sensitivity import (
     CHECKPOINT_SCHEMA,
     SEED_SCHEMA,
     SensitivityCheckpointError,
+    _physical_mapper,
+    _portable_mapper,
+    _remap_value,
     _scientific_array_payload,
     compile_sensitivity_extension_plan,
     load_sensitivity_checkpoint,
 )
+from dual_frequency.cache import RunScopedArtifactPublisher
 from dual_frequency.cache.identity import sha256_file
 from dual_frequency.contracts import (
     ArtifactRef,
     AxisRef,
     EndpointKey,
     IndexedArrayView,
+    PreparedExposureRecord,
     SourceRecord,
     TaskKey,
 )
+from dual_frequency.runtime.record_codec import record_artifacts
 from dual_frequency.workflow import (
     ExecutionPlan,
     GateRequirement,
@@ -236,6 +243,132 @@ class SensitivityCheckpointTest(unittest.TestCase):
             positions.sha256,
         )
         self.assertEqual(payload["shape"], [2, 2])
+
+    def test_portable_addon_preparation_replays_all_indexed_views_from_copy(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_root = root / "run"
+            cache_root = root / "cache"
+            output_root = root / "output"
+            for path in (run_root, cache_root, output_root):
+                path.mkdir(parents=True)
+            publisher = RunScopedArtifactPublisher(
+                cache_root / "prepared",
+                "portable-addon",
+                "1",
+            )
+            subjects = AxisRef("subjects", 2, "1" * 64)
+            parent_features = AxisRef("parent-features", 3, "2" * 64)
+            features = AxisRef("selected-features", 2, "3" * 64)
+            selector = publisher.array(
+                "column_positions.npy",
+                np.asarray((2, 0), dtype=np.int64),
+                kind="indexed_array_column_positions",
+                axes=(features,),
+                units="index",
+                space=None,
+            )
+
+            def view(name: str, offset: float) -> IndexedArrayView:
+                parent = publisher.array(
+                    f"{name}.npy",
+                    np.arange(6, dtype=np.float32).reshape(2, 3) + offset,
+                    kind="shared_physical_exposure",
+                    axes=(subjects, parent_features),
+                    units="V/m",
+                    space="synthetic",
+                )
+                return IndexedArrayView(
+                    parent=parent,
+                    row_positions=None,
+                    column_positions=selector,
+                    axis_refs=(subjects, features),
+                )
+
+            exposure = view("exposure", 0.0)
+            reference_condition = view("reference_condition", 10.0)
+            addon_reference = view("addon_reference", 20.0)
+            total = view("total", 30.0)
+            feature_ids = publisher.array(
+                "feature_ids.npy",
+                np.asarray((103, 101), dtype=np.int64),
+                kind="canonical_feature_ids",
+                axes=(features,),
+                units=None,
+                space="synthetic",
+            )
+            overlap = publisher.array(
+                "overlap.npy",
+                np.asarray(((True, False), (False, True)), dtype=bool),
+                kind="reference_overlap_mask",
+                axes=(subjects, features),
+                units="binary",
+                space="synthetic",
+            )
+            readiness = publisher.document(
+                "readiness.json",
+                {"schema_version": "portable_addon_readiness_v1"},
+                kind="addon_auxiliary_readiness",
+            )
+            record = PreparedExposureRecord(
+                endpoint=EndpointKey(
+                    "study",
+                    "scale",
+                    "addon",
+                    "addon_voxel",
+                ),
+                subject_axis=subjects,
+                feature_axis=features,
+                exposure=exposure,
+                feature_ids=feature_ids,
+                delta_reference_input_status="ready",
+                delta_reference_reason_code="ready",
+                auxiliary_readiness=readiness,
+                reference_condition_exposure=reference_condition,
+                addon_reference_component_exposure=addon_reference,
+                reference_overlap_mask=overlap,
+                total_exposure=total,
+            )
+            portable = _remap_value(
+                record,
+                _portable_mapper(run_root, cache_root, output_root),
+            )
+            self.assertIsInstance(portable, PreparedExposureRecord)
+            encoded = ServiceResult.from_record(portable)
+            self.assertEqual(encoded.decode_record(), portable)
+            encoded_text = encoded.payload_json + json.dumps(
+                [artifact.uri for artifact in encoded.artifacts],
+                sort_keys=True,
+            )
+            self.assertNotIn(str(root.resolve()), encoded_text)
+            self.assertNotIn(".runs", encoded_text)
+            self.assertTrue(
+                all(
+                    artifact.uri.startswith("cache:///")
+                    for artifact in record_artifacts(portable)
+                )
+            )
+
+            copied_cache = root / "copied-cache"
+            shutil.copytree(cache_root, copied_cache)
+            physical_mapper = _physical_mapper(
+                root / "copied-run",
+                copied_cache,
+                root / "copied-output",
+            )
+            restored = _remap_value(portable, physical_mapper)
+            self.assertIsInstance(restored, PreparedExposureRecord)
+            for artifact in record_artifacts(portable):
+                resolved = physical_mapper.verify(artifact)
+                self.assertTrue(
+                    Path(resolved.uri.removeprefix("file://")).is_file()
+                )
+            self.assertEqual(
+                tuple(artifact.sha256 for artifact in record_artifacts(restored)),
+                tuple(artifact.sha256 for artifact in record_artifacts(record)),
+            )
 
     def test_oss_extension_inserts_one_group_gate_before_observed_workspace(self) -> None:
         endpoints = tuple(
