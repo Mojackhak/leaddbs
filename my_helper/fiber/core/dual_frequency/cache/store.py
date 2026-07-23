@@ -713,6 +713,7 @@ class ContentAddressedCache:
     def _quarantine_stale_lock(cls, lock: Path) -> bool:
         if cls._producer_is_alive(lock) is not False:
             return False
+        cls._quarantine_orphan_staging(lock)
         try:
             quarantine = lock.with_name(
                 f"{lock.name}.stale-{time.time_ns()}"
@@ -721,6 +722,24 @@ class ContentAddressedCache:
         except FileNotFoundError:
             pass
         return True
+
+    @staticmethod
+    def _quarantine_orphan_staging(lock: Path) -> None:
+        suffix = ".produce.lock"
+        if not lock.name.startswith(".") or not lock.name.endswith(suffix):
+            raise CacheError(f"invalid producer lock name: {lock}")
+        digest = lock.name[1:-len(suffix)]
+        for staging in tuple(lock.parent.glob(f".{digest}.tmp-*")):
+            quarantine = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{digest}.orphan-",
+                    dir=lock.parent,
+                )
+            )
+            try:
+                os.replace(staging, quarantine / "payload")
+            except FileNotFoundError:
+                quarantine.rmdir()
 
     def reindexed_view(
         self,

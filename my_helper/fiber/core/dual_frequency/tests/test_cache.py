@@ -461,10 +461,26 @@ class ContentAddressedCacheTest(unittest.TestCase):
         destination.parent.mkdir(parents=True)
         lock = destination.parent / f".{key.digest}.produce.lock"
         lock.write_text("pid=999999999\n", encoding="ascii")
+        orphan = destination.parent / f".{key.digest}.tmp-interrupted"
+        orphan.mkdir()
+        (orphan / "partial.bin").write_bytes(b"partial")
+        other_key = _key(kind="voxel_exposures")
+        other_orphan = destination.parent / f".{other_key.digest}.tmp-unrelated"
+        other_orphan.mkdir()
         with cache.producer_lease(key, timeout_seconds=1.0) as owner:
             self.assertTrue(owner)
         self.assertFalse(lock.exists())
         self.assertEqual(len(tuple(destination.parent.glob(f"{lock.name}.stale-*"))), 1)
+        quarantines = tuple(
+            destination.parent.glob(f".{key.digest}.orphan-*")
+        )
+        self.assertEqual(len(quarantines), 1)
+        self.assertEqual(
+            (quarantines[0] / "payload" / "partial.bin").read_bytes(),
+            b"partial",
+        )
+        self.assertFalse(orphan.exists())
+        self.assertTrue(other_orphan.is_dir())
 
     def test_live_producer_refreshes_wait_deadline_until_publication(self) -> None:
         cache = ContentAddressedCache(self.root / "live-cache")
@@ -474,6 +490,8 @@ class ContentAddressedCacheTest(unittest.TestCase):
         destination.parent.mkdir(parents=True)
         lock = destination.parent / f".{key.digest}.produce.lock"
         lock.write_text(f"pid={os.getpid()}\n", encoding="ascii")
+        active_staging = destination.parent / f".{key.digest}.tmp-active"
+        active_staging.mkdir()
 
         def delayed_publish() -> None:
             time.sleep(0.05)
@@ -487,6 +505,10 @@ class ContentAddressedCacheTest(unittest.TestCase):
             with cache.producer_lease(key, timeout_seconds=0.01) as owner:
                 self.assertFalse(owner)
             future.result()
+        self.assertTrue(active_staging.is_dir())
+        self.assertFalse(
+            tuple(destination.parent.glob(f".{key.digest}.orphan-*"))
+        )
 
     def test_duplicate_source_items_are_rejected(self) -> None:
         source = self._source("artifact.bin", b"content")

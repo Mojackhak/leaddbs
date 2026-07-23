@@ -4264,7 +4264,16 @@ their exit, quarantines every in-flight run-owned attempt directory, and only
 then releases its ledger grants. Cache producer locks retain the worker PID;
 the next lease atomically quarantines a lock whose owner is no longer alive.
 Unique cache staging names prevent a replacement writer from reusing an
-orphaned temporary path.
+orphaned temporary path. Before releasing that dead-owner lock, the recovering
+contender atomically moves every exact-identity
+`.<semantic_sha256>.tmp-*` sibling into a uniquely created
+`.<semantic_sha256>.orphan-*` quarantine directory. The atomic move targets
+that directory's previously absent `payload` child, so it never deletes or
+overwrites an older orphan. Recovery never scans another cache identity and
+never moves staging while the recorded owner remains alive. The still-present
+stale lock excludes a new lease-based writer during this quarantine window;
+only after the staging moves complete may one contender rename the stale lock
+and compete for a fresh lease.
 
 Every in-flight task is classified independently. A task is requeued only when
 it declares `transient_safe` and its consumed retry count remains below
@@ -4303,7 +4312,19 @@ timeout, broken-pool, retry, and quarantine counts. The focused executor suite
 passed 38 tests and the complete dual-frequency regression passed 565 tests
 under Conda `leaddbs`. Current production tasks retain the default disabled
 generic timeout and retry policies, while their existing external subprocess
-timeouts remain active.
+timeouts remain the only production timeout boundary.
+
+Stale cache-owner recovery now closes the corresponding publication boundary.
+When a producer lock names a dead PID, recovery moves only that semantic
+identity's `.<digest>.tmp-*` siblings into separately created
+`.<digest>.orphan-*` quarantine directories before moving the stale lock. Each
+payload lands at an initially absent `payload` child, preserving interrupted
+bytes without overwrite. A live owner leaves its staging untouched, and an
+unrelated cache identity is never selected. The focused cache suite passed 40
+tests and the complete dual-frequency regression passed 565 tests under Conda
+`leaddbs`. These fixtures cover dead-owner staging preservation, live-owner
+noninterference, identity isolation, stale-lock quarantine, and successful new
+lease acquisition.
 
 - [x] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
 
