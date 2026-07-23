@@ -6855,6 +6855,36 @@ Both commands remain read-only with respect to the run and cache. Their only
 writes are the named acceptance documents, each installed atomically and
 reused only when its bytes are identical.
 
+The first combined launch must attach the checked-in guard immediately after
+the runner PID is known:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_resource_guard.py \
+  --runner-pid <combined-runner-pid> \
+  --output /private/tmp/task17-combined-segment_0001-resource-guard.csv \
+  --mount /Volumes/VAL
+```
+
+The launch preflight must confirm that the combined root is still absent, so
+its first instrumented segment is `segment_0001`. After terminal completion,
+run the strict resource acceptance command:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/validate_task17_resource_acceptance.py \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-combined-v1-inclusive-formal-20260719 \
+  --segment-id segment_0001 \
+  --guard-csv /private/tmp/task17-combined-segment_0001-resource-guard.csv \
+  --workers 14 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-combined-v1-resource-acceptance-v1.json
+```
+
+If preflight finds an existing exact combined root, do not assume
+`segment_0001`: validate the existing lineage and select only its newly
+finished instrumented resume segment. The guard and report names must use that
+actual segment ID.
+
 The complete repository-local dual-frequency test directory was then rerun
 with the isolated `dual_frequency` and `seed_target_connectivity` package
 links and low CPU scheduling priority. All 604 tests passed in 73.104 seconds.
@@ -7204,9 +7234,26 @@ env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
   --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-jitter-v8-extension-v2-validation-v1.json
 ```
 
-The later OSS and combined invocations use their exact completed child and
-canonical `-v2` roots with distinct acceptance report names. Independent OSS
-passes only its normative-fiber root; combined passes both domain roots.
+After each source child has been published twice with its frozen unfiltered
+`publish-extension` command, validate OSS-v2 and combined-v2 with:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/validate_task17_extension_publication.py \
+  --source-run /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
+  --extension-root /Volumes/VAL/STNSNr/summary/spot/normative_fiber/dual_frequency_four_model_v1/extensions/task17-oss-v1-inclusive-formal-20260719-v2 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-extension-v2-validation-v1.json
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/validate_task17_extension_publication.py \
+  --source-run /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-combined-v1-inclusive-formal-20260719 \
+  --extension-root /Volumes/VAL/STNSNr/summary/spot/direct_voxel/dual_frequency_four_model_v1/extensions/task17-combined-v1-inclusive-formal-20260719-v2 \
+  --extension-root /Volumes/VAL/STNSNr/summary/spot/normative_fiber/dual_frequency_four_model_v1/extensions/task17-combined-v1-inclusive-formal-20260719-v2 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-combined-v1-extension-v2-validation-v1.json
+```
+
+Independent OSS passes only its normative-fiber root; combined passes both
+domain roots.
 
 The completed jitter lineage was replayed on 2026-07-22 with the first command
 above. It created
