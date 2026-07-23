@@ -33,7 +33,7 @@ from dual_frequency.cache import (
     ScientificCacheKey,
     sha256_file,
 )
-from dual_frequency.contracts import ArtifactRef, AxisRef
+from dual_frequency.contracts import ArtifactRef, AxisRef, IndexedArrayView
 
 
 def _key(**changes: object) -> ScientificCacheKey:
@@ -707,6 +707,91 @@ class ArtifactStoreTest(unittest.TestCase):
         np.testing.assert_array_equal(output, self.array)
         self.assertEqual(output.dtype, np.dtype("float64"))
         self.assertFalse(output.flags.writeable)
+
+    def test_indexed_array_view_uses_verified_bounded_blocks(self) -> None:
+        selected_subjects = AxisRef("selected_subjects", 2, "c" * 64)
+        selected_features = AxisRef("selected_features", 2, "d" * 64)
+        row_path = self.allowed / "row_positions.npy"
+        column_path = self.allowed / "column_positions.npy"
+        np.save(row_path, np.asarray([1, 0], dtype=np.int64), allow_pickle=False)
+        np.save(column_path, np.asarray([2, 0], dtype=np.int64), allow_pickle=False)
+        row_positions = self._artifact(
+            row_path,
+            dtype="int64",
+            shape=(2,),
+            axes=(selected_subjects,),
+            units="index",
+            space=None,
+        )
+        column_positions = self._artifact(
+            column_path,
+            dtype="int64",
+            shape=(2,),
+            axes=(selected_features,),
+            units="index",
+            space=None,
+        )
+        view = IndexedArrayView(
+            parent=self.artifact,
+            row_positions=row_positions,
+            column_positions=column_positions,
+            axis_refs=(selected_subjects, selected_features),
+        )
+
+        blocks = list(
+            self.store.iter_indexed_array_view_blocks(
+                view,
+                block_columns=1,
+            )
+        )
+        self.assertEqual([(start, stop) for start, stop, _ in blocks], [(0, 1), (1, 2)])
+        self.assertTrue(all(block.shape == (2, 1) for _, _, block in blocks))
+        self.assertTrue(all(not block.flags.writeable for _, _, block in blocks))
+
+        expected = self.array[np.ix_([1, 0], [2, 0])]
+        output = self.store.materialize_indexed_array_view(
+            view,
+            max_bytes=expected.nbytes,
+            block_columns=1,
+        )
+        np.testing.assert_array_equal(output, expected)
+        self.assertFalse(output.flags.writeable)
+        with self.assertRaisesRegex(ArtifactValidationError, "budget"):
+            self.store.materialize_indexed_array_view(
+                view,
+                max_bytes=expected.nbytes - 1,
+            )
+
+    def test_indexed_array_view_rejects_duplicate_and_out_of_range_positions(self) -> None:
+        selected_subjects = AxisRef("selected_subjects", 2, "c" * 64)
+        for filename, values, message in (
+            ("duplicate.npy", [1, 1], "duplicate"),
+            ("outside.npy", [0, 2], "parent axis"),
+        ):
+            with self.subTest(filename=filename):
+                path = self.allowed / filename
+                np.save(path, np.asarray(values, dtype=np.int64), allow_pickle=False)
+                positions = self._artifact(
+                    path,
+                    dtype="int64",
+                    shape=(2,),
+                    axes=(selected_subjects,),
+                    units="index",
+                    space=None,
+                )
+                view = IndexedArrayView(
+                    parent=self.artifact,
+                    row_positions=positions,
+                    column_positions=None,
+                    axis_refs=(selected_subjects, self.features),
+                )
+                with self.assertRaisesRegex(ArtifactValidationError, message):
+                    list(
+                        self.store.iter_indexed_array_view_blocks(
+                            view,
+                            block_columns=2,
+                        )
+                    )
 
     def test_materializes_verified_array_as_read_only_memory_map(self) -> None:
         output = self._materialize(mmap_mode="r")

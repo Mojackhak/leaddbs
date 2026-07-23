@@ -202,6 +202,84 @@ class ArtifactRef:
         return f"artifact_{canonical_hash(asdict(self), length=20)}"
 
 
+@dataclass(frozen=True)
+class IndexedArrayView:
+    """Persisted bounded view over one immutable two-dimensional array."""
+
+    parent: ArtifactRef
+    row_positions: ArtifactRef | None
+    column_positions: ArtifactRef | None
+    axis_refs: tuple[AxisRef, AxisRef]
+    schema_version: str = "dual_frequency_indexed_array_view_v1"
+
+    def __post_init__(self) -> None:
+        if self.schema_version != "dual_frequency_indexed_array_view_v1":
+            raise RecordError("unsupported IndexedArrayView schema_version")
+        if not isinstance(self.parent, ArtifactRef):
+            raise RecordError("IndexedArrayView parent must be an ArtifactRef")
+        if self.parent.shape is None or len(self.parent.shape) != 2:
+            raise RecordError("IndexedArrayView parent must be a two-dimensional array")
+        axes = tuple(self.axis_refs)
+        if len(axes) != 2 or not all(isinstance(axis, AxisRef) for axis in axes):
+            raise RecordError("IndexedArrayView axis_refs must contain two AxisRef values")
+        object.__setattr__(self, "axis_refs", axes)
+
+        selectors = (self.row_positions, self.column_positions)
+        for dimension, (selector, output_axis, parent_axis) in enumerate(
+            zip(selectors, axes, self.parent.axis_refs, strict=True)
+        ):
+            if selector is None:
+                if output_axis != parent_axis:
+                    raise RecordError(
+                        "an unindexed view axis must exactly match its parent axis"
+                    )
+                continue
+            if not isinstance(selector, ArtifactRef):
+                raise RecordError("IndexedArrayView positions must be ArtifactRef values or None")
+            if selector.shape != (output_axis.count,):
+                raise RecordError("IndexedArrayView positions shape must match its output axis")
+            try:
+                selector_dtype = np.dtype(selector.dtype)
+            except TypeError as exc:
+                raise RecordError("IndexedArrayView positions require int64 dtype") from exc
+            if selector_dtype != np.dtype("int64"):
+                raise RecordError("IndexedArrayView positions require int64 dtype")
+            if selector.axis_refs != (output_axis,):
+                raise RecordError("IndexedArrayView positions must bind the output axis")
+            if selector.units != "index" or selector.space is not None:
+                raise RecordError(
+                    "IndexedArrayView positions require index units and absent space"
+                )
+            if dimension >= len(self.parent.axis_refs):
+                raise RecordError("IndexedArrayView selector dimension is invalid")
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return (self.axis_refs[0].count, self.axis_refs[1].count)
+
+    @property
+    def dtype(self) -> str:
+        if self.parent.dtype is None:
+            raise RecordError("IndexedArrayView parent requires an array dtype")
+        return self.parent.dtype
+
+    @property
+    def axis_hashes(self) -> tuple[str, str]:
+        return (self.axis_refs[0].sha256, self.axis_refs[1].sha256)
+
+    @property
+    def units(self) -> str | None:
+        return self.parent.units
+
+    @property
+    def space(self) -> str | None:
+        return self.parent.space
+
+    @property
+    def identifier(self) -> str:
+        return f"indexed_array_view_{canonical_hash(asdict(self), length=20)}"
+
+
 def resampling_block_axis(
     replicate_axis: AxisRef,
     start: int,

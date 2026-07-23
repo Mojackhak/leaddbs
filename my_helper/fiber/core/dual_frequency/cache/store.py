@@ -16,7 +16,7 @@ from urllib.parse import unquote, urlsplit
 
 import numpy as np
 
-from ..contracts.records import ArtifactRef, AxisRef
+from ..contracts.records import ArtifactRef, AxisRef, IndexedArrayView
 from .identity import CacheIdentityError, ScientificCacheKey, sha256_file, sha256_stream
 
 
@@ -1018,6 +1018,124 @@ class ArtifactStore:
             raise ArtifactValidationError("materialized array metadata differs from ArtifactRef")
         array.flags.writeable = False
         return array
+
+    def _materialize_view_positions(
+        self,
+        selector: ArtifactRef | None,
+        *,
+        output_axis: AxisRef,
+        parent_count: int,
+        role: str,
+    ) -> np.ndarray | None:
+        if selector is None:
+            return None
+        positions = self.materialize(
+            selector,
+            expected_dtype="int64",
+            expected_shape=(output_axis.count,),
+            expected_axes=(output_axis,),
+            expected_units="index",
+            expected_space=None,
+        )
+        values = np.asarray(positions, dtype=np.int64)
+        if values.size < 1:
+            raise ArtifactValidationError(f"{role} positions cannot be empty")
+        if int(values.min()) < 0 or int(values.max()) >= parent_count:
+            raise ArtifactValidationError(f"{role} positions exceed the parent axis")
+        if np.unique(values).size != values.size:
+            raise ArtifactValidationError(f"{role} positions contain duplicate values")
+        values.flags.writeable = False
+        return values
+
+    def iter_indexed_array_view_blocks(
+        self,
+        view: IndexedArrayView,
+        *,
+        block_columns: int,
+    ):
+        """Yield verified logical column blocks without a full view allocation."""
+
+        if not isinstance(view, IndexedArrayView):
+            raise TypeError("view must be an IndexedArrayView")
+        if type(block_columns) is not int or block_columns < 1:
+            raise ArtifactValidationError("block_columns must be a positive integer")
+
+        row_positions = self._materialize_view_positions(
+            view.row_positions,
+            output_axis=view.axis_refs[0],
+            parent_count=view.parent.shape[0],
+            role="row",
+        )
+        column_positions = self._materialize_view_positions(
+            view.column_positions,
+            output_axis=view.axis_refs[1],
+            parent_count=view.parent.shape[1],
+            role="column",
+        )
+        parent = self.materialize(
+            view.parent,
+            expected_dtype=view.dtype,
+            expected_shape=view.parent.shape,
+            expected_axes=view.parent.axis_refs,
+            expected_units=view.units,
+            expected_space=view.space,
+            mmap_mode="r",
+        )
+        try:
+            for start in range(0, view.shape[1], block_columns):
+                stop = min(start + block_columns, view.shape[1])
+                if column_positions is None:
+                    columns: slice | np.ndarray = slice(start, stop)
+                else:
+                    columns = column_positions[start:stop]
+                if row_positions is None:
+                    selected = parent[:, columns]
+                elif isinstance(columns, slice):
+                    selected = parent[row_positions, columns]
+                else:
+                    selected = parent[np.ix_(row_positions, columns)]
+                block = np.array(selected, dtype=np.dtype(view.dtype), copy=True)
+                expected_shape = (view.shape[0], stop - start)
+                if block.shape != expected_shape:
+                    raise ArtifactValidationError(
+                        "IndexedArrayView block shape differs from its logical axes"
+                    )
+                block.flags.writeable = False
+                yield start, stop, block
+        finally:
+            mmap = getattr(parent, "_mmap", None)
+            close = getattr(mmap, "close", None)
+            if callable(close):
+                close()
+
+    def materialize_indexed_array_view(
+        self,
+        view: IndexedArrayView,
+        *,
+        max_bytes: int,
+        block_columns: int = 256,
+    ) -> np.ndarray:
+        """Explicitly materialize one verified view within a caller byte budget."""
+
+        if not isinstance(view, IndexedArrayView):
+            raise TypeError("view must be an IndexedArrayView")
+        if type(max_bytes) is not int or max_bytes < 1:
+            raise ArtifactValidationError("max_bytes must be a positive integer")
+        logical_bytes = int(np.prod(view.shape, dtype=np.int64)) * np.dtype(
+            view.dtype
+        ).itemsize
+        if logical_bytes > max_bytes:
+            raise ArtifactValidationError(
+                "IndexedArrayView logical bytes exceed the explicit materialization budget"
+            )
+        output = np.empty(view.shape, dtype=np.dtype(view.dtype))
+        for start, stop, block in self.iter_indexed_array_view_blocks(
+            view,
+            block_columns=block_columns,
+        ):
+            output[:, start:stop] = block
+        output.flags.writeable = False
+        return output
 
     def materialize_document(
         self,

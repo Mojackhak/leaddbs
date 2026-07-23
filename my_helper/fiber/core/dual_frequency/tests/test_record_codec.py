@@ -23,6 +23,7 @@ from dual_frequency.contracts import (
     FinalSelectionRecord,
     FormalOperatorScratchRecord,
     FormalResult,
+    IndexedArrayView,
     ObservedResult,
     PreparedExposureRecord,
     PPAMObservedWorkspaceRecord,
@@ -137,6 +138,7 @@ class RecordCodecTest(unittest.TestCase):
         digest: str,
         units: str = "score",
         dtype: str = "float64",
+        space: str | None = "synthetic",
     ) -> ArtifactRef:
         return ArtifactRef(
             kind=kind,
@@ -148,7 +150,7 @@ class RecordCodecTest(unittest.TestCase):
             axis_refs=axes,
             axis_hashes=tuple(axis.sha256 for axis in axes),
             units=units,
-            space="synthetic",
+            space=space,
             producer_id="record_codec_test",
             producer_version="1",
         )
@@ -756,6 +758,45 @@ class RecordCodecTest(unittest.TestCase):
             dataclasses.replace(record, exclusions=())
         with self.assertRaisesRegex(RecordError, "minimum_subjects"):
             dataclasses.replace(record, minimum_subjects=3)
+
+    def test_indexed_array_view_round_trip_and_artifact_closure(self) -> None:
+        selected_features = AxisRef("selected_features", 2, "c" * 64)
+        column_positions = self._artifact(
+            "indexed_array_positions",
+            (selected_features,),
+            digest="9",
+            units="index",
+            dtype="int64",
+            space=None,
+        )
+        view = IndexedArrayView(
+            parent=self.exposure,
+            row_positions=None,
+            column_positions=column_positions,
+            axis_refs=(self.subjects, selected_features),
+        )
+
+        self.assertEqual(self._round_trip(view), view)
+        self.assertEqual(record_artifacts(view), (self.exposure, column_positions))
+        self.assertEqual(view.shape, (2, 2))
+        self.assertEqual(view.dtype, self.exposure.dtype)
+        self.assertEqual(view.units, self.exposure.units)
+        self.assertEqual(view.space, self.exposure.space)
+
+        with self.assertRaisesRegex(RecordError, "unindexed view axis"):
+            dataclasses.replace(
+                view,
+                row_positions=None,
+                axis_refs=(AxisRef("reordered_subjects", 2, "d" * 64), selected_features),
+            )
+        with self.assertRaisesRegex(RecordError, "absent space"):
+            dataclasses.replace(
+                view,
+                column_positions=dataclasses.replace(
+                    column_positions,
+                    space="synthetic",
+                ),
+            )
 
     def test_prepared_exposure_binds_exact_axes_and_complete_auxiliary_inputs(self) -> None:
         reference_condition = self._artifact(

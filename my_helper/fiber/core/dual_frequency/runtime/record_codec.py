@@ -23,6 +23,7 @@ from ..contracts import (
     FinalSelectionRecord,
     FormalOperatorScratchRecord,
     FormalResult,
+    IndexedArrayView,
     ObservedResult,
     OSSAxisEquivalenceGroupRecord,
     PPAMObservedWorkspaceRecord,
@@ -47,6 +48,7 @@ _ROOT_TYPES = {
     "EndpointInputRecord": EndpointInputRecord,
     "PreparedExposureRecord": PreparedExposureRecord,
     "ArtifactRef": ArtifactRef,
+    "IndexedArrayView": IndexedArrayView,
     "BootstrapBlockRecord": BootstrapBlockRecord,
     "PPAMObservedWorkspaceRecord": PPAMObservedWorkspaceRecord,
     "PPAMPermutationBlockRecord": PPAMPermutationBlockRecord,
@@ -253,6 +255,15 @@ _ARTIFACT_FIELDS = frozenset(
         "space",
         "producer_id",
         "producer_version",
+    }
+)
+_INDEXED_ARRAY_VIEW_FIELDS = frozenset(
+    {
+        "parent",
+        "row_positions",
+        "column_positions",
+        "axis_refs",
+        "schema_version",
     }
 )
 _SUBJECT_EXCLUSION_FIELDS = frozenset({"subject_id", "reason_code"})
@@ -602,6 +613,38 @@ def _decode_artifact(value: object, location: str) -> ArtifactRef:
         producer_version=_text(
             payload["producer_version"],
             f"{location}.producer_version",
+        ),
+    )
+
+
+def _decode_indexed_array_view(
+    value: object,
+    location: str,
+) -> IndexedArrayView:
+    payload = _object(value, location, _INDEXED_ARRAY_VIEW_FIELDS)
+    axes = _tuple_of(
+        payload["axis_refs"],
+        f"{location}.axis_refs",
+        _decode_axis,
+    )
+    if len(axes) != 2:
+        raise RecordCodecError(f"{location}.axis_refs must contain two axes")
+    return IndexedArrayView(
+        parent=_decode_artifact(payload["parent"], f"{location}.parent"),
+        row_positions=_optional(
+            payload["row_positions"],
+            f"{location}.row_positions",
+            _decode_artifact,
+        ),
+        column_positions=_optional(
+            payload["column_positions"],
+            f"{location}.column_positions",
+            _decode_artifact,
+        ),
+        axis_refs=(axes[0], axes[1]),
+        schema_version=_text(
+            payload["schema_version"],
+            f"{location}.schema_version",
         ),
     )
 
@@ -1507,6 +1550,7 @@ _ROOT_DECODERS: dict[str, Callable[[object, str], object]] = {
     "EndpointInputRecord": _decode_endpoint_input,
     "PreparedExposureRecord": _decode_prepared_exposure,
     "ArtifactRef": _decode_artifact,
+    "IndexedArrayView": _decode_indexed_array_view,
     "ObservedResult": _decode_observed_result,
     "SourceRecord": _decode_source,
     "ReferenceDependencyRecord": _decode_reference_dependency,

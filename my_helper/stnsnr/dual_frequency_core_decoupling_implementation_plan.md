@@ -3581,6 +3581,40 @@ feature subset memmap allocation on the cache-enabled path, bounded block
 reads, one final payload write on a miss, and zero payload reads or writes on a
 hit.
 
+The persisted second-phase contract is
+`IndexedArrayView(schema_version, parent, row_positions, column_positions,
+axis_refs)`. `schema_version` is fixed to
+`dual_frequency_indexed_array_view_v1`. `parent` is one immutable two-dimensional
+array `ArtifactRef`. `axis_refs` contains the exact ordered logical row and
+column axes. Each optional positions artifact is an immutable one-dimensional
+`int64` array on the corresponding logical output axis, uses `index` units, and
+contains parent-axis positions. A missing positions artifact is permitted only
+when that logical axis is identical to the corresponding parent axis. The view
+inherits dtype, units, and space from its parent; it cannot override them.
+
+Construction and JSON decoding enforce the closed structural contract. Verified
+materialization additionally preserves selector order and requires every
+positions array to contain no duplicate, have minimum position > -1, and have
+maximum position < the corresponding parent-axis count. Selectors may reorder
+parent rows or columns because the declared logical axis, not parent storage
+order, is authoritative. This split keeps the immutable record path-independent
+while still rejecting corrupt or dishonest index payloads before scientific
+use. The codec treats the view as both an allowlisted root record and an
+allowlisted nested value. Its transitive artifact closure is the parent followed
+by row and column positions in field order, with normal content-identity
+de-duplication.
+
+The artifact store exposes a bounded logical-column iterator for this record.
+It verifies and opens the parent read-only, verifies selectors once, then
+gathers no more than the requested feature-block width per yield. It never
+implements implicit `np.asarray(view)`. An explicit full materializer requires
+a positive caller-provided byte budget and fails before allocation when logical
+array bytes > that budget. Downstream request and prepared-record fields migrate
+to an explicit `ArtifactRef | IndexedArrayView` scientific-array union only
+after their kernels use this bounded interface or declare and meter an external
+contiguous-array boundary. Document artifacts and one-dimensional identity axes
+remain plain `ArtifactRef` values.
+
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
 ordered subject and feature selections, exposes bounded column reads, and
