@@ -4265,7 +4265,10 @@ then releases its ledger grants. Cache producer locks retain the worker PID;
 the next lease atomically quarantines a lock whose owner is no longer alive.
 Unique cache staging names prevent a replacement writer from reusing an
 orphaned temporary path. Before releasing that dead-owner lock, the recovering
-contender atomically moves every exact-identity
+contender must first acquire a nonblocking exclusive kernel recovery claim on
+the opened stale-lock inode. Every contender revalidates that the claimed inode
+is still the current producer-lock path and that its recorded PID remains dead.
+Only the claim owner may atomically move every exact-identity
 `.<semantic_sha256>.tmp-*` sibling into a uniquely created
 `.<semantic_sha256>.orphan-*` quarantine directory. The atomic move targets
 that directory's previously absent `payload` child, so it never deletes or
@@ -4273,7 +4276,10 @@ overwrites an older orphan. Recovery never scans another cache identity and
 never moves staging while the recorded owner remains alive. The still-present
 stale lock excludes a new lease-based writer during this quarantine window;
 only after the staging moves complete may one contender rename the stale lock
-and compete for a fresh lease.
+and compete for a fresh lease. A second contender that cannot acquire the
+claim waits without scanning staging. Process exit releases the kernel claim
+automatically, preserving crash recovery without a second persistent recovery
+file or two recovery owners.
 
 Every in-flight task is classified independently. A task is requeued only when
 it declares `transient_safe` and its consumed retry count remains below
@@ -4314,17 +4320,20 @@ under Conda `leaddbs`. Current production tasks retain the default disabled
 generic timeout and retry policies, while their existing external subprocess
 timeouts remain the only production timeout boundary.
 
-Stale cache-owner recovery now closes the corresponding publication boundary.
-When a producer lock names a dead PID, recovery moves only that semantic
-identity's `.<digest>.tmp-*` siblings into separately created
-`.<digest>.orphan-*` quarantine directories before moving the stale lock. Each
-payload lands at an initially absent `payload` child, preserving interrupted
-bytes without overwrite. A live owner leaves its staging untouched, and an
-unrelated cache identity is never selected. The focused cache suite passed 40
-tests and the complete dual-frequency regression passed 565 tests under Conda
-`leaddbs`. These fixtures cover dead-owner staging preservation, live-owner
-noninterference, identity isolation, stale-lock quarantine, and successful new
-lease acquisition.
+Stale cache-owner recovery uses the kernel recovery claim above. The claim
+keeps multiple waiters from acting on one dead lock concurrently, and inode
+revalidation prevents a waiter holding the old renamed inode from touching a
+replacement producer's staging. The original producer lock remains present
+until exact-identity orphan staging has been quarantined. Each payload lands at
+an initially absent `payload` child, preserving interrupted bytes without
+overwrite. A live producer or recovery owner leaves staging untouched, and an
+unrelated cache identity is never selected. Acceptance must cover dead-owner
+staging preservation, two-contender serialization, old-inode rejection,
+live-owner noninterference, identity isolation, stale-lock quarantine, and
+successful new lease acquisition. The focused cache suite passes 42 tests and
+the complete dual-frequency regression passes 567 tests under Conda
+`leaddbs`, including a forced two-contender overlap and a lock-path replacement
+between inode claim and revalidation.
 
 - [x] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
 

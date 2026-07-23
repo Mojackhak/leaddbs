@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 from contextlib import contextmanager
@@ -713,15 +714,41 @@ class ContentAddressedCache:
     def _quarantine_stale_lock(cls, lock: Path) -> bool:
         if cls._producer_is_alive(lock) is not False:
             return False
-        cls._quarantine_orphan_staging(lock)
         try:
-            quarantine = lock.with_name(
-                f"{lock.name}.stale-{time.time_ns()}"
-            )
-            os.replace(lock, quarantine)
+            descriptor = os.open(lock, os.O_RDONLY)
         except FileNotFoundError:
-            pass
-        return True
+            return True
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return False
+            try:
+                claimed = os.fstat(descriptor)
+                try:
+                    current = lock.stat()
+                except FileNotFoundError:
+                    return True
+                if (claimed.st_dev, claimed.st_ino) != (
+                    current.st_dev,
+                    current.st_ino,
+                ):
+                    return False
+                if cls._producer_is_alive(lock) is not False:
+                    return False
+                cls._quarantine_orphan_staging(lock)
+                quarantine = lock.with_name(
+                    f"{lock.name}.stale-{time.time_ns()}"
+                )
+                try:
+                    os.replace(lock, quarantine)
+                except FileNotFoundError:
+                    pass
+                return True
+            finally:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
 
     @staticmethod
     def _quarantine_orphan_staging(lock: Path) -> None:

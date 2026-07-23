@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -506,6 +508,82 @@ class ContentAddressedCacheTest(unittest.TestCase):
                 self.assertFalse(owner)
             future.result()
         self.assertTrue(active_staging.is_dir())
+        self.assertFalse(
+            tuple(destination.parent.glob(f".{key.digest}.orphan-*"))
+        )
+
+    def test_stale_recovery_serializes_two_contenders(self) -> None:
+        root = self.root / "contended-stale-cache"
+        cache = ContentAddressedCache(root)
+        source = self._source("contended-artifact.bin", b"content")
+        key = _key(kind="fiber_exposures")
+        destination = cache.entry_path(key)
+        destination.parent.mkdir(parents=True)
+        lock = destination.parent / f".{key.digest}.produce.lock"
+        lock.write_text("pid=999999999\n", encoding="ascii")
+        orphan = destination.parent / f".{key.digest}.tmp-interrupted"
+        orphan.mkdir()
+        entered = threading.Event()
+        release = threading.Event()
+        recovery_calls: list[Path] = []
+        original = ContentAddressedCache._quarantine_orphan_staging
+
+        def delayed_recovery(path: Path) -> None:
+            recovery_calls.append(path)
+            entered.set()
+            self.assertTrue(release.wait(timeout=2.0))
+            original(path)
+
+        def publish() -> bool:
+            contender = ContentAddressedCache(root)
+            with contender.producer_lease(key, timeout_seconds=2.0) as owner:
+                if owner:
+                    contender.publish(key, {"artifact.bin": source})
+                return owner
+
+        with mock.patch.object(
+            ContentAddressedCache,
+            "_quarantine_orphan_staging",
+            side_effect=delayed_recovery,
+        ):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(publish)
+                self.assertTrue(entered.wait(timeout=2.0))
+                second = pool.submit(publish)
+                time.sleep(0.05)
+                release.set()
+                owners = (first.result(), second.result())
+        self.assertEqual(sum(owners), 1)
+        self.assertEqual(recovery_calls, [lock])
+        self.assertIsNotNone(ContentAddressedCache(root).resolve(key))
+
+    def test_stale_recovery_rejects_replaced_lock_inode(self) -> None:
+        cache = ContentAddressedCache(self.root / "replaced-lock-cache")
+        key = _key(kind="fiber_exposures")
+        destination = cache.entry_path(key)
+        destination.parent.mkdir(parents=True)
+        lock = destination.parent / f".{key.digest}.produce.lock"
+        lock.write_text("pid=999999999\n", encoding="ascii")
+        orphan = destination.parent / f".{key.digest}.tmp-active"
+        orphan.mkdir()
+        replaced = lock.with_name(f"{lock.name}.replaced")
+        changed = False
+
+        def replace_before_validation(descriptor: int, operation: int) -> None:
+            nonlocal changed
+            if operation == fcntl.LOCK_EX | fcntl.LOCK_NB and not changed:
+                changed = True
+                os.replace(lock, replaced)
+                lock.write_text(f"pid={os.getpid()}\n", encoding="ascii")
+
+        with mock.patch.object(
+            cache_store.fcntl,
+            "flock",
+            side_effect=replace_before_validation,
+        ):
+            self.assertFalse(cache._quarantine_stale_lock(lock))
+        self.assertTrue(lock.is_file())
+        self.assertTrue(orphan.is_dir())
         self.assertFalse(
             tuple(destination.parent.glob(f".{key.digest}.orphan-*"))
         )
