@@ -216,6 +216,10 @@ def _prepared_authority(parent: Path) -> dict[tuple[str, str], list[dict[str, An
             "PreparedExposureRecord"
         ):
             continue
+        if task.get("status") != "completed":
+            raise ParityFixtureError(
+                f"prepared authority task is not terminal-completed: {path}"
+            )
         payload = _mapping(result.get("payload"), f"task payload {path.name}")
         endpoint = _mapping(payload.get("endpoint"), f"task endpoint {path.name}")
         family = endpoint.get("model_family")
@@ -309,6 +313,24 @@ def _validate_prepared_entries(
     return results
 
 
+def _validate_parent_manifest(parent: Path, authority_run_id: str) -> str:
+    manifest_path = parent / "run_manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ParityFixtureError(
+            f"cannot read authority run manifest: {manifest_path}"
+        ) from exc
+    if not isinstance(manifest, dict):
+        raise ParityFixtureError("authority run manifest must be an object")
+    if (
+        manifest.get("run_id") != authority_run_id
+        or manifest.get("final_status") != "completed"
+    ):
+        raise ParityFixtureError("authority run manifest is not terminal-completed")
+    return sha256_file(manifest_path)
+
+
 def _write_report(path: Path, report: dict[str, Any]) -> None:
     serialized = json.dumps(
         report,
@@ -338,11 +360,13 @@ def validate(fixture_path: Path, parent: Path) -> dict[str, Any]:
     authority_run_id = _token(fixture["authority_run_id"], "authority_run_id")
     if parent.name != authority_run_id:
         raise ParityFixtureError("authority parent basename differs from fixture run ID")
+    parent_manifest_sha256 = _validate_parent_manifest(parent, authority_run_id)
     physical, signatures = _validate_physical_entries(fixture)
     prepared = _validate_prepared_entries(fixture, parent)
     return {
         "schema_version": "dual_frequency_task17_parity_authority_report_v1",
         "authority_run_id": authority_run_id,
+        "authority_run_manifest_sha256": parent_manifest_sha256,
         "fixture_sha256": sha256_file(fixture_path),
         "physical_fiber_exposures": physical,
         "prepared_omega_max_exposures": prepared,

@@ -3321,22 +3321,27 @@ The complete nine physical fiber matrices and six prepared Omega-max artifacts
 are frozen in
 `config/four_model_v1/acceptance/task17_connectome_parity_fixture.json`.
 A repository-owned verifier must validate every cache manifest and payload,
-resolve each prepared task artifact from the authority parent, reject duplicate
-or missing model/connectome/role rows, and emit one immutable acceptance report.
+require a completed authority run manifest, resolve only terminal-completed
+prepared task artifacts from that parent, reject duplicate or missing
+model/connectome/role rows, and emit one immutable acceptance report.
 The authority-only report is published at
 `/Volumes/VAL/STNSNr/summary/spot/acceptance/`
-`task17-connectome-parity-authority-v1.json`; it contains no replay claim.
+`task17-connectome-parity-authority-v2.json`; it contains no replay claim. The
+earlier v1 report is retained as superseded evidence because it validated
+payloads but did not itself validate the parent manifest or task terminal
+states.
 The verifier may inspect the retained authority before OSS completes, but the
 new implementation replay and byte comparison remain ordered after the active
 solver lineage to avoid competing for connectome and VAL bandwidth.
 
-The authority verifier was executed twice on 2026-07-22. Both runs validated
-all nine complete physical payloads, the three distinct frequency-role cache
-signatures, all six prepared Omega-max identities, and every one of the 168
-scale-local prepared task payload copies. The second invocation produced the
-same report bytes and left its modification and change timestamps unchanged.
-The synthetic verifier suite passes two tests covering complete closure,
-immutable report replay, and duplicate-role rejection. This freezes the
+The corrected v2 authority verifier was executed twice on 2026-07-22. Both runs
+validated the completed parent manifest, all nine complete physical payloads,
+the three distinct frequency-role cache signatures, all six prepared Omega-max
+identities, and every one of the 168 terminal-completed scale-local prepared
+task payload copies. The second invocation produced the same report bytes and
+left its modification and change timestamps unchanged. The synthetic verifier
+suite passes three tests covering complete closure, immutable report replay,
+duplicate-role rejection, and incomplete-parent rejection. This freezes the
 pre-refactor authority only; it does not yet accept the post-refactor replay.
 
 - [ ] **Step 2: Establish directly copyable SHA cache and single-write publication**
@@ -3522,7 +3527,7 @@ physical subject while the pure evaluator occurs once per subject and range.
 A real HDF5 adapter fixture produces byte-identical exposure through complete
 shared geometry, uncached point-balanced input, and forced over-budget
 streaming. The same fixture proves direct-copy cache reuse without a producer
-and payload-corruption rejection. The complete dual-frequency suite passes 553
+and payload-corruption rejection. The complete dual-frequency suite passes 554
 tests plus 310 subtests, and the complete seed-target connectivity suite passes
 80 tests plus 29 subtests with one environment-dependent skip. Configured
 connectome parity against retained formal artifacts remains pending. These

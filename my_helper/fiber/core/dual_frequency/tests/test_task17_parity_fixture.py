@@ -47,6 +47,15 @@ class Task17ParityFixtureTest(unittest.TestCase):
         self.cache_root = self.root / "cache"
         self.parent = self.root / "authority-run"
         (self.parent / "tasks").mkdir(parents=True)
+        (self.parent / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "run_id": self.parent.name,
+                    "final_status": "completed",
+                }
+            ),
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -138,6 +147,7 @@ class Task17ParityFixtureTest(unittest.TestCase):
                     "uri": ids_path.resolve().as_uri(),
                 }
                 task = {
+                    "status": "completed",
                     "result": {
                         "output_record_type": "PreparedExposureRecord",
                         "payload": {
@@ -199,6 +209,20 @@ class Task17ParityFixtureTest(unittest.TestCase):
             payload["physical_fiber_exposures"][0]
         )
         fixture.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaises(VALIDATOR.ParityFixtureError):
+            VALIDATOR.validate(fixture, self.parent)
+
+    def test_incomplete_parent_manifest_is_rejected(self) -> None:
+        fixture = self._fixture()
+        (self.parent / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "run_id": self.parent.name,
+                    "final_status": "running",
+                }
+            ),
+            encoding="utf-8",
+        )
         with self.assertRaises(VALIDATOR.ParityFixtureError):
             VALIDATOR.validate(fixture, self.parent)
 
