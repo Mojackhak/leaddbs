@@ -423,14 +423,12 @@ def _write_report(path: Path, report: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def validate(fixture_path: Path, parent: Path) -> dict[str, Any]:
-    fixture_path = fixture_path.expanduser().resolve()
-    parent = parent.expanduser().resolve()
-    fixture = _load_fixture(fixture_path)
-    authority_run_id = _token(fixture["authority_run_id"], "authority_run_id")
-    if parent.name != authority_run_id:
-        raise ParityFixtureError("authority parent basename differs from fixture run ID")
-    parent_manifest_sha256 = _validate_parent_manifest(parent, authority_run_id)
+def _validate_payload_matrix(
+    fixture: dict[str, Any],
+    parent: Path,
+    run_id: str,
+) -> dict[str, Any]:
+    parent_manifest_sha256 = _validate_parent_manifest(parent, run_id)
     physical, signatures = _validate_physical_entries(fixture)
     voxels, voxel_signatures = _validate_voxel_entries(fixture)
     if signatures != voxel_signatures:
@@ -456,10 +454,8 @@ def validate(fixture_path: Path, parent: Path) -> dict[str, Any]:
         hash_all_payloads=False,
     )
     return {
-        "schema_version": "dual_frequency_task17_physical_parity_authority_report_v2",
-        "authority_run_id": authority_run_id,
-        "authority_run_manifest_sha256": parent_manifest_sha256,
-        "fixture_sha256": sha256_file(fixture_path),
+        "run_id": run_id,
+        "run_manifest_sha256": parent_manifest_sha256,
         "physical_fiber_exposures": physical,
         "physical_voxel_exposures": voxels,
         "prepared_omega_max_exposures": prepared,
@@ -475,12 +471,60 @@ def validate(fixture_path: Path, parent: Path) -> dict[str, Any]:
     }
 
 
+def validate(fixture_path: Path, parent: Path) -> dict[str, Any]:
+    fixture_path = fixture_path.expanduser().resolve()
+    parent = parent.expanduser().resolve()
+    fixture = _load_fixture(fixture_path)
+    authority_run_id = _token(fixture["authority_run_id"], "authority_run_id")
+    if parent.name != authority_run_id:
+        raise ParityFixtureError("authority parent basename differs from fixture run ID")
+    payload = _validate_payload_matrix(fixture, parent, authority_run_id)
+    payload.update(
+        {
+            "schema_version": (
+                "dual_frequency_task17_physical_parity_authority_report_v2"
+            ),
+            "authority_run_id": payload.pop("run_id"),
+            "authority_run_manifest_sha256": payload.pop("run_manifest_sha256"),
+            "fixture_sha256": sha256_file(fixture_path),
+        }
+    )
+    return payload
+
+
+def validate_replay(
+    fixture_path: Path,
+    replay_cache_root: Path,
+    replay_run: Path,
+) -> dict[str, Any]:
+    fixture_path = fixture_path.expanduser().resolve()
+    replay_run = replay_run.expanduser().resolve()
+    fixture = _load_fixture(fixture_path)
+    replay_fixture = dict(fixture)
+    replay_fixture["authority_cache_root"] = str(
+        replay_cache_root.expanduser().resolve()
+    )
+    payload = _validate_payload_matrix(replay_fixture, replay_run, replay_run.name)
+    payload.update(
+        {
+            "schema_version": "dual_frequency_task17_physical_parity_replay_report_v1",
+            "replay_run_id": payload.pop("run_id"),
+            "replay_run_manifest_sha256": payload.pop("run_manifest_sha256"),
+            "authority_run_id": fixture["authority_run_id"],
+            "fixture_sha256": sha256_file(fixture_path),
+        }
+    )
+    return payload
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Validate retained Task 17 connectome parity authority artifacts."
     )
     parser.add_argument("--fixture", required=True, type=Path)
     parser.add_argument("--parent-run", required=True, type=Path)
+    parser.add_argument("--replay-cache-root", type=Path)
+    parser.add_argument("--replay-run", type=Path)
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -488,7 +532,19 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
-        report = validate(arguments.fixture, arguments.parent_run)
+        if (arguments.replay_cache_root is None) != (arguments.replay_run is None):
+            raise ParityFixtureError(
+                "replay cache root and replay run must be provided together"
+            )
+        report = (
+            validate(arguments.fixture, arguments.parent_run)
+            if arguments.replay_run is None
+            else validate_replay(
+                arguments.fixture,
+                arguments.replay_cache_root,
+                arguments.replay_run,
+            )
+        )
         if arguments.output is not None:
             _write_report(arguments.output, report)
         print(json.dumps(report, indent=2, sort_keys=True, ensure_ascii=True))

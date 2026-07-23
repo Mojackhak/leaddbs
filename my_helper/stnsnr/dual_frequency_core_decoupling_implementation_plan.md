@@ -3362,6 +3362,14 @@ and scientific configuration hash
 Neither the dedicated cache root nor the acceptance run root was created. This
 accepts the replay request only; execution remains intentionally deferred.
 
+After execution, invoke the same verifier with explicit replay cache and replay
+run roots. Replay mode must require a completed new run, resolve the exact
+fixture semantic IDs from the dedicated cache, validate full payload bytes,
+validate the one-scale prepared-task closure, and require the same three
+frequency-role signatures in voxel and fiber. Its report binds both the frozen
+fixture SHA and the replay run manifest SHA. Authority and replay reports remain
+separate; replay mode never rewrites either run or cache.
+
 The corrected fiber-only v2 authority verifier was executed twice on
 2026-07-22. Both runs
 validated the completed parent manifest, all nine complete physical payloads,
@@ -3369,8 +3377,10 @@ the three distinct frequency-role cache signatures, all six prepared Omega-max
 identities, and every one of the 168 terminal-completed scale-local prepared
 task payload copies. The second invocation produced the same report bytes and
 left its modification and change timestamps unchanged. The synthetic verifier
-suite passes three tests covering complete closure, immutable report replay,
-duplicate-role rejection, and incomplete-parent rejection. This freezes the
+suite passes four tests covering complete closure, immutable report replay,
+duplicate-role rejection, incomplete-parent rejection, and explicit replay-root
+validation. Authority-mode output remained byte-identical after replay mode was
+added. This freezes the
 pre-refactor authority only; it does not yet accept the post-refactor replay.
 
 The complete v3 physical authority verifier was then executed twice. It added
@@ -3589,7 +3599,7 @@ physical subject while the pure evaluator occurs once per subject and range.
 A real HDF5 adapter fixture produces byte-identical exposure through complete
 shared geometry, uncached point-balanced input, and forced over-budget
 streaming. The same fixture proves direct-copy cache reuse without a producer
-and payload-corruption rejection. The complete dual-frequency suite passes 554
+and payload-corruption rejection. The complete dual-frequency suite passes 555
 tests plus 310 subtests, and the complete seed-target connectivity suite passes
 80 tests plus 29 subtests with one environment-dependent skip. Configured
 connectome parity against retained formal artifacts remains pending. These

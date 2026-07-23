@@ -325,6 +325,18 @@ class Task17ParityFixtureTest(unittest.TestCase):
         with self.assertRaises(VALIDATOR.ParityFixtureError):
             VALIDATOR.validate(fixture, self.parent)
 
+    def test_replay_mode_validates_explicit_cache_and_completed_run(self) -> None:
+        fixture = self._fixture()
+        report = VALIDATOR.validate_replay(
+            fixture,
+            self.cache_root,
+            self.parent,
+        )
+        self.assertEqual(report["status"], "validated")
+        self.assertEqual(report["replay_run_id"], self.parent.name)
+        self.assertEqual(len(report["physical_fiber_exposures"]), 9)
+        self.assertEqual(len(report["physical_voxel_exposures"]), 3)
+
     def test_incomplete_parent_manifest_is_rejected(self) -> None:
         fixture = self._fixture()
         (self.parent / "run_manifest.json").write_text(
