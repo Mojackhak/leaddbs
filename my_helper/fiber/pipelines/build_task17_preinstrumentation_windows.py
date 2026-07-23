@@ -9,6 +9,11 @@ from pathlib import Path
 import sys
 from collections.abc import Sequence
 
+
+PIPELINES_ROOT = Path(__file__).resolve().parent
+if str(PIPELINES_ROOT) not in sys.path:
+    sys.path.insert(0, str(PIPELINES_ROOT))
+
 from validate_task17_preinstrumentation_resources import (
     PreinstrumentationResourceError,
     _write_report,

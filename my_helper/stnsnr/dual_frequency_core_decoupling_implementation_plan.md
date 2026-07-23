@@ -6821,12 +6821,13 @@ sample. The independent validator must still reopen and verify the generated
 document rather than trusting the builder.
 
 `build_task17_preinstrumentation_windows.py` now implements this derivation and
-direct CLI. The valid fixture derives the expected maximum row and complete
-guard epoch, then passes the independent validator; moving the only maximum-row
-commit outside every epoch makes the builder fail. The pre-instrumentation
-suite now passes 14 tests, and the builder, guard, and both resource validators
-pass 30 focused tests together. The production command remains gated on
-terminal independent OSS closure.
+supports both direct-file and Python-module CLI invocation. The valid fixture
+derives the expected maximum row and complete guard epoch, then passes the
+independent validator; moving the only maximum-row commit outside every epoch
+makes the builder fail. The pre-instrumentation suite now passes 14 tests, and
+the builder, guard, and both resource validators pass 30 focused tests
+together. The production command remains gated on terminal independent OSS
+closure.
 
 The complete repository-local dual-frequency test directory was then rerun
 with the isolated `dual_frequency` and `seed_target_connectivity` package
