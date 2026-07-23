@@ -6807,6 +6807,27 @@ and checked-in guard suites pass 28 tests under Conda `leaddbs`. This closes
 the form-only row-label loophole without changing cache content, scientific
 identity, or resume.
 
+The frozen measurement-window input must also be derived reproducibly rather
+than assembled by copying IDs and timestamps by hand. A repository command
+therefore loads the completed task and two-gate closure, derives the maximum
+row set, reads the selected row and decision manifest commit times, and groups
+the original guard samples into restart epochs. It selects the latest
+deterministic maximum-row candidate whose row and decision commits both fall
+inside one epoch and emits that complete epoch as the single bounded window.
+The output uses atomic same-byte publication. If no such candidate exists, the
+builder fails and the resource verdict remains open; it may not widen a guard
+epoch, alter a cache timestamp, choose a nonmaximum row, or synthesize a
+sample. The independent validator must still reopen and verify the generated
+document rather than trusting the builder.
+
+`build_task17_preinstrumentation_windows.py` now implements this derivation and
+direct CLI. The valid fixture derives the expected maximum row and complete
+guard epoch, then passes the independent validator; moving the only maximum-row
+commit outside every epoch makes the builder fail. The pre-instrumentation
+suite now passes 14 tests, and the builder, guard, and both resource validators
+pass 30 focused tests together. The production command remains gated on
+terminal independent OSS closure.
+
 The complete repository-local dual-frequency test directory was then rerun
 with the isolated `dual_frequency` and `seed_target_connectivity` package
 links and low CPU scheduling priority. All 604 tests passed in 73.104 seconds.

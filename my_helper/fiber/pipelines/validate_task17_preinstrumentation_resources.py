@@ -665,6 +665,113 @@ def _measurement_windows(
     }
 
 
+def build_measurement_windows(
+    run_root: Path,
+    cache_root: Path,
+    guard_csv: Path,
+    *,
+    max_rss_bytes: int,
+) -> dict[str, Any]:
+    """Derive one maximum-row window from immutable terminal evidence."""
+
+    root = run_root.expanduser().resolve()
+    manifest = _read_json(root / "run_manifest.json", "run manifest")
+    if (
+        manifest.get("final_status") != "completed"
+        or manifest.get("run_id") != root.name
+    ):
+        raise PreinstrumentationResourceError(
+            "run manifest is not terminal-completed"
+        )
+    _tasks, task_documents = _task_closure(root)
+    rows, decisions = _gate_closure(
+        task_documents,
+        cache_root.expanduser().resolve(),
+    )
+    _guard, guard_rows = _guard_rows(
+        guard_csv.expanduser().resolve(),
+        max_rss_bytes=max_rss_bytes,
+    )
+    maximum_rows = set(rows["maximum_row_identities"])
+    rows_by_identity = {
+        str(item["row_identity"]): item for item in rows["rows"]
+    }
+    samples_by_epoch: dict[int, list[Mapping[str, Any]]] = {}
+    for sample in guard_rows:
+        samples_by_epoch.setdefault(int(sample["epoch_index"]), []).append(sample)
+    candidates: list[dict[str, Any]] = []
+    for decision_id, decision in sorted(decisions.items()):
+        decision_commit = _timestamp(
+            decision.get("cache_manifest_commit_utc"),
+            f"decision {decision_id} manifest commit",
+        )
+        for row_id in sorted(
+            {
+                str(decision["final_row_identity"]),
+                str(decision["omega_row_identity"]),
+            }
+        ):
+            if row_id not in maximum_rows:
+                continue
+            row_commit = _timestamp(
+                rows_by_identity[row_id].get("cache_manifest_commit_utc"),
+                f"row {row_id} manifest commit",
+            )
+            for epoch_index, samples in sorted(samples_by_epoch.items()):
+                start = samples[0]["timestamp"]
+                finish = samples[-1]["timestamp"]
+                if not (
+                    start <= row_commit <= finish
+                    and start <= decision_commit <= finish
+                ):
+                    continue
+                candidates.append(
+                    {
+                        "candidate_time": max(row_commit, decision_commit),
+                        "decision_id": decision_id,
+                        "row_identity": row_id,
+                        "start_utc": start.isoformat(),
+                        "finish_utc": finish.isoformat(),
+                        "guard_epoch_index": epoch_index,
+                        "guard_epoch_swap_baseline_bytes": int(
+                            samples[0]["swap_baseline_bytes"]
+                        ),
+                        "peak_task_tree_rss_bytes": max(
+                            int(sample["peak_tree_rss_bytes"])
+                            for sample in samples
+                        ),
+                    }
+                )
+    if not candidates:
+        raise PreinstrumentationResourceError(
+            "no maximum-row cache commits fall inside one guard epoch"
+        )
+    latest = max(item["candidate_time"] for item in candidates)
+    selected = min(
+        (
+            item
+            for item in candidates
+            if item["candidate_time"] == latest
+        ),
+        key=lambda item: (
+            str(item["decision_id"]),
+            str(item["row_identity"]),
+            int(item["guard_epoch_index"]),
+        ),
+    )
+    return {
+        "schema_version": _WINDOW_SCHEMA,
+        "run_id": manifest["run_id"],
+        "windows": [
+            {
+                key: value
+                for key, value in selected.items()
+                if key not in {"candidate_time", "guard_epoch_index"}
+            }
+        ],
+    }
+
+
 def _uncovered_intervals(
     segment: Mapping[str, Any],
     guard: Mapping[str, Any],

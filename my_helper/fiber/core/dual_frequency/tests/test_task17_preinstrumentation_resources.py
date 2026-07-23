@@ -339,6 +339,46 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
         validator._write_report(output, report)
         validator._write_report(output, report)
 
+    def test_builder_derives_latest_valid_maximum_row_epoch(self) -> None:
+        document = validator.build_measurement_windows(
+            self.root,
+            self.cache,
+            self.guard,
+            max_rss_bytes=64 * 1024**3,
+        )
+        window = document["windows"][0]
+        self.assertEqual(window["decision_id"], "1" * 64)
+        self.assertEqual(window["row_identity"], "b" * 64)
+        self.assertEqual(window["start_utc"], "2026-07-22T00:00:02+00:00")
+        self.assertEqual(window["finish_utc"], "2026-07-22T00:00:03+00:00")
+        self.assertNotIn("candidate_time", window)
+        self.assertNotIn("guard_epoch_index", window)
+        _write_json(self.windows, document)
+        self.assertEqual(self._validate()["status"], "validated")
+
+    def test_builder_rejects_when_no_maximum_row_commit_is_measured(self) -> None:
+        stale = datetime.fromisoformat(
+            "2026-07-21T00:00:00+00:00"
+        ).timestamp()
+        manifest = (
+            self.cache
+            / "shared_exposure_v2"
+            / "oss_rows"
+            / ("b" * 64)
+            / "manifest.json"
+        )
+        os.utime(manifest, (stale, stale))
+        with self.assertRaisesRegex(
+            validator.PreinstrumentationResourceError,
+            "no maximum-row cache commits",
+        ):
+            validator.build_measurement_windows(
+                self.root,
+                self.cache,
+                self.guard,
+                max_rss_bytes=64 * 1024**3,
+            )
+
     def test_nonmaximum_row_window_fails(self) -> None:
         document = json.loads(self.windows.read_text(encoding="utf-8"))
         document["windows"][0]["row_identity"] = "a" * 64
