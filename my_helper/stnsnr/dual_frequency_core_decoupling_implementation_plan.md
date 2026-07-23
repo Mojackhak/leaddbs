@@ -3449,6 +3449,14 @@ rejection. The complete dual-frequency regression passes 576 tests under
 Conda `leaddbs`. This closes verifier compatibility only; the configured cold
 replay remains ordered after independent OSS.
 
+A bounded read-only check of the completed v8 authority opened all 224
+terminal prepared-task documents and only the first eight bytes of each
+declared exposure payload. All 224 are concrete NPY files with format version
+1.0 and none is an indexed view. This confirms that the verifier's streamed
+NumPy v1 header reproduces the frozen authority serialization contract rather
+than merely matching a synthetic fixture. No complete scientific payload was
+read during this header audit.
+
 The corrected fiber-only v2 authority verifier was executed twice on
 2026-07-22. Both runs
 validated the completed parent manifest, all nine complete physical payloads,
