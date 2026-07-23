@@ -31,9 +31,10 @@
 > `formal_postprocess_orchestrator_implemented`;
 > `formal_postprocess_preflight_accepted`;
 > `canonical_jitter_extension_publication_accepted`;
+> `display_smoothing_publication_repair_pending`;
 > `configured_formal_postprocess_output_pending`;
 > `task17_sensitivity_extensions_in_progress`.
-> **Last updated.** 2026-07-22
+> **Last updated.** 2026-07-23
 
 ---
 
@@ -1713,6 +1714,22 @@ closure paths are indexed as completed, exist, and match their recorded byte
 counts. A production-code search found the smoothed filenames only in the
 publisher and visualization consumers; no observed, resolver, LOOCV,
 permutation, bootstrap, or model-selection service reads a smoothed derivative.
+
+A complete display-derivative payload audit on 2026-07-23 refined that
+structural result. All 56 selected raw benefit maps and all 112 indexed
+one-millimeter and two-millimeter FWHM derivatives exist and match their
+artifact-index byte counts and SHA-256 values. Every triplet shares one grid,
+both derivatives differ numerically from the raw map, and the two-millimeter
+derivative is smoother than the one-millimeter derivative. However, only the
+two PDQ-39 endpoint roles were republished with
+`masked_normalized_gaussian_original_roi_v2`. The other 54 endpoint roles
+retain 108 older `masked_normalized_gaussian_v1` files whose finite support
+extends beyond the selected raw finite ROI. This does not alter any raw
+scientific result, model selection, LOOCV, permutation, bootstrap, jitter, or
+OSS input. It is a canonical display-publication inconsistency. Formal
+postprocess remains gated until those 108 old display files and their metadata
+and artifact-index rows are replaced through the current publisher, followed
+by full triplet integrity and finite-support validation.
 
 A bounded real-payload audit on 2026-07-22 then verified both PDQ-39 roles in
 each physical domain. Every sampled payload SHA-256 and byte count matched its

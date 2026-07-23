@@ -76,6 +76,21 @@ read any run-store path. This accepts the current input preflight only. It does
 not replace the ordered full render, terminal output verification, or
 identical-request resume after the Task 17 sensitivity publications close.
 
+A full selected-map derivative audit on 2026-07-23 found that the canonical
+direct-voxel publication still mixes two display-smoothing generations. The
+two PDQ-39 endpoint roles use the current
+`masked_normalized_gaussian_original_roi_v2` contract and preserve the exact
+finite support of their selected raw benefit maps. The other 54 endpoint roles
+retain 108 indexed derivatives from `masked_normalized_gaussian_v1`, which
+expands finite display support into neighboring voxels. Every file remains
+structurally intact and digest-valid, and this difference is display-only, but
+the mixed generation is not accepted as the input to the formal all-cohort
+render. After the active OSS lineage releases VAL bandwidth, republish those
+54 one-millimeter and two-millimeter derivative pairs from their canonical raw
+maps with the current publisher, update their metadata and artifact-index
+rows atomically, and verify exact raw-support preservation before starting the
+formal postprocess job.
+
 ## Goal
 
 Add one reusable visualization package under
