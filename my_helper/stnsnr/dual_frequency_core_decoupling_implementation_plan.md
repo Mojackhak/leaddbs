@@ -3485,6 +3485,51 @@ cache, resume, scheduling, sensitivity, and publication contracts covered by
 the suite; it is not evidence that the separate prepared-artifact single-write
 requirement is complete.
 
+The next correction uses cache-backed prepared artifacts before introducing
+logical indexed views. Every prepared array role receives a portable scientific
+cache identity bound to the parent physical-exposure identity, exact ordered
+subject and feature axes, preparation role, reference dependency where
+applicable, canonical space, and an explicit preparation algorithm version.
+Endpoint ID, scale name, run path, worker count, and task order remain excluded.
+The first producer writes the final NPY directly into an atomic cache staging
+generation and publishes its manifest last. A prepared task returns an
+`ArtifactRef` to that validated cache payload instead of copying the payload to
+its task-local output directory. Later tasks and resume processes resolve and
+validate the same entry before reuse. Small task-specific readiness and input
+hash documents remain task-local.
+
+This cache-backed boundary must cover reference exposure, add-on-only exposure,
+raw add-on exposure, reference-condition exposure, add-on reference-component
+exposure, reference-overlap mask, and canonical feature IDs. Each key must be
+known before cache publication so a hit avoids a second NPY write. When the
+scientific cache is not configured, the existing run-scoped publisher remains
+the explicit compatibility fallback. Tests must prove cross-endpoint reuse,
+cache-root artifact materialization, changed-axis separation, corruption
+rejection, and no large task-local NPY for the cache-enabled path. This closes
+repeated final-payload publication but does not remove the temporary subject or
+feature subset copy; `IndexedArrayView` remains the subsequent step for that
+allocation boundary.
+
+Cache-backed prepared publication is now implemented for every listed array
+role. Physical matrices carry a portable scientific identity through exact
+subject and ordered feature subsetting; derived add-on identities additionally
+bind the reference-overlap state and selected reference threshold without
+binding endpoint or scale names. Cache-enabled tasks return validated
+cache-root `ArtifactRef` values and publish only the small readiness and input
+hash documents beneath the task root. The atomic generated publisher writes,
+flushes, synchronizes, hashes, and closes one final NPY before manifest-last
+commit. The cache-disabled compatibility path continues to use the run-scoped
+publisher.
+
+Focused input-provider acceptance passes 29 tests plus 5 subtests. It proves
+same-identity reuse across distinct task publishers, changed-axis identity
+separation, cache-root materialization, new-process corruption rejection, one
+physical producer, and absence of task-local NPY payloads in the cache-enabled
+path. The complete dual-frequency regression suite passes 558 tests plus 310
+subtests. Post-refactor configured-data parity replay and measured v8-sized
+write reduction remain required before this boundary is accepted as complete;
+temporary subset allocation and `IndexedArrayView` also remain open.
+
 - [ ] **Step 3: Implement distinct voxel sampling and shared physical rows**
 
 Resolve unique physical subject/program/frequency-component units before

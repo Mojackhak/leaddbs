@@ -29,7 +29,12 @@ from ..backends.activation.ossdbs import OSSRowBatchArtifact, OSSScientificSetti
 from ..backends.interaction.reference_overlap import prepare_reference_overlap
 from ..backends.normative_fiber.addon import prepare_addon_fiber_exposure
 from ..backends.protocols import ArtifactPublisher
-from ..cache import ArtifactStore, CacheFileMetadata, ContentAddressedCache
+from ..cache import (
+    ArtifactStore,
+    CacheFileMetadata,
+    CachedFile,
+    ContentAddressedCache,
+)
 from ..cache.identity import ScientificCacheKey, sha256_file
 from ..catalog import EndpointRecord
 from ..config import (
@@ -287,6 +292,7 @@ class _TemporaryMatrix:
     array: np.memmap
     path: Path
     delete_on_release: bool = True
+    scientific_identity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1645,6 +1651,12 @@ class StudyRuntimeInputProvider:
                 allow_absent=True,
                 jitter_context=jitter_context,
             )
+            physical = _TemporaryMatrix(
+                physical.array,
+                physical.path,
+                physical.delete_on_release,
+                key.digest,
+            )
             return (
                 self._select_subject_rows(
                     physical,
@@ -1663,7 +1675,10 @@ class StudyRuntimeInputProvider:
         with preparation_lock:
             entry = self._scientific_cache.resolve(key)
             if entry is not None:
-                physical = self._open_shared_exposure(entry.file_path("exposure.npy"))
+                physical = self._open_shared_exposure(
+                    entry.file_path("exposure.npy"),
+                    key.digest,
+                )
                 return (
                     self._select_subject_rows(
                         physical,
@@ -1720,7 +1735,10 @@ class StudyRuntimeInputProvider:
                         )
                     finally:
                         self._release_temporary_matrix(temporary)
-            physical = self._open_shared_exposure(entry.file_path("exposure.npy"))
+            physical = self._open_shared_exposure(
+                entry.file_path("exposure.npy"),
+                key.digest,
+            )
             return (
                 self._select_subject_rows(
                     physical,
@@ -1860,6 +1878,18 @@ class StudyRuntimeInputProvider:
                 stop = min(start + self._fiber_chunk_size, source.array.shape[1])
                 output.array[:, start:stop] = source.array[positions, start:stop]
             output.array.flush()
+            output = _TemporaryMatrix(
+                output.array,
+                output.path,
+                output.delete_on_release,
+                canonical_hash(
+                    {
+                        "parent_identity": source.scientific_identity,
+                        "ordered_subject_ids": requested_subject_ids,
+                        "operation": "ordered_subject_subset_v1",
+                    }
+                ),
+            )
             completed = True
             return output
         finally:
@@ -1868,7 +1898,10 @@ class StudyRuntimeInputProvider:
                 self._release_temporary_matrix(output)
 
     @staticmethod
-    def _open_shared_exposure(path: Path) -> _TemporaryMatrix:
+    def _open_shared_exposure(
+        path: Path,
+        scientific_identity: str,
+    ) -> _TemporaryMatrix:
         try:
             array = np.load(path, allow_pickle=False, mmap_mode="r")
         except (OSError, ValueError) as exc:
@@ -1877,7 +1910,12 @@ class StudyRuntimeInputProvider:
             ) from exc
         if not isinstance(array, np.memmap) or array.dtype != np.dtype(np.float32):
             raise RuntimeInputProviderError("shared exposure cache has an invalid array")
-        return _TemporaryMatrix(array, path, delete_on_release=False)
+        return _TemporaryMatrix(
+            array,
+            path,
+            delete_on_release=False,
+            scientific_identity=scientific_identity,
+        )
 
     @staticmethod
     def _connectome_geometry_key(
@@ -2582,6 +2620,20 @@ class StudyRuntimeInputProvider:
                 stop = min(start + self._fiber_chunk_size, indices.size)
                 output.array[:, start:stop] = source.array[:, indices[start:stop]]
             output.array.flush()
+            output = _TemporaryMatrix(
+                output.array,
+                output.path,
+                output.delete_on_release,
+                canonical_hash(
+                    {
+                        "parent_identity": source.scientific_identity,
+                        "ordered_column_positions_sha256": canonical_hash(
+                            indices.tolist()
+                        ),
+                        "operation": "ordered_feature_subset_v1",
+                    }
+                ),
+            )
             completed = True
             return output
         finally:
@@ -2606,6 +2658,161 @@ class StudyRuntimeInputProvider:
                 "shared_exposures": list(_ACTIVE_SHARED_EXPOSURES.get() or ()),
             },
             kind="prepared_input_hash_manifest",
+        )
+
+    def _prepared_artifact_key(
+        self,
+        *,
+        role: str,
+        axes: tuple[AxisRef, ...],
+        dependencies: tuple[tuple[str, str], ...],
+    ) -> ScientificCacheKey:
+        if not role or role != role.strip():
+            raise RuntimeInputProviderError("prepared artifact role must be nonempty")
+        if not axes or not all(isinstance(axis, AxisRef) for axis in axes):
+            raise RuntimeInputProviderError("prepared artifact axes must be explicit")
+        dependency_names = tuple(name for name, _digest in dependencies)
+        if len(set(dependency_names)) != len(dependency_names):
+            raise RuntimeInputProviderError(
+                "prepared artifact dependency names must be unique"
+            )
+        return ScientificCacheKey(
+            geometry_hash=canonical_hash(
+                {
+                    "ordered_axes": [
+                        {
+                            "axis_id": axis.axis_id,
+                            "count": axis.count,
+                            "sha256": axis.sha256,
+                        }
+                        for axis in axes
+                    ]
+                }
+            ),
+            stimulation_hash=canonical_hash(
+                {
+                    "dependencies": [
+                        {"name": name, "sha256": digest}
+                        for name, digest in dependencies
+                    ]
+                }
+            ),
+            component_frequency_hash=canonical_hash({"prepared_role": role}),
+            transform_hash=canonical_hash(
+                {"canonical_space": self.study.spatial.canonical_space}
+            ),
+            connectome_feature_hash=axes[-1].sha256,
+            backend_name="shared_prepared_exposure",
+            backend_version="3",
+            scientific_parameter_hashes=(
+                ("ordered_axes", canonical_hash([axis.sha256 for axis in axes])),
+                ("preparation_algorithm", canonical_hash({"version": 3})),
+                ("prepared_role", canonical_hash({"role": role})),
+                *dependencies,
+            ),
+            kind="prepared_artifacts",
+        )
+
+    def _publish_prepared_array(
+        self,
+        *,
+        publisher: ArtifactPublisher,
+        filename: str,
+        value: np.ndarray,
+        kind: str,
+        axes: tuple[AxisRef, ...],
+        units: str | None,
+        space: str | None,
+        dependencies: tuple[tuple[str, str], ...],
+    ) -> ArtifactRef:
+        array = np.asarray(value)
+        if self._scientific_cache is None:
+            return publisher.array(
+                filename,
+                array,
+                kind=kind,
+                axes=axes,
+                units=units,
+                space=space,
+            )
+        if array.shape != tuple(axis.count for axis in axes):
+            raise RuntimeInputProviderError(
+                "prepared cache array shape differs from its ordered axes"
+            )
+        key = self._prepared_artifact_key(
+            role=kind,
+            axes=axes,
+            dependencies=dependencies,
+        )
+        shared_entries = _ACTIVE_SHARED_EXPOSURES.get()
+        if shared_entries is not None:
+            identity = {"kind": key.kind, "semantic_sha256": key.digest}
+            if identity not in shared_entries:
+                shared_entries.append(identity)
+        entry = self._scientific_cache.resolve(key)
+        if entry is None:
+            with self._scientific_cache.producer_lease(key) as producer:
+                if producer:
+                    metadata = CacheFileMetadata(
+                        dtype=np.dtype(array.dtype).name,
+                        shape=tuple(int(dimension) for dimension in array.shape),
+                        axes=axes,
+                        units=units,
+                        space=space,
+                    )
+
+                    def generate(staging: Path) -> tuple[CachedFile, ...]:
+                        target = staging / "array.npy"
+                        with target.open("wb") as stream:
+                            np.save(stream, array, allow_pickle=False)
+                            stream.flush()
+                            os.fsync(stream.fileno())
+                        return (
+                            CachedFile(
+                                "array.npy",
+                                sha256_file(target),
+                                target.stat().st_size,
+                                metadata,
+                            ),
+                        )
+
+                    entry = self._scientific_cache.publish_generated(key, generate)
+                else:
+                    entry = self._scientific_cache.resolve(key)
+                    if entry is None:
+                        raise RuntimeInputProviderError(
+                            "prepared artifact lease ended without a cache entry"
+                        )
+        files = tuple(item for item in entry.files if item.relative_path == "array.npy")
+        if len(files) != 1:
+            raise RuntimeInputProviderError(
+                "prepared artifact cache must contain one array payload"
+            )
+        cached = files[0]
+        expected_metadata = CacheFileMetadata(
+            dtype=np.dtype(array.dtype).name,
+            shape=tuple(int(dimension) for dimension in array.shape),
+            axes=axes,
+            units=units,
+            space=space,
+        )
+        if cached.metadata != expected_metadata:
+            raise RuntimeInputProviderError(
+                "prepared artifact cache metadata differs from the requested array"
+            )
+        return ArtifactRef(
+            kind=kind,
+            schema_version="dual_frequency_array_v1",
+            uri=entry.file_path("array.npy").as_uri(),
+            sha256=cached.sha256,
+            dtype=cached.metadata.dtype,
+            shape=cached.metadata.shape,
+            axis_refs=cached.metadata.axes,
+            axis_hashes=tuple(axis.sha256 for axis in cached.metadata.axes),
+            units=cached.metadata.units,
+            space=cached.metadata.space,
+            producer_id="shared_prepared_exposure",
+            producer_version="3",
         )
 
     @staticmethod
@@ -3252,9 +3459,10 @@ class StudyRuntimeInputProvider:
                     f"{endpoint.endpoint_id}-primary-omega-max",
                 )
                 temporaries.append(raw_primary)
-        feature_ids = publisher.array(
-            "feature_ids.npy",
-            np.asarray(feature_space.ids, dtype=np.int64),
+        feature_ids = self._publish_prepared_array(
+            publisher=publisher,
+            filename="feature_ids.npy",
+            value=np.asarray(feature_space.ids, dtype=np.int64),
             kind=(
                 "canonical_brainmask_voxel_ids"
                 if endpoint.key.model_family.endswith("voxel")
@@ -3267,17 +3475,25 @@ class StudyRuntimeInputProvider:
             axes=(feature_space.axis,),
             units=None,
             space=self.study.spatial.canonical_space,
+            dependencies=(("feature_axis", feature_space.axis.sha256),),
         )
         axes = (endpoint_input.subject_axis, feature_space.axis)
+        primary_identity = raw_primary.scientific_identity
+        if primary_identity is None:
+            raise RuntimeInputProviderError(
+                "prepared primary matrix lacks a scientific identity"
+            )
         try:
             if is_reference:
-                exposure = publisher.array(
-                    "exposure.npy",
-                    raw_primary.array,
+                exposure = self._publish_prepared_array(
+                    publisher=publisher,
+                    filename="exposure.npy",
+                    value=raw_primary.array,
                     kind="prepared_reference_exposure",
                     axes=axes,
                     units="V/m",
                     space=self.study.spatial.canonical_space,
+                    dependencies=(("primary_matrix", primary_identity),),
                 )
                 self._publish_input_hash_manifest(publisher, endpoint, input_hashes)
                 return PreparedExposureRecord(
@@ -3331,6 +3547,41 @@ class StudyRuntimeInputProvider:
                     f"{endpoint.endpoint_id}-addon-reference-omega-max",
                 )
                 temporaries.append(addon_reference_component)
+            reference_condition_identity = reference_condition.scientific_identity
+            addon_reference_identity = addon_reference_component.scientific_identity
+            if (
+                reference_condition_identity is None
+                or addon_reference_identity is None
+            ):
+                raise RuntimeInputProviderError(
+                    "prepared auxiliary matrix lacks a scientific identity"
+                )
+            reference_record_identity = canonical_hash(
+                {
+                    "record_type": type(reference_record).__name__,
+                    "source_status": (
+                        reference_record.source_status
+                        if isinstance(reference_record, SourceRecord)
+                        else None
+                    ),
+                    "input_status": (
+                        reference_record.input_status
+                        if isinstance(reference_record, SourceRecord)
+                        else None
+                    ),
+                    "cell_computability_status": (
+                        reference_record.cell_computability_status
+                        if isinstance(reference_record, SensitiveRecord)
+                        else None
+                    ),
+                    "selected_tau": (
+                        reference_record.selected_tau
+                        if isinstance(reference_record, SourceRecord)
+                        else reference_record.evaluated_tau
+                    ),
+                    "overlap_policy": "inclusive_reference_threshold_v1",
+                }
+            )
             reference_accepted = (
                 isinstance(reference_record, SourceRecord)
                 and reference_record.source_status in ACCEPTED_SOURCE_STATUSES
@@ -3405,45 +3656,64 @@ class StudyRuntimeInputProvider:
                     prepared = overlap.exposure
                     overlap_mask = overlap.reference_active
 
-            exposure = publisher.array(
-                "exposure.npy",
-                prepared,
+            derived_dependencies = (
+                ("addon_primary_matrix", primary_identity),
+                ("addon_reference_matrix", addon_reference_identity),
+                ("reference_record", reference_record_identity),
+            )
+            exposure = self._publish_prepared_array(
+                publisher=publisher,
+                filename="exposure.npy",
+                value=prepared,
                 kind="prepared_addon_only_exposure",
                 axes=axes,
                 units="V/m",
                 space=self.study.spatial.canonical_space,
+                dependencies=derived_dependencies,
             )
-            reference_condition_artifact = publisher.array(
-                "reference_condition_exposure.npy",
-                reference_condition.array,
+            reference_condition_artifact = self._publish_prepared_array(
+                publisher=publisher,
+                filename="reference_condition_exposure.npy",
+                value=reference_condition.array,
                 kind="reference_condition_exposure",
                 axes=axes,
                 units="V/m",
                 space=self.study.spatial.canonical_space,
+                dependencies=(
+                    ("reference_condition_matrix", reference_condition_identity),
+                ),
             )
-            addon_reference_artifact = publisher.array(
-                "addon_reference_component_exposure.npy",
-                addon_reference_component.array,
+            addon_reference_artifact = self._publish_prepared_array(
+                publisher=publisher,
+                filename="addon_reference_component_exposure.npy",
+                value=addon_reference_component.array,
                 kind="addon_reference_component_exposure",
                 axes=axes,
                 units="V/m",
                 space=self.study.spatial.canonical_space,
+                dependencies=(
+                    ("addon_reference_matrix", addon_reference_identity),
+                ),
             )
-            overlap_artifact = publisher.array(
-                "reference_overlap_mask.npy",
-                overlap_mask,
+            overlap_artifact = self._publish_prepared_array(
+                publisher=publisher,
+                filename="reference_overlap_mask.npy",
+                value=overlap_mask,
                 kind="reference_overlap_mask",
                 axes=axes,
                 units="binary",
                 space=self.study.spatial.canonical_space,
+                dependencies=derived_dependencies,
             )
-            total_artifact = publisher.array(
-                "total_exposure.npy",
-                raw_primary.array,
+            total_artifact = self._publish_prepared_array(
+                publisher=publisher,
+                filename="total_exposure.npy",
+                value=raw_primary.array,
                 kind="raw_addon_component_exposure",
                 axes=axes,
                 units="V/m",
                 space=self.study.spatial.canonical_space,
+                dependencies=(("addon_primary_matrix", primary_identity),),
             )
             input_hash_manifest = self._publish_input_hash_manifest(
                 publisher,

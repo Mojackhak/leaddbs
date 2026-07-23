@@ -823,7 +823,12 @@ class InputProviderTest(unittest.TestCase):
         catalog = build_endpoint_catalog(selected_configuration, study)
         artifact_root = self.root / "artifacts"
         artifact_root.mkdir(parents=True, exist_ok=True)
-        artifact_store = ArtifactStore((artifact_root,))
+        cache_root = scientific_cache_root or self.root / "scientific-cache"
+        if shared_cache:
+            cache_root.mkdir(parents=True, exist_ok=True)
+        artifact_store = ArtifactStore(
+            (artifact_root, cache_root) if shared_cache else (artifact_root,)
+        )
         selected_transformer = transformer or _CopyTransformer()
         provider = StudyRuntimeInputProvider(
             study,
@@ -833,7 +838,7 @@ class InputProviderTest(unittest.TestCase):
             artifact_store=artifact_store,
             scientific_cache=(
                 ContentAddressedCache(
-                    scientific_cache_root or self.root / "scientific-cache"
+                    cache_root
                 )
                 if shared_cache
                 else None
@@ -1554,16 +1559,99 @@ class InputProviderTest(unittest.TestCase):
                 ),
             )
         self.assertEqual(producer.call_count, 1)
+        self.assertEqual(first.exposure.uri, second.exposure.uri)
+        self.assertIn("/shared_exposure_v2/prepared_artifacts/", first.exposure.uri)
         np.testing.assert_array_equal(
             _materialize(artifact_store, first.exposure),
             _materialize(artifact_store, second.exposure),
         )
+        self.assertFalse(tuple((artifact_root / "shared-first").glob("*.npy")))
+        self.assertFalse(tuple((artifact_root / "shared-second").glob("*.npy")))
         cache_entries = tuple(
             (self.root / "scientific-cache" / "shared_exposure_v2" / "voxel_exposures").glob(
                 "*"
             )
         )
         self.assertEqual(len(cache_entries), 1)
+        prepared_entries = tuple(
+            (
+                self.root
+                / "scientific-cache"
+                / "shared_exposure_v2"
+                / "prepared_artifacts"
+            ).glob("*")
+        )
+        self.assertEqual(len(prepared_entries), 2)
+
+    def test_prepared_artifact_cache_reuses_identity_and_separates_axes(self) -> None:
+        provider, _catalog, artifact_store, artifact_root = self._provider(
+            self._study(missing_addon_for_last_subject=False),
+            shared_cache=True,
+        )
+        subject_axis = AxisRef("prepared-subjects", 2, canonical_hash(["s1", "s2"]))
+        feature_axis = AxisRef("prepared-features", 3, canonical_hash([1, 2, 3]))
+        changed_axis = AxisRef("prepared-features", 3, canonical_hash([1, 3, 2]))
+        values = np.arange(6, dtype=np.float32).reshape(2, 3)
+        arguments = {
+            "filename": "exposure.npy",
+            "value": values,
+            "kind": "prepared_reference_exposure",
+            "units": "V/m",
+            "space": "right_canonical",
+            "dependencies": (("primary_matrix", canonical_hash("primary")),),
+        }
+        first = provider._publish_prepared_array(
+            publisher=RunScopedArtifactPublisher(
+                artifact_root / "prepared-cache-first",
+                "prepared-cache-first",
+                "1",
+            ),
+            axes=(subject_axis, feature_axis),
+            **arguments,
+        )
+        second = provider._publish_prepared_array(
+            publisher=RunScopedArtifactPublisher(
+                artifact_root / "prepared-cache-second",
+                "prepared-cache-second",
+                "1",
+            ),
+            axes=(subject_axis, feature_axis),
+            **arguments,
+        )
+        separated = provider._publish_prepared_array(
+            publisher=RunScopedArtifactPublisher(
+                artifact_root / "prepared-cache-separated",
+                "prepared-cache-separated",
+                "1",
+            ),
+            axes=(subject_axis, changed_axis),
+            **arguments,
+        )
+        self.assertEqual(first.uri, second.uri)
+        self.assertNotEqual(first.uri, separated.uri)
+        np.testing.assert_array_equal(_materialize(artifact_store, first), values)
+        for task_root in (
+            "prepared-cache-first",
+            "prepared-cache-second",
+            "prepared-cache-separated",
+        ):
+            self.assertFalse(tuple((artifact_root / task_root).glob("*.npy")))
+
+        cached_path = Path(first.uri.removeprefix("file://"))
+        np.save(cached_path, values + 1.0, allow_pickle=False)
+        provider._scientific_cache = ContentAddressedCache(
+            self.root / "scientific-cache"
+        )
+        with self.assertRaises(CacheCorruption):
+            provider._publish_prepared_array(
+                publisher=RunScopedArtifactPublisher(
+                    artifact_root / "prepared-cache-corrupt",
+                    "prepared-cache-corrupt",
+                    "1",
+                ),
+                axes=(subject_axis, feature_axis),
+                **arguments,
+            )
 
     def test_different_endpoint_subject_subsets_reuse_one_physical_matrix(self) -> None:
         study = self._study(missing_addon_for_last_subject=False)
