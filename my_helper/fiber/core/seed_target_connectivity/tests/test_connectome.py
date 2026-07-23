@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import h5py
@@ -51,6 +52,76 @@ class LeadDBSHDF5ConnectomeTests(unittest.TestCase):
         self.assertEqual(len(adapter.metadata.source_hash), 64)
         self.assertEqual(len(adapter.metadata.geometry_hash), 64)
         self.assertEqual(len(adapter.metadata.ordered_fiber_id_hash), 64)
+
+    def test_point_balanced_ranges_preserve_all_fibers_and_bound_points(self) -> None:
+        streamlines = [
+            line(*((float(i), 0.0, 0.0) for i in range(length)))
+            for length in (2, 8, 2, 8, 2)
+        ]
+        path = write_hdf5_connectome(self.root / "balanced" / "data.mat", streamlines)
+        adapter = LeadDBSHDF5Connectome(path)
+
+        ranges = adapter.point_balanced_ranges(
+            10,
+            coordinate_bytes_per_point=1,
+        )
+        chunks = list(
+            adapter.iter_point_balanced_chunks(
+                10,
+                coordinate_bytes_per_point=1,
+            )
+        )
+
+        self.assertEqual(ranges[0][0], 0)
+        self.assertEqual(ranges[-1][1], len(streamlines))
+        self.assertTrue(
+            all(first[1] == second[0] for first, second in zip(ranges, ranges[1:]))
+        )
+        self.assertEqual(
+            np.concatenate([chunk.fiber_ids for chunk in chunks]).tolist(),
+            [1, 2, 3, 4, 5],
+        )
+        self.assertTrue(all(chunk.points.shape[0] <= 10 for chunk in chunks))
+        self.assertEqual(sum(chunk.points.shape[0] for chunk in chunks), 22)
+        self.assertTrue(
+            all(
+                chunk.point_offsets[-1] == chunk.points.shape[0]
+                for chunk in chunks
+            )
+        )
+
+    def test_point_id_validation_allocates_no_point_sized_expected_vector(self) -> None:
+        path = write_hdf5_connectome(
+            self.root / "no-repeat" / "data.mat",
+            [
+                line((0, 0, 0), (1, 0, 0)),
+                line((0, 1, 0), (1, 1, 0), (2, 1, 0)),
+            ],
+        )
+        adapter = LeadDBSHDF5Connectome(path)
+
+        with mock.patch(
+            "my_helper.fiber.core.seed_target_connectivity.connectome.np.repeat",
+            side_effect=AssertionError("point-sized expected IDs are forbidden"),
+            create=True,
+        ):
+            chunks = list(adapter.iter_chunks(2))
+
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].fiber_ids.tolist(), [1, 2])
+
+    def test_point_balanced_range_validation_rejects_invalid_budgets(self) -> None:
+        path = write_hdf5_connectome(
+            self.root / "invalid-budget" / "data.mat",
+            [line((0, 0, 0), (1, 0, 0))],
+        )
+        adapter = LeadDBSHDF5Connectome(path)
+
+        for budget in (0, False):
+            with self.subTest(budget=budget), self.assertRaises(ConnectomeError):
+                adapter.point_balanced_ranges(budget)
+        with self.assertRaises(ConnectomeError):
+            adapter.point_balanced_ranges(12, coordinate_bytes_per_point=0)
 
     def test_open_connectome_accepts_directory_or_data_file(self) -> None:
         path = write_hdf5_connectome(

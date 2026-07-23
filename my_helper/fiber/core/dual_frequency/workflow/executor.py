@@ -374,7 +374,12 @@ class _ResourceLedger:
                 return _ResourceGrant(1, 12 * 1024**3, 1, 0)
             return _ResourceGrant(1, 12 * 1024**3, 0, 0)
         if task.stage == "prepare_exposure":
-            return _ResourceGrant(1, 16 * 1024**3, 1, 0)
+            memory_bytes = (
+                32 * 1024**3
+                if task.model_family.endswith("fiber")
+                else 16 * 1024**3
+            )
+            return _ResourceGrant(1, memory_bytes, 1, 0)
         if task.stage == "ppam_observed_workspace":
             return _ResourceGrant(1, 48 * 1024**3, 1, 1)
         if task.stage.startswith("oss_axis_equivalence_"):

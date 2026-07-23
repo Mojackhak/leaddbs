@@ -212,6 +212,18 @@ class GroupResolution:
 
 
 @dataclass(frozen=True)
+class _FiberSamplingPlan:
+    """Path-free sampler handles for one subject and frequency group."""
+
+    left_samplers: tuple["_NiftiSampler", ...]
+    right_samplers: tuple["_NiftiSampler", ...]
+    left_translation_mm: np.ndarray | None
+    right_translation_mm: np.ndarray | None
+    reason_code: str | None
+    inactive: bool = False
+
+
+@dataclass(frozen=True)
 class JitterTranslationContext:
     """Deterministic isotropic translations for one spatial-jitter replicate."""
 
@@ -275,6 +287,16 @@ class _TemporaryMatrix:
     array: np.memmap
     path: Path
     delete_on_release: bool = True
+
+
+@dataclass(frozen=True)
+class _SharedConnectomeGeometry:
+    """Read-only complete geometry mapped from one portable cache generation."""
+
+    points: np.memmap
+    point_offsets: np.memmap
+    cache_identity: str
+    audit_path: Path
 
 
 class _NiftiSampler:
@@ -375,6 +397,8 @@ class StudyRuntimeInputProvider:
         scientific_cache: ContentAddressedCache | None = None,
         left_transformer: LeftToCanonicalTransformer | None = None,
         fiber_chunk_size: int = 65_536,
+        fiber_point_byte_budget: int = 256 * 1024**2,
+        fiber_geometry_shared_budget: int = 16 * 1024**3,
         sampler_cache_bytes: int = 10 * 1024**3,
     ) -> None:
         if not isinstance(study, StudyBaseRecord):
@@ -392,6 +416,17 @@ class StudyRuntimeInputProvider:
             raise TypeError("scientific_cache must be a ContentAddressedCache or None")
         if type(fiber_chunk_size) is not int or fiber_chunk_size < 1:
             raise RuntimeInputProviderError("fiber_chunk_size must be a positive integer")
+        if type(fiber_point_byte_budget) is not int or fiber_point_byte_budget < 1:
+            raise RuntimeInputProviderError(
+                "fiber_point_byte_budget must be a positive integer"
+            )
+        if (
+            type(fiber_geometry_shared_budget) is not int
+            or fiber_geometry_shared_budget < 1
+        ):
+            raise RuntimeInputProviderError(
+                "fiber_geometry_shared_budget must be a positive integer"
+            )
         if type(sampler_cache_bytes) is not int or sampler_cache_bytes < 1:
             raise RuntimeInputProviderError(
                 "sampler_cache_bytes must be a positive integer"
@@ -414,6 +449,8 @@ class StudyRuntimeInputProvider:
         self._work_root.mkdir(parents=True, exist_ok=True)
         self._left_transformer = left_transformer or MatlabLeftToCanonicalTransformer()
         self._fiber_chunk_size = fiber_chunk_size
+        self._fiber_point_byte_budget = fiber_point_byte_budget
+        self._fiber_geometry_shared_budget = fiber_geometry_shared_budget
         self._sampler_cache_bytes = sampler_cache_bytes
         self._sampler_bytes = 0
         self._lock = RLock()
@@ -429,6 +466,7 @@ class StudyRuntimeInputProvider:
             tuple[str, str],
             tuple[np.ndarray, np.ndarray],
         ] = {}
+        self._connectome_geometries: dict[str, _SharedConnectomeGeometry] = {}
 
     @staticmethod
     def _file_signature(path: Path) -> tuple[int, int, int]:
@@ -1310,6 +1348,87 @@ class StudyRuntimeInputProvider:
         allow_absent: bool,
         translation_by_side: dict[str, np.ndarray] | None = None,
     ) -> tuple[np.ndarray, str | None]:
+        plan = self._fiber_sampling_plan(
+            resolution,
+            allow_absent=allow_absent,
+            translation_by_side=translation_by_side,
+        )
+        return self._sample_fiber_plan(plan, points, point_offsets)
+
+    def _fiber_sampling_plan(
+        self,
+        resolution: GroupResolution,
+        *,
+        allow_absent: bool,
+        translation_by_side: dict[str, np.ndarray] | None,
+    ) -> _FiberSamplingPlan:
+        """Resolve every path and sampler before entering a geometry range loop."""
+
+        if not resolution.groups:
+            if allow_absent:
+                return _FiberSamplingPlan(
+                    (),
+                    (),
+                    None,
+                    None,
+                    resolution.reason_code,
+                    inactive=True,
+                )
+            raise RuntimeInputProviderError(
+                f"required frequency group is unavailable: {resolution.reason_code}"
+            )
+        if resolution.reason_code == "missing_efield_artifact":
+            if allow_absent:
+                return _FiberSamplingPlan(
+                    (),
+                    (),
+                    None,
+                    None,
+                    resolution.reason_code,
+                    inactive=True,
+                )
+            raise RuntimeInputProviderError("declared frequency-group E-field is missing")
+
+        samplers: dict[str, tuple[_NiftiSampler, ...]] = {}
+        for side in ("L", "R"):
+            paths = tuple(
+                item.efield_path
+                for item in resolution.groups
+                if item.hemisphere == side
+            )
+            if not paths:
+                if allow_absent:
+                    samplers[side] = ()
+                    continue
+                raise RuntimeInputProviderError(
+                    f"required {side} hemisphere exposure is missing"
+                )
+            samplers[side] = tuple(
+                self._sampler(
+                    self._canonical_left_path(path) if side == "L" else path
+                )
+                for path in paths
+            )
+        return _FiberSamplingPlan(
+            left_samplers=samplers["L"],
+            right_samplers=samplers["R"],
+            left_translation_mm=(
+                None if translation_by_side is None else translation_by_side["L"]
+            ),
+            right_translation_mm=(
+                None if translation_by_side is None else translation_by_side["R"]
+            ),
+            reason_code=resolution.reason_code,
+        )
+
+    @staticmethod
+    def _sample_fiber_plan(
+        plan: _FiberSamplingPlan,
+        points: np.ndarray,
+        point_offsets: np.ndarray,
+    ) -> tuple[np.ndarray, str | None]:
+        """Evaluate one frozen sampler plan without path or cache operations."""
+
         offsets = np.asarray(point_offsets)
         if offsets.ndim != 1 or offsets.size < 2:
             raise RuntimeInputProviderError("fiber point offsets must be one-dimensional")
@@ -1322,41 +1441,22 @@ class StudyRuntimeInputProvider:
                 "fiber point offsets must partition the complete point array"
             )
         fiber_count = int(offsets.size - 1)
-        if not resolution.groups:
-            if allow_absent:
-                return np.zeros(fiber_count, dtype=np.float32), resolution.reason_code
-            raise RuntimeInputProviderError(
-                f"required frequency group is unavailable: {resolution.reason_code}"
-            )
-        if resolution.reason_code == "missing_efield_artifact":
-            if allow_absent:
-                return np.zeros(fiber_count, dtype=np.float32), resolution.reason_code
-            raise RuntimeInputProviderError("declared frequency-group E-field is missing")
+        if plan.inactive:
+            return np.zeros(fiber_count, dtype=np.float32), plan.reason_code
 
         side_peaks: dict[str, np.ndarray] = {}
-        for side in ("L", "R"):
-            paths = tuple(
-                item.efield_path
-                for item in resolution.groups
-                if item.hemisphere == side
-            )
-            if not paths:
-                if allow_absent:
-                    side_peaks[side] = np.zeros(fiber_count, dtype=np.float32)
-                    continue
-                raise RuntimeInputProviderError(
-                    f"required {side} hemisphere exposure is missing"
-                )
+        for side, samplers, translation in (
+            ("L", plan.left_samplers, plan.left_translation_mm),
+            ("R", plan.right_samplers, plan.right_translation_mm),
+        ):
+            if not samplers:
+                side_peaks[side] = np.zeros(fiber_count, dtype=np.float32)
+                continue
             group_peaks: list[np.ndarray] = []
-            for path in paths:
-                sample_path = self._canonical_left_path(path) if side == "L" else path
-                point_values = self._sampler(sample_path).sample(
+            for sampler in samplers:
+                point_values = sampler.sample(
                     points,
-                    translation_mm=(
-                        None
-                        if translation_by_side is None
-                        else translation_by_side[side]
-                    ),
+                    translation_mm=translation,
                 )
                 group_peaks.append(
                     np.maximum.reduceat(point_values, offsets[:-1]).astype(
@@ -1370,7 +1470,7 @@ class StudyRuntimeInputProvider:
             raise RuntimeInputProviderError(
                 "bilateral fiber exposure is not finite and nonnegative"
             )
-        return bilateral.astype(np.float32, copy=False), resolution.reason_code
+        return bilateral.astype(np.float32, copy=False), plan.reason_code
 
     def _direct_feature_space(self) -> _FeatureSpace:
         key = ("voxel", self.study.spatial.brainmask_id)
@@ -1763,6 +1863,291 @@ class StudyRuntimeInputProvider:
             raise RuntimeInputProviderError("shared exposure cache has an invalid array")
         return _TemporaryMatrix(array, path, delete_on_release=False)
 
+    @staticmethod
+    def _connectome_geometry_key(
+        connectome: LeadDBSHDF5Connectome,
+    ) -> ScientificCacheKey:
+        metadata = connectome.metadata
+        return ScientificCacheKey(
+            geometry_hash=metadata.geometry_hash,
+            stimulation_hash=metadata.source_hash,
+            component_frequency_hash=canonical_hash(
+                {"artifact": "complete_connectome_geometry"}
+            ),
+            transform_hash=canonical_hash({"transform": "none"}),
+            connectome_feature_hash=metadata.ordered_fiber_id_hash,
+            backend_name="leaddbs_connectome_geometry",
+            backend_version="1",
+            scientific_parameter_hashes=(
+                (
+                    "adapter",
+                    canonical_hash(
+                        {
+                            "name": metadata.adapter_name,
+                            "version": metadata.adapter_version,
+                        }
+                    ),
+                ),
+                (
+                    "coordinate_layout",
+                    canonical_hash(
+                        {
+                            "dtype": "float32",
+                            "layout": "point_xyz_rows",
+                            "offset_dtype": "int64",
+                        }
+                    ),
+                ),
+            ),
+            kind="connectome_geometry",
+        )
+
+    def _shared_connectome_geometry(
+        self,
+        connectome: LeadDBSHDF5Connectome,
+    ) -> _SharedConnectomeGeometry:
+        """Resolve or atomically publish one complete read-only geometry cache."""
+
+        if self._scientific_cache is None:
+            raise RuntimeInputProviderError(
+                "shared connectome geometry requires a scientific cache"
+            )
+        key = self._connectome_geometry_key(connectome)
+        with self._lock:
+            cached = self._connectome_geometries.get(key.digest)
+            preparation_lock = self._shared_preparation_locks.setdefault(
+                key.digest,
+                RLock(),
+            )
+        if cached is not None:
+            return cached
+        with preparation_lock:
+            with self._lock:
+                cached = self._connectome_geometries.get(key.digest)
+            if cached is not None:
+                return cached
+            entry = self._scientific_cache.resolve(key)
+            if entry is None:
+                with self._scientific_cache.producer_lease(key) as producer:
+                    if producer:
+                        sources, metadata = self._produce_connectome_geometry(
+                            connectome,
+                            key,
+                        )
+                        try:
+                            entry = self._scientific_cache.publish(
+                                key,
+                                sources,
+                                metadata=metadata,
+                            )
+                        finally:
+                            shutil.rmtree(
+                                next(iter(sources.values())).parent,
+                                ignore_errors=True,
+                            )
+                    else:
+                        entry = self._scientific_cache.resolve(key)
+                        if entry is None:
+                            raise RuntimeInputProviderError(
+                                "connectome geometry producer lease ended without an entry"
+                            )
+            geometry = self._open_connectome_geometry(entry.path, key, connectome)
+            with self._lock:
+                previous = self._connectome_geometries.setdefault(
+                    key.digest,
+                    geometry,
+                )
+            return previous
+
+    def _produce_connectome_geometry(
+        self,
+        connectome: LeadDBSHDF5Connectome,
+        key: ScientificCacheKey,
+    ) -> tuple[dict[str, Path], dict[str, CacheFileMetadata]]:
+        """Stream one validated HDF5 source into bounded staging NPY files."""
+
+        metadata = connectome.metadata
+        root = (
+            self._work_root
+            / "connectome-geometry-staging"
+            / f"{key.digest}-{uuid.uuid4().hex}"
+        )
+        root.mkdir(parents=True, exist_ok=False)
+        points_path = root / "points.npy"
+        offsets_path = root / "point_offsets.npy"
+        audit_path = root / "geometry_audit.json"
+        points = np.lib.format.open_memmap(
+            points_path,
+            mode="w+",
+            dtype=np.float32,
+            shape=(metadata.n_points, 3),
+        )
+        offsets = np.lib.format.open_memmap(
+            offsets_path,
+            mode="w+",
+            dtype=np.int64,
+            shape=(metadata.n_fibers + 1,),
+        )
+        offsets[:] = connectome.point_offsets
+        point_cursor = 0
+        fiber_cursor = 0
+        range_count = 0
+        max_range_points = 0
+        point_byte_budget = 256 * 1024**2
+        try:
+            for chunk in connectome.iter_point_balanced_chunks(point_byte_budget):
+                count = int(chunk.points.shape[0])
+                points[point_cursor : point_cursor + count] = chunk.points
+                expected_ids = np.arange(
+                    fiber_cursor + 1,
+                    fiber_cursor + 1 + chunk.fiber_ids.size,
+                    dtype=np.int64,
+                )
+                if not np.array_equal(chunk.fiber_ids, expected_ids):
+                    raise RuntimeInputProviderError(
+                        "connectome geometry ranges changed canonical fiber order"
+                    )
+                point_cursor += count
+                fiber_cursor += int(chunk.fiber_ids.size)
+                range_count += 1
+                max_range_points = max(max_range_points, count)
+            if point_cursor != metadata.n_points or fiber_cursor != metadata.n_fibers:
+                raise RuntimeInputProviderError(
+                    "connectome geometry ranges do not cover the complete source"
+                )
+            points.flush()
+            offsets.flush()
+            ranges = connectome.point_balanced_ranges(point_byte_budget)
+            raw_chunk = connectome.raw_point_chunk_size
+            partial_boundaries = (
+                0
+                if raw_chunk is None
+                else sum(
+                    int(connectome.point_offsets[stop]) % raw_chunk > 0
+                    for _start, stop in ranges[:-1]
+                )
+            )
+            audit_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "dual_frequency_connectome_geometry_audit_v1",
+                        "cache_identity": key.digest,
+                        "source_sha256": metadata.source_hash,
+                        "geometry_hash": metadata.geometry_hash,
+                        "ordered_fiber_id_hash": metadata.ordered_fiber_id_hash,
+                        "n_fibers": metadata.n_fibers,
+                        "n_points": metadata.n_points,
+                        "point_byte_budget": point_byte_budget,
+                        "range_count": range_count,
+                        "max_range_points": max_range_points,
+                        "raw_point_chunk_size": raw_chunk,
+                        "partial_raw_chunk_boundaries": partial_boundaries,
+                        "logical_point_coverage_count": point_cursor,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                    allow_nan=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            del points, offsets
+            shutil.rmtree(root, ignore_errors=True)
+            raise
+        del points, offsets
+        point_axis = AxisRef(
+            axis_id=f"{metadata.connectome_id}:geometry-points",
+            count=metadata.n_points,
+            sha256=canonical_hash(
+                {
+                    "geometry_hash": metadata.geometry_hash,
+                    "axis": "ordered_points",
+                }
+            ),
+        )
+        xyz_axis = AxisRef(
+            axis_id="mni-coordinate-xyz",
+            count=3,
+            sha256=canonical_hash({"ordered_coordinates": ("x", "y", "z")}),
+        )
+        offset_axis = AxisRef(
+            axis_id=f"{metadata.connectome_id}:geometry-point-boundaries",
+            count=metadata.n_fibers + 1,
+            sha256=canonical_hash(
+                {
+                    "geometry_hash": metadata.geometry_hash,
+                    "axis": "fiber_point_boundaries",
+                }
+            ),
+        )
+        return (
+            {
+                "points.npy": points_path,
+                "point_offsets.npy": offsets_path,
+                "geometry_audit.json": audit_path,
+            },
+            {
+                "points.npy": CacheFileMetadata(
+                    dtype="float32",
+                    shape=(metadata.n_points, 3),
+                    axes=(point_axis, xyz_axis),
+                    units="mm",
+                    space=self.study.spatial.canonical_space,
+                ),
+                "point_offsets.npy": CacheFileMetadata(
+                    dtype="int64",
+                    shape=(metadata.n_fibers + 1,),
+                    axes=(offset_axis,),
+                    units="point_index",
+                    space=None,
+                ),
+            },
+        )
+
+    @staticmethod
+    def _open_connectome_geometry(
+        root: Path,
+        key: ScientificCacheKey,
+        connectome: LeadDBSHDF5Connectome,
+    ) -> _SharedConnectomeGeometry:
+        try:
+            points = np.load(root / "points.npy", allow_pickle=False, mmap_mode="r")
+            offsets = np.load(
+                root / "point_offsets.npy",
+                allow_pickle=False,
+                mmap_mode="r",
+            )
+            audit = json.loads((root / "geometry_audit.json").read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError) as exc:
+            raise RuntimeInputProviderError(
+                "connectome geometry cache cannot be opened"
+            ) from exc
+        metadata = connectome.metadata
+        if (
+            not isinstance(points, np.memmap)
+            or points.dtype != np.dtype(np.float32)
+            or points.shape != (metadata.n_points, 3)
+            or points.flags.writeable
+            or not isinstance(offsets, np.memmap)
+            or offsets.dtype != np.dtype(np.int64)
+            or offsets.shape != (metadata.n_fibers + 1,)
+            or offsets.flags.writeable
+            or int(offsets[0]) != 0
+            or int(offsets[-1]) != metadata.n_points
+            or audit.get("cache_identity") != key.digest
+            or audit.get("logical_point_coverage_count") != metadata.n_points
+        ):
+            raise RuntimeInputProviderError(
+                "connectome geometry cache metadata is inconsistent"
+            )
+        return _SharedConnectomeGeometry(
+            points=points,
+            point_offsets=offsets,
+            cache_identity=key.digest,
+            audit_path=root / "geometry_audit.json",
+        )
+
     def _compute_binding_matrix(
         self,
         *,
@@ -1814,25 +2199,11 @@ class StudyRuntimeInputProvider:
             if connectome is None:
                 raise AssertionError("fiber feature space has no connectome")
             connectome_signature = self._file_signature(feature_space.source_path)
-            expected_start = 0
-            for chunk in connectome.iter_chunks(self._fiber_chunk_size):
-                chunk_ids = np.asarray(chunk.fiber_ids)
-                if chunk_ids.dtype != np.dtype(np.int64) or chunk_ids.ndim != 1:
-                    raise RuntimeInputProviderError(
-                        "connectome chunk fiber IDs must be one-dimensional int64"
-                    )
-                start = int(chunk_ids[0]) - 1
-                stop = int(chunk_ids[-1])
-                if start != expected_start or not np.array_equal(
-                    chunk_ids,
-                    np.arange(start + 1, stop + 1, dtype=np.int64),
-                ):
-                    raise RuntimeInputProviderError(
-                        "connectome chunks must preserve contiguous canonical fiber IDs"
-                    )
-                for subject_index, resolution in enumerate(resolutions):
-                    subject_id = subject_ids[subject_index]
-                    translations = (
+            sampling_plans = tuple(
+                self._fiber_sampling_plan(
+                    resolution,
+                    allow_absent=allow_absent,
+                    translation_by_side=(
                         None
                         if jitter_context is None
                         else {
@@ -1844,13 +2215,77 @@ class StudyRuntimeInputProvider:
                             )
                             for side in ("L", "R")
                         }
-                    )
-                    fiber_values, _reason = self._sample_fiber_group_resolution(
-                        resolution,
+                    ),
+                )
+                for subject_id, resolution in zip(
+                    subject_ids,
+                    resolutions,
+                    strict=True,
+                )
+            )
+            if (
+                self._scientific_cache is not None
+                and isinstance(connectome, LeadDBSHDF5Connectome)
+                and (
+                    connectome.metadata.n_points * 3 * np.dtype(np.float32).itemsize
+                    + (connectome.metadata.n_fibers + 1)
+                    * np.dtype(np.int64).itemsize
+                )
+                < self._fiber_geometry_shared_budget
+            ):
+                geometry = self._shared_connectome_geometry(connectome)
+
+                def geometry_chunks():
+                    for start, stop in connectome.point_balanced_ranges(
+                        self._fiber_point_byte_budget
+                    ):
+                        point_start = int(geometry.point_offsets[start])
+                        point_stop = int(geometry.point_offsets[stop])
+                        yield (
+                            start,
+                            stop,
+                            geometry.points[point_start:point_stop],
+                            np.asarray(
+                                geometry.point_offsets[start : stop + 1]
+                                - point_start,
+                                dtype=np.int64,
+                            ),
+                        )
+
+                chunks = geometry_chunks()
+            elif isinstance(connectome, LeadDBSHDF5Connectome):
+                chunks = (
+                    (
+                        int(chunk.fiber_ids[0]) - 1,
+                        int(chunk.fiber_ids[-1]),
                         chunk.points,
                         chunk.point_offsets,
-                        allow_absent=allow_absent,
-                        translation_by_side=translations,
+                    )
+                    for chunk in connectome.iter_point_balanced_chunks(
+                        self._fiber_point_byte_budget
+                    )
+                )
+            else:
+                chunks = (
+                    (
+                        int(chunk.fiber_ids[0]) - 1,
+                        int(chunk.fiber_ids[-1]),
+                        chunk.points,
+                        chunk.point_offsets,
+                    )
+                    for chunk in connectome.iter_chunks(self._fiber_chunk_size)
+                )
+            expected_start = 0
+            for start, stop, points, point_offsets in chunks:
+                if start != expected_start or stop <= start:
+                    raise RuntimeInputProviderError(
+                        "connectome chunks must preserve contiguous canonical fiber IDs"
+                    )
+                for subject_index, plan in enumerate(sampling_plans):
+                    fiber_values, _reason = self._sample_fiber_plan(
+                        plan,
+                        points,
+                        point_offsets,
                     )
                     if fiber_values.shape != (stop - start,):
                         raise RuntimeInputProviderError(

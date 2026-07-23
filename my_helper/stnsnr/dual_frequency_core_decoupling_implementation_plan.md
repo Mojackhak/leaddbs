@@ -3397,6 +3397,98 @@ Retain exact
 that no full/fold cell loses a candidate. Endpoint, scale, branch, grid, and fold
 work may not reopen raw geometry.
 
+**Frozen geometry-cache implementation boundary, 2026-07-22.** A read-only
+audit found that the current adapter still partitions by a fixed count of
+65536 fibers and resolves paths and sampler handles inside the connectome range
+loop. It preserves canonical IDs and never splits a fiber, but it does not yet
+satisfy the point-byte-balanced or path-free hot-loop contract. The three
+configured connectomes contain approximately 718 MiB, 4.43 GiB, and 11.54 GiB
+of float32 coordinate rows, with offset arrays below 91 MiB. Every complete
+geometry is therefore `< 16 GiB` and eligible for the shared-resident path under
+the current 48-GiB solver boundary.
+
+Implement one portable `connectome_geometry` cache generation per semantic
+connectome source. Its scientific identity contains source content SHA,
+geometry hash, ordered canonical-ID hash, adapter name/version, coordinate
+dtype, and cache schema. The generation contains a read-only
+`points.npy` float32 array with shape `n_points x 3`, a read-only
+`point_offsets.npy` int64 array with shape `n_fibers + 1`, and an audit document
+with logical point count, HDF5 raw-chunk geometry, bounded source reads, and
+point-ID validation. Canonical fiber IDs remain implicit as the complete
+one-based axis. Publication uses the existing lease, temporary sibling, atomic
+rename, manifest-last, and direct-copy verification contracts. A producer
+streams HDF5 ranges into the generation and validates the fourth row without
+allocating a point-sized expected-ID vector.
+
+`StudyRuntimeInputProvider` must resolve immutable sampler handles and all
+hemisphere/group metadata before entering a geometry range. The hot function
+then receives only points, offsets, sampler handles, translations, and output
+views. It performs no path lookup, transform lock, NIfTI open, cache lease, or
+artifact publication. Current configured connectomes use one shared read-only
+geometry memmap. A deterministic fallback for future larger connectomes builds
+the fewest consecutive ranges below an explicit point-byte budget, never
+splits a fiber, and selects each stop from cumulative offsets while minimizing
+distance to an HDF5 raw-chunk boundary. Logical point coverage must be exact;
+raw chunk overlap and partial boundary count are separate audit fields.
+
+Charge normative-fiber `prepare_exposure` at 32 GiB rather than the generic
+16-GiB preparation charge. The 32-GiB grant covers the largest configured
+geometry memmap, the bilateral transformed-NIfTI sampler working set, output
+rows, offsets, and bounded point scratch while allowing only one such task
+under the effective managed-memory ceiling. Direct-voxel preparation retains
+its existing charge. Acceptance requires byte-identical bilateral exposure,
+`Omega_max`, selected axes, and final statistics against the current adapter;
+identical output across range budgets and worker counts; one cache producer
+under concurrent misses; direct-copy resume; corruption rejection; exact
+logical point coverage; no split fiber; and measured absence of path,
+transform, and NIfTI work inside the geometry loop.
+
+The first adapter slice now caches the complete immutable point-offset axis,
+exposes the HDF5 raw point-chunk width, validates every fourth-row canonical ID
+with fiber-sized minimum/maximum reductions instead of a point-sized expected-ID
+array, and provides deterministic point-byte-balanced half-open fiber ranges.
+The planner preserves the minimal greedy range count and, within that count,
+prefers fiber boundaries closest to raw HDF5 point-chunk boundaries. Legacy
+fixed-fiber `iter_chunks` behavior remains byte-compatible at the API boundary.
+The connectome suite passes 11 tests plus six subtests, including exact point
+coverage, no split fiber, invalid-budget rejection, corrupted-ID rejection, and
+an explicit guard that forbids `numpy.repeat` during point-ID validation. The
+shared geometry cache, frozen sampler plan, provider hot-loop switch, and
+32-GiB fiber admission are implemented in the following slices. Real-data
+parity, direct-copy resume, and corruption rejection remain pending.
+
+The second slice adds the portable `connectome_geometry` cache generation and
+process-local read-only opener. The key binds source SHA, geometry hash,
+ordered canonical-ID hash, adapter name/version, coordinate layout, and cache
+schema while excluding endpoint, scale, run, worker, and branch identity. One
+lease-protected producer streams point-balanced HDF5 ranges into `points.npy`
+and `point_offsets.npy`, writes a bounded geometry audit, then relies on the
+existing manifest-last atomic cache publication. Concurrent callers share one
+generation and receive non-writeable memmaps. The input-provider plus cache
+regression passes 63 tests and 23 subtests, including a four-caller concurrent
+miss with exactly one producer invocation and exact coordinate/offset replay.
+The third slice switches normative-fiber preparation to the shared geometry
+memmaps whenever the scientific cache is available. It constructs one frozen
+sampler plan per physical subject before entering the geometry loop; the pure
+range evaluator receives only immutable samplers, translations, points, and
+offsets. Future uncached or larger sources use deterministic point-byte ranges,
+while synthetic adapters retain the legacy iterator for test compatibility.
+Normative-fiber preparation now receives a 32-GiB admission charge and
+direct-voxel preparation remains at 16 GiB. Complete geometry is mapped only
+when its coordinate-plus-offset size is `< 16 GiB`; larger sources use the
+point-balanced HDF5 stream without producing a complete geometry cache. A
+two-range provider assertion proves that plan construction occurs once per
+physical subject while the pure evaluator occurs once per subject and range.
+A real HDF5 adapter fixture produces byte-identical exposure through complete
+shared geometry, uncached point-balanced input, and forced over-budget
+streaming. The same fixture proves direct-copy cache reuse without a producer
+and payload-corruption rejection. The complete dual-frequency suite passes 551
+tests plus 310 subtests, and the complete seed-target connectivity suite passes
+80 tests plus 29 subtests with one environment-dependent skip. Configured
+connectome parity against retained formal artifacts remains pending. These
+source changes are not loaded into the already-running independent OSS worker
+and therefore do not alter that lineage.
+
 - [ ] **Step 5: Move jitter into Layer 1 and gate shared OSS/pPAM preparation**
 
 Generate one scale-independent jitter schedule per physical identity while

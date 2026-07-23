@@ -18,10 +18,14 @@ from pathlib import Path
 from unittest import mock
 
 import nibabel as nib
+import h5py
 import numpy as np
+
+from seed_target_connectivity.connectome import LeadDBSHDF5Connectome
 
 from dual_frequency.cache import (
     ArtifactStore,
+    CacheCorruption,
     ContentAddressedCache,
     RunScopedArtifactPublisher,
     sha256_file,
@@ -197,13 +201,13 @@ class _FiberChunk:
 
 
 class _FakeConnectome:
-    def __init__(self, chunk: _FiberChunk) -> None:
-        self._chunk = chunk
+    def __init__(self, chunk: _FiberChunk | tuple[_FiberChunk, ...]) -> None:
+        self._chunks = chunk if isinstance(chunk, tuple) else (chunk,)
         self.iteration_count = 0
 
     def iter_chunks(self, _chunk_size: int):
         self.iteration_count += 1
-        yield self._chunk
+        yield from self._chunks
 
 
 def _materialize(store: ArtifactStore, artifact) -> np.ndarray:
@@ -268,6 +272,199 @@ class InputProviderTest(unittest.TestCase):
         left = context.vector(**{**arguments, "hemisphere": "L"})
         np.testing.assert_array_equal(first, second)
         self.assertFalse(np.array_equal(first, left))
+
+    def test_shared_connectome_geometry_is_single_write_and_read_only(self) -> None:
+        path = self.root / "geometry-connectome" / "data.mat"
+        path.parent.mkdir(parents=True)
+        lengths = np.asarray([2, 3, 2], dtype=np.float64)
+        point_ids = np.repeat(np.arange(1, 4, dtype=np.float32), lengths.astype(int))
+        coordinates = np.vstack(
+            (
+                np.arange(point_ids.size, dtype=np.float32),
+                np.ones(point_ids.size, dtype=np.float32),
+                np.full(point_ids.size, 2.0, dtype=np.float32),
+            )
+        )
+        with h5py.File(path, "w") as handle:
+            handle.create_dataset("idx", data=lengths.reshape(1, -1))
+            handle.create_dataset(
+                "fibers",
+                data=np.vstack((coordinates, point_ids)),
+                chunks=(4, 4),
+                compression="gzip",
+            )
+        connectome = LeadDBSHDF5Connectome(path)
+        study = self._study(missing_addon_for_last_subject=False)
+        provider, _catalog, _store, _root = self._provider(study, shared_cache=True)
+
+        with mock.patch.object(
+            provider,
+            "_produce_connectome_geometry",
+            wraps=provider._produce_connectome_geometry,
+        ) as produce:
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                geometries = tuple(
+                    executor.map(
+                        lambda _index: provider._shared_connectome_geometry(connectome),
+                        range(4),
+                    )
+                )
+
+        self.assertEqual(produce.call_count, 1)
+        self.assertEqual(len({item.cache_identity for item in geometries}), 1)
+        geometry = geometries[0]
+        self.assertIsInstance(geometry.points, np.memmap)
+        self.assertIsInstance(geometry.point_offsets, np.memmap)
+        self.assertFalse(geometry.points.flags.writeable)
+        self.assertFalse(geometry.point_offsets.flags.writeable)
+        np.testing.assert_array_equal(geometry.points, coordinates.T)
+        np.testing.assert_array_equal(geometry.point_offsets, [0, 2, 5, 7])
+        audit = json.loads(geometry.audit_path.read_text(encoding="utf-8"))
+        self.assertEqual(audit["logical_point_coverage_count"], 7)
+        self.assertEqual(audit["n_fibers"], 3)
+
+        key = provider._connectome_geometry_key(connectome)
+        source_entry = provider._scientific_cache.entry_path(key)
+        copied_root = self.root / "copied-scientific-cache"
+        copied_cache = ContentAddressedCache(copied_root)
+        copied_entry = copied_cache.entry_path(key)
+        copied_entry.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source_entry, copied_entry)
+        copied_provider, _catalog, _store, _root = self._provider(
+            study,
+            shared_cache=True,
+            scientific_cache_root=copied_root,
+        )
+        with mock.patch.object(
+            copied_provider,
+            "_produce_connectome_geometry",
+            side_effect=AssertionError("copied geometry must not be reproduced"),
+        ):
+            copied = copied_provider._shared_connectome_geometry(connectome)
+        np.testing.assert_array_equal(copied.points, coordinates.T)
+        np.testing.assert_array_equal(copied.point_offsets, [0, 2, 5, 7])
+
+        copied_points = copied_entry / "points.npy"
+        with copied_points.open("r+b") as stream:
+            stream.seek(-1, 2)
+            original = stream.read(1)
+            stream.seek(-1, 2)
+            stream.write(bytes((original[0] ^ 1,)))
+        corrupted_provider, _catalog, _store, _root = self._provider(
+            study,
+            shared_cache=True,
+            scientific_cache_root=copied_root,
+        )
+        with self.assertRaises(CacheCorruption):
+            corrupted_provider._shared_connectome_geometry(connectome)
+
+    def test_shared_geometry_matches_uncached_point_balanced_adapter(self) -> None:
+        path = self.root / "parity-connectome" / "data.mat"
+        path.parent.mkdir(parents=True)
+        lengths = np.asarray([2, 2, 2], dtype=np.float64)
+        point_ids = np.repeat(np.arange(1, 4, dtype=np.float32), 2)
+        coordinates = np.asarray(
+            (
+                (1.0, 0.0, 0.0),
+                (2.0, 0.0, 0.0),
+                (0.0, 1.0, 0.0),
+                (3.0, 1.0, 0.0),
+                (1.0, 1.0, 1.0),
+                (2.0, 1.0, 1.0),
+            ),
+            dtype=np.float32,
+        )
+        with h5py.File(path, "w") as handle:
+            handle.create_dataset("idx", data=lengths.reshape(1, -1))
+            handle.create_dataset(
+                "fibers",
+                data=np.vstack((coordinates.T, point_ids)),
+                chunks=(4, 3),
+                compression="gzip",
+            )
+        study = self._study(missing_addon_for_last_subject=False)
+        uncached_provider, uncached_catalog, _store, _root = self._provider(
+            study,
+            fiber_point_byte_budget=1024,
+        )
+        cached_provider, cached_catalog, _store, _root = self._provider(
+            study,
+            shared_cache=True,
+            fiber_point_byte_budget=24,
+        )
+        streamed_provider, streamed_catalog, _store, _root = self._provider(
+            study,
+            shared_cache=True,
+            scientific_cache_root=self.root / "streaming-scientific-cache",
+            fiber_point_byte_budget=24,
+            fiber_geometry_shared_budget=1,
+        )
+        ids = np.arange(1, 4, dtype=np.int64)
+        axis = AxisRef("parity-fiber-axis", 3, "e" * 64)
+        uncached_feature_space = _FeatureSpace(
+            axis,
+            ids,
+            None,
+            LeadDBSHDF5Connectome(path),
+            path,
+        )
+        cached_feature_space = _FeatureSpace(
+            axis,
+            ids,
+            None,
+            LeadDBSHDF5Connectome(path),
+            path,
+        )
+        streamed_feature_space = _FeatureSpace(
+            axis,
+            ids,
+            None,
+            LeadDBSHDF5Connectome(path),
+            path,
+        )
+        subject_ids = tuple(subject.subject_id for subject in study.subjects[:2])
+        uncached_endpoint = self._endpoint(uncached_catalog, "reference_voxel")
+        cached_endpoint = self._endpoint(cached_catalog, "reference_voxel")
+        streamed_endpoint = self._endpoint(streamed_catalog, "reference_voxel")
+        binding = self.configuration.direct_voxel.endpoint_pair.reference
+        uncached, uncached_missing = uncached_provider._matrix_for_binding(
+            uncached_endpoint,
+            subject_ids,
+            binding,
+            "reference",
+            uncached_feature_space,
+            allow_absent=False,
+        )
+        cached, cached_missing = cached_provider._matrix_for_binding(
+            cached_endpoint,
+            subject_ids,
+            binding,
+            "reference",
+            cached_feature_space,
+            allow_absent=False,
+        )
+        with mock.patch.object(
+            streamed_provider,
+            "_shared_connectome_geometry",
+            side_effect=AssertionError("oversize geometry must stream from HDF5"),
+        ):
+            streamed, streamed_missing = streamed_provider._matrix_for_binding(
+                streamed_endpoint,
+                subject_ids,
+                binding,
+                "reference",
+                streamed_feature_space,
+                allow_absent=False,
+            )
+        try:
+            self.assertEqual(uncached_missing, cached_missing)
+            self.assertEqual(cached_missing, streamed_missing)
+            np.testing.assert_array_equal(uncached.array, cached.array)
+            np.testing.assert_array_equal(cached.array, streamed.array)
+        finally:
+            uncached_provider._release_temporary_matrix(uncached)
+            cached_provider._release_temporary_matrix(cached)
+            streamed_provider._release_temporary_matrix(streamed)
 
     def test_jitter_sampler_translates_field_with_linear_zero_padded_sampling(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -617,6 +814,9 @@ class InputProviderTest(unittest.TestCase):
         transformer: _CopyTransformer | None = None,
         configuration=None,
         shared_cache: bool = False,
+        scientific_cache_root: Path | None = None,
+        fiber_point_byte_budget: int = 256 * 1024**2,
+        fiber_geometry_shared_budget: int = 16 * 1024**3,
         sampler_cache_bytes: int = 2 * 1024**3,
     ):
         selected_configuration = configuration or self.configuration
@@ -632,11 +832,15 @@ class InputProviderTest(unittest.TestCase):
             work_root=self.root / "provider-work",
             artifact_store=artifact_store,
             scientific_cache=(
-                ContentAddressedCache(self.root / "scientific-cache")
+                ContentAddressedCache(
+                    scientific_cache_root or self.root / "scientific-cache"
+                )
                 if shared_cache
                 else None
             ),
             left_transformer=selected_transformer,
+            fiber_point_byte_budget=fiber_point_byte_budget,
+            fiber_geometry_shared_budget=fiber_geometry_shared_budget,
             sampler_cache_bytes=sampler_cache_bytes,
         )
         return provider, catalog, artifact_store, artifact_root
@@ -1684,34 +1888,59 @@ class InputProviderTest(unittest.TestCase):
         _write_field_array(right, right_data, self.affine)
         connectome_path = self.root / "synthetic-connectome.h5"
         connectome_path.write_bytes(b"bounded-connectome-fixture")
-        chunk = _FiberChunk(
-            fiber_ids=np.array([1], dtype=np.int64),
-            points=np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=np.float32),
-            point_offsets=np.array([0, 2], dtype=np.int64),
+        chunks = (
+            _FiberChunk(
+                fiber_ids=np.array([1], dtype=np.int64),
+                points=np.array(
+                    [[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+                    dtype=np.float32,
+                ),
+                point_offsets=np.array([0, 2], dtype=np.int64),
+            ),
+            _FiberChunk(
+                fiber_ids=np.array([2], dtype=np.int64),
+                points=np.array(
+                    [[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+                    dtype=np.float32,
+                ),
+                point_offsets=np.array([0, 2], dtype=np.int64),
+            ),
         )
-        fake_connectome = _FakeConnectome(chunk)
+        fake_connectome = _FakeConnectome(chunks)
         feature_space = _FeatureSpace(
-            AxisRef("synthetic-fiber-axis", 1, "c" * 64),
-            np.array([1], dtype=np.int64),
+            AxisRef("synthetic-fiber-axis", 2, "c" * 64),
+            np.array([1, 2], dtype=np.int64),
             None,
             fake_connectome,
             connectome_path,
         )
         physical_subjects = tuple(endpoint.subject_ids[:2])
-        temporary, missing = provider._matrix_for_binding(
-            endpoint,
-            physical_subjects,
-            provider.configuration.direct_voxel.endpoint_pair.reference,
-            "reference",
-            feature_space,
-            allow_absent=False,
-        )
+        with mock.patch.object(
+            provider,
+            "_fiber_sampling_plan",
+            wraps=provider._fiber_sampling_plan,
+        ) as sampling_plan, mock.patch.object(
+            provider,
+            "_sample_fiber_plan",
+            wraps=provider._sample_fiber_plan,
+        ) as sample_plan:
+            temporary, missing = provider._matrix_for_binding(
+                endpoint,
+                physical_subjects,
+                provider.configuration.direct_voxel.endpoint_pair.reference,
+                "reference",
+                feature_space,
+                allow_absent=False,
+            )
         try:
             self.assertIsInstance(temporary.array, np.memmap)
             self.assertEqual(missing, ())
-            self.assertEqual(temporary.array.shape, (2, 1))
-            self.assertAlmostEqual(float(temporary.array[0, 0]), 10.0)
+            self.assertEqual(temporary.array.shape, (2, 2))
+            np.testing.assert_allclose(temporary.array[0], 10.0)
+            np.testing.assert_allclose(temporary.array[1], 250.0)
             self.assertEqual(fake_connectome.iteration_count, 1)
+            self.assertEqual(sampling_plan.call_count, len(study.subjects))
+            self.assertEqual(sample_plan.call_count, 2 * len(study.subjects))
         finally:
             provider._release_temporary_matrix(temporary)
 

@@ -128,17 +128,37 @@ def _artifact_result(request, filename: str = "exposure.npy") -> ArtifactRef:
 
 class ExecutorTest(unittest.TestCase):
     def test_prepare_exposure_grant_covers_bilateral_sampler_working_set(self) -> None:
-        endpoint = EndpointKey(
+        fiber_endpoint = EndpointKey(
             "study",
             "scale",
             "reference",
             "reference_fiber",
             "formal_connectome",
         )
-        task = _task(endpoint, "prepare_exposure", "prepare_reference_fiber_sidecar")
-        grant = _ResourceLedger.request(task)
-        self.assertEqual(grant.memory_bytes, 16 * 1024**3)
-        self.assertEqual(grant.connectome_io, 1)
+        fiber_task = _task(
+            fiber_endpoint,
+            "prepare_exposure",
+            "prepare_reference_fiber_sidecar",
+        )
+        fiber_grant = _ResourceLedger.request(fiber_task)
+        self.assertEqual(fiber_grant.memory_bytes, 32 * 1024**3)
+        self.assertEqual(fiber_grant.connectome_io, 1)
+
+        voxel_endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_voxel",
+            "none",
+        )
+        voxel_task = _task(
+            voxel_endpoint,
+            "prepare_exposure",
+            "prepare_reference_voxel_sidecar",
+        )
+        voxel_grant = _ResourceLedger.request(voxel_task)
+        self.assertEqual(voxel_grant.memory_bytes, 16 * 1024**3)
+        self.assertEqual(voxel_grant.connectome_io, 1)
 
     def test_ppam_resource_grants_isolate_solver_from_blocks_and_aggregate(
         self,
