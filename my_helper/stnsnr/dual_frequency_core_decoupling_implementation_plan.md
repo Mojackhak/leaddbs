@@ -7310,6 +7310,22 @@ guard epoch contains 27076 samples, observed a 46511964160-byte peak
 `< 64 GiB`, and swap growth `< 1` byte. The write probe passed. This is
 intermediate progress only.
 
+### Unified static regression checkpoint, 2026-07-23
+
+The complete repository-local dual-frequency test directory was rerun under
+Conda `leaddbs` with only the isolated package link on `PYTHONPATH` and a low
+CPU scheduling priority while the independent OSS lineage remained active.
+All 604 tests and 321 subtests passed in 75.17 seconds. The run covered the
+typed record codecs, JSON/YAML configuration, four-family planning, persistent
+spawn executor, direct-copy cache, bounded indexed views, distinct voxel and
+fiber preparation, formal and in-sample inference, jitter blocks, OSS
+toolchain and axis equivalence, pPAM, reporting, canonical publication,
+extension-v2 validation, resource acceptance, and goal-level guards. It used
+temporary fixtures and did not inspect or substitute for the formal run or
+shared cache. This closes the current-worktree static regression boundary only;
+the production OSS gate, downstream pPAM, combined child, canonical replay,
+formal postprocess, and final resource audit remain required.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after
