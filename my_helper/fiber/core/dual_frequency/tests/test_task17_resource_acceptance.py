@@ -231,6 +231,14 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
         ):
             self._validate()
 
+    def test_current_guard_runner_exit_spelling_passes(self) -> None:
+        with self.guard.open(encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        rows[-1]["event"] = "runner_exit"
+        self._write_guard(rows)
+        report = self._validate()
+        self.assertEqual(report["guard"]["sample_count"], 3)
+
     def test_derived_task_identity_mismatch_fails(self) -> None:
         path = self.root / "tasks" / f"{self.tasks[1]}.json"
         task = json.loads(path.read_text(encoding="utf-8"))

@@ -7339,6 +7339,13 @@ accepted and that unsupported guard events remain rejected. This compatibility
 repair changes no scientific input, cache identity, task outcome, resource
 ceiling, or running process.
 
+The same clean-terminal spelling must be accepted by the strict instrumented
+resource validator used for successor segments. It may receive a guard produced
+from the same external template even when the execution segment also contains
+internal resource samples. Both validators therefore accept `runner_exit`,
+`runner_exited`, and `completed` as clean terminal vocabulary while continuing
+to reject every limit, unmount, or termination event.
+
 The same preflight found that the resource validator required
 `max_probability_difference` to be exactly zero even though the scientific
 gate accepts any finite value strictly below the fixed internal tolerance of

@@ -16,7 +16,9 @@ from typing import Any, Mapping, Sequence
 import uuid
 
 
-_ALLOWED_GUARD_EVENTS = frozenset({"sample", "runner_exited", "completed"})
+_ALLOWED_GUARD_EVENTS = frozenset(
+    {"sample", "runner_exit", "runner_exited", "completed"}
+)
 
 
 class ResourceAcceptanceError(RuntimeError):
