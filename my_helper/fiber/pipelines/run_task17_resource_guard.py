@@ -120,6 +120,16 @@ def _mount_is_present(mount_path: Path) -> bool:
     return f" on {mount_path} " in result.stdout
 
 
+def _pid_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _tree_depths(
     rows: Sequence[ProcessRow],
     root_pid: int,
@@ -220,6 +230,7 @@ def run_guard(
     process_reader: Callable[[], tuple[ProcessRow, ...]] = _process_rows,
     swap_reader: Callable[[], int] = _swap_used_bytes,
     mount_reader: Callable[[Path], bool] = _mount_is_present,
+    pid_reader: Callable[[int], bool] = _pid_exists,
     terminator: Callable[[Sequence[ProcessRow], int], None] = _terminate_tree,
     sleeper: Callable[[float], None] = time.sleep,
     timestamp_reader: Callable[[], str] = _utc_now,
@@ -249,6 +260,11 @@ def run_guard(
                 tree = _tree_rows(rows, runner_pid)
                 runner_present = any(row.pid == runner_pid for row in tree)
                 if not runner_present:
+                    if pid_reader(runner_pid):
+                        runner_present = True
+                        raise ResourceGuardError(
+                            "runner PID is live but absent from process snapshot"
+                        )
                     _write_row(
                         writer,
                         handle,

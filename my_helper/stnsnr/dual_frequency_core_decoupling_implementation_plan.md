@@ -6682,27 +6682,33 @@ guarded mount so an unmount cannot erase its evidence.
 
 Every sample resolves the complete runner descendant tree, records aggregate
 RSS and CPU, and compares current swap against the epoch startup baseline. A
-missing runner closes cleanly with `runner_exit`. A missing guarded mount, RSS
-at or above the ceiling, or any positive swap growth records the corresponding
-stop event, flushes the row, and sends `SIGTERM` to the descendant tree and
-runner. The command returns a nonzero status after a guard-triggered stop.
-Malformed process, swap, mount, or output evidence must fail closed instead of
-silently continuing. Focused tests must cover ordinary sampling, clean runner
-exit, every stop condition, append-header rejection, and tree termination
-without signaling an unrelated process. The active independent OSS process
-continues under its already-running temporary guard; only successor launches
-use the checked-in command, so this implementation change cannot alter the
-current segment.
+runner closes cleanly with `runner_exit` only after an independent PID probe
+confirms that the declared runner no longer exists. If the process-table
+snapshot omits a runner whose PID is still live, the guard treats the snapshot
+as untrustworthy and fails closed instead of leaving an unguarded process. A
+missing guarded mount, RSS at or above the ceiling, or any positive swap growth
+records the corresponding stop event, flushes the row, and sends `SIGTERM` to
+the descendant tree and runner. The command returns a nonzero status after a
+guard-triggered stop. Malformed process, swap, mount, PID, or output evidence
+must fail closed instead of silently continuing. Focused tests must cover
+ordinary sampling, independently confirmed clean runner exit, a live PID
+missing from one process snapshot, every stop condition, append-header
+rejection, and tree termination without signaling an unrelated process. The
+active independent OSS process continues under its already-running temporary
+guard; only successor launches use the checked-in command, so this
+implementation change cannot alter the current segment.
 
 The checked-in guard is now implemented with the frozen CLI and CSV contract.
-Nine focused guard tests cover ordinary descendant-tree aggregation, clean
-runner exit, compatibility with both terminal validators, unmount, RSS, and
-swap stops, malformed-header rejection, output placement outside the guarded
-mount, fail-closed process-evidence handling, and descendant-only termination.
-The joint guard and two resource-validator replay passed 27 tests under Conda
-`leaddbs`. These tests use temporary process snapshots and do not replace the
-active independent OSS guard or its production evidence. The checked-in guard
-becomes the required external observer for combined execution.
+Eleven focused guard tests cover ordinary descendant-tree aggregation,
+independently confirmed clean runner exit, compatibility with both terminal
+validators, unmount, RSS, and swap stops, malformed-header rejection, output
+placement outside the guarded mount, fail-closed process-evidence handling, a
+live runner omitted from one process snapshot, PID absence versus permission
+denial, and descendant-only termination. The joint guard and two
+resource-validator replay passed 33 tests under Conda `leaddbs`. These tests
+use temporary process snapshots and do not replace the active independent OSS
+guard or its production evidence. The checked-in guard becomes the required
+external observer for combined execution.
 
 Terminal resource acceptance uses a repository-owned read-only validator rather
 than a hand-copied peak. `validate_task17_resource_acceptance.py` receives one

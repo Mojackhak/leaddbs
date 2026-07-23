@@ -10,6 +10,7 @@ from unittest.mock import patch
 from my_helper.fiber.pipelines.run_task17_resource_guard import (
     ProcessRow,
     ResourceGuardError,
+    _pid_exists,
     _terminate_tree,
     run_guard,
 )
@@ -64,6 +65,7 @@ class Task17ResourceGuardTest(unittest.TestCase):
             process_reader=process_reader,
             swap_reader=swap_reader,
             mount_reader=mount_reader,
+            pid_reader=lambda _pid: False,
             terminator=terminator,
             sleeper=lambda _seconds: None,
             timestamp_reader=lambda: next(times),
@@ -190,6 +192,35 @@ class Task17ResourceGuardTest(unittest.TestCase):
                     terminator=terminator,
                 )
         self.assertEqual(terminations, [(100,)])
+
+    def test_live_runner_missing_from_snapshot_fails_closed(self) -> None:
+        terminations: list[tuple[int, ...]] = []
+
+        def terminator(rows, _runner_pid: int) -> None:
+            terminations.append(tuple(row.pid for row in rows))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(
+                ResourceGuardError,
+                "live but absent",
+            ):
+                run_guard(
+                    runner_pid=100,
+                    output=root / "guard.csv",
+                    mount_path=root / "VAL",
+                    process_reader=lambda: (ProcessRow(900, 1, 1, 0.0),),
+                    swap_reader=lambda: 0,
+                    pid_reader=lambda _pid: True,
+                    terminator=terminator,
+                )
+        self.assertEqual(terminations, [(100,)])
+
+    def test_pid_probe_distinguishes_absence_from_permission_denial(self) -> None:
+        with patch("os.kill", side_effect=ProcessLookupError):
+            self.assertFalse(_pid_exists(100))
+        with patch("os.kill", side_effect=PermissionError):
+            self.assertTrue(_pid_exists(100))
 
     def test_guard_evidence_cannot_be_written_below_guarded_mount(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
