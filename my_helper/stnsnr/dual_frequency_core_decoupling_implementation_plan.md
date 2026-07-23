@@ -7612,6 +7612,35 @@ recorded peak remained 62493573120 bytes, therefore `< 64 GiB`, and swap growth
 remained `< 1` byte in both detected baseline epochs. This remains
 intermediate, nonterminal evidence.
 
+At the 2026-07-23 10:12 PDT checkpoint, the reference cache had advanced to 60
+passing decisions and 120 corresponding row manifests. The newest decision is
+`82daa7b6af4588ae1f87eb348a51076f30773ca9ac3d9f8e7efe7d6c388a06f3`;
+its final and `Omega_max` row identities are
+`7a79660624f4d19205b5b45ba8fa4dadb0e6d338fb2bba7a13d9d02b90388db6`
+and
+`5d8f24483d353823c9124ca12c50fbc61b7dafe829ad2a5319c515668ab7636a`.
+Fresh validation passed the decision and both row manifests, exact file
+closure, byte count, SHA-256, NPY dtype and shape, ordered unique positive
+fiber IDs, finite probability range, and the exact final-to-`Omega_max`
+canonical-ID subset. The final row contains 3401 fibers and the `Omega_max` row
+contains 10320 fibers. Independent replay again found maximum probability
+difference 0 and strict `p(A) > 0.5` state mismatch count 0, agreeing with the
+persisted pass status and zero activation-count mismatch.
+
+All 60 cumulative decisions remain passing members of the reference group.
+This cumulative count is not a terminal denominator: the reference gate was
+still running an active solver child and had not committed its authoritative
+`row_decision_ids` closure. The 590-task ledger therefore remains 196
+completed, one running, one historical failed, and 392 dependency-derived
+skips. VAL remained mounted and writable. Runner PID 15265, persistent worker
+PID 15357, the guard, and one active `run_pathway_activation` child were live;
+the solver's internal pool used eight CPU workers during the snapshot. The
+bounded task-tree snapshot measured 10424090624 bytes RSS and 796.5 percent
+aggregate CPU. The guard exceeded 67000 samples; its recorded peak remained
+62493573120 bytes, therefore `< 64 GiB`, and swap growth remained `< 1` byte
+in both detected baseline epochs. This remains intermediate, nonterminal
+evidence.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside
