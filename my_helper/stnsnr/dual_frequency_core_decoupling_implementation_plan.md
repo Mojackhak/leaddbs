@@ -3563,6 +3563,42 @@ across direct voxel and normative fiber. The focused provider suite remains at
 29 tests plus 5 subtests and the complete dual-frequency suite remains at 558
 tests plus 310 subtests.
 
+`IndexedArrayView` is implemented in two ordered phases. The first phase is the
+preparation-kernel boundary: a cache-backed physical matrix retains its parent
+NPY plus exact ordered row and column positions. Subject and Omega-max subset
+operations compose positions without allocating a subset memmap. Omega-max
+counting, reference-overlap preparation, add-on-only preparation, and the
+final generated-cache writer consume bounded feature blocks from the view.
+Cache hits must return before reading view payload blocks. The cache-disabled
+compatibility path may retain its existing concrete subset artifacts.
+
+The first phase still publishes a final cache-backed `ArtifactRef`; it does not
+satisfy the complete persisted `IndexedArrayView` record contract by itself.
+The later phase will expose typed logical views to downstream kernels where a
+full prepared payload is not otherwise scientifically required. Acceptance of
+this first phase requires identical arrays and semantic IDs, zero subject or
+feature subset memmap allocation on the cache-enabled path, bounded block
+reads, one final payload write on a miss, and zero payload reads or writes on a
+hit.
+
+The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
+immutable optional row and column positions over one parent memmap, composes
+ordered subject and feature selections, exposes bounded column reads, and
+retains the derived semantic identity. Omega-max counts columns blockwise.
+Direct-voxel and normative-fiber overlap preparation consume logical blocks and
+write only their scientifically required derived outputs. The generated cache
+writer writes a logical view blockwise into its one final NPY on a miss and
+returns before any block read on a hit. Cache-disabled execution retains the
+concrete compatibility path.
+
+The focused provider suite passes 30 tests plus 5 subtests. It proves zero
+subset-memmap allocator calls for cache-backed subject and feature views,
+logical-value parity, direct-voxel add-on overlap parity, absence of task-local
+large NPY payloads, and a cache hit that succeeds while every logical payload
+read is forced to fail. The complete dual-frequency suite passes 559 tests plus
+310 subtests. Persisted downstream `IndexedArrayView` records and configured-
+data parity replay remain open and are not claimed by this phase.
+
 - [ ] **Step 3: Implement distinct voxel sampling and shared physical rows**
 
 Resolve unique physical subject/program/frequency-component units before

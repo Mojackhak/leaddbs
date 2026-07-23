@@ -459,8 +459,14 @@ class InputProviderTest(unittest.TestCase):
         try:
             self.assertEqual(uncached_missing, cached_missing)
             self.assertEqual(cached_missing, streamed_missing)
-            np.testing.assert_array_equal(uncached.array, cached.array)
-            np.testing.assert_array_equal(cached.array, streamed.array)
+            np.testing.assert_array_equal(
+                uncached.materialize(),
+                cached.materialize(),
+            )
+            np.testing.assert_array_equal(
+                cached.materialize(),
+                streamed.materialize(),
+            )
         finally:
             uncached_provider._release_temporary_matrix(uncached)
             cached_provider._release_temporary_matrix(cached)
@@ -1660,12 +1666,44 @@ class InputProviderTest(unittest.TestCase):
         self.assertNotEqual(first.uri, separated.uri)
         self.assertNotEqual(first.uri, cross_domain.uri)
         np.testing.assert_array_equal(_materialize(artifact_store, first), values)
+        parent = provider._temporary_matrix(
+            "prepared-cache-hit-view",
+            (3, 3),
+            np.float32,
+        )
+        parent.array[:] = np.vstack(
+            (values[0], np.full(3, -1.0, dtype=np.float32), values[1])
+        )
+        parent.array.flush()
+        cache_hit_view = dataclasses.replace(
+            parent,
+            row_positions=np.asarray([0, 2], dtype=np.int64),
+        )
+        try:
+            with mock.patch.object(
+                type(cache_hit_view),
+                "read_column_block",
+                side_effect=AssertionError("cache hit must not read view payloads"),
+            ):
+                cache_hit = provider._publish_prepared_array(
+                    publisher=RunScopedArtifactPublisher(
+                        artifact_root / "prepared-cache-hit-view",
+                        "prepared-cache-hit-view",
+                        "1",
+                    ),
+                    axes=(subject_axis, feature_axis),
+                    **{**arguments, "value": cache_hit_view},
+                )
+            self.assertEqual(first.uri, cache_hit.uri)
+        finally:
+            provider._release_temporary_matrix(cache_hit_view)
         for task_root in (
             "prepared-cache-first",
             "prepared-cache-second",
             "prepared-cache-endpoint-alias",
             "prepared-cache-separated",
             "prepared-cache-cross-domain",
+            "prepared-cache-hit-view",
         ):
             self.assertFalse(tuple((artifact_root / task_root).glob("*.npy")))
 
@@ -1731,12 +1769,64 @@ class InputProviderTest(unittest.TestCase):
             self.assertEqual(sample_plan.call_count, len(study.subjects))
             self.assertEqual(first_missing, ())
             self.assertEqual(second_missing, ())
-            self.assertEqual(first.array.shape[0], len(first_subjects))
-            self.assertEqual(second.array.shape[0], len(second_subjects))
-            np.testing.assert_array_equal(first.array[2:], second.array[:6])
+            self.assertEqual(first.shape[0], len(first_subjects))
+            self.assertEqual(second.shape[0], len(second_subjects))
+            np.testing.assert_array_equal(
+                first.materialize()[2:],
+                second.materialize()[:6],
+            )
         finally:
             provider._release_temporary_matrix(first)
             provider._release_temporary_matrix(second)
+
+    def test_cache_backed_subject_and_feature_subsets_allocate_no_memmap(self) -> None:
+        study = self._study(missing_addon_for_last_subject=False)
+        provider, catalog, _artifact_store, _artifact_root = self._provider(
+            study,
+            shared_cache=True,
+        )
+        endpoint = self._endpoint(catalog, "reference_voxel")
+        feature_space = provider._direct_feature_space()
+        binding = provider.configuration.direct_voxel.endpoint_pair.reference
+        initial, _missing = provider._matrix_for_binding(
+            endpoint,
+            tuple(endpoint.subject_ids[:8]),
+            binding,
+            "reference",
+            feature_space,
+            allow_absent=False,
+        )
+        provider._release_temporary_matrix(initial)
+
+        with mock.patch.object(
+            provider,
+            "_temporary_matrix",
+            wraps=provider._temporary_matrix,
+        ) as allocator:
+            subject_view, _missing = provider._matrix_for_binding(
+                endpoint,
+                tuple(endpoint.subject_ids[2:11]),
+                binding,
+                "reference",
+                feature_space,
+                allow_absent=False,
+            )
+            feature_view = provider._subset_matrix(
+                subject_view,
+                np.asarray([0, 2], dtype=np.int64),
+                "must-remain-logical",
+            )
+        try:
+            self.assertEqual(allocator.call_count, 0)
+            self.assertIsNotNone(feature_view.row_positions)
+            self.assertIsNotNone(feature_view.column_positions)
+            self.assertEqual(feature_view.shape, (9, 2))
+            np.testing.assert_array_equal(
+                feature_view.materialize(),
+                subject_view.materialize()[:, [0, 2]],
+            )
+        finally:
+            provider._release_temporary_matrix(feature_view)
 
     def test_omega_max_is_the_exact_inclusive_minimum_grid_candidate_union(self) -> None:
         provider, _catalog, _artifact_store, _artifact_root = self._provider(
@@ -2590,7 +2680,8 @@ class InputProviderTest(unittest.TestCase):
 
     def test_continuous_and_alternating_paths_feed_locked_overlap_preparation(self) -> None:
         provider, catalog, artifact_store, artifact_root = self._provider(
-            self._study(missing_addon_for_last_subject=False)
+            self._study(missing_addon_for_last_subject=False),
+            shared_cache=True,
         )
         reference_endpoint = self._endpoint(catalog, "reference_voxel")
         addon_endpoint = self._endpoint(catalog, "addon_voxel")
@@ -2669,6 +2760,7 @@ class InputProviderTest(unittest.TestCase):
         self.assertTrue(np.allclose(exposure, 0.0))
         self.assertTrue(np.allclose(raw_addon, 80.0))
         self.assertTrue(np.all(overlap))
+        self.assertFalse(tuple((artifact_root / "addon-exposure").glob("*.npy")))
         addon_final = self._direct_final(
             addon_endpoint,
             addon_prepared,

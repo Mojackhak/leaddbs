@@ -293,6 +293,77 @@ class _TemporaryMatrix:
     path: Path
     delete_on_release: bool = True
     scientific_identity: str | None = None
+    row_positions: np.ndarray | None = None
+    column_positions: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.array, np.ndarray) or self.array.ndim != 2:
+            raise RuntimeInputProviderError(
+                "temporary matrix storage must be two-dimensional"
+            )
+        for field, size in (
+            ("row_positions", self.array.shape[0]),
+            ("column_positions", self.array.shape[1]),
+        ):
+            positions = getattr(self, field)
+            if positions is None:
+                continue
+            values = np.asarray(positions)
+            if (
+                values.ndim != 1
+                or values.dtype != np.dtype(np.int64)
+                or values.size < 1
+                or values[0] < 0
+                or values[-1] >= size
+                or np.any(np.diff(values) < 1)
+            ):
+                raise RuntimeInputProviderError(
+                    f"{field} must be ordered unique in-range int64 positions"
+                )
+            values.flags.writeable = False
+            object.__setattr__(self, field, values)
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return (
+            self.array.shape[0]
+            if self.row_positions is None
+            else int(self.row_positions.size),
+            self.array.shape[1]
+            if self.column_positions is None
+            else int(self.column_positions.size),
+        )
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self.array.dtype
+
+    def read_column_block(self, start: int, stop: int) -> np.ndarray:
+        if type(start) is not int or type(stop) is not int:
+            raise TypeError("matrix block bounds must be integers")
+        if start < 0 or stop <= start or stop > self.shape[1]:
+            raise RuntimeInputProviderError("matrix block bounds are invalid")
+        columns: slice | np.ndarray = (
+            slice(start, stop)
+            if self.column_positions is None
+            else self.column_positions[start:stop]
+        )
+        if self.row_positions is None:
+            return np.asarray(self.array[:, columns])
+        if isinstance(columns, slice):
+            return np.asarray(self.array[self.row_positions, columns])
+        return np.asarray(self.array[np.ix_(self.row_positions, columns)])
+
+    def materialize(self) -> np.ndarray:
+        """Explicitly gather the complete logical matrix for bounded tests or APIs."""
+
+        if self.row_positions is None and self.column_positions is None:
+            return np.asarray(self.array)
+        output = np.empty(self.shape, dtype=self.dtype)
+        for start in range(0, self.shape[1], 65_536):
+            stop = min(start + 65_536, self.shape[1])
+            output[:, start:stop] = self.read_column_block(start, stop)
+        return output
 
 
 @dataclass(frozen=True)
@@ -1867,10 +1938,31 @@ class StudyRuntimeInputProvider:
             raise RuntimeInputProviderError(
                 "endpoint subject axis is not a subset of the physical subject axis"
             ) from exc
+        view_identity = canonical_hash(
+            {
+                "parent_identity": source.scientific_identity,
+                "ordered_subject_ids": requested_subject_ids,
+                "operation": "ordered_subject_subset_v1",
+            }
+        )
+        if self._scientific_cache is not None:
+            parent_positions = (
+                positions
+                if source.row_positions is None
+                else source.row_positions[positions]
+            )
+            return _TemporaryMatrix(
+                source.array,
+                source.path,
+                source.delete_on_release,
+                view_identity,
+                np.asarray(parent_positions, dtype=np.int64),
+                source.column_positions,
+            )
         output = self._temporary_matrix(
             label,
-            (len(requested_subject_ids), source.array.shape[1]),
-            source.array.dtype,
+            (len(requested_subject_ids), source.shape[1]),
+            source.dtype,
         )
         completed = False
         try:
@@ -1882,13 +1974,7 @@ class StudyRuntimeInputProvider:
                 output.array,
                 output.path,
                 output.delete_on_release,
-                canonical_hash(
-                    {
-                        "parent_identity": source.scientific_identity,
-                        "ordered_subject_ids": requested_subject_ids,
-                        "operation": "ordered_subject_subset_v1",
-                    }
-                ),
+                view_identity,
             )
             completed = True
             return output
@@ -2368,7 +2454,7 @@ class StudyRuntimeInputProvider:
     def _omega_max_feature_space(
         self,
         parent: _FeatureSpace,
-        exposure: np.ndarray,
+        exposure: np.ndarray | _TemporaryMatrix,
         subject_ids: tuple[str, ...],
         profile: DirectVoxelModelProfile | NormativeFiberModelProfile,
     ) -> tuple[_FeatureSpace, np.ndarray | None]:
@@ -2376,8 +2462,21 @@ class StudyRuntimeInputProvider:
             return parent, None
         minimum_tau = min(profile.source.tau_values)
         minimum_coverage = min(profile.source.coverage_values)
-        matrix = np.asanyarray(exposure)
-        counts = np.count_nonzero(matrix >= minimum_tau, axis=0)
+        if isinstance(exposure, _TemporaryMatrix):
+            counts = np.empty(exposure.shape[1], dtype=np.int64)
+            for start in range(0, exposure.shape[1], self._fiber_chunk_size):
+                stop = min(start + self._fiber_chunk_size, exposure.shape[1])
+                counts[start:stop] = np.count_nonzero(
+                    exposure.read_column_block(start, stop) >= minimum_tau,
+                    axis=0,
+                )
+        else:
+            matrix = np.asanyarray(exposure)
+            if matrix.ndim != 2:
+                raise RuntimeInputProviderError(
+                    "Omega_max exposure must be a two-dimensional matrix"
+                )
+            counts = np.count_nonzero(matrix >= minimum_tau, axis=0)
         positions = np.flatnonzero(counts >= minimum_coverage).astype(np.int64)
         if positions.size == 0:
             return parent, None
@@ -2605,14 +2704,37 @@ class StudyRuntimeInputProvider:
             indices.ndim != 1
             or indices.size < 1
             or indices[0] < 0
-            or indices[-1] >= source.array.shape[1]
+            or indices[-1] >= source.shape[1]
             or np.any(np.diff(indices) < 1)
         ):
             raise RuntimeInputProviderError("Omega_max positions must be ordered and unique")
+        view_identity = canonical_hash(
+            {
+                "parent_identity": source.scientific_identity,
+                "ordered_column_positions_sha256": canonical_hash(
+                    indices.tolist()
+                ),
+                "operation": "ordered_feature_subset_v1",
+            }
+        )
+        if self._scientific_cache is not None:
+            parent_positions = (
+                indices
+                if source.column_positions is None
+                else source.column_positions[indices]
+            )
+            return _TemporaryMatrix(
+                source.array,
+                source.path,
+                source.delete_on_release,
+                view_identity,
+                source.row_positions,
+                np.asarray(parent_positions, dtype=np.int64),
+            )
         output = self._temporary_matrix(
             label,
-            (source.array.shape[0], int(indices.size)),
-            source.array.dtype,
+            (source.shape[0], int(indices.size)),
+            source.dtype,
         )
         completed = False
         try:
@@ -2624,15 +2746,7 @@ class StudyRuntimeInputProvider:
                 output.array,
                 output.path,
                 output.delete_on_release,
-                canonical_hash(
-                    {
-                        "parent_identity": source.scientific_identity,
-                        "ordered_column_positions_sha256": canonical_hash(
-                            indices.tolist()
-                        ),
-                        "operation": "ordered_feature_subset_v1",
-                    }
-                ),
+                view_identity,
             )
             completed = True
             return output
@@ -2737,15 +2851,40 @@ class StudyRuntimeInputProvider:
         domain: str,
         publisher: ArtifactPublisher,
         filename: str,
-        value: np.ndarray,
+        value: np.ndarray | _TemporaryMatrix,
         kind: str,
         axes: tuple[AxisRef, ...],
         units: str | None,
         space: str | None,
         dependencies: tuple[tuple[str, str], ...],
     ) -> ArtifactRef:
-        array = np.asarray(value)
+        matrix_view = value if isinstance(value, _TemporaryMatrix) else None
+        array = None if matrix_view is not None else np.asarray(value)
+        shape = matrix_view.shape if matrix_view is not None else array.shape
+        dtype = matrix_view.dtype if matrix_view is not None else array.dtype
         if self._scientific_cache is None:
+            if matrix_view is not None:
+                if (
+                    matrix_view.row_positions is None
+                    and matrix_view.column_positions is None
+                ):
+                    array = np.asarray(matrix_view.array)
+                else:
+                    array = np.empty(matrix_view.shape, dtype=matrix_view.dtype)
+                    for start in range(
+                        0,
+                        matrix_view.shape[1],
+                        self._fiber_chunk_size,
+                    ):
+                        stop = min(
+                            start + self._fiber_chunk_size,
+                            matrix_view.shape[1],
+                        )
+                        array[:, start:stop] = matrix_view.read_column_block(
+                            start,
+                            stop,
+                        )
+            assert array is not None
             return publisher.array(
                 filename,
                 array,
@@ -2754,7 +2893,7 @@ class StudyRuntimeInputProvider:
                 units=units,
                 space=space,
             )
-        if array.shape != tuple(axis.count for axis in axes):
+        if shape != tuple(axis.count for axis in axes):
             raise RuntimeInputProviderError(
                 "prepared cache array shape differs from its ordered axes"
             )
@@ -2775,8 +2914,8 @@ class StudyRuntimeInputProvider:
             with self._scientific_cache.producer_lease(key) as producer:
                 if producer:
                     metadata = CacheFileMetadata(
-                        dtype=np.dtype(array.dtype).name,
-                        shape=tuple(int(dimension) for dimension in array.shape),
+                        dtype=np.dtype(dtype).name,
+                        shape=tuple(int(dimension) for dimension in shape),
                         axes=portable_axes,
                         units=units,
                         space=space,
@@ -2784,10 +2923,39 @@ class StudyRuntimeInputProvider:
 
                     def generate(staging: Path) -> tuple[CachedFile, ...]:
                         target = staging / "array.npy"
-                        with target.open("wb") as stream:
-                            np.save(stream, array, allow_pickle=False)
-                            stream.flush()
-                            os.fsync(stream.fileno())
+                        if matrix_view is None:
+                            assert array is not None
+                            with target.open("wb") as stream:
+                                np.save(stream, array, allow_pickle=False)
+                                stream.flush()
+                                os.fsync(stream.fileno())
+                        else:
+                            output = np.lib.format.open_memmap(
+                                target,
+                                mode="w+",
+                                dtype=matrix_view.dtype,
+                                shape=matrix_view.shape,
+                            )
+                            try:
+                                for start in range(
+                                    0,
+                                    matrix_view.shape[1],
+                                    self._fiber_chunk_size,
+                                ):
+                                    stop = min(
+                                        start + self._fiber_chunk_size,
+                                        matrix_view.shape[1],
+                                    )
+                                    output[:, start:stop] = (
+                                        matrix_view.read_column_block(start, stop)
+                                    )
+                                output.flush()
+                            finally:
+                                mapping = getattr(output, "_mmap", None)
+                                if mapping is not None:
+                                    mapping.close()
+                            with target.open("rb") as stream:
+                                os.fsync(stream.fileno())
                         return (
                             CachedFile(
                                 "array.npy",
@@ -2811,8 +2979,8 @@ class StudyRuntimeInputProvider:
             )
         cached = files[0]
         expected_metadata = CacheFileMetadata(
-            dtype=np.dtype(array.dtype).name,
-            shape=tuple(int(dimension) for dimension in array.shape),
+            dtype=np.dtype(dtype).name,
+            shape=tuple(int(dimension) for dimension in shape),
             axes=portable_axes,
             units=units,
             space=space,
@@ -2835,6 +3003,99 @@ class StudyRuntimeInputProvider:
             producer_id=f"shared_prepared_{domain}_exposure",
             producer_version="3",
         )
+
+    def _prepare_direct_overlap_views(
+        self,
+        *,
+        endpoint_id: str,
+        addon: _TemporaryMatrix,
+        reference: _TemporaryMatrix,
+        reference_record: SourceRecord,
+    ) -> tuple[_TemporaryMatrix, _TemporaryMatrix]:
+        if addon.shape != reference.shape:
+            raise RuntimeInputProviderError(
+                "direct overlap views must share one logical shape"
+            )
+        prepared = self._temporary_matrix(
+            f"{endpoint_id}-addon-only",
+            addon.shape,
+            np.float32,
+        )
+        overlap = self._temporary_matrix(
+            f"{endpoint_id}-reference-overlap",
+            addon.shape,
+            np.bool_,
+        )
+        completed = False
+        try:
+            for start in range(0, addon.shape[1], self._fiber_chunk_size):
+                stop = min(start + self._fiber_chunk_size, addon.shape[1])
+                block = prepare_reference_overlap(
+                    addon.read_column_block(start, stop),
+                    reference.read_column_block(start, stop),
+                    reference_record,
+                )
+                prepared.array[:, start:stop] = np.asarray(
+                    block.addon_exposure,
+                    dtype=np.float32,
+                )
+                overlap.array[:, start:stop] = block.overlap_mask
+            prepared.array.flush()
+            overlap.array.flush()
+            completed = True
+            return prepared, overlap
+        finally:
+            if not completed:
+                self._release_temporary_matrix(prepared)
+                self._release_temporary_matrix(overlap)
+
+    def _prepare_fiber_overlap_views(
+        self,
+        *,
+        endpoint: EndpointRecord,
+        addon: _TemporaryMatrix,
+        reference: _TemporaryMatrix,
+        reference_record: SourceRecord | SensitiveRecord,
+        reference_dependency: ReferenceDependencyRecord,
+    ) -> tuple[_TemporaryMatrix, _TemporaryMatrix]:
+        if addon.shape != reference.shape:
+            raise RuntimeInputProviderError(
+                "fiber overlap views must share one logical shape"
+            )
+        prepared = self._temporary_matrix(
+            f"{endpoint.endpoint_id}-addon-only",
+            addon.shape,
+            np.float32,
+        )
+        overlap = self._temporary_matrix(
+            f"{endpoint.endpoint_id}-reference-overlap",
+            addon.shape,
+            np.bool_,
+        )
+        completed = False
+        try:
+            for start in range(0, addon.shape[1], self._fiber_chunk_size):
+                stop = min(start + self._fiber_chunk_size, addon.shape[1])
+                block = prepare_addon_fiber_exposure(
+                    addon.read_column_block(start, stop),
+                    reference.read_column_block(start, stop),
+                    reference_record,
+                    matched_reference_endpoint_id=(
+                        reference_dependency.matched_reference_endpoint_id
+                    ),
+                    matched_reference_connectome_id=endpoint.key.connectome_id,
+                    feature_chunk_size=self._fiber_chunk_size,
+                )
+                prepared.array[:, start:stop] = block.exposure
+                overlap.array[:, start:stop] = block.reference_active
+            prepared.array.flush()
+            overlap.array.flush()
+            completed = True
+            return prepared, overlap
+        finally:
+            if not completed:
+                self._release_temporary_matrix(prepared)
+                self._release_temporary_matrix(overlap)
 
     @staticmethod
     def _validate_reference_dependency(
@@ -3456,7 +3717,7 @@ class StudyRuntimeInputProvider:
         if endpoint.key.model_family.endswith("fiber"):
             feature_space, omega_positions = self._omega_max_feature_space(
                 sampling_feature_space,
-                raw_primary.array,
+                raw_primary,
                 subject_ids,
                 profile,
             )
@@ -3516,7 +3777,7 @@ class StudyRuntimeInputProvider:
                     domain=prepared_domain,
                     publisher=publisher,
                     filename="exposure.npy",
-                    value=raw_primary.array,
+                    value=raw_primary,
                     kind="prepared_reference_exposure",
                     axes=axes,
                     units="V/m",
@@ -3635,54 +3896,36 @@ class StudyRuntimeInputProvider:
                     raise RuntimeInputProviderError(
                         "add-on voxel dependency requires SourceRecord"
                     )
-                overlap = prepare_reference_overlap(
-                    raw_primary.array,
-                    addon_reference_component.array,
-                    reference_record,
+                prepared, overlap_mask = self._prepare_direct_overlap_views(
+                    endpoint_id=endpoint.endpoint_id,
+                    addon=raw_primary,
+                    reference=addon_reference_component,
+                    reference_record=reference_record,
                 )
-                prepared: np.ndarray = np.asarray(
-                    overlap.addon_exposure,
-                    dtype=np.float32,
-                )
-                overlap_mask: np.ndarray = np.asarray(
-                    overlap.overlap_mask,
-                    dtype=bool,
-                )
+                temporaries.extend((prepared, overlap_mask))
             else:
-                overlap_temporary = self._temporary_matrix(
-                    f"{endpoint.endpoint_id}-reference-overlap",
-                    raw_primary.array.shape,
-                    np.bool_,
-                )
-                temporaries.append(overlap_temporary)
                 if isinstance(reference_record, SensitiveRecord) and (
                     reference_record.cell_computability_status != "computable"
                 ):
+                    overlap_temporary = self._temporary_matrix(
+                        f"{endpoint.endpoint_id}-reference-overlap",
+                        raw_primary.shape,
+                        np.bool_,
+                    )
+                    temporaries.append(overlap_temporary)
                     overlap_temporary.array[:] = False
                     overlap_temporary.array.flush()
-                    prepared = raw_primary.array
-                    overlap_mask = overlap_temporary.array
+                    prepared = raw_primary
+                    overlap_mask = overlap_temporary
                 else:
-                    prepared_temporary = self._temporary_matrix(
-                        f"{endpoint.endpoint_id}-addon-only",
-                        raw_primary.array.shape,
-                        np.float32,
+                    prepared, overlap_mask = self._prepare_fiber_overlap_views(
+                        endpoint=endpoint,
+                        addon=raw_primary,
+                        reference=addon_reference_component,
+                        reference_record=reference_record,
+                        reference_dependency=reference_dependency,
                     )
-                    temporaries.append(prepared_temporary)
-                    overlap = prepare_addon_fiber_exposure(
-                        raw_primary.array,
-                        addon_reference_component.array,
-                        reference_record,
-                        matched_reference_endpoint_id=(
-                            reference_dependency.matched_reference_endpoint_id
-                        ),
-                        matched_reference_connectome_id=endpoint.key.connectome_id,
-                        destination=prepared_temporary.array,
-                        reference_active_destination=overlap_temporary.array,
-                        feature_chunk_size=self._fiber_chunk_size,
-                    )
-                    prepared = overlap.exposure
-                    overlap_mask = overlap.reference_active
+                    temporaries.extend((prepared, overlap_mask))
 
             derived_dependencies = (
                 ("addon_primary_matrix", primary_identity),
@@ -3704,7 +3947,7 @@ class StudyRuntimeInputProvider:
                 domain=prepared_domain,
                 publisher=publisher,
                 filename="reference_condition_exposure.npy",
-                value=reference_condition.array,
+                value=reference_condition,
                 kind="reference_condition_exposure",
                 axes=axes,
                 units="V/m",
@@ -3717,7 +3960,7 @@ class StudyRuntimeInputProvider:
                 domain=prepared_domain,
                 publisher=publisher,
                 filename="addon_reference_component_exposure.npy",
-                value=addon_reference_component.array,
+                value=addon_reference_component,
                 kind="addon_reference_component_exposure",
                 axes=axes,
                 units="V/m",
@@ -3741,7 +3984,7 @@ class StudyRuntimeInputProvider:
                 domain=prepared_domain,
                 publisher=publisher,
                 filename="total_exposure.npy",
-                value=raw_primary.array,
+                value=raw_primary,
                 kind="raw_addon_component_exposure",
                 axes=axes,
                 units="V/m",
@@ -3788,7 +4031,11 @@ class StudyRuntimeInputProvider:
                 total_exposure=total_artifact,
             )
         finally:
+            released_paths: set[Path] = set()
             for temporary in reversed(temporaries):
+                if temporary.path in released_paths:
+                    continue
+                released_paths.add(temporary.path)
                 self._release_temporary_matrix(temporary)
 
     def _source_grid(self, endpoint: EndpointRecord) -> SourceGrid:
