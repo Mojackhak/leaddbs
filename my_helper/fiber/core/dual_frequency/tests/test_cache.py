@@ -15,6 +15,7 @@ import unittest
 from unittest import mock
 
 import numpy as np
+import dual_frequency.cache.store as cache_store
 
 from dual_frequency.cache import (
     ArtifactPublicationError,
@@ -715,6 +716,21 @@ class ArtifactStoreTest(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactValidationError, "read-only"):
             self._materialize(mmap_mode="r+")
 
+    def test_reuses_process_local_sha_only_while_file_signature_is_unchanged(self) -> None:
+        with mock.patch.object(
+            cache_store,
+            "sha256_stream",
+            wraps=cache_store.sha256_stream,
+        ) as digest:
+            np.testing.assert_array_equal(self._materialize(), self.array)
+            np.testing.assert_array_equal(self._materialize(), self.array)
+            self.assertEqual(digest.call_count, 1)
+
+            np.save(self.path, self.array + 1.0, allow_pickle=False)
+            with self.assertRaisesRegex(ArtifactValidationError, "SHA-256"):
+                self._materialize()
+            self.assertEqual(digest.call_count, 2)
+
     def test_rejects_bare_paths_network_uris_and_out_of_root_files(self) -> None:
         with self.assertRaises(TypeError):
             self._materialize(self.path)
@@ -783,6 +799,23 @@ class ArtifactStoreTest(unittest.TestCase):
         self.assertEqual(output, self.document_payload)
         self.assertIsInstance(output, dict)
         self.assertEqual(self.document_path.read_bytes(), original_bytes)
+
+    def test_document_reuses_process_local_sha_verification(self) -> None:
+        with mock.patch.object(
+            cache_store,
+            "sha256_stream",
+            wraps=cache_store.sha256_stream,
+        ) as digest:
+            first = self.store.materialize_document(
+                self.document_artifact,
+                expected_kind="run_record",
+            )
+            second = self.store.materialize_document(
+                self.document_artifact,
+                expected_kind="run_record",
+            )
+        self.assertEqual(first, second)
+        self.assertEqual(digest.call_count, 1)
 
     def test_document_rejects_non_artifact_and_wrong_schema(self) -> None:
         with self.assertRaises(TypeError):

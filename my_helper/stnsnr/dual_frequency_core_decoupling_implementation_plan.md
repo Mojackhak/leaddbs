@@ -3438,13 +3438,52 @@ and structural checks validate copied bytes. Device, inode, mtime, and absolute
 path are runtime locators or provenance only and never enter identity.
 
 The complete cache contract suite was rerun under Conda `leaddbs` on
-2026-07-22 and passed 36 tests plus 18 subtests. Coverage includes atomic
+2026-07-22 and passed 38 tests plus 18 subtests. Coverage includes atomic
 manifest-last publication, same-byte reuse, failed staging cleanup, complete
 payload and shard validation, copied-cache portability, corruption rejection,
 process-local verification reuse, and cross-instance producer-lease
 serialization. This local evidence proves the cache implementation boundary;
 the active real OSS and later combined lineage still provide the required
 production reuse evidence.
+
+**Prepared-artifact duplication audit, 2026-07-22.** The completed v8 parent
+contains 224 prepared tasks and 1008 prepared artifact references. Their
+task-local payloads total 71778637112 bytes, while one payload per distinct
+content SHA totals 2495860510 bytes. The measured duplicate write footprint is
+therefore 69282776602 bytes. The largest repeated families are the prepared
+reference matrix, add-on-only matrix, raw add-on matrix, reference-condition
+matrix, add-on reference-component matrix, overlap mask, and full voxel ID
+axis. This contradicts the final single-write target even though the upstream
+physical cache itself is shared.
+
+The first correction is process-local artifact verification reuse.
+`ArtifactStore` currently recomputes the complete payload SHA on every
+materialization, including repeated references to an immutable cache or task
+artifact in the same persistent worker. Cache the successful verification by
+resolved path, declared SHA, device, inode, size, modification time, and change
+time. Skip only the digest pass when every field is unchanged; continue to
+validate declared dtype, shape, axes, units, space, and loaded NPY structure on
+every call. A changed signature must force a new SHA pass and corruption must
+still fail closed. This cache is process-local and never enters resume or
+scientific identity. It reduces rereads but does not by itself close the
+69282776602-byte publication duplication; prepared cache-backed artifacts or
+indexed views remain required afterward.
+
+Process-local artifact verification reuse is now implemented for both NPY and
+JSON materialization. The store records only a successful SHA check and the
+full local file signature. Repeated unchanged materialization performs one
+digest pass, while rewriting the same path changes its signature, forces a
+second digest pass, and rejects the stale ArtifactRef. Loaded dtype, shape,
+axes, units, space, JSON schema, and read-only behavior remain checked on every
+call. The focused cache suite passes 38 tests plus 18 subtests. Large prepared
+artifact single-write publication remains open.
+
+The complete `dual_frequency/tests` regression suite was rerun after this
+change under Conda `leaddbs` on 2026-07-22 and passed 557 tests plus 310
+subtests. This confirms that verification reuse preserves the broader runtime,
+cache, resume, scheduling, sensitivity, and publication contracts covered by
+the suite; it is not evidence that the separate prepared-artifact single-write
+requirement is complete.
 
 - [ ] **Step 3: Implement distinct voxel sampling and shared physical rows**
 

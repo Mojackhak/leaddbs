@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
+from threading import RLock
 import time
 from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import unquote, urlsplit
@@ -909,6 +910,51 @@ class ArtifactStore:
                 "every allowed artifact root must be an existing directory"
             )
         self.allowed_roots = roots
+        self._verified_artifacts: dict[
+            tuple[Path, str],
+            tuple[int, int, int, int, int],
+        ] = {}
+        self._verification_lock = RLock()
+
+    @staticmethod
+    def _file_signature(path: Path) -> tuple[int, int, int, int, int]:
+        status = path.stat()
+        return (
+            int(status.st_dev),
+            int(status.st_ino),
+            int(status.st_size),
+            int(status.st_mtime_ns),
+            int(status.st_ctime_ns),
+        )
+
+    def _verify_payload(
+        self,
+        path: Path,
+        expected_sha256: str,
+    ) -> tuple[int, int, int, int, int]:
+        identity = (path, expected_sha256)
+        with self._verification_lock:
+            signature = self._file_signature(path)
+            if self._verified_artifacts.get(identity) == signature:
+                return signature
+            try:
+                with path.open("rb") as handle:
+                    digest = sha256_stream(handle)
+            except OSError as exc:
+                raise ArtifactValidationError(
+                    f"artifact payload cannot be read: {path}"
+                ) from exc
+            final_signature = self._file_signature(path)
+            if final_signature != signature:
+                raise ArtifactValidationError(
+                    "artifact file changed during SHA-256 verification"
+                )
+            if digest != expected_sha256:
+                raise ArtifactValidationError(
+                    "artifact file SHA-256 does not match ArtifactRef"
+                )
+            self._verified_artifacts[identity] = final_signature
+            return final_signature
 
     def materialize(
         self,
@@ -950,22 +996,19 @@ class ArtifactStore:
         path = self._safe_file_path(artifact.uri)
         if path.suffix != ".npy":
             raise ArtifactValidationError("ArtifactStore supports only .npy array artifacts")
+        verified_signature = self._verify_payload(path, artifact.sha256)
         try:
-            with path.open("rb") as handle:
-                digest = sha256_stream(handle)
-                if digest != artifact.sha256:
-                    raise ArtifactValidationError(
-                        "artifact file SHA-256 does not match ArtifactRef"
-                    )
-                if mmap_mode is None:
-                    handle.seek(0)
+            if mmap_mode is None:
+                with path.open("rb") as handle:
                     array = np.load(handle, allow_pickle=False)
-                else:
-                    array = np.load(path, allow_pickle=False, mmap_mode=mmap_mode)
+            else:
+                array = np.load(path, allow_pickle=False, mmap_mode=mmap_mode)
         except ArtifactValidationError:
             raise
         except (OSError, ValueError) as exc:
             raise ArtifactValidationError(f"artifact array cannot be loaded: {path}") from exc
+        if self._file_signature(path) != verified_signature:
+            raise ArtifactValidationError("artifact file changed during materialization")
         if not isinstance(array, np.ndarray):
             close = getattr(array, "close", None)
             if callable(close):
@@ -1005,14 +1048,9 @@ class ArtifactStore:
         path = self._safe_file_path(artifact.uri)
         if path.suffix != ".json":
             raise ArtifactValidationError("ArtifactStore supports only .json document artifacts")
+        verified_signature = self._verify_payload(path, artifact.sha256)
         try:
             with path.open("rb") as handle:
-                digest = sha256_stream(handle)
-                if digest != artifact.sha256:
-                    raise ArtifactValidationError(
-                        "artifact file SHA-256 does not match ArtifactRef"
-                    )
-                handle.seek(0)
                 payload = json.loads(handle.read().decode("utf-8"))
         except ArtifactValidationError:
             raise
@@ -1020,6 +1058,8 @@ class ArtifactStore:
             raise ArtifactValidationError(
                 f"artifact document cannot be loaded as UTF-8 JSON: {path}"
             ) from exc
+        if self._file_signature(path) != verified_signature:
+            raise ArtifactValidationError("artifact file changed during materialization")
         if not isinstance(payload, dict):
             raise ArtifactValidationError("artifact document must contain one JSON object")
         return payload
