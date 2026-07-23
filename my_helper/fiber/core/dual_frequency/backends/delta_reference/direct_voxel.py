@@ -13,6 +13,7 @@ from ...contracts import (
     ArtifactRef,
     AxisRef,
     DeltaReferenceBundle,
+    IndexedArrayView,
     SourceRecord,
     canonical_hash,
 )
@@ -21,8 +22,9 @@ from ..protocols import ArtifactPublisher
 from .cohort import DeltaReferenceCohortError, reference_fold_indices
 
 
-ScientificArray: TypeAlias = np.ndarray | ArtifactRef
+ScientificArray: TypeAlias = np.ndarray | ArtifactRef | IndexedArrayView
 _BOUNDARY_ABS_TOL = 1e-12
+_VIEW_BLOCK_COLUMNS = 65_536
 
 
 class DeltaReferenceDirectVoxelError(ValueError):
@@ -93,6 +95,68 @@ def _real_array(value: np.ndarray, name: str, dimensions: int) -> np.ndarray:
     if np.iscomplexobj(array):
         raise DeltaReferenceDirectVoxelError(f"{name} must contain real values")
     return np.asarray(array, dtype=np.float64)
+
+
+def _selected_exposure(
+    value: ScientificArray,
+    *,
+    name: str,
+    expected_axes: tuple[AxisRef, AxisRef],
+    selected_positions: np.ndarray,
+    selected_tau: float | None,
+    artifact_store: ArtifactStore | None,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    positions = np.asarray(selected_positions, dtype=np.int64)
+    if not isinstance(value, IndexedArrayView):
+        complete = _real_array(
+            _materialize(
+                value,
+                name=name,
+                expected_axes=expected_axes,
+                expected_units="V/m",
+                artifact_store=artifact_store,
+            ),
+            name,
+            2,
+        )
+        selected = np.asarray(complete[:, positions], dtype=np.float64)
+        total = (
+            None
+            if selected_tau is None
+            else np.sum(complete >= selected_tau, axis=1, dtype=np.int64)
+        )
+        return selected, total
+    if artifact_store is None:
+        raise DeltaReferenceDirectVoxelError(
+            f"{name} is view-backed but no ArtifactStore was provided"
+        )
+    if value.axis_refs != expected_axes or value.units != "V/m":
+        raise DeltaReferenceDirectVoxelError(
+            f"{name} view metadata does not match the declared axes and units"
+        )
+    selected = np.empty(
+        (expected_axes[0].count, positions.size),
+        dtype=np.float64,
+    )
+    total = (
+        None
+        if selected_tau is None
+        else np.zeros(expected_axes[0].count, dtype=np.int64)
+    )
+    for start, stop, block in artifact_store.iter_indexed_array_view_blocks(
+        value,
+        block_columns=_VIEW_BLOCK_COLUMNS,
+    ):
+        if total is not None:
+            total += np.sum(block >= selected_tau, axis=1, dtype=np.int64)
+        selected_start = int(np.searchsorted(positions, start))
+        selected_stop = int(np.searchsorted(positions, stop))
+        if selected_start == selected_stop:
+            continue
+        selected_slice = slice(selected_start, selected_stop)
+        local_positions = positions[selected_slice] - start
+        selected[:, selected_slice] = block[:, local_positions]
+    return selected, total
 
 
 def _selected_indices(value: np.ndarray, count: int) -> np.ndarray:
@@ -610,37 +674,6 @@ def build_delta_reference_voxel(
         "fold_weights",
         2,
     )
-    reference_exposure = _real_array(
-        _materialize(
-            reference_condition_exposure,
-            name="reference_condition_exposure",
-            expected_axes=(subject_axis, parent_feature_axis),
-            expected_units="V/m",
-            artifact_store=artifact_store,
-        ),
-        "reference_condition_exposure",
-        2,
-    )
-    addon_reference_exposure = _real_array(
-        _materialize(
-            addon_reference_component_exposure,
-            name="addon_reference_component_exposure",
-            expected_axes=(subject_axis, parent_feature_axis),
-            expected_units="V/m",
-            artifact_store=artifact_store,
-        ),
-        "addon_reference_component_exposure",
-        2,
-    )
-    expected_exposure_shape = (subject_axis.count, parent_feature_axis.count)
-    if reference_exposure.shape != expected_exposure_shape:
-        raise DeltaReferenceDirectVoxelError(
-            "reference_condition_exposure does not match the declared axes"
-        )
-    if addon_reference_exposure.shape != expected_exposure_shape:
-        raise DeltaReferenceDirectVoxelError(
-            "addon_reference_component_exposure does not match the declared axes"
-        )
     if full_weight_array.shape != (selected_axis.count,):
         raise DeltaReferenceDirectVoxelError("full_weights do not match the selected axis")
     if fold_weight_array.shape != (
@@ -652,20 +685,38 @@ def build_delta_reference_voxel(
         )
     addon_fold_weights = fold_weight_array[fold_indices]
 
+    expected_exposure_axes = (subject_axis, parent_feature_axis)
+    selected_reference_exposure, _reference_total = _selected_exposure(
+        reference_condition_exposure,
+        name="reference_condition_exposure",
+        expected_axes=expected_exposure_axes,
+        selected_positions=indices,
+        selected_tau=None,
+        artifact_store=artifact_store,
+    )
+    selected_addon_reference_exposure, total = _selected_exposure(
+        addon_reference_component_exposure,
+        name="addon_reference_component_exposure",
+        expected_axes=expected_exposure_axes,
+        selected_positions=indices,
+        selected_tau=float(reference_source.selected_tau),
+        artifact_store=artifact_store,
+    )
+    assert total is not None
     selected_delta = (
-        addon_reference_exposure[:, indices] - reference_exposure[:, indices]
+        selected_addon_reference_exposure - selected_reference_exposure
     )
     full_scores, fold_scores, full_valid, fold_valid = _continuous_scores(
         selected_delta,
         full_weight_array,
         addon_fold_weights,
     )
-    support_rows, total, full_out_fraction, support_labels = _support_rows(
-        addon_reference_exposure,
-        indices,
+    support_rows, total, full_out_fraction, support_labels = _support_rows_from_selected(
+        selected_addon_reference_exposure
+        >= float(reference_source.selected_tau),
+        total,
         full_valid,
         fold_valid,
-        float(reference_source.selected_tau),
     )
     support_status = _classify_support(
         total,

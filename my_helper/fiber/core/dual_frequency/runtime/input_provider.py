@@ -4061,32 +4061,49 @@ class StudyRuntimeInputProvider:
                 space=self.study.spatial.canonical_space,
                 dependencies=derived_dependencies,
             )
-            reference_condition_artifact = self._publish_prepared_array(
+            reference_condition_artifact = self._indexed_prepared_view(
                 domain=prepared_domain,
                 publisher=publisher,
-                filename="reference_condition_exposure.npy",
                 value=reference_condition,
-                kind="reference_condition_exposure",
                 axes=axes,
-                units="V/m",
-                space=self.study.spatial.canonical_space,
-                dependencies=(
-                    ("reference_condition_matrix", reference_condition_identity),
-                ),
             )
-            addon_reference_artifact = self._publish_prepared_array(
+            if reference_condition_artifact is None:
+                reference_condition_artifact = self._publish_prepared_array(
+                    domain=prepared_domain,
+                    publisher=publisher,
+                    filename="reference_condition_exposure.npy",
+                    value=reference_condition,
+                    kind="reference_condition_exposure",
+                    axes=axes,
+                    units="V/m",
+                    space=self.study.spatial.canonical_space,
+                    dependencies=(
+                        (
+                            "reference_condition_matrix",
+                            reference_condition_identity,
+                        ),
+                    ),
+                )
+            addon_reference_artifact = self._indexed_prepared_view(
                 domain=prepared_domain,
                 publisher=publisher,
-                filename="addon_reference_component_exposure.npy",
                 value=addon_reference_component,
-                kind="addon_reference_component_exposure",
                 axes=axes,
-                units="V/m",
-                space=self.study.spatial.canonical_space,
-                dependencies=(
-                    ("addon_reference_matrix", addon_reference_identity),
-                ),
             )
+            if addon_reference_artifact is None:
+                addon_reference_artifact = self._publish_prepared_array(
+                    domain=prepared_domain,
+                    publisher=publisher,
+                    filename="addon_reference_component_exposure.npy",
+                    value=addon_reference_component,
+                    kind="addon_reference_component_exposure",
+                    axes=axes,
+                    units="V/m",
+                    space=self.study.spatial.canonical_space,
+                    dependencies=(
+                        ("addon_reference_matrix", addon_reference_identity),
+                    ),
+                )
             overlap_artifact = self._publish_prepared_array(
                 domain=prepared_domain,
                 publisher=publisher,

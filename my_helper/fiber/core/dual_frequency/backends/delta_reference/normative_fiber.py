@@ -15,6 +15,7 @@ from ...contracts import (
     ArtifactRef,
     AxisRef,
     DeltaReferenceBundle,
+    IndexedArrayView,
     NormativeFiberScoreSettings,
     SensitiveRecord,
     SourceRecord,
@@ -26,9 +27,10 @@ from ..protocols import ArtifactPublisher
 from .cohort import DeltaReferenceCohortError, reference_fold_indices
 
 
-ScientificArray: TypeAlias = np.ndarray | ArtifactRef
+ScientificArray: TypeAlias = np.ndarray | ArtifactRef | IndexedArrayView
 ReferenceRecord: TypeAlias = SourceRecord | SensitiveRecord
 _BOUNDARY_ABS_TOL = 1e-12
+_VIEW_BLOCK_COLUMNS = 65_536
 
 
 class DeltaReferenceFiberError(ValueError):
@@ -139,6 +141,70 @@ def _real_array(value: np.ndarray, name: str, dimensions: int) -> np.ndarray:
     if np.iscomplexobj(array):
         raise DeltaReferenceFiberError(f"{name} must contain real values")
     return array
+
+
+def _selected_exposure(
+    value: ScientificArray,
+    *,
+    name: str,
+    expected_axes: tuple[AxisRef, AxisRef],
+    selected_positions: np.ndarray,
+    selected_tau: float | None,
+    artifact_store: ArtifactStore | None,
+) -> tuple[np.ndarray, np.ndarray | None, bool]:
+    positions = np.asarray(selected_positions, dtype=np.int64)
+    if not isinstance(value, IndexedArrayView):
+        complete = _real_array(
+            _materialize(
+                value,
+                name=name,
+                expected_axes=expected_axes,
+                expected_units="V/m",
+                artifact_store=artifact_store,
+            ),
+            name,
+            2,
+        )
+        selected = np.asanyarray(complete[:, positions])
+        total = (
+            None
+            if selected_tau is None
+            else np.sum(complete >= selected_tau, axis=1, dtype=np.int64)
+        )
+        return selected, total, bool(np.all(np.isfinite(complete)))
+    if artifact_store is None:
+        raise DeltaReferenceFiberError(
+            f"{name} is view-backed but no ArtifactStore was provided"
+        )
+    if value.axis_refs != expected_axes or value.units != "V/m":
+        raise DeltaReferenceFiberError(
+            f"{name} view metadata does not match the declared axes and units"
+        )
+    selected = np.empty(
+        (expected_axes[0].count, positions.size),
+        dtype=np.dtype(value.dtype),
+    )
+    total = (
+        None
+        if selected_tau is None
+        else np.zeros(expected_axes[0].count, dtype=np.int64)
+    )
+    all_finite = True
+    for start, stop, block in artifact_store.iter_indexed_array_view_blocks(
+        value,
+        block_columns=_VIEW_BLOCK_COLUMNS,
+    ):
+        all_finite = all_finite and bool(np.all(np.isfinite(block)))
+        if total is not None:
+            total += np.sum(block >= selected_tau, axis=1, dtype=np.int64)
+        selected_start = int(np.searchsorted(positions, start))
+        selected_stop = int(np.searchsorted(positions, stop))
+        if selected_start == selected_stop:
+            continue
+        selected_slice = slice(selected_start, selected_stop)
+        local_positions = positions[selected_slice] - start
+        selected[:, selected_slice] = block[:, local_positions]
+    return selected, total, all_finite
 
 
 def _boolean_array(value: np.ndarray, name: str, dimensions: int) -> np.ndarray:
@@ -285,7 +351,8 @@ def _validate_artifact_spaces(values: tuple[ScientificArray, ...]) -> None:
     spaces = {
         value.space
         for value in values
-        if isinstance(value, ArtifactRef) and value.space is not None
+        if isinstance(value, (ArtifactRef, IndexedArrayView))
+        and value.space is not None
     }
     if len(spaces) > 1:
         raise DeltaReferenceFiberError(
@@ -968,49 +1035,31 @@ def build_delta_reference_fiber(
     addon_fold_weights = fold_weight_array[fold_indices]
     addon_fold_masks = fold_mask_array[fold_indices]
 
-    reference_exposure = _real_array(
-        _materialize(
+    expected_exposure_axes = (subject_axis, parent_fiber_axis)
+    selected_reference_exposure, _reference_total, reference_finite = (
+        _selected_exposure(
             reference_condition_exposure,
             name="reference_condition_exposure",
-            expected_axes=(subject_axis, parent_fiber_axis),
-            expected_units="V/m",
+            expected_axes=expected_exposure_axes,
+            selected_positions=selected_parent_positions,
+            selected_tau=None,
             artifact_store=artifact_store,
-        ),
-        "reference_condition_exposure",
-        2,
-    )
-    addon_reference_exposure = _real_array(
-        _materialize(
-            addon_reference_component_exposure,
-            name="addon_reference_component_exposure",
-            expected_axes=(subject_axis, parent_fiber_axis),
-            expected_units="V/m",
-            artifact_store=artifact_store,
-        ),
-        "addon_reference_component_exposure",
-        2,
-    )
-    expected_exposure_shape = (subject_axis.count, parent_fiber_axis.count)
-    if reference_exposure.shape != expected_exposure_shape:
-        raise DeltaReferenceFiberError(
-            "reference_condition_exposure does not match the declared axes"
         )
-    if addon_reference_exposure.shape != expected_exposure_shape:
-        raise DeltaReferenceFiberError(
-            "addon_reference_component_exposure does not match the declared axes"
-        )
-    if not np.all(np.isfinite(reference_exposure)) or not np.all(
-        np.isfinite(addon_reference_exposure)
-    ):
+    )
+    selected_addon_exposure, total, addon_finite = _selected_exposure(
+        addon_reference_component_exposure,
+        name="addon_reference_component_exposure",
+        expected_axes=expected_exposure_axes,
+        selected_positions=selected_parent_positions,
+        selected_tau=locked.selected_tau,
+        artifact_store=artifact_store,
+    )
+    assert total is not None
+    if not reference_finite or not addon_finite:
         raise DeltaReferenceFiberError(
             "reference-component exposure matrices must contain only finite values"
         )
 
-    selected_reference_exposure = reference_exposure[:, selected_parent_positions]
-    selected_addon_exposure = addon_reference_exposure[
-        :,
-        selected_parent_positions,
-    ]
     full_valid = np.isfinite(full_weight_array)
     fold_valid = addon_fold_masks
     if not np.any(full_valid):
@@ -1021,12 +1070,11 @@ def build_delta_reference_fiber(
         raise DeltaReferenceFiberError(
             "every reference training fold requires finite valid support"
         )
-    support_rows, total, full_out_fraction, support_labels = _support_rows(
-        addon_reference_exposure,
-        selected_parent_positions,
+    support_rows, total, full_out_fraction, support_labels = _support_rows_from_selected(
+        selected_addon_exposure >= locked.selected_tau,
+        total,
         full_valid,
         fold_valid,
-        locked.selected_tau,
     )
     support_status = _classify_support(
         total,

@@ -1851,9 +1851,9 @@ def _addon_exposure_sensitivity(request: TaskExecutionRequest) -> ServiceResult:
         and prepared.addon_reference_component_exposure is not None
     ):
         total = _scientific_row_mean(request, prepared.total_exposure)
-        reference_component = np.mean(
-            _materialize(request, prepared.addon_reference_component_exposure),
-            axis=1,
+        reference_component = _scientific_row_mean(
+            request,
+            prepared.addon_reference_component_exposure,
         )
         collinearity_input = CollinearityInput(
             subject_axis=prepared.subject_axis,

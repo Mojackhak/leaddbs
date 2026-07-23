@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -27,6 +28,7 @@ from dual_frequency.contracts import (
     AxisRef,
     EndpointKey,
     FeatureAxisRef,
+    IndexedArrayView,
     SourceRecord,
     canonical_hash,
 )
@@ -182,6 +184,127 @@ class DeltaReferenceDirectVoxelTest(unittest.TestCase):
             )
             expected = np.mean((250.0 - 100.0) * full_weights)
             np.testing.assert_allclose(full, expected)
+
+    def test_view_backed_exposures_match_array_inputs_without_full_materialization(
+        self,
+    ) -> None:
+        indices = np.asarray((0, 1, 3, 4, 6, 7, 8, 9), dtype=np.int64)
+        subjects, parent, selected = _axes(indices)
+        source = _source(selected)
+        full_weights = np.linspace(0.25, 1.0, indices.size)
+        fold_weights = np.vstack(
+            tuple(full_weights + offset for offset in (0.0, 0.1, 0.2, 0.3))
+        )
+        reference = np.arange(40, dtype=np.float32).reshape(4, 10) + 100.0
+        addon = reference + 150.0
+        addon[:, 2] = 175.0
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline = build_delta_reference_voxel(
+                matched_reference_endpoint_id=source.endpoint.identifier,
+                reference_source=source,
+                selected_feature_indices=indices,
+                full_weights=full_weights,
+                fold_weights=fold_weights,
+                reference_condition_exposure=reference,
+                addon_reference_component_exposure=addon,
+                subject_axis=subjects,
+                reference_subject_axis=subjects,
+                addon_subject_ids=_subject_ids(subjects),
+                reference_subject_ids=_subject_ids(subjects),
+                parent_feature_axis=parent,
+                support_profile=_support_profile(),
+                publisher=RunScopedArtifactPublisher(
+                    root / "baseline",
+                    "baseline",
+                    "1",
+                ),
+            )
+            view_publisher = RunScopedArtifactPublisher(
+                root / "views",
+                "views",
+                "1",
+            )
+            reference_view = IndexedArrayView(
+                parent=view_publisher.array(
+                    "reference.npy",
+                    reference,
+                    kind="shared_physical_exposure",
+                    axes=(subjects, parent),
+                    units="V/m",
+                    space="synthetic",
+                ),
+                row_positions=None,
+                column_positions=None,
+                axis_refs=(subjects, parent),
+            )
+            addon_view = IndexedArrayView(
+                parent=view_publisher.array(
+                    "addon.npy",
+                    addon,
+                    kind="shared_physical_exposure",
+                    axes=(subjects, parent),
+                    units="V/m",
+                    space="synthetic",
+                ),
+                row_positions=None,
+                column_positions=None,
+                axis_refs=(subjects, parent),
+            )
+            store = ArtifactStore((root,))
+            with patch.object(
+                store,
+                "materialize_indexed_array_view",
+                side_effect=AssertionError(
+                    "DeltaReference must not materialize a complete exposure view"
+                ),
+            ):
+                view_bundle = build_delta_reference_voxel(
+                    matched_reference_endpoint_id=source.endpoint.identifier,
+                    reference_source=source,
+                    selected_feature_indices=indices,
+                    full_weights=full_weights,
+                    fold_weights=fold_weights,
+                    reference_condition_exposure=reference_view,
+                    addon_reference_component_exposure=addon_view,
+                    subject_axis=subjects,
+                    reference_subject_axis=subjects,
+                    addon_subject_ids=_subject_ids(subjects),
+                    reference_subject_ids=_subject_ids(subjects),
+                    parent_feature_axis=parent,
+                    support_profile=_support_profile(),
+                    publisher=RunScopedArtifactPublisher(
+                        root / "view-result",
+                        "view-result",
+                        "1",
+                    ),
+                    artifact_store=store,
+                )
+            for baseline_artifact, view_artifact in (
+                (baseline.full_scores, view_bundle.full_scores),
+                (baseline.fold_scores, view_bundle.fold_scores),
+                (baseline.support_rows, view_bundle.support_rows),
+            ):
+                np.testing.assert_array_equal(
+                    store.materialize(
+                        baseline_artifact,
+                        expected_dtype=baseline_artifact.dtype,
+                        expected_shape=baseline_artifact.shape,
+                        expected_axes=baseline_artifact.axis_refs,
+                        expected_units=baseline_artifact.units,
+                        expected_space=baseline_artifact.space,
+                    ),
+                    store.materialize(
+                        view_artifact,
+                        expected_dtype=view_artifact.dtype,
+                        expected_shape=view_artifact.shape,
+                        expected_axes=view_artifact.axis_refs,
+                        expected_units=view_artifact.units,
+                        expected_space=view_artifact.space,
+                    ),
+                )
+            self.assertEqual(baseline.support_status, view_bundle.support_status)
 
     def test_compact_parent_counts_match_full_parent_rebuild(self) -> None:
         indices = np.asarray([0, 1, 3, 4, 6, 7, 8, 9], dtype=np.int64)

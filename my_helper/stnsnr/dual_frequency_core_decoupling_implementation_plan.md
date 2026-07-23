@@ -3726,6 +3726,31 @@ tests force the complete view materializer to fail, reproduce selected values
 exactly, and reproduce row means within the declared floating-point tolerance.
 The complete dual-frequency suite passes 551 tests.
 
+The remaining raw add-on auxiliaries are
+`reference_condition_exposure` and
+`addon_reference_component_exposure`. Both are exact row/column views of
+shared physical matrices, so cache-enabled preparation must persist views and
+must not write duplicate prepared NPY files. Delta-reference voxel and fiber
+kernels must validate the complete logical axes and scan full-parent support
+or finiteness in bounded feature blocks, while gathering only the locked
+reference feature positions required by the scoring operator. Bootstrap
+continues to gather only final positions through its existing bounded path.
+Sensitivity collinearity computes both row means blockwise. Cache-disabled
+preparation and bare NumPy backend inputs retain their current behavior.
+Acceptance requires artifact/view score, support, and QC parity for direct
+voxel and normative fiber; complete-view materialization must be forced to
+fail in the view fixtures.
+
+This auxiliary migration is now implemented. Cache-enabled preparation returns
+indexed views for both raw reference-component roles. Direct-voxel and
+normative-fiber DeltaReference kernels scan parent support and finiteness in
+bounded blocks, retain only selected operator columns, and never call the
+complete-view materializer. Sensitivity computes both collinearity means
+blockwise, while bootstrap continues to use its selected-column reader.
+Dedicated voxel and fiber fixtures prove byte-identical scores and support
+rows with complete-view materialization forced to fail. The complete
+dual-frequency suite passes 553 tests.
+
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
 ordered subject and feature selections, exposes bounded column reads, and

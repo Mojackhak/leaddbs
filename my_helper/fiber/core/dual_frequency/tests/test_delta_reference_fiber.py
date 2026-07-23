@@ -7,6 +7,7 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -27,6 +28,7 @@ from dual_frequency.contracts import (
     AxisRef,
     EndpointKey,
     FeatureAxisRef,
+    IndexedArrayView,
     NormativeFiberScoreSettings,
     SensitiveRecord,
     SourceRecord,
@@ -291,6 +293,104 @@ class DeltaReferenceFiberTest(unittest.TestCase):
                 _materialize(bundle.fold_scores, root),
                 np.tile(expected, (4, 1)),
             )
+
+    def test_view_backed_exposures_match_array_inputs_without_full_materialization(
+        self,
+    ) -> None:
+        parent_ids = np.arange(10_000, 10_320, dtype=np.int64)
+        valid_ids = parent_ids[:300]
+        subjects, parent, _selected = _axes(
+            parent_ids,
+            valid_ids,
+            connectome_id="formal_connectome",
+        )
+        full_weights = np.concatenate((np.ones(200), -np.ones(100)))
+        fold_weights = np.tile(full_weights, (subjects.count, 1))
+        fold_masks = np.ones_like(fold_weights, dtype=bool)
+        subject = np.arange(subjects.count, dtype=np.float32)[:, None]
+        reference = np.zeros((subjects.count, parent.count), dtype=np.float32)
+        addon = np.zeros_like(reference)
+        reference[:, :200] = 125.0 + 10.0 * subject
+        reference[:, 200:300] = 75.0 + 5.0 * subject
+        addon[:, :200] = 450.0 + 20.0 * subject
+        addon[:, 200:300] = 225.0 + 10.0 * subject
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline = self._build(
+                root / "baseline",
+                parent_fiber_ids=parent_ids,
+                valid_fiber_ids=valid_ids,
+                full_weights=full_weights,
+                fold_weights=fold_weights,
+                fold_valid_masks=fold_masks,
+                reference_exposure=reference,
+                addon_reference_exposure=addon,
+            )
+            view_publisher = RunScopedArtifactPublisher(
+                root / "views",
+                "views",
+                "1",
+            )
+            reference_view = IndexedArrayView(
+                parent=view_publisher.array(
+                    "reference.npy",
+                    reference,
+                    kind="shared_physical_exposure",
+                    axes=(subjects, parent),
+                    units="V/m",
+                    space="space:formal_connectome",
+                ),
+                row_positions=None,
+                column_positions=None,
+                axis_refs=(subjects, parent),
+            )
+            addon_view = IndexedArrayView(
+                parent=view_publisher.array(
+                    "addon.npy",
+                    addon,
+                    kind="shared_physical_exposure",
+                    axes=(subjects, parent),
+                    units="V/m",
+                    space="space:formal_connectome",
+                ),
+                row_positions=None,
+                column_positions=None,
+                axis_refs=(subjects, parent),
+            )
+            store = ArtifactStore((root,))
+            with patch.object(
+                store,
+                "materialize_indexed_array_view",
+                side_effect=AssertionError(
+                    "DeltaReference must not materialize a complete exposure view"
+                ),
+            ):
+                view_bundle = self._build(
+                    root / "view-result",
+                    parent_fiber_ids=parent_ids,
+                    valid_fiber_ids=valid_ids,
+                    full_weights=full_weights,
+                    fold_weights=fold_weights,
+                    fold_valid_masks=fold_masks,
+                    reference_exposure=reference_view,
+                    addon_reference_exposure=addon_view,
+                    subject_axis=subjects,
+                    parent_axis=parent,
+                    selected_axis=_selected,
+                    artifact_store=store,
+                )
+            for baseline_artifact, view_artifact in (
+                (baseline.full_scores, view_bundle.full_scores),
+                (baseline.fold_scores, view_bundle.fold_scores),
+                (baseline.support_rows, view_bundle.support_rows),
+            ):
+                assert baseline_artifact is not None and view_artifact is not None
+                np.testing.assert_array_equal(
+                    _materialize(baseline_artifact, root),
+                    _materialize(view_artifact, root),
+                )
+            self.assertEqual(baseline.support_status, view_bundle.support_status)
 
     def test_compact_parent_counts_match_full_parent_rebuild(self) -> None:
         parent_ids = np.arange(10_000, 10_320, dtype=np.int64)
