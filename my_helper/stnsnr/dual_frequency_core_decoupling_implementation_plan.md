@@ -3342,6 +3342,26 @@ The verifier may inspect the retained authority before OSS completes, but the
 new implementation replay and byte comparison remain ordered after the active
 solver lineage to avoid competing for connectome and VAL bandwidth.
 
+The post-refactor replay uses
+`config/four_model_v1/workflow_task17_parity.yaml`, one explicit canonical
+scale, all four model families, all three configured connectomes, and the
+`observed` cutoff. It writes only to the dedicated
+`dual_frequency_task17_parity_v1` cache and acceptance run root, retains every
+completed cache entry, disables expensive producers, and starts with one
+worker. The profile may be validated while OSS runs but must not execute until
+the solver lineage releases VAL and connectome bandwidth. A second invocation
+with the configured worker count must be cache-only and byte-identical; it is
+not a second cold replay.
+
+Read-only validation and planning passed on 2026-07-22 for scale `adl`. The
+request resolves eight available endpoints, 46 dependency-complete tasks, the
+expected study-base SHA, configuration hash
+`b5be0e90bf1311f632988bbf9b6b156a5189356d5063db9433b717e524b55a12`,
+and scientific configuration hash
+`34d3014d5d4e16a4f49d8ded688981098b58460d6140fc339a30c101e86c0cd4`.
+Neither the dedicated cache root nor the acceptance run root was created. This
+accepts the replay request only; execution remains intentionally deferred.
+
 The corrected fiber-only v2 authority verifier was executed twice on
 2026-07-22. Both runs
 validated the completed parent manifest, all nine complete physical payloads,

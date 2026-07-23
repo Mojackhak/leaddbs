@@ -1,0 +1,23 @@
+schema_version: dual_frequency_workflow_v1
+profile_type: dual_frequency_workflow
+
+model_profiles:
+  direct_voxel: direct_voxel_model.yaml
+  normative_fiber: normative_fiber_model.yaml
+
+selection:
+  models: [all]
+  connectomes: [all]
+
+execution:
+  through: observed
+  resume: false
+  force: false
+  continue_on_endpoint_failure: false
+  allow_expensive_producers: false
+  workers: 1
+
+storage:
+  cache_root: /Volumes/VAL/STNSNr/cache/dual_frequency_task17_parity_v1
+  run_root: /Volumes/VAL/STNSNr/summary/spot/acceptance/.runs
+  delete_run_cache_on_success: false
