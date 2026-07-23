@@ -1,0 +1,120 @@
+{
+  "schema_version": "dual_frequency_task17_connectome_parity_fixture_v1",
+  "authority_run_id": "task17-main-v8-tau-grid-formal-20260717",
+  "authority_cache_root": "/Volumes/VAL/STNSNr/cache/dual_frequency",
+  "physical_fiber_exposures": [
+    {
+      "connectome_id": "ppmi_85_ewert_2017",
+      "frequency_role": "reference",
+      "semantic_sha256": "6b2a5a428ad175daecc0360dc417ba24ae43afb9eb006af8df6b7c4fea0338d4",
+      "payload_sha256": "b872a1a4cd53f8d94abe0641311bbaf4f5c3dc277172bb76521d348d4e4e6a95",
+      "shape": [16, 1700000]
+    },
+    {
+      "connectome_id": "mgh_usc_hcp_32_horn_2017",
+      "frequency_role": "reference",
+      "semantic_sha256": "32394f6ebb85ade55a792eef988dbeb156146a903577f24fae60b869e3c602d3",
+      "payload_sha256": "a56eecc5e500849eb72b596e7bebb450f7a1d468eaf3f6426622d73387c4f064",
+      "shape": [16, 3200000]
+    },
+    {
+      "connectome_id": "dtor_985_full_elias_2024",
+      "frequency_role": "reference",
+      "semantic_sha256": "9ba62f1f8ded5e7d7a49098612cd8a05d014180a537eb7847d5b37f1dfbfbad7",
+      "payload_sha256": "3143f6748d576ec9ffb0eb239f7962dacbaa6e0b8842573faecc1089434911e0",
+      "shape": [16, 11820000]
+    },
+    {
+      "connectome_id": "ppmi_85_ewert_2017",
+      "frequency_role": "addon_primary",
+      "semantic_sha256": "094e299fd50819936807e7089de7056a33cb4415796ba88e9ea23b7697a27155",
+      "payload_sha256": "a57855fa35705adfcfc710c133ba245ec623127d5209fcd844bd568d20628890",
+      "shape": [16, 1700000]
+    },
+    {
+      "connectome_id": "mgh_usc_hcp_32_horn_2017",
+      "frequency_role": "addon_primary",
+      "semantic_sha256": "789ed3c7357b1dfea998cacdc575022dcaf4c1a9ca5bf56bee295926c7e9d43c",
+      "payload_sha256": "10aac741f0aaf6f0dadedf663b0e9ad0e55f5018aa28d34ac2284a5ea052f6f3",
+      "shape": [16, 3200000]
+    },
+    {
+      "connectome_id": "dtor_985_full_elias_2024",
+      "frequency_role": "addon_primary",
+      "semantic_sha256": "1f83ea21591864cd2b08277570e24c2cb9c5ea3d9c110c5d295d288c42e42b97",
+      "payload_sha256": "010bc3431d6b28e20776eb9dbea8f088143e6b84d12f2f505ddd3307ac4b9fd4",
+      "shape": [16, 11820000]
+    },
+    {
+      "connectome_id": "ppmi_85_ewert_2017",
+      "frequency_role": "addon_reference_condition",
+      "semantic_sha256": "d66dfadc75fa90943b323269453a51fd2741d01827b531ec5c1a72b424ae009d",
+      "payload_sha256": "31c494716f625e1bd43c714c367cd22e57e7cdb6287b1d0a61c7ca93169e166f",
+      "shape": [16, 1700000]
+    },
+    {
+      "connectome_id": "mgh_usc_hcp_32_horn_2017",
+      "frequency_role": "addon_reference_condition",
+      "semantic_sha256": "392da9f0b81911d281762849bc933f58fc2fb202ea2002817b6216e49b6ea658",
+      "payload_sha256": "f3bd452b776d93eb4680433f59c5e176fe6c897857e5656b47057ae55f18115f",
+      "shape": [16, 3200000]
+    },
+    {
+      "connectome_id": "dtor_985_full_elias_2024",
+      "frequency_role": "addon_reference_condition",
+      "semantic_sha256": "a71fd01e630d86d25ca29f17780ae757a2a5cc2a0dbd96d98fb52cbc2d21daf5",
+      "payload_sha256": "1592698e81be2460795ca71d88bddeda8bcfd99dfc749d9a7361cf32f0638331",
+      "shape": [16, 11820000]
+    }
+  ],
+  "prepared_omega_max_exposures": [
+    {
+      "model_family": "reference_fiber",
+      "connectome_id": "ppmi_85_ewert_2017",
+      "exposure_sha256": "e49a092f0654797c64f7a81c568b4b8822e79da97fbf27dd5ea034519a09c7ea",
+      "feature_ids_sha256": "5ba27ea15ef9db14b1c168aaa11ba8b49f8f2ce4029f9879cb87ba78b5e4b6dd",
+      "feature_axis_sha256": "c98b84dc6ca2738bb620820967878bd5d66b87f44ef07f5882929f2f00aef340",
+      "shape": [16, 10320]
+    },
+    {
+      "model_family": "reference_fiber",
+      "connectome_id": "mgh_usc_hcp_32_horn_2017",
+      "exposure_sha256": "dfe9dc323d26ee5080ae7830496a4fd3266f3a2a43d4bdc4ae3c6b17acbac852",
+      "feature_ids_sha256": "d85916bc43777199c9c0718b9b54445efb49e9e595be44fda764934c46ebb82b",
+      "feature_axis_sha256": "6c88ef8cb78bd658f36e05f7dacc526f6867cdac454f1cad02c2fdb12511ee7b",
+      "shape": [16, 5511]
+    },
+    {
+      "model_family": "reference_fiber",
+      "connectome_id": "dtor_985_full_elias_2024",
+      "exposure_sha256": "7ef8c6cbfa2cf7bc061f8738397118dd3fe8fe36a8f380a766cce8e80a12b053",
+      "feature_ids_sha256": "867bad2f8a6ec4393a7271536ab75a2ffa9839e58c25b4bba4bcab42302ca093",
+      "feature_axis_sha256": "80f465b19eded913541d4041088ed3c716b36debc5a66e4202c2179f58c45a9c",
+      "shape": [16, 50593]
+    },
+    {
+      "model_family": "addon_fiber",
+      "connectome_id": "ppmi_85_ewert_2017",
+      "exposure_sha256": "9acd6224af68f016e60a1be3b8cd65f6dc14ab272559d160094d3924c44ce9c9",
+      "feature_ids_sha256": "44f8f44c5176d2d3b2a8cd03ccdc01cddd9a1be109ef415547e126d245c47b0a",
+      "feature_axis_sha256": "15d630719e3709ced238a7f9f3722872e0b706cabd053883c3c76935e834d03f",
+      "shape": [13, 10075]
+    },
+    {
+      "model_family": "addon_fiber",
+      "connectome_id": "mgh_usc_hcp_32_horn_2017",
+      "exposure_sha256": "5b072957f2d3540108e7cd7a39edd664a3eea9d972362af86fecfe8729c4508f",
+      "feature_ids_sha256": "a224a61e7d31004d5e2f512e1ce207157094ee12aff3882c405daaa0ff662cf2",
+      "feature_axis_sha256": "82603e14a813913bfe0b942ac5893c1bd70a5f3c494f67aaff07a454335d7723",
+      "shape": [13, 4863]
+    },
+    {
+      "model_family": "addon_fiber",
+      "connectome_id": "dtor_985_full_elias_2024",
+      "exposure_sha256": "7bacc139b1e4d74eb9f5fc89b94c086336bff442537d1aa66b82a3002d834730",
+      "feature_ids_sha256": "4026fe384bff25ce9cc5818f8c6a0a144bd69749f5942179da8b48df648088e2",
+      "feature_axis_sha256": "5b53d23bb2f0f206c42332d25d134f3b09e9fa740ea386d51d64867d21002fc8",
+      "shape": [13, 31004]
+    }
+  ]
+}

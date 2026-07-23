@@ -3283,10 +3283,10 @@ physical-block capability retain the legacy typed-provider dependency path.
 Preserve deterministic brute-force direct-voxel, normative-fiber, jitter, OSS,
 formal, pPAM, and sensitivity fixtures before implementation. Profile each stage
 at `execution.workers = 1` and the current configured value `3`. Preserve the
-historical equality-accepting fixtures as migration evidence and add target
-fixtures in which exact tau, Coverage, overlap, support-QC, and `0.5` pPAM
-values are excluded; only enumerated
-boundary rows may differ from the historical result.
+historical boundary fixtures as migration evidence. Target fixtures include
+exact tau and Coverage values in voxel and fiber support, retain the declared
+overlap and support-QC policies, and keep exact `0.5` pPAM values inactive;
+only enumerated boundary rows may differ from the historical result.
 
 Record wall time, aggregate CPU time, effective cores, peak RSS, swap, source
 and scratch bytes, E-field/NIfTI opens, sampler builds/rebuilds/evictions,
@@ -3298,6 +3298,46 @@ dependency/CPU/memory/I/O/solver wait, token occupancy, worker idle fraction,
 cancel/timeout/retry counts,
 formal-operator bytes, null `N x F` allocations, filtered-connectome builds,
 toolchain attestations, and active solver threads.
+
+The retained configured-connectome parity authority is the completed v8 parent,
+not a newly synthesized fixture. Its canonical PPMI reference physical cache
+identity is
+`6b2a5a428ad175daecc0360dc417ba24ae43afb9eb006af8df6b7c4fea0338d4`;
+the complete 16 by 1700000 float32 exposure payload SHA is
+`b872a1a4cd53f8d94abe0641311bbaf4f5c3dc277172bb76521d348d4e4e6a95`.
+The retained Omega-max prepared reference artifact contains 16 by 10320 values
+with SHA
+`e49a092f0654797c64f7a81c568b4b8822e79da97fbf27dd5ea034519a09c7ea`.
+The add-on PPMI physical cache identity is
+`094e299fd50819936807e7089de7056a33cb4415796ba88e9ea23b7697a27155`;
+its 13 by 10075 prepared artifact SHA is
+`9acd6224af68f016e60a1be3b8cd65f6dc14ab272559d160094d3924c44ce9c9`.
+These immutable cache and task artifacts remain available below the configured
+VAL cache and completed parent. The post-OSS parity run must compute into a
+separate acceptance cache, compare complete float32 bytes and selected axes,
+and leave the retained authority untouched.
+
+The complete nine physical fiber matrices and six prepared Omega-max artifacts
+are frozen in
+`config/four_model_v1/acceptance/task17_connectome_parity_fixture.json`.
+A repository-owned verifier must validate every cache manifest and payload,
+resolve each prepared task artifact from the authority parent, reject duplicate
+or missing model/connectome/role rows, and emit one immutable acceptance report.
+The authority-only report is published at
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/`
+`task17-connectome-parity-authority-v1.json`; it contains no replay claim.
+The verifier may inspect the retained authority before OSS completes, but the
+new implementation replay and byte comparison remain ordered after the active
+solver lineage to avoid competing for connectome and VAL bandwidth.
+
+The authority verifier was executed twice on 2026-07-22. Both runs validated
+all nine complete physical payloads, the three distinct frequency-role cache
+signatures, all six prepared Omega-max identities, and every one of the 168
+scale-local prepared task payload copies. The second invocation produced the
+same report bytes and left its modification and change timestamps unchanged.
+The synthetic verifier suite passes two tests covering complete closure,
+immutable report replay, and duplicate-role rejection. This freezes the
+pre-refactor authority only; it does not yet accept the post-refactor replay.
 
 - [ ] **Step 2: Establish directly copyable SHA cache and single-write publication**
 
@@ -3482,7 +3522,7 @@ physical subject while the pure evaluator occurs once per subject and range.
 A real HDF5 adapter fixture produces byte-identical exposure through complete
 shared geometry, uncached point-balanced input, and forced over-budget
 streaming. The same fixture proves direct-copy cache reuse without a producer
-and payload-corruption rejection. The complete dual-frequency suite passes 551
+and payload-corruption rejection. The complete dual-frequency suite passes 553
 tests plus 310 subtests, and the complete seed-target connectivity suite passes
 80 tests plus 29 subtests with one environment-dependent skip. Configured
 connectome parity against retained formal artifacts remains pending. These
