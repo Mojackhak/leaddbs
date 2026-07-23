@@ -4153,6 +4153,52 @@ tests accept the local scheduler and deterministic-kernel boundary; they do not
 replace the active segment's continuous `< 64 GiB` task-tree RSS, zero swap
 growth, terminal gate, or full DAG evidence.
 
+The final resource audit also requires durable scheduler evidence rather than
+reconstructing admission behavior from task timestamps. Every newly created
+execution segment must therefore append the following non-scientific counters
+when it closes:
+
+- restored, scheduled, and terminal task counts;
+- peak running-task count and maximum dependency-ready queue depth;
+- peak reserved CPU, memory, connectome-I/O, and external-solver tokens;
+- distinct admission-blocked task counts by worker-slot, CPU, managed-memory,
+  memory-reserve, connectome-I/O, and external-solver reason;
+- accumulated admission-wait seconds by the same reasons; and
+- maximum wall-clock admission wait for any one task.
+
+Admission time begins only after all dependencies are terminal and the task is
+otherwise runnable. Dependency waiting, false gates, dependency-derived skips,
+service runtime, and result persistence do not enter this value. A task blocked
+by several resource predicates contributes to every applicable reason but
+contributes only once to the distinct task count for each reason. The segment
+stores aggregate numbers only; no scientific payload, endpoint value, absolute
+artifact path, or cache identity enters these counters. They are audit
+provenance and never enter task identity, cache identity, or resume gates.
+
+Focused executor tests must force both worker-capacity and resource-token
+waiting, require positive bounded wait values, verify exact peak token
+reservations, and prove that a fault-free dependency chain with no admission
+pressure records zero blocked tasks. Continuous process-tree CPU, RSS, swap,
+VAL availability, and effective-core windows remain external guard evidence;
+the scheduler counters do not claim to measure operating-system utilization.
+The already running independent OSS segment predates this instrumentation and
+continues to use its one-second guard as authority. Combined execution and the
+configured parity replay must retain the new execution-segment counters.
+
+This scheduler provenance is now implemented. The parent ledger records peak
+reservations at admission, while the executor tracks dependency-ready depth,
+running width, distinct blocked tasks, overlapping wait intervals by reason,
+and the longest task-level admission delay. Closing an execution segment
+atomically appends those counters together with restored, scheduled, and
+terminal task totals; task and cache identities remain unchanged. A
+dependency-only two-task chain records no admission block. Independent
+two-task fixtures force positive worker-slot waiting and positive
+managed-memory plus external-solver waiting, and verify exact peak grants. The
+focused executor suite passed 33 tests. The complete isolated-package
+dual-frequency regression passed 558 tests under Conda `leaddbs`. The active
+independent OSS process was already loaded before this commit, so its existing
+external guard remains the authoritative resource record for that lineage.
+
 - [x] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
 
 Cache compact/block-streamed tau exceedance and Coverage operators by exact

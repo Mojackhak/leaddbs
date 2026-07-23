@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -501,6 +502,132 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(document["pool_generation_count"], 1)
         self.assertEqual(document["workers"], 2)
         self.assertGreaterEqual(document["swap_delta_bytes"], 0)
+        self.assertEqual(document["restored_task_count"], 0)
+        self.assertEqual(document["scheduled_task_count"], 2)
+        self.assertEqual(document["terminal_task_count"], 2)
+        self.assertEqual(document["peak_running_task_count"], 1)
+        self.assertEqual(document["max_ready_queue_depth"], 1)
+        self.assertEqual(
+            set(document["admission_blocked_task_count_by_reason"].values()),
+            {0},
+        )
+        self.assertEqual(
+            set(document["admission_wait_seconds_by_reason"].values()),
+            {0.0},
+        )
+        self.assertEqual(document["max_task_admission_wait_seconds"], 0.0)
+
+    def test_segment_records_worker_slot_admission_wait(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        first = _task(endpoint, "first", "slow")
+        second = _task(endpoint, "second", "ok")
+        plan = self._plan((first, second))
+
+        def slow(request):
+            time.sleep(0.02)
+            return _result(request)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=self._store(root, plan),
+                    registry=ServiceRegistry(
+                        (
+                            RegisteredService("slow", slow),
+                            RegisteredService("ok", _result),
+                        )
+                    ),
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                ),
+            )
+            segment = next((root / "execution_segments").glob("segment_*.json"))
+            document = json.loads(segment.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(document["max_ready_queue_depth"], 2)
+        self.assertEqual(document["peak_running_task_count"], 1)
+        self.assertEqual(
+            document["admission_blocked_task_count_by_reason"]["worker_slots"],
+            1,
+        )
+        self.assertGreater(
+            document["admission_wait_seconds_by_reason"]["worker_slots"],
+            0.0,
+        )
+        self.assertGreater(document["max_task_admission_wait_seconds"], 0.0)
+
+    def test_segment_records_resource_token_admission_wait_and_peaks(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        first = _task(
+            endpoint,
+            "oss_axis_equivalence_first",
+            "slow",
+        )
+        second = _task(
+            endpoint,
+            "oss_axis_equivalence_second",
+            "ok",
+        )
+        plan = self._plan((first, second))
+
+        def slow(request):
+            time.sleep(0.02)
+            return _result(request)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            with patch.object(
+                _ResourceLedger,
+                "_memory_state",
+                return_value=(128 * 1024**3, 128 * 1024**3),
+            ):
+                result = execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=self._store(root, plan),
+                        registry=ServiceRegistry(
+                            (
+                                RegisteredService("slow", slow),
+                                RegisteredService("ok", _result),
+                            )
+                        ),
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=False,
+                        continue_on_endpoint_failure=True,
+                        workers=2,
+                    ),
+                )
+            segment = next((root / "execution_segments").glob("segment_*.json"))
+            document = json.loads(segment.read_text(encoding="utf-8"))
+
+        blocked = document["admission_blocked_task_count_by_reason"]
+        waited = document["admission_wait_seconds_by_reason"]
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(document["scheduled_task_count"], 2)
+        self.assertEqual(document["terminal_task_count"], 2)
+        self.assertEqual(document["peak_running_task_count"], 1)
+        self.assertEqual(document["peak_reserved_cpu_slots"], 1)
+        self.assertEqual(document["peak_reserved_memory_bytes"], 48 * 1024**3)
+        self.assertEqual(document["peak_reserved_connectome_io_slots"], 1)
+        self.assertEqual(document["peak_reserved_external_solver_slots"], 1)
+        for reason in ("managed_memory", "external_solver"):
+            self.assertEqual(blocked[reason], 1)
+            self.assertGreater(waited[reason], 0.0)
+        self.assertEqual(blocked["connectome_io"], 0)
+        self.assertEqual(waited["connectome_io"], 0.0)
 
     def test_false_gate_skips_without_invoking_service(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")

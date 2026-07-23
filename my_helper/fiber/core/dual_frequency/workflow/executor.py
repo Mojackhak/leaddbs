@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import multiprocessing
 import os
+import time
 import uuid
 from concurrent.futures import (
     FIRST_COMPLETED,
@@ -347,6 +348,10 @@ class _ResourceLedger:
         self.io_limit = max(1, min(2, workers))
         self.solver_limit = 1
         self.memory_used = 0
+        self.peak_cpu_used = 0
+        self.peak_memory_used = 0
+        self.peak_io_used = 0
+        self.peak_solver_used = 0
         self.total_memory, self.available_memory = self._memory_state()
         self.reserve = max(16 * 1024**3, int(0.20 * self.total_memory))
         self.managed = min(
@@ -405,25 +410,35 @@ class _ResourceLedger:
         return _ResourceGrant(1, 512 * 1024**2, 0, 0)
 
     def can_acquire(self, grant: _ResourceGrant, running_count: int) -> bool:
+        return not self.blocking_reasons(grant)
+
+    def blocking_reasons(self, grant: _ResourceGrant) -> tuple[str, ...]:
+        """Return every parent-ledger predicate preventing admission."""
+
+        reasons: list[str] = []
         if self.cpu_used + grant.cpu > self.workers:
-            return False
+            reasons.append("cpu")
         if self.io_used + grant.connectome_io > self.io_limit:
-            return False
+            reasons.append("connectome_io")
         if self.solver_used + grant.solver > self.solver_limit:
-            return False
+            reasons.append("external_solver")
         projected = self.available_memory - self.memory_used - grant.memory_bytes
         cumulative_memory = self.memory_used + grant.memory_bytes
-        normal = (
-            not cumulative_memory > self.managed
-            and projected > self.reserve
-        )
-        return normal
+        if cumulative_memory > self.managed:
+            reasons.append("managed_memory")
+        if not projected > self.reserve:
+            reasons.append("memory_reserve")
+        return tuple(reasons)
 
     def acquire(self, grant: _ResourceGrant) -> None:
         self.cpu_used += grant.cpu
         self.memory_used += grant.memory_bytes
         self.io_used += grant.connectome_io
         self.solver_used += grant.solver
+        self.peak_cpu_used = max(self.peak_cpu_used, self.cpu_used)
+        self.peak_memory_used = max(self.peak_memory_used, self.memory_used)
+        self.peak_io_used = max(self.peak_io_used, self.io_used)
+        self.peak_solver_used = max(self.peak_solver_used, self.solver_used)
 
     def release(self, grant: _ResourceGrant) -> None:
         self.cpu_used -= grant.cpu
@@ -441,6 +456,16 @@ class _ResourceLedger:
             "connectome_io_slots": self.io_limit,
             "external_solver_slots": self.solver_limit,
             "blas_threads_per_worker": 1,
+        }
+
+    def peak_reservations(self) -> dict[str, int]:
+        """Return peak parent-ledger reservations for segment provenance."""
+
+        return {
+            "peak_reserved_cpu_slots": self.peak_cpu_used,
+            "peak_reserved_memory_bytes": self.peak_memory_used,
+            "peak_reserved_connectome_io_slots": self.peak_io_used,
+            "peak_reserved_external_solver_slots": self.peak_solver_used,
         }
 
 
@@ -837,6 +862,111 @@ def _failed(task: TaskSpec, reason: str, store: RunStore) -> TaskOutcome:
     return outcome
 
 
+_ADMISSION_REASONS = (
+    "worker_slots",
+    "cpu",
+    "managed_memory",
+    "memory_reserve",
+    "connectome_io",
+    "external_solver",
+)
+
+
+class _ExecutionMetrics:
+    """Accumulate non-scientific scheduler provenance for one segment."""
+
+    def __init__(self, restored_task_count: int) -> None:
+        self.restored_task_count = int(restored_task_count)
+        self.scheduled_task_count = 0
+        self.max_ready_queue_depth = 0
+        self.peak_running_task_count = 0
+        self._active: dict[str, dict[str, float]] = {}
+        self._first_blocked: dict[str, float] = {}
+        self._blocked_tasks: dict[str, set[str]] = {
+            reason: set() for reason in _ADMISSION_REASONS
+        }
+        self._wait_seconds: dict[str, float] = {
+            reason: 0.0 for reason in _ADMISSION_REASONS
+        }
+        self.max_task_admission_wait_seconds = 0.0
+
+    def observe_ready_queue(self, depth: int) -> None:
+        self.max_ready_queue_depth = max(self.max_ready_queue_depth, int(depth))
+
+    def observe_running(self, count: int) -> None:
+        self.peak_running_task_count = max(
+            self.peak_running_task_count,
+            int(count),
+        )
+
+    def observe_blocked(
+        self,
+        task_id: str,
+        reasons: tuple[str, ...],
+        now: float,
+    ) -> None:
+        unknown = set(reasons) - set(_ADMISSION_REASONS)
+        if unknown:
+            raise ExecutionError(
+                "scheduler reported unsupported admission reasons: "
+                + ",".join(sorted(unknown))
+            )
+        active = self._active.setdefault(task_id, {})
+        for reason in tuple(active):
+            if reason not in reasons:
+                self._wait_seconds[reason] += max(0.0, now - active.pop(reason))
+        for reason in reasons:
+            if reason not in active:
+                active[reason] = now
+            self._blocked_tasks[reason].add(task_id)
+        self._first_blocked.setdefault(task_id, now)
+
+    def close_task(self, task_id: str, now: float) -> None:
+        active = self._active.pop(task_id, {})
+        for reason, started in active.items():
+            self._wait_seconds[reason] += max(0.0, now - started)
+        first = self._first_blocked.pop(task_id, None)
+        if first is not None:
+            self.max_task_admission_wait_seconds = max(
+                self.max_task_admission_wait_seconds,
+                max(0.0, now - first),
+            )
+
+    def scheduled(self, task_id: str, running_count: int, now: float) -> None:
+        self.close_task(task_id, now)
+        self.scheduled_task_count += 1
+        self.observe_running(running_count)
+
+    def as_dict(
+        self,
+        *,
+        terminal_task_count: int,
+        ledger: _ResourceLedger,
+        now: float,
+    ) -> dict[str, object]:
+        for task_id in tuple(self._active):
+            self.close_task(task_id, now)
+        return {
+            "restored_task_count": self.restored_task_count,
+            "scheduled_task_count": self.scheduled_task_count,
+            "terminal_task_count": int(terminal_task_count),
+            "peak_running_task_count": self.peak_running_task_count,
+            "max_ready_queue_depth": self.max_ready_queue_depth,
+            "admission_blocked_task_count_by_reason": {
+                reason: len(self._blocked_tasks[reason])
+                for reason in _ADMISSION_REASONS
+            },
+            "admission_wait_seconds_by_reason": {
+                reason: self._wait_seconds[reason]
+                for reason in _ADMISSION_REASONS
+            },
+            "max_task_admission_wait_seconds": (
+                self.max_task_admission_wait_seconds
+            ),
+            **ledger.peak_reservations(),
+        }
+
+
 def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     """Execute a plan with local failure isolation and exact resume semantics."""
     if not isinstance(plan, ExecutionPlan):
@@ -861,6 +991,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     pending = {task.task_id: task for task in plan.tasks if task.task_id not in outcomes}
     abort = False
     ledger = _ResourceLedger(context.workers)
+    metrics = _ExecutionMetrics(len(outcomes))
     process_mode = context.spawn_worker_spec is not None
     initial_swap = _swap_used_bytes()
     segment_id = context.run_store.begin_execution_segment(
@@ -898,9 +1029,12 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 if task.task_id in pending
                 and all(dependency in outcomes for dependency in task.dependencies)
             ]
+            metrics.observe_ready_queue(len(ready))
             for task in ready:
+                admission_time = time.monotonic()
                 if abort:
                     pending.pop(task.task_id)
+                    metrics.close_task(task.task_id, admission_time)
                     outcomes[task.task_id] = _skipped(
                         task,
                         "not_run_batch_aborted",
@@ -920,6 +1054,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 )
                 if blocking:
                     pending.pop(task.task_id)
+                    metrics.close_task(task.task_id, admission_time)
                     outcomes[task.task_id] = _skipped(
                         task,
                         "dependency_failure:" + ",".join(
@@ -946,6 +1081,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                     )
                 except ExecutionError as exc:
                     pending.pop(task.task_id)
+                    metrics.close_task(task.task_id, admission_time)
                     outcomes[task.task_id] = _failed(
                         task,
                         str(exc),
@@ -957,6 +1093,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                     continue
                 if failed_gate is not None:
                     pending.pop(task.task_id)
+                    metrics.close_task(task.task_id, admission_time)
                     outcomes[task.task_id] = _skipped(
                         task,
                         failed_gate.false_status,
@@ -970,6 +1107,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                     and not context.allow_expensive_producers
                 ):
                     pending.pop(task.task_id)
+                    metrics.close_task(task.task_id, admission_time)
                     error = ExpensiveProducerNotAuthorized(
                         f"expensive producer {task.service_id!r} is not authorized"
                     )
@@ -983,9 +1121,20 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                     progressed = True
                     continue
                 if len(running) >= context.workers:
-                    break
+                    metrics.observe_blocked(
+                        task.task_id,
+                        ("worker_slots",),
+                        admission_time,
+                    )
+                    continue
                 grant = ledger.request(task)
-                if not ledger.can_acquire(grant, len(running)):
+                blocking_reasons = ledger.blocking_reasons(grant)
+                if blocking_reasons:
+                    metrics.observe_blocked(
+                        task.task_id,
+                        blocking_reasons,
+                        admission_time,
+                    )
                     continue
                 pending.pop(task.task_id)
                 started, output_dir = _begin_task(task, context)
@@ -1009,6 +1158,11 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                     )
                 ledger.acquire(grant)
                 running[future] = (task, started, grant)
+                metrics.scheduled(
+                    task.task_id,
+                    len(running),
+                    admission_time,
+                )
                 progressed = True
 
             if progressed and len(running) < context.workers:
@@ -1037,6 +1191,11 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
             {
                 "finished_at": _utc_now(),
                 "swap_delta_bytes": max(0, _swap_used_bytes() - initial_swap),
+                **metrics.as_dict(
+                    terminal_task_count=len(outcomes),
+                    ledger=ledger,
+                    now=time.monotonic(),
+                ),
             },
         )
 
