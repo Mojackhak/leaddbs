@@ -7465,6 +7465,50 @@ guard epoch contains 27076 samples, observed a 46511964160-byte peak
 `< 64 GiB`, and swap growth `< 1` byte. The write probe passed. This is
 intermediate progress only.
 
+At the scheduled 2026-07-23 01:26 PDT checkpoint, the reference cache had
+advanced to 52 passing decisions and 104 corresponding row manifests. The
+newest decision is
+`274860a37f3f8be9eb4467124a8500d31ffa2dad562e325c55c7de7f69ebbbe2`;
+its final and `Omega_max` row identities are
+`eae532a17f837266f1842f867242c8e92abf9709a4f63ac4bc98c28469437c2e`
+and
+`fdeda5113449db405c55d1ed6a549b183585cf9e6f7e1e48af0124cbde68efa5`.
+Every cumulative decision still belongs to
+`oss_axis_group_078d3c2f2b8ac612a268` and has pass status, zero state mismatch,
+zero activation-count mismatch, and zero maximum probability difference. The
+reference gate remains running; the add-on gate retains its historical failed
+state; and the ledger remains 196 completed, one running, one failed, and 392
+dependency-derived skips.
+
+The VAL write probe passed. The process tree was live at 98.7 percent aggregate
+CPU and 14787035136 bytes RSS; no `run_pathway_activation` child happened to
+exist in that one snapshot, which is not interpreted as a stopped gate. The
+append-only guard contained 37524 samples across four detected epochs, current
+RSS 14787035136 bytes, peak RSS 55017013248 bytes, current swap 5152503235 bytes
+against the 6794646651-byte current baseline, and an ordinary final `sample`
+event. The global stream's largest adjacent timestamp gap was approximately
+814.41 seconds. That value may span a guard restart boundary and does not by
+itself invalidate a later single-epoch window, but it exposes a missing
+window-level continuity gate.
+
+An accepted maximum-row measurement window must contain at least two guard
+samples. Both the selected-row and owning-decision manifest commit times must
+fall inside the first-to-last actual sample envelope, not merely inside
+human-declared bounds. Every adjacent sample interval inside the selected
+window must be `< 5` seconds. The accepted report records the maximum
+window-local gap. A restart gap outside the selected epoch remains reported in
+the global guard summary; a gap at or above five seconds inside the selected
+window fails resource acceptance. This preserves the approximately one-second
+guard contract without treating an unrelated restart gap as a scientific
+failure.
+
+The window-local continuity gate is implemented in both the builder and
+independent validator. A boundary fixture places two samples exactly five
+seconds apart: direct validation rejects the window and the builder refuses to
+select that epoch. Valid one-second-scale fixtures continue to pass. The
+pre-instrumentation suite now passes 15 tests, and the joint guard plus both
+resource-validator suite passes 31 tests under Conda `leaddbs`.
+
 ### Unified static regression checkpoint, 2026-07-23
 
 The complete repository-local dual-frequency test directory was rerun under

@@ -20,6 +20,7 @@ _ALLOWED_GUARD_EVENTS = frozenset(
     {"sample", "runner_exit", "runner_exited", "completed"}
 )
 _OSS_AXIS_PROBABILITY_TOLERANCE = 1.0e-7
+_MAX_WINDOW_SAMPLE_GAP_SECONDS = 5.0
 _WINDOW_SCHEMA = "dual_frequency_task17_preinstrumentation_windows_v1"
 
 
@@ -603,21 +604,34 @@ def _measurement_windows(
             decision.get("cache_manifest_commit_utc"),
             f"window {index} decision manifest commit",
         )
-        if not (
-            start <= row_commit <= finish
-            and start <= decision_commit <= finish
-        ):
-            raise PreinstrumentationResourceError(
-                f"measurement window {index} does not contain its cache commits"
-            )
         samples = [
             row
             for row in guard_rows
             if start <= row["timestamp"] <= finish
         ]
-        if not samples or len({row["epoch_index"] for row in samples}) != 1:
+        if len(samples) < 2 or len({row["epoch_index"] for row in samples}) != 1:
             raise PreinstrumentationResourceError(
-                f"measurement window {index} does not select one guard epoch"
+                f"measurement window {index} lacks two samples in one guard epoch"
+            )
+        sample_start = samples[0]["timestamp"]
+        sample_finish = samples[-1]["timestamp"]
+        if not (
+            sample_start <= row_commit <= sample_finish
+            and sample_start <= decision_commit <= sample_finish
+        ):
+            raise PreinstrumentationResourceError(
+                f"measurement window {index} does not contain its cache commits"
+            )
+        maximum_gap = max(
+            (
+                samples[position]["timestamp"]
+                - samples[position - 1]["timestamp"]
+            ).total_seconds()
+            for position in range(1, len(samples))
+        )
+        if maximum_gap >= _MAX_WINDOW_SAMPLE_GAP_SECONDS:
+            raise PreinstrumentationResourceError(
+                f"measurement window {index} sample gap reached its ceiling"
             )
         baseline = _integer(
             item.get("guard_epoch_swap_baseline_bytes"),
@@ -648,6 +662,7 @@ def _measurement_windows(
                 "guard_epoch_index": samples[0]["epoch_index"],
                 "guard_epoch_swap_baseline_bytes": baseline,
                 "sample_count": len(samples),
+                "maximum_sample_gap_seconds": maximum_gap,
                 "peak_task_tree_rss_bytes": observed_peak,
             }
         )
@@ -718,8 +733,19 @@ def build_measurement_windows(
                 f"row {row_id} manifest commit",
             )
             for epoch_index, samples in sorted(samples_by_epoch.items()):
+                if len(samples) < 2:
+                    continue
                 start = samples[0]["timestamp"]
                 finish = samples[-1]["timestamp"]
+                maximum_gap = max(
+                    (
+                        samples[position]["timestamp"]
+                        - samples[position - 1]["timestamp"]
+                    ).total_seconds()
+                    for position in range(1, len(samples))
+                )
+                if maximum_gap >= _MAX_WINDOW_SAMPLE_GAP_SECONDS:
+                    continue
                 if not (
                     start <= row_commit <= finish
                     and start <= decision_commit <= finish
@@ -733,6 +759,7 @@ def build_measurement_windows(
                         "start_utc": start.isoformat(),
                         "finish_utc": finish.isoformat(),
                         "guard_epoch_index": epoch_index,
+                        "maximum_sample_gap_seconds": maximum_gap,
                         "guard_epoch_swap_baseline_bytes": int(
                             samples[0]["swap_baseline_bytes"]
                         ),
@@ -766,7 +793,11 @@ def build_measurement_windows(
             {
                 key: value
                 for key, value in selected.items()
-                if key not in {"candidate_time", "guard_epoch_index"}
+                if key not in {
+                    "candidate_time",
+                    "guard_epoch_index",
+                    "maximum_sample_gap_seconds",
+                }
             }
         ],
     }

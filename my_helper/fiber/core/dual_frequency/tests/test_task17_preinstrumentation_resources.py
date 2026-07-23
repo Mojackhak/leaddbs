@@ -426,6 +426,35 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
         ):
             self._validate()
 
+    def test_window_sample_gap_at_boundary_fails(self) -> None:
+        with self.guard.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+            fields = tuple(rows[0])
+        rows[1]["timestamp_utc"] = "2026-07-22T00:00:07+00:00"
+        rows[2]["timestamp_utc"] = "2026-07-22T00:00:09+00:00"
+        with self.guard.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+        document = json.loads(self.windows.read_text(encoding="utf-8"))
+        document["windows"][0]["finish_utc"] = "2026-07-22T00:00:07+00:00"
+        _write_json(self.windows, document)
+        with self.assertRaisesRegex(
+            validator.PreinstrumentationResourceError,
+            "sample gap reached its ceiling",
+        ):
+            self._validate()
+        with self.assertRaisesRegex(
+            validator.PreinstrumentationResourceError,
+            "no maximum-row cache commits",
+        ):
+            validator.build_measurement_windows(
+                self.root,
+                self.cache,
+                self.guard,
+                max_rss_bytes=64 * 1024**3,
+            )
+
     def test_current_guard_runner_exit_spelling_passes(self) -> None:
         with self.guard.open("a", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(
