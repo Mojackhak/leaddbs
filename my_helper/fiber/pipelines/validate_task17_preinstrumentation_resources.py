@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
@@ -47,6 +47,19 @@ def _read_json(path: Path, label: str) -> dict[str, Any]:
             f"{label} must contain an object: {path}"
         )
     return value
+
+
+def _manifest_commit_utc(path: Path, label: str) -> str:
+    try:
+        modified_ns = path.stat().st_mtime_ns
+    except OSError as exc:
+        raise PreinstrumentationResourceError(
+            f"cannot stat {label}: {path}"
+        ) from exc
+    return datetime.fromtimestamp(
+        modified_ns / 1_000_000_000,
+        tz=timezone.utc,
+    ).isoformat()
 
 
 def _integer(value: object, label: str, *, minimum: int = 0) -> int:
@@ -327,6 +340,10 @@ def _gate_closure(
             str(decision.get("final_row_identity", "")),
             str(decision.get("omega_row_identity", "")),
         )
+        decision_manifest_commit = _manifest_commit_utc(
+            decision_root / "manifest.json",
+            f"OSS decision manifest {decision_id}",
+        )
         if row_ids[0] == row_ids[1]:
             raise PreinstrumentationResourceError(
                 f"OSS decision rows are not distinct: {decision_id}"
@@ -364,6 +381,10 @@ def _gate_closure(
             row = {
                 "row_identity": row_id,
                 "n_fibers": n_fibers,
+                "cache_manifest_commit_utc": _manifest_commit_utc(
+                    row_root / "manifest.json",
+                    f"OSS row manifest {row_id}",
+                ),
                 "row_metadata_sha256": _sha256_file(
                     row_root / "row_metadata.json"
                 ),
@@ -378,6 +399,7 @@ def _gate_closure(
             "group_id": group_id,
             "final_row_identity": row_ids[0],
             "omega_row_identity": row_ids[1],
+            "cache_manifest_commit_utc": decision_manifest_commit,
             "decision_sha256": _sha256_file(decision_root / "decision.json"),
         }
     maximum = max(row["n_fibers"] for row in rows.values())
@@ -542,6 +564,9 @@ def _measurement_windows(
             "measurement-window document identity differs"
         )
     maximum_rows = set(rows["maximum_row_identities"])
+    rows_by_identity = {
+        str(item["row_identity"]): item for item in rows["rows"]
+    }
     accepted: list[dict[str, Any]] = []
     covered_rows: set[str] = set()
     for index, item in enumerate(windows):
@@ -563,11 +588,27 @@ def _measurement_windows(
             raise PreinstrumentationResourceError(
                 f"measurement window {index} is not tied to a terminal maximum row"
             )
+        selected_row = rows_by_identity[row_id]
         start = _timestamp(item.get("start_utc"), f"window {index} start")
         finish = _timestamp(item.get("finish_utc"), f"window {index} finish")
         if finish < start:
             raise PreinstrumentationResourceError(
                 f"measurement window {index} has reversed bounds"
+            )
+        row_commit = _timestamp(
+            selected_row.get("cache_manifest_commit_utc"),
+            f"window {index} row manifest commit",
+        )
+        decision_commit = _timestamp(
+            decision.get("cache_manifest_commit_utc"),
+            f"window {index} decision manifest commit",
+        )
+        if not (
+            start <= row_commit <= finish
+            and start <= decision_commit <= finish
+        ):
+            raise PreinstrumentationResourceError(
+                f"measurement window {index} does not contain its cache commits"
             )
         samples = [
             row
@@ -602,6 +643,8 @@ def _measurement_windows(
                 "row_identity": row_id,
                 "start_utc": start.isoformat(),
                 "finish_utc": finish.isoformat(),
+                "row_manifest_commit_utc": row_commit.isoformat(),
+                "decision_manifest_commit_utc": decision_commit.isoformat(),
                 "guard_epoch_index": samples[0]["epoch_index"],
                 "guard_epoch_swap_baseline_bytes": baseline,
                 "sample_count": len(samples),

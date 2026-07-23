@@ -6766,9 +6766,17 @@ mode of the strict validator. Its terminal evidence bundle must contain:
 The validator must recompute the gate, decision, row, and maximum-size closure
 from terminal files. It may verify a measured window only when every sample in
 the declared UTC interval belongs to one guard epoch and the declared peak is
-the maximum observed peak in that interval. A human-authored label, an
-unbounded snapshot, a window that cannot be tied to a terminal maximum row, or
-an inferred full-span internal metric must fail closed. The report must state
+the maximum observed peak in that interval. The selected maximum-row cache
+manifest and its owning decision cache manifest must also have been committed
+within the same declared interval. Their local filesystem commit times are
+recorded in the acceptance report, but remain machine-specific resource
+provenance: they never enter scientific identity, cache validity, task
+identity, publication identity, or resume gates. A copied cache cannot inherit
+this machine-specific resource verdict without new execution evidence.
+
+A human-authored row label without matching commit times, an unbounded
+snapshot, a window that cannot be tied to a terminal maximum row, or an
+inferred full-span internal metric must fail closed. The report must state
 `external_guard_with_maximum_row_windows`, expose uncovered elapsed intervals,
 and describe the result as pre-instrumentation resource evidence rather than
 continuous full-span monitoring. Scientific completion and this resource
@@ -6779,15 +6787,25 @@ schema. It requires a terminal completed run and exactly two accepted OSS gate
 records, verifies every decision and row payload against its cache manifest,
 derives the unique maximum-`n_fibers` row set, and accepts only measurement
 windows that select one guard epoch and bind a terminal maximum row to the
-observed interval peak. It rejects instrumented segments so they cannot bypass
-the stricter validator, preserves the incomplete full-span verdict, reports
-the pre-guard and post-guard uncovered intervals, and publishes its report
-atomically. Five focused fixtures cover valid multi-epoch evidence,
-non-maximum-row binding, peak mismatch, corrupt decision payload, and incorrect
-use on an instrumented segment. The complete dual-frequency regression passes
-588 tests under Conda `leaddbs`. The real report remains blocked on terminal
-OSS gate closure and a frozen measured-window input assembled only from the
-already captured runtime observations.
+observed interval peak, selected-row manifest commit, and owning-decision
+manifest commit. It rejects instrumented segments so they cannot bypass the
+stricter validator, preserves the incomplete full-span verdict, reports the
+pre-guard and post-guard uncovered intervals, and publishes its report
+atomically. Focused fixtures cover valid multi-epoch evidence,
+non-maximum-row binding, peak mismatch, stale row or decision commit time,
+corrupt decision payload, and incorrect use on an instrumented segment. The
+real report remains blocked on terminal OSS gate closure and a frozen
+measured-window input assembled only from the already captured runtime
+observations.
+
+The commit-time binding is now implemented. The validator derives UTC commit
+times from the local selected-row and owning-decision cache manifests, requires
+both times inside the declared one-epoch guard window, and records them in the
+accepted window report. A new fixture moves each manifest outside the window
+independently and proves rejection. The pre-instrumentation, strict-resource,
+and checked-in guard suites pass 28 tests under Conda `leaddbs`. This closes
+the form-only row-label loophole without changing cache content, scientific
+identity, or resume.
 
 The first production-plan dry read exposed one serialization boundary in that
 validator before it was used for acceptance: persisted

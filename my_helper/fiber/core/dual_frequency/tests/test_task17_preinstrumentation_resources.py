@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import csv
+from datetime import datetime
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -173,6 +175,7 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
         file_record["sha256"] = _sha256(decision_path)
         file_record["size_bytes"] = decision_path.stat().st_size
         _write_json(manifest_path, manifest)
+        os.utime(manifest_path, (self.commit_time, self.commit_time))
 
     def _build_valid_fixture(self) -> None:
         _write_json(
@@ -236,6 +239,22 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
             self._row(row, count)
         self._decision(decisions[0], groups[0], rows[0], rows[1])
         self._decision(decisions[1], groups[1], rows[2], rows[3])
+        self.commit_time = datetime.fromisoformat(
+            "2026-07-22T00:00:02.500000+00:00"
+        ).timestamp()
+        for manifest in (
+            self.cache
+            / "shared_exposure_v2"
+            / "oss_rows"
+            / rows[1]
+            / "manifest.json",
+            self.cache
+            / "shared_exposure_v2"
+            / "oss_axis_equivalence"
+            / decisions[0]
+            / "manifest.json",
+        ):
+            os.utime(manifest, (self.commit_time, self.commit_time))
         fields = (
             "timestamp_utc",
             "tree_rss_bytes",
@@ -329,6 +348,33 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
             "terminal maximum row",
         ):
             self._validate()
+
+    def test_window_rejects_stale_row_or_decision_manifest_commit(self) -> None:
+        stale = datetime.fromisoformat(
+            "2026-07-21T00:00:00+00:00"
+        ).timestamp()
+        paths = (
+            self.cache
+            / "shared_exposure_v2"
+            / "oss_rows"
+            / ("b" * 64)
+            / "manifest.json",
+            self.cache
+            / "shared_exposure_v2"
+            / "oss_axis_equivalence"
+            / ("1" * 64)
+            / "manifest.json",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                original = path.stat().st_mtime_ns
+                os.utime(path, (stale, stale))
+                with self.assertRaisesRegex(
+                    validator.PreinstrumentationResourceError,
+                    "does not contain its cache commits",
+                ):
+                    self._validate()
+                os.utime(path, ns=(original, original))
 
     def test_window_peak_mismatch_fails(self) -> None:
         document = json.loads(self.windows.read_text(encoding="utf-8"))
