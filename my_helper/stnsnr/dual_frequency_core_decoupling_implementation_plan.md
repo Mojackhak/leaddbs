@@ -6803,6 +6803,18 @@ therefore continue to use the terminal group record plus its two-row decision
 closure, never the cumulative cache count or the 34 materialized triplets as a
 predicted total.
 
+At the scheduled 2026-07-22 21:26 PDT checkpoint, the active reference group
+had durably published 48 pass decisions and 96 corresponding standard row
+manifests. The newest decision retained zero state mismatch, zero
+activation-count mismatch, and zero maximum probability difference. The
+runner and one solver remained live. Task-tree RSS was 38257524736 bytes with
+a segment peak of 46511964160 bytes, both below the 64-GiB ceiling. Swap was
+5169280451 bytes against the 6794646651-byte segment baseline and therefore
+had not grown. The task ledger remained at 196 completed, one running
+reference gate, one historical failed add-on gate, and 392 dependency-derived
+skips. This is progress evidence only; the reference group still lacks its
+terminal authoritative closure.
+
 ---
 
 ## Plan Self-Review Record
