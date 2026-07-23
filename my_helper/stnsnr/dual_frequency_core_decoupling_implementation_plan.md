@@ -3317,24 +3317,33 @@ VAL cache and completed parent. The post-OSS parity run must compute into a
 separate acceptance cache, compare complete float32 bytes and selected axes,
 and leave the retained authority untouched.
 
-The complete nine physical fiber matrices and six prepared Omega-max artifacts
-are frozen in
+The complete nine physical fiber matrices, three physical direct-voxel
+matrices, six prepared Omega-max artifacts, and two prepared direct-voxel
+artifacts are frozen in
 `config/four_model_v1/acceptance/task17_connectome_parity_fixture.json`.
 A repository-owned verifier must validate every cache manifest and payload,
 require a completed authority run manifest, resolve only terminal-completed
 prepared task artifacts from that parent, reject duplicate or missing
 model/connectome/role rows, and emit one immutable acceptance report.
-The authority-only report is published at
+The complete authority-only report is published at
 `/Volumes/VAL/STNSNr/summary/spot/acceptance/`
-`task17-connectome-parity-authority-v2.json`; it contains no replay claim. The
-earlier v1 report is retained as superseded evidence because it validated
-payloads but did not itself validate the parent manifest or task terminal
-states.
+`task17-physical-parity-authority-v3.json`; it contains no replay claim. The
+earlier connectome v1 and v2 reports are retained as superseded fiber-only
+evidence. V1 also omitted parent-manifest and task-terminal validation; v2
+closed those checks but did not yet freeze direct voxel.
+For scale-fanned task-local duplicates, validate terminal state and artifact
+metadata for every task. Hash every retained fiber payload as before; for the
+large direct-voxel duplicates, hash one representative payload per distinct
+content identity after the complete physical cache payload has already passed
+independent validation. Record both task count and payload-hash count so the
+bounded authority audit does not reread approximately 28 GiB of duplicate
+voxel bytes.
 The verifier may inspect the retained authority before OSS completes, but the
 new implementation replay and byte comparison remain ordered after the active
 solver lineage to avoid competing for connectome and VAL bandwidth.
 
-The corrected v2 authority verifier was executed twice on 2026-07-22. Both runs
+The corrected fiber-only v2 authority verifier was executed twice on
+2026-07-22. Both runs
 validated the completed parent manifest, all nine complete physical payloads,
 the three distinct frequency-role cache signatures, all six prepared Omega-max
 identities, and every one of the 168 terminal-completed scale-local prepared
@@ -3343,6 +3352,15 @@ left its modification and change timestamps unchanged. The synthetic verifier
 suite passes three tests covering complete closure, immutable report replay,
 duplicate-role rejection, and incomplete-parent rejection. This freezes the
 pre-refactor authority only; it does not yet accept the post-refactor replay.
+
+The complete v3 physical authority verifier was then executed twice. It added
+three full direct-voxel physical payloads, all 56 terminal-completed voxel
+prepared-task metadata records, and representative payload hashes for the two
+distinct prepared voxel identities. Fiber closure remained nine physical
+payloads and 168 fully hashed task payloads. Voxel and fiber independently
+resolved the same three frequency-role signatures. The second v3 invocation
+left the 9709-byte report and both timestamps unchanged. This closes authority
+freezing for all four model families; post-refactor replay parity remains open.
 
 - [ ] **Step 2: Establish directly copyable SHA cache and single-write publication**
 

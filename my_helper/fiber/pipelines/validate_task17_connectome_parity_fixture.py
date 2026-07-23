@@ -34,7 +34,9 @@ _CONNECTOMES = frozenset(
 _FREQUENCY_ROLES = frozenset(
     {"reference", "addon_primary", "addon_reference_condition"}
 )
-_MODEL_FAMILIES = frozenset({"reference_fiber", "addon_fiber"})
+_FIBER_MODEL_FAMILIES = frozenset({"reference_fiber", "addon_fiber"})
+_VOXEL_MODEL_FAMILIES = frozenset({"reference_voxel", "addon_voxel"})
+_MODEL_FAMILIES = _FIBER_MODEL_FAMILIES | _VOXEL_MODEL_FAMILIES
 
 
 class ParityFixtureError(RuntimeError):
@@ -112,11 +114,13 @@ def _load_fixture(path: Path) -> dict[str, Any]:
             "authority_run_id",
             "authority_cache_root",
             "physical_fiber_exposures",
+            "physical_voxel_exposures",
             "prepared_omega_max_exposures",
+            "prepared_voxel_exposures",
         },
         "fixture",
     )
-    if fixture["schema_version"] != "dual_frequency_task17_connectome_parity_fixture_v1":
+    if fixture["schema_version"] != "dual_frequency_task17_physical_parity_fixture_v2":
         raise ParityFixtureError("unsupported parity fixture schema")
     return fixture
 
@@ -201,6 +205,63 @@ def _validate_physical_entries(
     return results, signatures
 
 
+def _validate_voxel_entries(
+    fixture: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, tuple[str, str]]]:
+    cache_root = Path(
+        _token(fixture["authority_cache_root"], "authority_cache_root")
+    ).resolve()
+    cache = ContentAddressedCache(cache_root)
+    rows = _sequence(fixture["physical_voxel_exposures"], "voxel entries")
+    seen: set[str] = set()
+    signatures: dict[str, tuple[str, str]] = {}
+    results: list[dict[str, Any]] = []
+    for index, raw in enumerate(rows):
+        row = _mapping(raw, f"voxel entry {index}")
+        _exact_keys(
+            row,
+            {"frequency_role", "semantic_sha256", "payload_sha256", "shape"},
+            f"voxel entry {index}",
+        )
+        role = _token(row["frequency_role"], "frequency_role", _FREQUENCY_ROLES)
+        if role in seen:
+            raise ParityFixtureError(f"duplicate voxel fixture role: {role}")
+        seen.add(role)
+        semantic = _sha(row["semantic_sha256"], "semantic_sha256")
+        payload_sha = _sha(row["payload_sha256"], "payload_sha256")
+        shape = _shape(row["shape"], "voxel shape")
+        entry = cache.resolve_identity("voxel_exposures", semantic)
+        if entry is None:
+            raise ParityFixtureError(f"voxel cache entry is missing: {semantic}")
+        if len(entry.files) != 1 or entry.files[0].relative_path != "exposure.npy":
+            raise ParityFixtureError("voxel cache entry must contain only exposure.npy")
+        cached = entry.files[0]
+        if (
+            cached.sha256 != payload_sha
+            or cached.metadata.dtype != "float32"
+            or cached.metadata.shape != shape
+        ):
+            raise ParityFixtureError(
+                f"voxel cache metadata differs from fixture: {semantic}"
+            )
+        signatures[role] = (
+            entry.key.component_frequency_hash,
+            entry.key.stimulation_hash,
+        )
+        results.append(
+            {
+                "frequency_role": role,
+                "semantic_sha256": semantic,
+                "payload_sha256": payload_sha,
+                "shape": list(shape),
+                "status": "validated",
+            }
+        )
+    if seen != _FREQUENCY_ROLES:
+        raise ParityFixtureError("voxel fixture does not cover every frequency role")
+    return results, signatures
+
+
 def _prepared_authority(parent: Path) -> dict[tuple[str, str], list[dict[str, Any]]]:
     tasks = parent / "tasks"
     if not tasks.is_dir():
@@ -224,7 +285,10 @@ def _prepared_authority(parent: Path) -> dict[tuple[str, str], list[dict[str, An
         endpoint = _mapping(payload.get("endpoint"), f"task endpoint {path.name}")
         family = endpoint.get("model_family")
         connectome = endpoint.get("connectome_id")
-        if family not in _MODEL_FAMILIES or connectome not in _CONNECTOMES:
+        if not (
+            (family in _FIBER_MODEL_FAMILIES and connectome in _CONNECTOMES)
+            or (family in _VOXEL_MODEL_FAMILIES and connectome == "none")
+        ):
             continue
         grouped.setdefault((family, connectome), []).append(payload)
     return grouped
@@ -233,15 +297,14 @@ def _prepared_authority(parent: Path) -> dict[tuple[str, str], list[dict[str, An
 def _validate_prepared_entries(
     fixture: dict[str, Any],
     parent: Path,
+    *,
+    fixture_field: str,
+    expected_pairs: set[tuple[str, str]],
+    hash_all_payloads: bool,
 ) -> list[dict[str, Any]]:
     rows = _sequence(
-        fixture["prepared_omega_max_exposures"], "prepared entries"
+        fixture[fixture_field], f"{fixture_field} entries"
     )
-    expected_pairs = {
-        (family, connectome)
-        for family in _MODEL_FAMILIES
-        for connectome in _CONNECTOMES
-    }
     grouped = _prepared_authority(parent)
     seen: set[tuple[str, str]] = set()
     results: list[dict[str, Any]] = []
@@ -260,8 +323,10 @@ def _validate_prepared_entries(
             f"prepared entry {index}",
         )
         family = _token(row["model_family"], "model_family", _MODEL_FAMILIES)
-        connectome = _token(row["connectome_id"], "connectome_id", _CONNECTOMES)
+        connectome = _token(row["connectome_id"], "connectome_id")
         pair = (family, connectome)
+        if pair not in expected_pairs:
+            raise ParityFixtureError(f"prepared fixture row is unsupported: {pair}")
         if pair in seen:
             raise ParityFixtureError(f"duplicate prepared fixture row: {pair}")
         seen.add(pair)
@@ -272,7 +337,8 @@ def _validate_prepared_entries(
         payloads = grouped.get(pair, [])
         if not payloads:
             raise ParityFixtureError(f"prepared authority is missing: {pair}")
-        for payload in payloads:
+        payload_hash_count = 0
+        for payload_index, payload in enumerate(payloads):
             exposure = _mapping(payload.get("exposure"), "prepared exposure")
             feature_ids = _mapping(payload.get("feature_ids"), "prepared feature IDs")
             feature_axis = _mapping(payload.get("feature_axis"), "prepared feature axis")
@@ -288,14 +354,16 @@ def _validate_prepared_entries(
                 )
             exposure_path = _file_uri(exposure.get("uri"), parent)
             feature_ids_path = _file_uri(feature_ids.get("uri"), parent)
-            if sha256_file(exposure_path) != expected_exposure:
-                raise ParityFixtureError(
-                    f"prepared exposure payload differs from fixture: {exposure_path}"
-                )
-            if sha256_file(feature_ids_path) != expected_ids:
-                raise ParityFixtureError(
-                    f"prepared feature IDs differ from fixture: {feature_ids_path}"
-                )
+            if hash_all_payloads or payload_index == 0:
+                if sha256_file(exposure_path) != expected_exposure:
+                    raise ParityFixtureError(
+                        f"prepared exposure payload differs from fixture: {exposure_path}"
+                    )
+                if sha256_file(feature_ids_path) != expected_ids:
+                    raise ParityFixtureError(
+                        f"prepared feature IDs differ from fixture: {feature_ids_path}"
+                    )
+                payload_hash_count += 1
         results.append(
             {
                 "model_family": family,
@@ -305,10 +373,12 @@ def _validate_prepared_entries(
                 "feature_axis_sha256": expected_axis,
                 "shape": list(expected_shape),
                 "task_count": len(payloads),
+                "payload_hash_count": payload_hash_count,
                 "status": "validated",
             }
         )
-    if seen != expected_pairs or set(grouped) != expected_pairs:
+    authority_pairs = {pair for pair in grouped if pair in expected_pairs}
+    if seen != expected_pairs or authority_pairs != expected_pairs:
         raise ParityFixtureError("prepared authority does not cover the exact model matrix")
     return results
 
@@ -362,14 +432,38 @@ def validate(fixture_path: Path, parent: Path) -> dict[str, Any]:
         raise ParityFixtureError("authority parent basename differs from fixture run ID")
     parent_manifest_sha256 = _validate_parent_manifest(parent, authority_run_id)
     physical, signatures = _validate_physical_entries(fixture)
-    prepared = _validate_prepared_entries(fixture, parent)
+    voxels, voxel_signatures = _validate_voxel_entries(fixture)
+    if signatures != voxel_signatures:
+        raise ParityFixtureError(
+            "voxel and fiber frequency roles have different physical identities"
+        )
+    prepared = _validate_prepared_entries(
+        fixture,
+        parent,
+        fixture_field="prepared_omega_max_exposures",
+        expected_pairs={
+            (family, connectome)
+            for family in _FIBER_MODEL_FAMILIES
+            for connectome in _CONNECTOMES
+        },
+        hash_all_payloads=True,
+    )
+    prepared_voxels = _validate_prepared_entries(
+        fixture,
+        parent,
+        fixture_field="prepared_voxel_exposures",
+        expected_pairs={(family, "none") for family in _VOXEL_MODEL_FAMILIES},
+        hash_all_payloads=False,
+    )
     return {
-        "schema_version": "dual_frequency_task17_parity_authority_report_v1",
+        "schema_version": "dual_frequency_task17_physical_parity_authority_report_v2",
         "authority_run_id": authority_run_id,
         "authority_run_manifest_sha256": parent_manifest_sha256,
         "fixture_sha256": sha256_file(fixture_path),
         "physical_fiber_exposures": physical,
+        "physical_voxel_exposures": voxels,
         "prepared_omega_max_exposures": prepared,
+        "prepared_voxel_exposures": prepared_voxels,
         "frequency_role_signatures": {
             role: {
                 "component_frequency_hash": signature[0],

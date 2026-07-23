@@ -1,5 +1,5 @@
 {
-  "schema_version": "dual_frequency_task17_connectome_parity_fixture_v1",
+  "schema_version": "dual_frequency_task17_physical_parity_fixture_v2",
   "authority_run_id": "task17-main-v8-tau-grid-formal-20260717",
   "authority_cache_root": "/Volumes/VAL/STNSNr/cache/dual_frequency",
   "physical_fiber_exposures": [
@@ -67,6 +67,26 @@
       "shape": [16, 11820000]
     }
   ],
+  "physical_voxel_exposures": [
+    {
+      "frequency_role": "reference",
+      "semantic_sha256": "a9924e5e02d455e70769dc6e31ea38fe3d9dbd3abe5034b95965cef52255cece",
+      "payload_sha256": "b7550f943cebc925dc335454dcd5f07f2d6df29fc1a8a415c22de0dff6ef0295",
+      "shape": [16, 8465824]
+    },
+    {
+      "frequency_role": "addon_primary",
+      "semantic_sha256": "7efe8359d329cf330a1da604c70b8d572c893d1a45f3eab2e50ed5f21edcbde2",
+      "payload_sha256": "b25b97528d10f38b0f593c943df7b5d3e5b2992bf1a099f6f591de93fd84ef68",
+      "shape": [16, 8465824]
+    },
+    {
+      "frequency_role": "addon_reference_condition",
+      "semantic_sha256": "0c43b6cbc60936195669c5d34dd32b988fcd2c03c4778ce3dfaca4447ed0f7db",
+      "payload_sha256": "0343ca473b5293d1d94700bb2a6480b9e83579ba61610bbb58e950e711870766",
+      "shape": [16, 8465824]
+    }
+  ],
   "prepared_omega_max_exposures": [
     {
       "model_family": "reference_fiber",
@@ -115,6 +135,24 @@
       "feature_ids_sha256": "4026fe384bff25ce9cc5818f8c6a0a144bd69749f5942179da8b48df648088e2",
       "feature_axis_sha256": "5b53d23bb2f0f206c42332d25d134f3b09e9fa740ea386d51d64867d21002fc8",
       "shape": [13, 31004]
+    }
+  ],
+  "prepared_voxel_exposures": [
+    {
+      "model_family": "reference_voxel",
+      "connectome_id": "none",
+      "exposure_sha256": "b7550f943cebc925dc335454dcd5f07f2d6df29fc1a8a415c22de0dff6ef0295",
+      "feature_ids_sha256": "b780a09cb1ac9eef0c2d46fc97d3d746f5af0250246e2c788f84f189fa864ac0",
+      "feature_axis_sha256": "84592da9832c841399ea7a096be77e8b64e19e0709054fec9249e823783a8104",
+      "shape": [16, 8465824]
+    },
+    {
+      "model_family": "addon_voxel",
+      "connectome_id": "none",
+      "exposure_sha256": "b5f387b94c4084ff4a565bb8719f3eba650b3c1fb69a58b0c695670dfd55968d",
+      "feature_ids_sha256": "b780a09cb1ac9eef0c2d46fc97d3d746f5af0250246e2c788f84f189fa864ac0",
+      "feature_axis_sha256": "84592da9832c841399ea7a096be77e8b64e19e0709054fec9249e823783a8104",
+      "shape": [13, 8465824]
     }
   ]
 }

@@ -38,6 +38,7 @@ CONNECTOMES = (
 )
 ROLES = ("reference", "addon_primary", "addon_reference_condition")
 FAMILIES = ("reference_fiber", "addon_fiber")
+VOXEL_FAMILIES = ("reference_voxel", "addon_voxel")
 
 
 class Task17ParityFixtureTest(unittest.TestCase):
@@ -178,13 +179,111 @@ class Task17ParityFixtureTest(unittest.TestCase):
                 task_index += 1
         return rows
 
+    def _physical_voxel_rows(self) -> list[dict[str, object]]:
+        cache = ContentAddressedCache(self.cache_root)
+        rows: list[dict[str, object]] = []
+        for role_index, role in enumerate(ROLES):
+            source = self.root / f"voxel-{role}.npy"
+            np.save(source, np.full((2, 4), role_index, dtype=np.float32))
+            key = ScientificCacheKey(
+                geometry_hash=self._digest("voxel-geometry"),
+                stimulation_hash=self._digest(f"stimulation-{role}"),
+                component_frequency_hash=self._digest(f"component-{role}"),
+                transform_hash=self._digest("transform"),
+                connectome_feature_hash=self._digest("voxel-axis"),
+                backend_name="shared_voxel_physical_exposure",
+                backend_version="2",
+                scientific_parameter_hashes=(("role", self._digest(role)),),
+                kind="voxel_exposures",
+            )
+            row_axis = AxisRef("subjects", 2, self._digest("subjects"))
+            feature_axis = AxisRef("voxels", 4, self._digest("voxels"))
+            entry = cache.publish(
+                key,
+                {"exposure.npy": source},
+                metadata={
+                    "exposure.npy": CacheFileMetadata(
+                        dtype="float32",
+                        shape=(2, 4),
+                        axes=(row_axis, feature_axis),
+                        units="V/m",
+                        space="synthetic",
+                    )
+                },
+            )
+            rows.append(
+                {
+                    "frequency_role": role,
+                    "semantic_sha256": key.digest,
+                    "payload_sha256": entry.files[0].sha256,
+                    "shape": [2, 4],
+                }
+            )
+        return rows
+
+    def _prepared_voxel_rows(self) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for index, family in enumerate(VOXEL_FAMILIES, start=100):
+            task_id = f"task_{index:020d}"
+            work = self.parent / "work" / task_id
+            work.mkdir(parents=True)
+            exposure_path = work / "exposure.npy"
+            ids_path = work / "feature_ids.npy"
+            np.save(exposure_path, np.arange(8, dtype=np.float32).reshape(2, 4))
+            np.save(ids_path, np.arange(1, 5, dtype=np.int64))
+            exposure_sha = sha256_file(exposure_path)
+            ids_sha = sha256_file(ids_path)
+            axis_sha = self._digest(f"prepared-axis-{family}")
+            task = {
+                "status": "completed",
+                "result": {
+                    "output_record_type": "PreparedExposureRecord",
+                    "payload": {
+                        "endpoint": {
+                            "model_family": family,
+                            "connectome_id": "none",
+                        },
+                        "exposure": {
+                            "dtype": "float32",
+                            "sha256": exposure_sha,
+                            "shape": [2, 4],
+                            "uri": exposure_path.resolve().as_uri(),
+                        },
+                        "feature_ids": {
+                            "dtype": "int64",
+                            "sha256": ids_sha,
+                            "shape": [4],
+                            "uri": ids_path.resolve().as_uri(),
+                        },
+                        "feature_axis": {"sha256": axis_sha},
+                    },
+                },
+            }
+            (self.parent / "tasks" / f"{task_id}.json").write_text(
+                json.dumps(task),
+                encoding="utf-8",
+            )
+            rows.append(
+                {
+                    "model_family": family,
+                    "connectome_id": "none",
+                    "exposure_sha256": exposure_sha,
+                    "feature_ids_sha256": ids_sha,
+                    "feature_axis_sha256": axis_sha,
+                    "shape": [2, 4],
+                }
+            )
+        return rows
+
     def _fixture(self) -> Path:
         fixture = {
-            "schema_version": "dual_frequency_task17_connectome_parity_fixture_v1",
+            "schema_version": "dual_frequency_task17_physical_parity_fixture_v2",
             "authority_run_id": self.parent.name,
             "authority_cache_root": str(self.cache_root),
             "physical_fiber_exposures": self._physical_rows(),
+            "physical_voxel_exposures": self._physical_voxel_rows(),
             "prepared_omega_max_exposures": self._prepared_rows(),
+            "prepared_voxel_exposures": self._prepared_voxel_rows(),
         }
         path = self.root / "fixture.json"
         path.write_text(json.dumps(fixture), encoding="utf-8")
@@ -195,7 +294,21 @@ class Task17ParityFixtureTest(unittest.TestCase):
         report = VALIDATOR.validate(fixture, self.parent)
         self.assertEqual(report["status"], "validated")
         self.assertEqual(len(report["physical_fiber_exposures"]), 9)
+        self.assertEqual(len(report["physical_voxel_exposures"]), 3)
         self.assertEqual(len(report["prepared_omega_max_exposures"]), 6)
+        self.assertEqual(len(report["prepared_voxel_exposures"]), 2)
+        self.assertTrue(
+            all(
+                row["payload_hash_count"] == row["task_count"]
+                for row in report["prepared_omega_max_exposures"]
+            )
+        )
+        self.assertTrue(
+            all(
+                row["payload_hash_count"] == 1
+                for row in report["prepared_voxel_exposures"]
+            )
+        )
         output = self.root / "report.json"
         VALIDATOR._write_report(output, report)
         before = output.stat().st_mtime_ns
