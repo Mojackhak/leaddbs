@@ -21,6 +21,7 @@ from dual_frequency.contracts import (
     AxisRef,
     EndpointKey,
     HardComputabilityLimits,
+    IndexedArrayView,
     NormativeFiberScoreSettings,
     ObservedRequest,
     SourceGrid,
@@ -482,6 +483,58 @@ class ReferenceFiberBackendTest(unittest.TestCase):
                     ("baseline", None),
                     ("feature_ids", "r"),
                 ],
+            )
+            view_store = SpyStore((inputs,))
+            view_request = dataclasses.replace(
+                request,
+                exposure=IndexedArrayView(
+                    parent=exposure_ref,
+                    row_positions=None,
+                    column_positions=None,
+                    axis_refs=(
+                        array_request.subject_axis,
+                        array_request.feature_axis,
+                    ),
+                ),
+            )
+            with mock.patch.object(
+                view_store,
+                "open_indexed_array_view",
+                wraps=view_store.open_indexed_array_view,
+            ) as open_view:
+                view_result = ReferenceFiberBackend(
+                    RunScopedArtifactPublisher(
+                        root / "view-output",
+                        "fiber_test",
+                        "1",
+                    ),
+                    artifact_store=view_store,
+                    feature_chunk_size=9,
+                ).run(view_request)
+            self.assertEqual(open_view.call_count, 1)
+            self.assertIsNotNone(view_result.source)
+            assert result.source is not None and view_result.source is not None
+            self.assertEqual(
+                (
+                    view_result.source.selected_tau,
+                    view_result.source.selected_coverage,
+                    view_result.source.prediction_status,
+                ),
+                (
+                    result.source.selected_tau,
+                    result.source.selected_coverage,
+                    result.source.prediction_status,
+                ),
+            )
+            np.testing.assert_allclose(
+                _artifact_array(
+                    view_result,
+                    "normative_fiber_loocv_model_predictions",
+                ),
+                _artifact_array(
+                    result,
+                    "normative_fiber_loocv_model_predictions",
+                ),
             )
 
 

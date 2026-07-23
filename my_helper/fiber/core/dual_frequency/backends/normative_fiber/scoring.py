@@ -8,6 +8,7 @@ import json
 
 import numpy as np
 
+from ...cache import IndexedArrayReader
 from ...contracts import NormativeFiberScoreSettings
 
 
@@ -95,7 +96,7 @@ def _support_status(
 
 
 def _top_mean_chunked(
-    exposure: np.ndarray,
+    exposure: np.ndarray | IndexedArrayReader,
     weights: np.ndarray,
     columns: np.ndarray,
     count: int,
@@ -120,13 +121,20 @@ def _top_mean_chunked(
     return np.mean(retained, axis=1)
 
 
-def _validate_exposure(exposure: np.ndarray, chunk_size: int) -> np.ndarray:
-    matrix = np.asanyarray(exposure)
+def _validate_exposure(
+    exposure: np.ndarray | IndexedArrayReader,
+    chunk_size: int,
+) -> np.ndarray | IndexedArrayReader:
+    matrix = (
+        exposure
+        if isinstance(exposure, IndexedArrayReader)
+        else np.asanyarray(exposure)
+    )
     if matrix.ndim != 2 or not all(dimension > 0 for dimension in matrix.shape):
         raise FiberScoreError("exposure must be a nonempty subject-by-fiber matrix")
     if matrix.dtype == object or not np.issubdtype(matrix.dtype, np.number):
         raise FiberScoreError("exposure must contain numeric values")
-    if np.iscomplexobj(matrix):
+    if np.issubdtype(matrix.dtype, np.complexfloating):
         raise FiberScoreError("exposure must contain real values")
     for start in range(0, matrix.shape[1], chunk_size):
         if not np.all(np.isfinite(np.asarray(matrix[:, start : start + chunk_size]))):
@@ -162,7 +170,7 @@ class PrevalidatedFiberScoreWorkspace:
 
     def __init__(
         self,
-        exposure: np.ndarray,
+        exposure: np.ndarray | IndexedArrayReader,
         fiber_ids: np.ndarray,
         *,
         chunk_size: int = 8_192,

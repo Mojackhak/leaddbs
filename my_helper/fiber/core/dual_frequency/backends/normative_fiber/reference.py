@@ -11,18 +11,19 @@ from typing import Any
 
 import numpy as np
 
-from ...cache import ArtifactStore
+from ...cache import ArtifactStore, IndexedArrayReader
 from ...contracts import (
     ArtifactRef,
     AxisRef,
     FeatureAxisRef,
+    IndexedArrayView,
     ObservedRequest,
     ObservedResult,
     SensitiveRecord,
     SourceRecord,
     canonical_hash,
 )
-from ...contracts.requests import ScientificInput
+from ...contracts.requests import ScientificMatrixInput
 from ..nuisance import NuisancePlan
 from ..protocols import ArtifactPublisher
 from ..source_resolver import SourceResolution, resolve_source
@@ -251,7 +252,7 @@ def _json_safe(value: Any) -> Any:
 
 
 def _materialize(
-    value: ScientificInput,
+    value: ScientificMatrixInput,
     *,
     name: str,
     expected_axes: tuple[AxisRef, ...],
@@ -259,7 +260,8 @@ def _materialize(
     expected_space: str | None,
     artifact_store: ArtifactStore | None,
     memory_map: bool,
-) -> np.ndarray:
+    max_block_columns: int | None = None,
+) -> np.ndarray | IndexedArrayReader:
     if isinstance(value, np.ndarray):
         return np.asanyarray(value)
     if artifact_store is None:
@@ -268,6 +270,20 @@ def _materialize(
         )
     if value.dtype is None or value.shape is None:
         raise ReferenceFiberBackendError(f"{name} must reference an array artifact")
+    if isinstance(value, IndexedArrayView):
+        if not memory_map or max_block_columns is None:
+            raise ReferenceFiberBackendError(
+                f"{name} IndexedArrayView requires a bounded reader"
+            )
+        block_columns = min(max_block_columns, value.shape[1])
+        return artifact_store.open_indexed_array_view(
+            value,
+            max_block_bytes=(
+                value.shape[0]
+                * block_columns
+                * np.dtype(value.dtype).itemsize
+            ),
+        )
     return artifact_store.materialize(
         value,
         expected_dtype=value.dtype,
@@ -338,7 +354,7 @@ def _nuisance_design_valid_all_folds(nuisance_plan: NuisancePlan) -> bool:
 
 def _write_weight_row(
     destination: np.ndarray,
-    exposure: np.ndarray,
+    exposure: np.ndarray | IndexedArrayReader,
     outcome: np.ndarray,
     nuisance_covariates: np.ndarray,
     subject_indices: np.ndarray,
@@ -367,7 +383,7 @@ def _write_weight_row(
 
 
 def _build_weight_cache(
-    exposure: np.ndarray,
+    exposure: np.ndarray | IndexedArrayReader,
     outcome: np.ndarray,
     nuisance_plan: NuisancePlan,
     request: ObservedRequest,
@@ -497,7 +513,7 @@ def _prediction_metrics(
 
 
 def _evaluate_cell(
-    exposure: np.ndarray,
+    exposure: np.ndarray | IndexedArrayReader,
     outcome: np.ndarray,
     nuisance_plan: NuisancePlan,
     request: ObservedRequest,
@@ -725,7 +741,7 @@ def _evaluate_cell(
 class _FiberWorkspace:
     def __init__(
         self,
-        exposure: np.ndarray,
+        exposure: np.ndarray | IndexedArrayReader,
         outcome: np.ndarray,
         nuisance_plan: NuisancePlan,
         fiber_ids: np.ndarray,
@@ -746,22 +762,30 @@ class _FiberWorkspace:
         self._baseline_predictions: np.ndarray | None = None
 
     def __enter__(self) -> "_FiberWorkspace":
-        self._temporary = tempfile.TemporaryDirectory(prefix="dual-frequency-fiber-")
-        self.cache = _build_weight_cache(
-            self.exposure,
-            self.outcome,
-            self.nuisance_plan,
-            self.request,
-            Path(self._temporary.name),
-            chunk_size=self.chunk_size,
-        )
-        self.score_workspace = PrevalidatedFiberScoreWorkspace(
-            self.exposure,
-            self.fiber_ids,
-            chunk_size=self.chunk_size,
-        )
-        self._coverage_counts[self.cache.minimum_tau] = self.cache.minimum_counts
-        return self
+        try:
+            self._temporary = tempfile.TemporaryDirectory(
+                prefix="dual-frequency-fiber-"
+            )
+            self.cache = _build_weight_cache(
+                self.exposure,
+                self.outcome,
+                self.nuisance_plan,
+                self.request,
+                Path(self._temporary.name),
+                chunk_size=self.chunk_size,
+            )
+            self.score_workspace = PrevalidatedFiberScoreWorkspace(
+                self.exposure,
+                self.fiber_ids,
+                chunk_size=self.chunk_size,
+            )
+            self._coverage_counts[self.cache.minimum_tau] = (
+                self.cache.minimum_counts
+            )
+            return self
+        except Exception:
+            self.__exit__()
+            raise
 
     def __exit__(self, *_: object) -> None:
         if self.cache is not None:
@@ -773,6 +797,8 @@ class _FiberWorkspace:
         if self._temporary is not None:
             self._temporary.cleanup()
         self._temporary = None
+        if isinstance(self.exposure, IndexedArrayReader):
+            self.exposure.close()
 
     def _counts(self, tau: float) -> np.ndarray:
         key = float(tau)
@@ -868,7 +894,7 @@ class ReferenceFiberBackend:
     def _inputs(
         self,
         request: ObservedRequest,
-    ) -> tuple[np.ndarray, np.ndarray, NuisancePlan, np.ndarray]:
+    ) -> tuple[np.ndarray | IndexedArrayReader, np.ndarray, NuisancePlan, np.ndarray]:
         if request.endpoint.model_family != "reference_fiber":
             raise ReferenceFiberBackendError(
                 "ReferenceFiberBackend requires a reference_fiber endpoint"
@@ -881,15 +907,18 @@ class ReferenceFiberBackend:
             )
         if request.feature_ids is None:
             raise ReferenceFiberBackendError("reference fiber requires feature_ids")
-        exposure = _materialize(
-            request.exposure,
-            name="exposure",
-            expected_axes=(request.subject_axis, request.feature_axis),
-            expected_units=request.exposure_units,
-            expected_space=request.exposure_space,
-            artifact_store=self.artifact_store,
-            memory_map=True,
-        )
+        exposure: np.ndarray | IndexedArrayReader | None = None
+        if not isinstance(request.exposure, IndexedArrayView):
+            exposure = _materialize(
+                request.exposure,
+                name="exposure",
+                expected_axes=(request.subject_axis, request.feature_axis),
+                expected_units=request.exposure_units,
+                expected_space=request.exposure_space,
+                artifact_store=self.artifact_store,
+                memory_map=True,
+                max_block_columns=self.feature_chunk_size,
+            )
         outcome = _materialize(
             request.outcome,
             name="outcome",
@@ -937,11 +966,6 @@ class ReferenceFiberBackend:
             artifact_store=self.artifact_store,
             memory_map=True,
         )
-        if exposure.ndim != 2 or exposure.shape != (
-            request.subject_axis.count,
-            request.feature_axis.count,
-        ):
-            raise ReferenceFiberBackendError("exposure shape changed after validation")
         outcome_vector = _finite_vector(outcome, "outcome", request.subject_axis.count)
         baseline_vector = _finite_vector(
             baseline,
@@ -960,11 +984,33 @@ class ReferenceFiberBackend:
                 ),
             ),
         )
+        canonical_fiber_ids = _fiber_ids(
+            feature_ids,
+            request.feature_axis.count,
+        )
+        if exposure is None:
+            exposure = _materialize(
+                request.exposure,
+                name="exposure",
+                expected_axes=(request.subject_axis, request.feature_axis),
+                expected_units=request.exposure_units,
+                expected_space=request.exposure_space,
+                artifact_store=self.artifact_store,
+                memory_map=True,
+                max_block_columns=self.feature_chunk_size,
+            )
+        if exposure.ndim != 2 or exposure.shape != (
+            request.subject_axis.count,
+            request.feature_axis.count,
+        ):
+            if isinstance(exposure, IndexedArrayReader):
+                exposure.close()
+            raise ReferenceFiberBackendError("exposure shape changed after validation")
         return (
             exposure,
             outcome_vector,
             nuisance_plan,
-            _fiber_ids(feature_ids, request.feature_axis.count),
+            canonical_fiber_ids,
         )
 
     def run(self, request: ObservedRequest) -> ObservedResult:

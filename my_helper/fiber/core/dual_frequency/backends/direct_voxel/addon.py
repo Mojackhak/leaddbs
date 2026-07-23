@@ -11,12 +11,13 @@ from ...contracts import (
     ArtifactRef,
     AxisRef,
     FeatureAxisRef,
+    IndexedArrayView,
     ObservedRequest,
     ObservedResult,
     SourceRecord,
     canonical_hash,
 )
-from ...contracts.requests import ScientificInput
+from ...contracts.requests import ScientificMatrixInput
 from ..nuisance import (
     NuisancePlan,
     NuisancePlanError,
@@ -48,14 +49,18 @@ class AddonDirectVoxelDesignError(AddonDirectVoxelBackendError):
         self.detail = detail
 
 
+CONTIGUOUS_VIEW_BUDGET_BYTES = 16 * 1024**3
+
+
 def _materialize(
-    value: ScientificInput,
+    value: ScientificMatrixInput,
     *,
     name: str,
     expected_axes: tuple[AxisRef, ...],
     expected_units: str | None,
     expected_space: str | None,
     artifact_store: ArtifactStore | None,
+    view_max_bytes: int = CONTIGUOUS_VIEW_BUDGET_BYTES,
 ) -> np.ndarray:
     if isinstance(value, np.ndarray):
         return np.asarray(value, dtype=np.float64)
@@ -65,14 +70,20 @@ def _materialize(
         )
     if value.dtype is None or value.shape is None:
         raise AddonDirectVoxelBackendError(f"{name} must reference an array artifact")
-    materialized = artifact_store.materialize(
-        value,
-        expected_dtype=value.dtype,
-        expected_shape=value.shape,
-        expected_axes=expected_axes,
-        expected_units=expected_units,
-        expected_space=expected_space,
-    )
+    if isinstance(value, IndexedArrayView):
+        materialized = artifact_store.materialize_indexed_array_view(
+            value,
+            max_bytes=view_max_bytes,
+        )
+    else:
+        materialized = artifact_store.materialize(
+            value,
+            expected_dtype=value.dtype,
+            expected_shape=value.shape,
+            expected_axes=expected_axes,
+            expected_units=expected_units,
+            expected_space=expected_space,
+        )
     return np.asarray(materialized, dtype=np.float64)
 
 

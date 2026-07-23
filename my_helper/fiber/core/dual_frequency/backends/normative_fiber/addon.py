@@ -7,10 +7,11 @@ import math
 
 import numpy as np
 
-from ...cache import ArtifactStore
+from ...cache import ArtifactStore, IndexedArrayReader
 from ...contracts import (
     ArtifactRef,
     BranchRecord,
+    IndexedArrayView,
     ObservedRequest,
     SensitiveRecord,
     SourceRecord,
@@ -260,7 +261,7 @@ class AddonFiberBackend(ReferenceFiberBackend):
     def _inputs(
         self,
         request: ObservedRequest,
-    ) -> tuple[np.ndarray, np.ndarray, NuisancePlan, np.ndarray]:
+    ) -> tuple[np.ndarray | IndexedArrayReader, np.ndarray, NuisancePlan, np.ndarray]:
         if request.endpoint.model_family != "addon_fiber":
             raise AddonFiberBackendError(
                 "AddonFiberBackend requires an addon_fiber endpoint"
@@ -270,15 +271,18 @@ class AddonFiberBackend(ReferenceFiberBackend):
         if request.feature_ids is None:
             raise AddonFiberBackendError("add-on normative fiber requires feature_ids")
 
-        exposure = _materialize(
-            request.exposure,
-            name="exposure",
-            expected_axes=(request.subject_axis, request.feature_axis),
-            expected_units=request.exposure_units,
-            expected_space=request.exposure_space,
-            artifact_store=self.artifact_store,
-            memory_map=True,
-        )
+        exposure: np.ndarray | IndexedArrayReader | None = None
+        if not isinstance(request.exposure, IndexedArrayView):
+            exposure = _materialize(
+                request.exposure,
+                name="exposure",
+                expected_axes=(request.subject_axis, request.feature_axis),
+                expected_units=request.exposure_units,
+                expected_space=request.exposure_space,
+                artifact_store=self.artifact_store,
+                memory_map=True,
+                max_block_columns=self.feature_chunk_size,
+            )
         outcome = _materialize(
             request.outcome,
             name="outcome",
@@ -323,14 +327,6 @@ class AddonFiberBackend(ReferenceFiberBackend):
             memory_map=True,
         )
         n_subjects = request.subject_axis.count
-        if exposure.shape != (n_subjects, request.feature_axis.count):
-            raise AddonFiberBackendError("exposure shape changed after validation")
-        for start in range(0, exposure.shape[1], self.feature_chunk_size):
-            block = np.asarray(exposure[:, start : start + self.feature_chunk_size])
-            if not np.all(np.isfinite(block)) or np.any(block < 0):
-                raise AddonFiberBackendError(
-                    "prepared add-on exposure must contain finite nonnegative values"
-                )
         outcome_vector = _finite_vector(outcome, "outcome", n_subjects)
         reference_vector = _finite_vector(
             reference_outcome,
@@ -395,11 +391,41 @@ class AddonFiberBackend(ReferenceFiberBackend):
             )
         except NuisancePlanError as exc:
             raise AddonFiberDesignError(exc.status, exc.detail) from exc
+        canonical_fiber_ids = _fiber_ids(feature_ids, request.feature_axis.count)
+        if exposure is None:
+            exposure = _materialize(
+                request.exposure,
+                name="exposure",
+                expected_axes=(request.subject_axis, request.feature_axis),
+                expected_units=request.exposure_units,
+                expected_space=request.exposure_space,
+                artifact_store=self.artifact_store,
+                memory_map=True,
+                max_block_columns=self.feature_chunk_size,
+            )
+        try:
+            if exposure.shape != (n_subjects, request.feature_axis.count):
+                raise AddonFiberBackendError(
+                    "exposure shape changed after validation"
+                )
+            for start in range(0, exposure.shape[1], self.feature_chunk_size):
+                block = np.asarray(
+                    exposure[:, start : start + self.feature_chunk_size]
+                )
+                if not np.all(np.isfinite(block)) or np.any(block < 0):
+                    raise AddonFiberBackendError(
+                        "prepared add-on exposure must contain finite "
+                        "nonnegative values"
+                    )
+        except Exception:
+            if isinstance(exposure, IndexedArrayReader):
+                exposure.close()
+            raise
         return (
             exposure,
             outcome_vector,
             nuisance_plan,
-            _fiber_ids(feature_ids, request.feature_axis.count),
+            canonical_fiber_ids,
         )
 
     def evaluate_sensitive_at_formal_branch(

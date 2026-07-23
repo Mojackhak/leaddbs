@@ -3639,6 +3639,16 @@ their identifiers. A view-backed record closes over the view parent and
 selector artifacts and therefore remains self-contained for resume and
 publication validation.
 
+`ObservedRequest.exposure` is the first downstream request field migrated to
+the same union. Direct-voxel observed backends declare one explicit contiguous
+materialization budget because their current solver requires the complete
+matrix. Normative-fiber observed backends instead keep one bounded reader open
+for the workspace lifetime and retain their existing feature-block traversal.
+Coverage, held-out counts, weight construction, and signed-score selection may
+inspect reader shape and dtype and request explicit blocks, but may not call
+`np.asarray` on the complete reader. Outcome, baseline, nuisance, and feature-ID
+inputs remain arrays or plain artifacts.
+
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
 ordered subject and feature selections, exposes bounded column reads, and

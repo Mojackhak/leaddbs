@@ -15,12 +15,14 @@ from .records import (
     ArtifactRef,
     AxisRef,
     FinalModelRecord,
+    IndexedArrayView,
     SourceRecord,
 )
 from .validation import classification_feedback_violation
 
 
 ScientificInput: TypeAlias = np.ndarray | ArtifactRef
+ScientificMatrixInput: TypeAlias = ScientificInput | IndexedArrayView
 
 
 BOOTSTRAP_REBUILD_METHOD = "matched_reference_bootstrap_rebuild"
@@ -92,6 +94,12 @@ def _scientific_input(value: object, field: str) -> ScientificInput:
     return value
 
 
+def _scientific_matrix_input(value: object, field: str) -> ScientificMatrixInput:
+    if isinstance(value, IndexedArrayView):
+        return value
+    return _scientific_input(value, field)
+
+
 def _artifact_input(value: object, field: str) -> ArtifactRef:
     if not isinstance(value, ArtifactRef):
         raise RequestError(f"{field} must be an ArtifactRef")
@@ -105,7 +113,7 @@ def _inputs(values: tuple[ScientificInput, ...], field: str) -> tuple[Scientific
     return output
 
 
-def _shape(value: ScientificInput, field: str) -> tuple[int, ...]:
+def _shape(value: ScientificMatrixInput, field: str) -> tuple[int, ...]:
     shape = value.shape if isinstance(value, np.ndarray) else value.shape
     if shape is None:
         raise RequestError(f"{field} must reference an array artifact")
@@ -113,11 +121,11 @@ def _shape(value: ScientificInput, field: str) -> tuple[int, ...]:
 
 
 def _require_artifact_axes(
-    value: ScientificInput,
+    value: ScientificMatrixInput,
     field: str,
     expected_axes: tuple[AxisRef, ...],
 ) -> None:
-    if isinstance(value, ArtifactRef) and value.axis_refs != expected_axes:
+    if isinstance(value, (ArtifactRef, IndexedArrayView)) and value.axis_refs != expected_axes:
         raise RequestError(f"{field} artifact axes do not match the declared request axes")
 
 
@@ -129,7 +137,7 @@ def _validate_vector(value: ScientificInput, field: str, subject_axis: AxisRef) 
 
 
 def _validate_exposure(
-    value: ScientificInput,
+    value: ScientificMatrixInput,
     field: str,
     subject_axis: AxisRef,
     feature_axis: AxisRef,
@@ -232,7 +240,7 @@ class ObservedRequest:
 
     endpoint: EndpointKey
     branch: str
-    exposure: ScientificInput
+    exposure: ScientificMatrixInput
     outcome: ScientificInput
     baseline: ScientificInput
     nuisance_inputs: tuple[ScientificInput, ...]
@@ -262,7 +270,7 @@ class ObservedRequest:
                 f"branch {branch!r} is invalid for {self.endpoint.model_family!r}"
             )
         object.__setattr__(self, "branch", branch)
-        _scientific_input(self.exposure, "exposure")
+        _scientific_matrix_input(self.exposure, "exposure")
         _scientific_input(self.outcome, "outcome")
         _scientific_input(self.baseline, "baseline")
         object.__setattr__(self, "nuisance_inputs", _inputs(self.nuisance_inputs, "nuisance_inputs"))
@@ -287,7 +295,7 @@ class ObservedRequest:
             raise RequestError("connectome_role must be 'none', 'formal', or 'sensitive'")
         object.__setattr__(self, "connectome_role", role)
         _validate_exposure(self.exposure, "exposure", self.subject_axis, self.feature_axis)
-        if isinstance(self.exposure, ArtifactRef):
+        if isinstance(self.exposure, (ArtifactRef, IndexedArrayView)):
             if self.exposure.units != self.exposure_units:
                 raise RequestError("exposure artifact units do not match exposure_units")
             if self.exposure.space != self.exposure_space:

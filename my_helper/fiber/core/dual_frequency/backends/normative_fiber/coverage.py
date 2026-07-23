@@ -6,18 +6,22 @@ import math
 
 import numpy as np
 
+from ...cache import IndexedArrayReader
+
 
 class FiberCoverageError(ValueError):
     """Raised when normative-fiber coverage inputs violate the contract."""
 
 
-def _exposure_matrix(value: np.ndarray) -> np.ndarray:
-    array = np.asanyarray(value)
+def _exposure_matrix(
+    value: np.ndarray | IndexedArrayReader,
+) -> np.ndarray | IndexedArrayReader:
+    array = value if isinstance(value, IndexedArrayReader) else np.asanyarray(value)
     if array.ndim != 2 or not all(dimension > 0 for dimension in array.shape):
         raise FiberCoverageError("exposure must be a nonempty subject-by-fiber matrix")
     if array.dtype == object or not np.issubdtype(array.dtype, np.number):
         raise FiberCoverageError("exposure must contain numeric values")
-    if np.iscomplexobj(array):
+    if np.issubdtype(array.dtype, np.complexfloating):
         raise FiberCoverageError("exposure must contain real values")
     return array
 
@@ -42,7 +46,7 @@ def _chunk_size(value: int) -> int:
 
 
 def coverage_counts(
-    exposure: np.ndarray,
+    exposure: np.ndarray | IndexedArrayReader,
     tau: float,
     *,
     chunk_size: int = 262_144,
@@ -80,7 +84,7 @@ def candidate_mask(counts: np.ndarray, coverage: int) -> np.ndarray:
 
 
 def heldout_fold_candidate_mask(
-    exposure: np.ndarray,
+    exposure: np.ndarray | IndexedArrayReader,
     full_counts: np.ndarray,
     heldout_index: int,
     tau: float,
