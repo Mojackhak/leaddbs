@@ -6670,6 +6670,40 @@ bytes and retain ordinary `sample` status. Earlier guard epochs remain in the
 same CSV with their own baselines and peaks; final audit must group rows by
 restart epoch rather than compare swap values across baselines.
 
+The temporary guard source is not a reproducible launch boundary for successor
+segments. Before combined execution, preserve the same operational contract in
+the repository as `run_task17_resource_guard.py`. Its required arguments are
+the runner PID, local append-only CSV path, and guarded mount; the RSS ceiling
+defaults to 64 GiB and the sample interval defaults to one second. The output
+must retain the exact seven-column CSV schema already consumed by both resource
+validators. An existing nonempty output is append-only and must have the exact
+header before a new epoch may begin. The output path must remain outside the
+guarded mount so an unmount cannot erase its evidence.
+
+Every sample resolves the complete runner descendant tree, records aggregate
+RSS and CPU, and compares current swap against the epoch startup baseline. A
+missing runner closes cleanly with `runner_exit`. A missing guarded mount, RSS
+at or above the ceiling, or any positive swap growth records the corresponding
+stop event, flushes the row, and sends `SIGTERM` to the descendant tree and
+runner. The command returns a nonzero status after a guard-triggered stop.
+Malformed process, swap, mount, or output evidence must fail closed instead of
+silently continuing. Focused tests must cover ordinary sampling, clean runner
+exit, every stop condition, append-header rejection, and tree termination
+without signaling an unrelated process. The active independent OSS process
+continues under its already-running temporary guard; only successor launches
+use the checked-in command, so this implementation change cannot alter the
+current segment.
+
+The checked-in guard is now implemented with the frozen CLI and CSV contract.
+Nine focused guard tests cover ordinary descendant-tree aggregation, clean
+runner exit, compatibility with both terminal validators, unmount, RSS, and
+swap stops, malformed-header rejection, output placement outside the guarded
+mount, fail-closed process-evidence handling, and descendant-only termination.
+The joint guard and two resource-validator replay passed 27 tests under Conda
+`leaddbs`. These tests use temporary process snapshots and do not replace the
+active independent OSS guard or its production evidence. The checked-in guard
+becomes the required external observer for combined execution.
+
 Terminal resource acceptance uses a repository-owned read-only validator rather
 than a hand-copied peak. `validate_task17_resource_acceptance.py` receives one
 completed sensitivity run, its accepted execution segment, the append-only
