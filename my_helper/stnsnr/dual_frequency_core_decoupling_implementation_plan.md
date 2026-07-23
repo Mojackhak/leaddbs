@@ -6807,6 +6807,14 @@ and checked-in guard suites pass 28 tests under Conda `leaddbs`. This closes
 the form-only row-label loophole without changing cache content, scientific
 identity, or resume.
 
+The complete repository-local dual-frequency test directory was then rerun
+with the isolated `dual_frequency` and `seed_target_connectivity` package
+links and low CPU scheduling priority. All 604 tests passed in 73.104 seconds.
+This current-worktree replay includes the new guard and commit-time resource
+binding together with every existing cache, resume, jitter, OSS, pPAM,
+publication, executor, reporting, and inference test. It used temporary
+fixtures and did not inspect the formal run or shared cache.
+
 The first production-plan dry read exposed one serialization boundary in that
 validator before it was used for acceptance: persisted
 `sensitivity_plan.json` task entries contain the complete `TaskKey` under
