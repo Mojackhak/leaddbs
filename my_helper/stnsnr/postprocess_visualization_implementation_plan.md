@@ -91,6 +91,18 @@ maps with the current publisher, update their metadata and artifact-index
 rows atomically, and verify exact raw-support preservation before starting the
 formal postprocess job.
 
+A public-only deterministic staging replay completed on 2026-07-23 at
+`/private/tmp/task17-display-smoothing-v2-stage.zAofAX` without changing the
+canonical publication. Rebuilt PDQ-39 files were byte-identical to the four
+accepted v2 files. The complete stage contains 112 v2 derivatives and metadata
+records, all with exact raw finite-support preservation. Its candidate artifact
+index retains all 2215 canonical relative paths and changes exactly the 108 old
+v1 rows, limited to payload SHA-256 and byte count. The repair-manifest SHA-256
+is
+`dff3ab60616b2bd9d77075bc6781f6ef928db666f1052ac31d5f02f4088f6b5c`.
+Promotion and the subsequent formal render remain ordered after the active OSS
+solver releases VAL.
+
 ## Goal
 
 Add one reusable visualization package under

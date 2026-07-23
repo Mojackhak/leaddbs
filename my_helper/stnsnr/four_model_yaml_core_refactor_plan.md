@@ -1731,6 +1731,21 @@ postprocess remains gated until those 108 old display files and their metadata
 and artifact-index rows are replaced through the current publisher, followed
 by full triplet integrity and finite-support validation.
 
+The deterministic repair was staged without mutating the canonical publication
+on 2026-07-23. Rebuilding the four already-correct PDQ-39 derivatives directly
+from their indexed canonical raw maps produced byte-identical NIfTIs. The same
+public-only replay then generated all 112 derivatives below
+`/private/tmp/task17-display-smoothing-v2-stage.zAofAX`. Its repair manifest has
+SHA-256
+`dff3ab60616b2bd9d77075bc6781f6ef928db666f1052ac31d5f02f4088f6b5c`.
+All 112 staged NIfTIs preserve their raw finite support; 108 replace v1 bytes
+and four retain the accepted v2 bytes. The staged artifact index contains the
+same 2215 relative paths as the canonical index. Exactly 108 rows change, and
+only their payload SHA-256 and byte-count fields differ; no non-target row or
+other field changes. The canonical index still matches its recorded pre-stage
+SHA-256. Promotion remains deferred until the active independent OSS solver
+releases VAL bandwidth.
+
 A bounded real-payload audit on 2026-07-22 then verified both PDQ-39 roles in
 each physical domain. Every sampled payload SHA-256 and byte count matched its
 canonical artifact-index row. For reference and add-on direct voxel, the
