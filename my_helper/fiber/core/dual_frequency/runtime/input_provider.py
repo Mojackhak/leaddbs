@@ -4098,17 +4098,24 @@ class StudyRuntimeInputProvider:
                 space=self.study.spatial.canonical_space,
                 dependencies=derived_dependencies,
             )
-            total_artifact = self._publish_prepared_array(
+            total_artifact = self._indexed_prepared_view(
                 domain=prepared_domain,
                 publisher=publisher,
-                filename="total_exposure.npy",
                 value=raw_primary,
-                kind="raw_addon_component_exposure",
                 axes=axes,
-                units="V/m",
-                space=self.study.spatial.canonical_space,
-                dependencies=(("addon_primary_matrix", primary_identity),),
             )
+            if total_artifact is None:
+                total_artifact = self._publish_prepared_array(
+                    domain=prepared_domain,
+                    publisher=publisher,
+                    filename="total_exposure.npy",
+                    value=raw_primary,
+                    kind="raw_addon_component_exposure",
+                    axes=axes,
+                    units="V/m",
+                    space=self.study.spatial.canonical_space,
+                    dependencies=(("addon_primary_matrix", primary_identity),),
+                )
             input_hash_manifest = self._publish_input_hash_manifest(
                 publisher,
                 endpoint,

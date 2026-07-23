@@ -3706,6 +3706,26 @@ The focused provider suite passes 31 tests and explicitly forces the complete
 view materializer to raise while selected publication remains byte-identical.
 The complete dual-frequency suite passes 550 tests.
 
+The next add-on migration covers `PreparedExposureRecord.total_exposure`.
+This role is the raw add-on physical matrix before overlap exclusion and is
+therefore an exact row/column view of the shared physical cache rather than a
+derived array. On a cache-enabled preparation, persist the indexed view and do
+not write a second raw-add-on NPY. Keep the existing artifact publication only
+for the cache-disabled compatibility path. Add-on exposure sensitivity gathers
+only locked final columns through one bounded reader. Its collinearity
+diagnostic computes the per-subject mean by ordered feature blocks without a
+complete-view allocation. The derived add-on-only exposure and overlap mask
+remain concrete artifacts. Acceptance requires exact raw-array parity, no
+task-local total-exposure NPY, bounded sensitivity reads, and unchanged
+artifact-backed behavior.
+
+This raw add-on migration is now implemented. Cache-enabled add-on preparation
+returns an indexed view for `total_exposure`; the sensitivity adapter gathers
+only final columns and computes its row mean through verified blocks. Focused
+tests force the complete view materializer to fail, reproduce selected values
+exactly, and reproduce row means within the declared floating-point tolerance.
+The complete dual-frequency suite passes 551 tests.
+
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
 ordered subject and feature selections, exposes bounded column reads, and

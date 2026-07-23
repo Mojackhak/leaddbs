@@ -6,6 +6,7 @@ import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -36,6 +37,7 @@ from dual_frequency.contracts import (
     FinalModelRecord,
     FinalSelectionRecord,
     HardComputabilityLimits,
+    IndexedArrayView,
     NormativeFiberScoreSettings,
     ObservedResult,
     PreparedExposureRecord,
@@ -648,6 +650,66 @@ def _request(
 
 
 class ServiceAdapterTest(unittest.TestCase):
+    def test_indexed_total_exposure_uses_bounded_selected_and_mean_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row_axis = _axis("subjects", 2, "1")
+            parent_axis = _axis("parent-features", 5, "2")
+            logical_axis = _axis("logical-features", 3, "3")
+            publisher = RunScopedArtifactPublisher(
+                root / "artifacts",
+                "indexed-total",
+                "1",
+            )
+            parent_values = np.arange(10, dtype=np.float32).reshape(2, 5)
+            parent = publisher.array(
+                "parent.npy",
+                parent_values,
+                kind="shared_physical_exposure",
+                axes=(row_axis, parent_axis),
+                units="V/m",
+                space="MNI152NLin2009bAsym",
+            )
+            column_positions = publisher.array(
+                "column_positions.npy",
+                np.asarray((4, 1, 3), dtype=np.int64),
+                kind="indexed_array_column_positions",
+                axes=(logical_axis,),
+                units="index",
+                space=None,
+            )
+            view = IndexedArrayView(
+                parent=parent,
+                row_positions=None,
+                column_positions=column_positions,
+                axis_refs=(row_axis, logical_axis),
+            )
+            store = ArtifactStore((root,))
+            request = SimpleNamespace(artifact_store=store)
+            with patch.object(
+                store,
+                "materialize_indexed_array_view",
+                side_effect=AssertionError(
+                    "sensitivity helpers must not materialize the complete view"
+                ),
+            ):
+                selected = service_adapters._selected_scientific_columns(
+                    request,
+                    view,
+                    np.asarray((2, 0), dtype=np.int64),
+                )
+                means = service_adapters._scientific_row_mean(request, view)
+            np.testing.assert_array_equal(
+                selected,
+                parent_values[:, (3, 4)],
+            )
+            np.testing.assert_allclose(
+                means,
+                np.mean(parent_values[:, (4, 1, 3)], axis=1),
+                rtol=0.0,
+                atol=1e-6,
+            )
+
     @staticmethod
     def _activation_execution_request(
         *,

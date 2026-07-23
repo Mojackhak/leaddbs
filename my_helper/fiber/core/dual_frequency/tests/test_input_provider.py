@@ -2894,6 +2894,7 @@ class InputProviderTest(unittest.TestCase):
         )
         self.assertEqual(reference_prepared.feature_axis, addon_prepared.feature_axis)
         self.assertEqual(addon_prepared.delta_reference_input_status, "ready")
+        self.assertIsInstance(addon_prepared.total_exposure, IndexedArrayView)
         exposure = _materialize(artifact_store, addon_prepared.exposure)
         raw_addon = _materialize(artifact_store, addon_prepared.total_exposure)
         overlap = _materialize(artifact_store, addon_prepared.reference_overlap_mask)

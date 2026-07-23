@@ -90,6 +90,7 @@ from ..contracts import (
     FormalOperatorScratchRecord,
     FormalRequest,
     FormalResult,
+    IndexedArrayView,
     NormativeFiberScoreSettings,
     ObservedRequest,
     ObservedResult,
@@ -102,6 +103,7 @@ from ..contracts import (
     ResamplingScheduleRecord,
     SensitiveRecord,
     SensitivityResult,
+    ScientificArrayRef,
     SourceRecord,
 )
 from ..contracts.records import ACCEPTED_SOURCE_STATUSES
@@ -1687,6 +1689,71 @@ def _materialize(request: TaskExecutionRequest, artifact: ArtifactRef) -> np.nda
     )
 
 
+_SCIENTIFIC_ARRAY_BLOCK_COLUMNS = 65_536
+
+
+def _selected_scientific_columns(
+    request: TaskExecutionRequest,
+    value: ScientificArrayRef,
+    indices: np.ndarray,
+) -> np.ndarray:
+    positions = np.asarray(indices)
+    if positions.ndim != 1 or positions.dtype != np.dtype(np.int64):
+        raise ServiceAdapterError(
+            "selected scientific-array positions must be one-dimensional int64"
+        )
+    if positions.size and (
+        int(positions.min()) < 0
+        or int(positions.max()) >= value.shape[1]
+        or np.unique(positions).size != positions.size
+    ):
+        raise ServiceAdapterError(
+            "selected scientific-array positions must be unique and in bounds"
+        )
+    if isinstance(value, ArtifactRef):
+        return np.asarray(_materialize(request, value))[:, positions]
+    if not isinstance(value, IndexedArrayView):
+        raise TypeError("scientific array must be an ArtifactRef or IndexedArrayView")
+    output = np.empty(
+        (value.shape[0], positions.size),
+        dtype=np.dtype(value.dtype),
+    )
+    block_width = max(
+        1,
+        min(_SCIENTIFIC_ARRAY_BLOCK_COLUMNS, positions.size),
+    )
+    max_block_bytes = (
+        value.shape[0] * block_width * np.dtype(value.dtype).itemsize
+    )
+    with _artifact_store(request).open_indexed_array_view(
+        value,
+        max_block_bytes=max_block_bytes,
+    ) as reader:
+        for start in range(0, positions.size, block_width):
+            stop = min(start + block_width, positions.size)
+            output[:, start:stop] = reader[:, positions[start:stop]]
+    return output
+
+
+def _scientific_row_mean(
+    request: TaskExecutionRequest,
+    value: ScientificArrayRef,
+) -> np.ndarray:
+    if isinstance(value, ArtifactRef):
+        return np.mean(_materialize(request, value), axis=1)
+    if not isinstance(value, IndexedArrayView):
+        raise TypeError("scientific array must be an ArtifactRef or IndexedArrayView")
+    sums = np.zeros(value.shape[0], dtype=np.dtype(value.dtype))
+    for _start, _stop, block in _artifact_store(
+        request
+    ).iter_indexed_array_view_blocks(
+        value,
+        block_columns=_SCIENTIFIC_ARRAY_BLOCK_COLUMNS,
+    ):
+        sums += np.sum(block, axis=1, dtype=np.dtype(value.dtype))
+    return np.asarray(sums / value.shape[1], dtype=np.dtype(value.dtype))
+
+
 def _addon_exposure_sensitivity(request: TaskExecutionRequest) -> ServiceResult:
     final, endpoint_input, prepared, observed, selected_overlap = (
         _observed_request_for_final(request)
@@ -1737,13 +1804,14 @@ def _addon_exposure_sensitivity(request: TaskExecutionRequest) -> ServiceResult:
     total_request = None
     if prepared.total_exposure is not None:
         selected_indices = _selected_feature_indices(request, final, prepared)
-        parent_total_exposure = np.asarray(
-            _materialize(request, prepared.total_exposure)
-        )
         selected_total_exposure = publisher.array(
             "selected_total_exposure.npy",
-            parent_total_exposure[:, selected_indices],
-            kind=prepared.total_exposure.kind,
+            _selected_scientific_columns(
+                request,
+                prepared.total_exposure,
+                selected_indices,
+            ),
+            kind="raw_addon_component_exposure",
             axes=(prepared.subject_axis, final.valid_feature_axis.axis),
             units=prepared.total_exposure.units,
             space=prepared.total_exposure.space,
@@ -1782,7 +1850,7 @@ def _addon_exposure_sensitivity(request: TaskExecutionRequest) -> ServiceResult:
         prepared.total_exposure is not None
         and prepared.addon_reference_component_exposure is not None
     ):
-        total = np.mean(_materialize(request, prepared.total_exposure), axis=1)
+        total = _scientific_row_mean(request, prepared.total_exposure)
         reference_component = np.mean(
             _materialize(request, prepared.addon_reference_component_exposure),
             axis=1,
