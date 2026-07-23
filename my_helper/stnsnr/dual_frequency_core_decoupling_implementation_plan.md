@@ -5835,6 +5835,24 @@ blocked physical misses, and sensitivity checkpoint planning. It does not
 replace the required live no-authorization combined execution after independent
 OSS reaches terminal closure.
 
+A current-worktree prelaunch replay on 2026-07-23 repeated the eight decisive
+cache-first boundaries without reading the active formal cache. The executor
+admitted cache-first expensive probes without global producer authorization
+and retained one OSS solver token. The OSS gate rejected an unauthorized miss
+before the toolchain, restored a directly copied complete cache without the
+toolchain, and rejected a cached decision whose standard row closure was
+missing. The physical jitter block matched the historical producer, restored
+from a directly copied cache with authorization disabled, rejected corruption,
+and rejected a true miss before the physical provider. The combined compiler
+again marked every expensive task cache-first, while the jitter-only compiler
+retained fixed shared block ranges. All eight targeted tests passed under
+Conda `leaddbs`. The first seven passed in one isolated invocation; the jitter
+integration module initially lacked the separately packaged
+`seed_target_connectivity` import in that temporary test path, then passed
+after the package was added to the same isolation root. This was an import-path
+setup error rather than a product failure. Formal combined execution remains
+gated on terminal independent OSS evidence.
+
 The complete affected regression, including the executor suite, then passed 53
 tests plus eight subtests. This adds parent-owned admission, dependency
 re-evaluation, exact resume, and cache-first dispatch coverage to the three
