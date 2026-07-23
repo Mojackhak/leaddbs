@@ -21,6 +21,7 @@ from urllib.parse import unquote, urlparse
 import numpy as np
 import yaml
 
+from ..cache import ArtifactStore
 from ..contracts import (
     ActivationArtifact,
     ArtifactRef,
@@ -28,6 +29,7 @@ from ..contracts import (
     EndpointInputRecord,
     FinalSelectionRecord,
     FormalResult,
+    IndexedArrayView,
     ObservedResult,
     PreparedExposureRecord,
     SensitiveRecord,
@@ -558,6 +560,37 @@ class CanonicalPublisher:
             raise PublicationError(f"source artifact SHA-256 mismatch: {path}")
         self._artifact_path_cache[artifact.uri] = (path, digest)
         return path
+
+    def _materialize_scientific_array(
+        self,
+        value: ArtifactRef | IndexedArrayView,
+    ) -> np.ndarray:
+        if isinstance(value, ArtifactRef):
+            return np.load(
+                self._artifact_path(value),
+                allow_pickle=False,
+                mmap_mode="r",
+            )
+        artifacts = tuple(
+            artifact
+            for artifact in (
+                value.parent,
+                value.row_positions,
+                value.column_positions,
+            )
+            if artifact is not None
+        )
+        roots = tuple(
+            sorted(
+                {self._artifact_path(artifact).parent for artifact in artifacts},
+                key=str,
+            )
+        )
+        store = ArtifactStore(roots)
+        return store.materialize_indexed_array_view(
+            value,
+            max_bytes=16 * 1024**3,
+        )
 
     def publish(
         self,
@@ -2287,11 +2320,7 @@ class CanonicalPublisher:
             ),
             dtype=np.float64,
         )
-        exposure = np.load(
-            self._artifact_path(prepared.exposure),
-            allow_pickle=False,
-            mmap_mode="r",
-        )
+        exposure = self._materialize_scientific_array(prepared.exposure)
         coverage_values = np.count_nonzero(
             np.asarray(exposure[:, selected]) >= float(source.selected_tau), axis=0
         ).astype(np.int16)

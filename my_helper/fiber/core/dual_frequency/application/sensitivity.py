@@ -14,7 +14,13 @@ from urllib.parse import unquote, urlparse
 
 from ..cache import CacheError, ContentAddressedCache
 from ..cache.identity import sha256_file
-from ..contracts import AxisRef, ArtifactRef, FinalSelectionRecord, PreparedExposureRecord
+from ..contracts import (
+    AxisRef,
+    ArtifactRef,
+    FinalSelectionRecord,
+    IndexedArrayView,
+    PreparedExposureRecord,
+)
 from ..contracts.identity import canonical_hash
 from ..reporting.artifact_index import record_artifact_closure
 from ..workflow import ExecutionPlan, ServiceResult, TaskOutcome, TaskSpec
@@ -122,6 +128,36 @@ def _artifact_payload(artifact: ArtifactRef) -> dict[str, object]:
     payload["axis_refs"] = [_axis_payload(axis) for axis in artifact.axis_refs]
     payload["axis_hashes"] = list(artifact.axis_hashes)
     return payload
+
+
+def _scientific_array_payload(
+    value: ArtifactRef | IndexedArrayView,
+    mapper: Callable[[ArtifactRef], ArtifactRef],
+) -> dict[str, object]:
+    if isinstance(value, ArtifactRef):
+        return _artifact_payload(mapper(value))
+    return {
+        "kind": "indexed_array_view",
+        "schema_version": value.schema_version,
+        "identifier": value.identifier,
+        "parent": _artifact_payload(mapper(value.parent)),
+        "row_positions": (
+            None
+            if value.row_positions is None
+            else _artifact_payload(mapper(value.row_positions))
+        ),
+        "column_positions": (
+            None
+            if value.column_positions is None
+            else _artifact_payload(mapper(value.column_positions))
+        ),
+        "axis_refs": [_axis_payload(axis) for axis in value.axis_refs],
+        "axis_hashes": list(value.axis_hashes),
+        "dtype": value.dtype,
+        "shape": list(value.shape),
+        "units": value.units,
+        "space": value.space,
+    }
 
 
 def _remap_value(value: object, mapper: Callable[[ArtifactRef], ArtifactRef]) -> object:
@@ -474,7 +510,11 @@ def publish_sensitivity_checkpoints(
             prepare_tasks[0].task_id,
         )
         shared_exposure_semantic_sha256 = (
-            prepared.exposure.sha256
+            (
+                prepared.exposure.sha256
+                if isinstance(prepared.exposure, ArtifactRef)
+                else prepared.exposure.parent.sha256
+            )
             if not shared_exposures
             else shared_exposures[0]["semantic_sha256"]
         )
@@ -509,7 +549,10 @@ def publish_sensitivity_checkpoints(
             "feature_identity_source": final.valid_feature_axis.identity_source,
             "shared_exposure_semantic_sha256": shared_exposure_semantic_sha256,
             "shared_exposure_entries": shared_exposures,
-            "shared_exposure_artifact": _artifact_payload(mapper(prepared.exposure)),
+            "shared_exposure_artifact": _scientific_array_payload(
+                prepared.exposure,
+                mapper,
+            ),
             "final_artifacts": [_artifact_payload(item) for item in portable_artifacts],
             "source_content_identities": source_files,
             "configuration_source_identities": [dict(item) for item in source_identities],

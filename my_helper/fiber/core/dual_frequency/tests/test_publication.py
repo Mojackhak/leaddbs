@@ -28,6 +28,7 @@ from dual_frequency.contracts import (
     FinalModelKey,
     FinalModelRecord,
     FinalSelectionRecord,
+    IndexedArrayView,
     SensitivityResult,
     SourceRecord,
 )
@@ -72,6 +73,73 @@ def test_masked_normalized_gaussian_preserves_original_finite_roi() -> None:
     assert np.array_equal(np.isfinite(smoothed), original_roi)
     assert np.all(np.isnan(smoothed[~original_roi]))
     assert not np.allclose(smoothed[original_roi], values[original_roi])
+
+
+def test_canonical_publisher_materializes_verified_indexed_view(
+    tmp_path: Path,
+) -> None:
+    parent_axis = AxisRef("parent-rows", 3, "1" * 64)
+    feature_axis = AxisRef("parent-columns", 4, "2" * 64)
+    selected_axis = AxisRef("selected-columns", 2, "3" * 64)
+    parent_values = np.arange(12, dtype=np.float32).reshape(3, 4)
+    parent_path = tmp_path / "parent.npy"
+    positions_path = tmp_path / "positions.npy"
+    np.save(parent_path, parent_values, allow_pickle=False)
+    np.save(
+        positions_path,
+        np.asarray([3, 1], dtype=np.int64),
+        allow_pickle=False,
+    )
+
+    def artifact(
+        path: Path,
+        *,
+        kind: str,
+        dtype: str,
+        axes: tuple[AxisRef, ...],
+        units: str | None,
+        space: str | None,
+    ) -> ArtifactRef:
+        return ArtifactRef(
+            kind=kind,
+            schema_version="dual_frequency_array_v1",
+            uri=path.as_uri(),
+            sha256=_sha256(path),
+            dtype=dtype,
+            shape=tuple(axis.count for axis in axes),
+            axis_refs=axes,
+            axis_hashes=tuple(axis.sha256 for axis in axes),
+            units=units,
+            space=space,
+            producer_id="publication_test",
+            producer_version="1",
+        )
+
+    parent = artifact(
+        parent_path,
+        kind="shared_physical_exposure",
+        dtype="float32",
+        axes=(parent_axis, feature_axis),
+        units="V/m",
+        space="synthetic",
+    )
+    positions = artifact(
+        positions_path,
+        kind="indexed_array_column_positions",
+        dtype="int64",
+        axes=(selected_axis,),
+        units="index",
+        space=None,
+    )
+    view = IndexedArrayView(
+        parent=parent,
+        row_positions=None,
+        column_positions=positions,
+        axis_refs=(parent_axis, selected_axis),
+    )
+    output = CanonicalPublisher()._materialize_scientific_array(view)
+    np.testing.assert_array_equal(output, parent_values[:, [3, 1]])
+    assert not output.flags.writeable
 
 
 def test_writer_copies_verified_payload_without_persisting_run_uri(tmp_path: Path) -> None:

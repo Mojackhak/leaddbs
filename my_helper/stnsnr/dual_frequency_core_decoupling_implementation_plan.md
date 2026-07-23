@@ -3662,6 +3662,15 @@ path. Tests must prove exact value parity, cross-endpoint selector reuse,
 artifact closure and codec resume, zero prepared-reference exposure NPY write,
 bounded observed-backend reads, and unchanged source selection.
 
+Sensitivity-base serialization and canonical publication must preserve the same
+logical record. Portable checkpoint remapping recursively remaps the parent and
+selector artifacts, and the base descriptor emits an explicit indexed-view
+payload rather than pretending that the view has one URI or payload SHA.
+Canonical publication verifies and explicitly materializes the view under the
+same 16 GiB contiguous replay budget only at its existing voxel publication
+boundary. Resume artifact closure continues to enumerate and verify the parent
+and selectors separately.
+
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
 ordered subject and feature selections, exposes bounded column reads, and

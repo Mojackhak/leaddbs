@@ -16,6 +16,7 @@ from dual_frequency.application.sensitivity import (
     CHECKPOINT_SCHEMA,
     SEED_SCHEMA,
     SensitivityCheckpointError,
+    _scientific_array_payload,
     compile_sensitivity_extension_plan,
     load_sensitivity_checkpoint,
 )
@@ -24,6 +25,7 @@ from dual_frequency.contracts import (
     ArtifactRef,
     AxisRef,
     EndpointKey,
+    IndexedArrayView,
     SourceRecord,
     TaskKey,
 )
@@ -174,6 +176,67 @@ def _task(
 
 
 class SensitivityCheckpointTest(unittest.TestCase):
+    def test_indexed_view_base_payload_preserves_parent_and_selectors(self) -> None:
+        rows = AxisRef("rows", 2, "1" * 64)
+        parent_columns = AxisRef("parent-columns", 3, "2" * 64)
+        selected_columns = AxisRef("selected-columns", 2, "3" * 64)
+
+        def artifact(
+            name: str,
+            *,
+            dtype: str,
+            axes: tuple[AxisRef, ...],
+            units: str | None,
+            space: str | None,
+            digest: str,
+        ) -> ArtifactRef:
+            return ArtifactRef(
+                kind=name,
+                schema_version="dual_frequency_array_v1",
+                uri=f"cache:///{name}.npy",
+                sha256=digest * 64,
+                dtype=dtype,
+                shape=tuple(axis.count for axis in axes),
+                axis_refs=axes,
+                axis_hashes=tuple(axis.sha256 for axis in axes),
+                units=units,
+                space=space,
+                producer_id="checkpoint_test",
+                producer_version="1",
+            )
+
+        parent = artifact(
+            "shared_physical_exposure",
+            dtype="float32",
+            axes=(rows, parent_columns),
+            units="V/m",
+            space="synthetic",
+            digest="4",
+        )
+        positions = artifact(
+            "indexed_array_column_positions",
+            dtype="int64",
+            axes=(selected_columns,),
+            units="index",
+            space=None,
+            digest="5",
+        )
+        view = IndexedArrayView(
+            parent=parent,
+            row_positions=None,
+            column_positions=positions,
+            axis_refs=(rows, selected_columns),
+        )
+        payload = _scientific_array_payload(view, lambda value: value)
+        self.assertEqual(payload["kind"], "indexed_array_view")
+        self.assertEqual(payload["identifier"], view.identifier)
+        self.assertEqual(payload["parent"]["sha256"], parent.sha256)
+        self.assertEqual(
+            payload["column_positions"]["sha256"],
+            positions.sha256,
+        )
+        self.assertEqual(payload["shape"], [2, 2])
+
     def test_oss_extension_inserts_one_group_gate_before_observed_workspace(self) -> None:
         endpoints = tuple(
             EndpointKey(
