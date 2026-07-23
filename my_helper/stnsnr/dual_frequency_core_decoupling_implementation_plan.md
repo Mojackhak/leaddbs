@@ -7556,6 +7556,34 @@ these cannot support an accepted maximum-row window, while the existing
 window-local `< 5`-second validator remains the authority for final resource
 acceptance. This checkpoint proves forward progress but not gate completion.
 
+At the next scheduled boundary, collected at 2026-07-23 05:45 PDT, the
+reference cache had advanced again to 56 passing decisions and 112
+corresponding row manifests. The newest decision is
+`0b5859facf29add5241ab82d014184bee168329fd619525843334b947e34a786`;
+its final and `Omega_max` row identities are
+`0e49a200327dacf6050a0d149f3b87b65a6ceb081df47fc9384ed447c91d7684`
+and
+`cd87d0884e43c1aa5a9274c9bb727a56ea4e2c4bfbff6eb817c14ef361294f5a`.
+Fresh byte-level validation passed both row manifests and the decision
+manifest, exact file closure, byte count, SHA-256, NPY dtype and shape, ordered
+unique positive fiber IDs, finite probability range, and exact canonical-ID
+subset mapping. The final row contains 3401 fibers and the `Omega_max` row
+contains 10320 fibers. Independent replay found maximum probability difference
+0 and strict `p(A) > 0.5` state mismatch count 0, agreeing with the persisted
+pass decision and its zero activation-count mismatch.
+
+All 56 cumulative decisions remain passing members of
+`oss_axis_group_078d3c2f2b8ac612a268`. The reference gate is still running and
+has not committed its authoritative closure, so the task ledger remains 196
+completed, one running, one historical failed, and 392 dependency-derived
+skips. VAL remained mounted and writable. Runner PID 15265, persistent worker
+PID 15357, the guard, and an active `run_pathway_activation` child were live.
+The bounded process snapshot measured 2821275648 bytes RSS and 82 percent
+aggregate CPU. The guard contained more than 52000 samples, recorded a new
+task-tree peak of 62493573120 bytes that remains `< 64 GiB`, and retained
+positive swap growth `< 1` byte in both detected baseline epochs. This is
+continued intermediate progress only.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside
