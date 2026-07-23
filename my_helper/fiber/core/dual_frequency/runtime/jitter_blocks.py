@@ -680,6 +680,10 @@ def prepare_jitter_exposure_block(request: TaskExecutionRequest) -> ServiceResul
     cache = request.scientific_cache
     entry = cache.resolve(key)
     if entry is None:
+        if not request.allow_expensive_producers:
+            raise JitterBlockError(
+                "jitter block cache misses require expensive producer authorization"
+            )
         with cache.producer_lease(key) as producer:
             if producer:
                 support_counts = None

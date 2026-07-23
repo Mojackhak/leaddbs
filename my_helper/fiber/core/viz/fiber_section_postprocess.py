@@ -49,6 +49,21 @@ class _RoleSpec:
 _ROLE_SPECS = (_RoleSpec("reference"), _RoleSpec("addon"))
 
 
+@dataclass(frozen=True)
+class FiberSectionContext:
+    """Shared validated resources for one formal fiber component process."""
+
+    config: Mapping[str, Any]
+    config_record: Mapping[str, Any]
+    background_path: Path
+    background_record: Mapping[str, Any]
+    formal_connectome_id: str
+    connectome: Any
+    connectome_record: Mapping[str, Any]
+    targets: tuple[Any, ...]
+    target_records: tuple[Mapping[str, Any], ...]
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -604,40 +619,29 @@ cross-role index and provenance.
     (root / "README.md").write_text(text, encoding="utf-8")
 
 
-def run_single_scale_fiber_section_postprocess(
+def prepare_fiber_section_context(
     *,
-    scale_id: str,
-    output_root: str | Path,
-    normative_fiber_publication_root: str | Path,
+    catalog: PublicationCatalog,
     spatial_config_path: str | Path,
-    style_overrides: Mapping[str, Any] | None = None,
-    force: bool = False,
-) -> dict[str, Any]:
-    """Publish four PDQ-39 fiber section figures and their spatial derivatives."""
+    background_record: Mapping[str, Any] | None = None,
+) -> FiberSectionContext:
+    """Validate and open shared fiber visualization resources once."""
 
-    normalized_scale = str(scale_id).strip()
-    if not normalized_scale or "/" in normalized_scale or ".." in normalized_scale:
-        raise ValueError("scale_id must be one safe path component")
-    root = Path(output_root).expanduser().resolve()
-    root.mkdir(parents=True, exist_ok=True)
     config_path = Path(spatial_config_path).expanduser().resolve()
     config = _read_yaml(config_path)
     _validate_spatial_config(config)
     config_record = _file_record(config_path, "fiber_spatial_projection_config")
     background_path = Path(str(config["background"]["path"])).expanduser().resolve()
-    background_record = _nifti_resource_record(background_path, "anatomy_background")
+    if background_record is None:
+        resolved_background_record = _nifti_resource_record(
+            background_path, "anatomy_background"
+        )
+    else:
+        recorded_path = Path(str(background_record.get("path", ""))).resolve()
+        if recorded_path != background_path:
+            raise ValueError("shared anatomy record does not match fiber background")
+        resolved_background_record = dict(background_record)
 
-    catalog = PublicationCatalog.from_config(
-        {
-            "normative_fiber_main": {
-                "root": str(
-                    Path(normative_fiber_publication_root).expanduser().resolve()
-                ),
-                "manifest": "model_manifest.json",
-            }
-        },
-        config_base=root,
-    )
     publication_manifest = catalog.manifest("normative_fiber_main")
     formal_connectome_id = str(publication_manifest.get("formal_connectome_id", ""))
     connectome_rows = publication_manifest.get("connectomes")
@@ -650,7 +654,9 @@ def run_single_scale_fiber_section_postprocess(
         and str(value.get("connectome_id")) == formal_connectome_id
     ]
     if len(matches) != 1:
-        raise ValueError("normative-fiber publication does not identify one formal connectome")
+        raise ValueError(
+            "normative-fiber publication does not identify one formal connectome"
+        )
     connectome = open_connectome(str(matches[0]["path"]))
     connectome_record = {
         "connectome_id": connectome.metadata.connectome_id,
@@ -663,18 +669,76 @@ def run_single_scale_fiber_section_postprocess(
         "n_fibers": connectome.metadata.n_fibers,
         "n_points": connectome.metadata.n_points,
     }
-
-    target_specs = config["targets"]
     targets = tuple(
         load_binary_projection_mask(
             str(value["path"]), roi_id=str(value["name"]), role="target"
         )
-        for value in target_specs
+        for value in config["targets"]
     )
-    target_records = [
+    target_records = tuple(
         _nifti_resource_record(value.source_path, f"target:{value.roi_id}")
         for value in targets
-    ]
+    )
+    return FiberSectionContext(
+        config=config,
+        config_record=config_record,
+        background_path=background_path,
+        background_record=resolved_background_record,
+        formal_connectome_id=formal_connectome_id,
+        connectome=connectome,
+        connectome_record=connectome_record,
+        targets=targets,
+        target_records=target_records,
+    )
+
+
+def run_single_scale_fiber_section_postprocess(
+    *,
+    scale_id: str,
+    output_root: str | Path,
+    normative_fiber_publication_root: str | Path,
+    spatial_config_path: str | Path,
+    style_overrides: Mapping[str, Any] | None = None,
+    force: bool = False,
+    _catalog: PublicationCatalog | None = None,
+    _context: FiberSectionContext | None = None,
+    _write_root_metadata: bool = True,
+    _result_filename: str = "result.json",
+) -> dict[str, Any]:
+    """Publish four PDQ-39 fiber section figures and their spatial derivatives."""
+
+    normalized_scale = str(scale_id).strip()
+    if not normalized_scale or "/" in normalized_scale or ".." in normalized_scale:
+        raise ValueError("scale_id must be one safe path component")
+    root = Path(output_root).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    if Path(_result_filename).name != _result_filename or not _result_filename.endswith(
+        ".json"
+    ):
+        raise ValueError("_result_filename must be one JSON filename")
+    catalog = _catalog or PublicationCatalog.from_config(
+        {
+            "normative_fiber_main": {
+                "root": str(
+                    Path(normative_fiber_publication_root).expanduser().resolve()
+                ),
+                "manifest": "model_manifest.json",
+            }
+        },
+        config_base=root,
+    )
+    context = _context or prepare_fiber_section_context(
+        catalog=catalog, spatial_config_path=spatial_config_path
+    )
+    config = context.config
+    config_record = context.config_record
+    background_path = context.background_path
+    background_record = context.background_record
+    formal_connectome_id = context.formal_connectome_id
+    connectome = context.connectome
+    connectome_record = context.connectome_record
+    targets = context.targets
+    target_records = context.target_records
     base_style = get_fiber_section_cfg(style_overrides)
     manifest_path = root / "manifest.json"
     manifest: dict[str, Any] = {
@@ -688,12 +752,13 @@ def run_single_scale_fiber_section_postprocess(
         "publications": catalog.publication_records(),
         "results": [],
     }
-    _write_json_atomic(manifest_path, manifest)
+    if _write_root_metadata:
+        _write_json_atomic(manifest_path, manifest)
 
     failures = 0
     for role_spec in _ROLE_SPECS:
         role_leaf = root / "scales" / normalized_scale / role_spec.role / "fiber"
-        result_path = role_leaf / "result.json"
+        result_path = role_leaf / _result_filename
         try:
             artifacts, final_model = _resolve_role_artifacts(
                 catalog, scale_id=normalized_scale, role=role_spec.role
@@ -740,7 +805,8 @@ def run_single_scale_fiber_section_postprocess(
                 reused = _read_json(result_path)
                 reused["resume_status"] = "reused"
                 manifest["results"].append(reused)
-                _write_json_atomic(manifest_path, manifest)
+                if _write_root_metadata:
+                    _write_json_atomic(manifest_path, manifest)
                 continue
 
             selected_ids, selected_scores, selected_is_sweet = _selected_fiber_data(
@@ -966,7 +1032,8 @@ def run_single_scale_fiber_section_postprocess(
             }
             _write_json_atomic(result_path, result)
             manifest["results"].append(result)
-        _write_json_atomic(manifest_path, manifest)
+        if _write_root_metadata:
+            _write_json_atomic(manifest_path, manifest)
 
     manifest["status"] = "complete" if failures == 0 else "completed_with_failures"
     manifest["completed_count"] = sum(
@@ -976,10 +1043,49 @@ def run_single_scale_fiber_section_postprocess(
         value.get("resume_status") == "reused" for value in manifest["results"]
     )
     manifest["failed_count"] = failures
-    _write_json_atomic(manifest_path, manifest)
-    _write_root_index(root, manifest["results"])
-    _write_readme(root, normalized_scale)
+    if _write_root_metadata:
+        _write_json_atomic(manifest_path, manifest)
+        _write_root_index(root, manifest["results"])
+        _write_readme(root, normalized_scale)
     return manifest
+
+
+def render_fiber_section_components(
+    *,
+    scale_ids: Sequence[str],
+    output_root: str | Path,
+    catalog: PublicationCatalog,
+    context: FiberSectionContext,
+    style_overrides: Mapping[str, Any] | None = None,
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Render fiber endpoint components with one shared connectome context."""
+
+    normalized_scales = tuple(str(value).strip() for value in scale_ids)
+    if not normalized_scales:
+        raise ValueError("scale_ids must contain at least one scale")
+    if len(set(normalized_scales)) != len(normalized_scales):
+        raise ValueError("scale_ids must not contain duplicates")
+    for scale_id in normalized_scales:
+        if not scale_id or "/" in scale_id or ".." in scale_id:
+            raise ValueError("every scale_id must be one safe path component")
+
+    results: list[dict[str, Any]] = []
+    for scale_id in normalized_scales:
+        component = run_single_scale_fiber_section_postprocess(
+            scale_id=scale_id,
+            output_root=output_root,
+            normative_fiber_publication_root=output_root,
+            spatial_config_path=str(context.config_record["path"]),
+            style_overrides=style_overrides,
+            force=force,
+            _catalog=catalog,
+            _context=context,
+            _write_root_metadata=False,
+            _result_filename="fiber_spatial.json",
+        )
+        results.extend(component["results"])
+    return results
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -1009,4 +1115,10 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["SCHEMA_VERSION", "run_single_scale_fiber_section_postprocess"]
+__all__ = [
+    "FiberSectionContext",
+    "SCHEMA_VERSION",
+    "prepare_fiber_section_context",
+    "render_fiber_section_components",
+    "run_single_scale_fiber_section_postprocess",
+]

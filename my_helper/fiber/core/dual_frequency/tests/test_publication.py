@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 
 import dual_frequency.application.publication as publication_module
 from dual_frequency.application.publication import (
@@ -17,7 +18,20 @@ from dual_frequency.application.publication import (
     _PublicationWriter,
     _masked_normalized_gaussian_original_roi,
 )
-from dual_frequency.contracts import ArtifactRef, AxisRef
+from dual_frequency.contracts import (
+    ActivationArtifact,
+    ArtifactRef,
+    AxisRef,
+    EndpointInputRecord,
+    EndpointKey,
+    FeatureAxisRef,
+    FinalModelKey,
+    FinalModelRecord,
+    FinalSelectionRecord,
+    SensitivityResult,
+    SourceRecord,
+)
+from dual_frequency.workflow import ServiceResult, TaskOutcome
 
 
 def _sha256(path: Path) -> str:
@@ -361,3 +375,395 @@ def test_outcome_loader_rejects_failed_tasks_and_preserves_task_file(
 
     assert task.is_file()
     assert json.loads(task.read_text(encoding="utf-8"))["status"] == "failed"
+
+
+def _extension_artifact(
+    path: Path,
+    kind: str,
+    *,
+    axes: tuple[AxisRef, ...] = (),
+    dtype: str | None = None,
+    shape: tuple[int, ...] | None = None,
+    units: str | None = None,
+    space: str | None = None,
+) -> ArtifactRef:
+    return ArtifactRef(
+        kind=kind,
+        schema_version=(
+            "dual_frequency_document_v1" if dtype is None else "dual_frequency_array_v1"
+        ),
+        uri=path.resolve().as_uri(),
+        sha256=_sha256(path),
+        dtype=dtype,
+        shape=shape,
+        axis_refs=axes,
+        axis_hashes=tuple(axis.sha256 for axis in axes),
+        units=units,
+        space=space,
+        producer_id="task-payload",
+        producer_version="1",
+    )
+
+
+def _write_task(run_root: Path, task_id: str, endpoint_id: str, record: object) -> None:
+    outcome = TaskOutcome(
+        task_id=task_id,
+        endpoint_id=endpoint_id,
+        service_id=f"service-{task_id}",
+        status="completed",
+        reason="none",
+        result=ServiceResult.from_record(record),
+        started_at="2026-07-22T00:00:00Z",
+        finished_at="2026-07-22T00:00:01Z",
+    )
+    payload = {"task_id": task_id, **outcome.as_dict()}
+    destination = run_root / "tasks" / f"{task_id}.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _extension_fixture(
+    tmp_path: Path,
+    entries: tuple[tuple[str, str], ...],
+    *,
+    technical_failure: bool = False,
+) -> tuple[Path, Path]:
+    run_root = tmp_path / ".runs" / "extension-run"
+    work = run_root / "work"
+    work.mkdir(parents=True)
+    output_root = tmp_path / "published"
+    parent_run_id = "parent-run"
+    model_set_id = "model-set"
+    fixture_analyses = list(dict.fromkeys(analysis for _, analysis in entries))
+    for domain in ("direct_voxel", "normative_fiber"):
+        parent = output_root / domain / model_set_id
+        parent.mkdir(parents=True)
+        (parent / "model_manifest.json").write_text(
+            json.dumps(
+                {
+                    "final_status": "completed",
+                    "source_run_id": parent_run_id,
+                }
+            ),
+            encoding="utf-8",
+        )
+        (parent / "artifact_index.csv").write_text(
+            "relative_path,sha256,size_bytes,status\n",
+            encoding="utf-8",
+        )
+    (run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "final_status": "completed",
+                "run_id": "extension-run",
+                "parent_run_id": parent_run_id,
+                "scientific_configuration_hash": "s" * 64,
+                "selected_sensitivity_analyses": fixture_analyses,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "base_run_reference.json").write_text(
+        json.dumps(
+            {
+                "base_run_id": parent_run_id,
+                "scientific_configuration_hash": "s" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "configuration_resolved.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "direct_voxel": {
+                    "model_set_id": model_set_id,
+                    "output": {"root": str(output_root)},
+                },
+                "normative_fiber": {
+                    "model_set_id": model_set_id,
+                    "output": {"root": str(output_root)},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    aggregate_rows: list[dict[str, object]] = []
+    analyses: list[str] = []
+    plan_tasks: list[dict[str, object]] = []
+    for index, (model_family, analysis) in enumerate(entries):
+        role = "reference" if model_family.startswith("reference_") else "addon"
+        connectome_id = "formal-connectome" if model_family.endswith("fiber") else "none"
+        endpoint = EndpointKey(
+            "study",
+            f"scale-{index}",
+            role,
+            model_family,
+            connectome_id,
+        )
+        endpoint_id = endpoint.identifier
+        subject_axis = AxisRef(f"{endpoint_id}:subjects", 1, f"{index + 1}" * 64)
+        feature_axis = AxisRef(f"{endpoint_id}:features", 2, f"{index + 3}" * 64)
+        endpoint_work = work / endpoint_id
+        endpoint_work.mkdir()
+        baseline_path = endpoint_work / "baseline.npy"
+        outcome_path = endpoint_work / "outcome.npy"
+        feature_ids_path = endpoint_work / "feature_ids.npy"
+        np.save(baseline_path, np.asarray([0.0], dtype=np.float64))
+        np.save(outcome_path, np.asarray([1.0], dtype=np.float64))
+        np.save(feature_ids_path, np.asarray([11, 12], dtype=np.int64))
+        baseline = _extension_artifact(
+            baseline_path,
+            "endpoint_baseline",
+            axes=(subject_axis,),
+            dtype="float64",
+            shape=(1,),
+            units="score",
+        )
+        outcome = _extension_artifact(
+            outcome_path,
+            "endpoint_outcome",
+            axes=(subject_axis,),
+            dtype="float64",
+            shape=(1,),
+            units="score",
+        )
+        feature_ids = _extension_artifact(
+            feature_ids_path,
+            "selected_feature_ids",
+            axes=(feature_axis,),
+            dtype="int64",
+            shape=(2,),
+            units="fiber_id" if model_family.endswith("fiber") else "voxel_index",
+            space="right_canonical",
+        )
+        endpoint_input = EndpointInputRecord(
+            endpoint=endpoint,
+            readiness_status="ready",
+            candidate_subject_ids=("subject-1",),
+            included_subject_ids=("subject-1",),
+            exclusions=(),
+            minimum_subjects=1,
+            subject_axis=subject_axis,
+            baseline=baseline,
+            outcome=outcome,
+        )
+        source = SourceRecord(
+            endpoint=endpoint,
+            input_status="valid",
+            source_status="pre_specified_accepted",
+            prediction_status="error_nonpredictive",
+            threshold_source="pre_specified",
+            selected_tau=400.0 if model_family.endswith("fiber") else 200.0,
+            selected_coverage=5,
+            adjacent_support=2,
+            feature_axis=FeatureAxisRef(feature_axis, "selected_feature_ids"),
+            artifacts=(feature_ids,),
+        )
+        final_model = FinalModelRecord(
+            endpoint=endpoint,
+            final_status="final_model_realized",
+            realization_role="primary",
+            final_key=FinalModelKey(
+                endpoint_id,
+                "reference",
+                source.selected_tau,
+                source.selected_coverage,
+                "weighted_peak",
+            ),
+            selected_source=source,
+            selected_branch=None,
+        )
+        selection = FinalSelectionRecord(
+            endpoint=endpoint,
+            selection_status="final_model_realized",
+            final_model=final_model,
+            reason_codes=("primary_realized",),
+            causal_task_ids=(f"task-source-{index}",),
+        )
+        _write_task(run_root, f"task_input_{index}", endpoint_id, endpoint_input)
+        _write_task(run_root, f"task_final_{index}", endpoint_id, selection)
+
+        if analysis == "jitter":
+            metrics_path = endpoint_work / "spatial_jitter_metrics.json"
+            metrics_path.write_text(
+                json.dumps({"replicates": [{"replicate_index": 0}]}),
+                encoding="utf-8",
+            )
+            record = SensitivityResult(
+                target_id=final_model.identifier,
+                sensitivity_kind="spatial_jitter",
+                artifacts=(
+                    _extension_artifact(
+                        metrics_path,
+                        "spatial_jitter_metrics",
+                    ),
+                ),
+            )
+        else:
+            probability_path = endpoint_work / "probability.npy"
+            binary_path = endpoint_work / "binary.npy"
+            status_path = endpoint_work / "oss_status.json"
+            np.save(probability_path, np.asarray([[0.1, 0.9]], dtype=np.float32))
+            np.save(binary_path, np.asarray([[0, 1]], dtype=np.uint8))
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "status": (
+                            "completed_with_technical_failure"
+                            if technical_failure
+                            else "completed"
+                        )
+                    }
+                ),
+                encoding="utf-8",
+            )
+            probability = _extension_artifact(
+                probability_path,
+                "oss_activation_probability",
+                axes=(subject_axis, feature_axis),
+                dtype="float32",
+                shape=(1, 2),
+                units="probability",
+                space="right_canonical",
+            )
+            binary = _extension_artifact(
+                binary_path,
+                "oss_binary_exposure",
+                axes=(subject_axis, feature_axis),
+                dtype="uint8",
+                shape=(1, 2),
+                units="binary",
+                space="right_canonical",
+            )
+            status = _extension_artifact(status_path, "oss_sensitivity_status")
+            record = ActivationArtifact(
+                final_model_id=final_model.identifier,
+                feature_axis=feature_axis,
+                activation_probability=probability,
+                binary_exposure=binary,
+                artifacts=(status,),
+            )
+        terminal_task_id = f"task_terminal_{index}"
+        _write_task(run_root, terminal_task_id, endpoint_id, record)
+        plan_tasks.append(
+            {
+                "endpoint_id": endpoint_id,
+                "stage": (
+                    "spatial_jitter" if analysis == "jitter" else "activation_sensitivity"
+                ),
+            }
+        )
+        aggregate_rows.append(
+            {
+                "task_id": terminal_task_id,
+                "endpoint_id": endpoint_id,
+                "scale_id": endpoint.scale_id,
+                "model_family": model_family,
+                "model_role": role,
+                "analysis": analysis,
+                "status": "completed",
+                "reason": "none",
+                "record_id": ServiceResult.from_record(record).record_id,
+                "artifact_ids": [artifact.identifier for artifact in record.artifacts],
+            }
+        )
+        if analysis not in analyses:
+            analyses.append(analysis)
+    sensitivity = run_root / "sensitivity_results"
+    sensitivity.mkdir()
+    (run_root / "sensitivity_plan.json").write_text(
+        json.dumps({"plan": {"tasks": plan_tasks}}),
+        encoding="utf-8",
+    )
+    (sensitivity / "extension_results.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "dual_frequency_extension_results_v1",
+                "extension_id": "extension-run",
+                "parent_run_id": parent_run_id,
+                "analyses": analyses,
+                "status": "completed",
+                "results": aggregate_rows,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return run_root, output_root
+
+
+def test_terminal_jitter_replay_is_self_contained_and_idempotent(
+    tmp_path: Path,
+) -> None:
+    run_root, output_root = _extension_fixture(
+        tmp_path,
+        (("reference_voxel", "jitter"), ("reference_fiber", "jitter")),
+    )
+    publisher = CanonicalPublisher()
+    first = publisher.publish_extension(run_root)
+    second = CanonicalPublisher().publish_extension(run_root)
+
+    assert first == second
+    assert first.direct_voxel_result_count == 1
+    assert first.normative_fiber_result_count == 1
+    for extension_root in (first.direct_voxel_root, first.normative_fiber_root):
+        assert extension_root is not None
+        manifest = json.loads((extension_root / "extension_manifest.json").read_text())
+        assert manifest["status"] == "completed"
+        assert manifest["publication_scope"] == "complete"
+        text = "\n".join(
+            path.read_text(errors="ignore")
+            for path in extension_root.rglob("*")
+            if path.is_file() and path.suffix in {".json", ".csv"}
+        )
+        assert "file://" not in text
+        assert ".runs/" not in text
+        assert "runtime_work" not in text
+    assert output_root in first.direct_voxel_root.parents
+
+
+def test_combined_replay_keeps_domain_specific_analysis_presence(
+    tmp_path: Path,
+) -> None:
+    run_root, _ = _extension_fixture(
+        tmp_path,
+        (("reference_voxel", "jitter"), ("reference_fiber", "oss")),
+    )
+    result = CanonicalPublisher().publish_extension(run_root)
+
+    assert result.direct_voxel_root is not None
+    assert result.normative_fiber_root is not None
+    assert (result.direct_voxel_root / "spatial_jitter_results.json").is_file()
+    assert not (result.direct_voxel_root / "oss_ppam_results.json").exists()
+    assert (result.normative_fiber_root / "oss_ppam_results.json").is_file()
+    assert not (result.normative_fiber_root / "spatial_jitter_results.json").exists()
+
+
+def test_oss_replay_omits_empty_voxel_domain_and_rejects_technical_failure(
+    tmp_path: Path,
+) -> None:
+    complete_run, _ = _extension_fixture(
+        tmp_path / "complete",
+        (("reference_fiber", "oss"),),
+    )
+    result = CanonicalPublisher().publish_extension(complete_run)
+    assert result.direct_voxel_root is None
+    assert result.direct_voxel_result_count == 0
+    assert result.normative_fiber_root is not None
+    assert (result.normative_fiber_root / "oss_ppam_results.json").is_file()
+
+    failed_run, output_root = _extension_fixture(
+        tmp_path / "failed",
+        (("reference_fiber", "oss"),),
+        technical_failure=True,
+    )
+    with pytest.raises(PublicationError, match="technical failure"):
+        CanonicalPublisher().publish_extension(failed_run)
+    extension_root = (
+        output_root
+        / "normative_fiber"
+        / "model-set"
+        / "extensions"
+        / "extension-run-v2"
+    )
+    assert not (extension_root / "extension_manifest.json").exists()

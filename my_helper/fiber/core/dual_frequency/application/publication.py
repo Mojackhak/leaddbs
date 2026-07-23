@@ -22,6 +22,7 @@ import numpy as np
 import yaml
 
 from ..contracts import (
+    ActivationArtifact,
     ArtifactRef,
     BranchRecord,
     EndpointInputRecord,
@@ -30,6 +31,7 @@ from ..contracts import (
     ObservedResult,
     PreparedExposureRecord,
     SensitiveRecord,
+    SensitivityResult,
     SourceRecord,
 )
 from ..workflow import TaskOutcome
@@ -67,8 +69,8 @@ class ExtensionPublicationResult:
 
     source_run_id: str
     extension_id: str
-    direct_voxel_root: Path
-    normative_fiber_root: Path
+    direct_voxel_root: Path | None
+    normative_fiber_root: Path | None
     direct_voxel_result_count: int
     normative_fiber_result_count: int
 
@@ -76,8 +78,14 @@ class ExtensionPublicationResult:
         return {
             "source_run_id": self.source_run_id,
             "extension_id": self.extension_id,
-            "direct_voxel_root": str(self.direct_voxel_root),
-            "normative_fiber_root": str(self.normative_fiber_root),
+            "direct_voxel_root": (
+                None if self.direct_voxel_root is None else str(self.direct_voxel_root)
+            ),
+            "normative_fiber_root": (
+                None
+                if self.normative_fiber_root is None
+                else str(self.normative_fiber_root)
+            ),
             "direct_voxel_result_count": self.direct_voxel_result_count,
             "normative_fiber_result_count": self.normative_fiber_result_count,
         }
@@ -132,6 +140,25 @@ def _artifact_path(artifact: ArtifactRef) -> Path:
     if _sha256_file(path) != artifact.sha256:
         raise PublicationError(f"source artifact SHA-256 mismatch: {path}")
     return path
+
+
+def _published_artifact_name(artifact: ArtifactRef, source: Path) -> str:
+    """Return one deterministic public payload name without run-store identity."""
+
+    kind = str(artifact.kind).strip()
+    if not kind or any(
+        not (character.isascii() and (character.isalnum() or character in "_-"))
+        for character in kind
+    ):
+        raise PublicationError(f"unsupported public artifact kind: {artifact.kind!r}")
+    name = Path(source).name.lower()
+    suffix = ".nii.gz" if name.endswith(".nii.gz") else Path(source).suffix.lower()
+    if not suffix or any(
+        not (character.isascii() and (character.isalnum() or character == "."))
+        for character in suffix
+    ):
+        raise PublicationError(f"unsupported public artifact extension: {source}")
+    return f"{kind}{suffix}"
 
 
 def _json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -674,9 +701,18 @@ class CanonicalPublisher:
         output_root_override: Path | None = None,
         selected_scales: tuple[str, ...] = (),
     ) -> ExtensionPublicationResult:
-        """Replay one completed final-in-sample child into stable extensions."""
+        """Replay one completed child into a stable self-contained extension."""
 
         root = Path(run_root).expanduser().resolve()
+        if not (
+            root / "sensitivity_results" / "final_in_sample_results.json"
+        ).is_file():
+            return self._publish_terminal_sensitivity_extension(
+                root,
+                extension_id=extension_id,
+                output_root_override=output_root_override,
+                selected_scales=selected_scales,
+            )
         manifest = self._manifest(root)
         resolved = self._yaml(root / "configuration_resolved.yaml")
         aggregate = self._json(
@@ -930,6 +966,419 @@ class CanonicalPublisher:
             normative_fiber_root=writers["normative_fiber"].root,
             direct_voxel_result_count=len(domain_rows["direct_voxel"]),
             normative_fiber_result_count=len(domain_rows["normative_fiber"]),
+        )
+
+    def _publish_terminal_sensitivity_extension(
+        self,
+        root: Path,
+        *,
+        extension_id: str | None,
+        output_root_override: Path | None,
+        selected_scales: tuple[str, ...],
+    ) -> ExtensionPublicationResult:
+        """Replay terminal jitter and OSS endpoint payloads into extension v2."""
+
+        manifest = self._manifest(root)
+        resolved = self._yaml(root / "configuration_resolved.yaml")
+        aggregate = self._json(root / "sensitivity_results" / "extension_results.json")
+        if aggregate.get("status") != "completed":
+            raise PublicationError("sensitivity extension results are not completed")
+        requested_analyses = tuple(str(value) for value in aggregate.get("analyses", ()))
+        if not requested_analyses or any(
+            value not in {"jitter", "oss"} for value in requested_analyses
+        ):
+            raise PublicationError("extension replay supports only jitter and OSS analyses")
+        if tuple(manifest.get("selected_sensitivity_analyses", ())) != requested_analyses:
+            raise PublicationError("extension aggregate analyses mismatch the run manifest")
+        if aggregate.get("extension_id") != manifest.get("run_id"):
+            raise PublicationError("extension aggregate run identity mismatch")
+        raw_rows = aggregate.get("results")
+        if not isinstance(raw_rows, list) or not raw_rows:
+            raise PublicationError("sensitivity extension has no endpoint results")
+        if any(not isinstance(row, Mapping) for row in raw_rows):
+            raise PublicationError("extension result rows must be objects")
+        if not selected_scales:
+            plan_document = self._json(root / "sensitivity_plan.json")
+            plan = plan_document.get("plan")
+            if not isinstance(plan, Mapping) or not isinstance(plan.get("tasks"), list):
+                raise PublicationError("sensitivity extension plan is invalid")
+            analysis_by_stage = {
+                "spatial_jitter": "jitter",
+                "activation_sensitivity": "oss",
+            }
+            expected = {
+                (str(task.get("endpoint_id")), analysis_by_stage[str(task.get("stage"))])
+                for task in plan["tasks"]
+                if isinstance(task, Mapping)
+                and str(task.get("stage")) in analysis_by_stage
+                and analysis_by_stage[str(task.get("stage"))] in requested_analyses
+            }
+            actual = {
+                (str(row.get("endpoint_id")), str(row.get("analysis")))
+                for row in raw_rows
+            }
+            if not expected or actual != expected:
+                raise PublicationError(
+                    "extension aggregate does not cover the terminal plan closure"
+                )
+        rows = [
+            dict(row)
+            for row in raw_rows
+            if isinstance(row, Mapping)
+            and (not selected_scales or str(row.get("scale_id")) in selected_scales)
+        ]
+        if not rows:
+            raise PublicationError("selected extension scope has no endpoint results")
+        if any(row.get("status") != "completed" for row in rows):
+            raise PublicationError("extension replay requires completed endpoint results")
+        selected_endpoint_ids = {str(row["endpoint_id"]) for row in rows}
+        outcomes = self._outcomes(root, endpoint_ids=selected_endpoint_ids)
+        outcomes_by_task = {outcome.task_id: outcome for outcome in outcomes}
+        records = {
+            outcome.task_id: outcome.result.decode_record()
+            for outcome in outcomes
+            if outcome.status == "completed" and outcome.result is not None
+        }
+        endpoint_keys = self._endpoint_keys(outcomes, records)
+        by_endpoint: dict[str, list[object]] = defaultdict(list)
+        for outcome in outcomes:
+            record = records.get(outcome.task_id)
+            if record is not None:
+                by_endpoint[outcome.endpoint_id].append(record)
+
+        selected_extension_id = str(
+            extension_id or f"{manifest['run_id']}-v2"
+        ).strip()
+        if (
+            not selected_extension_id
+            or "/" in selected_extension_id
+            or "\\" in selected_extension_id
+        ):
+            raise PublicationError("extension_id must be a nonempty path-safe token")
+        base_reference = self._json(root / "base_run_reference.json")
+        parent_run_id = str(base_reference["base_run_id"])
+        if str(aggregate.get("parent_run_id")) != parent_run_id:
+            raise PublicationError("extension aggregate parent identity mismatch")
+        if manifest.get("parent_run_id") != parent_run_id:
+            raise PublicationError("extension manifest parent identity mismatch")
+        output_root = (
+            Path(output_root_override).expanduser().resolve()
+            if output_root_override is not None
+            else Path(resolved["direct_voxel"]["output"]["root"]).resolve()
+        )
+        domains = {
+            "direct_voxel": (
+                output_root
+                / "direct_voxel"
+                / str(resolved["direct_voxel"]["model_set_id"])
+            ),
+            "normative_fiber": (
+                output_root
+                / "normative_fiber"
+                / str(resolved["normative_fiber"]["model_set_id"])
+            ),
+        }
+        for main_root in domains.values():
+            self._validate_parent_publication(main_root, parent_run_id)
+
+        writers: dict[str, _PublicationWriter] = {}
+        domain_rows: dict[str, dict[str, list[dict[str, Any]]]] = {
+            "direct_voxel": {"jitter": [], "oss": []},
+            "normative_fiber": {"jitter": [], "oss": []},
+        }
+        times = self._run_times(outcomes)
+        seen: set[tuple[str, str]] = set()
+        for aggregate_row in sorted(
+            rows,
+            key=lambda row: (
+                str(row.get("scale_id")),
+                str(row.get("model_family")),
+                str(row.get("analysis")),
+            ),
+        ):
+            endpoint_id = str(aggregate_row["endpoint_id"])
+            analysis = str(aggregate_row["analysis"])
+            if analysis not in requested_analyses:
+                raise PublicationError("endpoint analysis is absent from extension request")
+            identity = (endpoint_id, analysis)
+            if identity in seen:
+                raise PublicationError("extension contains duplicate endpoint analysis results")
+            seen.add(identity)
+            outcome = outcomes_by_task.get(str(aggregate_row["task_id"]))
+            if outcome is None or outcome.status != "completed" or outcome.result is None:
+                raise PublicationError("extension endpoint task is not completed")
+            if outcome.endpoint_id != endpoint_id:
+                raise PublicationError("extension endpoint task identity mismatch")
+            if outcome.result.record_id != str(aggregate_row["record_id"]):
+                raise PublicationError("extension endpoint record identity mismatch")
+            record = records[outcome.task_id]
+            endpoint_records = by_endpoint.get(endpoint_id, [])
+            selection = next(
+                (item for item in endpoint_records if isinstance(item, FinalSelectionRecord)),
+                None,
+            )
+            endpoint_input = next(
+                (item for item in endpoint_records if isinstance(item, EndpointInputRecord)),
+                None,
+            )
+            key = endpoint_keys.get(endpoint_id)
+            if (
+                selection is None
+                or selection.final_model is None
+                or endpoint_input is None
+                or endpoint_input.subject_axis is None
+                or key is None
+            ):
+                raise PublicationError(
+                    f"extension endpoint lacks immutable parent records: {endpoint_id}"
+                )
+            final_model = selection.final_model
+            source = _source_from_selection(selection)
+            if source is None:
+                raise PublicationError("extension final model lacks a selected source")
+            role = "reference" if key.model_family.startswith("reference_") else "addon"
+            branch = (
+                "reference"
+                if role == "reference"
+                else final_model.selected_branch.branch
+            )
+            domain = (
+                "direct_voxel"
+                if key.model_family.endswith("voxel")
+                else "normative_fiber"
+            )
+            if analysis == "oss" and domain != "normative_fiber":
+                raise PublicationError("OSS extension results must be normative-fiber models")
+            if str(aggregate_row.get("model_family")) != key.model_family:
+                raise PublicationError("extension model-family identity mismatch")
+            if str(aggregate_row.get("scale_id")) != key.scale_id:
+                raise PublicationError("extension scale identity mismatch")
+            if analysis == "jitter":
+                if not isinstance(record, SensitivityResult):
+                    raise PublicationError("jitter endpoint requires SensitivityResult")
+                if record.sensitivity_kind != "spatial_jitter":
+                    raise PublicationError("jitter endpoint has an invalid sensitivity kind")
+                if record.target_id != final_model.identifier:
+                    raise PublicationError("jitter target does not match the final model")
+                artifacts = tuple(record.artifacts)
+                stage = "spatial_jitter"
+            else:
+                if not isinstance(record, ActivationArtifact):
+                    raise PublicationError("OSS endpoint requires ActivationArtifact")
+                if record.final_model_id != final_model.identifier:
+                    raise PublicationError("OSS target does not match the final model")
+                status_artifact = _one_artifact(record, "oss_sensitivity_status")
+                assert status_artifact is not None
+                status_payload = self._json(self._artifact_path(status_artifact))
+                if status_payload.get("status") != "completed":
+                    raise PublicationError("OSS endpoint retains a technical failure")
+                ordered = (
+                    record.activation_probability,
+                    record.binary_exposure,
+                    *record.artifacts,
+                )
+                artifacts_by_id = {artifact.identifier: artifact for artifact in ordered}
+                artifacts = tuple(artifacts_by_id[key] for key in sorted(artifacts_by_id))
+                stage = "oss_ppam"
+            if not artifacts:
+                raise PublicationError("extension endpoint has no scientific payloads")
+
+            writer = writers.setdefault(
+                domain,
+                _PublicationWriter(
+                    domains[domain] / "extensions" / selected_extension_id,
+                    domain=domain,
+                    artifact_resolver=self._artifact_path,
+                ),
+            )
+            base = f"{key.scale_id}/{role}/sensitivity/{stage}"
+            context: dict[str, object] = {
+                "scale_id": key.scale_id,
+                "model_family": role,
+                "branch_id": None if role == "reference" else branch,
+                "stage": stage,
+            }
+            if domain == "normative_fiber":
+                context["connectome_id"] = key.connectome_id
+                context["connectome_role"] = "formal"
+            payload_rows: list[dict[str, object]] = []
+            payload_names: set[str] = set()
+            for artifact in artifacts:
+                source_path = self._artifact_path(artifact)
+                payload_name = _published_artifact_name(artifact, source_path)
+                if payload_name in payload_names:
+                    raise PublicationError("extension artifact public-name collision")
+                payload_names.add(payload_name)
+                relative = f"{base}/{payload_name}"
+                writer.artifact(
+                    relative,
+                    artifact,
+                    artifact_kind=artifact.kind,
+                    context=context,
+                )
+                payload_rows.append(
+                    {
+                        "kind": artifact.kind,
+                        "relative_path": relative,
+                        "metadata_relative_path": f"{relative}.metadata.json",
+                        "sha256": artifact.sha256,
+                        "size_bytes": (writer.root / relative).stat().st_size,
+                        "schema_version": artifact.schema_version,
+                        "dtype": artifact.dtype,
+                        "shape": _plain(artifact.shape),
+                        "axis_refs": _plain(artifact.axis_refs),
+                        "units": artifact.units,
+                        "space": artifact.space,
+                    }
+                )
+            result_path = f"{base}/result.json"
+            compact = {
+                "schema_version": "dual_frequency_terminal_extension_endpoint_v2",
+                "source_extension_run_id": manifest["run_id"],
+                "parent_run_id": parent_run_id,
+                "endpoint_id": endpoint_id,
+                "scale_id": key.scale_id,
+                "model_family": key.model_family,
+                "model_role": role,
+                "connectome_id": key.connectome_id,
+                "connectome_role": (
+                    "formal" if domain == "normative_fiber" else "none"
+                ),
+                "analysis": analysis,
+                "stage": stage,
+                "final_model_id": final_model.identifier,
+                "selected_tau": float(source.selected_tau),
+                "selected_coverage": int(source.selected_coverage),
+                "final_branch": branch,
+                "subject_count": endpoint_input.subject_axis.count,
+                "payloads": payload_rows,
+                "result_relative_path": result_path,
+                "status_relative_path": f"{base}/status.json",
+            }
+            writer.json(
+                result_path,
+                compact,
+                artifact_kind=f"{stage}_result",
+                context=context,
+            )
+            status_path = f"{base}/status.json"
+            writer.json(
+                status_path,
+                _stage_status(
+                    domain=domain,
+                    endpoint=key,
+                    branch=None if role == "reference" else branch,
+                    stage=stage,
+                    status="completed",
+                    reason=outcome.reason,
+                    started=outcome.started_at,
+                    finished=outcome.finished_at,
+                    artifacts=[
+                        *(str(item["relative_path"]) for item in payload_rows),
+                        result_path,
+                    ],
+                    connectome_role=(
+                        None if domain == "direct_voxel" else "formal"
+                    ),
+                ),
+                artifact_kind="stage_status",
+                context=context,
+            )
+            domain_rows[domain][analysis].append(compact)
+
+        partial = bool(selected_scales)
+        for domain, writer in writers.items():
+            present_analyses: list[str] = []
+            result_count = 0
+            for analysis in ("jitter", "oss"):
+                compact_rows = domain_rows[domain][analysis]
+                if not compact_rows:
+                    continue
+                present_analyses.append(analysis)
+                result_count += len(compact_rows)
+                stem = "spatial_jitter_results" if analysis == "jitter" else "oss_ppam_results"
+                writer.json(
+                    f"{stem}.json",
+                    {
+                        "schema_version": f"dual_frequency_{stem}_v2",
+                        "source_extension_run_id": manifest["run_id"],
+                        "parent_run_id": parent_run_id,
+                        "result_count": len(compact_rows),
+                        "results": compact_rows,
+                    },
+                    artifact_kind=stem,
+                    context={"stage": analysis},
+                )
+                writer.csv(
+                    f"{stem}.csv",
+                    compact_rows,
+                    (
+                        "endpoint_id",
+                        "scale_id",
+                        "model_family",
+                        "model_role",
+                        "analysis",
+                        "final_model_id",
+                        "selected_tau",
+                        "selected_coverage",
+                        "final_branch",
+                        "subject_count",
+                        "result_relative_path",
+                        "status_relative_path",
+                    ),
+                    artifact_kind=stem,
+                    context={"stage": analysis},
+                )
+            writer.write_index()
+            parent_manifest_path = domains[domain] / "model_manifest.json"
+            writer.commit_bytes(
+                "extension_manifest.json",
+                _json_bytes(
+                    {
+                        "schema_version": "dual_frequency_extension_manifest_v2",
+                        "extension_id": selected_extension_id,
+                        "source_extension_run_id": manifest["run_id"],
+                        "source_extension_manifest_sha256": _sha256_file(
+                            root / "run_manifest.json"
+                        ),
+                        "parent_run_id": parent_run_id,
+                        "parent_publication_root": str(domains[domain]),
+                        "parent_publication_manifest_sha256": _sha256_file(
+                            parent_manifest_path
+                        ),
+                        "parent_scientific_configuration_hash": base_reference[
+                            "scientific_configuration_hash"
+                        ],
+                        "analyses": present_analyses,
+                        "result_count": result_count,
+                        "publication_scope": (
+                            "selected_scales" if partial else "complete"
+                        ),
+                        "selected_scales": sorted(set(selected_scales)),
+                        "started_at_utc": times[0],
+                        "finished_at_utc": times[1],
+                        "status": "completed_partial" if partial else "completed",
+                    }
+                ),
+            )
+
+        return ExtensionPublicationResult(
+            source_run_id=str(manifest["run_id"]),
+            extension_id=selected_extension_id,
+            direct_voxel_root=(
+                None if "direct_voxel" not in writers else writers["direct_voxel"].root
+            ),
+            normative_fiber_root=(
+                None
+                if "normative_fiber" not in writers
+                else writers["normative_fiber"].root
+            ),
+            direct_voxel_result_count=sum(
+                len(values) for values in domain_rows["direct_voxel"].values()
+            ),
+            normative_fiber_result_count=sum(
+                len(values) for values in domain_rows["normative_fiber"].values()
+            ),
         )
 
     @staticmethod

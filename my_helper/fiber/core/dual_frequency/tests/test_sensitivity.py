@@ -1753,6 +1753,23 @@ class AddonIndependenceTest(unittest.TestCase):
 
 
 class FiberControlBoundaryTest(unittest.TestCase):
+    def test_plain_touched_count_includes_exposure_exactly_at_tau(self) -> None:
+        exposure = np.array(
+            [
+                [200.0, 199.0],
+                [201.0, 200.0],
+            ],
+            dtype=np.float64,
+        )
+        candidate, touched, _, _ = _plain_summaries(
+            exposure,
+            tau=200.0,
+            coverage=1,
+            peak_fraction=0.5,
+        )
+        np.testing.assert_array_equal(candidate, np.array([True, True]))
+        np.testing.assert_array_equal(touched, np.array([1, 2], dtype=np.int64))
+
     def test_plain_peak_uses_all_continuous_candidate_exposure(self) -> None:
         exposure = np.array(
             [

@@ -79,9 +79,14 @@ class ConfigTest(unittest.TestCase):
             CONFIG_ROOT / "workflow.yaml",
             WorkflowOverrides(all_available=True),
         )
+        omitted_workflow = self._workflow_document()
+        del omitted_workflow["storage"]["delete_run_cache_on_success"]
+        cleanup_default = self._load_modified_profiles(workflow=omitted_workflow)
         workflow = self._workflow_document()
         workflow["storage"]["delete_run_cache_on_success"] = True
         cleanup_enabled = self._load_modified_profiles(workflow=workflow)
+        self.assertFalse(original.workflow.storage.delete_run_cache_on_success)
+        self.assertTrue(cleanup_default.workflow.storage.delete_run_cache_on_success)
         self.assertTrue(cleanup_enabled.workflow.storage.delete_run_cache_on_success)
         self.assertNotEqual(
             original.configuration_hash,

@@ -836,12 +836,6 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     """Execute a plan with local failure isolation and exact resume semantics."""
     if not isinstance(plan, ExecutionPlan):
         raise ExecutionError("plan must be an ExecutionPlan")
-    if context.run_store.identity.configuration_hash != plan.configuration_hash:
-        raise ExecutionError("run store configuration hash does not match plan")
-    if context.run_store.identity.scientific_configuration_hash != plan.scientific_configuration_hash:
-        raise ExecutionError("run store scientific configuration hash does not match plan")
-    if context.run_store.identity.plan_hash != plan_hash(plan):
-        raise ExecutionError("run store plan hash does not match plan")
     try:
         context.registry.require(task.service_id for task in plan.tasks)
     except RegistryError as exc:

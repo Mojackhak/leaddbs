@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 from pathlib import Path
 import tempfile
@@ -572,6 +572,19 @@ class SensitivityCheckpointTest(unittest.TestCase):
             task for task in extension.tasks if task.stage == "spatial_jitter"
         )
         self.assertEqual(len(blocks), 2)
+        self.assertTrue(all(block.expensive_producer for block in blocks))
+        self.assertTrue(all(block.cache_first_expensive for block in blocks))
+        self.assertTrue(
+            all(
+                block.task_id
+                == replace(
+                    block,
+                    expensive_producer=False,
+                    cache_first_expensive=False,
+                ).task_id
+                for block in blocks
+            )
+        )
         self.assertEqual(
             tuple(
                 (

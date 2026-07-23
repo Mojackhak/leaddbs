@@ -16,6 +16,7 @@ from threading import RLock
 import time
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 from urllib.parse import unquote, urlsplit
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import yaml
@@ -50,6 +51,7 @@ OSS_SOLVER_TIMEOUT_SECONDS = 6 * 60 * 60
 PATHWAY_ACTIVATION_TIMEOUT_SECONDS = 2 * 60 * 60
 PROCESS_TERMINATION_GRACE_SECONDS = 10.0
 OSS_MAX_FIBERS_PER_EXECUTION = 3500
+OSSDBS_BOOTSTRAP_PATH = Path(__file__).with_name("ossdbs_bootstrap.py").resolve()
 
 OSS_PRODUCER_IMPLEMENTATION_PATHS = (
     Path("classes/conda_utils/environments/OSS-DBSv2.yml"),
@@ -229,6 +231,70 @@ def _normalized_inventory(text: str, *, ignore_comments: bool) -> tuple[int, str
     return len(lines), hashlib.sha256(payload).hexdigest()
 
 
+def _matlab_installation_identity(matlab: Path) -> dict[str, str]:
+    executable = Path(matlab).expanduser().resolve()
+    installation_root = next(
+        (parent for parent in executable.parents if parent.suffix.lower() == ".app"),
+        None,
+    )
+    if installation_root is None:
+        installation_root = executable.parents[2]
+    known_architectures = ("maca64", "maci64", "glnxa64", "win64")
+    path_architectures = tuple(
+        part.lower() for part in executable.parts if part.lower() in known_architectures
+    )
+    installed_architectures = tuple(
+        name for name in known_architectures if (installation_root / "bin" / name).is_dir()
+    )
+    architecture_candidates = tuple(
+        dict.fromkeys((*path_architectures, *installed_architectures))
+    )
+    if len(architecture_candidates) != 1:
+        raise OSSProducerExecutionError(
+            "installed MATLAB architecture cannot be resolved uniquely"
+        )
+    architecture_directory = architecture_candidates[0]
+    architecture = {
+        "maca64": "MACA64",
+        "maci64": "MACI64",
+        "glnxa64": "GLNXA64",
+        "win64": "PCWIN64",
+    }.get(architecture_directory)
+    version_path = installation_root / "VersionInfo.xml"
+    try:
+        root = ET.parse(version_path).getroot()
+    except (OSError, ET.ParseError) as exc:
+        raise OSSProducerExecutionError(
+            "installed MATLAB version manifest is unreadable"
+        ) from exc
+
+    def required_text(tag: str) -> str:
+        node = root.find(tag)
+        value = "" if node is None or node.text is None else node.text.strip()
+        if not value:
+            raise OSSProducerExecutionError(
+                f"installed MATLAB version manifest lacks {tag}"
+            )
+        return value
+
+    version = required_text("version")
+    release = required_text("release")
+    description = required_text("description")
+    if not release.startswith("R") or len(release) < 2:
+        raise OSSProducerExecutionError(
+            "installed MATLAB release identifier is invalid"
+        )
+    if architecture is None:
+        raise OSSProducerExecutionError(
+            "installed MATLAB architecture identifier is invalid"
+        )
+    return {
+        "version": f"{version} ({release}) {description}",
+        "release": release.removeprefix("R"),
+        "computer": architecture,
+    }
+
+
 def _terminate_process_group(
     process: subprocess.Popen[Any],
     *,
@@ -241,6 +307,19 @@ def _terminate_process_group(
             os.killpg(process_group_id, signal.SIGTERM)
         except ProcessLookupError:
             return
+        except PermissionError as exc:
+            try:
+                process.wait(timeout=grace_seconds)
+            except subprocess.TimeoutExpired:
+                pass
+            else:
+                return
+            if _posix_process_group_has_live_members(process_group_id):
+                raise OSSProducerExecutionError(
+                    "cannot signal the live external OSS process group"
+                ) from exc
+            process.wait(timeout=grace_seconds)
+            return
         deadline = time.monotonic() + grace_seconds
         while time.monotonic() < deadline:
             try:
@@ -252,6 +331,12 @@ def _terminate_process_group(
                     pass
                 return
             except PermissionError as exc:
+                try:
+                    process.wait(timeout=grace_seconds)
+                except subprocess.TimeoutExpired:
+                    pass
+                else:
+                    return
                 if _posix_process_group_has_live_members(process_group_id):
                     raise OSSProducerExecutionError(
                         "cannot signal the live external OSS process group"
@@ -268,6 +353,12 @@ def _terminate_process_group(
                 pass
             return
         except PermissionError as exc:
+            try:
+                process.wait(timeout=grace_seconds)
+            except subprocess.TimeoutExpired:
+                pass
+            else:
+                return
             if _posix_process_group_has_live_members(process_group_id):
                 raise OSSProducerExecutionError(
                     "cannot kill the live external OSS process group"
@@ -1088,6 +1179,13 @@ class OSSExecutableSet:
     ossdbs: Path
     run_pathway_activation: Path
 
+    def _validated_python(self) -> Path:
+        if self.python != self.environment_root / "bin" / "python":
+            raise OSSProducerExecutionError(
+                "OSS entrypoint interpreter differs from the validated environment"
+            )
+        return self.python
+
     def entrypoint_command(self, executable: Path, *arguments: str) -> tuple[str, ...]:
         allowed = {
             self.prepareaxonmodel,
@@ -1097,11 +1195,18 @@ class OSSExecutableSet:
         }
         if executable not in allowed:
             raise OSSProducerExecutionError("OSS entrypoint is outside the validated set")
-        if self.python != self.environment_root / "bin" / "python":
-            raise OSSProducerExecutionError(
-                "OSS entrypoint interpreter differs from the validated environment"
-            )
-        return (str(self.python), str(executable), *arguments)
+        return (str(self._validated_python()), str(executable), *arguments)
+
+    def ossdbs_command(self, *arguments: str) -> tuple[str, ...]:
+        """Run OSS-DBSv2 through the repository-owned NGSolve bootstrap."""
+
+        if not OSSDBS_BOOTSTRAP_PATH.is_file():
+            raise OSSProducerExecutionError("OSS-DBSv2 bootstrap is unavailable")
+        return (
+            str(self._validated_python()),
+            str(OSSDBS_BOOTSTRAP_PATH),
+            *arguments,
+        )
 
 
 class SubprocessOSSRowExecutor:
@@ -1113,6 +1218,7 @@ class SubprocessOSSRowExecutor:
         self.environment_file = Path(environment_file).expanduser().resolve()
         self.work_root.mkdir(parents=True, exist_ok=True)
         self._commands: OSSExecutableSet | None = None
+        self._commands_verified = False
         self._command_lock = RLock()
 
     def execute(self, row: PreparedOSSRow) -> OSSRowProduct:
@@ -1490,10 +1596,7 @@ class SubprocessOSSRowExecutor:
             if float(self._read_json(converter_json)["StimulationSignal"]["Frequency[Hz]"]) != row.frequency_hz:
                 raise OSSProducerExecutionError("converter frequency patch did not persist")
             self._run(
-                commands.entrypoint_command(
-                    commands.ossdbs,
-                    str(converter_json),
-                ),
+                commands.ossdbs_command(str(converter_json)),
                 cwd=sample,
                 log_prefix=sample / "ossdbs",
                 timeout_seconds=OSS_SOLVER_TIMEOUT_SECONDS,
@@ -1591,6 +1694,8 @@ class SubprocessOSSRowExecutor:
 
     def _resolve_commands(self) -> OSSExecutableSet:
         with self._command_lock:
+            if self._commands_verified and self._commands is not None:
+                return self._commands
             try:
                 environment = yaml.safe_load(self.environment_file.read_text(encoding="utf-8"))
             except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
@@ -1795,23 +1900,7 @@ class SubprocessOSSRowExecutor:
                 raise OSSProducerExecutionError(
                     "installed Python distribution set differs from OSS-DBSv2.yml"
                 )
-            matlab_expression = (
-                "fprintf('OSS_MATLAB_VERSION=%s\\n',version);"
-                "fprintf('OSS_MATLAB_RELEASE=%s\\n',version('-release'));"
-                "fprintf('OSS_MATLAB_COMPUTER=%s\\n',computer);"
-            )
-            matlab_code, matlab_stdout, _matlab_stderr = _capture_process(
-                (str(matlab), "-batch", matlab_expression),
-                timeout_seconds=180.0,
-                label="MATLAB runtime identity",
-            )
-            if matlab_code != 0:
-                raise OSSProducerExecutionError("cannot inspect the MATLAB runtime")
-            matlab_identity: dict[str, str] = {}
-            for line in matlab_stdout.splitlines():
-                if line.startswith("OSS_MATLAB_") and "=" in line:
-                    key, value = line.split("=", 1)
-                    matlab_identity[key.removeprefix("OSS_MATLAB_").lower()] = value.strip()
+            matlab_identity = _matlab_installation_identity(matlab)
             if matlab_identity != expected_matlab:
                 raise OSSProducerExecutionError(
                     "installed MATLAB runtime differs from OSS-DBSv2.yml"
@@ -1834,6 +1923,7 @@ class SubprocessOSSRowExecutor:
                 raise OSSProducerExecutionError(
                     "installed ANTs point-transform binary differs from OSS-DBSv2.yml"
                 )
+            self._commands_verified = True
             return commands
 
     @staticmethod

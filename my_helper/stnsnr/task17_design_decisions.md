@@ -885,12 +885,16 @@ toolchain, RNG contract, and comparison tolerance. The completed v8 parent is
 not rewritten. Its already declared shared-cache identities let the loader
 recover and validate the exact `Omega_max` descriptor in memory.
 
-The realized fiber cohorts produce 34 reference and 26 add-on physical rows.
-For each of these 60 row classes, the gate compares ten sample-wise axon-state
-vectors from a final-axis run and an `Omega_max` run after exact canonical-ID
+The original planner estimate was 34 reference and 26 add-on row classes, but
+production created a 35th reference decision and therefore invalidated those
+counts as an acceptance denominator. Each group gate must enumerate its actual
+physical row classes and commit their exact ordered `row_decision_ids` closure.
+For every committed class, the gate compares ten sample-wise axon-state vectors
+from a final-axis run and an `Omega_max` run after exact canonical-ID
 subsetting. PASS requires state mismatch count `< 1`, activation-count mismatch
 count `< 1`, and maximum probability difference below the fixed internal
-tolerance. Every per-row decision is immutable and independently resumable.
+tolerance. Every per-row decision is immutable and independently resumable;
+only the two terminal gate closures define the authoritative count.
 
 Only complete PASS coverage moves that group to shared `Omega_max` simulation.
 Any unproven, corrupt, or failed row keeps the whole group on the historical
@@ -943,10 +947,13 @@ items, endpoint features, or independent statistical replicates.
 
 The group gate and any solver-capable observed activation task charge 48 GiB.
 The resource ledger must reject a grant above its managed boundary even when no
-other task is running. Production resume remains prohibited until a real
-reference `Omega_max` chunk stays below 48 GiB, total managed memory stays below
-64 GiB, and swap growth remains `< 1` byte. If that evidence fails, the fixed
-chunk bound must decrease before another formal resume.
+other task is running. This is a conservative admission charge that prevents a
+second solver from entering the 64-GiB managed pool; it is not a post-admission
+hard RSS limit for the sole admitted solver. Production resume remains
+prohibited until a real reference `Omega_max` chunk keeps complete task-tree RSS
+`< 64 GiB`, swap growth `< 1` byte, and the configured system reserve intact.
+If that evidence fails, the fixed chunk bound must decrease before another
+formal resume.
 
 Every external command remains in its own process group. While waiting for that
 command, the worker must intercept termination, terminate the complete external
@@ -980,3 +987,10 @@ mounted. The completed chunk workspace was removed and the next ordered
 3500-fiber chunk began, proving successful return rather than mere process
 termination. The real resource gate is therefore closed for formal continuation
 under the 48-GiB sole-solver charge and 64-GiB cumulative ceiling.
+
+Later one-second formal sampling measured 61,986,045,952 bytes of solver RSS
+and 62,497,554,432 bytes across the complete task tree. The task tree remained
+`< 64 GiB`, swap growth remained `< 1` byte, the system reserve remained
+intact, and no second solver entered. This evidence supersedes the earlier
+solver-RSS `< 48 GiB` wording while preserving the 48-GiB admission charge,
+single-solver token, and 64-GiB task-tree hard ceiling.

@@ -576,7 +576,7 @@ def load_workflow(
             cache_root=Path(workflow_payload["storage"]["cache_root"]).expanduser().resolve(),
             run_root=Path(workflow_payload["storage"]["run_root"]).expanduser().resolve(),
             delete_run_cache_on_success=workflow_payload["storage"].get(
-                "delete_run_cache_on_success", False
+                "delete_run_cache_on_success", True
             ),
         ),
     )

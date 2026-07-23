@@ -90,7 +90,7 @@ oss: # Minimal inference count; model and pPAM semantics remain production-ident
     maximum: 4.0 # Largest modeled axon diameter.
     samples: 10 # Keep production pPAM sampling.
     sampling: equidistant # Deterministic diameter sampling rule.
-  fitting_probability_threshold: 0.5 # Binary fitting exposure is I[p(A) >= 0.5].
+  fitting_probability_threshold: 0.5 # Binary fitting exposure is I[p(A) > 0.5].
   permutation_resamples: 2 # Minimal OSS inference loop count.
 
 addon: # Keep production DeltaReferenceScore support thresholds unchanged.

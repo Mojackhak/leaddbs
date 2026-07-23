@@ -34,6 +34,9 @@ __all__ = [
     "plot_in_sample_loocv_fit",
     "plot_signed_voxel_sections",
     "plot_sweet_sour_slices",
+    "run_formal_postprocess",
+    "validate_formal_postprocess",
+    "validate_formal_postprocess_output",
     "run_single_scale_paired_fit_postprocess",
     "run_single_scale_fiber_section_postprocess",
     "run_single_scale_voxel_section_postprocess",
@@ -59,6 +62,22 @@ def __getattr__(name: str):
         from .paired_fit_postprocess import run_single_scale_paired_fit_postprocess
 
         return run_single_scale_paired_fit_postprocess
+    if name in {
+        "run_formal_postprocess",
+        "validate_formal_postprocess",
+        "validate_formal_postprocess_output",
+    }:
+        from .formal_postprocess import (
+            run_formal_postprocess,
+            validate_formal_postprocess,
+            validate_formal_postprocess_output,
+        )
+
+        return {
+            "run_formal_postprocess": run_formal_postprocess,
+            "validate_formal_postprocess": validate_formal_postprocess,
+            "validate_formal_postprocess_output": validate_formal_postprocess_output,
+        }[name]
     if name == "run_single_scale_fiber_section_postprocess":
         from .fiber_section_postprocess import (
             run_single_scale_fiber_section_postprocess,

@@ -8,8 +8,14 @@
 strict, reusable `dual_frequency_v1` four-model core that can run from a
 validated `study_base.json` without legacy or migration imports.
 
-**Sole current `/goal`:**
-`my_helper/stnsnr/four_model_yaml_core_refactor_plan.md`.
+**Current goal contract set:**
+
+- `my_helper/stnsnr/four_model_yaml_core_refactor_plan.md` for the umbrella
+  four-model scientific, YAML, execution, and publication contract;
+- this implementation plan for Task 17 shared computation, cache, resume,
+  sensitivity, and resource acceptance; and
+- `my_helper/stnsnr/postprocess_visualization_implementation_plan.md` for the
+  canonical-publication-only visualization replay and acceptance.
 
 **Approved architecture:**
 `my_helper/stnsnr/dual_frequency_core_decoupling_design.md`.
@@ -22,9 +28,12 @@ The generic core implementation below is complete, but the shared-exposure,
 one-pass connectome, process-scheduler, direct-copy SHA cache, sensitivity
 extension, and missing-parent rebuild work remains collectively
 `implementation_in_progress`. Canonical main publication, final-in-sample
-publication, and public-only postprocess are accepted. Jitter, OSS-DBS, and the
-combined sensitivity extension remain outside the current execution phase by
-explicit user instruction.
+publication, and the public-only postprocess adapter are accepted. The
+support-preserving v8 jitter computation is completed, the independent formal
+OSS lineage is active, and combined execution, self-contained sensitivity
+publication, full postprocess replay, and final resource/resume acceptance
+remain open. The earlier instruction that deferred Task 17 sensitivity
+execution no longer describes the authorized current phase.
 
 **Architecture:** Build a new `my_helper/fiber/core/dual_frequency` package next
 to the predecessor package, migrate contracts and orchestration first, then
@@ -86,11 +95,11 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
   acceptance never implicitly authorizes them. Task 17's bounded real-OSS axis-
   equivalence decision matrix is a separate precondition, and each cold class
   may run only after its own explicit authorization.
-- During the current implementation phase, production YAML may be validated
-  and planned only. Do not execute its observed, formal, sensitivity, jitter,
-  activation, or report tasks and do not write its configured output root.
-  Runtime tests use deterministic synthetic fixtures or reviewed frozen
-  read-only acceptance artifacts.
+- The historical plan-only production restriction was lifted by explicit user
+  authorization for the completed v8 parent and its named Task 17 sensitivity
+  children. Formal writes remain restricted to those immutable lineages and
+  the canonical publication and postprocess roots defined below. Do not launch
+  an unrelated production lineage or broaden the scientific scope implicitly.
 - Artifact-backed requests must match shape and exact ordered semantic axis IDs
   plus ordered ID files; formal requests declare a subject axis and activation
   requests inherit the realized final model's exact feature axis.
@@ -1300,8 +1309,9 @@ git commit -m "feat: extract reference normative-fiber backend"
   Tau defines the suprathreshold component-coverage QC only; continuous
   exposure values inside the locked finite map support enter the score.
 - Support QC uses the add-on condition's reference-component suprathreshold
-  voxel range on the complete parent feature axis and strict direct-voxel
-  thresholding `E > selected_reference_tau`. A required subject with
+  voxel range on the complete parent feature axis. Only
+  `E < selected_reference_tau` is excluded, so exposure exactly at the selected
+  reference tau remains active. A required subject with
   `suprathreshold_count < 1` is
   `invalid_no_reference_component_coverage`, never `adequate`.
 - Historical Task 11 support classification is deterministic: `adequate`
@@ -1466,9 +1476,9 @@ git commit -m "feat: extract add-on direct-voxel backend"
   Continuous exposure values enter the score after the locked valid support is
   established.
 - DeltaReferenceScore support QC uses the add-on condition's reference-
-  component suprathreshold fiber range on the complete parent axis and the
-  strict normative-fiber rule `E > selected_reference_tau`. Equality at the
-  selected reference tau is excluded. For each
+  component suprathreshold fiber range on the complete parent axis. Only
+  `E < selected_reference_tau` is excluded, so exposure exactly at the selected
+  reference tau remains active. For each
   subject and each required full/fold operator:
 
   ```text
@@ -3054,6 +3064,55 @@ derived-configuration, path, study-label, parent, and service audit fields do
 not block reuse; changed study JSON or YAML content does block it; malformed or
 incomplete completed-result JSON is rerun rather than aborting the lineage.
 
+**Executor-level three-gate correction, 2026-07-22.** A continuation audit
+found that `RunStore.open(..., resume=True)` correctly enforced only JSON and
+ordered YAML content, but `execute_plan` still rejected changed configuration,
+scientific-configuration, and plan hashes before restoring completed task
+documents. That second-stage comparison was an undocumented fourth resume
+boundary and contradicted Decision 16. Remove all three executor comparisons;
+retain the hashes in run and execution-segment provenance only. Add an
+executor-level fixture whose stored audit hashes all differ from the newly
+compiled plan while JSON and YAML inputs remain unchanged. The fixture must
+restore the completed task without service invocation. Existing tests must
+continue to prove that changed JSON or ordered YAML content is rejected and
+that failed, skipped, running, missing, malformed, or incomplete task JSON is
+rerun or re-evaluated.
+
+The correction is implemented. `execute_plan` no longer compares the stored
+configuration, scientific-configuration, or plan hashes with the newly
+compiled plan. The extended exact-resume fixture crosses both `RunStore.open`
+and `execute_plan` with changed audit-only hashes, code identity, parent ID,
+and resolved snapshot and restores the completed result without invoking its
+service. The complete executor suite passed 31 tests plus six subtests under
+Conda `leaddbs`; focused JSON/YAML, malformed-result, incomplete-result, and
+cache-first checks also passed. The active OSS process was already running
+with a matching plan before this source edit and was not restarted.
+
+The same full-suite run exposed one synthetic resource-fixture error during the
+live OSS workload. The pPAM false-gate fixture labeled its terminal aggregate
+with the generic service ID `aggregate`; the production ledger therefore
+correctly treated it as the 48-GiB solver path instead of the 2-GiB
+`aggregate_ppam_activation` path. The fixture must use the production service
+identity so its admission contract is deterministic and tests the same DAG
+role as the real run. This is a test-identity correction and does not change
+runtime resource charges or the active OSS process.
+
+Because the real pPAM observed workspace itself retains its required 48-GiB
+charge, pure synthetic orchestration fixtures must freeze their host memory
+state at 128 GiB total and available. Otherwise a concurrent formal solver can
+make gate, resume, cleanup, bootstrap, permutation, or all-family synthetic
+tests fail before invoking any in-memory service. Apply this isolation to the
+complete `SyntheticEndToEndTest` class and the two focused executor pPAM
+fixtures. Dedicated ledger tests continue to exercise the actual 48-GiB
+charge, 64-GiB managed ceiling, reserve predicate, and cumulative admission
+behavior; only orchestration fixtures isolate host availability.
+
+The isolated synthetic end-to-end suite passed all seven scenarios while the
+formal OSS solver remained active. The complete dual-frequency suite then ran
+545 collected test items to exit status 0. This accepts the executor-level
+three-gate correction and its deterministic test boundary; it does not mark
+the still-running independent OSS lineage complete.
+
 **Reference-parent-axis closure, 2026-07-17.** The resumed v6 lineage reached
 844 completed tasks before two add-on fiber DeltaReference tasks exposed a
 second axis-contract defect. Membership in the augmented add-on prepared axis
@@ -3285,6 +3344,15 @@ historical final-axis identity. Canonical JSON SHA selects the path; payload SHA
 and structural checks validate copied bytes. Device, inode, mtime, and absolute
 path are runtime locators or provenance only and never enter identity.
 
+The complete cache contract suite was rerun under Conda `leaddbs` on
+2026-07-22 and passed 36 tests plus 18 subtests. Coverage includes atomic
+manifest-last publication, same-byte reuse, failed staging cleanup, complete
+payload and shard validation, copied-cache portability, corruption rejection,
+process-local verification reuse, and cross-instance producer-lease
+serialization. This local evidence proves the cache implementation boundary;
+the active real OSS and later combined lineage still provide the required
+production reuse evidence.
+
 - [ ] **Step 3: Implement distinct voxel sampling and shared physical rows**
 
 Resolve unique physical subject/program/frequency-component units before
@@ -3454,6 +3522,32 @@ values for the three input YAML files, and a parseable completed task JSON with
 a decodable result. Failed, running, skipped, missing, malformed, and
 result-incomplete task JSON is rerun. Append code and resource provenance to a
 separate execution-segment manifest without using either as a resume gate.
+
+A focused resume replay on 2026-07-22 passed seven tests under Conda
+`leaddbs`. It proves exact restoration of a complete result, selective rerun of
+undecodable or incomplete completed results, selective rebuilding of missing
+operator scratch, selective jitter-block and consumer replay, and selective
+pPAM-block and aggregate replay. It also crosses both `RunStore.open` and the
+executor while changing audit-only configuration hashes, scientific hashes,
+plan hashes, code identity, parent identity, source URIs, and machine paths;
+unchanged JSON and ordered YAML content still restores the completed result,
+while changed JSON or YAML content is rejected. A direct audit of
+`RunStore._validate_resume` confirms that these audit-only fields are recorded
+as provenance and are not hidden resume gates. This accepts the three-gate
+resume implementation boundary; the active independent OSS lineage still
+requires terminal replay evidence after its two equivalence gates close.
+
+A current focused resource and determinism replay on 2026-07-22 passed 14 tests
+plus four subtests under Conda `leaddbs`. It verifies one closed pool generation
+in fault-free execution, cumulative jitter-memory admission, exclusive OSS-axis
+ownership of the single solver token, separation of solver work from pPAM
+blocks and aggregation, and refusal to bypass the managed-memory ceiling. The
+same gate proves worker-order parity for formal permutation and bootstrap,
+schedule-order provenance, deterministic prefixes, production dependency
+boundaries, and runtime construction with project namespaces blocked. These
+tests accept the local scheduler and deterministic-kernel boundary; they do not
+replace the active segment's continuous `< 64 GiB` task-tree RSS, zero swap
+growth, terminal gate, or full DAG evidence.
 
 - [x] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
 
@@ -4645,7 +4739,7 @@ At this smoke checkpoint, the 112-endpoint production postprocess and its
 output-local resume audit remained open; the full acceptance immediately below
 supersedes that checkpoint.
 
-Full downstream acceptance evidence on 2026-07-19: the production request
+Historical downstream acceptance evidence on 2026-07-19: the production request
 consumed only the four completed canonical main/extension publications and
 completed all 112 endpoints with zero failures. Each endpoint produced one 2D
 spatial PNG/PDF pair and one paired in-sample/LOOCV PNG/PDF pair. All 112
@@ -4656,6 +4750,11 @@ of reference voxel, add-on voxel, reference fiber, and add-on fiber. Reference
 and add-on examples from both domains passed visual review. An identical second
 request reused all 112 completed endpoint manifests, reported zero failures,
 and changed neither byte size nor nanosecond modification time for any output.
+That batch was subsequently deleted and cannot satisfy current formal output
+acceptance. The configured 2026-07-22 output root remains absent. Its durable
+112-endpoint replay, identical resume, independent validation, and sampled
+visual review remain open until the active OSS and combined publication
+sequence completes.
 
 Add the workflow storage policy `delete_run_cache_on_success`. Its production
 value is `false`. When false, successful runs retain cache content. When true,
@@ -4694,6 +4793,16 @@ configuration gate passed 34 tests and 10 subtests; the complete dual-frequency
 and visualization gate passed 539 tests and 308 subtests outside the restricted
 system-monitoring sandbox. The production policy remains false, so no production
 cache was deleted.
+
+A current cleanup-boundary replay on 2026-07-22 passed all four focused tests.
+The false policy returned before publication inspection and preserved
+`runtime_work`; an incomplete run failed before any scratch mutation; a fully
+completed publication removed only descriptor-declared run-owned scratch while
+preserving task artifacts and shared cache, then reused the atomic marker on an
+identical replay; and unexpected untracked scratch failed preflight before any
+deletion. This replay directly verifies that failed or partial execution retains
+the checkpoint, shared cache, and runtime state required for resume. The current
+formal profile still sets `delete_run_cache_on_success` to false.
 
 - [x] **Step 6: Update status and commit**
 
@@ -4738,6 +4847,181 @@ The active child lineages are:
 - `task17-oss-v1-inclusive-formal-20260719` for independent OSS and pPAM;
 - `task17-combined-v1-inclusive-formal-20260719` for the joint cache-reuse and
   closure check.
+
+The initial combined launch occurs only after the independent OSS child is
+terminal, both equivalence groups pass, all downstream pPAM tasks complete, and
+its reporting and artifact index validate. Its acceptance command is:
+
+```bash
+conda run --no-capture-output -n leaddbs \
+  python my_helper/fiber/pipelines/run_dual_frequency_models.py sensitivity \
+  --base-run /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717 \
+  --analyses jitter,oss \
+  --run-id task17-combined-v1-inclusive-formal-20260719 \
+  --workers 14
+```
+
+The initial command deliberately omits `--allow-expensive-producers`. Every
+physical jitter block, OSS row, and equivalence decision must reuse an already
+verified independent-child cache entry. An unexpected cache miss therefore
+fails closed instead of silently launching another solver or physical jitter
+producer. If an identity-matching combined root already exists after an
+interruption, audit its parent, scientific configuration, requested analyses,
+and terminal task documents before adding `--resume`; never create a replacement
+lineage to bypass a partial reusable root.
+
+A read-only prelaunch audit on 2026-07-22 confirmed that the frozen combined
+run root does not exist and that neither domain contains a combined-v2
+publication. The first combined invocation must therefore use the command
+above without `--resume`; only a later interruption may activate exact-root
+resume after its three input-identity gates pass. VAL reported approximately
+821 GiB available during this audit. This capacity check does not waive the
+independent OSS terminal gate or authorize any expensive producer.
+
+A 2026-07-21 read-only code audit found one prerequisite for that acceptance
+command. The executor correctly allows `cache_first_expensive` tasks to enter
+without blanket expensive-producer authorization, but
+`establish_oss_axis_equivalence` currently rejects the request before checking
+whether every immutable row decision is already present. After the independent
+OSS process exits and before combined launch, move this authorization check to
+the first genuinely missing or invalid row. A fully cached gate with expensive
+authorization disabled must validate and reuse every decision without invoking
+the toolchain. A single missing decision with authorization disabled must fail
+before any solver call. Authorization enabled must produce only the missing
+row. Focused tests must prove all three paths before the no-authorization
+combined command above is permitted.
+
+The same audit found that physical jitter block tasks are not currently marked
+`expensive_producer` and do not receive a reuse-only authorization boundary.
+`prepare_jitter_exposure_block` resolves the semantic cache correctly, but an
+absent entry proceeds directly to physical production. Before combined launch,
+compile jitter blocks as `cache_first_expensive` tasks and require expensive
+authorization only inside the cache-miss branch, before taking a producer lease
+or building any physical array. A complete cache with authorization disabled
+must reuse every block. A single missing block with authorization disabled must
+fail before physical provider invocation. Authorization enabled must produce
+only the missing block. Existing completed v8 block identities and payloads
+remain reusable because the execution-policy flag does not enter the task or
+scientific cache identity. Focused planner, executor, provider, and combined-
+plan tests must close this boundary before the combined command is launched.
+
+The implementation map is intentionally narrow. In
+`runtime/oss_axis_equivalence.py`, retain descriptor validation, immutable
+`Omega_max` loading, runtime-request construction, physical-row pairing, and
+`_load_decision` ahead of authorization. Remove the group-wide early rejection
+and check `allow_expensive_producers` only inside `if decision is None`, before
+the first `produce_with_evidence` call. This preserves validation of cached
+decisions while guaranteeing that an unauthorized miss cannot reach MATLAB or
+OSS-DBS. The focused test must first populate all decisions, repeat with
+authorization disabled and a toolchain that raises if called, then remove one
+decision entry and prove failure with zero toolchain calls.
+
+In `application/sensitivity.py`, each generated
+`prepare_jitter_exposure_block` `TaskSpec` receives both
+`expensive_producer=True` and `cache_first_expensive=True`. In
+`runtime/jitter_blocks.py`, retain all deterministic key construction and the
+initial `cache.resolve(key)` ahead of authorization; if that resolve is empty,
+reject an unauthorized request before `producer_lease` and before either
+`build_jitter_physical_block` provider method. The focused test must populate a
+block, repeat with authorization disabled and a provider that raises if called,
+then remove the entry and prove failure with zero provider calls. A separate
+planner assertion must prove both task-policy flags without changing the task
+ID or cache digest relative to the completed v8 identity contract.
+
+Local implementation evidence on 2026-07-22 closes this prerequisite.
+`runtime/oss_axis_equivalence.py` now performs authorization only after a
+decision lookup proves a real miss. The focused fixture proves fully cached
+reuse with authorization disabled and no new toolchain call, an unauthorized
+single-decision miss with zero toolchain calls, and authorized repair of only
+that missing decision. A cached decision is reusable only while both its final
+and `Omega_max` standard row entries still resolve and pass their complete
+three-file validation. The focused fixture must also remove one referenced row
+while retaining the decision and prove fail-closed behavior with zero new
+toolchain calls. A separate fixture must corrupt one referenced row payload
+while retaining its directory, manifest, and decision and prove the same
+pre-toolchain failure. A complete shared-cache tree copied byte-for-byte to a
+new root must also restore the entire gate with authorization disabled and zero
+toolchain calls, proving that no path, inode, machine, or cache-instance
+identity entered the closure. `application/sensitivity.py` now enables both expensive
+and cache-first policy flags on every physical jitter-block task, while the
+planner fixture proves that toggling those execution-policy fields leaves the
+task identity unchanged. `runtime/jitter_blocks.py` now rejects an
+unauthorized miss before the producer lease and physical provider call; the
+provider fixture proves authorized initial production, copied-cache reuse with
+authorization disabled, corruption rejection, and an unauthorized miss with
+zero provider calls. The complete dual-frequency suite passed 538 tests plus
+310 subtests in the `leaddbs` environment. No live combined execution was
+attempted because VAL was offline; the no-authorization combined command and
+real cache-reuse evidence remain the next external acceptance gate.
+
+The strengthened OSS closure suite passed six tests on 2026-07-22. In
+addition to dynamic decision-count, reuse, blocked-miss, and mismatch paths, it
+now retains a cached decision while deleting one referenced standard row and
+proves that the gate fails before any new toolchain call. This closes the
+decision-to-two-row missing-entry fixture. A separate fresh cache-process
+fixture corrupts a referenced `probabilities.npy` while leaving its decision
+and manifest intact; first-process verified-set reuse remains unchanged, while
+the new process rehashes the entry, rejects the corruption, and makes no new
+toolchain call. A complete shared-cache tree then copies to a distinct root and
+restores the identical accepted closure with authorization disabled and zero
+toolchain calls. The copy proves that absolute path, inode, machine, and cache
+instance are not reuse gates. None of these fixtures changes production
+behavior.
+
+The three focused cache-first suites were rerun during formal OSS segment
+`segment_0010` on 2026-07-22 and now pass 22 tests plus two subtests after the
+decision-to-two-row closure fixtures were added. This current
+check covers OSS decision reuse and blocked misses, jitter provider reuse and
+blocked physical misses, and sensitivity checkpoint planning. It does not
+replace the required live no-authorization combined execution after independent
+OSS reaches terminal closure.
+
+The complete affected regression, including the executor suite, then passed 53
+tests plus eight subtests. This adds parent-owned admission, dependency
+re-evaluation, exact resume, and cache-first dispatch coverage to the three
+provider and planning suites without polling or restarting the formal OSS run.
+
+A broader current-worktree replay on 2026-07-22 combined the complete cache,
+executor, jitter-provider, OSS-axis-equivalence, run-cache-cleanup, and
+sensitivity-checkpoint suites. It passed 93 tests plus 26 subtests under Conda
+`leaddbs`. This single gate covers atomic and copied portable cache entries,
+process-local verification, exact resume and dependency-skip re-evaluation,
+both cache-first authorization boundaries, decision-to-two-row closure,
+success-only cleanup, and retained sensitivity checkpoints. It used only
+temporary injected producers and caches, so the independent real OSS closure
+and no-authorization real combined lineage remain required.
+
+Before that live launch, the synthetic independent-extension acceptance must
+exercise the same authorization boundary. It first completes standalone jitter
+and standalone OSS with the expensive authorization required for their cold
+misses, then launches the combined child with
+`allow_expensive_producers=False`. The combined child must complete using only
+the populated physical caches and preserve the union of requested terminal
+analyses. Endpoint pPAM aggregation remains outcome-specific and must execute;
+its invocation is not a physical OSS producer call. The focused provider and
+toolchain fixtures, rather than the synthetic aggregate counter, prove zero
+physical producer calls on complete cache hits. This strengthens the preflight
+but does not substitute for the formal real-cache combined lineage.
+
+This exact synthetic acceptance was replayed on 2026-07-22 and passed. The
+fixture created an observed parent checkpoint, completed independent jitter,
+completed independent OSS with expensive authorization, and then completed the
+combined child with expensive authorization disabled. The combined service
+closure was the union of the independent jitter and OSS closures, the parent
+manifest digest did not change, and restored parent task documents remained
+byte-identical. This accepts the end-to-end local authorization and parent
+immutability boundary. Rerunning the scenario together with the OSS hit/miss
+and copied-jitter-cache fixtures passed four focused tests; the miss fixtures
+still prove failure before their respective physical producer calls. The real
+combined lineage remains pending until the independent formal OSS child reaches
+terminal acceptance.
+
+A separate 2026-07-22 end-to-end replay passed all three lineage-control
+fixtures under Conda `leaddbs`: a missing parent creates a new main lineage
+before extension execution, jitter and OSS execute as independent children of
+one completed parent, and extension resume invokes only the noncompleted
+sensitivity task. These fixtures mutate temporary synthetic roots only and do
+not substitute for the active real OSS, combined, or publication acceptance.
 
 The earlier `task17-jitter-v7-inclusive-formal-20260719` lineage is retained as
 partial runtime evidence only. It stopped before endpoint statistics and cannot
@@ -4819,13 +5103,16 @@ permutation blocks, and aggregates cannot launch the solver.
 The two current gate groups use the reference and add-on ordered final-axis and
 `Omega_max` pairs. The completed parent exposes the relevant `Omega_max` cache
 entries through its portable shared-exposure identities, so the loader enriches
-the in-memory checkpoint without mutating parent files. The union of realized
-fiber cohorts contains 34 reference physical rows and 26 add-on physical rows.
-The bounded decision matrix therefore covers 60 exact row classes and may run
-`< 121` cold row executions. Each row execution contains ten fixed
-sample-level OSS solver invocations, so a completely cold gate contains
-`< 1201` sample-level invocations. Each row has an immutable decision cache;
-group resume reuses accepted rows and continues only missing or invalid rows.
+the in-memory checkpoint without mutating parent files. Physical-row closure is
+derived from the canonical runtime requests and is not frozen from a pre-run
+count estimate. Each row has an immutable decision cache; group resume reuses
+accepted rows and continues only missing or invalid rows. Formal acceptance
+uses the terminal `row_decision_ids` closure returned by both gate records,
+requires every referenced decision and its two row manifests to validate, and
+then requires every planned downstream task to reach a nonfailed terminal
+state. A row execution contains ten fixed sample-level OSS solver invocations;
+the final cold-execution bound is reported from the terminal group closures
+rather than from a provisional 34/26 partition.
 
 For each row, compare all ten sample-wise axon states after selecting the final
 canonical IDs from the `Omega_max` result. PASS requires state mismatch count
@@ -4921,7 +5208,10 @@ available. The restricted monitoring sandbox separately passes 491 tests; its
 34 failures are all environment-denied executor, spawn, or process-group
 checks. This closes the local implementation and numerical fixture gate; the
 800-task successor run, production resource evidence, cache resume, and
-published jitter result remain open.
+published jitter result were still open at this historical checkpoint. Later
+evidence below closes the support-preserving jitter run, its cache/resume
+boundary, and its canonical v2 publications; it does not close independent OSS
+or combined execution.
 
 The production-parent read-only preflight compiles exactly 800 successor tasks:
 448 immutable checkpoint roots, 240 physical blocks, and 112 endpoint
@@ -4977,9 +5267,13 @@ and probabilities on the unchanged full canonical axis, and publish only the
 existing full-row cache identity. The chunk limit is an internal execution
 constant rather than YAML or scientific model configuration. Solver-capable
 tasks charge 48 GiB, and the resource ledger cannot admit any grant above its
-managed ceiling. A real reference `Omega_max` chunk must demonstrate solver RSS
-`< 48 GiB`, total managed use `< 64 GiB`, and swap growth `< 1` byte before the
-formal child may resume.
+managed ceiling. The 48-GiB value is a conservative admission charge that
+prevents a second solver from entering the 64-GiB managed pool; it is not a
+post-admission hard RSS limit for the single admitted solver. A real reference
+`Omega_max` chunk must demonstrate complete task-tree RSS `< 64 GiB`, swap
+growth `< 1` byte, and an intact system reserve under one-second sampling before
+the formal child may resume. Per-role solver RSS remains recorded as diagnostic
+resource provenance.
 
 The worker must also forward termination to the active external process group
 using the existing bounded TERM-to-KILL path before it exits. Acceptance sends
@@ -5010,8 +5304,947 @@ minimum available memory remained 78,255,472,640 bytes, swap growth stayed
 `< 1` byte, and VAL remained mounted. Removal of the completed chunk workspace
 and creation of the next ordered 3500-fiber chunk prove that the full logical
 chunk returned successfully. This closes the real resource gate and permits the
-independent OSS child to continue under the 48-GiB sole-solver charge and
-64-GiB cumulative ceiling.
+independent OSS child to continue under the conservative 48-GiB sole-solver
+admission charge and 64-GiB cumulative hard ceiling.
+
+Later segment-0005 coverage showed why the admission charge and runtime hard
+ceiling must remain distinct. During the `sub-SNr012` right-side 105-Hz
+final-axis and `Omega_max` rows, one-second sampling measured peak solver RSS at
+61,986,045,952 bytes and peak complete descendant RSS at 62,497,554,432 bytes.
+The latter remained `< 64 GiB`, minimum available memory across these windows
+remained 63,444,467,712 bytes, swap growth stayed `< 1` byte, VAL remained
+mounted, and no second solver was admitted. This observation supersedes the
+earlier solver-RSS `< 48 GiB` acceptance wording without changing the 48-GiB
+ledger charge, the one-solver token, or the 64-GiB task-tree hard ceiling.
+
+The same segment later exposed an independent macOS NGSolve exit defect during
+the `sub-SNr012` right-side 105-Hz tail row. Sample 04 completed FEM and
+time-domain reconstruction, wrote a 5.7-GB `oss_time_result_PAM.h5`, and logged
+the terminal volume-conductor timings, but the OSS process remained near one
+CPU core for more than eight minutes without writing `success_rh.txt` or
+removing `fail_rh.txt`. A five-second process sample placed every main-thread
+observation in `ngcore::ExitTaskManager` and
+`ngcore::TaskManager::StopWorkers`, while the TaskManager worker threads were
+asleep. This is an external-runtime termination defect, not a completed sample
+or a numerical failure. The active resume must stop through the existing
+TERM-to-KILL process-group contract and retain its checkpoint, cache, and
+runtime work.
+
+Formal continuation now requires a repository-owned OSS CLI bootstrap that
+calls `ngsolve.SetNumThreads(1)` before delegating to `ossdbs.main.main()`. The
+thread count is an internal execution constant and must not enter scientific
+YAML identity. Command provenance must identify the bootstrap and the fixed
+thread count. Acceptance requires a focused command-construction test, a real
+TaskManager smoke process that exits normally, preservation of timeout and
+process-group termination tests, and replay of the exact interrupted sample.
+That replay must produce the standard success marker, remove the fail marker,
+exit with code zero, and preserve validated field/state output. Post-terminal
+log exit latency must stay `< 60` seconds; the existing six-hour solver timeout
+remains only a final safety backstop and cannot by itself close this defect.
+
+The repository bootstrap and command boundary were implemented before the
+formal replay. The focused OSS toolchain suite passed 33 tests, including fixed
+thread ordering, the real bootstrap command, TaskManager smoke behavior,
+timeouts, and process-group termination. The locked `ossdbsv2` environment also
+ran the real bootstrap smoke and exited with code zero. The correctly packaged
+dual-frequency discovery suite then passed all 525 tests. The bootstrap source,
+including `NGSOLVE_THREADS` set to one, participates in the producer definition
+digest, while the external command invokes the repository bootstrap through the
+validated environment Python. These results close the static and local-runtime
+gates; only the exact interrupted formal sample replay and its `< 60`-second
+post-terminal exit gate remain open.
+
+Segment 0006 then resumed the same independent OSS lineage and reclaimed the
+stale running equivalence task without rewriting its identity. Process-table
+evidence showed the locked environment Python invoking the repository
+`ossdbs_bootstrap.py` for sample 04 of an earlier replayed row. Its OSS log
+reached `Process Completed`, `success_rh.txt` appeared, `fail_rh.txt` was absent,
+and pathway activation began in the same filesystem timestamp interval. The
+next process-table observation found the bootstrap process absent, bounding
+post-terminal exit latency `< 10` seconds for that structurally equivalent
+sample. A subsequent uninterrupted 180-second window sampled the complete task
+tree every second: peak task-tree RSS was 42,198,908,928 bytes, peak solver RSS
+was 41,467,838,464 bytes, peak downstream pathway utilization was above twelve
+CPU cores, and swap growth stayed `< 1` byte. VAL remained online throughout.
+This closes the bootstrap path and resource gates. The exact interrupted-sample
+gate was then observed directly in the same segment for sample 04 of the
+3320-fiber tail covering canonical fiber IDs 1141982 through 1699401. The
+process table recorded the locked `ossdbsv2` Python invoking the repository
+`ossdbs_bootstrap.py` with that exact sample's parameter JSON. Its OSS log
+reached `Process Completed`; `success_rh.txt` appeared, `fail_rh.txt` was
+removed, the bootstrap disappeared at the next one-second observation, and the
+post-terminal exit latency was one second, therefore `< 60` seconds. Pathway
+activation then completed and published both `Axon_state_default_4.mat` and
+`Pathway_status_default_4.json`. During this exact observation, peak complete
+task-tree RSS was 22,176,432,128 bytes, therefore `< 64 GiB`, and reported used
+swap remained 2358.44 MiB from the first through the final sample with no
+observable growth. These artifacts close the exact interrupted-sample replay
+gate; the independent lineage must still finish every remaining row and pass
+its equivalence, manifest, artifact-index, and reporting audits before OSS is
+accepted as complete.
+
+Completion of that tail atomically published its paired final-axis and
+`Omega_max` rows. The shared cache advanced from 36 to 38 complete row
+manifests and from 18 to 19 equivalence decisions. The new decision has status
+`pass`, maximum probability difference 0, state mismatch count 0, and
+activation-count mismatch count 0. The worker then entered the next group,
+showing that the repaired exact boundary returned control to the persistent
+executor rather than merely leaving valid-looking sample files behind.
+
+**Historical provisional-denominator warning.** The chronological progress
+records immediately below used an early estimate of 120 row manifests, 60
+decisions, 34 reference decisions, and 26 add-on decisions. Production later
+created a 35th reference decision and disproved every one of those denominators
+and derived remaining-work counts. In those paragraphs, only each completed
+numerator, immutable decision identity, numerical comparison, and measured
+resource observation remains evidence. Current acceptance uses only the exact
+ordered `row_decision_ids` closure committed by each terminal group gate.
+
+The following paired comparison also completed without intervention. It
+processed three 3500-fiber chunks and one 3320-fiber tail, each through all ten
+parameter samples, and advanced the shared cache to 40 complete row manifests
+and 20 complete equivalence decisions. The new decision has status `pass`, maximum
+probability difference 0, state mismatch count 0, and activation-count mismatch
+count 0. Peak complete task-tree RSS across the directly monitored chunk
+windows was 39,160,446,976 bytes, therefore `< 64 GiB`; reported used swap
+remained 2358.44 MiB with no observable growth. The worker then entered the
+next comparison under the same lineage and resource contract.
+
+The next comparison completed one 3401-fiber final-axis row and an
+`Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber tail, with
+all ten parameter samples completed in every chunk. Atomic publication advanced
+the shared cache to 42 complete row manifests and 21 complete equivalence decisions.
+The new decision has status `pass`, maximum probability difference 0, state
+mismatch count 0, and activation-count mismatch count 0. Peak complete
+task-tree RSS in the directly monitored windows was 55,246,766,080 bytes,
+therefore `< 64 GiB`; reported used swap fell from 2358.44 MiB to 2155.06 MiB
+instead of growing. The persistent worker then entered the next comparison.
+
+The subsequent comparison completed another 3401-fiber final-axis row and an
+`Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber tail, with
+all ten parameter samples completed in every chunk. Atomic publication advanced
+the shared cache to 44 complete row manifests and 22 complete equivalence decisions.
+Decision `c107dd649571c22f2d54a69fd6c327b0e5ebca0adc73f338510d8214441d59b3`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Peak complete task-tree RSS across the
+directly monitored windows was 33,954,332,672 bytes, therefore `< 64 GiB`;
+reported used swap fell from 2155.06 MiB to 2139.06 MiB instead of growing.
+The persistent worker then continued the remaining independent OSS rows.
+
+The next comparison completed one 3401-fiber final-axis row and an
+`Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber tail, with
+all ten parameter samples completed in every chunk. Atomic publication advanced
+the shared cache to 46 complete row manifests and 23 complete equivalence decisions.
+Decision `c7959b2302255df4381bafbe519d5f9493ebfc76cbfabbad959a2db073b35d82`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Peak complete task-tree RSS across the
+directly monitored windows was 47,340,732,416 bytes, therefore `< 64 GiB`;
+reported used swap remained 2139.06 MiB with no observable growth. The
+persistent worker then continued the remaining independent OSS rows.
+
+The following comparison completed one 3401-fiber final-axis row and an
+`Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber tail, with
+all ten parameter samples completed in every chunk. Atomic publication advanced
+the shared cache to 48 complete row manifests and 24 complete equivalence decisions.
+Decision `a720c3fa3d67f5c9d93ce6ce5f43ef8ce0a25799abe12ab37c85d5e066ebcba3`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Peak complete task-tree RSS across the
+directly monitored windows was 62,838,358,016 bytes, therefore `< 64 GiB`;
+reported used swap fell from 2139.06 MiB to 2123.06 MiB and then remained
+unchanged. The persistent worker then continued the next independent OSS
+comparison.
+
+The next comparison completed one 3401-fiber final-axis row and an
+`Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber tail, with
+all ten parameter samples completed in every chunk. Atomic publication advanced
+the shared cache to 50 complete row manifests and 25 complete equivalence decisions.
+Decision `1c8af8b9cbef090f5cc8fbee126d0fcbc9d436001a1a1d56ebd20e6b2f3e1ecd`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Peak complete task-tree RSS across the
+directly monitored windows was 44,041,093,120 bytes, therefore `< 64 GiB`;
+reported used swap remained 2123.06 MiB with no observable growth. The
+persistent worker then continued the next independent OSS comparison.
+
+The following comparison completed one 3401-fiber final-axis row and an
+`Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber tail, with
+all ten parameter samples completed in every chunk. Atomic publication advanced
+the shared cache to 52 complete row manifests and 26 complete equivalence decisions.
+Decision `f540516225c37b9ac5b40300350b6f776d836e345d5902fafc1ab6d59b266eec`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Peak complete task-tree RSS across the
+directly monitored windows was 45,620,887,552 bytes, therefore `< 64 GiB`;
+reported used swap fell from 2123.06 MiB to 2115.06 MiB instead of growing. The
+persistent worker then continued the next independent OSS comparison.
+
+The next comparison completed one 3401-fiber final-axis row and an
+`Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber tail, with
+all ten parameter samples completed in every chunk. Atomic publication advanced
+the shared cache to 54 complete row manifests and 27 complete equivalence decisions.
+Decision `3a5727f5ff3ae976f251afd0b953681b34bf4bf385e12dd464d5ffaeea16920d`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Peak complete task-tree RSS across the
+continuously monitored comparison was 44,909,838,336 bytes, therefore
+`< 64 GiB`; reported used swap remained 2115.06 MiB with no observable growth.
+The persistent worker then continued the next independent OSS comparison.
+
+The following comparison completed one 3401-fiber final-axis row and an
+`Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber tail, with
+all ten parameter samples completed in every chunk. Atomic publication advanced
+the shared cache to 56 complete row manifests and 28 complete equivalence decisions.
+Decision `d34a5ec2d330373d38ccdb9b7bb674285f34204ba38fa3ce7811d2add554d675`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Peak complete task-tree RSS across the
+continuously monitored comparison was 35,174,645,760 bytes, therefore
+`< 64 GiB`; reported used swap remained 2115.06 MiB with no observable growth.
+The persistent worker then continued the next independent OSS comparison.
+
+The next reference-fiber comparison completed one 3401-fiber final-axis row and an
+`Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber tail, with
+all ten parameter samples completed in every chunk. Atomic publication advanced
+the shared cache to 58 complete row manifests and 29 complete equivalence decisions.
+Decision `79aee2c2c650f9cbd14c66fcc2863fb8501d9793cc8d39be547be3275da5509d`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Peak complete task-tree RSS across the
+continuously monitored comparison was 46,838,235,136 bytes, therefore
+`< 64 GiB`; reported used swap fell from 2115.06 MiB to 2099.06 MiB instead of
+growing. The lineage still required terminal group closure, successful
+dependency re-evaluation, all downstream pPAM
+tasks, completed manifest and publication, artifact-index and reporting audits
+before the independent OSS extension is accepted as complete.
+
+The following reference-fiber comparison completed one 3401-fiber final-axis
+row and an `Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber
+tail, with all ten parameter samples completed in every chunk. Atomic
+publication advanced the shared cache to 60 complete row manifests and 30
+complete equivalence decisions. Decision
+`021b003c94d21399dac014a6fe10d91e7b433bac95adf20807fd899c96a8b9ba`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Peak complete task-tree RSS across the
+continuously monitored comparison was 43,884,167,168 bytes, therefore
+`< 64 GiB`; reported used swap fell from 2099.06 MiB to 2091.06 MiB instead of
+growing. The group gate remained nonterminal.
+
+The next reference-fiber comparison completed one 3401-fiber final-axis row
+and the `Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber
+tail, with all ten parameter samples completed in every chunk. Atomic
+publication advanced the shared cache to 62 complete row manifests and 31
+complete equivalence decisions. Decision
+`162257a4eba6e8f158a3ff99fbb7e6b2d54b8bf6ef6c986c3fa1901be0b1a48c`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. The continuously sampled final 728
+seconds of this comparison reached a complete task-tree RSS peak of
+49,164,075,008 bytes, therefore `< 64 GiB`; reported used swap fell from
+2075.06 MiB to 2059.06 MiB instead of growing. The group gate remained
+nonterminal.
+
+The following reference-fiber comparison completed one 3401-fiber final-axis
+row and the `Omega_max` row split into two 3500-fiber chunks plus one 3320-fiber
+tail, with all ten parameter samples completed in every chunk. Atomic
+publication advanced the shared cache to 64 complete row manifests and 32
+complete equivalence decisions. Decision
+`c912d46a2bbadb043882506a4d1e709a25dcaee6b0c92fe99a609617130d7758`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Its final row identity is
+`339097730c3db93cd469afc2852fe6d2098bef2b0268e9ee8bc5fb6e3205cade`
+and its `Omega_max` row identity is
+`48744f2726fcf8ce41528e89f57acd9778a84d59470538535dc33b5a389d65c9`.
+Continuous one-second sampling across 4174 seconds reached a complete task-tree
+RSS peak of 61,318,348,800 bytes, therefore `< 64 GiB`; reported used swap fell
+from 2059.06 MiB to 2011.06 MiB instead of growing. The group gate remained
+nonterminal, and the persistent worker entered the next comparison without
+intervention.
+
+The next reference-fiber comparison then advanced the shared cache to 66
+complete row manifests and 33 complete equivalence decisions. Decision
+`77de1bcd93c82ebc679d47cbd26afe79a6a9ac77957668813c5afee7f543926f`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Its final row identity is
+`8bee1a8e2b1563c2ba760a2b8d53187a561283fff149a94275becb7bdf984b36`
+and its `Omega_max` row identity is
+`3bd87dc185ade797102f7a458219ce30ffea8a8cb925598157d99e1a40520f2f`.
+Continuous one-second sampling across this 178-second completion window
+reached a complete task-tree RSS peak of 13,449,019,392 bytes, therefore
+`< 64 GiB`; reported used swap remained at 2011.06 MiB. The group gate remained
+nonterminal, and the persistent worker continued without intervention.
+
+The final reference-fiber comparison then completed its one 3401-fiber final
+row and all three `Omega_max` chunks for the 10,320-fiber axis. Atomic
+publication advanced the shared cache to 68 row manifests and 34
+equivalence decisions. At that checkpoint all published decisions belonged to
+the reference group, but the running gate had not yet committed its terminal
+group record; this checkpoint therefore did not prove reference-group closure.
+Decision
+`a7c56f99d0230737c64e1c2e006f253c04ac178ff03ae2cc971bb426119c2978`
+has status `pass`, maximum probability difference 0, state mismatch count 0,
+and activation-count mismatch count 0. Its final row identity is
+`659f876096e3caeab60db5af1ca180a9a30326db1104ba3cc6546dc0dad84d6d`
+and its `Omega_max` row identity is
+`505d2983ef38fe0fd2d39baa882abb77dc8bbc709437d714d478fe0aeea2a363`.
+Continuous one-second sampling across 3271 seconds reached a complete
+task-tree RSS peak of 41,371,369,472 bytes, therefore `< 64 GiB`; reported used
+swap fell from 1995.06 MiB to 1963.06 MiB. All 34 decisions belonged to
+`oss_axis_group_078d3c2f2b8ac612a268` and passed. Later resume evidence below
+showed that treating this nonterminal count as the complete reference closure
+was incorrect.
+
+At 2026-07-21 19:55 PDT, `/Volumes/VAL` became unmounted while the first
+add-on decision was producing its `Omega_max` row. The one-second guard stopped
+runner PID 1050 immediately and the worker tree exited; no automatic remount or
+resume was attempted. The active window had reached a complete task-tree RSS
+peak of 45,861,519,360 bytes, therefore `< 64 GiB`. The last guard sample also
+reported used swap at 12,032 MiB after a 1963.06 MiB window baseline, so the
+interrupted segment cannot satisfy the zero-swap-growth acceptance contract.
+The external device remained enumerated as `/dev/disk4s2` but was not mounted.
+All 68 complete row manifests, 34 complete decisions, checkpoints, and partial
+runtime work remain the resume boundary. Resume requires explicit remount and
+writability verification; the interrupted add-on decision must restart from
+its last complete immutable row or decision and must not treat temporary
+producer state as complete.
+
+The user explicitly authorized resume after macOS remounted the volume. The
+pre-resume audit verified a real create, flush, read-size, and cleanup probe on
+`/Volumes/VAL`; 68 complete row manifests and 34 complete decisions; no active
+Task 17 process; and a Samsung T7 `UsbLinkSpeed` of 10,000,000,000 bits per
+second. System memory had more than 4,900,000 free 16 KiB pages. Existing used
+swap was 8278.00 MiB, but a 20-second admission window showed no growth.
+Authorized resume created `segment_0007` in the same lineage with runner PID
+36802 and persistent worker PID 37038. Its one-second guard began at the lower
+8270.00 MiB used-swap reading and must stop on any subsequent increase, while
+the complete task-tree RSS remains `< 64 GiB`. The worker restarted the next
+unpublished physical row from its immutable input boundary; the lineage still
+contained 68 complete rows and 34 complete decisions and no replacement run
+was created.
+
+Segment 0007 then atomically published two additional row manifests and
+decision `bc89a4bc83751b07c5df5880c4a32846c141b0fd5122cc9db7414310e03650e7`,
+advancing the durable boundary to 70 row manifests and 35 decisions. The
+decision belongs to reference group
+`oss_axis_group_078d3c2f2b8ac612a268`; its final row identity is
+`615145f0786fb28801b6ef50a135ed821742bb31869da8857520c0be4befed9a`
+on 3401 fibers and its `Omega_max` row identity is
+`b552be2ea9b02b2dffae7accdc8b864b83372b0ed027d915c1242f2b8ccfd6a3`
+on 10,320 fibers. Status is `pass`; maximum probability difference, state
+mismatch count, and activation-count mismatch count are all 0. Continuous
+one-second sampling across 3919 seconds reached a complete task-tree RSS peak
+of 46,496,251,904 bytes, therefore `< 64 GiB`; used swap fell from 8270 MiB to
+7710 MiB. This proves that the former 34-reference-row estimate was not the
+terminal closure. The gate continues, and its committed group record remains
+the authority for the final count.
+
+At the 2026-07-22 07:28 PDT follow-up, `/Volumes/VAL` was no longer mounted and
+`diskutil list external physical` returned no external physical device. Runner
+PID 36802, persistent worker PID 37038, and all OSS child processes had exited,
+so no Task 17 writer remained active. The last boundary verified while the
+volume was online remains 70 row manifests and 35 decisions; the offline state
+cannot establish whether any later atomic boundary reached the device before
+disconnect. No automatic remount or resume is permitted. The same lineage,
+checkpoint, cache, and `runtime_work` must be inspected after reconnection and
+may resume only after renewed mount, link, write, process, and stable-swap
+admission checks plus explicit user authorization.
+
+The user then explicitly authorized another resume. A renewed write probe and
+10,000,000,000-bit-per-second USB link check passed, no old writer remained,
+and `segment_0008` started in the same lineage with 14 workers and one solver
+token. Its used-swap baseline was 6791.88 MiB. The reference gate recomputed
+one unpublished final-axis and `Omega_max` pair through all ten parameter
+samples for each row while the observed task-tree RSS remained `< 64 GiB` and
+used swap fell below the segment baseline. Before either row could publish,
+the row-level toolchain identity check launched MATLAB in batch mode. The
+MATLAB process stopped making progress, reached the existing 180-second
+timeout, and became a zombie while MathWorks ServiceHost members remained in
+the same external process group. The timeout cleanup then raised
+`cannot signal the live external OSS process group`, so the reference gate
+became terminal failed without publishing either row. The persistent worker
+reclaimed the historical add-on gate and immediately entered the same MATLAB
+identity probe. Continuing would repeat the technical failure rather than
+advance the scientific closure, so the runner, worker, MATLAB process group,
+and resource tracker were terminated safely. VAL remained mounted; the 70
+row manifests, 35 decisions, cache, checkpoints, and both diagnostic workspaces
+were retained.
+
+This incident freezes an additional acceptance boundary before the next
+resume. Toolchain identity must be resolved once per persistent producer
+process or from one separately validated immutable process-local record, not
+rerun after every expensive row. MATLAB version, release, update, and computer
+identity must be read from the installed `VersionInfo.xml` plus the resolved
+architecture directory and matched to the locked YAML values; identity
+validation must not launch a second MATLAB batch process. A timed-out probe
+must terminate and reap its
+owned batch process without treating GUI ServiceHost helpers or zombies as a
+live scientific solver. Focused tests must cover a normal identity probe, a
+probe timeout with a zombie leader, surviving unrelated helper processes, no
+orphaned owned process, stable cached identity reuse across two rows, and zero
+solver calls when identity validation fails. A real read-only identity probe
+must pass before the same OSS lineage resumes. No row or decision from
+`segment_0008` may be counted as complete.
+
+The frozen repair was implemented and accepted locally before another formal
+resume. `SubprocessOSSRowExecutor` now validates the complete toolchain once,
+commits the verified command set only after all checks pass, and reuses that
+process-local record before and after later rows. MATLAB identity is parsed
+from the installed `VersionInfo.xml` and architecture directory, so no identity
+batch process or ServiceHost tree is created. Timeout cleanup now reaps an
+exited managed leader when the initial group signal is denied, while leaving
+an unrelated helper outside the scientific boundary untouched. The focused
+OSS toolchain suite passed 37 tests plus eight subtests. A real installation
+probe matched the locked OSS environment in 0.761 seconds; immediate reuse
+took about three microseconds, and the count of MATLAB identity processes
+remained zero before and after both calls. The complete dual-frequency suite
+then passed 545 tests plus 310 subtests. These checks accept the local repair;
+the same lineage must still resume, reproduce the unpublished pair, and reach
+terminal gate closure before formal OSS acceptance.
+
+The next authorized resume created `segment_0009`, but it did not accept the
+formal OSS gate. Static toolchain identity validation completed without
+launching MATLAB, confirming that the identity-probe repair remained active.
+The retained reference and add-on gate attempts then each invoked the real
+`mh_oss_prepare_canonical_row` MATLAB producer and returned code 1 before an
+OSS solver call or any new atomic row publication. Both MATLAB preflight logs
+were empty. The segment ended normally with 196 completed tasks, two failed
+`establish_oss_axis_equivalence` tasks, and 392 dependency-skipped tasks; the
+durable scientific boundary remained 70 row manifests and 35 equivalence
+decisions. No Task 17 runner or worker remains active, and automatic resume is
+forbidden at this boundary.
+
+Read-only MATLAB diagnosis after `segment_0009` found that even a bounded
+simple batch startup could not reach command execution. MathWorks ServiceHost
+client logs for the failed startup window report an invalid identity token,
+authentication error 428, `Email to be reverified`, and failed identity-token
+validation. This is an external MATLAB account or licensing readiness failure,
+not evidence of an OSS scientific-computation defect. The user's long-lived
+MATLAB GUI and its process group must not be terminated automatically. Before
+formal resume, the account email must be reverified and MATLAB must be signed
+in again by the user if requested. Acceptance then requires one bounded simple
+batch command and one retained-request `mh_oss_prepare_canonical_row` dry run
+to succeed with no publication mutation. A fresh explicit resume authorization
+is required after those checks; otherwise the cache, checkpoint, and
+`runtime_work` remain preserved with `cleanup_on_success` false.
+
+The user then instructed the goal to continue. A fresh bounded MATLAB batch
+returned `TASK17_BATCH_READY` with code 0. A publication-isolated copy of the
+retained reference request was replayed below `/private/tmp`; MATLAB completed
+`mh_oss_prepare_canonical_row` in 11.846 seconds, wrote the required manifest,
+and produced all ten declared parameter files without invoking the OSS solver
+or modifying the formal lineage. VAL passed a create, flush, read, and cleanup
+probe; the Samsung T7 reported a 10,000,000,000-bit-per-second link; used swap
+remained unchanged at 6575.88 MiB over 20 seconds; and no prior Task 17 writer
+was active. These checks satisfy the frozen restart boundary.
+
+The same independent OSS lineage resumed as `segment_0010` with 14 workers,
+one solver token, and `--allow-expensive-producers`. Runner PID 15265 and
+persistent worker PID 15357 entered the retained reference equivalence gate.
+The formal MATLAB preparation succeeded and the first real OSS sample began;
+the segment must still satisfy complete task-tree RSS `< 64 GiB`, swap growth
+`< 1 byte`, terminal gate closure, and the full 590-task outcome contract
+before independent OSS can be accepted.
+
+A current resolved-configuration audit confirms that this lineage records 14
+workers, expensive-producer authorization for the independent OSS miss, and
+`delete_run_cache_on_success` false. The checked-in workflow keeps its generic
+default at three workers and expensive producers disabled; the later combined
+lineage must therefore pass only the 14-worker resource override and must omit
+the expensive-producer flag. The same audit found historical `segment_0008`
+still carrying its pre-termination `running` field because the external stop
+prevented its `finally` completion write. No process from that segment remains,
+later segments exist in the same append-only lineage, and no scientific row
+from that attempt is accepted. Final audit must classify it as interrupted
+historical provenance, not as the active writer or a terminal acceptance
+segment; `segment_0010` is the sole current execution segment.
+
+A 2026-07-22 operational audit later found that `segment_0010` retained only
+intermittent process-tree snapshots and no surviving one-second resource guard.
+Those snapshots are useful diagnostics but cannot establish the segment-wide
+RSS maximum or the swap invariant. A replacement guard therefore samples the
+exact runner descendant tree once per second, records its maximum RSS and the
+segment guard swap baseline outside VAL, and sends `SIGTERM` to the runner if
+VAL disappears, task-tree RSS reaches 64 GiB, or reported used swap rises above
+that baseline. Starting this observer does not restart the lineage, change any
+scientific or execution identity, or authorize an expensive producer.
+The persistent replacement guard started as PID 31147 with its audit stream at
+`/private/tmp/task17-oss-segment_0010-resource-guard.csv`. Its swap baseline is
+6844978299 bytes. Through the first surviving samples its task-tree RSS peak was
+18602819584 bytes, reported swap did not rise, VAL stayed mounted, and no stop
+condition fired.
+The first continuity audit covered 2184 persistent-guard samples over about 38
+minutes with a maximum adjacent-sample gap of 1.219103 seconds. Every event was
+an ordinary sample, observed swap minimum and maximum both matched the
+6844978299-byte baseline, and the captured task-tree RSS peak had risen safely
+to 48970170368 bytes, still `< 64 GiB`.
+
+The user subsequently required every operational monitor to use a two-hour
+interval. This supersedes the one-second stop guard and the temporary ten-second
+interactive poll for the remainder of the execution. Before termination, the
+guard had accumulated more than 3200 continuous samples, retained the same
+48970170368-byte RSS peak, observed swap growth `< 1` byte, and fired no stop
+event. Later checks sample VAL availability, process state, RSS, CPU, and swap
+once every two hours. This lower-frequency policy can detect an unmount or a
+transient resource excursion up to two hours late and cannot establish a
+continuous peak between snapshots; that limitation must remain explicit in
+final resource acceptance.
+
+The user then distinguished local observation from Codex activity. A local
+one-second Python guard consumes no model token and is reauthorized; ten-second
+Codex polling remains disabled because tool-driven interactive polling consumes
+tokens. The two-hour Codex heartbeat remains the only model-driven progress
+check and user-facing reporting interval. The restarted local guard uses the
+same runner tree, VAL-unmount stop rule, RSS `< 64 GiB` boundary, fresh swap
+baseline, and append-only CSV. It changes no scientific, cache, task, or resume
+identity.
+A detached restart briefly wrote two ordinary samples but did not survive the
+tool session. It fired no stop event and did not affect the runner. The guard
+was therefore relaunched as persistent local execution session 98901 with PID
+95498. Its first persisted samples use a fresh swap baseline of 6794646651
+bytes and retain ordinary `sample` status. Earlier guard epochs remain in the
+same CSV with their own baselines and peaks; final audit must group rows by
+restart epoch rather than compare swap values across baselines.
+
+The first atomic scientific boundary published by `segment_0010` increased the
+shared cache from 70 to 72 OSS row manifests and from 35 to 36 equivalence
+decisions. Decision
+`708a2add852860f390cb6e5a581dbfbfe2af15d6b3b7258a20da37547568c550`
+belongs to reference group `oss_axis_group_078d3c2f2b8ac612a268` and passed
+with maximum probability difference 0, state mismatch count 0, and activation
+count mismatch count 0. The runner then started the next retained row pair, so
+36 decisions are a durable progress boundary rather than terminal reference
+gate closure. At this boundary VAL remained writable, used swap was below the
+segment baseline, and the observed process tree remained within the frozen
+resource limits.
+
+The next atomic boundary increased the cache to 74 OSS row manifests and 37
+equivalence decisions. Decision
+`bb1a194270afce27209b47b9e7fb0aa194d7cbdc2e48ff4788182f129d968013`
+belongs to the same reference group and passed with maximum probability
+difference 0, state mismatch count 0, and activation count mismatch count 0.
+Its final and Omega row identities are
+`6243614a27b94af71e53cc0135db3c23f0f7bf80920927908da3dbce09066a38`
+and `73b76a4e99733607db184a32030e280001a5a820a7801e4729e68e853f4a3a16`.
+The runner immediately entered the next missing physical pair; therefore 37
+decisions remain a durable progress boundary, not reference gate closure.
+Used swap remained below the segment baseline.
+
+The retained 590-task DAG gives an exact downstream acceptance census. The
+196 immutable parent tasks comprise 28 reference input, preparation, and final
+triplets plus 28 add-on input, preparation, delta-reference, and final
+quartets. The two equivalence gates control the remaining 392 tasks: 56
+observed pPAM workspaces, 56 deterministic permutation schedules, 224
+permutation blocks with four blocks per endpoint, and 56 terminal activation
+aggregates. After both gates complete, resume must replace every one of these
+392 historical dependency-skips with terminal execution outcomes. Independent
+OSS acceptance therefore checks these service-level counts in addition to the
+590-task total; a completed manifest with any retained dependency-skip is not
+acceptable.
+
+A fresh task-store census during `segment_0010` on 2026-07-22 reconfirmed this
+exact blocked baseline. All 392 skipped tasks belong to the four downstream
+services and no other service is skipped: 56 observed workspaces, 56 schedules,
+224 fixed permutation blocks, and 56 aggregates. Exactly 28 observed
+workspaces cite the reference gate as their direct failed dependency and 28
+cite the add-on gate; every later skip cites its endpoint-local workspace,
+schedule, blocks, or aggregate dependency chain. This gives resume an exact
+before-state. Terminal independent-OSS acceptance must re-evaluate all 392 and
+must find no retained historical dependency-failure skip.
+
+A concurrent canonical-publication audit at this checkpoint confirmed that the
+support-preserving jitter execution is terminal `completed` in both the
+direct-voxel and normative-fiber extension-v1 mirrors, with 56 endpoint rows in
+each domain. A deeper artifact-index audit showed that these v1 mirrors are not
+yet canonical scientific publications: their artifact rows retain
+`file://.../.runs/.../work/...` URIs and their endpoint documents carry artifact
+IDs rather than publication-local payload paths. They therefore fail the
+public-only postprocess boundary and cannot count as completed canonical jitter
+publication. The final-in-sample v2 replay publisher is self-contained, but its
+current implementation is specialized to final-in-sample artifacts.
+
+Task 17 must generalize the replay publisher to completed jitter, OSS, and
+combined lineages after formal execution. The v2 publication must copy or
+transactionally replay every declared scientific payload below the extension
+root, write publication-relative artifact-index rows with verified byte counts
+and SHA-256 values, bind the completed child and immutable parent manifests,
+reject every `.runs`, `tasks`, `work`, or `runtime_work` URI as a public input,
+and commit the completed extension manifest last. Repeating an identical replay
+must be idempotent. The independent OSS extension is also not yet a usable
+publication: no direct-voxel OSS extension exists, while the normative-fiber
+OSS v1 mirror retains the historical `failed` status and a header-only artifact
+index from the interrupted lineage. Resume must publish neither domain until
+both axis-equivalence groups, all downstream pPAM tasks, reporting, and the run
+manifest reach an unqualified completed state.
+
+A compact payload-level audit on 2026-07-21 checked all 112 completed jitter
+endpoint tasks before implementing that generalized replay. The four service
+families each contributed 28 artifacts, and the complete 221.65-MiB payload set
+had no missing file or SHA-256 mismatch. Every artifact retained all 1000
+ordered replicate records. Its `completed_replicates` value matched the number
+of replicate rows carrying technical status `complete`; non-computable rows
+remained explicit records with their reason and support status rather than
+being dropped. All 56 reference endpoints retained 1000 complete replicates.
+The six adjusted add-on voxel endpoints each retained 119 complete and 881
+non-computable replicates, while the four adjusted add-on fiber endpoints each
+retained 867 complete and 133 non-computable replicates. The other 46 add-on
+endpoints retained 1000 complete replicates.
+
+A no-payload-reread combined preflight on 2026-07-22 validated all 240
+completed physical-block task references from jitter v8. They resolve to 240
+unique `jitter_exposures` semantic identities, split into six physical groups
+with forty fixed blocks each. Every small reference document matched its
+recorded SHA-256 value; every cache manifest was completed, matched its
+semantic directory, and had exact declared non-AppleDouble file closure and
+byte counts. The large payload SHA values were deliberately not reread while
+independent OSS was active. The new combined process must perform the normal
+first-use full cache verification before reuse, which supplies the authoritative
+payload-SHA acceptance without competing I/O in this preflight.
+
+The same audit resolved every jitter `target_id` against the 112 canonical
+published `final_model.json` documents and found no target, service family,
+selected tau, Coverage, model-role, or realized-branch mismatch. This v8
+realization contains 28 reference and 28 add-on endpoints in each modality,
+with 22 no-delta and six adjusted add-on voxel branches plus 24 no-delta and
+four adjusted add-on fiber branches. The final-model documents happen to
+resolve every voxel endpoint to tau 200 and Coverage 5 and every fiber endpoint
+to tau 400 and Coverage 5. These values are replayed from each final-model
+identity and must never become publisher defaults or modality-wide hard-coded
+assumptions. This audit establishes that the retained jitter payloads are
+complete inputs for a self-contained v2 replay; it does not turn the current v1
+mirrors into canonical publications.
+
+The generalized extension-v2 replay uses the following stable public layout.
+It projects only terminal endpoint-level scientific records. Jitter block
+payloads, pPAM schedules, pPAM block nulls, operator scratch, leases, and other
+execution-only intermediates remain in the run or shared cache and are never
+public inputs.
+
+```text
+<model-set-root>/extensions/<extension-id>/
+  <scale-id>/<reference-or-addon>/sensitivity/
+    spatial_jitter/
+      spatial_jitter_metrics.json
+      result.json
+      status.json
+    oss_ppam/
+      <artifact-kind>.<source-extension>
+      <artifact-kind>.<source-extension>.metadata.json
+      result.json
+      status.json
+  spatial_jitter_results.json
+  spatial_jitter_results.csv
+  oss_ppam_results.json
+  oss_ppam_results.csv
+  artifact_index.csv
+  extension_manifest.json
+```
+
+Each endpoint `result.json` lists publication-relative payload paths, SHA-256,
+byte count, schema, axis, units, space, final-model identity, actual selected
+tau and Coverage, realized branch, source child run, and immutable parent run.
+The published payload name is derived from the validated artifact kind and the
+source file extension; no task ID, attempt ID, source basename, or run-store URI
+enters the public name. The root JSON and CSV files contain one compact row per
+terminal endpoint and analysis. They do not duplicate replicate vectors or
+arrays.
+
+Spatial jitter publishes the one terminal `SensitivityResult` payload for each
+of all 112 endpoints. OSS publishes the transitive public payload closure of
+each terminal `ActivationArtifact`: activation probability, binary exposure,
+public observed arrays, support and comparison documents, final permutation
+null and summary, and terminal OSS status. Internal workspace and block records
+are excluded. Independent OSS is normative-fiber-only and therefore creates no
+empty direct-voxel extension. A combined child publishes spatial jitter in both
+domains and OSS only in the normative-fiber domain. The manifest records the
+analyses and result count actually present in each domain.
+
+An unfiltered replay may commit terminal status `completed` only after every
+expected endpoint for every requested analysis is present, copied, indexed,
+and verified. A scale-filtered smoke replay records a partial publication scope
+and cannot be accepted by public-only postprocess. The writer installs payloads
+and metadata first, root aggregates next, `artifact_index.csv` after all rows,
+and `extension_manifest.json` last. Repeating the same replay verifies and
+reuses identical bytes. Any collision, missing result, failed task, digest
+mismatch, parent mismatch, unsupported record type, or path escape leaves the
+fragment nonterminal and preserves the source run and caches.
+
+Implementation acceptance for this replay requires focused fixtures for a
+complete jitter endpoint, a complete OSS `ActivationArtifact`, an OSS technical
+failure, a combined child, and a final-in-sample regression. The tests must
+prove deterministic public names, complete artifact closure, domain-specific
+analysis presence, exact parent/final-model binding, partial-scope rejection by
+postprocess, idempotent same-byte resume, immutable-collision rejection,
+missing-payload rejection, failed-task rejection, digest rejection, and absence
+of every run-store path in payload metadata, endpoint documents, indexes, and
+manifests. A real replay of the completed v8 jitter child must then publish 56
+direct-voxel and 56 normative-fiber results, verify all 112 endpoint payloads
+and their 1000 retained replicate rows, and reproduce the branch and
+complete-versus-non-computable counts recorded above without rerunning a
+physical block or endpoint statistic.
+
+Local implementation evidence on 2026-07-22 adds the generalized terminal
+extension replay to `CanonicalPublisher.publish_extension`. A child without a
+final-in-sample aggregate now dispatches to a v2 jitter/OSS replay that requires
+a completed run and aggregate, exact parent identity, completed terminal tasks,
+matching endpoint/final-model identities, and valid source digests. Jitter
+copies the terminal `SensitivityResult` closure. OSS copies activation
+probability, binary exposure, and the complete `ActivationArtifact` closure and
+rejects a technical-failure status. Public filenames derive only from validated
+artifact kinds and source extensions. Endpoint documents, root aggregates,
+relative artifact indexes, and domain-specific manifests contain no source
+URI; an independent OSS child creates no empty direct-voxel extension. A
+selected-scale replay commits `completed_partial`, while only an unfiltered
+replay may commit `completed`.
+
+Synthetic fixtures now cover self-contained jitter replay, same-byte
+idempotence, domain-specific combined replay, normative-fiber-only OSS,
+technical-failure rejection, and absence of run-store paths. The complete
+dual-frequency suite passed 541 tests plus 310 subtests. A read-only real-data
+smoke used the completed v8 jitter child and a temporary parent publication
+under `/private/tmp/task17-extension-v2-smoke2.QDHdBq`. It published both
+reference and add-on PDQ-39 endpoints in each modality, four terminal results
+in total, with every payload retaining 1000 replicate rows. Repeating the
+identical replay reused every byte. The direct-voxel and normative-fiber
+manifests both correctly recorded `completed_partial`; scans found no
+`file://`, `.runs`, `tasks`, `work`, or `runtime_work` path in any public JSON
+or CSV. This proves the isolated replay path but does not replace the required
+unfiltered 112-endpoint canonical jitter publication or later OSS/combined
+production publications.
+
+The required unfiltered read-only replay was then completed under
+`/private/tmp/task17-jitter-v8-full-v2.Fo5fqs`. It published 56 direct-voxel
+and 56 normative-fiber terminal endpoints. Each domain contains 170 indexed
+artifacts, and every indexed path, byte count, and SHA-256 digest passed
+verification. All 112 metrics payloads retain exactly 1000 replicate rows.
+The direct-voxel closure contains 28 complete reference endpoints, 22 complete
+no-delta add-on endpoints, and six adjusted add-on endpoints with 119 complete
+and 881 non-computable replicates each. The normative-fiber closure contains
+28 complete reference endpoints, 24 complete no-delta add-on endpoints, and
+four adjusted add-on endpoints with 867 complete and 133 non-computable
+replicates each. Both manifests record `completed` with complete publication
+scope. A recursive public JSON and CSV scan found no run-store or runtime-work
+path. This accepts the implementation and real-data replay boundary; the
+temporary replay is not the formal canonical publication, which remains
+blocked on completion of the independent OSS and combined lineages.
+
+The focused publication suite was rerun on 2026-07-22 and passed all 15 tests.
+This current regression evidence preserves the generalized v2 replay contract
+while the independent OSS lineage remains active; it is not evidence that the
+pending canonical OSS or combined publications already exist.
+
+A later joint replay on the same date passed 22 publication and formal
+postprocess component tests. It reconfirmed self-contained and idempotent
+terminal extension replay, domain-specific combined analysis presence,
+normative-fiber-only OSS publication, technical-failure rejection, component
+resume, immutable requests, and terminal output closure. The replay used only
+temporary local fixtures and did not read, mutate, or substitute for the active
+formal OSS lineage.
+
+The canonical replay target IDs are frozen before the live lineages finish.
+The completed jitter child publishes as
+`task17-jitter-v8-support-preserving-formal-20260719-v2` in both domain model
+sets. The independent OSS child publishes as
+`task17-oss-v1-inclusive-formal-20260719-v2` only in the normative-fiber model
+set. The combined child publishes as
+`task17-combined-v1-inclusive-formal-20260719-v2` in both model sets, with
+jitter in both domains and OSS only in normative fiber. These names follow the
+terminal-sensitivity publisher default of appending `-v2` to the source child
+run ID. Existing same-run directories without `-v2` are automatic v1 mirrors;
+the current OSS mirror is terminal `failed`. The jitter v2 target is now a
+self-contained canonical publication. The OSS and combined v2 targets remain
+pending, may not be replaced by their automatic v1 mirrors, and must not
+satisfy the canonical extension or public-only postprocess gate.
+
+Run each unfiltered canonical replay only after its own source lineage is
+terminal and independently validated, using the locked repository environment:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_dual_frequency_models.py publish-extension \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-jitter-v8-support-preserving-formal-20260719
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_dual_frequency_models.py publish-extension \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_dual_frequency_models.py publish-extension \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-combined-v1-inclusive-formal-20260719
+```
+
+Do not pass `--scale`, `--extension-id`, or `--output-root` for these formal
+replays. Omitting `--scale` requires complete plan closure; omitting
+`--extension-id` selects the frozen child ID with the `-v2` suffix; omitting
+`--output-root` binds the completed parent model-set roots from the resolved
+configuration. Each command must be repeated once after its first successful
+publication to prove same-byte idempotent resume, followed by a complete
+manifest, artifact-index, payload SHA-256, parent-binding, and forbidden-path
+audit before postprocess may consume the extension.
+
+The completed jitter lineage was replayed on 2026-07-22 with the first command
+above. It created
+`direct_voxel/dual_frequency_four_model_v1/extensions/`
+`task17-jitter-v8-support-preserving-formal-20260719-v2` and the matching
+`normative_fiber` extension. Each domain manifest is terminal `completed`,
+binds parent run `task17-main-v8-tau-grid-formal-20260717`, records complete
+publication scope, and contains 56 results. Each artifact index contains 170
+relative rows with no absolute path, parent traversal, or `.runs` reference.
+The identical replay returned the same 56 plus 56 result closure while both
+manifest modification times and byte sizes remained unchanged. This accepts
+the self-contained and idempotent canonical jitter-v2 publication. A separate
+digest audit recomputed the source child `run_manifest.json` SHA-256 and the
+domain-specific parent `model_manifest.json` SHA-256; all four comparisons
+matched the identities recorded by the two extension manifests. Independent
+OSS execution, OSS-v2 publication, combined execution, and combined-v2
+publication remain open.
+
+A read-only threshold audit during the same running segment confirmed that the
+formal resolved YAML contains the requested voxel tau grid of 150, 180, 200,
+220, 250, and 300 with pre-specified tau 200, and the requested fiber tau grid
+of 200, 350, 400, 450, 600, and 800 with pre-specified tau 400. Both use the
+configured Coverage grid beginning at 5, every normative connectome records a
+fold candidate minimum of 1, and the runtime uses inclusive tau, Coverage, and
+reference-overlap predicates. The active pPAM runtime remains correct:
+`binary_activation` applies strict `p(A) > 0.5`, so probability exactly 0.5 is
+inactive. One source-YAML comment and two add-on overlap test expectations still
+describe the superseded inclusive pPAM boundary. They do not enter the resolved
+scientific payload or the running calculation, but they must be corrected and
+the complete test gate rerun after formal execution, before final acceptance.
+
+The stale source comments and fixtures were corrected on 2026-07-22 without
+changing runtime scientific code. Both production and test normative-fiber
+YAML now state the strict `I[p(A) > 0.5]` rule, both add-on overlap fixtures use
+the strict boundary, and the synthetic activation helper follows the same
+contract. The three direct semantic tests for the exact half-threshold and the
+two overlap paths passed. A later full-suite audit showed that synthetic
+orchestration tests were inheriting live host availability while the formal
+solver held memory. Those pure in-memory fixtures now freeze a 128-GiB test
+memory state, while dedicated ledger tests retain the production 48-GiB charge,
+64-GiB ceiling, and reserve predicates. The complete 545-item dual-frequency
+suite then passed while formal OSS remained active; no production admission
+rule was relaxed.
+
+A later all-path threshold scan found one residual diagnostic mismatch in the
+cheap plain-fiber control: candidate construction already included tau, but
+its per-subject touched count excluded values exactly at tau. The implementation
+now excludes only values below tau, matching the main model, bootstrap, jitter,
+DeltaReferenceScore support, and Coverage contracts. The direct-voxel and
+normative-fiber support-QC documentation was corrected to the same inclusive
+boundary. Four focused fiber-control boundary tests passed, including an exact
+tau fixture. This diagnostic fix does not alter the active independent OSS
+calculation or any parent final-model identity.
+
+The consolidated inclusive-boundary gate then passed eight exact fixtures
+across direct voxel, normative fiber, formal permutation, continuous-dose
+support, plain touched counts, add-on reference overlap, and both
+DeltaReferenceScore support paths. Coverage and overlap scans found no
+remaining strict comparison against their configured minimum. This acceptance
+uses boundary-valued synthetic inputs rather than inferring semantics from a
+production result that may contain no exact-threshold value.
+
+The current-worktree boundary replay was broadened on 2026-07-22 and passed 11
+tests plus three subtests. It directly covers direct-voxel and normative-fiber
+tau and Coverage equality, add-on reference-overlap equality, the exact
+inclusive minimum-grid `Omega_max` union, both DeltaReferenceScore support
+directions, continuous-dose support, strict adequate-support cutoffs, and
+strict pPAM activation at `p(A) > 0.5`. This confirms that equality is included
+only for the three configured exposure/coverage/overlap minima and remains
+excluded for support-QC and pPAM rules. No production YAML or running
+scientific identity changed during this replay.
+
+Formal OSS progress evidence on 2026-07-22 reached 76 immutable row entries
+and 38 equivalence decisions in the reference group. Decision
+`4afb7c51694354cff528d04e8835ba1061d7d7551476f45ad7e0700ad6d87589`
+passed with zero maximum probability difference, zero state mismatch, and zero
+activation-count mismatch. Its final-axis row contains 3401 canonical fibers
+and its `Omega_max` row contains 10320 canonical fibers. Both referenced row
+manifests contain exactly `fiber_ids.npy`, `probabilities.npy`, and
+`row_metadata.json`; all six files matched their declared byte counts and
+SHA-256 values. This is an intermediate durable boundary rather than terminal
+gate acceptance. The reference gate remains active, the add-on gate and all
+dependency-skipped downstream pPAM tasks remain open, and no fixed expected
+decision count may replace the gate's final `row_decision_ids` closure.
+
+The next atomic boundary raised the cache to 78 row entries and 39 decisions.
+Decision
+`647399afb5cde4c9d84ff8ce73bd7df0e40fbffbed0baaf9f2de385f01f69dd5`
+also belongs to the reference group and passed with zero maximum probability
+difference, zero state mismatch, and zero activation-count mismatch. Its final
+and `Omega_max` row identities are
+`8ed8e424cd624431e80bc79982b041bf64d96e92d21a8a2f9c69a37d7657fbc3`
+and `a591aad308040f4f4d8b89e8cf3ef94a94e84808f12996bdc68a21b0f5a3b06c`.
+Each manifest contains the same exact three-file closure, and all six payloads
+matched their declared SHA-256 values and byte counts. The worker then entered
+the next physical row, so this remains intermediate rather than terminal gate
+evidence.
+
+The following atomic boundary raised the cache to 80 row entries and 40
+decisions. Decision
+`176ced1f6e17c0eb60d077c2cb67e981af30a54c3775360c289a38210091eb42`
+belongs to the same reference group and passed with zero maximum probability
+difference, zero state mismatch, and zero activation-count mismatch. Its final
+row identity is
+`cf9e986decf8156fa724b62e80effa1582a143e4d9119d9e553f145e7e1a9fca`;
+its `Omega_max` row identity is
+`ff88c4a32a776fee94a797c46b079684cac6ab40ef42cd3789a14eb472d33515`.
+The production `ContentAddressedCache.resolve_identity` path reread and
+validated the decision plus both row entries. Each row contains exactly
+`fiber_ids.npy`, `probabilities.npy`, and `row_metadata.json`; manifest
+identity, complete descendant closure, file size, array structure, and every
+payload SHA-256 passed. This remains an intermediate boundary until the
+reference gate commits its authoritative `row_decision_ids` closure.
+
+The next complete multi-chunk row pair raised the cache to 82 row entries and
+41 decisions. Decision
+`4a527104355d834071663daff1bfb0bd86aba7eea14d91c069579ec7254967dc`
+belongs to the same reference group and passed. Its final row identity is
+`0bddc501d323f8bcae91d24fc178191cbd0cbcdcc8977bbda2f227d388cd8bc0`
+with 3401 fibers; its `Omega_max` row identity is
+`1c4c904c045d87f18f86b80d4d418bda6d3459f12e3a0fadbfb6bb22699f1c22`
+with 10320 fibers. Production `resolve_identity` validation passed the decision
+and both row entries, exact three-file row closure, every byte count and
+SHA-256, NPY dtype and shape metadata, ordered unique fiber IDs, finite
+probabilities within the closed unit interval, and row metadata identity. An
+independent final-to-`Omega_max` ID mapping recomputed maximum probability
+difference 0 and strict `p(A) > 0.5` state mismatch count 0. The one-second
+segment guard observed a task-tree RSS peak of 48970170368 bytes, therefore
+`< 64 GiB`, while swap stayed at its 6844978299-byte guard baseline. The worker
+then entered the next physical row, so terminal gate closure remains open.
+
+The next durable boundary raised the cache to 84 row entries and 42 decisions.
+Decision
+`d56e76a44e9171c4580052bf6e186be0a8fb7bf3e1c7d8661f1408ade14dea15`
+belongs to the reference group and passed with zero maximum probability
+difference, zero state mismatch, and zero activation-count mismatch. Its final
+row identity is
+`a8b1a110f20ae2ca16b9a1d51d60ddf9adc1afd0a3b99f63bc54144e907de366`;
+its `Omega_max` row identity is
+`0343af9f828bff3d877f78bac31d5e4a9709c246ab4e4b57b8d2e1659a517e35`.
+The persisted decision status is `pass`. This is still intermediate evidence:
+the authoritative count and closure come only from the terminal reference gate
+and later add-on gate, not from a predicted decision total.
+
+The next durable boundary raised the cache to 86 row entries and 43 decisions.
+Decision
+`8070064e4442c8252efd70de0cc65b1aa43c1885f7ac3a1b7249d42d726141d9`
+belongs to the same reference group and passed with zero maximum probability
+difference, zero state mismatch, and zero activation-count mismatch. Its final
+row identity is
+`a0df680339a905aea7557a55465201ef063fac603ba2dcce7497358627a20daa`
+with 3401 fibers; its `Omega_max` row identity is
+`f47b8669550f77d0e56b62a56799fe8a994536046ef920344289818439b9c137`
+with 10320 fibers. A fresh byte-level audit verified the exact three-file
+closure of each row, every stored size and SHA-256, matching one-dimensional
+array shapes, and finite probability values. The segment guard peak remains
+48970170368 bytes, therefore `< 64 GiB`, and its current-epoch swap value has
+not grown. The reference gate remains running, so this evidence does not infer
+or replace its terminal ordered closure.
+
+A current-input audit of the running reference attempt found 34 unique
+materialized source-parameter, geometry, and source-locator triplets. This is
+not the gate decision denominator. Production constructs final-axis and
+`Omega_max` producer requests for every endpoint, verifies that their physical
+keys match, and then deduplicates them by `_physical_row_key`; only the
+terminal `OSSAxisEquivalenceGroupRecord.row_decision_ids` records that ordered
+closure. The shared cache also retains valid decisions from earlier attempts
+and toolchain/request identities, so its cumulative decision-directory count
+can exceed or differ from the current closure. Monitoring and completion must
+therefore continue to use the terminal group record plus its two-row decision
+closure, never the cumulative cache count or the 34 materialized triplets as a
+predicted total.
 
 ---
 
@@ -5022,7 +6255,7 @@ performance-contract review was added on 2026-07-16:
 
 | Pass | Result | Implementation mapping |
 |---|---|---|
-| 1. Authority/current state | PASS | Global prerequisite requires the sole `/goal`, passed review status, clean branch, and no new worktree. |
+| 1. Authority/current state | PASS | The umbrella YAML goal and its linked dual-frequency and postprocess plans jointly define current acceptance; the predecessor plan is historical, and the existing uncommitted implementation worktree remains preserved until final acceptance rather than being represented as clean. |
 | 2. Scale/endpoint identity | PASS | Tasks 3-6 implement equal factories, stable binding IDs, explicit matched-reference endpoint IDs, and cross-phase matching. |
 | 3. Dependency/fallback | PASS | Task 5 defines the exhaustive readiness/source/Delta/fallback truth table; Tasks 11-12 integrate it without bidirectional fallback. |
 | 4. Round/interface/provenance | PASS | Tasks 2, 6-8, and 13-16 cover every Round, typed requests/arrays/artifacts, project import isolation, standalone CLI, connectome roles, and resolved configuration artifacts. |
@@ -5040,8 +6273,9 @@ audit.
 ## Generic-Core Historical Acceptance And Current Target Checklist
 
 - [x] `dual_frequency_v1` is the only production schema.
-- [x] `four_model_yaml_core_refactor_plan.md` is the sole current `/goal`; the
-  predecessor execution plan is historical only.
+- [x] The umbrella YAML goal, this implementation plan, and the postprocess
+  visualization plan jointly define current acceptance; the predecessor
+  execution plan is historical only.
 - [x] Production starts directly from a validated `study_base.json` and creates
   no intermediate study bundle.
 - [x] Generic runtime imports no `projects.stnsnr` module and scientific
@@ -5090,8 +6324,13 @@ audit.
 - [ ] Resume re-evaluates dependency-derived skips and permits only accepted
   resource-provenance overrides without changing scientific identity.
 - [ ] Managed RAM is the smaller of 64 GiB and available RAM after the larger of
-  a 16-GiB or 20%-physical reserve; expected solver RSS is charged and swap
-  satisfies `swap_delta_bytes < 1`.
+  a 16-GiB or 20%-physical reserve; one solver receives a conservative 48-GiB
+  admission charge, complete task-tree RSS stays `< 64 GiB`, and swap satisfies
+  `swap_delta_bytes < 1`. A token-free local guard samples mount state, runner
+  liveness, task-tree RSS, and swap at approximately one-second intervals and
+  terminates the runner on a contract violation. Codex progress inspection and
+  user-facing reporting remain limited to the user-selected two-hour interval;
+  they do not replace the local safety guard.
 - [ ] Voxel/fiber thresholds include exact tau and Coverage values, and overlap
   includes the exact selected reference tau; support-QC uses its documented
   strict direction and pPAM uses `p(A) > 0.5`. Every reopened boundary fixture

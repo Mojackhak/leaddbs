@@ -122,7 +122,7 @@ oss: # Final-linked formal-connectome activation sensitivity.
     maximum: 4.0 # Largest modeled axon diameter.
     samples: 10 # Number of complete equidistant pPAM samples.
     sampling: equidistant # Deterministic diameter sampling rule.
-  fitting_probability_threshold: 0.5 # Binary fitting exposure is I[p(A) >= 0.5].
+  fitting_probability_threshold: 0.5 # Binary fitting exposure is I[p(A) > 0.5].
   permutation_resamples: 1000 # OSS activation-sensitivity permutation count.
 
 addon: # Public parameters specific to the add-on dependency.

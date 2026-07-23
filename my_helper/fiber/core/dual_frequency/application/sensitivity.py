@@ -1035,6 +1035,8 @@ def compile_sensitivity_extension_plan(
                     gates=(),
                     output_record_type="SensitivityResult",
                     execution_parameters=parameters,
+                    expensive_producer=True,
+                    cache_first_expensive=True,
                 )
                 block_tasks.append(block)
 

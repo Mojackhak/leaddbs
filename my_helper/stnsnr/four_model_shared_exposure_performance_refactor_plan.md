@@ -2519,15 +2519,18 @@ in-memory checkpoint without editing the completed parent. Future checkpoints
 publish this descriptor directly. Absolute paths, run identity, scale, and
 endpoint identity do not enter the gate cache key.
 
-The production row inventory is derived from the union of included subjects in
-the 56 realized fiber finals. Sixteen reference subjects produce 34 logical
-OSS rows and thirteen add-on subjects produce 26 logical rows. The decision
-matrix therefore contains 60 row classes. A logical row uses one final-axis and
-one `Omega_max` product, but each external product is partitioned into ordered
-execution chunks containing `< 3501` fibers. Every chunk runs the same ten fixed
-diameter samples. The sole external-solver token makes these sample executions
-sequential. Per-row immutable decisions make an interrupted group task resume
-from the first missing row rather than restart accepted rows.
+The production row inventory is derived inside each group gate from its exact
+ordered endpoint and physical-row descriptors. An early estimate inferred 34
+reference and 26 add-on classes from the included-subject unions, but the live
+gate created a 35th reference decision and disproved that estimate as an
+acceptance denominator. Each terminal gate must therefore commit the exact
+ordered `row_decision_ids` closure it actually evaluated; only those two
+closures define the authoritative inventory. A logical row uses one final-axis
+and one `Omega_max` product, but each external product is partitioned into
+ordered execution chunks containing `< 3501` fibers. Every chunk runs the same
+ten fixed diameter samples. The sole external-solver token makes these sample
+executions sequential. Per-row immutable decisions make an interrupted group
+task resume from the first missing row rather than restart accepted rows.
 
 For each row, the producer retains the ten sample-wise axon-state vectors long
 enough to compare the final-axis vector with the canonical-ID subset of the
@@ -2573,8 +2576,10 @@ solver, so the orphan required direct termination. No row cache or equivalence
 decision published and swap did not grow. Formal resume is prohibited until
 the fixed `< 3501`-fiber chunk executor, 48-GiB solver charge, hard managed-grant
 admission, and worker-to-child process-group termination pass automated tests
-and a real reference-chunk acceptance with RSS `< 48 GiB`, total managed memory
-`< 64 GiB`, and swap growth `< 1` byte.
+and a real reference-chunk acceptance with complete task-tree RSS `< 64 GiB`,
+swap growth `< 1` byte, and the configured system reserve intact. The 48-GiB
+value is an admission charge that prevents a second solver from entering; it is
+not a post-admission hard RSS ceiling for the sole admitted solver.
 
 The bounded-row and cascade-termination implementation passed 62 focused OSS/
 executor tests. The complete dual-frequency regression passed 534 tests plus
@@ -2597,6 +2602,14 @@ and VAL remained mounted. The completed workspace was removed and the next
 ordered chunk began. This closes the real resource gate for continued formal
 OSS execution while preserving the 48-GiB sole-solver charge, 64-GiB cumulative
 ceiling, and the prohibition on the historical unchunked row.
+
+Later one-second formal sampling measured 61,986,045,952 bytes of solver RSS
+and 62,497,554,432 bytes across the complete task tree. The task tree remained
+`< 64 GiB`, swap growth remained `< 1` byte, the configured reserve remained
+intact, and no second solver entered. This later evidence supersedes the
+earlier solver-RSS `< 48 GiB` acceptance wording without changing the 48-GiB
+admission charge, single-solver token, chunk bound, or 64-GiB task-tree hard
+ceiling.
 
 The accepted v8 jitter exercise exposed one final-linked dependency-selection
 defect after every physical block and every reference endpoint had completed.

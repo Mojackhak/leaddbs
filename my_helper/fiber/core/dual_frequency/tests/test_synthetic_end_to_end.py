@@ -13,6 +13,7 @@ import unittest
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import unquote, urlsplit
 
 import h5py
@@ -67,7 +68,11 @@ from dual_frequency.runtime.ppam_observed_workspace import (
     publish_ppam_nuisance_failure,
 )
 from dual_frequency.workflow import RegisteredService, ServiceRegistry
-from dual_frequency.workflow.executor import ServiceResult, TaskExecutionRequest
+from dual_frequency.workflow.executor import (
+    ServiceResult,
+    TaskExecutionRequest,
+    _ResourceLedger,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
@@ -1310,7 +1315,7 @@ class _FakeActivationBackend:
         subject = np.arange(subject_axis.count, dtype=np.float32)[:, None]
         probability = ((subject + 2.0 * feature) % 10.0) / 10.0
         probability = probability.astype(np.float32, copy=False)
-        binary = probability >= 0.5
+        binary = probability > 0.5
         publisher = RunScopedArtifactPublisher(
             request.output_dir,
             request.task.task_id,
@@ -1522,6 +1527,15 @@ def _registry_with_fake_activation(
 
 
 class SyntheticEndToEndTest(unittest.TestCase):
+    def setUp(self) -> None:
+        memory_patcher = patch.object(
+            _ResourceLedger,
+            "_memory_state",
+            return_value=(128 * 1024**3, 128 * 1024**3),
+        )
+        memory_patcher.start()
+        self.addCleanup(memory_patcher.stop)
+
     def test_true_cleanup_runs_only_after_complete_canonical_publication(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory).resolve()
@@ -1693,7 +1707,7 @@ class SyntheticEndToEndTest(unittest.TestCase):
                     analyses=("jitter", "oss"),
                     run_id="combined-extension",
                     workers=2,
-                    allow_expensive_producers=True,
+                    allow_expensive_producers=False,
                 )
             )
             combined_calls = dict(service_calls)

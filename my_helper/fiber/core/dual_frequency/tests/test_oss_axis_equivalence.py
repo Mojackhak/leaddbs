@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
@@ -11,6 +12,7 @@ import numpy as np
 
 from dual_frequency.backends.activation import OSSRowProduct, OSSScientificSettings
 from dual_frequency.cache import (
+    CacheCorruption,
     CacheFileMetadata,
     ContentAddressedCache,
     RunScopedArtifactPublisher,
@@ -257,6 +259,7 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
                 "allow_expensive_producers": True,
             }
             first = establish_oss_axis_equivalence(**arguments)
+            arguments["allow_expensive_producers"] = False
             restored = establish_oss_axis_equivalence(**arguments)
 
             self.assertEqual(first.gate_status, "accepted_omega_max")
@@ -264,6 +267,23 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
             self.assertEqual(toolchain.calls, 4)
             self.assertEqual(len(first.row_decision_ids), 2)
             self.assertEqual(ServiceResult.from_record(first).decode_record(), first)
+            decision_files = tuple(
+                (root / "cache" / "shared_exposure_v2" / "oss_axis_equivalence").glob(
+                    "*/decision.json"
+                )
+            )
+            self.assertEqual(len(decision_files), 2)
+            shutil.rmtree(decision_files[0].parent)
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "cache misses require expensive producer authorization",
+            ):
+                establish_oss_axis_equivalence(**arguments)
+            self.assertEqual(toolchain.calls, 4)
+            arguments["allow_expensive_producers"] = True
+            repaired = establish_oss_axis_equivalence(**arguments)
+            self.assertEqual(repaired.gate_status, "accepted_omega_max")
+            self.assertEqual(toolchain.calls, 6)
             row_manifests = tuple(
                 (root / "cache" / "shared_exposure_v2" / "oss_rows").glob(
                     "*/manifest.json"
@@ -274,6 +294,191 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
                 payload = json.loads(manifest.read_text(encoding="utf-8"))
                 self.assertEqual(payload["items"], [])
                 self.assertEqual(len(payload["files"]), 3)
+
+    def test_cache_miss_without_authorization_stops_before_toolchain(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache, final_ids, subject_axis, selection, descriptor = self._fixture(root)
+            endpoint_id = selection.endpoint.identifier
+            toolchain = _Toolchain()
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "cache misses require expensive producer authorization",
+            ):
+                establish_oss_axis_equivalence(
+                    descriptor=descriptor,
+                    endpoint_inputs={endpoint_id: object()},
+                    prepared_exposures={endpoint_id: object()},
+                    final_selections={endpoint_id: selection},
+                    provider=_Provider(final_ids, subject_axis),
+                    cache=cache,
+                    publisher=RunScopedArtifactPublisher(
+                        root / "output",
+                        "oss-axis-gate",
+                        "1",
+                    ),
+                    toolchain=toolchain,
+                    workers=14,
+                    allow_expensive_producers=False,
+                )
+
+            self.assertEqual(toolchain.calls, 0)
+
+    def test_complete_gate_survives_direct_cache_copy_without_toolchain(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache, final_ids, subject_axis, selection, descriptor = self._fixture(root)
+            endpoint_id = selection.endpoint.identifier
+            initial_toolchain = _Toolchain()
+            arguments = {
+                "descriptor": descriptor,
+                "endpoint_inputs": {endpoint_id: object()},
+                "prepared_exposures": {endpoint_id: object()},
+                "final_selections": {endpoint_id: selection},
+                "provider": _Provider(final_ids, subject_axis),
+                "cache": cache,
+                "publisher": RunScopedArtifactPublisher(
+                    root / "output",
+                    "oss-axis-gate",
+                    "1",
+                ),
+                "toolchain": initial_toolchain,
+                "workers": 14,
+                "allow_expensive_producers": True,
+            }
+            expected = establish_oss_axis_equivalence(**arguments)
+            self.assertEqual(initial_toolchain.calls, 4)
+
+            copied_root = root / "copied-cache"
+            shutil.copytree(cache.root, copied_root)
+            copied_toolchain = _Toolchain()
+            arguments.update(
+                {
+                    "cache": ContentAddressedCache(copied_root),
+                    "publisher": RunScopedArtifactPublisher(
+                        root / "copied-output",
+                        "oss-axis-gate-copy",
+                        "1",
+                    ),
+                    "toolchain": copied_toolchain,
+                    "allow_expensive_producers": False,
+                }
+            )
+            restored = establish_oss_axis_equivalence(**arguments)
+
+            self.assertEqual(restored.gate_status, "accepted_omega_max")
+            self.assertEqual(restored.row_decision_ids, expected.row_decision_ids)
+            self.assertEqual(copied_toolchain.calls, 0)
+
+    def test_cached_decision_requires_both_standard_row_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache, final_ids, subject_axis, selection, descriptor = self._fixture(root)
+            endpoint_id = selection.endpoint.identifier
+            toolchain = _Toolchain()
+            arguments = {
+                "descriptor": descriptor,
+                "endpoint_inputs": {endpoint_id: object()},
+                "prepared_exposures": {endpoint_id: object()},
+                "final_selections": {endpoint_id: selection},
+                "provider": _Provider(final_ids, subject_axis),
+                "cache": cache,
+                "publisher": RunScopedArtifactPublisher(
+                    root / "output",
+                    "oss-axis-gate",
+                    "1",
+                ),
+                "toolchain": toolchain,
+                "workers": 14,
+                "allow_expensive_producers": True,
+            }
+            establish_oss_axis_equivalence(**arguments)
+            self.assertEqual(toolchain.calls, 4)
+
+            decision_path = next(
+                (
+                    root
+                    / "cache"
+                    / "shared_exposure_v2"
+                    / "oss_axis_equivalence"
+                ).glob("*/decision.json")
+            )
+            decision = json.loads(decision_path.read_text(encoding="utf-8"))
+            missing_row = (
+                root
+                / "cache"
+                / "shared_exposure_v2"
+                / "oss_rows"
+                / decision["final_row_identity"]
+            )
+            shutil.rmtree(missing_row)
+            arguments["allow_expensive_producers"] = False
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "cached OSS axis decision lacks its standard row cache",
+            ):
+                establish_oss_axis_equivalence(**arguments)
+            self.assertEqual(toolchain.calls, 4)
+
+    def test_new_process_rejects_corrupt_row_referenced_by_cached_decision(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache, final_ids, subject_axis, selection, descriptor = self._fixture(root)
+            endpoint_id = selection.endpoint.identifier
+            toolchain = _Toolchain()
+            arguments = {
+                "descriptor": descriptor,
+                "endpoint_inputs": {endpoint_id: object()},
+                "prepared_exposures": {endpoint_id: object()},
+                "final_selections": {endpoint_id: selection},
+                "provider": _Provider(final_ids, subject_axis),
+                "cache": cache,
+                "publisher": RunScopedArtifactPublisher(
+                    root / "output",
+                    "oss-axis-gate",
+                    "1",
+                ),
+                "toolchain": toolchain,
+                "workers": 14,
+                "allow_expensive_producers": True,
+            }
+            establish_oss_axis_equivalence(**arguments)
+            self.assertEqual(toolchain.calls, 4)
+
+            decision_path = next(
+                (
+                    root
+                    / "cache"
+                    / "shared_exposure_v2"
+                    / "oss_axis_equivalence"
+                ).glob("*/decision.json")
+            )
+            decision = json.loads(decision_path.read_text(encoding="utf-8"))
+            probabilities = (
+                root
+                / "cache"
+                / "shared_exposure_v2"
+                / "oss_rows"
+                / decision["final_row_identity"]
+                / "probabilities.npy"
+            )
+            with probabilities.open("r+b") as stream:
+                stream.seek(-1, 2)
+                final_byte = stream.read(1)
+                stream.seek(-1, 2)
+                stream.write(bytes([final_byte[0] ^ 1]))
+
+            arguments["cache"] = ContentAddressedCache(root / "cache")
+            arguments["allow_expensive_producers"] = False
+            with self.assertRaises(CacheCorruption):
+                establish_oss_axis_equivalence(**arguments)
+            self.assertEqual(toolchain.calls, 4)
 
     def test_any_state_mismatch_rejects_omega_axis(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

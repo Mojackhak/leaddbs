@@ -4,7 +4,9 @@
 > STNSNr-oriented `four_model_v1` runtime with a reusable strict dual-frequency
 > four-model core.
 > **Workspace.** `/Users/mojackhu/Github/leaddbs`
-> **Authority.** This is the sole current implementation `/goal`.
+> **Authority.** This is the umbrella scientific and architecture goal. Its
+> current completion audit jointly includes the linked dual-frequency
+> implementation plan and postprocess visualization plan.
 > **Historical predecessor checkpoint.**
 > `my_helper/stnsnr/four_model_execution_plan.md`
 > **Approved design.**
@@ -25,19 +27,24 @@
 > `performance_refactor_implementation_in_progress`;
 > `canonical_main_publication_accepted`;
 > `final_in_sample_publication_accepted`;
-> `public_only_postprocess_accepted`;
-> `configured_production_outputs_published`;
-> `task17_sensitivity_extensions_deferred_by_user`.
-> **Last updated.** 2026-07-19
+> `public_only_postprocess_adapter_accepted`;
+> `formal_postprocess_orchestrator_implemented`;
+> `formal_postprocess_preflight_accepted`;
+> `canonical_jitter_extension_publication_accepted`;
+> `configured_formal_postprocess_output_pending`;
+> `task17_sensitivity_extensions_in_progress`.
+> **Last updated.** 2026-07-22
 
 ---
 
 Explicit user decisions are the model-contract authority. The approved design
-controls target architecture and this document is the sole current `/goal` for
-implementation scope and acceptance. `four_model_execution_plan.md`, existing
-code, other `four_model_v1` documents, legacy scripts, and generated outputs are
-predecessor evidence only. When they conflict with this target contract, do not
-preserve the conflict as compatibility behavior.
+controls target architecture, while this umbrella goal,
+`dual_frequency_core_decoupling_implementation_plan.md`, and
+`postprocess_visualization_implementation_plan.md` jointly define current
+implementation and acceptance. `four_model_execution_plan.md`, existing code,
+other predecessor `four_model_v1` documents, legacy scripts, and superseded
+generated outputs are evidence only. When they conflict with the current
+contracts, do not preserve the conflict as compatibility behavior.
 
 The linked performance-refactor contract supersedes every earlier target rule
 that requires endpoint-specific physical exposure or repeated within-process
@@ -1342,14 +1349,15 @@ likewise begins from published selected fiber axes, weights, density maps, and
 declared connectome geometry identity.
 
 Workflow storage policy exposes `delete_run_cache_on_success`. The configured
-production value is `false`, so completed shared physical preparation remains
-available for later jitter, OSS-DBS, combined extensions, and resume. Cache
-cleanup is eligible only after the requested workflow and canonical
-publication both reach an unqualified completed terminal state. Failed,
-partial, interrupted, completed-with-failures, or incompletely published runs
-must never remove cache content. This is an unconditional recovery invariant:
-enabling successful-run cleanup cannot override it. Publication and run
-artifacts are never cache cleanup targets.
+production value is `false`, while the generic omitted-field default is
+`true`. The explicit production value keeps completed shared physical
+preparation available for later jitter, OSS-DBS, combined extensions, and
+resume. Cache cleanup is eligible only after the requested workflow and
+canonical publication both reach an unqualified completed terminal state.
+Failed, partial, interrupted, completed-with-failures, or incompletely
+published runs must never remove cache content. This is an unconditional
+recovery invariant: enabling successful-run cleanup cannot override it.
+Publication and run artifacts are never cache cleanup targets.
 
 Run-owned cache is restricted to descriptor-listed formal and pPAM operator
 scratch plus the current run's `runtime_work` directory. The shared scientific
@@ -1369,6 +1377,14 @@ retains task artifacts and shared scientific cache, and completes an identical
 second publication through its marker. The focused gate passed 34 tests and 10
 subtests; the complete dual-frequency and visualization gate passed 539 tests
 and 308 subtests. The configured production value remains false.
+
+The generic omitted-field default was corrected on 2026-07-22 to match the
+user contract: schema and loader omission now resolve to `true`, while the
+checked-in production workflow remains explicitly `false`. The cleanup policy
+continues to affect the complete configuration identity but not the scientific
+configuration identity. The focused configuration gate passed 19 tests plus
+10 subtests, including explicit-false production, omitted-field true, and
+explicit-true paths. The four cleanup mutation and retention tests also passed.
 
 Canonical publication uses replayable temporary-sibling writes followed by
 atomic rename and a single payload integrity read. The verified SHA-256 and
@@ -1503,6 +1519,14 @@ MDS-UPDRS III score and MDS-UPDRS IV remain ordinary named real-data smoke
 fixtures. Both traverse the same configured endpoint-pair factory; neither is
 a default or scale-specific code branch.
 
+A fresh production dependency audit on 2026-07-22 parsed all 92 Python files
+below `my_helper/fiber/core/dual_frequency` while excluding tests. It found no
+syntax failure and zero imports containing `legacy_`, `stnsnr_`,
+`run_stnsnr_`, or `my_helper.fiber.projects.stnsnr`. A separate source-pattern
+scan found the same zero-import result. This current audit accepts the static
+project-isolation boundary; runtime namespace blocking remains covered by the
+existing executor and end-to-end tests.
+
 Direct-voxel acceptance is explicitly three-layered: the two-scale real-data
 smoke checks end-to-end dispatch, pure state-machine tests cover every mutually
 exclusive status transition, and fixed 16-subject/32-voxel NumPy fixtures run
@@ -1636,6 +1660,115 @@ This completes the generic core implementation contract. It does not claim a
 new scientific result, a full expensive all-scale rerun, or migration of any
 existing STNSNr output.
 
+The historical user pause recorded on 2026-07-19 no longer describes the
+current execution state. The user subsequently resumed Task 17. The corrected
+support-preserving jitter lineage is computationally completed; the independent
+OSS lineage is active; combined execution, canonical sensitivity publication
+closure, and the final resource/resume audit remain open. The automatic
+extension-v1 jitter mirrors are not canonical publication evidence because
+their artifact indexes retain run-work URIs. Jitter, OSS, and combined require
+self-contained extension-v2 replay before they can become public scientific
+inputs or support final goal closure.
+
+A read-only production-publication re-audit on 2026-07-21 verified VAL
+independently of the run store. Its path, status, and byte-count checks were
+repeated against the current tree on 2026-07-22. The direct-voxel and
+normative-fiber model manifests remain terminal `completed`, bind the same
+completed v8 parent and scientific configuration, and each enumerate all 28
+configured scales.
+
+A direct parent-lineage audit on 2026-07-22 independently opened the v8 run
+manifest and every task document. The run
+`task17-main-v8-tau-grid-formal-20260717` is terminal `completed` with the
+frozen study and scientific-configuration identities. All 1512 task JSON files
+decode, are terminal `completed`, and record reason `none`; no failed, skipped,
+or nonterminal task remains. The canonical direct-voxel tree contains 28
+reference and 28 add-on realized finals, and the canonical normative-fiber tree
+contains the same 28 plus 28 closure. Both completed model-set manifests record
+this exact v8 run as `source_run_id`. This proves that the 112 published final
+models derive from one completed formal lineage rather than a mixture of old or
+partial runs.
+The two published `study_base.json` files are byte-identical. Fresh SHA-256
+reads of both study files and both domain-specific resolved model YAML files
+match their respective manifest fields. Both publication manifests also match
+the parent run's study SHA-256 and scientific-configuration SHA-256 exactly.
+The retained code identity is audit provenance only and is not a resume gate.
+Their artifact indexes contain 2215 and 3475 unique data rows, respectively;
+every indexed path exists, its recorded byte count matches the current file,
+its status is `completed`, and its stored SHA-256 field is structurally valid.
+All 5690 paths are relative and contain no parent traversal.
+The direct-voxel publication contains 56 unsmoothed selected benefit maps plus
+56 display-only 1 mm and 56 display-only 2 mm FWHM derivatives. Both canonical
+final-in-sample v2 extensions remain terminal `completed` and each contains
+674 unique indexed artifacts with the same path, byte-count, status, and digest
+structure checks passing. This lightweight audit deliberately did not reread
+all payload bytes while the formal OSS solver was using VAL; final goal closure
+still requires full publication-hash verification after sensitivity execution.
+
+A focused selected-model audit on 2026-07-22 opened all 56 direct-voxel
+`final_model.json` documents. Each final uniquely names one unsmoothed selected
+benefit map, and the corresponding model leaf contains exactly one indexed
+1-mm and one indexed 2-mm FWHM display derivative. All 168 selected display
+closure paths are indexed as completed, exist, and match their recorded byte
+counts. A production-code search found the smoothed filenames only in the
+publisher and visualization consumers; no observed, resolver, LOOCV,
+permutation, bootstrap, or model-selection service reads a smoothed derivative.
+
+A bounded real-payload audit on 2026-07-22 then verified both PDQ-39 roles in
+each physical domain. Every sampled payload SHA-256 and byte count matched its
+canonical artifact-index row. For reference and add-on direct voxel, the
+selected unsmoothed benefit map and its 1 mm and 2 mm FWHM derivatives shared
+the exact finite mask and grid, while the separately declared bilateral display
+map retained the same grid with the expected larger mirrored support. For
+reference and add-on normative fiber, the full weight vector matched the valid
+fiber axis, all sweet and sour selected IDs were members of that axis, and all
+three weighted-density maps shared one grid and finite-support mask. The
+reference axis contained 3401 fibers with 200 sweet and 100 sour selections;
+the add-on adjusted axis contained 2004 fibers with 200 sweet and 100 sour
+selections. This is a representative real-payload check, not the deferred full
+publication-hash closure.
+
+A complete normative-fiber selected-model audit on 2026-07-22 then opened all
+56 realized final models. Every reference candidate and valid axis contained
+3401 fibers, and every add-on candidate and valid axis contained 2004 fibers;
+candidate and valid IDs matched exactly within each endpoint. Full weights had
+the same finite axis, while sweet and sour IDs were unique, mutually disjoint,
+and strict subsets of that realized valid axis. All 56 sour libraries contain
+100 fibers. Fifty-two sweet libraries contain 200 fibers. The four endpoints
+with fewer available positive weights correctly cap the sweet library at its
+available count and declare `limited_two_sign`: HAMA reference contains 129,
+KPPS add-on adjusted contains 149, MDS-UPDRS III axial add-on no-delta contains
+142, and MDS-UPDRS IV reference contains 24. Every endpoint still realizes a
+20-fiber sweet weighted peak and a 20-fiber sour weighted peak. The requested
+fractions remain 0.01, 0.005, and 0.05 with minimum counts 200, 100, and 20.
+Each positive, negative, and unthresholded density map is indexed, completed,
+present, byte-count matched, bound to the same final model, marked display-only,
+and records the exact combined sweet-plus-sour selected count. No closure
+problem was found.
+
+A later completed-tree hygiene scan on 2026-07-22 found one zero-byte
+temporary sibling at
+`direct_voxel/dual_frequency_four_model_v1/adl/addon/branches/`
+`no_delta_reference/resolver/.status.json.74lv21ae.tmp`. It dates from the
+interrupted 2026-07-19 publication attempt, is absent from `artifact_index.csv`,
+and coexists with the later completed `status.json`; no second temporary or
+partial file exists in either canonical model set. It is not a scientific
+artifact. The acceptance repair moved this unindexed orphan to
+`/Users/mojackhu/.Trash/task17-orphan-status-json-74lv21ae-20260722.tmp`, then
+repeated the non-AppleDouble temporary-file scan. Both canonical model sets now
+contain no temporary or partial file, and the retained 1364-byte resolver
+status remains structurally readable with terminal `completed`. This
+filesystem-hygiene repair did not rewrite a published payload or alter any
+scientific identity.
+
+The repository-side pPAM threshold descriptions and fixtures were reconciled
+on 2026-07-22 with the authoritative strict rule in this goal. Production and
+test normative-fiber YAML now state `I[p(A) > 0.5]`; both add-on overlap
+fixtures and the synthetic activation helper use the same boundary. The exact
+half-threshold test and both overlap tests passed. This changes no formal input
+value or running OSS calculation and does not alter the parent-bundled YAML
+that controls resume.
+
 ### Task 17 OSS axis-gate execution addendum
 
 The first formal OSS extension must not let 56 endpoint workers independently
@@ -1645,14 +1778,18 @@ completed parent identifies the exact portable `Omega_max` cache entry for each
 group. Existing parent files remain immutable; the checkpoint loader validates
 and enriches this identity in memory.
 
-The current production inventory contains 34 reference physical rows and 26
-add-on physical rows. Each of the 60 row classes compares ten sample-wise axon
-states on the historical final axis against the canonical-ID subset of the
-corresponding `Omega_max` result. A class passes only when state and activation-
-count mismatch counts are `< 1` and probability difference is below the fixed
-internal tolerance. Shared `Omega_max` simulation is authorized only when all
-classes in a group pass. An absent, corrupt, changed, or failed decision retains
-the final-axis producer.
+The earlier estimate of 34 reference physical rows and 26 add-on physical rows
+is not an acceptance count. Production created more than 34 reference
+decisions before the reference gate became terminal. The authoritative
+inventory is the exact `row_decision_ids` closure committed by each completed
+equivalence gate, with two validated row manifests per decision. Every row
+class compares ten sample-wise axon states on the historical final axis against
+the canonical-ID subset of the corresponding `Omega_max` result. A class
+passes only when state and activation-count mismatch counts are `< 1` and the
+probability difference is below the fixed internal tolerance. Shared
+`Omega_max` simulation is authorized only when every decision in the gate's
+committed closure passes. An absent, corrupt, changed, or failed decision
+retains the final-axis producer.
 
 Each row decision and both standard row caches are immutable and resume-safe.
 Only the gate or a retained final-axis observed workspace may hold the single
@@ -1664,7 +1801,6 @@ plans contain 590 and 1194 tasks, respectively.
 
 ```text
 completion of the predecessor run solely to expand parity
-full expensive all-scale scientific rerun
 old output migration or overwrite
 addon-only and N-frequency models
 ROI/VTA postprocessing and regional heatmaps
@@ -1676,21 +1812,69 @@ new estimators or revised classification rules
 
 ## Documentation Review Record
 
+A current configuration-contract replay on 2026-07-22 passed 32 tests plus 12
+subtests covering schema loading, explicit CLI inputs, two-scale four-model DAG
+construction, project-namespace isolation, and goal-level guards. The checked-in
+production profiles retain the exact approved source grids: direct voxel uses
+150, 180, 200, 220, 250, and 300 V/m with 200 V/m first; normative fiber uses
+200, 350, 400, 450, 600, and 800 V/m with 400 V/m first. Both use Coverage 5,
+6, 7, 8, 10, and 12, retain the 12-subject computability floor, and every
+declared connectome requires at least one fold candidate fiber. The production
+workflow explicitly retains successful cache content, while omitted generic
+storage policy still defaults to cleanup after complete publication.
+
+A second focused frozen-parameter replay on 2026-07-22 passed 22 tests plus 12
+subtests across configuration and final-in-sample inference. Direct voxel
+retains the ordered tau grid 150, 180, 200, 220, 250, and 300 with the
+pre-specified value 200; normative fiber retains 200, 350, 400, 450, 600, and
+800 with the pre-specified value 400. Both retain the ordered Coverage grid 5,
+6, 7, 8, 10, and 12, the 12-subject floor, and a fold-candidate minimum of one
+for every declared connectome. Inclusive candidate and overlap comparisons
+remain implemented in the runtime and formal kernels. Final in-sample remains
+a required formal stage with no YAML enable field or block-size field; the
+historical v8 parent predates that planner addition, so its completed canonical
+child supplies the required results. The storage schema still defaults omitted
+cleanup to true, while the production workflow explicitly records false for
+continued resume and extension reuse.
+
+A publication-level final-in-sample audit on 2026-07-22 opened all 112 endpoint
+summaries and prediction tables. Each of the four model families contributes
+28 endpoints. Every summary contains paired in-sample and LOOCV Spearman,
+nominal Spearman p, plus-one two-sided permutation p, Pearson, nominal Pearson
+p, model and baseline errors, finite-subject and finite-permutation counts,
+standard R2, relative R2 or Q2 as appropriate, and all declared optimism gaps.
+No adjusted-R2 field is published. Every prediction table contains the exact
+subject closure and finite outcome, fitted, held-out, and baseline predictions.
+Both inference paths report 10000 requested and finite permutations. Per
+endpoint comparison against its canonical `final_model.json` found exact
+agreement for final identity, realized branch, selected tau, and selected
+Coverage; this audit derives those values from the realized model and does not
+assume the pre-specified defaults. The current realized data contain 56 voxel
+models at tau 200, 56 fiber models at tau 400, and Coverage 5 for all 112, with
+56 reference, 46 no-delta add-on, and 10 adjusted add-on branches. No mismatch
+or missing required field was found. A separate arithmetic pass recomputed all
+six optimism gaps from their published paired metrics, verified every nominal,
+permutation, and BH-adjusted probability was finite and within its valid
+probability interval, and confirmed each plus-one permutation p respected its
+10000-replicate floor; all 112 summaries passed.
+
 Five documentation review passes were repeated after generic-core acceptance
 on 2026-07-15. A sixth performance-contract pass was added on 2026-07-16:
 
 | Pass | Result | Verified closure |
 |---|---|---|
-| 1. Target vs historical | PASS | `four_model_execution_plan.md` is historical only; this file is the sole current `/goal`; generic implementation is complete while production rerun remains deferred. |
+| 1. Target vs historical | PASS | `four_model_execution_plan.md` is historical only; this umbrella goal, the dual-frequency implementation plan, and the postprocess visualization plan jointly define current acceptance. |
 | 2. Scale equality and endpoint identity | PASS | No default/privileged scale; combined endpoints use explicit matched-reference bindings and may have different phase IDs. |
 | 3. Dependency and fallback | PASS | Reference dependency failure is distinct from ready input with no source; invalid DeltaReferenceScore still runs no-delta; fallback remains one-way. |
 | 4. Round, cache, activation, and interface | PASS | All nondeferred Rounds, including add-on direct Round 9, are mapped; sensitive connectomes cannot become final; generic runtime accepts structured inputs and has no project reverse dependency. |
 | 5. Numerical acceptance and wording | PASS | Frozen counts were verified; exact reviewed task allowlist is required; unfinished/failed/partial predecessor paths have no numerical parity requirement. |
-| 6. Shared physical preparation and resources | DESIGN PASS / IMPLEMENTATION OPEN | Scale-independent base/jitter preparation, conditional PASS-branch OSS reuse on exact `Omega_max`, FAIL-branch final-axis retention, portable SHA manifests, coarse RAM-adaptive ranges, and process scheduling are specified by the linked performance contract and Task 17. |
+| 6. Shared physical preparation and resources | DESIGN PASS / PARTIAL IMPLEMENTATION | Portable SHA manifests, shared preparation, persistent process scheduling, support-preserving jitter, conditional `Omega_max` reuse, final-axis retention, and bounded resource admission are implemented. The real independent OSS gate is still running; combined execution, canonical sensitivity replay, and final resource/resume acceptance remain open. |
 
 The linked implementation plan maps the accepted generic-core requirements to
-completed code and evidence. Task 17 maps the new performance requirements to
-unchecked implementation and acceptance steps. This record therefore confirms
-generic-core completion and performance-design closure only; it does not claim
-that shared physical preparation is implemented or that production model
-outputs were regenerated.
+completed code and evidence. Task 17 maps the remaining performance
+requirements to implementation and formal acceptance steps. This record
+confirms generic-core completion, regenerated main and final-in-sample
+publications, completed support-preserving jitter computation, and partial
+performance implementation. It does not claim completion of independent OSS,
+combined execution, canonical sensitivity publication, full postprocess
+replay, or final acceptance.

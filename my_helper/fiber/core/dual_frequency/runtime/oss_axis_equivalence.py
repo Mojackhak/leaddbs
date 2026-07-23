@@ -286,11 +286,6 @@ def establish_oss_axis_equivalence(
         raise OSSAxisEquivalenceError(
             "OSS axis gate requires runtime and exact sample-evidence capabilities"
         )
-    if not allow_expensive_producers:
-        raise OSSAxisEquivalenceError(
-            "OSS axis gate cache misses require expensive producer authorization"
-        )
-
     paired: dict[str, tuple[OSSProducerRequest, OSSProducerRequest]] = {}
     activation_provider = OSSActivationProvider(cache, producer_toolchain=None)
     for endpoint_id in endpoint_ids:
@@ -361,6 +356,10 @@ def establish_oss_axis_equivalence(
             omega_request=omega_request,
         )
         if decision is None:
+            if not allow_expensive_producers:
+                raise OSSAxisEquivalenceError(
+                    "OSS axis gate cache misses require expensive producer authorization"
+                )
             final_evidence = toolchain_method(final_request)
             omega_evidence = toolchain_method(omega_request)
             if not isinstance(final_evidence, OSSRowExecutionEvidence) or not isinstance(

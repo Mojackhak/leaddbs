@@ -19,6 +19,10 @@ profiles for the dual-frequency four-model refactor.
 - `normative_fiber_model_test.yaml` is a lightweight normative-fiber code-path
   profile. It uses PPMI as `formal`, MGH as `sensitive`, two scales, a reduced
   grid, and minimal resampling counts.
+- `model.yaml` is a historical predecessor `four_model_v1` profile. The current
+  `dual_frequency_v1` workflow, loader, tests, resolved configuration, and
+  canonical publications do not reference it. Its older tau grids must not be
+  used to interpret or resume the current formal lineage.
 
 The test profile is not an inferential model. Its permutation p-values,
 bootstrap summaries, jitter summaries, source classification, prediction
@@ -88,14 +92,14 @@ scales or model families, but it cannot add values absent from the model
 profiles.
 
 `storage.delete_run_cache_on_success` controls eligible post-publication cache
-cleanup. The production profile sets it to `false`; omission also resolves to
-`false`. Therefore successful, failed, partial, interrupted, and resumed runs
-all retain cache under the current profile. A future `true` value may clean
-only run-owned cache after the requested workflow and canonical publication
-both finish without failure. It must never clean failed or partial work, the
-run store, canonical publication, extensions, sensitivity checkpoints, or
-cache owned by another run. This failed-or-partial retention rule is
-unconditional; the setting can authorize only the fully successful branch.
+cleanup. The generic omitted-field default is `true`, while this production
+profile explicitly sets it to `false` so the current main and sensitivity
+lineages retain their resume inputs. A true value may clean only run-owned
+cache after the requested workflow and canonical publication both finish
+without failure. It must never clean failed or partial work, the run store,
+canonical publication, extensions, sensitivity checkpoints, or cache owned by
+another run. This failed-or-partial retention rule is unconditional; the
+setting can authorize only the fully successful branch.
 Run-owned cache is limited to descriptor-listed formal and pPAM operator
 scratch plus the run's `runtime_work` directory. Shared scientific cache,
 task artifacts, run records, sensitivity checkpoints, extensions, and canonical
@@ -133,6 +137,29 @@ Reference and add-on selected-source artifacts are stored once. A
 `final_model.json` record references the realized source or add-on branch; it
 does not duplicate maps, scores, predictions, or weights. ROI and atlas
 postprocessing are excluded from this output contract.
+
+`formal_postprocess.json` is the durable all-scale visualization request. It
+does not alter either model publication. It binds the completed direct-voxel
+and normative-fiber model sets, their final-in-sample v2 extensions, the
+accepted display resources, and all three batch visualization components. Run
+its read-only preflight with:
+
+```bash
+conda run -n leaddbs python -m my_helper.fiber.core.viz.formal_postprocess \
+  --config my_helper/stnsnr/config/four_model_v1/formal_postprocess.json \
+  --validate-only
+```
+
+The preflight creates no output root. The same command without
+`--validate-only` owns the immutable formal postprocess transaction after the
+Task 17 publication sequence reaches its required execution boundary.
+Validate the terminal root independently after the first render and identical
+resume with:
+
+```bash
+conda run -n leaddbs python -m my_helper.fiber.core.viz.formal_postprocess \
+  --validate-output /Volumes/VAL/STNSNr/summary/spot/postprocess/dual_frequency_four_model_v1/task17-formal-postprocess-v1-20260722
+```
 
 ## Three-Layer Test Strategy
 

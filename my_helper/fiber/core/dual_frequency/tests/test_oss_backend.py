@@ -1647,7 +1647,7 @@ class PPAMActivationBackendTest(unittest.TestCase):
                     if artifact.kind == "oss_plain_activation_count"
                 )
             )
-        expected_binary = (self.probabilities >= 0.5).astype(np.float32)
+        expected_binary = (self.probabilities > 0.5).astype(np.float32)
         expected_binary[overlap] = 0.0
         np.testing.assert_array_equal(observed_binary, expected_binary)
         np.testing.assert_array_equal(plain_count, np.sum(expected_binary, axis=1))
@@ -1681,7 +1681,7 @@ class PPAMActivationBackendTest(unittest.TestCase):
                 artifact_store=ArtifactStore((root,)),
             ).run_activation(request)
             observed_binary = _artifact_array(result.binary_exposure)
-        expected_binary = (self.probabilities >= 0.5).astype(np.float32)
+        expected_binary = (self.probabilities > 0.5).astype(np.float32)
         expected_binary[overlap] = 0.0
         np.testing.assert_array_equal(observed_binary, expected_binary)
 

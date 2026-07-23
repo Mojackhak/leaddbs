@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import ModuleType
 import unittest
 from unittest import mock
 from typing import Any, Callable
@@ -42,6 +43,7 @@ from dual_frequency.runtime.activation_provider import (
 )
 from dual_frequency.runtime.oss_toolchain import (
     LeadDBSOSSProducerToolchain,
+    OSSDBS_BOOTSTRAP_PATH,
     OSSExecutableSet,
     OSS_MAX_FIBERS_PER_EXECUTION,
     OSS_PRODUCER_IMPLEMENTATION_PATHS,
@@ -50,9 +52,11 @@ from dual_frequency.runtime.oss_toolchain import (
     SubprocessOSSRowExecutor,
     OSSRowExecutionEvidence,
     _hash_oss_source_tree,
+    _matlab_installation_identity,
     _terminate_process_group,
     oss_backend_version,
 )
+from dual_frequency.runtime import ossdbs_bootstrap
 from dual_frequency.runtime.connectome_subset import FilteredConnectome
 
 
@@ -1101,6 +1105,138 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
                 time.sleep(0.01)
         self.assertFalse(live)
 
+    @unittest.skipUnless(os.name == "posix", "process groups require POSIX")
+    def test_termination_reaps_exited_leader_when_helper_cannot_be_signalled(self) -> None:
+        helper_pid_path = self.root / "helper.pid"
+        helper = (
+            "import os,pathlib,time; "
+            f"pathlib.Path({str(helper_pid_path)!r}).write_text("
+            "str(os.getpid()), encoding='utf-8'); "
+            "time.sleep(60.0)"
+        )
+        leader = (
+            "import subprocess,sys; "
+            f"subprocess.Popen([sys.executable, '-c', {helper!r}])"
+        )
+        process = subprocess.Popen(
+            (sys.executable, "-c", leader),
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 5.0
+        state = ""
+        while time.monotonic() < deadline:
+            status = subprocess.run(
+                ("ps", "-o", "stat=", "-p", str(process.pid)),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            state = status.stdout.strip()
+            if helper_pid_path.exists() and state.startswith("Z"):
+                break
+            time.sleep(0.01)
+        self.assertTrue(helper_pid_path.exists())
+        self.assertTrue(state.startswith("Z"), state)
+        helper_pid = int(helper_pid_path.read_text(encoding="utf-8"))
+
+        def cleanup() -> None:
+            try:
+                os.kill(helper_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            if process.poll() is None:
+                process.kill()
+
+        self.addCleanup(cleanup)
+        with (
+            mock.patch(
+                "dual_frequency.runtime.oss_toolchain.os.killpg",
+                side_effect=PermissionError("helper is outside the managed boundary"),
+            ),
+            mock.patch(
+                "dual_frequency.runtime.oss_toolchain._posix_process_group_has_live_members"
+            ) as inspect_group,
+        ):
+            _terminate_process_group(
+                process,
+                process_group_id=process.pid,
+                grace_seconds=0.1,
+            )
+        self.assertIsNotNone(process.returncode)
+        inspect_group.assert_not_called()
+        os.kill(helper_pid, 0)
+
+    def test_verified_commands_are_reused_without_reprobing_environment(self) -> None:
+        executor = SubprocessOSSRowExecutor(
+            work_root=self.root / "verified-command-cache",
+            repository_root=self.repository_root,
+            environment_file=self.environment_file,
+        )
+        command = self.root / "verified-command"
+        command.write_text("command\n", encoding="utf-8")
+        commands = OSSExecutableSet(
+            matlab=command,
+            environment_root=self.root,
+            python=command,
+            prepareaxonmodel=command,
+            leaddbs2ossdbs=command,
+            ossdbs=command,
+            run_pathway_activation=command,
+        )
+        executor._commands = commands
+        executor._commands_verified = True
+
+        with mock.patch.object(
+            Path,
+            "read_text",
+            side_effect=AssertionError("verified toolchain must not be reprobed"),
+        ):
+            self.assertIs(executor._resolve_commands(), commands)
+            self.assertIs(executor._resolve_commands(), commands)
+
+    def test_matlab_identity_uses_the_static_installation_manifest(self) -> None:
+        application = self.root / "MATLAB_R2024b.app"
+        executable = application / "bin" / "maca64" / "MATLAB"
+        executable.parent.mkdir(parents=True)
+        executable.write_text("matlab\n", encoding="utf-8")
+        (application / "VersionInfo.xml").write_text(
+            "<?xml version='1.0' encoding='UTF-8'?>\n"
+            "<MathWorks_version_info>"
+            "<version>24.2.0.2863752</version>"
+            "<release>R2024b</release>"
+            "<description>Update 5</description>"
+            "</MathWorks_version_info>\n",
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            _matlab_installation_identity(executable),
+            {
+                "version": "24.2.0.2863752 (R2024b) Update 5",
+                "release": "2024b",
+                "computer": "MACA64",
+            },
+        )
+
+    def test_matlab_identity_rejects_an_incomplete_manifest(self) -> None:
+        application = self.root / "MATLAB_R2024b.app"
+        executable = application / "bin" / "maca64" / "MATLAB"
+        executable.parent.mkdir(parents=True)
+        executable.write_text("matlab\n", encoding="utf-8")
+        (application / "VersionInfo.xml").write_text(
+            "<MathWorks_version_info>"
+            "<version>24.2.0.2863752</version>"
+            "<release>R2024b</release>"
+            "</MathWorks_version_info>\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(
+            OSSProducerExecutionError,
+            "lacks description",
+        ):
+            _matlab_installation_identity(executable)
+
     def test_external_executor_revalidates_environment_before_and_after_row(self) -> None:
         row = self._prepared_row_for_converter(control_mode="voltage")
         executor = SubprocessOSSRowExecutor(
@@ -1177,6 +1313,73 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
         self.assertEqual(
             commands.entrypoint_command(entrypoint, "parameters.json"),
             (str(python), str(entrypoint), "parameters.json"),
+        )
+        self.assertEqual(
+            commands.ossdbs_command("parameters.json"),
+            (str(python), str(OSSDBS_BOOTSTRAP_PATH), "parameters.json"),
+        )
+
+    def test_ossdbs_bootstrap_sets_ngsolve_threads_before_delegating(self) -> None:
+        events: list[tuple[object, ...]] = []
+        fake_ngsolve = ModuleType("ngsolve")
+        fake_ngsolve.SetNumThreads = lambda count: events.append(("threads", count))
+        fake_ossdbs = ModuleType("ossdbs")
+        fake_ossdbs.__path__ = []
+        fake_ossdbs_main = ModuleType("ossdbs.main")
+
+        def delegated_main() -> None:
+            events.append(("ossdbs_main", tuple(sys.argv)))
+
+        fake_ossdbs_main.main = delegated_main
+        with (
+            mock.patch.dict(
+                sys.modules,
+                {
+                    "ngsolve": fake_ngsolve,
+                    "ossdbs": fake_ossdbs,
+                    "ossdbs.main": fake_ossdbs_main,
+                },
+            ),
+            mock.patch.object(sys, "argv", ["bootstrap"]),
+        ):
+            result = ossdbs_bootstrap.main(("parameters.json",))
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            events,
+            [
+                ("threads", ossdbs_bootstrap.NGSOLVE_THREADS),
+                ("ossdbs_main", ("bootstrap", "parameters.json")),
+            ],
+        )
+
+    def test_ossdbs_bootstrap_taskmanager_smoke_uses_the_fixed_thread_count(self) -> None:
+        events: list[tuple[object, ...]] = []
+        fake_ngsolve = ModuleType("ngsolve")
+        fake_ngsolve.SetNumThreads = lambda count: events.append(("threads", count))
+
+        class FakeTaskManager:
+            def __enter__(self):
+                events.append(("enter",))
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback) -> None:
+                events.append(("exit",))
+
+        fake_ngsolve.TaskManager = FakeTaskManager
+        with mock.patch.dict(sys.modules, {"ngsolve": fake_ngsolve}):
+            result = ossdbs_bootstrap.main(
+                (ossdbs_bootstrap.TASKMANAGER_SMOKE_ARGUMENT,)
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            events,
+            [
+                ("threads", ossdbs_bootstrap.NGSOLVE_THREADS),
+                ("enter",),
+                ("exit",),
+            ],
         )
 
     def _prepared_row_for_converter(self, *, control_mode: str) -> PreparedOSSRow:

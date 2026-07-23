@@ -78,7 +78,7 @@
       "properties": {
         "cache_root": {"type": "string", "pattern": "^/", "minLength": 2},
         "run_root": {"type": "string", "pattern": "^/", "minLength": 2},
-        "delete_run_cache_on_success": {"type": "boolean", "default": false}
+        "delete_run_cache_on_success": {"type": "boolean", "default": true}
       }
     }
   }

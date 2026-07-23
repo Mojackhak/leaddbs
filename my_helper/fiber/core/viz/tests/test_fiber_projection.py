@@ -11,6 +11,8 @@ import numpy as np
 import yaml
 
 from my_helper.fiber.core.viz.fiber_section_postprocess import (
+    prepare_fiber_section_context,
+    render_fiber_section_components,
     run_single_scale_fiber_section_postprocess,
 )
 from my_helper.fiber.core.viz.fiber_projection import (
@@ -18,6 +20,7 @@ from my_helper.fiber.core.viz.fiber_projection import (
     load_binary_projection_mask,
     streamline_flat_voxels,
 )
+from my_helper.fiber.core.viz.published_artifacts import PublicationCatalog
 
 
 def _write_mask(
@@ -363,3 +366,39 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
     assert second["status"] == "complete"
     assert second["failed_count"] == 0
     assert second["reused_count"] == 2
+
+    formal_output = tmp_path / "formal_components"
+    catalog = PublicationCatalog.from_config(
+        {
+            "normative_fiber_main": {
+                "root": str(publication),
+                "manifest": "model_manifest.json",
+            }
+        },
+        config_base=tmp_path,
+    )
+    context = prepare_fiber_section_context(
+        catalog=catalog, spatial_config_path=config_path
+    )
+    component_first = render_fiber_section_components(
+        scale_ids=("pdq39_score",),
+        output_root=formal_output,
+        catalog=catalog,
+        context=context,
+        style_overrides=arguments["style_overrides"],
+    )
+    assert len(component_first) == 2
+    assert all(item["status"] == "complete" for item in component_first)
+    assert all(Path(item["result_path"]).name == "fiber_spatial.json" for item in component_first)
+    assert not (formal_output / "manifest.json").exists()
+    assert not (formal_output / "endpoint_index.csv").exists()
+    assert not (formal_output / "README.md").exists()
+
+    component_second = render_fiber_section_components(
+        scale_ids=("pdq39_score",),
+        output_root=formal_output,
+        catalog=catalog,
+        context=context,
+        style_overrides=arguments["style_overrides"],
+    )
+    assert all(item.get("resume_status") == "reused" for item in component_second)

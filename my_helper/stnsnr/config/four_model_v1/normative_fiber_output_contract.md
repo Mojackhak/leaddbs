@@ -473,9 +473,10 @@ NetFiberScore(add-on-condition reference component; locked operator)
 - NetFiberScore(reference-condition exposure; locked operator)
 ```
 
-Support QC uses the strict normative-fiber threshold
-`reference_component_exposure > selected_reference_tau` on the complete
-parent fiber axis. For every subject and required full/fold operator:
+Support QC excludes only
+`reference_component_exposure < selected_reference_tau` on the complete parent
+fiber axis, so exposure exactly at the selected reference tau remains active.
+For every subject and required full/fold operator:
 
 ```text
 out_support_fraction =

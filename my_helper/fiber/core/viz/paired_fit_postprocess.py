@@ -263,6 +263,109 @@ Each directory contains PNG and PDF figures plus `result.json`. The root
     (output_root / "README.md").write_text(text, encoding="utf-8")
 
 
+def render_paired_fit_components(
+    *,
+    scale_ids: Sequence[str],
+    output_root: str | Path,
+    catalog: PublicationCatalog,
+    style: Mapping[str, Any],
+    result_filename: str = "in_sample_loocv_fit.json",
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Render paired-fit endpoint components without writing root metadata."""
+
+    root = Path(output_root).expanduser().resolve()
+    normalized_scales = tuple(str(value).strip() for value in scale_ids)
+    if not normalized_scales:
+        raise ValueError("scale_ids must contain at least one scale")
+    if len(set(normalized_scales)) != len(normalized_scales):
+        raise ValueError("scale_ids must not contain duplicates")
+    if Path(result_filename).name != result_filename or not result_filename.endswith(
+        ".json"
+    ):
+        raise ValueError("result_filename must be one JSON filename")
+    for scale_id in normalized_scales:
+        if not scale_id or "/" in scale_id or ".." in scale_id:
+            raise ValueError("every scale_id must be one safe path component")
+
+    results: list[dict[str, Any]] = []
+    for scale_id in normalized_scales:
+        for spec in _MODEL_SPECS:
+            leaf = root / "scales" / scale_id / spec.role / spec.unit
+            result_path = leaf / result_filename
+            item: dict[str, Any] = {
+                "schema_version": SCHEMA_VERSION,
+                "status": "running",
+                "scale_id": scale_id,
+                "model_role": spec.role,
+                "model_unit": spec.unit,
+                "model_family": spec.model_family,
+                "result_path": result_path.relative_to(root).as_posix(),
+            }
+            try:
+                references = _references(scale_id, spec)
+                sources = _resolve_sources(catalog, references)
+                source_records = {
+                    name: artifact.as_manifest_record()
+                    for name, artifact in sources.items()
+                }
+                final_model = _read_json(sources["final_model"].path)
+                summary = _read_json(sources["summary"].path)
+                _validate_endpoint(spec, scale_id, final_model, summary)
+                request_hash = _payload_hash(
+                    {
+                        "schema_version": SCHEMA_VERSION,
+                        "scale_id": scale_id,
+                        "model_family": spec.model_family,
+                        "sources": source_records,
+                        "style": dict(style),
+                    }
+                )
+                item["request_hash"] = request_hash
+                if not force and _is_reusable(result_path, request_hash, root):
+                    restored = _read_json(result_path)
+                    restored["resume_status"] = "reused"
+                    results.append(restored)
+                    continue
+
+                subjects = pd.read_csv(sources["predictions"].path)
+                output_paths, relative_outputs = _relative_outputs(
+                    root, leaf, style["formats"]
+                )
+                figure = plot_in_sample_loocv_fit(
+                    subjects,
+                    summary,
+                    style_config=style,
+                    output_paths=output_paths,
+                )
+                plt.close(figure)
+                item.update(
+                    {
+                        "status": "complete",
+                        "endpoint_id": summary.get("endpoint_id"),
+                        "final_model_id": summary.get("final_model_id"),
+                        "final_branch": summary.get("final_branch"),
+                        "selected_tau": summary.get("selected_tau"),
+                        "selected_coverage": summary.get("selected_coverage"),
+                        "metrics": _scientific_metrics(summary),
+                        "outputs": relative_outputs,
+                        "source_artifacts": source_records,
+                        "style": dict(style),
+                    }
+                )
+            except Exception as error:  # noqa: BLE001 - model-local failure is intentional
+                item.update(
+                    {
+                        "status": "failed",
+                        "error_type": type(error).__name__,
+                        "error_message": str(error),
+                    }
+                )
+            _write_json_atomic(result_path, item)
+            results.append(item)
+    return results
+
+
 def run_single_scale_paired_fit_postprocess(
     *,
     scale_id: str,
@@ -291,82 +394,15 @@ def run_single_scale_paired_fit_postprocess(
     }
     _write_json_atomic(manifest_path, manifest)
 
-    failures = 0
-    for spec in _MODEL_SPECS:
-        leaf = root / "scales" / normalized_scale / spec.role / spec.unit
-        result_path = leaf / "result.json"
-        item: dict[str, Any] = {
-            "schema_version": SCHEMA_VERSION,
-            "status": "running",
-            "scale_id": normalized_scale,
-            "model_role": spec.role,
-            "model_unit": spec.unit,
-            "model_family": spec.model_family,
-            "result_path": result_path.relative_to(root).as_posix(),
-        }
-        try:
-            references = _references(normalized_scale, spec)
-            sources = _resolve_sources(catalog, references)
-            source_records = {
-                name: artifact.as_manifest_record()
-                for name, artifact in sources.items()
-            }
-            final_model = _read_json(sources["final_model"].path)
-            summary = _read_json(sources["summary"].path)
-            _validate_endpoint(spec, normalized_scale, final_model, summary)
-            request_hash = _payload_hash(
-                {
-                    "schema_version": SCHEMA_VERSION,
-                    "scale_id": normalized_scale,
-                    "model_family": spec.model_family,
-                    "sources": source_records,
-                    "style": style,
-                }
-            )
-            item["request_hash"] = request_hash
-            if not force and _is_reusable(result_path, request_hash, root):
-                restored = _read_json(result_path)
-                restored["resume_status"] = "reused"
-                manifest["results"].append(restored)
-                continue
-
-            subjects = pd.read_csv(sources["predictions"].path)
-            output_paths, relative_outputs = _relative_outputs(
-                root, leaf, style["formats"]
-            )
-            figure = plot_in_sample_loocv_fit(
-                subjects,
-                summary,
-                style_config=style,
-                output_paths=output_paths,
-            )
-            plt.close(figure)
-            item.update(
-                {
-                    "status": "complete",
-                    "endpoint_id": summary.get("endpoint_id"),
-                    "final_model_id": summary.get("final_model_id"),
-                    "final_branch": summary.get("final_branch"),
-                    "selected_tau": summary.get("selected_tau"),
-                    "selected_coverage": summary.get("selected_coverage"),
-                    "metrics": _scientific_metrics(summary),
-                    "outputs": relative_outputs,
-                    "source_artifacts": source_records,
-                    "style": style,
-                }
-            )
-        except Exception as error:  # noqa: BLE001 - model-local failure is intentional
-            failures += 1
-            item.update(
-                {
-                    "status": "failed",
-                    "error_type": type(error).__name__,
-                    "error_message": str(error),
-                }
-            )
-        _write_json_atomic(result_path, item)
-        manifest["results"].append(item)
-        _write_json_atomic(manifest_path, manifest)
+    manifest["results"] = render_paired_fit_components(
+        scale_ids=(normalized_scale,),
+        output_root=root,
+        catalog=catalog,
+        style=style,
+        result_filename="result.json",
+        force=force,
+    )
+    failures = sum(item.get("status") != "complete" for item in manifest["results"])
 
     manifest["status"] = "complete" if failures == 0 else "completed_with_failures"
     manifest["completed_count"] = sum(
@@ -431,4 +467,8 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["SCHEMA_VERSION", "run_single_scale_paired_fit_postprocess"]
+__all__ = [
+    "SCHEMA_VERSION",
+    "render_paired_fit_components",
+    "run_single_scale_paired_fit_postprocess",
+]

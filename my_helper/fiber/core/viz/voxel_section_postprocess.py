@@ -256,6 +256,159 @@ provides a compact cross-figure index.
     (root / "README.md").write_text(text, encoding="utf-8")
 
 
+def render_voxel_section_components(
+    *,
+    scale_ids: Sequence[str],
+    output_root: str | Path,
+    catalog: PublicationCatalog,
+    resources: Mapping[str, Mapping[str, Any]],
+    style: Mapping[str, Any],
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Render direct-voxel components without writing root metadata."""
+
+    root = Path(output_root).expanduser().resolve()
+    normalized_scales = tuple(str(value).strip() for value in scale_ids)
+    if not normalized_scales:
+        raise ValueError("scale_ids must contain at least one scale")
+    if len(set(normalized_scales)) != len(normalized_scales):
+        raise ValueError("scale_ids must not contain duplicates")
+    for scale_id in normalized_scales:
+        if not scale_id or "/" in scale_id or ".." in scale_id:
+            raise ValueError("every scale_id must be one safe path component")
+    required_resources = {"background", "reference_mask", "addon_mask"}
+    if not required_resources.issubset(resources):
+        raise ValueError("voxel component resources are incomplete")
+
+    results: list[dict[str, Any]] = []
+    for scale_id in normalized_scales:
+        for role_spec in _ROLE_SPECS:
+            references = _references(scale_id, role_spec.role)
+            try:
+                sources = _resolve_sources(catalog, references)
+                final_model = _read_json(sources["final_model"].path)
+                report_summary = _read_json(sources["report_summary"].path)
+                _validate_final_model(
+                    scale_id, role_spec.role, final_model, report_summary
+                )
+                sources["benefit_map.nii.gz"] = catalog.resolve_relative(
+                    "direct_voxel_main",
+                    _selected_benefit_map_relative_path(final_model),
+                )
+            except Exception as error:  # noqa: BLE001 - role-local failure is recorded
+                for filename in _DISPLAY_MAPS:
+                    stem = filename.removesuffix(".nii.gz") + "_sections"
+                    leaf = root / "scales" / scale_id / role_spec.role / "voxel"
+                    result_path = leaf / f"{stem}.json"
+                    item = {
+                        "schema_version": SCHEMA_VERSION,
+                        "status": "failed",
+                        "scale_id": scale_id,
+                        "model_role": role_spec.role,
+                        "display_artifact_kind": filename.removesuffix(".nii.gz"),
+                        "result_path": result_path.relative_to(root).as_posix(),
+                        "error_type": type(error).__name__,
+                        "error_message": str(error),
+                    }
+                    _write_json_atomic(result_path, item)
+                    results.append(item)
+                continue
+
+            shared_source_records = {
+                name: artifact.as_manifest_record()
+                for name, artifact in sources.items()
+                if name in {"final_model", "report_summary"}
+            }
+            for filename in _DISPLAY_MAPS:
+                stem = filename.removesuffix(".nii.gz") + "_sections"
+                leaf = root / "scales" / scale_id / role_spec.role / "voxel"
+                result_path = leaf / f"{stem}.json"
+                heat_artifact = sources[filename]
+                source_records = {
+                    **shared_source_records,
+                    "heatmap": heat_artifact.as_manifest_record(),
+                }
+                request_hash = _payload_hash(
+                    {
+                        "schema_version": SCHEMA_VERSION,
+                        "scale_id": scale_id,
+                        "model_role": role_spec.role,
+                        "display_artifact_kind": filename.removesuffix(".nii.gz"),
+                        "source_artifacts": source_records,
+                        "background": resources["background"],
+                        "mask": resources[role_spec.mask_key],
+                        "style": dict(style),
+                    }
+                )
+                item: dict[str, Any] = {
+                    "schema_version": SCHEMA_VERSION,
+                    "status": "running",
+                    "request_hash": request_hash,
+                    "scale_id": scale_id,
+                    "model_role": role_spec.role,
+                    "model_unit": "voxel",
+                    "display_artifact_kind": filename.removesuffix(".nii.gz"),
+                    "result_path": result_path.relative_to(root).as_posix(),
+                }
+                try:
+                    if not force and _result_reusable(result_path, request_hash, root):
+                        restored = _read_json(result_path)
+                        restored["resume_status"] = "reused"
+                        results.append(restored)
+                        continue
+                    output_paths = [
+                        leaf / f"{stem}.{str(extension).lower().lstrip('.')}"
+                        for extension in style["formats"]
+                    ]
+                    relative_outputs = [
+                        path.relative_to(root).as_posix() for path in output_paths
+                    ]
+                    figure = plot_signed_voxel_sections(
+                        heat_artifact.path,
+                        background_image=resources["background"]["path"],
+                        mask_image=resources[role_spec.mask_key]["path"],
+                        style_config=style,
+                        output_paths=output_paths,
+                    )
+                    render_metadata = getattr(
+                        figure, "_mh_viz_voxel_section_metadata"
+                    )
+                    plt.close(figure)
+                    item.update(
+                        {
+                            "status": "complete",
+                            "final_model_id": final_model.get("final_model_id"),
+                            "final_branch": final_model.get(
+                                "realized_final_branch",
+                                final_model.get("final_branch"),
+                            ),
+                            "selected_tau": final_model.get("selected_tau_v_per_m"),
+                            "selected_coverage": final_model.get(
+                                "selected_coverage_subjects_min"
+                            ),
+                            "source_artifacts": source_records,
+                            "resources": {
+                                "background": dict(resources["background"]),
+                                "mask": dict(resources[role_spec.mask_key]),
+                            },
+                            "style": dict(style),
+                            "render_metadata": render_metadata,
+                            "outputs": relative_outputs,
+                        }
+                    )
+                except Exception as error:  # noqa: BLE001 - figure-local failure is recorded
+                    item.update(
+                        {
+                            "status": "failed",
+                            "error_type": type(error).__name__,
+                            "error_message": str(error),
+                        }
+                    )
+                _write_json_atomic(result_path, item)
+                results.append(item)
+    return results
+
+
 def run_single_scale_voxel_section_postprocess(
     *,
     scale_id: str,
@@ -301,134 +454,15 @@ def run_single_scale_voxel_section_postprocess(
     }
     _write_json_atomic(manifest_path, manifest)
 
-    failures = 0
-    for role_spec in _ROLE_SPECS:
-        references = _references(normalized_scale, role_spec.role)
-        try:
-            sources = _resolve_sources(catalog, references)
-            final_model = _read_json(sources["final_model"].path)
-            report_summary = _read_json(sources["report_summary"].path)
-            _validate_final_model(
-                normalized_scale, role_spec.role, final_model, report_summary
-            )
-            sources["benefit_map.nii.gz"] = catalog.resolve_relative(
-                "direct_voxel_main",
-                _selected_benefit_map_relative_path(final_model),
-            )
-        except Exception as error:  # noqa: BLE001 - role-local failure is recorded
-            for filename in _DISPLAY_MAPS:
-                stem = filename.removesuffix(".nii.gz") + "_sections"
-                leaf = root / "scales" / normalized_scale / role_spec.role / "voxel"
-                result_path = leaf / f"{stem}.json"
-                item = {
-                    "schema_version": SCHEMA_VERSION,
-                    "status": "failed",
-                    "scale_id": normalized_scale,
-                    "model_role": role_spec.role,
-                    "display_artifact_kind": filename.removesuffix(".nii.gz"),
-                    "result_path": result_path.relative_to(root).as_posix(),
-                    "error_type": type(error).__name__,
-                    "error_message": str(error),
-                }
-                _write_json_atomic(result_path, item)
-                manifest["results"].append(item)
-                failures += 1
-            continue
-
-        shared_source_records = {
-            name: artifact.as_manifest_record()
-            for name, artifact in sources.items()
-            if name in {"final_model", "report_summary"}
-        }
-        for filename in _DISPLAY_MAPS:
-            stem = filename.removesuffix(".nii.gz") + "_sections"
-            leaf = root / "scales" / normalized_scale / role_spec.role / "voxel"
-            result_path = leaf / f"{stem}.json"
-            heat_artifact = sources[filename]
-            source_records = {
-                **shared_source_records,
-                "heatmap": heat_artifact.as_manifest_record(),
-            }
-            request_hash = _payload_hash(
-                {
-                    "schema_version": SCHEMA_VERSION,
-                    "scale_id": normalized_scale,
-                    "model_role": role_spec.role,
-                    "display_artifact_kind": filename.removesuffix(".nii.gz"),
-                    "source_artifacts": source_records,
-                    "background": resources["background"],
-                    "mask": resources[role_spec.mask_key],
-                    "style": style,
-                }
-            )
-            item: dict[str, Any] = {
-                "schema_version": SCHEMA_VERSION,
-                "status": "running",
-                "request_hash": request_hash,
-                "scale_id": normalized_scale,
-                "model_role": role_spec.role,
-                "model_unit": "voxel",
-                "display_artifact_kind": filename.removesuffix(".nii.gz"),
-                "result_path": result_path.relative_to(root).as_posix(),
-            }
-            try:
-                if not force and _result_reusable(result_path, request_hash, root):
-                    restored = _read_json(result_path)
-                    restored["resume_status"] = "reused"
-                    manifest["results"].append(restored)
-                    continue
-                output_paths = [
-                    leaf / f"{stem}.{str(extension).lower().lstrip('.')}"
-                    for extension in style["formats"]
-                ]
-                relative_outputs = [
-                    path.relative_to(root).as_posix() for path in output_paths
-                ]
-                figure = plot_signed_voxel_sections(
-                    heat_artifact.path,
-                    background_image=resources["background"]["path"],
-                    mask_image=resources[role_spec.mask_key]["path"],
-                    style_config=style,
-                    output_paths=output_paths,
-                )
-                render_metadata = getattr(
-                    figure, "_mh_viz_voxel_section_metadata"
-                )
-                plt.close(figure)
-                item.update(
-                    {
-                        "status": "complete",
-                        "final_model_id": final_model.get("final_model_id"),
-                        "final_branch": final_model.get(
-                            "realized_final_branch",
-                            final_model.get("final_branch"),
-                        ),
-                        "selected_tau": final_model.get("selected_tau_v_per_m"),
-                        "selected_coverage": final_model.get(
-                            "selected_coverage_subjects_min"
-                        ),
-                        "source_artifacts": source_records,
-                        "resources": {
-                            "background": resources["background"],
-                            "mask": resources[role_spec.mask_key],
-                        },
-                        "style": style,
-                        "render_metadata": render_metadata,
-                        "outputs": relative_outputs,
-                    }
-                )
-            except Exception as error:  # noqa: BLE001 - figure-local failure is recorded
-                failures += 1
-                item.update(
-                    {
-                        "status": "failed",
-                        "error_type": type(error).__name__,
-                        "error_message": str(error),
-                    }
-                )
-            _write_json_atomic(result_path, item)
-            manifest["results"].append(item)
-            _write_json_atomic(manifest_path, manifest)
+    manifest["results"] = render_voxel_section_components(
+        scale_ids=(normalized_scale,),
+        output_root=root,
+        catalog=catalog,
+        resources=resources,
+        style=style,
+        force=force,
+    )
+    failures = sum(item.get("status") != "complete" for item in manifest["results"])
 
     manifest["status"] = "complete" if failures == 0 else "completed_with_failures"
     manifest["completed_count"] = sum(
@@ -475,4 +509,8 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["SCHEMA_VERSION", "run_single_scale_voxel_section_postprocess"]
+__all__ = [
+    "SCHEMA_VERSION",
+    "render_voxel_section_components",
+    "run_single_scale_voxel_section_postprocess",
+]

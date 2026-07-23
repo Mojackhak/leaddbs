@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import h5py
 import nibabel as nib
@@ -1035,7 +1036,12 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
             "final": DependencyState("completed", "none", selection),
         }
 
-        def block_request(cache: ContentAddressedCache, output_name: str) -> TaskExecutionRequest:
+        def block_request(
+            cache: ContentAddressedCache,
+            output_name: str,
+            *,
+            allow_expensive_producers: bool,
+        ) -> TaskExecutionRequest:
             return TaskExecutionRequest(
                 task=task,
                 dependencies=dependencies,
@@ -1044,13 +1050,17 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
                 provider=provider,
                 artifact_store=store,
                 scientific_cache=cache,
-                allow_expensive_producers=False,
+                allow_expensive_producers=allow_expensive_producers,
                 workers=2,
             )
 
         cache_a = ContentAddressedCache(self.root / "cache-a")
         block_result = prepare_jitter_exposure_block(
-            block_request(cache_a, "block-output-a")
+            block_request(
+                cache_a,
+                "block-output-a",
+                allow_expensive_producers=True,
+            )
         )
         block_record = block_result.decode_record()
         self.assertIsInstance(block_record, SensitivityResult)
@@ -1179,7 +1189,11 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
             shutil.move(subject_dir, raw_backup / subject_dir.name)
         cache_b = ContentAddressedCache(cache_b_root)
         copied_result = prepare_jitter_exposure_block(
-            block_request(cache_b, "block-output-b")
+            block_request(
+                cache_b,
+                "block-output-b",
+                allow_expensive_producers=False,
+            )
         )
         copied_record = copied_result.decode_record()
         assert isinstance(copied_record, SensitivityResult)
@@ -1200,16 +1214,27 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
                 block_request(
                     ContentAddressedCache(cache_b_root),
                     "block-output-corrupt",
+                    allow_expensive_producers=False,
                 )
             )
 
-        with self.assertRaisesRegex(RuntimeError, "missing_sensitivity_source"):
-            prepare_jitter_exposure_block(
-                block_request(
-                    ContentAddressedCache(self.root / "cache-miss"),
-                    "block-output-miss",
+        with patch.object(
+            provider,
+            "build_jitter_physical_block",
+            wraps=provider.build_jitter_physical_block,
+        ) as producer:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "cache misses require expensive producer authorization",
+            ):
+                prepare_jitter_exposure_block(
+                    block_request(
+                        ContentAddressedCache(self.root / "cache-miss"),
+                        "block-output-miss",
+                        allow_expensive_producers=False,
+                    )
                 )
-            )
+            producer.assert_not_called()
 
     def test_fixed_addon_voxel_block_matches_legacy_no_delta_exposure(self) -> None:
         provider, catalog, store, artifact_root = self._provider(self._study())
@@ -1345,7 +1370,7 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
             provider=provider,
             artifact_store=store,
             scientific_cache=cache,
-            allow_expensive_producers=False,
+            allow_expensive_producers=True,
             workers=2,
         )
         block_record = prepare_jitter_exposure_block(block_request).decode_record()
@@ -1363,6 +1388,7 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
                 "block": DependencyState("completed", "none", block_record),
             },
             output_dir=artifact_root / "addon-voxel-block-consumer",
+            allow_expensive_producers=False,
         )
         cached_provider = CachedJitterReplicateProvider(
             request=consumer_request,
@@ -1534,7 +1560,7 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
             provider=provider,
             artifact_store=store,
             scientific_cache=cache,
-            allow_expensive_producers=False,
+            allow_expensive_producers=True,
             workers=2,
         )
         block_record = prepare_jitter_exposure_block(block_request).decode_record()
@@ -1552,6 +1578,7 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
                 "block": DependencyState("completed", "none", block_record),
             },
             output_dir=artifact_root / "reference-fiber-block-consumer",
+            allow_expensive_producers=False,
         )
         cached_provider = CachedJitterReplicateProvider(
             request=consumer_request,
@@ -1830,7 +1857,7 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
             provider=provider,
             artifact_store=store,
             scientific_cache=cache,
-            allow_expensive_producers=False,
+            allow_expensive_producers=True,
             workers=2,
         )
         block_record = prepare_jitter_exposure_block(block_request).decode_record()
@@ -1848,6 +1875,7 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
                 "block": DependencyState("completed", "none", block_record),
             },
             output_dir=artifact_root / "adjusted-fiber-block-consumer",
+            allow_expensive_producers=False,
         )
         cached_provider = CachedJitterReplicateProvider(
             request=consumer_request,
@@ -2266,7 +2294,7 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
             provider=provider,
             artifact_store=store,
             scientific_cache=cache,
-            allow_expensive_producers=False,
+            allow_expensive_producers=True,
             workers=2,
         )
         block_record = prepare_jitter_exposure_block(block_request).decode_record()
@@ -2284,6 +2312,7 @@ class StudyJitterReplicateProviderTest(unittest.TestCase):
                 "block": DependencyState("completed", "none", block_record),
             },
             output_dir=artifact_root / "adjusted-voxel-block-consumer",
+            allow_expensive_producers=False,
         )
         cached_provider = CachedJitterReplicateProvider(
             request=consumer_request,

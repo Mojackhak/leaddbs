@@ -21,11 +21,17 @@ from my_helper.fiber.core.viz.artifacts import restore_voxel_vector_to_nifti
 from my_helper.fiber.core.viz.layout import build_figure_layout
 from my_helper.fiber.core.viz.model_fit import plot_in_sample_loocv_fit
 from my_helper.fiber.core.viz.postprocess import SCHEMA_VERSION, run_postprocess
-from my_helper.fiber.core.viz.published_artifacts import PublishedArtifactError
+from my_helper.fiber.core.viz.plugin.default import get_voxel_section_cfg
+from my_helper.fiber.core.viz.published_artifacts import (
+    PublicationCatalog,
+    PublishedArtifactError,
+)
 from my_helper.fiber.core.viz.scene_example_inputs import prepare_scene_example_input
 from my_helper.fiber.core.viz.spatial import plot_sweet_sour_slices
 from my_helper.fiber.core.viz.voxel_sections import plot_signed_voxel_sections
 from my_helper.fiber.core.viz.voxel_section_postprocess import (
+    _resource_record,
+    render_voxel_section_components,
     run_single_scale_voxel_section_postprocess,
 )
 
@@ -934,6 +940,58 @@ def test_single_scale_voxel_section_postprocess_writes_and_reuses_six_figures(
     assert second["status"] == "complete"
     assert second["failed_count"] == 0
     assert second["reused_count"] == 6
+
+
+def test_voxel_components_do_not_write_formal_root_metadata(tmp_path: Path) -> None:
+    publication, anatomy, reference_mask, addon_mask = _voxel_section_publication(
+        tmp_path
+    )
+    output_root = tmp_path / "formal_components"
+    catalog = PublicationCatalog.from_config(
+        {
+            "direct_voxel_main": {
+                "root": str(publication),
+                "manifest": "model_manifest.json",
+            }
+        },
+        config_base=tmp_path,
+    )
+    resources = {
+        "background": _resource_record(anatomy, "anatomy_background"),
+        "reference_mask": _resource_record(reference_mask, "reference_mask"),
+        "addon_mask": _resource_record(addon_mask, "addon_mask"),
+    }
+    style = get_voxel_section_cfg(
+        {
+            "formats": ("png",),
+            "dpi": 72,
+            "resolution_mm": 0.5,
+            "boxsize": (12.0, 10.0),
+            "panel_gap": (1.0, 1.0),
+        }
+    )
+
+    first = render_voxel_section_components(
+        scale_ids=("pdq39_score",),
+        output_root=output_root,
+        catalog=catalog,
+        resources=resources,
+        style=style,
+    )
+    assert len(first) == 6
+    assert all(item["status"] == "complete" for item in first)
+    assert not (output_root / "manifest.json").exists()
+    assert not (output_root / "figure_index.csv").exists()
+    assert not (output_root / "README.md").exists()
+
+    second = render_voxel_section_components(
+        scale_ids=("pdq39_score",),
+        output_root=output_root,
+        catalog=catalog,
+        resources=resources,
+        style=style,
+    )
+    assert all(item.get("resume_status") == "reused" for item in second)
 
 
 def test_legacy_matlab_visualization_functions_are_merged() -> None:

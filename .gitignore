@@ -9,6 +9,7 @@
 *.json
 !my_helper/atlas/specs/*.json
 !my_helper/fiber/core/dual_frequency/tests/canonical_publication_tree_v1.json
+!my_helper/stnsnr/config/four_model_v1/formal_postprocess.json
 *.woff
 *.trk.gz
 *.trk

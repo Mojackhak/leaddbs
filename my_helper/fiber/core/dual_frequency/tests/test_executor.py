@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -1188,15 +1189,33 @@ class ExecutorTest(unittest.TestCase):
                 plan_hash="f" * 64,
                 parent_run_id="older-run",
             )
-            RunStore.open(
+            changed_audit_store = RunStore.open(
                 root,
                 audit_only_mismatch,
                 resolved_configuration={"profile": "changed-derived-snapshot"},
                 configuration_sources=(),
                 resume=True,
             )
+            changed_audit_resume = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=changed_audit_store,
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    resume=True,
+                ),
+            )
         self.assertEqual(first.exit_code, 0)
         self.assertEqual(resumed.exit_code, 0)
+        self.assertEqual(changed_audit_resume.exit_code, 0)
+        self.assertEqual(
+            changed_audit_resume.outcomes[0].reason,
+            "restored_completed_result",
+        )
         self.assertEqual(calls, [task.task_id])
 
     def test_resume_reruns_only_missing_operator_scratch_workspace(self) -> None:
@@ -1387,7 +1406,7 @@ class ExecutorTest(unittest.TestCase):
         aggregate = _task(
             endpoint,
             "activation_sensitivity",
-            "aggregate",
+            "aggregate_ppam_activation",
             dependencies=(observed.task_id, schedule.task_id, block.task_id),
         )
         plan = self._plan((observed, schedule, block, aggregate))
@@ -1413,25 +1432,30 @@ class ExecutorTest(unittest.TestCase):
             (
                 RegisteredService("observed", observed_service),
                 RegisteredService("must_not_run", must_not_run),
-                RegisteredService("aggregate", aggregate_service),
+                RegisteredService("aggregate_ppam_activation", aggregate_service),
             )
         )
         with tempfile.TemporaryDirectory() as temporary_directory:
-            result = execute_plan(
-                plan,
-                ExecutionContext(
-                    run_store=self._store(
-                        Path(temporary_directory) / "run",
-                        plan,
+            with patch.object(
+                _ResourceLedger,
+                "_memory_state",
+                return_value=(128 * 1024**3, 128 * 1024**3),
+            ):
+                result = execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=self._store(
+                            Path(temporary_directory) / "run",
+                            plan,
+                        ),
+                        registry=registry,
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=False,
+                        continue_on_endpoint_failure=True,
+                        workers=2,
                     ),
-                    registry=registry,
-                    provider=_Provider(endpoint),
-                    endpoint_facts={},
-                    allow_expensive_producers=False,
-                    continue_on_endpoint_failure=True,
-                    workers=2,
-                ),
-            )
+                )
         outcomes = {outcome.task_id: outcome for outcome in result.outcomes}
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(calls, [observed.task_id, aggregate.task_id])
@@ -1518,21 +1542,26 @@ class ExecutorTest(unittest.TestCase):
                         result=service_result,
                     ).as_dict(),
                 )
-            result = execute_plan(
-                plan,
-                ExecutionContext(
-                    run_store=store,
-                    registry=ServiceRegistry(
-                        (RegisteredService("count", count),)
+            with patch.object(
+                _ResourceLedger,
+                "_memory_state",
+                return_value=(128 * 1024**3, 128 * 1024**3),
+            ):
+                result = execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=store,
+                        registry=ServiceRegistry(
+                            (RegisteredService("count", count),)
+                        ),
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=False,
+                        continue_on_endpoint_failure=True,
+                        workers=2,
+                        resume=True,
                     ),
-                    provider=_Provider(endpoint),
-                    endpoint_facts={},
-                    allow_expensive_producers=False,
-                    continue_on_endpoint_failure=True,
-                    workers=2,
-                    resume=True,
-                ),
-            )
+                )
         outcomes = {outcome.task_id: outcome for outcome in result.outcomes}
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(calls, [second_block.task_id, aggregate.task_id])

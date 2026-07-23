@@ -15,11 +15,66 @@ reused all six results on an immediate second invocation. The revision fixes
 the per-cell MNI field to 12 by 10 mm, preserves the raw finite ROI during
 display smoothing, uses a 1 point mask boundary, and preserves opaque MyLFP
 strip colors on the transparent canvas. Internal visual and PDF QA passed;
-explicit user visual acceptance remains pending. No other scale
-or fiber spatial batch is authorized. This document is the implementation contract
+final visual review remains part of full-cohort acceptance. The active
+full-goal continuation now authorizes the all-scale batch after the ordered
+Task 17 publication dependencies complete. The existing PDQ-39 and FoGQ fiber
+roots remain refinement checkpoints and cannot substitute for that batch. This
+document is the implementation contract
 for a postprocess visualization layer that consumes formally published
 dual-frequency final-model artifacts without rerunning model fitting,
 permutation, bootstrap, jitter, or OSS-DBS. A run-store adapter is prohibited.
+
+A read-only filesystem inventory on 2026-07-21 found 19 current checkpoint
+roots below
+`/Volumes/VAL/STNSNr/summary/spot/postprocess/dual_frequency_four_model_v1/`.
+They comprise two PDQ-39 direct-voxel roots, 11 PDQ-39 normative-fiber roots,
+and six FoGQ normative-fiber roots. Every root has a terminal `complete`
+manifest with zero failed results. Each direct-voxel root contains six complete
+render results; each normative-fiber root contains two. The newest checkpoints
+are `task17-pdq39-voxel-spatial-v2-scale-label-20260721`,
+`task17-pdq39-fiber-spatial-v11-target-raincloud-20260721`, and
+`task17-fogq-fiber-spatial-v6-target-raincloud-20260721`.
+
+This 19-root inventory does not constitute the current full 112-endpoint
+postprocess deliverable. It covers only two scales, mixes successive visual
+refinement versions, and has no durable full-cohort request manifest from which
+the deleted historical batch can be reproduced or resumed as one formal job.
+The earlier all-endpoint render remains historical implementation evidence
+only. After explicit visual acceptance, the formal replay must derive a new
+durable request from the canonical main and final-in-sample publications, write
+one new immutable full-cohort output root, and repeat the identical request to
+prove output-local resume. It must not treat a deleted root or any refinement
+checkpoint as a completed full-cohort item.
+
+The active full-goal continuation on 2026-07-22 authorizes that formal replay
+after its required canonical Task 17 publication dependencies are terminal.
+The durable request is stored at
+`my_helper/stnsnr/config/four_model_v1/formal_postprocess.json` and targets the
+new immutable root
+`/Volumes/VAL/STNSNr/summary/spot/postprocess/dual_frequency_four_model_v1/`
+`task17-formal-postprocess-v1-20260722`. It selects every canonical scale and
+all three batch component families. It binds the canonical main and
+final-in-sample v2 publications, the accepted 7-T display anatomy, the
+right-sided STN and SNr outline masks, and the normative-fiber spatial
+configuration. The request may be validated now, but rendering remains ordered
+after independent OSS, combined execution, and the remaining canonical
+extension replays so the full Task 17 publication audit precedes the final
+postprocess acceptance. The independent jitter lineage already has accepted
+self-contained v2 publications in both public domains: each contains 56
+results, 170 relative artifact-index rows, complete parent binding, and an
+unchanged manifest after identical replay. OSS-v2 and combined-v2 remain
+pending and continue to gate the formal render.
+
+A fresh read-only preflight on 2026-07-22 validated this durable request while
+the independent OSS lineage remained active. It resolved 28 scales, 112 final
+endpoints, four canonical main/final-in-sample publications, and the
+`paired_fit`, `voxel_2d`, and `fiber_2d` component families. The accepted 7-T
+anatomy, STN/SNr masks, formal PPMI85 connectome, fiber projection profile,
+PDF tooling, and PNG/PDF formats all passed identity and availability checks.
+The command used `--validate-only`; it did not create the formal output root or
+read any run-store path. This accepts the current input preflight only. It does
+not replace the ordered full render, terminal output verification, or
+identical-request resume after the Task 17 sensitivity publications close.
 
 ## Goal
 
@@ -64,6 +119,7 @@ my_helper/fiber/core/viz/
   spatial.py
   model_fit.py
   paired_fit_postprocess.py
+  formal_postprocess.py
   postprocess.py
   plugin/
     __init__.py
@@ -126,6 +182,15 @@ Postprocess is unaffected by workflow cache retention. It remains usable after
 an eligible cache cleanup because every scientific input comes from canonical
 publication. The configured production workflow currently retains cache so
 later jitter, OSS-DBS, and combined extensions can reuse physical preparation.
+
+An extension-v1 reporting mirror is not a canonical publication. In particular,
+a completed manifest does not authorize postprocess when its artifact index
+retains a `file://` URI below `.runs`, `tasks`, `work`, or `runtime_work`, or
+when endpoint documents expose only run artifact IDs. The 2026-07-21 audit found
+this condition in the completed support-preserving jitter mirrors. Jitter may
+be used by a future visualization only after a self-contained extension-v2
+replay publishes verified payloads and publication-relative index paths. Main
+and final-in-sample v2 publications remain valid and are unaffected.
 
 Model summaries, final-model records, prediction tables, voxel maps, fiber
 axes, fiber weights, density maps, and formal or in-sample inference summaries
@@ -680,41 +745,249 @@ seed-target traversal suite passed 106 tests and 27 subtests, with one optional
 real-data acceptance test skipped. The formal output passed NIfTI grid,
 support-decomposition, assignment-fraction, finite-support, output-presence,
 figure-metadata, and mass-conservation checks. This evidence authorizes only
-the PDQ-39 checkpoint; no other scale was rendered.
+the PDQ-39 checkpoint; no other scale was rendered in that checkpoint.
 
 ## Output Contract
 
 ```text
 postprocess/<postprocess-id>/
+  request.json
+  resolved_request.json
   README.md
   endpoint_index.csv
   manifest.json
+  .cache/
+    <scale-id>/<reference-or-addon>/fiber_projection_<projection-hash>.npz
   scales/
     <scale-id>/
       reference/
         voxel/
           in_sample_loocv_fit.png
           in_sample_loocv_fit.pdf
-          result.json
+          in_sample_loocv_fit.json
+          benefit_map_sections.png
+          benefit_map_sections.pdf
+          benefit_map_sections.json
+          benefit_map_smooth_fwhm1mm_sections.png
+          benefit_map_smooth_fwhm1mm_sections.pdf
+          benefit_map_smooth_fwhm1mm_sections.json
+          benefit_map_smooth_fwhm2mm_sections.png
+          benefit_map_smooth_fwhm2mm_sections.pdf
+          benefit_map_smooth_fwhm2mm_sections.json
         fiber/
           in_sample_loocv_fit.png
           in_sample_loocv_fit.pdf
-          result.json
+          in_sample_loocv_fit.json
+          fiber_spatial.json
+          direct_streamline/
+            maps/
+            figures/
+          target_conditioned/
+            maps/
+            tables/
+            figures/
       addon/
         voxel/
           in_sample_loocv_fit.png
           in_sample_loocv_fit.pdf
-          result.json
+          in_sample_loocv_fit.json
+          benefit_map_sections.png
+          benefit_map_sections.pdf
+          benefit_map_sections.json
+          benefit_map_smooth_fwhm1mm_sections.png
+          benefit_map_smooth_fwhm1mm_sections.pdf
+          benefit_map_smooth_fwhm1mm_sections.json
+          benefit_map_smooth_fwhm2mm_sections.png
+          benefit_map_smooth_fwhm2mm_sections.pdf
+          benefit_map_smooth_fwhm2mm_sections.json
         fiber/
           in_sample_loocv_fit.png
           in_sample_loocv_fit.pdf
-          result.json
+          in_sample_loocv_fit.json
+          fiber_spatial.json
+          direct_streamline/
+            maps/
+            figures/
+          target_conditioned/
+            maps/
+            tables/
+            figures/
 ```
 
+The formal all-endpoint transaction is intentionally limited to paired-fit and
+two-dimensional spatial outputs. The three-dimensional contract is fulfilled
+by the two canonical-publication-backed PDQ-39 MATLAB examples, one direct
+voxel and one normative fiber. They open interactive `ea_mnifigure` windows and
+create no file unless the caller explicitly supplies an output path. They are
+not silently expanded into 112 static scenes.
+
+`request.json` is the immutable user-facing request copied into the output
+root before rendering. It declares publication aliases, the requested output
+families, all-available or explicit scale scope, the accepted visual-contract
+identity, and the output root. It does not contain scientific values copied
+from endpoint summaries. `resolved_request.json` is generated only from the
+validated canonical model-set and final-in-sample publications. It enumerates
+every selected endpoint with publication-relative final-model, summary,
+prediction, voxel-map, or fiber-map references; final-model identity; realized
+tau, Coverage, and branch; byte counts; and SHA-256 values. For the current
+formal all-available publications it must contain 112 unique endpoint entries.
+
+The renderer must not rely on an untracked file below `/private/tmp`, infer a
+missing endpoint list from a deleted output, or silently narrow an
+all-available request to the scales already present in refinement roots. The
+root `manifest.json` becomes terminal only after the resolved request,
+endpoint results, endpoint index, and every declared output pass validation.
+
+`validate_formal_postprocess_output` is the independent terminal verifier. It
+recomputes the immutable request and resolved-request hashes, requires a
+terminal complete root manifest, proves exact endpoint count and unique IDs,
+matches every endpoint-index row, checks every declared output as a contained
+regular file, and scans public JSON and CSV metadata for run-store or runtime-
+work paths. The verifier is read-only and must fail on a missing output,
+nonterminal endpoint, count mismatch, hash mismatch, path escape, duplicate
+endpoint, incomplete index, or forbidden source path. Formal acceptance runs
+this verifier after the first render and again after the identical resume.
+
+Every terminal endpoint row separately lists its scientific or figure outputs
+and all component manifests that authorize those outputs. For the complete
+three-family request, each voxel endpoint binds one paired-fit manifest plus
+three voxel-figure manifests, while each fiber endpoint binds one paired-fit
+manifest plus one fiber-spatial manifest. Root completion requires these exact
+component rows; the terminal verifier opens every component manifest, requires
+terminal complete status, and rejects a missing, duplicated, uncontained, or
+unlisted component manifest even when all image files happen to exist.
+
+Declared-output validation is format-aware. PNG files must decode through
+Pillow with positive dimensions; PDFs must have a valid PDF envelope, parse
+through Poppler `pdffonts`, and contain an Arial-family embedded font; SVG must
+parse as an SVG document; JSON and CSV must parse structurally; and NIfTI files
+must open with a valid nonempty image shape. Other declared files must be
+nonempty. These checks complement, but do not replace, the required sampled
+visual inspection of rendered PNG and PDF pages.
+
+The terminal verifier is implemented in `formal_postprocess.py` and exposed by
+`--validate-output`. Its focused fixture accepts a complete eight-endpoint,
+two-scale output after identical resume, rejects a component manifest whose
+terminal status is changed to running, rejects a duplicated root component row
+that is not in one-to-one endpoint closure, rejects an unrequested component
+family, and then rejects the same root after one declared figure is removed. A
+PDF-focused fixture also proves that a successful Poppler parse without an
+Arial-family font is rejected. These checks are included in the current
+37-test visualization suite.
+
+The durable real request resolves PNG and PDF output and passed its tooling
+preflight with `/opt/homebrew/bin/pdffonts`. A missing Poppler font inspector
+now fails before the formal output root is created or rendering begins.
+
+`formal_postprocess.py` owns the full-cohort root transaction. The existing
+paired-fit, direct-voxel section, and normative-fiber section entry points are
+single-scale checkpoint runners; each currently writes root-level
+`manifest.json`, README, and index files. The formal orchestrator must not call
+those root-writing wrappers repeatedly into one directory because a later
+scale or component would overwrite earlier root state. Refactor their rendering
+work into reusable component functions that write only below the selected
+`scales/<scale-id>/` subtree plus component-specific child manifests. The
+formal orchestrator alone writes `request.json`, `resolved_request.json`, the
+root README and endpoint index, and the terminal root `manifest.json`.
+
+The full orchestrator validates shared publications and rendering resources
+once per process. It opens the formal connectome once, reuses the validated
+whole-connectome seed/target-pattern cache across all normative-fiber scales,
+and never reloads the 7-T anatomy as one full floating-point array. Existing
+single-scale public CLIs remain available for explicit checkpoints and retain
+their current output contract. Focused tests must prove that two scales and all
+three component families coexist without root-file overwrite, that a partial
+second scale preserves a complete first scale for resume, and that the root
+manifest cannot become terminal while any resolved endpoint or component is
+missing.
+
+The implementation boundary is a component API rather than nested checkpoint
+CLIs. `render_paired_fit_components`, `render_voxel_section_components`, and
+`render_fiber_section_components` receive an already validated publication
+catalog, an explicit ordered scale list, the final output root, resolved shared
+resources, style, and force policy. They may write only endpoint or component
+results below `scales/<scale-id>/...` and return manifest rows; they must not
+write root request, index, README, or manifest files. Each historical
+single-scale runner delegates its rendering work to the matching component API
+and then writes its legacy root contract. `formal_postprocess.py` constructs
+the shared catalog and resources once, calls all requested component APIs, and
+is the sole writer of the formal root transaction. This separation is required
+before a new all-cohort request is executed.
+
+Formal component manifests must not collide inside one model leaf. Paired-fit
+state is written as `in_sample_loocv_fit.json`; direct-voxel figures retain one
+JSON beside each figure stem; normative-fiber spatial state is written as
+`fiber_spatial.json`. Historical single-scale checkpoint CLIs may retain their
+legacy `result.json` name because each checkpoint root contains only one
+component family. Formal resume keys each component by its own manifest and
+never lets a later component replace an earlier complete result.
+
+This component boundary and the first formal orchestrator implementation were
+completed on 2026-07-22. The paired-fit and direct-voxel renderers now expose
+root-silent multi-scale component APIs. Normative-fiber rendering uses one
+validated `FiberSectionContext`, so a formal process opens the connectome,
+targets, anatomy metadata, and publication catalog once and writes
+`fiber_spatial.json` per model leaf. `formal_postprocess.py` validates the four
+canonical publications, resolves an all-available or explicit scale matrix,
+writes immutable request and resolved-request records, runs requested component
+families with isolated spatial failures, writes one endpoint index and README,
+and commits the root manifest as complete only when every resolved endpoint has
+all required component rows. Existing single-scale CLIs retain their legacy
+root contracts. The visualization suite passed 37 tests, including formal
+two-scale coexistence across all three component families, component-local
+resume that preserves a complete first scale while repairing a failed second
+scale, no component root overwrite, immutable-request rejection, and refusal
+to mark missing component rows complete. Real canonical all-cohort execution
+remains pending until the Task 17 extension publications required by the
+current goal are terminal.
+
+The formal request binds an approximately 8.7-GB 7-T anatomy. Validation now
+creates one process-local anatomy identity record and passes it to both voxel
+and fiber components; the fiber context rejects a path mismatch and does not
+rehash the same anatomy. This prevents a duplicate full-file read during both
+validation and rendering while preserving the same SHA-256 and NIfTI geometry
+checks.
+
+A publication-only lightweight preflight of the durable request completed on
+2026-07-22 without reading the large anatomy. It validated four canonical
+publications, 28 identical direct-voxel and normative-fiber scale IDs, and 112
+unique core endpoints split into 56 voxel and 56 fiber models. Every endpoint
+resolved and verified its final model, final-in-sample summary, and paired
+prediction table. The preflight also preserved the existing canonical contract
+that a final-model ID is compared only when the domain-specific main final
+record provides one; otherwise the completed summary supplies the publication
+identity. The full spatial-artifact and shared-resource preflight remains
+deferred until the active OSS workload no longer competes for VAL I/O.
+
+The publication-only preflight was then expanded to every requested spatial
+source without reading the anatomy. All 112 endpoints passed. The resolved
+closure contains 392 direct-voxel source references and 448 normative-fiber
+source references, totaling 233,349,261 referenced bytes before deduplication.
+This validates the selected raw and smoothed voxel maps, report summaries,
+fiber axes, full weights, selected sweet and sour IDs, source selections,
+final models, in-sample summaries, and paired prediction tables. Only the
+large shared anatomy and external mask/connectome resource identities remain
+for the deferred full preflight.
+
+A separate publication-pair audit on 2026-07-22 compared all 112 final-in-
+sample summaries with their domain-specific canonical main final records. The
+realized tau, Coverage, and branch matched for every endpoint. All 56 direct-
+voxel final-model IDs also matched. The normative-fiber main publication uses
+its own `normative_fiber_final_model_v1` schema: it stores the branch as
+`final_branch` and does not expose `final_model_id`, so the completed in-sample
+summary remains the publication identity source for those 56 endpoints, as
+already required by the resolver contract. The apparent cross-domain field-
+name difference is therefore not a scientific mismatch. The realized
+distribution contains 56 direct-voxel rows at tau 200 and Coverage 5 and 56
+normative-fiber rows at tau 400 and Coverage 5; branch binding still varies by
+endpoint and is never inferred from those profile-first values.
+
 Opaque endpoint IDs remain manifest fields for resume and provenance; they are
-not user-facing directory names. During the active checkpoint, the tree
-contains only `scales/pdq39_score/`. Spatial output will be added only after its
-separate visual contract is accepted.
+not user-facing directory names. Every refinement root contains only its
+requested scale. The current roots contain PDQ-39 or FoGQ checkpoints; the
+future formal full-cohort root must contain every requested canonical scale.
+Spatial output for the remaining scales will be added only after its separate
+visual contract is accepted.
 
 Each manifest records canonical publication IDs, indexed relative source paths,
 source hashes, selected model key, plotting parameters, output paths,
@@ -740,6 +1013,15 @@ Postprocess resume is output-local. A completed item is reusable when its
 manifest contains the same source artifact identities, endpoint final model
 key, and rendering configuration, and all declared outputs exist. Repository
 code identity is not a resume gate.
+
+Formal resume first compares the immutable `request.json` and generated
+`resolved_request.json` identities, then validates each endpoint `result.json`
+and its declared outputs. A matching complete endpoint is reused. A missing,
+failed, partial, changed-source, changed-style, or missing-output endpoint is
+rerun without deleting independent complete endpoints. A terminal root
+manifest is reusable only when every endpoint in the resolved request is
+complete. Historical refinement roots and the deleted 2026-07-19 batch never
+enter this resume decision.
 
 Failure to resolve fiber geometry must fail only the fiber spatial item. It must
 not block voxel plots or statistical-fit plots. A missing optional anatomy or
@@ -768,7 +1050,39 @@ completed normative-fiber endpoint before cohort-wide postprocessing.
 
 ## Invocation
 
-### Formal production request
+### Current formal invocation
+
+After the independent OSS, combined execution, and all canonical extension-v2
+replays pass their terminal audits, execute the durable full-cohort request in
+Conda `leaddbs` with caller `PYTHONPATH` removed:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python -m \
+  my_helper.fiber.core.viz.formal_postprocess \
+  --config my_helper/stnsnr/config/four_model_v1/formal_postprocess.json
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python -m \
+  my_helper.fiber.core.viz.formal_postprocess \
+  --validate-output /Volumes/VAL/STNSNr/summary/spot/postprocess/dual_frequency_four_model_v1/task17-formal-postprocess-v1-20260722
+```
+
+Repeat the first command without `--force`. The identical request must reuse
+every complete endpoint and must not rewrite a completed figure or component
+manifest. Then repeat the independent `--validate-output` command. Acceptance
+requires both terminal validations to pass, exact 112-endpoint closure, all
+three requested component families, format-aware output checks, sampled visual
+inspection, and no run-store path in public metadata.
+
+The read-only production preflight passed on 2026-07-22 with the exact request
+above and `--validate-only`. It resolved four completed canonical publications,
+28 scales, 112 endpoints, and the `paired_fit`, `voxel_2d`, and `fiber_2d`
+component families. It also verified the anatomy image, both anatomical masks,
+the 1.7-million-fiber formal connectome, all 18 target definitions, and the PDF
+font inspection tool. The preflight status was `valid`; no figure or output
+root was created. Formal rendering remains intentionally gated on completion
+and publication of the independent OSS and combined sensitivity lineages.
+
+### Historical formal production request
 
 The 2026-07-19 production acceptance request uses the completed
 `dual_frequency_four_model_v1` direct-voxel and normative-fiber model-set
@@ -798,6 +1112,12 @@ execution must reuse all completed endpoint manifests and outputs without
 rerendering. Any failed or partial endpoint remains in place for output-local
 resume; postprocess never cleans the run store, canonical publications,
 extensions, or shared cache.
+
+The request and output described in this subsection were executed in 2026-07-19
+and were later deleted by the user. They are retained here as historical
+acceptance evidence, not as a current invocation source or current deliverable.
+The next formal invocation requires a newly persisted request manifest and a
+new immutable output root as specified in the Status section.
 
 The first real PDQ-39 smoke render exposed a layout defect before cohort-wide
 execution: every bottom-row panel repeated a long generic horizontal-axis
@@ -893,6 +1213,57 @@ change and is not performed by this repository migration.
 
 ## Implementation Validation
 
+A read-only source re-audit on 2026-07-21 reconfirmed the interactive 3D
+contract without launching MATLAB during the formal OSS run. Both PDQ-39
+examples resolve their scientific inputs through canonical publication roots,
+create no FIG, image, PDF, or spin output, and never inspect `.runs`. The voxel
+example explicitly requests 0.5 mm inward surface sampling. The scene defaults
+retain the reference arrow geometry while applying R, A, and S colors
+`#F2000E`, `#0E6AAF`, and `#0CA228`. Voxel surfaces and scored fibers use
+separate symmetric `vik` mappings and right-side colorbars; anatomy surfaces
+are converted to grayscale truecolor before either statistical colormap is
+installed. The PDF export path retains the reference font configuration and
+its embedded-font checks. The migrated legacy public entry points remain under
+`core/viz`, and `core/visualization` is absent.
+
+The same visual contract was re-audited on the current worktree on 2026-07-22.
+The RAS color matrix is exactly `[242, 0, 14; 14, 106, 175; 12, 162, 40] / 255`,
+while location, axes padding, line width 5, head size 1, font size 27, and Arial
+font are loaded from the byte-matching migrated MyLFP plot defaults. The voxel
+path retains signed `vik`, the reference right-side colorbar, and 0.5 mm inward
+sampling; the fiber path colors every streamline from its score on an
+independent symmetric `vik` scale. Anatomy CData is frozen as grayscale RGB
+truecolor before either statistical colormap is installed. Both PDQ-39 scripts
+still resolve only canonical publication inputs and leave every output path
+empty. The complete visualization suite passed all 37 tests under Conda
+`leaddbs`.
+
+A separate read-only paired-fit input audit on 2026-07-21 traversed all 112
+canonical final-in-sample v2 summaries and their published final-model records.
+The inventory contains 56 reference finals, 46 no-delta add-on finals, and ten
+delta-reference-adjusted add-on finals. Every summary contains the required
+paired Spearman, Pearson, formal permutation, error, baseline, standard and
+relative fit, and optimism-gap fields. Both in-sample and LOOCV schedules
+request and retain 10000 finite permutations, all subject masks and predictions
+are complete, and every prediction table has the paired outcome, in-sample,
+LOOCV, and baseline columns with the declared subject count. Selected tau,
+Coverage, branch, final identity, scale, and model family match the corresponding
+domain-specific canonical `final_model.json` for every endpoint. No hard-coded
+main-analysis tau or Coverage was used in this verification.
+
+The paired inference and publication suites were replayed on the current
+worktree on 2026-07-22 and passed 18 tests plus two subtests. A fresh public-only
+audit then verified all 112 canonical endpoint summaries and all 112 sibling
+prediction tables. Every summary is technically completed, uses matching
+in-sample and LOOCV subject masks, retains 10000 requested and finite
+permutations for each analysis, and reports finite Spearman, Pearson, nominal
+p, formal permutation p, standard and relative fit, model and baseline error,
+and optimism fields. Standard `in_sample_r2`, `in_sample_relative_r2`,
+`loocv_r2`, and `loocv_q2` are present; the deliberately unsupported
+`in_sample_adjusted_r2` is absent. Every table has the exact subject, outcome,
+in-sample prediction, LOOCV prediction, and both baseline-prediction columns,
+with no empty cell and a row count matching its endpoint summary.
+
 Validation completed on 2026-07-18:
 
 - the combined dual-frequency and visualization test suite passed with 466
@@ -929,11 +1300,64 @@ Public-only integration validation completed on 2026-07-19:
   and 239 subtests under Conda `leaddbs`; and
 - MATLAB Code Analyzer reported no issue for the changed helper and examples.
 
-Real-data production acceptance completed on 2026-07-19. The formal request
-resolved four completed canonical publications, rendered all 112 final
+Historical real-data production evidence was collected on 2026-07-19. That
+request resolved four completed canonical publications, rendered all 112 final
 endpoints with zero failures, and produced 448 PNG/PDF outputs. All endpoint
 manifests and files passed structural validation; 224 PNG files decoded, and
 224 PDF files passed file-level integrity checks. Reference and add-on examples
 from both physical domains passed visual review. Repeating the identical
 request reused all 112 endpoint outputs without changing their byte counts or
-nanosecond modification times. No run-store fallback was used.
+nanosecond modification times. No run-store fallback was used. That historical
+batch was subsequently deleted and is not current formal acceptance evidence.
+The configured 2026-07-22 formal output root is absent, so the current durable
+112-endpoint render, identical resume, independent output validation, and
+sampled visual review remain open until the active OSS and combined sensitivity
+publication sequence has completed. Canonical jitter-v2 publication is already
+complete in both public domains.
+
+The visualization unit suite was repeated under Conda `leaddbs` on 2026-07-22
+after the formal component-manifest closure changes and passed all 37 tests.
+The test launcher must not expose the whole `my_helper/fiber/core` directory as
+a top-level Python path: that directory contains the project namespace
+`coverage`, which can shadow the unrelated third-party module expected by
+Numba. The reproducible launcher places only a temporary `dual_frequency`
+package link on `PYTHONPATH`; project imports continue to resolve from the
+repository root. This is test-path isolation and does not modify production
+imports or scientific code.
+
+The publication and formal-postprocess component boundary was replayed again
+on 2026-07-22 and passed all 22 focused tests. The current evidence covers
+self-contained extension inputs, rejection of technical-failure OSS payloads,
+component-local resume, immutable request enforcement, and refusal to commit a
+terminal root without complete component closure. These temporary-fixture tests
+do not replace the still-pending all-cohort render from the canonical formal
+publications.
+
+A current 3-D contract audit on 2026-07-22 confirmed that both PDQ-39 example
+scripts resolve their inputs from the canonical model-set publications and
+create visible interactive windows without requesting FIG, image, PDF, or spin
+output. The voxel example explicitly uses a 0.5-mm inward sampling depth and
+the signed vik surface with its right-side colorbar. The fiber renderer maps
+each displayed fiber score through the same symmetric vik colormap and creates
+an independent fiber colorbar. Anatomy surfaces are converted to grayscale RGB
+truecolor before any scientific colormap is applied. The migrated RAS-triad
+implementation, default style, transparent PDF exporter, and both spin
+exporters are byte-identical to the MyLFP reference files; the configured RAS
+colors remain the requested red, blue, and green values while line width, head
+size, font size, and Arial font remain unchanged from the reference.
+
+A fresh real-publication paired-fit smoke on 2026-07-22 consumed only the four
+canonical main and final-in-sample publications and rendered all four PDQ-39
+model families below `/private/tmp/task17-pdq39-paired-fit.ApYPm7`. It completed
+four endpoints with zero failures and produced one PNG and one PDF per endpoint.
+Visual inspection confirmed complete in-sample and LOOCV panels, preserved
+Boxsize geometry, finite subject points, fitted curves and confidence ribbons,
+unclipped labels, and readable Spearman and formal permutation annotations.
+Each PNG decoded at 1781 by 1037 pixels. Each PDF contains one page at the same
+physical layout and embeds subset Arial and Arial Bold TrueType fonts. An
+identical request reported all four endpoints as reused. Every endpoint PNG,
+PDF, and result JSON retained its modification time, byte count, and SHA-256;
+only the root README, endpoint index, and aggregate manifest were refreshed to
+record the replay, with README and index bytes unchanged. This accepts the
+real-data component and resume behavior but remains a temporary single-scale
+smoke, not the pending 112-endpoint formal output root.
