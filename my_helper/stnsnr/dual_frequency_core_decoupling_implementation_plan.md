@@ -7584,6 +7584,34 @@ task-tree peak of 62493573120 bytes that remains `< 64 GiB`, and retained
 positive swap growth `< 1` byte in both detected baseline epochs. This is
 continued intermediate progress only.
 
+At the following scheduled boundary, collected at 2026-07-23 08:08 PDT, the
+reference cache had advanced to 58 passing decisions and 116 corresponding row
+manifests. The newest decision is
+`c2738d1d543088383e0aa04ab7edd31b0dbf0a6299f1eee16516ac6e4e10158d`;
+its final and `Omega_max` row identities are
+`235a3388fc7c55355442eefeda947bacfc9e4711045ce2b80b5e08cfbeba4107`
+and
+`2724e4922d882f87fe081131a839465111a68d8fd550173e64fc339d44f25473`.
+Fresh validation again passed the decision and both row manifests, exact file
+closure, byte count, SHA-256, array dtype and shape, ordered unique positive
+fiber IDs, finite probability range, and the exact final-to-`Omega_max`
+canonical-ID subset. The final row contains 3401 fibers and the `Omega_max` row
+contains 10320 fibers. Independent replay found maximum probability difference
+0 and strict `p(A) > 0.5` state mismatch count 0, agreeing with the persisted
+pass status and zero activation-count mismatch.
+
+All 58 cumulative decisions remain passing members of the reference group.
+The reference gate still has not committed its terminal `row_decision_ids`
+closure, so the 590-task ledger remains 196 completed, one running, one
+historical failed, and 392 dependency-derived skips. VAL remained mounted and
+writable. Runner PID 15265, persistent worker PID 15357, the guard, and one
+active OSS solver child were live. The bounded snapshot measured 20999716864
+bytes of task-tree RSS and 6.3 percent aggregate CPU during an
+`ossdbs_bootstrap.py` phase. The append-only guard exceeded 60000 samples; its
+recorded peak remained 62493573120 bytes, therefore `< 64 GiB`, and swap growth
+remained `< 1` byte in both detected baseline epochs. This remains
+intermediate, nonterminal evidence.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside
