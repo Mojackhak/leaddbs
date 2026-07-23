@@ -29,6 +29,7 @@ from dual_frequency.workflow import ExecutionPlan, GateRequirement, TaskSpec
 from dual_frequency.workflow.executor import (
     ExecutionContext,
     ExecutionError,
+    _LiveResourceMonitor,
     _ResourceLedger,
     ServiceResult,
     TaskOutcome,
@@ -516,6 +517,81 @@ class ExecutorTest(unittest.TestCase):
             {0.0},
         )
         self.assertEqual(document["max_task_admission_wait_seconds"], 0.0)
+        self.assertEqual(document["resource_sample_count"], 0)
+        self.assertEqual(document["peak_task_tree_rss_bytes"], 0)
+        self.assertEqual(document["minimum_available_memory_bytes"], 0)
+        self.assertEqual(document["peak_swap_delta_bytes"], 0)
+
+    def test_live_memory_reconciliation_pauses_and_recovers_admission(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        solver_grant = _ResourceLedger.request(
+            _task(
+                endpoint,
+                "oss_axis_equivalence_synthetic",
+                "establish_oss_axis_equivalence",
+            )
+        )
+        small_grant = _ResourceLedger.request(
+            _task(endpoint, "small", "small")
+        )
+        with patch.object(
+            _ResourceLedger,
+            "_memory_state",
+            return_value=(128 * 1024**3, 128 * 1024**3),
+        ):
+            ledger = _ResourceLedger(workers=2)
+        ledger.acquire(solver_grant)
+
+        ledger.reconcile_available(20 * 1024**3)
+        self.assertFalse(ledger.can_acquire(small_grant, 1))
+        self.assertIn("managed_memory", ledger.blocking_reasons(small_grant))
+        self.assertIn("memory_reserve", ledger.blocking_reasons(small_grant))
+
+        ledger.reconcile_available(80 * 1024**3)
+        self.assertEqual(ledger.available_memory, 128 * 1024**3)
+        self.assertTrue(ledger.can_acquire(small_grant, 1))
+
+    def test_live_resource_monitor_records_production_samples(self) -> None:
+        with patch.object(
+            _ResourceLedger,
+            "_memory_state",
+            return_value=(128 * 1024**3, 128 * 1024**3),
+        ):
+            ledger = _ResourceLedger(workers=2)
+        with (
+            patch(
+                "dual_frequency.workflow.executor._swap_used_bytes",
+                side_effect=(100, 105),
+            ),
+            patch.object(
+                _LiveResourceMonitor,
+                "_available_memory_bytes",
+                return_value=72 * 1024**3,
+            ),
+            patch.object(
+                _LiveResourceMonitor,
+                "_process_tree_rss_bytes",
+                return_value=11 * 1024**3,
+            ),
+        ):
+            monitor = _LiveResourceMonitor(enabled=True)
+            monitor.sample_if_due(ledger, force=True)
+        document = monitor.as_dict(ledger)
+
+        self.assertEqual(document["resource_sample_count"], 1)
+        self.assertEqual(document["peak_task_tree_rss_bytes"], 11 * 1024**3)
+        self.assertEqual(document["minimum_available_memory_bytes"], 72 * 1024**3)
+        self.assertEqual(document["peak_swap_delta_bytes"], 5)
+        self.assertEqual(
+            document["final_managed_memory_bytes"],
+            72 * 1024**3 - int(0.20 * 128 * 1024**3),
+        )
 
     def test_segment_records_worker_slot_admission_wait(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")

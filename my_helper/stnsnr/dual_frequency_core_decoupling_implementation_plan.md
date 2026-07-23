@@ -4199,6 +4199,37 @@ dual-frequency regression passed 558 tests under Conda `leaddbs`. The active
 independent OSS process was already loaded before this commit, so its existing
 external guard remains the authoritative resource record for that lineage.
 
+The parent scheduler must additionally reconcile live memory while production
+spawn workers are active. Waiting on a future therefore uses a one-second
+bounded poll. At each poll the parent samples currently available RAM,
+process-tree RSS, and swap, then reconstructs admission capacity by adding the
+ledger's already reserved memory back to live available RAM before applying the
+same reserve and 64-GiB managed ceilings. This avoids double-charging a running
+task while ensuring unrelated memory pressure immediately pauses new
+admission. It never revokes a grant or releases tokens while work is running.
+
+Each production execution segment must retain resource sample count, peak
+task-tree RSS, minimum live available RAM, and peak swap growth. These fields
+complement the admission counters and the external guard. The in-process test
+executor remains deterministic and does not inspect host process state. The
+external guard remains responsible for terminating an already running process
+tree at the hard RSS, swap, or VAL boundary; internal reconciliation only
+prevents additional admission. Focused tests must prove that a reduced live
+available value blocks a new grant without double-charging the existing
+reservation and that later recovery makes the same grant admissible.
+
+Live reconciliation is now implemented for production spawn execution. The
+monitor samples at most once per second while futures are active, refreshes the
+ledger from live available RAM, and persists resource sample count, peak
+process-tree RSS, minimum available RAM, peak swap growth, and final managed
+capacity. In-process tests remain host-independent. The reconciliation fixture
+holds one 48-GiB solver reservation, lowers live available RAM until both
+managed-memory and reserve predicates block a second grant, then restores RAM
+and proves the same grant becomes admissible without releasing the first one.
+A separate deterministic monitor fixture validates the persisted sample
+fields. The focused executor suite passed 35 tests and the complete
+dual-frequency regression passed 560 tests under Conda `leaddbs`.
+
 - [x] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
 
 Cache compact/block-streamed tau exceedance and Coverage operators by exact

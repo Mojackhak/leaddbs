@@ -446,6 +446,16 @@ class _ResourceLedger:
         self.io_used -= grant.connectome_io
         self.solver_used -= grant.solver
 
+    def reconcile_available(self, live_available_memory: int) -> None:
+        """Refresh admission capacity without double-charging active grants."""
+
+        live_available = max(0, int(live_available_memory))
+        self.available_memory = live_available + self.memory_used
+        self.managed = min(
+            64 * 1024**3,
+            max(0, self.available_memory - self.reserve),
+        )
+
     def settings(self) -> dict[str, int]:
         """Return the effective non-scientific admission settings."""
 
@@ -476,6 +486,90 @@ def _swap_used_bytes() -> int:
         return int(psutil.swap_memory().used)
     except ImportError:
         return 0
+
+
+class _LiveResourceMonitor:
+    """Sample production process-tree resources without changing task identity."""
+
+    def __init__(self, enabled: bool) -> None:
+        self.enabled = bool(enabled)
+        self.baseline_swap_bytes = _swap_used_bytes()
+        self.sample_count = 0
+        self.peak_task_tree_rss_bytes = 0
+        self.minimum_available_memory_bytes: int | None = None
+        self.peak_swap_delta_bytes = 0
+        self._next_sample_at = 0.0
+
+    @staticmethod
+    def _process_tree_rss_bytes() -> int:
+        try:
+            import psutil
+
+            root = psutil.Process(os.getpid())
+            processes = (root, *root.children(recursive=True))
+            rss_by_pid: dict[int, int] = {}
+            for process in processes:
+                try:
+                    rss_by_pid[process.pid] = int(process.memory_info().rss)
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    continue
+            return sum(rss_by_pid.values())
+        except ImportError:
+            return 0
+
+    @staticmethod
+    def _available_memory_bytes(fallback: int) -> int:
+        try:
+            import psutil
+
+            return int(psutil.virtual_memory().available)
+        except ImportError:
+            return max(0, int(fallback))
+
+    def sample_if_due(
+        self,
+        ledger: _ResourceLedger,
+        *,
+        force: bool = False,
+    ) -> None:
+        if not self.enabled:
+            return
+        now = time.monotonic()
+        if not force and now < self._next_sample_at:
+            return
+        fallback = ledger.available_memory - ledger.memory_used
+        available = self._available_memory_bytes(fallback)
+        rss = self._process_tree_rss_bytes()
+        swap = _swap_used_bytes()
+        ledger.reconcile_available(available)
+        self.sample_count += 1
+        self.peak_task_tree_rss_bytes = max(
+            self.peak_task_tree_rss_bytes,
+            rss,
+        )
+        self.minimum_available_memory_bytes = (
+            available
+            if self.minimum_available_memory_bytes is None
+            else min(self.minimum_available_memory_bytes, available)
+        )
+        self.peak_swap_delta_bytes = max(
+            self.peak_swap_delta_bytes,
+            max(0, swap - self.baseline_swap_bytes),
+        )
+        self._next_sample_at = now + 1.0
+
+    def as_dict(self, ledger: _ResourceLedger) -> dict[str, int]:
+        return {
+            "resource_sample_count": self.sample_count,
+            "peak_task_tree_rss_bytes": self.peak_task_tree_rss_bytes,
+            "minimum_available_memory_bytes": (
+                0
+                if self.minimum_available_memory_bytes is None
+                else self.minimum_available_memory_bytes
+            ),
+            "peak_swap_delta_bytes": self.peak_swap_delta_bytes,
+            "final_managed_memory_bytes": ledger.managed,
+        }
 
 
 @dataclass(frozen=True)
@@ -993,6 +1087,8 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     ledger = _ResourceLedger(context.workers)
     metrics = _ExecutionMetrics(len(outcomes))
     process_mode = context.spawn_worker_spec is not None
+    resource_monitor = _LiveResourceMonitor(process_mode)
+    resource_monitor.sample_if_due(ledger, force=True)
     initial_swap = _swap_used_bytes()
     segment_id = context.run_store.begin_execution_segment(
         {
@@ -1022,6 +1118,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     running: dict[object, tuple[TaskSpec, str, _ResourceGrant]] = {}
     try:
         while pending or running:
+            resource_monitor.sample_if_due(ledger)
             progressed = False
             ready = [
                 task
@@ -1170,6 +1267,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
             if running:
                 completed, _pending_futures = wait(
                     tuple(running),
+                    timeout=1.0,
                     return_when=FIRST_COMPLETED,
                 )
                 for future in completed:
@@ -1186,6 +1284,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 )
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
+        resource_monitor.sample_if_due(ledger, force=True)
         context.run_store.finish_execution_segment(
             segment_id,
             {
@@ -1196,6 +1295,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                     ledger=ledger,
                     now=time.monotonic(),
                 ),
+                **resource_monitor.as_dict(ledger),
             },
         )
 
