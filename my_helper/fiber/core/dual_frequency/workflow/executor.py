@@ -13,6 +13,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     wait,
 )
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1061,6 +1062,104 @@ class _ExecutionMetrics:
         }
 
 
+@dataclass(frozen=True)
+class _RunningInvocation:
+    """Parent-owned state for one submitted immutable task attempt."""
+
+    task: TaskSpec
+    started_at: str
+    started_monotonic: float
+    grant: _ResourceGrant
+    output_dir: Path
+
+
+def _terminate_process_pool(pool: object) -> None:
+    """Terminate one spawn generation and every worker-owned process group."""
+
+    processes = tuple(getattr(pool, "_processes", {}).values())
+    for process in processes:
+        pid = getattr(process, "pid", None)
+        terminated_group = False
+        if isinstance(pid, int) and pid > 0 and hasattr(os, "killpg"):
+            try:
+                if os.getpgid(pid) == pid:
+                    os.killpg(pid, 15)
+                    terminated_group = True
+            except (OSError, ProcessLookupError):
+                pass
+        if not terminated_group:
+            try:
+                process.terminate()
+            except (AttributeError, OSError, ProcessLookupError):
+                continue
+    deadline = time.monotonic() + 5.0
+    for process in processes:
+        try:
+            process.join(timeout=max(0.0, deadline - time.monotonic()))
+        except (AttributeError, OSError):
+            continue
+    for process in processes:
+        try:
+            alive = process.is_alive()
+        except (AttributeError, OSError):
+            alive = False
+        if not alive:
+            continue
+        pid = getattr(process, "pid", None)
+        killed_group = False
+        if isinstance(pid, int) and pid > 0 and hasattr(os, "killpg"):
+            try:
+                if os.getpgid(pid) == pid:
+                    os.killpg(pid, 9)
+                    killed_group = True
+            except (OSError, ProcessLookupError):
+                pass
+        if not killed_group:
+            try:
+                process.kill()
+            except (AttributeError, OSError, ProcessLookupError):
+                continue
+    try:
+        pool.shutdown(wait=False, cancel_futures=True)
+    except (AttributeError, BrokenProcessPool):
+        pass
+
+
+def _quarantine_attempt(output_dir: Path, reason: str) -> bool:
+    """Move one terminated attempt aside before any retry starts."""
+
+    source = Path(output_dir)
+    if not source.exists():
+        return False
+    token = "".join(character if character.isalnum() else "-" for character in reason)
+    destination = source.with_name(
+        f"{source.name}.quarantined-{token[:48]}-{uuid.uuid4().hex}"
+    )
+    os.replace(source, destination)
+    return True
+
+
+def _write_retrying(
+    store: RunStore,
+    invocation: _RunningInvocation,
+    reason: str,
+) -> None:
+    """Persist a nonterminal attempt boundary that resume will rerun."""
+
+    store.write_task_state(
+        invocation.task.task_id,
+        {
+            "endpoint_id": invocation.task.endpoint_id,
+            "service_id": invocation.task.service_id,
+            "status": "retrying",
+            "reason": reason,
+            "started_at": invocation.started_at,
+            "finished_at": _utc_now(),
+            "result": None,
+        },
+    )
+
+
 def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     """Execute a plan with local failure isolation and exact resume semantics."""
     if not isinstance(plan, ExecutionPlan):
@@ -1107,18 +1206,90 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
             initialize_worker,
         )
 
-        pool = ProcessPoolExecutor(
-            max_workers=context.workers,
-            mp_context=multiprocessing.get_context("spawn"),
-            initializer=initialize_worker,
-            initargs=(context.spawn_worker_spec,),
-        )
+        def create_pool():
+            return ProcessPoolExecutor(
+                max_workers=context.workers,
+                mp_context=multiprocessing.get_context("spawn"),
+                initializer=initialize_worker,
+                initargs=(context.spawn_worker_spec,),
+            )
+
     else:
-        pool = ThreadPoolExecutor(max_workers=context.workers)
-    running: dict[object, tuple[TaskSpec, str, _ResourceGrant]] = {}
+        def create_pool():
+            return ThreadPoolExecutor(max_workers=context.workers)
+
+    pool = create_pool()
+    pool_generation_count = 1
+    task_timeout_count = 0
+    broken_pool_count = 0
+    transient_retry_count = 0
+    quarantined_attempt_count = 0
+    attempts: dict[str, int] = {}
+    running: dict[object, _RunningInvocation] = {}
+
+    def recover_generation(reason: str) -> None:
+        nonlocal pool
+        nonlocal pool_generation_count
+        nonlocal transient_retry_count
+        nonlocal quarantined_attempt_count
+        nonlocal abort
+
+        if not process_mode:
+            raise ExecutionError("pool generation recovery requires spawn execution")
+        if pool is None:
+            raise ExecutionError("pool generation recovery lacks an active pool")
+        _terminate_process_pool(pool)
+        pool = None
+        invocations = tuple(running.values())
+        running.clear()
+        for invocation in invocations:
+            ledger.release(invocation.grant)
+            if _quarantine_attempt(invocation.output_dir, reason):
+                quarantined_attempt_count += 1
+            task = invocation.task
+            consumed_retries = max(0, attempts.get(task.task_id, 1) - 1)
+            if (
+                task.transient_safe
+                and consumed_retries < task.max_transient_retries
+            ):
+                pending[task.task_id] = task
+                transient_retry_count += 1
+                _write_retrying(
+                    context.run_store,
+                    invocation,
+                    f"{reason}:retry_{consumed_retries + 1}",
+                )
+                continue
+            outcomes[task.task_id] = _failed(
+                task,
+                f"PoolGenerationFailure: {reason}",
+                context.run_store,
+            )
+            if not context.continue_on_endpoint_failure:
+                abort = True
+        if pending and not abort:
+            pool = create_pool()
+            pool_generation_count += 1
+
     try:
         while pending or running:
             resource_monitor.sample_if_due(ledger)
+            now_monotonic = time.monotonic()
+            expired = tuple(
+                invocation
+                for invocation in running.values()
+                if invocation.task.timeout_seconds is not None
+                and now_monotonic - invocation.started_monotonic
+                > invocation.task.timeout_seconds
+            )
+            if expired:
+                task_timeout_count += len(expired)
+                recover_generation(
+                    "task_timeout:" + ",".join(
+                        sorted(item.task.task_id for item in expired)
+                    )
+                )
+                continue
             progressed = False
             ready = [
                 task
@@ -1217,6 +1388,18 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                         abort = True
                     progressed = True
                     continue
+                if task.timeout_seconds is not None and not process_mode:
+                    pending.pop(task.task_id)
+                    metrics.close_task(task.task_id, admission_time)
+                    outcomes[task.task_id] = _failed(
+                        task,
+                        "ExecutionError: task timeout requires spawn execution",
+                        context.run_store,
+                    )
+                    if not context.continue_on_endpoint_failure:
+                        abort = True
+                    progressed = True
+                    continue
                 if len(running) >= context.workers:
                     metrics.observe_blocked(
                         task.task_id,
@@ -1236,6 +1419,15 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 pending.pop(task.task_id)
                 started, output_dir = _begin_task(task, context)
                 dependencies = _dependency_states(task, outcomes)
+                ledger.acquire(grant)
+                invocation = _RunningInvocation(
+                    task=task,
+                    started_at=started,
+                    started_monotonic=time.monotonic(),
+                    grant=grant,
+                    output_dir=output_dir,
+                )
+                attempts[task.task_id] = attempts.get(task.task_id, 0) + 1
                 if process_mode:
                     command = WorkerCommand(
                         task=task,
@@ -1244,7 +1436,19 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                         output_dir=output_dir,
                         allow_expensive_producers=context.allow_expensive_producers,
                     )
-                    future = pool.submit(execute_worker_command, command)
+                    try:
+                        future = pool.submit(execute_worker_command, command)
+                    except BrokenProcessPool:
+                        running[object()] = invocation
+                        metrics.scheduled(
+                            task.task_id,
+                            len(running),
+                            admission_time,
+                        )
+                        broken_pool_count += 1
+                        recover_generation("broken_process_pool_during_submit")
+                        progressed = True
+                        break
                 else:
                     future = pool.submit(
                         _invoke_local_service,
@@ -1253,8 +1457,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                         dependencies,
                         output_dir,
                     )
-                ledger.acquire(grant)
-                running[future] = (task, started, grant)
+                running[future] = invocation
                 metrics.scheduled(
                     task.task_id,
                     len(running),
@@ -1265,15 +1468,47 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
             if progressed and len(running) < context.workers:
                 continue
             if running:
+                wait_timeout = 1.0
+                current_time = time.monotonic()
+                for invocation in running.values():
+                    timeout = invocation.task.timeout_seconds
+                    if timeout is not None:
+                        wait_timeout = min(
+                            wait_timeout,
+                            max(
+                                0.0,
+                                invocation.started_monotonic
+                                + timeout
+                                - current_time,
+                            ),
+                        )
                 completed, _pending_futures = wait(
                     tuple(running),
-                    timeout=1.0,
+                    timeout=wait_timeout,
                     return_when=FIRST_COMPLETED,
                 )
+                broken = False
                 for future in completed:
-                    task, started, grant = running.pop(future)
-                    ledger.release(grant)
-                    outcome = _finish_future(task, started, future, context)
+                    try:
+                        exception = future.exception()
+                    except Exception as exc:
+                        exception = exc
+                    if isinstance(exception, BrokenProcessPool):
+                        broken = True
+                        break
+                if broken:
+                    broken_pool_count += 1
+                    recover_generation("broken_process_pool")
+                    continue
+                for future in completed:
+                    invocation = running.pop(future)
+                    ledger.release(invocation.grant)
+                    outcome = _finish_future(
+                        invocation.task,
+                        invocation.started_at,
+                        future,
+                        context,
+                    )
                     outcomes[outcome.task_id] = outcome
                     if outcome.status == "failed" and not context.continue_on_endpoint_failure:
                         abort = True
@@ -1283,13 +1518,19 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                     "executor reached a dependency or resource-admission deadlock"
                 )
     finally:
-        pool.shutdown(wait=True, cancel_futures=True)
+        if pool is not None:
+            pool.shutdown(wait=True, cancel_futures=True)
         resource_monitor.sample_if_due(ledger, force=True)
         context.run_store.finish_execution_segment(
             segment_id,
             {
                 "finished_at": _utc_now(),
                 "swap_delta_bytes": max(0, _swap_used_bytes() - initial_swap),
+                "pool_generation_count": pool_generation_count,
+                "task_timeout_count": task_timeout_count,
+                "broken_pool_count": broken_pool_count,
+                "transient_retry_count": transient_retry_count,
+                "quarantined_attempt_count": quarantined_attempt_count,
                 **metrics.as_dict(
                     terminal_task_count=len(outcomes),
                     ledger=ledger,

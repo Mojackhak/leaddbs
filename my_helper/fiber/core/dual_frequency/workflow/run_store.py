@@ -324,8 +324,25 @@ class RunStore:
             if document.get("status") != "running":
                 raise RunStoreError(f"execution segment is already closed: {segment_id}")
             additions = dict(payload)
-            if any(key in document for key in additions if key != "status"):
+            replaceable = {"pool_generation_count"}
+            if any(
+                key in document
+                for key in additions
+                if key != "status" and key not in replaceable
+            ):
                 raise RunStoreError("execution segment completion cannot replace settings")
+            if "pool_generation_count" in additions:
+                initial_count = document.get("pool_generation_count")
+                final_count = additions["pool_generation_count"]
+                if (
+                    type(initial_count) is not int
+                    or type(final_count) is not int
+                    or initial_count < 1
+                    or final_count < initial_count
+                ):
+                    raise RunStoreError(
+                        "execution segment pool generation count cannot decrease"
+                    )
             document.update(additions)
             document["status"] = "finished"
             _atomic_write_text(

@@ -7,6 +7,8 @@ import json
 import tempfile
 import time
 import unittest
+from concurrent.futures import Future
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -83,6 +85,9 @@ def _task(
     expensive: bool = False,
     cache_first_expensive: bool = False,
     checkpoint_only: bool = False,
+    timeout_seconds: float | None = None,
+    transient_safe: bool = False,
+    max_transient_retries: int = 0,
 ) -> TaskSpec:
     key = TaskKey(endpoint.identifier, stage, parameter_identity=SCIENTIFIC_HASH)
     return TaskSpec(
@@ -100,6 +105,9 @@ def _task(
         expensive_producer=expensive,
         cache_first_expensive=cache_first_expensive,
         checkpoint_only=checkpoint_only,
+        timeout_seconds=timeout_seconds,
+        transient_safe=transient_safe,
+        max_transient_retries=max_transient_retries,
     )
 
 
@@ -126,6 +134,72 @@ def _artifact_result(request, filename: str = "exposure.npy") -> ArtifactRef:
         producer_id="executor_test",
         producer_version="1",
     )
+
+
+class _InjectedWorkerProcess:
+    def __init__(self, generation: int, events: list[str]) -> None:
+        self.pid = None
+        self.generation = generation
+        self.events = events
+        self.alive = True
+
+    def terminate(self) -> None:
+        self.events.append(f"terminate_{self.generation}")
+        self.alive = False
+
+    def join(self, timeout: float | None = None) -> None:
+        self.events.append(f"join_{self.generation}")
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    def kill(self) -> None:
+        self.events.append(f"kill_{self.generation}")
+        self.alive = False
+
+
+class _InjectedProcessPool:
+    behaviors: list[str] = []
+    result_factory = None
+    instances: list["_InjectedProcessPool"] = []
+    events: list[str] = []
+
+    @classmethod
+    def configure(cls, behaviors: list[str], result_factory) -> None:
+        cls.behaviors = list(behaviors)
+        cls.result_factory = result_factory
+        cls.instances = []
+        cls.events = []
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.generation = len(type(self).instances) + 1
+        self.behavior = type(self).behaviors.pop(0)
+        self.futures: list[Future] = []
+        self._processes = {
+            self.generation: _InjectedWorkerProcess(
+                self.generation,
+                type(self).events,
+            )
+        }
+        type(self).instances.append(self)
+        type(self).events.append(f"create_{self.generation}")
+
+    def submit(self, _function, command) -> Future:
+        future = Future()
+        self.futures.append(future)
+        if self.behavior == "broken":
+            future.set_exception(BrokenProcessPool("injected hard exit"))
+        elif self.behavior == "success":
+            future.set_result(type(self).result_factory(command))
+        elif self.behavior != "timeout":
+            raise AssertionError(f"unsupported injected behavior {self.behavior}")
+        return future
+
+    def shutdown(self, wait: bool, cancel_futures: bool) -> None:
+        type(self).events.append(f"shutdown_{self.generation}")
+        if cancel_futures:
+            for future in self.futures:
+                future.cancel()
 
 
 class ExecutorTest(unittest.TestCase):
@@ -501,6 +575,10 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(len(segments), 1)
         self.assertEqual(document["status"], "finished")
         self.assertEqual(document["pool_generation_count"], 1)
+        self.assertEqual(document["task_timeout_count"], 0)
+        self.assertEqual(document["broken_pool_count"], 0)
+        self.assertEqual(document["transient_retry_count"], 0)
+        self.assertEqual(document["quarantined_attempt_count"], 0)
         self.assertEqual(document["workers"], 2)
         self.assertGreaterEqual(document["swap_delta_bytes"], 0)
         self.assertEqual(document["restored_task_count"], 0)
@@ -521,6 +599,169 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(document["peak_task_tree_rss_bytes"], 0)
         self.assertEqual(document["minimum_available_memory_bytes"], 0)
         self.assertEqual(document["peak_swap_delta_bytes"], 0)
+
+    def test_spawn_supervisor_retries_timeout_and_broken_generation(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        task = _task(
+            endpoint,
+            "recoverable",
+            "unused",
+            timeout_seconds=0.01,
+            transient_safe=True,
+            max_transient_retries=1,
+        )
+        plan = self._plan((task,))
+        registry = ServiceRegistry(
+            (RegisteredService("unused", lambda request: _result(request)),)
+        )
+        for first_behavior, expected_counter in (
+            ("timeout", "task_timeout_count"),
+            ("broken", "broken_pool_count"),
+        ):
+            with self.subTest(first_behavior=first_behavior):
+                _InjectedProcessPool.configure(
+                    [first_behavior, "success"],
+                    lambda _command: ServiceResult.from_record(_source(endpoint)),
+                )
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory) / "run"
+                    with patch(
+                        "dual_frequency.workflow.executor.ProcessPoolExecutor",
+                        _InjectedProcessPool,
+                    ):
+                        result = execute_plan(
+                            plan,
+                            ExecutionContext(
+                                run_store=self._store(root, plan),
+                                registry=registry,
+                                provider=_Provider(endpoint),
+                                endpoint_facts={},
+                                allow_expensive_producers=False,
+                                continue_on_endpoint_failure=True,
+                                workers=1,
+                                spawn_worker_spec=object(),
+                            ),
+                        )
+                    segment = next(
+                        (root / "execution_segments").glob("segment_*.json")
+                    )
+                    document = json.loads(segment.read_text(encoding="utf-8"))
+                    task_root = root / "work" / task.task_id
+                    quarantined = tuple(
+                        task_root.glob("*.quarantined-*")
+                    )
+
+                self.assertEqual(result.exit_code, 0)
+                self.assertEqual(document["pool_generation_count"], 2)
+                self.assertEqual(document[expected_counter], 1)
+                self.assertEqual(document["transient_retry_count"], 1)
+                self.assertEqual(document["quarantined_attempt_count"], 1)
+                self.assertEqual(len(quarantined), 1)
+                self.assertLess(
+                    _InjectedProcessPool.events.index("terminate_1"),
+                    _InjectedProcessPool.events.index("create_2"),
+                )
+
+    def test_spawn_supervisor_fails_after_retry_budget_is_exhausted(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        task = _task(
+            endpoint,
+            "recoverable",
+            "unused",
+            timeout_seconds=0.01,
+            transient_safe=True,
+            max_transient_retries=1,
+        )
+        plan = self._plan((task,))
+        _InjectedProcessPool.configure(
+            ["timeout", "timeout"],
+            lambda _command: ServiceResult.from_record(_source(endpoint)),
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            with patch(
+                "dual_frequency.workflow.executor.ProcessPoolExecutor",
+                _InjectedProcessPool,
+            ):
+                result = execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=self._store(root, plan),
+                        registry=ServiceRegistry(
+                            (
+                                RegisteredService(
+                                    "unused",
+                                    lambda request: _result(request),
+                                ),
+                            )
+                        ),
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=False,
+                        continue_on_endpoint_failure=True,
+                        workers=1,
+                        spawn_worker_spec=object(),
+                    ),
+                )
+            segment = next((root / "execution_segments").glob("segment_*.json"))
+            document = json.loads(segment.read_text(encoding="utf-8"))
+            task_state = json.loads(
+                (root / "tasks" / f"{task.task_id}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(result.exit_code, 1)
+        self.assertEqual(document["pool_generation_count"], 2)
+        self.assertEqual(document["task_timeout_count"], 2)
+        self.assertEqual(document["transient_retry_count"], 1)
+        self.assertEqual(document["quarantined_attempt_count"], 2)
+        self.assertEqual(task_state["status"], "failed")
+        self.assertNotIn("create_3", _InjectedProcessPool.events)
+
+    def test_spawn_supervisor_fails_closed_for_nontransient_hard_exit(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        task = _task(endpoint, "not_recoverable", "unused")
+        plan = self._plan((task,))
+        _InjectedProcessPool.configure(
+            ["broken"],
+            lambda _command: ServiceResult.from_record(_source(endpoint)),
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            with patch(
+                "dual_frequency.workflow.executor.ProcessPoolExecutor",
+                _InjectedProcessPool,
+            ):
+                result = execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=self._store(root, plan),
+                        registry=ServiceRegistry(
+                            (
+                                RegisteredService(
+                                    "unused",
+                                    lambda request: _result(request),
+                                ),
+                            )
+                        ),
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=False,
+                        continue_on_endpoint_failure=True,
+                        workers=1,
+                        spawn_worker_spec=object(),
+                    ),
+                )
+            segment = next((root / "execution_segments").glob("segment_*.json"))
+            document = json.loads(segment.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.exit_code, 1)
+        self.assertEqual(document["pool_generation_count"], 1)
+        self.assertEqual(document["broken_pool_count"], 1)
+        self.assertEqual(document["transient_retry_count"], 0)
+        self.assertEqual(document["quarantined_attempt_count"], 1)
+        self.assertEqual(len(_InjectedProcessPool.instances), 1)
 
     def test_live_memory_reconciliation_pauses_and_recovers_admission(self) -> None:
         endpoint = EndpointKey(

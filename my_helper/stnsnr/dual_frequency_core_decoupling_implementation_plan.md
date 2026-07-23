@@ -4257,6 +4257,54 @@ the complete dual-frequency regression passed 562 tests under Conda
 timeout detection, pool termination, quarantine, generation replacement, and
 bounded retry remain the next supervisor slice.
 
+The spawn supervisor applies the recovery policy as follows. A bounded parent
+poll detects the earliest declared task timeout and `BrokenProcessPool`.
+Either event terminates every worker in the affected generation, waits for
+their exit, quarantines every in-flight run-owned attempt directory, and only
+then releases its ledger grants. Cache producer locks retain the worker PID;
+the next lease atomically quarantines a lock whose owner is no longer alive.
+Unique cache staging names prevent a replacement writer from reusing an
+orphaned temporary path.
+
+Every in-flight task is classified independently. A task is requeued only when
+it declares `transient_safe` and its consumed retry count remains below
+`max_transient_retries`; it retains the same task ID, dependencies, RNG
+identity, semantic target, and output root but receives a new immutable attempt
+directory. Other tasks fail closed. Pending tasks that never entered the broken
+generation remain eligible. A replacement pool starts only after the prior
+generation is fully terminated and only when runnable work remains.
+
+The execution segment records actual `pool_generation_count`,
+`task_timeout_count`, `broken_pool_count`, `transient_retry_count`, and
+`quarantined_attempt_count`. The segment begins with one provisional pool
+generation and may replace only that counter with a larger final value when it
+closes; no other start-time setting is mutable. Fault-free execution retains
+one generation and zero recovery counters. Focused injected-pool tests must
+cover successful bounded retry after timeout, successful bounded retry after a
+hard-exit signal, exhausted retry failure, non-transient fail-closed behavior,
+attempt quarantine, token release after termination, and no overlapping pool
+generation.
+
+The spawn supervisor is now implemented. Production workers create their own
+process session so terminating a generation also reaches worker-owned external
+subprocesses. The parent detects declared deadlines and broken-pool futures,
+terminates the old generation, waits for worker exit, moves each run-owned
+attempt to a unique quarantine path, releases grants, writes a nonterminal
+retry boundary, and creates a replacement only when eligible work remains.
+Retry-budget exhaustion and non-transient work fail closed. The run store
+allows only `pool_generation_count` to increase when an execution segment
+closes; all other initial settings remain immutable.
+
+Injected process-pool fixtures prove timeout recovery, broken-generation
+recovery, generation termination before replacement, same-task successful
+retry, retry exhaustion, non-transient failure, attempt quarantine, and exact
+recovery counters. Fault-free execution retains one generation and zero
+timeout, broken-pool, retry, and quarantine counts. The focused executor suite
+passed 38 tests and the complete dual-frequency regression passed 565 tests
+under Conda `leaddbs`. Current production tasks retain the default disabled
+generic timeout and retry policies, while their existing external subprocess
+timeouts remain active.
+
 - [x] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
 
 Cache compact/block-streamed tau exceedance and Coverage operators by exact

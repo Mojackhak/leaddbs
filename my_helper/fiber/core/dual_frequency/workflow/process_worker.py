@@ -48,6 +48,11 @@ def initialize_worker(spec: SpawnWorkerSpec) -> None:
     """Construct process-local services after limiting numerical-library threads."""
 
     global _REGISTRY, _PROVIDER, _ARTIFACT_STORE, _SCIENTIFIC_CACHE, _THREAD_LIMITER
+    if hasattr(os, "setsid"):
+        try:
+            os.setsid()
+        except OSError:
+            pass
     for name in (
         "OMP_NUM_THREADS",
         "OPENBLAS_NUM_THREADS",
