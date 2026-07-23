@@ -7339,6 +7339,17 @@ accepted and that unsupported guard events remain rejected. This compatibility
 repair changes no scientific input, cache identity, task outcome, resource
 ceiling, or running process.
 
+The same preflight found that the resource validator required
+`max_probability_difference` to be exactly zero even though the scientific
+gate accepts any finite value strictly below the fixed internal tolerance of
+`1e-7`. The terminal validator must match the gate contract: the persisted
+`probability_tolerance` must equal the fixed runtime tolerance, state and
+activation-count mismatches must remain zero, and the maximum probability
+difference must be `< 1e-7`. A nonzero value below the tolerance must pass,
+while a value at the boundary or a changed persisted tolerance must fail.
+This aligns acceptance with the immutable scientific decision rather than
+weakening it or relying on the zero differences observed so far.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after

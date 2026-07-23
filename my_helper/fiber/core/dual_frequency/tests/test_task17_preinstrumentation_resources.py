@@ -10,6 +10,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from dual_frequency.runtime.oss_axis_equivalence import (
+    OSS_AXIS_PROBABILITY_TOLERANCE,
+)
+
 
 SCRIPT = (
     Path(__file__).resolve().parents[3]
@@ -139,7 +143,7 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
                     "state_mismatch_count": 0,
                     "activation_count_mismatch_count": 0,
                     "max_probability_difference": 0.0,
-                    "probability_tolerance": 0.0,
+                    "probability_tolerance": OSS_AXIS_PROBABILITY_TOLERANCE,
                 },
                 indent=2,
                 sort_keys=True,
@@ -151,6 +155,24 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
             identity,
             {"decision.json": payload},
         )
+
+    def _rewrite_decision(self, identity: str, **changes: object) -> None:
+        root = (
+            self.cache
+            / "shared_exposure_v2"
+            / "oss_axis_equivalence"
+            / identity
+        )
+        decision_path = root / "decision.json"
+        decision = json.loads(decision_path.read_text(encoding="utf-8"))
+        decision.update(changes)
+        _write_json(decision_path, decision)
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        file_record = manifest["files"][0]
+        file_record["sha256"] = _sha256(decision_path)
+        file_record["size_bytes"] = decision_path.stat().st_size
+        _write_json(manifest_path, manifest)
 
     def _build_valid_fixture(self) -> None:
         _write_json(
@@ -356,6 +378,40 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
         with self.assertRaisesRegex(
             validator.PreinstrumentationResourceError,
             "stop or unsupported event",
+        ):
+            self._validate()
+
+    def test_nonzero_probability_difference_below_tolerance_passes(self) -> None:
+        self.assertEqual(
+            validator._OSS_AXIS_PROBABILITY_TOLERANCE,
+            OSS_AXIS_PROBABILITY_TOLERANCE,
+        )
+        self._rewrite_decision(
+            "1" * 64,
+            max_probability_difference=OSS_AXIS_PROBABILITY_TOLERANCE / 2.0,
+        )
+        report = self._validate()
+        self.assertEqual(report["oss_closure"]["decision_count"], 2)
+
+    def test_probability_difference_at_tolerance_fails(self) -> None:
+        self._rewrite_decision(
+            "1" * 64,
+            max_probability_difference=OSS_AXIS_PROBABILITY_TOLERANCE,
+        )
+        with self.assertRaisesRegex(
+            validator.PreinstrumentationResourceError,
+            "accepted exact-state pass",
+        ):
+            self._validate()
+
+    def test_changed_probability_tolerance_fails(self) -> None:
+        self._rewrite_decision(
+            "1" * 64,
+            probability_tolerance=OSS_AXIS_PROBABILITY_TOLERANCE * 2.0,
+        )
+        with self.assertRaisesRegex(
+            validator.PreinstrumentationResourceError,
+            "accepted exact-state pass",
         ):
             self._validate()
 

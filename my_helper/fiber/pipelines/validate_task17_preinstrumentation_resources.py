@@ -19,6 +19,7 @@ import uuid
 _ALLOWED_GUARD_EVENTS = frozenset(
     {"sample", "runner_exit", "runner_exited", "completed"}
 )
+_OSS_AXIS_PROBABILITY_TOLERANCE = 1.0e-7
 _WINDOW_SCHEMA = "dual_frequency_task17_preinstrumentation_windows_v1"
 
 
@@ -293,6 +294,14 @@ def _gate_closure(
             decision_root / "decision.json",
             f"OSS decision {decision_id}",
         )
+        probability_difference = _number(
+            decision.get("max_probability_difference"),
+            "maximum probability difference",
+        )
+        probability_tolerance = _number(
+            decision.get("probability_tolerance"),
+            "probability tolerance",
+        )
         if (
             decision.get("schema_version") != "dual_frequency_oss_axis_decision_v1"
             or decision.get("decision_id") != decision_id
@@ -308,14 +317,11 @@ def _gate_closure(
                 "activation mismatch count",
             )
             != 0
-            or _number(
-                decision.get("max_probability_difference"),
-                "maximum probability difference",
-            )
-            != 0.0
+            or probability_tolerance != _OSS_AXIS_PROBABILITY_TOLERANCE
+            or probability_difference >= probability_tolerance
         ):
             raise PreinstrumentationResourceError(
-                f"OSS decision is not an exact pass: {decision_id}"
+                f"OSS decision is not an accepted exact-state pass: {decision_id}"
             )
         row_ids = (
             str(decision.get("final_row_identity", "")),
