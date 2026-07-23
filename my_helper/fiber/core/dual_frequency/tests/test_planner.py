@@ -8,7 +8,7 @@ import unittest
 from dual_frequency.catalog import CatalogStatus, build_endpoint_catalog
 from dual_frequency.config import WorkflowOverrides
 from dual_frequency.contracts import RESAMPLING_REPLICATE_BLOCK_SIZE
-from dual_frequency.workflow import compile_execution_plan
+from dual_frequency.workflow import PlanningError, compile_execution_plan
 
 try:
     from .test_catalog import SCALE_IDS, make_workflow, synthetic_study
@@ -40,6 +40,45 @@ class PlannerTest(unittest.TestCase):
             self.assertTrue(set(task.dependencies) <= task_ids)
             self.assertEqual(task.key.parameter_identity, config.scientific_configuration_hash)
             task_ids.add(task.task_id)
+
+    def test_task_recovery_policy_is_non_scientific_and_explicit(self) -> None:
+        _config, _catalog, plan = self._plan()
+        task = plan.tasks[0]
+        with_policy = dataclasses.replace(
+            task,
+            timeout_seconds=30,
+            transient_safe=True,
+            max_transient_retries=2,
+        )
+
+        self.assertEqual(task.task_id, with_policy.task_id)
+        self.assertEqual(task.key, with_policy.key)
+        self.assertIsNone(task.timeout_seconds)
+        self.assertFalse(task.transient_safe)
+        self.assertEqual(task.max_transient_retries, 0)
+        self.assertEqual(with_policy.timeout_seconds, 30.0)
+        self.assertTrue(with_policy.transient_safe)
+        self.assertEqual(with_policy.max_transient_retries, 2)
+
+    def test_task_recovery_policy_rejects_unsafe_values(self) -> None:
+        _config, _catalog, plan = self._plan()
+        task = plan.tasks[0]
+        invalid = (
+            ({"timeout_seconds": 0}, "finite and positive"),
+            ({"timeout_seconds": float("inf")}, "finite and positive"),
+            ({"timeout_seconds": True}, "finite and positive"),
+            ({"transient_safe": "yes"}, "must be boolean"),
+            ({"max_transient_retries": -1}, "nonnegative integer"),
+            ({"max_transient_retries": 1}, "transient_safe"),
+            (
+                {"checkpoint_only": True, "timeout_seconds": 1},
+                "checkpoint-only",
+            ),
+        )
+        for changes, message in invalid:
+            with self.subTest(changes=changes):
+                with self.assertRaisesRegex(PlanningError, message):
+                    dataclasses.replace(task, **changes)
 
     def test_sensitive_connectomes_never_schedule_final_or_final_linked_work(self) -> None:
         _config, catalog, plan = self._plan()

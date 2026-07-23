@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from ..catalog import CatalogStatus, EndpointRecord
 from ..config import ResolvedWorkflow
@@ -52,6 +53,9 @@ class TaskSpec:
     expensive_producer: bool = False
     cache_first_expensive: bool = False
     checkpoint_only: bool = False
+    timeout_seconds: float | None = None
+    transient_safe: bool = False
+    max_transient_retries: int = 0
 
     def __post_init__(self) -> None:
         parameters = tuple(
@@ -71,9 +75,37 @@ class TaskSpec:
             raise PlanningError(
                 "cache_first_expensive requires expensive_producer=True"
             )
-        if self.checkpoint_only and (self.dependencies or self.gates):
+        if self.timeout_seconds is not None:
+            if (
+                isinstance(self.timeout_seconds, bool)
+                or not isinstance(self.timeout_seconds, (int, float))
+                or not math.isfinite(float(self.timeout_seconds))
+                or not float(self.timeout_seconds) > 0.0
+            ):
+                raise PlanningError("task timeout_seconds must be finite and positive")
+            object.__setattr__(self, "timeout_seconds", float(self.timeout_seconds))
+        if type(self.transient_safe) is not bool:
+            raise PlanningError("task transient_safe must be boolean")
+        if (
+            type(self.max_transient_retries) is not int
+            or self.max_transient_retries < 0
+        ):
             raise PlanningError(
-                "checkpoint-only tasks must be dependency-free and gate-free"
+                "task max_transient_retries must be a nonnegative integer"
+            )
+        if self.max_transient_retries > 0 and not self.transient_safe:
+            raise PlanningError(
+                "task retries require an explicit transient_safe policy"
+            )
+        if self.checkpoint_only and (
+            self.dependencies
+            or self.gates
+            or self.timeout_seconds is not None
+            or self.transient_safe
+            or self.max_transient_retries > 0
+        ):
+            raise PlanningError(
+                "checkpoint-only tasks cannot declare dependencies, gates, timeout, or retry"
             )
 
     def execution_parameter(self, name: str) -> str:

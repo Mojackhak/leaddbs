@@ -4230,6 +4230,33 @@ A separate deterministic monitor fixture validates the persisted sample
 fields. The focused executor suite passed 35 tests and the complete
 dual-frequency regression passed 560 tests under Conda `leaddbs`.
 
+Hard-exit and timeout recovery first require an explicit per-task execution
+policy. `TaskSpec` therefore gains three internal fields:
+`timeout_seconds`, `transient_safe`, and `max_transient_retries`. Their defaults
+disable timeout and retry. A timeout, when present, must be finite and positive.
+A retry limit must be a nonnegative integer, and any positive retry limit
+requires `transient_safe`. Checkpoint-only roots cannot declare timeout or
+retry because they never invoke a service.
+
+These fields describe execution recovery only. They do not enter `TaskKey`,
+task ID, scientific configuration, cache identity, RNG identity, or resume
+gates. Changing only these values must preserve the task ID. No current
+production task receives a generic retry merely because the capability exists;
+producer-specific external subprocess timeouts remain unchanged. A later
+supervisor slice may requeue only a task whose explicit transient-safe policy
+retains retry budget. Every other timeout or hard worker exit fails closed.
+
+The recovery policy contract is now implemented and defaults remain disabled
+for every compiled production task. Validation rejects nonfinite or
+nonpositive timeouts, nonboolean safety declarations, negative retry limits,
+retry without transient safety, and any recovery policy on a checkpoint-only
+root. A direct identity fixture changes all three policy fields while retaining
+the exact task key and task ID. The focused planner suite passed 21 tests and
+the complete dual-frequency regression passed 562 tests under Conda
+`leaddbs`. This accepts policy declaration and identity isolation only;
+timeout detection, pool termination, quarantine, generation replacement, and
+bounded retry remain the next supervisor slice.
+
 - [x] **Step 8: Vectorize grid, statistics, and fiber-scoring kernels**
 
 Cache compact/block-streamed tau exceedance and Coverage operators by exact
