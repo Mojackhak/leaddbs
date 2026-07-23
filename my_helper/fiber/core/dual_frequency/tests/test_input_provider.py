@@ -1598,6 +1598,7 @@ class InputProviderTest(unittest.TestCase):
         changed_axis = AxisRef("prepared-features", 3, canonical_hash([1, 3, 2]))
         values = np.arange(6, dtype=np.float32).reshape(2, 3)
         arguments = {
+            "domain": "direct_voxel",
             "filename": "exposure.npy",
             "value": values,
             "kind": "prepared_reference_exposure",
@@ -1641,6 +1642,15 @@ class InputProviderTest(unittest.TestCase):
             axes=(subject_axis, changed_axis),
             **arguments,
         )
+        cross_domain = provider._publish_prepared_array(
+            publisher=RunScopedArtifactPublisher(
+                artifact_root / "prepared-cache-cross-domain",
+                "prepared-cache-cross-domain",
+                "1",
+            ),
+            axes=(subject_axis, feature_axis),
+            **{**arguments, "domain": "normative_fiber"},
+        )
         self.assertEqual(first.uri, second.uri)
         self.assertEqual(first.uri, endpoint_alias.uri)
         self.assertEqual(
@@ -1648,12 +1658,14 @@ class InputProviderTest(unittest.TestCase):
             (alias_subject_axis, feature_axis),
         )
         self.assertNotEqual(first.uri, separated.uri)
+        self.assertNotEqual(first.uri, cross_domain.uri)
         np.testing.assert_array_equal(_materialize(artifact_store, first), values)
         for task_root in (
             "prepared-cache-first",
             "prepared-cache-second",
             "prepared-cache-endpoint-alias",
             "prepared-cache-separated",
+            "prepared-cache-cross-domain",
         ):
             self.assertFalse(tuple((artifact_root / task_root).glob("*.npy")))
 

@@ -2663,12 +2663,15 @@ class StudyRuntimeInputProvider:
     def _prepared_artifact_key(
         self,
         *,
+        domain: str,
         role: str,
         axes: tuple[AxisRef, ...],
         dependencies: tuple[tuple[str, str], ...],
     ) -> ScientificCacheKey:
         if not role or role != role.strip():
             raise RuntimeInputProviderError("prepared artifact role must be nonempty")
+        if domain not in {"direct_voxel", "normative_fiber"}:
+            raise RuntimeInputProviderError("prepared artifact domain is unsupported")
         if not axes or not all(isinstance(axis, AxisRef) for axis in axes):
             raise RuntimeInputProviderError("prepared artifact axes must be explicit")
         dependency_names = tuple(name for name, _digest in dependencies)
@@ -2696,15 +2699,18 @@ class StudyRuntimeInputProvider:
                     ]
                 }
             ),
-            component_frequency_hash=canonical_hash({"prepared_role": role}),
+            component_frequency_hash=canonical_hash(
+                {"model_domain": domain, "prepared_role": role}
+            ),
             transform_hash=canonical_hash(
                 {"canonical_space": self.study.spatial.canonical_space}
             ),
             connectome_feature_hash=axes[-1].sha256,
-            backend_name="shared_prepared_exposure",
+            backend_name=f"shared_prepared_{domain}_exposure",
             backend_version="3",
             scientific_parameter_hashes=(
                 ("ordered_axes", canonical_hash([axis.sha256 for axis in axes])),
+                ("model_domain", canonical_hash({"domain": domain})),
                 ("preparation_algorithm", canonical_hash({"version": 3})),
                 ("prepared_role", canonical_hash({"role": role})),
                 *dependencies,
@@ -2728,6 +2734,7 @@ class StudyRuntimeInputProvider:
     def _publish_prepared_array(
         self,
         *,
+        domain: str,
         publisher: ArtifactPublisher,
         filename: str,
         value: np.ndarray,
@@ -2752,6 +2759,7 @@ class StudyRuntimeInputProvider:
                 "prepared cache array shape differs from its ordered axes"
             )
         key = self._prepared_artifact_key(
+            domain=domain,
             role=kind,
             axes=axes,
             dependencies=dependencies,
@@ -2824,7 +2832,7 @@ class StudyRuntimeInputProvider:
             axis_hashes=tuple(axis.sha256 for axis in axes),
             units=cached.metadata.units,
             space=cached.metadata.space,
-            producer_id="shared_prepared_exposure",
+            producer_id=f"shared_prepared_{domain}_exposure",
             producer_version="3",
         )
 
@@ -3472,7 +3480,13 @@ class StudyRuntimeInputProvider:
                     f"{endpoint.endpoint_id}-primary-omega-max",
                 )
                 temporaries.append(raw_primary)
+        prepared_domain = (
+            "direct_voxel"
+            if endpoint.key.model_family.endswith("voxel")
+            else "normative_fiber"
+        )
         feature_ids = self._publish_prepared_array(
+            domain=prepared_domain,
             publisher=publisher,
             filename="feature_ids.npy",
             value=np.asarray(feature_space.ids, dtype=np.int64),
@@ -3499,6 +3513,7 @@ class StudyRuntimeInputProvider:
         try:
             if is_reference:
                 exposure = self._publish_prepared_array(
+                    domain=prepared_domain,
                     publisher=publisher,
                     filename="exposure.npy",
                     value=raw_primary.array,
@@ -3675,6 +3690,7 @@ class StudyRuntimeInputProvider:
                 ("reference_record", reference_record_identity),
             )
             exposure = self._publish_prepared_array(
+                domain=prepared_domain,
                 publisher=publisher,
                 filename="exposure.npy",
                 value=prepared,
@@ -3685,6 +3701,7 @@ class StudyRuntimeInputProvider:
                 dependencies=derived_dependencies,
             )
             reference_condition_artifact = self._publish_prepared_array(
+                domain=prepared_domain,
                 publisher=publisher,
                 filename="reference_condition_exposure.npy",
                 value=reference_condition.array,
@@ -3697,6 +3714,7 @@ class StudyRuntimeInputProvider:
                 ),
             )
             addon_reference_artifact = self._publish_prepared_array(
+                domain=prepared_domain,
                 publisher=publisher,
                 filename="addon_reference_component_exposure.npy",
                 value=addon_reference_component.array,
@@ -3709,6 +3727,7 @@ class StudyRuntimeInputProvider:
                 ),
             )
             overlap_artifact = self._publish_prepared_array(
+                domain=prepared_domain,
                 publisher=publisher,
                 filename="reference_overlap_mask.npy",
                 value=overlap_mask,
@@ -3719,6 +3738,7 @@ class StudyRuntimeInputProvider:
                 dependencies=derived_dependencies,
             )
             total_artifact = self._publish_prepared_array(
+                domain=prepared_domain,
                 publisher=publisher,
                 filename="total_exposure.npy",
                 value=raw_primary.array,

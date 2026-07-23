@@ -3550,6 +3550,19 @@ labels reuse one URI, preserve their own returned axis refs, and separate when
 the ordered axis SHA changes. The complete dual-frequency suite remains green
 at 558 tests plus 310 subtests.
 
+The prepared key must also bind the explicit physical model domain. Several
+artifact roles are intentionally shared by direct voxel and normative fiber;
+their normally different feature-axis SHAs are not a substitute for a domain
+contract. Add `direct_voxel` or `normative_fiber` to the backend and scientific
+parameter identity so no cross-domain payload can collide even under an
+artificial axis-hash match.
+
+Explicit domain binding is now implemented and the provider fixture proves
+that identical axes, dependencies, role, and bytes produce distinct cache URIs
+across direct voxel and normative fiber. The focused provider suite remains at
+29 tests plus 5 subtests and the complete dual-frequency suite remains at 558
+tests plus 310 subtests.
+
 - [ ] **Step 3: Implement distinct voxel sampling and shared physical rows**
 
 Resolve unique physical subject/program/frequency-component units before
