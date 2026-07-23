@@ -525,6 +525,197 @@ class SensitivityCheckpointTest(unittest.TestCase):
             all(gates[0].task_id in task.dependencies for task in observed_tasks)
         )
 
+    def test_combined_extension_keeps_every_expensive_task_cache_first(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal-connectome",
+        )
+        readiness = _task(endpoint, "input_readiness", "observed")
+        prepared = _task(
+            endpoint,
+            "prepare_exposure",
+            "observed",
+            dependencies=(readiness.task_id,),
+        )
+        final = _task(
+            endpoint,
+            "final_realization",
+            "observed",
+            dependencies=(readiness.task_id,),
+        )
+        jitter = _task(
+            endpoint,
+            "spatial_jitter",
+            "sensitivity",
+            dependencies=(final.task_id,),
+        )
+        observed = TaskSpec(
+            key=TaskKey(
+                endpoint.identifier,
+                "ppam_observed_workspace",
+                parameter_identity=SCIENTIFIC_HASH,
+            ),
+            endpoint_id=endpoint.identifier,
+            model_family=endpoint.model_family,
+            connectome_role="formal",
+            stage="ppam_observed_workspace",
+            round_id="round_oss",
+            phase="sensitivity",
+            service_id="prepare_ppam_observed_workspace",
+            dependencies=(readiness.task_id, prepared.task_id, final.task_id),
+            gates=(),
+            output_record_type="PPAMObservedWorkspaceRecord",
+            expensive_producer=True,
+            cache_first_expensive=True,
+        )
+        schedule = TaskSpec(
+            key=TaskKey(
+                endpoint.identifier,
+                "ppam_permutation_schedule",
+                parameter_identity=SCIENTIFIC_HASH,
+            ),
+            endpoint_id=endpoint.identifier,
+            model_family=endpoint.model_family,
+            connectome_role="formal",
+            stage="ppam_permutation_schedule",
+            round_id="round_oss",
+            phase="sensitivity",
+            service_id="prepare_ppam_permutation_schedule",
+            dependencies=(observed.task_id,),
+            gates=(),
+            output_record_type="ResamplingScheduleRecord",
+        )
+        block = TaskSpec(
+            key=TaskKey(
+                endpoint.identifier,
+                "ppam_permutation_block_0000",
+                parameter_identity=SCIENTIFIC_HASH,
+            ),
+            endpoint_id=endpoint.identifier,
+            model_family=endpoint.model_family,
+            connectome_role="formal",
+            stage="ppam_permutation_block_0000",
+            round_id="round_oss",
+            phase="sensitivity",
+            service_id="run_ppam_permutation_block",
+            dependencies=(observed.task_id, schedule.task_id),
+            gates=(),
+            output_record_type="PPAMPermutationBlockRecord",
+        )
+        aggregate = TaskSpec(
+            key=TaskKey(
+                endpoint.identifier,
+                "activation_sensitivity",
+                parameter_identity=SCIENTIFIC_HASH,
+            ),
+            endpoint_id=endpoint.identifier,
+            model_family=endpoint.model_family,
+            connectome_role="formal",
+            stage="activation_sensitivity",
+            round_id="round_oss",
+            phase="sensitivity",
+            service_id="aggregate_ppam_activation",
+            dependencies=(observed.task_id, schedule.task_id, block.task_id),
+            gates=(),
+            output_record_type="ActivationArtifact",
+        )
+        plan = ExecutionPlan(
+            configuration_hash=CONFIGURATION_HASH,
+            scientific_configuration_hash=SCIENTIFIC_HASH,
+            through="sensitivity",
+            tasks=(
+                readiness,
+                prepared,
+                final,
+                jitter,
+                observed,
+                schedule,
+                block,
+                aggregate,
+            ),
+        )
+        final_axis = {
+            "axis_id": "final-axis",
+            "count": 2,
+            "sha256": "1" * 64,
+        }
+        omega = {
+            "cache_kind": "fiber_exposures",
+            "semantic_sha256": "2" * 64,
+            "feature_axis": {
+                "axis_id": "omega-axis",
+                "count": 4,
+                "sha256": "3" * 64,
+            },
+            "payload_relative_path": "fiber_ids.npy",
+            "payload_sha256": "4" * 64,
+        }
+        rng = {
+            "jitter_resamples": 50,
+            "jitter_translation_fwhm_mm": 2.0,
+            "seed": 42,
+        }
+        extension = compile_sensitivity_extension_plan(
+            plan,
+            endpoint_ids=(endpoint.identifier,),
+            analyses=("jitter", "oss"),
+            seed_task_ids=(readiness.task_id, prepared.task_id, final.task_id),
+            jitter_bases=(
+                {
+                    "endpoint_id": endpoint.identifier,
+                    "rng_profile": rng,
+                    "shared_exposure_entries": [
+                        {
+                            "kind": "fiber_exposures",
+                            "semantic_sha256": "5" * 64,
+                        }
+                    ],
+                },
+            ),
+            sensitivity_bases=(
+                {
+                    "endpoint_id": endpoint.identifier,
+                    "feature_axis": final_axis,
+                    "omega_max": omega,
+                },
+            ),
+        )
+
+        jitter_blocks = tuple(
+            task
+            for task in extension.tasks
+            if task.service_id == "prepare_jitter_exposure_block"
+        )
+        gates = tuple(
+            task
+            for task in extension.tasks
+            if task.service_id == "establish_oss_axis_equivalence"
+        )
+        observed_tasks = tuple(
+            task
+            for task in extension.tasks
+            if task.service_id == "prepare_ppam_observed_workspace"
+        )
+        expensive = tuple(task for task in extension.tasks if task.expensive_producer)
+        self.assertEqual(len(jitter_blocks), 2)
+        self.assertEqual(len(gates), 1)
+        self.assertEqual(len(observed_tasks), 1)
+        self.assertTrue(
+            all(task.cache_first_expensive for task in expensive)
+        )
+        self.assertIn(gates[0].task_id, observed_tasks[0].dependencies)
+        jitter_target = next(
+            task for task in extension.tasks if task.stage == "spatial_jitter"
+        )
+        self.assertTrue(
+            {task.task_id for task in jitter_blocks}.issubset(
+                set(jitter_target.dependencies)
+            )
+        )
+
     def test_loader_hashes_final_artifact_once_and_ignores_unselected_seed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

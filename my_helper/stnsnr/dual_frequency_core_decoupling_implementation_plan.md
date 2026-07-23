@@ -5541,6 +5541,23 @@ the miss after authorization. The proxy fixture proves zero eager factory
 calls and one factory resolution across repeated producer calls. The complete
 dual-frequency suite passes 554 tests.
 
+The combined compiler also requires one direct plan-level fixture rather than
+only separate jitter and OSS fixtures. Starting from one fiber endpoint that
+contains both terminal services, compile `jitter,oss` together and require
+fixed jitter blocks, one OSS equivalence gate, the gate dependency on the
+observed pPAM workspace, and every expensive task to carry
+`cache_first_expensive`. The compiled child must contain no expensive task that
+would be rejected before its cache probe when the combined command omits
+expensive authorization.
+
+The combined compiler fixture is now implemented. One normative-fiber endpoint
+compiled with both analyses produces two fixed jitter blocks, one OSS
+equivalence gate, the gate dependency on its pPAM observed workspace, and only
+cache-first expensive tasks. The focused checkpoint suite passes 12 tests and
+the complete dual-frequency suite passes 556 tests. Live reuse remains
+unclaimed until the independent OSS child is terminal and the real combined
+command completes without expensive authorization.
+
 The three focused cache-first suites were rerun during formal OSS segment
 `segment_0010` on 2026-07-22 and now pass 22 tests plus two subtests after the
 decision-to-two-row closure fixtures were added. This current
