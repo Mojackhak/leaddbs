@@ -3615,6 +3615,18 @@ after their kernels use this bounded interface or declare and meter an external
 contiguous-array boundary. Document artifacts and one-dimensional identity axes
 remain plain `ArtifactRef` values.
 
+The first persisted consumer migration covers the two-dimensional scientific
+arrays in `PreparedExposureRecord`: `exposure`,
+`reference_condition_exposure`, `addon_reference_component_exposure`,
+`reference_overlap_mask`, and `total_exposure`. Each accepts exactly
+`ArtifactRef | IndexedArrayView` while `feature_ids` and
+`auxiliary_readiness` remain plain artifacts. The prepared-record codec decodes
+this union by its exact closed field set rather than by a permissive tag or
+heuristic. Existing artifact-only records remain byte-compatible and retain
+their identifiers. A view-backed record closes over the view parent and
+selector artifacts and therefore remains self-contained for resume and
+publication validation.
+
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
 ordered subject and feature selections, exposes bounded column reads, and

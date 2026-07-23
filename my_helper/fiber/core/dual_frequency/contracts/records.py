@@ -6,6 +6,7 @@ import math
 import re
 from dataclasses import asdict, dataclass
 from pathlib import PurePosixPath
+from typing import TypeAlias
 from urllib.parse import urlparse
 
 import numpy as np
@@ -278,6 +279,9 @@ class IndexedArrayView:
     @property
     def identifier(self) -> str:
         return f"indexed_array_view_{canonical_hash(asdict(self), length=20)}"
+
+
+ScientificArrayRef: TypeAlias = ArtifactRef | IndexedArrayView
 
 
 def resampling_block_axis(
@@ -836,6 +840,20 @@ def _artifact_with_axes(
     return value
 
 
+def _scientific_array_with_axes(
+    value: ScientificArrayRef,
+    field: str,
+    expected_axes: tuple[AxisRef, ...],
+) -> ScientificArrayRef:
+    if not isinstance(value, (ArtifactRef, IndexedArrayView)):
+        raise RecordError(f"{field} must be an ArtifactRef or IndexedArrayView")
+    if value.shape != tuple(axis.count for axis in expected_axes):
+        raise RecordError(f"{field} must use the exact subject and feature axes")
+    if value.axis_refs != expected_axes:
+        raise RecordError(f"{field} must use the exact subject and feature axes")
+    return value
+
+
 def _nonarray_artifact(value: ArtifactRef, field: str) -> ArtifactRef:
     if not isinstance(value, ArtifactRef):
         raise RecordError(f"{field} must be an ArtifactRef")
@@ -1243,15 +1261,15 @@ class PreparedExposureRecord:
     endpoint: EndpointKey
     subject_axis: AxisRef
     feature_axis: AxisRef
-    exposure: ArtifactRef
+    exposure: ScientificArrayRef
     feature_ids: ArtifactRef
     delta_reference_input_status: str
     delta_reference_reason_code: str
     auxiliary_readiness: ArtifactRef | None
-    reference_condition_exposure: ArtifactRef | None
-    addon_reference_component_exposure: ArtifactRef | None
-    reference_overlap_mask: ArtifactRef | None
-    total_exposure: ArtifactRef | None
+    reference_condition_exposure: ScientificArrayRef | None
+    addon_reference_component_exposure: ScientificArrayRef | None
+    reference_overlap_mask: ScientificArrayRef | None
+    total_exposure: ScientificArrayRef | None
 
     def __post_init__(self) -> None:
         if not isinstance(self.endpoint, EndpointKey):
@@ -1262,7 +1280,7 @@ class PreparedExposureRecord:
         ):
             raise RecordError("subject_axis and feature_axis must be AxisRef values")
         axes = (self.subject_axis, self.feature_axis)
-        _artifact_with_axes(self.exposure, "exposure", axes)
+        _scientific_array_with_axes(self.exposure, "exposure", axes)
         _artifact_with_axes(self.feature_ids, "feature_ids", (self.feature_axis,))
         if self.feature_ids.dtype != "int64":
             raise RecordError("canonical feature_ids must use int64 dtype")
@@ -1325,7 +1343,7 @@ class PreparedExposureRecord:
             for field in auxiliary_fields:
                 value = getattr(self, field)
                 if value is not None:
-                    _artifact_with_axes(value, field, axes)
+                    _scientific_array_with_axes(value, field, axes)
             if self.reference_overlap_mask is not None:
                 if self.reference_overlap_mask.dtype != "bool":
                     raise RecordError("reference_overlap_mask must use bool dtype")
@@ -1333,7 +1351,7 @@ class PreparedExposureRecord:
                     raise RecordError("reference_overlap_mask must use binary units")
 
     @property
-    def primary_exposure(self) -> ArtifactRef:
+    def primary_exposure(self) -> ScientificArrayRef:
         """Return the prepared primary exposure used by observed and formal fits."""
         return self.exposure
 

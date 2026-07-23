@@ -852,6 +852,28 @@ class RecordCodecTest(unittest.TestCase):
                 total,
             ),
         )
+        view_backed = dataclasses.replace(
+            record,
+            exposure=IndexedArrayView(
+                parent=self.exposure,
+                row_positions=None,
+                column_positions=None,
+                axis_refs=(self.subjects, self.features),
+            ),
+        )
+        self.assertEqual(self._round_trip(view_backed), view_backed)
+        self.assertEqual(
+            record_artifacts(view_backed),
+            (
+                self.exposure,
+                self.feature_ids,
+                readiness,
+                reference_condition,
+                addon_reference,
+                overlap,
+                total,
+            ),
+        )
         with self.assertRaisesRegex(RecordError, "exact subject and feature axes"):
             dataclasses.replace(record, exposure=self.weights)
         with self.assertRaisesRegex(RecordError, "feature_ids"):

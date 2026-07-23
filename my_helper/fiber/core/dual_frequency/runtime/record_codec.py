@@ -649,6 +649,18 @@ def _decode_indexed_array_view(
     )
 
 
+def _decode_scientific_array(value: object, location: str) -> ArtifactRef | IndexedArrayView:
+    payload = _mapping(value, location)
+    field_set = frozenset(payload)
+    if field_set == _ARTIFACT_FIELDS:
+        return _decode_artifact(payload, location)
+    if field_set == _INDEXED_ARRAY_VIEW_FIELDS:
+        return _decode_indexed_array_view(payload, location)
+    raise RecordCodecError(
+        f"{location} must be an exact ArtifactRef or IndexedArrayView object"
+    )
+
+
 def _decode_subject_exclusion(
     value: object,
     location: str,
@@ -720,7 +732,10 @@ def _decode_prepared_exposure(
             payload["feature_axis"],
             f"{location}.feature_axis",
         ),
-        exposure=_decode_artifact(payload["exposure"], f"{location}.exposure"),
+        exposure=_decode_scientific_array(
+            payload["exposure"],
+            f"{location}.exposure",
+        ),
         feature_ids=_decode_artifact(
             payload["feature_ids"],
             f"{location}.feature_ids",
@@ -741,22 +756,22 @@ def _decode_prepared_exposure(
         reference_condition_exposure=_optional(
             payload["reference_condition_exposure"],
             f"{location}.reference_condition_exposure",
-            _decode_artifact,
+            _decode_scientific_array,
         ),
         addon_reference_component_exposure=_optional(
             payload["addon_reference_component_exposure"],
             f"{location}.addon_reference_component_exposure",
-            _decode_artifact,
+            _decode_scientific_array,
         ),
         reference_overlap_mask=_optional(
             payload["reference_overlap_mask"],
             f"{location}.reference_overlap_mask",
-            _decode_artifact,
+            _decode_scientific_array,
         ),
         total_exposure=_optional(
             payload["total_exposure"],
             f"{location}.total_exposure",
-            _decode_artifact,
+            _decode_scientific_array,
         ),
     )
 
