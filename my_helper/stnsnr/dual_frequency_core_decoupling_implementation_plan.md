@@ -6829,6 +6829,32 @@ the builder, guard, and both resource validators pass 30 focused tests
 together. The production command remains gated on terminal independent OSS
 closure.
 
+After the source child is terminal, generate and validate the independent OSS
+resource evidence with these frozen commands:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/build_task17_preinstrumentation_windows.py \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
+  --cache-root /Volumes/VAL/STNSNr/cache/dual_frequency \
+  --guard-csv /private/tmp/task17-oss-segment_0010-resource-guard.csv \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-windows-v1.json
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/validate_task17_preinstrumentation_resources.py \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
+  --segment-id segment_0010 \
+  --cache-root /Volumes/VAL/STNSNr/cache/dual_frequency \
+  --guard-csv /private/tmp/task17-oss-segment_0010-resource-guard.csv \
+  --measurement-windows /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-windows-v1.json \
+  --workers 14 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-resource-acceptance-v1.json
+```
+
+Both commands remain read-only with respect to the run and cache. Their only
+writes are the named acceptance documents, each installed atomically and
+reused only when its bytes are identical.
+
 The complete repository-local dual-frequency test directory was then rerun
 with the isolated `dual_frequency` and `seed_target_connectivity` package
 links and low CPU scheduling priority. All 604 tests passed in 73.104 seconds.
