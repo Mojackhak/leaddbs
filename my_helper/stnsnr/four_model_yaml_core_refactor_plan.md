@@ -1758,6 +1758,14 @@ the original model manifest bytes last. This keeps scientific parent identity
 unchanged, makes partial promotion fail closed, and preserves a resumable
 archive rather than overwriting an unrecoverable external artifact.
 
+The repair command and its six transaction fixtures are implemented. A
+29-test affected regression passes, including canonical publication and formal
+postprocess component boundaries. A second complete real-data stage generated
+by the command matched the retained 226-file stage byte-for-byte and reproduced
+the same repair-manifest SHA-256. The redundant stage was moved to the user
+Trash. The canonical direct-voxel publication remains unchanged while the
+independent OSS lineage is active.
+
 A bounded real-payload audit on 2026-07-22 then verified both PDQ-39 roles in
 each physical domain. Every sampled payload SHA-256 and byte count matched its
 canonical artifact-index row. For reference and add-on direct voxel, the

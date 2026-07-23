@@ -127,6 +127,27 @@ resumable from the repair manifest and archived files; an unknown destination
 or changed source index fails closed. A final `validate` invocation must accept
 the promoted root before formal postprocess starts.
 
+The repository-owned repair command was implemented on 2026-07-23. Six
+transaction fixtures cover deterministic staging, read-only validation,
+same-volume Trash promotion, identical repeated promotion, refusal to overwrite
+an existing stage, source-index drift, invalid Trash placement, staged-payload
+tampering, and resume after an injected interruption with the model manifest
+withheld. All six pass. The affected publication, repair, and formal
+postprocess regression passes 29 tests under Conda `leaddbs`; the visualization
+launcher preloads Numba before pytest adds test directories, preventing the
+project `core/coverage` package from shadowing an absent third-party
+`coverage` dependency during collection.
+
+The command also rebuilt the full real stage into a second temporary directory.
+Both stages contained the same 226-file closure and every relative file was
+byte-identical; both repair manifests retained SHA-256
+`dff3ab60616b2bd9d77075bc6781f6ef928db666f1052ac31d5f02f4088f6b5c`.
+The redundant verification stage was moved intact to the user Trash. The
+retained stage at
+`/private/tmp/task17-display-smoothing-v2-stage.zAofAX` passes the command's
+read-only `validate` mode with 112 targets and 108 changed NIfTIs. No canonical
+VAL publication file has been promoted.
+
 ## Goal
 
 Add one reusable visualization package under
