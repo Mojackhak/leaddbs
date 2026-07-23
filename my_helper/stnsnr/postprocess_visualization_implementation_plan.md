@@ -149,6 +149,31 @@ retained stage at
 read-only `validate` mode with 112 targets and 108 changed NIfTIs. No canonical
 VAL publication file has been promoted.
 
+The frozen promotion sequence is:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/repair_task17_display_smoothing_publication.py validate \
+  --publication-root /Volumes/VAL/STNSNr/summary/spot/direct_voxel/dual_frequency_four_model_v1 \
+  --stage-root /private/tmp/task17-display-smoothing-v2-stage.zAofAX
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/repair_task17_display_smoothing_publication.py promote \
+  --publication-root /Volumes/VAL/STNSNr/summary/spot/direct_voxel/dual_frequency_four_model_v1 \
+  --stage-root /private/tmp/task17-display-smoothing-v2-stage.zAofAX \
+  --trash-root /Volumes/VAL/.Trashes/501/task17-display-smoothing-v1-20260723
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/repair_task17_display_smoothing_publication.py validate \
+  --publication-root /Volumes/VAL/STNSNr/summary/spot/direct_voxel/dual_frequency_four_model_v1 \
+  --stage-root /private/tmp/task17-display-smoothing-v2-stage.zAofAX
+```
+
+The Trash target is currently absent, the retained stage is present, and the
+canonical completed model manifest is still present. Recheck all three
+conditions after the independent OSS runner and its descendants exit. Do not
+run `promote` while that lineage remains active.
+
 ## Goal
 
 Add one reusable visualization package under
