@@ -7509,6 +7509,11 @@ select that epoch. Valid one-second-scale fixtures continue to pass. The
 pre-instrumentation suite now passes 15 tests, and the joint guard plus both
 resource-validator suite passes 31 tests under Conda `leaddbs`.
 
+The complete dual-frequency test directory was rerun after the continuity
+change with low CPU priority and isolated package links. All 607 tests passed
+in 73.400 seconds. The replay used temporary fixtures and did not read the
+formal run, guard, or shared cache.
+
 ### Unified static regression checkpoint, 2026-07-23
 
 The complete repository-local dual-frequency test directory was rerun under
