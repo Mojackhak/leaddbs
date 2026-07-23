@@ -1361,3 +1361,11 @@ only the root README, endpoint index, and aggregate manifest were refreshed to
 record the replay, with README and index bytes unchanged. This accepts the
 real-data component and resume behavior but remains a temporary single-scale
 smoke, not the pending 112-endpoint formal output root.
+
+The publication and visualization regression was rerun on 2026-07-22 after
+prepared scientific arrays migrated to persisted indexed views. All 42 focused
+tests passed. This proves that self-contained extension replay, public-only
+input validation, visualization defaults, scene contracts, and fit-plot
+contracts still accept the updated publication boundary. It does not replace
+the pending canonical all-endpoint postprocess run after OSS and combined
+publication complete.
