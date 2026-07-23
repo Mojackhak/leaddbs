@@ -7524,6 +7524,38 @@ event. The global stream's largest adjacent timestamp gap was approximately
 itself invalidate a later single-epoch window, but it exposes a missing
 window-level continuity gate.
 
+At the scheduled 2026-07-23 03:26 PDT checkpoint, collected at 03:32 PDT after
+the quiet monitoring boundary, the same reference cache had advanced to 54
+passing decisions and 108 corresponding row manifests. The newest decision is
+`370b60b653eee199771b85b16bb2fd8f8a31a8c08d9af3a6172e0a25684646c1`;
+its final and `Omega_max` row identities are
+`31b28e0484f913e56fb43d87e51e250b1f304597efae896e4c019bf0b3d3f051`
+and
+`ec2eab4207984a58bf3615e27b73a99bc21a682295ec3aebbc49a88fde4111a4`.
+The final row contains 3401 fibers and the `Omega_max` row contains 10320
+fibers. Fresh validation passed each cache manifest, exact file closure, byte
+count, SHA-256 value, NPY dtype and shape, ordered unique positive fiber IDs,
+finite probability range, and the exact final-to-`Omega_max` ID subset. An
+independent probability and strict `p(A) > 0.5` replay found maximum
+probability difference 0 and state mismatch count 0, agreeing with the
+persisted pass decision and its zero activation-count mismatch.
+
+All 54 cumulative decisions still belong to
+`oss_axis_group_078d3c2f2b8ac612a268` and have pass status. The authoritative
+reference closure remains unavailable because its gate is still running; the
+historical add-on gate remains failed until resume reaches it. The 590-task
+ledger therefore remains 196 completed, one running, one historical failed,
+and 392 dependency-derived skips. VAL remained mounted and writable. Runner
+PID 15265, persistent worker PID 15357, the guard, and one solver child were
+live. A bounded snapshot measured 33418461184 bytes of task-tree RSS. The
+append-only guard's recorded peak remained 55017013248 bytes, therefore
+`< 64 GiB`, and neither detected baseline epoch had positive swap growth. The
+guard stream contains ordinary sample events only. Its two startup regions
+contain isolated approximately 63.81-second and 69.81-second adjacent gaps;
+these cannot support an accepted maximum-row window, while the existing
+window-local `< 5`-second validator remains the authority for final resource
+acceptance. This checkpoint proves forward progress but not gate completion.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside
