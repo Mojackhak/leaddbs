@@ -16,7 +16,9 @@ from typing import Any, Mapping, Sequence
 import uuid
 
 
-_ALLOWED_GUARD_EVENTS = frozenset({"sample", "runner_exited", "completed"})
+_ALLOWED_GUARD_EVENTS = frozenset(
+    {"sample", "runner_exit", "runner_exited", "completed"}
+)
 _WINDOW_SCHEMA = "dual_frequency_task17_preinstrumentation_windows_v1"
 
 

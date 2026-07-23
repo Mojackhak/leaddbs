@@ -7326,6 +7326,19 @@ shared cache. This closes the current-worktree static regression boundary only;
 the production OSS gate, downstream pPAM, combined child, canonical replay,
 formal postprocess, and final resource audit remain required.
 
+The terminal-resource preflight on the same date found one evidence-vocabulary
+boundary before the active guard closes. The external segment-0010 guard writes
+`runner_exit` after a normal runner disappearance, while the repository
+pre-instrumentation validator accepted only the equivalent spellings
+`runner_exited` and `completed`. The running guard cannot hot-load a source
+change, and rejecting its actual terminal spelling would discard otherwise
+valid one-second RSS and swap evidence. The validator must therefore accept
+`runner_exit` as a clean terminal event without accepting any stop, limit, or
+unmount event. A focused fixture must prove that the exact current spelling is
+accepted and that unsupported guard events remain rejected. This compatibility
+repair changes no scientific input, cache identity, task outcome, resource
+ceiling, or running process.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after

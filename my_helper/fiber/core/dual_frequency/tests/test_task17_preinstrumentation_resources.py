@@ -318,6 +318,47 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
         ):
             self._validate()
 
+    def test_current_guard_runner_exit_spelling_passes(self) -> None:
+        with self.guard.open("a", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=(
+                    "timestamp_utc",
+                    "tree_rss_bytes",
+                    "peak_tree_rss_bytes",
+                    "tree_cpu_percent",
+                    "swap_used_bytes",
+                    "swap_baseline_bytes",
+                    "event",
+                ),
+            )
+            writer.writerow(
+                {
+                    "timestamp_utc": "2026-07-22T00:00:06+00:00",
+                    "tree_rss_bytes": 0,
+                    "peak_tree_rss_bytes": 5,
+                    "tree_cpu_percent": 0,
+                    "swap_used_bytes": 200,
+                    "swap_baseline_bytes": 200,
+                    "event": "runner_exit",
+                }
+            )
+        report = self._validate()
+        self.assertEqual(report["guard"]["sample_count"], 4)
+
+    def test_guard_stop_event_remains_rejected(self) -> None:
+        rows = self.guard.read_text(encoding="utf-8").replace(
+            ",sample\n",
+            ",rss_limit_sigterm\n",
+            1,
+        )
+        self.guard.write_text(rows, encoding="utf-8")
+        with self.assertRaisesRegex(
+            validator.PreinstrumentationResourceError,
+            "stop or unsupported event",
+        ):
+            self._validate()
+
     def test_failed_gate_decision_fails(self) -> None:
         path = (
             self.cache
