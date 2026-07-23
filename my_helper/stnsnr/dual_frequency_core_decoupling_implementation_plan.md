@@ -6670,6 +6670,55 @@ bytes and retain ordinary `sample` status. Earlier guard epochs remain in the
 same CSV with their own baselines and peaks; final audit must group rows by
 restart epoch rather than compare swap values across baselines.
 
+Terminal resource acceptance uses a repository-owned read-only validator rather
+than a hand-copied peak. `validate_task17_resource_acceptance.py` receives one
+completed sensitivity run, its accepted execution segment, the append-only
+external guard CSV, the expected worker ceiling, and the RSS ceiling. The
+finished segment's internal one-second monitor is the full-span authority: it
+must report positive sample count, task-tree RSS below the ceiling, both peak
+and final swap growth `< 1 byte`, one spawn pool lineage unless a recorded
+recovery explains a larger generation count, one external-solver slot, and
+reserved CPU `< workers + 1`. Its terminal task count must match the plan and
+every plan task document must be completed without a retained dependency skip
+or failure.
+
+The external guard is supplemental stop evidence. The validator parses every
+row, requires monotonic timestamps and self-consistent running RSS peaks,
+starts a new epoch when `swap_baseline_bytes` changes or the declared running
+peak resets, and requires RSS below the same ceiling and swap growth
+`< 1 byte` in every epoch. A normal sample or
+runner-exit marker is permitted; any unmount, RSS, swap, or explicit stop event
+fails acceptance. The guard may start after the segment because the internal
+monitor covers the complete segment, but its actual start, finish, maximum
+sample gap, epoch count, and SHA-256 remain visible in the report. The report
+also binds the run manifest, plan, selected segment, and every terminal task
+document and uses atomic same-byte publication. Focused fixtures cover a valid
+multi-epoch guard, RSS rejection, swap rejection, terminal-task mismatch, and
+stop-event rejection. Independent OSS and combined execution require separate
+reports.
+
+The resource validator is implemented. Five focused fixtures pass with Python
+resource warnings promoted to errors, and the complete dual-frequency
+regression passes 581 tests under Conda `leaddbs`.
+
+It cannot be applied dishonestly to `segment_0010`. That process started at
+2026-07-22 09:00 PDT. Scheduler-admission metrics, the internal one-second
+resource monitor, and timeout/recovery segment fields were committed between
+21:59 and 22:17 PDT while the Python process was already running. A running
+process does not hot-load those changes, so its eventual segment document
+cannot contain the validator's required full-span fields. The strict validator
+must reject that pre-instrumentation segment. Independent OSS scientific
+closure remains valid when its tasks and manifests complete, but its resource
+acceptance must separately combine the surviving external guard epochs, the
+terminal exact row inventory, the maximum-row structural memory bound, and
+the prior measured max-size row windows. This evidence remains pending until
+the gate closes; no full-span internal metric may be invented.
+
+The later combined lineage starts under the instrumented code and must use the
+strict validator with its own terminal segment and guard CSV, the same limits,
+and a distinct acceptance report. A running or pre-instrumentation segment
+cannot pass.
+
 The first atomic scientific boundary published by `segment_0010` increased the
 shared cache from 70 to 72 OSS row manifests and from 35 to 36 equivalence
 decisions. Decision
