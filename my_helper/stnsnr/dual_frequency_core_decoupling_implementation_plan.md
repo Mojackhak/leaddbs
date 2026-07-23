@@ -7695,6 +7695,31 @@ remaining Task 17, combined, publication, and postprocess sequence, provided
 there is no new external-tool or VAL interruption. These are scheduling
 estimates, not acceptance evidence.
 
+At the scheduled 2026-07-23 15:45 PDT boundary, the reference cache had
+advanced to 66 passing decisions and 132 row manifests. The newest decision is
+`7326853482974209ebb94cea781ceefe41164e939243010aec2dcb2034a3a432`;
+its final and `Omega_max` rows are
+`4d809f2c630b4e38f18832c580485654c197a409455b574cba1afbf3f9bc829d`
+and
+`8d062dc9674fb0848a51d531f99058a75fd0e6edbcff481ecaebe6100ed602de`.
+Production cache resolution accepted all three entries, including exact
+declared row payload closure, byte count, SHA-256, NPY dtype and shape,
+ordered unique positive IDs, and finite closed-unit-interval probabilities.
+Independent canonical-ID replay again proved that the 3401-fiber final axis is
+an exact subset of the 10320-fiber `Omega_max` axis, with maximum probability
+difference 0 and strict `p(A) > 0.5` state mismatch count 0. The persisted
+activation-count mismatch is also 0.
+
+The reference gate remained the sole running task; the historical add-on
+failure and 392 dependency-derived skips were unchanged. The live runner,
+persistent worker, external guard, and one solver process with eight internal
+workers were present. The snapshot contained 14 processes, approximately
+355.8 percent aggregate CPU, and 3532636160 bytes task-tree RSS. The guard
+contained more than 86300 samples, retained its 62493573120-byte peak below
+64 GiB, and reported no positive swap growth above the active baseline. VAL
+remained mounted and writable. This remains nonterminal evidence because the
+reference gate has not committed its authoritative closure.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside
