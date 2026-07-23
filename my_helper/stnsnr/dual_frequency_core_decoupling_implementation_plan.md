@@ -3649,6 +3649,19 @@ inspect reader shape and dtype and request explicit blocks, but may not call
 `np.asarray` on the complete reader. Outcome, baseline, nuisance, and feature-ID
 inputs remain arrays or plain artifacts.
 
+On a scientific-cache-enabled preparation, the first real producer use is the
+reference endpoint's primary exposure. The physical shared-exposure cache entry
+is represented as the view parent `ArtifactRef`. Endpoint subject selection and
+fiber `Omega_max` selection are published as small cache-backed `int64`
+positions artifacts only when the logical axis is not exactly the parent axis;
+an axis-label-only difference uses an explicit identity selector so the
+endpoint axis remains exact. The resulting `PreparedExposureRecord.exposure`
+is the persisted view, and the former final prepared-reference exposure NPY is
+not written. Cache-disabled preparation retains the artifact-only compatibility
+path. Tests must prove exact value parity, cross-endpoint selector reuse,
+artifact closure and codec resume, zero prepared-reference exposure NPY write,
+bounded observed-backend reads, and unchanged source selection.
+
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
 ordered subject and feature selections, exposes bounded column reads, and

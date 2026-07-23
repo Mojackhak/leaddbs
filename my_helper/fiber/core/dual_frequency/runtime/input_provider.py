@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 from typing import Iterator, Protocol, runtime_checkable
+from urllib.parse import unquote, urlsplit
 
 import fcntl
 
@@ -31,6 +32,7 @@ from ..backends.normative_fiber.addon import prepare_addon_fiber_exposure
 from ..backends.protocols import ArtifactPublisher
 from ..cache import (
     ArtifactStore,
+    CacheEntry,
     CacheFileMetadata,
     CachedFile,
     ContentAddressedCache,
@@ -53,6 +55,7 @@ from ..contracts import (
     FormalResult,
     HardComputabilityLimits,
     InSampleRequest,
+    IndexedArrayView,
     NormativeFiberScoreSettings,
     ObservedRequest,
     PreparedExposureRecord,
@@ -295,12 +298,23 @@ class _TemporaryMatrix:
     scientific_identity: str | None = None
     row_positions: np.ndarray | None = None
     column_positions: np.ndarray | None = None
+    parent_artifact: ArtifactRef | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.array, np.ndarray) or self.array.ndim != 2:
             raise RuntimeInputProviderError(
                 "temporary matrix storage must be two-dimensional"
             )
+        if self.parent_artifact is not None:
+            if (
+                not isinstance(self.parent_artifact, ArtifactRef)
+                or self.parent_artifact.shape != self.array.shape
+                or self.parent_artifact.dtype is None
+                or np.dtype(self.parent_artifact.dtype) != self.array.dtype
+            ):
+                raise RuntimeInputProviderError(
+                    "temporary matrix parent artifact differs from its storage"
+                )
         for field, size in (
             ("row_positions", self.array.shape[0]),
             ("column_positions", self.array.shape[1]),
@@ -1747,7 +1761,7 @@ class StudyRuntimeInputProvider:
             entry = self._scientific_cache.resolve(key)
             if entry is not None:
                 physical = self._open_shared_exposure(
-                    entry.file_path("exposure.npy"),
+                    self._shared_exposure_artifact(entry),
                     key.digest,
                 )
                 return (
@@ -1807,7 +1821,7 @@ class StudyRuntimeInputProvider:
                     finally:
                         self._release_temporary_matrix(temporary)
             physical = self._open_shared_exposure(
-                entry.file_path("exposure.npy"),
+                self._shared_exposure_artifact(entry),
                 key.digest,
             )
             return (
@@ -1958,6 +1972,7 @@ class StudyRuntimeInputProvider:
                 view_identity,
                 np.asarray(parent_positions, dtype=np.int64),
                 source.column_positions,
+                source.parent_artifact,
             )
         output = self._temporary_matrix(
             label,
@@ -1984,10 +1999,45 @@ class StudyRuntimeInputProvider:
                 self._release_temporary_matrix(output)
 
     @staticmethod
+    def _shared_exposure_artifact(entry: CacheEntry) -> ArtifactRef:
+        matches = tuple(
+            item for item in entry.files if item.relative_path == "exposure.npy"
+        )
+        if len(matches) != 1:
+            raise RuntimeInputProviderError(
+                "shared exposure cache must contain one exposure array"
+            )
+        cached = matches[0]
+        metadata = cached.metadata
+        if (
+            metadata.dtype is None
+            or metadata.shape is None
+            or len(metadata.shape) != 2
+        ):
+            raise RuntimeInputProviderError(
+                "shared exposure cache has invalid array metadata"
+            )
+        return ArtifactRef(
+            kind="shared_physical_exposure",
+            schema_version="dual_frequency_array_v1",
+            uri=entry.file_path("exposure.npy").as_uri(),
+            sha256=cached.sha256,
+            dtype=metadata.dtype,
+            shape=metadata.shape,
+            axis_refs=metadata.axes,
+            axis_hashes=tuple(axis.sha256 for axis in metadata.axes),
+            units=metadata.units,
+            space=metadata.space,
+            producer_id=entry.key.backend_name,
+            producer_version=entry.key.backend_version,
+        )
+
+    @staticmethod
     def _open_shared_exposure(
-        path: Path,
+        artifact: ArtifactRef,
         scientific_identity: str,
     ) -> _TemporaryMatrix:
+        path = Path(unquote(urlsplit(artifact.uri).path)).resolve()
         try:
             array = np.load(path, allow_pickle=False, mmap_mode="r")
         except (OSError, ValueError) as exc:
@@ -2001,6 +2051,7 @@ class StudyRuntimeInputProvider:
             path,
             delete_on_release=False,
             scientific_identity=scientific_identity,
+            parent_artifact=artifact,
         )
 
     @staticmethod
@@ -2730,6 +2781,7 @@ class StudyRuntimeInputProvider:
                 view_identity,
                 source.row_positions,
                 np.asarray(parent_positions, dtype=np.int64),
+                source.parent_artifact,
             )
         output = self._temporary_matrix(
             label,
@@ -3002,6 +3054,65 @@ class StudyRuntimeInputProvider:
             space=cached.metadata.space,
             producer_id=f"shared_prepared_{domain}_exposure",
             producer_version="3",
+        )
+
+    def _indexed_prepared_view(
+        self,
+        *,
+        domain: str,
+        publisher: ArtifactPublisher,
+        value: _TemporaryMatrix,
+        axes: tuple[AxisRef, AxisRef],
+    ) -> IndexedArrayView | None:
+        parent = value.parent_artifact
+        if self._scientific_cache is None or parent is None:
+            return None
+        selectors: list[ArtifactRef | None] = []
+        for role, positions, output_axis, parent_axis in zip(
+            ("row", "column"),
+            (value.row_positions, value.column_positions),
+            axes,
+            parent.axis_refs,
+            strict=True,
+        ):
+            if positions is None and output_axis == parent_axis:
+                selectors.append(None)
+                continue
+            logical_positions = (
+                np.arange(parent_axis.count, dtype=np.int64)
+                if positions is None
+                else np.asarray(positions, dtype=np.int64)
+            )
+            if logical_positions.shape != (output_axis.count,):
+                raise RuntimeInputProviderError(
+                    f"indexed prepared {role} positions differ from the output axis"
+                )
+            position_sha256 = hashlib.sha256(
+                np.ascontiguousarray(
+                    logical_positions,
+                    dtype="<i8",
+                ).tobytes(order="C")
+            ).hexdigest()
+            selector = self._publish_prepared_array(
+                domain=domain,
+                publisher=publisher,
+                filename=f"{role}_positions.npy",
+                value=logical_positions,
+                kind=f"indexed_array_{role}_positions",
+                axes=(output_axis,),
+                units="index",
+                space=None,
+                dependencies=(
+                    ("parent_artifact", parent.sha256),
+                    ("ordered_positions", position_sha256),
+                ),
+            )
+            selectors.append(selector)
+        return IndexedArrayView(
+            parent=parent,
+            row_positions=selectors[0],
+            column_positions=selectors[1],
+            axis_refs=axes,
         )
 
     def _prepare_direct_overlap_views(
@@ -3773,17 +3884,24 @@ class StudyRuntimeInputProvider:
             )
         try:
             if is_reference:
-                exposure = self._publish_prepared_array(
+                exposure = self._indexed_prepared_view(
                     domain=prepared_domain,
                     publisher=publisher,
-                    filename="exposure.npy",
                     value=raw_primary,
-                    kind="prepared_reference_exposure",
                     axes=axes,
-                    units="V/m",
-                    space=self.study.spatial.canonical_space,
-                    dependencies=(("primary_matrix", primary_identity),),
                 )
+                if exposure is None:
+                    exposure = self._publish_prepared_array(
+                        domain=prepared_domain,
+                        publisher=publisher,
+                        filename="exposure.npy",
+                        value=raw_primary,
+                        kind="prepared_reference_exposure",
+                        axes=axes,
+                        units="V/m",
+                        space=self.study.spatial.canonical_space,
+                        dependencies=(("primary_matrix", primary_identity),),
+                    )
                 self._publish_input_hash_manifest(publisher, endpoint, input_hashes)
                 return PreparedExposureRecord(
                     endpoint=endpoint.key,
@@ -4164,9 +4282,18 @@ class StudyRuntimeInputProvider:
                 "DeltaReferenceScore axes differ from the endpoint subject axis"
             )
 
-    def _materialize(self, artifact: ArtifactRef) -> np.ndarray:
+    def _materialize(
+        self,
+        artifact: ArtifactRef | IndexedArrayView,
+    ) -> np.ndarray:
         if self._artifact_store is None:
             raise RuntimeInputProviderError("artifact_store is required to slice final inputs")
+        if isinstance(artifact, IndexedArrayView):
+            return self._artifact_store.materialize_indexed_array_view(
+                artifact,
+                max_bytes=16 * 1024**3,
+                block_columns=self._fiber_chunk_size,
+            )
         return self._artifact_store.materialize(
             artifact,
             expected_dtype=artifact.dtype,

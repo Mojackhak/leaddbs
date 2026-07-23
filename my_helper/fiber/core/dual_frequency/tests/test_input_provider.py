@@ -41,6 +41,7 @@ from dual_frequency.contracts import (
     FinalModelKey,
     FinalModelRecord,
     FormalResult,
+    IndexedArrayView,
     PreparedExposureRecord,
     ReferenceDependencyRecord,
     SourceRecord,
@@ -211,6 +212,11 @@ class _FakeConnectome:
 
 
 def _materialize(store: ArtifactStore, artifact) -> np.ndarray:
+    if isinstance(artifact, IndexedArrayView):
+        return store.materialize_indexed_array_view(
+            artifact,
+            max_bytes=16 * 1024**3,
+        )
     return store.materialize(
         artifact,
         expected_dtype=artifact.dtype,
@@ -1565,8 +1571,19 @@ class InputProviderTest(unittest.TestCase):
                 ),
             )
         self.assertEqual(producer.call_count, 1)
-        self.assertEqual(first.exposure.uri, second.exposure.uri)
-        self.assertIn("/shared_exposure_v2/prepared_artifacts/", first.exposure.uri)
+        self.assertIsInstance(first.exposure, IndexedArrayView)
+        self.assertEqual(first.exposure, second.exposure)
+        assert isinstance(first.exposure, IndexedArrayView)
+        self.assertIn(
+            "/shared_exposure_v2/voxel_exposures/",
+            first.exposure.parent.uri,
+        )
+        self.assertIsNotNone(first.exposure.row_positions)
+        assert first.exposure.row_positions is not None
+        self.assertIn(
+            "/shared_exposure_v2/prepared_artifacts/",
+            first.exposure.row_positions.uri,
+        )
         np.testing.assert_array_equal(
             _materialize(artifact_store, first.exposure),
             _materialize(artifact_store, second.exposure),
